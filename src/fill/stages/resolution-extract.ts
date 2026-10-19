@@ -199,7 +199,7 @@ export function collectFileResolution(file: ParsedSyntaxTree): {
   // The namespaces this reader can follow: a `* as ns` whose specifier names a
   // file of this repository. A package's namespace binds nothing here.
   const namespaces = new Set<string>(
-    imports.filter((entry) => entry.imported.form === 'namespace' && isRelative(entry.specifier)).map((entry) => entry.local),
+    imports.filter((entry) => entry.imported.form === 'namespace' && isRelativeSpecifier(entry.specifier)).map((entry) => entry.local),
   );
 
   // ---- the mentions ------------------------------------------------------
@@ -351,8 +351,14 @@ const TS_NAME_NODES: readonly string[] = ['identifier', 'shorthand_property_iden
 // list rather than by a rule about their parent.
 const GO_NAME_NODES: readonly string[] = ['identifier', 'type_identifier'];
 
-/** The nodes a name in a member access stands at, and nodes whose `field` is the member. */
-const MEMBER_ACCESS: ReadonlySet<string> = new Set(['member_expression', 'subscript_expression', 'qualified_type']);
+/**
+ * The nodes a name in a member access stands at: a TypeScript or JavaScript
+ * `a.b` (`object`/`property`), a Go `a.B` (`operand`/`field`), and an index
+ * access, whose index is no member's name either. A Go `qualified_type`
+ * (`pkg.Type` in a type) is not one of them: it names a package this reader does
+ * not follow, and neither of its parts is a name of this resolution's claim.
+ */
+const MEMBER_ACCESS: ReadonlySet<string> = new Set(['member_expression', 'selector_expression', 'subscript_expression']);
 
 /** The clauses that make a name an inheritance rather than a mention. */
 const HERITAGE_CLAUSES: Readonly<Record<string, MentionUse>> = {
@@ -528,7 +534,7 @@ function goPackageName(specifier: string): string {
 }
 
 /** Whether a specifier names a path beside this file rather than a package outside the repository. */
-function isRelative(specifier: string): boolean {
+export function isRelativeSpecifier(specifier: string): boolean {
   return specifier.startsWith('./') || specifier.startsWith('../');
 }
 

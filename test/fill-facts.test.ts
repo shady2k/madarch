@@ -869,6 +869,12 @@ describe('the check that names every reason a fact is not one the schema reads',
     expect(problemsOf({ ...rule, value: { ...rule.value, form: 'slogan' } }).paths).toEqual(['value.form']);
     const repository = sampleFact('repository');
     expect(problemsOf({ ...repository, value: { ...repository.value, form: 'mirror' } }).paths).toEqual(['value.form']);
+    // The resolution edges' precision (madarch-tzte.21.6): a value outside the
+    // list names a precision no reader of the graph knows, on each of the three.
+    for (const kind of ['call', 'reference', 'inherits'] as const) {
+      const edge = sampleFact(kind);
+      expect(problemsOf({ ...edge, value: { ...edge.value, precision: 'guessed' } }).paths).toEqual(['value.precision']);
+    }
   });
 
   test('a run id cannot ride inside a term, a binding, a gap or the provenance', () => {

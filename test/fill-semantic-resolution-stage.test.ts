@@ -27,8 +27,8 @@ import { createGitSnapshotSource, type SnapshotSource } from '../src/fill/snapsh
 import { DEFAULT_STAGE_LIMITS, type StageContext, type StageDraftWrite, type StageUnit } from '../src/fill/stage.js';
 import { publishedTreeRead, createInventoryStage, type PublishedTreeRow } from '../src/fill/stages/inventory.js';
 import {
-  compilerIndexRead, createSemanticResolutionStage, indexRows, publishedImportRows, publishedImportsRead,
-  publishedSymbolsRead, symbolRows, SEMANTIC_RESOLUTION_STAGE_ID, type PublishedImportRow,
+  compilerIndexRead, createSemanticResolutionStage, indexRows, publishedGapsRead, publishedImportRows,
+  publishedImportsRead, publishedSymbolsRead, symbolRows, SEMANTIC_RESOLUTION_STAGE_ID, type PublishedImportRow, publishedGapRows,
 } from '../src/fill/stages/semantic-resolution.js';
 import { createStageRegistry } from '../src/fill/stages/index.js';
 import { createSyntaxStage } from '../src/fill/stages/syntax.js';
@@ -145,6 +145,17 @@ function publishedRows(writes: readonly StageDraftWrite[], repository: string): 
   return rows;
 }
 
+/** What a fact store would answer for one repository's stage-3 gaps: the coverage facts a draft set holds, one row a gap. */
+function gapRows(writes: readonly StageDraftWrite[]): readonly { readonly kind: 'coverage'; readonly file: string; readonly what: string }[] {
+  const rows: { kind: 'coverage'; file: string; what: string }[] = [];
+  for (const fact of factsOf(writes)) {
+    if (fact.kind !== 'coverage') continue;
+    const unread = fact.value['unread'] as readonly { readonly what: string }[] | undefined;
+    for (const gap of unread ?? []) rows.push({ kind: 'coverage', file: String(fact.value['scope']), what: gap.what });
+  }
+  return rows;
+}
+
 /** What a fact store would answer for one repository's stage-3 imports: the `import` edges a draft set holds. */
 function importRows(writes: readonly StageDraftWrite[]): readonly PublishedImportRow[] {
   return factsOf(writes).filter((fact) => fact.kind === 'import').map((fact) => ({ kind: 'import' as const, from: String(fact.value['from']), to: String(fact.value['to']) }));
@@ -204,6 +215,7 @@ function graphOf(published: Published, repository: string, options: { readonly i
   return async (read: string) => {
     if (read === publishedTreeRead(repository)) return published.tree;
     if (read === publishedImportsRead(repository)) return importRows(published.writes);
+    if (read === publishedGapsRead(repository)) return gapRows(published.writes);
     for (const fact of factsOf(published.writes)) {
       if (fact.kind !== 'symbol') continue;
       const path = String(fact.value['file']);
@@ -375,6 +387,52 @@ describe('the resolution stage plans the files a commit moves', () => {
     }
   });
 
+  test('an imported file the commit no longer holds re-resolves its importers', async () => {
+    const f = await fixture();
+    try {
+      const first = await writeFixture(f, CALLS_AN_EXPORTED_FUNCTION);
+      const published = await publishedAt(sourceAt(f.root, first));
+      f.git('rm', '-q', 'src/b.ts');
+      const second = f.commit();
+      const stage = createSemanticResolutionStage(sourceAt(f.root, second));
+      // `src/b.ts` is gone, so `src/a.ts` read symbols that no longer stand:
+      // it is planned again beside the vanished path's own retraction, and its
+      // unit writes the import's names as unresolved, at their places.
+      const plan = await stage.plan({ query: graphOf(published, 'orders-api') });
+      expect(unitIds(plan)).toEqual(['file:orders-api:src/a.ts', 'file:orders-api:src/b.ts']);
+      const importer = plan.units.find((unit) => unit.id === 'file:orders-api:src/a.ts')!;
+      const run = await runUnit(sourceAt(f.root, second), importer, graphOf(published, 'orders-api'));
+      expect(factsOfKind(run.run.recorder.writes, 'call')).toEqual([]);
+      const gaps = factOfKind(run.run.recorder.writes, 'coverage').value['unread'] as readonly { readonly what: string }[];
+      expect(gaps.some((gap) => gap.what.includes('create at src/a.ts:4:9'))).toBe(true);
+    } finally {
+      await f.dispose();
+    }
+  });
+
+  test('a file that appears under a specifier stage 3 could not tie re-resolves the file that wrote it', async () => {
+    const f = await fixture();
+    try {
+      // The first commit imports a file that does not exist yet: stage 3 writes
+      // the specifier as a gap of the importer's coverage and no import edge.
+      const first = await writeFixture(f, [
+        { path: 'src/a.ts', text: "import { create } from './b.js';\n\nexport function run(): void {\n  create();\n}\n" },
+        { path: 'src/c.ts', text: 'export const other = 1;\n' },
+      ]);
+      const published = await publishedAt(sourceAt(f.root, first));
+      expect(gapRows(published.writes).some((row) => row.file === 'src/a.ts' && row.what === './b.js')).toBe(true);
+      await f.write('src/b.ts', 'export function create(): void {}\n');
+      const second = f.commit();
+      const stage = createSemanticResolutionStage(sourceAt(f.root, second));
+      const plan = await stage.plan({ query: graphOf(published, 'orders-api') });
+      // The importer and the file that appeared; not the file that imports
+      // nothing and was not touched.
+      expect(unitIds(plan)).toEqual(['file:orders-api:src/a.ts', 'file:orders-api:src/b.ts']);
+    } finally {
+      await f.dispose();
+    }
+  });
+
   test('a source file the pinned commit no longer holds is planned, and its unit publishes nothing', async () => {
     const f = await fixture();
     try {
@@ -449,12 +507,15 @@ describe('one unit resolves the file it names', () => {
       expect(gaps.length).toBe(1);
       expect(gaps[0]!.reason).toBe('unsupported');
       expect(gaps[0]!.what).toContain('compiler index');
-      // The unit read the symbols of both files, as tracked reads.
-      expect(run.run.recorder.queries).toEqual([
+      // The unit read its own symbols and the symbols of the file its import
+      // names, each as a tracked read, and asked for the compiler's index once.
+      const queries = [...run.run.recorder.queries].sort();
+      expect(queries).toEqual([
+        compilerIndexRead('orders-api', 'src/a.ts'),
         publishedSymbolsRead('orders-api', 'src/a.ts'),
         publishedSymbolsRead('orders-api', 'src/b.ts'),
-        compilerIndexRead('orders-api', 'src/a.ts'),
-      ]);
+      ].sort());
+      expect(queries.filter((read) => read === compilerIndexRead('orders-api', 'src/a.ts')).length).toBe(1);
     } finally {
       await f.dispose();
     }
@@ -578,6 +639,70 @@ describe('one unit resolves the file it names', () => {
       await f.dispose();
     }
   });
+
+  test('a source path that holds a symbolic link is published as a coverage gap', async () => {
+    const f = await fixture();
+    try {
+      await f.write('src/b.ts', 'export function create(): void {}\n');
+      await f.write('src/a.ts', "import { create } from './link.js';\n\nexport function run(): void {\n  create();\n}\n");
+      execFileSync('ln', ['-s', 'b.ts', join(f.root, 'src/link.ts')]);
+      const commit = f.commit();
+      const source = sourceAt(f.root, commit);
+      const published = await publishedAt(source);
+      const unit = { id: 'file:orders-api:src/link.ts', scope: 'orders-api:src/link.ts' };
+      const run = await runUnit(source, unit, graphOf(published, 'orders-api'));
+      const coverage = factOfKind(run.run.recorder.writes, 'coverage');
+      expect(coverage.value['complete']).toBe(false);
+      expect(coverage.value['unread']).toEqual([{ what: 'src/link.ts', reason: 'unsupported' }]);
+      expect(factsOfKind(run.run.recorder.writes, 'occurrence')).toEqual([]);
+      expect(run.run.recorder.notes.join(' ')).toContain('a symbolic link');
+    } finally {
+      await f.dispose();
+    }
+  });
+
+  test('a file nested past what the walk can read is the unit\'s coverage gap, not a raised unit', async () => {
+    const f = await fixture();
+    try {
+      // The walk is recursive, so only a depth well past any real file reaches
+      // this: the threshold is the machine's stack, hence the headroom here.
+      const depth = 12_000;
+      const deep = `${Array.from({ length: depth }, (_, index) => `function f${index}() {`).join('\n')}\n${'}'.repeat(depth)}\n`;
+      await f.write('src/deep.ts', deep);
+      const commit = f.commit();
+      const source = sourceAt(f.root, commit);
+      const published = await publishedAt(source);
+      const unit = { id: 'file:orders-api:src/deep.ts', scope: 'orders-api:src/deep.ts' };
+      const run = await runUnit(source, unit, graphOf(published, 'orders-api'));
+      expect(await run.stage.validate({ writes: run.run.recorder.writes }, { query: async () => [] })).toEqual({ ok: true });
+      const coverage = factOfKind(run.run.recorder.writes, 'coverage');
+      expect(coverage.value['unread']).toEqual([{ what: 'src/deep.ts', reason: 'error' }]);
+      expect(run.run.recorder.notes.join(' ')).toContain('nested past what this reader can walk');
+    } finally {
+      await f.dispose();
+    }
+  });
+
+  test('a default import of a file whose default export has its own name is written unresolved, with its place', async () => {
+    const f = await fixture();
+    try {
+      const commit = await writeFixture(f, [
+        { path: 'src/b.ts', text: 'export default function named(): void {}\n' },
+        { path: 'src/a.ts', text: "import named from './b.js';\n\nexport function run(): void {\n  named();\n}\n" },
+      ]);
+      const source = sourceAt(f.root, commit);
+      const published = await publishedAt(source);
+      const run = await runUnit(source, { id: 'file:orders-api:src/a.ts', scope: 'orders-api:src/a.ts' }, graphOf(published, 'orders-api'));
+      // Stage 3 reads `export default function named` as the symbol `named` and
+      // publishes no `default` symbol for it, so the import binds a name this
+      // stage cannot tie: a gap at the mention's own place, never a wrong edge.
+      expect(factsOfKind(run.run.recorder.writes, 'call')).toEqual([]);
+      const gaps = factOfKind(run.run.recorder.writes, 'coverage').value['unread'] as readonly { readonly what: string }[];
+      expect(gaps.some((gap) => gap.what.includes('named at src/a.ts:4:2') && gap.what.includes('"default"'))).toBe(true);
+    } finally {
+      await f.dispose();
+    }
+  });
 });
 
 // ---- the reads' own refusals -----------------------------------------------
@@ -618,6 +743,13 @@ describe('a read that does not answer what the stage asked for is refused, namin
     expect(kind).toContain('answers "import" edges');
     const id = await refusedBy(() => publishedImportRows([{ kind: 'import', from: SYMBOL_ID, to: FILE_ID }], 'orders-api', imports));
     expect(id).toContain('no file fact id');
+  });
+
+  test('a gap row that names another kind, a file that is no repository path, an empty what', async () => {
+    const read = publishedGapsRead('orders-api');
+    expect(await refusedBy(() => publishedGapRows([{ kind: 'symbol', file: 'src/a.ts', what: './b.js' }], 'orders-api', read))).toContain('answers "coverage" gaps');
+    expect(await refusedBy(() => publishedGapRows([{ kind: 'coverage', file: '/abs/a.ts', what: './b.js' }], 'orders-api', read))).toContain('no repository path');
+    expect(await refusedBy(() => publishedGapRows([{ kind: 'coverage', file: 'src/a.ts', what: ' ' }], 'orders-api', read))).toContain('is no gap');
   });
 
   test('an index row whose place stands twice, and one whose symbol is no symbol fact', async () => {

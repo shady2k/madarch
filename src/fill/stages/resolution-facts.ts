@@ -7,8 +7,10 @@
  * **What the resolver resolves.** A mention names a symbol of this repository
  * when the name is bound
  *
- * 1. by a declaration of the file the mention stands in — the nearest
- *    declaration whose own span holds the mention, else a top-level one, both
+ * 1. by a declaration of the file the mention stands in — the nearest one that
+ *    is in scope at the mention and stands before it (a local declaration
+ *    shadows an import of the same name from its own line on, a method beats a
+ *    top-level function of the same name inside it), else a top-level one, both
  *    as stage 3 published them as `symbol` facts;
  * 2. by an import of the file whose specifier is a relative one this stage can
  *    tie to a file of the repository (`{ create }`, `create as make`, a default
@@ -36,6 +38,7 @@
  * The module is pure: it reads its request and nothing else, and the same
  * request answers the same facts with the same ids.
  */
+import { canonicalJsonDigest } from '../../model/canonical.js';
 import { byCodePoint } from '../../model/order.js';
 import {
   makeEdgeFact, makeNodeFact,
@@ -43,7 +46,7 @@ import {
   type InheritsForm, type RepositoryPath, type ResolutionPrecision, type SymbolKind,
 } from '../facts.js';
 import { resolveSpecifier } from './syntax-facts.js';
-import type { ExtractedFileResolution, ExtractedResolutionMention } from './resolution-extract.js';
+import { isRelativeSpecifier, type ExtractedFileResolution, type ExtractedResolutionMention } from './resolution-extract.js';
 
 /**
  * The reader every fact of this stage cites as its source. The resolution is
@@ -94,8 +97,13 @@ export interface ResolutionRequest {
   readonly readSymbols: ReadonlyMap<string, readonly ResolutionSymbolRow[]>;
   /** What a compiler's index resolved, by the mention's place (`line:column`); empty where there is none. */
   readonly index: ReadonlyMap<string, string>;
-  /** Whether a compiler's index of this repository answered at all: named in the coverage where it did not. */
-  readonly indexAvailable: boolean;
+  /**
+   * Whether a compiler's index answered for this file at all: named in the
+   * file's coverage where it did not. One repository may hold an index that
+   * resolved some files and not this one, and the gap says which file it is
+   * about rather than claiming the repository has none.
+   */
+  readonly indexAnswered: boolean;
   /** The reader the facts cite; `RESOLUTION_SOURCE` where a caller names none. */
   readonly source?: FactSource;
 }
@@ -131,37 +139,45 @@ export function resolutionFacts(request: ResolutionRequest): ResolutionFactSet {
   const sites: Site[] = [];
   let unresolved = 0;
 
-  // The bindings the file's imports make, and the file each one names.
+  // The bindings the file's imports make, and the file each one names. Two
+  // failures are told apart: a package outside the repository (whose symbols the
+  // graph holds no node for, named once for the import) and a relative specifier
+  // that names no file of this repository (a reference this resolution claims and
+  // cannot tie down, so each use of one of its names is a gap with its own place).
   const bindings = new Map<string, Binding>();
   for (const entry of request.findings.imports) {
     const target = resolveSpecifier(request.path, entry.specifier, known);
     if (target === undefined) {
-      // A package outside the repository, or a specifier that names no file of
-      // it: the graph holds no symbol of that module, so the import is named
-      // once here rather than leaving each of its uses a wrong edge.
-      unread.push({
-        what: `${request.path} imports "${entry.specifier}", whose symbols are not in this repository`,
-        reason: 'unsupported',
-      });
+      if (isRelativeSpecifier(entry.specifier)) {
+        bindings.set(entry.local, {
+          target: undefined,
+          imported: entry.imported,
+          unresolved: `the specifier ${JSON.stringify(entry.specifier)} names no file of this repository`,
+        });
+      } else {
+        unread.push({
+          what: `${request.path} imports ${JSON.stringify(entry.specifier)}, which names a package outside this repository`,
+          reason: 'unsupported',
+        });
+      }
       continue;
     }
     bindings.set(entry.local, { target, imported: entry.imported });
   }
 
   for (const mention of request.findings.mentions) {
-    if (mention.parameterBound) continue;
     const key = `${mention.span.startLine}:${mention.span.startColumn}`;
     const fromIndex = request.index.get(key);
-    // The caller: the innermost symbol of this file whose own span holds the
-    // mention. An edge names two symbols, and a mention standing in no symbol
-    // of the file has no caller to name.
-    const caller = innermostSymbol(request.fileSymbols, mention.span.startLine, mention.span.startColumn);
-    let target: { id: string; file: string } | undefined;
+    let target: ResolvedSymbol | undefined;
     let precision: ResolutionPrecision = 'syntactic';
     if (fromIndex !== undefined) {
-      target = { id: fromIndex, file: 'the compiler index' };
+      // A compiler's index is consulted before anything this file binds: it
+      // answers the symbol at the place, and a name a parameter or a package
+      // shadows is exactly where the syntactic reader is weakest.
+      target = { id: fromIndex };
       precision = 'compiler';
     } else {
+      if (mention.parameterBound) continue;
       const tied = bindMention(request, mention, bindings);
       if (tied.kind === 'resolved') target = tied.symbol;
       else if (tied.kind === 'out-of-claim') continue;
@@ -171,6 +187,10 @@ export function resolutionFacts(request: ResolutionRequest): ResolutionFactSet {
         continue;
       }
     }
+    // The caller: the innermost symbol of this file whose own span holds the
+    // mention. An edge names two symbols, and a mention standing in no symbol
+    // of the file has no caller to name.
+    const caller = innermostSymbol(request.fileSymbols, mention.span.startLine, mention.span.startColumn);
     if (caller === undefined) {
       unresolved += 1;
       unread.push({
@@ -190,12 +210,12 @@ export function resolutionFacts(request: ResolutionRequest): ResolutionFactSet {
 
   for (const fact of foldSites(sites, at)) facts.push(fact);
 
-  // The compiler's index, named when this run has none: the resolution above is
-  // the syntactic fallback, and a reader of the file's coverage sees that no
-  // compiler answered for it.
-  if (!request.indexAvailable && request.findings.parsed) {
+  // The compiler's index, named where it answered nothing for this file: the
+  // resolution above is the syntactic fallback, and a reader of the file's
+  // coverage sees that no compiler resolved a name here.
+  if (!request.indexAnswered && request.findings.parsed) {
     unread.push({
-      what: 'a compiler index of the repository (a SCIP indexer), which resolves a name the syntax cannot bind',
+      what: `a compiler index of ${request.path} (a SCIP indexer), which would resolve a name the syntax cannot`,
       reason: 'unsupported',
     });
   }
@@ -225,15 +245,26 @@ interface Site {
   readonly precision: ResolutionPrecision;
 }
 
-/** What an import binds in a file: the file it names, and what of that file the name stands for. */
+/** One symbol a name resolved to: the fact id the edge's end and the occurrence name. */
+interface ResolvedSymbol {
+  readonly id: string;
+}
+
+/**
+ * What an import binds in a file: the file the specifier names, and what of that
+ * file the name stands for. A relative specifier that names no file of the
+ * repository binds a name too — with no target, and the reason a mention of it
+ * is written as unresolved with its own place.
+ */
 interface Binding {
-  readonly target: string;
+  readonly target: string | undefined;
   readonly imported: ExtractedFileResolution['imports'][number]['imported'];
+  readonly unresolved?: string;
 }
 
 /** What binding a mention answered: a symbol, a claim this resolver does not make, or a failure with its reason. */
 type BoundMention =
-  | { readonly kind: 'resolved'; readonly symbol: { id: string; file: string } }
+  | { readonly kind: 'resolved'; readonly symbol: ResolvedSymbol }
   | { readonly kind: 'out-of-claim' }
   | { readonly kind: 'unresolved'; readonly why: string };
 
@@ -250,19 +281,27 @@ function bindMention(
   bindings: ReadonlyMap<string, Binding>,
 ): BoundMention {
   if (mention.through !== undefined) {
+    // `ns.name`: the member's name is resolved through the namespace binding, so
+    // the file the binding names is the one the name is looked for in.
     const binding = bindings.get(mention.through);
     if (binding === undefined || binding.imported.form !== 'namespace') return { kind: 'out-of-claim' };
+    if (binding.target === undefined) return { kind: 'unresolved', why: binding.unresolved ?? 'the binding names no file of this repository' };
     const symbol = topLevelSymbol(symbolsOf(request, binding.target), mention.name);
     if (symbol === undefined) {
       return { kind: 'unresolved', why: `the file ${binding.target} declares no ${JSON.stringify(mention.name)} the namespace names` };
     }
     return { kind: 'resolved', symbol };
   }
-  const declared = innermostSymbol(request.fileSymbols, mention.span.startLine, mention.span.startColumn, mention.name)
+  const declared = nearestDeclaration(request.fileSymbols, mention)
     ?? topLevelSymbol(request.fileSymbols, mention.name);
   if (declared !== undefined) return { kind: 'resolved', symbol: declared };
   const binding = bindings.get(mention.name);
   if (binding === undefined) return { kind: 'out-of-claim' };
+  // A namespace binding names a module, and the schema holds no symbol for a
+  // module: a bare mention of it (`f(ns)`, `return ns`) names nothing an edge can
+  // end at, and it is out of this reader's claim rather than a guess.
+  if (binding.imported.form === 'namespace') return { kind: 'out-of-claim' };
+  if (binding.target === undefined) return { kind: 'unresolved', why: binding.unresolved ?? 'the binding names no file of this repository' };
   const symbols = symbolsOf(request, binding.target);
   const wanted = binding.imported.form === 'named' ? binding.imported.name : 'default';
   const symbol = topLevelSymbol(symbols, wanted);
@@ -278,27 +317,81 @@ function symbolsOf(request: ResolutionRequest, path: string): readonly Resolutio
 }
 
 /** The top-level declaration of a set of symbols by its own name (`create`), never a member (`Order.create`). */
-function topLevelSymbol(symbols: readonly ResolutionSymbolRow[], name: string): { id: string; file: string } | undefined {
+function topLevelSymbol(symbols: readonly ResolutionSymbolRow[], name: string): ResolvedSymbol | undefined {
   const held = symbols
     .filter((symbol) => symbol.qualifiedName === name)
     .sort((left, right) => byCodePoint(left.id, right.id));
   const first = held[0];
-  return first === undefined ? undefined : { id: first.id, file: first.file };
+  return first === undefined ? undefined : { id: first.id };
+}
+
+/**
+ * The declaration of the file a mention of one name binds: the nearest one that
+ * is *in scope* at the mention and stands before it. In scope means the
+ * declaration's container is the mention's own or one of its ancestors (`run`
+ * for a mention inside `run`, the file for a top-level one), and the nearest of
+ * those is the deepest container, then the latest start — so a local `const`
+ * shadows an import of the same name from its own line on, a method beats a
+ * top-level function of the same name inside it, and a declaration of another
+ * function is never reached. A declaration *after* the mention is not a binding
+ * of it through this rule: a top-level one is still found by `topLevelSymbol`,
+ * which is JavaScript's hoisting, and a later local one is not (`const` binds
+ * from its line on, which is a temporal dead zone before it).
+ */
+function nearestDeclaration(symbols: readonly ResolutionSymbolRow[], mention: ExtractedResolutionMention): ResolvedSymbol | undefined {
+  const chain = enclosingChain(symbols, mention.span.startLine, mention.span.startColumn);
+  const held = symbols
+    .filter((symbol) => namePartOf(symbol.qualifiedName) === mention.name)
+    .filter((symbol) => inScopeOf(chain, containerOf(symbol.qualifiedName)))
+    .filter((symbol) => startsBefore(symbol.range, mention.span.startLine, mention.span.startColumn))
+    .sort((left, right) =>
+      containerOf(right.qualifiedName).length - containerOf(left.qualifiedName).length
+      || right.range.startLine - left.range.startLine
+      || right.range.startColumn - left.range.startColumn
+      || byCodePoint(left.id, right.id));
+  const first = held[0];
+  return first === undefined ? undefined : { id: first.id };
+}
+
+/** The qualified name of the innermost symbol of a file that holds a place: the chain a mention stands in. */
+function enclosingChain(symbols: readonly ResolutionSymbolRow[], line: number, column: number): string {
+  const held = symbols.filter((symbol) => holds(symbol.range, line, column)).sort((left, right) => sizeOf(left.range) - sizeOf(right.range) || byCodePoint(left.id, right.id));
+  return held[0]?.qualifiedName ?? '';
+}
+
+/** The container part of a qualified name: `Widget` for `Widget.total`, empty at the file's own scope. */
+function containerOf(qualifiedName: string): string {
+  const at = qualifiedName.lastIndexOf('.');
+  return at < 0 ? '' : qualifiedName.slice(0, at);
+}
+
+/** The name a qualified name ends with: `total` for `Widget.total`. */
+function namePartOf(qualifiedName: string): string {
+  const at = qualifiedName.lastIndexOf('.');
+  return at < 0 ? qualifiedName : qualifiedName.slice(at + 1);
+}
+
+/** Whether a declaration's container is a scope the mention's chain stands in: the same one, or an ancestor of it. */
+function inScopeOf(chain: string, container: string): boolean {
+  if (container === '') return true;
+  return chain === container || chain.startsWith(`${container}.`);
+}
+
+/** Whether a declaration starts before a place: on an earlier line, or earlier in the same one. */
+function startsBefore(range: FactRange, line: number, column: number): boolean {
+  return range.startLine < line || (range.startLine === line && range.startColumn <= column);
 }
 
 /**
  * The innermost symbol of a file that holds a place: the smallest declaration
- * whose range contains it, which is the declaration a mention stands in. Named,
- * it is the declaration of that name holding the place (`f.inner` for a
- * mention of `inner` inside `f`); unnamed, it is the caller of a call.
+ * whose range contains it, which is the declaration a mention stands in.
  */
-function innermostSymbol(symbols: readonly ResolutionSymbolRow[], line: number, column: number, name?: string): { id: string; file: string } | undefined {
+function innermostSymbol(symbols: readonly ResolutionSymbolRow[], line: number, column: number): ResolvedSymbol | undefined {
   const held = symbols
     .filter((symbol) => holds(symbol.range, line, column))
-    .filter((symbol) => name === undefined || symbol.qualifiedName.split('.').pop() === name)
     .sort((left, right) => sizeOf(left.range) - sizeOf(right.range) || byCodePoint(left.id, right.id));
   const first = held[0];
-  return first === undefined ? undefined : { id: first.id, file: first.file };
+  return first === undefined ? undefined : { id: first.id };
 }
 
 /** Whether a declaration's range holds a place: its first line and column through its last. */
@@ -378,11 +471,40 @@ export function placeOf(path: RepositoryPath, span: { readonly startLine: number
   };
 }
 
-/** Every fact once, in code point order of kind and id: two runs write the same set in the same order. */
+/**
+ * Every fact once, in code point order of kind and id: two runs write the same
+ * set in the same order. Two facts of one kind and one id are one fact, and one
+ * place a name is both read and written keeps the roles of both (the schema's
+ * roles are a list, each once, in code point order). Two facts of one id that
+ * say anything else are refused rather than folded in silence: one of them would
+ * be lost, and nothing would say which.
+ */
 function sortedFacts(facts: readonly Fact[]): Fact[] {
   const byId = new Map<string, Fact>();
-  for (const fact of facts) byId.set(`${fact.kind}\u0000${fact.id}`, fact);
+  for (const fact of facts) {
+    const key = `${fact.kind}\u0000${fact.id}`;
+    const held = byId.get(key);
+    if (held === undefined) {
+      byId.set(key, fact);
+      continue;
+    }
+    const merged = mergeRoles(held, fact);
+    if (merged !== undefined) {
+      byId.set(key, merged);
+      continue;
+    }
+    throw new Error(`two ${fact.kind} facts of this file share the id ${fact.id} and say different things: ${canonicalJsonDigest(held)} and ${canonicalJsonDigest(fact)}`);
+  }
   return [...byId.keys()].sort(byCodePoint).map((key) => byId.get(key)!);
+}
+
+/** Two occurrences at one place, with the roles of both; `undefined` for anything else. */
+function mergeRoles(held: Fact, fact: Fact): Fact | undefined {
+  if (held.kind !== 'occurrence' || fact.kind !== 'occurrence') return undefined;
+  const one = held.value as { readonly symbol: string; readonly roles: readonly string[] };
+  const other = fact.value as { readonly symbol: string; readonly roles: readonly string[] };
+  if (one.symbol !== other.symbol) return undefined;
+  return { ...held, value: { symbol: one.symbol, roles: [...new Set([...one.roles, ...other.roles])].sort(byCodePoint) } } as Fact;
 }
 
 /** The gaps one `what` once, in code point order of `what`, as the schema reads a coverage's list. */

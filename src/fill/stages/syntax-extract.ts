@@ -413,8 +413,10 @@ interface Findings {
 
 /** Walks one parsed file and collects its findings, each with the span it stands at. */
 function walk(path: string, text: string, root: SyntaxNode, language: SyntaxLanguage): Findings {
+  // The line index of `spanFactory` is the one the resolution reader uses too,
+  // so the two count a position the same way by construction and not by luck.
   const lines = lineIndex(text);
-  const spanOf = (node: SyntaxNode): SyntaxSpan => spanAt(lines, text, node.startIndex, node.endIndex);
+  const spanOf = spanFactory(text);
   const symbols: ExtractedSymbol[] = [];
   const comments: ExtractedComment[] = [];
   const entryPoints: ExtractedEntryPoint[] = [];

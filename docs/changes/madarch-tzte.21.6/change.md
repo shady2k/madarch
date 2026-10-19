@@ -66,6 +66,16 @@ This change adds the resolution stage, in four modules and one registration line
 - A re-export (`export { a } from './x'`) is not followed: the name is not bound
   in the file that re-exports it, so an importer of that file finds no such
   declaration and the mention is written as unresolved, with its place.
+- A default import resolves to the target file's `default` symbol, and stage 3
+  publishes that symbol only for an *anonymous* default export (`export default
+  class {}`). A default export that names itself (`export default function
+  named() {}`) is the symbol `named`, so an `import x from './that.js'` is written
+  as unresolved at each use, with its place, until a resolver reads the export
+  clause; a test holds both shapes.
+- Go's package imports resolve to no symbol: an import path names a directory of
+  another package, and mapping it to this repository's files needs the module path
+  stage 2 reads. Their names are the file's coverage gap, and Go's own file-scope
+  names resolve as any other file's do.
 - CommonJS bindings (`const x = require('./x')`) are not followed; the file's
   coverage names the `require` rather than leaving it a silence.
 - The fact store, the bounded graph reads and the checked write path
@@ -113,7 +123,9 @@ no stage runs, and `src/product/fill*.ts` is untouched.
   reads the task's "resolves" as the *act* of resolving: the stage writes the
   `call`, `reference` and `inherits` edges of its stage, and the `occurrence`
   fact that ties a mention at its own place to the symbol it names — which is
-  what "resolved" means in the graph. The reading is asked of the owner at
+  what "resolved" means in the graph. Said plainly: **this change writes no
+  `resolves` edge at all**, and it writes `inherits`, a kind the DONE WHEN does
+  not name but the schema declares stage 4's. The reading is asked of the owner at
   acceptance, as madarch-tzte.21.3's `contains`/`defines` reading was.
 - **A resolution is an occurrence, and a relation is an edge.** Every mention the
   stage resolves writes an `occurrence` at the mention's own place, whose
@@ -127,43 +139,78 @@ no stage runs, and `src/product/fill*.ts` is untouched.
   when the name is bound (1) by a declaration of the file the mention stands in —
   the nearest declaration whose own span holds the mention, else a top-level one,
   as stage 3 published them; (2) by an import of the file whose specifier is a
-  relative one this stage can tie to a file of the repository — a named, an
-  aliased, a default and a namespace import, and `ns.name` through a namespace
-  binding; (3) by a compiler's index, where the wiring has one, which answers the
-  symbol at the mention's place whatever this file binds.
+  relative one this stage can tie to a file of the repository — a named import, an
+  aliased one, a default import (the target's `default` symbol) and `ns.name`
+  through a namespace binding; (3) by a compiler's index, where the wiring has
+  one, which answers the symbol at the mention's place **before** anything this
+  file binds — an index's answer is the one name a parameter or a package
+  shadows, which is exactly where a syntactic reader is weakest.
+  A *bare* mention of a namespace binding (`f(ns)`, `return ns`) names a module,
+  and the schema holds no symbol for a module: it is out of the claim rather than
+  an edge to the target's default export, which is a different symbol with a
+  different meaning.
 - **What it deliberately does not resolve, and how that is said.** A mention
   whose name a parameter of an enclosing declaration binds names that parameter:
   the syntax stage reads declarations, not parameters, so the mention is out of
   the claim rather than an edge to the outer import of the same name. A name
-  nothing in the file binds (a global, a built-in, an ambient type) is out of the
-  claim too. An import of a package outside the repository is named **once, in
-  the file's coverage** (`src/a.ts imports "lodash", whose symbols are not in
-  this repository`) rather than as one gap per use: the fact is about the import,
-  and a page that showed a gap per `react` call would drown the useful ones.
+  nothing in the file binds (a global, a built-in, Go's predeclared types, an
+  ambient type) is out of the claim too. An import of a package outside the
+  repository is named **once, in the file's coverage** (`src/a.ts imports
+  "lodash", which names a package outside this repository`) rather than as one
+  gap per use: the fact is about the import, and a page that showed a gap per
+  `react` call would drown the useful ones.
 - **Unresolved is written, never dropped.** A mention the resolver claims and
-  cannot tie to a symbol — the specifier names no file of the repository, the
-  target file declares no such name (a default import of a file that exports
-  none), or the mention stands in no symbol of the file, so no edge can name a
-  caller — is a coverage gap naming the name and its own place
-  (`missing at src/a.ts:4:3`), with the reason. The file's coverage is therefore
-  the honest statement of what this reading did and did not tie down, which is
-  0005's "not enough data", never absence.
+  cannot tie to a symbol is a coverage gap naming the name and its own place
+  (`missing at src/a.ts:4:2`), with the reason. Three ways of failing are told
+  apart, because they are three different facts:
+  1. a relative specifier that names no file of the repository — the names it
+     binds are this reader's claim and it cannot tie them down, so **each use of
+     one is a gap at its own place** (`create at src/a.ts:4:2, the specifier
+     "./missing.js" names no file of this repository`);
+  2. the target file declares no such name (a named import of a name it does not
+     declare, a default import of a file with no `default` symbol) — a gap at the
+     mention's place naming what the file does not declare;
+  3. the mention stands in no symbol of the file, so no edge can name a caller —
+     a gap at its place saying exactly that.
+  The file's coverage is therefore the honest statement of what this reading did
+  and did not tie down, which is 0005's "not enough data", never absence.
 - **Precision is a field of the edge, and the compiler's answer wins where both
   exist.** `call`, `reference` and `inherits` carry `precision: 'compiler' |
   'syntactic'`; a relation whose sites were resolved both ways keeps `compiler`,
   because the stronger reading of the same two symbols is the one a reader of the
   graph should weigh. The kinds' value shapes move to version 2 under the
-  schema's own rule ("a kind whose value changes moves alone").
-- **The stage's plan re-resolves what a commit moved, and what read it.** One
-  tracked read of the published tree answers which files' blobs moved; one of the
-  published `import` edges answers which files' resolution read another file's
-  symbols. So a run plans the moved files, their importers, and a retraction for
-  a published source path the commit no longer holds — and nothing else. The unit
-  makes the same relation a *dependency*: it reads the symbols of the file itself
-  and of every file its imports name, so the orchestrator's recheck of a
-  published unit's reads (§0027) invalidates exactly the units whose reading
-  moved. A source path stage 3 read but this stage did not (a `.py` file) has a
-  unit all the same: it publishes its coverage, which names why.
+  schema's own rule ("a kind whose value changes moves alone"). `precision` is
+  required of the value's *type*; the schema refuses a field it does not define
+  and does not refuse an absent one that no identity part reads, for this kind as
+  for every other, and the record says so rather than implying a check the schema
+  does not make.
+- **An aggregating edge says what it counted.** `call` and `reference` fold their
+  sites into one edge with `count` and the provenance of the earliest site in the
+  file's own order — which retires the doc's older "code-point-smallest call
+  site", since code points put line 10 before line 3 — and `inherits` carries no
+  `count` at all: an `extends` clause is one statement about one pair of types,
+  and the schema holds no count for it.
+- **The stage's plan re-resolves what a commit moved, and what read it.** Three
+  tracked reads answer it: the published tree (which files' blobs moved, and
+  which published paths the commit no longer holds), the `import` edges stage 3
+  published (which files' resolution read another file's symbols), and the gaps
+  of stage 3's coverage (a specifier it could not tie to a file, whose mentions
+  are the ones a file that appears would let this stage resolve). So a run plans
+  1. a source file whose blob moved or that is new,
+  2. a source file that imports (per the published edges) a file whose blob
+     moved **or that the commit no longer holds** — a target that vanished takes
+     the symbols its importers read with it,
+  3. a source file whose published gap names a specifier that names a file of the
+     pinned tree now — a file that *appears* under a specifier an unchanged file
+     already wrote is a symbol that file reads now and did not read before,
+  4. a published source path the commit no longer holds, whose unit publishes
+     nothing and so retracts what an earlier run wrote there,
+  and nothing else. The unit makes the same relation a *dependency*: it reads the
+  symbols of the file itself and of every file its imports name, so the
+  orchestrator's recheck of a published unit's reads (§0027) invalidates exactly
+  the units whose reading moved. A source path stage 3 read but this stage did
+  not (a `.py` file) has a unit all the same: it publishes its coverage, which
+  names why.
 - **A unit is a file, and an absent path publishes nothing.** The unit id is
   `file:<repository>:<path>` — the same file unit stage 3 plans, over the same
   scopes — so the incrementality is per file and a rename leaves no stale fact:

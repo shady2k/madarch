@@ -14,14 +14,21 @@
  * **The plan reads what the previous runs published.** Before it names a unit,
  * the plan makes three tracked reads per repository — the inventory's published
  * tree (`publishedTreeRead`, the file facts with the blobs their bytes stood
- * under), and the `import` edges stage 3 published (`publishedImportsRead`).
+ * under), the `import` edges stage 3 published (`publishedImportsRead`) and the
+ * gaps of stage 3's coverage (`publishedGapsRead`, a specifier it could not tie
+ * to a file among them).
  * The graph therefore answers which files moved at the pinned commit and which
  * files' resolution read the symbols of a file that moved. So a run plans:
  *
  * - a source file whose blob moved at the pinned commit, or that is new;
- * - a source file that imports a file whose blob moved — a resolver's answer for
- *   a name it takes from another file stands on that file's symbols, so those
- *   are the files whose resolution read them;
+ * - a source file that imports a file whose blob moved or that the commit no
+ *   longer holds — a resolver's answer for a name it takes from another file
+ *   stands on that file's symbols, so those are the files whose resolution read
+ *   them, and a target that vanished takes its symbols with it;
+ * - a source file with a specifier stage 3 could not tie to a file, where that
+ *   specifier names a file of the pinned tree now: a file that appears under a
+ *   specifier an unchanged file already wrote is a symbol the file's resolution
+ *   reads now and did not read before;
  * - a published source path the commit no longer holds, which publishes nothing
  *   and so retracts what an earlier run wrote for a file that was deleted or
  *   renamed away.
@@ -45,7 +52,7 @@
  */
 import { Type } from 'typebox';
 import { byCodePoint } from '../../model/order.js';
-import { FACT_ID_PATTERN, FACT_KINDS, repositoryPath, type SymbolKind } from '../facts.js';
+import { FACT_ID_PATTERN, FACT_KINDS, isRepositoryPath, repositoryPath, type SymbolKind } from '../facts.js';
 import type { SnapshotReader, SnapshotSource } from '../snapshot.js';
 import {
   DEFAULT_STAGE_DEFAULTS,
@@ -77,6 +84,9 @@ export const PUBLISHED_SYMBOLS_READ = 'stage-3-published-symbols';
 /** The optional read: what a compiler's index resolved for one file, by the place of each mention. */
 export const COMPILER_INDEX_READ = 'stage-4-compiler-index';
 
+/** The read the plan makes: what stage 3 could not tie to a node, by the file it stood in. */
+export const PUBLISHED_GAPS_READ = 'stage-3-coverage-gaps';
+
 /**
  * The read the plan makes: the `import` edges stage 3 published for one
  * repository, which tell which files' resolution read another file's symbols.
@@ -84,6 +94,17 @@ export const COMPILER_INDEX_READ = 'stage-4-compiler-index';
  */
 export function publishedImportsRead(repository: string): string {
   return JSON.stringify({ read: PUBLISHED_IMPORTS_READ, repository });
+}
+
+/**
+ * The read the plan makes: what stage 3 published as a gap for one repository —
+ * a specifier it could not tie to a file among them. A file's resolution can
+ * move without the file's own bytes moving: a specifier that named nothing when
+ * stage 3 read the file names a file once one appears, and that file is one this
+ * stage's resolution reads.
+ */
+export function publishedGapsRead(repository: string): string {
+  return JSON.stringify({ read: PUBLISHED_GAPS_READ, repository });
 }
 
 /** The read one unit makes: the symbols the graph holds for one file of one repository. */
@@ -108,8 +129,20 @@ export interface PublishedImportRow {
   readonly to: string;
 }
 
+/** One row of the plan's gap read: one thing stage 3 could not tie to a node, in the file it stood in. */
+export interface PublishedGapRow {
+  readonly kind: 'coverage';
+  /** The file the gap stands in. */
+  readonly file: string;
+  /** What could not be read: a specifier, a path, or a question the reader could not answer. */
+  readonly what: string;
+}
+
 /** The keys a row of the plan's read holds, and no others. */
 const IMPORT_ROW_FIELDS: readonly string[] = ['from', 'kind', 'to'];
+
+/** The keys a gap row holds, and no others. */
+const GAP_ROW_FIELDS: readonly string[] = ['file', 'kind', 'what'];
 
 /** The keys a symbol row holds, and no others. */
 const SYMBOL_ROW_FIELDS: readonly string[] = ['endColumn', 'endLine', 'file', 'id', 'kind', 'qualifiedName', 'startColumn', 'startLine', 'symbolKind'];
@@ -182,15 +215,22 @@ async function planResolution(sources: SnapshotSource, graph: StageGraphReader):
     const published = publishedTreeRows(await graph.query(treeRead), pin.id, treeRead).files;
     const importsRead = publishedImportsRead(pin.id);
     const imports = publishedImportRows(await graph.query(importsRead), pin.id, importsRead);
+    const gapsRead = publishedGapsRead(pin.id);
+    const gaps = publishedGapRows(await graph.query(gapsRead), pin.id, gapsRead);
     const mine = reader.files().filter((entry) => isSourcePath(entry.path));
     anySource = anySource || mine.length > 0;
     const present = new Set<string>(mine.map((entry) => entry.path));
+    const held = new Set<string>(reader.files().map((entry) => String(entry.path)));
     // A file whose blob did not move is already resolved, so this run plans no
     // unit for it; the blob is what tells one reading of a file from the next.
+    // A source path the commit no longer holds moved too: its importers read the
+    // symbols it held, and they are re-resolved below like any other importer.
     const moved = new Set<string>();
     for (const entry of mine) {
-      if (published.get(entry.path) === entry.id) continue;
-      moved.add(entry.path);
+      if (published.get(entry.path) !== entry.id) moved.add(entry.path);
+    }
+    for (const path of published.keys()) {
+      if (!present.has(path) && isSourcePath(path)) moved.add(path);
     }
     // The path of each file id the graph answers for this repository, so an
     // import edge is read back as the two files it joins. A published path is
@@ -207,11 +247,18 @@ async function planResolution(sources: SnapshotSource, graph: StageGraphReader):
       if (target === undefined || importer === undefined) continue;
       if (moved.has(target) && present.has(importer)) again.add(importer);
     }
+    // A specifier stage 3 could not tie to a file names one now: a file appeared
+    // under it, so the file that wrote it reads symbols it did not read before.
+    for (const gap of gaps) {
+      if (!present.has(gap.file)) continue;
+      if (resolveSpecifier(gap.file, gap.what, held) === undefined) continue;
+      again.add(gap.file);
+    }
     for (const path of again) {
       if (!present.has(path) || !isSourcePath(path)) continue;
       units.push({ id: fileUnitId(pin.id, path), scope: `${pin.id}:${path}` });
     }
-    for (const [path] of published) {
+    for (const path of published.keys()) {
       // A published source path the commit no longer holds: the unit publishes
       // nothing, and the publication retracts what an earlier run wrote there.
       if (present.has(path) || !isSourcePath(path)) continue;
@@ -255,7 +302,18 @@ async function executeResolutionUnit(sources: SnapshotSource, unit: StageUnit, c
   }
   const bytes = await reader.read(planned.path);
   refuseWhenCancelled(unit, context);
-  const findings = await extractFileResolution(planned.path, bytes);
+  let findings: ExtractedFileResolution;
+  try {
+    findings = await extractFileResolution(planned.path, bytes);
+  } catch (error) {
+    // The walk is recursive, so a file nested past the call stack's depth is
+    // read as far as the machine allows and named as unread: one such file is a
+    // coverage gap of its unit, never a unit that raises and loses the file.
+    // Every other error still travels — a defect is not a silence.
+    if (!(error instanceof RangeError)) throw error;
+    findings = unreadFileResolution(planned.path, 'error');
+    context.progress(`${planned.path} of ${planned.repository} is nested past what this reader can walk: the file is published as a coverage gap and not resolved`, 1);
+  }
   refuseWhenCancelled(unit, context);
   const set = await factsOf(context, reader, planned.path, findings);
   writeDraft(context, reader, planned.path, set);
@@ -304,7 +362,7 @@ async function factsOf(context: StageContext, reader: SnapshotReader, path: stri
     fileSymbols,
     readSymbols,
     index,
-    indexAvailable: index.size > 0,
+    indexAnswered: index.size > 0,
   });
 }
 
@@ -341,6 +399,31 @@ export function publishedImportRows(rows: readonly unknown[], repository: string
     unknownKeys(held, IMPORT_ROW_FIELDS, read, index, repository);
     if (held['kind'] !== 'import') throw refuse(read, index, repository, `its kind is ${JSON.stringify(held['kind'])}, and this read answers "import" edges`);
     return { kind: 'import', from: fileIdIn(held['from'], read, index, repository, 'from'), to: fileIdIn(held['to'], read, index, repository, 'to') };
+  });
+}
+
+/**
+ * The plan's gap read, read: each row is one gap of stage 3's coverage of a file
+ * — a specifier it could not tie to a file, a language it could not read, a
+ * question it could not answer. A row naming another kind, a file that is no
+ * repository path, or a key this read does not define is refused, naming the
+ * read, the row and the field: a row read past would leave a file's resolution
+ * stale in silence.
+ */
+export function publishedGapRows(rows: readonly unknown[], repository: string, read: string): readonly PublishedGapRow[] {
+  return rows.map((row, index) => {
+    const held = rowRecord(row, read, index, repository, 'a gap of a file\'s coverage');
+    unknownKeys(held, GAP_ROW_FIELDS, read, index, repository);
+    if (held['kind'] !== 'coverage') throw refuse(read, index, repository, `its kind is ${JSON.stringify(held['kind'])}, and this read answers "coverage" gaps`);
+    const file = held['file'];
+    if (typeof file !== 'string' || !isRepositoryPath(file)) {
+      throw refuse(read, index, repository, `its file ${JSON.stringify(file)} is no repository path: a gap stands in a file of the repository`);
+    }
+    const what = held['what'];
+    if (typeof what !== 'string' || what.trim() === '') {
+      throw refuse(read, index, repository, `its what ${JSON.stringify(what)} is no gap: a gap names what the reader could not read`);
+    }
+    return { kind: 'coverage', file, what };
   });
 }
 
