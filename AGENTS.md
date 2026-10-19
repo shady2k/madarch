@@ -53,6 +53,12 @@ Artifacts (documents, tasks, commit messages, code comments) are written in Engl
   temporary folder before and after the suites with
   `.shady2k/run-scratch-check.mjs`. A leftover run folder in the temp folder
   therefore means a run was killed; the next run sweeps it.
+- Every test runs under a ten-second bound rather than Bun's five
+  (madarch-tzte.36): `setDefaultTimeout` in `test/deadline.ts`, which both
+  `bunfig.toml` files preload — not bunfig's `[test] timeout`, which Bun 1.4.2
+  ignores (measured: a test that sleeps 7 s still fails at 5 s with it set). A
+  test that names its own longer bound keeps it. The bound is not the fix for a
+  slow test: the slow ones are madarch-cznn, which brings it back down.
 - Views are accepted by rendering every page the way a reader sees it, not by
   parse checks: GitHub's own Mermaid renderer in a 1150 px column (open
   `viewscreen.githubusercontent.com/markdown/mermaid?color_mode=dark` and
