@@ -12,7 +12,7 @@
  * that moves one file's bytes moves that file's unit.
  *
  * **The plan reads what the previous runs published.** Before it names a unit,
- * the plan makes three tracked reads per repository — the inventory's published
+ * the plan makes four tracked reads per repository — the inventory's published
  * tree (`publishedTreeRead`, the file facts with the blobs their bytes stood
  * under), the `import` edges stage 3 published (`publishedImportsRead`) and the
  * gaps of stage 3's coverage (`publishedGapsRead`, a specifier it could not tie
@@ -40,8 +40,10 @@
  * stage's own last reading (`publishedReadsRead`): a target this stage already
  * read is one its edges already name — whatever stage 3's older gap or import
  * edge still says — so they plan a file once and not on every later run of an
- * unchanged commit. A graph that answers either read with nothing makes them a
- * no-op rather than a re-planning loop.
+ * unchanged commit. A graph that answers the gaps read with nothing has no gap to
+ * fire the first of them on; a graph that answers the own reading with nothing
+ * makes the second fire on every run of an unchanged commit — a re-plan, never a
+ * wrong edge — so a wiring for this stage answers it.
  *
  * **What one unit reads.** The file's own bytes come from the pinned snapshot
  * (`SnapshotSource`, stage 0) and never from a working tree. The symbols it

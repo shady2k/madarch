@@ -29,10 +29,10 @@ This change adds the resolution stage, in four modules and one registration line
   (`readSyntaxTree`).
 - **`src/fill/stages/resolution-facts.ts`**, what those findings become: one
   `occurrence` per mention that resolves, tied to the symbol it names; the
-  `call`, `reference` and `inherits` edges the mentions fold into, each with the
-  count of its sites and its **precision** (`compiler` where a compiler's index
-  named the symbol, `syntactic` where this fill's own reading did); and the
-  file's `coverage`.
+  `call`, `reference` and `inherits` edges the mentions fold into, each with its
+  **precision** (`compiler` where a compiler's index named the symbol,
+  `syntactic` where this fill's own reading did) and, for `call` and `reference`,
+  the count of their sites; and the file's `coverage`.
 - **`src/fill/stages/semantic-resolution.ts`**, stage 4: a unit per source file,
   planned from what the previous runs published, read at the pinned commit
   through `SnapshotSource`, and resolved against the symbols the graph holds —
@@ -147,8 +147,9 @@ no stage runs, and `src/product/fill*.ts` is untouched.
   `symbol` is the symbol it names and whose one role is `read-access` or
   `write-access`: the finest statement the schema can hold, one fact per place.
   The aggregated edges (`call`, `reference`, `inherits`) state the relation
-  between two symbols, with `count` and the provenance of the earliest site in
-  the file's own bytes. The schema asks for exactly this division: "Calls are
+  between two symbols, with the provenance of the earliest site in the file's own
+  bytes and, for `call` and `reference`, `count`; `inherits` carries its form and
+  no count, an `extends` clause being one statement about one pair of types. The schema asks for exactly this division: "Calls are
   aggregated per pair of symbols (not one edge per call site …)".
 - **What the resolver resolves.** A mention names a symbol of this repository
   when the name is bound (1) by a declaration of the file the mention stands in —
@@ -217,13 +218,13 @@ no stage runs, and `src/product/fill*.ts` is untouched.
   for every other, and the record says so rather than implying a check the schema
   does not make.
 - **An aggregating edge says what it counted.** `call` and `reference` fold their
-  sites into one edge with `count` — `inherits` carries its form and no count, an
-  `extends` clause being one statement about one pair of types — and the
+  sites into one edge with `count`, and `inherits` carries its form and no count
+  at all — an `extends` clause is one statement about one pair of types — with the
   provenance of the earliest site in the file's own order — which retires the doc's older "code-point-smallest call
   site", since code points put line 10 before line 3 — and `inherits` carries no
   `count` at all: an `extends` clause is one statement about one pair of types,
   and the schema holds no count for it.
-- **The stage's plan re-resolves what a commit moved, and what read it.** Three
+- **The stage's plan re-resolves what a commit moved, and what read it.** Four
   tracked reads answer it: the published tree (which files' blobs moved, and
   which published paths the commit no longer holds), the `import` edges stage 3
   published (which files' resolution read another file's symbols), and the gaps
@@ -245,14 +246,16 @@ no stage runs, and `src/product/fill*.ts` is untouched.
   reading (`stage-4-published-reads`, its own coverage's `read`): a target it
   already read is one its edges already name, so a specifier whose meaning moved
   plans a file once and not on every later run of an unchanged commit. A graph
-  that answers either of those reads with nothing makes the two rules a no-op
-  rather than a re-planning loop. The unit makes the same relation a *dependency*: it reads the
+  that answers the gaps read with nothing has no gap for rule 3 to fire on; a
+  graph that answers the own reading with nothing leaves rule 4 unbounded — it
+  re-plans on every run of an unchanged commit, which is a re-plan and never a
+  wrong edge — so a wiring for this stage answers it. The unit makes the same relation a *dependency*: it reads the
   symbols of the file itself and of every file its imports name, so the
   orchestrator's recheck of a published unit's reads (§0027) invalidates exactly
   the units whose reading moved. A source path stage 3 read but this stage did
   not (a `.py` file) has a unit all the same: it publishes its coverage, which
   names why.
-- **The plan's third read needs no capability of its own.** It reads stage 3's
+- **The plan's two newer reads need no capability of their own.** It reads stage 3's
   `coverage` facts, and `consumes` names `file`, `import` and `symbol` as its
   required capabilities: both `import` and `symbol` are stage 3's, so a run that
   disabled stage 3 starves this stage by name (0027's starvation path) before the
@@ -317,7 +320,13 @@ appeared beside its target. Both are fixed — the lexical-scope rule above, and
 the plan's comparison of each published specifier with what it names at the
 pinned commit — with tests that fail without them, and the record's rule (1), its
 count wording, its "both shapes of a default export" claim and the block-scope
-limit are corrected to what the code does.
+limit are corrected to what the code does. Its fourth round confirmed the eleven
+answers and found two defects of its own in them: the test the third round asked
+for did not discriminate (it planned against a graph that held no stale gap or
+stale edge, so both new rules were quiet either way, and it now plans the second
+commit's tree against the first commit's stage-3 facts), and the record's "a
+graph that answers either read with nothing makes the rules a no-op" was false
+for the second rule, which now says what it does.
 
 The third round verified the second round's twelve and answered `fix-before-ship`
 with eleven, two of them defects: the hoisted fallback looked only at the

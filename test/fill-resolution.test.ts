@@ -614,6 +614,25 @@ describe('what one file\'s findings become', () => {
     expect(answer.coverage.unread.map((gap) => gap.what).filter((what) => what.includes('helper at src/a.ts:7'))).toEqual([]);
   });
 
+  test('a declaration inside a constructor body is in a lexical scope too', async () => {
+    const widget = symbolFact('src/a.ts', 'Widget', 'class', lines(3, 8));
+    const ctor = symbolFact('src/a.ts', 'Widget.constructor', 'constructor', lines(4, 7));
+    const local = symbolFact('src/a.ts', 'Widget.constructor.create', 'function', lines(5, 6));
+    const imported = symbolFact('src/b.ts', 'create', 'function', lines(1, 3));
+    const answer = await factsOfFile({
+      path: 'src/a.ts',
+      text: "import { create } from './b.js';\n\nexport class Widget {\n  constructor() {\n    const create = (): void => {};\n    create();\n  }\n}\n",
+      files: ['src/a.ts', 'src/b.ts'],
+      fileSymbols: [
+        rowOf(widget, 'src/a.ts', 'Widget', 'class', lines(3, 9)),
+        rowOf(ctor, 'src/a.ts', 'Widget.constructor', 'constructor', lines(4, 8)),
+        rowOf(local, 'src/a.ts', 'Widget.constructor.create', 'function', lines(5, 6)),
+      ],
+      readSymbols: new Map([['src/b.ts', [rowOf(imported, 'src/b.ts', 'create', 'function', lines(1, 3))]]]),
+    });
+    expect(only(answer.facts, 'call').value).toMatchObject({ from: ctor.id, to: local.id });
+  });
+
   test('a declaration written after the mention still binds it where the language hoists one', async () => {
     // A hoisted declaration wins over an import of the same name: the file's own
     // `create` is what `create()` calls, whatever the module also imports.

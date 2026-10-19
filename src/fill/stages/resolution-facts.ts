@@ -339,10 +339,11 @@ function topLevelSymbol(symbols: readonly ResolutionSymbolRow[], name: string): 
  * those is the deepest container, then the latest start — so a local `const`
  * shadows an import of the same name from its own line on, a method beats a
  * top-level function of the same name inside it, and a declaration of another
- * function is never reached. A declaration *after* the mention is not a binding
- * of it through this rule: a top-level one is still found by `topLevelSymbol`,
- * which is JavaScript's hoisting, and a later local one is not (`const` binds
- * from its line on, which is a temporal dead zone before it).
+ * function is never reached. A declaration that stands *after* the mention binds
+ * it where the language gives it that scope — a hoisted `function` anywhere in
+ * its scope, and a `const`, a `let` or a class before its own line, which is a
+ * temporal dead zone and not another binding — and there the nearest one wins, by
+ * the same order.
  */
 function nearestDeclaration(symbols: readonly ResolutionSymbolRow[], mention: ExtractedResolutionMention): ResolvedSymbol | undefined {
   const chain = enclosingChain(symbols, mention.span.startLine, mention.span.startColumn);
@@ -379,8 +380,8 @@ function nearestDeclaration(symbols: readonly ResolutionSymbolRow[], mention: Ex
   return hoisted === undefined ? undefined : { id: hoisted.id };
 }
 
-/** The symbol kinds whose members a bare name of the file reaches: a function, a method, a module, a namespace. */
-const LEXICAL_SCOPES: readonly SymbolKind[] = ['function', 'method', 'module', 'namespace'];
+/** The symbol kinds whose members a bare name of the file reaches: a function, a method, a constructor, a module, a namespace. */
+const LEXICAL_SCOPES: readonly SymbolKind[] = ['constructor', 'function', 'method', 'module', 'namespace'];
 
 /**
  * Whether a container is a lexical scope of the file's code: the file's own

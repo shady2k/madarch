@@ -28,7 +28,7 @@ import { DEFAULT_STAGE_LIMITS, type StageContext, type StageDraftWrite, type Sta
 import { publishedTreeRead, createInventoryStage, type PublishedTreeRow } from '../src/fill/stages/inventory.js';
 import {
   compilerIndexRead, createSemanticResolutionStage, indexRows, publishedGapRows, publishedGapsRead, publishedImportRows,
-  publishedImportsRead, publishedReadsRead, publishedSymbolsRead, symbolRows, SEMANTIC_RESOLUTION_STAGE_ID,
+  publishedImportsRead, publishedReadRows, publishedReadsRead, publishedSymbolsRead, symbolRows, SEMANTIC_RESOLUTION_STAGE_ID,
   type PublishedImportRow,
 } from '../src/fill/stages/semantic-resolution.js';
 import { createStageRegistry } from '../src/fill/stages/index.js';
@@ -457,11 +457,19 @@ describe('the resolution stage plans the files a commit moves', () => {
         const run = await runUnit(sourceAt(f.root, second), unit, graphOf(published, 'orders-api'));
         resolution.push(...run.run.recorder.writes);
       }
-      // The second commit's own tree and syntax facts, plus this stage's runs:
-      // the whole graph of that commit, and a run of it plans nothing.
+      // The second commit's *tree* against the first commit's stage-3 facts —
+      // the state the bound exists for: stage 3 has not re-read the importer, so
+      // its gap still names the specifier the file's resolution now answers. With
+      // this stage's own runs in the graph too, a run plans nothing; without the
+      // bound, rule 3 fires again and plans the importer, which is what makes
+      // this assertion fail on the unbounded code.
       const settled = await publishedAt(sourceAt(f.root, second));
-      const after = await stage.plan({ query: graphOf({ ...settled, resolution }, 'orders-api') });
+      const after = await stage.plan({ query: graphOf({ tree: settled.tree, writes: published.writes, resolution }, 'orders-api') });
       expect(unitIds(after)).toEqual([]);
+      // And without this stage's own reading the same graph plans the importer
+      // again: the bound is the reading, and a wiring that answers none re-plans.
+      const unbounded = await stage.plan({ query: graphOf({ tree: settled.tree, writes: published.writes }, 'orders-api') });
+      expect(unitIds(unbounded)).toContain('file:orders-api:src/a.ts');
     } finally {
       await f.dispose();
     }
@@ -487,6 +495,20 @@ describe('the resolution stage plans the files a commit moves', () => {
       expect(unitIds(plan)).toContain('file:orders-api:src/b.js');
       // The file stage 3's edge named did not move, and it is not planned.
       expect(unitIds(plan)).not.toContain('file:orders-api:src/b.ts');
+      // This stage's own run reads the file the specifier names now, and its
+      // coverage says so: the graph of that commit, with this stage's runs in it,
+      // plans nothing — stage 3's older import edge does not re-fire the rule.
+      const resolution: StageDraftWrite[] = [];
+      for (const unit of plan.units) {
+        const run = await runUnit(sourceAt(f.root, second), unit, graphOf(published, 'orders-api'));
+        resolution.push(...run.run.recorder.writes);
+      }
+      // Stage 3's own facts are the first commit's — its import edge still names
+      // `src/b.ts` — and this stage's runs are the newer reading: the rule fires
+      // once and not again, which is what the unbounded code would fail.
+      const settled = await publishedAt(sourceAt(f.root, second));
+      const after = await stage.plan({ query: graphOf({ tree: settled.tree, writes: published.writes, resolution }, 'orders-api') });
+      expect(unitIds(after)).toEqual([]);
     } finally {
       await f.dispose();
     }
@@ -855,6 +877,14 @@ describe('a read that does not answer what the stage asked for is refused, namin
     expect(await refusedBy(() => publishedGapRows([{ kind: 'symbol', file: 'src/a.ts', what: './b.js' }], 'orders-api', read))).toContain('answers "coverage" gaps');
     expect(await refusedBy(() => publishedGapRows([{ kind: 'coverage', file: '/abs/a.ts', what: './b.js' }], 'orders-api', read))).toContain('no repository path');
     expect(await refusedBy(() => publishedGapRows([{ kind: 'coverage', file: 'src/a.ts', what: ' ' }], 'orders-api', read))).toContain('is no gap');
+  });
+
+  test('a read row that names another kind, a file that is no repository path, a read list that is no list', async () => {
+    const read = publishedReadsRead('orders-api');
+    expect(await refusedBy(() => publishedReadRows([{ kind: 'symbol', file: 'src/a.ts', read: ['src/a.ts'] }], 'orders-api', read))).toContain('answers "coverage" facts');
+    expect(await refusedBy(() => publishedReadRows([{ kind: 'coverage', file: '/abs/a.ts', read: ['src/a.ts'] }], 'orders-api', read))).toContain('no repository path');
+    expect(await refusedBy(() => publishedReadRows([{ kind: 'coverage', file: 'src/a.ts', read: 'src/a.ts' }], 'orders-api', read))).toContain('no list of paths');
+    expect(await refusedBy(() => publishedReadRows([{ kind: 'coverage', file: 'src/a.ts', read: ['../a.ts'] }], 'orders-api', read))).toContain('no repository path');
   });
 
   test('an index row whose place stands twice, and one whose symbol is no symbol fact', async () => {
