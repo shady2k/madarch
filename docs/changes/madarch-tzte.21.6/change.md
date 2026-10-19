@@ -213,10 +213,16 @@ no stage runs, and `src/product/fill*.ts` is untouched.
   because the stronger reading of the same two symbols is the one a reader of the
   graph should weigh. The kinds' value shapes move to version 2 under the
   schema's own rule ("a kind whose value changes moves alone"). `precision` is
-  required of the value's *type*; the schema refuses a field it does not define
-  and does not refuse an absent one that no identity part reads, for this kind as
-  for every other, and the record says so rather than implying a check the schema
-  does not make.
+  **required** of the value's type, because decision 0026 makes the precision part
+  of what such an edge *is* — an edge whose reading weight nobody knows cannot be
+  written — and every producer of the three kinds writes it; the schema refuses a
+  field it does not define and does not refuse an absent one that no identity part
+  reads, for this kind as for every other, and the record says so rather than
+  implying a check the schema does not make. The fixtures that build call edges by
+  hand (test/fill-fact-store-scenario.ts, test/fill-graph-reads.test.ts) write
+  `syntactic`, the reading every stage-4 edge has today; `GraphEdgeRef`
+  (src/fill/graph-reads.ts, madarch-tzte.20.3) answers a neighbour's `precision`
+  beside its `count`, so a reader weighs a name-based call below a compiler's.
 - **An aggregating edge says what it counted.** `call` and `reference` fold their
   sites into one edge with `count`, and `inherits` carries its form and no count
   at all — an `extends` clause is one statement about one pair of types — with the

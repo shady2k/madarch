@@ -1015,17 +1015,21 @@ export interface GraphEdgeRef {
   readonly line?: number;
   /** How many sites the edge's producer folded into it (a call, a mention), when it says. */
   readonly count?: number;
+  /** How the edge was resolved (madarch-tzte.21.6): a compiler's index or a syntactic reading, when the kind carries one. */
+  readonly precision?: string;
 }
 
 function edgeRefOf(fact: Fact): GraphEdgeRef {
   const place = fact.provenance.place;
   const value = (fact.value ?? {}) as unknown as Record<string, unknown>;
   const count = value['count'];
+  const precision = value['precision'];
   return {
     id: fact.id,
     kind: fact.kind as FactEdgeKind,
     ...(place === undefined ? {} : { file: place.file, line: place.range.startLine }),
     ...(typeof count === 'number' ? { count } : {}),
+    ...(typeof precision === 'string' ? { precision } : {}),
   };
 }
 

@@ -102,7 +102,7 @@ function symbol(qualifiedName: string, line = 1): Fact {
 
 /** One call edge of the fixture file. */
 function call(from: Fact, to: Fact, line: number): Fact {
-  return makeEdgeFact({ kind: 'call', value: { from: from.id, to: to.id, count: 1 }, provenance: provenance(FILE, line), layer: 'extracted' });
+  return makeEdgeFact({ kind: 'call', value: { from: from.id, to: to.id, count: 1, precision: 'syntactic' }, provenance: provenance(FILE, line), layer: 'extracted' });
 }
 
 /**
@@ -191,7 +191,7 @@ function fixture(): Fixture {
   // A call whose from end no unit holds: the edge stands and the node it names does not, which is the state
   // `neighbors` answers by id with `kind: null` (the checked writes refuse such a write; a retraction leaves it).
   const orphan = symbol('OrderService.orphan', 95);
-  const orphanCall = makeEdgeFact({ kind: 'call', value: { from: symbol('OrderService.gone', 96).id, to: orphan.id, count: 1 }, provenance: provenance(FILE, 96), layer: 'extracted' });
+  const orphanCall = makeEdgeFact({ kind: 'call', value: { from: symbol('OrderService.gone', 96).id, to: orphan.id, count: 1, precision: 'syntactic' }, provenance: provenance(FILE, 96), layer: 'extracted' });
   const damagedSubject = symbol('OrderService.damaged', 97);
   const hub = symbol('OrderService.hub', 100);
   const hubCalls = Array.from({ length: 20 }, (_unused, index) => call(symbol(`OrderService.caller${String(index).padStart(2, '0')}`, 101 + index), hub, 101 + index));
@@ -388,6 +388,9 @@ describe('neighbors', () => {
     expect(answer.rows.map((row) => row.direction)).toEqual(['in', 'in', 'in']);
     expect(answer.rows.map((row) => row.edge.kind)).toEqual(['call', 'call', 'call']);
     expect(answer.rows.map((row) => row.edge.count)).toEqual([1, 1, 1]);
+    // A resolution edge says how it was resolved (madarch-tzte.21.6), so a reader
+    // weighs a name-based call below one a compiler made.
+    expect(answer.rows.map((row) => row.edge.precision)).toEqual(['syntactic', 'syntactic', 'syntactic']);
     expect(answer.rows.map((row) => row.edge.file)).toEqual([FILE, FILE, FILE]);
     expect(answer.rows.map((row) => row.edge.line)).toEqual([13, 21, 31]);
     expect(answer.truncated).toBe(false);
