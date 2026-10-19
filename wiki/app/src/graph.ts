@@ -240,11 +240,16 @@ export function useGraphPages(options: { reconnectMs?: number } = {}): GraphLive
         setAvailable(true);
         setError(null);
         tries = 0;
-        if (seq === undefined) seq = next.changeSeq;
+        missedRead = reconnectMs;
+        if (readTimer !== undefined) {
+          window.clearTimeout(readTimer);
+          readTimer = undefined;
+        }
+        if (seq === undefined) seq = shaped.changeSeq;
         // A first read that failed and then succeeded opens the channel here: the startup
         // call to `open` had no change number to subscribe from, and nothing else would
         // ever open it — the pages would appear and then never update.
-        if (!opened) {
+        if (!opened && seq !== undefined) {
           opened = true;
           void open();
         }
@@ -252,9 +257,11 @@ export function useGraphPages(options: { reconnectMs?: number } = {}): GraphLive
         if (!alive) return;
         // A read that failed is not a server without a graph: a 404 is (an older server, a
         // foreground serve, a product whose fill never ran), and any other answer is
-        // retried — a transient failure at load must not remove the graph for the tab's
-        // life. Three tries, backing off the same way the stream does. Only a refusal
-        // closes the channel too: a read that failed says nothing about the channel.
+        // retried twice (three reads in all) with the stream's own backoff, so a store busy
+        // at load does not cost the tab its graph on the first try. Past that the tab reads
+        // no graph until it is reloaded — there is no polling — and the section stands
+        // absent, as a server without one shows it. Only a refusal closes the channel too:
+        // a read that failed says nothing about the channel.
         const refused = caught instanceof RequestError && caught.status === 404;
         tries += 1;
         setError(caught instanceof Error ? caught.message : String(caught));

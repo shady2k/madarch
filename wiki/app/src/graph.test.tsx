@@ -516,6 +516,7 @@ describe('a page set read that fails first', () => {
     window.history.pushState({}, '', '/');
     intoApp(createElement(App, { reconnectMs: 5 }));
     await until(() => document.querySelector('[data-testid="graph-nav"]') !== null, 'the graph after the retries');
+    // Two failures and the third read answers: two retries, three reads in all.
     expect(installed.calls.filter((call) => call === '/api/graph/pages').length).toBe(3);
     // The channel is opened from the change number of the set that finally answered.
     await until(() => installed.calls.some((call) => call === `${GRAPH_EVENTS_PATH}?after=41`), 'the channel opened after the retry');

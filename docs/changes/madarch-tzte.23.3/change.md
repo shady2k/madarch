@@ -125,14 +125,17 @@ None.
   number), and the app then shows no graph section: a page built from a list it was
   not given would be a page of nothing. A server of another shape answers a
   document list and no graph, and that is exactly what the app shows.
-- **A page-set read that failed is retried, and a refusal is not.** A 404 is a server
-  without a graph (an older server, a foreground serve, a product whose fill never
-  ran): the app shows the document pages, no graph section and no channel, and asks
-  nothing again. Any other answer is retried three times with the stream's own
-  backoff, on a timer of the read's own, so a store busy at load does not remove the
-  graph for the tab's life; the read that finally answers opens the channel too —
-  the startup call had no change number to subscribe from. A read that failed says
-  nothing about the channel, so the channel keeps its own reconnection.
+- **A page-set read that failed is retried twice, and a refusal is not.** A 404 is a
+  server without a graph (an older server, a foreground serve, a product whose fill
+  never ran): the app shows the document pages, no graph section and no channel, and
+  asks nothing again. Any other answer is retried twice — three reads in all — with
+  the stream's own backoff and on a timer of the read's own, so a store busy at load
+  does not cost the tab its graph on the first try; the read that finally answers
+  opens the channel too, because the startup call had no change number to subscribe
+  from. Past the third read the tab reads no graph until it is reloaded — the app
+  does not poll — and the section stands absent, as a server without a graph shows
+  it. A read that failed says nothing about the channel, so the channel keeps its
+  own reconnection.
 - **The stream is opened from the set's own change number, and never polled.** The
   page set carries `changeSeq`; the app opens `/api/graph/events?after=<changeSeq>`,
   so a publication between the read and the subscription is replayed rather than
