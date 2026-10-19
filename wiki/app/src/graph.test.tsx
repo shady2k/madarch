@@ -66,7 +66,9 @@ afterEach(() => {
 const product: Product = { id: 'b7f1', name: 'Draft Idea', folder: 'idea-2026-10-10' };
 
 const documentList: PageList = {
-  revision: 'r1',
+  // A revision of this file's own: `useArchitecture` caches one bundle per revision for
+  // the whole test process, and another file's `r1` must not be read as this one's.
+  revision: 'graph-r1',
   pages: [
     { path: 'README.md', title: 'README', url: '/p/README.md' },
     { path: 'docs/vision.md', title: 'Vision', url: '/p/docs/vision.md' },
@@ -255,6 +257,8 @@ type World = {
   documents: Record<string, Page>;
   /** The repositories the manifest declares, as `/api/repos` answers them. */
   repos?: ReposList;
+  /** How many page-set reads fail with a 500 before the server answers: a transient failure at load. */
+  failures?: number;
 };
 
 function answer(world: World, target: string): Blade | 'stream' {
@@ -267,6 +271,10 @@ function answer(world: World, target: string): Blade | 'stream' {
   if (target.startsWith(GRAPH_EVENTS_PATH)) return 'stream';
   if (target === '/api/graph/pages') {
     if (!world.graph) return { body: { message: 'no such path "/api/graph/pages"' }, status: 404 };
+    if ((world.failures ?? 0) > 0) {
+      world.failures = (world.failures ?? 0) - 1;
+      return { body: { message: 'the store is busy' }, status: 500 };
+    }
     return { body: world.set };
   }
   if (target.startsWith('/api/graph/page?')) {
@@ -496,6 +504,42 @@ describe('one node’s page', () => {
   });
 });
 
+describe('a page set read that fails first', () => {
+  test('a transient failure at load is retried, and the graph opens and stays live once the set answers', async () => {
+    // A store that is busy for two reads and answers the third: the app must not treat a
+    // transient failure as a server without a graph, and must open the channel when the
+    // retried read succeeds — a section that appears and never updates would be worse than
+    // no section at all.
+    const live = world();
+    live.failures = 2;
+    const installed = install(live);
+    window.history.pushState({}, '', '/');
+    intoApp(createElement(App, { reconnectMs: 5 }));
+    await until(() => document.querySelector('[data-testid="graph-nav"]') !== null, 'the graph after the retries');
+    expect(installed.calls.filter((call) => call === '/api/graph/pages').length).toBe(3);
+    // The channel is opened from the change number of the set that finally answered.
+    await until(() => installed.calls.some((call) => call === `${GRAPH_EVENTS_PATH}?after=41`), 'the channel opened after the retry');
+
+    // And it is live: a publication moves the navigation.
+    live.set = pageSet({ changeSeq: 42, pages: [live.set.pages[1]!, live.set.pages[2]!], counts: [{ kind: 'api-endpoint', count: 1 }, { kind: 'symbol', count: 1 }], total: 2 });
+    installed.push(pagesFrame({ seq: 42, nodes: [SYMBOL], unit: 'graph-fixture/src', generation: 2 }));
+    await until(() => document.querySelector('[data-testid="graph-nav"] [data-graph-nav-kind="module"]') === null, 'the navigation after the publication');
+  }, 20_000);
+
+  test('a server that answers no page set (404) shows no graph and opens no channel', async () => {
+    const bare = world();
+    bare.graph = false;
+    const installed = install(bare);
+    window.history.pushState({}, '', '/');
+    intoApp(createElement(App, { reconnectMs: 5 }));
+    await until(() => document.querySelector('main#home') !== null, 'the home page');
+    await new Promise((step) => setTimeout(step, 120));
+    expect(document.querySelector('[data-testid="graph-nav"]')).toBeNull();
+    expect(installed.calls.filter((call) => call.startsWith(GRAPH_EVENTS_PATH)).length).toBe(0);
+    expect(installed.calls.filter((call) => call === '/api/graph/pages').length).toBe(1);
+  });
+});
+
 describe('the live channel', () => {
   test('a publication makes a node’s page appear in the navigation and on the graph’s index without a reload', async () => {
     const live = world();
@@ -614,7 +658,7 @@ describe('the graph’s rules', () => {
 
   test('a repository origin is read the way the wiki reads it, and anything else links nothing', () => {
     expect(originOf('https://github.com/acme/shop.git')).toEqual({ kind: 'github', owner: 'acme', repo: 'shop' });
-    expect(originOf('git@gitlab.com:group/sub/project.git')).toEqual({ kind: 'gitlab', owner: 'group/sub', repo: 'project' });
+    expect(originOf('git@gitlab.com:acme/sub/project.git')).toEqual({ kind: 'gitlab', owner: 'acme/sub', repo: 'project' });
     expect(originOf('https://example.com/acme/shop.git')).toBeUndefined();
     expect(originOf('file:///tmp/shop')).toBeUndefined();
     expect(originOf(undefined)).toBeUndefined();

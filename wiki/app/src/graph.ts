@@ -211,6 +211,9 @@ export function useGraphPages(options: { reconnectMs?: number } = {}): GraphLive
     // The read's own retry timer, kept apart from the stream's: a failed re-read of the set
     // must never cancel the stream's reconnection.
     let readTimer: number | undefined;
+    // Whether the channel has been opened at all: the first successful read opens it, and a
+    // read that succeeded after a retry opens it too.
+    let opened = false;
     // Whether this server answers a graph at all: a server that answers no page set has
     // no channel either, and asking one every few seconds would be polling a route the
     // server does not offer.
@@ -238,26 +241,38 @@ export function useGraphPages(options: { reconnectMs?: number } = {}): GraphLive
         setError(null);
         tries = 0;
         if (seq === undefined) seq = next.changeSeq;
+        // A first read that failed and then succeeded opens the channel here: the startup
+        // call to `open` had no change number to subscribe from, and nothing else would
+        // ever open it — the pages would appear and then never update.
+        if (!opened) {
+          opened = true;
+          void open();
+        }
       } catch (caught: unknown) {
         if (!alive) return;
         // A read that failed is not a server without a graph: a 404 is (an older server, a
         // foreground serve, a product whose fill never ran), and any other answer is
         // retried — a transient failure at load must not remove the graph for the tab's
-        // life. Three tries, backing off the same way the stream does.
+        // life. Three tries, backing off the same way the stream does. Only a refusal
+        // closes the channel too: a read that failed says nothing about the channel.
         const refused = caught instanceof RequestError && caught.status === 404;
         tries += 1;
         setError(caught instanceof Error ? caught.message : String(caught));
-        if (refused || tries >= 3) {
+        if (refused) {
           setAvailable(false);
           offered = false;
           return;
         }
-        setAvailable(true);
+        if (tries >= 3) {
+          setAvailable(false);
+          return;
+        }
+        const wait = missedRead;
+        missedRead = Math.min(maxGraphReconnectMs, reconnectMs * 2 ** tries);
         if (readTimer !== undefined) window.clearTimeout(readTimer);
         readTimer = window.setTimeout(() => {
           void loadSet();
-        }, missedRead);
-        missedRead = Math.min(maxGraphReconnectMs, reconnectMs * 2 ** (tries - 1));
+        }, wait);
       } finally {
         reading = false;
         if (again && alive) {
@@ -329,7 +344,10 @@ export function useGraphPages(options: { reconnectMs?: number } = {}): GraphLive
     };
     void (async () => {
       await loadSet();
-      if (alive) void open();
+      if (alive && seq !== undefined && !opened) {
+        opened = true;
+        void open();
+      }
     })();
     return () => {
       alive = false;

@@ -102,7 +102,6 @@ are unchanged.
 
 - product-wiki/pages: unchanged — a document page is still the product's Markdown read from the working tree at every ask, and the graph pages are added beside it; the graph pages' own app is this change, and 23.1 recorded the reads behind them.
 - product-wiki/live: unchanged — the wiki's own change stream (`GET /api/events`) and its revision rule are untouched, and the graph's channel is a second stream of its own.
-- server/protocol: unchanged — no route, handler, refusal or server file is touched; the graph's index is an app address under the `/p/` route the file fallback already answers.
 - server/serves-wiki: unchanged — a product folder still serves its wiki and a products home still serves each product under its own prefix, and a graph page is asked under that prefix like every other app address.
 - views/deterministic: unchanged — the graph section keeps the server's own order (kind, then label, then id), never a map's insertion or a locale's collation.
 - release-binary/installers: unchanged — no dependency is added; the channel is the platform's own `ReadableStream` and `TextDecoder`.
@@ -111,7 +110,6 @@ are unchanged.
 
 - product-wiki/pages: test
 - product-wiki/live: test
-- server/protocol: test
 - server/serves-wiki: test
 - views/deterministic: test
 - release-binary/installers: test
@@ -127,6 +125,14 @@ None.
   number), and the app then shows no graph section: a page built from a list it was
   not given would be a page of nothing. A server of another shape answers a
   document list and no graph, and that is exactly what the app shows.
+- **A page-set read that failed is retried, and a refusal is not.** A 404 is a server
+  without a graph (an older server, a foreground serve, a product whose fill never
+  ran): the app shows the document pages, no graph section and no channel, and asks
+  nothing again. Any other answer is retried three times with the stream's own
+  backoff, on a timer of the read's own, so a store busy at load does not remove the
+  graph for the tab's life; the read that finally answers opens the channel too —
+  the startup call had no change number to subscribe from. A read that failed says
+  nothing about the channel, so the channel keeps its own reconnection.
 - **The stream is opened from the set's own change number, and never polled.** The
   page set carries `changeSeq`; the app opens `/api/graph/events?after=<changeSeq>`,
   so a publication between the read and the subscription is replayed rather than
@@ -214,10 +220,12 @@ with the sizes and boxes the browser computed read out of the page.
   code and the diagrams' slot — each count asserted, not read from the code. The
   product's own Markdown page still opened beside it, with the graph's section in
   the navigation.
-- The measurements of the page a reader saw (`GRAPH_PAGE_MEASURED`, asserted by the
-  test): the window 1150×900, the navigation 260×900, the page column 794 px wide,
-  the title at 36 px, the facts' labels at 18 px and the chips at 14 px, **0
-  overlapping rows** and **0 elements wider than the column they stand in**.
+- The measurements the test holds (it prints them as `GRAPH_PAGE_MEASURED`): the
+  title at 36 px, the facts' labels at 18 px and the chips at 14 px, **0 overlapping
+  rows**, **0 elements wider than the column they stand in**, a page column wider
+  than 600 px and a navigation wider than 200 px, inside the 1150×900 window. The
+  widths are held as floors, not as a stylesheet's figure: a padding change must not
+  fail a page that still reads.
 - Screenshots (fetched from the pod with `--fetch`): `graph-index.png`,
   `graph-node.png`, `graph-module-page.png`, `graph-index-after-publish.png` and
   `document-beside-graph.png`, all 1150×900.
