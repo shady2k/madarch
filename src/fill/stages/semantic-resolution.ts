@@ -29,9 +29,19 @@
  *   specifier names a file of the pinned tree now: a file that appears under a
  *   specifier an unchanged file already wrote is a symbol the file's resolution
  *   reads now and did not read before;
+ * - a source file whose published `import` edge names a file its specifier no
+ *   longer names, because a file appeared beside the old target (`./x.js` written
+ *   beside the `x.ts` it resolved to) and the specifier answers the new one;
  * - a published source path the commit no longer holds, which publishes nothing
  *   and so retracts what an earlier run wrote for a file that was deleted or
  *   renamed away.
+ *
+ * The two rules about a specifier whose meaning moved are answered against this
+ * stage's own last reading (`publishedReadsRead`): a target this stage already
+ * read is one its edges already name — whatever stage 3's older gap or import
+ * edge still says — so they plan a file once and not on every later run of an
+ * unchanged commit. A graph that answers either read with nothing makes them a
+ * no-op rather than a re-planning loop.
  *
  * **What one unit reads.** The file's own bytes come from the pinned snapshot
  * (`SnapshotSource`, stage 0) and never from a working tree. The symbols it
@@ -90,6 +100,9 @@ export const COMPILER_INDEX_READ = 'stage-4-compiler-index';
 /** The read the plan makes: what stage 3 could not tie to a node, by the file it stood in. */
 export const PUBLISHED_GAPS_READ = 'stage-3-coverage-gaps';
 
+/** The read the plan makes: what this stage's own last run read for one file. */
+export const PUBLISHED_READS_READ = 'stage-4-published-reads';
+
 /**
  * The read the plan makes: the `import` edges stage 3 published for one
  * repository, which tell which files' resolution read another file's symbols.
@@ -108,6 +121,17 @@ export function publishedImportsRead(repository: string): string {
  */
 export function publishedGapsRead(repository: string): string {
   return JSON.stringify({ read: PUBLISHED_GAPS_READ, repository });
+}
+
+/**
+ * The read the plan makes: the files this stage's own last resolution read for
+ * one repository, from its own `coverage` facts. It is what keeps the two rules
+ * about a specifier whose meaning moved from firing again on every later run of
+ * an unchanged commit: a target this stage already read is a target its edges
+ * already name, whatever stage 3's older gap or import edge still says.
+ */
+export function publishedReadsRead(repository: string): string {
+  return JSON.stringify({ read: PUBLISHED_READS_READ, repository });
 }
 
 /** The read one unit makes: the symbols the graph holds for one file of one repository. */
@@ -134,6 +158,15 @@ export interface PublishedImportRow {
   readonly specifier: string;
 }
 
+/** One row of the plan's own read: what this stage's last run read for one file, the file itself among them. */
+export interface PublishedReadRow {
+  readonly kind: 'coverage';
+  /** The file the coverage is about. */
+  readonly file: string;
+  /** The files that resolution read, in code point order, each once. */
+  readonly read: readonly string[];
+}
+
 /** One row of the plan's gap read: one thing stage 3 could not tie to a node, in the file it stood in. */
 export interface PublishedGapRow {
   readonly kind: 'coverage';
@@ -148,6 +181,9 @@ const IMPORT_ROW_FIELDS: readonly string[] = ['from', 'kind', 'specifier', 'to']
 
 /** The keys a gap row holds, and no others. */
 const GAP_ROW_FIELDS: readonly string[] = ['file', 'kind', 'what'];
+
+/** The keys a read row holds, and no others. */
+const READ_ROW_FIELDS: readonly string[] = ['file', 'kind', 'read'];
 
 /** The keys a symbol row holds, and no others. */
 const SYMBOL_ROW_FIELDS: readonly string[] = ['endColumn', 'endLine', 'file', 'id', 'kind', 'qualifiedName', 'startColumn', 'startLine', 'symbolKind'];
@@ -222,6 +258,12 @@ async function planResolution(sources: SnapshotSource, graph: StageGraphReader):
     const imports = publishedImportRows(await graph.query(importsRead), pin.id, importsRead);
     const gapsRead = publishedGapsRead(pin.id);
     const gaps = publishedGapRows(await graph.query(gapsRead), pin.id, gapsRead);
+    const readsRead = publishedReadsRead(pin.id);
+    const reads = publishedReadRows(await graph.query(readsRead), pin.id, readsRead);
+    // What this stage's own last run read for each file: a target it already read
+    // is one its edges already name, so a specifier whose meaning moved plans
+    // that file once and not on every run after it.
+    const readOf = new Map<string, ReadonlySet<string>>(reads.map((row) => [row.file, new Set(row.read)]));
     const mine = reader.files().filter((entry) => isSourcePath(entry.path));
     anySource = anySource || mine.length > 0;
     const present = new Set<string>(mine.map((entry) => entry.path));
@@ -260,13 +302,14 @@ async function planResolution(sources: SnapshotSource, graph: StageGraphReader):
       // the `x.ts` it named) moves the import's own resolution without moving
       // any file the earlier run read.
       const now = resolveSpecifier(importer, edge.specifier, held);
-      if (now !== undefined && now !== target) again.add(importer);
+      if (now !== undefined && now !== target && readOf.get(importer)?.has(now) !== true) again.add(importer);
     }
     // A specifier stage 3 could not tie to a file names one now: a file appeared
     // under it, so the file that wrote it reads symbols it did not read before.
     for (const gap of gaps) {
       if (!present.has(gap.file)) continue;
-      if (resolveSpecifier(gap.file, gap.what, held) === undefined) continue;
+      const now = resolveSpecifier(gap.file, gap.what, held);
+      if (now === undefined || readOf.get(gap.file)?.has(now) === true) continue;
       again.add(gap.file);
     }
     for (const path of again) {
@@ -448,6 +491,35 @@ export function publishedGapRows(rows: readonly unknown[], repository: string, r
       throw refuse(read, index, repository, `its what ${JSON.stringify(what)} is no gap: a gap names what the reader could not read`);
     }
     return { kind: 'coverage', file, what };
+  });
+}
+
+/**
+ * The plan's own read, read: each row is one file's coverage as this stage
+ * published it, with the files that resolution read. A row naming another kind,
+ * a file that is no repository path, a list of paths that is not one, or a key
+ * this read does not define is refused, naming the read, the row and the field.
+ */
+export function publishedReadRows(rows: readonly unknown[], repository: string, read: string): readonly PublishedReadRow[] {
+  return rows.map((row, index) => {
+    const held = rowRecord(row, read, index, repository, 'what a file\'s resolution read');
+    unknownKeys(held, READ_ROW_FIELDS, read, index, repository);
+    if (held['kind'] !== 'coverage') throw refuse(read, index, repository, `its kind is ${JSON.stringify(held['kind'])}, and this read answers "coverage" facts`);
+    const file = held['file'];
+    if (typeof file !== 'string' || !isRepositoryPath(file)) {
+      throw refuse(read, index, repository, `its file ${JSON.stringify(file)} is no repository path: a coverage stands for a file of the repository`);
+    }
+    const readFiles = held['read'];
+    if (!Array.isArray(readFiles)) {
+      throw refuse(read, index, repository, `its read ${JSON.stringify(readFiles)} is no list of paths: a coverage names the files its resolution read`);
+    }
+    const paths = readFiles.map((entry, at) => {
+      if (typeof entry !== 'string' || !isRepositoryPath(entry)) {
+        throw refuse(read, index, repository, `its read[${at}] ${JSON.stringify(entry)} is no repository path`);
+      }
+      return entry;
+    });
+    return { kind: 'coverage', file, read: paths };
   });
 }
 

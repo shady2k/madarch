@@ -66,6 +66,17 @@ This change adds the resolution stage, in four modules and one registration line
 - A re-export (`export { a } from './x'`) is not followed: the name is not bound
   in the file that re-exports it, so an importer of that file finds no such
   declaration and the mention is written as unresolved, with its place.
+- **Stage 3's own plan keeps its older answer** (filed as madarch-tzte.21.9). The plan's rules 3 and 4 read
+  stage 3's published gaps and import edges, which stage 3 re-writes only when the
+  importing file's bytes move (`src/fill/stages/syntax.ts`): after this stage
+  resolves a specifier that appeared or moved, stage 3's gap for it and its
+  `import` edge still say the older thing until that file's bytes move. This
+  stage's own facts are the newer truth, its reads are what keeps it from
+  re-planning forever, and the stage-3 half is filed as madarch-tzte.21.9.
+- **A method of an object literal is stage 3's to name** (filed as madarch-tzte.21.10). Stage 3 publishes
+  `const handlers = { save() {} }`'s `save` at the file's own scope, so a bare
+  `save()` anywhere in the file resolves to it. The resolution follows the graph
+  it is given; the naming is stage 3's, and it is filed as madarch-tzte.21.10.
 - A default import resolves to the target file's `default` symbol, and stage 3
   publishes that symbol only for an *anonymous* default export (`export default
   class {}`). A default export that names itself (`export default function
@@ -73,6 +84,9 @@ This change adds the resolution stage, in four modules and one registration line
   as unresolved at each use, with its place, until a resolver reads the export
   clause. Two tests hold the two shapes: the anonymous default export resolves,
   and the named one is a gap with its place.
+- A Go qualified type (`http.Client`) is read by neither part: its package is one
+  this reader does not follow and its type belongs to that package, so neither is
+  a mention — and a same-named type of the file is never mistaken for it.
 - Go's package imports resolve to no symbol: an import path names a directory of
   another package, and mapping it to this repository's files needs the module path
   stage 2 reads. Their names are the file's coverage gap, and Go's own file-scope
@@ -203,8 +217,9 @@ no stage runs, and `src/product/fill*.ts` is untouched.
   for every other, and the record says so rather than implying a check the schema
   does not make.
 - **An aggregating edge says what it counted.** `call` and `reference` fold their
-  sites into one edge with `count` and the provenance of the earliest site in the
-  file's own order — which retires the doc's older "code-point-smallest call
+  sites into one edge with `count` — `inherits` carries its form and no count, an
+  `extends` clause being one statement about one pair of types — and the
+  provenance of the earliest site in the file's own order — which retires the doc's older "code-point-smallest call
   site", since code points put line 10 before line 3 — and `inherits` carries no
   `count` at all: an `extends` clause is one statement about one pair of types,
   and the schema holds no count for it.
@@ -221,9 +236,17 @@ no stage runs, and `src/product/fill*.ts` is untouched.
   3. a source file whose published gap names a specifier that names a file of the
      pinned tree now — a file that *appears* under a specifier an unchanged file
      already wrote is a symbol that file reads now and did not read before,
-  4. a published source path the commit no longer holds, whose unit publishes
+  4. a source file whose published `import` edge names a file its specifier no
+     longer names — a `./x.js` written beside the `x.ts` it resolved to is the file
+     that specifier answers now,
+  5. a published source path the commit no longer holds, whose unit publishes
      nothing and so retracts what an earlier run wrote there,
-  and nothing else. The unit makes the same relation a *dependency*: it reads the
+  and nothing else. Rules 3 and 4 are answered against this stage's own last
+  reading (`stage-4-published-reads`, its own coverage's `read`): a target it
+  already read is one its edges already name, so a specifier whose meaning moved
+  plans a file once and not on every later run of an unchanged commit. A graph
+  that answers either of those reads with nothing makes the two rules a no-op
+  rather than a re-planning loop. The unit makes the same relation a *dependency*: it reads the
   symbols of the file itself and of every file its imports name, so the
   orchestrator's recheck of a published unit's reads (§0027) invalidates exactly
   the units whose reading moved. A source path stage 3 read but this stage did
@@ -282,8 +305,9 @@ the index's absence is named per file rather than claimed of the repository.
 lexical scope shadows a name from its own line on, a hoisted one does too, a
 class member never does, and a declaration of another function is unreachable.
 The two readers measure spans through one `spanFactory`, Go's member access is
-the node Go writes, and two facts of one id that say different things are refused
-rather than one of them folded away — named by the file and the place of each.
+the node Go writes, and two facts of one id that say different things are refused — named by the file
+and the place of each — rather than one of them folded away, which the syntax
+stage still does for its own facts.
 
 The second round verified all sixteen of the first round's findings and answered
 `fix-before-ship` with twelve of its own, two of them defects: a class member
@@ -294,3 +318,16 @@ the plan's comparison of each published specifier with what it names at the
 pinned commit — with tests that fail without them, and the record's rule (1), its
 count wording, its "both shapes of a default export" claim and the block-scope
 limit are corrected to what the code does.
+
+The third round verified the second round's twelve and answered `fix-before-ship`
+with eleven, two of them defects: the hoisted fallback looked only at the
+mention's own innermost declaration, so a declaration of an *enclosing* scope
+that stood after the mention fell through to the import of that name (a wrong
+edge); and the plan's two rules about a specifier whose meaning moved fired again
+on every later run of an unchanged commit, because stage 3's own plan keeps its
+older gap and import edge. Both are fixed: the fallback runs over every in-scope
+declaration, deepest first, and the two rules are bounded by this stage's own
+last reading, with a test that a second run of one commit plans nothing. Stage
+3's half of the second — its plan's own staleness — is filed as
+madarch-tzte.21.9, and stage 3's naming of an object literal's method, which a
+bare name anywhere in the file resolves to, as madarch-tzte.21.10.

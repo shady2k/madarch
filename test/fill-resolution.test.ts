@@ -252,6 +252,24 @@ describe('the places a file mentions a name', () => {
     ].sort());
   });
 
+  test('a Go qualified type names a package this reader does not follow, and no mention of its type', async () => {
+    const found = await extractFileResolution('cmd/main.go', bytesOf([
+      'package main',
+      '',
+      'import (',
+      '\thttp "net/http"',
+      ')',
+      '',
+      'var client http.Client',
+      '',
+    ].join('\n')));
+    // Neither `http` nor `Client` is a name this resolution can tie to a symbol
+    // of the repository — the first is a package's, the second a type of that
+    // package — so neither is a mention, and a same-named local type is never
+    // mistaken for it.
+    expect(found.mentions).toEqual([]);
+  });
+
   test('no mention stands at a name stage 3 published as a definition', async () => {
     // The two readers share one grammar: a name this reader counted as a
     // mention where stage 3 read a declaration would be an occurrence of a
@@ -642,6 +660,28 @@ describe('what one file\'s findings become', () => {
       ],
     });
     expect(only(hoisted.facts, 'call').value).toMatchObject({ from: first.id, to: later.id });
+  });
+
+  test('a declaration of an enclosing scope that stands after the mention still binds it there', async () => {
+    // The mention stands in an arrow inside `outer`, and `outer`'s own `helper`
+    // is declared after it: the language gives that declaration `outer`'s whole
+    // scope, so the mention is `outer.helper` and never the import of the name.
+    const outer = symbolFact('src/a.ts', 'outer', 'function', lines(3, 6));
+    const inner = symbolFact('src/a.ts', 'outer.inner', 'function', lines(4, 4));
+    const helper = symbolFact('src/a.ts', 'outer.helper', 'function', lines(5, 5));
+    const imported = symbolFact('src/b.ts', 'helper', 'function', lines(1, 3));
+    const answer = await factsOfFile({
+      path: 'src/a.ts',
+      text: "import { helper } from './b.js';\n\nexport function outer(): void {\n  const inner = (): void => helper();\n  function helper(): void {}\n}\n",
+      files: ['src/a.ts', 'src/b.ts'],
+      fileSymbols: [
+        rowOf(outer, 'src/a.ts', 'outer', 'function', lines(3, 7)),
+        rowOf(inner, 'src/a.ts', 'outer.inner', 'function', lines(4, 5)),
+        rowOf(helper, 'src/a.ts', 'outer.helper', 'function', lines(5, 6)),
+      ],
+      readSymbols: new Map([['src/b.ts', [rowOf(imported, 'src/b.ts', 'helper', 'function', lines(1, 3))]]]),
+    });
+    expect(only(answer.facts, 'call').value).toMatchObject({ from: inner.id, to: helper.id });
   });
 
   test('a relative specifier that names no file of the repository is a gap at each use, with its place', async () => {

@@ -38,7 +38,6 @@
  * The module is pure: it reads its request and nothing else, and the same
  * request answers the same facts with the same ids.
  */
-import { canonicalJsonDigest } from '../../model/canonical.js';
 import { byCodePoint } from '../../model/order.js';
 import {
   makeEdgeFact, makeNodeFact,
@@ -364,12 +363,18 @@ function nearestDeclaration(symbols: readonly ResolutionSymbolRow[], mention: Ex
       || byCodePoint(left.id, right.id));
   const chosen = before[0];
   if (chosen !== undefined) return { id: chosen.id };
-  // Nothing in scope starts before the mention, so a declaration of this file's
-  // own scope that stands after it still binds it where the language hoists one:
-  // `function run() { create(); function create() {} }` is the file's `create`.
+  // Nothing in scope starts before the mention, so a declaration that stands
+  // after it still binds it where the language gives it that scope: a hoisted
+  // `function` (`function run() { create(); function create() {} }` calls the
+  // file's own `create`), and a `const`, a `let` or a class in the temporal dead
+  // zone that a mention of its own scope stands before. The nearest such
+  // declaration wins, by the same order as a declaration that starts before it.
   const after = inScope
-    .filter((symbol) => containerOf(symbol.qualifiedName) === chain)
-    .sort((left, right) => left.range.startLine - right.range.startLine || left.range.startColumn - right.range.startColumn || byCodePoint(left.id, right.id));
+    .sort((left, right) =>
+      containerOf(right.qualifiedName).length - containerOf(left.qualifiedName).length
+      || left.range.startLine - right.range.startLine
+      || left.range.startColumn - right.range.startColumn
+      || byCodePoint(left.id, right.id));
   const hoisted = after[0];
   return hoisted === undefined ? undefined : { id: hoisted.id };
 }

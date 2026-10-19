@@ -27,8 +27,9 @@ import { createGitSnapshotSource, type SnapshotSource } from '../src/fill/snapsh
 import { DEFAULT_STAGE_LIMITS, type StageContext, type StageDraftWrite, type StageUnit } from '../src/fill/stage.js';
 import { publishedTreeRead, createInventoryStage, type PublishedTreeRow } from '../src/fill/stages/inventory.js';
 import {
-  compilerIndexRead, createSemanticResolutionStage, indexRows, publishedGapsRead, publishedImportRows,
-  publishedImportsRead, publishedSymbolsRead, symbolRows, SEMANTIC_RESOLUTION_STAGE_ID, type PublishedImportRow, publishedGapRows,
+  compilerIndexRead, createSemanticResolutionStage, indexRows, publishedGapRows, publishedGapsRead, publishedImportRows,
+  publishedImportsRead, publishedReadsRead, publishedSymbolsRead, symbolRows, SEMANTIC_RESOLUTION_STAGE_ID,
+  type PublishedImportRow,
 } from '../src/fill/stages/semantic-resolution.js';
 import { createStageRegistry } from '../src/fill/stages/index.js';
 import { createSyntaxStage } from '../src/fill/stages/syntax.js';
@@ -145,6 +146,16 @@ function publishedRows(writes: readonly StageDraftWrite[], repository: string): 
   return rows;
 }
 
+/** What a fact store would answer for this stage's own last reading: one row a file, with the files its resolution read. */
+function readRows(writes: readonly StageDraftWrite[]): readonly { readonly kind: 'coverage'; readonly file: string; readonly read: readonly string[] }[] {
+  const rows: { kind: 'coverage'; file: string; read: readonly string[] }[] = [];
+  for (const fact of factsOf(writes)) {
+    if (fact.kind !== 'coverage') continue;
+    rows.push({ kind: 'coverage', file: String(fact.value['scope']), read: (fact.value['read'] as readonly string[] | undefined) ?? [] });
+  }
+  return rows;
+}
+
 /** What a fact store would answer for one repository's stage-3 gaps: the coverage facts a draft set holds, one row a gap. */
 function gapRows(writes: readonly StageDraftWrite[]): readonly { readonly kind: 'coverage'; readonly file: string; readonly what: string }[] {
   const rows: { kind: 'coverage'; file: string; what: string }[] = [];
@@ -187,6 +198,8 @@ function symbolRowsOf(writes: readonly StageDraftWrite[], path: string): readonl
 interface Published {
   readonly tree: readonly PublishedTreeRow[];
   readonly writes: readonly StageDraftWrite[];
+  /** What this stage's own last run wrote, for the plan's read of it. */
+  readonly resolution?: readonly StageDraftWrite[];
 }
 
 async function publishedAt(source: SnapshotSource): Promise<Published> {
@@ -219,6 +232,7 @@ function repositoryOf(writes: readonly StageDraftWrite[]): string {
 function graphOf(published: Published, repository: string, options: { readonly index?: (path: string) => readonly unknown[] } = {}): (read: string) => Promise<readonly unknown[]> {
   return async (read: string) => {
     if (read === publishedTreeRead(repository)) return published.tree;
+    if (read === publishedReadsRead(repository)) return readRows(published.resolution ?? []);
     if (read === publishedImportsRead(repository)) return importRows(published.writes);
     if (read === publishedGapsRead(repository)) return gapRows(published.writes);
     for (const fact of factsOf(published.writes)) {
@@ -435,6 +449,19 @@ describe('the resolution stage plans the files a commit moves', () => {
       // The importer and the file that appeared; not the file that imports
       // nothing and was not touched.
       expect(unitIds(plan)).toEqual(['file:orders-api:src/a.ts', 'file:orders-api:src/b.ts']);
+      // This stage's own runs read both files and their coverage says so: the
+      // next run of the same commit plans nothing, whatever stage 3's older gap
+      // still names — the plan does not re-fire on a specifier it has resolved.
+      const resolution: StageDraftWrite[] = [];
+      for (const unit of plan.units) {
+        const run = await runUnit(sourceAt(f.root, second), unit, graphOf(published, 'orders-api'));
+        resolution.push(...run.run.recorder.writes);
+      }
+      // The second commit's own tree and syntax facts, plus this stage's runs:
+      // the whole graph of that commit, and a run of it plans nothing.
+      const settled = await publishedAt(sourceAt(f.root, second));
+      const after = await stage.plan({ query: graphOf({ ...settled, resolution }, 'orders-api') });
+      expect(unitIds(after)).toEqual([]);
     } finally {
       await f.dispose();
     }
@@ -710,6 +737,50 @@ describe('one unit resolves the file it names', () => {
       const coverage = factOfKind(run.run.recorder.writes, 'coverage');
       expect(coverage.value['unread']).toEqual([{ what: 'src/deep.ts', reason: 'error' }]);
       expect(run.run.recorder.notes.join(' ')).toContain('nested past what this reader can walk');
+    } finally {
+      await f.dispose();
+    }
+  });
+
+  test('a RangeError that is not a stack overflow travels instead of becoming a coverage gap', async () => {
+    const f = await fixture();
+    try {
+      const commit = await writeFixture(f, CALLS_AN_EXPORTED_FUNCTION);
+      const published = await publishedAt(sourceAt(f.root, commit));
+      // A reader that answers a file with a `RangeError` of its own: only the
+      // walk's own stack overflow is a file's gap, and a defect still travels.
+      const sources = sourceAt(f.root, commit);
+      const failing: SnapshotSource = {
+        pins: () => sources.pins(),
+        open: async (id: string) => {
+          const reader = await sources.open(id);
+          // The reader the stage sees, with one file's bytes refused by a
+          // `RangeError` of its own: a structural stand-in for the class.
+          return {
+            repository: reader.repository,
+            form: reader.form,
+            root: reader.root,
+            commit: reader.commit,
+            tree: reader.tree,
+            defaultBranch: reader.defaultBranch,
+            source: reader.source,
+            entries: () => reader.entries(),
+            files: () => reader.files(),
+            unfiled: () => reader.unfiled(),
+            fileCount: reader.fileCount,
+            byteCount: reader.byteCount,
+            entry: (path: string) => reader.entry(path),
+            read: async (path: string) => {
+              if (path === 'src/a.ts') throw new RangeError('the blob is out of bounds');
+              return reader.read(path);
+            },
+          } as unknown as Awaited<ReturnType<SnapshotSource['open']>>;
+        },
+      };
+      const stage = createSemanticResolutionStage(failing);
+      const unit = { id: 'file:orders-api:src/a.ts', scope: 'orders-api:src/a.ts' };
+      const message = await refusedBy(() => stage.execute(unit, contextFor(unit, graphOf(published, 'orders-api')).context));
+      expect(message).toContain('out of bounds');
     } finally {
       await f.dispose();
     }
