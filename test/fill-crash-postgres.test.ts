@@ -351,18 +351,25 @@ describe('a lease that lapses under a worker still inside its stage', () => {
       const paused = await slow.nextLine();
       expect(paused).toMatchObject({ event: 'pause', point: 'execute', unitId: 'extract/src' });
 
-      // The run's clock moves past that lease and another executor's pass retries
-      // the generation: the unit stands in `retry_wait` while its worker still runs.
+      // The run's clock moves past that lease and another executor's pass retries the
+      // generation: the unit stands in `retry_wait` while its worker still runs.
       world.advanceClock(2_000);
-      const pass = lineOf(await world.phase({ kind: 'sweep' }, options), 'sweep');
-      expect(pass).toMatchObject({ run: 'running', swept: 1 });
+      expect(lineOf(await world.phase({ kind: 'sweep' }, options), 'sweep')).toMatchObject({ run: 'running', swept: 1 });
       expect(unitOf(reportOf(await world.phase({ kind: 'report' }, options)), 'extract/src')).toMatchObject({ state: 'retry_wait', attempt: 1 });
 
-      // The worker comes back to a unit the run already retried. The machine refuses
-      // its next step, and the claim it holds is settled by the run itself: the
-      // recovery below finds the claim completed, not still active for the suite to
-      // settle by hand — a claim left active is the unit's singleton key held against
-      // every offer the run makes for it.
+      // The retry's own moment comes too, in a pass of its own: the run wakes the
+      // generation to `ready` with its retry spent, and the job that wake asks for is
+      // answered "nothing created" — the claim this worker still holds is the unit's
+      // singleton key. That is the state the failed CI run reported.
+      world.advanceClock(2_000);
+      expect(lineOf(await world.phase({ kind: 'sweep' }, options), 'sweep')).toMatchObject({ run: 'running', swept: 1 });
+      expect(unitOf(reportOf(await world.phase({ kind: 'report' }, options)), 'extract/src')).toMatchObject({ state: 'ready', attempt: 1 });
+
+      // The worker comes back to a unit the run already moved. The machine refuses its
+      // next step, and the claim it holds is settled by the run itself: the recovery
+      // below finds the claim completed, not still active for the suite to settle by
+      // hand — a claim left active is the unit's singleton key held against every offer
+      // the run makes for it.
       slow.send();
       expect((await slow.wait()).code).toBe(0);
       const recovered = await resumeRun(world, options, paused, 'completed');

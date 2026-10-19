@@ -48,6 +48,13 @@ The `keep` this replaces was a claim no one would ever settle again.
   either leg.
 - Any change to the unit machine's transitions, the queue interface or the
   publication's transaction.
+- The seal a refused `wait-for-children` already committed: the split's transaction
+  writes the children and the seal before it takes the step, so a refusal leaves them
+  standing while the parent stays where the sweep left it. That window is older than
+  this change, no shipped stage splits yet, and the review of this change named it as
+  a defect of its own: it is filed as madarch-tzte.19.8, with the shape of the fix and
+  the test it owes. This change leaves the transaction as it stands and settles the
+  claim, which is what keeps the run moving.
 
 ## Rationale
 
@@ -101,14 +108,22 @@ None.
   reason and what became of the claim (settled, or already the queue's own to
   settle), so a run that stops an attempt says so instead of leaving a reader with
   a wake that created nothing.
+- **Every step of an attempt goes through one tested path.** `takeAttemptStep` takes a
+  named step and, when the machine refuses it, answers the settled attempt `refusedStep`
+  builds. A site that reached the store's `advanceUnit` directly could return the old
+  unanswered result without any test noticing, which is what the review of this change
+  pointed at; the one step that cannot go through it is the split's `wait-for-children`,
+  which is taken inside the seal's own transaction.
 - **The tests open the window deterministically.** `test/fill-orchestrator.test.ts`
   makes the window from inside the stage: the stage's own `execute` moves the
   test's clock past the lease and runs the run's sweep, which retries the
   generation, and the step the worker comes back to is the one refused. The
-  PostgreSQL leg pauses a worker at the suite's `execute` seam, moves the clock,
-  sweeps from another process, and then reads the settlement off the suite's own
-  recovery phase: it reports the claim `completed` — the run settled it — where a
-  kept claim would be `active` for the suite to fail by hand.
+  PostgreSQL leg pauses a worker at the suite's `execute` seam, moves the clock twice
+  and sweeps from another process each time — the retry of the lapsed lease, and then
+  the wake that leaves the unit standing `ready` with its retry spent, which is the
+  state the failed CI run reported — and then reads the settlement off the suite's own
+  recovery phase: it reports the claim `completed` — the run settled it — where a kept
+  claim would be `active` for the suite to fail by hand.
 - **What the fix leaves as it was.** A unit standing `ready` whose job the queue no
   longer holds is still offered the queue again on every pass, idempotently, and a
   unit under a lease of its own is still left to that lease. What changes is only

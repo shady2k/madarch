@@ -47,7 +47,7 @@ import { byCodePoint } from '../model/order.js';
 import type { FillControl } from '../product/fill-runtime.js';
 import { hashFillInputs } from '../product/fill-runtime.js';
 import { here, raise, withLocation } from './fsm-core.js';
-import type { UnitChildOutcome, UnitFailedChildPolicy, UnitRetryCause, UnitState } from './fsm.js';
+import type { UnitAdvanceEvent, UnitChildOutcome, UnitFailedChildPolicy, UnitRetryCause, UnitState } from './fsm.js';
 import type { ResolvedStageConfiguration, StageContext, StageDraftSet, StageDraftWrite, StageExecutionResult } from './stage.js';
 import {
   ORCHESTRATOR_TABLES,
@@ -1047,7 +1047,7 @@ async function refusedStep(
   orchestrator: FillOrchestrator,
   request: {
     readonly unit: UnitRecord;
-    readonly step: string;
+    readonly step: AttemptStep;
     readonly job: ClaimedJob<{ readonly unitId: string; readonly generation: number }>;
     readonly refusal: { readonly code: string; readonly reason: string };
   },
@@ -1062,10 +1062,32 @@ async function refusedStep(
     generation: unit.generation,
     kind: 'unit-refused',
     summary: settled
-      ? `${unit.unitId} stopped after the machine refused ${request.step}: ${request.refusal.reason}. Its claim is settled, so the run's next offer of the unit can reach the queue`
-      : `${unit.unitId} stopped after the machine refused ${request.step}: ${request.refusal.reason}. Its claim was no longer the queue's to settle, so the queue's own maintenance owns it`,
+      ? `${unit.unitId} stopped after the machine refused ${request.step}: ${request.refusal.reason}. Its claim is settled, so the unit's place in the queue is the run's to offer again`
+      : `${unit.unitId} stopped after the machine refused ${request.step}: ${request.refusal.reason}. The queue no longer held its claim, so the queue's own maintenance owns it`,
   });
   return { claimed: true, unitId: unit.unitId, generation: unit.generation, result: 'refused', refusal: request.refusal, job: settled ? 'completed' : 'none' };
+}
+
+/** The named steps one attempt takes, as the events the machine knows them by. */
+type AttemptStep = 'block' | 'submit-draft' | 'validate-draft' | 'wait-for-children';
+
+/** One named step of an attempt: the record the machine answered with, or the settled attempt its refusal ended in. */
+type AttemptResult = { readonly ok: true; readonly record: UnitRecord } | { readonly ok: false; readonly outcome: WorkOutcome };
+
+/**
+ * Takes one named step of an attempt. A refusal is not an attempt that ends by itself:
+ * it settles the claim (see `refusedStep`), which is why every step of an attempt goes
+ * through here rather than through the store's `advanceUnit` — a step that is refused
+ * and left unsettled holds the unit's singleton key, and no test can tell one such site
+ * from another.
+ */
+async function takeAttemptStep(
+  orchestrator: FillOrchestrator,
+  request: { readonly unit: UnitRecord; readonly step: AttemptStep; readonly job: ClaimedJob<{ readonly unitId: string; readonly generation: number }>; readonly event: UnitAdvanceEvent },
+): Promise<AttemptResult> {
+  const step = await advanceUnit(orchestrator.database, { unitId: request.unit.unitId, event: request.event });
+  if (step.ok) return { ok: true, record: step.record };
+  return { ok: false, outcome: await refusedStep(orchestrator, { unit: request.unit, step: request.step, job: request.job, refusal: step.refusal }) };
 }
 
 /** Runs one attempt of a ready unit: lease it, start it, run its stage and follow the outcome. */
@@ -1145,8 +1167,8 @@ async function attemptUnit(
   }
 
   if (result.outcome === 'blocked') {
-    const blocked = await advanceUnit(database, { unitId: unit.unitId, event: { type: 'block', at: orchestrator.clock(), generation: unit.generation, fence, reason: result.reason } });
-    if (!blocked.ok) return await refusedStep(orchestrator, { unit, step: 'block', job: request.job, refusal: blocked.refusal });
+    const blocked = await takeAttemptStep(orchestrator, { unit, step: 'block', job: request.job, event: { type: 'block', at: orchestrator.clock(), generation: unit.generation, fence, reason: result.reason } });
+    if (!blocked.ok) return blocked.outcome;
     await orchestrator.queue.complete(orchestrator.queueName, request.job, { reason: result.reason });
     await emit(orchestrator, { runId: unit.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-blocked', summary: `${unit.unitId} is blocked: ${result.reason}` });
     return { claimed: true, unitId: unit.unitId, generation: unit.generation, result: 'blocked', summary: result.reason, job: 'completed' };
@@ -1156,13 +1178,13 @@ async function attemptUnit(
   }
 
   // The draft: the machine's own `submit-draft` step, then the effect that records what was written.
-  const drafted = await advanceUnit(database, { unitId: unit.unitId, event: { type: 'submit-draft', at: orchestrator.clock(), generation: unit.generation, fence } });
-  if (!drafted.ok) return await refusedStep(orchestrator, { unit, step: 'submit-draft', job: request.job, refusal: drafted.refusal });
+  const drafted = await takeAttemptStep(orchestrator, { unit, step: 'submit-draft', job: request.job, event: { type: 'submit-draft', at: orchestrator.clock(), generation: unit.generation, fence } });
+  if (!drafted.ok) return drafted.outcome;
   await recordUnitDraft(database, { unitId: unit.unitId, generation: unit.generation, writes, at: orchestrator.clock() });
   await emit(orchestrator, { runId: unit.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-drafted', summary: `${unit.unitId} drafted ${writes.length} ${writes.length === 1 ? 'write' : 'writes'}` });
 
-  const validating = await advanceUnit(database, { unitId: unit.unitId, event: { type: 'validate-draft', at: orchestrator.clock(), generation: unit.generation, fence } });
-  if (!validating.ok) return await refusedStep(orchestrator, { unit, step: 'validate-draft', job: request.job, refusal: validating.refusal });
+  const validating = await takeAttemptStep(orchestrator, { unit, step: 'validate-draft', job: request.job, event: { type: 'validate-draft', at: orchestrator.clock(), generation: unit.generation, fence } });
+  if (!validating.ok) return validating.outcome;
   await emit(orchestrator, { runId: unit.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-validating', summary: `${unit.unitId} validates its draft` });
 
   const validation = await stage.validate({ writes }, context.graph);
@@ -1297,8 +1319,8 @@ async function splitAttempt(
   const unit = request.unit;
   const at = orchestrator.clock();
   const refuse = async (reason: string): Promise<WorkOutcome> => {
-    const blocked = await advanceUnit(database, { unitId: unit.unitId, event: { type: 'block', at, generation: unit.generation, fence: request.fence, reason } });
-    if (!blocked.ok) return await refusedStep(orchestrator, { unit, step: 'block', job: request.job, refusal: blocked.refusal });
+    const blocked = await takeAttemptStep(orchestrator, { unit, step: 'block', job: request.job, event: { type: 'block', at, generation: unit.generation, fence: request.fence, reason } });
+    if (!blocked.ok) return blocked.outcome;
     await orchestrator.queue.complete(orchestrator.queueName, request.job, { reason });
     await emit(orchestrator, { runId: unit.runId, at, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-blocked', summary: `${unit.unitId} cannot split: ${reason}` });
     return { claimed: true, unitId: unit.unitId, generation: unit.generation, result: 'blocked', summary: reason, job: 'completed' };
