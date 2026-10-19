@@ -1640,3 +1640,111 @@ describe('the window between a machine step and its enqueue', () => {
     expect(await readPublications(opened.owner, 'snapshot/src')).toHaveLength(1);
   }, 30_000);
 });
+
+describe('a worker whose lease lapsed while it was still inside its stage', () => {
+  /** The run's unfinished jobs, by the unit each carries: a key no new job can take while it stands. */
+  async function unfinished(opened: World): Promise<string[]> {
+    const rows = await opened.owner.run(async (transaction) => (await transaction.query<{ singleton_key: string }>(
+      `SELECT singleton_key FROM ${QUEUE_SCHEMA}.job WHERE name = $1 AND state IN ('created', 'retry', 'active') ORDER BY singleton_key`,
+      [QUEUE],
+    )).rows);
+    return rows.map((row) => row.singleton_key);
+  }
+
+  test('a step the machine refuses ends the attempt\'s claim, so the run reaches the unit again', async () => {
+    // The window is a stage slower than the lease it runs under: the run's own
+    // sweep, in another executor, retries the generation while this worker is still
+    // inside the stage, and the steps it comes back to are refused.
+    const lapse: { now?: () => Promise<void> } = {};
+    const registry = new StageRegistry().register(fakeStage('snapshot', {
+      produces: [{ kind: 'file-facts', schemaVersion: 1, scope: 'repository' }],
+      plan: () => ({ units: [{ id: 'src', scope: 'src' }], coverage: 'planned' }),
+      execute: async (_unit, context): Promise<StageExecutionResult> => {
+        await lapse.now?.();
+        context.draft.write({ kind: 'fact', evidence: 'src:1', value: { kind: 'file-facts' } });
+        return { outcome: 'draft' };
+      },
+    }));
+    const { world: opened, runId } = await plannedWorld({ registry, limits: { leaseMs: 1_000, retryDelayMs: 500, retries: 2 } });
+    await admitUnits(opened.orchestrator, { runId });
+    expect(await unfinished(opened)).toEqual(['snapshot/src']);
+    lapse.now = async () => {
+      lapse.now = undefined;
+      opened.clock.advance(1_000);
+      expect((await sweepUnits(opened.orchestrator, { runId })).swept.map((unit) => unit.outcome)).toEqual(['retried']);
+      // The retry's own job is the run's to enqueue, and the queue creates nothing:
+      // the claim this attempt holds is the unit's singleton key.
+      expect(await unfinished(opened)).toEqual(['snapshot/src']);
+    };
+
+    const worked = await workOnce(opened.orchestrator, { worker: 'worker-1' });
+    // The unit stands `retry_wait`, so the machine refuses `submit-draft`. The claim
+    // that attempt held is settled with the machine's own words, not kept: kept, it
+    // would hold the unit's key until the queue's real-time lease lapsed.
+    expect(worked).toMatchObject({ unitId: 'snapshot/src', result: 'refused', job: 'completed' });
+    expect(worked.refusal?.reason).toContain('retry_wait');
+    expect(await unfinished(opened)).toEqual([]);
+    const refused = (await readProgress(opened.owner, runId)).filter((event) => event.kind === 'unit-refused');
+    expect(refused.map((event) => event.summary)).toEqual([expect.stringContaining('refused submit-draft')]);
+
+    // The retry's own moment brings the unit back, the queue takes its job again and
+    // the generation publishes exactly once.
+    opened.clock.advance(500);
+    expect((await sweepUnits(opened.orchestrator, { runId })).swept.map((unit) => unit.outcome)).toEqual(['woken']);
+    expect(await unfinished(opened)).toEqual(['snapshot/src']);
+    expect(await workOnce(opened.orchestrator, { worker: 'worker-2' })).toMatchObject({ unitId: 'snapshot/src', result: 'published' });
+    expect(await readPublications(opened.owner, 'snapshot/src')).toHaveLength(1);
+  }, 30_000);
+
+  test('a split whose suspension the machine refuses ends its claim, and the children it sealed are worked', async () => {
+    // The same lapse, one step further: the stage splits, so the seal commits and
+    // the step that suspends the parent — `wait-for-children` — is the one refused.
+    const lapse: { now?: () => Promise<void> } = {};
+    const attempts: string[] = [];
+    const registry = new StageRegistry().register(fakeStage('modules', {
+      produces: [{ kind: 'module-facts', schemaVersion: 1, scope: 'cluster' }],
+      plan: () => ({ units: [{ id: 'root', scope: 'the repository' }], coverage: 'planned' }),
+      execute: async (unit, context): Promise<StageExecutionResult> => {
+        attempts.push(unit.id);
+        if (unit.id === 'root' && attempts.filter((id) => id === unit.id).length === 1) {
+          const lapseNow = lapse.now;
+          lapse.now = undefined;
+          await lapseNow?.();
+          return { outcome: 'split', children: [{ id: 'left', scope: 'the left half' }, { id: 'right', scope: 'the right half' }] };
+        }
+        context.draft.write({ kind: 'fact', evidence: `${unit.scope}:1`, value: { kind: 'module-facts' } });
+        return { outcome: 'draft' };
+      },
+    }));
+    const { world: opened, runId } = await plannedWorld({ registry, limits: { leaseMs: 1_000, retryDelayMs: 500, retries: 2 } });
+    await admitUnits(opened.orchestrator, { runId });
+    lapse.now = async () => {
+      opened.clock.advance(1_000);
+      expect((await sweepUnits(opened.orchestrator, { runId })).swept.map((unit) => unit.outcome)).toEqual(['retried']);
+    };
+
+    const worked = await workOnce(opened.orchestrator, { worker: 'worker-1' });
+    expect(worked).toMatchObject({ unitId: 'modules/root', result: 'refused', job: 'completed' });
+    expect(worked.refusal?.reason).toContain('wait-for-children');
+    // The seal committed before the refusal: both children stand, and the parent's
+    // claim is gone, so the run's own offers of the children reach the queue.
+    expect((await readSealedChildren(opened.owner, 'modules/root', 1)).map((child) => child.unitId)).toEqual(['modules/left', 'modules/right']);
+    expect((await readUnit(opened.owner, 'modules/root'))?.state).toBe('retry_wait');
+    expect(await unfinished(opened)).toEqual([]);
+
+    // The parent's retry comes due, and the run drives every unit it holds — the two
+    // children and the parent — to one publication each.
+    opened.clock.advance(2_000);
+    const driven = await driveRun(opened.orchestrator, { runId, workers: 1 });
+    if (!driven.settled) {
+      const status = await runStatus(opened.orchestrator, runId);
+      const progress = (await readProgress(opened.owner, runId)).map((event) => `${event.kind} ${event.unitId}: ${event.summary}`);
+      throw new Error(`the run did not settle (${driven.stoppedBecause ?? 'no reason'}): ${JSON.stringify(status?.units)}; queue ${JSON.stringify(await unfinished(opened))}; progress ${JSON.stringify(progress)}`);
+    }
+    expect(driven.settled).toBe(true);
+    expect(driven.run.state).toBe('succeeded');
+    for (const unitId of ['modules/root', 'modules/left', 'modules/right']) {
+      expect(await readPublications(opened.owner, unitId)).toHaveLength(1);
+    }
+  }, 30_000);
+});

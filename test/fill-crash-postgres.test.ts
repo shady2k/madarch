@@ -335,3 +335,48 @@ describe('one run, three executor processes', () => {
     }
   }, 300_000);
 });
+
+describe('a lease that lapses under a worker still inside its stage', () => {
+  test.skipIf(connectionString === undefined)('the refused step settles the attempt\'s claim, and the run finishes', async () => {
+    const options = postgres();
+    const world = fixture();
+    const drivers: CrashDriver[] = [];
+    try {
+      await dropSchemas(options);
+      await planFixture(world, options);
+      // One executor stands inside extract/src with its lease taken and its read
+      // made: the pause is the window a slow stage opens on a loaded server.
+      const slow = starting(world, { kind: 'run', workers: 1 }, { ...options, interrupt: { point: 'execute', mode: 'pause', unitId: 'extract/src' } });
+      drivers.push(slow);
+      const paused = await slow.nextLine();
+      expect(paused).toMatchObject({ event: 'pause', point: 'execute', unitId: 'extract/src' });
+
+      // The run's clock moves past that lease and another executor's pass retries
+      // the generation: the unit stands in `retry_wait` while its worker still runs.
+      world.advanceClock(2_000);
+      const pass = lineOf(await world.phase({ kind: 'sweep' }, options), 'sweep');
+      expect(pass).toMatchObject({ run: 'running', swept: 1 });
+      expect(unitOf(reportOf(await world.phase({ kind: 'report' }, options)), 'extract/src')).toMatchObject({ state: 'retry_wait', attempt: 1 });
+
+      // The worker comes back to a unit the run already retried. The machine refuses
+      // its next step, and the claim it holds is settled by the run itself: the
+      // recovery below finds the claim completed, not still active for the suite to
+      // settle by hand — a claim left active is the unit's singleton key held against
+      // every offer the run makes for it.
+      slow.send();
+      expect((await slow.wait()).code).toBe(0);
+      const recovered = await resumeRun(world, options, paused, 'completed');
+      expect(recovered.code).toBe(0);
+
+      const report = reportOf(await world.phase({ kind: 'report' }, options));
+      expectSettled(report);
+      // The run says where it stopped the attempt, in the machine's own words.
+      const refusals = report.progress.filter((event) => event.kind === 'unit-refused');
+      expect(refusals.map((event) => event.unitId)).toEqual(['extract/src']);
+      expect(refusals[0]?.summary).toContain('refused submit-draft');
+    } finally {
+      for (const driver of drivers) driver.kill();
+      await dropSchemas(options);
+    }
+  }, 300_000);
+});
