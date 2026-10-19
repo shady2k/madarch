@@ -280,11 +280,11 @@ The checks, each command's own exit status, at hand-over:
 - The focused suites run in SkyPilot, not on this machine (the owner's rule),
   `madarch-sky-test <worktree> <files>`, each with the tests' own exit status:
   - `test/fill-unit-tools.test.ts` — 28 pass, 0 fail, exit 0 at the first review's
-    answers (21 at the first revision; the seven new cases are a published unit's
-    set, the reading generation's own set, a module scope's drafts, a damaged draft
-    set, a unit with no plan row, the route's refusals, a host's close-all, and the
-    cap asserted as `tokens <= cap` with the drafts cut by their own marker), and
-    29 pass, 0 fail, exit 0 after the second round's.
+    answers (21 at the first revision; the seven cases it added are a published
+    unit's set, the reading generation's own set, a module scope's drafts, a damaged
+    draft set, a unit with no plan row, the route's refusals and a host's close-all,
+    and the cap case was rewritten to assert `tokens <= cap`), and 29 pass, 0 fail,
+    exit 0 after the second round's.
   - `test/fill-graph-reads.test.ts` + `test/fill-unit-tools.test.ts` — 56 pass,
     0 fail, exit 0 at the first review's answers, and 57 pass, 0 fail, exit 0 after
     the second round's (a draft whose fact names a version that is no whole
@@ -298,8 +298,6 @@ The checks, each command's own exit status, at hand-over:
   - `test/product-daemon.test.ts` + `test/fill-checked-writes.test.ts` +
     `test/fill-orchestrator.test.ts` — 92 pass, 0 fail, exit 0, after the first
     review's answers.
-  - `test/fill-unit-tools.test.ts` + `test/fill-graph-reads.test.ts` — after the
-    second round's answers.
 - The independent review, a fresh read-only
   `prime-agent --provider shady2k-gateway --model deepseek-v4.1-flash-auto`
   session over `git diff origin/main...HEAD`.
@@ -313,8 +311,14 @@ The checks, each command's own exit status, at hand-over:
     lost when the draft fact's spelling was moved to `draftFactOfRow` — with three
     nits (the marker count of `coverage` and `describe_scope`, a module-scope test
     that only proved the section empty, and these acceptance lines). All four are
-    answered in the third commit, which a narrow re-check of the second round's four
-    items read.
+    answered in the third commit.
+  - The narrow re-check (`/tmp/review-222c.log`), over `a248f16a`: the three code
+    items answered, and one leftover line of these acceptance notes with no count —
+    which the fourth commit removes — so its verdict was `fix-before-ship` for the
+    notes alone. Its own note stands as a limitation, not a defect of this change:
+    one coverage row can push two cut sentences into one marker, so an answer with
+    several cut coverage rows can pass the cap by their words (the same shape the
+    landed reader has, `coverageRows`).
 - CI on the exact SHA of the branch: named in the task's `check:` records and in
   the queue entry (`## madarch-tzte.22.2 — READY …`).
 
