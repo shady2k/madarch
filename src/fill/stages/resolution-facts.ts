@@ -45,8 +45,8 @@ import {
   type CoverageGap, type CoverageValue, type Fact, type FactPlace, type FactProvenance, type FactRange, type FactSource,
   type InheritsForm, type RepositoryPath, type ResolutionPrecision, type SymbolKind,
 } from '../facts.js';
-import { resolveSpecifier } from './syntax-facts.js';
-import { isRelativeSpecifier, type ExtractedFileResolution, type ExtractedResolutionMention } from './resolution-extract.js';
+import { isRelativeSpecifier, resolveSpecifier } from './syntax-facts.js';
+import type { ExtractedFileResolution, ExtractedResolutionMention } from './resolution-extract.js';
 
 /**
  * The reader every fact of this stage cites as its source. The resolution is
@@ -149,6 +149,13 @@ export function resolutionFacts(request: ResolutionRequest): ResolutionFactSet {
     const target = resolveSpecifier(request.path, entry.specifier, known);
     if (target === undefined) {
       if (isRelativeSpecifier(entry.specifier)) {
+        // The import itself is named, so a specifier that names no file is a gap
+        // even where no use of the name follows, and each use of it is a gap of
+        // its own with its place (see `bindMention`).
+        unread.push({
+          what: `${request.path} imports ${JSON.stringify(entry.specifier)}, which names no file of this repository`,
+          reason: 'unsupported',
+        });
         bindings.set(entry.local, {
           target: undefined,
           imported: entry.imported,
@@ -230,7 +237,7 @@ export function resolutionFacts(request: ResolutionRequest): ResolutionFactSet {
   facts.push(makeNodeFact({ kind: 'coverage', layer: 'extracted', provenance: { source, repository }, value: coverage }));
 
   return {
-    facts: sortedFacts(facts),
+    facts: oneFactPerId(facts, request.path),
     coverage,
     resolvedMentions: sites.length,
     unresolvedMentions: unresolved,
@@ -340,17 +347,51 @@ function topLevelSymbol(symbols: readonly ResolutionSymbolRow[], name: string): 
  */
 function nearestDeclaration(symbols: readonly ResolutionSymbolRow[], mention: ExtractedResolutionMention): ResolvedSymbol | undefined {
   const chain = enclosingChain(symbols, mention.span.startLine, mention.span.startColumn);
-  const held = symbols
+  const inScope = symbols
     .filter((symbol) => namePartOf(symbol.qualifiedName) === mention.name)
     .filter((symbol) => inScopeOf(chain, containerOf(symbol.qualifiedName)))
+    // Only a declaration held by a *lexical* scope of the file shadows a name: a
+    // class, an interface, an enum or a struct holds members, and no bare name of
+    // a method body reaches one (`total()` inside a method is the file's own
+    // `total`, never the method beside it).
+    .filter((symbol) => isLexicalScope(symbols, containerOf(symbol.qualifiedName)));
+  const before = inScope
     .filter((symbol) => startsBefore(symbol.range, mention.span.startLine, mention.span.startColumn))
     .sort((left, right) =>
       containerOf(right.qualifiedName).length - containerOf(left.qualifiedName).length
       || right.range.startLine - left.range.startLine
       || right.range.startColumn - left.range.startColumn
       || byCodePoint(left.id, right.id));
-  const first = held[0];
-  return first === undefined ? undefined : { id: first.id };
+  const chosen = before[0];
+  if (chosen !== undefined) return { id: chosen.id };
+  // Nothing in scope starts before the mention, so a declaration of this file's
+  // own scope that stands after it still binds it where the language hoists one:
+  // `function run() { create(); function create() {} }` is the file's `create`.
+  const after = inScope
+    .filter((symbol) => containerOf(symbol.qualifiedName) === chain)
+    .sort((left, right) => left.range.startLine - right.range.startLine || left.range.startColumn - right.range.startColumn || byCodePoint(left.id, right.id));
+  const hoisted = after[0];
+  return hoisted === undefined ? undefined : { id: hoisted.id };
+}
+
+/** The symbol kinds whose members a bare name of the file reaches: a function, a method, a module, a namespace. */
+const LEXICAL_SCOPES: readonly SymbolKind[] = ['function', 'method', 'module', 'namespace'];
+
+/**
+ * Whether a container is a lexical scope of the file's code: the file's own
+ * scope (the empty name) or a declaration whose body a mention stands in. A
+ * class's, an interface's, an enum's or a struct's members are reachable through
+ * the type and never by a bare name, so they shadow nothing.
+ *
+ * A *block* is not published: stage 3 names a declaration inside a block by the
+ * function that holds it (`f.c`), so a mention outside a block may bind to a
+ * declaration of another block of the same function. That is the price of
+ * resolving locals at all, and it is stated in the change record.
+ */
+function isLexicalScope(symbols: readonly ResolutionSymbolRow[], container: string): boolean {
+  if (container === '') return true;
+  const holder = symbols.find((symbol) => symbol.qualifiedName === container);
+  return holder !== undefined && LEXICAL_SCOPES.includes(holder.symbolKind);
 }
 
 /** The qualified name of the innermost symbol of a file that holds a place: the chain a mention stands in. */
@@ -479,7 +520,7 @@ export function placeOf(path: RepositoryPath, span: { readonly startLine: number
  * say anything else are refused rather than folded in silence: one of them would
  * be lost, and nothing would say which.
  */
-function sortedFacts(facts: readonly Fact[]): Fact[] {
+export function oneFactPerId(facts: readonly Fact[], path: RepositoryPath): Fact[] {
   const byId = new Map<string, Fact>();
   for (const fact of facts) {
     const key = `${fact.kind}\u0000${fact.id}`;
@@ -493,9 +534,16 @@ function sortedFacts(facts: readonly Fact[]): Fact[] {
       byId.set(key, merged);
       continue;
     }
-    throw new Error(`two ${fact.kind} facts of this file share the id ${fact.id} and say different things: ${canonicalJsonDigest(held)} and ${canonicalJsonDigest(fact)}`);
+    throw new Error(`two ${fact.kind} facts of ${path} share the id ${fact.id} and say different things: one stands at ${placeOfFact(held)}, the other at ${placeOfFact(fact)}`);
   }
   return [...byId.keys()].sort(byCodePoint).map((key) => byId.get(key)!);
+}
+
+/** Where a fact stands, as a refusal names it: `path:line:column`, or "no place" where it cites none. */
+function placeOfFact(fact: Fact): string {
+  const place = fact.provenance.place;
+  if (place === undefined) return 'no place';
+  return `${place.file}:${place.range.startLine}:${place.range.startColumn}`;
 }
 
 /** Two occurrences at one place, with the roles of both; `undefined` for anything else. */

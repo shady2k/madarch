@@ -71,7 +71,8 @@ This change adds the resolution stage, in four modules and one registration line
   class {}`). A default export that names itself (`export default function
   named() {}`) is the symbol `named`, so an `import x from './that.js'` is written
   as unresolved at each use, with its place, until a resolver reads the export
-  clause; a test holds both shapes.
+  clause. Two tests hold the two shapes: the anonymous default export resolves,
+  and the named one is a gap with its place.
 - Go's package imports resolve to no symbol: an import path names a directory of
   another package, and mapping it to this repository's files needs the module path
   stage 2 reads. Their names are the file's coverage gap, and Go's own file-scope
@@ -137,8 +138,11 @@ no stage runs, and `src/product/fill*.ts` is untouched.
   aggregated per pair of symbols (not one edge per call site …)".
 - **What the resolver resolves.** A mention names a symbol of this repository
   when the name is bound (1) by a declaration of the file the mention stands in —
-  the nearest declaration whose own span holds the mention, else a top-level one,
-  as stage 3 published them; (2) by an import of the file whose specifier is a
+  the nearest one that is *in scope* at the mention and stands before it, else a
+  top-level one, and a declaration that stands after the mention only where it is
+  of the mention's own scope and the language hoists it
+  (`function run() { create(); function create() {} }` is the file's own
+  `create`, never the import of that name) — all as stage 3 published them; (2) by an import of the file whose specifier is a
   relative one this stage can tie to a file of the repository — a named import, an
   aliased one, a default import (the target's `default` symbol) and `ns.name`
   through a namespace binding; (3) by a compiler's index, where the wiring has
@@ -149,6 +153,17 @@ no stage runs, and `src/product/fill*.ts` is untouched.
   and the schema holds no symbol for a module: it is out of the claim rather than
   an edge to the target's default export, which is a different symbol with a
   different meaning.
+  **Only a lexical scope shadows a name.** A function, a method, a module and a
+  namespace hold the names a bare mention of their bodies reaches; a class, an
+  interface, an enum and a struct hold *members*, which no bare name reaches
+  (`total()` inside a method is the file's own `total`, never the method beside
+  it), so their members never shadow an import or a top-level declaration.
+  **A block is not a scope this reader can see**: stage 3 names a declaration
+  inside a block by the declaration that holds it (`f.c`) and publishes no block,
+  so a mention outside a block may bind to a declaration of another block of the
+  same function. That is the price of resolving locals at all: the alternative —
+  never resolving one — loses every local call, and a name that two blocks of one
+  function declare is not something the graph can tell apart today.
 - **What it deliberately does not resolve, and how that is said.** A mention
   whose name a parameter of an enclosing declaration binds names that parameter:
   the syntax stage reads declarations, not parameters, so the mention is out of
@@ -163,10 +178,13 @@ no stage runs, and `src/product/fill*.ts` is untouched.
   cannot tie to a symbol is a coverage gap naming the name and its own place
   (`missing at src/a.ts:4:2`), with the reason. Three ways of failing are told
   apart, because they are three different facts:
-  1. a relative specifier that names no file of the repository — the names it
-     binds are this reader's claim and it cannot tie them down, so **each use of
-     one is a gap at its own place** (`create at src/a.ts:4:2, the specifier
-     "./missing.js" names no file of this repository`);
+  1. a relative specifier that names no file of the repository — the import is
+     named once (`src/a.ts imports "./missing.js", which names no file of this
+     repository`, so a specifier no name of which is ever used is still no
+     silence), and the names it binds are this reader's claim that it cannot tie
+     down, so **each use of one is a gap at its own place** (`create at
+     src/a.ts:4:2, the specifier "./missing.js" names no file of this
+     repository`);
   2. the target file declares no such name (a named import of a name it does not
      declare, a default import of a file with no `default` symbol) — a gap at the
      mention's place naming what the file does not declare;
@@ -211,6 +229,13 @@ no stage runs, and `src/product/fill*.ts` is untouched.
   the units whose reading moved. A source path stage 3 read but this stage did
   not (a `.py` file) has a unit all the same: it publishes its coverage, which
   names why.
+- **The plan's third read needs no capability of its own.** It reads stage 3's
+  `coverage` facts, and `consumes` names `file`, `import` and `symbol` as its
+  required capabilities: both `import` and `symbol` are stage 3's, so a run that
+  disabled stage 3 starves this stage by name (0027's starvation path) before the
+  gap read could answer nothing. The capability table matches by kind, and
+  `coverage` is produced by five stages, so declaring it would draw five ordering
+  edges for one read.
 - **A unit is a file, and an absent path publishes nothing.** The unit id is
   `file:<repository>:<path>` — the same file unit stage 3 plans, over the same
   scopes — so the incrementality is per file and a rename leaves no stale fact:
@@ -234,5 +259,38 @@ Owner approval pending (coordinator).
 The independent review and the checks are recorded on task madarch-tzte.21.6:
 `bun run check`, the focused suites on the SkyPilot pod (`--avx2`: the
 tree-sitter wasm grammars need it), the feature document gate, green CI on the
-exact SHA and one independent review round. Mutation is not run: the owner's
-rule runs Stryker once per assembled stage.
+exact SHA and two independent review rounds. Mutation is not run as a Stryker
+job: the owner's rule runs it once per assembled stage, and a bounded manual
+sample of three mutants (each killed) is recorded on the task instead.
+
+The first review round (a fresh `deepseek-v4.1-flash-auto` session over
+`git diff origin/main...HEAD`) answered `fix-before-ship` with two defects, six
+should-fix items and eight nits; all of them are answered with the test that
+holds each. The plan's second rule read the published import edges alone, so a
+target the commit deleted left its importers' edges standing and a file that
+appeared under a specifier an unchanged file already wrote was never resolved:
+the plan now reads stage 3's coverage gaps as well, counts a vanished published
+source path as a moved target, and re-plans an importer whose published specifier
+names another file of the pinned tree now. A bare mention of a namespace binding
+fell into the default-import path and could name the target's default symbol; it
+now names a module, which the schema holds no symbol for, and stays out of the
+claim. A compiler index is consulted before anything the file binds. A relative
+specifier that names no file is a gap at the import and at each use; a package
+outside the repository stays one gap for the import, worded for what it is, and
+the index's absence is named per file rather than claimed of the repository.
+`nearestDeclaration` replaced the containment-only rule: a declaration of a
+lexical scope shadows a name from its own line on, a hoisted one does too, a
+class member never does, and a declaration of another function is unreachable.
+The two readers measure spans through one `spanFactory`, Go's member access is
+the node Go writes, and two facts of one id that say different things are refused
+rather than one of them folded away — named by the file and the place of each.
+
+The second round verified all sixteen of the first round's findings and answered
+`fix-before-ship` with twelve of its own, two of them defects: a class member
+shadowed a bare name (a wrong edge, and the first round's own test had enshrined
+it), and a specifier that already resolved kept its stale resolution when a file
+appeared beside its target. Both are fixed — the lexical-scope rule above, and
+the plan's comparison of each published specifier with what it names at the
+pinned commit — with tests that fail without them, and the record's rule (1), its
+count wording, its "both shapes of a default export" claim and the block-scope
+limit are corrected to what the code does.

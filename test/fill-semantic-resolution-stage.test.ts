@@ -158,7 +158,12 @@ function gapRows(writes: readonly StageDraftWrite[]): readonly { readonly kind: 
 
 /** What a fact store would answer for one repository's stage-3 imports: the `import` edges a draft set holds. */
 function importRows(writes: readonly StageDraftWrite[]): readonly PublishedImportRow[] {
-  return factsOf(writes).filter((fact) => fact.kind === 'import').map((fact) => ({ kind: 'import' as const, from: String(fact.value['from']), to: String(fact.value['to']) }));
+  return factsOf(writes).filter((fact) => fact.kind === 'import').map((fact) => ({
+    kind: 'import' as const,
+    from: String(fact.value['from']),
+    to: String(fact.value['to']),
+    specifier: String(fact.value['specifier']),
+  }));
 }
 
 /** What a fact store would answer for one file's stage-3 symbols: the `symbol` facts a draft set holds for that file. */
@@ -428,6 +433,31 @@ describe('the resolution stage plans the files a commit moves', () => {
       // The importer and the file that appeared; not the file that imports
       // nothing and was not touched.
       expect(unitIds(plan)).toEqual(['file:orders-api:src/a.ts', 'file:orders-api:src/b.ts']);
+    } finally {
+      await f.dispose();
+    }
+  });
+
+  test('an import whose specifier names another file of the pinned tree now re-resolves its importer', async () => {
+    const f = await fixture();
+    try {
+      // Stage 3 reads `./b.js` as the `b.ts` beside it, and writes that import
+      // edge. A `b.js` that appears beside it is the file the specifier names
+      // now, and the importer's resolution moves although no file it read moved.
+      const first = await writeFixture(f, [
+        { path: 'src/b.ts', text: 'export function create(): void {}\n' },
+        { path: 'src/a.ts', text: "import { create } from './b.js';\n\nexport function run(): void {\n  create();\n}\n" },
+      ]);
+      const published = await publishedAt(sourceAt(f.root, first));
+      expect(importRows(published.writes).map((row) => row.specifier)).toEqual(['./b.js']);
+      await f.write('src/b.js', 'export function create() {}\n');
+      const second = f.commit();
+      const stage = createSemanticResolutionStage(sourceAt(f.root, second));
+      const plan = await stage.plan({ query: graphOf(published, 'orders-api') });
+      expect(unitIds(plan)).toContain('file:orders-api:src/a.ts');
+      expect(unitIds(plan)).toContain('file:orders-api:src/b.js');
+      // The file stage 3's edge named did not move, and it is not planned.
+      expect(unitIds(plan)).not.toContain('file:orders-api:src/b.ts');
     } finally {
       await f.dispose();
     }
@@ -739,10 +769,12 @@ describe('a read that does not answer what the stage asked for is refused, namin
 
   test('an import row that names another kind, an id that is no file fact', async () => {
     const imports = publishedImportsRead('orders-api');
-    const kind = await refusedBy(() => publishedImportRows([{ kind: 'call', from: FILE_ID, to: FILE_ID }], 'orders-api', imports));
+    const kind = await refusedBy(() => publishedImportRows([{ kind: 'call', from: FILE_ID, to: FILE_ID, specifier: './b.js' }], 'orders-api', imports));
     expect(kind).toContain('answers "import" edges');
-    const id = await refusedBy(() => publishedImportRows([{ kind: 'import', from: SYMBOL_ID, to: FILE_ID }], 'orders-api', imports));
+    const id = await refusedBy(() => publishedImportRows([{ kind: 'import', from: SYMBOL_ID, to: FILE_ID, specifier: './b.js' }], 'orders-api', imports));
     expect(id).toContain('no file fact id');
+    const specifier = await refusedBy(() => publishedImportRows([{ kind: 'import', from: FILE_ID, to: FILE_ID, specifier: ' ' }], 'orders-api', imports));
+    expect(specifier).toContain('is no specifier');
   });
 
   test('a gap row that names another kind, a file that is no repository path, an empty what', async () => {

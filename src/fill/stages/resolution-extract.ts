@@ -36,10 +36,8 @@
 import type { Node as SyntaxNode } from 'web-tree-sitter';
 import { byCodePoint } from '../../model/order.js';
 import type { CoverageGap } from '../facts.js';
-import {
-  readSyntaxTree, spanFactory,
-  type ParsedSyntaxTree, type SyntaxLanguage, type SyntaxSpan,
-} from './syntax-extract.js';
+import { readSyntaxTree, spanFactory, type ParsedSyntaxTree, type SyntaxLanguage, type SyntaxSpan } from './syntax-extract.js';
+import { isRelativeSpecifier } from './syntax-facts.js';
 
 /** What a mention does at its place; the resolver turns the first three into edge kinds. */
 export const MENTION_USES = ['call', 'extends', 'implements', 'mention'] as const;
@@ -284,6 +282,12 @@ export function collectFileResolution(file: ParsedSyntaxTree): {
         if (child === null || (name !== null && child.id === name.id)) continue;
         visit(child, undefined);
       }
+      return;
+    }
+    if (type === 'qualified_type') {
+      // A Go `pkg.Type` names a package this reader does not follow, and a type
+      // of it: reading the type's own name would resolve it to a same-named
+      // declaration of this file and write an edge nothing calls.
       return;
     }
     if (type === 'type_arguments' || type === 'type_parameters') {
@@ -531,11 +535,6 @@ function unquote(written: string): string {
 function goPackageName(specifier: string): string {
   const parts = specifier.split('/').filter((part) => part !== '');
   return parts.length === 0 ? specifier : parts[parts.length - 1]!;
-}
-
-/** Whether a specifier names a path beside this file rather than a package outside the repository. */
-export function isRelativeSpecifier(specifier: string): boolean {
-  return specifier.startsWith('./') || specifier.startsWith('../');
 }
 
 /** Whether a call is a CommonJS `require('…')`, whose binding this reader does not follow. */

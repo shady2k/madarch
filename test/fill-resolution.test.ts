@@ -12,7 +12,7 @@
 import { describe, expect, test } from 'bun:test';
 import { checkFact, makeNodeFact, repositoryPath, type Fact, type FactRange, type SymbolKind } from '../src/fill/facts.js';
 import { collectFileResolution, extractFileResolution } from '../src/fill/stages/resolution-extract.js';
-import { resolutionFacts, type ResolutionSymbolRow } from '../src/fill/stages/resolution-facts.js';
+import { oneFactPerId, resolutionFacts, type ResolutionSymbolRow } from '../src/fill/stages/resolution-facts.js';
 import { extractFileSyntax, readSyntaxTree } from '../src/fill/stages/syntax-extract.js';
 import { SYNTAX_SOURCE } from '../src/fill/stages/syntax-facts.js';
 
@@ -427,6 +427,41 @@ describe('what one file\'s findings become', () => {
     expect(answer.facts.filter((fact) => fact.kind === 'occurrence' || fact.kind === 'call')).toEqual([]);
   });
 
+  test('a default import of an anonymous default export resolves to the file\'s `default` symbol', async () => {
+    // Stage 3 names an anonymous default export `default`, and a default import
+    // is the name that reaches it.
+    const run = symbolFact('src/a.ts', 'run', 'function', lines(3, 5));
+    const fallback = symbolFact('src/b.ts', 'default', 'class', lines(1, 3));
+    const answer = await factsOfFile({
+      path: 'src/a.ts',
+      text: "import Widget from './b.js';\n\nexport function run(): void {\n  new Widget();\n}\n",
+      files: ['src/a.ts', 'src/b.ts'],
+      fileSymbols: [rowOf(run, 'src/a.ts', 'run', 'function', lines(3, 5))],
+      readSymbols: new Map([['src/b.ts', [rowOf(fallback, 'src/b.ts', 'default', 'class', lines(1, 3))]]]),
+    });
+    // Constructing is a mention of the class, not a call: the schema holds no
+    // constructor symbol for a syntactic reader to call.
+    const reference = only(answer.facts, 'reference');
+    expect(reference.value).toMatchObject({ from: run.id, to: fallback.id, precision: 'syntactic' });
+  });
+
+  test('two facts of one id are one fact, and a collision that says different things is refused', () => {
+    const symbol = symbolFact('src/b.ts', 'create', 'function', lines(1, 3));
+    const place = { file: repositoryPath('src/a.ts'), range: { startLine: 4, startColumn: 2, endLine: 4, endColumn: 8 } };
+    const read = makeNodeFact({ kind: 'occurrence', layer: 'extracted', provenance: { source: SYNTAX_SOURCE, repository: { id: REPOSITORY, commit: COMMIT }, place }, value: { symbol: symbol.id, roles: ['read-access'] } });
+    const written = makeNodeFact({ kind: 'occurrence', layer: 'extracted', provenance: { source: SYNTAX_SOURCE, repository: { id: REPOSITORY, commit: COMMIT }, place }, value: { symbol: symbol.id, roles: ['write-access'] } });
+    // One place, one symbol: one occurrence, keeping the roles of both, in code
+    // point order (the schema's own order for a role list).
+    const merged = oneFactPerId([read, written], repositoryPath('src/a.ts'));
+    expect(merged.length).toBe(1);
+    expect(merged[0]!.value).toEqual({ symbol: symbol.id, roles: ['read-access', 'write-access'] });
+    // Two facts of one id that say different things would lose one of them, so
+    // the refusal names the file and the place of each.
+    const other = symbolFact('src/b.ts', 'other', 'function', lines(5, 6));
+    const elsewhere = makeNodeFact({ kind: 'occurrence', layer: 'extracted', provenance: { source: SYNTAX_SOURCE, repository: { id: REPOSITORY, commit: COMMIT }, place }, value: { symbol: other.id, roles: ['read-access'] } });
+    expect(() => oneFactPerId([read, { ...elsewhere, id: read.id }], repositoryPath('src/a.ts'))).toThrow(/src\/a\.ts:4:2/);
+  });
+
   test('a class that extends an imported type writes an inherits edge with its form', async () => {
     const widget = symbolFact('src/a.ts', 'Widget', 'class', lines(3, 5));
     const base = symbolFact('src/b.ts', 'Base', 'class', lines(1, 3));
@@ -459,11 +494,16 @@ describe('what one file\'s findings become', () => {
   });
 
   test('a compiler index answers a mention a parameter binds, which the syntax alone cannot', async () => {
+    // The parameter `create` shadows the import, so the syntactic resolution
+    // claims nothing for this mention; the index names it, and its answer stands.
     const run = symbolFact('src/a.ts', 'run', 'function', lines(3, 5));
     const create = symbolFact('src/b.ts', 'create', 'function', lines(1, 3));
+    const text = "import { create } from './b.js';\n\nexport function run(create: () => void): void {\n  create();\n}\n";
+    const findings = await extractFileResolution('src/a.ts', bytesOf(text));
+    expect(findings.mentions.map((mention) => [mention.name, mention.parameterBound])).toEqual([['create', true]]);
     const answer = await factsOfFile({
       path: 'src/a.ts',
-      text: "import { create } from './b.js';\n\nexport function run(): void {\n  create();\n}\n",
+      text,
       files: ['src/a.ts', 'src/b.ts'],
       fileSymbols: [rowOf(run, 'src/a.ts', 'run', 'function', lines(3, 5))],
       readSymbols: new Map([['src/b.ts', [rowOf(create, 'src/b.ts', 'create', 'function', lines(1, 3))]]]),
@@ -472,37 +512,107 @@ describe('what one file\'s findings become', () => {
     });
     const call = only(answer.facts, 'call');
     expect(call.value).toMatchObject({ from: run.id, to: create.id, precision: 'compiler' });
+    // Without the index the same mention is out of claim: no edge and no gap.
+    const alone = await factsOfFile({
+      path: 'src/a.ts',
+      text,
+      files: ['src/a.ts', 'src/b.ts'],
+      fileSymbols: [rowOf(run, 'src/a.ts', 'run', 'function', lines(3, 5))],
+      readSymbols: new Map([['src/b.ts', [rowOf(create, 'src/b.ts', 'create', 'function', lines(1, 3))]]]),
+    });
+    expect(alone.facts.filter((fact) => fact.kind === 'call')).toEqual([]);
+    expect(alone.unresolvedMentions).toBe(0);
   });
 
-  test('a name the file declares itself resolves to its declaration, nearest first', async () => {
-    const widget = symbolFact('src/a.ts', 'Widget', 'class', lines(1, 5));
+  test('a declaration of a lexical scope binds a name; a class member never does', async () => {
+    const widget = symbolFact('src/a.ts', 'Widget', 'class', lines(1, 9));
     const method = symbolFact('src/a.ts', 'Widget.total', 'method', lines(2, 4));
-    const total = symbolFact('src/a.ts', 'total', 'function', lines(7, 9));
+    const sum = symbolFact('src/a.ts', 'Widget.sum', 'method', lines(5, 7));
+    const total = symbolFact('src/a.ts', 'total', 'function', lines(10, 12));
     const rows = [
-      rowOf(widget, 'src/a.ts', 'Widget', 'class', lines(1, 5)),
+      rowOf(widget, 'src/a.ts', 'Widget', 'class', lines(1, 9)),
       rowOf(method, 'src/a.ts', 'Widget.total', 'method', lines(2, 4)),
-      rowOf(total, 'src/a.ts', 'total', 'function', lines(7, 9)),
+      rowOf(sum, 'src/a.ts', 'Widget.sum', 'method', lines(5, 7)),
+      rowOf(total, 'src/a.ts', 'total', 'function', lines(10, 12)),
     ];
-    const text = [
-      'export class Widget {',
-      '  total(): number {',
-      '    return this.value + total();',
-      '  }',
-      '}',
-      '',
-      'export function total(): number {',
-      '  return 1;',
-      '}',
-      '',
-    ].join('\n');
-    const answer = await factsOfFile({ path: 'src/a.ts', text, files: ['src/a.ts'], fileSymbols: rows });
-    // The call inside the method is the method's own `total` and never the
-    // top-level function of the same name: the nearest declaration holds the
-    // mention, and that is what the edge names.
+    const answer = await factsOfFile({
+      path: 'src/a.ts',
+      text: [
+        'export class Widget {',
+        '  total(): number {',
+        '    return 2;',
+        '  }',
+        '  sum(): number {',
+        '    return total();',
+        '  }',
+        '}',
+        '',
+        'export function total(): number {',
+        '  return 1;',
+        '}',
+        '',
+      ].join('\n'),
+      files: ['src/a.ts'],
+      fileSymbols: rows,
+    });
+    // A bare name inside a method body reaches no member of its class: `total()`
+    // there is the file's own function, and an edge to `Widget.total` would be a
+    // call nothing makes.
     const call = only(answer.facts, 'call');
-    expect(call.value).toMatchObject({ from: method.id, to: method.id });
-    // One mention, one occurrence: the name is the method's own.
-    expect(answer.facts.filter((fact) => fact.kind === 'occurrence').map((fact) => (fact.value as { readonly symbol: string }).symbol)).toEqual([method.id]);
+    expect(call.value).toMatchObject({ from: sum.id, to: total.id });
+    expect(answer.facts.filter((fact) => fact.kind === 'occurrence').map((fact) => (fact.value as { readonly symbol: string }).symbol)).toEqual([total.id]);
+  });
+
+  test('a declaration of the same lexical scope binds a name from its own line on, and one of another function never', async () => {
+    const outer = symbolFact('src/a.ts', 'outer', 'function', lines(1, 4));
+    const inner = symbolFact('src/a.ts', 'outer.helper', 'function', lines(2, 3));
+    const other = symbolFact('src/a.ts', 'other', 'function', lines(6, 8));
+    const answer = await factsOfFile({
+      path: 'src/a.ts',
+      text: [
+        'export function outer(): void {',
+        '  const helper = (): void => {};',
+        '  helper();',
+        '}',
+        '',
+        'export function other(): void {',
+        '  helper();',
+        '}',
+        '',
+      ].join('\n'),
+      files: ['src/a.ts'],
+      fileSymbols: [
+        rowOf(outer, 'src/a.ts', 'outer', 'function', lines(1, 4)),
+        rowOf(inner, 'src/a.ts', 'outer.helper', 'function', lines(2, 3)),
+        rowOf(other, 'src/a.ts', 'other', 'function', lines(6, 8)),
+      ],
+    });
+    // The mention inside `outer` binds `outer`'s own declaration; the mention of
+    // the same name inside `other` reaches nothing `outer` declares, and it is no
+    // reference of this repository at all — neither an edge nor a gap.
+    const calls = answer.facts.filter((fact) => fact.kind === 'call');
+    expect(calls.length).toBe(1);
+    expect(calls[0]!.value).toMatchObject({ from: outer.id, to: inner.id });
+    expect(answer.coverage.unread.map((gap) => gap.what).filter((what) => what.includes('helper at src/a.ts:7'))).toEqual([]);
+  });
+
+  test('a declaration written after the mention still binds it where the language hoists one', async () => {
+    // A hoisted declaration wins over an import of the same name: the file's own
+    // `create` is what `create()` calls, whatever the module also imports.
+    const run = symbolFact('src/a.ts', 'run', 'function', lines(1, 4));
+    const create = symbolFact('src/a.ts', 'run.create', 'function', lines(3, 4));
+    const imported = symbolFact('src/b.ts', 'create', 'function', lines(1, 3));
+    const answer = await factsOfFile({
+      path: 'src/a.ts',
+      text: "import { create } from './b.js';\n\nexport function run(): void {\n  create();\n  function create(): void {}\n}\n",
+      files: ['src/a.ts', 'src/b.ts'],
+      fileSymbols: [
+        rowOf(run, 'src/a.ts', 'run', 'function', lines(3, 6)),
+        rowOf(create, 'src/a.ts', 'run.create', 'function', lines(5, 6)),
+      ],
+      readSymbols: new Map([['src/b.ts', [rowOf(imported, 'src/b.ts', 'create', 'function', lines(1, 3))]]]),
+    });
+    expect(only(answer.facts, 'call').value).toMatchObject({ from: run.id, to: create.id });
   });
 
   test('a declaration of the file shadows an import of the same name, and a top-level one is found from anywhere', async () => {
@@ -546,7 +656,9 @@ describe('what one file\'s findings become', () => {
     expect(answer.unresolvedMentions).toBe(1);
     const gaps = answer.coverage.unread.map((gap) => gap.what);
     expect(gaps.some((what) => what.includes('create at src/a.ts:4:2') && what.includes('./missing.js'))).toBe(true);
-    expect(gaps.filter((what) => what.includes('imports'))).toEqual([]);
+    // The import itself is named once too, so a specifier that names no file and
+    // no name of which is ever used is still no silence.
+    expect(gaps.filter((what) => what.includes('imports "./missing.js"') && what.includes('names no file of this repository'))).toHaveLength(1);
   });
 
   test('the coverage names the file and the files whose symbols the resolution read', async () => {

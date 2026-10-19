@@ -69,6 +69,9 @@ import { fileFactIdOf, resolveSpecifier } from './syntax-facts.js';
 /** The stage's id, as it is registered and as its units are named. */
 export const SEMANTIC_RESOLUTION_STAGE_ID = 'semantic-resolution';
 
+/** What a walk past the machine's stack answers: the one `RangeError` a unit reads as its file's gap. */
+const STACK_OVERFLOW = /call stack|stack overflow/iu;
+
 /** The stage's own version, bumped when what it writes or plans changes. */
 export const SEMANTIC_RESOLUTION_STAGE_VERSION = 1;
 
@@ -127,6 +130,8 @@ export interface PublishedImportRow {
   readonly kind: 'import';
   readonly from: string;
   readonly to: string;
+  /** The specifier the importer wrote (`./order.js`), which tells whether it names the same file at the pinned commit. */
+  readonly specifier: string;
 }
 
 /** One row of the plan's gap read: one thing stage 3 could not tie to a node, in the file it stood in. */
@@ -139,7 +144,7 @@ export interface PublishedGapRow {
 }
 
 /** The keys a row of the plan's read holds, and no others. */
-const IMPORT_ROW_FIELDS: readonly string[] = ['from', 'kind', 'to'];
+const IMPORT_ROW_FIELDS: readonly string[] = ['from', 'kind', 'specifier', 'to'];
 
 /** The keys a gap row holds, and no others. */
 const GAP_ROW_FIELDS: readonly string[] = ['file', 'kind', 'what'];
@@ -245,7 +250,17 @@ async function planResolution(sources: SnapshotSource, graph: StageGraphReader):
       // An edge whose file the tree no longer holds plans nothing: the file it
       // names is gone, and stage 3's own plan retracts its facts.
       if (target === undefined || importer === undefined) continue;
-      if (moved.has(target) && present.has(importer)) again.add(importer);
+      if (!present.has(importer)) continue;
+      if (moved.has(target)) {
+        again.add(importer);
+        continue;
+      }
+      // The specifier names another file of the pinned tree now: a file that
+      // appears beside the one an import resolved to (`./x.js` written beside
+      // the `x.ts` it named) moves the import's own resolution without moving
+      // any file the earlier run read.
+      const now = resolveSpecifier(importer, edge.specifier, held);
+      if (now !== undefined && now !== target) again.add(importer);
     }
     // A specifier stage 3 could not tie to a file names one now: a file appeared
     // under it, so the file that wrote it reads symbols it did not read before.
@@ -310,7 +325,7 @@ async function executeResolutionUnit(sources: SnapshotSource, unit: StageUnit, c
     // read as far as the machine allows and named as unread: one such file is a
     // coverage gap of its unit, never a unit that raises and loses the file.
     // Every other error still travels — a defect is not a silence.
-    if (!(error instanceof RangeError)) throw error;
+    if (!(error instanceof RangeError) || !STACK_OVERFLOW.test(error.message)) throw error;
     findings = unreadFileResolution(planned.path, 'error');
     context.progress(`${planned.path} of ${planned.repository} is nested past what this reader can walk: the file is published as a coverage gap and not resolved`, 1);
   }
@@ -398,7 +413,16 @@ export function publishedImportRows(rows: readonly unknown[], repository: string
     const held = rowRecord(row, read, index, repository, 'an import edge of the repository');
     unknownKeys(held, IMPORT_ROW_FIELDS, read, index, repository);
     if (held['kind'] !== 'import') throw refuse(read, index, repository, `its kind is ${JSON.stringify(held['kind'])}, and this read answers "import" edges`);
-    return { kind: 'import', from: fileIdIn(held['from'], read, index, repository, 'from'), to: fileIdIn(held['to'], read, index, repository, 'to') };
+    const specifier = held['specifier'];
+    if (typeof specifier !== 'string' || specifier.trim() === '') {
+      throw refuse(read, index, repository, `its specifier ${JSON.stringify(specifier)} is no specifier: an import edge names the text the importing file wrote`);
+    }
+    return {
+      kind: 'import',
+      from: fileIdIn(held['from'], read, index, repository, 'from'),
+      to: fileIdIn(held['to'], read, index, repository, 'to'),
+      specifier,
+    };
   });
 }
 
