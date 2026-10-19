@@ -42,7 +42,8 @@ import type { MermaidPage } from '../render/mermaid.js';
 import { renderModel, type RenderedVersion } from '../render/prepare.js';
 import { brokenLinks, readSiteFiles } from './links.js';
 import { documentImages, documentLinkWarnings, documentPages, refusedDocumentLinks, type DocumentHost } from './documents.js';
-import { archifyDocument, archifyPageLinks, componentId, type ArchifyDocument, type ArchifyLayoutedView, type LayoutPoint } from './archify.js';
+import { archifyDocument, archifyPageLinks, componentId } from './archify.js';
+import { layoutedViews, renderArchifyPage } from './archify-page.js';
 import { mermaidOfPageText } from '../product-wiki/mermaid-page.js';
 import { wikiPages, type AnyWikiPage, type WikiDocumentPage } from './pages.js';
 import type { WikiDiagramAsset } from './render.js';
@@ -158,8 +159,6 @@ function diagramAssets(mermaidPages: readonly MermaidPage[], workspace: string):
 // architecture bundle reads.
 const mermaidOfPage = mermaidOfPageText;
 
-/** The vendored renderer the archify pages are made with, pinned at 3.0.1 (vendor/archify/README.md). */
-const ARCHIFY_RENDERER = join(PACKAGE_ROOT, 'vendor', 'archify', 'renderers', 'architecture', 'render-architecture.mjs');
 
 /** The file name of a view's archify page under the site's `assets/archify/`. */
 function archifyAssetName(scope: string): string {
@@ -176,56 +175,6 @@ function viewScopeFullNames(workspace: string): Map<string, string> {
   const names = new Map<string, string>();
   for (const match of workspace.matchAll(/^ {2}view (\S+) of (\S+) \{$/gm)) names.set(match[1]!, match[2]!);
   return names;
-}
-
-/**
- * The layout LikeC4 computed for every view of the workspace: node
- * positions, sizes, groups and edges, exactly what the archify document
- * is built from. A view the layout pass skipped is an error naming it.
- */
-async function layoutedViews(workspace: string): Promise<Map<string, ArchifyLayoutedView>> {
-  const { LikeC4 } = await import('likec4');
-  const likec4 = await LikeC4.fromSource(workspace, { logger: false, printErrors: false, throwIfInvalid: true });
-  try {
-    const views = new Map<string, ArchifyLayoutedView>();
-    for (const diagram of (await likec4.diagrams()) as unknown as ReadonlyArray<Record<string, unknown>>) {
-      const id = diagram.id as string;
-      const nodes = (diagram.nodes as ReadonlyArray<Record<string, unknown>>).map((node) => ({
-        id: node.id as string,
-        kind: (node.kind as string | undefined) ?? 'external',
-        title: node.title as string,
-        parent: (node.parent as string | null) ?? null,
-        x: node.x as number,
-        y: node.y as number,
-        width: node.width as number,
-        height: node.height as number,
-      }));
-      const edges = (diagram.edges as ReadonlyArray<Record<string, unknown>>).map((edge) => ({
-        source: edge.source as string,
-        target: edge.target as string,
-        ...(edge.label === undefined ? {} : { label: edge.label as string }),
-        ...(edge.labelBBox === undefined
-          ? {}
-          : {
-              labelAt: [
-                (edge.labelBBox as { x: number; y: number; width: number; height: number }).x + (edge.labelBBox as { width: number }).width / 2,
-                (edge.labelBBox as { x: number; y: number; height: number }).y + (edge.labelBBox as { height: number }).height / 2,
-              ] as LayoutPoint,
-            }),
-      }));
-      views.set(id, { id, title: diagram.title as string, nodes, edges });
-    }
-    return views;
-  } finally {
-    await likec4[Symbol.asyncDispose]?.();
-  }
-}
-
-/** Renders one archify document with the vendored renderer: document in, self-contained page out. */
-function renderArchifyPage(document: ArchifyDocument, input: string, output: string): { status: number | null; output: string } {
-  writeFileSync(input, JSON.stringify(document));
-  const run = spawnSync('node', [ARCHIFY_RENDERER, input, output], { encoding: 'utf8' });
-  return { status: run.status, output: `${run.stdout ?? ''}${run.stderr ?? ''}`.trim() };
 }
 
 function runZensicalBuild(source: string): { status: number | null; output: string; ran: boolean } {

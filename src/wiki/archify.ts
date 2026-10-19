@@ -30,6 +30,15 @@ const TYPE_BY_KIND: Record<string, string> = {
   module: 'backend',
   store: 'database',
   broker: 'messagebus',
+  // The graph's own kinds (src/fill/facts.ts), drawn as the registry's nearest look: a diagram of the graph
+  // carries them where a registry model carries `service` and `store`.
+  repository: 'cloud',
+  'deploy-unit': 'cloud',
+  package: 'backend',
+  symbol: 'backend',
+  column: 'backend',
+  state: 'backend',
+  table: 'database',
 };
 
 /** The one kind that gets an icon: a person is drawn as one. */
@@ -108,6 +117,8 @@ interface ArchifyConnection {
   readonly from: string;
   readonly to: string;
   readonly label?: string;
+  /** `dashed` where the diagram the connection stands for is an assumption or an end the graph does not hold. */
+  readonly variant?: 'dashed';
   readonly via?: readonly LayoutPoint[];
   readonly labelAt?: LayoutPoint;
 }
@@ -125,9 +136,11 @@ export interface ArchifyDocument {
 /**
  * The archify document of one layouted view. `output` is where the
  * rendered page will sit in the site, as the schema's portable output
- * path; the document itself stays a pure value.
+ * path; `dashed` names the connections the diagram draws dashed, keyed by
+ * the layout's own two ends (`source\u0000target`); the document itself stays
+ * a pure value.
  */
-export function archifyDocument(view: ArchifyLayoutedView, options: { output: string }): ArchifyDocument {
+export function archifyDocument(view: ArchifyLayoutedView, options: { output: string; dashed?: ReadonlySet<string> }): ArchifyDocument {
   const placed = new Map<string, ArchifyLayoutNode>();
   for (const node of view.nodes) {
     if (!Number.isFinite(node.x) || !Number.isFinite(node.y) || !Number.isFinite(node.width) || !Number.isFinite(node.height) || node.width <= 0 || node.height <= 0) {
@@ -189,10 +202,14 @@ export function archifyDocument(view: ArchifyLayoutedView, options: { output: st
       // route to a no-crossing standard they do not meet. The label's
       // place does carry over — that is the one thing the straight-line
       // default got wrong.
+      // A connection the model draws dashed (an assumption, or an end the graph does not hold) is archify's own
+      // `variant: "dashed"`: the document carries the same statement the diagram's other renderers do.
+      const dashed = options.dashed?.has(`${edge.source}\u0000${edge.target}`) === true;
       return {
         from: componentId(edge.source),
         to: componentId(edge.target),
         ...(edge.label === undefined || edge.label === '' ? {} : { label: edge.label }),
+        ...(dashed ? { variant: 'dashed' as const } : {}),
         ...(edge.labelAt === undefined ? {} : { labelAt: edge.labelAt }),
       };
     })

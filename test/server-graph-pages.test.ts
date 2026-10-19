@@ -281,6 +281,7 @@ describe('a stream whose changes cannot be read', () => {
   const failing: GraphPagesSource = {
     pageSet: async () => ({ product: PRODUCT, pages: [], counts: [], total: 0, changeSeq: 0, readAt: 0, message: null }),
     page: async () => ({ ok: false, code: 'graph-pages/no-such-node', message: 'nothing' }),
+    diagrams: async () => ({ ok: false, code: 'graph-pages/no-such-node', message: 'nothing' }),
     changes: async () => { throw new Error('/tmp/madarch-runtime/work/src/fill/graph-pages.ts:741:2: the changes failed on fill_page_change'); },
     subscribe: () => () => undefined,
   };

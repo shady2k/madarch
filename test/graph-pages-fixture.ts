@@ -224,11 +224,17 @@ export async function openGraphFixture(options: {
   /** Stages registered beside the drafting one: their units' inputs never move, so a second run reuses them and they publish nothing. */
   readonly extraStages?: readonly FillStage[];
   readonly registry?: StageRegistry;
+  /**
+   * The product's manifest, when the test needs more than the product's name — a
+   * repository with an origin, say, which is what a fact's code link is made from
+   * (madarch-tzte.23.4's renderers link the place a diagram element stands at).
+   */
+  readonly manifest?: string;
 }): Promise<GraphFixtureWorld> {
   const home = await mkdtemp(join(tmpdir(), 'madarch-graph-pages-home-'));
   const folder = join(home, 'fixture-product');
   await mkdir(folder, { recursive: true });
-  await writeFile(join(folder, 'workspace.yaml'), `schemaVersion: 1\nid: 3f6d2dc8-b16e-4bf0-9d3a-2c9c00b5287d\nname: ${PRODUCT}\n`);
+  await writeFile(join(folder, 'workspace.yaml'), options.manifest ?? `schemaVersion: 1\nid: 3f6d2dc8-b16e-4bf0-9d3a-2c9c00b5287d\nname: ${PRODUCT}\n`);
   const owner = createPGliteDatabaseOwner();
   let commit = COMMIT;
   const registry = (options.registry ?? new StageRegistry()).register(graphStage({ drafts: options.drafts }));

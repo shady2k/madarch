@@ -39,6 +39,7 @@ import type { SourceStoreResult, SourceStores } from './sources.js';
 import { createSourceStores, sourceNameProblem } from './sources.js';
 import { createWikiPart, serveAppAssets, type WikiPart } from './wiki-app.js';
 import { createGraphPagesPart, emptyGraphPagesSource, type GraphPagesPart, type GraphPagesSource } from './graph-pages.js';
+import { createGraphDiagramsPart, type GraphDiagramsPart } from './graph-diagrams.js';
 import { openProductWiki, type ProductWiki } from '../product-wiki/pages.js';
 import { listProducts } from '../product/list.js';
 import { basename } from 'node:path';
@@ -93,6 +94,13 @@ export interface ServerOptions {
    * product's own pages, never one product's under another's address.
    */
   graphPages?: (productFolder: string) => GraphPagesSource | undefined;
+  /**
+   * The environment the wiki's own settings are read from — the diagram tab shown
+   * first (`MADARCH_WIKI_DIAGRAM`, madarch-tzte.23.4) and the cache root the
+   * generated diagram documents stand in (`MADARCH_WIKI_CACHE`). The process's own
+   * when it is left out.
+   */
+  env?: Readonly<Record<string, string | undefined>>;
   /** The address to listen on; `127.0.0.1` unless said otherwise (decision 0012). */
   host?: string;
   /** The port to listen on; 4180 by default, 0 for a free port. */
@@ -268,6 +276,15 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
    */
   const graphPagesOf = (productFolder: string, product: string): GraphPagesPart =>
     createGraphPagesPart({ json: makeJson, refused: wikiRefused, errorLog }, options.graphPages?.(productFolder) ?? emptyGraphPagesSource(product));
+  /**
+   * One product's graph diagrams, over the same source its pages are read from: the
+   * page's own diagrams, and the two documents the LikeC4 and archify tabs draw
+   * (madarch-tzte.23.4). `mount` is the prefix the app is served under, which the
+   * generated documents carry in their own links.
+   */
+  const env = options.env ?? process.env;
+  const graphDiagramsOf = (productFolder: string, product: string): GraphDiagramsPart =>
+    createGraphDiagramsPart({ json: makeJson, refused: wikiRefused, errorLog }, options.graphPages?.(productFolder) ?? emptyGraphPagesSource(product), { env });
   const handle = createHandler({
     sources,
     graphs,
@@ -279,6 +296,7 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
     productFolder: options.productFolder,
     unitTool: options.orchestrator?.unitTool,
     graphPages: productWiki === undefined ? undefined : graphPagesOf(productWiki.product.folder, productWiki.product.name),
+    graphDiagrams: productWiki === undefined ? undefined : graphDiagramsOf(productWiki.product.folder, productWiki.product.name),
   });
   // The products home is served by one server: the home page lists the
   // products, and each product's wiki answers under `/products/<folder>/`.
@@ -313,7 +331,7 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
       }
       next.set(basename(item.folder), {
         wiki: opened.wiki,
-        handler: createHandler({ sources, graphs, log, errorLog, wiki: createWikiPart(makeJson, wikiRefused, opened.wiki, appFolder), appFolder, startFill: options.startFill, productFolder: item.folder, unitTool: options.orchestrator?.unitTool, graphPages: graphPagesOf(item.folder, opened.wiki.product.name) }),
+        handler: createHandler({ sources, graphs, log, errorLog, wiki: createWikiPart(makeJson, wikiRefused, opened.wiki, appFolder), appFolder, startFill: options.startFill, productFolder: item.folder, unitTool: options.orchestrator?.unitTool, graphPages: graphPagesOf(item.folder, opened.wiki.product.name), graphDiagrams: graphDiagramsOf(item.folder, opened.wiki.product.name) }),
       });
     }
     productEntries.clear();
@@ -461,6 +479,8 @@ export function createHandler(dependencies: {
   unitTool?: (request: UnitToolCall) => Promise<UnitToolAnswer | null>;
   /** One product's graph pages (madarch-tzte.23.1): its page set, a node's page and the live channel of their changes. */
   graphPages?: GraphPagesPart;
+  /** The graph's diagrams and their generated documents (madarch-tzte.23.4). */
+  graphDiagrams?: GraphDiagramsPart;
 }): ServerHandler {
   const { log, errorLog, wiki } = dependencies;
   // The model routes are put in the table only when a data folder was
@@ -525,6 +545,12 @@ export function createHandler(dependencies: {
         { method: 'GET', path: '/api/graph/pages', handle: () => dependencies.graphPages!.pages() },
         { method: 'GET', path: '/api/graph/page', handle: (request: Request) => dependencies.graphPages!.page(request) },
         { method: 'GET', path: '/api/graph/events', handle: (request: Request) => dependencies.graphPages!.events(request) },
+      ] as Route[])),
+      ...(dependencies.graphDiagrams === undefined ? [] : ([
+        { method: 'GET', path: '/api/graph/diagrams', handle: (request: Request) => dependencies.graphDiagrams!.diagrams(request) },
+        { method: 'GET', path: '/api/graph/likec4.js', handle: (request: Request) => dependencies.graphDiagrams!.likec4(request) },
+        { method: 'GET', path: '/api/graph/likec4.html', handle: (request: Request) => dependencies.graphDiagrams!.likec4Page(request) },
+        { method: 'GET', path: '/api/graph/archify', handle: (request: Request) => dependencies.graphDiagrams!.archify(request) },
       ] as Route[])),
       { method: 'GET', path: '/api/fill', handle: () => wiki.fill() },
       { method: 'POST', path: '/api/fill/start', handle: async (request) => {

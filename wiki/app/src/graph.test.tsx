@@ -16,7 +16,7 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator';
 import { createRoot, type Root } from 'react-dom/client';
 import { createElement } from 'react';
 import { App } from './app.js';
-import { GRAPH_EVENTS_PATH, codeHref, graphKindGroups, originOf } from './graph.js';
+import { GRAPH_EVENTS_PATH, codeHref, graphKindGroups, originOf, shortGraphLabel } from './graph.js';
 import { addressOfGraphPage, routeOf, GRAPH_INDEX_ADDRESS } from './routes.js';
 import { setWikiLanguage } from './i18n.js';
 import type { GraphPageModel, GraphPageSet, Page, PageList, Product, RepoEntry, ReposList } from './api.js';
@@ -682,5 +682,28 @@ describe('the graph’s rules', () => {
     expect(groups[2]?.entries.map((entry) => entry.id)).toEqual([SYMBOL, second]);
     expect(groups[1]?.entries.map((entry) => entry.id)).toEqual([MODULE]);
     expect(graphKindGroups(null)).toEqual([]);
+  });
+});
+
+describe('the graph’s navigation labels (madarch-tzte.23.4)', () => {
+  test('a symbol reads by its own name, and a package, a deploy unit, a table and a column by the name after their repository', () => {
+    expect(shortGraphLabel({ kind: 'symbol', label: 'acme-shop:src/checkout.ts#checkout.place' })).toBe('checkout.place');
+    expect(shortGraphLabel({ kind: 'symbol', label: 'acme-shop:src/checkout.ts#CheckoutController.place' })).toBe('CheckoutController.place');
+    expect(shortGraphLabel({ kind: 'package', label: 'acme-shop:@acme/checkout' })).toBe('@acme/checkout');
+    expect(shortGraphLabel({ kind: 'table', label: 'acme-shop:public.orders' })).toBe('public.orders');
+    expect(shortGraphLabel({ kind: 'column', label: 'acme-shop:public.orders.id' })).toBe('public.orders.id');
+    // A name that carries no repository prefix keeps itself whole: an endpoint's contract, a module's name.
+    expect(shortGraphLabel({ kind: 'module', label: 'checkout' })).toBe('checkout');
+    expect(shortGraphLabel({ kind: 'api-endpoint', label: 'http::POST::/orders/{}' })).toBe('http::POST::/orders/{}');
+  });
+
+  test('the sidebar shows the short name and keeps the whole label as its tooltip', async () => {
+    install(world());
+    window.history.pushState({}, '', '/');
+    intoApp(createElement(App, { reconnectMs: 5 }));
+    await until(() => document.querySelector(`[data-testid="graph-nav"] a[data-graph-node="${SYMBOL}"]`) !== null, 'the symbol’s navigation row');
+    const row = document.querySelector(`[data-testid="graph-nav"] a[data-graph-node="${SYMBOL}"]`)!;
+    expect(row.getAttribute('title')).toBe('acme-shop:src/checkout.ts#checkout.place');
+    expect(row.querySelector('[data-testid="graph-nav-label"]')?.textContent).toBe('checkout.place');
   });
 });

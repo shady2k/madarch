@@ -380,7 +380,7 @@
     "fieldCode": "In code",
     "fieldImportance": "Importance",
     "diagramsTitle": "Diagrams",
-    "diagramsSlot": "The diagrams of this node stand here. The graph's diagram models are drawn by the diagram change; until then this place names what will stand in it.",
+    "diagramsSlot": "The diagrams of this node stand here once the graph holds one: no diagram of this node's kind is drawn from the graph yet.",
     "factsTitle_one": "{{count}} fact",
     "factsTitle_other": "{{count}} facts",
     "factsTitle_few": "{{count}} facts",
@@ -521,6 +521,45 @@
       "rule": "Rule",
       "state": "State",
       "question": "Question"
+    },
+    "diagram": {
+      "type": {
+        "c4-component": "C4 components",
+        "c4-container": "C4 containers",
+        "c4-context": "C4 context",
+        "er": "Data model",
+        "module-dependency": "Module dependencies",
+        "sequence": "Sequence",
+        "state": "States"
+      },
+      "evidence": {
+        "fact": "fact",
+        "assumption": "assumption",
+        "unresolved": "unresolved"
+      },
+      "noKind": "not in the graph",
+      "unpaged": "{{id}} is an end the graph does not hold, so it opens no page.",
+      "drillDown_one": "opens the view of the {{count}} element it stands for",
+      "drillDown_other": "opens the view of the {{count}} elements it stands for",
+      "elementsTitle_one": "{{count}} element",
+      "elementsTitle_other": "{{count}} elements",
+      "edgesTitle_one": "{{count}} arrow",
+      "edgesTitle_other": "{{count}} arrows",
+      "legend": "Facts are drawn solid and assumptions or ends the graph does not hold are dashed; every element opens its page and its place in code.",
+      "loading": "Reading this page's diagrams…",
+      "failed": "This page's diagrams could not be read: {{message}}",
+      "empty": "The graph holds nothing this view shows: no element of this diagram stands in the graph yet.",
+      "elementsTitle_few": "{{count}} elements",
+      "elementsTitle_many": "{{count}} elements",
+      "edgesTitle_few": "{{count}} arrows",
+      "edgesTitle_many": "{{count}} arrows",
+      "drillDown_few": "opens the view of the {{count}} elements it stands for",
+      "drillDown_many": "opens the view of the {{count}} elements it stands for",
+      "renderer": {
+        "archify": "Archify",
+        "likec4": "LikeC4",
+        "mermaid": "Mermaid"
+      }
     }
   }
 }

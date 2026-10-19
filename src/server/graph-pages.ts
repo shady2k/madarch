@@ -57,6 +57,7 @@ export function emptyGraphPagesSource(product: string): GraphPagesSource {
   return {
     pageSet: async () => ({ product, pages: [], counts: [], total: 0, changeSeq: 0, readAt: Date.now(), message: NO_GRAPH_SOURCE_MESSAGE }),
     page: async (id: string) => ({ ok: false, code: 'graph-pages/no-graph', message: `${NO_GRAPH_SOURCE_MESSAGE}: no product is served here with a filled graph, so the page of ${id} stands nowhere` }),
+    diagrams: async (id: string) => ({ ok: false, code: 'graph-pages/no-graph', message: `${NO_GRAPH_SOURCE_MESSAGE}: no product is served here with a filled graph, so the diagrams of ${id} stand nowhere` }),
     changes: async () => ({ changes: [], lastSeq: 0, truncated: false, marker: null }),
     subscribe: () => () => undefined,
   };
