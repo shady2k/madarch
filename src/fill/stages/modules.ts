@@ -78,7 +78,7 @@ import { ID_PATTERN } from '../../model/schema.js';
 import {
   FACT_ID_PATTERN, FACT_KINDS, factId, isRepositoryPath, makeEdgeFact, makeNodeFact, repositoryPath,
   type CoverageGap, type CoverageGapReason, type Fact, type FactProvenance, type FactRange, type FactSource, type FileValue,
-  type ModuleSeed, type PackageForm, type SymbolKind, type SymbolValue,
+  type ModuleSeed, type PackageForm, type SnapshotValue, type SymbolKind, type SymbolValue,
 } from '../facts.js';
 import type { SnapshotReader, SnapshotSource } from '../snapshot.js';
 import {
@@ -118,9 +118,10 @@ export const MODULES_STAGE_KINDS: readonly string[] = ['contains', 'coverage', '
  * and the reader (`coverage`'s own parts, `facts.ts`): two readers of one
  * repository are two coverages that add up, and a stage that named git's reader
  * would have its gaps overwritten by stage 0's row (the store keeps the first
- * publication of an id). The version moves with the stage's own.
+ * publication of an id). The name follows the schema's own convention for a
+ * stage (`fill-stage-5`), and the version moves with the stage's.
  */
-const MODULES_SOURCE: FactSource = { system: 'madarch-fill', version: String(MODULES_STAGE_VERSION) };
+const MODULES_SOURCE: FactSource = { system: 'fill-stage-5', version: String(MODULES_STAGE_VERSION) };
 
 /** The read the unit makes: the `package` facts stage 2 published for the repository. */
 export const PUBLISHED_PACKAGES_READ = 'stage-5-published-packages';
@@ -155,8 +156,13 @@ const DAMPING = 0.85;
 /** How little movement ends the walk: no node moved by more than this. */
 const RANK_EPSILON = 1e-12;
 
-/** The most turns the walk takes, so a pathological graph still answers. */
-const RANK_MAX_TURNS = 100;
+/**
+ * The most turns the walk takes, so a pathological graph still answers. At damping
+ * 0.85 the movement falls by that factor a turn, so a graph needs about 160 turns
+ * to move no node by more than `RANK_EPSILON`: the cap stands well past that a
+ * repository of any size reaches, and it is there for a graph that would not.
+ */
+const RANK_MAX_TURNS = 500;
 
 /** How many decimals a rank is written with: enough to order two nodes, few enough to be the same number in every run. */
 const RANK_DECIMALS = 12;
@@ -381,7 +387,7 @@ async function executeModulesUnit(sources: SnapshotSource, unit: StageUnit, cont
   const clustered = clusterRepository({ repository, packages, files, settings });
   const ranks = rankNodes({ repository, files, symbols, edges });
   const written = writeClustering({ repository, reader, provenance, files, symbols, clustered, ranks });
-  for (const fact of written.facts) context.draft.write({ kind: 'fact', evidence: evidenceAt(reader), value: fact });
+  for (const entry of written.facts) context.draft.write({ kind: 'fact', evidence: evidenceAt(reader, entry.path), value: entry.fact });
   context.progress(
     `clustered ${repository} at ${reader.commit}: ${written.modules} ${written.modules === 1 ? 'module' : 'modules'} over ${files.length} ${files.length === 1 ? 'file' : 'files'} and ${symbols.length} ${symbols.length === 1 ? 'symbol' : 'symbols'}, ranked over ${edges.length} ${edges.length === 1 ? 'edge' : 'edges'}, ${written.gaps} ${written.gaps === 1 ? 'gap' : 'gaps'}`,
     1,
@@ -520,11 +526,12 @@ export function fileRows(rows: readonly unknown[], repository: string, read: str
     if (held['id'] !== id) {
       throw refuse(read, index, repository, `its id ${JSON.stringify(held['id'])} is not the digest of its value, which is ${JSON.stringify(id)}: an id is never written but computed from what the fact is`);
     }
-    const first = seen.get(path);
+    const normalised = repositoryPath(path);
+    const first = seen.get(normalised);
     if (first !== undefined) {
       throw refuse(read, index, repository, `its path ${JSON.stringify(path)} stands in row ${first + 1}: one file is one fact, and an answer holds it once`);
     }
-    seen.set(path, index);
+    seen.set(normalised, index);
     return { kind: 'file' as const, path, id, value: placed, place };
   });
 }
@@ -784,7 +791,7 @@ function clusterRepository(input: {
       // A seed that holds no file seeds no module: a module of nothing is a
       // boundary no later stage could refine, and the graph holds its package
       // fact already. It is named in the coverage rather than dropped.
-      gaps.push({ what: `${seed.manifest}:1 the package ${JSON.stringify(seed.name)} declares no file under ${JSON.stringify(seed.folder === '' ? '.' : seed.folder)}: no module is seeded from it`, reason: 'unsupported' });
+      gaps.push({ what: `${seed.manifest}:1 no file of the pinned tree is held by the package ${JSON.stringify(seed.name)} under ${JSON.stringify(seed.folder === '' ? '.' : seed.folder)} — it holds none, or another seed holds them all — so no module is seeded from it`, reason: 'unsupported' });
       continue;
     }
     named.push({ base: seed.name, marker: seed.manifest, tree: () => clusterFolder(seed.name, seed.folder, held, seed.seed, input.settings, gaps) });
@@ -805,12 +812,23 @@ function clusterRepository(input: {
   const trees = named.map((entry) => (counts.get(entry.base) ?? 0) === 1
     ? entry.tree()
     : renameTop(entry.tree(), `${entry.base} (${entry.marker})`));
-  return { trees, gaps };
+  // The repository's top level is bounded too: 0026's "~50 children, else an
+  // intermediate grouping level" is a rule about every module, the repository
+  // among them, so a repository of two hundred packages is grouped like any
+  // other folder's children (see `groupedChildren`).
+  return { trees: groupedChildren(trees, input.settings.maxFanIn), gaps };
 }
 
 /** A top-level cluster under another name, its children as they were. */
 function renameTop(tree: ClusterTree, name: string): ClusterTree {
   return { ...tree, name };
+}
+
+/** A group's name, made one its siblings do not already carry: the name and then `.2`, `.3` … until it is free. */
+function freeGroupName(candidate: string, taken: ReadonlySet<string>): string {
+  let name = candidate;
+  for (let part = 2; taken.has(name); part += 1) name = `${candidate}.${part}`;
+  return name;
 }
 
 /** The gap one cluster over the size threshold names: the folder, how many files stand directly in it, and the threshold. */
@@ -867,10 +885,16 @@ function clusterFolder(name: string, folder: string, files: readonly PublishedFi
 function groupedChildren(children: readonly ClusterTree[], maxFanIn: number): readonly ClusterTree[] {
   if (maxFanIn < MIN_MAX_FAN_IN) throw new Error(`the modules stage's configuration holds ${JSON.stringify(maxFanIn)} as its maxFanIn, and a bound below ${MIN_MAX_FAN_IN} cannot group a module's children: the value the registry judged is the value run with`);
   if (children.length <= maxFanIn) return children;
+  // A group's name is its own ordinal among its parent's children, and a folder
+  // of the parent may already carry that name: the group then says it is a group
+  // (`part-2.2`), so two clusters of one parent never come out as one fact.
+  const taken = new Set<string>(children.map((child) => child.name));
   const grouped: ClusterTree[] = [];
   for (let at = 0; at < children.length; at += maxFanIn) {
     const chunk = children.slice(at, at + maxFanIn);
-    grouped.push({ name: `part-${grouped.length + 1}`, seed: 'cluster', files: [], children: chunk });
+    const name = freeGroupName(`part-${grouped.length + 1}`, taken);
+    taken.add(name);
+    grouped.push({ name, seed: 'cluster', files: [], children: chunk });
   }
   return groupedChildren(grouped, maxFanIn);
 }
@@ -985,9 +1009,16 @@ function rankValue(share: number): number {
 
 // ---- what the clustering writes -------------------------------------------
 
+/** One fact of a unit's writes, and the repository path it stands on when it is about one. */
+export interface ClusteringFact {
+  readonly fact: Fact;
+  /** The file the fact was read from or written onto: what the draft's evidence cites. */
+  readonly path?: string;
+}
+
 /** What the unit's writes are: every fact, how many modules stand, and how many gaps the coverage names. */
 interface ClusteringWrite {
-  readonly facts: readonly Fact[];
+  readonly facts: readonly ClusteringFact[];
   readonly modules: number;
   readonly gaps: number;
 }
@@ -1006,14 +1037,15 @@ interface ClusteringInput {
 /**
  * The unit's facts: one `module` fact per cluster (its name inside its parent,
  * its seed, how many files and symbols stand under it, and the share of the
- * repository's rank they hold), the `contains` edges — a module holds its child
- * modules, the files standing in it, and the symbols those files declare — the
- * `file` and `symbol` facts with the rank this stage measured written onto them,
- * and one `coverage` fact for the repository. Every fact is written in code point
- * order of its id, so two runs of one graph write one draft in one order.
+ * repository's rank they hold), the `contains` edges — the repository holds its
+ * top-level modules, a module holds its child modules, the files standing in it,
+ * and the symbols those files declare — the `file` and `symbol` facts with the
+ * rank this stage measured written onto them, and one `coverage` fact for the
+ * repository. Every fact is written in code point order of its id, so two runs of
+ * one graph write one draft in one order, and a fact about a file cites that file.
  */
 function writeClustering(input: ClusteringInput): ClusteringWrite {
-  const facts: Fact[] = [];
+  const facts: ClusteringFact[] = [];
   const symbolsOf = new Map<string, PublishedSymbolRow[]>();
   const fileByPath = new Map<string, PublishedFileRow>(input.files.map((file) => [file.path, file]));
   for (const symbol of input.symbols) {
@@ -1035,10 +1067,14 @@ function writeClustering(input: ClusteringInput): ClusteringWrite {
     },
     provenance: input.provenance,
   });
-  const visit = (tree: ClusterTree, parent: string | undefined): { readonly members: number; readonly share: number } => {
+  const visit = (tree: ClusterTree, parent: string | undefined): { readonly id: string; readonly members: number; readonly share: number } => {
     const id = moduleIdOf(tree, parent);
     const children = tree.children.map((child) => visit(child, id));
-    const ownSymbols = tree.files.flatMap((fileId) => symbolsOf.get(fileId) ?? []);
+    // In code point order of their ids, so a module's share is summed in one
+    // order whatever order the read answered the symbols in: floating-point
+    // addition is not associative, and two runs of one graph must agree to the
+    // last digit.
+    const ownSymbols = tree.files.flatMap((fileId) => symbolsOf.get(fileId) ?? []).sort((left, right) => byCodePoint(left.id, right.id));
     let share = 0;
     let members = 0;
     for (const fileId of tree.files) {
@@ -1054,58 +1090,73 @@ function writeClustering(input: ClusteringInput): ClusteringWrite {
       members += child.members;
     }
     const importance = input.ranks.total === 0 ? 0 : rankValue(share / input.ranks.total);
-    facts.push(makeNodeFact({
-      kind: 'module',
-      value: {
-        repository: input.repository,
-        name: tree.name,
-        ...(parent === undefined ? {} : { parent }),
-        seed: tree.seed,
-        members,
-        importance,
-      },
-      provenance: input.provenance,
-      layer: 'extracted',
-    }));
+    facts.push({
+      fact: makeNodeFact({
+        kind: 'module',
+        value: {
+          repository: input.repository,
+          name: tree.name,
+          ...(parent === undefined ? {} : { parent }),
+          seed: tree.seed,
+          members,
+          importance,
+        },
+        provenance: input.provenance,
+        layer: 'extracted',
+      }),
+    });
     if (parent !== undefined) {
-      facts.push(makeEdgeFact({ kind: 'contains', value: { from: parent, to: id }, provenance: input.provenance, layer: 'extracted' }));
+      facts.push({ fact: makeEdgeFact({ kind: 'contains', value: { from: parent, to: id }, provenance: input.provenance, layer: 'extracted' }) });
     }
     for (const fileId of tree.files) {
-      facts.push(makeEdgeFact({ kind: 'contains', value: { from: id, to: fileId }, provenance: input.provenance, layer: 'extracted' }));
+      facts.push({ fact: makeEdgeFact({ kind: 'contains', value: { from: id, to: fileId }, provenance: input.provenance, layer: 'extracted' }) });
     }
     for (const symbol of ownSymbols) {
-      facts.push(makeEdgeFact({ kind: 'contains', value: { from: id, to: symbol.id }, provenance: input.provenance, layer: 'extracted' }));
+      facts.push({ fact: makeEdgeFact({ kind: 'contains', value: { from: id, to: symbol.id }, provenance: input.provenance, layer: 'extracted' }) });
     }
-    return { members, share };
+    return { id, members, share };
   };
-  for (const tree of input.clustered.trees) visit(tree, undefined);
+  // The repository holds its top-level modules: a page or an agent unit walks
+  // from the repository node down, and a repository of two hundred packages is
+  // grouped at the top like any other fan-in (`groupedChildren`).
+  const repositoryId = factId({ kind: 'repository', value: { repository: input.repository, form: input.reader.form }, provenance: input.provenance });
+  for (const tree of input.clustered.trees) {
+    const top = visit(tree, undefined);
+    facts.push({ fact: makeEdgeFact({ kind: 'contains', value: { from: repositoryId, to: top.id }, provenance: input.provenance, layer: 'extracted' }) });
+  }
   // The ranks the walk measured, written onto the facts they are about: the file
   // and symbol facts stages 1, 3 and 4 published, one id each, with `importance`.
   for (const file of input.files) {
     const importance = rankValue(input.ranks.rankOf.get(file.id) ?? 0);
-    facts.push(makeNodeFact({
-      kind: 'file',
-      value: { ...file.value, path: repositoryPath(file.path), importance },
-      provenance: { ...input.provenance, place: { file: repositoryPath(file.path), range: file.place } },
-      layer: 'extracted',
-    }));
+    facts.push({
+      fact: makeNodeFact({
+        kind: 'file',
+        value: { ...file.value, path: repositoryPath(file.path), importance },
+        provenance: { ...input.provenance, place: { file: repositoryPath(file.path), range: file.place } },
+        layer: 'extracted',
+      }),
+      path: file.path,
+    });
   }
   for (const symbol of input.symbols) {
     const importance = rankValue(input.ranks.rankOf.get(symbol.id) ?? 0);
-    facts.push(makeNodeFact({
-      kind: 'symbol',
-      value: { ...symbol.value, file: repositoryPath(symbol.file), importance },
-      provenance: { ...input.provenance, place: { file: repositoryPath(symbol.file), range: symbol.place } },
-      layer: 'extracted',
-    }));
+    facts.push({
+      fact: makeNodeFact({
+        kind: 'symbol',
+        value: { ...symbol.value, file: repositoryPath(symbol.file), importance },
+        provenance: { ...input.provenance, place: { file: repositoryPath(symbol.file), range: symbol.place } },
+        layer: 'extracted',
+      }),
+      path: symbol.file,
+    });
   }
-  facts.push(coverageOf(input));
+  facts.push({ fact: coverageOf(input) });
   return { facts: uniqueFacts(facts), modules: countModules(facts), gaps: input.clustered.gaps.length };
 }
 
 /** How many `module` facts the unit wrote. */
-function countModules(facts: readonly Fact[]): number {
-  return facts.filter((fact) => fact.kind === 'module').length;
+function countModules(facts: readonly ClusteringFact[]): number {
+  return facts.filter((entry) => entry.fact.kind === 'module').length;
 }
 
 /**
@@ -1113,19 +1164,19 @@ function countModules(facts: readonly Fact[]): number {
  * id are one fact (0026), and a unit that computed two of them has computed a
  * cluster twice under one name: refused rather than published once of the two.
  */
-function uniqueFacts(facts: readonly Fact[]): readonly Fact[] {
-  const byId = new Map<string, Fact>();
-  for (const fact of facts) {
-    const held = byId.get(fact.id);
+function uniqueFacts(facts: readonly ClusteringFact[]): readonly ClusteringFact[] {
+  const byId = new Map<string, ClusteringFact>();
+  for (const entry of facts) {
+    const held = byId.get(entry.fact.id);
     if (held !== undefined) {
-      throw new Error(`the modules stage computed two ${held.kind} facts of the id ${fact.id} for one repository: a fact's id is its identity, so two of one id are one fact, and this unit read the graph twice under one name`);
+      throw new Error(`the modules stage computed two ${held.fact.kind} facts of the id ${entry.fact.id} for one repository: a fact's id is its identity, so two of one id are one fact, and this unit read the graph twice under one name`);
     }
-    byId.set(fact.id, fact);
+    byId.set(entry.fact.id, entry);
   }
-  return [...byId.values()].sort((left, right) => byCodePoint(left.id, right.id));
+  return [...byId.values()].sort((left, right) => byCodePoint(left.fact.id, right.fact.id));
 }
 
-/** The scopes one unit of this stage read, in code point order, each once: what its coverage says it read. */
+/** The scopes one unit of this stage's four reads asked for, in code point order, each once: what its coverage says it asked. */
 const READ_SCOPES: readonly string[] = ['calls', 'files', 'imports', 'inherits', 'packages', 'references', 'symbols'];
 
 /**
@@ -1139,7 +1190,16 @@ function coverageOf(input: ClusteringInput): Fact {
   const unread = [...input.clustered.gaps]
     .map((gap) => ({ what: gap.what, reason: gap.reason as CoverageGapReason }))
     .sort((left, right) => byCodePoint(left.what, right.what) || byCodePoint(left.reason, right.reason));
-  const scope = factId({ kind: 'repository', value: { repository: input.repository, form: input.reader.form }, provenance: input.provenance });
+  // The scope is the snapshot fact of the commit this unit read: its identity is
+  // the repository and the commit, and so is this coverage's, which is what makes
+  // a second run at a later commit a second coverage of a later tree rather than
+  // the first run's row standing for ever (the store keeps the first publication
+  // of an id). Stage 0 makes one coverage per commit for the same reason.
+  const scope = factId({
+    kind: 'snapshot',
+    value: { repository: input.repository, commit: input.reader.commit } as SnapshotValue,
+    provenance: input.provenance,
+  });
   return makeNodeFact({
     kind: 'coverage',
     value: {

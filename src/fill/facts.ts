@@ -567,7 +567,7 @@ export interface FileValue {
    * of the graph — the files that import it, and the symbols of it that its
    * readers reach. Absent until stage 5 has ranked the repository, and the one
    * field of a published fact a later publication replaces
-   * (`FACT_RANKED_FIELDS`): a rank is the graph's own measurement, not one
+   * (`FACT_MEASURED_FIELDS`): a rank is the graph's own measurement, not one
    * reader's observation of a fact two readers hold.
    */
   readonly importance?: number;
@@ -659,7 +659,7 @@ export interface SymbolValue {
    * declares it. The rank a later agent stage reads first when it must choose
    * which symbols of a module to read. Absent until stage 5 has ranked the
    * repository, and a ranked field like `FileValue.importance`
-   * (`FACT_RANKED_FIELDS`).
+   * (`FACT_MEASURED_FIELDS`).
    */
   readonly importance?: number;
 }
@@ -1047,6 +1047,20 @@ export const FACT_MEASURED_FIELDS: { readonly [K in FactKind]?: readonly (keyof 
   // many files and symbols stand under it), so a re-clustering moves it too.
   'file': ['importance'],
   'module': ['importance', 'members'],
+  'symbol': ['importance'],
+};
+
+/**
+ * Of `FACT_MEASURED_FIELDS`, the fields that are one measurement of the whole
+ * graph rather than of the node's own structure: a rank (madarch-tzte.21.7). A
+ * read that answered one of them is not stale when it moves — the read was about
+ * the node, not about the number the last run gave it — so a tracked read's
+ * membership digest leaves exactly these names out (`readMembership`,
+ * `orchestrator-store.ts`). A module's `members` is not one of them: it moves
+ * when the tree moves, which is what a read of that module is about.
+ */
+export const FACT_RANK_FIELDS: { readonly [K in FactKind]?: readonly (keyof FactValueOf<K> & string)[] } = {
+  'file': ['importance'],
   'symbol': ['importance'],
 };
 
@@ -1965,6 +1979,13 @@ const CLOSED_VALUE_FORMS: Readonly<Record<string, { readonly values: readonly st
  */
 const RATIO_FIELDS: readonly string[] = ['file.importance', 'module.importance', 'symbol.importance'];
 
+/**
+ * The fields a kind's value holds as a count of members, a whole number from
+ * zero: a module's `members` is how many files and symbols stand under it
+ * (madarch-tzte.21.7), and a fraction, a negative or a text is no count.
+ */
+const COUNT_FIELDS: readonly string[] = ['module.members'];
+
 const GAP_FIELDS: readonly string[] = ['reason', 'what'];
 
 /**
@@ -2385,6 +2406,9 @@ export function checkFact(fact: unknown): FactProblem[] {
       }
       if (RATIO_FIELDS.includes(`${kind}.${field}`) && (typeof held !== 'number' || !Number.isFinite(held) || held < 0 || held > 1)) {
         add(`value.${field}`, `${shown(held)} is no share of one whole: this field holds a rank in [0, 1]`);
+      }
+      if (COUNT_FIELDS.includes(`${kind}.${field}`) && (typeof held !== 'number' || !Number.isInteger(held) || held < 0)) {
+        add(`value.${field}`, `${shown(held)} is no count of members: this field holds a whole number from zero`);
       }
       const closed = CLOSED_VALUE_FORMS[`${kind}.${field}`];
       const recordKey = RECORD_LIST_FIELDS[`${kind}.${field}`];

@@ -336,7 +336,15 @@ export async function applyPublishedFacts(input: FactApplicationInput): Promise<
                SELECT jsonb_object_agg(entry.key, entry.value) FROM jsonb_each(EXCLUDED.value) AS entry
                WHERE entry.key = ANY($8::text[])
              ), '{}'::jsonb),
-                 schema_version = EXCLUDED.schema_version`,
+                 schema_version = EXCLUDED.schema_version,
+                 -- A publisher that measures a row it already cites — the same source system as the row's
+                 -- own provenance — is that reader measuring again, so the row's provenance moves with its
+                 -- value and a re-clustering at a later commit does not leave a module fact citing the
+                 -- commit of a measurement its value no longer holds. A publisher of another reader
+                 -- (stage 5 ranking the file fact stage 1 wrote) leaves the row's own provenance alone.
+                 provenance = CASE
+                   WHEN fill_fact.provenance->'source'->>'system' = EXCLUDED.provenance->'source'->>'system'
+                   THEN EXCLUDED.provenance ELSE fill_fact.provenance END`,
           [fact.id, fact.kind, fact.schemaVersion, json(fact.provenance), fact.layer, fact.status, json(fact.value), measured],
         );
       }

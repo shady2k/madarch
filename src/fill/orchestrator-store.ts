@@ -31,7 +31,7 @@ import { byCodePoint } from '../model/order.js';
 import type { FillRun } from '../product/fill-runtime.js';
 import type { SqlExecutor } from '../query/sql-driver.js';
 import { here, raise, withLocation } from './fsm-core.js';
-import { FACT_MEASURED_FIELDS } from './facts.js';
+import { FACT_RANK_FIELDS } from './facts.js';
 import { advanceUnitIn, type UnitRecord } from './state-store.js';
 import type { StageDraftWrite } from './stage.js';
 
@@ -157,7 +157,7 @@ function membershipValue(value: unknown, path: string): unknown {
     const fields = value as Record<string, unknown>;
     const out: Record<string, unknown> = {};
     for (const key of Object.keys(fields).sort(byCodePoint)) {
-      if (MEASURED_FIELD_NAMES.has(key)) continue;
+      if (RANK_FIELD_NAMES.has(key)) continue;
       out[key] = membershipValue(fields[key], `${path}.${key}`);
     }
     return out;
@@ -166,16 +166,19 @@ function membershipValue(value: unknown, path: string): unknown {
 }
 
 /**
- * The fields a fact's own value holds as a measurement of the node rather than as
- * an observation of it (`FACT_MEASURED_FIELDS`, madarch-tzte.21.7): a rank stage 5
- * measures over the whole repository, and the size of the cluster that ranks it.
- * A read that answered one of them is not stale because the measurement moved —
- * the read was about the node, not about the number a later run gave it — so the
- * membership digest leaves these names out. They are left out by name because a
- * read answers plain rows and not facts: the digest sees a value's field, and the
- * kinds that declare one are the schema's answer to which names are measurements.
+ * The fields a fact's own value holds as one measurement of the whole graph
+ * rather than as an observation of the node (`FACT_RANK_FIELDS`, madarch-tzte.21.7):
+ * the rank stage 5's PageRank measures over a repository. A read that answered
+ * one of them is not stale because the measurement moved — the read was about the
+ * node, not about the number a later run gave it — so the membership digest
+ * leaves these names out, and a re-ranking makes no unit that read a file or a
+ * symbol out of date. Only a rank is left out: a module's `members` moves when
+ * the tree moves, which is what a read of that module is about. The names come
+ * from the schema, so the kinds that declare a rank are the one place that says
+ * which names are ranks; the digest sees plain rows and not facts, so it reads
+ * the name.
  */
-const MEASURED_FIELD_NAMES: ReadonlySet<string> = new Set(Object.values(FACT_MEASURED_FIELDS).flatMap((fields) => [...(fields ?? [])]));
+const RANK_FIELD_NAMES: ReadonlySet<string> = new Set(Object.values(FACT_RANK_FIELDS).flatMap((fields) => [...(fields ?? [])]));
 
 /**
  * The digest of one read's answer: the membership of the rows it answered, in a

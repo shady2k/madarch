@@ -112,13 +112,22 @@ observation of that kind, and neither is the size of the cluster a rank belongs
 to: decision 0026 makes both one measurement of the whole repository, so a
 re-ranking must move the values a row already holds, or every rank — and every
 module's member count — would be the one the first run measured, for ever. The
-declaration `FACT_MEASURED_FIELDS` names exactly those fields, the store applies
-them from the publication that carries them, and a read that answered one of
-them leaves it out of the digest publication rechecks (`readMembership`): a read
-that answered a node was about the node, not about the number a later run gave
-it, so a re-ranking makes no unit that read a file or a symbol stale — neither
-stage 5's own nor stage 4's, whose symbol read would otherwise be invalidated by
-every re-ranking.
+declaration `FACT_MEASURED_FIELDS` names exactly those fields, and the store
+applies them from the publication that carries them, moving the row's schema
+version and — where the publisher is the reader the row already cites — its
+provenance with them, so a module fact of a later commit does not go on citing
+the commit of a measurement its value no longer holds. A publisher of another
+reader leaves the row's own provenance alone: stage 5 ranking stage 1's file fact
+is not the reader that read the bytes. A read that answered a *rank* leaves it out
+of the digest publication rechecks (`readMembership`, over `FACT_RANK_FIELDS`): a
+read that answered a node was about the node, not about the number a later run
+gave it, so a re-ranking makes no unit that read a file or a symbol stale —
+neither stage 5's own nor stage 4's, whose symbol read would otherwise be
+invalidated by every re-ranking. A module's `members` is not left out: it moves
+when the tree moves, which is what a read of that module is about. The price of
+the merge is that a ranked row is written where it used to be left alone, so
+stage 1's republish and stage 5's ranking of one file take a row lock on each
+other; publication order is by fact id, so the two cannot deadlock.
 
 ## Blocking questions
 
@@ -165,22 +174,31 @@ None.
   files in it.** A cluster holding more files than `sizeThreshold` (50 by
   default, 0026's "a size threshold" from the stage's own defaults) takes each
   folder below it as a cluster of its own and splits those by the same rule; the
-  files standing directly in the cluster's folder stay in it. A cluster still
-  over the threshold with no folder left to split by — a folder of fifty-one
-  files, or a folder of fifty-five files beside a subfolder it did split off — is
-  kept whole and named in the coverage with the reason `too-large`, counting the
-  files that stand directly in it: the fill is never silently smaller than the
-  graph it read, and a boundary the tree does not have is never invented.
-- **Fan-in is bounded by an intermediate grouping level.** A cluster with more
-  children than `maxFanIn` (50 by default, 0026's "fan-in is bounded (~50
-  children, else an intermediate grouping level)") groups them, in code point
+  files standing directly in the cluster's folder stay in it. Two cases are over
+  the threshold and cannot be split: a folder of fifty-one files with no subfolder
+  beneath it — the cluster is kept whole and named in the coverage with the reason
+  `too-large` — and a folder of fifty-five files beside a subfolder it did split
+  off — the subfolder becomes a module, the fifty-five files stay in the cluster,
+  and the coverage names them too, counting the files standing directly in it. The
+  fill is never silently smaller than the graph it read, and a boundary the tree
+  does not have is never invented.
+- **Fan-in is bounded by an intermediate grouping level, at the top too.** A node
+  with more children than `maxFanIn` (50 by default, 0026's "fan-in is bounded
+  (~50 children, else an intermediate grouping level)") groups them, in code point
   order of their names, into intermediate modules of at most the bound each,
-  named `part-1`, `part-2` and so on among their parent's children — the name is
-  the group's own ordinal and never depends on how many groups the folder happened
-  to need. A group of groups is grouped again, so no module holds more than the
-  bound of children at any depth; the modules the folders became keep the names
+  named `part-1`, `part-2` and so on among their parent's children; a group's name
+  one of the parent's folders already carries takes `.2`, `.3` … after it, so two
+  clusters of one parent are never one fact. A group of groups is grouped again, so
+  no module holds more than the bound of children at any depth, and the
+  repository's own top level is bounded the same way — two hundred packages are
+  grouped, not two hundred siblings. The modules the folders became keep the names
   they had. A bound below two groups one child into one group and never ends, so
   the stage's schema and its own configuration reader refuse it by name.
+- **The repository holds its top-level modules.** A `contains` edge runs from the
+  repository node to every top-level module, so a page or an agent unit walks from
+  the repository down and a repository of one package is as reachable as one of
+  fifty. `module.parent` stays absent at the top: a module's parent is the module
+  that holds it, and the repository is no module.
 - **Importance is one PageRank over the repository's own graph.** The nodes are
   every file and every symbol the reads answered, in code point order of their
   ids, so the walk is the same arithmetic in the same order in every run. The
@@ -191,10 +209,10 @@ None.
   Damping is 0.85, a node with no outgoing edge spreads what it holds over the
   whole graph (PageRank's own dangling rule, which keeps the vector a
   distribution of one whole), the walk stops when no node moved by more than
-  1e-12, and it stops after 100 turns at the most. A rank is written with twelve
-  decimals, and the same graph answers the same number on every machine: the walk
-  is the same arithmetic in the same order, so its residual at the turn it stopped
-  is the same residual, and the last digits are that residual and not noise.
+  1e-12 — about 160 turns at that damping — and it stops after 500 turns at the
+  most. A rank is written with twelve decimals, and the same graph answers the same
+  number on every machine: the walk is the same arithmetic in the same order, so
+  the turn it stops at and the vector it holds there are the same in every run.
 - **A module's importance is the share its members hold** — the sum of the ranks
   under it over the sum of every node's — which is why the modules of one
   repository sum to one and every rank is a number in [0, 1], the range the schema
@@ -215,18 +233,25 @@ None.
   stage is the producer of is the modules and their containment; the ranked facts
   are the same nodes, and the stage's `validate` holds every write of them to the
   schema and to this stage's own list of kinds.
-- **The coverage names what was read and each cluster that could not be read
-  whole.** One `coverage` fact per repository, its scope the repository's own fact
-  id, its `read` the seven scopes the four reads cover, and its `unread` every gap
-  the clustering named — a workspace, a package with no manifest, a seed whose
-  folder holds no file, a cluster whose files are too many to split further — each
-  with 0004's reason. A complete coverage is the only ground for a claim of
-  absence (0005). Its reader is this stage, `madarch-fill`, and not git: a
-  coverage's identity is the repository, the scope and the reader, so a stage that
-  named git's reader would compute stage 0's coverage id for the same repository
-  and lose every gap it found to the row the store already holds. A stage that
-  reads the graph and no bytes names itself, which is the same rule that makes
-  stage 0's coverage and a compiler's two coverages of one repository.
+- **The coverage names what was asked and each cluster that could not be read
+  whole.** One `coverage` fact per repository *and commit*: its scope is the
+  snapshot fact of the commit the unit read (a snapshot's identity is the
+  repository and the commit), so a second run at a later commit is a second
+  coverage of a later tree rather than a row the store already holds — the same
+  reason stage 0 writes one coverage per commit. Its `read` names the seven scopes
+  its four reads asked for, and its `unread` every gap the clustering named — a
+  workspace, a package with no manifest, a seed that holds no file, a cluster whose
+  files are too many to split further — each with 0004's reason. A complete
+  coverage is the only ground for a claim of absence (0005), and `read` names what
+  the unit asked, not what a producer published: a run whose optional build stage
+  is disabled asks the packages read and is answered nothing, which the graph's own
+  stage order shows rather than this fact. Its reader is this stage,
+  `fill-stage-5`, and not git: a coverage's identity is the repository, the scope
+  and the reader, so a stage that named git's reader would compute stage 0's
+  coverage id for the same scope and lose every gap it found to the row the store
+  already holds. A stage that reads the graph and no bytes names itself, which is
+  the same rule that makes stage 0's coverage and a compiler's two coverages of one
+  repository.
 - **Two modules of one name under one parent are one fact, and are refused
   rather than published once of the two.** Two package seeds may carry one package
   name: each top-level module of a shared name then says which manifest it came

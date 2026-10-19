@@ -394,8 +394,11 @@ describe('the modules stage clusters the graph recursively', () => {
       expect(root.value['seed']).toBe('cluster');
       expect(root.value['members']).toBe(2);
       expect(root.value['importance']).toBeCloseTo(1, 12);
-      // The module holds the file and the symbol the file declares.
-      expect(contained(recorder.writes).map((edge) => edge.to).sort()).toEqual([file.id, symbol.id].sort());
+      // The module holds the file and the symbol the file declares, and the
+      // repository holds the module.
+      const rootId = String(root.id);
+      expect(contained(recorder.writes).filter((edge) => edge.from === rootId).map((edge) => edge.to).sort()).toEqual([file.id, symbol.id].sort());
+      expect(contained(recorder.writes).map((edge) => edge.to)).toContain(rootId);
     } finally {
       await f.dispose();
     }
@@ -449,7 +452,7 @@ describe('the modules stage clusters the graph recursively', () => {
       const held = modules(recorder.writes);
       expect(held).toHaveLength(1);
       expect(held[0]!.members).toBe(2);
-      expect(contained(recorder.writes).map((edge) => edge.to).sort()).toEqual([a.id, x.id].sort());
+      expect(contained(recorder.writes).filter((edge) => edge.from === held[0]!.id).map((edge) => edge.to).sort()).toEqual([a.id, x.id].sort());
       expect(factOfKind(recorder.writes, 'coverage').value['complete']).toBe(true);
     } finally {
       await f.dispose();
@@ -632,8 +635,10 @@ describe('the modules stage clusters the graph recursively', () => {
           // packages of one name in two forms: a package and a build target of
           // one name are two facts of the schema, and each top-level module of a
           // shared name says which manifest it came from.
-          { name: 'root-crate', form: 'package', manifest: 'Cargo.toml' },
+          // Answered `go.mod` first, because the rule reads the manifest's path
+          // and not the order the read answered in.
           { name: 'root-module', form: 'package', manifest: 'go.mod' },
+          { name: 'root-crate', form: 'package', manifest: 'Cargo.toml' },
           { name: '@acme/web', form: 'package', manifest: 'packages/web/package.json' },
           { name: '@acme/web', form: 'build-target', manifest: 'packages/site/Cargo.toml' },
         ],
@@ -777,7 +782,7 @@ describe('the modules stage writes the coverage of what it read', () => {
       // under git's reader: two readers are two coverages, and a stage that
       // named git's reader would have its gaps overwritten by stage 0's row,
       // because the store keeps the first publication of an id.
-      expect(coverage.provenance.source?.system).toBe('madarch-fill');
+      expect(coverage.provenance.source?.system).toBe('fill-stage-5');
       const stage0 = factId({
         kind: 'coverage',
         value: { repository: REPOSITORY, scope: coverage.value['scope'] as string, complete: true, read: [], unread: [] },
@@ -785,9 +790,14 @@ describe('the modules stage writes the coverage of what it read', () => {
       });
       expect(coverage.id).not.toBe(stage0);
       expect(coverage.value['read']).toEqual(['calls', 'files', 'imports', 'inherits', 'packages', 'references', 'symbols']);
-      // The repository's own fact id, not a path: the scope a reader joins on.
-      const repositoryId = factId({ kind: 'repository', value: { repository: REPOSITORY, form: 'code' }, provenance: placeAt('index.ts') });
-      expect(coverage.value['scope']).toBe(repositoryId);
+      // The commit's snapshot fact, not a path: the scope a reader joins on, and
+      // the part that makes a later commit a later coverage.
+      const snapshotId = factId({
+        kind: 'snapshot',
+        value: { repository: REPOSITORY, commit: commit } as never,
+        provenance: placeAt('index.ts'),
+      });
+      expect(coverage.value['scope']).toBe(snapshotId);
       const unread = coverage.value['unread'] as readonly { readonly what: string }[];
       expect(unread.map((gap) => gap.what).join('\n')).toContain('a workspace holds the packages of its folders');
       expect(unread.map((gap) => gap.what).join('\n')).toContain('names no manifest');

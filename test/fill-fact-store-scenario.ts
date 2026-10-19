@@ -87,6 +87,15 @@ export interface ScenarioFacts {
   readonly rankedModule: Fact;
   readonly rankedModuleReranked: Fact;
   readonly rankedModuleUnranked: Fact;
+  /**
+   * One file fact as stage 1 publishes it, the same fact with the rank stage 5
+   * measures written onto it, and the same fact again with no rank: the case the
+   * measured-field merge exists for — a second stage writing a measurement onto a
+   * row another stage's unit published first.
+   */
+  readonly rankedFile: Fact;
+  readonly rankedFileRanked: Fact;
+  readonly rankedFilePlain: Fact;
   /** A folder unit's facts (a directory and the edge that holds a file in it), as stages 1 and 5 write them. */
   readonly folderDirectory: Fact;
   readonly folderFile: Fact;
@@ -117,6 +126,7 @@ export function scenarioFacts(): ScenarioFacts {
   };
   const ranked = (importance: number, members: number): Fact => makeNodeFact({ kind: 'module', value: { repository: 'acme-shop', name: 'ranked', seed: 'package', members, importance }, provenance: provenance('src/ranked.ts'), layer: 'extracted' });
   const unranked = (members: number): Fact => makeNodeFact({ kind: 'module', value: { repository: 'acme-shop', name: 'ranked', seed: 'package', members }, provenance: provenance('src/ranked.ts'), layer: 'extracted' });
+  const rankedFileOf = (importance?: number): Fact => makeNodeFact({ kind: 'file', value: { repository: 'acme-shop', path: repositoryPath('src/ranked.ts'), roles: ['source'], ...(importance === undefined ? {} : { importance }) }, provenance: provenance('src/ranked.ts'), layer: 'extracted' });
   const folderA = folder('src', 'src/cart.ts');
   const folderB = folder('lib', 'lib/total.ts');
   const folderDirectory = folderA.directory;
@@ -126,6 +136,9 @@ export function scenarioFacts(): ScenarioFacts {
   const otherFolderFile = folderB.file;
   const otherFolderContains = folderB.contains;
   return {
+    rankedFile: rankedFileOf(),
+    rankedFileRanked: rankedFileOf(0.75),
+    rankedFilePlain: rankedFileOf(),
     rankedModule: ranked(0.5, 3),
     rankedModuleReranked: ranked(0.25, 5),
     rankedModuleUnranked: unranked(3),
@@ -231,6 +244,15 @@ export interface FactStoreScenarioReport {
   /** The same row after a publication that carries no rank: the rank it holds stands, and the size it carries moves. */
   readonly rankAfterUnranked: number;
   readonly membersAfterUnranked: number;
+  /**
+   * One `file` fact stage 1's unit published, then ranked by a `modules` unit,
+   * then published again by that unit with no rank: the rank it gained stands,
+   * and the row still cites the reader that first published it.
+   */
+  readonly fileRankBeforeRanked: number;
+  readonly fileRankAfterRanked: number;
+  readonly fileRankAfterPlain: number;
+  readonly fileProvenanceReader: string;
 }
 
 /** Raises the machine's own refusal, so a scenario step that cannot be taken says why. */
@@ -441,7 +463,24 @@ export async function runFactStoreScenario(owner: DatabaseOwner): Promise<FactSt
   const rankAfterUnranked = await rankOf(facts.rankedModule.id);
   const membersAfterUnranked = await membersOf(facts.rankedModule.id);
 
+  // ---- a rank another stage measures lands on the fact this stage first published ----
+  const readerOf = async (id: string): Promise<string> => {
+    const stored = (await readFact(owner, id))?.fact.provenance as { readonly source?: { readonly system?: string } } | undefined;
+    return stored?.source?.system ?? '';
+  };
+  await publishUnitFacts('unit-file', 'inventory', 'file', [writeOf('fact', facts.rankedFile)], NOW + 14_000);
+  const fileRankBeforeRanked = await rankOf(facts.rankedFile.id);
+  await publishUnitFacts('unit-rank-file', 'modules', 'rank-file', [writeOf('fact', facts.rankedFileRanked)], NOW + 14_100);
+  const fileRankAfterRanked = await rankOf(facts.rankedFile.id);
+  const fileProvenanceReader = await readerOf(facts.rankedFile.id);
+  await publishNextGeneration('unit-rank-file', 2, [writeOf('fact', facts.rankedFilePlain)], NOW + 14_200);
+  const fileRankAfterPlain = await rankOf(facts.rankedFile.id);
+
   return {
+    fileRankBeforeRanked,
+    fileRankAfterRanked,
+    fileRankAfterPlain,
+    fileProvenanceReader,
     rankAfterFirst,
     rankAfterSecond,
     membersAfterSecond,
