@@ -72,6 +72,7 @@ const OTHER_FILE = 'README.md';
 const RUN = 'run-2026-10-18T21:00Z';
 const OTHER_RUN = 'run-2026-10-17T09:00Z';
 const DAMAGED_RUN = 'run-2026-10-16T09:00Z';
+const BROKEN_RUN = 'run-2026-10-15T09:00Z';
 /** The unit whose tools the suite drives. */
 const UNIT = { unitId: 'agent/unit-a', generation: 1 };
 const SNAPSHOT: RunSnapshot = { repository: 'example.com/acme/shop', defaultBranch: 'main', commit: 'b'.repeat(40), registryHash: 'sha256:registry' };
@@ -189,6 +190,16 @@ async function openWorld(): Promise<World> {
   await recordUnitDraft(owner, { unitId: 'agent/unit-b', generation: 1, at: NOW, writes: [{ kind: 'fact', evidence: `${REPOSITORY}@${COMMIT}:${FILE}`, value: claimAbout(graph.target, 'The order total is the checkout total', 40) }] });
   await recordUnitPlan(owner, { unitId: 'agent/unit-c', generation: 1, runId: OTHER_RUN, stageId: 'agent', stageUnitId: 'unit-c', scope: `${REPOSITORY}:src`, stagePosition: 0, planPosition: 2, at: NOW });
   await recordUnitDraft(owner, { unitId: 'agent/unit-c', generation: 1, at: NOW, writes: [{ kind: 'fact', evidence: `${REPOSITORY}@${COMMIT}:${FILE}`, value: claimAbout(graph.target, 'A draft of another run', 40) }] });
+  // A unit of the same run holding a claim about the module, cited in a file outside the source folder: the
+  // drafts a module scope shows are the writes that name it, and this one stands in no folder's scope.
+  await recordUnitPlan(owner, { unitId: 'agent/unit-module', generation: 1, runId: RUN, stageId: 'agent', stageUnitId: 'unit-module', scope: `${REPOSITORY}:src`, stagePosition: 0, planPosition: 6, at: NOW });
+  const moduleClaim = makeNodeFact({
+    kind: 'claim',
+    value: { subject: { form: 'node', id: graph.module.id }, predicate: 'holds-the-checkout', object: { form: 'literal', text: 'the checkout' } },
+    provenance: provenance(OTHER_FILE, 1),
+    layer: 'inferred',
+  });
+  await recordUnitDraft(owner, { unitId: 'agent/unit-module', generation: 1, at: NOW, writes: [{ kind: 'fact', evidence: `${REPOSITORY}@${COMMIT}:${OTHER_FILE}`, value: moduleClaim }] });
   // A unit of the same run whose set was published: 0027's publication writes the record, and its facts
   // stand in the fact store, so its set is no draft any more.
   await recordUnitPlan(owner, { unitId: 'agent/published', generation: 1, runId: RUN, stageId: 'agent', stageUnitId: 'published', scope: `${REPOSITORY}:src`, stagePosition: 0, planPosition: 3, at: NOW });
@@ -440,9 +451,11 @@ describe('one unit\'s tools, bound to its session', () => {
     const openedWorld = opened();
     const handle = await openedWorld.tools();
     const answered = await openedWorld.call(handle, 'describe_scope', { scope: openedWorld.graph.module.id });
-    const answer = answered.answer as { draftScope: { by: string; scope: string }; draft: unknown[]; holds: unknown[] };
+    const answer = answered.answer as { draftScope: { by: string; scope: string }; draft: { unit: string; fact: { id: string } }[]; holds: unknown[] };
     expect(answer.draftScope).toEqual({ by: 'node', scope: openedWorld.graph.module.id });
-    expect(answer.draft).toEqual([]);
+    // The one draft of the run that names the module: a by-node filter that never matched would answer none,
+    // and a place filter would answer the source folder's drafts instead of this one.
+    expect(answer.draft.map((row) => row.unit)).toEqual(['agent/unit-module']);
   });
 
   test('a draft set the write path never made is refused by name rather than answered', async () => {
@@ -459,6 +472,21 @@ describe('one unit\'s tools, bound to its session', () => {
     expect(refusal.message).toContain('the draft set of agent/damaged/1 holds at position 1 the write "nonsense": a draft write is one of fact, entity, link, question');
     // The refusal names where it was raised, as every failure of this fill does.
     expect(refusal.message).toContain('src/fill/graph-reads.ts:');
+  });
+
+  test('a draft whose fact names a schema version that is no whole number is refused by name', async () => {
+    const openedWorld = opened();
+    // A set of another run whose fact was written with a version no kind has: the reader of drafts refuses it
+    // by name rather than answering a fact whose version nothing judged.
+    const broken = { ...claimAbout(openedWorld.graph.target, 'A fact of no whole version', 40), schemaVersion: 2.5 };
+    await recordUnitPlan(openedWorld.owner, { unitId: 'agent/broken-version', generation: 1, runId: BROKEN_RUN, stageId: 'agent', stageUnitId: 'broken-version', scope: `${REPOSITORY}:src`, stagePosition: 0, planPosition: 7, at: NOW });
+    await recordUnitPlan(openedWorld.owner, { unitId: 'agent/broken-reader', generation: 1, runId: BROKEN_RUN, stageId: 'agent', stageUnitId: 'broken-reader', scope: `${REPOSITORY}:src`, stagePosition: 0, planPosition: 8, at: NOW });
+    await recordUnitDraft(openedWorld.owner, { unitId: 'agent/broken-version', generation: 1, at: NOW, writes: [{ kind: 'fact', evidence: `${REPOSITORY}@${openedWorld.commit}:${FILE}`, value: broken }] });
+    const handle = await openedWorld.tools({ unitId: 'agent/broken-reader', generation: 1 });
+    const answered = await openedWorld.call(handle, 'claims_about', { id: openedWorld.graph.target.id });
+    expect(answered.isError).toBe(true);
+    const refusal = (answered.answer as { error: { message: string } }).error;
+    expect(refusal.message).toContain('carries the schema version 2.5: a kind\'s version is a whole number');
   });
 
   test('a unit whose generation holds no plan row gets no session, and the refusal names it', async () => {

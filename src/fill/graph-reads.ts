@@ -839,7 +839,9 @@ export function factOfRow(row: unknown, read: GraphRead): Fact {
   const kind = fields['kind'];
   if (typeof kind !== 'string' || !isFactKind(kind)) raise(`${where} names the kind ${shown(kind)}: a fact kind is one of the schema's kinds (src/fill/facts.ts)`);
   const schemaVersion = fields['schema_version'];
-  if (typeof schemaVersion !== 'number' && typeof schemaVersion !== 'string') raise(`${where} carries the schema version ${shown(schemaVersion)}: a kind's version is a whole number`);
+  if ((typeof schemaVersion !== 'number' && typeof schemaVersion !== 'string') || !Number.isInteger(Number(schemaVersion))) {
+    raise(`${where} carries the schema version ${shown(schemaVersion)}: a kind's version is a whole number`);
+  }
   const layer = fields['layer'];
   if (typeof layer !== 'string' || (FACT_LAYERS as readonly string[]).includes(layer) === false) raise(`${where} is read at the layer ${shown(layer)}: a fact's layer is one of ${FACT_LAYERS.join(', ')}`);
   const status = fields['status'];
@@ -1236,14 +1238,19 @@ function bounded<T>(rows: readonly T[], limits: GraphReadLimits, what: string, a
   return { rows: held, cut, marker, tokens };
 }
 
-/** The tokens a cut answer's own marker words take: reserved before the rows are bounded, so the cap holds the whole answer. */
+/**
+ * The tokens one marker's own words and the id it names take: reserved before the rows
+ * are bounded, once for every marker an answer can carry (`rowsCap`'s `markers`), so
+ * the cap holds the whole answer.
+ */
 const MARKER_RESERVE = 64;
 
 /**
  * The cap one answer's rows are bounded by: the answer's own cap less what its
- * envelope takes — the request it echoes, the reads it stands on and the words of
- * the marker that names what a cut left out. The cap is 0026's "a tool answer at
- * most 8K tokens", and it is the whole answer that holds it, not only its rows.
+ * envelope takes — the request it echoes, the reads it stands on, and the words of
+ * every marker the answer can carry (`markers`, one per list it bounds and per
+ * list a row of it bounds itself). The cap is 0026's "a tool answer at most 8K
+ * tokens", and it is the whole answer that holds it, not only its rows.
  */
 function rowsCap(envelope: Record<string, unknown>, limits: GraphReadLimits, markers = 1): GraphReadLimits {
   const reserved = estimateTokens(JSON.stringify({ ...envelope, rows: [], lines: [], coverage: [], draft: [] }), limits) + MARKER_RESERVE * Math.max(1, markers);
@@ -1396,7 +1403,8 @@ export async function describeScope(context: GraphReadContext, request: Describe
   const draftScope = draftScopeOf(node);
   const drafts = await draftsOf(context, trace, draftScope.by === 'place' ? { in: draftScope.scope } : { about: draftScope.scope });
   const skeleton = { tool: 'describe_scope' as const, scope: request.scope, node: nodeRefOf(node), holds, edges, coverage: [], draft: [], draftScope, reads: trace.made.map(readRef), truncated: false, marker: null };
-  const cap = rowsCap(skeleton, context.limits, 2);
+  // Three markers at most: the coverage the cap cut, a coverage row's own sample and gap cuts, and the drafts.
+  const cap = rowsCap(skeleton, context.limits, 3);
   const held = bounded(coverage.rows, cap, `the coverage of the scope ${request.scope}`, context.limits.answerTokens);
   const drafted = bounded(drafts, leftOf(cap, held.tokens), `the drafts about the scope ${request.scope}`, context.limits.answerTokens);
   const marker = markerOf(held.marker, coverage.marker, drafted.marker);
@@ -1752,7 +1760,7 @@ export async function coverage(context: GraphReadContext, request: CoverageReque
   const coverage = await coverageRows(factsOfRows(await trace.read(read), read));
   const complete = coverage.rows.length === 0 ? null : coverage.rows.every((row) => row.complete);
   const skeleton = { tool: 'coverage' as const, scope: request.scope, complete, rows: [], reads: trace.made.map(readRef), truncated: false, marker: null };
-  const held = bounded(coverage.rows, rowsCap(skeleton, context.limits), `the coverage of the scope ${request.scope}`, context.limits.answerTokens);
+  const held = bounded(coverage.rows, rowsCap(skeleton, context.limits, 2), `the coverage of the scope ${request.scope}`, context.limits.answerTokens);
   const marker = markerOf(held.marker, coverage.marker);
   return answered<CoverageAnswer>({ ...skeleton, rows: held.rows, truncated: marker !== null, marker }, context.limits);
 }

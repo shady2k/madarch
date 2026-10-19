@@ -271,7 +271,52 @@ Taken from decisions 0026, 0027 and 0005; nothing here re-decides them.
 
 ## Acceptance evidence
 
-Filled in at hand-over; the checks, each command's own exit status:
+The checks, each command's own exit status, at hand-over:
+
+- `bun run check` (`tsc --noEmit`) exit 0 at every commit of the branch.
+- The feature document gate (`node .shady2k/documents.mjs check --phase feature
+  --change madarch-tzte.22.2 --candidate worktree --target origin/main`) exit 0,
+  clean, at every commit (it runs in the pre-commit hook too).
+- The focused suites run in SkyPilot, not on this machine (the owner's rule),
+  `madarch-sky-test <worktree> <files>`, each with the tests' own exit status:
+  - `test/fill-unit-tools.test.ts` — 28 pass, 0 fail, exit 0 at the first review's
+    answers (21 at the first revision; the seven new cases are a published unit's
+    set, the reading generation's own set, a module scope's drafts, a damaged draft
+    set, a unit with no plan row, the route's refusals, a host's close-all, and the
+    cap asserted as `tokens <= cap` with the drafts cut by their own marker), and
+    29 pass, 0 fail, exit 0 after the second round's.
+  - `test/fill-graph-reads.test.ts` + `test/fill-unit-tools.test.ts` — 56 pass,
+    0 fail, exit 0 at the first review's answers, and 57 pass, 0 fail, exit 0 after
+    the second round's (a draft whose fact names a version that is no whole
+    number, refused by name).
+  - `test/fill-graph-reads.test.ts` + `test/fill-acp.test.ts` +
+    `test/fill-acp-probe.test.ts` — 76 pass, 0 fail, exit 0.
+  - `test/product-cli.test.ts` + `test/product-daemon.test.ts` +
+    `test/contract-serve.test.ts` — 117 pass, 0 fail, exit 0.
+  - `test/fill-orchestrator.test.ts` + `test/fill-fact-store.test.ts` — 79 pass,
+    0 fail, exit 0.
+  - `test/product-daemon.test.ts` + `test/fill-checked-writes.test.ts` +
+    `test/fill-orchestrator.test.ts` — 92 pass, 0 fail, exit 0, after the first
+    review's answers.
+  - `test/fill-unit-tools.test.ts` + `test/fill-graph-reads.test.ts` — after the
+    second round's answers.
+- The independent review, a fresh read-only
+  `prime-agent --provider shady2k-gateway --model deepseek-v4.1-flash-auto`
+  session over `git diff origin/main...HEAD`.
+  - Round 1 (`/tmp/review-222.log`): verdict `fix-before-ship`; two defects — a
+    published unit's set read as a draft, and the reading generation's own set
+    making its own read stale — and twelve smaller findings (S1–S7, N1–N5), all
+    answered in the second commit.
+  - Round 2 (`/tmp/review-222b.log`), over `fb327909`: verdict `fix-before-ship`;
+    every one of the first round's findings answered, and one defect the answers
+    themselves introduced — the whole-number check on a row's `schema_version`,
+    lost when the draft fact's spelling was moved to `draftFactOfRow` — with three
+    nits (the marker count of `coverage` and `describe_scope`, a module-scope test
+    that only proved the section empty, and these acceptance lines). All four are
+    answered in the third commit, which a narrow re-check of the second round's four
+    items read.
+- CI on the exact SHA of the branch: named in the task's `check:` records and in
+  the queue entry (`## madarch-tzte.22.2 — READY …`).
 
 ## DONE WHEN
 
