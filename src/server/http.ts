@@ -42,6 +42,7 @@ import { openProductWiki, type ProductWiki } from '../product-wiki/pages.js';
 import { listProducts } from '../product/list.js';
 import { basename } from 'node:path';
 import type { StartFillOptions, StartFillResult } from '../product/fill.js';
+import { UNIT_TOOL_PATH, type UnitToolAnswer, type UnitToolCall } from '../fill/unit-tools.js';
 import { readChosenModel, saveChosenAgent } from '../product/fill-wizard.js';
 
 /** The largest body the server reads: 50 MB, far past any compiled model sent so far. */
@@ -91,8 +92,16 @@ export interface ServerOptions {
    * background server creates it, holds it for the life of the process and
    * stops it here, so the fill runs beside the wikis it fills rather than in a
    * command of its own.
+   *
+   * Its `unitTool` answers the calls a unit's own MCP server forwards
+   * (madarch-tzte.22.2): the background server owns the database and is its only
+   * writer, so a unit's server is a thin proxy to this method, and the route that
+   * carries a call stands only when it is given.
    */
-  orchestrator?: { stop(): Promise<void> };
+  orchestrator?: {
+    stop(): Promise<void>;
+    unitTool?(request: UnitToolCall): Promise<UnitToolAnswer | null>;
+  };
   /** Where request lines go; standard output by default. */
   log?: (line: string) => void;
   /** Where error-level lines go; standard error by default. */
@@ -241,6 +250,7 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
     appFolder,
     startFill: options.startFill,
     productFolder: options.productFolder,
+    unitTool: options.orchestrator?.unitTool,
   });
   // The products home is served by one server: the home page lists the
   // products, and each product's wiki answers under `/products/<folder>/`.
@@ -275,7 +285,7 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
       }
       next.set(basename(item.folder), {
         wiki: opened.wiki,
-        handler: createHandler({ sources, graphs, log, errorLog, wiki: createWikiPart(makeJson, wikiRefused, opened.wiki, appFolder), appFolder, startFill: options.startFill, productFolder: item.folder }),
+        handler: createHandler({ sources, graphs, log, errorLog, wiki: createWikiPart(makeJson, wikiRefused, opened.wiki, appFolder), appFolder, startFill: options.startFill, productFolder: item.folder, unitTool: options.orchestrator?.unitTool }),
       });
     }
     productEntries.clear();
@@ -354,6 +364,9 @@ const notServed = (message: string): Response => Response.json({ message }, { st
     const url = new URL(request.url);
     if (url.pathname === '/' || url.pathname === '') return productsHomePage();
     if (url.pathname === '/assets' || url.pathname.startsWith('/assets/')) return serveHomeAssets(url.pathname);
+    // The fill's unit tools answer for the process, not for one served product: a unit's own MCP server
+    // posts to the root path whether the server serves a home of products or one product (madarch-tzte.22.2).
+    if (url.pathname === UNIT_TOOL_PATH) return handle(request);
     const match = /^\/products\/([^/]+)(?:\/(.*))?$/.exec(url.pathname);
     if (match === null) return notServed(`this server serves a products home: the products are listed at ${new URL('/', url).href}, and each product's wiki answers under /products/<folder>/`);
     let name: string;
@@ -416,6 +429,8 @@ export function createHandler(dependencies: {
   appFolder?: string;
   startFill?: ServerOptions['startFill'];
   productFolder?: string;
+  /** The fill's unit tools, when this process serves them (`POST /api/fill/unit/tool`). */
+  unitTool?: (request: UnitToolCall) => Promise<UnitToolAnswer | null>;
 }): ServerHandler {
   const { log, errorLog, wiki } = dependencies;
   // The model routes are put in the table only when a data folder was
@@ -454,6 +469,9 @@ export function createHandler(dependencies: {
   const startFill = dependencies.startFill;
   const fillProductFolder = dependencies.productFolder;
   const routes: Route[] = [
+    // A unit's own MCP server forwards its tool calls here (madarch-tzte.22.2): the background server owns
+    // the database and is its only writer, and the route stands only when this process serves the fill.
+    ...(dependencies.unitTool === undefined ? [] : ([{ method: 'POST', path: UNIT_TOOL_PATH, handle: (request) => unitToolCall(request) }] as Route[])),
     ...(sources !== undefined
       ? ([
           { method: 'POST', path: '/models', handle: (request) => serializeState(() => storeModel(request)) },
@@ -549,6 +567,45 @@ export function createHandler(dependencies: {
     } catch (error) {
       return { bad: refused(400, { message: `the body is not valid JSON: ${(error as Error).message}` }) };
     }
+  }
+
+  /**
+   * One tool call a unit's MCP server forwarded: the token names the unit's
+   * session, the tool names one of the ten, and the answer is the tool's own —
+   * the same answer the agent would have read had it run in this process. A token
+   * no open session holds is a refusal of this route, never an empty answer: a
+   * unit whose attempt ended has no tools, and saying so is what lets the agent
+   * stop instead of waiting.
+   */
+  async function unitToolCall(request: Request): Promise<Handled> {
+    const unitTool = dependencies.unitTool;
+    if (unitTool === undefined) return refused(503, { message: 'the fill\'s unit tools are not served by this server' });
+    const { body, bad } = await jsonBody(request);
+    if (bad !== undefined) return bad;
+    if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+      return refused(400, { message: 'body must be an object naming token, tool and the call\'s arguments' });
+    }
+    const asked = body as Record<string, unknown>;
+    for (const key of Object.keys(asked).sort(byCodePoint)) {
+      if (key !== 'token' && key !== 'tool' && key !== 'arguments') {
+        return refused(400, { field: key, message: `"${key}" is not a field a unit\'s tool call takes: accepted fields are token, tool and arguments` });
+      }
+    }
+    if (typeof asked.token !== 'string' || asked.token === '') {
+      return refused(400, { field: 'token', message: `"token" is required: the token the host minted for the unit\'s session` });
+    }
+    if (typeof asked.tool !== 'string' || asked.tool === '') {
+      return refused(400, { field: 'tool', message: `"tool" is required: the name of the tool of the unit\'s server to call` });
+    }
+    const answered = await unitTool({
+      token: asked.token,
+      tool: asked.tool,
+      ...(asked.arguments === undefined ? {} : { arguments: asked.arguments }),
+    });
+    if (answered === null) {
+      return refused(401, { field: 'token', message: 'no open unit session holds this token: a unit\'s tools answer only while its unit runs' });
+    }
+    return { response: json(200, answered) };
   }
 
   async function storeModel(request: Request): Promise<Handled> {

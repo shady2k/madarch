@@ -227,6 +227,10 @@ export const COMMANDS: Record<string, CommandSpec> = {
   stop: { positionals: [], flags: { home: true, product: false, port: false, open: false, branch: false, yes: false } },
   status: { positionals: [], flags: { home: true, product: false, port: false, open: false, branch: false, yes: false } },
   'daemon-serve': { positionals: [], flags: { home: true, product: false, port: true, open: false, branch: false, yes: false } },
+  // The unit's own MCP server (madarch-tzte.22.2): a program an agent's ACP session starts, not a
+  // person's command. It takes no argument at all — the session's token and the host's address come from
+  // the environment the ACP session passed it — so it is listed here for the parser and in no help text.
+  'mcp-unit': { positionals: [], flags: { home: false, product: false, port: false, open: false, branch: false, yes: false } },
   demo: { positionals: [], flags: { home: true, product: false, port: true, open: true, branch: false, yes: false, host: true } },
   init: { positionals: [], flags: { home: true, product: false, port: true, open: true, branch: false, yes: false } },
   new: { positionals: [], flags: { home: true, product: false, port: true, open: true, branch: false, yes: false } },
@@ -545,6 +549,10 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
   if (command === 'stop') return stopDaemon({ home });
   if (command === 'status') return daemonStatus({ home });
   if (command === 'daemon-serve') return await serveDaemon({ home, port: port ?? 4180 });
+  if (command === 'mcp-unit') {
+    const { serveUnitMcpServer } = await import('../fill/unit-mcp-server.js');
+    return await serveUnitMcpServer();
+  }
   if (command === 'init') {
     const result = initLife({ cwd: process.cwd(), home });
     if (result.exit !== 0) return report(result);

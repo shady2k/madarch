@@ -56,9 +56,11 @@ import {
   type FactKind,
   type FactStatus,
 } from './facts.js';
+import { scopeHolds, scopeText, writeScope } from './checked-writes.js';
 import { here, raise, withLocation } from './fsm-core.js';
 import { queryDigest, recordUnitRead, recordUnitReadIn } from './orchestrator-store.js';
 import type { SnapshotSource } from './snapshot.js';
+import type { StageDraftWrite } from './stage.js';
 
 // ---------------------------------------------------------------------------------------------
 // The caps
@@ -109,7 +111,10 @@ export function estimateTokens(text: string, limits: GraphReadLimits): number {
 /**
  * One read of the pinned graph: what a tool asks for and what is recorded as
  * the reading unit's dependency. The four store reads answer published facts
- * (`fill_fact`); `span` answers the bytes of one file at one pinned commit.
+ * (`fill_fact`); the `drafts` reads answer what other units of the same run hold
+ * as draft (`fill_unit_draft`, joined with the plan row that names each holder's
+ * scope), each row marked as a draft; `span` answers the bytes of one file at one
+ * pinned commit.
  *
  * Every value here is data, never text that reaches SQL: the reader binds each
  * one as a parameter, and the recorded query is the canonical JSON of this
@@ -127,14 +132,34 @@ export type GraphRead =
   | { readonly read: 'held'; readonly id: string; readonly via: readonly FactEdgeKind[] }
   /** The facts of one kind whose value, at a dotted path, is exactly the given text. */
   | { readonly read: 'facts-with'; readonly kind: FactKind; readonly field: string; readonly value: string }
+  /**
+   * The writes *another* unit of one run holds as draft, each marked as a draft,
+   * whose fact is the given id or names it anywhere in its value (0026: a draft
+   * is "visible to other units as draft"). `reader` is the reading generation, and
+   * its own draft set is never answered: a unit's own writes are its own, and a
+   * unit that read its own recorded set would make its own read move the moment it
+   * wrote (`fill_unit_draft` is recorded while the attempt runs).
+   */
+  | { readonly read: 'drafts'; readonly run: string; readonly reader: ReadingUnit; readonly about: string }
+  /**
+   * The writes *another* unit of one run holds as draft, each marked as a draft,
+   * whose cited place stands inside the given scope (`<repository>` or
+   * `<repository>:<path>`); a write that cites no place stands in no scope.
+   */
+  | { readonly read: 'drafts'; readonly run: string; readonly reader: ReadingUnit; readonly in: string }
   /** The lines of one file at one pinned commit, from `startLine` to `endLine`, both counted as a reader counts them. */
   | { readonly read: 'span'; readonly repository: string; readonly commit: string; readonly file: string; readonly startLine: number; readonly endLine: number };
 
 /** Every read kind's own name, for a refusal that must name the read it does not know. */
-export const GRAPH_READ_KINDS = ['fact', 'facts', 'adjacent', 'held', 'facts-with', 'span'] as const;
+export const GRAPH_READ_KINDS = ['fact', 'facts', 'adjacent', 'held', 'facts-with', 'drafts', 'span'] as const;
 
-/** The tables every store read of this module reads; a failure names them. */
-export const GRAPH_READ_TABLES = ['fill_fact'] as const;
+/**
+ * The tables every store read of this module reads; a failure names them. The
+ * `drafts` reads read the orchestrator's own rows as well: a draft set, the plan
+ * row that names the scope its holder was planned for, and the publication record
+ * that says whether that holder has published (a published set is no draft).
+ */
+export const GRAPH_READ_TABLES = ['fill_fact', 'fill_publication', 'fill_unit_draft', 'fill_unit_plan'] as const;
 
 /** The columns of one fact row, as the store holds them: the reader's own select list. */
 const FACT_COLUMNS = 'id, kind, schema_version, provenance, layer, status, value';
@@ -210,6 +235,18 @@ export function parseGraphRead(text: string): GraphRead | null {
       return { read: 'held', id: readFactId(fields['id'], text), via: readEdgeKinds(fields['via'], text) };
     case 'facts-with':
       return { read: 'facts-with', kind: readFactKind(fields['kind'], text), field: readPath(fields['field'], text), value: readValueText(fields['value'], text) };
+    case 'drafts': {
+      const run = readRun(fields['run'], text);
+      const reader = readReader(fields['reader'], text);
+      const about = fields['about'];
+      const scope = fields['in'];
+      if ((about === undefined) === (scope === undefined)) {
+        raise(`the read ${shown(text)} names ${about === undefined ? 'no' : 'both'} of "about" and "in": a read of drafts names the fact id its writes name ("about") or the scope they stand in ("in"), never both and never neither`);
+      }
+      return about === undefined
+        ? { read: 'drafts', run, reader, in: readScope(scope, text) }
+        : { read: 'drafts', run, reader, about: readFactId(about, text) };
+    }
     case 'span':
       return {
         read: 'span',
@@ -295,6 +332,37 @@ function readFile(value: unknown, read: string): string {
 function readValueText(value: unknown, read: string): string {
   if (typeof value !== 'string' || value === '') raise(`the read ${shown(read)} filters by ${shown(value)}: the value a read filters by is a non-empty text`);
   return value;
+}
+
+/** A read's run: the run whose units' drafts are read, a non-empty text with no line break in it. */
+function readRun(value: unknown, read: string): string {
+  if (typeof value !== 'string' || value.trim() === '' || /[\n\r]/.test(value)) {
+    raise(`the read ${shown(read)} names the run ${shown(value)}: the run whose units hold the drafts is a non-empty text, like "run-2026-10-18T21:00Z"`);
+  }
+  return value;
+}
+
+/** A read's reader: the unit generation the read is made for, whose own draft set is never answered. */
+function readReader(value: unknown, read: string): ReadingUnit {
+  const held = (value ?? {}) as Record<string, unknown>;
+  const unitId = held['unitId'];
+  const generation = held['generation'];
+  if (typeof unitId !== 'string' || unitId === '') {
+    raise(`the read ${shown(read)} names the reader ${shown(unitId)}: a read of drafts names the unit generation it is made for, as { unitId, generation }`);
+  }
+  if (typeof generation !== 'number' || Number.isInteger(generation) === false || generation < 1) {
+    raise(`the read ${shown(read)} names the reader of ${unitId} at generation ${shown(generation)}: a generation is a whole number, one or more`);
+  }
+  return { unitId, generation };
+}
+
+/** A read's scope: a unit's own scope text, `<repository>` or `<repository>:<path>`, as the write path reads one. */
+function readScope(value: unknown, read: string): string {
+  try {
+    return scopeText(writeScope(value as string));
+  } catch (error) {
+    raise(`the read ${shown(read)} names the scope ${shown(value)}: ${(error as Error).message}`);
+  }
 }
 
 /** A read's line: a whole number, one or more. */
@@ -551,6 +619,24 @@ export async function answerGraphRead(options: FactGraphReaderOptions, request: 
         )).rows);
         return byId(rows);
       }
+      case 'drafts': {
+        // One row per draft set of the run, with the plan row that names the scope its holder was
+        // planned for. Three sets are no drafts of this read: a retracted one (0027's retry), a
+        // published one (its facts stand in `fill_fact`, and nothing keeps its set as a draft), and the
+        // reading unit's own (0026 makes a draft visible to *other* units, and a unit that read its own
+        // recorded set would move its own read the moment it wrote). The writes are then filtered here,
+        // so what the read answers — and what its membership digest covers — is exactly the drafts that
+        // bear on the question asked.
+        const rows = await inTransaction(options, async (executor) => (await executor.query(
+          `SELECT d.unit_id, d.generation, d.writes, p.scope
+             FROM fill_unit_draft d JOIN fill_unit_plan p ON p.unit_id = d.unit_id AND p.generation = d.generation
+            WHERE p.run_id = $1 AND d.retracted_at IS NULL
+              AND NOT (d.unit_id = $2 AND d.generation = $3)
+              AND NOT EXISTS (SELECT 1 FROM fill_publication f WHERE f.unit_id = d.unit_id AND f.generation = d.generation)`,
+          [request.run, request.reader.unitId, request.reader.generation],
+        )).rows);
+        return draftRowsOf(rows, request, at);
+      }
       case 'span': {
         return [await spanRow(options, request, at)];
       }
@@ -656,12 +742,16 @@ export interface GraphReadContext {
   read(request: GraphRead): Promise<readonly unknown[]>;
   /** The caps this unit reads under. */
   readonly limits: GraphReadLimits;
+  /** The run whose units' draft sets this unit sees beside the published facts; absent, it reads published facts only. */
+  readonly drafts?: DraftReading;
 }
 
 /** What the context a unit reads through is built from. */
 export interface FactGraphReadsOptions extends FactGraphReaderOptions {
   readonly unit: ReadingUnit;
   readonly limits?: Partial<GraphReadLimits>;
+  /** The run whose units' draft sets this unit sees beside the published facts; absent, it reads published facts only. */
+  readonly drafts?: DraftReading;
   /** Supplies the recorded time; the real clock unless a test passes its own. */
   readonly clock?: () => number;
 }
@@ -682,6 +772,7 @@ export function createGraphReadContext(options: FactGraphReadsOptions): GraphRea
   if (Number.isInteger(unit.generation) === false || unit.generation < 1) raise(`${at}: the reading unit "${unit.unitId}" is at generation ${shown(unit.generation)}: a generation is a whole number, one or more`);
   return {
     limits,
+    ...(options.drafts === undefined ? {} : { drafts: options.drafts }),
     async read(request: GraphRead): Promise<readonly unknown[]> {
       const rows = await answerGraphRead(options, request);
       const record = { unitId: unit.unitId, generation: unit.generation, query: readText(request), rows, at: (options.clock ?? Date.now)() };
@@ -699,9 +790,10 @@ export function createGraphReadContext(options: FactGraphReadsOptions): GraphRea
  * then read through the reader the orchestrator already tracks, so a unit that
  * calls them needs no second way of recording what it read.
  */
-export function graphReadsOver(reader: { query(text: string): Promise<readonly unknown[]> }, limits?: Partial<GraphReadLimits>): GraphReadContext {
+export function graphReadsOver(reader: { query(text: string): Promise<readonly unknown[]> }, limits?: Partial<GraphReadLimits>, drafts?: DraftReading): GraphReadContext {
   return {
     limits: graphReadLimits(limits, here()),
+    ...(drafts === undefined ? {} : { drafts }),
     async read(request: GraphRead): Promise<readonly unknown[]> {
       return await reader.query(readText(request));
     },
@@ -732,7 +824,11 @@ const FACT_STATUSES = ['proposed', 'accepted', 'rejected'] as const;
 /**
  * One row of the store as a fact, refused by name where it is not one: a row is
  * a fact of the schema or the store is damaged, and a reader that silently
- * skipped it would answer a smaller graph than the one that stands.
+ * skipped it would answer a smaller graph than the one that stands. A draft write
+ * carries the same fact spelled the schema's own way and with its version as
+ * `schemaVersion` (`src/fill/checked-writes.ts`), so a draft row is read through
+ * `draftFactOfRow`, which spells the version the store's way and then judges it by
+ * these same rules.
  */
 export function factOfRow(row: unknown, read: GraphRead): Fact {
   const where = `the row ${shown(row)} of the read ${describedRead(read)}`;
@@ -743,7 +839,9 @@ export function factOfRow(row: unknown, read: GraphRead): Fact {
   const kind = fields['kind'];
   if (typeof kind !== 'string' || !isFactKind(kind)) raise(`${where} names the kind ${shown(kind)}: a fact kind is one of the schema's kinds (src/fill/facts.ts)`);
   const schemaVersion = fields['schema_version'];
-  if (typeof schemaVersion !== 'number' && typeof schemaVersion !== 'string') raise(`${where} carries the schema version ${shown(schemaVersion)}: a kind's version is a whole number`);
+  if ((typeof schemaVersion !== 'number' && typeof schemaVersion !== 'string') || !Number.isInteger(Number(schemaVersion))) {
+    raise(`${where} carries the schema version ${shown(schemaVersion)}: a kind's version is a whole number`);
+  }
   const layer = fields['layer'];
   if (typeof layer !== 'string' || (FACT_LAYERS as readonly string[]).includes(layer) === false) raise(`${where} is read at the layer ${shown(layer)}: a fact's layer is one of ${FACT_LAYERS.join(', ')}`);
   const status = fields['status'];
@@ -773,7 +871,10 @@ function column(value: unknown): unknown {
   }
 }
 
-/** The facts of the rows one read answered, in code point order of their ids, each id once. */
+/**
+ * The facts of the rows one read answered, in code point order of their ids, each
+ * id once.
+ */
 export function factsOfRows(rows: readonly unknown[], read: GraphRead): readonly Fact[] {
   const byId = new Map<string, Fact>();
   for (const row of rows) {
@@ -781,6 +882,186 @@ export function factsOfRows(rows: readonly unknown[], read: GraphRead): readonly
     byId.set(fact.id, fact);
   }
   return [...byId.values()].sort((left, right) => byCodePoint(left.id, right.id));
+}
+
+// ---------------------------------------------------------------------------------------------
+// The drafts another unit holds
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * One write another unit of the run holds as draft, as a read of drafts answers
+ * it: the fact the write would publish, marked as a draft so no reader can take
+ * it for a published fact (0026: "lands in the unit's draft set, visible to other
+ * units as draft").
+ */
+export interface DraftRow {
+  /** Always true: the write stands in a draft set, and nothing has published it. */
+  readonly asDraft: true;
+  /** The unit holding the draft, as the store names it. */
+  readonly unit: string;
+  readonly generation: number;
+  /** The scope the holding unit was planned for, as its plan wrote it. */
+  readonly scope: string;
+  /** The kind of tool that made the write (`fact`, `entity`, `link` or `question`). */
+  readonly write: StageDraftWrite['kind'];
+  /** What the write cites, as the draft set records it: `repository@commit:file`. */
+  readonly evidence: string;
+  /** The fact the write holds, as the store would hold it once this unit publishes. */
+  readonly fact: Fact;
+}
+
+/** The kinds of write a draft set holds, as `StageDraftWrite` names them. */
+const DRAFT_WRITE_KINDS: readonly StageDraftWrite['kind'][] = ['fact', 'entity', 'link', 'question'];
+
+/** One draft set's row as the store answers it, before its writes are read. */
+interface DraftSetRow extends Record<string, unknown> {
+  unit_id: unknown;
+  generation: unknown;
+  writes: unknown;
+  scope: unknown;
+}
+
+/**
+ * The writes of the run's draft sets that bear on one read of drafts, in code
+ * point order of the holding unit and its generation — the order the set's own
+ * writes were made in, within one set. `about` keeps the writes whose fact is
+ * that id or names it anywhere in its value; `in` keeps the writes whose cited
+ * place stands inside that scope, and a write that cites no place — a `snapshot`,
+ * a `repository` or a `directory` fact, which the schema asks for no place of —
+ * stands in no scope, so no scope's section holds it. A draft set, or a write, the
+ * store holds that is not one the schema's write path makes is refused by name,
+ * never skipped: an answer that dropped it would be a smaller graph than the one
+ * that stands.
+ */
+function draftRowsOf(rows: readonly unknown[], request: Extract<GraphRead, { read: 'drafts' }>, at: string): readonly DraftRow[] {
+  const kept: DraftRow[] = [];
+  for (const row of rows) {
+    const held = (row ?? {}) as DraftSetRow;
+    const unit = held.unit_id;
+    if (typeof unit !== 'string' || unit === '') raise(`${at}: the read ${describedRead(request)} answered a draft set whose unit is ${shown(unit)}: every draft set belongs to a unit of a stage`);
+    const generation = Number(held.generation);
+    if (!Number.isInteger(generation) || generation < 1) raise(`${at}: the draft set of ${unit} is at generation ${shown(held.generation)}: a generation is a whole number, one or more`);
+    const scope = held.scope;
+    if (typeof scope !== 'string' || scope === '') raise(`${at}: the draft set of ${unit}/${generation} names no scope: the plan row of a unit names what it covers`);
+    const writes = held.writes;
+    if (!Array.isArray(writes)) raise(`${at}: the draft set of ${unit}/${generation} carries ${shown(writes)} as its writes: a draft set is a list of writes`);
+    writes.forEach((write: unknown, index: number) => {
+      const entry = (write ?? {}) as Record<string, unknown>;
+      const kind = entry['kind'];
+      if (typeof kind !== 'string' || (DRAFT_WRITE_KINDS as readonly string[]).includes(kind) === false) {
+        raise(`${at}: the draft set of ${unit}/${generation} holds at position ${index + 1} the write ${shown(kind)}: a draft write is one of ${DRAFT_WRITE_KINDS.join(', ')} (src/fill/stage.ts)`);
+      }
+      const evidence = entry['evidence'];
+      if (typeof evidence !== 'string') raise(`${at}: the draft write at position ${index + 1} of ${unit}/${generation} cites ${shown(evidence)}: every write cites what it stands on`);
+      const fact = draftFactOfRow(entry['value'], request);
+      if ('about' in request) {
+        if (fact.id !== request.about && namesId(fact.value, request.about) === false) return;
+      } else {
+        const place = fact.provenance.place;
+        if (place === undefined) return;
+        if (scopeHolds(writeScope(request.in), { repository: fact.provenance.repository.id, file: String(place.file) }) === false) return;
+      }
+      kept.push({ asDraft: true, unit, generation, scope, write: kind as StageDraftWrite['kind'], evidence, fact });
+    });
+  }
+  // A stable sort: the writes of one set keep the order the unit made them in.
+  return kept.sort((left, right) => byCodePoint(left.unit, right.unit) || left.generation - right.generation);
+}
+
+/**
+ * One draft write's fact, refused by name where it is not one: a draft set holds
+ * the fact itself (`StageDraftWrite.value`), spelled with the schema's own
+ * `schemaVersion` field, so the version is written the store's way before the
+ * reader's own rules judge it.
+ */
+function draftFactOfRow(value: unknown, read: GraphRead): Fact {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    raise(`the write ${shown(value)} of the read ${describedRead(read)} carries no fact: a draft write holds the fact it would publish`);
+  }
+  const held = value as Record<string, unknown>;
+  if (held['schemaVersion'] === undefined) {
+    raise(`the fact ${shown(held['id'])} of the read ${describedRead(read)} names no schema version: a draft write holds the fact as the write path built it (src/fill/checked-writes.ts)`);
+  }
+  return factOfRow({ ...held, schema_version: held['schemaVersion'] }, read);
+}
+
+/** Whether a fact's value names one fact id anywhere in it: its ends, its subject, its object, its about. */
+function namesId(value: unknown, id: string): boolean {
+  if (typeof value === 'string') return value === id;
+  if (Array.isArray(value)) return value.some((entry) => namesId(entry, id));
+  if (value === null || typeof value !== 'object') return false;
+  return Object.keys(value as Record<string, unknown>).some((key) => namesId((value as Record<string, unknown>)[key], id));
+}
+
+/** One answer's draft rows, refused by name where a row is not one this module wrote. */
+function draftRowsFrom(rows: readonly unknown[], read: GraphRead): readonly DraftRow[] {
+  return rows.map((row) => {
+    const where = `the row ${shown(row)} of the read ${describedRead(read)}`;
+    const held = (row ?? {}) as Record<string, unknown>;
+    if (held['asDraft'] !== true) raise(`${where} is not marked as a draft: every row of a read of drafts is a draft and says so`);
+    const unit = held['unit'];
+    if (typeof unit !== 'string' || unit === '') raise(`${where} names the unit ${shown(unit)}: every draft set belongs to a unit of a stage`);
+    const generation = held['generation'];
+    if (typeof generation !== 'number' || Number.isInteger(generation) === false || generation < 1) raise(`the draft set of ${unit} names generation ${shown(generation)}: a generation is a whole number, one or more`);
+    const scope = held['scope'];
+    if (typeof scope !== 'string' || scope === '') raise(`the draft set of ${unit}/${generation} names no scope: the plan row of a unit names what it covers`);
+    const write = held['write'];
+    if (typeof write !== 'string' || (DRAFT_WRITE_KINDS as readonly string[]).includes(write) === false) {
+      raise(`the draft set of ${unit}/${generation} names the write ${shown(write)}: a draft write is one of ${DRAFT_WRITE_KINDS.join(', ')} (src/fill/stage.ts)`);
+    }
+    const evidence = held['evidence'];
+    if (typeof evidence !== 'string') raise(`the draft write of ${unit}/${generation} cites ${shown(evidence)}: every write cites what it stands on`);
+    return { asDraft: true as const, unit, generation, scope, write: write as StageDraftWrite['kind'], evidence, fact: draftFactOfRow(held['fact'], read) };
+  });
+}
+
+/**
+ * What a context reads drafts for: the run whose units' recorded draft sets it
+ * sees beside the published facts. A context without it answers published facts
+ * only, which is what a deterministic stage's reader does: it has no unit of its
+ * own whose run would say whose drafts are its business.
+ */
+export interface DraftReading {
+  /** The run whose units' draft sets are read. */
+  readonly run: string;
+  /** The reading generation, whose own draft set is never answered as another unit's draft. */
+  readonly unit: ReadingUnit;
+}
+
+/**
+ * The drafts one tool answer shows beside its published rows, marked as drafts
+ * and never mixed into them: the writes another unit of the reading unit's run
+ * holds that name the node asked about, or that stand inside the scope asked
+ * about. A context that reads no drafts answers none and makes no read, so a
+ * stage's own reads stay what they were.
+ */
+async function draftsOf(context: GraphReadContext, trace: { readonly read: (request: GraphRead) => Promise<readonly unknown[]> }, request: { readonly about: string } | { readonly in: string }): Promise<readonly DraftRow[]> {
+  if (context.drafts === undefined) return [];
+  const read: GraphRead = 'about' in request
+    ? { read: 'drafts', run: context.drafts.run, reader: context.drafts.unit, about: request.about }
+    : { read: 'drafts', run: context.drafts.run, reader: context.drafts.unit, in: request.in };
+  return draftRowsFrom(await trace.read(read), read);
+}
+
+/**
+ * How one scope's draft section is read: by the place the scope's own node stands
+ * in, or by the scope node's id.
+ *
+ * A repository, a folder and a file name a place — the repository, its `path` —
+ * and the drafts that bear on them are the writes that cite a place inside it. A
+ * module and a package name no place: a module's extent is its members and a
+ * package's is the manifest its own value cites, so a place filter would answer
+ * every draft of the repository as "inside the module" and make a module unit
+ * stale on an unrelated draft anywhere in that repository. Their draft section is
+ * therefore the writes of the run that name the node itself, and the answer's
+ * `draftScope` says which of the two it read.
+ */
+function draftScopeOf(fact: Fact): { readonly by: 'place' | 'node'; readonly scope: string } {
+  const value = (fact.value ?? {}) as unknown as Record<string, unknown>;
+  const repository = typeof value['repository'] === 'string' ? value['repository'] : fact.provenance.repository.id;
+  const path = typeof value['path'] === 'string' ? value['path'] : undefined;
+  if (fact.kind === 'module' || fact.kind === 'package') return { by: 'node', scope: fact.id };
+  return { by: 'place', scope: path === undefined ? repository : `${repository}:${path}` };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -957,18 +1238,32 @@ function bounded<T>(rows: readonly T[], limits: GraphReadLimits, what: string, a
   return { rows: held, cut, marker, tokens };
 }
 
-/** The tokens a cut answer's own marker words take: reserved before the rows are bounded, so the cap holds the whole answer. */
+/**
+ * The tokens one marker's own words and the id it names take: reserved before the rows
+ * are bounded, once for every marker an answer can carry (`rowsCap`'s `markers`), so
+ * the cap holds the whole answer.
+ */
 const MARKER_RESERVE = 64;
 
 /**
  * The cap one answer's rows are bounded by: the answer's own cap less what its
- * envelope takes — the request it echoes, the reads it stands on and the words of
- * the marker that names what a cut left out. The cap is 0026's "a tool answer at
- * most 8K tokens", and it is the whole answer that holds it, not only its rows.
+ * envelope takes — the request it echoes, the reads it stands on, and the words of
+ * every marker the answer can carry (`markers`, one per list it bounds and per
+ * list a row of it bounds itself). The cap is 0026's "a tool answer at most 8K
+ * tokens", and it is the whole answer that holds it, not only its rows.
  */
-function rowsCap(envelope: Record<string, unknown>, limits: GraphReadLimits): GraphReadLimits {
-  const reserved = estimateTokens(JSON.stringify({ ...envelope, rows: [], lines: [], coverage: [] }), limits) + MARKER_RESERVE;
+function rowsCap(envelope: Record<string, unknown>, limits: GraphReadLimits, markers = 1): GraphReadLimits {
+  const reserved = estimateTokens(JSON.stringify({ ...envelope, rows: [], lines: [], coverage: [], draft: [] }), limits) + MARKER_RESERVE * Math.max(1, markers);
   return { ...limits, answerTokens: Math.max(1, limits.answerTokens - reserved) };
+}
+
+/**
+ * The cap a second list of the same answer holds: what the answer's own cap has
+ * left once the lists before it were bounded, so two lists never add up past the
+ * cap the reader set.
+ */
+function leftOf(limits: GraphReadLimits, taken: number): GraphReadLimits {
+  return { ...limits, answerTokens: Math.max(1, limits.answerTokens - taken) };
 }
 
 /** One answer, with the size its own text comes to. */
@@ -1072,6 +1367,10 @@ export interface DescribeScopeAnswer extends GraphReadEnvelope {
   readonly holds: readonly ScopeHeld[];
   readonly edges: readonly ScopeEdgeCount[];
   readonly coverage: readonly CoverageRow[];
+  /** The writes other units of the run hold as drafts about this scope (0026), each marked as a draft. */
+  readonly draft: readonly DraftRow[];
+  /** What the draft section was read for: the scope's own place, or the scope node's id (a module or a package names no place). */
+  readonly draftScope: { readonly by: 'place' | 'node'; readonly scope: string };
 }
 
 /**
@@ -1101,10 +1400,15 @@ export async function describeScope(context: GraphReadContext, request: Describe
   const holds = (await trace.read(heldRead)).map((row) => heldCount(row, heldRead)).sort((left, right) => byCodePoint(left.kind, right.kind));
   const edges = countEdges(factsOfRows(await trace.read(adjacencyRead), adjacencyRead), request.scope);
   const coverage = await coverageRows(factsOfRows(await trace.read(coverageRead), coverageRead));
-  const skeleton = { tool: 'describe_scope' as const, scope: request.scope, node: nodeRefOf(node), holds, edges, coverage: [], reads: trace.made.map(readRef), truncated: false, marker: null };
-  const held = bounded(coverage.rows, rowsCap(skeleton, context.limits), `the coverage of the scope ${request.scope}`, context.limits.answerTokens);
-  const marker = markerOf(held.marker, coverage.marker);
-  return answered<DescribeScopeAnswer>({ ...skeleton, coverage: held.rows, truncated: marker !== null, marker }, context.limits);
+  const draftScope = draftScopeOf(node);
+  const drafts = await draftsOf(context, trace, draftScope.by === 'place' ? { in: draftScope.scope } : { about: draftScope.scope });
+  const skeleton = { tool: 'describe_scope' as const, scope: request.scope, node: nodeRefOf(node), holds, edges, coverage: [], draft: [], draftScope, reads: trace.made.map(readRef), truncated: false, marker: null };
+  // Three markers at most: the coverage the cap cut, a coverage row's own sample and gap cuts, and the drafts.
+  const cap = rowsCap(skeleton, context.limits, 3);
+  const held = bounded(coverage.rows, cap, `the coverage of the scope ${request.scope}`, context.limits.answerTokens);
+  const drafted = bounded(drafts, leftOf(cap, held.tokens), `the drafts about the scope ${request.scope}`, context.limits.answerTokens);
+  const marker = markerOf(held.marker, coverage.marker, drafted.marker);
+  return answered<DescribeScopeAnswer>({ ...skeleton, coverage: held.rows, draft: drafted.rows, truncated: marker !== null, marker }, context.limits);
 }
 
 /** One `held` read's row as a count of one kind. */
@@ -1158,6 +1462,8 @@ export interface NeighborsAnswer extends GraphReadEnvelope {
   /** The edge kinds this answer walked, in code point order: what the answer holds and what it left out. */
   readonly kinds: readonly FactEdgeKind[];
   readonly rows: readonly NeighborRow[];
+  /** The writes other units of the run hold as drafts about this node (0026), each marked as a draft. */
+  readonly draft: readonly DraftRow[];
 }
 
 /**
@@ -1200,9 +1506,13 @@ export async function neighbors(context: GraphReadContext, request: NeighborsReq
   resolved.sort((left, right) => byCodePoint(left.neighbor.label, right.neighbor.label)
     || byCodePoint(left.neighbor.id, right.neighbor.id)
     || byCodePoint(left.edge.id, right.edge.id));
-  const skeleton = { tool: 'neighbors' as const, id, direction, kinds, rows: [], reads: trace.made.map(readRef), truncated: false, marker: null };
-  const held = bounded(resolved, rowsCap(skeleton, context.limits), `the neighbours of ${id}`, context.limits.answerTokens);
-  return answered<NeighborsAnswer>({ ...skeleton, rows: held.rows, truncated: held.marker !== null, marker: held.marker }, context.limits);
+  const drafts = await draftsOf(context, trace, { about: id });
+  const skeleton = { tool: 'neighbors' as const, id, direction, kinds, rows: [], draft: [], reads: trace.made.map(readRef), truncated: false, marker: null };
+  const cap = rowsCap(skeleton, context.limits, 2);
+  const held = bounded(resolved, cap, `the neighbours of ${id}`, context.limits.answerTokens);
+  const drafted = bounded(drafts, leftOf(cap, held.tokens), `the drafts about ${id}`, context.limits.answerTokens);
+  const marker = markerOf(held.marker, drafted.marker);
+  return answered<NeighborsAnswer>({ ...skeleton, rows: held.rows, draft: drafted.rows, truncated: marker !== null, marker }, context.limits);
 }
 
 // ---- references ------------------------------------------------------------
@@ -1226,6 +1536,8 @@ export interface ReferencesAnswer extends GraphReadEnvelope {
   readonly id: string;
   readonly kinds: readonly FactEdgeKind[];
   readonly rows: readonly ReferenceRow[];
+  /** The writes other units of the run hold as drafts that name this node (0026), each marked as a draft. */
+  readonly draft: readonly DraftRow[];
 }
 
 /**
@@ -1256,9 +1568,13 @@ export async function references(context: GraphReadContext, request: ReferencesR
     || byCodePoint(left.from.label, right.from.label)
     || byCodePoint(left.from.id, right.from.id)
     || byCodePoint(left.edge.id, right.edge.id));
-  const skeleton = { tool: 'references' as const, id, kinds, rows: [], reads: trace.made.map(readRef), truncated: false, marker: null };
-  const held = bounded(rows, rowsCap(skeleton, context.limits), `the references to ${id}`, context.limits.answerTokens);
-  return answered<ReferencesAnswer>({ ...skeleton, rows: held.rows, truncated: held.marker !== null, marker: held.marker }, context.limits);
+  const drafts = await draftsOf(context, trace, { about: id });
+  const skeleton = { tool: 'references' as const, id, kinds, rows: [], draft: [], reads: trace.made.map(readRef), truncated: false, marker: null };
+  const cap = rowsCap(skeleton, context.limits, 2);
+  const held = bounded(rows, cap, `the references to ${id}`, context.limits.answerTokens);
+  const drafted = bounded(drafts, leftOf(cap, held.tokens), `the drafts about ${id}`, context.limits.answerTokens);
+  const marker = markerOf(held.marker, drafted.marker);
+  return answered<ReferencesAnswer>({ ...skeleton, rows: held.rows, draft: drafted.rows, truncated: marker !== null, marker }, context.limits);
 }
 
 // ---- claims_about ----------------------------------------------------------
@@ -1303,6 +1619,8 @@ export interface ClaimsAboutAnswer extends GraphReadEnvelope {
   readonly id: string;
   readonly direction: ClaimDirection;
   readonly rows: readonly ClaimRow[];
+  /** The writes other units of the run hold as drafts about this node (0026), each marked as a draft. */
+  readonly draft: readonly DraftRow[];
 }
 
 /**
@@ -1348,9 +1666,13 @@ export async function claimsAbout(context: GraphReadContext, request: ClaimsAbou
       ...(place === undefined ? {} : { file: place.file, line: place.range.startLine }),
     };
   });
-  const skeleton = { tool: 'claims_about' as const, id, direction, rows: [], reads: trace.made.map(readRef), truncated: false, marker: null };
-  const held = bounded(rows, rowsCap(skeleton, context.limits), `the claims about ${id}`, context.limits.answerTokens);
-  return answered<ClaimsAboutAnswer>({ ...skeleton, rows: held.rows, truncated: held.marker !== null, marker: held.marker }, context.limits);
+  const drafts = await draftsOf(context, trace, { about: id });
+  const skeleton = { tool: 'claims_about' as const, id, direction, rows: [], draft: [], reads: trace.made.map(readRef), truncated: false, marker: null };
+  const cap = rowsCap(skeleton, context.limits, 2);
+  const held = bounded(rows, cap, `the claims about ${id}`, context.limits.answerTokens);
+  const drafted = bounded(drafts, leftOf(cap, held.tokens), `the drafts about ${id}`, context.limits.answerTokens);
+  const marker = markerOf(held.marker, drafted.marker);
+  return answered<ClaimsAboutAnswer>({ ...skeleton, rows: held.rows, draft: drafted.rows, truncated: marker !== null, marker }, context.limits);
 }
 
 /** One term of a claim's value, as the schema writes it. */
@@ -1438,7 +1760,7 @@ export async function coverage(context: GraphReadContext, request: CoverageReque
   const coverage = await coverageRows(factsOfRows(await trace.read(read), read));
   const complete = coverage.rows.length === 0 ? null : coverage.rows.every((row) => row.complete);
   const skeleton = { tool: 'coverage' as const, scope: request.scope, complete, rows: [], reads: trace.made.map(readRef), truncated: false, marker: null };
-  const held = bounded(coverage.rows, rowsCap(skeleton, context.limits), `the coverage of the scope ${request.scope}`, context.limits.answerTokens);
+  const held = bounded(coverage.rows, rowsCap(skeleton, context.limits, 2), `the coverage of the scope ${request.scope}`, context.limits.answerTokens);
   const marker = markerOf(held.marker, coverage.marker);
   return answered<CoverageAnswer>({ ...skeleton, rows: held.rows, truncated: marker !== null, marker }, context.limits);
 }
