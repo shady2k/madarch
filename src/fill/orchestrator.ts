@@ -48,7 +48,7 @@ import type { FillControl } from '../product/fill-runtime.js';
 import { hashFillInputs } from '../product/fill-runtime.js';
 import { here, raise, withLocation } from './fsm-core.js';
 import type { UnitAdvanceEvent, UnitChildOutcome, UnitFailedChildPolicy, UnitRetryCause, UnitState } from './fsm.js';
-import type { ResolvedStageConfiguration, StageContext, StageDraftSet, StageDraftWrite, StageExecutionResult } from './stage.js';
+import type { ResolvedStageConfiguration, StageContext, StageDraftSet, StageDraftWriter, StageDraftWrite, StageExecutionResult, StageGraphReader, StageUnitTools } from './stage.js';
 import {
   ORCHESTRATOR_TABLES,
   appendProgress,
@@ -65,6 +65,7 @@ import {
   recordUnitRead,
   recordRunConfiguration,
   recordUnitDraft,
+  recordUnitDraftIn,
   recordUnitPlan,
   recordUnitPlanIn,
   retractUnitDraft,
@@ -145,6 +146,23 @@ export interface FactApplication {
     readonly digest: string;
     readonly writes: readonly StageDraftWrite[];
   }): Promise<number>;
+}
+
+/**
+ * Where one unit's own MCP server comes from (0026, "Agents and tools"): the host
+ * opens it for the generation this attempt runs, bound to the attempt's own draft
+ * set, and the orchestrator closes it when the attempt ends. A stage that declares
+ * `usesTools` is handed the server; a run whose host opens none hands the stage
+ * nothing, and the stage refuses by name rather than starting an agent that cannot
+ * read.
+ */
+export interface UnitToolsOpening {
+  /** The unit generation this attempt runs. */
+  readonly unit: UnitRecord;
+  /** The unit's place in the run's plan: the scope it covers and the run its drafts belong to. */
+  readonly plan: UnitPlanRecord;
+  /** The attempt's own draft set: where the unit's tools land an accepted write. */
+  readonly draft: StageDraftWriter;
 }
 
 /** The human-edit guard decision 0027 keeps from the landed runtime: a stage's output that a person edited is never overwritten. */
@@ -240,6 +258,8 @@ export interface OrchestratorOptions {
   readonly control?: RunControlReader;
   /** The human-edit guard a stage's completion passes through, when the host has one. */
   readonly guard?: HumanEditGuard;
+  /** Where a unit's own MCP server is opened, for the stages that declare `usesTools`. */
+  readonly unitTools?: (request: UnitToolsOpening) => Promise<StageUnitTools | undefined> | StageUnitTools | undefined;
   /** Every durable progress event, once it is committed. */
   readonly sink?: ProgressSink;
   /** Where the orchestrator's own lines go; nothing by default. */
@@ -263,6 +283,7 @@ export interface FillOrchestrator {
   readonly facts: FactApplication;
   readonly control: RunControlReader;
   readonly guard: HumanEditGuard | undefined;
+  readonly unitTools: ((request: UnitToolsOpening) => Promise<StageUnitTools | undefined>) | undefined;
   readonly sink: ProgressSink | undefined;
   readonly log: (line: string) => void;
   /**
@@ -298,6 +319,7 @@ export function createOrchestrator(options: OrchestratorOptions): FillOrchestrat
     facts: options.facts,
     control: options.control ?? (async () => undefined),
     guard: options.guard,
+    unitTools: options.unitTools === undefined ? undefined : async (request) => await options.unitTools!(request),
     sink: options.sink,
     log: options.log ?? (() => undefined),
     authority: new Map(),
@@ -1125,8 +1147,19 @@ async function attemptUnit(
   const writes: StageDraftWrite[] = [];
   const notes: { note: string; fraction: number | null; at: number }[] = [];
   const reader = await orchestrator.graph(unitRef(unit, plan));
+  const draftWriter: StageDraftWriter = {
+    write: (entry: StageDraftWrite) => { writes.push(entry); },
+    writes: (): StageDraftSet => ({ writes }),
+  };
+  // 0026's per-unit MCP server: the stage's units that declare they read and write through one are handed the
+  // server a host opened for this generation, bound to this attempt's own draft set, and the attempt closes it
+  // whatever it ends with.
+  const tools = stage.usesTools === true && orchestrator.unitTools !== undefined
+    ? await orchestrator.unitTools({ unit, plan, draft: draftWriter })
+    : undefined;
   const context: StageContext = {
     unit: { id: plan.stageUnitId, scope: plan.scope },
+    ...(tools === undefined ? {} : { tools }),
     config: stageConfiguration(await currentGraph(orchestrator, unit.runId), unit.stageId),
     graph: {
       query: async (text: string) => {
@@ -1136,10 +1169,7 @@ async function attemptUnit(
         return rows;
       },
     },
-    draft: {
-      write: (entry: StageDraftWrite) => { writes.push(entry); },
-      writes: (): StageDraftSet => ({ writes }),
-    },
+    draft: draftWriter,
     // A stage reports its progress synchronously; the notes are kept in order and written as the run's
     // own durable events the moment the attempt ends, so a lost write is an error rather than a silence.
     progress: (note: string, fraction?: number) => {
@@ -1155,6 +1185,7 @@ async function attemptUnit(
   } catch (error) {
     raised = error as Error;
   } finally {
+    tools?.close();
     orchestrator.authority.delete(authorityKey(unit.unitId, unit.generation));
     // What the stage reported is the run's own durable progress, written whether the unit finished or
     // raised: a lost write is an error here, never a silence.
@@ -1174,7 +1205,7 @@ async function attemptUnit(
     return { claimed: true, unitId: unit.unitId, generation: unit.generation, result: 'blocked', summary: result.reason, job: 'completed' };
   }
   if (result.outcome === 'split') {
-    return await splitAttempt(orchestrator, { unit: started.record, plan, fence, job: request.job, children: result.children });
+    return await splitAttempt(orchestrator, { unit: started.record, plan, fence, job: request.job, children: result.children, writes });
   }
 
   // The draft: the machine's own `submit-draft` step, then the effect that records what was written.
@@ -1313,6 +1344,13 @@ async function splitAttempt(
     readonly fence: number;
     readonly job: ClaimedJob<{ unitId: string; generation: number }>;
     readonly children: readonly { readonly id: string; readonly scope: string; readonly estimatedTokens?: number }[];
+    /**
+     * The writes the stopping attempt made before it split (0026: "a unit at a limit
+     * returns what it has with its coverage"): the parent's checkpoint, recorded in
+     * the same transaction that seals the children, so the graph holds what the
+     * parent established even though the parent publishes nothing yet.
+     */
+    readonly writes: readonly StageDraftWrite[];
   },
 ): Promise<WorkOutcome> {
   const database = orchestrator.database;
@@ -1375,6 +1413,11 @@ async function splitAttempt(
       });
       children.push({ unitId: childUnitId, generation: created.generation });
     }
+    // 0027's split "atomically persist[s] the parent's checkpoint and a sealed child set": the checkpoint is the
+    // parent's own step to `waiting_children` and the draft set its attempt wrote before it split. The set is
+    // recorded here rather than at a draft step the parent never takes, so a unit that stopped at a limit keeps
+    // what it has in the graph — visible as its draft — instead of handing over an empty set.
+    await recordUnitDraftIn(executor, { unitId: unit.unitId, generation: unit.generation, writes: request.writes, at });
     await sealSplitIn(executor, { parentUnitId: unit.unitId, parentGeneration: unit.generation, children, at });
     const outcomes: UnitChildOutcome[] = children.map((child) => ({ unitId: child.unitId, generation: child.generation, published: false, fresh: false, failed: false }));
     const step = await advanceUnitIn(executor, {
