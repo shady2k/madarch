@@ -19,7 +19,7 @@ import { useTranslation } from 'react-i18next';
 import { FileTextIcon, FolderGit2Icon, GitBranch, NetworkIcon } from 'lucide-react';
 import { relativeTime } from './i18n.js';
 import { FillWizard } from './fill-wizard.js';
-import { getProduct, getPages, getPage, getQuestions, getRepos, getRegistry, type Product, type ProductWithAudience, type PageList, type Page, type QuestionList, type QuestionEntry, type PageDocument, type Architecture, type RepoEntry, type ReposList, type RegistryOffer, getDiscussions, postDiscussion, type DiscussionEntry, type DiscussionRange } from './api.js';
+import { getProduct, getPages, getPage, getQuestions, getRepos, getRegistry, type Product, type ProductWithAudience, type PageList, type Page, type QuestionList, type QuestionEntry, type PageDocument, type Architecture, type RepoEntry, type ReposList, type RegistryOffer, getDiscussions, postDiscussion, type DiscussionEntry, type DiscussionRange, type GraphPageChange, type GraphPageSet } from './api.js';
 import { routeOf, addressOfPage, architectureAddress, REPOS_ADDRESS, type Route } from './routes.js';
 import { Markdown, PageLink } from './view.js';
 import { mapParagraphSelection, renderedMarkdownParagraphs } from './discussion-selection.js';
@@ -31,6 +31,8 @@ import { StagePage, useStages } from './stages.js';
 import { QuestionsView } from './questions.js';
 import { HomeOverviewFacts, registryDisplayLabel, registryStageDisplayLabel, type HomeOverviewProjection } from './overview.js';
 import { NextStep } from './recommendation.js';
+import { useGraphPages, useGraphPage, graphIndexAddress } from './graph.js';
+import { GraphIndexPage, GraphNodePage } from './graph-pages.js';
 export type RouteSnapshot = Route;
 
 /** How many times one page read is tried before the app gives up on it. */
@@ -237,6 +239,12 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
   // all read the one shared ask (useArchitecture memoizes per revision).
   // Called before the early returns, as hooks must be.
   const architecture = useArchitecture(data?.list.revision ?? '').bundle;
+  // The graph's page set and its live channel (madarch-tzte.23.3): one read at
+  // load and one stream per tab, opened from the set's own change number, so a
+  // page appears in the navigation and in the graph section as facts arrive —
+  // with no reload and no polling. A server that answers no page set shows no
+  // graph section, and the document pages are exactly what they were.
+  const graph = useGraphPages();
   if (error !== null) return <ErrorLine message={error} />;
   if (data === null) return <p className="loading">{t('loading.wiki')}</p>;
 
@@ -256,10 +264,10 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
   }
   return (
     <StatusBridge streamConnected={streamConnected}>
-      <routeContext.Provider value={{ path: route.name === 'page' ? route.path : undefined, stage: route.name === 'stage' ? route.stage : undefined, group: route.name === 'group' ? route.group : undefined, architecture: architectureCrumb, heldPaths }}>
-        <Shell product={data.product} list={list} architecture={architecture} reposCount={data.repos?.repos.length} reposOpen={route.name === 'repos'} offer={data.registry}>
+      <routeContext.Provider value={{ path: route.name === 'page' ? route.path : undefined, stage: route.name === 'stage' ? route.stage : undefined, group: route.name === 'group' ? route.group : undefined, architecture: architectureCrumb, graph: route.name === 'graph' ? route.id : undefined, graphIndex: route.name === 'graphIndex', heldPaths }}>
+        <Shell product={data.product} list={list} architecture={architecture} reposCount={data.repos?.repos.length} reposOpen={route.name === 'repos'} offer={data.registry} graph={graph.available ? graph.set : null}>
         {route.name === 'home' ? (
-          <><FillWizard /><HomePage product={data.product} list={list} architecture={architecture} offer={data.registry} overview={data.product.overview} recommendation={data.product.recommendation} repos={data.repos?.repos ?? []} /></>
+          <><FillWizard /><HomePage product={data.product} list={list} architecture={architecture} offer={data.registry} overview={data.product.overview} recommendation={data.product.recommendation} repos={data.repos?.repos ?? []} graph={graph.available ? graph.set : null} /></>
         ) : route.name === 'group' ? (
           <GroupPage group={route.group} list={list} offer={data.registry} />
         ) : route.name === 'repos' && (data.repos?.repos.length ?? 0) > 0 ? (
@@ -267,7 +275,7 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
         ) : route.name === 'repos' ? (
           // `/r` of an undeclared product: no repositories section exists —
           // the server refuses the route and the reader sees the home.
-          <HomePage product={data.product} list={list} architecture={architecture} offer={data.registry} overview={data.product.overview} recommendation={data.product.recommendation} repos={data.repos?.repos ?? []} />
+          <HomePage product={data.product} list={list} architecture={architecture} offer={data.registry} overview={data.product.overview} recommendation={data.product.recommendation} repos={data.repos?.repos ?? []} graph={graph.available ? graph.set : null} />
         ) : route.name === 'architecture' ? (
           <ArchitectureReader key={'architecture:' + list.revision} revision={list.revision} routeName="index" />
         ) : route.name === 'view' ? (
@@ -278,7 +286,14 @@ export function App({ pageRetryMs = 1000, pollTimeoutMs = defaultPollTimeoutMs, 
           <StageRoute key={"stage:" + route.stage + ":" + list.revision} stage={route.stage} revision={list.revision} offer={data.registry} />
         ) : route.name === 'questions' ? (
           <QuestionsView key={"questions:" + list.revision} questions={data.questions ?? null} onAnswered={() => setRefresh((value) => value + 1)} />
-
+        ) : route.name === 'graphIndex' ? (
+          graph.set === null ? (
+            graph.available ? <p className="loading">{t('loading.graph')}</p> : <ErrorLine message={graph.error ?? t('loading.graph')} />
+          ) : (
+            <GraphIndexPage set={graph.set} repos={data.repos?.repos ?? []} />
+          )
+        ) : route.name === 'graph' ? (
+          <GraphNodeRoute id={route.id} change={graph.change} repos={data.repos?.repos ?? []} />
         ) : (
           <PageReader
             key={"page:" + route.path + ":" + list.revision}
@@ -317,6 +332,33 @@ function StageRoute({ stage, revision, offer }: { stage: string; revision: strin
     );
   }
   return <StagePage stage={section} index={index} offer={offer} />;
+}
+
+/**
+ * One graph node's page (madarch-tzte.23.3): read at the id and again whenever the
+ * live channel names that page, so a fact a publication adds shows without a reload.
+ * A page the graph no longer holds is its refusal's own words — a node whose facts
+ * another publication dropped is a page that stands nowhere, never an empty one.
+ */
+function GraphNodeRoute({ id, change, repos }: { id: string; change: GraphPageChange | null; repos: readonly RepoEntry[] }): ReactElement {
+  const { t } = useTranslation();
+  const read = useGraphPage(id, change);
+  if (read.page !== null) return <GraphNodePage page={read.page} repos={repos} />;
+  if (read.error !== null) {
+    return (
+      <main id="graph-node" data-testid="graph-node-missing">
+        <div className="document-meta eyebrow">
+          <strong className="eyebrow-kind">{t('graph.title')}</strong>
+        </div>
+        <p className="error" role="status">
+          <strong>{read.missing ? t('graph.gone') : t('errors.prefix')}</strong>{' '}
+          <span>{read.error}</span>
+        </p>
+        <p><a href={appPath(graphIndexAddress)}>{t('graph.backToIndex')}</a></p>
+      </main>
+    );
+  }
+  return <p className="loading">{t('loading.graphPage')}</p>;
 }
 
 /** The home page's status is localized in its current UI language. */
@@ -383,7 +425,7 @@ export function GroupPage({ group, list, offer }: { group: string; list: PageLis
  * choosing between, the rows read like the sidebar's. A product with no
  * pages yet says so plainly in the lead.
  */
-export function HomePage({ product, list, architecture, offer, overview, recommendation, repos = [] }: { product: ProductWithAudience; list: PageList; architecture?: Architecture | null; offer?: RegistryOffer | null; overview?: HomeOverviewProjection; recommendation?: ProductWithAudience['recommendation']; repos?: readonly RepoEntry[] }): ReactElement {
+export function HomePage({ product, list, architecture, offer, overview, recommendation, repos = [], graph }: { product: ProductWithAudience; list: PageList; architecture?: Architecture | null; offer?: RegistryOffer | null; overview?: HomeOverviewProjection; recommendation?: ProductWithAudience['recommendation']; repos?: readonly RepoEntry[]; graph?: GraphPageSet | null }): ReactElement {
   const registryOffer = offer ?? null;
   const groups = groupNav(list.pages, registryOffer);
   const documents = list.pages.length;
@@ -448,6 +490,25 @@ export function HomePage({ product, list, architecture, offer, overview, recomme
             </ul>
           </section>
         ))}
+        {/* The graph's pages are the product's code nodes (decision 0026, "Pages"):
+            an entry to the graph's index, shown only where the server answers a
+            page set, and its count the number of nodes it holds. */}
+        {graph !== undefined && graph !== null && (
+          <section data-kind="graph" className="home-group mt-7" data-testid="home-graph">
+            <header className="home-group-head">
+              <h2 className="text-ink">{t('graph.title')}</h2>
+              <span className="home-count" data-testid="graph-count">{graph.total}</span>
+            </header>
+            <ul className="home-rows">
+              <li>
+                <a className="home-row" href={appPath(graphIndexAddress)} data-testid="home-graph-link">
+                  <NetworkIcon aria-hidden="true" className="home-row-icon" />
+                  <span className="home-row-title">{graph.total === 0 ? t('graph.emptyShort') : t('graph.openIndex', { count: graph.total })}</span>
+                </a>
+              </li>
+            </ul>
+          </section>
+        )}
         {/* The Architecture group is an entry to the product model even when
             the model is absent or does not compile. */}
         <section data-kind="architecture" className="home-group mt-7" data-testid="home-architecture">

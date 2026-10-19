@@ -178,9 +178,12 @@ export type Page = {
 
 /** An API read that failed, with a message naming what was asked for. */
 export class RequestError extends Error {
-  constructor(what: string, reason: string) {
+  /** The status the server answered, when it answered at all; a failed request that never reached it carries none. */
+  readonly status?: number;
+  constructor(what: string, reason: string, status?: number) {
     super(`Could not ${what}: ${reason}`);
     this.name = 'RequestError';
+    this.status = status;
   }
 }
 
@@ -215,7 +218,7 @@ export async function readJson<T>(what: string, url: string, signal?: AbortSigna
       if (error instanceof DOMException && error.name === 'AbortError') throw error;
       // keep the status line as the reason
     }
-    throw new RequestError(what, reason);
+    throw new RequestError(what, reason, response.status);
   }
   try {
     return (await response.json()) as T;
@@ -473,3 +476,160 @@ export type ReposList = {
 };
 
 export const getRepos = (signal?: AbortSignal): Promise<ReposList> => readJson<ReposList>('read the repositories', '/api/repos', signal);
+
+// ---------------------------------------------------------------------------------------------
+// The graph's pages (madarch-tzte.23.1's answers; decision 0026, "Pages")
+// ---------------------------------------------------------------------------------------------
+
+/** Where a fact stands in code: the repository's own name, the commit, the file and the lines. */
+export type GraphCodeLink = {
+  repository: string;
+  commit: string;
+  file: string;
+  startLine: number;
+  endLine: number;
+};
+
+/** The layer a fact stands at (decision 0005): an agent's reading is `inferred`, a person's `declared`. */
+export type GraphLayer = 'declared' | 'extracted' | 'inferred' | 'observed';
+
+/** The status a fact stands at (decision 0005). */
+export type GraphStatus = 'accepted' | 'proposed' | 'rejected';
+
+/** One node a page names, with the address of its own page when its kind has one. */
+export type GraphNodeRef = {
+  id: string;
+  kind: string | null;
+  label: string;
+  file?: string;
+  line?: number;
+  /** The address of the node's page; absent for a node of a kind no page exists for. */
+  page?: string;
+};
+
+/** One page-worthy node, as the page set and every page name it. */
+export type GraphPageEntry = {
+  id: string;
+  kind: string;
+  label: string;
+  /** The address the app answers the node's page at: `/p/graph/<the fact id>`. */
+  page: string;
+  layer: GraphLayer;
+  status: GraphStatus;
+  code?: GraphCodeLink;
+  /** Stage 5's rank of the node, on the kinds that carry one. */
+  importance?: number;
+};
+
+/** One kind's share of the page set. */
+export type GraphPageCount = { kind: string; count: number };
+
+/** `GET /api/graph/pages`: every page-worthy node of the product. */
+export type GraphPageSet = {
+  product: string;
+  pages: GraphPageEntry[];
+  counts: GraphPageCount[];
+  total: number;
+  /** The change number a client subscribes from (`/api/graph/events?after=<changeSeq>`). */
+  changeSeq: number;
+  readAt: number;
+  /** The what-to-do message when the set is empty, else null. */
+  message: string | null;
+};
+
+/** One fact as a page shows it. */
+export type GraphPageFact = {
+  id: string;
+  kind: string;
+  label: string;
+  layer: GraphLayer;
+  status: GraphStatus;
+  code?: GraphCodeLink;
+  /** What a claim names, resolved to nodes where the graph holds them. */
+  ends?: { subject?: GraphNodeRef; object?: GraphNodeRef };
+};
+
+/** One relation of a page: which way it stands, its own edge fact, and what is at the other end. */
+export type GraphRelation = {
+  direction: 'in' | 'out' | 'both';
+  edge: GraphPageFact;
+  /** The node at the other end, when the graph holds it as one. */
+  node?: GraphNodeRef;
+  /** What the other end names when it is no node: a contract, a key, an environment. */
+  end?: string;
+};
+
+/** What is known about one scope of a page, and what could not be read. */
+export type GraphCoverageRow = {
+  id: string;
+  repository: string;
+  scope: string;
+  complete: boolean;
+  readCount: number;
+  read: string[];
+  readCut: number;
+  unread: { what: string; reason: string }[];
+  unreadCut: number;
+  file?: string;
+  line?: number;
+};
+
+/** One open question about the node. */
+export type GraphQuestionEntry = {
+  id: string;
+  type: string;
+  about?: string;
+  prompt: string;
+  layer: GraphLayer;
+  status: GraphStatus;
+  code?: GraphCodeLink;
+};
+
+/** One draft write another unit holds about the node. */
+export type GraphDraftRow = {
+  asDraft: true;
+  unit: string;
+  generation: number;
+  scope: string;
+  write: 'fact' | 'entity' | 'link' | 'question';
+  evidence: string;
+  fact: unknown;
+};
+
+/** `GET /api/graph/page?id=…`: one node's whole page. */
+export type GraphPageModel = {
+  product: string;
+  node: GraphPageEntry;
+  page: string;
+  /** The node fact's own value, as the stage that read it wrote it. */
+  value: unknown;
+  /** The facts the graph asserts about the node, the node's own fact first. */
+  facts: GraphPageFact[];
+  /** What an agent inferred, kept apart from the facts (decision 0005). */
+  assumptions: GraphPageFact[];
+  relations: { out: GraphRelation[]; in: GraphRelation[] };
+  coverage: GraphCoverageRow[];
+  coverageScopes: string[];
+  questions: GraphQuestionEntry[];
+  drafts: GraphDraftRow[];
+  counts: { facts: number; assumptions: number; out: number; in: number; coverage: number; questions: number; drafts: number };
+  truncated: boolean;
+  marker: string | null;
+  tokens: number;
+  readAt: number;
+};
+
+/** One event of the graph's live channel: a publication, and the pages it touched. */
+export type GraphPageChange = {
+  seq: number;
+  nodes: string[];
+  unit: string;
+  generation: number;
+  publication: string;
+};
+
+export const getGraphPages = (signal?: AbortSignal): Promise<GraphPageSet> =>
+  readJson<GraphPageSet>('read the graph\'s pages', '/api/graph/pages', signal);
+
+export const getGraphPage = (id: string, signal?: AbortSignal): Promise<GraphPageModel> =>
+  readJson<GraphPageModel>(`read the graph page ${id}`, `/api/graph/page?id=${encodeURIComponent(id)}`, signal);

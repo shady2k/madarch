@@ -33,8 +33,10 @@ import {
 import type { PageList, PageMeta, Product } from './api.js';
 import { appPath } from './app-base.js';
 import { FillProgressPanel } from './fill-progress.js';
+import type { GraphPageSet } from './api.js';
+import { graphKindGroups, NAV_NODES_PER_KIND } from './graph.js';
 import type { Architecture } from './api.js';
-import { architectureAddress, addressOfGroup, addressOfStageRoute, REPOS_ADDRESS } from './routes.js';
+import { architectureAddress, addressOfGraphPage, addressOfGroup, addressOfStageRoute, GRAPH_INDEX_ADDRESS, REPOS_ADDRESS } from './routes.js';
 import { kindEntry, kindOrder, stageList, stagePosition, type RegistryOffer } from './registry.js';
 import { useTranslation } from 'react-i18next';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
@@ -81,6 +83,11 @@ function FilledDocumentGlyph({ className }: { className: string }): ReactElement
       <path fill="none" stroke="var(--bg-page)" strokeWidth=".8" d="M9 1.8v3.8h3.7M5 8h6M5 10.5h6M5 13h4" />
     </svg>
   );
+}
+
+/** The label of one graph node, as the page set names it; undefined when the set does not hold it. */
+export function graphLabelOf(set: GraphPageSet | null, id: string): string | undefined {
+  return set?.pages.find((entry) => entry.id === id)?.label;
 }
 
 /** The stages available from a manifest; a product without one has none. */
@@ -333,7 +340,109 @@ function StagesNav({ current, onNavigate, offer, language }: { current: string |
   );
 }
 
-function NavPanel({ product, groups, current, currentStage, onNavigate, architectureCount, reposCount, offer, language }: {
+/**
+ * The graph's section of the navigation (madarch-tzte.23.3; decision 0026, "Pages"):
+ * every page-worthy node the server's page set holds, one group per kind, each node a
+ * link to its page — so a reader reaches a node's page from the navigation, and a node
+ * whose facts a publication adds joins the list without a reload. A kind with more
+ * nodes than the navigation lists names the rest through the graph's index page, so a
+ * large graph never turns the sidebar into a wall: nothing is dropped in silence.
+ */
+function GraphNav({ set, current, onNavigate }: { set: GraphPageSet | null; current: string | undefined; onNavigate?: MouseEventHandler }): ReactElement | null {
+  const { t } = useTranslation();
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
+  // A product whose graph holds no page has no graph section in the navigation: the
+  // server's what-to-do message stands on the graph's own index page, where a reader
+  // asked for it, and never in every product's sidebar.
+  if (set === null || set.total === 0) return null;
+  const groups = graphKindGroups(set);
+  const toggle = (kind: string): void => {
+    setCollapsed((held) => {
+      const next = new Set(held);
+      if (next.has(kind)) next.delete(kind);
+      else next.add(kind);
+      return next;
+    });
+  };
+  return (
+    <section data-testid="graph-nav" className="mb-1.5 mt-2" aria-label={t('graph.title')}>
+      <div className="flex items-center justify-between px-2 py-1.5">
+        <h2 className="text-[12px] uppercase tracking-[0.08em] text-muted">{t('graph.title')}</h2>
+        <a href={appPath(GRAPH_INDEX_ADDRESS)} data-testid="graph-nav-all" className="text-small text-muted no-underline hover:text-ink" onClick={(event) => {
+          if (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey || event.button !== 0) return;
+          event.preventDefault();
+          onNavigate?.(event);
+          navigateTo(appPath(GRAPH_INDEX_ADDRESS));
+        }}>{t('graph.all')}</a>
+      </div>
+      {groups.map((group) => {
+        const isOpen = !collapsed.has(group.kind);
+        const shown = group.entries.slice(0, NAV_NODES_PER_KIND);
+        const rest = group.entries.length - shown.length;
+        return (
+          <section key={group.kind} data-graph-nav-kind={group.kind} className="mb-1.5">
+            <div className="flex min-w-0 w-full items-center gap-1.5 rounded-[var(--radius-row)] px-2 py-1.5 text-left text-small text-secondary hover:bg-[var(--surface-hover)] hover:text-ink">
+              <span className="nav-group-title min-w-0 flex-1 truncate text-[13px] text-secondary">{t('graph.kind.' + group.kind, { defaultValue: group.kind })}</span>
+              <span className="text-small text-muted">{group.entries.length}</span>
+              <button
+                type="button"
+                className="grid size-6 shrink-0 place-items-center rounded-[var(--radius-row)] text-muted hover:text-ink focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
+                aria-label={t('graph.toggleKind', { kind: t('graph.kind.' + group.kind, { defaultValue: group.kind }) })}
+                aria-expanded={isOpen}
+                onClick={() => toggle(group.kind)}
+              >
+                <ChevronDownIcon aria-hidden="true" className={'size-4 transition-transform duration-150 ' + (isOpen ? '' : '-rotate-90')} />
+              </button>
+            </div>
+            {isOpen && (
+              <ul className="m-0 list-none p-0">
+                {shown.map((entry) => {
+                  const isCurrent = current === entry.id;
+                  return (
+                    <li key={entry.id} onClick={onNavigate}>
+                      <a
+                        href={appPath(addressOfGraphPage(entry.id))}
+                        className={navLinkClasses(isCurrent)}
+                        aria-current={isCurrent ? 'page' : undefined}
+                        data-graph-node={entry.id}
+                        onClick={(event) => {
+                          if (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey || event.button !== 0) return;
+                          event.preventDefault();
+                          navigateTo(appPath(addressOfGraphPage(entry.id)));
+                        }}
+                      >
+                        <NetworkIcon aria-hidden="true" className="mt-[3px] size-4 shrink-0 text-muted" />
+                        <span className="min-w-0 whitespace-normal leading-snug">{entry.label}</span>
+                      </a>
+                    </li>
+                  );
+                })}
+                {rest > 0 && (
+                  <li onClick={onNavigate}>
+                    <a
+                      href={appPath(GRAPH_INDEX_ADDRESS)}
+                      className="nav-link my-px flex items-start gap-2.5 rounded-[var(--radius-row)] py-[11px] pl-[38px] pr-[10px] text-small text-muted no-underline hover:bg-[var(--surface-hover)] hover:text-ink"
+                      data-testid="graph-nav-rest"
+                      onClick={(event) => {
+                        if (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey || event.button !== 0) return;
+                        event.preventDefault();
+                        navigateTo(appPath(GRAPH_INDEX_ADDRESS));
+                      }}
+                    >
+                      <span className="min-w-0 whitespace-normal leading-snug">{t('graph.moreOfKind', { count: rest, kind: t('graph.kind.' + group.kind, { defaultValue: group.kind }) })}</span>
+                    </a>
+                  </li>
+                )}
+              </ul>
+            )}
+          </section>
+        );
+      })}
+    </section>
+  );
+}
+
+function NavPanel({ product, groups, current, currentStage, onNavigate, architectureCount, reposCount, offer, language, graph, currentGraph }: {
   product: Product;
   groups: readonly NavGroup[];
   current: string | undefined;
@@ -347,6 +456,10 @@ function NavPanel({ product, groups, current, currentStage, onNavigate, architec
   /** The kinds registry the server answered, or none; the stage rows and the group order read it. */
   offer: RegistryOffer | null;
   language: WikiLanguage;
+  /** The graph's page set, when the server answers one: its nodes are the navigation's own section. */
+  graph?: GraphPageSet | null;
+  /** The open graph node's id, when the route is a graph page's. */
+  currentGraph?: string;
 }): ReactElement {
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const { t } = useTranslation();
@@ -469,6 +582,7 @@ function NavPanel({ product, groups, current, currentStage, onNavigate, architec
           );
           return section;
         })}
+        <GraphNav set={graph ?? null} current={currentGraph} onNavigate={onNavigate} />
       </nav>
       <div className="mt-2 flex items-center gap-2.5 border-t border-line px-1 py-3">
         <FolderGit2Icon aria-hidden="true" className="size-[18px] shrink-0 text-muted" />
@@ -489,7 +603,7 @@ function NavPanel({ product, groups, current, currentStage, onNavigate, architec
  * toolbar does not repeat a page heading; no tab or bottom status strip is
  * rendered.
  */
-export function Shell({ product, list, children, architecture, reposCount, reposOpen, offer }: {
+export function Shell({ product, list, children, architecture, reposCount, reposOpen, offer, graph }: {
   product: Product;
   list: PageList;
   children: ReactNode;
@@ -500,6 +614,8 @@ export function Shell({ product, list, children, architecture, reposCount, repos
   reposOpen?: boolean;
   /** The kinds registry the server answered, or none: the groups, their order and the stage rows read it. */
   offer?: RegistryOffer | null;
+  /** The graph's page set, when the server answers one: the navigation's own section of node pages. */
+  graph?: GraphPageSet | null;
 }): ReactElement {
   const route = useContext(routeContext);
   const { t, i18n } = useTranslation();
@@ -541,7 +657,7 @@ export function Shell({ product, list, children, architecture, reposCount, repos
           aria-label={t('navigation.aria')}
           hidden={focused}
         >
-          <NavPanel product={product} groups={groups} current={current} currentStage={route.stage} onNavigate={() => setMenuOpen(false)} architectureCount={architecture?.model?.views.length} reposCount={reposCount} offer={registryOffer} language={language} />
+          <NavPanel product={product} groups={groups} current={current} currentStage={route.stage} onNavigate={() => setMenuOpen(false)} architectureCount={architecture?.model?.views.length} reposCount={reposCount} offer={registryOffer} language={language} graph={graph ?? null} currentGraph={route.graph} />
         </aside>
         <div className="shell-main flex min-w-0 flex-1 flex-col">
           <header className="shell-toolbar flex min-h-[58px] items-center justify-between gap-3 border-b border-line px-4 wide:px-[35px]">
@@ -569,6 +685,16 @@ export function Shell({ product, list, children, architecture, reposCount, repos
                   <span className="text-muted">{t('stages.title')}</span>{' '}
                   <span aria-hidden="true" className="px-2 text-muted">/</span>{' '}
                   <span className="text-ink">{stageLabel(route.stage)}</span>
+                </>
+              ) : openPage === undefined && (route.graph !== undefined || route.graphIndex === true) ? (
+                <>
+                  <a href={appPath(GRAPH_INDEX_ADDRESS)} data-testid="breadcrumb-graph" className="text-muted no-underline hover:text-ink" onClick={(event) => { if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); navigateTo(appPath(GRAPH_INDEX_ADDRESS)); }}>{t('graph.title')}</a>
+                  {route.graph !== undefined && (
+                    <>
+                      {' '}<span aria-hidden="true" className="px-2 text-muted">/</span>{' '}
+                      <span className="text-ink">{graphLabelOf(graph ?? null, route.graph) ?? route.graph}</span>
+                    </>
+                  )}
                 </>
               ) : openPage === undefined ? (
                 reposOpen === true ? t('navigation.repositories') : t('navigation.overview')
@@ -598,7 +724,7 @@ export function Shell({ product, list, children, architecture, reposCount, repos
                   data-testid="phone-nav"
                   className={'app-nav w-[min(280px,_82vw)] px-[14px] py-3 ' + (focused ? 'bg-chrome' : '')}
                 >
-                  <NavPanel product={product} groups={groups} current={current} currentStage={route.stage} onNavigate={() => setMenuOpen(false)} architectureCount={architecture?.model?.views.length} reposCount={reposCount} offer={registryOffer} language={language} />
+                  <NavPanel product={product} groups={groups} current={current} currentStage={route.stage} onNavigate={() => setMenuOpen(false)} architectureCount={architecture?.model?.views.length} reposCount={reposCount} offer={registryOffer} language={language} graph={graph ?? null} currentGraph={route.graph} />
                 </SheetContent>
               </Sheet>
               <DropdownMenu.Root>
