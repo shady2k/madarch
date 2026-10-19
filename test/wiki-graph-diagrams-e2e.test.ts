@@ -389,6 +389,20 @@ runDescribe('every graph diagram in every renderer that supports it', () => {
       expect(line.overlaps).toBe(0);
       await shot(`diagram-${type}-mermaid.png`);
     }
+    // An end the graph does not hold is drawn by the name the graph gives it, never by its content-addressed id
+    // (madarch-tzte.23.6): the module-dependency view of acme-shop is the one view here that draws one.
+    const moduleLabels = await page.$$eval('[data-diagram-type="module-dependency"] [data-testid="mermaid-diagram"] svg text, [data-diagram-type="module-dependency"] [data-testid="mermaid-diagram"] .nodeLabel', (nodes) => nodes.map((node) => node.textContent ?? ''));
+    expect(moduleLabels).toContain('./gone.js (unresolved)');
+    // The list under the diagram names it the same way, and keeps the id it was cited by as the row's own tooltip.
+    const listed = await page.$$eval('[data-diagram-type="module-dependency"] [data-testid="graph-diagram-elements"] li', (rows) => rows.map((row) => ({
+      label: row.querySelector('.graph-diagram-element-label')?.textContent ?? '',
+      title: row.querySelector('[data-testid="graph-diagram-unpaged"]')?.getAttribute('title') ?? '',
+    })));
+    expect(listed.map((row) => row.label)).toContain('./gone.js (unresolved)');
+    expect(listed.some((row) => row.title.includes('unresolved:file:'))).toBe(true);
+    // No drawer on the page prints the id: the name stands in every diagram, the list and the arrows beside it.
+    const drawingsText = await page.evaluate(() => document.querySelector('[data-testid="graph-diagrams"]')?.textContent ?? '');
+    expect(drawingsText).not.toContain(facts.gone.id);
     // Archify draws every type but the sequence, and LikeC4 the three C4 levels.
     for (const type of types) {
       const frame = await openTab(facts.shop.id, type, 'archify');
@@ -398,6 +412,12 @@ runDescribe('every graph diagram in every renderer that supports it', () => {
       // A dashed connection reaches the page: the model's own dashes are what archify draws.
       const dashed = await touchingPage(async () => await frame!.evaluate(() => document.querySelectorAll('[class*="dashed"]').length));
       console.log(`GRAPH_DIAGRAM_ARCHIFY_DASHED ${JSON.stringify({ type, dashed })}`);
+      if (type === 'module-dependency') {
+        // The name of the end the graph does not hold reaches archify's own page, and its id does not.
+        const drawn = await touchingPage(async () => await frame!.evaluate(() => document.body.textContent ?? ''));
+        expect(drawn).toContain('./gone.js (unresolved)');
+        expect(drawn).not.toContain(facts.gone.id);
+      }
       await shot(`diagram-${type}-archify.png`);
     }
     for (const type of ['c4-context', 'c4-container', 'c4-component']) {
@@ -410,6 +430,11 @@ runDescribe('every graph diagram in every renderer that supports it', () => {
       expect(held.svgs).toBeGreaterThan(0);
       // A drawing nobody can read is not a drawing: the view carries its elements' labels.
       expect(held.texts.length).toBeGreaterThan(0);
+      if (type === 'c4-component') {
+        // LikeC4's own view names the end the graph does not hold, by the specifier its import wrote.
+        expect(held.texts).toContain('./gone.js (unresolved)');
+        expect(held.texts.some((text) => text.includes(facts.gone.id))).toBe(false);
+      }
       await shot(`diagram-${type}-likec4.png`);
     }
     // Every element opens its page and its place in code, under any tab.

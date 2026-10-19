@@ -26,6 +26,7 @@ import {
 } from '../src/product-wiki/graph-diagrams.js';
 import { mermaidOfDiagram } from '../src/product-wiki/graph-mermaid.js';
 import { graphArchifyPage, graphLikeC4Page } from '../src/product-wiki/graph-render.js';
+import { layoutedViews } from '../src/wiki/archify-page.js';
 import { diagramWorkspace, webcomponentElement, webcomponentPrefix } from '../src/product-wiki/graph-workspace.js';
 import { checkLikeC4Workspaces } from '../scripts/likec4-check.js';
 import { LIKEC4_DRAWINGS_SOURCE } from '../src/product-wiki/likec4-drawings.js';
@@ -33,6 +34,8 @@ import { DIAGRAM_FIXTURE, readsOf } from './fill-diagram-fixture.js';
 
 const fx = DIAGRAM_FIXTURE;
 const clean = readsOf(fx.facts.filter((fact) => fact.id !== fx.orphanImportsGone.id));
+/** The same graph with the import into the file no unit holds: the view that draws an end the graph does not hold. */
+const full = readsOf(fx.facts);
 
 /** The source's lines, for a test that reads it the way a reader does. */
 const linesOf = (source: string): readonly string[] => source.split('\n');
@@ -73,8 +76,10 @@ describe('the Mermaid source of a diagram', () => {
     expect(lines.filter((line) => line.includes('-.->'))).toHaveLength(3);
     expect(lines).toContain('  n0(["OrderStatus.new"])');
     expect(lines).toContain('  n1(["OrderStatus.paid"])');
-    // The state the graph does not hold has no name to draw, only the id it was cited by.
-    expect(lines).toContain(`  n3["${fx.refundedState.id}"]`);
+    // The state the graph does not hold is drawn by its kind and marked unresolved: a content-addressed id in a box
+    // says nothing a reader can act on (madarch-tzte.23.6).
+    expect(lines).toContain('  n3["state (unresolved)"]');
+    expect(source).not.toContain(fx.refundedState.id);
     expect(source).toContain('  class n0,n1,n2,n3 assumption');
   });
 
@@ -84,7 +89,7 @@ describe('the Mermaid source of a diagram', () => {
     // A table's name, then its columns with their types; a table the graph holds no fact of is a plain box, dashed.
     expect(lines).toContain('  n1[("acme-shop:public.orders: id bigint, total numeric")]');
     expect(lines).toContain('  n2[("acme-shop:public.payments: id bigint")]');
-    expect(lines).toContain('  n0["acme-shop:public.audit: id bigint"]');
+    expect(lines).toContain('  n0["acme-shop:public.audit (unresolved): id bigint"]');
     expect(lines).toContain('  class n0 assumption');
   });
 
@@ -173,6 +178,42 @@ describe('the LikeC4 workspace of a diagram', () => {
     expect(webcomponentPrefix(one)).toBe(webcomponentPrefix(one));
   });
 });
+
+describe('a node the graph does not hold, in every renderer', () => {
+  test('every renderer draws the name the graph gives it and never its content-addressed id', async () => {
+    const model = await buildDiagram({ type: 'module-dependency', nodes: [fx.shop.id] }, full);
+    const placeholder = model.elements.find((element) => element.kind === null);
+    expect(placeholder?.label).toBe('./gone.js (unresolved)');
+    // Mermaid draws the label in the box, dashed.
+    const mermaid = mermaidOfDiagram(model);
+    expect(mermaid).toContain('./gone.js (unresolved)');
+    expect(mermaid).not.toContain(fx.gone.id);
+    // LikeC4 draws it as the element of its own `unresolved` kind.
+    const held = diagramWorkspace(model, { pageAddress: (id) => `/p/graph/${id}` });
+    expect(held.workspace).toContain(`= unresolved "./gone.js (unresolved)"`);
+    expect(held.workspace).not.toContain(fx.gone.id);
+    // archify's document carries it as a component's own label, from the layout LikeC4 computes for that workspace.
+    const layouted = await layoutedViews(held.workspace);
+    const view = layouted.get(held.viewId);
+    expect(view).toBeDefined();
+    const document = archifyDocument(view!, { output: 'graph-diagram.html', dashed: new Set<string>() });
+    expect(JSON.stringify(document)).toContain('./gone.js (unresolved)');
+    expect(JSON.stringify(document)).not.toContain(fx.gone.id);
+  }, 120_000);
+
+  test('the page lists it under the same name, and keeps its id as the element the row stands for', async () => {
+    const model = await buildDiagram({ type: 'module-dependency', nodes: [fx.shop.id] }, full);
+    const answer = graphDiagramOf({ spec: { type: 'module-dependency', nodes: [fx.shop.id] }, model }, { node: fx.shop.id, chosen: 'mermaid' });
+    const listed = answer.elements.find((element) => element.kind === null);
+    expect(listed?.label).toBe('./gone.js (unresolved)');
+    // The id is what the app's row carries (and its tooltip): a reader tracing the arrow back to the fact still can.
+    expect(listed?.id).toBe(`unresolved:${fx.gone.id}`);
+    expect(listed?.page).toBeUndefined();
+    // The arrow list names both ends through the elements' labels, so an arrow into the placeholder reads as a name.
+    expect(answer.edges.map((edge) => edge.to)).toContain(`unresolved:${fx.gone.id}`);
+  });
+});
+
 
 describe('the tabs a page shows its diagrams under', () => {
   test('every type is offered on every renderer that supports it, in the one order the tabs stand in', () => {
