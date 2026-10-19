@@ -169,23 +169,33 @@ describe('the stages are registered', () => {
       const read = deriveStageGraph(registry);
       expect(read.ok).toBe(true);
       if (!read.ok) return;
-      // The build and configuration stage (madarch-tzte.21.5) is registered
-      // beside them too: the history reads the snapshot and is ordered between
-      // the two by code point, the inventory, the build and configuration, the
-      // syntax stage and the document index all read the inventory's `file`
-      // facts (and the build and configuration, the document index and the
-      // history the snapshot), and the graph is the one every registered stage
-      // derives.
-      expect(read.graph.order).toEqual(['snapshot', 'history', 'inventory', 'build-configuration', 'document-index', 'syntax']);
+      // The build and configuration stage (madarch-tzte.21.5) and the semantic
+      // resolution stage (madarch-tzte.21.6) are registered beside them too: the
+      // history reads the snapshot and is ordered between the two by code point,
+      // the inventory, the build and configuration, the syntax stage, the
+      // document index and the resolution all read the inventory's `file` facts
+      // (and the build and configuration, the document index and the history the
+      // snapshot), and the resolution reads the syntax stage's symbols and
+      // imports, so it runs after it. The graph is the one every registered
+      // stage derives.
+      expect(read.graph.order).toEqual(['snapshot', 'history', 'inventory', 'build-configuration', 'document-index', 'syntax', 'semantic-resolution']);
+      // The inventory reads the repository node and the snapshot; the history
+      // reads the snapshot alone; the syntax stage reads the inventory's file
+      // facts; the document index reads the snapshot and a link's `file` node,
+      // and its own `document` facts, which draw no edge from itself to itself;
+      // the resolution reads the syntax stage's symbols and imports.
       expect(read.graph.edges).toEqual([
         { from: 'inventory', to: 'build-configuration', via: 'file' },
         { from: 'inventory', to: 'document-index', via: 'file' },
+        { from: 'inventory', to: 'semantic-resolution', via: 'file' },
         { from: 'inventory', to: 'syntax', via: 'file' },
         { from: 'snapshot', to: 'build-configuration', via: 'snapshot' },
         { from: 'snapshot', to: 'document-index', via: 'snapshot' },
         { from: 'snapshot', to: 'history', via: 'snapshot' },
         { from: 'snapshot', to: 'inventory', via: 'repository' },
         { from: 'snapshot', to: 'inventory', via: 'snapshot' },
+        { from: 'syntax', to: 'semantic-resolution', via: 'import' },
+        { from: 'syntax', to: 'semantic-resolution', via: 'symbol' },
       ]);
       expect(registry.get('history')?.produces.map((produced) => produced.kind)).toEqual(['commit', 'coverage', 'task-key']);
       expect(registry.get('snapshot')?.produces.map((produced) => produced.kind)).toEqual(['coverage', 'repository', 'snapshot']);

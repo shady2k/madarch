@@ -243,7 +243,7 @@ function dedupeGaps(gaps: readonly CoverageGap[]): CoverageGap[] {
  * 4. the path as a folder with each extension's `index` file (`./x/index.ts`).
  */
 export function resolveSpecifier(from: string, specifier: string, known: ReadonlySet<string>): string | undefined {
-  if (!specifier.startsWith('./') && !specifier.startsWith('../')) return undefined;
+  if (!isRelativeSpecifier(specifier)) return undefined;
   const base = posix.normalize(posix.join(posix.dirname(from), specifier));
   if (base.startsWith('..') || base.startsWith('/')) return undefined;
   // The importing file's own extension is tried first among the replacements:
@@ -265,6 +265,15 @@ export function resolveSpecifier(from: string, specifier: string, known: Readonl
     if (known.has(candidate)) return candidate;
   }
   return undefined;
+}
+
+/**
+ * Whether a specifier names a path beside the importing file rather than a
+ * package outside the repository: one rule for the specifier both stages read,
+ * so a `./x` is relative to stage 3 and to stage 4 alike.
+ */
+export function isRelativeSpecifier(specifier: string): boolean {
+  return specifier.startsWith('./') || specifier.startsWith('../');
 }
 
 /** Whether a path is written in a language this stage's grammars read. */

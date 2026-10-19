@@ -94,7 +94,7 @@ export function scenarioFacts(): ScenarioFacts {
   const peer = 'b'.repeat(40);
   const symbolOne = makeNodeFact({ kind: 'symbol', value: { repository: 'acme-shop', file: repositoryPath('src/cart.ts'), qualifiedName: 'cart.add', symbolKind: 'function' }, provenance: provenance('src/cart.ts'), layer: 'extracted' });
   const symbolTwo = makeNodeFact({ kind: 'symbol', value: { repository: 'acme-shop', file: repositoryPath('src/cart.ts'), qualifiedName: 'cart.total', symbolKind: 'function' }, provenance: provenance('src/cart.ts'), layer: 'extracted' });
-  const call = (count: number): Fact => makeEdgeFact({ kind: 'call', value: { from: symbolOne.id, to: symbolTwo.id, count }, provenance: provenance('src/cart.ts'), layer: 'extracted' });
+  const call = (count: number): Fact => makeEdgeFact({ kind: 'call', value: { from: symbolOne.id, to: symbolTwo.id, count, precision: 'syntactic' }, provenance: provenance('src/cart.ts'), layer: 'extracted' });
   const module = (name: string, source: string): Fact => makeNodeFact({ kind: 'module', value: { repository: 'acme-shop', name, seed: 'package' }, provenance: { source: { system: source, version: '2' }, repository: { id: 'acme-shop', commit: peer }, place: { file: repositoryPath(`src/${name}.ts`), range: { startLine: 1, startColumn: 0, endLine: 1, endColumn: 4 } } }, layer: 'extracted' });
   const fact = (name: string): Fact => makeNodeFact({ kind: 'module', value: { repository: 'acme-shop', name, seed: 'package' }, provenance: provenance(`src/${name}.ts`), layer: 'extracted' });
   // One folder unit's facts, as stages 1 and 5 write them: the folder, the file it holds and the edge

@@ -195,18 +195,22 @@ describe('the stage is registered', () => {
       if (!read.ok) return;
       // Stage 2 reads stage 0's pinned tree and stage 1's file node, and the
       // stages every other worker registered stand beside it (the history, the
-      // document index and the syntax stage): the graph is the one every
-      // registered stage derives.
-      expect(read.graph.order).toEqual(['snapshot', 'history', 'inventory', 'build-configuration', 'document-index', 'syntax']);
+      // document index, the syntax stage and the semantic resolution, which runs
+      // after the syntax stage it reads): the graph is the one every registered
+      // stage derives.
+      expect(read.graph.order).toEqual(['snapshot', 'history', 'inventory', 'build-configuration', 'document-index', 'syntax', 'semantic-resolution']);
       expect(read.graph.edges).toEqual([
         { from: 'inventory', to: 'build-configuration', via: 'file' },
         { from: 'inventory', to: 'document-index', via: 'file' },
+        { from: 'inventory', to: 'semantic-resolution', via: 'file' },
         { from: 'inventory', to: 'syntax', via: 'file' },
         { from: 'snapshot', to: 'build-configuration', via: 'snapshot' },
         { from: 'snapshot', to: 'document-index', via: 'snapshot' },
         { from: 'snapshot', to: 'history', via: 'snapshot' },
         { from: 'snapshot', to: 'inventory', via: 'repository' },
         { from: 'snapshot', to: 'inventory', via: 'snapshot' },
+        { from: 'syntax', to: 'semantic-resolution', via: 'import' },
+        { from: 'syntax', to: 'semantic-resolution', via: 'symbol' },
       ]);
       expect(registry.get(BUILD_CONFIGURATION_STAGE_ID)?.produces.map((produced) => produced.kind)).toEqual([
         'consumes', 'coverage', 'dependency', 'deploy-unit', 'entry-point', 'environment-variable', 'package',

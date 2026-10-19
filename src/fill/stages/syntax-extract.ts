@@ -198,15 +198,60 @@ async function grammarFor(language: SyntaxLanguage): Promise<Awaited<ReturnType<
  * the two arguments decide the answer, and nothing else does.
  */
 export async function extractFileSyntax(path: string, bytes: Uint8Array): Promise<ExtractedFileSyntax> {
+  const read = await readSyntaxTree(path, bytes, (file) => {
+    const findings = walk(file.path, file.text, file.root, file.language);
+    // A file the parser could not read whole, and a declaration the walk could
+    // not name, are both read as far as they went and said so: the findings
+    // stand, and each gap carries what was not read and the reason.
+    const unread = [...findings.unread];
+    if (!file.complete) unread.push({ what: file.path, reason: 'error' });
+    return { ...findings, unread: mergeGaps(unread) };
+  });
+  if (!read.read) return emptyFindings(path, read.language, read.unread);
+  return { path, language: read.language, parsed: true, ...read.value };
+}
+
+/** One file parsed for a reader that walks the tree itself, stage 4's resolution beside stage 3's syntax. */
+export interface ParsedSyntaxTree {
+  /** The file's repository path, as it was given. */
+  readonly path: string;
+  /** The language the file was read as. */
+  readonly language: SyntaxLanguage;
+  /** The file's own text, decoded as UTF-8. */
+  readonly text: string;
+  /** The tree's root node; its own lifetime is the `walk` call's. */
+  readonly root: SyntaxNode;
+  /** Whether the parser read the file whole: a tree with an error node read as far as the parser could go. */
+  readonly complete: boolean;
+}
+
+/**
+ * What reading one file for a walk of its tree answered: the walk's own answer
+ * with what the tree was read as, or the gaps that say why there is no tree.
+ * A file with no grammar, bytes that are not UTF-8 text, and a parser that
+ * answered nothing are all `read: false` with the reason — never a silence.
+ */
+export type SyntaxTreeRead<T> =
+  | { readonly read: true; readonly value: T; readonly language: SyntaxLanguage; readonly complete: boolean }
+  | { readonly read: false; readonly language: SyntaxLanguage | null; readonly unread: readonly CoverageGap[] };
+
+/**
+ * Reads one file's bytes and hands its tree to a walk, which is how two
+ * readers share one parse: the syntax stage's own extraction and stage 4's
+ * resolution of the names the file mentions. The tree and the parser live no
+ * longer than the call, so a walk cannot keep a node — it answers what it
+ * read, and the answer outlives the tree.
+ */
+export async function readSyntaxTree<T>(path: string, bytes: Uint8Array, walk: (file: ParsedSyntaxTree) => T): Promise<SyntaxTreeRead<T>> {
   const language = syntaxLanguageOf(path);
-  if (language === undefined) return emptyFindings(path, null, [{ what: path, reason: 'unsupported' }]);
+  if (language === undefined) return { read: false, language: null, unread: [{ what: path, reason: 'unsupported' }] };
   let text: string;
   try {
     text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
   } catch {
     // Bytes that are not UTF-8 text have no syntax tree to walk: the file is
     // reported unread, with the reason, rather than read as something it is not.
-    return emptyFindings(path, language, [{ what: path, reason: 'error' }]);
+    return { read: false, language, unread: [{ what: path, reason: 'error' }] };
   }
   // The runtime is initialized before a parser is made: `Parser.init` loads the
   // wasm runtime the grammars run on, and a parser made before it is refused.
@@ -215,16 +260,12 @@ export async function extractFileSyntax(path: string, bytes: Uint8Array): Promis
   try {
     parser.setLanguage(grammar);
     const tree = parser.parse(text);
-    if (tree === null) return emptyFindings(path, language, [{ what: path, reason: 'error' }]);
+    if (tree === null) return { read: false, language, unread: [{ what: path, reason: 'error' }] };
     try {
       const root = tree.rootNode;
-      const findings = walk(path, text, root, language);
-      // A file the parser could not read whole, and a declaration the walk could
-      // not name, are both read as far as they went and said so: the findings
-      // stand, and each gap carries what was not read and the reason.
-      const unread = [...findings.unread];
-      if (root.hasError) unread.push({ what: path, reason: 'error' });
-      return { path, language, parsed: true, ...findings, unread: mergeGaps(unread) };
+      const complete = !root.hasError;
+      const value = walk({ path, language, text, root, complete });
+      return { read: true, value, language, complete };
     } finally {
       tree.delete();
     }
@@ -254,6 +295,18 @@ function mergeGaps(gaps: readonly CoverageGap[]): CoverageGap[] {
 /** A file this reader found nothing in, with the gaps it must report. */
 function emptyFindings(path: string, language: SyntaxLanguage | null, unread: readonly CoverageGap[]): ExtractedFileSyntax {
   return { path, language, parsed: false, symbols: [], comments: [], entryPoints: [], tests: [], imports: [], unread };
+}
+
+/**
+ * One file's spans, measured once: a walk that reads many nodes measures each
+ * against the same line index, so two readers of one file cannot count a
+ * column two ways. The counting is the one every finding of this file already
+ * uses — a 1-based line, a 0-based column of UTF-16 code units, and the byte
+ * span the reader read.
+ */
+export function spanFactory(text: string): (node: SyntaxNode) => SyntaxSpan {
+  const lines = lineIndex(text);
+  return (node: SyntaxNode) => spanAt(lines, text, node.startIndex, node.endIndex);
 }
 
 // ---- the walk -------------------------------------------------------------
@@ -360,8 +413,10 @@ interface Findings {
 
 /** Walks one parsed file and collects its findings, each with the span it stands at. */
 function walk(path: string, text: string, root: SyntaxNode, language: SyntaxLanguage): Findings {
+  // The line index of `spanFactory` is the one the resolution reader uses too,
+  // so the two count a position the same way by construction and not by luck.
   const lines = lineIndex(text);
-  const spanOf = (node: SyntaxNode): SyntaxSpan => spanAt(lines, text, node.startIndex, node.endIndex);
+  const spanOf = spanFactory(text);
   const symbols: ExtractedSymbol[] = [];
   const comments: ExtractedComment[] = [];
   const entryPoints: ExtractedEntryPoint[] = [];
