@@ -393,9 +393,10 @@ describe('the kinds the fill writes', () => {
     // `document` and `section` to 2 when their byte spans were added to them
     // (madarch-tzte.21.4, stage 6), the resolution edges `call`, `reference` and
     // `inherits` to 2 when their precision was added to them (madarch-tzte.21.6,
-    // stage 4), and `file` to 3 and `symbol` to 2 when stage 5's importance was
-    // added to them (madarch-tzte.21.7).
-    const moved: Readonly<Record<string, number>> = { 'call': 2, 'document': 2, 'file': 3, 'inherits': 2, 'reference': 2, 'section': 2, 'symbol': 2 };
+    // stage 4), `file` to 3 and `symbol` to 2 when stage 5's importance was
+    // added to them (madarch-tzte.21.7), and `module` to 2 when stage 9's
+    // proposal was added to it (madarch-tzte.24.2).
+    const moved: Readonly<Record<string, number>> = { 'call': 2, 'document': 2, 'file': 3, 'inherits': 2, 'module': 2, 'reference': 2, 'section': 2, 'symbol': 2 };
     for (const kind of FACT_KINDS_IN_ORDER) {
       expect(Number.isInteger(FACT_KINDS[kind].version)).toBe(true);
       // 0027: a stage declares the fact kind's version for what it produces,
@@ -545,12 +546,17 @@ describe('ids: content-addressed, stable, and never a run', () => {
       // The layer and the status are not identity either: how a fact was
       // obtained and whether anyone accepted it never changes what it is. Each
       // layer the kind admits is built through the constructor, with the last
-      // status that layer allows, and the id does not move.
+      // status that layer allows, and the id does not move — an inferred
+      // module's proposal included, which is what the layer writes and the
+      // identity never reads (madarch-tzte.24.2).
       for (const layer of EXPECTED_LAYERS[kind]) {
         const status = statusesOfLayer(layer).at(-1) as FactStatus;
+        const value = layer === 'inferred' && kind === 'module'
+          ? { ...(SAMPLES[kind] as unknown as Record<string, unknown>), proposal: { change: 'rename', replaces: [`module:${'f'.repeat(64)}`] } }
+          : SAMPLES[kind];
         const again = FACT_KINDS[kind].shape === 'node'
-          ? makeNodeFact({ kind: kind as never, value: SAMPLES[kind] as never, provenance: provenanceFor(kind), layer, status })
-          : makeEdgeFact({ kind: kind as never, value: SAMPLES[kind] as never, provenance: provenanceFor(kind), layer, status });
+          ? makeNodeFact({ kind: kind as never, value: value as never, provenance: provenanceFor(kind), layer, status })
+          : makeEdgeFact({ kind: kind as never, value: value as never, provenance: provenanceFor(kind), layer, status });
         expect(again.id).toBe(sampleFact(kind).id);
         expect(again.layer).toBe(layer);
         expect(again.status).toBe(status);
@@ -1096,6 +1102,77 @@ describe('the check that names every reason a fact is not one the schema reads',
     // Only a part the check already refused stops the digest: a fact whose
     // identity names a machine path is not digested at all.
     expect(problemsOf({ ...file, value: { ...file.value, path: '/opt/madarch-checkout/src/order.ts' } }).paths).toEqual(['value.path']);
+  });
+});
+
+describe('the proposal a stage-9 module carries (madarch-tzte.24.2)', () => {
+  /** The problems the check names for a variant of the sample module fact. */
+  function problemsOf(variant: unknown): { paths: string[]; messages: string[] } {
+    const problems = checkFact(variant);
+    return { paths: problems.map((problem) => problem.path), messages: problems.map((problem) => problem.message) };
+  }
+
+  /** The sample module fact, read as the schema holds its value. */
+  function moduleValueOf(variant: Partial<Record<string, unknown>>, layer: 'extracted' | 'inferred' = 'extracted'): unknown {
+    const fact = sampleFact('module');
+    return { ...fact, layer, value: { ...(fact.value as unknown as Record<string, unknown>), ...variant } };
+  }
+
+  /** One valid proposal: the merge of two modules of the clustering. */
+  const proposal = { change: 'merge', replaces: [`module:${'b'.repeat(64)}`, `module:${'c'.repeat(64)}`] };
+
+  test('an inferred module is a proposal, and an extracted one proposes nothing', () => {
+    // Stage 9's refinement is inferred, and what it writes is proposed until a
+    // person accepts it: an inferred module without its proposal is an assertion
+    // about nothing, and an extracted module — stage 5's own clustering — is read,
+    // never proposed.
+    expect(checkFact(moduleValueOf({ proposal }, 'inferred')).length).toBe(0);
+    expect(problemsOf(moduleValueOf({}, 'inferred')).paths).toEqual(['value.proposal']);
+    expect(problemsOf(moduleValueOf({ proposal })).paths).toEqual(['value.proposal']);
+    expect(problemsOf(moduleValueOf({ proposal })).messages[0]).toContain('a proposal stands on an inferred module');
+    expect(problemsOf(moduleValueOf({ proposal: 'merge everything' }, 'inferred')).paths).toEqual(['value.proposal']);
+  });
+
+  test('the proposal names its change and the modules it would replace, each once, in code point order', () => {
+    expect(problemsOf(moduleValueOf({ proposal: { change: 'fork', replaces: [`module:${'b'.repeat(64)}`] } }, 'inferred')).paths).toEqual(['value.proposal.change']);
+    expect(problemsOf(moduleValueOf({ proposal: { change: 'merge' } }, 'inferred')).paths).toEqual(['value.proposal.replaces']);
+    expect(problemsOf(moduleValueOf({ proposal: { change: 'merge', replaces: [] } }, 'inferred')).paths).toEqual(['value.proposal.replaces']);
+    expect(problemsOf(moduleValueOf({ proposal: { change: 'merge', replaces: [`module:${'b'.repeat(64)}`] } }, 'inferred')).paths).toEqual([]);
+    // The replaced modules are named in code point order, each once: a reader of
+    // the proposal reads the same list whatever wrote it.
+    const first = `module:${'b'.repeat(64)}`;
+    const second = `module:${'c'.repeat(64)}`;
+    expect(problemsOf(moduleValueOf({ proposal: { change: 'merge', replaces: [second, first] } }, 'inferred')).paths).toEqual(['value.proposal.replaces[1]']);
+    expect(problemsOf(moduleValueOf({ proposal: { change: 'merge', replaces: [first, first] } }, 'inferred')).paths).toEqual(['value.proposal.replaces[1]']);
+    // A proposal replaces modules, and nothing else: an id of another kind names
+    // no boundary.
+    expect(problemsOf(moduleValueOf({ proposal: { change: 'merge', replaces: [`file:${'b'.repeat(64)}`] } }, 'inferred')).paths).toEqual(['value.proposal.replaces[0]']);
+    expect(problemsOf(moduleValueOf({ proposal: { change: 'merge', replaces: ['not-an-id'] } }, 'inferred')).paths).toEqual(['value.proposal.replaces[0]']);
+    // A field the proposal does not carry is refused at its key, like every
+    // record's.
+    expect(problemsOf(moduleValueOf({ proposal: { change: 'merge', replaces: [first], reason: 'because' } }, 'inferred')).paths).toEqual(['value.proposal']);
+  });
+
+  test('a proposal never names itself among the modules it would replace', () => {
+    // The identity is the repository, the parent and the name: a proposal named
+    // after a module of the clustering digests to that module's own id, and the
+    // publication would overwrite the extracted fact the proposal asked to
+    // refine. The check refuses the write at the list's own leg.
+    const fact = sampleFact('module');
+    const value = {
+      ...(fact.value as unknown as Record<string, unknown>),
+      seed: 'cluster',
+      proposal: { change: 'rename', replaces: [fact.id] },
+    };
+    const self = { ...fact, layer: 'inferred', value };
+    expect(problemsOf(self).paths).toEqual(['value.proposal.replaces[0]']);
+    expect(problemsOf(self).messages[0]).toContain('never over them');
+  });
+
+  test('a proposed module is no package\'s or build target\'s seed: its seed is the word for a cluster', () => {
+    expect(problemsOf(moduleValueOf({ proposal, seed: 'package' }, 'inferred')).paths).toEqual(['value.seed']);
+    expect(problemsOf(moduleValueOf({ proposal, seed: 'build-target' }, 'inferred')).paths).toEqual(['value.seed']);
+    expect(checkFact(moduleValueOf({ proposal, seed: 'cluster' }, 'inferred')).length).toBe(0);
   });
 });
 

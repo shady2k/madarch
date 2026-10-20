@@ -173,7 +173,7 @@ export function scenarioFacts(): ScenarioFacts {
     entity: makeNodeFact({ kind: 'entity-proposal', value: { repository: 'acme-shop', proposed: 'concept', name: 'Cart' }, provenance: provenance('src/cart.ts'), layer: 'inferred' }),
     question: makeNodeFact({ kind: 'question', value: { repository: 'acme-shop', type: 'contradiction', prompt: 'Is the total used?' }, provenance: provenance('src/cart.ts'), layer: 'inferred' }),
     malformed: { kind: 'module', schemaVersion: 1, id: `module:${'f'.repeat(64)}`, provenance: provenance('src/cart.ts'), layer: 'extracted', status: 'proposed', value: { repository: 'acme-shop', name: 'invented', seed: 'package' } },
-    manyProblems: { kind: 'module', schemaVersion: 1, provenance: provenance('src/cart.ts'), layer: 'extracted', status: 'proposed', value: { repository: '', name: '', seed: 'package' } },
+    manyProblems: { kind: 'module', schemaVersion: 2, provenance: provenance('src/cart.ts'), layer: 'extracted', status: 'proposed', value: { repository: '', name: '', seed: 'package' } },
   };
 }
 

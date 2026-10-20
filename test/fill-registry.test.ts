@@ -9,6 +9,7 @@ import { overviewDeclaration } from '../src/fill/stages/overview.js';
 import {
   deriveStageGraph, resolveStageConfiguration, snapshotStageConfigurations, StageRegistry, type DerivedStageGraph,
 } from '../src/fill/registry.js';
+import { boundariesDeclaration } from '../src/fill/stages/boundaries.js';
 import { DEFAULT_STAGE_DEFAULTS, DEFAULT_STAGE_LIMITS, type FillStage } from '../src/fill/stage.js';
 import { MANIFEST_FILE } from '../src/product/manifest.js';
 import { summaryStage } from './fill-stage-summary.js';
@@ -1157,5 +1158,45 @@ describe('the stages a run registers, together', () => {
     // of `claim` was the half of the cycle above that stage 8 brought to the pair.
     const declared = overviewDeclaration().consumes.optional.map((consume) => consume.capability);
     expect(declared).not.toContain('claim');
+  });
+});
+
+describe('stage 9 of the registered stages (madarch-tzte.24.2)', () => {
+  // The registry a wired run holds, over a fake source: derivation reads declarations and runs nothing.
+  const snapshots = {
+    pins: async () => [],
+    open: async () => { throw new Error('derivation reads no repository'); },
+  };
+  const registry = createStageRegistry({ snapshots, agent: { agent: { id: 'fake-agent', command: 'fake-agent' } } });
+
+  test('the clustering is read before it is refined: modules before boundaries, by no edge back', () => {
+    // 0026: "every later pass relies on the results of previous ones" — stage 9
+    // reads the clustering stage 5 published (madarch-tzte.21.7), through its own
+    // required `module` consume. The stage produces `module` too: the registry's
+    // own rule draws no edge from a stage to itself, so the refinement reads its
+    // own earlier publication and the pair is no cycle.
+    const read = deriveStageGraph(registry);
+    if (!read.ok) throw new Error(`the declared stages do not read together: ${read.cycles.map((cycle) => cycle.join(' → ')).join('; ')}`);
+    const order = read.graph.order;
+    expect(order).toContain('modules');
+    expect(order).toContain('boundaries');
+    expect(order.indexOf('boundaries')).toBeGreaterThan(order.indexOf('modules'));
+    expect(read.graph.edges.some((edge) => edge.from === 'modules' && edge.to === 'boundaries')).toBe(true);
+    expect(read.graph.edges.some((edge) => edge.from === 'boundaries' && edge.to === 'modules')).toBe(false);
+  });
+
+  test('the boundaries stage declares no consume of a kind an agent stage writes, beside the module it produces itself', () => {
+    // The packet never reads a kind an agent unit writes: a declared consume of
+    // one would order this stage after every later agent stage that writes it and
+    // close a cycle through it (the cycle madarch-tzte.26.1 cut was exactly that).
+    // The `module` consume is the exception the registry carries by rule: the
+    // stage produces `module` itself, reads its own earlier publication, and no
+    // edge runs from it to itself.
+    const declaration = boundariesDeclaration();
+    const declared = [...declaration.consumes.required, ...declaration.consumes.optional].map((consume) => consume.capability);
+    for (const kind of ['claim', 'question', 'entity-proposal', 'rule', 'state', 'interaction', 'transition']) {
+      expect(declared).not.toContain(kind);
+    }
+    expect(declared).toContain('module');
   });
 });

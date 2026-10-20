@@ -127,8 +127,10 @@ function must<R, S extends string>(step: StoreStep<R, S>, what: string): R {
  * carries, so a test judges the write path and not the store beside it. The
  * store's own answers are held to `factGraph` further down.
  */
-function memoryGraph(options: { readonly nodes?: readonly { readonly id: string; readonly kind: FactKind }[]; readonly entities?: readonly SimilarEntity[] } = {}): CheckedWriteGraph {
-  const nodes = new Map((options.nodes ?? []).map((node) => [node.id, node]));
+function memoryGraph(options: { readonly nodes?: readonly { readonly id: string; readonly kind: FactKind; readonly repository?: string; readonly file?: string }[]; readonly entities?: readonly SimilarEntity[] } = {}): CheckedWriteGraph {
+  // A node that names no repository stands in the fixture's own: the tests that
+  // join nodes write in one repository, and the ones that name another say so.
+  const nodes = new Map((options.nodes ?? []).map((node) => [node.id, { repository: REPOSITORY, ...node }] as const));
   return {
     node: async (id: string) => nodes.get(id) ?? null,
     similarEntities: async () => options.entities ?? [],
@@ -510,26 +512,114 @@ describe('the checks a write passes before it lands', () => {
     expect(wrongKind.refusals[0]?.field).toBe('value.callee');
     expect(wrongKind.refusals[0]?.reason).toContain('"module"');
     expect(wrongKind.refusals[0]?.reason).toContain('"deploy-unit" or "symbol"');
+
+  }, 60_000);
+
+  test('a write naming a node that stands outside the unit\'s scope is refused, naming both', async () => {
+    // madarch-tzte.24.2: a stage-9 unit of one repository may propose a boundary
+    // only among the modules its scope holds. A proposal naming the neighbour
+    // repository's module is another unit's to write, and the refusal names both.
+    const own = makeNodeFact({ kind: 'module', value: { repository: REPOSITORY, name: 'cart', seed: 'package' }, provenance: provenanceAt('src/cart.ts'), layer: 'extracted' });
+    const elsewhere = makeNodeFact({ kind: 'module', value: { repository: 'billing-api', name: 'invoicing', seed: 'cluster' }, provenance: { ...provenanceAt('src/cart.ts'), repository: { id: 'billing-api', commit: 'b'.repeat(40) } }, layer: 'extracted' });
+    const unit = await runningUnit('understanding:acme-shop:src:boundaries', {
+      graph: memoryGraph({ nodes: [own, elsewhere].map((fact) => ({ id: fact.id, kind: 'module', repository: (fact.provenance.repository as { id: string }).id })) }),
+    });
+    // The replaced modules are named in code point order (the schema's own rule),
+    // so the refusal lands on the leg that names the neighbour's module.
+    const replaces = [own.id, elsewhere.id].sort();
+    const merge = await assertFact(unit.session, {
+      kind: 'module',
+      value: { repository: REPOSITORY, name: 'everything', seed: 'cluster', proposal: { change: 'merge', replaces } },
+      place: { repository: REPOSITORY, file: 'src/cart.ts', startLine: 3, endLine: 5 },
+    });
+    expect(merge.ok).toBe(false);
+    if (merge.ok) return;
+    const refusal = merge.refusals.find((candidate) => candidate.field === `value.proposal.replaces[${replaces.indexOf(elsewhere.id)}]`);
+    expect(refusal).toBeDefined();
+    expect(refusal?.reason).toContain(JSON.stringify(elsewhere.id));
+    expect(refusal?.reason).toContain('billing-api');
+    expect(refusal?.reason).toContain(`${REPOSITORY}:src`);
+    expect(await unit.draft.writes()).toEqual([]);
+
+    // A proposal named after a module the graph holds digests to that module's own
+    // id — the identity is the repository, the parent and the name — and the write
+    // refuses it: the proposal would overwrite the extracted fact it asked to
+    // refine, and stand beside it never.
+    const rename = await assertFact(unit.session, {
+      kind: 'module',
+      value: { repository: REPOSITORY, name: 'cart', seed: 'cluster', proposal: { change: 'rename', replaces: [elsewhere.id] } },
+      place: { repository: REPOSITORY, file: 'src/cart.ts', startLine: 3, endLine: 5 },
+    });
+    expect(rename.ok).toBe(false);
+    if (rename.ok) return;
+    const standing = rename.refusals.find((candidate) => candidate.field === 'value.name');
+    expect(standing).toBeDefined();
+    expect(standing?.reason).toContain(own.id);
+    expect(standing?.reason).toContain('never over them');
+    expect(await unit.draft.writes()).toEqual([]);
+
+    // The same proposal under a name of its own is one the schema reads, and it
+    // lands: the check is a scope rule and an identity rule, not a kind rule.
+    const held = await assertFact(unit.session, {
+      kind: 'module',
+      value: { repository: REPOSITORY, name: 'cart-one', seed: 'cluster', proposal: { change: 'rename', replaces: [own.id] } },
+      place: { repository: REPOSITORY, file: 'src/cart.ts', startLine: 3, endLine: 5 },
+    });
+    expect(settlement(held)).toBe('accepted');
+  }, 60_000);
+
+  test('a write names the nodes of its own repository, whatever folder their files stand at', async () => {
+    // The repository is the line a node's own fact carries: a module names no
+    // path, and the folder the cited bytes stand at is the write's own place
+    // check. So a claim of a unit scoped to one folder names the file of another
+    // folder of the same repository, and refuses nothing of it — while a node of
+    // another repository stays another unit's (the test above).
+    const inside = makeNodeFact({ kind: 'file', value: { repository: REPOSITORY, path: repositoryPath('src/cart.ts'), roles: ['source'] }, provenance: provenanceAt('src/cart.ts'), layer: 'extracted' });
+    const elsewhereInTheRepository = makeNodeFact({ kind: 'file', value: { repository: REPOSITORY, path: repositoryPath('docs/readme.md'), roles: ['document'] }, provenance: provenanceAt('docs/readme.md'), layer: 'extracted' });
+    const unit = await runningUnit('understanding:acme-shop:src:claims', {
+      graph: memoryGraph({
+        nodes: [
+          { id: inside.id, kind: 'file' },
+          { id: elsewhereInTheRepository.id, kind: 'file' },
+        ],
+      }),
+    });
+    const within = await assertFact(unit.session, {
+      kind: 'claim',
+      value: { subject: { form: 'node', id: inside.id }, predicate: 'carries', object: { form: 'literal', text: 'the cart' } },
+      place: { repository: REPOSITORY, file: 'src/cart.ts', startLine: 3, endLine: 5 },
+    });
+    expect(settlement(within)).toBe('accepted');
+    const beyond = await assertFact(unit.session, {
+      kind: 'claim',
+      value: { subject: { form: 'node', id: elsewhereInTheRepository.id }, predicate: 'carries', object: { form: 'literal', text: 'the readme' } },
+      place: { repository: REPOSITORY, file: 'src/cart.ts', startLine: 3, endLine: 5 },
+    });
+    expect(settlement(beyond)).toBe('accepted');
   }, 60_000);
 
   test('a write may join a node the unit\'s own draft set already took', async () => {
     const unit = await runningUnit('understanding:acme-shop:src:own-draft');
-    const module = await assertFact(unit.session, {
-      kind: 'module',
-      value: { repository: REPOSITORY, name: 'cart', seed: 'package' },
+    // A rule names no node of its own, so the graph holds nothing of this unit
+    // yet: the only node the claim may join is the rule it wrote itself. (A
+    // module of an agent stage would have to be a proposal now, and a proposal
+    // names the modules it replaces — a rule is the cheapest node a draft set
+    // can hold, which is what is under test here.)
+    const rule = await assertFact(unit.session, {
+      kind: 'rule',
+      value: { statement: 'the cart totals before tax', form: 'policy' },
       place: LINES_3_TO_5,
     });
-    expect(settlement(module)).toBe('accepted');
-    if (!module.ok) return;
-    // The graph holds nothing of this unit yet: the only node the claim may join is the module it wrote itself.
+    expect(settlement(rule)).toBe('accepted');
+    if (!rule.ok) return;
     const claim = await assertFact(unit.session, {
       kind: 'claim',
-      value: { subject: { form: 'node', id: module.fact.id }, predicate: 'is-implemented-by', object: { form: 'literal', text: 'Cart.total' } },
+      value: { subject: { form: 'node', id: rule.fact.id }, predicate: 'is-implemented-by', object: { form: 'literal', text: 'Cart.total' } },
       place: LINES_3_TO_5,
     });
     expect(settlement(claim)).toBe('accepted');
     if (!claim.ok) return;
-    expect(claim.fact.value).toMatchObject({ subject: { form: 'node', id: module.fact.id } });
+    expect(claim.fact.value).toMatchObject({ subject: { form: 'node', id: rule.fact.id } });
     expect((await unit.draft.writes()).map((write) => write.kind)).toEqual(['fact', 'fact']);
   }, 60_000);
 });
@@ -742,7 +832,9 @@ describe('the graph the write path reads', () => {
 
   test('a port built for a generation reads the writes the machine already holds', async () => {
     const unit = await runningUnit('understanding:acme-shop:src:second-port');
-    const written = await assertFact(unit.session, { kind: 'module', value: { repository: REPOSITORY, name: 'cart', seed: 'package' }, place: LINES_3_TO_5 });
+    // A rule names no node of its own, so the joined node is the write itself (a module of an agent stage is a
+    // proposal now, and a proposal names the modules it replaces — madarch-tzte.24.2).
+    const written = await assertFact(unit.session, { kind: 'rule', value: { statement: 'the cart totals before tax', form: 'policy' }, place: LINES_3_TO_5 });
     expect(settlement(written)).toBe('accepted');
     if (!written.ok) return;
     // A session that starts again over the same generation: a fresh port over the same rows.

@@ -12,6 +12,7 @@
 import { StageRegistry } from '../registry.js';
 import type { SnapshotSource } from '../snapshot.js';
 import type { AgentStageWiring } from './agent-stage.js';
+import { createBoundariesStage } from './boundaries.js';
 import { createBuildConfigurationStage } from './build-configuration.js';
 import { createDocIntentStage } from './doc-intent.js';
 import { createDocumentIndexStage } from './document-index.js';
@@ -72,9 +73,13 @@ export function createStageRegistry(wiring: FillStageWiring): StageRegistry {
   // a session with that agent (0026), and a stage registered without one would plan units that could not run. They
   // are registered one per stage of 0026 as each lands (madarch-tzte.24.1 lands stage 8): the landed agent unit of
   // 22.3 is the shape's own reference declaration (`agent-unit.ts`) and is no stage of a run.
+  // Stage order is 0026's own (8 overview, 9 boundaries, 10 intent from documents, 11 intent from comments and
+  // commits, 12 modules bottom-up), and the graph the declarations
+  // derive decides when each runs — the calls name it only for a reader.
   if (wiring.agent !== undefined) {
     const agent = { snapshots: wiring.snapshots, ...wiring.agent };
     registry.register(createOverviewStage(agent));
+    registry.register(createBoundariesStage(agent));
     registry.register(createDocIntentStage(agent));
     registry.register(createIntentHistoryStage(agent));
     // Stage 12 of 0026 (madarch-tzte.24.5): the modules understood bottom-up, each parent from its children's
