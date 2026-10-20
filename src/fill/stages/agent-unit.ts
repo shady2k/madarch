@@ -37,11 +37,13 @@ import type { FillStage } from '../stage.js';
 import { readAgentAnswer, UNIT_ANSWER, UNIT_ROLE } from '../agent-packet.js';
 import { planUnits } from './agent-stage.js';
 import {
+  agentIdentity,
   createAgentStage,
   memberPlaces,
   type AgentStageDeclaration,
   type AgentStageWiring,
 } from './agent-stage.js';
+export { agentIdentity };
 
 /** The stage's id, as it is registered: one agent unit per scope, decision 0026's stages 8 to 13. */
 export const AGENT_UNIT_STAGE_ID = 'agent-unit';
@@ -111,7 +113,9 @@ export type AgentUnitWiring = AgentStageWiring;
 /**
  * The agent unit stage, registered over the run's wiring. A run that wires no agent
  * registers no agent union stage at all (`stages/index.ts`), so a product whose fill
- * has no agent never plans a unit that could read nothing.
+ * has no agent never plans a unit that could read nothing. The shape gives the stage its
+ * cache key's version part (madarch-tzte.26.1): the prompt it sends, the answer it asks
+ * for and the agent it is driven with.
  */
 export function createAgentUnitStage(wiring: AgentUnitWiring): FillStage {
   return createAgentStage(AGENT_UNIT_DECLARATION, wiring);

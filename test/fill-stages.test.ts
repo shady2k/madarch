@@ -190,6 +190,8 @@ describe('two runs over one product', () => {
   let first: FillRunResult | undefined;
   let second: FillRunResult | undefined;
   let afterFirst: Readonly<Record<string, number>> = {};
+  /** The commit the first run stood on: the one the history unit it published names. */
+  let firstHistoryCommit = '';
   let afterSecond: Readonly<Record<string, number>> = {};
 
   beforeAll(async () => {
@@ -199,6 +201,7 @@ describe('two runs over one product', () => {
     // one-file commit made (the wiring's own doc says so).
     opened = await openProduct(product);
     first = await opened.run('run-one');
+    firstHistoryCommit = git(product, 'rev-parse', 'HEAD');
     afterFirst = await opened.counts();
     // The one-file commit: the second run stands on a new commit of the same tree.
     writeFileSync(join(product, 'src', 'total.ts'), 'export function total(): number {\n  return 43;\n}\n');
@@ -274,13 +277,21 @@ describe('two runs over one product', () => {
     // publishes it again: the replacement is bounded, and the run settles instead
     // of looping (a stage that wrote only what changed made it loop; the history
     // stage writes its whole set, `src/fill/stages/history.ts`).
-    const historyUnit = (second?.units ?? []).find((unit) => unit.stageId === 'history');
+    // A history unit's scope names the commit it read, so the second run plans one at the new pin and the run's
+    // sweep replaces the one the first run left at the old one: the facts of a commit the graph no longer stands
+    // on are retracted, which is what madarch-tzte.26.1's propagation adds to this task's own incrementality.
+    // Both units stand published after the run, and each is its own unit of the run's list.
+    const historyUnits = (second?.units ?? []).filter((unit) => unit.stageId === 'history');
+    expect(historyUnits.map((unit) => unit.unitId).sort()).toEqual([
+      `history/shop@${git(product, 'rev-parse', 'HEAD')}`,
+      `history/shop@${firstHistoryCommit}`,
+    ].sort());
+    const historyUnit = historyUnits.find((unit) => unit.unitId === `history/shop@${git(product, 'rev-parse', 'HEAD')}`);
     const plan = historyUnit === undefined ? null : await readUnitPlan(opened!.owner, historyUnit.unitId, historyUnit.generation);
     const transitions = historyUnit === undefined ? [] : (await opened!.owner.transaction('snapshot', async (executor) => (
       await executor.query<{ event: string }>('SELECT event FROM fill_transition WHERE subject_id = $1 ORDER BY seq', [historyUnit.unitId])
     ).rows)).map((row) => row.event);
     expect(plan?.runId).toBe('run-two');
-    expect(historyUnit?.unitId).toBe(`history/shop@${git(product, 'rev-parse', 'HEAD')}`);
     expect(historyUnit?.state).toBe('published');
     expect(transitions.filter((event) => event === 'invalidate')).toHaveLength(1);
   }, 900_000);

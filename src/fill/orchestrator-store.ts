@@ -122,11 +122,36 @@ const SCHEMA: readonly string[] = [
   )`,
 ];
 
+/**
+ * The column a build before madarch-tzte.26.1 did not write: the versions that decided what a unit
+ * reads and answers when it was planned — its stage's `id@version` and the stage's own prompt,
+ * answer-schema and model versions — recorded with the plan, so a run that resolves another names the
+ * one that moved instead of two digests. A plan row that holds none was written before it existed.
+ */
+const CACHE_VERSIONS_COLUMN = 'ALTER TABLE fill_unit_plan ADD COLUMN IF NOT EXISTS cache_versions jsonb';
+
+/**
+ * The schema's one key, for the lock that keeps two processes from adding the column at once: the
+ * crash suite starts several executor processes beside the server, and concurrent `ALTER TABLE` on
+ * one table answers "tuple concurrently updated" to whichever loses. The lock is the transaction's,
+ * so it is held for exactly the statement it guards.
+ */
+const CACHE_VERSIONS_LOCK = 724_913_556;
+
 /** Creates the orchestrator's tables and indexes; safe to run on every start of the process's owner. */
 export async function createOrchestratorSchema(database: OrchestratorDatabase): Promise<void> {
   const at = here();
   await run(at, database, 'createOrchestratorSchema', ORCHESTRATOR_TABLES, async (executor) => {
     for (const statement of SCHEMA) await executor.query(statement);
+    // The column is added under the lock and only where it is missing: the check first, so a store a
+    // previous build filled and this build opened pays one query and no DDL at all.
+    await executor.query('SELECT pg_advisory_xact_lock($1)', [CACHE_VERSIONS_LOCK]);
+    const { rows } = await executor.query<{ present: boolean }>(
+      `SELECT EXISTS (SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'fill_unit_plan' AND column_name = 'cache_versions') AS present`,
+    );
+    if (rows[0]?.present === true) return;
+    await executor.query(CACHE_VERSIONS_COLUMN);
   }, 'write');
 }
 
@@ -254,7 +279,7 @@ function readRecord(row: ReadRow): TrackedRead {
  */
 export async function recordUnitRead(
   database: OrchestratorDatabase,
-  options: { readonly unitId: string; readonly generation: number; readonly query: string; readonly rows: readonly unknown[]; readonly at: number },
+  options: { readonly unitId: string; readonly generation: number; readonly query: string; readonly rows: readonly unknown[]; readonly at: number; readonly membership?: string },
 ): Promise<TrackedRead> {
   const at = here();
   return run(at, database, `recordUnitRead(${options.unitId}/${options.generation})`, ['fill_unit_read'], async (executor) => recordUnitReadIn(executor, options), 'write');
@@ -263,10 +288,13 @@ export async function recordUnitRead(
 /** Records one tracked read inside a transaction the caller already opened. */
 export async function recordUnitReadIn(
   executor: SqlExecutor,
-  options: { readonly unitId: string; readonly generation: number; readonly query: string; readonly rows: readonly unknown[]; readonly at: number },
+  options: { readonly unitId: string; readonly generation: number; readonly query: string; readonly rows: readonly unknown[]; readonly at: number; readonly membership?: string },
 ): Promise<TrackedRead> {
   const digest = queryDigest(options.query);
-  const membership = readMembership(options.rows);
+  // The membership the caller read the answer under, or — where it names none — the digest of the rows as they
+  // stand. A span read names its own (`answerMembership`, `graph-reads.ts`): its bytes are its membership, and the
+  // commit they were read at is not.
+  const membership = options.membership ?? readMembership(options.rows);
   // The generation's own row is taken first: on a PostgreSQL owner two units' reads can run at once, and
   // two reads of one generation must not take the same sequence number.
   await executor.query('SELECT unit_id FROM fill_unit_generation WHERE unit_id = $1 AND generation = $2 FOR UPDATE', [options.unitId, options.generation]);
@@ -929,9 +957,15 @@ export interface UnitPlanRecord {
   /** Where the stage's own plan named this unit, most important first (the PageRank-like importance). */
   readonly planPosition: number;
   readonly plannedAt: number;
+  /**
+   * The versions the unit's cache key held when it was planned: the stage's `id@version` and its own prompt,
+   * answer-schema and model versions (`stageCacheVersions`). Absent for a plan row a build before this recorded
+   * none, which a run reports as an unknown version rather than as an unchanged one.
+   */
+  readonly cacheVersions?: Readonly<Record<string, string>>;
 }
 
-interface UnitPlanRow extends Record<string, unknown> { unit_id: string; generation: unknown; run_id: string; stage_id: string; stage_unit_id: string; scope: string; stage_position: unknown; plan_position: unknown; planned_at: unknown }
+interface UnitPlanRow extends Record<string, unknown> { unit_id: string; generation: unknown; run_id: string; stage_id: string; stage_unit_id: string; scope: string; stage_position: unknown; plan_position: unknown; planned_at: unknown; cache_versions?: unknown }
 
 function unitPlanRecord(row: UnitPlanRow): UnitPlanRecord {
   return {
@@ -944,6 +978,7 @@ function unitPlanRecord(row: UnitPlanRow): UnitPlanRecord {
     stagePosition: millis(row.stage_position),
     planPosition: millis(row.plan_position),
     plannedAt: millis(row.planned_at),
+    ...(row.cache_versions === null || row.cache_versions === undefined ? {} : { cacheVersions: (typeof row.cache_versions === 'string' ? JSON.parse(row.cache_versions) : row.cache_versions) as Record<string, string> }),
   };
 }
 
@@ -958,17 +993,20 @@ export interface UnitPlanOptions {
   readonly stagePosition: number;
   readonly planPosition: number;
   readonly at: number;
+  /** The versions the unit's cache key holds at this planning (`stageCacheVersions`), recorded with the plan. */
+  readonly cacheVersions?: Readonly<Record<string, string>>;
 }
 
 export async function recordUnitPlanIn(executor: SqlExecutor, options: UnitPlanOptions): Promise<UnitPlanRecord> {
   await executor.query(
-    `INSERT INTO fill_unit_plan (unit_id, generation, run_id, stage_id, stage_unit_id, scope, stage_position, plan_position, planned_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    `INSERT INTO fill_unit_plan (unit_id, generation, run_id, stage_id, stage_unit_id, scope, stage_position, plan_position, planned_at, cache_versions)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)
      ON CONFLICT (unit_id, generation) DO UPDATE
        SET run_id = EXCLUDED.run_id, stage_id = EXCLUDED.stage_id, stage_unit_id = EXCLUDED.stage_unit_id,
            scope = EXCLUDED.scope, stage_position = EXCLUDED.stage_position, plan_position = EXCLUDED.plan_position,
-           planned_at = EXCLUDED.planned_at`,
-    [options.unitId, options.generation, options.runId, options.stageId, options.stageUnitId, options.scope, options.stagePosition, options.planPosition, options.at],
+           planned_at = EXCLUDED.planned_at, cache_versions = EXCLUDED.cache_versions`,
+    [options.unitId, options.generation, options.runId, options.stageId, options.stageUnitId, options.scope, options.stagePosition, options.planPosition, options.at,
+      options.cacheVersions === undefined ? null : json(options.cacheVersions)],
   );
   return { ...options, plannedAt: options.at };
 }
@@ -983,7 +1021,7 @@ export async function recordUnitPlan(database: OrchestratorDatabase, options: Un
 export async function readUnitPlan(database: OrchestratorDatabase, unitId: string, generation: number): Promise<UnitPlanRecord | null> {
   const at = here();
   return run(at, database, `readUnitPlan(${unitId}/${generation})`, ['fill_unit_plan'], async (executor) => {
-    const { rows } = await executor.query<UnitPlanRow>('SELECT unit_id, generation, run_id, stage_id, stage_unit_id, scope, stage_position, plan_position, planned_at FROM fill_unit_plan WHERE unit_id = $1 AND generation = $2', [unitId, generation]);
+    const { rows } = await executor.query<UnitPlanRow>('SELECT unit_id, generation, run_id, stage_id, stage_unit_id, scope, stage_position, plan_position, planned_at, cache_versions FROM fill_unit_plan WHERE unit_id = $1 AND generation = $2', [unitId, generation]);
     return rows[0] === undefined ? null : unitPlanRecord(rows[0]);
   }, 'snapshot');
 }
@@ -995,7 +1033,7 @@ export async function readRunPlans(database: OrchestratorDatabase, runId: string
     // The generation in force only: a unit replaced inside one run has two plan rows, and the one the
     // run works is the one its own unit row names. The join also fixes the order the ids are read in.
     const { rows } = await executor.query<UnitPlanRow>(
-      `SELECT p.unit_id, p.generation, p.run_id, p.stage_id, p.stage_unit_id, p.scope, p.stage_position, p.plan_position, p.planned_at
+      `SELECT p.unit_id, p.generation, p.run_id, p.stage_id, p.stage_unit_id, p.scope, p.stage_position, p.plan_position, p.planned_at, p.cache_versions
          FROM fill_unit_plan p JOIN fill_unit u ON u.unit_id = p.unit_id AND u.generation = p.generation
         WHERE p.run_id = $1`,
       [runId],

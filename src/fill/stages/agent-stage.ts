@@ -52,6 +52,7 @@
  * re-decides them.
  */
 import { Type } from 'typebox';
+import { canonicalJsonDigest } from '../../model/canonical.js';
 import { byCodePoint } from '../../model/order.js';
 import { runningVersion } from '../../product/version.js';
 import {
@@ -64,12 +65,14 @@ import {
 } from '../acp.js';
 import { estimateTokens } from '../graph-reads.js';
 import {
+  ANSWER_SCHEMA_VERSION,
   buildUnitPacket,
   estimateOfMembers,
   PACKET_TOKENS,
   pathOfNode,
   placeText,
   plannedTokens,
+  PROMPT_VERSION,
   readAgentAnswer,
   type AgentAnswer,
   type AgentFixedLevel,
@@ -303,6 +306,17 @@ export const MAX_PLAN_DEPTH = 3;
 export const SPLIT_CHILDREN = 8;
 
 /**
+ * The identity of the agent a run drives, as a unit's cache key holds it (decision 0026,
+ * "Updates"; madarch-tzte.26.1): the program, its arguments — which is where a model is
+ * named — and its own id. A run driven with another agent, another model or another
+ * argument replaces the units the last one planned, because an answer given to one model
+ * is not the answer another would give.
+ */
+export function agentIdentity(agent: AcpAgentSpec): string {
+  return canonicalJsonDigest({ id: agent.id, command: agent.command, args: agent.args ?? [] });
+}
+
+/**
  * The stage's declaration, as the shape reads it into a `FillStage`: the declared id,
  * version, role, rules, answer, kinds and plan, the coverage the shape adds, and the
  * one attempt this module runs.
@@ -340,6 +354,11 @@ export function createAgentStage(declaration: AgentStageDeclaration, wiring: Age
     id: declaration.id,
     version: declaration.version,
     usesTools: true,
+    // The versions that decide what a unit reads and answers beside its own (decision 0026, "Updates";
+    // madarch-tzte.26.1): the prompt the shape sends and the answer it asks for, and the agent the run
+    // drives — the program, its arguments and so its model. Every agent stage of the shape carries them,
+    // so a run that resolves another of them replaces the units the last one planned.
+    cacheVersions: () => ({ prompt: PROMPT_VERSION, answer: ANSWER_SCHEMA_VERSION, agent: agentIdentity(wiring.agent) }),
     consumes: declaration.consumes,
     // Each kind's own schema version, as the schema's table states it: never a guess.
     // The ownership scope the stage declares for its kinds: the level of 0026's hierarchy its units stand at (a fact

@@ -237,9 +237,9 @@ describe('the live channel', () => {
       expect(event!).toContain('event: pages');
       const data = JSON.parse(event!.split('data: ')[1]!.split('\n')[0]!) as { seq: number; nodes: string[]; unit: string; generation: number; publication: string };
       expect(elapsed).toBeLessThan(1_000);
-      // The module's page is the one that appeared, and the symbols whose facts the publication repeats come with it.
-      expect(data.nodes).toContain(facts.module.id);
-      expect(data.nodes).toContain(facts.placed.id);
+      // The module's page is the one that appeared: the publication's other facts stand as they stood, and a page
+      // whose facts did not change is not announced (0026, "Pages"; madarch-tzte.26.1).
+      expect(data.nodes).toEqual([facts.module.id]);
       expect(data.unit).toBe('graph-fixture/src');
       expect(data.generation).toBe(2);
       expect(data.seq).toBeGreaterThan(after);
