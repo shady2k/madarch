@@ -21,7 +21,7 @@
  * first, as in the wiki's own change stream, and a comment keeps the connection
  * alive while a quiet product stays quiet.
  */
-import { NO_GRAPH_SOURCE_MESSAGE, type GraphPagesSource } from '../fill/graph-pages.js';
+import { NO_GRAPH_SOURCE_MESSAGE, type GraphPageSetAnswer, type GraphPagesSource } from '../fill/graph-pages.js';
 import type { Handled, ReplyMaker } from './http.js';
 
 /** The source the routes read from is the fill's own (`../fill/graph-pages.ts`): a page set, a page, the changes and the wake-up. */
@@ -29,7 +29,7 @@ export type { GraphPagesSource } from '../fill/graph-pages.js';
 
 /** The three graph routes, over one product's source. */
 export interface GraphPagesPart {
-  /** `GET /api/graph/pages`: the product's page-worthy nodes, compressed when the client accepts it. */
+  /** `GET /api/graph/pages[?fields=nav]`: the product's page-worthy nodes — the whole set, or the fields a list shows (madarch-tzte.23.8) — compressed when the client accepts it. */
   pages: (request: Request) => Promise<Handled>;
   /** `GET /api/graph/page?id=…`: one node's page model. */
   page: (request: Request) => Promise<Handled>;
@@ -67,6 +67,49 @@ export function emptyGraphPagesSource(product: string): GraphPagesSource {
 }
 
 /**
+ * The page set's fields a list shows (madarch-tzte.23.8): a node's id, its kind, its
+ * label and the layer it was obtained at, and nothing else. The navigation and the
+ * index read exactly these — a code place and a rank are what a node's own page shows —
+ * and the whole set is the largest answer the wiki gives: 16 527 510 bytes for the
+ * current madarch tree's 35 370 entries, parsed in the browser on every page load.
+ * `GET /api/graph/pages?fields=nav` answers that list; a request that names no fields
+ * gets the whole set, field for field, as it always has.
+ */
+export const LIST_FIELDS_PARAM = 'nav';
+
+/** One entry as the list names it: the four fields a list shows. */
+interface ListedEntry {
+  readonly id: string;
+  readonly kind: string;
+  readonly label: string;
+  readonly layer: string;
+}
+
+/** One page set as a list names it: the answer's own fields, and every entry narrowed to the list's four. */
+interface ListedSet {
+  readonly product: string;
+  readonly pages: readonly ListedEntry[];
+  readonly counts: GraphPageSetAnswer['counts'];
+  readonly total: number;
+  readonly changeSeq: number;
+  readonly readAt: number;
+  readonly message: string | null;
+}
+
+/** The page set as a list names it: the same product, counts, total, change number, moment and message, and every entry narrowed to the list's fields. */
+function listedSet(set: GraphPageSetAnswer): ListedSet {
+  return {
+    product: set.product,
+    pages: set.pages.map((entry) => ({ id: entry.id, kind: entry.kind, label: entry.label, layer: entry.layer })),
+    counts: set.counts,
+    total: set.total,
+    changeSeq: set.changeSeq,
+    readAt: set.readAt,
+    message: set.message,
+  };
+}
+
+/**
  * Builds the graph routes over one product's source, with the refusals built the way
  * the wiki part builds its own. `errorLog` hears a stream's own failures: the cause
  * names files and lines and the product's folder, so it goes to the operator and
@@ -92,21 +135,33 @@ export function createGraphPagesPart(makers: Pick<ReplyMaker, 'json' | 'refused'
    */
   // The plain body and the compressed one are both kept for the set they were made from: a client that does not
   // accept gzip is answered as it stands, and the compression is paid once per set either way (`Bun.gzipSync`, the
-  // runtime the server runs on — `src/index.ts`).
-  let encoded: { readonly set: unknown; readonly plain: ArrayBuffer; readonly gzip: ArrayBuffer | undefined } | undefined;
-  const bodiesOf = (set: Awaited<ReturnType<GraphPagesSource['pageSet']>>): { readonly plain: ArrayBuffer; readonly gzip: ArrayBuffer | undefined } => {
-    if (encoded === undefined || encoded.set !== set) {
-      const bytes = new TextEncoder().encode(JSON.stringify(set));
-      const asBuffer = (held: Uint8Array): ArrayBuffer => held.buffer.slice(held.byteOffset, held.byteOffset + held.byteLength) as ArrayBuffer;
-      const compressible = bytes.byteLength >= GZIP_MIN_BYTES && typeof Bun !== 'undefined';
-      encoded = { set, plain: asBuffer(bytes), gzip: compressible ? asBuffer(Bun.gzipSync(bytes)) : undefined };
-    }
-    return encoded;
+  // runtime the server runs on — `src/index.ts`). Two shapes are kept — the whole set and the list's fields — so a
+  // reader of either pays nothing for the other.
+  type Encoded = { readonly set: unknown; readonly plain: ArrayBuffer; readonly gzip: ArrayBuffer | undefined };
+  const encoded = new Map<'full' | 'list', Encoded>();
+  const bodiesOf = (shape: 'full' | 'list', set: unknown, value: unknown): Encoded => {
+    const held = encoded.get(shape);
+    if (held !== undefined && held.set === set) return held;
+    const bytes = new TextEncoder().encode(JSON.stringify(value));
+    const asBuffer = (held2: Uint8Array): ArrayBuffer => held2.buffer.slice(held2.byteOffset, held2.byteOffset + held2.byteLength) as ArrayBuffer;
+    const compressible = bytes.byteLength >= GZIP_MIN_BYTES && typeof Bun !== 'undefined';
+    const made: Encoded = { set, plain: asBuffer(bytes), gzip: compressible ? asBuffer(Bun.gzipSync(bytes)) : undefined };
+    encoded.set(shape, made);
+    return made;
   };
   return {
     pages: async (request?: Request): Promise<Handled> => {
+      const asked = request === undefined ? null : new URL(request.url).searchParams.get('fields');
+      // A value the route does not know is a wrong value, named with the one it accepts:
+      // a client that asks for fields it made up would otherwise be answered something else.
+      if (asked !== null && asked !== LIST_FIELDS_PARAM) {
+        return refused(400, {
+          field: 'fields',
+          message: `"fields" is ${JSON.stringify(asked)}, which the page set cannot give: ask for ${JSON.stringify(LIST_FIELDS_PARAM)} — the fields the navigation and the index read — or name no fields for the whole set`,
+        });
+      }
       const set = await source.pageSet();
-      const { plain, gzip } = bodiesOf(set);
+      const { plain, gzip } = asked === LIST_FIELDS_PARAM ? bodiesOf('list', set, listedSet(set)) : bodiesOf('full', set, set);
       // A request that names no gzip — `accept-encoding: identity`, a bare library, a client that sends none — is
       // answered as the bytes stand: a `content-encoding` its client cannot read is worse than a longer answer.
       const compressed = gzip !== undefined && acceptsGzip(request);

@@ -19,8 +19,8 @@ import { Type } from 'typebox';
 import { startServer, type StartedServer } from '../src/index.js';
 import { startServer as startServerDirect } from '../src/server/http.js';
 import { makeNodeFact, type Fact } from '../src/fill/facts.js';
-import { createGraphPagesPart, type GraphPagesSource } from '../src/server/graph-pages.js';
-import { pageAddress } from '../src/fill/graph-pages.js';
+import { createGraphPagesPart, type GraphPagesPart, type GraphPagesSource } from '../src/server/graph-pages.js';
+import { pageAddress, type GraphPageSetAnswer } from '../src/fill/graph-pages.js';
 import { DEFAULT_STAGE_DEFAULTS, type FillStage } from '../src/fill/stage.js';
 import { writeOf, graphFacts, LATER_COMMIT, openGraphFixture, PRODUCT, provenance, type GraphFixtureFacts, type GraphFixtureWorld } from './graph-pages-fixture.js';
 
@@ -309,6 +309,82 @@ describe('the page set a client is sent', () => {
     const plain = await part().pages(new Request('http://127.0.0.1:1/api/graph/pages', { headers: { 'accept-encoding': 'identity' } }));
     expect(plain.response.headers.get('content-encoding')).toBeNull();
     expect(await plain.response.json()).toEqual(bigSet());
+  });
+
+  /** A source whose two entries carry what a list does not show: a code place and a rank. */
+  const placed = (): GraphPageSetAnswer => ({
+    product: PRODUCT,
+    pages: [
+      {
+        id: `symbol:${'1'.repeat(64)}`, kind: 'symbol', label: 'acme-shop:src/checkout.ts#checkout.place',
+        page: pageAddress(`symbol:${'1'.repeat(64)}`), layer: 'extracted', status: 'proposed',
+        code: { repository: 'acme-shop', commit: 'b'.repeat(40), file: 'src/checkout.ts', startLine: 12, endLine: 18 },
+        importance: 7,
+      },
+      {
+        id: `module:${'2'.repeat(64)}`, kind: 'module', label: 'checkout',
+        page: pageAddress(`module:${'2'.repeat(64)}`), layer: 'extracted', status: 'accepted',
+      },
+    ],
+    counts: [{ kind: 'module', count: 1 }, { kind: 'symbol', count: 1 }],
+    total: 2,
+    changeSeq: 12,
+    readAt: 1_700_000_000_000,
+    message: null,
+  });
+  const placedSource: GraphPagesSource = {
+    pageSet: async () => placed(),
+    page: async (id: string) => ({ ok: false as const, code: 'graph-pages/no-such-node', message: `no page ${id}` }),
+    diagrams: async (id: string) => ({ ok: false as const, code: 'graph-pages/no-such-node', message: `no diagrams ${id}` }),
+    changes: async () => ({ changes: [], lastSeq: 0, truncated: false, marker: null }),
+    subscribe: () => () => undefined,
+  };
+  const placedPart = (): ReturnType<typeof createGraphPagesPart> => createGraphPagesPart({
+    json: (status: number, body: unknown) => Response.json(body, { status }),
+    refused: (status: number, error: { message: string; field?: string }) => ({ response: Response.json({ message: error.message, error }, { status }), refusal: error.message }),
+    errorLog: () => undefined,
+  }, placedSource);
+
+  test('a reader that asks for the list\'s fields is answered the same set with four fields per entry, and neither the code place nor the rank', async () => {
+    const full = await placedPart().pages(new Request('http://127.0.0.1:1/api/graph/pages'));
+    expect(await full.response.json()).toEqual(placed());
+    const listed = await placedPart().pages(new Request('http://127.0.0.1:1/api/graph/pages?fields=nav'));
+    expect(listed.response.status).toBe(200);
+    expect(await listed.response.json()).toEqual({
+      product: PRODUCT,
+      pages: [
+        { id: `symbol:${'1'.repeat(64)}`, kind: 'symbol', label: 'acme-shop:src/checkout.ts#checkout.place', layer: 'extracted' },
+        { id: `module:${'2'.repeat(64)}`, kind: 'module', label: 'checkout', layer: 'extracted' },
+      ],
+      counts: [{ kind: 'module', count: 1 }, { kind: 'symbol', count: 1 }],
+      total: 2,
+      changeSeq: 12,
+      readAt: 1_700_000_000_000,
+      message: null,
+    });
+  });
+
+  test('the two shapes are two bodies, each compressed once for its own set, and neither answers the other\'s bytes', async () => {
+    const ask = (fields: string): Request => new Request(`http://127.0.0.1:1/api/graph/pages${fields}`, { headers: { 'accept-encoding': 'gzip' } });
+    const pagesPart = part();
+    const readBack = async (handled: Awaited<ReturnType<GraphPagesPart['pages']>>): Promise<unknown> => {
+      expect(handled.response.headers.get('content-encoding')).toBe('gzip');
+      return JSON.parse(new TextDecoder().decode(Bun.gunzipSync(new Uint8Array(await handled.response.arrayBuffer()))));
+    };
+    const listed = { ...bigSet(), pages: bigSet().pages.map((entry) => ({ id: entry.id, kind: entry.kind, label: entry.label, layer: entry.layer })) };
+    // The list, then the whole set, then the list again: one kept body per shape, and the second read
+    // of a shape is the body it was made from.
+    expect(await readBack(await pagesPart.pages(ask('?fields=nav')))).toEqual(listed);
+    expect(await readBack(await pagesPart.pages(ask('')))).toEqual(bigSet());
+    expect(await readBack(await pagesPart.pages(ask('?fields=nav')))).toEqual(listed);
+  });
+
+  test('a fields value the page set cannot give is a wrong value, named with the one it accepts', async () => {
+    const refused = await placedPart().pages(new Request('http://127.0.0.1:1/api/graph/pages?fields=code'));
+    expect(refused.response.status).toBe(400);
+    const body = (await refused.response.json()) as { message: string; error: { field?: string } };
+    expect(body.error.field).toBe('fields');
+    expect(body.message).toContain('"nav"');
   });
 
   test('is small enough to send as it stands for a small graph, where a compression would save nothing', async () => {

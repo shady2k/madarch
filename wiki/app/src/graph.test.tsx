@@ -92,38 +92,14 @@ const repos: ReposList = {
   ],
 };
 
-/** The page set of the fixture: a module, a symbol and an endpoint, in the server's own order. */
+/** The page set of the fixture: a module, a symbol and an endpoint, in the server's own order, in the four fields a list shows. */
 function pageSet(overrides: Partial<GraphPageSet> = {}): GraphPageSet {
   return {
     product: 'Draft Idea',
     pages: [
-      {
-        id: MODULE,
-        kind: 'module',
-        label: 'checkout',
-        page: addressOfGraphPage(MODULE),
-        layer: 'extracted',
-        status: 'proposed',
-        code: { repository: 'acme-shop', commit: COMMIT, file: 'src/checkout.ts', startLine: 1, endLine: 40 },
-        importance: 7,
-      },
-      {
-        id: SYMBOL,
-        kind: 'symbol',
-        label: 'acme-shop:src/checkout.ts#checkout.place',
-        page: addressOfGraphPage(SYMBOL),
-        layer: 'extracted',
-        status: 'proposed',
-        code: { repository: 'acme-shop', commit: COMMIT, file: 'src/checkout.ts', startLine: 12, endLine: 18 },
-      },
-      {
-        id: ENDPOINT,
-        kind: 'api-endpoint',
-        label: 'http::POST::/orders/{}',
-        page: addressOfGraphPage(ENDPOINT),
-        layer: 'extracted',
-        status: 'proposed',
-      },
+      { id: MODULE, kind: 'module', label: 'checkout', layer: 'extracted' },
+      { id: SYMBOL, kind: 'symbol', label: 'acme-shop:src/checkout.ts#checkout.place', layer: 'extracted' },
+      { id: ENDPOINT, kind: 'api-endpoint', label: 'http::POST::/orders/{}', layer: 'extracted' },
     ],
     counts: [
       { kind: 'api-endpoint', count: 1 },
@@ -140,10 +116,15 @@ function pageSet(overrides: Partial<GraphPageSet> = {}): GraphPageSet {
 
 /** One node's page model, as the server answers it: facts, assumptions apart, relations both ways, coverage, questions and drafts. */
 function modulePage(): GraphPageModel {
-  const module = pageSet().pages[0]!;
   return {
     product: 'Draft Idea',
-    node: module,
+    node: {
+      ...pageSet().pages[0]!,
+      page: addressOfGraphPage(MODULE),
+      status: 'proposed',
+      code: { repository: 'acme-shop', commit: COMMIT, file: 'src/checkout.ts', startLine: 1, endLine: 40 },
+      importance: 7,
+    },
     page: addressOfGraphPage(MODULE),
     value: { repository: 'acme-shop', name: 'checkout', seed: 'package', importance: 7 },
     facts: [
@@ -270,7 +251,7 @@ function answer(world: World, target: string): Blade | 'stream' {
   if (target === '/api/repos') return { body: world.repos ?? repos };
   if (target === '/api/architecture') return { body: { notes: [], errors: [], warnings: [], sources: [] } };
   if (target.startsWith(GRAPH_EVENTS_PATH)) return 'stream';
-  if (target === '/api/graph/pages') {
+  if (target.startsWith('/api/graph/pages')) {
     if (!world.graph) return { body: { message: 'no such path "/api/graph/pages"' }, status: 404 };
     if ((world.failures ?? 0) > 0) {
       world.failures = (world.failures ?? 0) - 1;
@@ -406,7 +387,7 @@ describe('the graph in the navigation', () => {
     const many = 9;
     const symbols = Array.from({ length: many }, (_unused, index) => {
       const id = `symbol:${index.toString(16).padStart(64, '0')}`;
-      return { id, kind: 'symbol', label: `acme-shop:src/checkout.ts#checkout.place${String(index).padStart(3, '0')}`, page: addressOfGraphPage(id), layer: 'extracted' as const, status: 'proposed' as const };
+      return { id, kind: 'symbol', label: `acme-shop:src/checkout.ts#checkout.place${String(index).padStart(3, '0')}`, layer: 'extracted' as const };
     });
     const set = pageSet({ pages: [pageSet().pages[0]!, ...symbols], counts: [{ kind: 'module', count: 1 }, { kind: 'symbol', count: many }], total: many + 1 });
     intoApp(createElement(GraphIndexPage, { set, repos: [], rowsShown: 4 }));
@@ -544,7 +525,7 @@ describe('a page set read that fails first', () => {
     intoApp(createElement(App, { reconnectMs: 5 }));
     await until(() => document.querySelector('[data-testid="graph-nav"]') !== null, 'the graph after the retries');
     // Two failures and the third read answers: two retries, three reads in all.
-    expect(installed.calls.filter((call) => call === '/api/graph/pages').length).toBe(3);
+    expect(installed.calls.filter((call) => call.startsWith('/api/graph/pages')).length).toBe(3);
     // The channel is opened from the change number of the set that finally answered.
     await until(() => installed.calls.some((call) => call === `${GRAPH_EVENTS_PATH}?after=41`), 'the channel opened after the retry');
 
@@ -564,7 +545,22 @@ describe('a page set read that fails first', () => {
     await new Promise((step) => setTimeout(step, 120));
     expect(document.querySelector('[data-testid="graph-nav"]')).toBeNull();
     expect(installed.calls.filter((call) => call.startsWith(GRAPH_EVENTS_PATH)).length).toBe(0);
-    expect(installed.calls.filter((call) => call === '/api/graph/pages').length).toBe(1);
+    expect(installed.calls.filter((call) => call.startsWith('/api/graph/pages')).length).toBe(1);
+  });
+});
+
+describe('the page set the app asks for', () => {
+  test('the navigation and the index ask for the list\'s fields: one request, and the whole set\'s code places and ranks are not carried', async () => {
+    const installed = install(world());
+    window.history.pushState({}, '', GRAPH_INDEX_ADDRESS);
+    intoApp(createElement(App, { reconnectMs: 5 }));
+    await until(() => document.querySelector('[data-testid="graph-index"]') !== null, 'the graph index');
+    // One read for the tab's load, and it names the fields a list shows (madarch-tzte.23.8).
+    expect(installed.calls.filter((call) => call.startsWith('/api/graph/pages'))).toEqual(['/api/graph/pages?fields=nav']);
+    // The list drops two fields, never a node: every page of the set still stands on the index,
+    // and each row opens the node's own address, which the app builds from the id.
+    const rows = [...document.querySelectorAll('[data-testid="graph-index"] .home-row')].map((row) => row.getAttribute('href'));
+    expect(rows).toEqual([addressOfGraphPage(ENDPOINT), addressOfGraphPage(MODULE), addressOfGraphPage(SYMBOL)]);
   });
 });
 
@@ -703,7 +699,7 @@ describe('the graph’s rules', () => {
     // Two symbols, in the order the server answered them (code point of the label, then of
     // the id): the grouping never reorders a kind's own list.
     const second = `symbol:${'0'.repeat(64)}`;
-    set.pages = [...set.pages, { id: second, kind: 'symbol', label: 'acme-shop:src/checkout.ts#checkout.total', page: addressOfGraphPage(second), layer: 'extracted', status: 'proposed' }];
+    set.pages = [...set.pages, { id: second, kind: 'symbol', label: 'acme-shop:src/checkout.ts#checkout.total', layer: 'extracted' }];
     const groups = graphKindGroups(set);
     expect(groups.map((group) => group.kind)).toEqual(['api-endpoint', 'module', 'symbol']);
     expect(groups[2]?.entries.map((entry) => entry.id)).toEqual([SYMBOL, second]);

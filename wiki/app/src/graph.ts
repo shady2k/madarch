@@ -24,6 +24,13 @@
  * the document pages exactly as before and no graph section at all. A server that
  * answers an empty set with its what-to-do message is a different thing: it is
  * live, and the app subscribes, because the pages appear as the fill publishes.
+ *
+ * **The set is asked in the fields a list shows** (`?fields=nav`, madarch-tzte.23.8): a
+ * node's id, kind, label and layer are what the navigation and the index draw, and the
+ * whole answer's code places and ranks are what a node's own page shows instead. The
+ * addresses are the app's own rule (`addressOfGraphPage`), so a list entry needs no
+ * address of its own; the current madarch tree's whole set is 16 527 510 bytes of a
+ * parse the browser makes on every page load.
  */
 import { useEffect, useState } from 'react';
 import { appPath } from './app-base.js';
@@ -33,7 +40,7 @@ import {
   RequestError,
   type GraphCodeLink,
   type GraphPageChange,
-  type GraphPageEntry,
+  type GraphPageListEntry,
   type GraphPageModel,
   type GraphPageSet,
   type RepoEntry,
@@ -61,7 +68,7 @@ const maxGraphReconnectMs = 15_000;
 export const NAV_NODES_PER_KIND = 12;
 
 /** One kind's nodes of the page set, in the set's own order (code point of the label, then of the id). */
-export type GraphKindGroup = { kind: string; entries: GraphPageEntry[] };
+export type GraphKindGroup = { kind: string; entries: GraphPageListEntry[] };
 
 /**
  * The page set as the navigation and the index page show it: one group per kind, in
@@ -71,13 +78,13 @@ export type GraphKindGroup = { kind: string; entries: GraphPageEntry[] };
  */
 export function graphKindGroups(set: GraphPageSet | null): GraphKindGroup[] {
   if (set === null) return [];
-  const byKind = new Map<string, GraphPageEntry[]>();
+  const byKind = new Map<string, GraphPageListEntry[]>();
   for (const entry of set.pages) {
     const held = byKind.get(entry.kind);
     if (held === undefined) byKind.set(entry.kind, [entry]);
     else held.push(entry);
   }
-  return [...byKind.keys()].sort(byCodePoint).map((kind) => ({ kind, entries: byKind.get(kind) as GraphPageEntry[] }));
+  return [...byKind.keys()].sort(byCodePoint).map((kind) => ({ kind, entries: byKind.get(kind) as GraphPageListEntry[] }));
 }
 
 /**
@@ -90,7 +97,7 @@ export function pageSetOf(answer: unknown): GraphPageSet | null {
   const held = answer as Record<string, unknown>;
   if (!Array.isArray(held['pages'])) return null;
   if (typeof held['total'] !== 'number') return null;
-  const pages = held['pages'].filter((entry): entry is GraphPageEntry => entry !== null && typeof entry === 'object' && typeof (entry as Record<string, unknown>)['id'] === 'string' && typeof (entry as Record<string, unknown>)['kind'] === 'string');
+  const pages = held['pages'].filter((entry): entry is GraphPageListEntry => entry !== null && typeof entry === 'object' && typeof (entry as Record<string, unknown>)['id'] === 'string' && typeof (entry as Record<string, unknown>)['kind'] === 'string' && typeof (entry as Record<string, unknown>)['label'] === 'string');
   return {
     product: typeof held['product'] === 'string' ? held['product'] : '',
     pages,
