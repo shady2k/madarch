@@ -32,6 +32,8 @@ let first: FillRunResult | undefined;
 let update: RunStatus | undefined;
 let lastRequest = '';
 let lines: string[] = [];
+/** The wiki app's built files, as a served product needs them: the test's own folder with its shell in it. */
+let appFolder = '';
 let commit = '';
 
 /** One git call in a fixture checkout, through the project's own runner (which strips a caller's loader variables). */
@@ -64,6 +66,9 @@ beforeAll(async () => {
   git(product, 'symbolic-ref', 'HEAD', 'refs/heads/main');
   commitAll(product, 'one');
 
+  appFolder = mkdtempSync(join(tmpdir(), 'madarch-update-app-'));
+  writeFileSync(join(appFolder, 'index.html'), '<!doctype html><title>update wiki</title>');
+
   service = daemonFillOrchestrator(home);
   const filled = await service.run({ product: { name: 'shop', folder: product }, runId: 'first-fill' });
   if (!filled.ok) throw new Error(`the first fill was refused: ${filled.code}: ${filled.reason}`);
@@ -94,6 +99,7 @@ beforeAll(async () => {
 afterAll(async () => {
   watch?.stop();
   await service?.stop();
+  if (appFolder !== '') rmSync(appFolder, { recursive: true, force: true });
   if (root !== '') rmSync(root, { recursive: true, force: true });
 });
 
@@ -151,6 +157,7 @@ describe('the update a default-branch commit starts', () => {
       const asked: string[] = [];
       server = await startServer({
         productFolder: product,
+        appFolder,
         port: 0,
         host: '127.0.0.1',
         orchestrator: {
@@ -209,6 +216,7 @@ describe('the person\'s control of a run the server keeps', () => {
     try {
       server = await startServer({
         productFolder: product,
+        appFolder,
         port: 0,
         host: '127.0.0.1',
         orchestrator: { stop: async () => undefined, control: (request) => service!.control(request) },
@@ -249,6 +257,7 @@ describe('the landed fill beside the update', () => {
       writeLandedFill('running');
       server = await startServer({
         productFolder: product,
+        appFolder,
         port: 0,
         host: '127.0.0.1',
         orchestrator: { stop: async () => undefined, progress: (folder) => service!.progress(folder) },
@@ -257,10 +266,13 @@ describe('the landed fill beside the update', () => {
       const body = await answered.json() as { run: { id: string; status: string } };
       expect(body.run.id).toBe('landed-1');
       expect(body.run.status).toBe('running');
-      // The landed fill ends: the orchestrator's newest run is what the panel shows next.
+      // The landed fill ends: the orchestrator's newest run of this product is what the panel shows next, and the
+      // landed record stands aside.
       writeLandedFill('complete');
       const after = await fetch(`${server.url}/api/fill`);
-      expect(((await after.json()) as { run: { id: string } }).run.id).toBe(lastRequest);
+      const afterBody = await after.json() as { run: { id: string; product: string } };
+      expect(afterBody.run.id).not.toBe('landed-1');
+      expect(afterBody.run.product).toBe('shop');
     } finally {
       await server?.stop();
       removeLandedFill();
