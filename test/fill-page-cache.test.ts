@@ -11,7 +11,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { createPageReadCache, DIAGRAM_CACHE_ENTRIES, PAGE_CACHE_ENTRIES } from '../src/fill/page-cache.js';
-import type { GraphPageModelAnswer, GraphPageSetAnswer } from '../src/fill/graph-pages.js';
+import { emptyNextStep, emptyQuestionSet, type GraphPageModelAnswer, type GraphPageSetAnswer } from '../src/fill/graph-pages.js';
 
 const PRODUCT = 'Fixture Product';
 const OTHER = 'Another Product';
@@ -20,7 +20,7 @@ const SYMBOL = `symbol:${'2'.repeat(64)}`;
 
 /** A page set as a read of the store answers it: nothing here is published, so only its identity and moment matter. */
 function pageSet(product: string, readAt: number): GraphPageSetAnswer {
-  return { product, pages: [], counts: [], total: 0, changeSeq: 7, readAt, message: null };
+  return { product, pages: [], counts: [], total: 0, changeSeq: 7, readAt, message: null, questions: emptyQuestionSet(), nextStep: emptyNextStep(product) };
 }
 
 /** One page model, named by its node and the moment it was read at. */
@@ -36,6 +36,10 @@ function pageModel(id: string, readAt: number): GraphPageModelAnswer {
     coverage: [],
     coverageScopes: [],
     questions: [],
+    decision: null,
+    answer: null,
+    // A module page with no question, no coverage and no proposal: the charter's last rule (nothing waits here).
+    nextStep: { rule: 'nothing-to-do', target: `/p/graph/${id}`, node: { id, kind: 'module', label: 'checkout' }, reason: 'nothing waits' },
     drafts: [],
     counts: { facts: 0, assumptions: 0, out: 0, in: 0, coverage: 0, questions: 0, drafts: 0 },
     truncated: false,
@@ -61,6 +65,40 @@ describe('the answers kept between publications', () => {
     expect(cache.page(PRODUCT, MODULE)).toBeUndefined();
     expect(cache.diagrams(PRODUCT, MODULE)).toBeUndefined();
     expect(cache.kept).toEqual({ products: 0, pages: 0, diagrams: 0 });
+  });
+
+  test('a decision drops the pages it moved and no other, so only the pages that depend on it are read again', () => {
+    const cache = createPageReadCache();
+    const set = pageSet(PRODUCT, 1_700_000_000_000);
+    cache.keepPageSet(PRODUCT, set, cache.generation);
+    const modulePage = pageModel(MODULE, 1_700_000_000_100);
+    const symbolPage = pageModel(SYMBOL, 1_700_000_000_200);
+    expect(cache.keepPage(PRODUCT, MODULE, modulePage, cache.generation)).toBe(modulePage);
+    expect(cache.keepPage(PRODUCT, SYMBOL, symbolPage, cache.generation)).toBe(symbolPage);
+
+    const generation = cache.generation;
+    cache.dropPages(PRODUCT, [MODULE]);
+    // The page the decision moved is read from the store again; the page it did not touch is the page it was.
+    expect(cache.page(PRODUCT, MODULE)).toBeUndefined();
+    expect(cache.page(PRODUCT, SYMBOL)).toBe(symbolPage);
+    // The page set is read again too: it carries the product's questions and its own next step, and a decision moves
+    // both — the answer closes a question and settles a page, and the index shows both.
+    expect(cache.pageSet(PRODUCT)).toBeUndefined();
+    // The generation moved, so a read that started before the decision is never kept after it.
+    expect(cache.generation).toBe(generation + 1);
+    expect(cache.keepPage(PRODUCT, MODULE, modulePage, generation)).toBe(modulePage);
+    expect(cache.page(PRODUCT, MODULE)).toBeUndefined();
+    expect(cache.keepPageSet(PRODUCT, set, generation)).toBe(set);
+    expect(cache.pageSet(PRODUCT)).toBeUndefined();
+  });
+
+  test('a decision about a page nobody read costs nothing kept', () => {
+    const cache = createPageReadCache();
+    const page = pageModel(MODULE, 1_700_000_000_100);
+    cache.keepPage(PRODUCT, MODULE, page, cache.generation);
+    cache.dropPages(OTHER, [SYMBOL]);
+    cache.dropPages(PRODUCT, [SYMBOL]);
+    expect(cache.page(PRODUCT, MODULE)).toBe(page);
   });
 
   test('one product\'s answers are never another\'s, and the same node id in two products is two entries', () => {

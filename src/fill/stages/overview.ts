@@ -46,10 +46,12 @@ export const OVERVIEW_STAGE_VERSION = 1;
 
 /**
  * The fact kinds a unit of this stage may write: the overview hypothesis is a claim,
- * and a question where the graph does not say enough to make one. The coverage every
- * unit leaves behind is the shape's own (`src/fill/stages/agent-stage.ts`).
+ * a question where the graph does not say enough to make one, and the answer that
+ * closes a question the moment the unit finds the evidence for it (the self-filling
+ * charter's outcome 5). The coverage every unit leaves behind is the shape's own
+ * (`src/fill/stages/agent-stage.ts`).
  */
-export const OVERVIEW_KINDS: readonly string[] = ['claim', 'question'];
+export const OVERVIEW_KINDS: readonly string[] = ['answer', 'claim', 'question'];
 
 /** The most modules one packet holds: the ranked top of the product, and the cut named when there are more. */
 export const OVERVIEW_MODULE_ROWS = 80;

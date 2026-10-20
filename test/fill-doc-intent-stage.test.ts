@@ -396,7 +396,7 @@ describe('stage 10, the intent the documents state', () => {
       expect(prompt).toContain('You are one unit of madarch\'s fill that writes what a repository\'s documents say the system is meant to do');
       // The level of self-filling's outcome 4 this stage's statements stand at: what people recorded, not what the agent assumes.
       expect(prompt).toContain('What you write is intent');
-      expect(prompt).toContain('Facts this unit may write: claim, coverage, question — and nothing else');
+      expect(prompt).toContain('Facts this unit may write: answer, claim, coverage, question — and nothing else');
       expect(estimateTokens(prompt, DEFAULT_GRAPH_READ_LIMITS)).toBeLessThanOrEqual(20_000);
       // The packet is the last JSON object of the prompt, after the fixed part.
       const packet = JSON.parse(prompt.slice(prompt.lastIndexOf('\n\n{') + 2)) as Record<string, unknown>;
@@ -591,7 +591,7 @@ describe('stage 10\'s declaration', () => {
     // 0026's "Scale": the repository's document cluster, a document below it.
     expect(declaration.scale).toEqual({ level: 'repository', child: 'place' });
     expect(declaration.kinds).toEqual(DOC_INTENT_KINDS);
-    expect(declaration.kinds).toEqual(['claim', 'question']);
+    expect(declaration.kinds).toEqual(['answer', 'claim', 'question']);
     // The section names are the packet's own, in the order the stage declares them, each with the bound its rows
     // are held to: a bound the packet's own `boundedList` enforces and names in the marker when it cuts.
     expect(declaration.sections?.map((section) => section.name)).toEqual(['documents', 'sections', 'links']);
@@ -613,7 +613,7 @@ describe('stage 10\'s declaration', () => {
     expect(stage?.usesTools).toBe(true);
     // Stage 10 writes the intent claims and the questions, and the coverage the shape adds to every agent stage; each
     // kind carries the schema's own version, and the schema's table writes a claim at `10-intent-documents`.
-    expect(stage?.produces.map((produced) => produced.kind)).toEqual(['claim', 'coverage', 'question']);
+    expect(stage?.produces.map((produced) => produced.kind)).toEqual(['answer', 'claim', 'coverage', 'question']);
     expect(stage?.produces.every((produced) => produced.schemaVersion === FACT_KINDS[produced.kind as 'claim'].version)).toBe(true);
   });
 });

@@ -21,7 +21,7 @@
  * first, as in the wiki's own change stream, and a comment keeps the connection
  * alive while a quiet product stays quiet.
  */
-import { NO_GRAPH_SOURCE_MESSAGE, type GraphPageSetAnswer, type GraphPagesSource } from '../fill/graph-pages.js';
+import { emptyNextStep, emptyQuestionSet, NO_GRAPH_SOURCE_MESSAGE, type GraphDecisionWrite, type GraphPageSetAnswer, type GraphPagesSource } from '../fill/graph-pages.js';
 import type { Handled, ReplyMaker } from './http.js';
 
 /** The source the routes read from is the fill's own (`../fill/graph-pages.ts`): a page set, a page, the changes and the wake-up. */
@@ -35,6 +35,10 @@ export interface GraphPagesPart {
   page: (request: Request) => Promise<Handled>;
   /** `GET /api/graph/events[?after=N]`: the live channel, held open until the asker hangs up. */
   events: (request: Request) => Promise<Handled>;
+  /** `POST /api/graph/answer`: the person's answer to one open question, as Markdown in the product's git. */
+  answer: (request: Request) => Promise<Handled>;
+  /** `POST /api/graph/decide`: the person's acceptance or rejection of a page's proposed content. */
+  decide: (request: Request) => Promise<Handled>;
 }
 
 /** The answer size under which the page set is sent as it stands: below it a compression saves less than it costs. */
@@ -58,10 +62,12 @@ const eventBytes = new TextEncoder();
  */
 export function emptyGraphPagesSource(product: string): GraphPagesSource {
   return {
-    pageSet: async () => ({ product, pages: [], counts: [], total: 0, changeSeq: 0, readAt: Date.now(), message: NO_GRAPH_SOURCE_MESSAGE }),
+    pageSet: async () => ({ product, pages: [], counts: [], total: 0, changeSeq: 0, readAt: Date.now(), message: NO_GRAPH_SOURCE_MESSAGE, questions: emptyQuestionSet(), nextStep: emptyNextStep(product) }),
     page: async (id: string) => ({ ok: false, code: 'graph-pages/no-graph', message: `${NO_GRAPH_SOURCE_MESSAGE}: no product is served here with a filled graph, so the page of ${id} stands nowhere` }),
     diagrams: async (id: string) => ({ ok: false, code: 'graph-pages/no-graph', message: `${NO_GRAPH_SOURCE_MESSAGE}: no product is served here with a filled graph, so the diagrams of ${id} stand nowhere` }),
     changes: async () => ({ changes: [], lastSeq: 0, truncated: false, marker: null }),
+    answer: async (request: { readonly question: string }) => ({ ok: false, code: 'graph-pages/no-graph', message: `${NO_GRAPH_SOURCE_MESSAGE}: the answer to ${request.question} has no graph to land in` }),
+    decide: async (request: { readonly page: string }) => ({ ok: false, code: 'graph-pages/no-graph', message: `${NO_GRAPH_SOURCE_MESSAGE}: the decision about ${request.page} has no graph to land in` }),
     subscribe: () => () => undefined,
   };
 }
@@ -149,6 +155,29 @@ export function createGraphPagesPart(makers: Pick<ReplyMaker, 'json' | 'refused'
     encoded.set(shape, made);
     return made;
   };
+
+  /** One decision request's own fields, or the refusal naming what its body is not. */
+  const readDecision = async (request: Request): Promise<{ readonly kind: 'fields'; readonly fields: Readonly<Record<string, unknown>> } | { readonly kind: 'refused'; readonly refused: Handled }> => {
+    const declared = request.headers.get('content-length');
+    if (declared !== null && Number(declared) > DECISION_BYTES) return { kind: 'refused', refused: refused(413, { message: `the request is ${declared} bytes by its own content-length, past the ${String(DECISION_BYTES)}-byte limit` }) };
+    const text = await request.text();
+    if (Buffer.byteLength(text) > DECISION_BYTES) return { kind: 'refused', refused: refused(413, { message: `the request is ${Buffer.byteLength(text)} bytes, past the ${String(DECISION_BYTES)}-byte limit` }) };
+    let body: unknown;
+    try { body = JSON.parse(text); } catch (error) { return { kind: 'refused', refused: refused(400, { message: `the request body is not valid JSON: ${(error as Error).message}` }) }; }
+    if (body === null || typeof body !== 'object' || Array.isArray(body)) return { kind: 'refused', refused: refused(400, { message: 'the request body is an object naming what is decided' }) };
+    return { kind: 'fields', fields: body as Record<string, unknown> };
+  };
+
+  /**
+   * One decision's answer: the document the product's git holds and the pages the graph read
+   * again, or the refusal naming why the decision landed nowhere. A person who typed nothing,
+   * a question nobody raised and a page another product holds are each told apart, so the app
+   * can say which it was.
+   */
+  const decisionAnswer = (result: GraphDecisionWrite): Handled => result.ok
+    ? { response: json(200, { file: result.file, pages: result.pages }) }
+    : refused(decisionStatus(result.code), { message: result.message, ...(result.file === undefined ? {} : { field: result.file }) });
+
   return {
     pages: async (request?: Request): Promise<Handled> => {
       const asked = request === undefined ? null : new URL(request.url).searchParams.get('fields');
@@ -302,5 +331,52 @@ export function createGraphPagesPart(makers: Pick<ReplyMaker, 'json' | 'refused'
         }),
       };
     },
+    answer: async (request: Request): Promise<Handled> => {
+      const body = await readDecision(request);
+      if (body.kind === 'refused') return body.refused;
+      const fields = body.fields;
+      const question = fields['question'];
+      const words = fields['answer'];
+      if (typeof question !== 'string' || FACT_ID.test(question) === false) return refused(400, { field: 'question', message: 'an answer names its question by the question fact id: a kind, a colon and 64 lower-case hexadecimal digits' });
+      if (typeof words !== 'string') return refused(400, { field: 'answer', message: 'an answer carries the words the person wrote' });
+      return decisionAnswer(await source.answer({ question, answer: words, by: personOf(fields) }));
+    },
+    decide: async (request: Request): Promise<Handled> => {
+      const body = await readDecision(request);
+      if (body.kind === 'refused') return body.refused;
+      const fields = body.fields;
+      const page = fields['page'];
+      const verdict = fields['verdict'];
+      const note = fields['note'];
+      if (typeof page !== 'string' || FACT_ID.test(page) === false) return refused(400, { field: 'page', message: 'a decision names its page by the node fact id: a kind, a colon and 64 lower-case hexadecimal digits' });
+      if (verdict !== 'accepted' && verdict !== 'rejected') return refused(400, { field: 'verdict', message: 'a person accepts a page or rejects it: the verdict is "accepted" or "rejected"' });
+      if (note !== undefined && typeof note !== 'string') return refused(400, { field: 'note', message: 'the note a person leaves is Markdown, and Markdown is a string' });
+      return decisionAnswer(await source.decide({ page, verdict, note: note ?? '', by: personOf(fields) }));
+    },
   };
 }
+
+/**
+ * The status one refused decision answers with: a node the graph does not hold is a 404, a
+ * request that names nothing a decision can be about is a 400, and a graph that is not there
+ * to write to is a 503 — a person reading a wiki without a fill behind it.
+ */
+export function decisionStatus(code: string): number {
+  if (code === 'graph-pages/no-graph') return 503;
+  if (code === 'graph-pages/no-such-node' || code === 'graph-pages/not-a-question' || code === 'graph-pages/not-a-page') return 404;
+  if (code === 'graph-pages/not-a-fact-id' || code === 'graph-pages/empty-answer' || code === 'graph-pages/not-a-verdict') return 400;
+  return 500;
+}
+
+/** The shape of a fact id, as the routes check it before a write (`src/fill/facts.ts`): the kind, a colon, 64 hex digits. */
+const FACT_ID = /^[a-z][a-z0-9]*(-[a-z0-9]+)*:[0-9a-f]{64}$/;
+
+/** The most bytes one decision request holds: an answer is what a person typed, never a document. */
+const DECISION_BYTES = 1_000_000;
+
+/** Who a decision is from, as the request says: a person's own name, or the wiki's own words when they left it out. */
+function personOf(fields: Readonly<Record<string, unknown>>): string {
+  const by = fields['by'];
+  return typeof by === 'string' && by.trim() !== '' ? by.trim() : 'a reader of the wiki';
+}
+
