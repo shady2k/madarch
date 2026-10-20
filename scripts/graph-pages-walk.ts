@@ -790,7 +790,9 @@ async function readFrames(target: Page | Frame): Promise<readonly DiagramFrame[]
     const empty = article.querySelector('[data-testid="graph-diagram-empty"]') !== null;
     const failed = article.querySelector('[data-testid="mermaid-error"]') !== null;
     const deferred = article.querySelector('[data-testid="graph-diagram-deferred"]') !== null;
-    const words = article.querySelector('[data-testid="graph-diagram-deferred"], [data-testid="mermaid-error"], [data-testid="graph-diagram-empty"]')?.textContent?.trim() ?? null;
+    // The words a diagram stands in: the app holding it back until the reader comes near, the card saying what it is
+    // waiting for, the renderer's failure, or the page's own answer for a model the graph cannot fill.
+    const words = article.querySelector('[data-testid="graph-diagram-deferred"], [data-testid="mermaid-loading"], [data-testid="mermaid-error"], [data-testid="graph-diagram-empty"]')?.textContent?.trim() ?? null;
     return {
       type,
       panel,

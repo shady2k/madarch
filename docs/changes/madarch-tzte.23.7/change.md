@@ -126,13 +126,14 @@ whose code repository `engine` is a shallow checkout of madarch at
 kinds and 19 403 facts, **2 575 pages**.
 
 Two fills do the same work — **536 units, 412 passes, 23 kinds, 19 403 facts, 2 575
-pages** each — and took **80.9 s** before and **65.3 s** after: the pod's own load, not
+pages** each — and took **80.9 s** before and **62.0 s** after: the pod's own load, not
 the change.
 
 - **Before** — `/tmp/pre237`, a worktree of `origin/main` `aa19c35b` with the walk's new
   scroll pass and nothing else: `run-20261020-043039` (walk exit **0**, 500 s).
-- **After** — this branch: `run-20261020-051025` (walk exit **0**, 483 s; the command
-  before it in the same run built the app).
+- **After** — this branch at **`a6a171f6`** (the walk's own `revision` line names the
+  tree it ran on): `run-20261020-055545` (walk exit **0**, 420 s; the command before it in
+  the same run built the app).
 
 Screenshots: `/home/dev/.cache/madarch-23-7-shots/before/shots/` (35 files) and
 `/home/dev/.cache/madarch-23-7-shots/after/shots/` (35 files), fetched from the pods
@@ -181,12 +182,14 @@ of the repository page's own `scripts → src` arrow — **`scripts`** — and w
 `page-neighbours-module.png`):
 
 - its **c4-component** view draws **1 element** (`scripts`, which holds no child module)
-  in 166×70;
+  in 166×70 — the box that says where the module stands and, by its emptiness, that
+  nothing is inside it;
 - its **module-dependency** view draws **3 elements** — `scripts`, `src`, `test` — and
   **3 arrows** (`scripts → src`, `test → src`, `test → scripts`, all `import`), 724×132,
   6 labels at 16 px, **0 overlaps**;
-- the page (2 149 px, 4 steps of 600 px) ends with `framesWithoutADrawing: []`, both
-  diagrams drawn 453 ms and 455 ms after the first step, and it stands in **3 161 ms**.
+- the page (2 277 px, 4 steps of 600 px) ends with `framesWithoutADrawing: []`: at its
+  top both cards held `"Drawing the diagram…"` and drew in **232 ms** and **215 ms**, and it
+  stands in **4 208 ms**.
 
 ### Every diagram draws when the reader scrolls to it
 
@@ -198,29 +201,30 @@ window) from its top to its foot and reads every diagram's frame as it comes int
   (`panel: "mermaid"`, `drawn: false`, no svg) until their renders resolved — 714 ms and
   715 ms for the first two, and the two below the reader's window stood empty for exactly
   as long, unseen. That is the empty frame the coordinator saw.
-- **after**, in the run's own numbers: at the top of the page **three** panels stand
-  mounted and empty, because those three stand inside the deferral's 600 px margin of the
-  reader's first screen — c4-context drew in **218 ms**, c4-container in **428 ms** — while
-  c4-component drew **3 ms** after the pass reached it at 600 px and module-dependency
-  **204 ms** after at 2 400 px, having stood until then in the app's own words ("The
-  diagram is drawn when you scroll to it.") with no frame at all. The empty frame is
-  therefore **shortened to about a fifth of a second for a diagram inside the margin, and
-  removed for one outside it** — not removed everywhere, and this record does not claim it
-  is. `framesWithoutADrawing: []`: **no diagram on the page holds an empty frame once the
-  reader has been down it**.
+- **after**, in the run's own numbers, and this is the criterion itself: at the top of
+  the page the three diagrams inside the deferral's 600 px margin stand **mounted and
+  pending**, each card holding the app's own words `"Drawing the diagram…"`
+  (`scrollPass.atTop`), and the module-dependency diagram below them holds
+  `"The diagram is drawn when you scroll to it."` with no frame mounted at all; the ER
+  view holds the page's sentence for a model the graph cannot fill. **No frame on the page
+  is empty at any moment the walk read it** — the empty box the coordinator saw is gone
+  both ways: a diagram outside the margin mounts nothing, and a mounted card says what it
+  is waiting for. They then drew in **25 ms** (c4-container), **225 ms** (c4-context),
+  **7 ms** after the pass reached it at 600 px (c4-component, 9 nodes) and **203 ms** after
+  at 2 400 px (module-dependency, 9 nodes); `framesWithoutADrawing: []`.
 - The first attempt at the deferral used `IntersectionObserver`: the walk's own pass
   caught it (the two diagrams inside its 600 px margin drew, the two below it never did),
   which is why the position is read off the element's own box (above).
 
 ### Nothing else moved
 
-- The graph's index stands in **3 696 ms** (before 4 926), `engine`'s page in **3 414 ms**
-  (before 4 933) and `madarch`'s in **5 165 ms** (before 6 105): the reads a module page
+- The graph's index stands in **3 359 ms** (before 4 926), `engine`'s page in **3 562 ms**
+  (before 4 933) and `madarch`'s in **5 095 ms** (before 6 105): the reads a module page
   makes for its neighbours are inside the noise of a page whose own reads dominate it,
   and 23.8's work on page speed is untouched.
 - The live section does what it did before: the one-file commit
-  (`src/stage23walk/probe.ts`) adds two pages to the reader's index (**2 575 → 2 577**) in
-  **8 799 ms** with the flag proving no reload, and the two views that roll the new import
+  (`src/stage23walk/probe.ts`, commit `725e43d5`) adds two pages to the reader's index
+  (**2 575 → 2 577**) in **7 017 ms** (`browserAfterMs`) with the flag proving no reload, and the two views that roll the new import
   up still draw **9 elements and 3 arrows**, no dashed element and no dashed edge, because
   the import the walk adds stays inside the `madarch` module the repository page now
   draws. The after run's own state is `running` / `settled: false` with
@@ -242,8 +246,9 @@ committed with:
   `test/graph-diagrams-render.test.ts`, `test/server-graph-diagrams.test.ts`,
   `test/server-graph-pages.test.ts`, `test/fill-graph-pages.test.ts` — **122 pass, 0
   fail, exit 0**.
-- `wiki/app`: `bun test` — **221 pass, 0 fail, exit 0** (two new tests: the deferral's
-  words and the drawing on the reader's scroll, and a tab the reader opens), `bun run
+- `wiki/app`: `bun test` — **223 pass, 0 fail, exit 0** (four new tests: the deferral's
+  words and the drawing on the reader's scroll, a tab the reader opens, the pending card's
+  own words, and the listeners and the timer dropped once the diagram is near), `bun run
   build` — **exit 0**.
 - The walk above: **exit 0**.
 - CI on the exact SHA of the branch and the independent review: named in the queue entry
