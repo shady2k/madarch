@@ -164,7 +164,46 @@ nothing here re-decides them.
 
 ## Acceptance evidence
 
-The checks, each command's own exit status, at hand-over.
+The checks, each command's own exit status, at hand-over. The branch is three
+commits over `origin/main` `272dbc06` (26.1's impact propagation), rebased onto
+it last; the first push `653aac28` stood on `a9c6272f` before 26.1 landed.
+
+- `bun run check` (`tsc --noEmit`) exit 0 at every commit and on the final
+  tree after each rebase.
+- The feature document gate (`node .shady2k/documents.mjs check --phase
+  feature --change madarch-tzte.24.4 --candidate worktree --target
+  origin/main`) exit 0, clean, after every edit round and at hand-over.
+- The focused suites run in SkyPilot, not on this machine (the owner's rule),
+  `madarch-sky-test <worktree> <files>`, each with the tests' own exit status:
+  - `test/fill-intent-history-stage.test.ts` alone — 1 pass 0 fail
+    (`run-20261020-141634`) on the review fixes; 5 pass 1 fail driving the
+    split-test fix (`run-20261020-140923`), then green.
+  - `test/fill-intent-history-stage.test.ts` + `test/fill-registry.test.ts` +
+    `test/fill-stages.test.ts` + `test/fill-agent-stage.test.ts` — 82 pass,
+    0 fail, exit 0 (`run-20261020-152852`) after the review's answers.
+  - `test/product-daemon.test.ts` + `test/product-cli.test.ts` — 117 pass,
+    0 fail, exit 0 (`run-20261020-153029`), the direct importers' suites.
+  - After the rebase onto `272dbc06`: `test/fill-intent-history-stage.test.ts`
+    + `test/fill-impact.test.ts` + `test/fill-stages.test.ts` +
+    `test/fill-registry.test.ts` + `test/fill-agent-stage.test.ts` +
+    `test/fill-overview-stage.test.ts` + `test/fill-doc-intent-stage.test.ts`
+    — 103 pass, 0 fail, exit 0 (`run-20261020-161356`), the final tree.
+  - `test/fill-impact.test.ts` alone — 4 pass, 0 fail, exit 0
+    (`run-20261020-161246`), the all-declared-stages run this stage joined.
+- CI on the exact SHA `80438525`: run 39429101282 — checks success, test
+  shards 1, 2, 3, 5 success; shard 4's first pass failed on a
+  `beforeEach` hook timeout in `test/views-one-view.test.ts`, a file this
+  change does not touch; the failed job rerun alone passed, and the
+  aggregate `test` job with it. Product documents 39429101286 success.
+- The independent review, one fresh read-only session over `git diff
+  origin/main...HEAD`, told not to run anything on this machine
+  (`--model glm-5.3-flash-auto`, the coordinator's model for reviewers):
+  verdict `fix-before-ship`, one defect and three findings, every one
+  answered here — the commit row's cut is its own to name (`touchedMore`),
+  the sections read the module's own files only (the repository-wide
+  fallback removed), the split test waits for all the run's ends and names
+  the landed re-seal refusal its parent meets, and the stage's own rule
+  describes a file unit's empty places as well as a module's.
 
 ## DONE WHEN
 
