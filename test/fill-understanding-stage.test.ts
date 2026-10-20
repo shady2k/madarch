@@ -26,14 +26,16 @@ import { createFactGraphReader } from '../src/fill/graph-reads.js';
 import { draftSetOf } from '../src/fill/checked-writes.js';
 import { createFillOrchestratorService, type ProductFillWiring } from '../src/fill/orchestrator-host.js';
 import { createOrchestrator, planRun, schedulerPass, startRun, workOnce, type FillOrchestrator } from '../src/fill/orchestrator.js';
-import { createOrchestratorSchema, readProgress, type RunSnapshot } from '../src/fill/orchestrator-store.js';
+import { createOrchestratorSchema, readProgress, readUnitReads, type RunSnapshot } from '../src/fill/orchestrator-store.js';
 import { createStageRegistry } from '../src/fill/stages/index.js';
 import {
   UNDERSTANDING_KINDS,
   UNDERSTANDING_STAGE_ID,
   UNDERSTANDING_SUMMARY_PREDICATE,
+  boundSummary,
   createUnderstandingStage,
   moduleUnits,
+  summaryCodePoints,
   understandingDeclaration,
 } from '../src/fill/stages/understanding.js';
 import { StageRegistry } from '../src/fill/registry.js';
@@ -294,6 +296,14 @@ beforeAll(() => {
     'src/payments.ts': 'export function charge(card) {\n  return { charged: card.amount };\n}\n',
     'src/cart.ts': 'export function addItem(cart, item) {\n  return [...cart, item];\n}\n',
     'src/total.ts': 'export function total(cart) {\n  return cart.reduce((sum, item) => sum + item.price, 0);\n}\n',
+    // The rounds fixture's wide module and its leaves; the deep fixture's chain.
+    'src/wide.ts': 'export function wide() {\n  return "the wide module";\n}\n',
+    ...Object.fromEntries(Array.from({ length: 9 }, (_, at) => [`src/leaf-${String(at)}.ts`, `export function leaf${String(at)}() {\n  return ${String(at)};\n}\n`] as const)),
+    'src/root.ts': 'export function root() {\n  return "the root";\n}\n',
+    'src/a.ts': 'export function a() {\n  return "a";\n}\n',
+    'src/b.ts': 'export function b() {\n  return "b";\n}\n',
+    'src/c.ts': 'export function c() {\n  return "c";\n}\n',
+    'src/d.ts': 'export function d() {\n  return "d";\n}\n',
   });
   COMMITS = commits;
 });
@@ -392,18 +402,30 @@ describe('stage 12, the modules understood bottom-up', () => {
           ] },
           { matches: `"id": "${tree.total.id}"`, steps: [
             claimCall(tree.total.id, UNDERSTANDING_SUMMARY_PREDICATE, 'total sums the prices of the cart', 'src/total.ts'),
+            claimCall(tree.total.id, 'responsible-for', 'total keeps the sum the checkout hands on', 'src/total.ts'),
+            claimCall(tree.total.id, 'serves-as', 'the price total of the ordering shop', 'src/total.ts'),
+            ruleCall(tree.total.id, 'the total is the sum of the item prices', 'src/total.ts'),
             doneAnswer('src/total.ts', 'total sums the cart'),
           ] },
           { matches: `"id": "${tree.payments.id}"`, steps: [
             claimCall(tree.payments.id, UNDERSTANDING_SUMMARY_PREDICATE, 'payments charges the card for the order', 'src/payments.ts'),
+            claimCall(tree.payments.id, 'responsible-for', 'payments keeps the charge of a placed order', 'src/payments.ts'),
+            claimCall(tree.payments.id, 'serves-as', 'the card charge of the ordering shop', 'src/payments.ts'),
+            ruleCall(tree.payments.id, 'a card is charged only for a placed order', 'src/payments.ts'),
             doneAnswer('src/payments.ts', 'payments charges the card'),
           ] },
           { matches: `"id": "${tree.checkout.id}"`, steps: [
             claimCall(tree.checkout.id, UNDERSTANDING_SUMMARY_PREDICATE, 'checkout takes the cart, totals it and hands the order on', 'src/order.ts'),
+            claimCall(tree.checkout.id, 'responsible-for', 'checkout keeps the placement of an order', 'src/order.ts'),
+            claimCall(tree.checkout.id, 'serves-as', 'the order placement of the ordering shop', 'src/order.ts'),
+            ruleCall(tree.checkout.id, 'an order is placed only with a total', 'src/order.ts'),
             doneAnswer('src/order.ts', 'checkout takes the cart and hands the order on'),
           ] },
           { matches: `"id": "${tree.shop.id}"`, steps: [
             claimCall(tree.shop.id, UNDERSTANDING_SUMMARY_PREDICATE, 'shop is the ordering shop: checkout takes an order and payments charges it', 'src/shop.ts'),
+            claimCall(tree.shop.id, 'responsible-for', 'shop keeps the ordering of the product whole', 'src/shop.ts'),
+            claimCall(tree.shop.id, 'serves-as', 'the ordering shop itself', 'src/shop.ts'),
+            ruleCall(tree.shop.id, 'the shop orders through checkout and payments', 'src/shop.ts'),
             doneAnswer('src/shop.ts', 'shop is the ordering shop'),
           ] },
         ],
@@ -435,6 +457,21 @@ describe('stage 12, the modules understood bottom-up', () => {
       const midJournal = (await readTransitions(opened.owner, { kind: 'unit', id: `${UNDERSTANDING_STAGE_ID}/${tree.checkout.id}` })).map((entry) => entry.transitionId);
       expect(midJournal).toContain('unit/running--wait-for-children-->waiting_children');
       expect(midJournal).toContain('unit/waiting_children--join-all-published-->ready');
+      // The waiting attempt's own reads: the module tree only. No read of a child's claims stands in the
+      // generation's record from before the join, because a claim read that answers empty there and non-empty
+      // after the children publish would refuse this unit's publication at 0027's recheck for good.
+      const midReads = await readUnitReads(opened.owner, `${UNDERSTANDING_STAGE_ID}/${tree.checkout.id}`, 1);
+      // The waiting attempt recorded exactly the tree reads: the parent chain and the children — no read of a
+      // child's claims, which would answer empty there and non-empty after the children publish, and refuse
+      // this unit's publication at 0027's recheck for good.
+      // The waiting attempt's reads are the parent chain's fact reads and the children read — three on this
+      // tree — and none of them reads a child's claims, which would answer empty there and non-empty after
+      // the children publish, and refuse this unit's publication at 0027's recheck for good.
+      const waitingReads = midReads.slice(0, 3);
+      expect(waitingReads.length).toBe(3);
+      for (const read of waitingReads) {
+        expect(read.query).not.toContain('"kind":"claim"');
+      }
 
       // Five prompts: three leaves, and one joined attempt each for checkout and shop. A parent is never
       // prompted before its children have published — the split happened before any session was opened.
@@ -482,6 +519,18 @@ describe('stage 12, the modules understood bottom-up', () => {
       const cartCoverage = cartFacts.find((fact) => fact.kind === 'coverage')!;
       const cartCoverageValue = cartCoverage.value as unknown as { repository: string; scope: string; complete: boolean; read: readonly string[] };
       expect(cartCoverageValue).toMatchObject({ repository: REPOSITORY, scope: tree.cart.id, complete: true, read: ['src/cart.ts'] });
+      // Every module of the tree ends with its summary, responsibilities, role and rule — the DONE WHEN's
+      // own list — each module's facts cited to its own bytes.
+      for (const [module_, file] of [[tree.shop, 'src/shop.ts'], [tree.checkout, 'src/order.ts'], [tree.payments, 'src/payments.ts'], [tree.total, 'src/total.ts'], [tree.cart, 'src/cart.ts']] as const) {
+        const facts = await publishedFacts(opened, `${UNDERSTANDING_STAGE_ID}/${module_.id}`);
+        expect(facts.map((fact) => fact.kind).sort()).toEqual(['claim', 'claim', 'claim', 'coverage', 'rule']);
+        const claims = facts.filter((fact) => fact.kind === 'claim');
+        expect(claims.map((claim) => (claim.value as { predicate: string }).predicate).sort()).toEqual(['responsible-for', 'serves-as', UNDERSTANDING_SUMMARY_PREDICATE].sort());
+        const rule = facts.find((fact) => fact.kind === 'rule')!;
+        expect(String(rule.provenance.place?.file)).toBe(file);
+        expect(rule.layer).toBe('inferred');
+        expect(rule.status).toBe('proposed');
+      }
       // Every unit of the run published.
       const { readRunUnits } = await import('../src/fill/state-store.js');
       const units = await readRunUnits(opened.owner, RUN);
@@ -510,7 +559,13 @@ describe('stage 12, the modules understood bottom-up', () => {
         ...[...heldBy].map(([from, file]) => makeEdgeFact({ kind: 'contains', value: { from, to: file.id }, provenance: provenance(String((file.value as { path: string }).path), 1), layer: 'extracted' })),
       ],
       script: {
-        byPrompt: [{ matches: 'src/wide.ts', steps: [doneAnswer('src/wide.ts', 'the wide module was understood')] }],
+        byPrompt: [
+          ...children.map((child, at) => ({
+            matches: `src/leaf-${String(at)}.ts`,
+            steps: [claimCall(child.id, UNDERSTANDING_SUMMARY_PREDICATE, `leaf ${String(at)} holds its part of the wide module`, `src/leaf-${String(at)}.ts`), doneAnswer(`src/leaf-${String(at)}.ts`, `leaf ${String(at)} was understood`)],
+          })),
+          { matches: 'src/wide.ts', steps: [doneAnswer('src/wide.ts', 'the wide module was understood')] },
+        ],
         steps: [{ answerMembers: { summary: 'the leaf was read' } }],
       },
     });
@@ -521,6 +576,19 @@ describe('stage 12, the modules understood bottom-up', () => {
       if (planned.outcome !== 'planned') throw new Error(`the run was not planned: ${JSON.stringify(planned)}`);
       expect(planned.units.length).toBe(leaves + 1);
       await drive(opened);
+      // The joined parent reads all nine summaries: every child published one before the second join resumed it.
+      const widePrompt = prompts(opened).find((prompt) => prompt.includes('"childrenSummaries"') && prompt.includes(`"id": "${wide.id}"`))!;
+      const rows = [...(JSON.parse(widePrompt.slice(widePrompt.lastIndexOf('\n\n{') + 2)) as { childrenSummaries: { module: string; name: string; summary: string | null }[] }).childrenSummaries]
+        .sort((left, right) => (left.module < right.module ? -1 : 1));
+      expect(rows.length).toBe(leaves);
+      // Every child published its summary: the row names the child whose summary is missing, if one is.
+      const nulls = rows.filter((row) => row.summary === null).map((row) => row.name);
+      if (nulls.length > 0) {
+        const firstLeaf = await publishedFacts(opened, `${UNDERSTANDING_STAGE_ID}/${children[0]!.id}`);
+        console.log(`[stage-12 fixture] rounds: null rows ${JSON.stringify(nulls)}; the first leaf published ${JSON.stringify(firstLeaf.map((fact) => [fact.kind, (fact.value as { predicate?: string }).predicate ?? null]))}`);
+      }
+      expect(nulls).toEqual([]);
+      expect(rows.every((row) => row.summary !== null && row.summary.startsWith('leaf '))).toBe(true);
       const journal = (await readTransitions(opened.owner, { kind: 'unit', id: `${UNDERSTANDING_STAGE_ID}/${wide.id}` })).map((entry) => entry.transitionId);
       // Two rounds: the first split sealed the bound's eight, the second the one left over.
       expect(journal.filter((id) => id === 'unit/running--wait-for-children-->waiting_children').length).toBe(2);
@@ -529,6 +597,68 @@ describe('stage 12, the modules understood bottom-up', () => {
       const { readRunUnits } = await import('../src/fill/state-store.js');
       const units = await readRunUnits(opened.owner, RUN);
       expect(units.filter((unit) => unit.state !== 'published').map((unit) => `${unit.unitId}:${unit.state}`)).toEqual([]);
+    } finally {
+      await opened.close();
+    }
+  }, 240_000);
+
+  test('a module deeper than the ordering reaches runs unordered: it reads what its children published and names the rest', async () => {
+    // Five levels: root -> a -> b -> c -> d. The ordering reaches two levels of parents below the root
+    // (the shape's own MAX_PLAN_DEPTH, which a plan and a split nest alike): root, a and b wait for their
+    // children; c stands deeper, runs unordered and answers partial over whatever was not published yet.
+    const levels = ['root', 'a', 'b', 'c', 'd'];
+    const modulesById = new Map<string, Fact>();
+    const parents: Record<string, string | undefined> = { root: undefined, a: 'root', b: 'a', c: 'b', d: 'c' };
+    const filesByLevel = new Map<string, Fact>(levels.map((name, at) => [`src/${name}.ts`, fileFact(`src/${name}.ts`, 3)]));
+    for (const name of levels) {
+      const fact = moduleFact(name, parents[name] === undefined ? undefined : modulesById.get(`src/${parents[name]}.ts`)?.id ?? undefined, `src/${name}.ts`, 1, 0.5);
+      modulesById.set(`src/${name}.ts`, fact);
+    }
+    const byName = new Map(levels.map((name) => [name, modulesById.get(`src/${name}.ts`)!]));
+    const opened = await openWorld({
+      facts: () => [
+        makeNodeFact({ kind: 'repository', value: { repository: REPOSITORY, form: 'code' }, provenance: provenance('src/root.ts', 1), layer: 'extracted' }),
+        ...filesByLevel.values(),
+        ...byName.values(),
+        ...[...byName].map(([name, module_]) => makeEdgeFact({ kind: 'contains', value: { from: module_.id, to: filesByLevel.get(`src/${name}.ts`)!.id }, provenance: provenance(`src/${name}.ts`, 1), layer: 'extracted' })),
+      ],
+      script: {
+        byPrompt: [
+          ...levels.map((name) => ({
+            matches: `"id": "${byName.get(name)!.id}"`,
+            // Every module answers partial over its own file: the answer's honesty, not the ordering, is
+            // what this test holds, so a module whose children were read stands incomplete by its own word.
+            steps: [{ answer: { status: 'partial', covered: [`src/${name}.ts`], remaining: [], summary: `${name} was read, its children named what they could` } }],
+          })),
+        ],
+        steps: [{ answerMembers: { summary: 'the module was read' } }],
+      },
+      limits: { leaseMs: 86_400_000 },
+    });
+    try {
+      const started = await startRun(opened.orchestrator, { runId: RUN });
+      expect(started.ok).toBe(true);
+      const planned = await planRun(opened.orchestrator, { runId: RUN });
+      if (planned.outcome !== 'planned') throw new Error(`the run was not planned: ${JSON.stringify(planned)}`);
+      expect(planned.units.length).toBe(levels.length);
+      await drive(opened);
+      const { readRunUnits } = await import('../src/fill/state-store.js');
+      const units = await readRunUnits(opened.owner, RUN);
+      // Nothing blocks and nothing is left: the deep module's gap is named in its own coverage, not in a
+      // unit that stands down.
+      expect(units.filter((unit) => unit.state !== 'published').map((unit) => `${unit.unitId}:${unit.state}`)).toEqual([]);
+      // The ordering reached the second level: root's and a's and b's journals hold a wait and a join.
+      for (const name of ['root', 'a', 'b']) {
+        const journal = (await readTransitions(opened.owner, { kind: 'unit', id: `${UNDERSTANDING_STAGE_ID}/${byName.get(name)!.id}` })).map((entry) => entry.transitionId);
+        expect(journal).toContain('unit/running--wait-for-children-->waiting_children');
+        expect(journal.some((id) => id.startsWith('unit/waiting_children--join-'))).toBe(true);
+      }
+      // The deep module ran straight through: no wait, and its coverage says incomplete (its own `partial`).
+      const deepJournal = (await readTransitions(opened.owner, { kind: 'unit', id: `${UNDERSTANDING_STAGE_ID}/${byName.get('c')!.id}` })).map((entry) => entry.transitionId);
+      expect(deepJournal).not.toContain('unit/running--wait-for-children-->waiting_children');
+      const deepFacts = await publishedFacts(opened, `${UNDERSTANDING_STAGE_ID}/${byName.get('c')!.id}`);
+      const deepCoverage = deepFacts.find((fact) => fact.kind === 'coverage')!.value as unknown as { scope: string; complete: boolean; read: readonly string[] };
+      expect(deepCoverage).toMatchObject({ scope: byName.get('c')!.id, complete: false, read: ['src/c.ts'] });
     } finally {
       await opened.close();
     }
@@ -618,6 +748,16 @@ describe('stage 12\'s declaration', () => {
     // The registry holds no understanding stage where the run wires no agent: a stage whose units run an
     // agent is registered only with one (0026).
     expect(createStageRegistry({ snapshots: createGitSnapshotSource(() => []) }).get(UNDERSTANDING_STAGE_ID)).toBeUndefined();
+    // The stage's own numbers are the decision's: the summary bound and the fan-in bound come from the
+    // declaration's own scale, so the section's cap and the plan's refusal cannot disagree.
+    expect(declaration.scale).toEqual({ level: 'cluster', child: 'place' });
+    expect(summaryCodePoints()).toBe(2_000 * 4);
+    // A summary past the bound is cut with an ellipsis a reader sees; one within it stands whole.
+    expect(boundSummary('a short summary')).toBe('a short summary');
+    const long = 'x'.repeat(summaryCodePoints() + 10);
+    const cut = boundSummary(long);
+    expect(cut.length).toBe(summaryCodePoints());
+    expect(cut.endsWith('…')).toBe(true);
   });
 
   test('the plan names the leaves first and refuses a module whose children stand past the fan-in bound', async () => {

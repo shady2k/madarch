@@ -88,8 +88,11 @@ export const UNDERSTANDING_KINDS: readonly string[] = ['claim', 'rule'];
  */
 export const UNDERSTANDING_SUMMARY_PREDICATE = 'summarizes';
 
-/** The most rows the children's summaries hold: the fan-in bound, as the section's own cap. */
-export const UNDERSTANDING_SUMMARY_ROWS = 50;
+/** Where the stage's units stand in 0026's hierarchy: a module is a cluster, and the level below it is a place. */
+export const UNDERSTANDING_SCALE = { level: 'cluster', child: 'place' } as const;
+
+/** The most rows the children's summaries hold: the fan-in bound the declaration resolves, as the section's own cap. */
+export const UNDERSTANDING_SUMMARY_ROWS = resolvedScale(UNDERSTANDING_SCALE).fanIn;
 
 /** One child module of the unit's module, as the ordering and the packet read it. */
 export interface ChildModule {
@@ -164,7 +167,7 @@ export async function childModulesOf(reads: GraphReadContext, moduleId: string):
 
 /** The bound one summary is read at, in code points, as the fill's own estimate counts them. */
 export function summaryCodePoints(): number {
-  return resolvedScale({ level: 'cluster', child: 'place' }).summaryTokens * DEFAULT_GRAPH_READ_LIMITS.charactersPerToken;
+  return resolvedScale(UNDERSTANDING_SCALE).summaryTokens * DEFAULT_GRAPH_READ_LIMITS.charactersPerToken;
 }
 
 /** One summary as a row holds it: cut to the bound, the cut marked with an ellipsis a reader sees. */
@@ -261,7 +264,7 @@ export function understandingDeclaration(): AgentStageDeclaration {
     // 0026's stage 12: what each module means, read from the code and the children's
     // summaries — assumed (self-filling's outcome 4), never a fact of the code.
     level: 'meaning',
-    scale: { level: 'cluster', child: 'place' },
+    scale: UNDERSTANDING_SCALE,
     role: "You are one unit of madarch's fill that understands the product's modules bottom-up: one module at a time, its leaves first, every parent from its children's bounded summaries, writing what each module is for, what it is responsible for and the business rules its code carries.",
     rules: [
       "Your understanding is bottom-up: the `childrenSummaries` section holds the bounded summary each child module below you published — read it first, and build on what the children established rather than reading their code again.",
@@ -279,11 +282,12 @@ export function understandingDeclaration(): AgentStageDeclaration {
         { capability: 'repository', scope: 'repository', freshness: 'current' },
         { capability: 'module', scope: 'repository', freshness: 'any' },
       ],
-      // The children's summaries are this stage's own earlier units' claims: the registry reads a stage's
-      // consume of its own kind as what its own earlier run published, and no edge runs from it to itself.
-      optional: [
-        { capability: 'claim', scope: 'repository', freshness: 'any' },
-      ],
+      // The children's summaries are this stage's own earlier units' claims, read through the unit's own
+      // reader at run time and recorded as its dependency there. No consume is declared for them: a consume
+      // names a kind the packet reads from an earlier stage, and every agent stage of the fill writes claims
+      // — a declared consume of this stage's own output beside its siblings' would draw the stage graph into
+      // a cycle of agents each waiting for another's claims.
+      optional: [],
     },
     sections: understandingSections(),
     plan: (graph) => moduleUnits(graph),
@@ -325,13 +329,16 @@ export async function moduleUnits(graph: StageGraphReader): Promise<StagePlan> {
     }
   }
   if (modules.size === 0) return { units: [], coverage: 'nothing-found' };
-  const bound = resolvedScale({ level: 'cluster', child: 'place' }).fanIn;
+  const bound = resolvedScale(UNDERSTANDING_SCALE).fanIn;
   const childrenOf = new Map<string, number>();
-  for (const module_ of modules.values()) {
+  for (const module_ of [...modules.values()].sort((left, right) => byCodePoint(left.id, right.id))) {
     if (module_.parent === undefined) continue;
     const parent = modules.get(module_.parent);
     if (parent === undefined) {
       raise(`the module ${module_.id} (${module_.name}) names the parent ${module_.parent}, and the graph holds no module fact of that id: a module's parent is a module fact of the same tree, and a parent that stands nowhere is a tree the modules stage did not finish`);
+    }
+    if (parent.repository !== module_.repository) {
+      raise(`the module ${module_.id} (${module_.name}) of ${module_.repository} names the parent ${module_.parent} (${parent.name}) of ${parent.repository}: a module's parent stands in its own repository, and a parent across repositories would be sealed by a split whose child stands on another repository's inputs`);
     }
     childrenOf.set(module_.parent, (childrenOf.get(module_.parent) ?? 0) + 1);
   }
@@ -341,11 +348,16 @@ export async function moduleUnits(graph: StageGraphReader): Promise<StagePlan> {
     raise(`the module ${parentId} (${parent.name}) of ${parent.repository} holds ${String(count)} child modules and the fan-in bound is ${String(bound)}: 0026's "else an intermediate grouping level" is the tree's own grouping — the modules stage groups a wide folder's children into part-1, part-2 clusters — and a tree that skipped it would send this parent a cut list of its own children`);
   }
   const depthOf = new Map<string, number>();
+  const walking = new Set<string>();
   const depth = (id: string): number => {
     const held = depthOf.get(id);
     if (held !== undefined) return held;
+    if (!walking.add(id)) {
+      raise(`the module ${id} stands on a cycle of parent links: ${[...walking].sort(byCodePoint).join(' -> ')} -> ${id} — a module's parent chain ends at a root, and a cycle is a tree no unit order can name`);
+    }
     const module_ = modules.get(id)!;
     const answer = module_.parent === undefined ? 0 : depth(module_.parent) + 1;
+    walking.delete(id);
     depthOf.set(id, answer);
     return answer;
   };
@@ -362,26 +374,61 @@ export async function moduleUnits(graph: StageGraphReader): Promise<StagePlan> {
 // ---------------------------------------------------------------------------------------------
 
 /**
+ * How deep in the module tree the ordering reaches. A module standing `depth`
+ * levels below the root is sealed by a split tree that nests `depth + 1` deep —
+ * the root's own split nests 1 — and the shape's own `MAX_PLAN_DEPTH` is the
+ * depth a plan and a split nest alike ("so a plan and a split nest alike and
+ * neither nests deeper than the other", `src/fill/stages/agent-stage.ts`). A
+ * module past it is planned and runs unordered: its packet's section reads what
+ * its children have published, holds `null` for the rest, and the fixed part's
+ * own rule has the unit answer `partial` over what it did not read — a named
+ * gap in the graph, never a silent one. A run admits the leaves first, so an
+ * unordered parent usually reads every summary anyway; the fallback is for the
+ * race the plan order cannot close.
+ */
+export const MAX_ORDERED_DEPTH = 3 - 1;
+
+/** The depth of one module in its tree, read through the unit's own reader: the chain of parent values up to a root. */
+async function depthOf(reads: GraphReadContext, moduleId: string): Promise<number> {
+  let at = moduleId;
+  for (let depth = 0; ; depth += 1) {
+    const read = { read: 'fact' as const, id: at };
+    const facts = factsOfRows(await reads.read(read), read);
+    const fact = facts[0];
+    if (fact === undefined) return depth;
+    const module_ = moduleOf(fact);
+    if (module_.parent === undefined) return depth;
+    at = module_.parent;
+  }
+}
+
+/**
  * Runs one unit of the stage: a module with child modules splits into them before
- * it reads anything — the orchestrator seals them and stands the unit down, and
- * the run joins it when they have all published (0027's join) — and a module
+ * it reads anything — the orchestrator seals them and stands the unit down, and the
+ * run joins it when they have all published (0027's join) — and a module
  * without children, or a unit the join has already made whole, runs the shape's
  * own attempt: the packet, the session, the limits, the coverage and the split at
  * a limit.
  *
  * The split names the children the generation has not sealed yet, at most the
- * shape's own `SPLIT_CHILDREN` at once: the orchestrator refuses a split past its
- * own bound, and the rest are named by the next attempt, whose sealed set the
- * context holds. No read of the children's claims happens before the last of
- * them: an empty read a child's later publication turns non-empty would refuse
- * this unit's publication for good (0027 rechecks every read the generation ever
- * recorded), so the ordering is carried by the sealed set and the join alone.
+ * shape's own `SPLIT_CHILDREN` at once; the rest are named by the next attempt,
+ * whose sealed set the context holds. Each named child carries the shape's own
+ * estimate of one sealed child — one bounded span of reading
+ * (`estimateOfMembers(1)`, as `memberPlaces` and the product's places name
+ * theirs) — because the work a split seals here is the sealing itself: the
+ * children are units of the plan already, each budgeted by its own estimate and
+ * its own limits, and no new work is created by naming them. No read of the
+ * children's claims happens before the last of them: an empty read a child's
+ * later publication turns non-empty would refuse this unit's publication for
+ * good (0027 rechecks every read the generation ever recorded), so the ordering
+ * is carried by the sealed set and the join alone.
  */
 async function executeUnderstandingUnit(stage: FillStage, stageId: string, unit: StageUnit, context: StageContext): Promise<StageExecutionResult> {
   if (writeScope(unit.scope).path !== undefined) return await stage.execute(unit, context);
   const reads = graphReadsOver(context.graph);
   const children = await childModulesOf(reads, unit.id);
   if (children.length === 0) return await stage.execute(unit, context);
+  if (await depthOf(reads, unit.id) > MAX_ORDERED_DEPTH) return await stage.execute(unit, context);
   const sealed = new Set((context.sealedChildren ?? []).map((child) => child.unitId));
   const remaining = children.filter((child) => !sealed.has(unitIdFor(stageId, child.id)));
   if (remaining.length === 0) return await stage.execute(unit, context);
@@ -389,7 +436,7 @@ async function executeUnderstandingUnit(stage: FillStage, stageId: string, unit:
   context.progress(`${unit.id} waits for its ${String(remaining.length)} ${remaining.length === 1 ? 'child module' : 'child modules'}: ${String(named.length)} ${named.length === 1 ? 'is' : 'are'} sealed now and the rest follow when these publish`, 0);
   return {
     outcome: 'split',
-    children: named.map((child) => ({ id: child.id, scope: unit.scope, estimatedTokens: estimateOfMembers(child.members) })),
+    children: named.map((child) => ({ id: child.id, scope: unit.scope, estimatedTokens: estimateOfMembers(1) })),
   };
 }
 
