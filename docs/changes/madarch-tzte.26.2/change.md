@@ -43,13 +43,18 @@ This change is six pieces and the wiring between them.
   a run for work that stood before it looked (the first fill is the person's own),
   and a restarted server neither loses a commit that waited nor asks twice for one
   a run covers.
-- **When it may start a run** — only after the wizard was run in this home
-  (`readChosenAgent`, `src/product/fill-wizard.ts`): the agent the person chose is
-  what a run spends, and a server that invented an agent nobody chose would spend
-  their money without their decision. A run is never started over a fill in
-  progress: the product's chain of runs refuses it (`startRun`, decision 0027), and
-  a refusal the service names `fill-orchestrator/chain-active` (or `…/chain-held`)
-  leaves the commit **waiting** rather than dropped, so the update follows the
+- **When it may start a run** — only after the wizard was run in the person's own
+  home (`readChosenAgent`, `src/product/fill-wizard.ts`, whose default is the
+  person's home and not the products home): the agent the person chose is the one
+  the agent stages will drive, and a home where nobody chose an agent is a home
+  where nobody asked madarch to fill anything by itself. A run is never started
+  over a fill in progress, in either of the two pipelines a product can have: a run
+  of this service is refused by the product's chain (`startRun`, decision 0027),
+  and a refusal the service names `fill-orchestrator/chain-active` (or
+  `…/chain-held`) leaves the commit **waiting**; and while the landed fill — the one
+  the wizard's own Start runs, whose state stands in the product's
+  `.madarch/fill/run.json` — is `running` or `paused`, the commit waits for that too
+  (`landedFillOf`, `src/product/daemon.ts`). Either way the update follows the
   moment the fill ends.
 - **`src/product/daemon.ts`** — the server's own fill service is wired: a product's
   fill is `createStagesFill` over the database the service opened, so a run asked of
@@ -65,10 +70,13 @@ This change is six pieces and the wiring between them.
   wiki's fill progress already reads.
 - **`src/fill/state-store.ts`** — `readLatestRun(database, product)`, one read of
   the newest run of a product, ordered by its creation and then by its id.
-- **`GET /api/fill`** (`src/server/http.ts`) — the orchestrator's own answer comes
-  first where the process owns a fill service, and the `.madarch/fill` state file
-  answers where it answers none (a product that never filled there). So the update
-  the server started by itself is in the fill progress the moment it exists.
+- **`GET /api/fill`** (`src/server/http.ts`) — the panel shows one run, and which
+  one is the answer's own rule: the landed fill's while it stands `running` or
+  `paused` (a person started it and is watching it), else the newest run the
+  orchestrator keeps in the process's database — the update the server started by
+  itself included — and the landed fill's record where it never ran one of the
+  orchestrator's. So an update is in the fill progress the moment it exists, and a
+  person's own fill is never hidden behind one.
 - **`wiki/app/src/fill-progress.tsx`** — the panel shows the stages the answer
   holds instead of a list fixed in the app: the fill's stages are data (decision
   0027), a stage the panel knows by name keeps its translation and a stage it does
@@ -95,7 +103,10 @@ recorded theirs.
 What a person sees is new: after they ran the wizard, a commit to a product's
 default branch fills that product's wiki again by itself, one run per batch of
 commits and never on top of a fill that is running, and the run is in the fill
-progress panel while it runs.
+progress panel while it runs. The change adds no product requirement, which is why
+its kind is `no-behavior`: the fill's capability is proposed by
+`fill-pipeline-monday` and is not current, so nothing here changes a requirement the
+baseline holds.
 
 ## Out of scope
 
@@ -106,7 +117,15 @@ progress panel while it runs.
 - **The first fill.** The watcher starts nothing for a commit that stood before its
   first read, and it never starts a product's first run: the wizard's Start is the
   person's own decision to fill.
-- **The agent-call cap the wizard sets** (`maxUnits`): see the limitations below.
+- **The wizard's cap on agent calls** (`maxUnits`). No stage the update run drives
+  runs an agent: `src/fill/stages/index.ts` registers the agent unit stage only
+  when the wiring names one, and `createStagesFill` names none, so a run of the
+  declared stages spends no agent call and the cap has nothing to bound. What
+  bounds a run today is the product's own configuration (`fill.stages`, one entry per stage: the
+  272K window, the two thresholds, the turns and the time) and the run's own
+  limits, read by every run of the service. The cap and the agent's model become
+  the agent stages' input when they are registered (madarch-tzte.24.x), and this
+  record does not claim them for this change.
 - **A resume of a paused run from the panel.** A paused run is planned again
   (`resumeRun`) by a caller, and the panel offers pause and stop only; starting the
   next run is the watcher's job after a commit or the person's through the wizard.
@@ -118,11 +137,11 @@ progress panel while it runs.
 
 - fill-orchestrator/host: test — a service the host wired nothing to still refuses a run with `fill-orchestrator/no-wiring` and opens no database, and a daemon that was asked for no run still opens nothing (`test/fill-orchestrator.test.ts`); this change only gives the daemon a wiring, opened under the same rule.
 - fill-orchestrator/plan: unchanged — a run plans its units from the declared stages over the commit its pins name, and inherits the units whose inputs did not move; the watcher's update is such a run and recomputes only the units its commit touched (`test/fill-updates-run.test.ts`).
-- fill-orchestrator/cancel: unchanged — a run's pause and stop are its own state machine's, and the panel offers its control only where the run can leave that state.
+- fill-orchestrator/cancel: test — a run's pause and stop are its own state machine's, and the panel offers its control only where the run can leave that state (`test/fill-updates-run.test.ts`: a stop of a run this service holds cancels it, and the stop of a run that ended is refused in the machine's words).
 - product-repository/manifest: unchanged — the watcher reads a product's declared code repositories through the manifest's own reader and never writes it (`test/fill-updates.test.ts`).
 - product-wiki/shell: test — the fill progress keeps its place in the reading shell and its label, and now shows the stages the answer holds instead of a list fixed in the app (`wiki/app/src/app.test.ts`).
-- product-wiki/live: unchanged — a pause or a stop of the landed fill's run is still taken by its own state file where the process owns no such run, which is what the update's control falls through to (`test/fill-updates-run.test.ts`).
-- server/serves-wiki: test — `GET /api/fill` answers under a product's prefix as before, now from the process's own runs where it owns a fill service (`test/fill-updates-run.test.ts`).
+- product-wiki/live: test — a pause or a stop of the landed fill's run is still taken by its own state file where the process owns no such run, which is what the update's control falls through to, and a landed fill that runs is what the progress shows (`test/fill-updates-run.test.ts`).
+- server/serves-wiki: test — `GET /api/fill` and `POST /api/fill/control` are the same route-table entries under a product's prefix as before, and the run test drives them on a single-product server (`test/fill-updates-run.test.ts`), which is the handler a products home mounts per product.
 - product-wiki/internationalization: test — every new string is in English and Russian (`wiki/app/src/i18n.test.ts`).
 
 ## Coverage

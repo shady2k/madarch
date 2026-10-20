@@ -26,7 +26,6 @@ import {
   repositoriesOf,
   seenHeadsNote,
   seenKey,
-  updateRunId,
   UPDATE_STATE_FILE,
   type UpdateRunAnswer,
   type UpdateRunRequest,
@@ -90,19 +89,31 @@ function fixture(): Fixture {
   };
 }
 
-/** What a test's watcher asked for, in order. */
+const pause = (ms: number): Promise<void> => new Promise((answer) => setTimeout(answer, ms));
+
+/**
+ * What a test's watcher asked for, in order: the requests and the answers, kept by
+ * the starter itself. A test asserts on these rather than on one pass's report: the
+ * debounce's own timer may run the pass that asks, and what the watcher asked the
+ * host for is the same either way.
+ */
 function recorder(answer: (request: UpdateRunRequest) => UpdateRunAnswer = () => ({ started: true })) {
   const asked: UpdateRunRequest[] = [];
+  const answers: UpdateRunAnswer[] = [];
   return {
     asked,
+    answers,
     start: async (request: UpdateRunRequest): Promise<UpdateRunAnswer> => {
+      const held = answer(request);
       asked.push(request);
-      return answer(request);
+      answers.push(held);
+      return held;
     },
+    started: () => asked.map((request) => request.runId),
   };
 }
 
-/** A watcher over the fixture that no timer or file watcher drives: the test calls its passes itself. */
+/** A watcher over the fixture that no interval drives: the debounce's own timer and the test's passes are what run it. */
 function watcherOf(world: Fixture, start: (request: UpdateRunRequest) => Promise<UpdateRunAnswer>, options: { debounceMs?: number; enabled?: () => boolean } = {}) {
   return createUpdateWatch({
     home: world.home,
@@ -114,8 +125,6 @@ function watcherOf(world: Fixture, start: (request: UpdateRunRequest) => Promise
   });
 }
 
-const pause = (ms: number): Promise<void> => new Promise((answer) => setTimeout(answer, ms));
-
 describe('the update after commits to a default branch', () => {
   test('two quick commits give one run, and the run is named after the newest of them', async () => {
     const world = fixture();
@@ -123,29 +132,26 @@ describe('the update after commits to a default branch', () => {
       const run = recorder();
       const watch = watcherOf(world, run.start);
       // The first pass reads the heads as the baseline: nothing stood before it that an update owes.
-      expect((await watch.outset()).asked).toEqual([]);
+      await watch.outset();
       expect(run.asked).toEqual([]);
 
       const first = world.commit(world.codeRepo, 'index.ts', 'export const one = 1;\nexport const two = 2;\n', 'two exports');
       const second = world.commit(world.codeRepo, 'index.ts', 'export const one = 1;\nexport const two = 2;\nexport const three = 3;\n', 'three exports');
-      // Both commits land inside one debounce window: the pass after it sees the branch at its newest commit.
-      const waiting = await watch.pass();
-      expect(waiting.asked).toEqual([]);
-      expect(waiting.waiting.map((entry) => entry.commit)).toEqual([second]);
-      await pause(30);
-      const started = await watch.pass();
-      expect(started.asked.map((entry) => entry.request.runId)).toEqual([updateRunId('shop', second)]);
+      // Both commits land inside one debounce window: the run that follows names the newest of them, once.
+      await watch.pass();
+      expect(run.asked).toEqual([]);
+      await pause(60);
       expect(run.asked).toEqual([{
         product: { name: 'shop', folder: world.product },
-        runId: updateRunId('shop', second),
+        runId: `update-shop-${second.slice(0, 12)}`,
         commit: second,
         repository: 'library',
         branch: 'main',
       }]);
-      expect(run.asked[0]!.runId).not.toBe(updateRunId('shop', first));
+      expect(run.started()).not.toEqual([`update-shop-${first.slice(0, 12)}`]);
 
       // A pass after the run started asks for nothing: the commit it covered stands handled.
-      expect((await watch.pass()).asked).toEqual([]);
+      await watch.pass();
       expect(run.asked.length).toBe(1);
       watch.stop();
     } finally {
@@ -162,21 +168,22 @@ describe('the update after commits to a default branch', () => {
 
       git(world.codeRepo, 'checkout', '--quiet', '-b', 'feature/two');
       world.commit(world.codeRepo, 'index.ts', 'export const one = 1;\nexport const branch = 2;\n', 'a feature commit');
-      await pause(30);
-      expect((await watch.pass()).asked).toEqual([]);
+      await watch.pass();
+      await pause(60);
       expect(run.asked).toEqual([]);
 
-      // The checkout now stands on the feature branch, and the watched branch is still the default one: a commit
-      // the branch it came from receives while the checkout stands elsewhere is not one this watcher sees.
+      // The checkout now stands on the feature branch, and the watched branch is still the default one.
       expect(headOf(world.codeRepo, 'main').ok).toBe(true);
       git(world.codeRepo, 'checkout', '--quiet', 'main');
-      await pause(30);
-      expect((await watch.pass()).asked).toEqual([]);
+      await watch.pass();
+      await pause(60);
+      expect(run.asked).toEqual([]);
 
       // The default branch itself moving is the one that starts the update.
       const moved = world.commit(world.codeRepo, 'index.ts', 'export const one = 1;\nexport const main = 3;\n', 'a default-branch commit');
-      await pause(30);
-      expect((await watch.pass()).asked.map((entry) => entry.request.commit)).toEqual([moved]);
+      await watch.pass();
+      await pause(60);
+      expect(run.asked.map((request) => request.commit)).toEqual([moved]);
       watch.stop();
     } finally {
       world.remove();
@@ -190,11 +197,11 @@ describe('the update after commits to a default branch', () => {
       const watch = watcherOf(world, run.start);
       await watch.outset();
       const edited = world.commit(world.productRepo, 'README.md', '# shop\n\nA shop for orders and payments.\n', 'the documents say what the product is');
-      await pause(30);
-      const started = await watch.pass();
-      expect(started.asked.map((entry) => entry.request)).toEqual([{
+      await watch.pass();
+      await pause(60);
+      expect(run.asked).toEqual([{
         product: { name: 'shop', folder: world.product },
-        runId: updateRunId('shop', edited),
+        runId: `update-shop-${edited.slice(0, 12)}`,
         commit: edited,
         repository: 'shop',
         branch: 'main',
@@ -210,30 +217,24 @@ describe('the update after commits to a default branch', () => {
     const world = fixture();
     try {
       let filling = true;
-      const answers: UpdateRunAnswer[] = [];
       const run = recorder(() => (filling
         ? { started: false, deferred: true, reason: 'the product "shop" already runs run-1, which stands running' }
         : { started: true }));
-      const watch = watcherOf(world, async (request) => {
-        const answer = await run.start(request);
-        answers.push(answer);
-        return answer;
-      });
+      const watch = watcherOf(world, run.start);
       await watch.outset();
       const commit = world.commit(world.codeRepo, 'index.ts', 'export const one = 1;\nexport const four = 4;\n', 'a commit while a fill runs');
-      await pause(30);
-      const first = await watch.pass();
-      expect(first.asked.map((entry) => entry.answer)).toEqual([{ started: false, deferred: true, reason: 'the product "shop" already runs run-1, which stands running' }]);
+      await watch.pass();
+      await pause(60);
+      expect(run.answers.at(-1)).toEqual({ started: false, deferred: true, reason: 'the product "shop" already runs run-1, which stands running' });
       // The commit is still waiting: a deferral drops nothing.
       expect(watch.pending().map((entry) => entry.commit)).toEqual([commit]);
-      await pause(30);
       filling = false;
-      const second = await watch.pass();
-      expect(second.asked.map((entry) => entry.answer)).toEqual([{ started: true }]);
-      expect(answers.length).toBe(2);
+      await watch.pass();
+      expect(run.answers.at(-1)).toEqual({ started: true });
       expect(watch.pending()).toEqual([]);
-      // The run covers the commit it was asked for, and both answers name the same run: one commit is one run.
-      expect(new Set(second.asked.map((entry) => entry.request.runId))).toEqual(new Set([updateRunId('shop', commit)]));
+      // One commit is one run, however many times it was deferred: every answer named the same run id.
+      expect(new Set(run.asked.map((request) => request.runId))).toEqual(new Set([`update-shop-${commit.slice(0, 12)}`]));
+      expect(run.answers.filter((answer) => answer.started).length).toBe(1);
       watch.stop();
     } finally {
       world.remove();
@@ -256,8 +257,8 @@ describe('the update after commits to a default branch', () => {
       });
       await watch.outset();
       world.commit(world.codeRepo, 'index.ts', 'export const one = 1;\nexport const five = 5;\n', 'a commit nobody asked madarch to handle');
-      await pause(30);
-      expect((await watch.pass()).asked).toEqual([]);
+      await watch.pass();
+      await pause(60);
       expect(run.asked).toEqual([]);
       expect(lines.filter((line) => line.includes('the wizard was not run')).length).toBe(1);
       expect(lines.some((line) => line.includes('the wizard was not run') && line.includes(world.home))).toBe(true);
@@ -274,8 +275,9 @@ describe('the update after commits to a default branch', () => {
       const watch = watcherOf(world, first.start);
       await watch.outset();
       const handled = world.commit(world.codeRepo, 'index.ts', 'export const one = 1;\nexport const six = 6;\n', 'a commit a run covers');
-      await pause(30);
-      expect((await watch.pass()).asked.map((entry) => entry.request.commit)).toEqual([handled]);
+      await watch.pass();
+      await pause(60);
+      expect(first.asked.map((request) => request.commit)).toEqual([handled]);
       watch.stop();
       expect(readSeenHeads(world.home)[seenKey('shop', 'library')]).toEqual({ branch: 'main', commit: handled });
       expect(JSON.parse(readFileSync(join(world.home, UPDATE_STATE_FILE), 'utf8')).repositories[seenKey('shop', 'library')].commit).toBe(handled);
@@ -286,8 +288,10 @@ describe('the update after commits to a default branch', () => {
       await next.outset();
       expect(second.asked).toEqual([]);
       const waiting = world.commit(world.codeRepo, 'index.ts', 'export const one = 1;\nexport const seven = 7;\n', 'a commit whose run is deferred');
-      await pause(30);
-      expect((await next.pass()).asked.map((entry) => entry.request.commit)).toEqual([waiting]);
+      await next.pass();
+      await pause(60);
+      expect(second.asked.map((request) => request.commit)).toEqual([waiting]);
+      expect(new Set(second.answers.map((answer) => ('deferred' in answer ? answer.deferred : null)))).toEqual(new Set([true]));
       next.stop();
 
       // A third watcher finds the deferred commit still waiting: a deferral is not a handling.
@@ -295,9 +299,81 @@ describe('the update after commits to a default branch', () => {
       const restarted = watcherOf(world, third.start);
       await restarted.outset();
       expect(third.asked).toEqual([]);
-      await pause(30);
-      expect((await restarted.pass()).asked.map((entry) => entry.request.commit)).toEqual([waiting]);
+      await pause(60);
+      expect(third.asked.map((request) => request.commit)).toEqual([waiting]);
       restarted.stop();
+    } finally {
+      world.remove();
+    }
+  });
+
+  test('a commit starts its run when its debounce ends, without an interval and without another pass', async () => {
+    const world = fixture();
+    try {
+      const run = recorder();
+      const watch = watcherOf(world, run.start);
+      await watch.outset();
+      const moved = world.commit(world.codeRepo, 'index.ts', 'export const one = 1;\nexport const eight = 8;\n', 'a commit whose debounce ends by itself');
+      // The pass that reads the commit keeps it waiting; nothing else is asked of the watcher, and the timer that ends
+      // the debounce is what runs the pass that asks.
+      await watch.pass();
+      expect(run.asked).toEqual([]);
+      await pause(120);
+      expect(run.asked.map((request) => request.commit)).toEqual([moved]);
+      watch.stop();
+    } finally {
+      world.remove();
+    }
+  });
+
+  test('a second commit inside the debounce restarts it, and the two are one run at the newest commit', async () => {
+    const world = fixture();
+    try {
+      const run = recorder();
+      const watch = watcherOf(world, run.start, { debounceMs: 60 });
+      await watch.outset();
+      world.commit(world.codeRepo, 'index.ts', 'export const one = 1;\nexport const nine = 9;\n', 'the first of two quick commits');
+      await watch.pass();
+      await pause(20);
+      const second = world.commit(world.codeRepo, 'index.ts', 'export const one = 1;\nexport const nine = 9;\nexport const ten = 10;\n', 'the second of two quick commits');
+      // The quiet period is counted from the moment the branch was last seen moving, so the debounce that was about
+      // to end does not: the second commit moves it again.
+      await watch.pass();
+      expect(run.asked).toEqual([]);
+      await pause(120);
+      expect(run.asked.map((request) => request.commit)).toEqual([second]);
+      expect(run.asked.length).toBe(1);
+      watch.stop();
+    } finally {
+      world.remove();
+    }
+  });
+
+  test('a kept-heads file that cannot be read is said, not read as nothing', async () => {
+    const world = fixture();
+    try {
+      // A record written and damaged: the watcher says where it stands, and every repository is read as a baseline.
+      mkdirSync(join(world.home, '.madarch'), { recursive: true });
+      writeFileSync(join(world.home, UPDATE_STATE_FILE), '{"repositories": {');
+      expect(seenHeadsNote(world.home) ?? '').toContain(join(world.home, UPDATE_STATE_FILE));
+      const lines: string[] = [];
+      const run = recorder();
+      const watch = createUpdateWatch({
+        home: world.home,
+        start: run.start,
+        debounceMs: 20,
+        intervalMs: 0,
+        enabled: () => true,
+        log: (line) => lines.push(line),
+        watchPath: () => () => undefined,
+      });
+      const pass = await watch.outset();
+      expect(pass.asked).toEqual([]);
+      expect(run.asked).toEqual([]);
+      expect(lines.some((line) => line.includes(join(world.home, UPDATE_STATE_FILE)) && line.includes('not a JSON record'))).toBe(true);
+      watch.stop();
+      // A home with no such file says nothing about it.
+      expect(seenHeadsNote(join(world.home, 'elsewhere'))).toBeUndefined();
     } finally {
       world.remove();
     }
@@ -341,35 +417,6 @@ describe('the update after commits to a default branch', () => {
       expect(pass.unreadable.length).toBe(1);
       expect(readSeenHeads(world.home)[seenKey('shop', 'library')]).toEqual({ branch: 'main', commit: git(world.codeRepo, 'rev-parse', 'HEAD') });
       watch.stop();
-    } finally {
-      world.remove();
-    }
-  });
-
-  test('a kept-heads file that cannot be read is said, not read as nothing', async () => {
-    const world = fixture();
-    try {
-      // A record written and damaged: the watcher says where it stands, and every repository is read as a baseline.
-      mkdirSync(join(world.home, '.madarch'), { recursive: true });
-      writeFileSync(join(world.home, UPDATE_STATE_FILE), '{"repositories": {');
-      expect(seenHeadsNote(world.home) ?? '').toContain(join(world.home, UPDATE_STATE_FILE));
-      const lines: string[] = [];
-      const run = recorder();
-      const watch = createUpdateWatch({
-        home: world.home,
-        start: run.start,
-        debounceMs: 20,
-        intervalMs: 0,
-        enabled: () => true,
-        log: (line) => lines.push(line),
-        watchPath: () => () => undefined,
-      });
-      const pass = await watch.outset();
-      expect(pass.asked).toEqual([]);
-      expect(lines.some((line) => line.includes(join(world.home, UPDATE_STATE_FILE)) && line.includes('not a JSON record'))).toBe(true);
-      watch.stop();
-      // A home with no such file says nothing about it.
-      expect(seenHeadsNote(join(world.home, 'elsewhere'))).toBeUndefined();
     } finally {
       world.remove();
     }

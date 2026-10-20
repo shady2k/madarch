@@ -24,6 +24,7 @@ import type { ServeEnv } from '../product-wiki/serve.js';
 import { startServer } from '../server/http.js';
 import { createFillOrchestratorService, type FillOrchestratorService, type FillOrchestratorServiceOptions } from '../fill/orchestrator-host.js';
 import { createStagesFill } from './fill-stages.js';
+import { fillStatePaths, readFillJson } from './fill-runtime.js';
 import { createUpdateWatch, type UpdateWatch } from './fill-updates.js';
 import { UNIT_TOOL_PATH } from '../fill/unit-tools.js';
 import { selfCommand } from './self-command.js';
@@ -582,6 +583,26 @@ export function daemonFillOrchestrator(home: string, options: Omit<FillOrchestra
 }
 
 /**
+ * The landed fill's own state, where it is one that holds the product: the fill a
+ * person started from the wizard keeps `run.json` under the product's
+ * `.madarch/fill`, and a run that stands `running` or `paused` there is a fill of
+ * that product in progress. A product that never ran one, and one whose state
+ * cannot be read, answer nothing: an unreadable state file is not a fill that
+ * holds the product, and the update it would block is not this function's to guess.
+ */
+export async function landedFillOf(folder: string): Promise<{ status: string; file: string } | undefined> {
+  const paths = fillStatePaths(folder);
+  let run: { status?: unknown };
+  try {
+    run = await readFillJson<{ status?: unknown }>(paths.run);
+  } catch {
+    return undefined;
+  }
+  if (typeof run.status !== 'string') return undefined;
+  return run.status === 'running' || run.status === 'paused' ? { status: run.status, file: paths.run } : undefined;
+}
+
+/**
  * The update after commits to a product's default branch (madarch-tzte.26.2;
  * decision 0026, "Updates"): the watcher of the server's own products home, which
  * starts one debounced run of a product whose default branch moved. A start is the
@@ -590,13 +611,21 @@ export function daemonFillOrchestrator(home: string, options: Omit<FillOrchestra
  * next pass. The run is named after its product and commit, so one commit never
  * starts two runs, and its progress is what the fill progress answers.
  */
-export function daemonUpdateWatch(home: string, service: FillOrchestratorService, options: { readonly debounceMs?: number; readonly intervalMs?: number; readonly log?: (line: string) => void } = {}): UpdateWatch {
+export function daemonUpdateWatch(home: string, service: FillOrchestratorService, options: { readonly debounceMs?: number; readonly intervalMs?: number; readonly log?: (line: string) => void; readonly enabled?: () => Promise<boolean> | boolean } = {}): UpdateWatch {
   return createUpdateWatch({
     home,
     ...(options.debounceMs === undefined ? {} : { debounceMs: options.debounceMs }),
     ...(options.intervalMs === undefined ? {} : { intervalMs: options.intervalMs }),
+    ...(options.enabled === undefined ? {} : { enabled: options.enabled }),
     log: options.log ?? ((line: string) => console.log(`updates: ${line}`)),
     start: async (request) => {
+      // The landed fill — the one the wizard's own Start runs — keeps its state in the product's `.madarch/fill` and
+      // is no run of this service: an update started over it would be a second fill of one product at once, so the
+      // commit waits for it exactly as it waits for a run of the orchestrator (`startRun`'s chain, below).
+      const landed = await landedFillOf(request.product.folder);
+      if (landed !== undefined) {
+        return { started: false, deferred: true, reason: `the product ${JSON.stringify(request.product.name)} fills in ${landed.file}, which stands ${landed.status}: an update waits for that fill to end` };
+      }
       const answer = await service.run({ product: request.product, runId: request.runId });
       if (answer.ok) return { started: true };
       // A fill of the product is in progress: the store's own rule (`startRun`) says so, and the commit waits.
@@ -645,11 +674,11 @@ export async function serveDaemon(options: { home?: string; port: number; update
       watch = daemonUpdateWatch(home, orchestrator, options.updateWatch ?? {});
       const started = watch;
       watching = started.outset().then(() => undefined, (error: unknown) => {
-        console.error(`the updates after commits to a default branch could not be watched: ${(error as Error).message}`);
+        console.error(`the updates after commits to a default branch of the products home ${home} could not be watched, so no commit starts one: ${(error as Error).message}`);
         started.stop();
       });
     } catch (error) {
-      console.error(`the updates after commits to a default branch could not be watched: ${(error as Error).message}`);
+      console.error(`the updates after commits to a default branch of the products home ${home} could not be watched, so no commit starts one: ${(error as Error).message}`);
       watch?.stop();
       watch = undefined;
     }

@@ -623,9 +623,19 @@ export function createHandler(dependencies: {
         { method: 'GET', path: '/api/graph/archify', handle: (request: Request) => dependencies.graphDiagrams!.archify(request) },
       ] as Route[])),
       { method: 'GET', path: '/api/fill', handle: async (): Promise<Handled> => {
-        // The orchestrator's own run comes first (madarch-tzte.26.2): a run it keeps in the process's database —
-        // the update it started after a commit included — is what the fill progress shows. The state file answers
-        // where this process owns no orchestrator or the product never ran one there.
+        // Which run the panel shows: the landed fill's while it runs (the person started it from the wizard and is
+        // watching it), else the newest run the orchestrator keeps in this process's database — the update the
+        // background server started after a commit included — and the landed fill's own record where it never ran
+        // one of the orchestrator's (madarch-tzte.26.2).
+        const landed = wiki.fill();
+        if (landed.response.ok) {
+          try {
+            const body = await landed.response.clone().json() as { run?: { status?: unknown } };
+            if (body.run?.status === 'running' || body.run?.status === 'paused') return landed;
+          } catch {
+            // A body that does not read is not a run to prefer: the orchestrator's answer is asked below.
+          }
+        }
         const progress = dependencies.fillProgress;
         if (progress !== undefined && fillProductFolder !== undefined) {
           try {
@@ -635,7 +645,7 @@ export function createHandler(dependencies: {
             return refused(500, { message: `the fill's progress could not be read from this process's own runs: ${(error as Error).message}` });
           }
         }
-        return wiki.fill();
+        return landed;
       } },
       { method: 'POST', path: '/api/fill/start', handle: async (request) => {
         if (!startFill || fillProductFolder === undefined) return refused(503, { message: 'The fill entry point is not configured for this server' });

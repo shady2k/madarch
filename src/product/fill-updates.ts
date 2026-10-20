@@ -7,13 +7,14 @@
  * one of them moves, starts one update run of that product — debounced, so a
  * batch of quick commits is one run, and never over a fill already in progress.
  *
- * **What it costs when nothing happens.** Nothing: no git subprocess is started,
- * and no file is read on a timer. A commit moves a ref, and a ref is a file, so
- * each repository's own Git folder is watched (its branch's ref, `packed-refs`
- * and `HEAD`), and a head is read from those files — `refs/heads/<branch>`, else
- * the `packed-refs` line for it — never through `git`. The interval below is a
- * safety net for a watcher the system dropped, not the mechanism: it re-reads a
- * few small files per repository and starts no git.
+ * **What it costs when nothing happens.** No git subprocess is ever started: a
+ * commit moves a ref, and a ref is a file, so each repository's own Git folder is
+ * watched (its branch's ref, `packed-refs` and `HEAD`), and a head is read from
+ * those files — `refs/heads/<branch>`, else the `packed-refs` line for it — never
+ * through `git`. The interval below is a safety net for a watcher the system
+ * dropped, not the mechanism: once a minute it re-reads each product's manifest
+ * and its repositories' refs, a few small files, and reads no history and runs
+ * nothing.
  *
  * **What it remembers.** The head it last read of each repository, kept in
  * `<home>/.madarch/updates.json` beside the fill's own state, so a server
@@ -343,7 +344,9 @@ export function createUpdateWatch(options: UpdateWatchOptions): UpdateWatch {
   const intervalMs = options.intervalMs ?? DEFAULT_INTERVAL_MS;
   const clock = options.clock ?? Date.now;
   const log = options.log ?? (() => undefined);
-  const enabled = options.enabled ?? (async () => (await readChosenAgent(home)) !== undefined);
+  // The agent the wizard chose stands in the person's own home (`fill-wizard.ts`'s default, `homeFromEnv()`), not in
+  // the products home this watcher lists: the home passed here is where the products stand.
+  const enabled = options.enabled ?? (async () => (await readChosenAgent()) !== undefined);
   const watchPath = options.watchPath ?? ((path: string, onChange: () => void) => {
     const watcher = watch(path, { persistent: false }, () => onChange());
     watcher.on('error', (error: Error) => log(`the watcher on ${path} failed, and the interval reads the refs until it works again: ${error.message}`));
@@ -357,6 +360,8 @@ export function createUpdateWatch(options: UpdateWatchOptions): UpdateWatch {
   const said = new Set<string>();
   let interval: ReturnType<typeof setInterval> | undefined;
   let coalesce: ReturnType<typeof setTimeout> | undefined;
+  /** The timer that runs the pass a waiting commit's debounce ends, so one commit's run does not wait for the interval. */
+  let due: ReturnType<typeof setTimeout> | undefined;
   let stopped = false;
   let tail: Promise<UpdatePassReport> = Promise.resolve({ waiting: [], asked: [], unreadable: [] });
 
@@ -377,6 +382,17 @@ export function createUpdateWatch(options: UpdateWatchOptions): UpdateWatch {
         say(`watch:${path}`, `the watcher on ${path} could not be registered, and the interval reads that repository's refs instead: ${(error as Error).message}`);
       }
     }
+  }
+
+  /** Runs one pass when a waiting commit's debounce ends: the update a commit asks for does not wait for the interval. */
+  function scheduleDue(delayMs: number): void {
+    if (stopped) return;
+    if (due !== undefined) clearTimeout(due);
+    due = setTimeout(() => {
+      due = undefined;
+      void enqueue();
+    }, Math.max(1, delayMs));
+    due.unref();
   }
 
   /** Runs one pass a moment after a change: the refs a batch of commits writes are one pass, not one per write. */
@@ -421,6 +437,8 @@ export function createUpdateWatch(options: UpdateWatchOptions): UpdateWatch {
           say(`head:${key}`, `${read.reason}, so that repository is not watched until it reads`);
           continue;
         }
+        // A repository that reads again says why it did not the next time it does not.
+        said.delete(`head:${key}`);
         const before = seen[key];
         if (before === undefined) {
           // The first read of a repository is its baseline: no run for work that stood before the watcher looked.
@@ -438,6 +456,10 @@ export function createUpdateWatch(options: UpdateWatchOptions): UpdateWatch {
         }
       }
     }
+    // A commit whose debounce has not ended yet names when its pass is due: one commit's update follows its own
+    // quiet period, not the interval's next minute.
+    const early = [...waiting.values()].filter((entry) => now - entry.since < debounceMs);
+    if (early.length > 0) scheduleDue(Math.min(...early.map((entry) => entry.since + debounceMs - now)) + 1);
     const due = [...waiting.values()].filter((entry) => now - entry.since >= debounceMs);
     if (due.length > 0) {
       let mayRun = false;
@@ -449,6 +471,11 @@ export function createUpdateWatch(options: UpdateWatchOptions): UpdateWatch {
         // commits keep waiting, and the reason is said once rather than a pass an hour.
         readFailed = true;
         say('enabled-unreadable', `no update runs by itself until this home's agent choice can be read, and a commit waits for it: ${(error as Error).message}`);
+      }
+      if (mayRun) {
+        // A choice that reads again says why a commit waited the next time it does not read.
+        said.delete('disabled');
+        said.delete('enabled-unreadable');
       }
       if (!mayRun && readFailed) {
         // The commits keep waiting: they are asked for again once the choice reads.
@@ -488,6 +515,7 @@ export function createUpdateWatch(options: UpdateWatchOptions): UpdateWatch {
               waiting.delete(seenKey(candidate.product, candidate.repository));
               handled[seenKey(candidate.product, candidate.repository)] = { branch: candidate.branch, commit: candidate.commit };
             }
+            said.delete(`deferred:${entry.product}`);
             log(`the update of the product ${JSON.stringify(entry.product)} started as ${request.runId} at ${entry.branch} ${entry.commit}`);
             continue;
           }
@@ -548,8 +576,10 @@ export function createUpdateWatch(options: UpdateWatchOptions): UpdateWatch {
       stopped = true;
       if (interval !== undefined) clearInterval(interval);
       if (coalesce !== undefined) clearTimeout(coalesce);
+      if (due !== undefined) clearTimeout(due);
       interval = undefined;
       coalesce = undefined;
+      due = undefined;
       for (const close of watchers.values()) {
         try {
           close();

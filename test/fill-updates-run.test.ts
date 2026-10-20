@@ -11,8 +11,9 @@
  * watching person finds it in `GET /api/fill` — the same answer the panel shows.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { spawnSync } from 'node:child_process';
+import { runGit } from '../src/product/git.js';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { fillStatePaths } from '../src/product/fill-runtime.js';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startServer, type StartedServer } from '../src/index.js';
@@ -34,14 +35,17 @@ let lastRequest = '';
 let lines: string[] = [];
 let commit = '';
 
+/** One git call in a fixture checkout, through the project's own runner (which strips a caller's loader variables). */
 function git(folder: string, ...args: string[]): string {
-  return spawnSync('git', args, { cwd: folder, encoding: 'utf8', env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' } }).stdout.trim();
+  const answer = runGit(folder, args);
+  if (!answer.ok) throw new Error(`git ${args.join(' ')} failed in ${folder}: ${answer.output}`);
+  return answer.output;
 }
 
+/** Commits everything the fixture folder holds, under the fixture's own identity, and answers the commit. */
 function commitAll(folder: string, message: string): string {
   git(folder, 'add', '-A');
-  const made = spawnSync('git', ['-c', 'user.name=Update', '-c', 'user.email=update@example.invalid', '-c', 'commit.gpgsign=false', 'commit', '-qm', message], { cwd: folder, encoding: 'utf8', env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' } });
-  if (made.status !== 0) throw new Error(`git commit failed in ${folder}: ${made.stderr}`);
+  git(folder, '-c', 'user.name=Update', '-c', 'user.email=update@example.invalid', '-c', 'commit.gpgsign=false', 'commit', '-qm', message);
   return git(folder, 'rev-parse', 'HEAD');
 }
 
@@ -65,7 +69,9 @@ beforeAll(async () => {
   const filled = await service.run({ product: { name: 'shop', folder: product }, runId: 'first-fill' });
   if (!filled.ok) throw new Error(`the first fill was refused: ${filled.code}: ${filled.reason}`);
   first = filled;
-  watch = daemonUpdateWatch(home, service, { debounceMs: 40, intervalMs: 0, log: (line) => lines.push(line) });
+  // The gate reads the person's own home for the wizard's agent choice, which a test does not set: it names its own,
+  // and the gate itself is `test/fill-updates.test.ts`'s subject.
+  watch = daemonUpdateWatch(home, service, { debounceMs: 40, intervalMs: 0, log: (line) => lines.push(line), enabled: () => true });
   await watch.outset();
   // One commit on the default branch of the product repository, after the watcher read its baseline.
   writeFileSync(join(product, 'src', 'total.ts'), 'export function total(): number {\n  return 43;\n}\n');
@@ -213,6 +219,71 @@ describe('the person\'s control of a run the server keeps', () => {
       expect(wrong.status).toBe(400);
     } finally {
       await server?.stop();
+    }
+  }, 900_000);
+});
+
+describe('the landed fill beside the update', () => {
+  /** The landed fill's state, as the wizard's own Start writes it: a run record and its two folders. */
+  function writeLandedFill(status: string): void {
+    const state = fillStatePaths(product);
+    mkdirSync(state.units, { recursive: true });
+    mkdirSync(state.outputs, { recursive: true });
+    writeFileSync(state.run, `${JSON.stringify({ id: 'landed-1', status, createdAt: new Date().toISOString(), controlOpen: status === 'running' })}\n`);
+    writeFileSync(state.events, '');
+  }
+
+  function removeLandedFill(): void {
+    rmSync(fillStatePaths(product).root, { recursive: true, force: true });
+  }
+
+  test('the landed fill\'s live run is what the progress shows while it runs', async () => {
+    let server: StartedServer | undefined;
+    try {
+      writeLandedFill('running');
+      server = await startServer({
+        productFolder: product,
+        port: 0,
+        host: '127.0.0.1',
+        orchestrator: { stop: async () => undefined, progress: (folder) => service!.progress(folder) },
+      });
+      const answered = await fetch(`${server.url}/api/fill`);
+      const body = await answered.json() as { run: { id: string; status: string } };
+      expect(body.run.id).toBe('landed-1');
+      expect(body.run.status).toBe('running');
+      // The landed fill ends: the orchestrator's newest run is what the panel shows next.
+      writeLandedFill('complete');
+      const after = await fetch(`${server.url}/api/fill`);
+      expect(((await after.json()) as { run: { id: string } }).run.id).toBe(updateRunId('shop', commit));
+    } finally {
+      await server?.stop();
+      removeLandedFill();
+    }
+  }, 900_000);
+
+  test('an update waits for the landed fill of its product, and follows it when it ends', async () => {
+    try {
+      writeLandedFill('running');
+      writeFileSync(join(product, 'src', 'order.ts'), 'export function checkout(): number {\n  return 43;\n}\n');
+      const moved = commitAll(product, 'three');
+      const deferred = await (async () => {
+        await watch!.pass();
+        await pause(60);
+        return await watch!.pass();
+      })();
+      const answer = deferred.asked[0]?.answer;
+      expect(answer?.started).toBe(false);
+      if (answer === undefined || answer.started) return;
+      expect('deferred' in answer && answer.deferred).toBe(true);
+      expect('reason' in answer && answer.reason).toContain(join(product, '.madarch', 'fill', 'run.json'));
+      expect('reason' in answer && answer.reason).toContain('running');
+      // The landed fill ends: the commit that waited is the run the next pass asks for.
+      writeLandedFill('complete');
+      const started = await watch!.pass();
+      expect(started.asked.map((entry) => entry.request.commit)).toEqual([moved]);
+      expect(started.asked[0]?.answer.started).toBe(true);
+    } finally {
+      removeLandedFill();
     }
   }, 900_000);
 });
