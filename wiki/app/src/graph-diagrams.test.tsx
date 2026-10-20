@@ -225,6 +225,72 @@ describe('a page’s diagrams', () => {
     }
   });
 
+  test('a diagram being drawn stands in the app’s own words inside its card, never as an empty frame', async () => {
+    // The Mermaid box is a bordered card: an empty one is the empty frame the coordinator saw. Until the drawing
+    // stands, the card says what it is waiting for.
+    into(createElement(DiagramTabs, { diagram: diagram(), repos: repos.repos }));
+    await until(() => document.querySelector('[data-testid="mermaid-diagram"]') !== null, 'the Mermaid card');
+    const card = document.querySelector('[data-testid="mermaid-diagram"]');
+    // The card is never empty: it holds the app's own words until the renderer's output stands, and the output after.
+    expect(card?.children.length ?? 0).toBeGreaterThan(0);
+    const loading = card?.querySelector('[data-testid="mermaid-loading"]') ?? null;
+    const drawing = card?.querySelector('svg') ?? null;
+    expect(loading !== null || drawing !== null).toBe(true);
+    if (drawing === null) expect(loading?.textContent).toBe('Drawing the diagram…');
+  });
+
+  test('the app stops watching once the diagram is near: no listener and no timer is left behind', async () => {
+    // A page of five diagrams pays five looks, not five looks every 400 ms: the scroll listener, the resize listener,
+    // the interval and the frame are gone the moment the diagram is near.
+    const measured = Element.prototype.getBoundingClientRect;
+    const added: string[] = [];
+    const removed: string[] = [];
+    const realAdd = window.addEventListener.bind(window);
+    const realRemove = window.removeEventListener.bind(window);
+    let intervals = 0;
+    let cleared = 0;
+    const realSetInterval = window.setInterval.bind(window);
+    const realClearInterval = window.clearInterval.bind(window);
+    let top = 5000;
+    try {
+      Element.prototype.getBoundingClientRect = function measuredBox(this: Element): DOMRect {
+        return { width: 800, height: 40, top, bottom: top + 40, left: 0, right: 800, x: 0, y: top, toJSON: () => ({}) } as DOMRect;
+      };
+      (window as unknown as { addEventListener: typeof window.addEventListener }).addEventListener = ((type: string, ...rest: unknown[]) => {
+        added.push(type);
+        return (realAdd as unknown as (...args: unknown[]) => void)(type, ...rest);
+      }) as typeof window.addEventListener;
+      (window as unknown as { removeEventListener: typeof window.removeEventListener }).removeEventListener = ((type: string, ...rest: unknown[]) => {
+        removed.push(type);
+        return (realRemove as unknown as (...args: unknown[]) => void)(type, ...rest);
+      }) as typeof window.removeEventListener;
+      (window as unknown as { setInterval: typeof window.setInterval }).setInterval = ((handler: TimerHandler, ms?: number) => {
+        intervals += 1;
+        return realSetInterval(handler, ms);
+      }) as typeof window.setInterval;
+      (window as unknown as { clearInterval: typeof window.clearInterval }).clearInterval = ((id?: number) => {
+        cleared += 1;
+        return realClearInterval(id);
+      }) as typeof window.clearInterval;
+      into(createElement(DiagramTabs, { diagram: diagram(), repos: repos.repos }));
+      await until(() => document.querySelector('[data-testid="graph-diagram-deferred"]') !== null, 'the deferral’s words');
+      expect(added.filter((type) => type === 'scroll' || type === 'resize').sort()).toEqual(['resize', 'scroll']);
+      expect(intervals).toBe(1);
+      expect(removed).toEqual([]);
+      top = 100;
+      window.dispatchEvent(new Event('scroll'));
+      await until(() => document.querySelector('[data-testid="mermaid-diagram"]') !== null, 'the drawing');
+      expect(removed.filter((type) => type === 'scroll' || type === 'resize').sort()).toEqual(['resize', 'scroll']);
+      expect(cleared).toBe(1);
+    } finally {
+      Element.prototype.getBoundingClientRect = measured;
+      (window as unknown as { addEventListener: typeof window.addEventListener }).addEventListener = realAdd;
+      (window as unknown as { removeEventListener: typeof window.removeEventListener }).removeEventListener = realRemove;
+      (window as unknown as { setInterval: typeof window.setInterval }).setInterval = realSetInterval;
+      (window as unknown as { clearInterval: typeof window.clearInterval }).clearInterval = realClearInterval;
+    }
+  });
+
   test('a tab the reader opens is drawn at once, wherever the diagram stands', async () => {
     // A click is the reader's own answer that the diagram is in front of them: the panel stands without waiting for a
     // scroll, so a tab is never a button that does nothing.

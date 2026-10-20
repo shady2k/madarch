@@ -346,7 +346,7 @@ describe('the LikeC4 page of a diagram', () => {
 
 describe('which diagrams a page draws', () => {
   test('by the kind: a repository draws five, a container its own, and a symbol no spec until its interactions are read', () => {
-    const repository = diagramSpecsFor({ kind: 'repository', id: 'repository:1' });
+    const repository = diagramSpecsFor({ kind: 'repository', id: 'repository:1', moduleScopes: undefined });
     expect(repository.map((spec) => spec.type)).toEqual(['c4-context', 'c4-container', 'c4-component', 'module-dependency', 'er']);
     expect(repository[0]!.nodes).toEqual([]);
     expect(repository.slice(1).map((spec) => spec.nodes)).toEqual([['repository:1'], ['repository:1'], ['repository:1'], ['repository:1']]);
@@ -359,13 +359,13 @@ describe('which diagrams a page draws', () => {
       ['module-dependency', ['module:1']],
       ['er', ['repository:1']],
     ]);
-    expect(diagramSpecsFor({ kind: 'package', id: 'package:1' })).toEqual([{ type: 'c4-container', nodes: ['package:1'] }]);
-    expect(diagramSpecsFor({ kind: 'deploy-unit', id: 'deploy-unit:1' })).toEqual([{ type: 'c4-container', nodes: ['deploy-unit:1'] }]);
-    expect(diagramSpecsFor({ kind: 'table', id: 'table:1' }).map((spec) => spec.type)).toEqual(['er', 'c4-container']);
+    expect(diagramSpecsFor({ kind: 'package', id: 'package:1', moduleScopes: undefined })).toEqual([{ type: 'c4-container', nodes: ['package:1'] }]);
+    expect(diagramSpecsFor({ kind: 'deploy-unit', id: 'deploy-unit:1', moduleScopes: undefined })).toEqual([{ type: 'c4-container', nodes: ['deploy-unit:1'] }]);
+    expect(diagramSpecsFor({ kind: 'table', id: 'table:1', moduleScopes: undefined }).map((spec) => spec.type)).toEqual(['er', 'c4-container']);
     // A column is drawn by its table's ER view, and by its repository's when the graph holds no such table.
-    expect(diagramSpecsFor({ kind: 'column', id: 'column:1', tableId: 'table:1' })).toEqual([{ type: 'er', nodes: ['table:1'] }]);
-    expect(diagramSpecsFor({ kind: 'column', id: 'column:1', repositoryId: 'repository:1' })).toEqual([{ type: 'er', nodes: ['repository:1'] }]);
-    expect(diagramSpecsFor({ kind: 'column', id: 'column:1' })).toEqual([]);
+    expect(diagramSpecsFor({ kind: 'column', id: 'column:1', tableId: 'table:1', moduleScopes: undefined })).toEqual([{ type: 'er', nodes: ['table:1'] }]);
+    expect(diagramSpecsFor({ kind: 'column', id: 'column:1', repositoryId: 'repository:1', moduleScopes: undefined })).toEqual([{ type: 'er', nodes: ['repository:1'] }]);
+    expect(diagramSpecsFor({ kind: 'column', id: 'column:1', moduleScopes: undefined })).toEqual([]);
     // A module is its own child modules beside the modules it relates to, a state by its machine, and a symbol by no
     // spec of its own: its sequence is made once the graph answers which interactions name it (`readNodeDiagrams`).
     // A module's own child modules are its component view; the second view is its children again when it relates to no
@@ -378,20 +378,20 @@ describe('which diagrams a page draws', () => {
     expect(diagramSpecsFor({ kind: 'module', id: 'module:1', repositoryId: 'repository:1', moduleScopes: { neighbours: [], childModules: false } })).toEqual([{ type: 'c4-component', nodes: ['module:1'] }]);
     // A caller that read no scope draws the module's component view alone, and a module naming no repository is still
     // drawn: neither view the two specs of a module is made of reads the repository's own fact.
-    expect(diagramSpecsFor({ kind: 'module', id: 'module:1', repositoryId: 'repository:1' })).toEqual([{ type: 'c4-component', nodes: ['module:1'] }]);
-    expect(diagramSpecsFor({ kind: 'module', id: 'module:1' })).toEqual([{ type: 'c4-component', nodes: ['module:1'] }]);
+    expect(diagramSpecsFor({ kind: 'module', id: 'module:1', repositoryId: 'repository:1', moduleScopes: undefined })).toEqual([{ type: 'c4-component', nodes: ['module:1'] }]);
+    expect(diagramSpecsFor({ kind: 'module', id: 'module:1', moduleScopes: undefined })).toEqual([{ type: 'c4-component', nodes: ['module:1'] }]);
     // A module with neighbours is drawn as itself among them: no child of its scope holds a neighbour, so the view
     // names the modules it draws.
     expect(diagramSpecsFor({ kind: 'module', id: 'module:1', repositoryId: 'repository:1', moduleScopes: { neighbours: ['module:2'] } })).toEqual([
       { type: 'c4-component', nodes: ['module:1'] },
       { type: 'module-dependency', nodes: ['module:1', 'module:2'], level: 0 },
     ]);
-    expect(diagramSpecsFor({ kind: 'state', id: 'state:1' })).toEqual([{ type: 'state', nodes: ['state:1'] }]);
-    expect(diagramSpecsFor({ kind: 'symbol', id: 'symbol:1' })).toEqual([]);
-    expect(diagramSpecsFor({ kind: 'api-endpoint', id: 'api-endpoint:1', repositoryId: 'repository:1' })).toEqual([{ type: 'c4-container', nodes: ['repository:1'] }]);
+    expect(diagramSpecsFor({ kind: 'state', id: 'state:1', moduleScopes: undefined })).toEqual([{ type: 'state', nodes: ['state:1'] }]);
+    expect(diagramSpecsFor({ kind: 'symbol', id: 'symbol:1', moduleScopes: undefined })).toEqual([]);
+    expect(diagramSpecsFor({ kind: 'api-endpoint', id: 'api-endpoint:1', repositoryId: 'repository:1', moduleScopes: undefined })).toEqual([{ type: 'c4-container', nodes: ['repository:1'] }]);
     // A question, a rule and an entity proposal stand in no diagram of 0026's seven.
-    expect(diagramSpecsFor({ kind: 'question', id: 'question:1', repositoryId: 'repository:1' })).toEqual([]);
-    expect(diagramSpecsFor({ kind: 'rule', id: 'rule:1' })).toEqual([]);
+    expect(diagramSpecsFor({ kind: 'question', id: 'question:1', repositoryId: 'repository:1', moduleScopes: undefined })).toEqual([]);
+    expect(diagramSpecsFor({ kind: 'rule', id: 'rule:1', moduleScopes: undefined })).toEqual([]);
   });
 });
 

@@ -304,17 +304,15 @@ describe('the size of a view', () => {
     const model = await buildDiagram({ type: 'module-dependency', nodes: [fx.web.id] }, clean, { limits: { nodes: 2 } });
     expect(labels(model)).toEqual(['acme-web']);
     expect(model.collapsed).toBe(true);
-    expect(model.marker).toBe('collapsed: the view holds 3 elements and the 2-element budget holds 1: each element stands for the level above it, and its link opens the view it stands for');
     const stood = [fx.webApp.id, fx.webApi.id, fx.webShared.id].sort();
     expect(model.elements[0]!.standsFor).toEqual(stood);
-    // A module view draws what stands below the scopes it names, so the link opens the scope the folded modules stand
-    // in, at depth 1 — naming the modules themselves would open the level below the one the element stands for.
-    expect(model.elements[0]!.drillDown).toEqual({
-      view: { type: 'module-dependency', level: 1, nodes: [fx.web.id] },
-      href: `/p/graph?diagram=module-dependency&level=1&node=${fx.web.id}`,
-    });
-    // The drill-down is a specification this module accepts, and it draws the modules the element stands for.
-    expect(labels(await buildDiagram(model.elements[0]!.drillDown!.view, clean, { limits: { nodes: 40 } }))).toEqual(['web-api', 'web-app', 'web-shared']);
+    // The element stands for the three modules, and the level above them is the scope the view itself names: a link
+    // back to that specification would open this very view again and collapse the same way, so no link is drawn and
+    // the marker says where a reader continues (madarch-tzte.23.7; the page's own scope is where they came from).
+    expect(model.elements[0]!.drillDown).toBeUndefined();
+    expect(model.marker).toBe('collapsed: the view holds 3 elements and the 2-element budget holds 1: each element stands for the level above it, and an element whose level above is this view itself opens its own page rather than the same view again');
+    expect(model.elements[0]!.page?.href).toBe(`/p/graph/${fx.web.id}`);
+
   });
 
   test('a module view at a depth of zero draws the modules it names themselves, and folds them like any other view', async () => {
@@ -337,11 +335,11 @@ describe('the size of a view', () => {
     expect(folded.elements[0]!.id).toBe(fx.webApi.id);
     expect(folded.collapsed).toBe(true);
     expect(folded.elements[0]!.standsFor).toEqual([fx.webApiHandlers.id, fx.webApiRoutes.id].sort());
-    expect(folded.elements[0]!.drillDown).toEqual({
-      view: { type: 'module-dependency', level: 1, nodes: [fx.webApi.id] },
-      href: `/p/graph?diagram=module-dependency&level=1&node=${fx.webApi.id}`,
-    });
-    expect(labels(await buildDiagram(folded.elements[0]!.drillDown!.view, clean, { limits: { nodes: 40 } }))).toEqual(['web-api-handlers', 'web-api-routes']);
+    // The scope the view names is the nearest level above the elements it folded, so a drill-down would be this very
+    // specification: the element opens its own page instead, and the marker says so (madarch-tzte.23.7). Its page
+    // draws the two clusters, because a page is read at the default budget and not at this view's one.
+    expect(folded.elements[0]!.drillDown).toBeUndefined();
+    expect(labels(await buildDiagram({ type: 'module-dependency', nodes: [fx.webApi.id] }, clean))).toEqual(['web-api-handlers', 'web-api-routes']);
   });
 
   test('a view no element of which has a level above it says the budget was not met instead of drawing fewer nodes', async () => {
@@ -380,12 +378,10 @@ describe('the size of a view', () => {
     // links are specs with no level named, because neither type takes one of its own.
     const component = await buildDiagram({ type: 'c4-component', nodes: [fx.shop.id] }, clean, { limits: { nodes: 1 } });
     expect(labels(component)).toEqual(['acme-shop']);
-    const componentDrill = component.elements[0]!.drillDown!;
-    expect(componentDrill).toEqual({
-      view: { type: 'c4-component', nodes: [fx.shop.id] },
-      href: `/p/graph?diagram=c4-component&node=${fx.shop.id}`,
-    });
-    expect(labels(await buildDiagram(componentDrill.view, clean, { limits: { nodes: 40 } }))).toEqual(['checkout', 'payment']);
+    // The scope the view names is again the nearest level above the modules it folded, so its element opens its page
+    // rather than itself; the page draws the two modules at the default budget.
+    expect(component.elements[0]!.drillDown).toBeUndefined();
+    expect(labels(await buildDiagram({ type: 'c4-component', nodes: [fx.shop.id] }, clean))).toEqual(['checkout', 'payment']);
     const er = await buildDiagram({ type: 'er', nodes: [fx.shop.id] }, clean, { limits: { nodes: 2 } });
     // The two tables fold into their repository; the table no fact holds stands for nothing and stays as it is.
     expect(labels(er)).toEqual(['acme-shop', 'acme-shop:public.audit (unresolved)']);
@@ -416,7 +412,7 @@ describe('the size of a view', () => {
     const model = await buildDiagram({ type: 'module-dependency', nodes: [fx.web.id] }, ghostly, { limits: { nodes: 1 } });
     expect(labels(model)).toEqual(['acme-web']);
     expect(model.collapsed).toBe(true);
-    expect(model.marker).toBe('collapsed: the view holds 3 elements and the 1-element budget holds 1: each element stands for the level above it, and its link opens the view it stands for');
+    expect(model.marker).toBe('collapsed: the view holds 3 elements and the 1-element budget holds 1: each element stands for the level above it, and an element whose level above is this view itself opens its own page rather than the same view again');
     expect(model.elements[0]!.standsFor).toEqual([fx.webApp.id, fx.webApi.id, fx.webShared.id].sort());
   });
 

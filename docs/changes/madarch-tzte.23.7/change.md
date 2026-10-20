@@ -64,10 +64,9 @@ until then.
 - **The renderers.** Mermaid, archify and LikeC4 and their switcher are
   madarch-tzte.23.4's; this change draws none of them differently and adds no tab.
 - **The page model and its reads.** The page set, the page model and the live channel
-  are madarch-tzte.23.1's. Page speed on a large tree is madarch-tzte.23.8's, which the
-  worker of this change kept out of the files it touched
-  (`src/fill/graph-diagrams.ts`, `src/fill/diagrams.ts`, `wiki/app/src/graph-diagrams.tsx`
-  and its catalogues) and rebased on `main` before the final push.
+  are madarch-tzte.23.1's. Page speed on a large tree is madarch-tzte.23.8's; this change
+  adds no cache, no query change and no route, and the two tasks touch the same three
+  regions — see "Open points for the integrator" for the landing order.
 - **`activity`, `class` and `deployment`.** The schema holds no kind for a step, an
   attribute or a deployment target (23.2's own limitation), and no deterministic stage
   writes `table`, `column`, `state`, `transition` or `interaction` (23.5's own evidence).
@@ -76,7 +75,7 @@ until then.
 
 ## Preserved contracts
 
-- product-wiki/pages: unchanged — a document page is still the product's Markdown in git, and a graph page still reads its diagrams from the server as its page stands; a diagram the reader has not reached is held back in the page's own words rather than drawn as an empty frame, and a diagram the reader's tab opens is drawn at once.
+- product-wiki/pages: unchanged — a document page is still the product's Markdown in git, and a graph page still reads its diagrams from the server as its page stands; a diagram the reader has not reached is held back in the page's own words rather than mounted, a diagram that is being drawn stands in the app's own words inside its card rather than as an empty frame, and a diagram the reader's tab opens is drawn at once.
 - product-wiki/architecture: unchanged — the Architecture section's own views keep their Mermaid, LikeC4 and archify panels and their mount rules; this change's deferral is the graph diagrams section's own.
 - product-wiki/internationalization: unchanged — the one string this change adds ("The diagram is drawn when you scroll to it.") is written in English and Russian, and no other string moves.
 - server/serves-wiki: unchanged — the routes and the shapes of their answers are as madarch-tzte.23.4 left them; what changes is which nodes a page's diagram specs name, which is the page's own answer and not an address.
@@ -100,14 +99,15 @@ None.
 
 - **A repository page draws the first level of its clustering that has more than one module.** Stage 5 seeds the module tree with the packages and splits a cluster that is over its size threshold by the folder its files stand in, so a repository of one package is one top-level module holding a level of folders: the structure a reader wants is that level. `moduleViewScope` (`src/fill/graph-diagrams.ts`) walks the tree down from the repository while a level holds exactly one module and answers the scope whose children are the first level with more than one; a repository whose top level already has more than one, one whose single module has nothing below it, and one the stages never clustered all answer the repository itself. The page's two module views are then scoped by that module and not by the repository, and the spec's title says which module they draw (`Module dependencies: madarch`).
 - **A module page draws its own child modules, and itself among the modules of its level it relates to.** The component view is scoped by the module, which draws the level below it. The module dependencies view names the module *and its neighbours*, at a depth of zero — a new depth (below) — because a neighbour is no child of the module's scope: no element a view of the module's children holds could stand for it.
-- **A neighbour is read from the graph's own imports, rolled up the way the view rolls them up.** `moduleNeighbours` takes the modules of the module's level (its parent's children, or the repository's top-level ones), reads the `import` and `dependency` edges of the repository — the two kinds a module-dependency view draws — and rolls each end up to the nearest module of that level in its `contains` chain. So a file importing a file three levels down in another module names that other module, exactly as the view that draws the two folds the arrow. An end the graph does not hold, an end inside the module, and an end that reaches no module of the level (a file at the repository's root outside every module) are no neighbour: the view could not place them either. A module page makes four reads for this: the module's own fact, its level's modules, the repository's `import` and `dependency` edges, and the `contains` chains of those edges' ends — of which the last two scale with the repository's import count and not with the module, and the edges are the kinds the page's own module-dependency view reads anyway.
+- **A neighbour is read from the graph's own imports, rolled up the way the view rolls them up.** `moduleNeighbours` takes the modules of the module's level (its parent's children, or the repository's top-level ones), reads the `import` and `dependency` edges of the repository — the two kinds a module-dependency view draws — and rolls each end up to the nearest module of that level in its `contains` chain. So a file importing a file three levels down in another module names that other module, exactly as the view that draws the two folds the arrow. An end the graph does not hold, an end inside the module, and an end that reaches no module of the level (a file at the repository's root outside every module) are no neighbour: the view could not place them either. A module page makes five reads for this: the module's own fact, whether it holds child modules, its level's modules, the repository's `import` and `dependency` edges, and the `contains` chains of those edges' ends — of which the last two scale with the repository's import count and not with the module, and the edges are the kinds the page's own module-dependency view reads anyway.
 - **A depth of zero means the modules a view names themselves.** `module-dependency`'s `level` is its depth under the scopes it names; `0` draws the scopes and `1` (the default) what stands below them, and `modulesBelow` answers the container itself at zero. Nothing else changes: a C4 type still names no level, and a level below zero is refused as it was — with the depth's own words only for a type that takes a depth.
   - **A depth of zero names modules, and a view that names no module is refused rather than drawn empty.** Only a module has itself to stand at that depth, so a spec naming a repository (or a table, or nothing) at depth 0 is refused by name: an empty model would tell the reader the graph holds nothing where it holds every module below the node.
   - **A collapsed depth-zero view opens the level its modules stand in.** Its element stands for modules, so its drill-down is the level above them at depth 1 (which draws exactly them); naming them at depth 0 again would open the view that just collapsed, and a reader would go round in a circle.
-- **A module with no neighbour has its children drawn by the second view; a leaf keeps one view.** A module whose level relates it to nothing (the repository's single top-level module) would otherwise draw a diagram of itself, so its module-dependency view falls back to its children — the same elements as its component view, with the two kinds a module dependency is made of. A module that holds no child module either keeps **one** diagram: two diagrams of one box say nothing twice, and a module that nothing relates to and that holds nothing is exactly one box.
+- **A module with no neighbour has its children drawn by the second view; a module that holds no child keeps one box.** A module whose level relates it to nothing (the repository's single top-level module) would otherwise draw a diagram of itself, so its module-dependency view falls back to its children — the same elements as its component view, with the two kinds a module dependency is made of. A module that holds no child module either keeps **one** diagram: two diagrams of one box say nothing twice, and a module that nothing relates to and that holds nothing is exactly one box. A leaf module that *does* have neighbours keeps both: its component view answers "what is inside me" with itself (one box carrying the module's label and its place in code), and its module-dependency view draws it among the modules it relates to.
+- **A Mermaid frame says what it is waiting for.** Mermaid draws asynchronously, and the box it draws into is a bordered card: an empty one is exactly the empty frame the coordinator saw. Until the drawing stands, the card holds the app's own words ("Drawing the diagram…"), so the box is never empty — not for a reader's first screen, and not for the moment between a mount and its render.
 - **A diagram is drawn when the reader comes near it.** The section mounts a frame's renderer only when the diagram stands within a screenful of the reader's window (`useNearViewport`: 600 px above and below it), and the answer latches: a diagram is drawn once and never again. Until then the page stands in its own words ("The diagram is drawn when you scroll to it."), so a frame is never an empty box; and a tab the reader clicks is drawn at once whatever the position says, so no click is a button that does nothing. A document that lays nothing out (a test's DOM, a hidden container) draws at once: holding a drawing back is an optimisation of a long page, never a condition on the diagram.
   - **The position is read off the element's own box, not taken from `IntersectionObserver`.** The first attempt used the observer with `rootMargin: 600px`, and this change's own walk caught it: in headless Chromium the two diagrams that stood inside the margin at load were drawn, and the two below it stayed deferred through the whole scroll — the observer reported its first state and no later one. A drawing is a reader's, so the app reads the box on every scroll (in the capture phase, so a box inside the page that scrolls counts too), on every resize, once on the next animation frame, and every 400 ms until the diagram is near — and the moment it is near, the listeners, the interval and the frame are dropped. The walk's numbers below are that mechanism's.
-- **The walk reads the page the way a reader does, and says so in numbers.** `scripts/graph-pages-walk.ts` gains a scroll pass: it takes the window from the top of the page to its foot a screenful at a time, waits at each step for the diagram that has just come into view to draw, records every diagram's frame (which renderer is mounted, the Mermaid drawing's boxes, labels and size, the words of a deferred, empty or failed frame), and names in `framesWithoutADrawing` any diagram that still holds no drawing once the reader has been down the whole page. Its screenshots of a diagram are now of the diagram's own tabs and frame (a clip of that box) beside the window shot 23.5's record named.
+- **The walk reads the page the way a reader does, and says so in numbers.** `scripts/graph-pages-walk.ts` gains a scroll pass: it takes the window from the top of the page to its foot 600 px at a time, waits at each step for the diagram that has just come into view to draw, records every diagram's frame (which renderer is mounted, the Mermaid drawing's boxes, labels and size, the words of a deferred, empty or failed frame), and names in `framesWithoutADrawing` any diagram that still holds no drawing once the reader has been down the whole page. Its screenshots of a diagram are now of the diagram's own tabs and frame (a clip of that box) beside the window shot 23.5's record named.
 
 ## Acceptance evidence
 
@@ -264,13 +264,30 @@ Not run, and not claimed: the owner runs Stryker once per assembled stage, off t
 (the worker rules say "Do NOT run Stryker"), and acceptance escalates this change's
 `mutation` check to the owner per `mutationFallback: escalate` in `.shady2k/config.json`.
 
+### Open points for the integrator
+
+- **madarch-tzte.23.8 lands after this change.** Both branches rewrite
+  `scripts/graph-pages-walk.ts` inside `livePhase` (this one inserts the scroll pass and
+  the neighbours module page and turns three window shots into per-diagram clips; 23.8
+  adds its speed phase beside them), both touch `src/fill/graph-diagrams.ts` (this one
+  `readNodeDiagrams` and the new `moduleScopesOf`; 23.8 the same read path, which it
+  reworks to build and keep models faster), and both touch the app's diagram section.
+  23.8's record already declares that this change makes the diagrams' node choice, so the
+  order that needs the least rebasing is **23.7 first, then 23.8 rebased onto it**; a
+  module page now costs the reads named above, which 23.8's own measurements should
+  expect.
+- **The LikeC4 tabs of the two small C4 views still say `data-likec4-undrawn="empty"`**
+  (c4-context with 2 elements, c4-container with 1) while the component view with 9
+  elements draws (`svgs: 3`). That is madarch-pdkl's own ground and not this change's.
+
 ### Where the receipts are
 
-The `static`, `test`, `review` and `mutation` records are tracker comments on
-`madarch-tzte.23.7` (`check: {"id", "status", "reference", "revision"}` lines), and the
-queue entry is `/home/dev/.herdr/worktrees/madarch/feature-wiki-usable/.integration-queue.md`
-— both outside this tree by the set's own design (`.shady2k/integration.md`, "Evidence
-level: records"), so no file here holds them.
+The `static` and `test` records are tracker comments on `madarch-tzte.23.7`
+(`check: {"id", "status", "reference", "revision"}` lines) posted against the revision
+they were run on (`node .shady2k/documents.mjs revision`), and the `review` record is
+posted after the last review round; the queue entry is written at hand-over. All three
+live outside this tree by the set's own design (`.shady2k/integration.md`, "Evidence
+level: records"): no file here can hold a record of a revision that comes after it.
 
 ## DONE WHEN
 

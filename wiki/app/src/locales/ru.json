@@ -200,7 +200,8 @@
   "diagram": {
     "mermaidFailed": "Диаграмму {{title}} не удалось нарисовать как Mermaid: {{message}}",
     "likec4Failed": "Диаграмму LikeC4 для {{title}} не удалось получить: не загрузился модуль веб-компонента.",
-    "likec4Loading": "Загрузка диаграммы LikeC4…"
+    "likec4Loading": "Загрузка диаграммы LikeC4…",
+    "mermaidLoading": "Рисую диаграмму…"
   },
   "errors": {
     "prefix": "Не удалось загрузить содержимое вики.",

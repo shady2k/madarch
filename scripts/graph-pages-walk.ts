@@ -85,6 +85,8 @@ interface WalkOptions {
   readonly copyInto: string | undefined;
   readonly firstRun: string;
   readonly secondRun: string;
+  /** The madarch revision the app and the walk were built from, named by the caller: the pod's staged folder is no git checkout. */
+  readonly revision: string;
 }
 
 const WORKTREE = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -123,6 +125,7 @@ function parseOptions(argv: readonly string[]): WalkOptions {
     copyInto: into,
     firstRun: flags.get('first-run') ?? `stage23-walk-first-${stamp}`,
     secondRun: flags.get('second-run') ?? `stage23-walk-second-${stamp}`,
+    revision: flags.get('revision') ?? 'unnamed',
   };
 }
 
@@ -507,10 +510,10 @@ async function waitForFrame(page: Page, document: 'archify' | 'likec4.html', id:
 }
 
 /** One screenshot of the reader's own window, taken through a navigation race (the app moves pages on its own). */
-async function shot(page: Page, path: string): Promise<void> {
+async function shot(page: Page, path: string, options: { readonly fullPage?: boolean } = {}): Promise<void> {
   for (const attempt of [1, 2, 3]) {
     try {
-      await page.screenshot({ path, fullPage: false });
+      await page.screenshot({ path, fullPage: options.fullPage ?? false });
       return;
     } catch (error) {
       const raced = error instanceof Error && (error.message.includes('Execution context was destroyed') || error.message.includes('navigated or closed'));
@@ -743,21 +746,24 @@ async function scrollPass(page: Page, what: string, shots: string): Promise<Reco
       .map((article) => article.getAttribute('data-diagram-type') ?? ''));
     // A frame the reader has just reached is given its own moment to draw, and the wait is bounded: a frame that
     // never draws is recorded as it stands rather than waited on for ever. An empty diagram and a failed renderer
-    // are answers, not waits.
-    const started = Date.now();
+    // are answers, not waits. The clock is the diagram's own, so the second diagram of one step reports its own wait.
     for (const type of inView) {
-      while (firstDrawn.has(type) === false && Date.now() - started < 20_000) {
+      const startedForType = Date.now();
+      while (firstDrawn.has(type) === false && Date.now() - startedForType < 20_000) {
         const held = (await readFrames(page)).find((frame) => frame.type === type);
         if (held !== undefined && (held.drawn || held.empty || held.failed)) break;
         await new Promise((rest) => setTimeout(rest, 200));
       }
       const frame = (await readFrames(page)).find((each) => each.type === type);
-      if (frame !== undefined && firstDrawn.has(type) === false) firstDrawn.set(type, { top, waitedMs: Date.now() - started, frame });
+      if (frame !== undefined && firstDrawn.has(type) === false) firstDrawn.set(type, { top, waitedMs: Date.now() - startedForType, frame });
     }
   }
   // The whole page scrolled, the reader at its foot: every diagram the page holds, as it stands.
   const afterScroll = await readFrames(page);
-  await shot(page, join(shots, 'page-scrolled-to-the-foot.png'));
+  // The window at the foot of a long page is mostly empty space, so the pass's own picture of "the reader has been
+  // down it" is the page itself; the node pages are small enough to capture whole (the index's thousands of rows are
+  // not, and are not captured here).
+  await shot(page, join(shots, 'page-scrolled-to-the-foot.png'), { fullPage: true });
   const held: Record<string, unknown> = {
     pageHeight: size.height,
     viewport: size.viewport,
@@ -1049,6 +1055,11 @@ async function livePhase(options: WalkOptions, product: Product): Promise<void> 
         .find((element) => element.querySelector('.graph-diagram-element-label')?.textContent?.trim() === name);
       return { name, page: row?.querySelector('a.graph-diagram-element-label')?.getAttribute('href') ?? null, arrow: held };
     });
+    if (neighboursModule.page === null) {
+      // A page whose module-dependency arrows the walk could not read is said, never left as a missing key: the owner's
+      // rule is that nothing is silently smaller.
+      measure('neighboursModule', { skipped: true, why: 'the repository page named no module at an end of its module-dependency arrows', arrow: neighboursModule.arrow });
+    }
     if (neighboursModule.page !== null) {
       const at = neighboursModule.page.indexOf('/p/graph/');
       const moduleId = at < 0 ? null : decodeURIComponent(neighboursModule.page.slice(at + '/p/graph/'.length));
@@ -1267,6 +1278,9 @@ async function livePhase(options: WalkOptions, product: Product): Promise<void> 
 async function main(): Promise<number> {
   const options = parseOptions(process.argv.slice(2));
   say(`root ${options.root}, phase ${options.phase}, app ${options.app}`);
+  // What this walk was built from: a staged folder carries no git, so the caller names the revision and the report
+  // keeps it beside the numbers it read.
+  measure('revision', { madarch: options.revision, app: options.app, pin: options.pin, phase: options.phase });
   mkdirSync(options.root, { recursive: true });
   try {
     if (options.phase === 'probe') {

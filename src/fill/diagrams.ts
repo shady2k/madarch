@@ -1046,7 +1046,8 @@ async function linkEdges(
  * The modules one level below a container, `depth` levels down, in code point order. A
  * depth of zero is the container itself: a module view that draws the modules it names
  * rather than what stands below them, which is how a module and its neighbours are
- * drawn. A repository is no module, so a depth of zero draws nothing for one.
+ * drawn. A repository is no module and is refused at that depth before it reaches here
+ * (`scopedFacts`).
  */
 async function modulesBelow(container: Fact, depth: number, reads: DiagramGraphReads): Promise<readonly Fact[]> {
   if (depth === 0) return container.kind === 'module' ? [container] : [];
@@ -1326,6 +1327,12 @@ function refoldedArrows(edges: readonly DiagramEdge[], above: ReadonlyMap<string
     .sort((left, right) => byCodePoint(left.from, right.from) || byCodePoint(left.to, right.to) || byCodePoint(left.facts[0] ?? '', right.facts[0] ?? ''));
 }
 
+/** Whether a drill-down specification is the view it would be opened from: the same type, the same nodes and the same level. */
+function sameSpec(drill: DiagramViewSpec, checked: CheckedSpec): boolean {
+  const nodes = [...drill.nodes].sort(byCodePoint);
+  return drill.type === checked.type && (drill.level ?? (checked.declaration.depth ? 1 : checked.declaration.level ?? 1)) === checked.level && nodes.length === checked.nodes.length && nodes.every((node, at) => node === checked.nodes[at]);
+}
+
 /** The order a model's elements stand in: by the label a reader reads, then by id, so the order is a reader's and never a database's. */
 function byElementOrder(left: DiagramElement, right: DiagramElement): number {
   return byCodePoint(left.label, right.label) || byCodePoint(left.id, right.id);
@@ -1379,6 +1386,8 @@ async function sizeView(
   let edges: readonly DiagramEdge[] = gathered.edges;
   const before = elements.length;
   let collapsed = false;
+  /** Whether a collapsed element's drill-down would be this very view, which no reader should be sent round. */
+  let looped = false;
   /** Why the collapse stopped with too many elements, once it has: which of the two ways out the loop took. */
   let stopped: 'type-has-none' | 'no-level' | undefined;
   while (elements.length > budget) {
@@ -1441,10 +1450,16 @@ async function sizeView(
       const drill: DiagramViewSpec = checked.declaration.drawsBelow
         ? { type: checked.type, nodes: [level], ...(checked.declaration.depth ? { level: 1 } : {}) }
         : { type: checked.type, nodes: stands };
+      // A drill-down that is the view it came from would open the same collapsed model again, and a reader following
+      // it would go round in a circle: that happens when the level a view is scoped by is itself the nearest level
+      // above its elements (a scope whose own children are past the budget). The element stands for its members and
+      // its own page is where a reader continues, so no link is drawn and the marker says so.
+      const sameAsTheView = sameSpec(drill, checked);
+      if (sameAsTheView) looped = true;
       next.push({
         ...elementOfFact(fact),
         standsFor: stands,
-        drillDown: { view: { ...drill, nodes: [...drill.nodes].sort(byCodePoint) }, href: diagramHref(drill) },
+        ...(sameAsTheView ? {} : { drillDown: { view: { ...drill, nodes: [...drill.nodes].sort(byCodePoint) }, href: diagramHref(drill) } }),
       });
     }
     elements = next.sort(byElementOrder);
@@ -1462,7 +1477,9 @@ async function sizeView(
     elements,
     edges,
     collapsed: true,
-    marker: `collapsed: the view holds ${before} elements and the ${budget}-element budget holds ${elements.length}: each element stands for the level above it, and its link opens the view it stands for`,
+    marker: `collapsed: the view holds ${before} elements and the ${budget}-element budget holds ${elements.length}: each element stands for the level above it, and ${looped
+      ? 'an element whose level above is this view itself opens its own page rather than the same view again'
+      : 'its link opens the view it stands for'}`,
   };
 }
 

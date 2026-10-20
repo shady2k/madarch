@@ -66,14 +66,14 @@ export interface ModuleScopes {
  * by the caller: a spec is scoped by fact ids and a node's value names its repository
  * and its table by name. `moduleScopes` is what `moduleScopesOf` read for the node: a
  * caller that names none gets a repository's module views drawn at its own top level and
- * a module drawn by its own child modules, which is the page before madarch-tzte.23.7.
+ * a module drawn by its own child modules alone.
  */
 export function diagramSpecsFor(options: {
   readonly kind: FactKind;
   readonly id: string;
   readonly repositoryId?: string;
   readonly tableId?: string;
-  readonly moduleScopes?: ModuleScopes;
+  readonly moduleScopes: ModuleScopes | undefined;
 }): readonly DiagramViewSpec[] {
   const { kind, id, repositoryId, tableId, moduleScopes } = options;
   switch (kind) {

@@ -55,7 +55,7 @@ function edge(kind: string, value: Record<string, unknown>, place: FactProvenanc
 function graph() {
   const single = node('repository', { repository: 'single', form: 'code' }, at('single', 'README.md'));
   const other = node('repository', { repository: 'other', form: 'code' }, at('other', 'README.md'));
-  const top = node('module', { repository: 'single', name: 'single', seed: 'package', members: 3, importance: 1 }, at('single', 'package.json'));
+  const top = node('module', { repository: 'single', name: 'cluster', seed: 'package', members: 3, importance: 1 }, at('single', 'package.json'));
   const app = node('module', { repository: 'single', name: 'app', parent: top.id, seed: 'cluster', members: 1 }, at('single', 'src/app/app.ts'));
   const api = node('module', { repository: 'single', name: 'api', parent: top.id, seed: 'cluster', members: 1 }, at('single', 'src/api/api.ts'));
   const shared = node('module', { repository: 'single', name: 'shared', parent: top.id, seed: 'cluster', members: 1 }, at('single', 'src/shared/shared.ts'));
@@ -148,7 +148,7 @@ describe('the level a repository page draws', () => {
     const dependencies = await buildDiagram({ type: 'module-dependency', nodes: [fx.top.id] }, reads);
     expect(dependencies.level).toBe(1);
     expect(dependencies.elements.map((element) => element.label)).toEqual(['api', 'app', 'shared']);
-    expect(dependencies.title).toBe('Module dependencies: single');
+    expect(dependencies.title).toBe('Module dependencies: cluster');
   });
 });
 
@@ -173,7 +173,7 @@ describe('the modules a module page draws beside itself', () => {
 
   test('a module page draws its own child modules, and itself beside its neighbours at a depth of zero', () => {
     // The module's own children are what the component view below them draws.
-    expect(diagramSpecsFor({ kind: 'module', id: fx.top.id, repositoryId: fx.single.id })[0]).toEqual({ type: 'c4-component', nodes: [fx.top.id] });
+    expect(diagramSpecsFor({ kind: 'module', id: fx.top.id, repositoryId: fx.single.id, moduleScopes: undefined })[0]).toEqual({ type: 'c4-component', nodes: [fx.top.id] });
     // A module with neighbours is drawn as itself among them: a depth of zero draws the modules a view names, because
     // no child of the module's scope holds a neighbour.
     expect(diagramSpecsFor({ kind: 'module', id: fx.app.id, repositoryId: fx.single.id, moduleScopes: { neighbours: [fx.api.id, fx.shared.id] } })[1]).toEqual({
@@ -199,7 +199,7 @@ describe('the modules a module page draws beside itself', () => {
 
   test('a collapsed view at a depth of zero opens the level its modules stand in, and draws what it folded', async () => {
     const model = await buildDiagram({ type: 'module-dependency', nodes: [fx.app.id, fx.api.id, fx.shared.id], level: 0 }, reads, { limits: { nodes: 1 } });
-    expect(model.elements.map((element) => element.label)).toEqual(['single']);
+    expect(model.elements.map((element) => element.label)).toEqual(['cluster']);
     expect([...(model.elements[0]!.standsFor ?? [])].sort()).toEqual([fx.api.id, fx.app.id, fx.shared.id].sort());
     // The element stands for the three modules, so its link opens the level they stand in at a depth of one: naming
     // them at a depth of zero again would open the view that collapsed, and the reader would go round in a circle.
