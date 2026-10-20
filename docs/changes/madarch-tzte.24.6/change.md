@@ -148,11 +148,11 @@ None.
 
 ## Acceptance evidence
 
-The checks, each command's own exit status, at hand-over. The branch is two commits
-over `origin/main` `b68f1c65`, which it was rebased onto last (that rebase folds
-stage 9 of madarch-tzte.24.2 and the pages stage of 25.1 in, whose registration
-lines stand beside this stage's in `src/fill/stages/index.ts`; the review round's
-fixes are the second commit).
+The checks, each command's own exit status, at hand-over. The branch is three
+commits over `origin/main` `b68f1c65`, which it was rebased onto last (that
+rebase folds stage 9 of madarch-tzte.24.2 and the pages stage of 25.1 in, whose
+registration lines stand beside this stage's in `src/fill/stages/index.ts`; the
+review round's fixes and the evidence they added are the other commits).
 
 - `bun run check` (`tsc --noEmit`) exit 0 at every commit of the branch and after
   the rebase.
@@ -182,7 +182,9 @@ fixes are the second commit).
     `test/fill-stages.test.ts`, `test/fill-boundaries-stage.test.ts`,
     `test/fill-narrative-stage.test.ts`, `test/fill-narrative-pages.test.ts`,
     `test/fill-understanding-stage.test.ts` — **219 pass, 0 fail, exit 0**
-    (`run-20261020-204121`).
+    (`run-20261020-204121`); and `test/fill-recovery-stage.test.ts` alone after
+    the review round's last edit — 9 pass, 0 fail, exit 0
+    (`run-20261020-204557`).
 - CI on the exact SHA of the branch: named in the queue entry.
 - No mutation receipt: the owner's rule runs Stryker once per assembled stage,
   off the path; acceptance escalates per `mutationFallback: escalate`.
