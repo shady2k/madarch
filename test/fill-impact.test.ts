@@ -32,6 +32,7 @@ import { OVERVIEW_STAGE_ID } from '../src/fill/stages/overview.js';
 import { UNDERSTANDING_STAGE_ID } from '../src/fill/stages/understanding.js';
 import { DOC_INTENT_STAGE_ID } from '../src/fill/stages/doc-intent.js';
 import { INTENT_HISTORY_STAGE_ID } from '../src/fill/stages/intent-history.js';
+import { NARRATIVE_STAGE_ID } from '../src/fill/stages/narrative.js';
 import { PRODUCT_SCOPE_NAME } from '../src/fill/stages/agent-stage.js';
 import { UNIT_TOOL_PATH } from '../src/fill/unit-tools.js';
 import { startServer, type StartedServer } from '../src/server/http.js';
@@ -368,14 +369,19 @@ describe('a commit, and what it reruns', () => {
     expect(third?.state).toBe('succeeded');
     // The units the commit reran: the changed file's own, its folder chain's, the three units that read the
     // repository whole, the history unit of the commit it left, the resolution units the stage's own pins-input
-    // computes again, and the product's overview unit, whose recorded span read the commit moved.
-    expect(reran(third!)).toEqual(reranByTheCommit({
+    // computes again, the product's overview unit, whose recorded span read the commit moved — and the pages
+    // stage's units (25.1) whose own cache key moved the same way: this world's scripted agent reads the changed
+    // file's span in every unit's session but the ones the `byPrompt` entry answers (its own words match stage
+    // 10's unit of the training repository's documents, and every unit whose scope is that repository), so every
+    // page whose scope is not that one carries the span read, and the page is rewritten.
+    const { narrativeReran } = await narrativePlansOfRunTwo();
+    expect(reran(third!)).toEqual([...reranByTheCommit({
       repository: TRAINING,
       file: CHANGED,
       commit: changed,
       previousCommit: previous,
       agentUnitOfRepository: `${OVERVIEW_STAGE_ID}/${PRODUCT_SCOPE_NAME}`,
-    }));
+    }), ...narrativeReran].sort());
     // The units the run planned and inherited, listed whole: the product repository's snapshot, clustering and
     // history, whose pin, reads and spans the commit did not move. The two lists hold the run's planned units and
     // the ones it inherited between them; a unit an earlier run published that this run plans nothing of stands
@@ -399,6 +405,9 @@ describe('a commit, and what it reruns', () => {
     // repository fact's id is above, and the stage is bound non-empty: the clustering holds one module, so
     // one unit must have run and been reused.
     expect(understandingUnitIds.length).toBeGreaterThan(0);
+    // The pages stage's unit the `byPrompt` entry answered is inherited beside them.
+    const { narrativePlans } = await narrativePlansOfRunTwo();
+
     expect([...(third?.reused ?? [])].sort()).toEqual([
       `snapshot/${PRODUCT}`,
       `modules/modules:${PRODUCT}`,
@@ -408,6 +417,7 @@ describe('a commit, and what it reruns', () => {
       ...intentUnitsOfTraining.map((id) => `${INTENT_HISTORY_STAGE_ID}/${id}`),
       ...moduleOfProduct.map((id) => `${INTENT_HISTORY_STAGE_ID}/${id}`),
       ...understandingUnitIds,
+      ...narrativePlans.filter((plan) => plan.scope === TRAINING).map((plan) => plan.unit_id),
     ].sort());
   }, 900_000);
 
@@ -433,6 +443,21 @@ describe('a commit, and what it reruns', () => {
     expect(stale[0]!.summary).toContain('went stale (a read the generation recorded answers something else now:');
   }, 900_000);
 
+  /** The pages stage's planned units of run two, and the ones whose scope the changed file's span stands inside. */
+  async function narrativePlansOfRunTwo(): Promise<{ readonly narrativePlans: readonly { readonly unit_id: string; readonly scope: string }[]; readonly narrativeReran: readonly string[] }> {
+    const narrativePlans = await opened!.owner.transaction('snapshot', async (executor) => (
+      await executor.query<{ unit_id: string; scope: string }>(
+        'SELECT unit_id, scope FROM fill_unit_plan WHERE run_id = $1 AND stage_id = $2',
+        ['run-two', NARRATIVE_STAGE_ID],
+      )
+    ).rows);
+    expect(narrativePlans.length).toBeGreaterThan(0);
+    return {
+      narrativePlans,
+      narrativeReran: narrativePlans.filter((plan) => plan.scope !== TRAINING).map((plan) => plan.unit_id),
+    };
+  }
+
   test('the pages the update announces are the pages its publications changed, and no other', async () => {
     // A page is a view of the facts a unit holds (0026, "Pages"), so the pages an update announces are the pages
     // whose facts its publications changed. The one-file commit moved the bytes of one file, so what moved in the
@@ -444,12 +469,17 @@ describe('a commit, and what it reruns', () => {
     const symbolsOfTheFile = await factIds(opened!, "kind = 'symbol' AND value->>'file' = $1", [CHANGED]);
     expect(moduleOfTraining.length).toBe(1);
     expect(symbolsOfTheFile.length).toBe(3);
+    // The pages stage's units publish their coverage of what they read, and a coverage names the page it was
+    // read for — but a coverage whose row stands as it stood is no change to any page (0026: a page is
+    // announced when its facts changed), and the replacement generation's coverage is the same record the last
+    // one wrote. The pages stage's rerun announces nothing of its own.
     expect(pages).toEqual([...moduleOfTraining, ...symbolsOfTheFile].sort());
     // The file whose bytes the commit moved has a page, and it is not one of the announced ones: its own row
     // moved nothing. Neither did the product repository's.
     const filePage = await factIds(opened!, "kind = 'file' AND value->>'path' = $1 AND value->>'repository' = $2", [CHANGED, TRAINING]);
     expect(filePage.length).toBe(1);
     expect(pages).not.toContain(filePage[0]!);
+    // A repository page stands announced only where the pages stage's units moved one: none here.
     expect(pages.filter((id) => id.startsWith('repository:'))).toEqual([]);
     expect(pages.filter((id) => id.startsWith('document:'))).toEqual([]);
   }, 900_000);
