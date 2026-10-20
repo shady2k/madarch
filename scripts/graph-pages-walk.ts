@@ -1032,8 +1032,39 @@ async function livePhase(options: WalkOptions, product: Product): Promise<void> 
     });
     await shot(page, join(shots, 'page-file-refusal.png'));
 
-    // ---- the diagrams of the repository page, in every renderer ----------
+    // ---- a module that relates to another module of its level ------------
+    // The page set's most important module is the repository's top one, which relates to nothing of its own level: a
+    // page of a module that *does* have neighbours is what the task asks for beside its child modules, and the module
+    // page is read here from an end of the repository page's own module-dependency arrows.
     const repository = chosen['repository']!;
+    await openNode(page, mermaidServer.url, repository.id);
+    await waitDiagrams(page, 'the repository page before the module pages');
+    const neighboursModule = await page.evaluate(() => {
+      const edge = document.querySelector('[data-diagram-type="module-dependency"] [data-testid="graph-diagram-edges"] li.graph-diagram-edge .graph-diagram-edge-ends');
+      const held = edge?.textContent ?? '';
+      const ends = held.split('→').map((end) => end.trim()).filter((end) => end.length > 0);
+      // The arrow names its ends by label; the element rows carry the id and the page of each.
+      const name = ends[0] ?? '';
+      const row = [...document.querySelectorAll('[data-diagram-type="module-dependency"] [data-testid="graph-diagram-elements"] li.graph-diagram-element')]
+        .find((element) => element.querySelector('.graph-diagram-element-label')?.textContent?.trim() === name);
+      return { name, page: row?.querySelector('a.graph-diagram-element-label')?.getAttribute('href') ?? null, arrow: held };
+    });
+    if (neighboursModule.page !== null) {
+      const at = neighboursModule.page.indexOf('/p/graph/');
+      const moduleId = at < 0 ? null : decodeURIComponent(neighboursModule.page.slice(at + '/p/graph/'.length));
+      if (moduleId !== null) {
+        const modulePageMs = await openNode(page, mermaidServer.url, moduleId);
+        const numbers = await pageNumbers(page);
+        measure('scrollPassModule', await scrollPass(page, `the module page of ${neighboursModule.name}`, shots));
+        const moduleDiagrams: Record<string, unknown> = {};
+        for (const type of await page.evaluate(() => [...document.querySelectorAll('[data-testid="graph-diagram"]')].map((article) => article.getAttribute('data-diagram-type') ?? ''))) {
+          moduleDiagrams[type] = await walkDiagram(page, moduleId, type, shots);
+        }
+        measure('neighboursModule', { name: neighboursModule.name, arrow: neighboursModule.arrow, id: moduleId, renderMs: modulePageMs, diagrams: moduleDiagrams, numbers });
+        await shot(page, join(shots, 'page-neighbours-module.png'));
+      }
+    }
+    // ---- the diagrams of the repository page, in every renderer ----------
     await openNode(page, mermaidServer.url, repository.id);
     const types = await page.evaluate(() => [...document.querySelectorAll('[data-testid="graph-diagram"]')].map((article) => article.getAttribute('data-diagram-type') ?? ''));
     measure('repositoryDiagramTypes', types);

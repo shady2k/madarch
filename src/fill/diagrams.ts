@@ -851,7 +851,9 @@ function checkedSpec(spec: DiagramViewSpec): CheckedSpec {
   } else {
     const asked = spec.level;
     if (typeof asked !== 'number' || Number.isInteger(asked) === false || asked < 0) {
-      raise(`${at}: the view names the level ${shown(asked)}: a level is a whole number, at least 0 — 0 draws the modules a view names themselves and 1 what stands below them`);
+      raise(`${at}: the view names the level ${shown(asked)}: ${declaration.depth
+        ? 'a level is a whole number, at least 0 — 0 draws the modules a view names themselves and 1 what stands below them'
+        : 'a level is a whole number, at least 1'}`);
     }
     if (declaration.depth) {
       level = asked;
@@ -886,6 +888,12 @@ function checkedSpec(spec: DiagramViewSpec): CheckedSpec {
  */
 async function scopedFacts(checked: CheckedSpec, reads: DiagramGraphReads): Promise<readonly Fact[]> {
   const at = here();
+  // A depth of zero draws the modules a view names themselves, so it names modules: a view naming none, or naming a
+  // repository, has no module of its own to draw at that depth, and answering it with an empty model would say the
+  // graph holds nothing where it holds every module below the node.
+  if (checked.declaration.depth && checked.level === 0 && checked.nodes.length === 0) {
+    raise(`${at}: the ${checked.type} view names a level of 0 and no node: a depth of 0 draws the modules a view names themselves, so the view names them`);
+  }
   if (checked.nodes.length === 0) return [];
   const held = await reads.facts(checked.nodes);
   const scopes = checked.declaration.scopes as readonly string[];
@@ -899,6 +907,9 @@ async function scopedFacts(checked: CheckedSpec, reads: DiagramGraphReads): Prom
     }
     if (scopes.includes(fact.kind) === false) {
       raise(`${at}: the view names ${shown(labelOf(fact))} (${fact.kind} ${fact.id}) for the ${checked.type} diagram: a ${checked.type} view is scoped by ${checked.declaration.scopes.join(', ')}, and a ${fact.kind} is none of them`);
+    }
+    if (checked.declaration.depth && checked.level === 0 && fact.kind !== 'module') {
+      raise(`${at}: the ${checked.type} view names ${shown(labelOf(fact))} (${fact.kind} ${fact.id}) at a level of 0: a depth of 0 draws the modules a view names themselves, and a ${fact.kind} is no module`);
     }
     return fact;
   });
@@ -1422,13 +1433,14 @@ async function sizeView(
       }))].sort(byCodePoint);
       for (const id of stood) moved.set(id, level);
       // The view the element opens: the same type, scoped by the elements it stands for — or, for a type that draws what
-      // stands below its scopes, scoped by the level above them at depth 1, which draws exactly those elements (and, for
-      // a view that drew the scopes themselves, at depth 0, which draws them again). Only module-dependency takes a
+      // stands below its scopes, scoped by the level above them at depth 1, which draws exactly those elements. A view
+      // that drew the modules themselves at depth 0 folds them the same way, and its drill-down is the level they stand
+      // in at depth 1: naming them at depth 0 again would open the view it came from. Only module-dependency takes a
       // level of its own; a C4 type or an ER view names none, and a spec naming one would be refused by this module's
       // own check.
-      const drill: DiagramViewSpec = checked.declaration.drawsBelow && checked.level > 0
+      const drill: DiagramViewSpec = checked.declaration.drawsBelow
         ? { type: checked.type, nodes: [level], ...(checked.declaration.depth ? { level: 1 } : {}) }
-        : { type: checked.type, nodes: stands, ...(checked.declaration.depth && checked.level === 0 ? { level: 0 } : {}) };
+        : { type: checked.type, nodes: stands };
       next.push({
         ...elementOfFact(fact),
         standsFor: stands,

@@ -47,24 +47,26 @@ export interface DiagramNode {
 
 /**
  * The modules a page's module views are drawn from, as the graph holds them: the scope
- * the repository page draws a level below, and the neighbours a module page draws
- * beside itself. Both are read from the graph (below), so a page shows the structure
- * that is there rather than a level that only names the repository.
+ * the repository page draws a level below, and the neighbours and children a module page
+ * draws beside itself. Both are read from the graph (below), so a page shows the
+ * structure that is there rather than a level that only names the repository.
  */
 export interface ModuleScopes {
   /** A repository's: the fact ids whose children its two module views draw — the repository's own when its top level has more than one module, else the module whose children are the first level that has. */
   readonly view?: readonly string[];
   /** A module's: the modules of its own level it relates to, which its page draws beside it. */
   readonly neighbours?: readonly string[];
+  /** A module's: whether it holds child modules, which is what its module-dependency view draws when it relates to no module of its level. */
+  readonly childModules?: boolean;
 }
 
 /**
  * The view specifications one node stands in, by its kind. `repositoryId` and
  * `tableId` are the fact ids of the repository and the table the node names, resolved
  * by the caller: a spec is scoped by fact ids and a node's value names its repository
- * and its table by name. `moduleScopes` is what `moduleScopesOf` read for the node, and
- * a caller that names none gets the page this change fixes: a repository's module
- * views drawn at its own top level, and a module drawn by the repository it stands in.
+ * and its table by name. `moduleScopes` is what `moduleScopesOf` read for the node: a
+ * caller that names none gets a repository's module views drawn at its own top level and
+ * a module drawn by its own child modules, which is the page before madarch-tzte.23.7.
  */
 export function diagramSpecsFor(options: {
   readonly kind: FactKind;
@@ -98,16 +100,16 @@ export function diagramSpecsFor(options: {
       if (repositoryId !== undefined) return [{ type: 'er', nodes: [repositoryId] }];
       return [];
     case 'module': {
-      if (repositoryId === undefined) return [];
       // The module's own child modules, and — beside them — the module among the modules it relates to at its own
       // level: a depth of 0 draws the modules a view names themselves, which is the only way a view holds a neighbour
-      // no child of the module's scope holds. A module with no neighbour at its level has its children drawn twice
-      // instead, because a diagram of one box says nothing.
+      // no child of the module's scope holds. A module that relates to no module of its level has its children drawn
+      // by the second view; a module that holds no child either keeps one view, because two diagrams of one box say
+      // nothing twice, and a module nothing relates to is exactly one box.
       const neighbours = moduleScopes?.neighbours ?? [];
-      return [
-        { type: 'c4-component', nodes: [id] },
-        neighbours.length === 0 ? { type: 'module-dependency', nodes: [id] } : { type: 'module-dependency', nodes: [id, ...neighbours], level: 0 },
-      ];
+      const dependencies: DiagramViewSpec | undefined = neighbours.length > 0
+        ? { type: 'module-dependency', nodes: [id, ...neighbours], level: 0 }
+        : moduleScopes?.childModules === true ? { type: 'module-dependency', nodes: [id] } : undefined;
+      return dependencies === undefined ? [{ type: 'c4-component', nodes: [id] }] : [{ type: 'c4-component', nodes: [id] }, dependencies];
     }
     case 'state':
       return [{ type: 'state', nodes: [id] }];
@@ -252,7 +254,7 @@ async function moduleScopesOf(
   if (kind !== 'module') return undefined;
   const module = (await reads.facts([id])).get(id);
   if (module === undefined) return undefined;
-  return { neighbours: await moduleNeighbours(reads, module, repository) };
+  return { neighbours: await moduleNeighbours(reads, module, repository), childModules: (await reads.factsWith('module', 'parent', id)).length > 0 };
 }
 
 /** The node fact of one kind whose value, at `field`, is exactly `value`; undefined when the graph holds none or several. */

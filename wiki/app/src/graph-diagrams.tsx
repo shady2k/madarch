@@ -168,7 +168,7 @@ function useNearViewport<T extends Element>(): [RefObject<T | null>, boolean] {
       setNear(true);
       return;
     }
-    let drawn = false;
+    let close = (): void => undefined;
     const isNear = (): boolean => {
       const rect = element.getBoundingClientRect();
       // An element the document gives no box cannot say where the reader is: it is drawn rather than never.
@@ -176,26 +176,25 @@ function useNearViewport<T extends Element>(): [RefObject<T | null>, boolean] {
       return rect.top < window.innerHeight + NEAR_VIEWPORT_MARGIN && rect.bottom > -NEAR_VIEWPORT_MARGIN;
     };
     const look = (): void => {
-      if (drawn || isNear() === false) return;
-      drawn = true;
+      if (isNear() === false) return;
+      // The answer latches and the watching ends here: a diagram drawn once is drawn for good, and a page of five
+      // diagrams costs five looks in all, not five looks every 400 ms.
+      close();
       setNear(true);
     };
-    if (isNear()) {
-      look();
-      return;
-    }
-    // Capture, so that the scrolling of a box inside the page counts as the reader's scrolling too.
-    window.addEventListener('scroll', look, true);
-    window.addEventListener('resize', look);
-    const interval = window.setInterval(look, NEAR_VIEWPORT_INTERVAL_MS);
-    const frame = window.requestAnimationFrame(look);
-    return () => {
-      drawn = true;
+    close = (): void => {
       window.removeEventListener('scroll', look, true);
       window.removeEventListener('resize', look);
       window.clearInterval(interval);
       window.cancelAnimationFrame(frame);
     };
+    // Capture, so that the scrolling of a box inside the page counts as the reader's scrolling too.
+    window.addEventListener('scroll', look, true);
+    window.addEventListener('resize', look);
+    const interval = window.setInterval(look, NEAR_VIEWPORT_INTERVAL_MS);
+    const frame = window.requestAnimationFrame(look);
+    if (isNear()) look();
+    return close;
   }, []);
   return [holder, near];
 }

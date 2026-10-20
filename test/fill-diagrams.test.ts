@@ -528,7 +528,9 @@ describe('a view the graph does not answer', () => {
   test('a malformed spec is refused field by field', async () => {
     await expect(buildDiagram({ type: 'module-dependency', nodes: [fx.shop.id, fx.shop.id] }, clean)).rejects.toThrow(/twice: a view's nodes are a set, each named once/);
     await expect(buildDiagram({ type: 'module-dependency', nodes: ['acme-shop'] }, clean)).rejects.toThrow(/a node is a fact id/);
-    await expect(buildDiagram({ type: 'module-dependency', nodes: [], level: -1 }, clean)).rejects.toThrow(/a level is a whole number, at least 0/);
+    await expect(buildDiagram({ type: 'module-dependency', nodes: [], level: -1 }, clean)).rejects.toThrow(/a level is a whole number, at least 0 — 0 draws the modules a view names themselves and 1 what stands below them/);
+    // A C4 type's level is its own, so a level below one is refused without the depth's own words.
+    await expect(buildDiagram({ type: 'c4-component', nodes: [fx.shop.id], level: -1 }, clean)).rejects.toThrow(/a level is a whole number, at least 1/);
     await expect(buildDiagram({ type: 'activity' } as unknown as DiagramViewSpec, clean)).rejects.toThrow(/the view names the diagram type "activity": the types this module draws are/);
     await expect(buildDiagram(null as unknown as DiagramViewSpec, clean)).rejects.toThrow(/the view is null: a view specification is an object/);
     await expect(buildDiagram('c4-context' as unknown as DiagramViewSpec, clean)).rejects.toThrow(/the view is "c4-context": a view specification is an object/);

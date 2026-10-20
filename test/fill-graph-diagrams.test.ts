@@ -100,12 +100,18 @@ describe('the level a repository page draws', () => {
     expect(await moduleViewScope(reads, { id: fx.single.id, name: 'single' })).toEqual([fx.top.id]);
   });
 
-  test('a repository whose top level already has more than one module draws it, and so does one the stages never clustered', async () => {
+  test('a repository whose single module has nothing below it, and one the stages never clustered, both draw their own level', async () => {
     // `other` holds one module and nothing below it: the level above it is the finest structure there is, and the
     // repository's own scope draws it (a level that has no module is a page saying nothing).
     expect(await moduleViewScope(reads, { id: fx.other.id, name: 'other' })).toEqual([fx.other.id]);
     // A repository the graph holds no module for at all: its own scope, which draws nothing rather than failing.
     expect(await moduleViewScope(reads, { id: 'repository:' + '0'.repeat(64), name: 'absent' })).toEqual(['repository:' + '0'.repeat(64)]);
+    // A repository the clustering gives two top-level modules (two packages): its own level is already the structure,
+    // and the walk does not go below it.
+    const first = node('module', { repository: 'mono', name: 'one', seed: 'package', members: 1 }, at('mono', 'packages/one/package.json'));
+    const second = node('module', { repository: 'mono', name: 'two', seed: 'package', members: 1 }, at('mono', 'packages/two/package.json'));
+    const firstChild = node('module', { repository: 'mono', name: 'inner', parent: first.id, seed: 'cluster', members: 1 }, at('mono', 'packages/one/src/inner.ts'));
+    expect(await moduleViewScope(readsOf([first, second, firstChild]), { id: 'repository:' + '2'.repeat(64), name: 'mono' })).toEqual(['repository:' + '2'.repeat(64)]);
   });
 
   test('the descent stops at the first level with more than one, whatever stands below it', async () => {
@@ -167,16 +173,18 @@ describe('the modules a module page draws beside itself', () => {
 
   test('a module page draws its own child modules, and itself beside its neighbours at a depth of zero', () => {
     // The module's own children are what the component view below them draws.
-    expect(diagramSpecsFor({ kind: 'module', id: fx.app.id, repositoryId: fx.single.id })[0]).toEqual({ type: 'c4-component', nodes: [fx.app.id] });
+    expect(diagramSpecsFor({ kind: 'module', id: fx.top.id, repositoryId: fx.single.id })[0]).toEqual({ type: 'c4-component', nodes: [fx.top.id] });
     // A module with neighbours is drawn as itself among them: a depth of zero draws the modules a view names, because
     // no child of the module's scope holds a neighbour.
-    expect(diagramSpecsFor({ kind: 'module', id: fx.app.id, repositoryId: fx.single.id, moduleScopes: { view: [fx.app.id], neighbours: [fx.api.id, fx.shared.id] } })[1]).toEqual({
+    expect(diagramSpecsFor({ kind: 'module', id: fx.app.id, repositoryId: fx.single.id, moduleScopes: { neighbours: [fx.api.id, fx.shared.id] } })[1]).toEqual({
       type: 'module-dependency',
       nodes: [fx.app.id, fx.api.id, fx.shared.id],
       level: 0,
     });
-    // A module no other module of its level relates to has its children drawn twice instead of a diagram of one box.
-    expect(diagramSpecsFor({ kind: 'module', id: fx.app.id, repositoryId: fx.single.id, moduleScopes: { view: [fx.app.id], neighbours: [] } })[1]).toEqual({ type: 'module-dependency', nodes: [fx.app.id] });
+    // A module no other module of its level relates to has its children drawn by the second view — and a module that
+    // holds no child either keeps one view, because two diagrams of one box say nothing twice.
+    expect(diagramSpecsFor({ kind: 'module', id: fx.top.id, repositoryId: fx.single.id, moduleScopes: { neighbours: [], childModules: true } })[1]).toEqual({ type: 'module-dependency', nodes: [fx.top.id] });
+    expect(diagramSpecsFor({ kind: 'module', id: fx.app.id, repositoryId: fx.single.id, moduleScopes: { neighbours: [], childModules: false } })).toEqual([{ type: 'c4-component', nodes: [fx.app.id] }]);
   });
 
   test('the module among its neighbours draws them, with the imports rolled up to each module', async () => {
@@ -189,10 +197,20 @@ describe('the modules a module page draws beside itself', () => {
     expect(model.marker).toBeNull();
   });
 
-  test('a collapsed view at a depth of zero opens the modules it folded, not the level below them', async () => {
+  test('a collapsed view at a depth of zero opens the level its modules stand in, and draws what it folded', async () => {
     const model = await buildDiagram({ type: 'module-dependency', nodes: [fx.app.id, fx.api.id, fx.shared.id], level: 0 }, reads, { limits: { nodes: 1 } });
     expect(model.elements.map((element) => element.label)).toEqual(['single']);
     expect([...(model.elements[0]!.standsFor ?? [])].sort()).toEqual([fx.api.id, fx.app.id, fx.shared.id].sort());
-    expect(model.elements[0]!.drillDown?.view).toEqual({ type: 'module-dependency', nodes: [fx.api.id, fx.app.id, fx.shared.id].sort(), level: 0 });
+    // The element stands for the three modules, so its link opens the level they stand in at a depth of one: naming
+    // them at a depth of zero again would open the view that collapsed, and the reader would go round in a circle.
+    expect(model.elements[0]!.drillDown?.view).toEqual({ type: 'module-dependency', nodes: [fx.top.id], level: 1 });
+    const drill = await buildDiagram(model.elements[0]!.drillDown!.view, reads);
+    expect(drill.elements.map((element) => element.label)).toEqual(['api', 'app', 'shared']);
+    expect(drill.collapsed).toBe(false);
+  });
+
+  test('a depth of zero names modules: a repository, and a view naming none, are refused by name', async () => {
+    await expect(buildDiagram({ type: 'module-dependency', nodes: [fx.single.id], level: 0 }, reads)).rejects.toThrow(/at a level of 0: a depth of 0 draws the modules a view names themselves, and a repository is no module/);
+    await expect(buildDiagram({ type: 'module-dependency', nodes: [], level: 0 }, reads)).rejects.toThrow(/names a level of 0 and no node: a depth of 0 draws the modules a view names themselves, so the view names them/);
   });
 });
