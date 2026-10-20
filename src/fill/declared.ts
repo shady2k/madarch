@@ -172,10 +172,11 @@ export async function applyDecisions(options: {
       }
       const publication = `person:${fact.id.slice(fact.id.indexOf(':') + 1, fact.id.indexOf(':') + 17)}`;
       // A fact two readers published is one row: a person's record replaces the envelope a unit published of the same
-      // words, because a person's word is what a fact of the `declared` layer is (0005).
+      // words whole — value and provenance with it, so the row carries the person's name and drops the agent's evidence
+      // the person's answer supersedes (0005: a person's word is what a fact of the `declared` layer is).
       await executor.query(
         `INSERT INTO fill_fact (id, kind, schema_version, provenance, layer, status, value) VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7::jsonb)
-         ON CONFLICT (id) DO UPDATE SET layer = EXCLUDED.layer, status = EXCLUDED.status`,
+         ON CONFLICT (id) DO UPDATE SET provenance = EXCLUDED.provenance, layer = EXCLUDED.layer, status = EXCLUDED.status, value = EXCLUDED.value`,
         [fact.id, fact.kind, fact.schemaVersion, JSON.stringify(fact.provenance), fact.layer, fact.status, JSON.stringify(fact.value)],
       );
       await executor.query(

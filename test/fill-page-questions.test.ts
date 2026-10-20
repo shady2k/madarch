@@ -70,6 +70,8 @@ describe('the questions a product asks', () => {
     expect(question!.answer).toBeNull();
     expect(question!.type).toBe('assumption-check');
     expect(question!.dependsOn.map((node) => node.id)).toEqual([facts.module.id, facts.placed.id].sort());
+    // Each name carries the page it opens, so a reader reaches what depends on the answer in one click.
+    expect(question!.dependsOn.every((node) => (node as { page?: string }).page === pageAddress(node.id))).toBe(true);
     expect(question!.rank).toBe(question!.dependsOn.length);
     expect(question!.rank).toBe(2);
   });

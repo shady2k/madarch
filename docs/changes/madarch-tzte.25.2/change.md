@@ -45,9 +45,9 @@ charter asks for, and puts a next step on every page:
   product's own page reads the same rule over the whole graph: its most asked question,
   else the most important node no complete coverage reached.
 - **`src/fill/decisions.ts`** is a person's decision as Markdown in the product's git, beside
-  the discussion record the wiki already keeps: `answers/` and `acceptances/`, one file per decided node, one file per decided node, dated, signed, with the person's own
-  Markdown under its heading unchanged — a heading of their own inside an answer stays their
-  text. A file that is neither document is a problem with its full path and 1-based line.
+  the discussion record the wiki already keeps: `answers/` and `acceptances/`, one file per
+  decided node, dated, signed, with the person's own Markdown under its heading unchanged — a
+  heading of their own inside an answer stays their text. A file that is neither document is a problem with its full path and 1-based line.
 - **`src/fill/declared.ts`** reads those documents back into the graph in one transaction
   (a person's write is staged in the product's git, committed only once the graph holds it,
   and a refused graph write leaves the earlier document standing):
@@ -100,11 +100,16 @@ charter asks for, and puts a next step on every page:
 - **Two steps, in both places or in neither.** A decision is written to a temporary file
   beside its document, the graph takes the record, and only then is the document renamed
   into place: a refused graph write discards the temporary and leaves the person's earlier
-  answer in the product's git, and a crash between the two leaves the earlier document with
-  nothing half-written.
-- **A person's word wins over an agent's.** A node's answer and its acceptance are read with
-  `declared` first and `inferred` after, each layer in code point order of its id; an agent
-  whose answer an earlier run published cannot outrank the person who answered afterwards.
+  answer in the product's git. A crash in the window between the graph write and the rename
+  leaves the graph holding the record while git keeps the earlier document — the state the
+  read-back `madarch-bylg` names is what repairs, and until it lands a person who re-answers
+  repairs it by writing again.
+- **A person's word wins over an agent's, by one selector.** A node's answer and its
+  acceptance are read with `declared` first and `inferred` after, then the smallest id of the
+  layer (`byAnswerPrecedence`) — the question set, the index and a question's own page all
+  read answers through it, so one question shows one answer everywhere; an agent whose answer
+  an earlier run published cannot outrank the person who answered afterwards, and a person's
+  record replaces an agent's row of the same words whole (value and provenance with it).
 - **Ranked by what depends on it.** A question's rank is the pages an answer would change —
   the node it is about and the page-worthy nodes that node's edges name — measured from the
   graph's own reads, never a separate table.
@@ -135,7 +140,17 @@ charter asks for, and puts a next step on every page:
   - `test/fill-graph-pages.test.ts` + `test/fill-fact-store.test.ts` + `test/fill-checked-writes.test.ts` + `test/server-graph-pages.test.ts` — **84 pass, 0 fail, exit 0** (`run-20261020-121346`): the pages this change reads beside the ones that landed, the store's product holding and its sweep, the checked writes with the new kind among the agent unit's, and the routes over a real server.
   - `test/fill-agent-unit.test.ts` — **16 pass, 0 fail, exit 0** (`run-20261020-121644`): the fake ACP agent closes a question with `assert_fact` and the evidence it read, and the question's page shows it closed.
   - `wiki/app`: `bun install --frozen-lockfile` exit 0, `bun run check` exit 0, `bun test` **227 pass, 1 fail** (`run-20261020-121951`), `bun run build` exit 0. The one failure is `src/graph-diagrams.test.tsx` "the app stops watching once the diagram is near", which this change does not touch: it fails identically at origin/main b7cbcfe0 on its own checkout (**11 pass, 1 fail**, `run-20261020-120039`, cluster `madarch-madarch-main-e22da3`), and it is named in the queue entry rather than fixed here.
-- Review: one read-only `prime-agent --provider shady2k-gateway --model deepseek-v4.1-flash-auto` round over the diff, 18 findings, all answered: the page cache drops the page set with a decision's pages; a person's name rides in the answer's value; a question's own page recommends answering itself and an answered one waits for nobody; a decision is staged, committed only once the graph holds it, and dropped whole on a refusal; the question set's truncation marker is rendered; a decision document's fields are read from its header only; the subject read is product-scoped; an agent's proposed answer is refused without evidence; a person's word outranks an agent's at the same node; `mostAskedQuestion` reads `byQuestionRank`; the step's reason reads one page or N pages; the dead `at` option is gone; "nothing to do" claims only what the rule checked; the step opens the question's own page; the verdict the wiki does not know is refused at the service too.
+- Review, two read-only rounds over the diff, every finding answered. First round
+  (`--model deepseek-v4.1-flash-auto`), 18 findings: the page cache drops the page set with a decision's pages; a person's name rides in the answer's value; a question's own page recommends answering itself and an answered one waits for nobody; a decision is staged, committed only once the graph holds it, and dropped whole on a refusal; the question set's truncation marker is rendered; a decision document's fields are read from its header only; the subject read is product-scoped; an agent's proposed answer is refused without evidence; a person's word outranks an agent's at the same node; `mostAskedQuestion` reads `byQuestionRank`; the step's reason reads one page or N pages; the dead `at` option is gone; "nothing to do" claims only what the rule checked; the step opens the question's own page; the verdict the wiki does not know is refused at the
+  service too. Second round (`--model glm-5.3-flash-auto`, after those fixes): the ten fixes
+  verified in the code at `2a1700d9`, and seven findings, answered — the answers' one
+  precedence shared by the question set, the index and a question's own page
+  (`byAnswerPrecedence`: a person's word first, then the smallest id), the declared upsert
+  replacing the row whole so it carries the person's name and drops the superseded evidence,
+  the staged file named per decision (two concurrent decisions about one node cannot rename
+  each other's words), the answer step's reason stating the dependency measure and not a
+  recompute claim, a question's own rank measured from its about node the way the question set
+  measures it, and this record's crash-window sentence said as it is.
 
 ## Preserved contracts
 

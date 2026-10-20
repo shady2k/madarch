@@ -308,9 +308,18 @@ export function stageDecision(productFolder: string, folder: string, subject: st
   const relative = decisionFile(folder, subject);
   const absolute = join(root, relative);
   mkdirSync(join(root, folder), { recursive: true });
-  const temporary = `${absolute}.${String(process.pid)}.tmp`;
+  // The staged file's name is one decision's own: two decisions about one node staged in one process must never share
+  // a temporary file, or the first commit would rename the second's words into place.
+  const temporary = `${absolute}.${String(process.pid)}.${String(stageSequence()).padStart(6, '0')}.tmp`;
   writeFileSync(temporary, text, { flag: 'w', mode: 0o644 });
   return { file: relative, temporary };
+}
+
+/** Counts the staged decisions of this process, so no two of them share a temporary file. */
+let stagedCount = 0;
+function stageSequence(): number {
+  stagedCount += 1;
+  return stagedCount;
 }
 
 /** Puts one staged decision in its place: the earlier document at that path is replaced whole, in one rename. */

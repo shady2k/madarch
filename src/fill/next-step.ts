@@ -100,13 +100,13 @@ export function mostAskedQuestion<Q extends RankedQuestion & { readonly page: Pa
 
 /** The question step: the question, its page, and why answering it is the next thing. */
 export function answerQuestionStep(question: RankedQuestion & { readonly page: PageAddress; readonly node: StepNode }): GraphNextStep {
-  const changed = question.rank === 1 ? 'one page' : `${String(question.rank)} pages`;
+  const changed = question.rank === 1 ? 'One page' : String(question.rank);
   return {
     rule: 'answer-question',
     question: { id: question.id, type: question.type, prompt: question.prompt, rank: question.rank, page: question.page },
     target: question.page,
     node: question.node,
-    reason: `the answer changes ${changed} (${question.type}): answer it, and only those pages are read again`,
+    reason: `${changed} ${question.rank === 1 ? 'page depends' : 'pages depend'} on the answer (${question.type}): answer it`,
   };
 }
 

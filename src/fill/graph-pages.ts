@@ -440,8 +440,8 @@ export async function readProductQuestions(options: {
     const nodesRead: GraphRead = { read: 'facts', ids: [...ids].sort(byCodePoint), product: options.product };
     for (const fact of factsOfRows(await answerGraphRead(reader, nodesRead), nodesRead)) refs.set(fact.id, nodeRefOf(fact));
     const subject = refs.get(about) ?? { id: about, kind: null, label: about };
-    const ends = [...ids].filter((id) => id !== about).sort(byCodePoint).map((id) => refs.get(id) ?? { id, kind: null, label: id });
-    dependents.set(about, [subject, ...ends]);
+    const ends = [...ids].filter((id) => id !== about).sort(byCodePoint).map((id) => pageRefOf(refs.get(id) ?? { id, kind: null, label: id }));
+    dependents.set(about, [pageRefOf(subject), ...ends]);
   }
   const questions = questionFacts.map((fact) => {
     const about = (fact.value as unknown as Record<string, unknown>)['about'];
@@ -731,12 +731,12 @@ export async function readPageModel(options: {
     // The page's own decision: the acceptance or rejection a person recorded about it, the latest first when a person
     // changed their mind (answers are ordered by id, and an acceptance names its own words); and, for a question's own
     // page, the answer that closed it.
-    // A person's word first, then an agent's: a page shows the acceptance a person recorded about it before one an
-    // agent proposed, and each layer in code point order of its id so the page is the same everywhere.
-    const pick = (entries: readonly GraphAnswerRecord[]): GraphAnswerRecord | null =>
-      [...entries].sort((left, right) => (left.layer === 'declared' ? 0 : 1) - (right.layer === 'declared' ? 0 : 1) || byCodePoint(left.id, right.id))[0] ?? null;
-    const decision = pick(decisions.filter((entry) => entry.decision !== 'answers'));
-    const answer = pick(decisions.filter((entry) => entry.decision === 'answers')) ?? answers.get(id) ?? null;
+    // The answers' one precedence (`byAnswerPrecedence`, on the records the read answered): a person's word first, then
+    // the smallest id of the layer — the same answer the question set and the index show.
+    const byRecordPrecedence = (left: GraphAnswerRecord, right: GraphAnswerRecord): number =>
+      (left.layer === 'declared' ? 0 : 1) - (right.layer === 'declared' ? 0 : 1) || byCodePoint(left.id, right.id);
+    const decision = decisions.filter((entry) => entry.decision !== 'answers').sort(byRecordPrecedence)[0] ?? null;
+    const answer = decisions.filter((entry) => entry.decision === 'answers').sort(byRecordPrecedence)[0] ?? answers.get(id) ?? null;
     // The node's own fact stands first, and the facts about it follow in code point order of their ids: a reader
     // asks "what is this" before "what is said about it".
     const facts = [node, ...[...claimFacts.values()], ...ruleFacts].sort((left, right) => (left.id === node.id ? -1 : right.id === node.id ? 1 : 0) || byCodePoint(left.id, right.id));
@@ -809,9 +809,24 @@ export async function readPageModel(options: {
     const entry = pageEntryOf(node);
     const stepNode: StepNode = { id, kind: node.kind, label: entry.label, page: pageAddress(id), ...(entry.importance === undefined ? {} : { importance: entry.importance }) };
     const openQuestions: RankedQuestion[] = questionsHeld.rows.filter((question) => question.open).map((question) => ({ id: question.id, type: question.type, prompt: question.prompt, rank: question.rank }));
-    const ownQuestion = node.kind === 'question' && answer === null
-      ? { id, type: typeof (node.value as { type?: unknown }).type === 'string' ? String((node.value as { type: string }).type) : 'meaning', prompt: entry.label, rank: dependentsOf(nodeRefOf(node), edgeFacts, refs).length }
-      : undefined;
+    // The question's own rank is what the answer would change, measured the way the product's question set measures it:
+    // the node the question is about and that node's edges — never the question fact's own (a question names no edges).
+    let ownQuestion: RankedQuestion | undefined;
+    if (node.kind === 'question' && answer === null) {
+      const about = (node.value as { about?: unknown }).about;
+      let rank = 1;
+      if (typeof about === 'string' && isPageId(about)) {
+        const aboutEdgesRead: GraphRead = { read: 'adjacent', id: about, kinds: FACT_EDGE_KINDS };
+        const aboutEdges = factsOfRows(await context.read(aboutEdgesRead), aboutEdgesRead);
+        rank = dependentsOf({ id: about, kind: null, label: about }, aboutEdges, refs).length;
+      }
+      ownQuestion = {
+        id,
+        type: typeof (node.value as { type?: unknown }).type === 'string' ? String((node.value as { type: string }).type) : 'meaning',
+        prompt: entry.label,
+        rank,
+      };
+    }
     const nextStep = pageNextStep({
       node: stepNode,
       questions: openQuestions,
@@ -1033,15 +1048,22 @@ function subjectOf(fact: Fact): string {
 }
 
 /**
- * The answers the graph holds, by the node each decides about: a person's own word wins over an
- * agent's reading of the same node (0005 makes the person's `declared` and the agent's
- * `inferred`), and two answers of one layer stand in code point order of their ids, so the
- * page shows the same one on every machine.
+ * The order answers of one node stand in: a person's own word first (0005 makes the person's
+ * `declared` and the agent's `inferred`), then code point order of the id — the one selector
+ * every reader of answers shares, so the question set, the index and a question's own page
+ * cannot show two different answers to one question.
  */
+function byAnswerPrecedence(left: Fact, right: Fact): number {
+  return (left.layer === 'declared' ? 0 : 1) - (right.layer === 'declared' ? 0 : 1) || byCodePoint(left.id, right.id);
+}
+
+/** The answers the graph holds, by the node each decides about: the first answer in precedence order, and no other. */
 function answersBySubject(facts: readonly Fact[]): Map<string, GraphAnswerRecord> {
   const found = new Map<string, GraphAnswerRecord>();
-  const ordered = [...facts].sort((left, right) => (left.layer === 'declared' ? 1 : 0) - (right.layer === 'declared' ? 1 : 0) || byCodePoint(left.id, right.id));
-  for (const fact of ordered) found.set(subjectOf(fact), answerOf(fact));
+  for (const fact of [...facts].sort(byAnswerPrecedence)) {
+    const subject = subjectOf(fact);
+    if (found.has(subject) === false) found.set(subject, answerOf(fact));
+  }
   return found;
 }
 
@@ -1066,8 +1088,10 @@ function dependentsOf(subject: GraphNodeRef, edges: readonly Fact[], refs: Reado
     const pair = endsOf(edge.kind as FactEdgeKind, edge.value);
     for (const end of [pair.from, pair.to]) if (end !== undefined && end !== subject.id && isPageId(end)) ends.add(end);
   }
-  const others = [...ends].sort(byCodePoint).map((id) => refs.get(id) ?? { id, kind: null, label: id });
-  return [subject, ...others];
+  // Every name in the list is a page the answer would change, and each carries its page's address, so a reader reaches
+  // it in one click (`pageRefOf`, the rule the relations read by).
+  const others = [...ends].sort(byCodePoint).map((id) => pageRefOf(refs.get(id) ?? { id, kind: null, label: id }));
+  return [pageRefOf(subject), ...others];
 }
 
 /**
