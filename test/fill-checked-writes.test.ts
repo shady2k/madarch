@@ -28,7 +28,7 @@ import { byCodePoint } from '../src/model/order.js';
 import { FACT_APPLICATION, createFactStoreSchema, readFact, readUnitDraft, readUnitFacts } from '../src/fill/fact-store.js';
 import { factId, makeNodeFact, repositoryPath, type Fact, type FactKind, type FactProvenance } from '../src/fill/facts.js';
 import {
-  assertFact, draftSetOf, factGraph, link, proposeEntity, raiseQuestion, recordedDraftSet, scopeText, writeScope,
+  assertFact, draftSetOf, factGraph, isProductScope, link, PRODUCT_SCOPE, proposeEntity, raiseQuestion, recordedDraftSet, scopeHolds, scopeText, writeScope,
   type CheckedWriteDraft, type CheckedWriteGraph, type CheckedWriteSession, type SimilarEntity,
 } from '../src/fill/checked-writes.js';
 import {
@@ -266,6 +266,47 @@ describe('the scope a unit writes inside', () => {
       expect(() => writeScope(text)).toThrow(/is no unit scope/);
     }
   });
+
+  test('the product\'s own scope is every repository the run pins, and a write in any of them stands inside it', async () => {
+    // 0026's hierarchy: a unit of the whole product (stages 8 and 13) covers every repository the product pins, and
+    // the one text that is no repository name is its scope's own.
+    expect(writeScope(PRODUCT_SCOPE)).toEqual({ repository: PRODUCT_SCOPE });
+    expect(scopeText(writeScope(PRODUCT_SCOPE))).toBe(PRODUCT_SCOPE);
+    expect(isProductScope(writeScope(PRODUCT_SCOPE))).toBe(true);
+    expect(isProductScope(writeScope(REPOSITORY))).toBe(false);
+    // Every place lies inside it: the pinned-commit check of each write is what keeps it to the product's own
+    // repositories, since a scope text knows no pins.
+    expect(scopeHolds(writeScope(PRODUCT_SCOPE), { repository: REPOSITORY, file: 'src/cart.ts' })).toBe(true);
+    expect(scopeHolds(writeScope(PRODUCT_SCOPE), { repository: ENTITIES, file: 'lib/total.ts' })).toBe(true);
+
+    // A write of that unit cites the bytes it read in whichever repository they stand in, and its evidence names
+    // the one it read — the product's own repository and a code repository of the product, one write each.
+    const unit = await runningUnit('overview:product', { scope: PRODUCT_SCOPE });
+    const first = await assertFact(unit.session, { kind: 'claim', value: CLAIM, place: { repository: ENTITIES, file: 'lib/total.ts', startLine: 1 } });
+    expect(settlement(first)).toBe('accepted');
+    if (first.ok) expect(first.evidence).toBe(`${ENTITIES}@${repo.commit}:lib/total.ts`);
+    const second = await assertFact(unit.session, { kind: 'claim', value: { ...CLAIM, predicate: 'is-stated-by' }, place: LINES_3_TO_5 });
+    expect(settlement(second)).toBe('accepted');
+    if (second.ok) {
+      expect(second.evidence).toBe(`${REPOSITORY}@${repo.commit}:src/cart.ts`);
+      expect(second.fact.provenance.repository.id).toBe(REPOSITORY);
+    }
+    // A repository the run pins nowhere is refused by the pinned-commit check, which names the ones it does pin.
+    const elsewhere = await assertFact(unit.session, { kind: 'claim', value: { ...CLAIM, predicate: 'is-owned-by' }, place: { repository: 'somewhere-else', file: 'src/cart.ts', startLine: 1 } });
+    expect(elsewhere.ok).toBe(false);
+    if (!elsewhere.ok) {
+      expect(elsewhere.refusals[0]?.field).toBe('place.repository');
+      expect(elsewhere.refusals[0]?.reason).toContain('is not a repository this run pins');
+    }
+    // The question and the entity a unit of the product writes name the repository its bytes stand in, too.
+    const question = await raiseQuestion(unit.session, { type: 'assumption-check', prompt: 'Which service settles an order?', place: { repository: ENTITIES, file: 'lib/total.ts', startLine: 1 } });
+    expect(settlement(question)).toBe('accepted');
+    if (question.ok) expect((question.fact.value as unknown as { repository: string }).repository).toBe(ENTITIES);
+    const entity = await proposeEntity(unit.session, { proposed: 'concept', name: 'checkout total', place: LINES_3_TO_5 });
+    expect(entity.ok).toBe(true);
+    if (entity.ok) expect((entity.fact.value as unknown as { repository: string }).repository).toBe(REPOSITORY);
+    expect((await unit.draft.writes()).length).toBe(4);
+  }, 60_000);
 });
 
 describe('the write the task describes', () => {
@@ -345,6 +386,29 @@ describe('the write the task describes', () => {
     expect(answer.refusals[0]?.field).toBe('place.range');
     expect(answer.refusals[0]?.reason).toContain('column 40 of line 3');
     expect(answer.refusals[0]?.reason).toContain(`holds ${CART_LINES[2]!.length} characters`);
+  }, 60_000);
+});
+
+describe('the kinds a unit\'s stage declares', () => {
+  test('a write of a kind the stage does not declare is refused at once, naming the kinds it does', async () => {
+    // 0026, "Writing": a write is checked at once. A kind outside the stage's declared kinds would be refused when its
+    // draft set is published, which spends the agent run and everything the unit wrote, so the tool answers instead.
+    const unit = await runningUnit('overview:acme-shop', { scope: REPOSITORY });
+    const session = { ...unit.session, stage: 'overview', kinds: ['claim', 'coverage', 'question'] };
+    const entity = await proposeEntity(session, { proposed: 'concept', name: 'checkout total', place: LINES_3_TO_5 });
+    expect(entity.ok).toBe(false);
+    if (!entity.ok) {
+      expect(entity.refusals[0]?.field).toBe('kind');
+      expect(entity.refusals[0]?.reason).toContain('the stage "overview" writes claim, coverage, question');
+      expect(entity.refusals[0]?.reason).toContain('"entity-proposal" is no kind it declares');
+    }
+    // A kind the stage declares lands as it did before, and a session that declares none is bound by the schema alone.
+    const claim = await assertFact(session, { kind: 'claim', value: CLAIM, place: LINES_3_TO_5 });
+    expect(settlement(claim)).toBe('accepted');
+    const unbound = await runningUnit('understanding:acme-shop:src:unbound');
+    expect(settlement(await proposeEntity(unbound.session, { proposed: 'concept', name: 'checkout total', place: LINES_3_TO_5 }))).toBe('accepted');
+    // Nothing of the refused write stands in the draft set.
+    expect((await session.draft.writes()).length).toBe(1);
   }, 60_000);
 });
 
