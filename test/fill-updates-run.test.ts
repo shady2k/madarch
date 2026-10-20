@@ -21,7 +21,6 @@ import type { FillOrchestratorService, FillRunResult } from '../src/fill/orchest
 import type { RunStatus } from '../src/fill/orchestrator.js';
 import { daemonFillOrchestrator, daemonUpdateWatch } from '../src/product/daemon.js';
 import type { UpdateWatch } from '../src/product/fill-updates.js';
-import { updateRunId } from '../src/product/fill-updates.js';
 
 let root = '';
 /** The products home: the server's own, where its fill database and its update state stand. */
@@ -73,16 +72,23 @@ beforeAll(async () => {
   // and the gate itself is `test/fill-updates.test.ts`'s subject.
   watch = daemonUpdateWatch(home, service, { debounceMs: 40, intervalMs: 0, log: (line) => lines.push(line), enabled: () => true });
   await watch.outset();
-  // One commit on the default branch of the product repository, after the watcher read its baseline.
+  // One commit on the default branch of the product repository, after the watcher read its baseline. The pass that
+  // reads the commit keeps it waiting for the debounce, and the timer that ends the debounce runs the pass that
+  // starts the run and drives it to its end — nothing else drives the watcher here.
   writeFileSync(join(product, 'src', 'total.ts'), 'export function total(): number {\n  return 43;\n}\n');
   commit = commitAll(product, 'two');
   await watch.pass();
-  await pause(60);
-  const started = await watch.pass();
-  const asked = started.asked[0];
-  if (asked === undefined) throw new Error('the watcher asked for no run after a commit on the default branch');
-  lastRequest = asked.request.runId;
-  update = await service.status({ product: { name: 'shop', folder: product }, runId: lastRequest }) ?? undefined;
+  lastRequest = `update-shop-${commit.slice(0, 12)}`;
+  const deadline = Date.now() + 120_000;
+  while (Date.now() < deadline) {
+    await pause(250);
+    const status = await service.status({ product: { name: 'shop', folder: product }, runId: lastRequest });
+    if (status !== null && ['succeeded', 'completed_partial', 'blocked', 'failed', 'cancelled'].includes(status.run.state)) {
+      update = status;
+      break;
+    }
+  }
+  if (update === undefined) throw new Error(`the watcher started no run named ${lastRequest} after a commit on the default branch: the commit is ${commit}`);
 }, 900_000);
 
 afterAll(async () => {
@@ -98,10 +104,10 @@ describe('the update a default-branch commit starts', () => {
     expect(first?.units.length).toBeGreaterThan(0);
     // The update is the person's fill again on the new commit, started by the server: one run, named after the commit.
     expect(update).toBeDefined();
-    expect(update?.run.runId).toBe(updateRunId('shop', commit));
+    expect(update?.run.runId).toBe(lastRequest);
     expect(update?.run.state).toBe('succeeded');
     expect(update?.units.every((unit) => unit.state === 'published')).toBe(true);
-    expect(lines.some((line) => line.includes(`started as ${updateRunId('shop', commit)}`))).toBe(true);
+    expect(lines.some((line) => line.includes(`started as ${lastRequest}`))).toBe(true);
   }, 900_000);
 
   test('the update recomputes the units the commit touched and inherits the rest', () => {
@@ -117,7 +123,7 @@ describe('the update a default-branch commit starts', () => {
   test('the person finds it in the fill progress: the newest run, its units and its events', async () => {
     const progress = await service!.progress(product);
     expect(progress).not.toBeNull();
-    expect(progress?.run.id).toBe(updateRunId('shop', commit));
+    expect(progress?.run.id).toBe(lastRequest);
     expect(progress?.run.status).toBe('succeeded');
     expect(progress?.run.product).toBe('shop');
     // The events a watching person reads: the run was started, planned and completed, and its units were planned.
@@ -159,7 +165,7 @@ describe('the update a default-branch commit starts', () => {
       expect(answered.status).toBe(200);
       const body = await answered.json() as { run?: { id: string; status: string }; units?: { stage: string }[]; events?: { type: string }[] };
       expect(asked).toEqual([product]);
-      expect(body.run?.id).toBe(updateRunId('shop', commit));
+      expect(body.run?.id).toBe(lastRequest);
       expect(body.run?.status).toBe('succeeded');
       expect((body.units ?? []).length).toBeGreaterThan(0);
       expect((body.events ?? []).length).toBeGreaterThan(0);
@@ -190,7 +196,7 @@ describe('the person\'s control of a run the server keeps', () => {
 
   test('a step a run\'s machine refuses says so in the machine\'s words, not as a missing run', async () => {
     // The update run ended succeeded: there is nothing left to stop, and the refusal names the state it stands in.
-    const refused = await service!.control({ productFolder: product, runId: updateRunId('shop', commit), action: 'stop' });
+    const refused = await service!.control({ productFolder: product, runId: lastRequest, action: 'stop' });
     expect(refused?.ok).toBe(false);
     if (refused === null || refused.ok) return;
     expect(refused.code).toBe('fill-orchestrator/control-refused');
@@ -207,7 +213,7 @@ describe('the person\'s control of a run the server keeps', () => {
         host: '127.0.0.1',
         orchestrator: { stop: async () => undefined, control: (request) => service!.control(request) },
       });
-      const mine = await fetch(`${server.url}/api/fill/control?runId=${encodeURIComponent(updateRunId('shop', commit))}&action=stop`, { method: 'POST' });
+      const mine = await fetch(`${server.url}/api/fill/control?runId=${encodeURIComponent(lastRequest)}&action=stop`, { method: 'POST' });
       expect(mine.status).toBe(409);
       expect(((await mine.json()) as { error: { message: string } }).error.message).toContain('cannot be cancelled');
       // A run the orchestrator does not hold falls through to the landed fill's state file, which answers its own 404.
@@ -215,7 +221,7 @@ describe('the person\'s control of a run the server keeps', () => {
       expect(theirs.status).toBe(404);
       expect(((await theirs.json()) as { error: { message: string } }).error.message).toContain('No fill run is active');
       // An action that is neither of the two is refused before anything is asked.
-      const wrong = await fetch(`${server.url}/api/fill/control?runId=${encodeURIComponent(updateRunId('shop', commit))}&action=restart`, { method: 'POST' });
+      const wrong = await fetch(`${server.url}/api/fill/control?runId=${encodeURIComponent(lastRequest)}&action=restart`, { method: 'POST' });
       expect(wrong.status).toBe(400);
     } finally {
       await server?.stop();
@@ -254,7 +260,7 @@ describe('the landed fill beside the update', () => {
       // The landed fill ends: the orchestrator's newest run is what the panel shows next.
       writeLandedFill('complete');
       const after = await fetch(`${server.url}/api/fill`);
-      expect(((await after.json()) as { run: { id: string } }).run.id).toBe(updateRunId('shop', commit));
+      expect(((await after.json()) as { run: { id: string } }).run.id).toBe(lastRequest);
     } finally {
       await server?.stop();
       removeLandedFill();

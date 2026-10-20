@@ -295,7 +295,9 @@
       "succeeded": "Завершено",
       "completed_partial": "Завершено, покрыто не всё",
       "failed": "Ошибка",
-      "cancelled": "Отменено"
+      "cancelled": "Отменено",
+      "pausing": "Приостановка",
+      "cancelling": "Остановка"
     },
     "stages": {
       "inventory": "Инвентаризация",

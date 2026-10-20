@@ -295,7 +295,9 @@
       "succeeded": "Complete",
       "completed_partial": "Complete, partly covered",
       "failed": "Failed",
-      "cancelled": "Cancelled"
+      "cancelled": "Cancelled",
+      "pausing": "Pausing",
+      "cancelling": "Stopping"
     },
     "stages": {
       "inventory": "Inventory",

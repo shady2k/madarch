@@ -21,7 +21,13 @@ type Unit = { stage: string; status: string };
 type Run = { id: string; status: string; createdAt: string };
 type Event = { stage: string; unitId: string; at: string; type: string; summary: string };
 
-/** The order the fill's stages stand in, for the stages this panel knows: the orchestrator's own, then the landed pipeline's. */
+/**
+ * The order this panel knows the fill's stages in: the orchestrator's declared stages
+ * first (decision 0026's order), then the landed pipeline's. It orders and never
+ * filters: a stage the panel does not know stands after these in code point order,
+ * under its own id, so a stage added to the fill is shown before its name is
+ * translated.
+ */
 const stageOrder = [
   'snapshot', 'inventory', 'build-configuration', 'syntax', 'semantic-resolution', 'modules', 'document-index', 'history', 'agent-unit',
   'index', 'claims', 'code-map', 'synthesis', 'question-review',
