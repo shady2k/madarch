@@ -183,6 +183,12 @@ into this milestone). Nothing planned is displaced; the mutation survivors of
 stages 19–22 were moved to the next milestone on 2026-10-19 («Мутантов перенеси
 в новую веху»).
 
+Raised to **11** on 2026-10-20 by the owner («Бери», answering whether to take
+madarch-tzte.26.3 — a product's first run plans no agent unit, because the run
+plans before any stage publishes — into this milestone before the real-agent
+walks, since without it a first fill builds the graph pages and no understanding
+until the next commit). Nothing planned is displaced.
+
 ### Open alongside, not in scope
 
 - The starter kinds registry for a product made by `new` or `init` without
