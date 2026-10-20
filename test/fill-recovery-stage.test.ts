@@ -2,18 +2,18 @@
  * Stage 13, the system recovered and reconciled with the intended one, end to end
  * on the agent-stage shape of madarch-tzte.24.1 (decision 0026, "Stages": stage 13
  * "system recovery and reconciliation (recovered architecture beside the intended
- * one with the mapping between them)"; 0027\'s publication and split).
+ * one with the mapping between them)"; 0027's publication and split).
  *
  * One unit of the whole product receives the fixed part and a packet assembled
  * from what the earlier agent stages established — the module summaries of stage
  * 12, the intent claims of stages 10 and 11, the overview hypothesis and the rest
- * of the claims about the product\'s parts — beside the files of the product\'s
+ * of the claims about the product's parts — beside the files of the product's
  * own model (`madarch/*.yaml` of the product repository, decision 0002); it
  * writes the recovered architecture, the mapping and the mismatch questions
  * through the checked write path, and its coverage says which repositories it
- * read. Every expectation is taken from the task and the decisions: 0026\'s
- * numbers, the answer contract the stage declares, the hierarchy\'s levels, and
- * 0027\'s publication and split semantics. The agent is the fake ACP agent of
+ * read. Every expectation is taken from the task and the decisions: 0026's
+ * numbers, the answer contract the stage declares, the hierarchy's levels, and
+ * 0027's publication and split semantics. The agent is the fake ACP agent of
  * `test/fixtures/acp-fake-agent` (no real prompt, no network, no token spent),
  * the MCP server is the real one of madarch-tzte.22.2 answering through the real
  * server route, and time passes through a seam, never a sleep.
@@ -26,7 +26,7 @@ import { join } from 'node:path';
 import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createPgBossQueue } from '../src/adapters/pg-boss-queue.js';
 import { createFactStoreSchema, applyPublishedFacts, FACT_APPLICATION, readUnitFacts } from '../src/fill/fact-store.js';
-import { makeEdgeFact, makeNodeFact, repositoryPath, type Fact, type FactProvenance } from '../src/fill/facts.js';
+import { makeEdgeFact, makeNodeFact, repositoryPath, FACT_KINDS, type Fact, type FactProvenance } from '../src/fill/facts.js';
 import { createFactGraphReader, estimateTokens, DEFAULT_GRAPH_READ_LIMITS } from '../src/fill/graph-reads.js';
 import { draftSetOf } from '../src/fill/checked-writes.js';
 import { createFillOrchestratorService, type ProductFillWiring } from '../src/fill/orchestrator-host.js';
@@ -40,9 +40,7 @@ import {
 } from '../src/fill/orchestrator.js';
 import { createOrchestratorSchema, readProgress, readUnitDraft, readUnitPlan, type RunSnapshot } from '../src/fill/orchestrator-store.js';
 import { createStageRegistry } from '../src/fill/stages/index.js';
-import {
-  CONTRADICTION_QUESTION_TYPE,
-} from '../src/fill/stages/doc-intent.js';
+import { CONTRADICTION_QUESTION_TYPE, docIntentDeclaration } from '../src/fill/stages/doc-intent.js';
 import {
   RECOVERY_INTENT_PREDICATES,
   RECOVERY_KINDS,
@@ -54,13 +52,10 @@ import {
   recoverySections,
 } from '../src/fill/stages/recovery.js';
 import { UNDERSTANDING_SUMMARY_PREDICATE } from '../src/fill/stages/understanding.js';
-import { docIntentDeclaration } from '../src/fill/stages/doc-intent.js';
 import { intentHistoryDeclaration } from '../src/fill/stages/intent-history.js';
 import { PRODUCT_SCOPE_NAME } from '../src/fill/stages/agent-stage.js';
-import { StageRegistry } from '../src/fill/registry.js';
-import { deriveStageGraph } from '../src/fill/registry.js';
+import { deriveStageGraph, StageRegistry } from '../src/fill/registry.js';
 import { DEFAULT_STAGE_DEFAULTS, type FillStage } from '../src/fill/stage.js';
-import { FACT_KINDS } from '../src/fill/facts.js';
 import { PRODUCT_SCOPE } from '../src/fill/checked-writes.js';
 import { Type } from 'typebox';
 import { createGitSnapshotSource, type RepositoryPin } from '../src/fill/snapshot.js';
@@ -700,8 +695,11 @@ describe('stage 13\'s declaration', () => {
       expect(order.indexOf(earlier)).toBeLessThan(order.indexOf(RECOVERY_STAGE_ID));
     }
     // The edges the ordering draws, and the one the doc-intent stage\'s own consume draws back.
+    // The module tree the summaries read is stage 5's and stage 9's own (the refinement proposes module facts
+    // beside the clustering's), so both stand in the stage graph as its producers.
     expect(read.graph.edges.filter((edge) => edge.to === RECOVERY_STAGE_ID).map((edge) => [edge.from, edge.via]).sort())
       .toEqual([
+        ['boundaries', 'module'],
         ['intent-history', 'after'],
         ['inventory', 'file'],
         ['modules', 'module'],
