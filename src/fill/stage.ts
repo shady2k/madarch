@@ -167,6 +167,20 @@ export interface StageProgress {
   (note: string, fraction?: number): void;
 }
 
+/**
+ * One child of the set this unit generation sealed, as the run holds it: the unit's
+ * own id in the stage's vocabulary, the generation the split sealed for it, and the
+ * moment the seal was made.
+ */
+export interface StageSealedChild {
+  /** The child's unit id, in the store's namespaced form (`<stage>/<stage unit id>`). */
+  readonly unitId: string;
+  /** The generation the split sealed, which the parent's join is for. */
+  readonly generation: number;
+  /** When the split sealed it, in the run's own milliseconds. */
+  readonly sealedAt: number;
+}
+
 /** One stage unit as `execute` runs it. */
 export interface StageUnit {
   id: string;
@@ -245,6 +259,16 @@ export interface StageContext {
   progress: StageProgress;
   /** Cancelled when the run or the unit is cancelled. */
   signal: AbortSignal;
+  /**
+   * The child set this generation sealed, when it stands: a unit that split and was
+   * joined (decision 0027) finds its sealed children here, so it can tell its first
+   * attempt from the attempt that follows its join without reading the graph for an
+   * answer that moves — a read is recorded as the generation's dependency, and an
+   * empty answer a child's publication turns non-empty would refuse the unit's own
+   * publication at the recheck. A generation that sealed nothing is handed none:
+   * the field is absent, never an empty list.
+   */
+  readonly sealedChildren?: readonly StageSealedChild[];
 }
 
 /** How `execute` ends: a draft to publish, a split into children, or a block. */
