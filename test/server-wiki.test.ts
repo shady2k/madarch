@@ -12,6 +12,15 @@ import { createPGliteQueryDatabase } from '../src/adapters/pglite-query-database
 import { gitEnv } from './git-env.js';
 const productGitEnv = gitEnv({ GIT_AUTHOR_NAME: 'Question Test', GIT_AUTHOR_EMAIL: 'question@example.test', GIT_COMMITTER_NAME: 'Question Test', GIT_COMMITTER_EMAIL: 'question@example.test' });
 
+/**
+ * The bound of the one case here that starts a server over a drafted product
+ * with its own PGlite (`the model routes stay as they are`): it opens a
+ * database, a product folder and a built app before it can ask anything, and it
+ * takes 4.30 s on GitHub's runners (2026-10-20). The file's other cases take
+ * 0.2-1.1 s.
+ */
+const MODEL_ROUTES_MS = 20_000;
+
 /** One real git repository checked out under the product's repos/, committed with a sealed identity. */
 function fixtureCheckout(product: string, name: string, subject: string): string {
   const target = join(product, 'repos', name);
@@ -1586,7 +1595,7 @@ process.exit(1);
     const body = (await pages.json()) as { pages: unknown[] };
     expect(body.pages.map((page) => (page as { path: string }).path)).toEqual(['docs/vision.md']);
     rmSync(dataFolder!, { recursive: true, force: true });
-  });
+  }, MODEL_ROUTES_MS);
 
   test('the API answers a few hundred small documents well inside a second', async () => {
     draft();

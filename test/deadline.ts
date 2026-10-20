@@ -15,8 +15,14 @@
  * `test(name, fn, 20_000)` passes under this default.
  *
  * The bound is there because several tests take 5.0-6.0 s on GitHub's runners
- * and each one that times out costs a shard rerun. The proper fix is the tests'
- * own speed (madarch-cznn), not this bound: it comes back down with that work.
+ * and each one that times out costs a shard rerun. It is not what a slow case
+ * should lean on: measured 2026-10-20 (madarch-cznn), `setDefaultTimeout` from
+ * a preload does not reach every file of a run that holds several — a
+ * throwaway case that sleeps 6 s passed alone and was stopped at 5 000 ms
+ * beside another test file — so a case whose work is long names its own bound
+ * in the test, and the slow cases themselves open one database per case where
+ * the case's shape allows it, two where it holds two sources
+ * (`test/server-graphs.test.ts` is the worked example).
  */
 import { setDefaultTimeout } from 'bun:test';
 

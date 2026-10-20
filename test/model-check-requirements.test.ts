@@ -352,13 +352,16 @@ describe('requirements-resolve', () => {
     });
   });
 
-  test('a fence is closed only by the same character, at least as long, with nothing after it', async () => {
-    const cases: { name: string; spec: string[] }[] = [
-      { name: 'a shorter closing run', spec: ['# Server', '', '````markdown', '## Requirement: archive — An example', '```', ''] },
-      { name: 'a closing run of the other character', spec: ['# Server', '', '```', '## Requirement: archive — An example', '~~~', ''] },
-      { name: 'a closing line with a suffix', spec: ['# Server', '', '```', '## Requirement: archive — An example', '``` extra', ''] },
-    ];
-    for (const { name, spec: lines } of cases) {
+  // One test per case: each builds its own repository and runs the check over it,
+  // and three cases in one test took 5.3 s on the 2-CPU pod, over the bound an
+  // unnamed test really runs under (madarch-cznn, measured 2026-10-20).
+  const misclosedFences: { name: string; spec: string[] }[] = [
+    { name: 'a shorter closing run', spec: ['# Server', '', '````markdown', '## Requirement: archive — An example', '```', ''] },
+    { name: 'a closing run of the other character', spec: ['# Server', '', '```', '## Requirement: archive — An example', '~~~', ''] },
+    { name: 'a closing line with a suffix', spec: ['# Server', '', '```', '## Requirement: archive — An example', '``` extra', ''] },
+  ];
+  for (const { name, spec: lines } of misclosedFences) {
+    test(`a fence is closed only by the same character, at least as long, with nothing after it: ${name}`, async () => {
       await withRepo(async (repo) => {
         const { commit, blob } = sourcesCommit(repo);
         repo.write('docs/system/capabilities/server.md', [...lines, '## Requirement: store — Sent models are kept', ''].join('\n'));
@@ -368,11 +371,11 @@ describe('requirements-resolve', () => {
 
         const report = await checkModel(repo.path);
 
-        expect(report.outcome, name).toBe('failed');
-        expect(report.errors, name).toContainEqual(expect.objectContaining({ message: expect.stringContaining('has no requirement "store"') }));
+        expect(report.outcome).toBe('failed');
+        expect(report.errors).toContainEqual(expect.objectContaining({ message: expect.stringContaining('has no requirement "store"') }));
       });
-    }
-  });
+    });
+  }
 
   test('a fence that opens and closes leaves the headings after it readable', async () => {
     await withRepo(async (repo) => {
@@ -404,13 +407,14 @@ describe('requirements-resolve', () => {
     });
   });
 
-  test('a fence marker is read only at the start of a line, and only a run of three', async () => {
-    const cases: { name: string; prose: string }[] = [
-      { name: 'a marker inside a line of prose', prose: 'The format writes ```yaml and ~~~ for a fence.' },
-      { name: 'a single backtick', prose: '`store` is the id of the requirement.' },
-      { name: 'a single tilde', prose: '~10 items are enough.' },
-    ];
-    for (const { name, prose } of cases) {
+  // One test per case, for the same reason as the misclosed fences above.
+  const nonMarkers: { name: string; prose: string }[] = [
+    { name: 'a marker inside a line of prose', prose: 'The format writes ```yaml and ~~~ for a fence.' },
+    { name: 'a single backtick', prose: '`store` is the id of the requirement.' },
+    { name: 'a single tilde', prose: '~10 items are enough.' },
+  ];
+  for (const { name, prose } of nonMarkers) {
+    test(`a fence marker is read only at the start of a line, and only a run of three: ${name}`, async () => {
       await withRepo(async (repo) => {
         const { commit, blob } = sourcesCommit(repo);
         repo.write('docs/system/capabilities/server.md', ['# Server', '', prose, '', '## Requirement: store — Sent models are kept', ''].join('\n'));
@@ -420,11 +424,11 @@ describe('requirements-resolve', () => {
 
         const report = await checkModel(repo.path);
 
-        expect(report.outcome, name).toBe('passed');
-        expect(report.errors, name).toEqual([]);
+        expect(report.outcome).toBe('passed');
+        expect(report.errors).toEqual([]);
       });
-    }
-  });
+    });
+  }
 
   test('a marker indented by three spaces is a fence, and hides the headings in it', async () => {
     await withRepo(async (repo) => {

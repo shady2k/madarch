@@ -63,6 +63,18 @@ async function problemsOf(repo: Repo): Promise<ModelCheckReport['problems']> {
   return (await checkModel(repo.path)).problems;
 }
 
+/**
+ * The bound of a case that builds a repository and runs the check over it more
+ * than once: the check resolves each evidence item with a git read of its own,
+ * so the hub case (eleven elements, ten relations, twenty-one evidence items,
+ * the report and then the human output) takes 4.85 s on GitHub's runners and
+ * 6.4 s on the 2-CPU pod, and a shallow-clone case that walks a merge history
+ * takes 5.5 s there (measured 2026-10-20, madarch-cznn). Both are over the five
+ * seconds an unnamed test really runs under, and their fixtures are what the
+ * cases state, so they name their own bound.
+ */
+const REPOSITORY_CHECK_MS = 20_000;
+
 const EXPECTED_SIBLING_CYCLE: ModelCheckReport['problems'][number] = {
   problem: 'cycle',
   method: 'Acyclic Dependencies Principle; Arcan Cyclic Dependency',
@@ -263,7 +275,7 @@ test('a shallow clone whose boundary falls inside the window says hidden couplin
       rmSync(clonePath, { recursive: true, force: true });
     }
   });
-});
+}, REPOSITORY_CHECK_MS);
 
 test('a shallow clone of a history that merged an old unrelated root names the real shallow boundary, not the old root', async () => {
   await withRepo(async (repo) => {
@@ -329,7 +341,7 @@ test('a shallow clone of a history that merged an old unrelated root names the r
       rmSync(clonePath, { recursive: true, force: true });
     }
   });
-});
+}, REPOSITORY_CHECK_MS);
 
 test('unstable dependency: an element depending on a sibling less stable than itself is reported with both instability values', async () => {
   await withRepo(async (repo) => {
@@ -405,7 +417,7 @@ test('hub: an element with five relations in and five out is reported with the t
     expect(run.stdout).toContain('problem hub:');
     expect(run.stdout).toContain(`(ids: ${expectedHubIds.join(', ')})`);
   });
-});
+}, REPOSITORY_CHECK_MS);
 
 test('store sink and source by transfers: a store all transfers move into is a sink, one they all leave is a source, one without transfers is neither', async () => {
   await withRepo(async (repo) => {

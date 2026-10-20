@@ -1,15 +1,16 @@
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterAll, afterEach, describe, expect, test } from 'bun:test';
 import { createTestQueryEngine } from './query-test-engine.js';
 import { mkdirSync, mkdtempSync, rmSync, rmdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createPGliteQueryDatabase } from '../src/adapters/pglite-query-database.js';
 import { REFERENCE_SYSTEM, REFERENCE_TIME } from '../scripts/render-views.js';
 import { checkLikeC4Workspaces, type LikeC4CheckResult } from '../scripts/likec4-check.js';
 import {
   compileModel,
+  createPGliteDatabaseOwner,
   createPGliteHistory,
+  createPGliteQueryDatabase,
   loadAndCompileModel,
   loadModel,
   renderAsyncOneViewMermaid,
@@ -18,6 +19,7 @@ import {
   type LikeC4Result,
   type CompiledElement,
   type CompiledModel,
+  type DatabaseOwner,
   type HistoryStore,
   type AsyncQueryEngine,
   type StartedServer,
@@ -40,6 +42,32 @@ const NOW = DAY(30);
 
 /** The server's held clock, at `NOW` unless a test moves it by hand: a second store under a frozen clock records 1 ms later, and a view asked before that ms sees the older version. */
 const clockNow = { value: NOW };
+
+/**
+ * The bound of a case that starts a server and sends it a model: the server
+ * keeps each source as a file-backed PGlite of its own (`src/server/sources.ts`)
+ * beside the query projection the case is lent, and one PGlite is 1.66 s to boot
+ * on the 2-CPU pod the tests run on (measured 2026-10-20, madarch-cznn), so a
+ * case here takes 2.5-5 s where a database-backed one takes half a second.
+ */
+const SERVER_MS = 15_000;
+
+/**
+ * The bound of a case that runs the real `likec4` validator: it spawns a node
+ * process per workspace it is handed, 1.3-2 s each, on top of the server the
+ * case starts. Measured 2026-10-20 (madarch-cznn).
+ */
+const VALIDATE_MS = 15_000;
+
+/**
+ * The bound of a case that does more than one round of the case's own work: it
+ * renders the reference system three times, or restarts the server on its data
+ * folder, or holds two models at two times. The server stores a source as a
+ * file-backed PGlite of its own (`src/server/sources.ts`), 1.66 s to boot on the
+ * 2-CPU pod the tests run on (measured 2026-10-20, madarch-cznn), and this case
+ * pays that once per server start on top of what it compares.
+ */
+const RENDERED_TWICE_MS = 20_000;
 
 /** The source the reference system is sent as, and the commit and time its version carries. */
 const REFERENCE_SOURCE = 'reference-system';
@@ -67,18 +95,74 @@ let server: StartedServer | undefined;
 let lines: string[];
 let errors: string[];
 
+/**
+ * The file's query database, one PGlite for every case: it holds the graphs'
+ * projection, and each server the cases start is lent a database on it. One
+ * PGlite is 1.66 s to boot on the 2-CPU pod the tests run on (measured
+ * 2026-10-20, madarch-cznn: a bare instance 1.66 s, a schema 0.07 s more), and
+ * the projection a case needs is replaced source by source at every rebuild
+ * (`sql-query-database.ts`'s `rebuild` replaces its scoped sources), so a case
+ * reading another case's leftover rows is not possible: no case ever asks a
+ * source it did not send or build. The owner is closed after the file, as
+ * decision 0027 says the caller that opened it does.
+ */
+let sharedQueryOwner: DatabaseOwner | undefined;
+
+/** The file's query owner, opened on the first case that needs it (decision 0027: the caller that opened the owner closes it, never the adapters lent it). */
+function queryOwner(): DatabaseOwner {
+  sharedQueryOwner ??= createPGliteDatabaseOwner({ vector: true });
+  return sharedQueryOwner;
+}
+
+// The bound is named because hooks do not get the preload's default, and
+// closing the file's database is the hook's work: PGlite shutdown under a
+// loaded runner took 5.9 s in CI (run 39415085797, test shard 4), over bun's
+// five.
+afterAll(async () => {
+  await sharedQueryOwner?.close();
+  sharedQueryOwner = undefined;
+}, 30_000);
+
+/**
+ * The databases this case opened for its own comparison histories, closed when
+ * the case ends: one database holds one history, so each model a case compares
+ * against needs its own, and the case's three renders of one model share one.
+ */
+let caseDatabases: DatabaseOwner[] = [];
+
+/** The comparison histories this case stored, kept for the case: three requests of one case ask the renderer about the same model at the same time. */
+const caseComparisons: { model: CompiledModel; at: number; history: HistoryStore }[] = [];
+
+/** The comparison history holding a model at a time, stored once per case: the same model at the same time renders the same expected text, and storing it again would only buy another database boot. */
+async function comparisonHistory(model: CompiledModel, at: number): Promise<HistoryStore> {
+  const known = caseComparisons.find((each) => each.model === model && each.at === at);
+  if (known !== undefined) return known.history;
+  const owner = createPGliteDatabaseOwner({ vector: true });
+  caseDatabases.push(owner);
+  const history = createPGliteHistory({ owner, clock: { now: () => at } });
+  expect((await history.store({ source: 'independent', commit: 'v1', committedAt: at, model })).errors).toEqual([]);
+  caseComparisons.push({ model, at, history });
+  return history;
+}
+
 afterEach(async () => {
   await server?.stop();
   server = undefined;
+  caseComparisons.length = 0;
+  const opened = caseDatabases;
+  caseDatabases = [];
+  for (const each of opened) await each.close();
+  // afterEach also closes the case's comparison databases; its bound is named
+  // for the same reason as the afterAll above.
   if (folder !== undefined) {
     rmSync(folder, { recursive: true, force: true });
     folder = undefined;
   }
-});
+}, 30_000);
 
 /** Test/local composition explicitly selects PGlite and injects the shared query owner. */
 async function startLocalServer(options: Omit<Parameters<typeof startServer>[0], 'queryDatabase'>): Promise<StartedServer> {
-  return startServer({ ...options, queryDatabase: await createPGliteQueryDatabase({ clock: options.clock }) });
+  return startServer({ ...options, queryDatabase: await createPGliteQueryDatabase({ owner: queryOwner(), clock: options.clock }) });
 }
 
 /** A server on a free port over a scratch folder, with a held clock and captured logs; returns its base URL. */
@@ -131,13 +215,17 @@ function sendReference(): Promise<Response> {
   return post('/models', { source: REFERENCE_SOURCE, commit: REFERENCE_COMMIT, committedAt: REFERENCE_COMMITTED_AT, model: referenceModel() });
 }
 
-/** An engine built independently of the server: the same model stored in a history of its own. */
-async function independentEngine(model: CompiledModel, at: number): Promise<{ engine: AsyncQueryEngine; history: HistoryStore; close(): Promise<void> }> {
-  const history = createPGliteHistory({ clock: { now: () => at } });
-  expect((await history.store({ source: 'independent', commit: 'v1', committedAt: at, model })).errors).toEqual([]);
+/**
+ * An engine built independently of the server: the same model stored in a
+ * history of its own, on the case's own database. The history is stored once
+ * per case and model, and the engine is closed after the comparison it was
+ * built for; leaving it open would hold the shared test database's projection.
+ */
+async function independentEngine(model: CompiledModel, at: number): Promise<{ engine: AsyncQueryEngine; close(): Promise<void> }> {
+  const history = await comparisonHistory(model, at);
   const engine = await createTestQueryEngine();
   await engine.rebuild(await history.assertions());
-  return { engine, history, close: async () => { await engine.close(); await history.close(); } };
+  return { engine, close: async () => { await engine.close(); } };
 }
 
 /** The drill-down fixture, the model the views capability's own scenarios use. */
@@ -196,7 +284,7 @@ describe('POST /views of the reference system', async () => {
       expect(body).toBe(await renderMermaid('element' in request ? request.element : undefined, 'depth' in request ? request.depth : undefined));
       expect(body).toContain('```mermaid');
     }
-  }, 15_000);
+  }, RENDERED_TWICE_MS);
 
   test('the LikeC4 answers are text/plain and pass likec4 validate on their own', async () => {
     await start();
@@ -214,7 +302,7 @@ describe('POST /views of the reference system', async () => {
     await server?.stop();
     server = undefined;
     for (const workspace of workspaces) expect(validate(workspace).errors).toEqual([]);
-  }, 15_000);
+  }, VALIDATE_MS);
 
   test('the same request twice, and after a restart on the same data folder, gives byte-identical text', async () => {
     await start();
@@ -236,7 +324,7 @@ describe('POST /views of the reference system', async () => {
       likec4: await (await post('/views', { source: REFERENCE_SOURCE, format: 'likec4' })).text(),
     };
     expect(after).toEqual(first);
-  });
+  }, RENDERED_TWICE_MS);
 
   test.skipIf(process.env['MADARCH_SKIP_PERF'] !== undefined)(
     'a view answers in under one second once its engine is built',
@@ -272,7 +360,7 @@ describe('POST /views of the reference system', async () => {
     expect(lines).toHaveLength(2);
     expect(lines[0]).toMatch(/^POST \/views 200 source="reference-system" \d+ms$/);
     expect(lines[1]).toMatch(/^POST \/views 404 source="github\.com\/acme\/shop" \d+ms: no model has been sent/);
-  });
+  }, SERVER_MS);
 });
 
 describe('a view after a store that failed once', async () => {
@@ -323,7 +411,7 @@ describe('a view after a store that failed once', async () => {
     const answer = await post('/views', { source: 'shop', format: 'mermaid' });
     expect(answer.status).toBe(200);
     expect(await answer.text()).toBe(await expectedLandscape(second, DAY(40)));
-  }, 15_000);
+  }, RENDERED_TWICE_MS);
 });
 
 describe('POST /views names the relations LikeC4 cannot draw', async () => {
@@ -372,12 +460,12 @@ describe('POST /views names the relations LikeC4 cannot draw', async () => {
     }
     expect(lines.slice(expected.notDrawn!.length).join('\n')).toBe(expected.workspace!);
     expect(answer).toBe(expectedLikeC4Answer(expected));
-  }, 15_000);
+  }, RENDERED_TWICE_MS);
 
   test('the full not-drawn answer passes likec4 validate without a running server', async () => {
     const expected = await renderExpected(notDrawnModel(), DAY(2));
     expect(validate(expectedLikeC4Answer(expected)).errors).toEqual([]);
-  });
+  }, VALIDATE_MS);
 
   test('a model with no relation LikeC4 cannot draw is answered unchanged: the workspace alone, no comment line', async () => {
     await start();
@@ -390,7 +478,7 @@ describe('POST /views names the relations LikeC4 cannot draw', async () => {
     const expected = await renderExpected(referenceModel(), REFERENCE_TIME);
     expect(expected.notDrawn).toEqual([]);
     expect(answer).toBe(expected.workspace!);
-  });
+  }, SERVER_MS);
 });
 
 describe('POST /views explains', async () => {
@@ -407,7 +495,7 @@ describe('POST /views explains', async () => {
     expect(error.message).toContain('"github.com/acme/shop"');
     expect(error.message).toContain('a-first, shop');
     expect(error.message).toContain('bun scripts/send-model.ts <repository> --server');
-  });
+  }, SERVER_MS);
 
   test('a server holding nothing says so too', async () => {
     await start();
@@ -416,7 +504,7 @@ describe('POST /views explains', async () => {
     const error = await errorOf(response);
     expect(error.message).toContain('holds no source');
     expect(error.message).toContain('bun scripts/send-model.ts <repository> --server');
-  });
+  }, SERVER_MS);
 
   test('an element that does not exist in the source is answered 404 naming the element and the source', async () => {
     await start();
@@ -428,7 +516,7 @@ describe('POST /views explains', async () => {
     expect(error.field).toBe('element');
     expect(error.message).toContain('"billing"');
     expect(error.message).toContain('"shop"');
-  });
+  }, SERVER_MS);
 
   test('a bad depth or format, or a missing source or format, is answered 400 naming the field and what is accepted', async () => {
     await start();
@@ -462,7 +550,7 @@ describe('POST /views explains', async () => {
     const error = await errorOf(both);
     expect(error.message).toContain('"source"');
     expect(error.message).toContain('"format"');
-  });
+  }, SERVER_MS);
 
   test('a valid request answers 200: the landscape, an element, a depth, in both formats', async () => {
     await start();
@@ -481,7 +569,7 @@ describe('POST /views explains', async () => {
       const body = await response.text();
       expect(body.length).toBeGreaterThan(0);
     }
-  });
+  }, SERVER_MS);
 
   test('a body that is not JSON is refused, and GET /views is not offered', async () => {
     await start();
