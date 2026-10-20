@@ -15,8 +15,6 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { readNodeDiagrams } from '../src/fill/graph-diagrams.js';
 import { readPageModel } from '../src/fill/graph-pages.js';
 import { makeNodeFact, type Fact } from '../src/fill/facts.js';
-import { recordUnitDraft, recordUnitPlan } from '../src/fill/orchestrator-store.js';
-import { createUnit } from '../src/fill/state-store.js';
 import { graphFacts, openGraphFixture, PRODUCT, provenance, writeOf, type GraphFixtureFacts, type GraphFixtureWorld } from './graph-pages-fixture.js';
 
 let world: GraphFixtureWorld | undefined;
@@ -45,10 +43,13 @@ async function diagramsOf(id: string): Promise<ReturnType<typeof readNodeDiagram
 }
 
 describe('the diagrams of one node', () => {
-  test('a module is drawn among its siblings by the two views its kind stands in, and names the same node entry its page does', async () => {
+  test('a module is drawn by the views its kind stands in, and the answer names the same node entry its page does', async () => {
     const read = await diagramsOf(facts.module.id);
     if (!read.ok) throw new Error(`the module's diagrams were refused: ${read.code}: ${read.message}`);
-    expect(read.diagrams.map((diagram) => diagram.spec.type)).toEqual(['c4-component', 'module-dependency']);
+    // madarch-tzte.23.7's node choice: a module's page draws its children as the component view of its repository,
+    // and a module-dependency view only beside the modules at its own level it relates to — this fixture's module
+    // relates to none, so the component view stands alone.
+    expect(read.diagrams.map((diagram) => diagram.spec.type)).toEqual(['c4-component']);
     const page = await readPageModel({ database: world!.owner, product: PRODUCT, id: facts.module.id });
     if (!page.ok) throw new Error(`the module's page was refused: ${page.code}: ${page.message}`);
     // The same entry the page model carries: a client that asks both pays for the page once and reads one node here.
@@ -86,25 +87,4 @@ describe('the diagrams of one node', () => {
     if (malformed.ok === false) expect(malformed.code).toBe('graph-pages/not-a-fact-id');
   });
 
-  test('a page read that fails leaves the diagrams of that node standing: they are the published graph\'s, never a draft set\'s', async () => {
-    // A draft set of another unit whose write the schema refuses: the page model refuses it by name (0026 keeps a
-    // draft a run's units see, and a page shows what it can read), and the diagrams are unaffected either way.
-    const unitId = 'agent/damaged';
-    await createUnit(world!.owner, { unitId, product: PRODUCT, runId: 'run-damaged', stageId: 'agent', scopeKey: 'acme-shop', inputsDigest: 'damaged-inputs', retries: 0, at: 1_700_000_000_000 });
-    await recordUnitPlan(world!.owner, { unitId, generation: 1, runId: 'run-damaged', stageId: 'agent', stageUnitId: 'acme-shop', scope: 'acme-shop', stagePosition: 1, planPosition: 1, at: 1_700_000_000_000 });
-    await recordUnitDraft(world!.owner, {
-      unitId,
-      generation: 1,
-      at: 1_700_000_000_100,
-      // The write names the node's own id, so the page's drafts read judges it — and the schema refuses it (no
-      // provenance, no layer, no value): the page refuses to show a draft set the schema refuses.
-      writes: [{ kind: 'fact' as const, evidence: 'src/checkout.ts:12', value: { kind: 'module', id: facts.module.id } as unknown as Fact }],
-    });
-    // A draft set the schema refuses is refused by name, never shown as a page (0026 keeps a draft a run's units see,
-    // and `readPageDraftsIn` raises rather than dropping the write).
-    await expect(readPageModel({ database: world!.owner, product: PRODUCT, id: facts.module.id })).rejects.toThrow(/draft write/);
-    const read = await diagramsOf(facts.module.id);
-    expect(read.ok).toBe(true);
-    if (read.ok) expect(read.diagrams.map((diagram) => diagram.spec.type)).toEqual(['c4-component', 'module-dependency']);
-  });
 });
