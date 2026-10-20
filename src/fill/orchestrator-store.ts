@@ -39,7 +39,7 @@ import type { StageDraftWrite } from './stage.js';
 
 /** The orchestrator's own tables; `createOrchestratorSchema` creates them and every error names the ones it touched. */
 export const ORCHESTRATOR_TABLES = [
-  'fill_run_configuration', 'fill_unit_plan', 'fill_unit_read', 'fill_unit_draft', 'fill_unit_draft_part', 'fill_unit_split', 'fill_publication', 'fill_event',
+  'fill_run_configuration', 'fill_run_stage', 'fill_unit_plan', 'fill_unit_read', 'fill_unit_draft', 'fill_unit_draft_part', 'fill_unit_split', 'fill_publication', 'fill_event',
 ] as const;
 
 const SCHEMA: readonly string[] = [
@@ -48,6 +48,19 @@ const SCHEMA: readonly string[] = [
     digest text NOT NULL,
     snapshot jsonb NOT NULL,
     recorded_at bigint NOT NULL
+  )`,
+  // The stages of one run that have planned (madarch-tzte.26.3): a stage whose
+  // producers have settled inside the run plans then, so the record of which
+  // stages planned is the run's resume point — a run that crashed between a
+  // producer's publication and its consumer's planning plans the consumer when
+  // it is driven again, and never plans a stage twice.
+  `CREATE TABLE IF NOT EXISTS fill_run_stage (
+    run_id text NOT NULL,
+    stage_id text NOT NULL,
+    planned_at bigint NOT NULL,
+    units integer NOT NULL,
+    publications integer NOT NULL,
+    PRIMARY KEY (run_id, stage_id)
   )`,
   `CREATE TABLE IF NOT EXISTS fill_unit_plan (
     unit_id text NOT NULL,
@@ -935,6 +948,97 @@ export async function readRunConfiguration(database: OrchestratorDatabase, runId
   }, 'snapshot');
 }
 
+/** One stage of one run that has planned, as the run's own record holds it. */
+export interface RunStageRecord {
+  readonly runId: string;
+  readonly stageId: string;
+  /** When the stage's latest planning attempt stood. */
+  readonly plannedAt: number;
+  /** How many units the stage's latest attempt named. */
+  readonly units: number;
+  /**
+   * How many publications the run had made when the attempt stood: the
+   * watermark a re-planning reads the run's publications against
+   * (madarch-tzte.26.3).
+   */
+  readonly publications: number;
+}
+
+/**
+ * Records one planning attempt of one stage of one run (madarch-tzte.26.3):
+ * when it stood, how many units it named, and how many publications the run
+ * had made by then. A stage that planned no unit may be planned again once the
+ * run has published past its attempt what a producer of its inputs makes — the
+ * watermark is what that re-planning reads, and what keeps it from planning
+ * the same stage twice without a publication between.
+ */
+export async function recordRunStagePlanned(
+  database: OrchestratorDatabase,
+  options: { readonly runId: string; readonly stageId: string; readonly units: number; readonly publications: number; readonly at: number },
+): Promise<RunStageRecord> {
+  const at = here();
+  return run(at, database, `recordRunStagePlanned(${options.runId}/${options.stageId})`, ['fill_run_stage'], async (executor) => {
+    await executor.query(
+      `INSERT INTO fill_run_stage (run_id, stage_id, planned_at, units, publications) VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (run_id, stage_id) DO UPDATE SET planned_at = EXCLUDED.planned_at, units = EXCLUDED.units, publications = EXCLUDED.publications`,
+      [options.runId, options.stageId, options.at, options.units, options.publications],
+    );
+    return { runId: options.runId, stageId: options.stageId, plannedAt: options.at, units: options.units, publications: options.publications };
+  }, 'write');
+}
+
+/** Every stage of one run that has planned, in code point order of the stage ids. */
+export async function readRunStagePlans(database: OrchestratorDatabase, runId: string): Promise<readonly RunStageRecord[]> {
+  const at = here();
+  return run(at, database, `readRunStagePlans(${runId})`, ['fill_run_stage'], async (executor) => {
+    const { rows } = await executor.query<{ stage_id: string; planned_at: unknown; units: unknown; publications: unknown }>(
+      'SELECT stage_id, planned_at, units, publications FROM fill_run_stage WHERE run_id = $1 ORDER BY stage_id',
+      [runId],
+    );
+    return rows.map((row) => ({ runId, stageId: row.stage_id, plannedAt: millis(row.planned_at), units: millis(row.units), publications: millis(row.publications) }));
+  }, 'snapshot');
+}
+
+/** One stage's publications in one run, by their count. */
+export interface RunPublicationStage {
+  readonly stageId: string;
+  readonly publications: number;
+}
+
+/**
+ * The stages whose units published in one run, each with its publication count
+ * (madarch-tzte.26.3): what a stage that planned no unit is re-planned against
+ * — a producer that published since the stage's attempt is a producer whose
+ * facts its plan may not have read.
+ */
+export async function readRunPublicationStages(database: OrchestratorDatabase, runId: string): Promise<readonly RunPublicationStage[]> {
+  const at = here();
+  return run(at, database, `readRunPublicationStages(${runId})`, ['fill_publication'], async (executor) => {
+    const { rows } = await executor.query<{ stage_id: string; publications: unknown }>(
+      `SELECT u.stage_id AS stage_id, COUNT(*) AS publications
+         FROM fill_publication p
+         JOIN fill_unit_generation g ON g.unit_id = p.unit_id AND g.generation = p.generation AND g.run_id = $1
+         JOIN fill_unit u ON u.unit_id = p.unit_id
+        GROUP BY u.stage_id`,
+      [runId],
+    );
+    return rows.map((row) => ({ stageId: row.stage_id, publications: millis(row.publications) }));
+  }, 'snapshot');
+}
+
+/** How many publications one run has made so far. */
+export async function readRunPublicationCount(database: OrchestratorDatabase, runId: string): Promise<number> {
+  const at = here();
+  return run(at, database, `readRunPublicationCount(${runId})`, ['fill_publication'], async (executor) => {
+    const { rows } = await executor.query<{ publications: unknown }>(
+      `SELECT COUNT(*) AS publications FROM fill_publication p
+         JOIN fill_unit_generation g ON g.unit_id = p.unit_id AND g.generation = p.generation AND g.run_id = $1`,
+      [runId],
+    );
+    return millis(rows[0]?.publications ?? 0);
+  }, 'snapshot');
+}
+
 /**
  * One unit generation's place in the plan that created it: which stage it
  * belongs to, where that stage stands in the derived order, where the stage's
@@ -1064,8 +1168,8 @@ export interface FillProgressEvent {
 /** Every kind of progress event the orchestrator emits; the vocabulary the live view reads. */
 export const PROGRESS_KINDS = [
   'run-planned', 'run-started', 'run-blocked', 'run-paused', 'run-resumed', 'run-cancelling', 'run-cancelled',
-  'run-completed', 'run-completed-partial', 'run-failed',
-  'stage-found-nothing',
+  'run-completed', 'run-completed-partial', 'run-failed', 'run-replanned', 'run-refused',
+  'stage-found-nothing', 'stage-planned',
   'unit-planned', 'unit-admitted', 'unit-leased', 'unit-started', 'unit-read', 'unit-progress', 'unit-drafted', 'unit-validating',
   'unit-published', 'unit-split', 'unit-joined', 'unit-blocked', 'unit-unblocked', 'unit-retried', 'unit-failed',
   'unit-stale', 'unit-cancelled', 'unit-requeued', 'unit-refused',

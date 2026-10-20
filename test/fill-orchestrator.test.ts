@@ -125,6 +125,8 @@ async function openWorld(options: {
   apply?: (input: { unitId: string; generation: number; digest: string; writes: readonly unknown[] }) => Promise<number>;
   /** An owner the test lends, wrapped to count the transactions a pass opens; the test closes it. */
   owner?: DatabaseOwner;
+  /** The clock the run reads; a test that reopens a world over one owner moves one clock across both. */
+  clock?: ReturnType<typeof testClock>;
 }): Promise<World> {
   const lent = options.owner !== undefined;
   const owner = options.owner ?? createPGliteDatabaseOwner();
@@ -142,7 +144,7 @@ async function openWorld(options: {
   });
   const graph = options.graph ?? fakeGraph();
   const applied: World['applied'] = [];
-  const clock = testClock();
+  const clock = options.clock ?? testClock();
   const commits = { value: options.commit ?? 'a1b2c3d4' };
   const orchestrator = createOrchestrator({
     database: owner,
@@ -521,8 +523,13 @@ describe('planning from the registry', () => {
     const journal = await readTransitions(opened.owner, { kind: 'run', id: runId });
     expect(journal.map((entry) => entry.transitionId)).toEqual(['run/created--plan-->planning', 'run/planning--start-->running']);
     const events = await readProgress(opened.owner, runId);
+    // Each stage's units are announced with the stage's own attempt, in the derived order.
     expect(events.map((event) => event.kind)).toEqual([
-      'run-planned', 'unit-planned', 'unit-planned', 'unit-planned', 'unit-planned', 'run-started',
+      'run-planned', 'unit-planned', 'unit-planned', 'stage-planned', 'unit-planned', 'stage-planned', 'unit-planned', 'stage-planned', 'run-started',
+    ]);
+    // One stage-planned event per stage, in the derived order, naming what the stage's attempt gave.
+    expect(events.filter((event) => event.kind === 'stage-planned').map((event) => event.summary)).toEqual([
+      'stage snapshot planned 2 units', 'stage modules planned 1 unit', 'stage overview planned 1 unit',
     ]);
     expect(events.every((event, index) => event.seq === index + 1)).toBe(true);
   });
@@ -678,7 +685,7 @@ describe('one attempt: lease, run, draft, validate, publish', () => {
     expect(await opened.queue.claim({ queue: QUEUE, limit: 1 })).toEqual([]);
     const events = await readProgress(opened.owner, runId);
     expect(events.map((event) => event.kind)).toEqual([
-      'run-planned', 'unit-planned', 'run-started', 'unit-admitted', 'unit-leased', 'unit-started', 'unit-drafted', 'unit-validating', 'unit-published',
+      'run-planned', 'unit-planned', 'stage-planned', 'run-started', 'unit-admitted', 'unit-leased', 'unit-started', 'unit-drafted', 'unit-validating', 'unit-published',
     ]);
   });
 
@@ -2413,5 +2420,127 @@ describe('a generation’s cache key, and what a run reaches over the declared c
     await driveOne(opened, 'run-2');
     expect((await readUnit(opened.owner, 'modules/core'))?.generation).toBe(1);
     expect((await readUnit(opened.owner, 'modules/core'))?.runId).toBe('run-1');
+  });
+});
+
+describe('the second planning epoch of a first fill (madarch-tzte.26.3)', () => {
+  /** A stage whose plan names its units from the graph, the way the agent stages of 0026 plan. */
+  function graphPlanningStage(id: string, options: { query: string; consumes: readonly string[]; produces: readonly string[] }): FillStage {
+    return fakeStage(id, {
+      consumes: { required: options.consumes.map((capability) => ({ capability, scope: 'repository' as const })), optional: [] },
+      produces: options.produces.map((kind) => ({ kind, schemaVersion: 1, scope: 'repository' as const })),
+      plan: async (graph) => {
+        const rows = await graph.query(options.query);
+        return {
+          units: rows.map((row) => {
+            const scope = String((row as { scope?: unknown }).scope ?? '');
+            return { id: scope, scope };
+          }),
+          ...(rows.length > 0 ? {} : { coverage: 'nothing-found' as const }),
+        };
+      },
+      execute: async (unit, context) => {
+        await context.graph.query(options.query);
+        context.draft.write({ kind: 'fact', evidence: `${unit.scope}:1`, value: { kind: `${id}-facts` } });
+        return { outcome: 'draft' };
+      },
+    });
+  }
+
+  /** The reading stage the cache-key tests use, named here so the describe holds its own helpers. */
+  function readingStageOf(id: string, options: { units: { names: string[] }; produces?: readonly string[] }): FillStage {
+    return fakeStage(id, {
+      produces: (options.produces ?? []).map((kind) => ({ kind, schemaVersion: 1, scope: 'repository' as const })),
+      plan: () => ({ units: options.units.names.map((scope) => ({ id: scope, scope })), coverage: 'planned' as const }),
+      execute: (unit, context) => {
+        context.draft.write({ kind: 'fact', evidence: `${unit.scope}:1`, value: { kind: `${id}-facts` } });
+        return { outcome: 'draft' };
+      },
+    });
+  }
+
+  /** Plans and drives one run to its end, answering what it planned. */
+  async function plannedAndDriven(opened: World, runId: string): Promise<Extract<PlanOutcome, { outcome: 'planned' }>> {
+    const started = await startRun(opened.orchestrator, { runId });
+    expect(started.ok).toBe(true);
+    const plan = await planRun(opened.orchestrator, { runId });
+    if (plan.outcome !== 'planned') throw new Error(`the run ${runId} was not planned: ${JSON.stringify(plan)}`);
+    const driven = await driveRun(opened.orchestrator, { runId });
+    expect({ state: driven.run.state, settled: driven.settled }).toEqual({ state: 'succeeded', settled: true });
+    return plan;
+  }
+
+  test('a run crashed between a producer\'s publication and its consumer\'s planning plans the consumer when it is driven again, to the same result', async () => {
+    const query = 'SELECT scope FROM consumers';
+    const registry = new StageRegistry()
+      .register(readingStageOf('snapshot', { units: { names: ['src'] }, produces: ['file-facts'] }))
+      .register(graphPlanningStage('overview', { query, consumes: ['file-facts'], produces: ['product-overview'] }));
+    const graph = fakeGraph();
+    // The clock is the test's own and moves across the restart, so the resumed run's steps stand after
+    // the first world's in the store's own times.
+    const clock = testClock();
+    const owner = createPGliteDatabaseOwner();
+    const opened = await world({ registry, graph, owner, clock });
+    await startRun(opened.orchestrator, { runId: 'run-1' });
+    const planned = await planRun(opened.orchestrator, { runId: 'run-1' });
+    expect(planned.outcome).toBe('planned');
+    if (planned.outcome !== 'planned') return;
+    // The consumer's plan reads what its producer writes: at the planning nothing stood, so it planned
+    // no unit, and the run records the attempt.
+    expect(planned.units.map((unit) => unit.unitId)).toEqual(['snapshot/src']);
+    await admitUnits(opened.orchestrator, { runId: 'run-1' });
+    expect((await workOnce(opened.orchestrator, { worker: 'worker-1' })).result).toBe('published');
+    // The process is lost here: the producer's publication stands in the store and the consumer has
+    // planned nothing. The world is closed and opened again over the same database, which is the restart.
+    await opened.close();
+    // The producer's facts stand now: what its publication wrote, as the graph the units read answers it.
+    graph.rows.set(query, [{ scope: 'product' }]);
+    clock.advance(60_000);
+    const resumed = await world({ registry, graph, owner, clock });
+    const driven = await driveRun(resumed.orchestrator, { runId: 'run-1' });
+    // The same result a run without the crash reaches: the consumer planned in the reopened planning
+    // epoch, published exactly once, and the run finished with its work.
+    expect({ state: driven.run.state, settled: driven.settled }).toEqual({ state: 'succeeded', settled: true });
+    expect(await readUnit(resumed.owner, 'overview/product')).toMatchObject({ state: 'published', generation: 1, runId: 'run-1' });
+    expect(await readPublications(resumed.owner, 'overview/product')).toHaveLength(1);
+    expect(await readPublications(resumed.owner, 'snapshot/src')).toHaveLength(1);
+    // One reopened planning epoch: the run's own journal names it, and the resume landed on the same
+    // result a run without the crash reaches.
+    const journal = await readTransitions(resumed.owner, { kind: 'run', id: 'run-1' });
+    expect(journal.map((entry) => entry.transitionId)).toEqual([
+      'run/created--plan-->planning', 'run/planning--start-->running', 'run/running--replan-->planning', 'run/planning--start-->running',
+      'run/running--complete-->succeeded',
+    ]);
+    const events = await readProgress(resumed.owner, 'run-1');
+    expect(events.map((event) => event.kind)).toContain('run-replanned');
+    // Stage 23's old limitation (madarch-tzte.23.5, seen in the stage-23 walk): a run that stopped
+    // stood in the store non-terminal, and the next run of the product was refused with the chain
+    // active. The resumed run settles whole, so the next run of the product is accepted and settles
+    // too — nothing the crash left behind holds the product.
+    const next = await plannedAndDriven(resumed, 'run-2');
+    expect(next.units).toEqual([]);
+    expect(next.reused).toEqual(['snapshot/src', 'overview/product']);
+    await resumed.close();
+    await owner.close();
+  });
+
+  test('a second run of a filled product re-plans nothing: its publications are its plan\'s answer already', async () => {
+    const query = 'SELECT scope FROM consumers';
+    const registry = new StageRegistry()
+      .register(readingStageOf('snapshot', { units: { names: ['src'] }, produces: ['file-facts'] }))
+      .register(graphPlanningStage('overview', { query, consumes: ['file-facts'], produces: ['product-overview'] }));
+    const graph = fakeGraph({ [query]: [{ scope: 'product' }] });
+    const opened = await world({ registry, graph });
+    await plannedAndDriven(opened, 'run-1');
+    // The second run plans against the graph the first filled: every stage names its units, every unit
+    // stands under a key that did not move, and nothing is planned again — no publication of its own
+    // re-opens the planning epoch, for there is nothing its stages have not answered.
+    const plan = await plannedAndDriven(opened, 'run-2');
+    expect(plan.units).toEqual([]);
+    expect(plan.reused).toEqual(['snapshot/src', 'overview/product']);
+    const run = await readRun(opened.owner, 'run-2');
+    expect(run?.context).toEqual({ planningEpoch: 1, planningClosed: true });
+    const events = await readProgress(opened.owner, 'run-2');
+    expect(events.map((event) => event.kind)).not.toContain('run-replanned');
   });
 });
