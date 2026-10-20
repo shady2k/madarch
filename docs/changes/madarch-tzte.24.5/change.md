@@ -109,7 +109,25 @@ None.
   waiting attempt and non-empty after the join would refuse the parent's
   publication for good. The parent's reads before the join are the module tree's,
   which do not move while the run runs; the summaries are read once, on the joined
-  attempt, where the join's own freshness check has already settled them.
+  attempt, where the join's own freshness check has already settled them. The
+  stage declares no consume of the claims it reads: a consume names a kind the
+  packet reads from an earlier stage, and every agent stage writes claims — the
+  declared consume beside its siblings' would draw the stage graph into a cycle of
+  agents each waiting for another's claims (the cycle madarch's stage-8 fix
+  removed for the same reason).
+- **The ordering split follows the shape's own conventions at the run's bounds.**
+  Each named child carries the shape's own estimate of one sealed child — one
+  bounded span of reading, as `memberPlaces` and the product's places name
+  theirs — because what the split seals here is the dependency itself: the
+  children are units of the plan already, each budgeted by its own estimate and
+  its own limits, and no new work is created by naming them. A module deeper than
+  the shape's own plan depth runs unordered rather than nesting the split past
+  what a plan and a split nest alike: its packet reads what its children have
+  published and holds `null` for the rest, and the fixed part's own rule has the
+  unit answer `partial` over what it did not read — a named gap in the graph,
+  never a silent one. A run admits the leaves first, so an unordered parent
+  usually reads every summary anyway; the fallback is for the race the plan order
+  cannot close.
 - **The summary is one claim of a fixed predicate** (`summarizes`), so a parent
   reads one bounded summary per child and not the child's whole reading; the
   child's responsibilities and role stand beside it on its own page.
@@ -118,29 +136,98 @@ None.
   fact, its packet would have no scope read, and its writes would cite no bytes of
   its own. The tree's grouping is the deterministic stages' contract, and the
   refusal names the module, its count and the rule, so a tree that skips it is
-  heard at plan time rather than read short at run time.
+  heard at plan time rather than read short at run time. The plan verifies the
+  tree where it reads it: a parent that stands nowhere, a parent across
+  repositories, and a cycle of parent links are each refused by name — a tree no
+  unit order can name is heard at plan time, not at the split.
+- **A parent whose children settled never seals them again.** The wrapper names,
+  on every attempt, only the children the generation's sealed set does not hold
+  (`StageContext.sealedChildren`), so the orchestrator's own re-seal refusal —
+  "a parent whose children settled builds on them rather than sealing them
+  again" — is reached by nothing of this stage.
+
+- **Open points and known limitations**, named here rather than left to be found:
+  - **A unit that splits at a limit and, on the joined attempt, answers the same
+    partial over the same places, is blocked by the shape's own re-seal refusal.**
+    The refusal is the shape's intentional answer for sealing settled work again;
+    the unit stands blocked with the orchestrator's words, for a person's
+    resolution. A real agent is asked again with the places of its scope in front
+    of it and is expected to read on; the impact test's scripted fixture answers
+    its members whole, which never splits.
+  - **Complete coverage rests on the unit's own answer beside the section.** A
+    unit whose children's summaries are `null` is told to answer `partial`, and
+    the scripted tests hold that; the shape's `complete` computation cannot see
+    the section. Wiring the section's null rows into the coverage is the shape's
+    next change, not this stage's.
 
 ## Acceptance evidence
 
-The checks, each command's own exit status, at hand-over. The branch is one commit
-over `origin/main` `24ec77f2`.
+The checks, each command's own exit status, at hand-over. The branch is two commits
+over `origin/main` `272dbc06`, which it was rebased onto after the second commit
+(that rebase folds the stage-cycle fix of 8f0c95ab, madarch 26.1's impact
+propagation, and the doc-intent stage of 24.3 in).
 
-- `bun run check` (`tsc --noEmit`) exit 0 at every commit of the branch.
+- `bun run check` (`tsc --noEmit`) exit 0 at every commit of the branch and after
+  the rebase.
+- The feature document gate (`node .shady2k/documents.mjs check --phase feature
+  --change madarch-tzte.24.5 --candidate worktree --target origin/main`) exit 0,
+  clean, after every edit round and at hand-over.
 - The focused suites run in SkyPilot, not on this machine (the owner's rule),
   `madarch-sky-test <worktree> <files>`, each with the tests' own exit status:
-  - `test/fill-understanding-stage.test.ts` — 5 pass, 0 fail, exit 0.
-  - `test/fill-stages.test.ts`, `test/fill-registry.test.ts`,
+  - Before the rebase: `test/fill-understanding-stage.test.ts` — 5 pass, 0 fail,
+    exit 0; and with it `test/fill-stages.test.ts`, `test/fill-registry.test.ts`,
     `test/fill-agent-stage.test.ts`, `test/fill-overview-stage.test.ts`,
     `test/fill-agent-unit.test.ts`, `test/fill-agent-packet.test.ts`,
     `test/fill-orchestrator.test.ts`, `test/fill-crash-suite.test.ts`,
     `test/fill-graph-reads.test.ts` — 213 pass, 0 fail, exit 0.
-- The feature document gate (`node .shady2k/documents.mjs check --phase feature
-  --change madarch-tzte.24.5 --candidate worktree --target origin/main`): named
-  below with its own exit status at hand-over.
+  - After the review round and the rebase: `test/fill-understanding-stage.test.ts`
+    — 6 pass, 0 fail, exit 0 (the deep-module round and the bound tests joined).
+  - After the rebase, the stages that run together: `test/fill-understanding-stage.test.ts`,
+    `test/fill-impact.test.ts`, `test/fill-stages.test.ts`,
+    `test/fill-registry.test.ts`, `test/fill-doc-intent-stage.test.ts` — 82 pass,
+    0 fail, exit 0 after the impact fixture served stage 12's units.
+  - At hand-over: `test/fill-understanding-stage.test.ts`,
+    `test/fill-impact.test.ts`, `test/fill-stages.test.ts`,
+    `test/fill-registry.test.ts`, `test/fill-agent-stage.test.ts`,
+    `test/fill-overview-stage.test.ts`, `test/fill-agent-unit.test.ts`,
+    `test/fill-agent-packet.test.ts`, `test/fill-orchestrator.test.ts`,
+    `test/fill-crash-suite.test.ts`, `test/fill-graph-reads.test.ts`,
+    `test/fill-doc-intent-stage.test.ts` — **246 pass, 0 fail, exit 0**; and
+    `test/product-daemon.test.ts`, `test/product-cli.test.ts` (the direct
+    importers of the host this change touches) — 117 pass, 0 fail, exit 0.
 - CI on the exact SHA of the branch: named in the queue entry.
-- The independent review: one fresh read-only session over the diff
-  (`glm-5.3-flash-auto`), told not to run anything on this machine; its verdict
-  and the answers to its findings are named below.
+- No mutation receipt: the owner's rule runs Stryker once per assembled stage,
+  off the path; acceptance escalates per `mutationFallback: escalate`.
+- The independent review, one fresh read-only session over
+  `git diff origin/main...HEAD`, told not to run anything on this machine
+  (`glm-5.3-flash-auto`): verdict `fix-before-ship`, five defects and eight
+  findings, every defect answered in the second commit and re-checked:
+  - **D1** (the wrapper had no answer for the orchestrator's work and depth split
+    bounds: realistic trees block-loop): answered — the split names each child at
+    the shape's own one-span estimate, and a module deeper than the shape's own
+    plan depth runs unordered, its packet reading what its children published and
+    its own answer naming the rest (`test/fill-understanding-stage.test.ts`, the
+    deep-module test).
+  - **D2** (the plan's tree verification missed cycles and cross-repository
+    parents): answered — both are refused by name where the plan reads the tree,
+    and the fan-in refusal's own words name the bound and the grouping.
+  - **D3** (DONE WHEN's "every module of the fixture tree" held by one module):
+    answered — every module of the three-level tree is scripted with the full set
+    and the test asserts each module's published facts.
+  - **D4** (the rounds test's leaves wrote no summaries): answered — each leaf
+    writes its summary and the joined parent's nine rows are asserted.
+  - **D5** (the summary bound and the section cap unexercised, constants
+    duplicated): answered — both are derived from the declaration's own resolved
+    scale, and the bound's cut, the ellipsis and the cap are held by the
+    declaration test; the waiting attempt's recorded reads are pinned to the
+    module tree alone.
+  - **Findings 1–8**: the staleness fine print is recorded in the Design section;
+    the consume was removed with the cycle it would draw (the coordinator's
+    stage-cycle note and main's own 8f0c95ab agree); the impact test's fixture
+    serves stage 12's units with the members-whole answer, whose units are then
+    inherited in run-three and named in the run's reused list from the store;
+    the re-seal exposure of a same-partial re-answer is named in the open points;
+    and this evidence names its runs and each command's own exit status.
 
 ## DONE WHEN
 

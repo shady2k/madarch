@@ -26,8 +26,10 @@ import { fileURLToPath } from 'node:url';
 import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createFillOrchestratorService, type FillOrchestratorService, type FillRunResult } from '../src/fill/orchestrator-host.js';
 import { readProgress, readUnitReads } from '../src/fill/orchestrator-store.js';
+import { readRunUnits } from '../src/fill/state-store.js';
 import { answerMembership } from '../src/fill/graph-reads.js';
 import { OVERVIEW_STAGE_ID } from '../src/fill/stages/overview.js';
+import { UNDERSTANDING_STAGE_ID } from '../src/fill/stages/understanding.js';
 import { DOC_INTENT_STAGE_ID } from '../src/fill/stages/doc-intent.js';
 import { INTENT_HISTORY_STAGE_ID } from '../src/fill/stages/intent-history.js';
 import { PRODUCT_SCOPE_NAME } from '../src/fill/stages/agent-stage.js';
@@ -100,6 +102,12 @@ function agentScript(commit: string): Record<string, unknown> {
     // member files — are all inside that list. Its prompt is told apart by the `comments` section, which
     // no other stage's packet holds.
     byPrompt: [
+      {
+        // Stage 12's units (madarch-tzte.24.5) answer their own packet's members whole: a module's members
+        // are the files it holds, and the module was understood from the graph and its children's summaries.
+        matches: '"task": "Understand this module from the graph',
+        steps: [{ answerMembers: { summary: 'the module was understood from the graph and its children\'s summaries' } }],
+      },
       {
         matches: '"comments"',
         steps: [
@@ -293,6 +301,8 @@ describe('a commit, and what it reruns', () => {
   let second: FillRunResult | undefined;
   let third: FillRunResult | undefined;
   let pages: readonly string[] = [];
+  /** The understanding units of run-three, by unit id, read from the store (the stage plans one per module, and the ids name no node a constant could spell). */
+  let understandingUnitIds: readonly string[] = [];
   /** The commit the one-file commit made in the training repository, and the commit the fill stood on before it. */
   let changed = '';
   let previous = '';
@@ -326,6 +336,10 @@ describe('a commit, and what it reruns', () => {
     trainingRepositoryId = await opened.owner.transaction('snapshot', async (executor) => (
       await executor.query<{ id: string }>("SELECT id FROM fill_fact WHERE kind = 'repository' AND value->>'repository' = $1", [TRAINING])
     ).rows[0]!.id);
+    const understandingRecords = (await readRunUnits(opened!.owner, 'run-three')).filter((unit: { stageId: string }) => unit.stageId === UNDERSTANDING_STAGE_ID);
+    // The understanding units run-three holds (madarch-tzte.24.5): the stage plans one per module, and the
+    // ids name no node a constant could spell, so they are read from the store like the repository's own.
+    understandingUnitIds = understandingRecords.map((unit: { unitId: string }) => unit.unitId);
     for (const [name, result] of [['run-one', first], ['run-two', second], ['run-three', third]] as const) {
       if (result.state === 'succeeded' && result.settled) continue;
       // eslint-disable-next-line no-console
@@ -371,6 +385,7 @@ describe('a commit, and what it reruns', () => {
     // Stage 10's unit of the training repository's documents is inherited too: the commit moved no
     // document, and its reads stand. The unit's id is the repository fact's own (24.3's plan), read
     // from the store here rather than guessed.
+<<<<<<< HEAD
     // Stage 11's units are inherited too: a run plans before any stage publishes, and at planning the reads the
     // units recorded — the commits of their repository and the comments of their files, both the stage's own SQL —
     // still answer what they answered when the units ran in run-two. The commit moves those reads (a new commit
@@ -379,14 +394,23 @@ describe('a commit, and what it reruns', () => {
     // files, and the product repository's own module stands as one unit; the ids are the store's own.
     const intentUnitsOfTraining = await factIds(opened!, "kind = 'file' AND value->>'repository' = $1", [TRAINING]);
     const moduleOfProduct = await factIds(opened!, "kind = 'module' AND value->>'repository' = $1", [PRODUCT]);
+=======
+    // Stage 12's units (madarch-tzte.24.5) are inherited as the others are: the one module the training
+    // repository clusters into was understood from the graph and its children's summaries, and the commit
+    // moved neither. The units are read from the store, as the repository fact's id is above.
+>>>>>>> 2bfd3f52 (The review round and the stages that run together: the split bounds the tree can order, the plan refusals, and the impact fixture)
     expect([...(third?.reused ?? [])].sort()).toEqual([
       `snapshot/${PRODUCT}`,
       `modules/modules:${PRODUCT}`,
       `history/${PRODUCT}@${git(product, 'rev-parse', 'HEAD')}`,
       // The unit's id is the store's: the stage's own, then the unit's, which is the repository fact's id.
       `doc-intent/${trainingRepositoryId}`,
+<<<<<<< HEAD
       ...intentUnitsOfTraining.map((id) => `${INTENT_HISTORY_STAGE_ID}/${id}`),
       ...moduleOfProduct.map((id) => `${INTENT_HISTORY_STAGE_ID}/${id}`),
+=======
+      ...understandingUnitIds,
+>>>>>>> 2bfd3f52 (The review round and the stages that run together: the split bounds the tree can order, the plan refusals, and the impact fixture)
     ].sort());
   }, 900_000);
 
