@@ -2,7 +2,7 @@ import { afterEach, expect, test } from 'bun:test';
 import { cpSync, mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { startServer, type StartedServer } from '../src/server/http.js';
+import { keepsProductEntry, startServer, type StartedServer } from '../src/server/http.js';
 import { startDaemon, stopDaemon, daemonStatus, daemonCommand, isDaemonCommandLine, childReading, childReadings, ensureDaemon, startFailureWhy, type SpawnedChild } from '../src/product/daemon.js';
 import { spawnSync } from 'node:child_process';
 import { createServer as netServer } from 'node:net';
@@ -70,6 +70,17 @@ afterEach(async () => {
   if (previousApp === undefined) delete process.env.MADARCH_APP; else process.env.MADARCH_APP = previousApp;
   previousMadarchHome = undefined; previousAppDist = undefined; previousApp = undefined;
   if (root) rmSync(root, { recursive: true, force: true }); root = undefined;
+});
+
+test('a product whose manifest did not move keeps the entry it was opened with, so the answers it built stand', () => {
+  // The home's refresh runs whenever a request arrives more than five seconds after the last one, and
+  // re-opening a product would drop the handler's answers — the Architecture bundle, the page set's
+  // bodies — so only a moved manifest opens a product again (madarch-tzte.23.8). A product the home
+  // holds no entry for, and a manifest that cannot be read, are opened.
+  expect(keepsProductEntry(undefined, 1)).toBe(false);
+  expect(keepsProductEntry({ manifest: 1 }, 1)).toBe(true);
+  expect(keepsProductEntry({ manifest: 1 }, 2)).toBe(false);
+  expect(keepsProductEntry({ manifest: 1 }, -1)).toBe(false);
 });
 
 test('products-home mode lists products and routes each wiki under its folder', async () => {

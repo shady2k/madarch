@@ -38,6 +38,7 @@ import { createGraphs } from './graphs.js';
 import type { SourceStoreResult, SourceStores } from './sources.js';
 import { createSourceStores, sourceNameProblem } from './sources.js';
 import { createWikiPart, fillAuth, serveAppAssets, type WikiPart } from './wiki-app.js';
+import { MANIFEST_FILE } from '../product/manifest.js';
 import { createGraphPagesPart, emptyGraphPagesSource, type GraphPagesPart, type GraphPagesSource } from './graph-pages.js';
 import { createGraphDiagramsPart, type GraphDiagramsPart } from './graph-diagrams.js';
 import { openProductWiki, type ProductWiki } from '../product-wiki/pages.js';
@@ -170,6 +171,27 @@ export interface Refusal {
 export interface ReplyMaker {
   json: (status: number, body: unknown) => Response;
   refused: (status: number, error: Refusal) => Handled;
+}
+
+/** The manifest a product is opened from, as the products home keys its entries: its modification time, or -1 when it cannot be read. */
+function manifestStampOf(folder: string): number {
+  try {
+    return statSync(joinPath(folder, MANIFEST_FILE)).mtimeMs;
+  } catch {
+    return -1;
+  }
+}
+
+/**
+ * Whether the entry the products home holds for a product is the one to keep (madarch-tzte.23.8).
+ * A refresh that re-opened every product would drop the answers its handler built — the
+ * Architecture bundle, the page set's bodies — every few seconds, and a reader who pauses between
+ * pages would pay a render on every page. A product's pages are still read fresh at every ask, so
+ * only the manifest decides: the one the entry was opened from, or a new entry. A manifest that
+ * cannot be read (-1) is opened again, so its refusal is logged and the product stands unserved.
+ */
+export function keepsProductEntry<T extends { readonly manifest: number }>(held: T | undefined, manifest: number): held is T {
+  return held !== undefined && manifest >= 0 && held.manifest === manifest;
 }
 
 /** A plain JSON answer. */
@@ -307,11 +329,19 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
   // The home is re-read when its folder changes and at most every few
   // seconds, so a product created after the server started is served without
   // a restart, and no request pays for a re-read when nothing changed.
-  interface ProductEntry { wiki: ProductWiki; handler: ServerHandler; }
+  /**
+   * One product's entry: the handler that serves it, and the manifest it was opened from. A product
+   * whose manifest is unchanged keeps its entry across a refresh — its handler holds the answers it
+   * built (the Architecture bundle, the page set's bodies) — while its pages are still read fresh at
+   * every ask (madarch-tzte.23.8).
+   */
+  interface ProductEntry { wiki: ProductWiki; handler: ServerHandler; manifest: number }
   const productHome = options.productHome;
   const productEntries = new Map<string, ProductEntry>();
   let homeStamp = -1;
   let lastRefresh = 0;
+  /** The manifest a product's entry is kept by: its modification time, or -1 when it cannot be read, which opens the product again. */
+  const manifestStamp = (folder: string): number => manifestStampOf(folder);
   const refreshProducts = (): void => {
     if (productHome === undefined) return;
     let stamp = -1;
@@ -326,13 +356,27 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
     }
     const next = new Map<string, ProductEntry>();
     for (const item of listed.products) {
+      const name = basename(item.folder);
+      const manifest = manifestStamp(item.folder);
+      const held = productEntries.get(name);
+      // A product whose manifest is the one its entry was opened from keeps that entry: re-opening
+      // every product on every refresh drops the answers it holds, and this refresh runs whenever a
+      // request arrives more than five seconds after the last one — a reader who pauses between
+      // pages would then pay a render on every page (madarch-tzte.23.8). A page is still read fresh
+      // at every ask, so a saved document is served at once; a product created, removed or moved, and
+      // a rewritten manifest, is a new or absent entry.
+      if (keepsProductEntry(held, manifest)) {
+        next.set(name, held);
+        continue;
+      }
       const opened = openProductWiki(item.folder);
       if (!opened.ok) {
         errorLog(`the product ${JSON.stringify(item.folder)} cannot be served as a wiki: ${opened.message}`);
         continue;
       }
-      next.set(basename(item.folder), {
+      next.set(name, {
         wiki: opened.wiki,
+        manifest,
         handler: createHandler({ env, sources, graphs, log, errorLog, wiki: createWikiPart(makeJson, wikiRefused, opened.wiki, appFolder, { env }), appFolder, startFill: options.startFill, productFolder: item.folder, unitTool: options.orchestrator?.unitTool, graphPages: graphPagesOf(item.folder, opened.wiki.product.name), graphDiagrams: graphDiagramsOf(item.folder, opened.wiki.product.name) }),
       });
     }
