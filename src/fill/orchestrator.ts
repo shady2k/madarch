@@ -1347,12 +1347,19 @@ async function attemptUnit(
     tools = stage.usesTools === true && orchestrator.unitTools !== undefined
       ? await orchestrator.unitTools({ unit, plan, draft: draftWriter })
       : undefined;
+    // The sealed set this generation holds, when it holds one: a unit that split and
+    // was joined finds its sealed children here (decision 0027), which is how the
+    // attempt that follows its join knows to build on them rather than seal them
+    // again — the store's own answer, read once per attempt, and no graph read that
+    // a child's publication could move.
+    const sealedChildren = await readSealedChildren(database, unit.unitId, unit.generation);
     context = {
       unit: { id: plan.stageUnitId, scope: plan.scope },
       ...(tools === undefined ? {} : { tools }),
       config,
       graph: attemptReader,
       draft: draftWriter,
+      ...(sealedChildren.length === 0 ? {} : { sealedChildren }),
       // A stage reports its progress synchronously; the notes are kept in order and written as the run's
       // own durable events the moment the attempt ends, so a lost write is an error rather than a silence.
       progress: (note: string, fraction?: number) => {

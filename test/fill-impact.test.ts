@@ -26,8 +26,10 @@ import { fileURLToPath } from 'node:url';
 import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { createFillOrchestratorService, type FillOrchestratorService, type FillRunResult } from '../src/fill/orchestrator-host.js';
 import { readProgress, readUnitReads } from '../src/fill/orchestrator-store.js';
+import { readRunUnits } from '../src/fill/state-store.js';
 import { answerMembership } from '../src/fill/graph-reads.js';
 import { OVERVIEW_STAGE_ID } from '../src/fill/stages/overview.js';
+import { UNDERSTANDING_STAGE_ID } from '../src/fill/stages/understanding.js';
 import { DOC_INTENT_STAGE_ID } from '../src/fill/stages/doc-intent.js';
 import { INTENT_HISTORY_STAGE_ID } from '../src/fill/stages/intent-history.js';
 import { PRODUCT_SCOPE_NAME } from '../src/fill/stages/agent-stage.js';
@@ -100,6 +102,12 @@ function agentScript(commit: string): Record<string, unknown> {
     // member files — are all inside that list. Its prompt is told apart by the `comments` section, which
     // no other stage's packet holds.
     byPrompt: [
+      {
+        // Stage 12's units (madarch-tzte.24.5) answer their own packet's members whole: a module's members
+        // are the files it holds, and the module was understood from the graph and its children's summaries.
+        matches: '"task": "Understand this module from the graph',
+        steps: [{ answerMembers: { summary: 'the module was understood from the graph and its children\'s summaries' } }],
+      },
       {
         matches: '"comments"',
         steps: [
@@ -293,6 +301,8 @@ describe('a commit, and what it reruns', () => {
   let second: FillRunResult | undefined;
   let third: FillRunResult | undefined;
   let pages: readonly string[] = [];
+  /** The understanding units of run-three, by unit id, read from the store (the stage plans one per module, and the ids name no node a constant could spell). */
+  let understandingUnitIds: readonly string[] = [];
   /** The commit the one-file commit made in the training repository, and the commit the fill stood on before it. */
   let changed = '';
   let previous = '';
@@ -326,6 +336,10 @@ describe('a commit, and what it reruns', () => {
     trainingRepositoryId = await opened.owner.transaction('snapshot', async (executor) => (
       await executor.query<{ id: string }>("SELECT id FROM fill_fact WHERE kind = 'repository' AND value->>'repository' = $1", [TRAINING])
     ).rows[0]!.id);
+    const understandingRecords = (await readRunUnits(opened!.owner, 'run-three')).filter((unit: { stageId: string }) => unit.stageId === UNDERSTANDING_STAGE_ID);
+    // The understanding units run-three holds (madarch-tzte.24.5): the stage plans one per module, and the
+    // ids name no node a constant could spell, so they are read from the store like the repository's own.
+    understandingUnitIds = understandingRecords.map((unit: { unitId: string }) => unit.unitId);
     for (const [name, result] of [['run-one', first], ['run-two', second], ['run-three', third]] as const) {
       if (result.state === 'succeeded' && result.settled) continue;
       // eslint-disable-next-line no-console
@@ -379,6 +393,12 @@ describe('a commit, and what it reruns', () => {
     // files, and the product repository's own module stands as one unit; the ids are the store's own.
     const intentUnitsOfTraining = await factIds(opened!, "kind = 'file' AND value->>'repository' = $1", [TRAINING]);
     const moduleOfProduct = await factIds(opened!, "kind = 'module' AND value->>'repository' = $1", [PRODUCT]);
+    // Stage 12's units (madarch-tzte.24.5) are inherited as the others are: the one module the training
+    // repository clusters into was understood from the graph and its children's summaries, and the commit
+    // moves what that makes of it into the next run's planning. The units are read from the store, as the
+    // repository fact's id is above, and the stage is bound non-empty: the clustering holds one module, so
+    // one unit must have run and been reused.
+    expect(understandingUnitIds.length).toBeGreaterThan(0);
     expect([...(third?.reused ?? [])].sort()).toEqual([
       `snapshot/${PRODUCT}`,
       `modules/modules:${PRODUCT}`,
@@ -387,6 +407,7 @@ describe('a commit, and what it reruns', () => {
       `doc-intent/${trainingRepositoryId}`,
       ...intentUnitsOfTraining.map((id) => `${INTENT_HISTORY_STAGE_ID}/${id}`),
       ...moduleOfProduct.map((id) => `${INTENT_HISTORY_STAGE_ID}/${id}`),
+      ...understandingUnitIds,
     ].sort());
   }, 900_000);
 

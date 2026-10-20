@@ -23,6 +23,7 @@ import { createOverviewStage } from './overview.js';
 import { createSemanticResolutionStage } from './semantic-resolution.js';
 import { createSnapshotStage } from './snapshot.js';
 import { createSyntaxStage } from './syntax.js';
+import { createUnderstandingStage } from './understanding.js';
 
 /** What a run's stages read from outside the graph: pinned repositories and their Git checkouts. */
 export interface FillStageWiring {
@@ -71,9 +72,13 @@ export function createStageRegistry(wiring: FillStageWiring): StageRegistry {
   // are registered one per stage of 0026 as each lands (madarch-tzte.24.1 lands stage 8): the landed agent unit of
   // 22.3 is the shape's own reference declaration (`agent-unit.ts`) and is no stage of a run.
   if (wiring.agent !== undefined) {
-    registry.register(createOverviewStage({ snapshots: wiring.snapshots, ...wiring.agent }));
-    registry.register(createDocIntentStage({ snapshots: wiring.snapshots, ...wiring.agent }));
-    registry.register(createIntentHistoryStage({ snapshots: wiring.snapshots, ...wiring.agent }));
+    const agent = { snapshots: wiring.snapshots, ...wiring.agent };
+    registry.register(createOverviewStage(agent));
+    registry.register(createDocIntentStage(agent));
+    registry.register(createIntentHistoryStage(agent));
+    // Stage 12 of 0026 (madarch-tzte.24.5): the modules understood bottom-up, each parent from its children's
+    // bounded summaries, on the agent-stage shape.
+    registry.register(createUnderstandingStage(agent));
   }
   return registry;
 }
