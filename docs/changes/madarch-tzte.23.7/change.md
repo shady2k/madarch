@@ -261,21 +261,23 @@ committed with:
 
 ### The independent review
 
-Three read-only `prime-agent --provider shady2k-gateway --model deepseek-v4.1-flash-auto`
+Five read-only `prime-agent --provider shady2k-gateway --model deepseek-v4.1-flash-auto`
 rounds over `git diff origin/main...HEAD`, each told to run nothing on this machine (logs
-`/tmp/review-237.log`, `/tmp/review-237-round2.log`, `/tmp/review-237-round3.log` on the
-worker's machine):
+`/tmp/review-237.log`, `/tmp/review-237-round{2,3,4,5}.log` on the worker's machine). No
+code defect survived round 2's answers; rounds 3, 4 and 5 confirmed every code answer held
+and found the record's own wording and numbers, each of which is answered:
 
 - **Round 1 — NOT APPROVED**: three defects (a leaf module still drew two diagrams of one
   box; the record's scroll-pass sentence did not match its run; the two runs' fill times
   were given as one) and fifteen findings — answered in **`18d12dc2`**: the leaf rule
   (a module that holds no child keeps one view), `ModuleScopes.childModules`, the
   record's numbers rewritten from the runs, the look stopping when the diagram is near,
-  "8 steps of 600 px", the mechanism named in "Preserved contracts", the stale comments, a depth of zero refused for a non-module scope, a collapsed depth-zero
-  view drilling into the level its modules stand in, the `readNodeDiagrams` seam tested
-  and a module **with neighbours** walked, the retitled and added cases, the level
-  refusal per type, the module branch no longer gated on its repository fact, the live
-  run's state named, the mutation note, and the 23.8 collision named.
+  "8 steps of 600 px", the mechanism named in "Preserved contracts", the stale comments,
+  a depth of zero refused for a non-module scope, a collapsed depth-zero view drilling
+  into the level its modules stand in, the `readNodeDiagrams` seam tested and a module
+  **with neighbours** walked, the retitled and added cases, the level refusal per type,
+  the module branch no longer gated on its repository fact, the live run's state named,
+  the mutation note, and the 23.8 collision named.
 - **Round 2 — NOT APPROVED**: four defects (an empty Mermaid card still stood for 218–428
   ms; the 23.8 collision was still not named; the receipts named did not exist at that
   revision; a drill-down could reopen the view it came from) and sixteen findings —
@@ -283,14 +285,24 @@ worker's machine):
   diagram…"), `sameSpec` stops a drill-down that is its own view (the three tests that
   encoded the loop now assert the element's page instead), the collision and the landing
   order are an open point for the integrator, the record claims only what exists at its
-  revision, the reads of a module page (four, then five once the child-module read was
-  named), and the round-2 findings one by one.
-- **Round 3 — NOT APPROVED on text only**: the four defects hold, and what remained was
-  the record's own wording and numbers (one string said, two added; three figures; "exactly
-  as long"; the tree named for the walk; five shared regions rather than three; two test
-  titles) and two app tests that could race the renderer. All are answered in the commit after `d7fb7e34` — the two test titles, the app tests
-  waiting on the watching rather than on the renderer, and the record's figures read again
-  from `/home/dev/.cache/madarch-23-7-shots/after/report.json`.
+  revision, the reads of a module page (four in this commit), and the findings one by one.
+- **Round 3 — NOT APPROVED on text only**: all four defects held; what remained was the
+  record's wording and numbers (one string said where two were added; three figures; the
+  "exactly as long" claim; the tree the walk named; the shared regions with 23.8; two test
+  titles) and two app tests that could race the renderer — answered in **`dda7e06c`** (the
+  two titles, the scroll test waiting on the card or the renderer's own failure, the
+  listeners test on the watching) and read again from
+  `/home/dev/.cache/madarch-23-7-shots/after/report.json`.
+- **Round 4 — NOT APPROVED on one record defect**: the record counted three shared regions
+  in "Out of scope" where its open points named five, plus findings on where the "five
+  reads" answer belongs, which app files 23.8 shares, and the pending-card test's timing —
+  answered in **`e2b25068`**.
+- **Round 5 — NOT APPROVED on three record sentences**: the shared regions now hold at
+  five and both app-test ways are right, and what remained was that the review section
+  still called the rounds three, still attributed round 3's items to one commit, and still
+  named one way of waiting where there are two. Answered in this record's last commit,
+  which is the one the branch is pushed at (the queue entry names its SHA, its CI run and
+  the receipts).
 
 ### Mutation
 
