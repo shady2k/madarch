@@ -73,7 +73,8 @@ export type DiagramEvidence = 'assumption' | 'fact' | 'unresolved';
  * in the order the scenario takes them: the graph holds no order between
  * interactions, so the order is the chooser's, which is what 0026 means by "an
  * agent only chooses what to show". `level` is a C4 type's own level where the
- * spec names one, and module-dependency's depth under the scopes it names.
+ * spec names one, and module-dependency's depth under the scopes it names: 1 draws
+ * what stands below them, and 0 draws the modules a view names themselves.
  */
 export interface DiagramViewSpec {
   readonly type: DiagramType;
@@ -849,8 +850,10 @@ function checkedSpec(spec: DiagramViewSpec): CheckedSpec {
     level = declaration.depth ? 1 : (declaration.level ?? 1);
   } else {
     const asked = spec.level;
-    if (typeof asked !== 'number' || Number.isInteger(asked) === false || asked < 1) {
-      raise(`${at}: the view names the level ${shown(asked)}: a level is a whole number, at least 1`);
+    if (typeof asked !== 'number' || Number.isInteger(asked) === false || asked < 0) {
+      raise(`${at}: the view names the level ${shown(asked)}: ${declaration.depth
+        ? 'a level is a whole number, at least 0 — 0 draws the modules a view names themselves and 1 what stands below them'
+        : 'a level is a whole number, at least 1'}`);
     }
     if (declaration.depth) {
       level = asked;
@@ -885,6 +888,12 @@ function checkedSpec(spec: DiagramViewSpec): CheckedSpec {
  */
 async function scopedFacts(checked: CheckedSpec, reads: DiagramGraphReads): Promise<readonly Fact[]> {
   const at = here();
+  // A depth of zero draws the modules a view names themselves, so it names modules: a view naming none, or naming a
+  // repository, has no module of its own to draw at that depth, and answering it with an empty model would say the
+  // graph holds nothing where it holds every module below the node.
+  if (checked.declaration.depth && checked.level === 0 && checked.nodes.length === 0) {
+    raise(`${at}: the ${checked.type} view names a level of 0 and no node: a depth of 0 draws the modules a view names themselves, so the view names them`);
+  }
   if (checked.nodes.length === 0) return [];
   const held = await reads.facts(checked.nodes);
   const scopes = checked.declaration.scopes as readonly string[];
@@ -898,6 +907,9 @@ async function scopedFacts(checked: CheckedSpec, reads: DiagramGraphReads): Prom
     }
     if (scopes.includes(fact.kind) === false) {
       raise(`${at}: the view names ${shown(labelOf(fact))} (${fact.kind} ${fact.id}) for the ${checked.type} diagram: a ${checked.type} view is scoped by ${checked.declaration.scopes.join(', ')}, and a ${fact.kind} is none of them`);
+    }
+    if (checked.declaration.depth && checked.level === 0 && fact.kind !== 'module') {
+      raise(`${at}: the ${checked.type} view names ${shown(labelOf(fact))} (${fact.kind} ${fact.id}) at a level of 0: a depth of 0 draws the modules a view names themselves, and a ${fact.kind} is no module`);
     }
     return fact;
   });
@@ -1030,8 +1042,15 @@ async function linkEdges(
 // One view of each type
 // ---------------------------------------------------------------------------------------------
 
-/** The modules one level below a container, `depth` levels down, in code point order. */
+/**
+ * The modules one level below a container, `depth` levels down, in code point order. A
+ * depth of zero is the container itself: a module view that draws the modules it names
+ * rather than what stands below them, which is how a module and its neighbours are
+ * drawn. A repository is no module and is refused at that depth before it reaches here
+ * (`scopedFacts`).
+ */
 async function modulesBelow(container: Fact, depth: number, reads: DiagramGraphReads): Promise<readonly Fact[]> {
+  if (depth === 0) return container.kind === 'module' ? [container] : [];
   let level: readonly Fact[] = container.kind === 'module'
     ? await reads.factsWith('module', 'parent', container.id)
     // A repository's top-level modules name no parent: stage 5 holds them by the repository's own `contains` edge.
@@ -1308,6 +1327,12 @@ function refoldedArrows(edges: readonly DiagramEdge[], above: ReadonlyMap<string
     .sort((left, right) => byCodePoint(left.from, right.from) || byCodePoint(left.to, right.to) || byCodePoint(left.facts[0] ?? '', right.facts[0] ?? ''));
 }
 
+/** Whether a drill-down specification is the view it would be opened from: the same type, the same nodes and the same level. */
+function sameSpec(drill: DiagramViewSpec, checked: CheckedSpec): boolean {
+  const nodes = [...drill.nodes].sort(byCodePoint);
+  return drill.type === checked.type && (drill.level ?? (checked.declaration.depth ? 1 : checked.declaration.level ?? 1)) === checked.level && nodes.length === checked.nodes.length && nodes.every((node, at) => node === checked.nodes[at]);
+}
+
 /** The order a model's elements stand in: by the label a reader reads, then by id, so the order is a reader's and never a database's. */
 function byElementOrder(left: DiagramElement, right: DiagramElement): number {
   return byCodePoint(left.label, right.label) || byCodePoint(left.id, right.id);
@@ -1361,6 +1386,8 @@ async function sizeView(
   let edges: readonly DiagramEdge[] = gathered.edges;
   const before = elements.length;
   let collapsed = false;
+  /** Whether a collapsed element's drill-down would be this very view, which no reader should be sent round. */
+  let looped = false;
   /** Why the collapse stopped with too many elements, once it has: which of the two ways out the loop took. */
   let stopped: 'type-has-none' | 'no-level' | undefined;
   while (elements.length > budget) {
@@ -1415,16 +1442,24 @@ async function sizeView(
       }))].sort(byCodePoint);
       for (const id of stood) moved.set(id, level);
       // The view the element opens: the same type, scoped by the elements it stands for — or, for a type that draws what
-      // stands below its scopes, scoped by the level above them at depth 1, which draws exactly those elements. Only
-      // module-dependency takes a level of its own; a C4 type or an ER view names none, and a spec naming one would be
-      // refused by this module's own check.
+      // stands below its scopes, scoped by the level above them at depth 1, which draws exactly those elements. A view
+      // that drew the modules themselves at depth 0 folds them the same way, and its drill-down is the level they stand
+      // in at depth 1: naming them at depth 0 again would open the view it came from. Only module-dependency takes a
+      // level of its own; a C4 type or an ER view names none, and a spec naming one would be refused by this module's
+      // own check.
       const drill: DiagramViewSpec = checked.declaration.drawsBelow
         ? { type: checked.type, nodes: [level], ...(checked.declaration.depth ? { level: 1 } : {}) }
         : { type: checked.type, nodes: stands };
+      // A drill-down that is the view it came from would open the same collapsed model again, and a reader following
+      // it would go round in a circle: that happens when the level a view is scoped by is itself the nearest level
+      // above its elements (a scope whose own children are past the budget). The element stands for its members and
+      // its own page is where a reader continues, so no link is drawn and the marker says so.
+      const sameAsTheView = sameSpec(drill, checked);
+      if (sameAsTheView) looped = true;
       next.push({
         ...elementOfFact(fact),
         standsFor: stands,
-        drillDown: { view: { ...drill, nodes: [...drill.nodes].sort(byCodePoint) }, href: diagramHref(drill) },
+        ...(sameAsTheView ? {} : { drillDown: { view: { ...drill, nodes: [...drill.nodes].sort(byCodePoint) }, href: diagramHref(drill) } }),
       });
     }
     elements = next.sort(byElementOrder);
@@ -1442,7 +1477,9 @@ async function sizeView(
     elements,
     edges,
     collapsed: true,
-    marker: `collapsed: the view holds ${before} elements and the ${budget}-element budget holds ${elements.length}: each element stands for the level above it, and its link opens the view it stands for`,
+    marker: `collapsed: the view holds ${before} elements and the ${budget}-element budget holds ${elements.length}: each element stands for the level above it, and ${looped
+      ? 'an element whose level above is this view itself opens its own page rather than the same view again'
+      : 'its link opens the view it stands for'}`,
   };
 }
 

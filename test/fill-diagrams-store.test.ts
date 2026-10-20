@@ -14,6 +14,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { UNRESOLVED_PREFIX, buildDiagram, buildFactStoreDiagram, factStoreDiagramReads, type DiagramGraphReads } from '../src/fill/diagrams.js';
+import { moduleNeighbours, moduleViewScope, readNodeDiagrams } from '../src/fill/graph-diagrams.js';
 import { applyPublishedFacts, createFactStoreSchema } from '../src/fill/fact-store.js';
 import { makeEdgeFact, makeNodeFact, repositoryPath, type Fact } from '../src/fill/facts.js';
 import { createOrchestratorSchema, type UnitPlanRecord } from '../src/fill/orchestrator-store.js';
@@ -132,6 +133,60 @@ describe('the relations an agent proposed', () => {
     const readByRead = await buildDiagram({ type: 'module-dependency', nodes: [fx.shop.id] }, reads);
     expect(once).toEqual(readByRead);
     expect(once.edges.map((arrow) => arrow.label)).toEqual(['import']);
+  });
+});
+
+describe('the level a repository page draws', () => {
+  test('the store answers the scope whose children are the first level with more than one module', async () => {
+    // acme-shop is clustered in two top-level modules, so the page is drawn at the repository's own level; acme-web's
+    // three top-level modules are its structure too. Neither answers a module of its own, and a repository the graph
+    // does not hold answers its own id.
+    expect(await moduleViewScope(reads, { id: fx.shop.id, name: 'acme-shop' })).toEqual([fx.shop.id]);
+    expect(await moduleViewScope(reads, { id: fx.web.id, name: 'acme-web' })).toEqual([fx.web.id]);
+    expect(await moduleViewScope(reads, { id: 'repository:' + '0'.repeat(64), name: 'absent' })).toEqual(['repository:' + '0'.repeat(64)]);
+  });
+
+  test('the modules a module relates to are read from the imports the store holds, rolled up to the module', async () => {
+    // acme-web's three top-level modules import nothing of one another: the api cluster's two children are the level
+    // below it, and no import joins the three.
+    expect(await moduleNeighbours(reads, fx.webApi, 'acme-web')).toEqual([]);
+    // the shop's checkout imports payment's file, which names the payment module of its own level.
+    expect(await moduleNeighbours(reads, fx.checkout, 'acme-shop')).toEqual([fx.payment.id]);
+  });
+
+  test('a view at a depth of zero draws the modules it names, and no relation of a level below them', async () => {
+    const model = await buildDiagram({ type: 'module-dependency', nodes: [fx.checkout.id, fx.payment.id], level: 0 }, reads);
+    expect(model.elements.map((element) => element.label)).toEqual(['checkout', 'payment']);
+    // The import of checkout's file into payment's file rolls up to the two modules named.
+    expect(model.edges.map((arrow) => [arrow.from, arrow.to, arrow.label])).toEqual([[fx.checkout.id, fx.payment.id, 'import']]);
+  });
+});
+
+describe('the page a store answers', () => {
+  test('a repository page names the level its modules stand at, and a module page its neighbours', async () => {
+    // The seam this change wires: `readNodeDiagrams` is what the server answers a page with, and it is the one place
+    // the scopes are read before the specs are made. acme-web is three top-level modules, so its two module views are
+    // scoped by the repository itself; checkout imports payment's file, so payment is the neighbour its page draws.
+    const repositoryPage = await readNodeDiagrams({ database: owner!, product: PRODUCT, id: fx.web.id });
+    if (repositoryPage.ok === false) throw new Error(`the store answered no diagrams for acme-web: ${repositoryPage.message}`);
+    expect(repositoryPage.diagrams.map((diagram) => [diagram.spec.type, diagram.spec.nodes])).toEqual([
+      ['c4-context', []],
+      ['c4-container', [fx.web.id]],
+      ['c4-component', [fx.web.id]],
+      ['module-dependency', [fx.web.id]],
+      ['er', [fx.web.id]],
+    ]);
+    expect(repositoryPage.diagrams.find((diagram) => diagram.spec.type === 'module-dependency')?.model.elements.map((element) => element.label)).toEqual(['web-api', 'web-app', 'web-shared']);
+    const modulePage = await readNodeDiagrams({ database: owner!, product: PRODUCT, id: fx.checkout.id });
+    if (modulePage.ok === false) throw new Error(`the store answered no diagrams for checkout: ${modulePage.message}`);
+    expect(modulePage.diagrams.map((diagram) => [diagram.spec.type, diagram.spec.nodes, diagram.spec.level])).toEqual([
+      ['c4-component', [fx.checkout.id], undefined],
+      ['module-dependency', [fx.checkout.id, fx.payment.id], 0],
+    ]);
+    // The two views of a module page: its own child modules, and itself beside the module it imports from.
+    expect(modulePage.diagrams[0]!.model.elements.map((element) => element.label)).toEqual(['checkout']);
+    expect(modulePage.diagrams[1]!.model.elements.map((element) => element.label)).toEqual(['checkout', 'payment']);
+    expect(modulePage.diagrams[1]!.model.edges.map((arrow) => [arrow.from, arrow.to, arrow.label])).toEqual([[fx.checkout.id, fx.payment.id, 'import']]);
   });
 });
 

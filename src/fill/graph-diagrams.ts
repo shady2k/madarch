@@ -7,12 +7,15 @@
  * A page shows the diagrams its node stands in, and the rule is by kind:
  *
  * - a **repository** is a system in the product's context, a container in its own
- *   right, the modules stage 5 clustered under it, and the tables it holds;
+ *   right, the modules stage 5 clustered under it at the first level that has more
+ *   than one (madarch-tzte.23.7: a single top-level module says nothing about the
+ *   code, so the level below it is the one a reader is shown), and the tables it
+ *   holds;
  * - a **package**, a **deploy unit**, a **table** and a **column** are containers —
  *   a column's tables are drawn as the ER view of its repository, because a column
  *   is an attribute of a table and no element of a view of its own;
- * - a **module** is drawn among its siblings: the component view and the module
- *   dependencies of the repository it stands in;
+ * - a **module** is its own child modules in the component view, and itself among the
+ *   modules of its own level it relates to in the module dependencies view;
  * - a **symbol** is drawn by the sequence of the interactions that name it, in code
  *   point order of the interaction facts (the graph holds no order of its own, so a
  *   symbol's page takes the one order it can state);
@@ -30,7 +33,9 @@ import type { FactStoreDatabase } from './fact-store.js';
 import { readPageModel, type GraphPageModelAnswer } from './graph-pages.js';
 import { isPageKind } from './page-changes.js';
 import { buildFactStoreDiagram, factStoreDiagramReads, type DiagramGraphReads, type DiagramLimits, type DiagramModel, type DiagramViewSpec } from './diagrams.js';
-import type { Fact, FactKind, FactNodeKind } from './facts.js';
+import { endsOf } from './graph-reads.js';
+import { byCodePoint } from '../model/order.js';
+import type { Fact, FactEdgeKind, FactKind, FactNodeKind } from './facts.js';
 
 /** The node a page is about, as the specs are derived from it. */
 export interface DiagramNode {
@@ -41,22 +46,50 @@ export interface DiagramNode {
 }
 
 /**
- * The view specifications one node stands in, by its kind. `repositoryId` and
- * `tableId` are the fact ids of the repository and the table the node names,
- * resolved by the caller: a spec is scoped by fact ids and a node's value names
- * its repository and its table by name.
+ * The modules a page's module views are drawn from, as the graph holds them: the scope
+ * the repository page draws a level below, and the neighbours and children a module page
+ * draws beside itself. Both are read from the graph (below), so a page shows the
+ * structure that is there rather than a level that only names the repository.
  */
-export function diagramSpecsFor(options: { readonly kind: FactKind; readonly id: string; readonly repositoryId?: string; readonly tableId?: string }): readonly DiagramViewSpec[] {
-  const { kind, id, repositoryId, tableId } = options;
+export interface ModuleScopes {
+  /** A repository's: the fact ids whose children its two module views draw — the repository's own when its top level has more than one module, else the module whose children are the first level that has. */
+  readonly view?: readonly string[];
+  /** A module's: the modules of its own level it relates to, which its page draws beside it. */
+  readonly neighbours?: readonly string[];
+  /** A module's: whether it holds child modules, which is what its module-dependency view draws when it relates to no module of its level. */
+  readonly childModules?: boolean;
+}
+
+/**
+ * The view specifications one node stands in, by its kind. `repositoryId` and
+ * `tableId` are the fact ids of the repository and the table the node names, resolved
+ * by the caller: a spec is scoped by fact ids and a node's value names its repository
+ * and its table by name. `moduleScopes` is what `moduleScopesOf` read for the node: a
+ * caller that names none gets a repository's module views drawn at its own top level and
+ * a module drawn by its own child modules alone.
+ */
+export function diagramSpecsFor(options: {
+  readonly kind: FactKind;
+  readonly id: string;
+  readonly repositoryId?: string;
+  readonly tableId?: string;
+  readonly moduleScopes: ModuleScopes | undefined;
+}): readonly DiagramViewSpec[] {
+  const { kind, id, repositoryId, tableId, moduleScopes } = options;
   switch (kind) {
-    case 'repository':
+    case 'repository': {
+      // A repository whose clustering holds one module at the top and its real structure a level below draws that
+      // level: `moduleScopes.view` is the scope whose children are the first level that has more than one module
+      // (madarch-tzte.23.7), and a repository whose own top level already has more than one keeps its own id.
+      const scope = moduleScopes?.view ?? [id];
       return [
         { type: 'c4-context', nodes: [] },
         { type: 'c4-container', nodes: [id] },
-        { type: 'c4-component', nodes: [id] },
-        { type: 'module-dependency', nodes: [id] },
+        { type: 'c4-component', nodes: [...scope] },
+        { type: 'module-dependency', nodes: [...scope] },
         { type: 'er', nodes: [id] },
       ];
+    }
     case 'package':
     case 'deploy-unit':
       return [{ type: 'c4-container', nodes: [id] }];
@@ -66,9 +99,18 @@ export function diagramSpecsFor(options: { readonly kind: FactKind; readonly id:
       if (tableId !== undefined) return [{ type: 'er', nodes: [tableId] }];
       if (repositoryId !== undefined) return [{ type: 'er', nodes: [repositoryId] }];
       return [];
-    case 'module':
-      if (repositoryId === undefined) return [];
-      return [{ type: 'c4-component', nodes: [repositoryId] }, { type: 'module-dependency', nodes: [repositoryId] }];
+    case 'module': {
+      // The module's own child modules, and — beside them — the module among the modules it relates to at its own
+      // level: a depth of 0 draws the modules a view names themselves, which is the only way a view holds a neighbour
+      // no child of the module's scope holds. A module that relates to no module of its level has its children drawn
+      // by the second view; a module that holds no child either keeps one view, because two diagrams of one box say
+      // nothing twice, and a module nothing relates to is exactly one box.
+      const neighbours = moduleScopes?.neighbours ?? [];
+      const dependencies: DiagramViewSpec | undefined = neighbours.length > 0
+        ? { type: 'module-dependency', nodes: [id, ...neighbours], level: 0 }
+        : moduleScopes?.childModules === true ? { type: 'module-dependency', nodes: [id] } : undefined;
+      return dependencies === undefined ? [{ type: 'c4-component', nodes: [id] }] : [{ type: 'c4-component', nodes: [id] }, dependencies];
+    }
     case 'state':
       return [{ type: 'state', nodes: [id] }];
     case 'symbol':
@@ -82,6 +124,91 @@ export function diagramSpecsFor(options: { readonly kind: FactKind; readonly id:
     default:
       return [];
   }
+}
+
+/** The kinds a module's neighbours are read through: the edge kinds the module-dependency view draws. */
+const MODULE_NEIGHBOUR_EDGE_KINDS: readonly FactEdgeKind[] = ['dependency', 'import'];
+
+/** One text field of a fact's own value, when it holds one. */
+function textOf(fact: Fact, field: string): string | undefined {
+  const value = fact.value;
+  const held = value !== null && typeof value === 'object' ? (value as unknown as Record<string, unknown>)[field] : undefined;
+  return typeof held === 'string' && held !== '' ? held : undefined;
+}
+
+/** The modules of one level: the top-level modules of a repository (they name no parent), or one module's children. */
+async function modulesOfLevel(reads: DiagramGraphReads, repositoryName: string, parent: string | undefined): Promise<readonly Fact[]> {
+  if (parent !== undefined) return await reads.factsWith('module', 'parent', parent);
+  // A repository's top-level modules name no parent: stage 5 holds them by the repository's own `contains` edge.
+  return (await reads.factsWith('module', 'repository', repositoryName)).filter((module) => textOf(module, 'parent') === undefined);
+}
+
+/**
+ * The scope a repository page's module views draw, which is `[repositoryId]` unless the
+ * repository's clustering puts its real structure below a single top-level module: stage
+ * 5 seeds the tree with the packages, and a repository of one package is one top-level
+ * module holding a level of folders (a page drawn there says nothing about the code).
+ *
+ * The walk descends while a level holds exactly one module, and answers the scope whose
+ * children are the first level with more than one. A repository with no module at all,
+ * one whose single module has nothing below it, and one whose top level already has more
+ * than one all answer the repository itself.
+ */
+export async function moduleViewScope(reads: DiagramGraphReads, repository: { readonly id: string; readonly name: string }): Promise<readonly string[]> {
+  let level = await modulesOfLevel(reads, repository.name, undefined);
+  let scope = repository.id;
+  while (level.length === 1) {
+    const children = await modulesOfLevel(reads, repository.name, level[0]!.id);
+    // The single module is a leaf: the level above it is the finest structure the clustering holds, and the
+    // repository's own scope draws that one module rather than an empty level below it.
+    if (children.length === 0) return [repository.id];
+    scope = level[0]!.id;
+    level = children;
+  }
+  return [scope];
+}
+
+/**
+ * The modules one module relates to at its own level: the modules of the level it stands
+ * in (its parent's children, or the repository's top-level ones) that a `dependency` or
+ * an `import` fact joins to it. Every end is rolled up the way the module views roll it
+ * up — the nearest ancestor that stands in the level — so a file of one module importing
+ * a file three levels down in another names that other module, exactly as the view that
+ * draws the two folds the arrow.
+ *
+ * An end the graph does not hold, an end inside the module itself, and an end that
+ * reaches no module of the level (a file standing at the repository's root outside every
+ * module) are no neighbour: the view could not stand them anywhere either.
+ */
+export async function moduleNeighbours(reads: DiagramGraphReads, module: Fact, repositoryName: string): Promise<readonly string[]> {
+  const level = await modulesOfLevel(reads, repositoryName, textOf(module, 'parent'));
+  const peers = new Set(level.map((fact) => fact.id));
+  // A module the level does not hold — another product's, or one whose parent was republished — relates to nothing.
+  if (peers.has(module.id) === false) return [];
+  const edges = await reads.edgesIn([repositoryName], MODULE_NEIGHBOUR_EDGE_KINDS);
+  const ends = new Set<string>();
+  for (const edge of edges) {
+    const pair = endsOf(edge.kind as FactEdgeKind, edge.value);
+    if (pair.from !== undefined) ends.add(pair.from);
+    if (pair.to !== undefined) ends.add(pair.to);
+  }
+  if (ends.size === 0) return [];
+  const chains = await reads.ancestors([...ends].sort(byCodePoint));
+  const peerOf = (id: string): string | undefined => {
+    if (peers.has(id)) return id;
+    for (const ancestor of chains.get(id) ?? []) if (peers.has(ancestor.id)) return ancestor.id;
+    return undefined;
+  };
+  const neighbours = new Set<string>();
+  for (const edge of edges) {
+    const pair = endsOf(edge.kind as FactEdgeKind, edge.value);
+    if (pair.from === undefined || pair.to === undefined) continue;
+    const from = peerOf(pair.from);
+    const to = peerOf(pair.to);
+    if (from === module.id && to !== undefined && to !== module.id) neighbours.add(to);
+    if (to === module.id && from !== undefined && from !== module.id) neighbours.add(from);
+  }
+  return [...neighbours].sort(byCodePoint);
 }
 
 /** One diagram of a page: the specification it was asked for and the model the graph answered. */
@@ -107,6 +234,27 @@ function tableOf(page: GraphPageModelAnswer): string | undefined {
   const value = page.value;
   if (value !== null && typeof value === 'object' && typeof (value as { table?: unknown }).table === 'string') return (value as { table: string }).table;
   return undefined;
+}
+
+/**
+ * The modules a page's module views are drawn from, read from the graph for the two kinds
+ * that have any: a repository's is the scope whose children are the first level with more
+ * than one module, and a module's is the module among the modules of its own level it
+ * relates to. Every other kind is drawn by no module view and reads nothing.
+ */
+async function moduleScopesOf(
+  reads: DiagramGraphReads,
+  kind: FactKind,
+  id: string,
+  repository: string | undefined,
+  repositoryId: string | undefined,
+): Promise<ModuleScopes | undefined> {
+  if (repository === undefined || repositoryId === undefined) return undefined;
+  if (kind === 'repository') return { view: await moduleViewScope(reads, { id: repositoryId, name: repository }) };
+  if (kind !== 'module') return undefined;
+  const module = (await reads.facts([id])).get(id);
+  if (module === undefined) return undefined;
+  return { neighbours: await moduleNeighbours(reads, module, repository), childModules: (await reads.factsWith('module', 'parent', id)).length > 0 };
 }
 
 /** The node fact of one kind whose value, at `field`, is exactly `value`; undefined when the graph holds none or several. */
@@ -141,7 +289,14 @@ export async function readNodeDiagrams(options: {
   const repositoryId = repository === undefined ? undefined : await oneFactOf(reads, 'repository', 'repository', repository);
   const table = tableOf(page.page);
   const tableId = table === undefined ? undefined : await oneFactOf(reads, 'table', 'name', table);
-  const specs: DiagramViewSpec[] = [...diagramSpecsFor({ kind, id: options.id, ...(repositoryId === undefined ? {} : { repositoryId }), ...(tableId === undefined ? {} : { tableId }) })];
+  const moduleScopes = await moduleScopesOf(reads, kind, options.id, repository, repositoryId);
+  const specs: DiagramViewSpec[] = [...diagramSpecsFor({
+    kind,
+    id: options.id,
+    moduleScopes,
+    ...(repositoryId === undefined ? {} : { repositoryId }),
+    ...(tableId === undefined ? {} : { tableId }),
+  })];
   if (kind === 'symbol') {
     const steps = await reads.edges([options.id], ['interaction']);
     if (steps.length > 0) specs.push({ type: 'sequence', nodes: [], scenario: steps.map((step) => step.id).sort((left, right) => (left < right ? -1 : left > right ? 1 : 0)) });

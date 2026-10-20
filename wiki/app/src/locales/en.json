@@ -200,7 +200,8 @@
   "diagram": {
     "mermaidFailed": "The view {{title}} could not be drawn as a Mermaid diagram: {{message}}",
     "likec4Failed": "The LikeC4 diagram of {{title}} could not be served: the webcomponent bundle failed to load.",
-    "likec4Loading": "Loading the LikeC4 diagram…"
+    "likec4Loading": "Loading the LikeC4 diagram…",
+    "mermaidLoading": "Drawing the diagram…"
   },
   "errors": {
     "prefix": "The wiki could not load this content.",
@@ -570,6 +571,7 @@
       "loading": "Reading this page's diagrams…",
       "failed": "This page's diagrams could not be read: {{message}}",
       "empty": "The graph holds nothing this view shows: no element of this diagram stands in the graph yet.",
+      "deferred": "The diagram is drawn when you scroll to it.",
       "elementsTitle_few": "{{count}} elements",
       "elementsTitle_many": "{{count}} elements",
       "edgesTitle_few": "{{count}} arrows",

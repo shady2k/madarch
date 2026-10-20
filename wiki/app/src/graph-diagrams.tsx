@@ -16,7 +16,7 @@
  * and the archify page is rendered by the server on its first ask, so a reader who
  * never opens them pays for neither.
  */
-import { useEffect, useState, type MouseEvent, type ReactElement } from 'react';
+import { useEffect, useRef, useState, type MouseEvent, type ReactElement, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FileCode2Icon } from 'lucide-react';
 import { appPath } from './app-base.js';
@@ -135,6 +135,70 @@ function EdgeRow({ edge, labels }: { edge: GraphDiagram['edges'][number]; labels
   );
 }
 
+/** How near a diagram is when its drawing starts: a screenful above and below the reader's window. */
+const NEAR_VIEWPORT_MARGIN = 600;
+
+/**
+ * How often the app looks again while an element is not yet near: a page that moves
+ * under the reader for another reason than their own scrolling (an answer arriving
+ * above it) is drawn too, and the look stops the moment the element is near.
+ */
+const NEAR_VIEWPORT_INTERVAL_MS = 400;
+
+/**
+ * Whether the reader has come near enough to an element for its contents to be drawn:
+ * an element within a margin of the reader's window is near, and the answer stays true
+ * once it was, so what it guards is drawn once and never again.
+ *
+ * The answer is read off the element's own box on every scroll, resize and look rather
+ * than taken from the browser's `IntersectionObserver`: a drawing is a reader's, so it
+ * waits on what the reader can see and not on a notification the browser may merge or
+ * never send for a page it has stopped repainting.
+ *
+ * A document that lays nothing out (a test's DOM, a hidden container) is answered `true`
+ * at once: holding a drawing back is an optimisation of a long page, never a condition
+ * on the diagram.
+ */
+function useNearViewport<T extends Element>(): [RefObject<T | null>, boolean] {
+  const holder = useRef<T | null>(null);
+  const [near, setNear] = useState(false);
+  useEffect(() => {
+    const element = holder.current;
+    if (element === null) {
+      setNear(true);
+      return;
+    }
+    let close = (): void => undefined;
+    const isNear = (): boolean => {
+      const rect = element.getBoundingClientRect();
+      // An element the document gives no box cannot say where the reader is: it is drawn rather than never.
+      if (rect.width === 0 && rect.height === 0) return true;
+      return rect.top < window.innerHeight + NEAR_VIEWPORT_MARGIN && rect.bottom > -NEAR_VIEWPORT_MARGIN;
+    };
+    const look = (): void => {
+      if (isNear() === false) return;
+      // The answer latches and the watching ends here: a diagram drawn once is drawn for good, and a page of five
+      // diagrams costs five looks in all, not five looks every 400 ms.
+      close();
+      setNear(true);
+    };
+    close = (): void => {
+      window.removeEventListener('scroll', look, true);
+      window.removeEventListener('resize', look);
+      window.clearInterval(interval);
+      window.cancelAnimationFrame(frame);
+    };
+    // Capture, so that the scrolling of a box inside the page counts as the reader's scrolling too.
+    window.addEventListener('scroll', look, true);
+    window.addEventListener('resize', look);
+    const interval = window.setInterval(look, NEAR_VIEWPORT_INTERVAL_MS);
+    const frame = window.requestAnimationFrame(look);
+    if (isNear()) look();
+    return close;
+  }, []);
+  return [holder, near];
+}
+
 /** One renderer's panel: mounted only while its tab is open, so a tab nobody opens costs nothing. */
 function TabPanel({ tab, title }: { tab: GraphDiagramTab; title: string }): ReactElement {
   switch (tab.renderer) {
@@ -165,8 +229,12 @@ export function DiagramTabs({ diagram, repos }: { diagram: GraphDiagram; repos: 
   const active = open ?? diagram.tabs[0]?.renderer;
   const tab = diagram.tabs.find((candidate) => candidate.renderer === active);
   const labels = new Map(diagram.elements.map((element) => [element.id, element.label]));
+  // A page holds two to five diagrams and the first of them stands far below the facts it follows, so a diagram is
+  // drawn when the reader comes near it — and a tab the reader opens is drawn at once, whatever the observer says.
+  const [frame, near] = useNearViewport<HTMLElement>();
+  const drawable = near || open !== null;
   return (
-    <article className="graph-diagram" data-testid="graph-diagram" data-diagram-type={diagram.type} data-diagram-level={diagram.level}>
+    <article className="graph-diagram" data-testid="graph-diagram" data-diagram-type={diagram.type} data-diagram-level={diagram.level} ref={frame}>
       <h3 className="graph-diagram-title">{t('graph.diagram.type.' + diagram.type, { defaultValue: diagram.type })}</h3>
       <p className="graph-diagram-scope" data-testid="graph-diagram-scope">{diagram.title}</p>
       {diagram.marker !== null && <p className="graph-cut" role="status" data-testid="graph-diagram-marker">{diagram.marker}</p>}
@@ -189,7 +257,9 @@ export function DiagramTabs({ diagram, repos }: { diagram: GraphDiagram; repos: 
               </button>
             ))}
           </div>
-          {tab === undefined ? null : <TabPanel tab={tab} title={diagram.title} />}
+          {tab === undefined ? null : drawable ? <TabPanel tab={tab} title={diagram.title} /> : (
+            <p className="graph-none" data-testid="graph-diagram-deferred">{t('graph.diagram.deferred')}</p>
+          )}
           <div className="graph-diagram-elements">
             <h4>{t('graph.diagram.elementsTitle', { count: diagram.elements.length })}</h4>
             <ul className="graph-diagram-element-list" data-testid="graph-diagram-elements">

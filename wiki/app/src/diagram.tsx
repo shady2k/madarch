@@ -81,14 +81,19 @@ export function MermaidDiagram({ source, title }: { source: string; title?: stri
     );
   }
   // The drawn svg is the renderer's own output, shown as markup; the
-  // source itself is never interpolated (securityLevel strict above).
+  // source itself is never interpolated (securityLevel strict above). Until it
+  // stands, the box says what it is waiting for: the box is drawn with a border
+  // and a background, so an empty one is a frame a reader reads as a diagram
+  // nobody could draw (madarch-tzte.23.7).
   return (
     <div
       className="diagram-mermaid"
       data-testid="mermaid-diagram"
       ref={holder}
       { ...(svg === null ? {} : { dangerouslySetInnerHTML: { __html: svg } }) }
-    />
+    >
+      {svg === null ? <p className="diagram-loading" data-testid="mermaid-loading">{t('diagram.mermaidLoading')}</p> : null}
+    </div>
   );
 }
 
