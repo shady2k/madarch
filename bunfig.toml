@@ -11,5 +11,8 @@ preload = ["./test/run-scratch.ts", "./test/deadline.ts"]
 # test/deadline.ts, not `timeout = 10000` here: Bun 1.4.2 ignores that key, as a
 # number or as "10s" (measured: a test that sleeps 7 s still fails at 5 003 ms
 # with it set), while the preload's call takes effect. A test that names its own
-# bound keeps it, longer or shorter. The slow tests themselves are madarch-cznn,
-# which brings the default back down.
+# bound keeps it, longer or shorter. The preload does not reach every file of a
+# run that holds several (measured 2026-10-20, madarch-cznn): a case with no
+# bound was stopped at 5 000 ms beside another test file. A case whose work is
+# long therefore names its own bound, and a slow case is usually one that opens
+# a database too many.

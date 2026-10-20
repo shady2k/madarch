@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { afterAll, describe, expect, test } from 'bun:test';
 import { createTestQueryEngine } from './query-test-engine.js';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -16,6 +16,7 @@ import {
   type CompiledRelation,
   type LikeC4Result,
   type AsyncQueryEngine,
+  type HistoryStore,
 } from '../src/index.js';
 
 /**
@@ -36,7 +37,7 @@ async function renderFixture(name: string): Promise<LikeC4Result> {
   const { model, errors } = loadModel(fixture(name));
   expect(errors).toEqual([]);
   const compiled = compileModel(model!);
-  const history = createPGliteHistory({ clock: { now: () => DAY(1) } });
+  const history = await historyFor(name);
   const engine = await createTestQueryEngine();
   try {
     expect((await history.store({ source: 's', commit: name, committedAt: DAY(1), model: compiled })).errors).toEqual([]);
@@ -44,8 +45,54 @@ async function renderFixture(name: string): Promise<LikeC4Result> {
     return await renderAsyncLikeC4Workspace(engine, compiled, AT);
   } finally {
     await engine.close();
-    await history.close();
   }
+}
+
+/**
+ * The bound of a case that runs the real `likec4` validator: it spawns a node
+ * process per workspace it validates, 1.3-2 s each, on top of rendering the
+ * fixture. Measured 2026-10-20 (madarch-cznn): 4.8 s on GitHub's runners for the
+ * drill-down workspace, 5.0 s on the 2-CPU pod, over the five seconds an unnamed
+ * test really runs under.
+ */
+const VALIDATE_MS = 15_000;
+
+/**
+ * One history per fixture, opened the first time a case renders it and kept for
+ * the file: rendering is the case's own work, a PGlite boot need not be. Two
+ * fixtures cannot share one history: the store refuses two sources declaring
+ * the same element id, and `views-drill-down` and `views-likec4-not-drawn` both
+ * hold `shop`. A boot is 1.66 s on the 2-CPU pod (measured 2026-10-20,
+ * madarch-cznn).
+ */
+const fileHistories = new Map<string, HistoryStore>();
+
+/**
+ * How many fixture histories stay open: the pod the tests run on has 4 GB, and
+ * eight open PGlite databases are enough to be killed for memory (measured
+ * 2026-10-20, madarch-cznn, `bun test test/views.test.ts` exited 137 with all
+ * its cases passed). Two keep the cases of one fixture cheap, which is how they
+ * are grouped, and bound the memory.
+ */
+const OPEN_FIXTURES = 2;
+
+afterAll(async () => {
+  for (const history of fileHistories.values()) await history.close();
+  fileHistories.clear();
+});
+
+async function historyFor(name: string): Promise<HistoryStore> {
+  const held = fileHistories.get(name);
+  if (held !== undefined) return held;
+  const history = createPGliteHistory({ clock: { now: () => DAY(1) } });
+  fileHistories.set(name, history);
+  const oldest = fileHistories.keys().next().value;
+  if (fileHistories.size > OPEN_FIXTURES && oldest !== undefined) {
+    const dropped = fileHistories.get(oldest)!;
+    fileHistories.delete(oldest);
+    await dropped.close();
+  }
+  return history;
 }
 
 /** The workspace of a fixture every relation of which LikeC4 can draw. */
@@ -118,7 +165,7 @@ describe('views/likec4', async () => {
 
     expect(workspace).toBe(DRILL_DOWN);
     expect(validate(workspace)).toEqual({ files: 1, errors: [] });
-  });
+  }, VALIDATE_MS);
 
   test('ids made LikeC4 identifiers, unique and never a keyword; strings escaped; technology; shapes per kind; one arrow per relation, each labelled, unnamed ones by contract or id', async () => {
     const workspace = await workspaceOf('views-likec4');
@@ -193,7 +240,7 @@ describe('views/likec4', async () => {
       ].join('\n'),
     );
     expect(validate(workspace)).toEqual({ files: 1, errors: [] });
-  });
+  }, VALIDATE_MS);
 
   test('an element whose id is "index" still gets a view of its own beside the landscape\'s index', async () => {
     const workspace = await workspaceOf('views-index');
@@ -202,7 +249,7 @@ describe('views/likec4', async () => {
     expect(workspace).toContain('\n  view index {\n    title "Landscape"\n');
     expect(workspace).toContain('\n  view index_ of index_ {\n    title "Search index"\n');
     expect(validate(workspace)).toEqual({ files: 1, errors: [] });
-  });
+  }, VALIDATE_MS);
 
   test('before the model existed the workspace is empty but still valid: no kinds, no elements, the landscape alone', async () => {
     const { model } = loadModel(fixture('views-drill-down'));
@@ -218,7 +265,7 @@ describe('views/likec4', async () => {
     const empty = [HEADER, '', 'specification {', '}', '', 'model {', '}', '', 'views {', '  view index {', '    title "Landscape"', '    include *', '  }', '}', ''].join('\n');
     expect(result).toStrictEqual({ workspace: empty, notDrawn: [], errors: [] });
     expect(validate(empty)).toEqual({ files: 1, errors: [] });
-  });
+  }, VALIDATE_MS);
 });
 
 describe('views/likec4 relations LikeC4 cannot draw', async () => {
@@ -265,7 +312,7 @@ describe('views/likec4 relations LikeC4 cannot draw', async () => {
       ].join('\n'),
     );
     expect(validate(workspace!)).toEqual({ files: 1, errors: [] });
-  });
+  }, VALIDATE_MS);
 
   test('a self-relation an engine does draw is still left out and listed once', async () => {
     const answers = [{ id: 'loop', kind: 'service' }];
@@ -468,7 +515,7 @@ describe("the reference system's committed LikeC4 workspace", async () => {
 
     expect(readFileSync(LIKEC4_FILE, 'utf8')).toBe(workspace!);
     expect(checkLikeC4Workspaces([join(LIKEC4_FILE, '..')])).toEqual({ files: 1, errors: [] });
-  });
+  }, VALIDATE_MS);
 });
 
 describe('views/likec4 for a topic or queue', async () => {
