@@ -40,15 +40,19 @@ import { createStageRegistry } from '../src/fill/stages/index.js';
 import { MEMBER_ESTIMATE_TOKENS } from '../src/fill/agent-packet.js';
 import {
   AGENT_UNIT_STAGE_ID,
-  coveredPlaces,
+  childrenOfPlaces,
+  coveredOf,
   createAgentUnitStage,
   MAX_PLAN_UNITS,
-  placesOfMembers,
+  memberPlaces,
   planUnits,
   readUnitAnswer,
-  splitChildren,
+  type AgentPlace,
 } from '../src/fill/stages/agent-unit.js';
+import { OVERVIEW_STAGE_ID } from '../src/fill/stages/overview.js';
 import { StageRegistry } from '../src/fill/registry.js';
+import { writeScope } from '../src/fill/checked-writes.js';
+import type { UnitPacket } from '../src/fill/agent-packet.js';
 import { DEFAULT_STAGE_DEFAULTS, type FillStage, type StageDraftWrite, type StageGraphReader } from '../src/fill/stage.js';
 import { FACT_KINDS } from '../src/fill/facts.js';
 import { Type } from 'typebox';
@@ -731,17 +735,22 @@ describe('one agent unit, end to end', () => {
 });
 
 
-describe('registering the agent unit stage', () => {
-  test('a run that wires an agent registers the stage; a run that wires none holds no unit that could read nothing', () => {
+describe('registering the agent stages of a run', () => {
+  test('a run that wires an agent registers its agent stages; a run that wires none holds no unit that could read nothing', () => {
     const snapshots = createGitSnapshotSource(() => []);
     // A run with no agent: 0026's agent units are a session with an agent, so a stage registered without one would
-    // plan units that could not run.
+    // plan units that could not run. Since madarch-tzte.24.1 the registry holds the fill's own agent stages (stage 8
+    // today); the generic agent unit of 22.3 is the shape's reference declaration and is no stage of a run, because
+    // it would read the same scopes a second time.
+    expect(createStageRegistry({ snapshots }).all().map((stage) => stage.id)).not.toContain(OVERVIEW_STAGE_ID);
     expect(createStageRegistry({ snapshots }).all().map((stage) => stage.id)).not.toContain(AGENT_UNIT_STAGE_ID);
     const wired = createStageRegistry({ snapshots, agent: { agent: { id: 'fake-agent', command: 'bun' } } });
-    expect(wired.get(AGENT_UNIT_STAGE_ID)?.usesTools).toBe(true);
-    // It declares the kinds 0026's agent units write, each with the schema's own version.
-    expect(wired.get(AGENT_UNIT_STAGE_ID)?.produces.map((produced) => produced.kind)).toEqual(['claim', 'coverage', 'entity-proposal', 'interaction', 'question', 'rule', 'state', 'transition']);
-    expect(wired.get(AGENT_UNIT_STAGE_ID)?.produces.every((produced) => produced.schemaVersion === FACT_KINDS[produced.kind as 'claim'].version)).toBe(true);
+    expect(wired.get(OVERVIEW_STAGE_ID)?.usesTools).toBe(true);
+    expect(wired.get(AGENT_UNIT_STAGE_ID)).toBeUndefined();
+    // Stage 8 writes the overview hypothesis as claims and questions, and the coverage the shape adds to every agent
+    // stage; each kind carries the schema's own version.
+    expect(wired.get(OVERVIEW_STAGE_ID)?.produces.map((produced) => produced.kind)).toEqual(['claim', 'coverage', 'question']);
+    expect(wired.get(OVERVIEW_STAGE_ID)?.produces.every((produced) => produced.schemaVersion === FACT_KINDS[produced.kind as 'claim'].version)).toBe(true);
   });
 });
 
@@ -920,39 +929,58 @@ describe('the unit contract, read', () => {
     expect(readUnitAnswer('{"status":"done","covered":["a",3,{"b":1}],"remaining":[]}')).toEqual({ status: 'done', covered: ['a'], remaining: [] });
   });
 
+  /** One place of the repository's scope, as the shape's place reader hands it to the coverage and the split. */
+  function placeOf(path: string): AgentPlace {
+    return { id: `directory:${path}`, place: path, scope: `acme-shop:${path}`, repository: 'acme-shop', commit: 'a'.repeat(40), estimatedTokens: MEMBER_ESTIMATE_TOKENS };
+  }
+
   test('a place counts as covered only inside the scope, and the answer\'s own `remaining` is a refusal to claim it', () => {
-    const places = ['a', 'b', 'c'];
+    const places = ['a', 'b', 'c'].map(placeOf);
     const cite = (file: string): StageDraftWrite => ({ kind: 'fact', evidence: `acme-shop@${'a'.repeat(40)}:${file}`, value: { kind: 'question', value: { repository: 'acme-shop', type: 'assumption-check', prompt: 'why?' }, provenance: { source: { system: 'test', version: '1' }, repository: { id: 'acme-shop', commit: 'a'.repeat(40) }, place: { file, range: { startLine: 1, startColumn: 0, endLine: 1, endColumn: 1 } } } } });
     // A write inside a place covers that place; a write outside every place covers none; a path named with the
     // repository's prefix is read as its own path.
-    expect(coveredPlaces({ answer: undefined, writes: [cite('a/one.ts')], places, repository: 'acme-shop' })).toEqual(['a']);
-    expect(coveredPlaces({ answer: { status: 'done', covered: ['acme-shop:b', 'elsewhere/x.ts'], remaining: [] }, writes: [], places, repository: 'acme-shop' })).toEqual(['b']);
+    expect(coveredOf({ answer: undefined, writes: [cite('a/one.ts')], places })).toEqual(['a']);
+    expect(coveredOf({ answer: { covered: ['acme-shop:b', 'elsewhere/x.ts'], remaining: [] }, writes: [], places })).toEqual(['b']);
     // The contract's own words: a `done` answer whose `remaining` is not empty is read as `partial`.
-    expect(coveredPlaces({ answer: { status: 'done', covered: ['a', 'b', 'c'], remaining: ['c'] }, writes: [], places, repository: 'acme-shop' })).toEqual(['a', 'b']);
+    expect(coveredOf({ answer: { covered: ['a', 'b', 'c'], remaining: ['c'] }, writes: [], places })).toEqual(['a', 'b']);
     // A place nothing names, and a write that cites nothing, are no cover.
-    expect(coveredPlaces({ answer: undefined, writes: [{ kind: 'fact', evidence: 'x', value: { kind: 'coverage' } }], places, repository: 'acme-shop' })).toEqual([]);
+    expect(coveredOf({ answer: undefined, writes: [{ kind: 'fact', evidence: 'x', value: { kind: 'coverage' } }], places })).toEqual([]);
   });
 
-  test('a split names one child per uncovered place, at most eight, and a place past that bound stays a gap; a scope is never its own child', () => {
-    const members = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'].map((path) => ({ kind: 'directory' as const, label: `acme-shop:${path}/`, id: `directory:${path}`, file: path, place: `acme-shop:${path}` }));
-    const eight = splitChildren({ scope: { repository: 'acme-shop' }, members, remaining: members.map((member) => String(member.file)) });
+  test('a split names one child per uncovered place, at most eight, and a scope is never its own child', () => {
+    const places = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'].map(placeOf);
+    const eight = childrenOfPlaces({ scope: writeScope('acme-shop'), places, covered: [] });
     expect(eight.map((child) => child.scope)).toEqual(['acme-shop:a', 'acme-shop:b', 'acme-shop:c', 'acme-shop:d', 'acme-shop:e', 'acme-shop:f', 'acme-shop:g', 'acme-shop:h']);
     expect(eight.map((child) => child.id)).toEqual(['directory:a', 'directory:b', 'directory:c', 'directory:d', 'directory:e', 'directory:f', 'directory:g', 'directory:h']);
     // Each child is about one member's work, in 0026's own estimate.
     expect(eight.every((child) => child.estimatedTokens === MEMBER_ESTIMATE_TOKENS)).toBe(true);
+    // The places nothing covered are the children; a place a unit covered is no child of it.
+    expect(childrenOfPlaces({ scope: writeScope('acme-shop'), places, covered: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'] }).map((child) => child.scope)).toEqual(['acme-shop:j']);
     // A file's members stand at the file itself: such a place is no child of the scope it names.
-    expect(splitChildren({ scope: { repository: 'acme-shop', path: 'src/order.ts' }, members: [{ kind: 'symbol', label: 'OrderService.total', id: 'symbol:total', file: 'src/order.ts', place: 'acme-shop:src/order.ts' }], remaining: ['src/order.ts'] })).toEqual([]);
-    // A place the member list does not hold has no id to name a child by, and stays a coverage gap.
-    expect(splitChildren({ scope: { repository: 'acme-shop' }, members: [], remaining: ['a'] })).toEqual([]);
+    expect(childrenOfPlaces({ scope: writeScope('acme-shop:src/order.ts'), places: [{ ...placeOf('src/order.ts'), id: 'symbol:total' }], covered: [] })).toEqual([]);
   });
 
-  test('the places one packet\'s member list names are its paths, each once, in code point order', () => {
-    expect(placesOfMembers([
-      { kind: 'file', label: 'acme-shop:src/b.ts', id: 'file:b', file: 'src/b.ts', place: 'acme-shop:src/b.ts' },
-      { kind: 'file', label: 'acme-shop:src/a.ts', id: 'file:a', file: 'src/a.ts', place: 'acme-shop:src/a.ts' },
-      { kind: 'entry-point', label: 'serve', id: 'entry-point:serve', file: 'src/a.ts', place: 'acme-shop:src/a.ts' },
-      { kind: 'module', label: 'checkout', id: 'module:checkout' },
-    ])).toEqual(['src/a.ts', 'src/b.ts']);
-    expect(placesOfMembers([])).toEqual([]);
+  test('the places a packet\'s member list holds are its folders and files, each once, in code point order', () => {
+    const members = [
+      { kind: 'file' as const, label: 'acme-shop:src/b.ts', id: 'file:b', file: 'src/b.ts', place: 'acme-shop:src/b.ts' },
+      { kind: 'file' as const, label: 'acme-shop:src/a.ts', id: 'file:a', file: 'src/a.ts', place: 'acme-shop:src/a.ts' },
+      { kind: 'entry-point' as const, label: 'serve', id: 'entry-point:serve', file: 'src/a.ts', place: 'acme-shop:src/a.ts' },
+      { kind: 'module' as const, label: 'checkout', id: 'module:checkout' },
+    ];
+    const packet = {
+      unit: { id: 'acme-shop:src', scope: 'acme-shop:src' },
+      place: { repository: 'acme-shop', path: 'src', commit: 'a'.repeat(40) },
+      members,
+      membersCut: false,
+    } as unknown as UnitPacket;
+    const places = memberPlaces({ unit: { id: 'acme-shop:src', scope: 'acme-shop:src' }, scope: writeScope('acme-shop:src'), packet, graph: { async query() { return []; } } });
+    // The member that stands at a path names it: the entry point at `src/a.ts` does not take the file's place.
+    expect(places.places.map((place) => [place.place, place.id, place.scope])).toEqual([
+      ['src/a.ts', 'file:a', 'acme-shop:src/a.ts'],
+      ['src/b.ts', 'file:b', 'acme-shop:src/b.ts'],
+    ]);
+    expect(places.cut).toBe(false);
+    // A member list a read cut is no enumeration of the scope: the places say so, and the coverage names the gap.
+    expect(memberPlaces({ unit: { id: 'acme-shop', scope: 'acme-shop' }, scope: writeScope('acme-shop'), packet: { ...packet, membersCut: true } as unknown as UnitPacket, graph: { async query() { return []; } } }).cut).toBe(true);
   });
 });

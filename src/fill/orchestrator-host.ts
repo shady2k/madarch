@@ -543,6 +543,9 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
     }, request.limits, { run: plan.runId, unit: { unitId: plan.unitId, generation: plan.generation } } satisfies DraftReading);
     const snapshot = await sourceOf(wiring, request.product);
     const scope = writeScope(plan.scope);
+    // The kinds the unit's stage declares are the only kinds its writes may carry (0026, "Writing"): the refusal is
+    // the unit's own tool answering at once, never the publication throwing its whole draft set away.
+    const stage = options.registry.get(plan.stageId);
     return {
       unit: { unitId: plan.unitId, generation: plan.generation },
       reads,
@@ -551,6 +554,8 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
         source: request.source ?? { system: 'madarch-fill-agent', version: runningVersion() },
         layer: request.layer ?? 'inferred',
         scope,
+        stage: plan.stageId,
+        ...(stage === undefined ? {} : { kinds: stage.produces.map((produced) => produced.kind) }),
         snapshot,
         draft: request.draft,
         graph: await writeGraphOf(wiring, request.product, owner),
