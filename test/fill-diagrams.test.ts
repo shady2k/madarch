@@ -300,7 +300,7 @@ describe('a sequence view', () => {
 });
 
 describe('the size of a view', () => {
-  test('past its node budget a view collapses to the level above, and each element links what it stands for', async () => {
+  test('past its node budget a view collapses to the level above, and an element whose level above is the view itself opens its page', async () => {
     const model = await buildDiagram({ type: 'module-dependency', nodes: [fx.web.id] }, clean, { limits: { nodes: 2 } });
     expect(labels(model)).toEqual(['acme-web']);
     expect(model.collapsed).toBe(true);
@@ -373,9 +373,9 @@ describe('the size of a view', () => {
     expect(below.collapsed).toBe(false);
   });
 
-  test('the other two types that collapse write a drill-down this module accepts as it stands', async () => {
-    // A component view folds its modules into the repository at level 3, and an ER view folds its tables into it: both
-    // links are specs with no level named, because neither type takes one of its own.
+  test('the other two types that collapse fold into the scope they name, and no element links back to the same view', async () => {
+    // A component view folds its modules into the repository at level 3 (which is the scope the view names, so its
+    // element opens its page), and an ER view folds its tables into the repository while naming the tables it stood for.
     const component = await buildDiagram({ type: 'c4-component', nodes: [fx.shop.id] }, clean, { limits: { nodes: 1 } });
     expect(labels(component)).toEqual(['acme-shop']);
     // The scope the view names is again the nearest level above the modules it folded, so its element opens its page

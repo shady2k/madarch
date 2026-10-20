@@ -214,7 +214,8 @@ describe('a page’s diagrams', () => {
       await until(() => document.querySelector('[data-testid="graph-diagram-deferred"]') !== null, 'the deferral’s words');
       expect(document.querySelector('[data-panel]')).toBeNull();
       expect(document.body.textContent ?? '').toContain('The diagram is drawn when you scroll to it.');
-      // The reader scrolls: the diagram's box comes into the window and the app draws it.
+      // The reader scrolls: the diagram's box comes into the window and the app draws it — the card or its renderer's
+      // own failure, whichever the renderer answers with; the deferral is gone either way.
       top = 100;
       window.dispatchEvent(new Event('scroll'));
       await until(() => document.querySelector('[data-testid="mermaid-diagram"]') !== null || document.querySelector('[data-testid="mermaid-error"]') !== null, 'the drawing');
@@ -279,7 +280,9 @@ describe('a page’s diagrams', () => {
       expect(removed).toEqual([]);
       top = 100;
       window.dispatchEvent(new Event('scroll'));
-      await until(() => document.querySelector('[data-testid="mermaid-diagram"]') !== null, 'the drawing');
+      // What the test is about is the watching, not the renderer: the listeners and the interval are dropped as soon as
+      // the box says the diagram is near, whatever the renderer then answers.
+      await until(() => removed.filter((type) => type === 'scroll' || type === 'resize').length === 2, 'the listeners dropped once the diagram is near');
       expect(removed.filter((type) => type === 'scroll' || type === 'resize').sort()).toEqual(['resize', 'scroll']);
       expect(cleared).toBe(1);
     } finally {

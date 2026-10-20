@@ -77,7 +77,7 @@ until then.
 
 - product-wiki/pages: unchanged — a document page is still the product's Markdown in git, and a graph page still reads its diagrams from the server as its page stands; a diagram the reader has not reached is held back in the page's own words rather than mounted, a diagram that is being drawn stands in the app's own words inside its card rather than as an empty frame, and a diagram the reader's tab opens is drawn at once.
 - product-wiki/architecture: unchanged — the Architecture section's own views keep their Mermaid, LikeC4 and archify panels and their mount rules; this change's deferral is the graph diagrams section's own.
-- product-wiki/internationalization: unchanged — the one string this change adds ("The diagram is drawn when you scroll to it.") is written in English and Russian, and no other string moves.
+- product-wiki/internationalization: unchanged — the two strings this change adds ("The diagram is drawn when you scroll to it." and, inside a pending card, "Drawing the diagram…") are written in English and Russian, and no other string moves.
 - server/serves-wiki: unchanged — the routes and the shapes of their answers are as madarch-tzte.23.4 left them; what changes is which nodes a page's diagram specs name, which is the page's own answer and not an address.
 - views/deterministic: unchanged — a view is still the same model for the same graph on every machine: the new depth draws the modules a view names in code point order, and the neighbours of a module are chosen by the graph's own edges, sorted by code point.
 - release-binary/installers: unchanged — no dependency is added; the deferral reads the element's own box through the platform's `getBoundingClientRect`, window events and timers.
@@ -131,12 +131,14 @@ the change.
 
 - **Before** — `/tmp/pre237`, a worktree of `origin/main` `aa19c35b` with the walk's new
   scroll pass and nothing else: `run-20261020-043039` (walk exit **0**, 500 s).
-- **After** — this branch at **`a6a171f6`** (the walk's own `revision` line names the
-  tree it ran on): `run-20261020-055545` (walk exit **0**, 420 s; the command before it in
-  the same run built the app).
+- **After** — this branch at **`a6a171f6`** plus the walk's own pending-card selector
+  (the walk's `revision` line reads `a6a171f6…+walk-words`; that selector is `d7fb7e34`):
+  `run-20261020-055545` (walk exit **0**, 420 s; the command before it in the same run
+  built the app). Nothing the walk measures differs between those two trees — the selector
+  only names a word the card already held.
 
 Screenshots: `/home/dev/.cache/madarch-23-7-shots/before/shots/` (35 files) and
-`/home/dev/.cache/madarch-23-7-shots/after/shots/` (35 files), fetched from the pods
+`/home/dev/.cache/madarch-23-7-shots/after/shots/` (36 files, the neighbours module page included), fetched from the pods
 with `--fetch`; each diagram's screenshot is now a clip of that diagram's own tabs and
 frame (`diagram-<type>-<renderer>.png`) beside the window shot 23.5's record named
 (`window-diagram-<type>-<renderer>.png`).
@@ -149,7 +151,7 @@ frame (`diagram-<type>-<renderer>.png`) beside the window shot 23.5's record nam
 | --- | --- | --- | --- |
 | c4-context | 2 nodes, 180×128, 2 labels at 16 px | 2 nodes, 180×128, 2 labels at 16 px | `engine`, `stage23-product`; no arrow |
 | c4-container | 1 node, 168×64 | 1 node, 168×64 | `engine:madarch` |
-| c4-component | **1 node, 166×70** | **9 nodes, 765×644**, 12 labels at 16 px, **0 overlaps**, 11 ms | `.beads`, `.githooks`, `.github`, `.shady2k`, `docs`, `schema`, `scripts`, `src`, `test`; 3 arrows: `scripts → src` (import, reference), `test → src` (call, import), `test → scripts` (import) |
+| c4-component | **1 node, 166×70** | **9 nodes, 765×644**, 12 labels at 16 px, **0 overlaps**, 10 ms | `.beads`, `.githooks`, `.github`, `.shady2k`, `docs`, `schema`, `scripts`, `src`, `test`; 3 arrows: `scripts → src` (import, reference), `test → src` (call, import), `test → scripts` (import) |
 | module-dependency | **1 node, 166×70** | **9 nodes, 724×673**, 12 labels at 16 px, **0 overlaps**, 11 ms | the same nine elements; 3 arrows: `scripts → src`, `test → src`, `test → scripts` (import) |
 | er | empty, the page's own words, no tab | empty, the page's own words, no tab | the eight deterministic stages write no `table` or `column` fact (23.5's own evidence) |
 
@@ -193,14 +195,16 @@ of the repository page's own `scripts → src` arrow — **`scripts`** — and w
 
 ### Every diagram draws when the reader scrolls to it
 
-The scroll pass takes the repository page (4 340 px, 8 steps of 600 px at the 1150×900
+The scroll pass takes the repository page (4 533 px, 8 steps of 600 px at the 1150×900
 window) from its top to its foot and reads every diagram's frame as it comes into view
 (`STAGE23_WALK scrollPass`):
 
-- **before**: all **four** Mermaid panels were mounted at load and stood **empty**
-  (`panel: "mermaid"`, `drawn: false`, no svg) until their renders resolved — 714 ms and
-  715 ms for the first two, and the two below the reader's window stood empty for exactly
-  as long, unseen. That is the empty frame the coordinator saw.
+- **before**: all **four** Mermaid panels were mounted at load and stood **empty** — no
+  svg and no words in a bordered card (`panel: "mermaid"`, `drawn: false`) — until their
+  renders resolved. The pass measured the first two at **714 ms** and **715 ms**, and the
+  two below the reader's window were already drawn when it reached them (**4 ms** and
+  **3 ms**): their load-time emptiness is not measured, and this record does not claim a
+  figure for it. That is the empty frame the coordinator saw.
 - **after**, in the run's own numbers, and this is the criterion itself: at the top of
   the page the three diagrams inside the deferral's 600 px margin stand **mounted and
   pending**, each card holding the app's own words `"Drawing the diagram…"`
@@ -251,17 +255,42 @@ committed with:
   own words, and the listeners and the timer dropped once the diagram is near), `bun run
   build` — **exit 0**.
 - The walk above: **exit 0**.
-- CI on the exact SHA of the branch and the independent review: named in the queue entry
-  (`.integration-queue.md`) and in the task's `check:` receipts, because a rebase can
-  move the SHA this record's text cannot follow.
+- CI on the exact SHA of the branch, and this record's own revision: named in the queue
+  entry written at hand-over, because a rebase moves the SHA and no file inside a commit
+  can name the revision that commit becomes.
 
 ### The independent review
 
-One read-only `prime-agent --provider shady2k-gateway --model deepseek-v4.1-flash-auto`
-session over `git diff origin/main...HEAD`, told to run nothing on this machine; its
-findings and their answers are in the queue entry, with the commit that answers each —
-three defects and fifteen findings on the first round, and the second round's verdict
-there too.
+Three read-only `prime-agent --provider shady2k-gateway --model deepseek-v4.1-flash-auto`
+rounds over `git diff origin/main...HEAD`, each told to run nothing on this machine (logs
+`/tmp/review-237.log`, `/tmp/review-237-round2.log`, `/tmp/review-237-round3.log` on the
+worker's machine):
+
+- **Round 1 — NOT APPROVED**: three defects (a leaf module still drew two diagrams of one
+  box; the record's scroll-pass sentence did not match its run; the two runs' fill times
+  were given as one) and fifteen findings — answered in **`18d12dc2`**: the leaf rule
+  (a module that holds no child keeps one view), `ModuleScopes.childModules`, the
+  record's numbers rewritten from the runs, the look stopping when the diagram is near,
+  "8 steps of 600 px", the mechanism named in "Preserved contracts", five reads, the
+  stale comments, a depth of zero refused for a non-module scope, a collapsed depth-zero
+  view drilling into the level its modules stand in, the `readNodeDiagrams` seam tested
+  and a module **with neighbours** walked, the retitled and added cases, the level
+  refusal per type, the module branch no longer gated on its repository fact, the live
+  run's state named, the mutation note, and the 23.8 collision named.
+- **Round 2 — NOT APPROVED**: four defects (an empty Mermaid card still stood for 218–428
+  ms; the 23.8 collision was still not named; the receipts named did not exist at that
+  revision; a drill-down could reopen the view it came from) and sixteen findings —
+  answered in **`a6a171f6`**: the pending card holds the app's own words ("Drawing the
+  diagram…"), `sameSpec` stops a drill-down that is its own view (the three tests that
+  encoded the loop now assert the element's page instead), the collision and the landing
+  order are an open point for the integrator, the record claims only what exists at its
+  revision, and the round-2 findings one by one.
+- **Round 3 — NOT APPROVED on text only**: the four defects hold, and what remained was
+  the record's own wording and numbers (one string said, two added; three figures; "exactly
+  as long"; the tree named for the walk; five shared regions rather than three; two test
+  titles) and two app tests that could race the renderer. All are answered in the commit after `d7fb7e34` — the two test titles, the app tests
+  waiting on the watching rather than on the renderer, and the record's figures read again
+  from `/home/dev/.cache/madarch-23-7-shots/after/report.json`.
 
 ### Mutation
 
@@ -280,7 +309,10 @@ Not run, and not claimed: the owner runs Stryker once per assembled stage, off t
   23.8's record already declares that this change makes the diagrams' node choice, so the
   order that needs the least rebasing is **23.7 first, then 23.8 rebased onto it**; a
   module page now costs the reads named above, which 23.8's own measurements should
-  expect.
+  expect. Two more regions are shared: 23.8 rewrites `src/fill/graph-reads.ts` (the
+  `edgesIn` SQL this change's `moduleNeighbours` reads through), and both branches create
+  `test/fill-graph-diagrams.test.ts`, so that file conflicts on a rebase and its tests must
+  be kept whole.
 - **The LikeC4 tabs of the two small C4 views still say `data-likec4-undrawn="empty"`**
   (c4-context with 2 elements, c4-container with 1) while the component view with 9
   elements draws (`svgs: 3`). That is madarch-pdkl's own ground and not this change's.
