@@ -17,7 +17,11 @@
  * "Agents and tools"; madarch-tzte.22.1 and 22.2), and the guard of
  * `src/fill/unit-limits.ts`: 70% of the window earns a wrap-up message as the
  * unit's next turn, 80% cancels the turn in flight, and the turn count, the wall
- * clock and the output are read at every turn's end.
+ * clock and the output are read at every turn's end. The clock reaches a turn
+ * that streams nothing too: every turn in flight is armed on a watch of the
+ * guard's own time (`watchUnitTimeLimit`, `src/fill/unit-limits.ts`), so a prompt
+ * the agent never answers is cancelled at 0026's ten minutes like any other turn
+ * (madarch-tzte.38).
  *
  * **What a unit that reaches a limit does.** It returns what it has with its
  * coverage: the facts it wrote stay in its draft set, a `coverage` fact says which
@@ -90,7 +94,7 @@ import {
   type StageUnitScope,
   type StageValidation,
 } from '../stage.js';
-import { createUnitLimitGuard, type UnitLimitCause } from '../unit-limits.js';
+import { createUnitLimitGuard, PROCESS_TIMERS, watchUnitTimeLimit, type UnitLimitCause, type UnitTimers } from '../unit-limits.js';
 import { checkFactDraft } from './draft.js';
 
 /** The stage's id, as it is registered: one agent unit per scope, decision 0026's stages 8 to 13. */
@@ -162,6 +166,12 @@ export interface AgentUnitWiring {
   readonly cwd?: string;
   /** How long `initialize` may take, and how long `session/new` may take, in milliseconds. */
   readonly timeouts?: { readonly initializeMs?: number; readonly sessionMs?: number };
+  /**
+   * The timers a turn's watch is armed on: this process's own by default, and a
+   * test's when 0026's ten minutes must pass without waiting. The clock the watch
+   * reads is `clock`; the timers only say when to read it.
+   */
+  readonly timers?: UnitTimers;
   /** The system a coverage fact names as its reader; `madarch-fill-agent` at this build's version by default. */
   readonly source?: FactSource;
 }
@@ -201,7 +211,7 @@ export function createAgentUnitStage(wiring: AgentUnitWiring): FillStage {
     configSchema: AGENT_UNIT_CONFIG_SCHEMA,
     defaults: { ...DEFAULT_STAGE_DEFAULTS, config: {} },
     plan: (graph) => planUnits(graph),
-    execute: (unit, context) => executeUnit({ agent: wiring.agent, snapshots: wiring.snapshots, clock, source, ...(wiring.cwd === undefined ? {} : { cwd: wiring.cwd }), ...(wiring.timeouts === undefined ? {} : { timeouts: wiring.timeouts }) }, unit, context),
+    execute: (unit, context) => executeUnit({ agent: wiring.agent, snapshots: wiring.snapshots, clock, timers: wiring.timers ?? PROCESS_TIMERS, source, ...(wiring.cwd === undefined ? {} : { cwd: wiring.cwd }), ...(wiring.timeouts === undefined ? {} : { timeouts: wiring.timeouts }) }, unit, context),
     validate: (draft) => validateDraft(draft),
   };
 }
@@ -517,6 +527,7 @@ interface AttemptWiring {
   readonly agent: AcpAgentSpec;
   readonly snapshots: SnapshotSource;
   readonly clock: () => number;
+  readonly timers: UnitTimers;
   readonly source: FactSource;
   readonly cwd?: string;
   readonly timeouts?: { readonly initializeMs?: number; readonly sessionMs?: number };
@@ -581,10 +592,11 @@ async function executeUnit(wiring: AttemptWiring, unit: StageUnit, context: Stag
   try {
     await connection.initialize();
     const session: AcpSession = await connection.newSession({ cwd: wiring.cwd ?? process.cwd(), mcpServers: [tools.mcpServer] });
-    const opened = session;
+    /** The turn in flight, whose own end is the client's: aborted here, it sends `session/cancel` and stops waiting. */
+    let turnInFlight: AbortController | undefined;
     // A run's cancellation revokes this attempt's authority (`orchestrator.authority`): the turn in flight is
     // cancelled through the protocol, and the unit ends rather than writing a draft the machine will refuse.
-    const onAbort = (): void => { aborted = true; void opened.cancel().catch(() => undefined); };
+    const onAbort = (): void => { aborted = true; turnInFlight?.abort(); };
     // Registered whatever the signal says: a cancellation that arrives after this line is sent through the protocol.
     context.signal.addEventListener('abort', onAbort, { once: true });
     if (context.signal.aborted) aborted = true;
@@ -599,26 +611,50 @@ async function executeUnit(wiring: AttemptWiring, unit: StageUnit, context: Stag
         // What madarch itself puts into the session, counted once: the packet, the wrap-up message and every nudge
         // are each sent as one turn, and the loop counts each at the moment it sends it.
         guard.sent(estimateTokens(prompt, DEFAULT_GRAPH_READ_LIMITS));
-        const result: AcpPromptResult = await session.prompt(prompt, {
-          onUpdate: (update: AcpUpdate) => {
-            if (update.kind !== 'usage') return;
-            const judged = guard.observe({
-              ...(update.contextUsed === undefined ? {} : { contextUsed: update.contextUsed }),
-              ...(update.contextSize === undefined ? {} : { contextSize: update.contextSize }),
-            });
-            if (judged.kind === 'wrap') {
-              // 0026's wrap-up signal, crossed while the turn runs: ACP cannot speak into a turn in flight, so the
-              // signal is remembered and sent as the unit's own next turn — unless this turn answers first.
-              wrapPending = true;
-            }
-            if (judged.kind === 'stop' && stopCause === undefined) {
-              // 0026's hard stop: the turn in flight is cancelled through the protocol, and the unit keeps what it
-              // has. The prompt then ends as `cancelled`, which is not a failure of the agent.
-              stopCause = judged.cause;
-              void opened.cancel().catch(() => undefined);
-            }
+        // 0026's clock while the turn runs: the watch reads the guard's own time, and a turn that streams nothing —
+        // the one moment no update can carry — is cancelled at the unit's ten minutes like a turn that streams
+        // (madarch-tzte.38). The watch is armed before the prompt and disarmed by its end, so nothing outlives the
+        // turn it bounds.
+        const turn = new AbortController();
+        turnInFlight = turn;
+        const watch = watchUnitTimeLimit({
+          guard,
+          timers: wiring.timers,
+          onStop: (cause) => {
+            // The watch's cause is the guard's own: the unit ends at that limit, and the turn in flight is
+            // cancelled. A stop an update already named keeps its cause, which is the same limit either way.
+            if (stopCause === undefined) stopCause = cause;
+            turn.abort();
           },
+          onWrap: () => { wrapPending = true; },
         });
+        let result: AcpPromptResult;
+        try {
+          result = await session.prompt(prompt, {
+            signal: turn.signal,
+            onUpdate: (update: AcpUpdate) => {
+              if (update.kind !== 'usage') return;
+              const judged = guard.observe({
+                ...(update.contextUsed === undefined ? {} : { contextUsed: update.contextUsed }),
+                ...(update.contextSize === undefined ? {} : { contextSize: update.contextSize }),
+              });
+              if (judged.kind === 'wrap') {
+                // 0026's wrap-up signal, crossed while the turn runs: ACP cannot speak into a turn in flight, so the
+                // signal is remembered and sent as the unit's own next turn — unless this turn answers first.
+                wrapPending = true;
+              }
+              if (judged.kind === 'stop' && stopCause === undefined) {
+                // 0026's hard stop: the turn in flight is cancelled through the protocol, and the unit keeps what it
+                // has. The prompt then ends as `cancelled`, which is not a failure of the agent.
+                stopCause = judged.cause;
+                turn.abort();
+              }
+            },
+          });
+        } finally {
+          watch.disarm();
+          turnInFlight = undefined;
+        }
         if (stopCause !== undefined || aborted) break;
         // 0026 counts "the session and the server": the answers this unit's own MCP server returned are in the same
         // context, so what it has answered is added to madarch's own count before this turn is judged.

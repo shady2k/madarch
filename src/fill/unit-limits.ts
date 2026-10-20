@@ -27,13 +27,16 @@
  * read as "no room used". The two are never added: the session's figure already
  * holds what madarch sent, and a sum of the two would count the packet twice.
  *
- * **Nothing here waits.** Every moment is read from the clock the caller passes,
- * and the guard is evaluated on the events a session produces — each streamed
- * update and each turn's end. A test moves that clock by hand and its scenario
- * crosses ten minutes without sleeping; a real run reads `Date.now`. A turn that
- * sends nothing at all is not a moment this guard can see, and its end is the
- * attempt's own: the connection closes when the attempt ends, and the
- * orchestrator's lease is the bound behind that (0027).
+ * **Nothing here waits, and the guard's clock also reaches a silent turn.**
+ * Every moment is read from the clock the caller passes, and the guard is
+ * evaluated on the events a session produces — each streamed update and each
+ * turn's end. A test moves that clock by hand and its scenario crosses ten
+ * minutes without sleeping; a real run reads `Date.now`. A turn that sends
+ * nothing at all is not an event, so the stage arms `watchUnitTimeLimit` on the
+ * timers it is given: the watch reads this same clock, and when the unit's
+ * remaining time is gone it answers the guard's own verdict — the time limit —
+ * and the turn in flight is cancelled (madarch-tzte.38). A watch is no second
+ * judge: it asks the guard, and its cause is the guard's.
  */
 import { here, raise } from './fsm-core.js';
 import type { StageLimits } from './stage.js';
@@ -98,6 +101,11 @@ export interface UnitLimitGuard {
   sent(tokens: number): void;
   /** The limits as they stand, without observing anything. */
   state(): UnitLimitState;
+  /**
+   * How long the unit may still run before its time limit, read from the same
+   * clock and never below zero: what a watch is armed for while a turn runs.
+   */
+  remainingMs(): number;
   /** Whether the wrap-up signal was already sent: it goes once, at the first moment past 70%. */
   warned(): boolean;
   /** The wrap-up message to send the agent, naming the fraction used and what to do. */
@@ -166,6 +174,7 @@ export function createUnitLimitGuard(options: { readonly limits: StageLimits; re
   };
   return {
     state,
+    remainingMs: (): number => Math.max(0, bounds.maxDurationMs - state().elapsedMs),
     sent(tokens: number): void {
       if (!Number.isFinite(tokens) || tokens < 0) raise(`madarch sent the unit ${String(tokens)} tokens: a count of tokens is a number of no less than zero`);
       sent += Math.floor(tokens);
@@ -230,6 +239,82 @@ export function createUnitLimitGuard(options: { readonly limits: StageLimits; re
         case 'turns': return `stopped at its turn limit: ${String(now.turns)} of ${String(bounds.maxTurns)} turns`;
         case 'time': return `stopped at its time limit: ${String(Math.round(now.elapsedMs / 1000))} of ${String(Math.round(bounds.maxDurationMs / 1000))} seconds`;
       }
+    },
+  };
+}
+
+/**
+ * The timers a unit's watch is armed on. A real run leaves this out and the
+ * stage arms the process's own; a test hands its own, so the deadline arrives
+ * when the test says and nothing waits.
+ */
+export interface UnitTimers {
+  /** Calls `callback` once `ms` have passed, as `setTimeout` does in a process; the handle returns to `clearTimeout`. */
+  setTimeout(callback: () => void, ms: number): unknown;
+  clearTimeout(handle: unknown): void;
+}
+
+/** This process's own timers: the watch a real run arms. */
+export const PROCESS_TIMERS: UnitTimers = {
+  setTimeout: (callback, ms) => setTimeout(callback, ms),
+  clearTimeout: (handle) => { clearTimeout(handle as ReturnType<typeof setTimeout>); },
+};
+
+/** What a watch answers its caller. */
+export interface UnitWatch {
+  /** Stops the watch: a callback that fires after this line judges nothing, and a pending one is cleared. */
+  disarm(): void;
+}
+
+/**
+ * The watch one turn in flight is armed on: it reads the unit's own clock
+ * through the timers it is given, so the guard judges a turn that streams
+ * nothing at all (madarch-tzte.38). It is armed for the time the guard has left,
+ * asks the guard at each fire, and answers the guard's verdict — a stop is the
+ * guard's own cause, never a limit the watch invented — so 0026's ten minutes
+ * reach a silent turn exactly as they reach one that streams its progress.
+ *
+ * A watch that finds the unit within its limits arms itself again for what is
+ * left, and one that finds the wrap-up signal crossed reports it and arms itself
+ * once more: the wrap-up is a turn of its own, and the time limit still stands
+ * behind the turn in flight.
+ */
+export function watchUnitTimeLimit(options: {
+  readonly guard: UnitLimitGuard;
+  readonly timers: UnitTimers;
+  /** Called once, with the guard's own cause, when the unit must stop. */
+  readonly onStop: (cause: UnitLimitCause) => void;
+  /** Called where the guard crosses 70% while the turn runs: the wrap-up message is the unit's next turn. */
+  readonly onWrap?: () => void;
+}): UnitWatch {
+  let handle: unknown = undefined;
+  let armed = false;
+  let disarmed = false;
+  const fire = (): void => {
+    armed = false;
+    if (disarmed) return;
+    const judged = options.guard.observe({});
+    if (judged.kind === 'stop') {
+      options.onStop(judged.cause);
+      return;
+    }
+    if (judged.kind === 'wrap') options.onWrap?.();
+    // A caller that disarmed the watch from `onWrap` armed nothing: a timer here would outlive the turn it bounded.
+    if (!disarmed) arm();
+  };
+  const arm = (): void => {
+    armed = true;
+    // A unit with no time left is armed for the shortest wait there is: the guard answers the stop on the fire, and
+    // a timer of its own of no milliseconds is a timer some runtimes fire at once and others refuse.
+    handle = options.timers.setTimeout(fire, Math.max(1, options.guard.remainingMs()));
+  };
+  arm();
+  return {
+    disarm(): void {
+      disarmed = true;
+      if (!armed) return;
+      armed = false;
+      options.timers.clearTimeout(handle);
     },
   };
 }

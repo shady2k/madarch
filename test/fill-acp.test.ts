@@ -345,6 +345,88 @@ describe('cancelling a turn', () => {
   });
 });
 
+describe('a turn the caller bounds', () => {
+  test('an aborted prompt ends as cancelled without waiting for the agent, and the agent is told to cancel the turn', async () => {
+    // An agent that takes the turn, sends nothing, answers nothing and ignores the cancel: only madarch's own bound
+    // ends this turn, which is 0026's ten minutes for a unit whose agent went silent (madarch-tzte.38).
+    const { connection, messages } = await connect('silent');
+    await connection.initialize();
+    const session = await connection.newSession({ cwd: process.cwd() });
+    const controller = new AbortController();
+    const running = session.prompt('a turn that never answers', { signal: controller.signal });
+    await waitFor(() => (messages().some((message) => message.method === 'session/prompt') ? true : undefined), 'the prompt to reach the agent');
+    controller.abort();
+    const result = await running;
+    // The end is the cancel it asked for, never a failure of an agent that answered nothing.
+    expect(result.stopReason).toBe('cancelled');
+    expect(result.text).toBe('');
+    expect(result.updates).toEqual([]);
+    expect(session.running()).toBe(false);
+    // The turn ran and is counted, and the agent reported nothing about it: what a bounded turn spends is the
+    // agent's to report, and an agent that answers nothing reports nothing.
+    expect(session.usage()).toMatchObject({ reported: false, turns: 1, reports: 0 });
+    // The protocol's own way to end a turn was sent, naming this session, and after the turn it ends: the agent is
+    // told to cancel, it is only not waited for.
+    await waitFor(() => (messages().some((message) => message.method === 'session/cancel') ? true : undefined), 'the cancel to reach the agent');
+    const methods = messages().map((message) => message.method).filter((method) => method === 'session/prompt' || method === 'session/cancel');
+    expect(methods).toEqual(['session/prompt', 'session/cancel']);
+    expect(messages().filter((message) => message.method === 'session/cancel').map((message) => message.params)).toEqual([{ sessionId: 'fake-session-1' }]);
+  });
+
+  test('a turn ends on the caller\'s word even when the agent has stopped reading its input', async () => {
+    // The cancel is a notification on the same connection as the prompt, and the protocol's writes are ordered on it:
+    // an agent that stops reading its standard input never drains either, so the prompt's own write stays pending and
+    // the cancel never goes out. A bound that waited for that pipe would be no bound at all (0026's ten minutes).
+    const { connection, messages } = await connect('deaf');
+    await connection.initialize();
+    const session = await connection.newSession({ cwd: process.cwd() });
+    const controller = new AbortController();
+    // A prompt larger than any pipe: the write cannot complete while the agent reads nothing.
+    const running = session.prompt('z'.repeat(2_000_000), { signal: controller.signal });
+    controller.abort();
+    const result = await running;
+    expect(result.stopReason).toBe('cancelled');
+    expect(result.text).toBe('');
+    expect(session.running()).toBe(false);
+    expect(session.usage().turns).toBe(1);
+    // The agent never read a whole line of that turn: it paused its input at `session/new`, and this process was not
+    // waiting for it either — the turn ended on the caller's word, with the cancel still queued behind a write the
+    // agent never drained. The turn the other tests here end is the same turn with an agent that is still reading.
+    expect(messages().some((message) => message.method === 'session/prompt')).toBe(false);
+  });
+
+  test('a prompt whose signal is already aborted sends no turn at all', async () => {
+    const { connection, messages } = await connect('default');
+    await connection.initialize();
+    const session = await connection.newSession({ cwd: process.cwd() });
+    const controller = new AbortController();
+    controller.abort();
+    const result = await session.prompt('no turn goes out', { signal: controller.signal });
+    expect(result).toEqual({ stopReason: 'cancelled', text: '', updates: [] });
+    // An agent that was never asked is never told to cancel either: nothing was sent for this turn.
+    expect(messages().some((message) => message.method === 'session/prompt')).toBe(false);
+    expect(messages().some((message) => message.method === 'session/cancel')).toBe(false);
+  });
+
+  test('a turn the agent ends before the bound keeps its own stop reason, and cancels nothing', async () => {
+    const { connection, messages } = await connect('default');
+    await connection.initialize();
+    const session = await connection.newSession({ cwd: process.cwd() });
+    const controller = new AbortController();
+    const result = await session.prompt('inspect the repository', { signal: controller.signal });
+    expect(result.stopReason).toBe('end_turn');
+    expect(result.usage).toEqual({ inputTokens: 30, outputTokens: 12, totalTokens: 42 });
+    // The signal after the turn is a bound nobody needed: the agent held no turn to cancel. The abort goes first and
+    // the record is read after two more rounds of the session, so a cancel this client had sent for it would already
+    // stand there — which is what proves the turn's listener is released with the turn.
+    controller.abort();
+    expect(await session.prompt('a second turn', { signal: new AbortController().signal })).toMatchObject({ stopReason: 'end_turn' });
+    expect(await session.prompt('a third turn', { signal: new AbortController().signal })).toMatchObject({ stopReason: 'end_turn' });
+    expect(messages().some((message) => message.method === 'session/cancel')).toBe(false);
+    expect(session.usage().turns).toBe(3);
+  });
+});
+
 describe('a prompt turn is not cut short by the bound that guards the handshake', () => {
   test('a turn still running past timeoutMs ends with its own stop reason', async () => {
     const { connection } = await connect('slow-turn', { timeoutMs: 150 });
