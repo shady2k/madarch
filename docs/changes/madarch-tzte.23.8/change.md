@@ -344,7 +344,7 @@ met on the warm stands: **467 / 416 / 313 / 553 / 619 ms**, each under a second,
 
 **What stands in tests and checks.** `bun run check` (`tsc --noEmit`) exit 0 at every commit
 and at the final tree; the feature document gate clean. On the pod (`madarch-sky-test --avx2`),
-at the final tree:
+before the second review's test edits:
 - the focused suites — the Architecture answer's cache, the graph routes and the page set's two
   shapes, the products home, the Architecture bundle — **60 pass, 0 fail** (exit 0);
 - `test/server-graphs.test.ts` alone: **31 pass, 0 fail** (six of its tests failed once inside a
@@ -353,6 +353,12 @@ at the final tree:
   production-built app against a real server): **2 pass, 0 fail** (exit 0);
 - `wiki/app`: `bun install --frozen-lockfile && bun run check && bun test && bun run build` —
   `tsc` exit 0, **225 pass, 0 fail**, the build exit 0;
+- **CI on the final revision `3bd54c89`** (run `39390026273`): all five test shards, the checks
+  job and the product-documents run green. That is the evidence for the second review's test
+  edits — the products-home test that drives the refresh, the stricter app reader and two
+  record-only claims — which the pod could not run: it was out of capacity for the whole window
+  (`Failed to provision resources`, 4 GB and 8 GB, four attempts). The first version of that
+  products-home test was red in CI on `c0c9f4a4` and is corrected in `3bd54c89`;
 - the reports this record quotes: the four walks' `STAGE23_WALK` values, kept as
   `before.json`, `after.json`, `after2.json` and `final.json` in
   `/home/dev/.cache/madarch-stage23-walk-238/artifacts/walk23-8-app/` on this machine, beside the
