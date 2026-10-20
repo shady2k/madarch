@@ -173,9 +173,25 @@ commit over `origin/main` `24ec77f2`.
   `madarch-sky-test <worktree> <files>`, each with the tests' own exit status:
   named in the queue entry with their run ids.
 - CI on the exact SHA of the branch: named in the queue entry.
-- The independent review, one fresh read-only session over
-  `git diff origin/main...HEAD`, told not to run anything on this machine: named
-  in the queue entry with its verdict and the answers.
+- The independent review, one fresh read-only `prime-agent --provider
+  shady2k-gateway --model glm-5.3-flash-auto` session over
+  `git diff origin/main...HEAD`, told not to run anything on this machine
+  (log `/tmp/review-243.log`): verdict **APPROVED**, five findings, none a defect;
+  every one answered:
+  1. the three packet sections' bounds are pinned in the declaration test beside
+     their names (`DOC_INTENT_DOCUMENT_ROWS` 40, `DOC_INTENT_SECTION_ROWS` 80,
+     `DOC_INTENT_LINK_ROWS` 80); the cut itself is the shape's own `boundedList`,
+     which the shape's packet tests hold and whose marker the packet names;
+  2. and 3. the plan adopts the shape's overshoot-then-undo accounting: a bound-cut
+     enumeration is undone and the repository stands as one unit, so a later
+     repository keeps the budget the undone work did not spend, and the dead
+     `left < 0` disjunct is gone (the loop's own guard never lets it go negative);
+  4. the optional consumes name the scopes the landed producers own — `claim` at
+     `product` (stage 8's ownership) and `module` at `repository` (stage 5's);
+  5. the test fixture carries only the `contains` edges stage 1 publishes and says
+     so: the document index's document and section facts stand in the graph as
+     facts of their own, no edge naming them, which is where the stage's own
+     sections read them.
 
 ## DONE WHEN
 

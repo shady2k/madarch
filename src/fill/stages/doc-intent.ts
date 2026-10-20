@@ -301,11 +301,12 @@ export function docIntentDeclaration(): AgentStageDeclaration {
         { capability: 'section', scope: 'file', freshness: 'any' },
         { capability: 'document-link', scope: 'file', freshness: 'any' },
       ],
-      // Read where the run published them, and read as absent where it did not: the claims an earlier agent pass made
-      // (the unit reads them through `claims_about`), and the modules the packet's own sections name.
+      // Read where the run published them, and read as absent where it did not: the claims stage 8 owns at the
+      // product's level (the unit reads them through `claims_about`), and the modules stage 5 owns at the
+      // repository's level, which the packet's own members name.
       optional: [
-        { capability: 'claim', scope: 'repository', freshness: 'any' },
-        { capability: 'module', scope: 'cluster', freshness: 'any' },
+        { capability: 'claim', scope: 'product', freshness: 'any' },
+        { capability: 'module', scope: 'repository', freshness: 'any' },
       ],
     },
     sections: docIntentSections(),
@@ -363,6 +364,11 @@ export async function planDocumentUnits(graph: StageGraphReader): Promise<StageP
       units.push({ id: repository.id, scope: name, estimatedTokens: estimate });
       continue;
     }
+    // One level of the plan's recursion, the shape's own accounting (`planScope`): enumerate the documents within
+    // what the budget still holds, and when the bound cut the enumeration short, undo it and stand the whole
+    // repository as one unit — so the plan names at least one unit for every scope it read and drops none, and a
+    // later repository still holds the budget the undone enumeration did not spend.
+    const before = left;
     const parts: typeof units = [];
     for (const document of documents) {
       if (left < 1) break;
@@ -370,9 +376,8 @@ export async function planDocumentUnits(graph: StageGraphReader): Promise<StageP
       const path = documentPathOf(document);
       parts.push({ id: document.id, scope: `${name}:${path}`, estimatedTokens: estimateOfMembers(1) });
     }
-    // What the bound left out is not dropped: the repository stands as one unit, and its own split names the
-    // documents the plan did not (the shape's rule for a scope the bound cannot enumerate).
-    if (left < 0 || parts.length < documents.length) {
+    if (parts.length < documents.length) {
+      left = before;
       left -= 1;
       units.push({ id: repository.id, scope: name, estimatedTokens: estimate });
     } else {

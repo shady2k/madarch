@@ -41,7 +41,10 @@ import { createOrchestratorSchema, readProgress, readUnitDraft, readUnitPlan, ty
 import { createStageRegistry } from '../src/fill/stages/index.js';
 import {
   CONTRADICTION_QUESTION_TYPE,
+  DOC_INTENT_DOCUMENT_ROWS,
   DOC_INTENT_KINDS,
+  DOC_INTENT_LINK_ROWS,
+  DOC_INTENT_SECTION_ROWS,
   DOC_INTENT_STAGE_ID,
   createDocIntentStage,
   docIntentDeclaration,
@@ -123,12 +126,12 @@ function fixture(): Graph {
       architecture,
       checkoutSection,
       retentionSection,
+      // The contains edges stage 1 publishes (a repository holds its files). The document index's document and
+      // section facts stand in the graph as facts of their own, exactly as stage 6 wrote them — no edge names them,
+      // so the packet's `members` section is stage 1's own list and the stage's `documents` and `sections` sections
+      // are where a unit reads the document index.
       makeEdgeFact({ kind: 'contains', value: { from: repository.id, to: readmeFile.id }, provenance: provenance(REPOSITORY, README, 1), layer: 'extracted' }),
       makeEdgeFact({ kind: 'contains', value: { from: repository.id, to: codeFile.id }, provenance: provenance(REPOSITORY, CODE_FILE, 1), layer: 'extracted' }),
-      makeEdgeFact({ kind: 'contains', value: { from: repository.id, to: readme.id }, provenance: provenance(REPOSITORY, README, 1), layer: 'extracted' }),
-      makeEdgeFact({ kind: 'contains', value: { from: repository.id, to: architecture.id }, provenance: provenance(REPOSITORY, SECOND_DOCUMENT, 1), layer: 'extracted' }),
-      makeEdgeFact({ kind: 'contains', value: { from: readme.id, to: checkoutSection.id }, provenance: provenance(REPOSITORY, README, 3), layer: 'extracted' }),
-      makeEdgeFact({ kind: 'contains', value: { from: readme.id, to: retentionSection.id }, provenance: provenance(REPOSITORY, README, 7), layer: 'extracted' }),
       // The link to code the section names, at the place the link stands at.
       makeEdgeFact({ kind: 'document-link', value: { from: checkoutSection.id, to: { form: 'node', id: codeFile.id } }, provenance: provenance(REPOSITORY, README, 5), layer: 'extracted' }),
       // The unresolved link: written with its place, never dropped (madarch-tzte.21.4).
@@ -589,8 +592,13 @@ describe('stage 10\'s declaration', () => {
     expect(declaration.scale).toEqual({ level: 'repository', child: 'place' });
     expect(declaration.kinds).toEqual(DOC_INTENT_KINDS);
     expect(declaration.kinds).toEqual(['claim', 'question']);
-    // The section names are the packet's own, in the order the stage declares them.
+    // The section names are the packet's own, in the order the stage declares them, each with the bound its rows
+    // are held to: a bound the packet's own `boundedList` enforces and names in the marker when it cuts.
     expect(declaration.sections?.map((section) => section.name)).toEqual(['documents', 'sections', 'links']);
+    expect(declaration.sections?.map((section) => section.max)).toEqual([DOC_INTENT_DOCUMENT_ROWS, DOC_INTENT_SECTION_ROWS, DOC_INTENT_LINK_ROWS]);
+    expect(DOC_INTENT_DOCUMENT_ROWS).toBe(40);
+    expect(DOC_INTENT_SECTION_ROWS).toBe(80);
+    expect(DOC_INTENT_LINK_ROWS).toBe(80);
     // The stage reads the document index (madarch-tzte.21.4) and nothing else as its required input.
     expect(declaration.consumes.required.map((need) => need.capability)).toEqual(['repository', 'document', 'section', 'document-link']);
     // The question type outcome 5 gives a document that contradicts the code.
