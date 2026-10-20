@@ -111,6 +111,7 @@ const SAMPLES: { readonly [K in FactKind]: FactValueOf<K> } = {
   'state': { repository: REPOSITORY, machine: 'OrderStatus', name: 'placed', initial: true },
   'coverage': { repository: REPOSITORY, scope: 'module:checkout-payment', complete: false, read: ['src/order.ts', 'src/payment.ts'], unread: [{ what: 'src/legacy.js', reason: 'unsupported' }] },
   'question': { repository: REPOSITORY, type: 'assumption-check', about: anyId('symbol'), prompt: 'Is an order placed at authorization or at capture?' },
+  'answer': { repository: REPOSITORY, subject: 'question:' + '3'.repeat(64), decision: 'answers', text: 'An order is placed when its card is authorized.', evidence: `${REPOSITORY}@${COMMIT}:src/payment.ts` },
   'contains': { from: anyId('file'), to: anyId('symbol') },
   'defines': { from: anyId('file'), to: anyId('symbol') },
   'import': { from: anyId('file'), to: anyId('file'), specifier: '../model/order.js' },
@@ -163,6 +164,9 @@ const EXPECTED_LAYERS: Readonly<Record<FactKind, readonly FactLayer[]>> = {
   'rule': ['inferred'],
   'state': ['inferred'],
   'question': ['inferred'],
+  // an agent's answer to a question it found the evidence for, or a person's
+  // own answer through the wiki
+  'answer': ['declared', 'inferred'],
   'transition': ['inferred'],
   'interaction': ['inferred'],
   // a claim is an agent's reading, or the product's own words when a
@@ -1022,7 +1026,7 @@ describe('the check that names every reason a fact is not one the schema reads',
     // snapshot, a commit, a directory, a `contains` edge — a scope the fill
     // assembles (a module, a coverage, an entity proposal, a question) or a
     // task key read from a commit message has no single file and line.
-    const placesNone: readonly FactKind[] = ['contains', 'commit', 'coverage', 'directory', 'entity-proposal', 'module', 'question', 'repository', 'snapshot', 'task-key'];
+    const placesNone: readonly FactKind[] = ['answer', 'contains', 'commit', 'coverage', 'directory', 'entity-proposal', 'module', 'question', 'repository', 'snapshot', 'task-key'];
     for (const kind of FACT_KINDS_IN_ORDER) {
       const fact = sampleFact(kind);
       const bare = { ...fact, provenance: { source: fact.provenance.source, repository: fact.provenance.repository } };

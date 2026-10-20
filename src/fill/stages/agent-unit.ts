@@ -52,7 +52,8 @@ export const AGENT_UNIT_STAGE_VERSION = 2;
 /**
  * The fact kinds one agent unit may write: a claim (0004's atom at 0005's inferred
  * layer), a rule, a state of a machine, an entity a document could be about, a
- * question for a person, the coverage every stage of the fill reports in, and the
+ * question for a person and the answer that closes it when the unit found the
+ * evidence, the coverage every stage of the fill reports in, and the
  * two edges an agent stage draws — `interaction` (one element uses another) and
  * `transition` (one state goes to another). The edges are here because 0026 makes
  * `link` one of the unit's tools: a kind the stage did not declare would be refused
@@ -61,7 +62,7 @@ export const AGENT_UNIT_STAGE_VERSION = 2;
  * edge counts, which costs one replacement generation (the change record names it).
  */
 export const AGENT_UNIT_KINDS: readonly string[] = [
-  'claim', 'coverage', 'entity-proposal', 'interaction', 'question', 'rule', 'state', 'transition',
+  'answer', 'claim', 'coverage', 'entity-proposal', 'interaction', 'question', 'rule', 'state', 'transition',
 ];
 
 /** The task the unit's own prompt carries: what an agent unit is for, in one sentence. */

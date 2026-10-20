@@ -88,8 +88,15 @@ const SCHEMA: readonly string[] = [
     stage_id text NOT NULL,
     generation integer NOT NULL,
     publication text NOT NULL,
+    product text,
     PRIMARY KEY (id, unit_id)
   )`,
+  // A person's own record (an answer through the wiki, `declared.ts`) belongs to the product, not to a unit of a
+  // fill's run: its holding names the product and stands beside the unit's holdings, and a store created before
+  // this column existed gains it here. The column is the one a product's own record is scoped by, so a home's
+  // store keeps two products' records apart exactly as it keeps their units apart.
+  `ALTER TABLE fill_fact_holding ADD COLUMN IF NOT EXISTS product text`,
+  'CREATE INDEX IF NOT EXISTS fill_fact_holding_product ON fill_fact_holding (product)',
   'CREATE INDEX IF NOT EXISTS fill_fact_kind ON fill_fact (kind)',
   'CREATE INDEX IF NOT EXISTS fill_fact_holding_unit ON fill_fact_holding (unit_id)',
   // A node's page reads the edges that name it (`adjacent`, graph-reads.ts), which asks for one end of an edge fact by

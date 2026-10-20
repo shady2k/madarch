@@ -1502,3 +1502,158 @@ a.graph-diagram-element-label:hover {
   font-size: var(--fs-small);
   color: var(--text);
 }
+
+/* The next step, the questions by type, and a person's answers and decisions
+ * (madarch-tzte.25.2; the self-filling charter's outcome 5): a page always says what to do
+ * next, and a person answers where the question stands. */
+.graph-next-step {
+  margin-block: 1.6em 0;
+  padding: 0.9em 1em;
+  border: 1px solid var(--border);
+  border-inline-start: 3px solid var(--accent, var(--border));
+  border-radius: 6px;
+  background: var(--surface-muted, transparent);
+}
+
+.graph-next-step-label {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  margin: 0;
+  font-size: var(--fs-small);
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.graph-next-step-icon {
+  width: 1em;
+  height: 1em;
+}
+
+.graph-next-step-action {
+  margin: 0.35em 0 0;
+  font-size: var(--fs-body);
+  color: var(--text);
+}
+
+.graph-next-step-reason {
+  margin: 0.2em 0 0.5em;
+  font-size: var(--fs-small);
+  color: var(--text-muted);
+}
+
+.questions-open,
+.graph-questions-open {
+  margin-block: 2em 0;
+}
+
+.graph-question-group-title {
+  margin: 1.2em 0 0.3em;
+  font-size: var(--fs-small);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.graph-question-prompt {
+  display: block;
+  font-size: var(--fs-body);
+  color: var(--text);
+}
+
+.graph-question-depends {
+  display: block;
+  margin-block-start: 0.25em;
+  font-size: var(--fs-small);
+  color: var(--text-muted);
+}
+
+.graph-chip-open {
+  border-color: var(--accent, var(--border));
+}
+
+.graph-answer-form,
+.graph-decision-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5em;
+  margin-block-start: 0.6em;
+  font-size: var(--fs-small);
+}
+
+.graph-answer-form label,
+.graph-decision-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25em;
+  color: var(--text-secondary);
+}
+
+.graph-answer-form textarea,
+.graph-answer-form input,
+.graph-decision-form textarea,
+.graph-decision-form input {
+  width: 100%;
+  padding: 0.4em 0.5em;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font: inherit;
+  color: var(--text);
+  background: var(--surface, transparent);
+}
+
+.graph-answer-form button,
+.graph-decision-form button {
+  align-self: flex-start;
+  padding: 0.4em 0.9em;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font: inherit;
+  color: var(--text);
+  background: var(--surface-muted, transparent);
+  cursor: pointer;
+}
+
+.graph-answer-form button:disabled,
+.graph-decision-form button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.graph-decision-buttons {
+  display: flex;
+  gap: 0.6em;
+}
+
+.graph-answer,
+.graph-decision-record {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5em;
+  margin-block-start: 0.4em;
+  font-size: var(--fs-small);
+  color: var(--text-secondary);
+}
+
+.graph-answer-text,
+.graph-decision-text,
+.graph-question-filed {
+  flex-basis: 100%;
+  margin: 0.2em 0 0;
+  font-size: var(--fs-body);
+  color: var(--text);
+}
+
+.graph-answer-evidence {
+  flex-basis: 100%;
+  font-size: var(--fs-small);
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.graph-answer-error,
+.graph-decision-error {
+  color: var(--danger, inherit);
+}

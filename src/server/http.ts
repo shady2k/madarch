@@ -615,6 +615,10 @@ export function createHandler(dependencies: {
         { method: 'GET', path: '/api/graph/pages', handle: (request: Request) => dependencies.graphPages!.pages(request) },
         { method: 'GET', path: '/api/graph/page', handle: (request: Request) => dependencies.graphPages!.page(request) },
         { method: 'GET', path: '/api/graph/events', handle: (request: Request) => dependencies.graphPages!.events(request) },
+        // A person's own words (the self-filling charter's outcome 5): the answer to one open question and the
+        // acceptance or rejection of one page, written as Markdown in the product's git and read back into the graph.
+        { method: 'POST', path: '/api/graph/answer', handle: (request: Request) => dependencies.graphPages!.answer(request) },
+        { method: 'POST', path: '/api/graph/decide', handle: (request: Request) => dependencies.graphPages!.decide(request) },
       ] as Route[])),
       ...(dependencies.graphDiagrams === undefined ? [] : ([
         { method: 'GET', path: '/api/graph/diagrams', handle: (request: Request) => dependencies.graphDiagrams!.diagrams(request) },

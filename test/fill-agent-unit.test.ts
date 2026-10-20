@@ -24,6 +24,7 @@ import { createPgBossQueue } from '../src/adapters/pg-boss-queue.js';
 import { createFactStoreSchema, applyPublishedFacts, FACT_APPLICATION, readUnitFacts } from '../src/fill/fact-store.js';
 import { makeEdgeFact, makeNodeFact, repositoryPath, type Fact, type FactProvenance } from '../src/fill/facts.js';
 import { createFactGraphReader, estimateTokens, DEFAULT_GRAPH_READ_LIMITS } from '../src/fill/graph-reads.js';
+import { readPageModel } from '../src/fill/graph-pages.js';
 import { draftSetOf } from '../src/fill/checked-writes.js';
 import { createFillOrchestratorService, type FillOrchestratorService, type ProductFillWiring } from '../src/fill/orchestrator-host.js';
 import {
@@ -164,6 +165,8 @@ interface WorldOptions {
   readonly wide?: readonly string[];
   /** The timers a turn's watch is armed on: a test's fire at once, so the deadline arrives on the clock it moves. */
   readonly timers?: UnitTimers;
+  /** Facts the graph holds beside the fixture's: a question a test asks the unit to answer, and nothing more. */
+  readonly extraFacts?: readonly Fact[];
 }
 
 async function openWorld(options: WorldOptions): Promise<World> {
@@ -191,7 +194,7 @@ async function openWorld(options: WorldOptions): Promise<World> {
     unit: record0,
     plan: { unitId: 'graph/all', generation: record0.generation, runId: 'run-seed', stageId: 'graph', stageUnitId: 'all', scope: 'all', stagePosition: 0, planPosition: 0, plannedAt: NOW },
     digest: 'graph-publication-1',
-    writes: graph.facts().map((fact) => ({ kind: 'fact' as const, evidence: `${REPOSITORY}@${COMMIT}`, value: fact })),
+    writes: [...graph.facts(), ...options.extraFacts ?? []].map((fact) => ({ kind: 'fact' as const, evidence: `${REPOSITORY}@${COMMIT}`, value: fact })),
   }));
 
   const pins: readonly RepositoryPin[] = [{ id: REPOSITORY, form: 'code', root: join(root!, REPOSITORY), commit: COMMIT }];
@@ -400,6 +403,62 @@ describe('one agent unit, end to end', () => {
       expect(stored).toBe(1);
       const after = await readRunUnits(opened.owner, RUN);
       expect(after.map((record) => record.state)).toEqual(['published']);
+    } finally {
+      await opened.close();
+    }
+  }, 120_000);
+
+  test('a unit closes a question when it finds the answer with evidence, and the question\'s page shows the answer', async () => {
+    // The self-filling charter's outcome 5: «Открытые вопросы должны закрываться, если агент в процессе нашел ответ».
+    // The graph holds one open question about the first folder; the agent reads the bytes that answer it and writes the
+    // answer as a fact of the schema, cited to the place it read. The question is closed by it — `inferred` and
+    // proposed, because it is the agent's reading (0005) — and its evidence is the span the unit read.
+    const ids = fixture();
+    const question = makeNodeFact({
+      kind: 'question',
+      value: { repository: REPOSITORY, type: 'undocumented-behaviour', about: ids.files[0]!.id, prompt: 'why does the first folder hold one file?' },
+      provenance: provenance('a/one.ts', 1),
+      layer: 'inferred',
+    });
+    const opened = await openWorld({
+      extraFacts: [question],
+      script: {
+        byPrompt: [],
+        steps: [
+          { say: 'reading the scope' },
+          { call: { tool: 'assert_fact', arguments: {
+            kind: 'answer',
+            value: { repository: REPOSITORY, subject: question.id, decision: 'answers', text: 'one.ts is the only entry point the folder has', evidence: `${REPOSITORY}@${COMMIT}:a/one.ts` },
+            place: { repository: REPOSITORY, file: 'a/one.ts', startLine: 1, endLine: 2 },
+          } } },
+          { answer: { status: 'done', covered: ['a'], remaining: ['b', 'c'], summary: 'the first folder holds one file, and it is the way in' } },
+        ],
+      },
+    });
+    try {
+      const unit = await planAndAdmit(opened);
+      const worked = await workOnce(opened.orchestrator, { worker: 'w1' });
+      expect(worked.result).toBe('published');
+      expect(worked.unitId).toBe(unit.unitId);
+
+      // The answer is the unit's own fact: the schema's `answer` kind, at the agent's inferred layer, proposed until a
+      // person accepts it (0005), and cited to the bytes the unit read.
+      const published = (await readUnitFacts(opened.owner, unit.unitId)).map((entry) => entry.fact);
+      const answer = published.find((fact) => fact.kind === 'answer') as unknown as { value: { repository: string; subject: string; decision: string; text: string; evidence: string }; layer: string; status: string } | undefined;
+      expect(answer).toBeDefined();
+      expect(answer!.value).toEqual({ repository: REPOSITORY, subject: question.id, decision: 'answers', text: 'one.ts is the only entry point the folder has', evidence: `${REPOSITORY}@${COMMIT}:a/one.ts` });
+      expect(answer!.layer).toBe('inferred');
+      expect(answer!.status).toBe('proposed');
+
+      // And the question's page is closed by it: a reader of the wiki sees the answer, who found it and what it read.
+      const page = await readPageModel({ database: opened.owner, product: PRODUCT, id: question.id });
+      expect(page.ok).toBe(true);
+      if (page.ok === false) throw new Error(page.message);
+      const shown = page.page.decision;
+      expect(shown?.decision).toBe('answers');
+      expect(shown?.text).toBe('one.ts is the only entry point the folder has');
+      expect(shown?.layer).toBe('inferred');
+      expect(shown?.evidence).toBe(`${REPOSITORY}@${COMMIT}:a/one.ts`);
     } finally {
       await opened.close();
     }
@@ -747,9 +806,10 @@ describe('registering the agent stages of a run', () => {
     const wired = createStageRegistry({ snapshots, agent: { agent: { id: 'fake-agent', command: 'bun' } } });
     expect(wired.get(OVERVIEW_STAGE_ID)?.usesTools).toBe(true);
     expect(wired.get(AGENT_UNIT_STAGE_ID)).toBeUndefined();
-    // Stage 8 writes the overview hypothesis as claims and questions, and the coverage the shape adds to every agent
-    // stage; each kind carries the schema's own version.
-    expect(wired.get(OVERVIEW_STAGE_ID)?.produces.map((produced) => produced.kind)).toEqual(['claim', 'coverage', 'question']);
+    // Stage 8 writes the overview hypothesis as claims and questions, the answer that closes a question the unit found
+    // the evidence for (madarch-tzte.25.2), and the coverage the shape adds to every agent stage; each kind carries the
+    // schema's own version.
+    expect(wired.get(OVERVIEW_STAGE_ID)?.produces.map((produced) => produced.kind)).toEqual(['answer', 'claim', 'coverage', 'question']);
     expect(wired.get(OVERVIEW_STAGE_ID)?.produces.every((produced) => produced.schemaVersion === FACT_KINDS[produced.kind as 'claim'].version)).toBe(true);
   });
 });

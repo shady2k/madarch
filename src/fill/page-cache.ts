@@ -61,6 +61,14 @@ export interface PageReadCache {
   /** Drops every answer kept: a publication landed, and nothing kept here stands for the store it read. */
   drop(): void;
   /**
+   * Drops the answers kept for the pages one change moved, and no other's (a person's
+   * own decision, `declared.ts`): a page nobody's decision touched is the page the store
+   * still holds, so it stands, and only the pages that depend on the decision are read
+   * again. The generation moves as well, so a page read that started before the change is
+   * never kept after it — the rule `drop` keeps, one page at a time.
+   */
+  dropPages(product: string, ids: readonly string[]): void;
+  /**
    * How many publications have dropped this cache. A read takes it before it reads the store and hands it back to
    * `keep*`, which keeps nothing a publication has overtaken: a read that started before a publication committed can
    * never be kept after it.
@@ -91,6 +99,10 @@ class BoundedMap<T> {
       if (oldest.done === true) break;
       this.held.delete(oldest.value);
     }
+  }
+
+  delete(key: string): void {
+    this.held.delete(key);
   }
 
   get size(): number {
@@ -154,6 +166,18 @@ export function createPageReadCache(options: { readonly pages?: number; readonly
     drop(): void {
       generation += 1;
       products.clear();
+    },
+    dropPages(product: string, ids: readonly string[]): void {
+      // A page that was never kept has nothing to drop, and a decision about a node of another product leaves this
+      // one's answers standing: touching nothing must not cost a kept answer either.
+      const held = products.get(product);
+      if (held === undefined) return;
+      for (const id of ids) {
+        held.pages.delete(nodeKey(product, id));
+        held.diagrams.delete(nodeKey(product, id));
+      }
+      if (held.pages.size === 0 && held.diagrams.size === 0 && held.pageSet === undefined) products.delete(product);
+      generation += 1;
     },
     get generation(): number {
       return generation;

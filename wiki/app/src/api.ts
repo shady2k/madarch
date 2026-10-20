@@ -538,6 +538,10 @@ export type GraphPageSet = {
   readAt: number;
   /** The what-to-do message when the set is empty, else null. */
   message: string | null;
+  /** The product's open questions, grouped by the charter's types and ranked by what depends on the answer. */
+  questions: GraphQuestionSet;
+  /** What to do next with the product: its most asked question, else the most important node no coverage reached. */
+  nextStep: GraphNextStep;
 };
 
 /** One fact as a page shows it. */
@@ -577,7 +581,25 @@ export type GraphCoverageRow = {
   line?: number;
 };
 
-/** One open question about the node. */
+/** One answer the graph records: what closed a question, or what a person decided about a page. */
+export type GraphAnswerRecord = {
+  id: string;
+  /** What it does: closes the question it names, or settles what a page proposes. */
+  decision: 'answers' | 'accepts' | 'rejects';
+  text: string;
+  layer: GraphLayer;
+  status: GraphStatus;
+  /** Who wrote it: the reader that found it, or the person the wiki recorded. */
+  by: string;
+  /** What an agent's answer read, as `repository@commit:path`. */
+  evidence?: string;
+  code?: GraphCodeLink;
+};
+
+/**
+ * One question of the product, as a page and the question set show it: its own words, what
+ * depends on the answer, and the answer that closed it.
+ */
 export type GraphQuestionEntry = {
   id: string;
   type: string;
@@ -586,7 +608,45 @@ export type GraphQuestionEntry = {
   layer: GraphLayer;
   status: GraphStatus;
   code?: GraphCodeLink;
+  /** The pages an answer would change, the question's subject first. */
+  dependsOn: GraphNodeRef[];
+  /** How many pages depend on the answer: `dependsOn`'s own size. */
+  rank: number;
+  answer: GraphAnswerRecord | null;
+  open: boolean;
 };
+
+/** One group of the product's questions: the charter's own type, or the one an agent wrote. */
+export type GraphQuestionGroup = { type: string; questions: GraphQuestionEntry[] };
+
+/** The product's questions, grouped by the charter's types. */
+export type GraphQuestionSet = {
+  groups: GraphQuestionGroup[];
+  open: number;
+  answered: number;
+  total: number;
+  truncated: boolean;
+  marker: string | null;
+};
+
+/** Which rule decided a page's next step (the self-filling charter's outcome 5). */
+export type GraphNextStepRule = 'answer-question' | 'cover-node' | 'review-assumption' | 'nothing-to-do';
+
+/** The step a page recommends, as the server reads it from the graph. */
+export type GraphNextStep = {
+  rule: GraphNextStepRule;
+  /** The question to answer, when the step answers one. */
+  question?: { id: string; type: string; prompt: string; rank: number; page: string };
+  /** The page the step opens. */
+  target: string;
+  /** The node the step is about. */
+  node: { id: string; kind: string | null; label: string };
+  /** Why this is the step, one sentence. */
+  reason: string;
+};
+
+/** What one decision did: the document the product's git holds, and the pages the graph read again. */
+export type GraphDecisionAnswer = { file: string; pages: string[] };
 
 /** One draft write another unit holds about the node. */
 export type GraphDraftRow = {
@@ -614,6 +674,12 @@ export type GraphPageModel = {
   coverage: GraphCoverageRow[];
   coverageScopes: string[];
   questions: GraphQuestionEntry[];
+  /** What a person decided about the page's proposed content, or null when nobody has. */
+  decision: GraphAnswerRecord | null;
+  /** The answer that closed this node's own question, when the node is a question. */
+  answer: GraphAnswerRecord | null;
+  /** What to do next with this page: the charter's order, open questions first. */
+  nextStep: GraphNextStep;
   drafts: GraphDraftRow[];
   counts: { facts: number; assumptions: number; out: number; in: number; coverage: number; questions: number; drafts: number };
   truncated: boolean;
@@ -643,6 +709,44 @@ export const getGraphPages = (signal?: AbortSignal): Promise<GraphPageSet> =>
 
 export const getGraphPage = (id: string, signal?: AbortSignal): Promise<GraphPageModel> =>
   readJson<GraphPageModel>(`read the graph page ${id}`, `/api/graph/page?id=${encodeURIComponent(id)}`, signal);
+
+/**
+ * Answers one of the product's questions (the self-filling charter's outcome 5): the person's
+ * words are written as Markdown in the product's git and read back into the graph at once, and
+ * the answer names the document and the pages the graph read again.
+ */
+export async function postGraphAnswer(question: string, answer: string, by: string): Promise<GraphDecisionAnswer> {
+  return await postDecision('answer the question', '/api/graph/answer', { question, answer, by });
+}
+
+/**
+ * Accepts or rejects what a page proposes, the same two steps: Markdown in the product's git,
+ * read back into the graph.
+ */
+export async function postGraphDecision(page: string, verdict: 'accepted' | 'rejected', note: string, by: string): Promise<GraphDecisionAnswer> {
+  return await postDecision(verdict === 'accepted' ? 'accept the page' : 'reject the page', '/api/graph/decide', { page, verdict, note, by });
+}
+
+/** One decision posted: its answer, or the refusal naming why the graph did not take it. */
+async function postDecision(what: string, url: string, body: unknown): Promise<GraphDecisionAnswer> {
+  let response: Response;
+  try {
+    response = await fetch(appPath(url), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  } catch (error: unknown) {
+    throw new RequestError(what, `the request to ${url} failed (${error instanceof Error ? error.message : String(error)})`);
+  }
+  if (!response.ok) {
+    let reason = `the server answered ${response.status}`;
+    try {
+      const read = await response.json() as { message?: unknown };
+      if (typeof read.message === 'string') reason = read.message;
+    } catch {
+      // The status line is enough when the body does not read.
+    }
+    throw new RequestError(what, reason, response.status);
+  }
+  return await response.json() as GraphDecisionAnswer;
+}
 
 // ---------------------------------------------------------------------------------------------
 // The graph's diagrams (madarch-tzte.23.4's answers; decision 0026, "Diagrams")

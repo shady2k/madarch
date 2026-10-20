@@ -15,20 +15,26 @@
  * renders the view specifications madarch-tzte.23.2 builds); the slot names what will
  * stand there rather than drawing an empty frame.
  */
-import { useContext, useEffect, type ReactElement } from 'react';
+import { useContext, useEffect, useState, type FormEvent, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
-import { FileCode2Icon } from 'lucide-react';
+import { CircleCheckIcon, CircleDashedIcon, FileCode2Icon, LightbulbIcon } from 'lucide-react';
 import { appPath } from './app-base.js';
-import type {
-  GraphCoverageRow,
-  GraphDraftRow,
-  GraphPageEntry,
-  GraphPageFact,
-  GraphPageModel,
-  GraphPageSet,
-  GraphQuestionEntry,
-  GraphRelation,
-  RepoEntry,
+import {
+  postGraphAnswer,
+  postGraphDecision,
+  type GraphAnswerRecord,
+  type GraphCoverageRow,
+  type GraphDecisionAnswer,
+  type GraphDraftRow,
+  type GraphNextStep,
+  type GraphPageEntry,
+  type GraphPageFact,
+  type GraphPageModel,
+  type GraphPageSet,
+  type GraphQuestionEntry,
+  type GraphQuestionSet,
+  type GraphRelation,
+  type RepoEntry,
 } from './api.js';
 import { navigateTo, statusContext } from './hold.js';
 import { codeHref, codePlace, graphKindGroups, originOf, type GraphKindGroup } from './graph.js';
@@ -178,14 +184,27 @@ function CoverageRow({ row }: { row: GraphCoverageRow }): ReactElement {
   );
 }
 
-/** One open question of the node. */
-function QuestionRow({ question }: { question: GraphQuestionEntry }): ReactElement {
+/** One question of the node: its type, what depends on the answer, and the answer or the form that answers it. */
+function QuestionRow({ question, onAnswered }: { question: GraphQuestionEntry; onAnswered?: (answer: GraphDecisionAnswer) => void }): ReactElement {
   const { t } = useTranslation();
   return (
-    <li className="graph-question" data-question={question.id}>
-      <span className="graph-question-prompt">{question.prompt}</span>
+    <li className="graph-question" data-question={question.id} data-open={question.open ? 'true' : 'false'}>
+      <GraphLink id={question.id} address={addressOfGraphPage(question.id)} className="graph-question-prompt">{question.prompt}</GraphLink>
       <span className="graph-chip">{t('graph.questionType.' + question.type, { defaultValue: question.type })}</span>
       <span className="graph-chip">{layerWord(question.layer, t)}</span>
+      <span className="graph-chip" data-testid="graph-question-rank">{t('graph.questionRank', { count: question.rank })}</span>
+      {question.dependsOn.length > 0 && (
+        <span className="graph-question-depends" data-testid="graph-question-depends">
+          {t('graph.questionDependsOn')}{' '}
+          {question.dependsOn.map((node, at) => (
+            <span key={node.id}>
+              {at > 0 && ', '}
+              {node.page !== undefined ? <GraphLink id={node.id} address={node.page}>{node.label}</GraphLink> : node.label}
+            </span>
+          ))}
+        </span>
+      )}
+      <QuestionAnswerForm question={question} onAnswered={onAnswered} />
     </li>
   );
 }
@@ -281,6 +300,14 @@ export function GraphIndexPage({ set, repos, rowsShown = INDEX_ROWS_SHOWN }: {
       </div>
       <h1 className="app-title">{t('graph.title')}</h1>
       <p className="home-lead" data-testid="graph-lead">{t('graph.lead', { product: set.product, count: set.total })}</p>
+      {/* What the product recommends next, decided from the graph: its most asked open question, else the most
+        * important node no coverage reached (the charter's outcome 5). */}
+      <NextStepSection step={set.nextStep} />
+
+      {/* The product's questions, grouped by the charter's types: the pages they concern are one link away, and the
+        * answer a person gives writes Markdown into the product's git. */}
+      <GraphQuestionsSection questions={set.questions} />
+
       {/* The server's message is in its own words and the app does not rewrite it: it is
         * the what-to-do, quoted with the language of the chrome around it. */}
       {set.total === 0 ? (
@@ -291,6 +318,201 @@ export function GraphIndexPage({ set, repos, rowsShown = INDEX_ROWS_SHOWN }: {
         </div>
       )}
     </main>
+  );
+}
+
+/** The one step a page recommends, as the server read it from the graph (the self-filling charter's outcome 5). */
+export function NextStepSection({ step }: { step: GraphNextStep }): ReactElement {
+  const { t } = useTranslation();
+  // A step is one sentence the server wrote from the graph, and the app adds no statement of its own about what waits:
+  // it says what the rule is in the reader's language, and lifts the server's own words for the reason.
+  const action = step.rule === 'answer-question'
+    ? t('graph.nextStep.answerQuestion', { prompt: step.question?.prompt ?? '' })
+    : step.rule === 'cover-node' ? t('graph.nextStep.coverNode', { label: step.node.label })
+      : step.rule === 'review-assumption' ? t('graph.nextStep.reviewAssumption', { label: step.node.label })
+        : t('graph.nextStep.nothing');
+  return (
+    <section className="graph-next-step" data-testid="graph-next-step" data-rule={step.rule} aria-label={t('graph.nextStep.title')}>
+      <p className="graph-next-step-label">
+        <LightbulbIcon aria-hidden="true" className="graph-next-step-icon" />
+        {t('graph.nextStep.title')}
+      </p>
+      <p className="graph-next-step-action" data-testid="graph-next-step-action">{action}</p>
+      <p className="graph-next-step-reason">{step.reason}</p>
+      {step.rule === 'answer-question' && step.question !== undefined && (
+        <GraphLink id={step.question.id} address={step.question.page} className="graph-next-step-link">
+          {t('graph.nextStep.openQuestion')}
+        </GraphLink>
+      )}
+    </section>
+  );
+}
+
+/**
+ * Answering one open question where a reader meets it (the self-filling charter's outcome 5):
+ * the person's words are posted to the graph, which writes them into the product's git and
+ * reads them back. A question that is already closed shows its answer instead — a person's
+ * words, or an agent's finding with the evidence it read.
+ */
+export function QuestionAnswerForm({ question, onAnswered = () => undefined }: { question: GraphQuestionEntry; onAnswered?: (answer: GraphDecisionAnswer) => void }): ReactElement {
+  const { t } = useTranslation();
+  const [answer, setAnswer] = useState('');
+  const [by, setBy] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [filed, setFiled] = useState<GraphDecisionAnswer | null>(null);
+  const submit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
+    event.preventDefault();
+    setSaving(true);
+    setError(null);
+    try {
+      const wrote = await postGraphAnswer(question.id, answer, by);
+      setAnswer('');
+      setFiled(wrote);
+      onAnswered(wrote);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setSaving(false);
+    }
+  };
+  if (question.answer !== null) {
+    return <QuestionAnswer answer={question.answer} />;
+  }
+  if (filed !== null) {
+    return <p className="graph-question-filed" role="status" data-testid="graph-question-filed">{t('graph.decision.filed', { file: filed.file })}</p>;
+  }
+  return (
+    <form className="graph-answer-form" data-testid="graph-answer-form" onSubmit={(event) => void submit(event)}>
+      <label>
+        {t('graph.decision.answerLabel')}
+        <textarea value={answer} onChange={(event) => setAnswer(event.currentTarget.value)} required maxLength={20_000} rows={3} />
+      </label>
+      <label>
+        {t('graph.decision.byLabel')}
+        <input value={by} onChange={(event) => setBy(event.currentTarget.value)} maxLength={200} placeholder={t('graph.decision.byPlaceholder')} />
+      </label>
+      <button type="submit" disabled={saving || answer.trim() === ''}>{t('graph.decision.answerSubmit')}</button>
+      {error !== null && <p role="alert" className="graph-answer-error">{error}</p>}
+    </form>
+  );
+}
+
+/** One answer as a reader sees it: what it says, who wrote it, and — an agent's — where it read it. */
+export function QuestionAnswer({ answer }: { answer: GraphAnswerRecord }): ReactElement {
+  const { t } = useTranslation();
+  return (
+    <div className="graph-answer" data-testid="graph-answer" data-decision={answer.decision}>
+      <span className="graph-chip" data-testid="graph-answer-layer">{layerWord(answer.layer, t)}</span>
+      <span className="graph-chip" data-testid="graph-answer-by">{t('graph.decision.by', { by: answer.by })}</span>
+      <p className="graph-answer-text">{answer.text}</p>
+      {answer.evidence !== undefined && <code className="graph-answer-evidence" data-testid="graph-answer-evidence">{answer.evidence}</code>}
+    </div>
+  );
+}
+
+/**
+ * What a page's proposed content waits for: a person's acceptance or rejection (decision 0005's
+ * acceptance record; the charter's «принимает или отклоняет страницы»). The decision stands in
+ * the product's git like an answer, and the page shows the one the graph read back.
+ */
+export function PageDecisionSection({ page }: { page: GraphPageModel }): ReactElement {
+  const { t } = useTranslation();
+  const [note, setNote] = useState('');
+  const [by, setBy] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [decided, setDecided] = useState<GraphAnswerRecord | null>(page.decision);
+  const decide = async (verdict: 'accepted' | 'rejected'): Promise<void> => {
+    setSaving(true);
+    setError(null);
+    try {
+      const wrote = await postGraphDecision(page.node.id, verdict, note, by);
+      setNote('');
+      setDecided({ id: wrote.file, decision: verdict === 'accepted' ? 'accepts' : 'rejects', text: note, layer: 'declared', status: 'accepted', by: by.trim() === '' ? 'a reader of the wiki' : by.trim() });
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <section className="graph-decision" data-testid="graph-decision" data-decision={decided?.decision ?? 'none'} aria-labelledby="graph-decision-title">
+      <h2 id="graph-decision-title">{t('graph.decision.title', { count: page.assumptions.length })}</h2>
+      {decided === null ? (
+        <>
+          <p className="graph-note">{t('graph.decision.note')}</p>
+          <form className="graph-decision-form" data-testid="graph-decision-form" onSubmit={(event) => { event.preventDefault(); void decide('accepted'); }}>
+            <label>
+              {t('graph.decision.byLabel')}
+              <input value={by} onChange={(event) => setBy(event.currentTarget.value)} maxLength={200} placeholder={t('graph.decision.byPlaceholder')} />
+            </label>
+            <label>
+              {t('graph.decision.noteLabel')}
+              <textarea value={note} onChange={(event) => setNote(event.currentTarget.value)} maxLength={20_000} rows={2} />
+            </label>
+            <div className="graph-decision-buttons">
+              <button type="submit" disabled={saving} data-testid="graph-accept">{t('graph.decision.accept')}</button>
+              <button type="button" disabled={saving} data-testid="graph-reject" onClick={() => void decide('rejected')}>{t('graph.decision.reject')}</button>
+            </div>
+            {error !== null && <p role="alert" className="graph-decision-error">{error}</p>}
+          </form>
+        </>
+      ) : (
+        <div className="graph-decision-record" data-testid="graph-decision-record">
+          <span className="graph-chip">
+            {decided.decision === 'accepts' ? <CircleCheckIcon aria-hidden="true" /> : <CircleDashedIcon aria-hidden="true" />}
+            {decided.decision === 'accepts' ? t('graph.decision.accepted') : t('graph.decision.rejected')}
+          </span>
+          <span className="graph-chip">{t('graph.decision.by', { by: decided.by })}</span>
+          {decided.text !== '' && <p className="graph-decision-text">{decided.text}</p>}
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** The product's questions, grouped by the charter's types, each naming what depends on it (the charter's outcome 5). */
+export function GraphQuestionsSection({ questions }: { questions: GraphQuestionSet }): ReactElement {
+  const { t } = useTranslation();
+  if (questions.total === 0) {
+    return (
+      <section className="graph-questions-open" data-testid="graph-questions-open" aria-labelledby="graph-questions-open-title">
+        <h2 id="graph-questions-open-title">{t('graph.openQuestionsTitle')}</h2>
+        <p className="graph-none">{t('graph.noOpenQuestions')}</p>
+      </section>
+    );
+  }
+  return (
+    <section className="graph-questions-open" data-testid="graph-questions-open" aria-labelledby="graph-questions-open-title">
+      <h2 id="graph-questions-open-title">{t('graph.openQuestionsTitle')}</h2>
+      <p className="graph-note">{t('graph.openQuestionsCount', { open: questions.open, answered: questions.answered })}</p>
+      {questions.groups.map((group) => (
+        <div className="graph-question-group" key={group.type} data-testid="graph-question-group" data-question-type={group.type}>
+          <h3 className="graph-question-group-title">{t('graph.questionType.' + group.type, { defaultValue: group.type })}</h3>
+          <ul className="graph-question-list">
+            {group.questions.map((question) => (
+              <li className="graph-question" key={question.id} data-question={question.id} data-open={question.open ? 'true' : 'false'}>
+                <GraphLink id={question.id} address={addressOfGraphPage(question.id)} className="graph-question-prompt">{question.prompt}</GraphLink>
+                <span className="graph-chip" data-testid="graph-question-rank">{t('graph.questionRank', { count: question.rank })}</span>
+                {question.dependsOn.length > 0 && (
+                  <span className="graph-question-depends" data-testid="graph-question-depends">
+                    {t('graph.questionDependsOn')}{' '}
+                    {question.dependsOn.map((node, at) => (
+                      <span key={node.id}>
+                        {at > 0 && ', '}
+                        {node.page !== undefined ? <GraphLink id={node.id} address={node.page}>{node.label}</GraphLink> : node.label}
+                      </span>
+                    ))}
+                  </span>
+                )}
+                {question.open ? <span className="graph-chip graph-chip-open">{t('graph.questionOpen')}</span> : <QuestionAnswer answer={question.answer!} />}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </section>
   );
 }
 
@@ -369,6 +591,34 @@ export function GraphNodePage({ page, repos }: { page: GraphPageModel; repos: re
         <p className="graph-cut" role="status" data-testid="graph-truncated">{t('graph.truncatedNote')} {page.marker}</p>
       )}
 
+      {/* What to do next (the self-filling charter's outcome 5): the server decided it from the graph, and every page
+        * carries one — «Всегда должна быть рекомендация что делать». */}
+      <NextStepSection step={page.nextStep} />
+
+      {/* A question's own page is where a person answers it: the answer the graph holds, or the form that writes one. */}
+      {node.kind === 'question' && (
+        <section className="graph-answer-section" data-testid="graph-answer-section" aria-labelledby="graph-answer-title">
+          <h2 id="graph-answer-title">{t('graph.decision.answerTitle')}</h2>
+          <QuestionAnswerForm
+            question={{
+              id: node.id,
+              type: typeof (page.value as { type?: unknown } | null)?.type === 'string' ? String((page.value as { type: string }).type) : '',
+              ...(typeof (page.value as { about?: unknown } | null)?.about === 'string' ? { about: String((page.value as { about: string }).about) } : {}),
+              prompt: node.label,
+              layer: node.layer,
+              status: node.status,
+              dependsOn: [],
+              rank: 0,
+              answer: page.answer,
+              open: page.answer === null,
+            }}
+          />
+        </section>
+      )}
+
+      {/* What the page proposes waits for a person's word: accepted or rejected, as Markdown in the product's git. */}
+      {node.kind !== 'question' && (page.assumptions.length > 0 || page.decision !== null) && <PageDecisionSection page={page} />}
+
       {/* The diagrams (madarch-tzte.23.4): the models madarch-tzte.23.2 builds, each under
        * the tabs of every renderer that supports its type, the first tab the server's own
        * setting. A page the graph draws no diagram of shows the server's words, never an
@@ -420,7 +670,7 @@ export function GraphNodePage({ page, repos }: { page: GraphPageModel; repos: re
       </section>
 
       <section className="graph-questions" data-testid="graph-questions" aria-labelledby="graph-questions-title">
-        <h2 id="graph-questions-title">{t('graph.questionsTitle', { count: page.questions.length })}</h2>
+        <h2 id="graph-questions-title">{t('graph.questionsTitle', { count: page.questions.filter((question) => question.open).length })}</h2>
         {page.questions.length === 0 ? <p className="graph-none">{t('graph.noQuestions')}</p> : (
           <ul className="graph-question-list">{page.questions.map((question) => <QuestionRow key={question.id} question={question} />)}</ul>
         )}
