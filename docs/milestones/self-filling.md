@@ -176,6 +176,13 @@ and waits only for its tracker close-out is closed there, not redone.
 which used it in full; the scope here is not smaller. Findings carried over
 count against it.
 
+Raised to **10** on 2026-10-20 by the owner («Бери», answering whether to take
+madarch-tzte.38 — a prompt turn that never streams is bounded by no clock — and
+madarch-cznn — the slow tests that still time out on their own 5 s bounds —
+into this milestone). Nothing planned is displaced; the mutation survivors of
+stages 19–22 were moved to the next milestone on 2026-10-19 («Мутантов перенеси
+в новую веху»).
+
 ### Open alongside, not in scope
 
 - The starter kinds registry for a product made by `new` or `init` without
