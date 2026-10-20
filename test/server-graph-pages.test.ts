@@ -270,6 +270,58 @@ describe('the live channel', () => {
   }, 20_000);
 });
 
+describe('the page set a client is sent', () => {
+  /** A source whose page set is large enough to be worth compressing: the current tree's is 16 527 510 bytes. */
+  const bigSet = () => ({
+    product: PRODUCT,
+    pages: Array.from({ length: 2_000 }, (_unused, index) => ({
+      id: `symbol:${String(index).padStart(64, '0')}`, kind: 'symbol' as const, label: `acme-shop:src/checkout.ts#checkout.place${String(index)}`,
+      page: pageAddress(`symbol:${String(index).padStart(64, '0')}`), layer: 'extracted' as const, status: 'proposed' as const,
+    })),
+    counts: [{ kind: 'symbol' as const, count: 2_000 }],
+    total: 2_000,
+    changeSeq: 11,
+    readAt: 1_700_000_000_000,
+    message: null,
+  });
+  const source: GraphPagesSource = {
+    pageSet: async () => bigSet(),
+    page: async (id: string) => ({ ok: false as const, code: 'graph-pages/no-such-node', message: `no page ${id}` }),
+    diagrams: async (id: string) => ({ ok: false as const, code: 'graph-pages/no-such-node', message: `no diagrams ${id}` }),
+    changes: async () => ({ changes: [], lastSeq: 0, truncated: false, marker: null }),
+    subscribe: () => () => undefined,
+  };
+  const part = (): ReturnType<typeof createGraphPagesPart> => createGraphPagesPart({
+    json: (status: number, body: unknown) => Response.json(body, { status }),
+    refused: (status: number, error: { message: string }) => ({ response: Response.json({ message: error.message }, { status }), refusal: error.message }),
+    errorLog: () => undefined,
+  }, source);
+
+  test('is compressed for a client that accepts gzip, and is the same JSON either way', async () => {
+    const asking = new Request('http://127.0.0.1:1/api/graph/pages', { headers: { 'accept-encoding': 'gzip, deflate' } });
+    const gzipped = await part().pages(asking);
+    expect(gzipped.response.headers.get('content-encoding')).toBe('gzip');
+    expect(gzipped.response.headers.get('vary')).toBe('accept-encoding');
+    // The bytes are the answer: what a browser reads after inflating them is the page set the source answered.
+    const inflated = Bun.gunzipSync(new Uint8Array(await gzipped.response.arrayBuffer()));
+    expect(JSON.parse(new TextDecoder().decode(inflated))).toEqual(bigSet());
+    // A client that does not accept gzip is answered as it stands, never with a body it cannot read.
+    const plain = await part().pages(new Request('http://127.0.0.1:1/api/graph/pages', { headers: { 'accept-encoding': 'identity' } }));
+    expect(plain.response.headers.get('content-encoding')).toBeNull();
+    expect(await plain.response.json()).toEqual(bigSet());
+  });
+
+  test('is small enough to send as it stands for a small graph, where a compression would save nothing', async () => {
+    const small = createGraphPagesPart({
+      json: (status: number, body: unknown) => Response.json(body, { status }),
+      refused: (status: number, error: { message: string }) => ({ response: Response.json({ message: error.message }, { status }), refusal: error.message }),
+      errorLog: () => undefined,
+    }, { ...source, pageSet: async () => ({ ...bigSet(), pages: bigSet().pages.slice(0, 2), counts: [{ kind: 'symbol' as const, count: 2 }], total: 2 }) });
+    const answered = await small.pages(new Request('http://127.0.0.1:1/api/graph/pages', { headers: { 'accept-encoding': 'gzip' } }));
+    expect(answered.response.headers.get('content-encoding')).toBeNull();
+  });
+});
+
 describe('a stream whose changes cannot be read', () => {
   const makers = {
     json: (status: number, body: unknown) => Response.json(body, { status }),

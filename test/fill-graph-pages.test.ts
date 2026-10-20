@@ -405,6 +405,43 @@ describe('a fact another product still holds', () => {
   });
 });
 
+describe('the answers a service keeps between publications', () => {
+  test('a page set and a page are answered from what the service read, and a publication gives new ones', async () => {
+    // A world of its own: the publication that adds a module must not move the pages the tests above read.
+    const all = graphFacts();
+    let held: readonly Fact[] = [all.placed, all.total, all.calls, all.file];
+    const own = await openGraphFixture({ drafts: () => held.map((fact) => writeOf(fact)) });
+    try {
+      const first = await own.service.run({ product: { name: PRODUCT, folder: own.folder }, runId: 'run-kept-1' });
+      if (first.ok === false) throw new Error(`the first run was refused: ${first.code}: ${first.reason}`);
+      const source = own.service.pages(own.folder);
+      const set = await source.pageSet();
+      // The same answer, not a second read of the store: a page set of the current madarch tree costs minutes to read
+      // (madarch-tzte.23.8 measured 276 618 ms), and nothing published since it was read.
+      expect(await source.pageSet()).toBe(set);
+      expect(set.total).toBe(2);
+      const missing = await source.page(all.module.id);
+      expect(missing.ok).toBe(false);
+      // A publication lands: the cache is dropped by the same event that wakes the live channel, so the set grows.
+      held = [all.module, all.placed, all.total, all.calls, all.file];
+      own.repin(LATER_COMMIT);
+      const second = await own.service.run({ product: { name: PRODUCT, folder: own.folder }, runId: 'run-kept-2' });
+      if (second.ok === false) throw new Error(`the second run was refused: ${second.code}: ${second.reason}`);
+      const after = await source.pageSet();
+      expect(after).not.toBe(set);
+      expect(after.total).toBe(3);
+      expect(after.pages.map((page) => page.kind)).toEqual(['module', 'symbol', 'symbol']);
+      const module = await source.page(all.module.id);
+      expect(module.ok).toBe(true);
+      // The page too is answered from what the service read, until the next publication: the model is one object.
+      const again = await source.page(all.module.id);
+      expect(module.ok && again.ok ? again.page === module.page : false).toBe(true);
+    } finally {
+      await own.close();
+    }
+  }, 120_000);
+});
+
 describe('a publication that stops holding facts', () => {
   test('touches the pages it named, and only those, and the pages follow', async () => {
     // A world of its own: the run that stops holding the module must not move the pages the tests above read.

@@ -29,13 +29,16 @@ export type { GraphPagesSource } from '../fill/graph-pages.js';
 
 /** The three graph routes, over one product's source. */
 export interface GraphPagesPart {
-  /** `GET /api/graph/pages`: the product's page-worthy nodes. */
-  pages: () => Promise<Handled>;
+  /** `GET /api/graph/pages`: the product's page-worthy nodes, compressed when the client accepts it. */
+  pages: (request: Request) => Promise<Handled>;
   /** `GET /api/graph/page?id=…`: one node's page model. */
   page: (request: Request) => Promise<Handled>;
   /** `GET /api/graph/events[?after=N]`: the live channel, held open until the asker hangs up. */
   events: (request: Request) => Promise<Handled>;
 }
+
+/** The answer size under which the page set is sent as it stands: below it a compression saves less than it costs. */
+const GZIP_MIN_BYTES = 64 * 1024;
 
 /** How often a stream over a quiet product says it is alive: an SSE comment, which is no event. */
 const KEEP_ALIVE_MS = 30_000;
@@ -69,12 +72,56 @@ export function emptyGraphPagesSource(product: string): GraphPagesSource {
  * names files and lines and the product's folder, so it goes to the operator and
  * never to the browser, whose comment says only that the changes could not be read.
  */
+/** Whether a request says it accepts gzip: its `accept-encoding`, where a client that names none is not asked to read one. */
+function acceptsGzip(request: Request | undefined): boolean {
+  const asked = request?.headers.get('accept-encoding') ?? '';
+  return /(?:^|,)\s*(?:gzip|\*)\s*(?:;|,|$)/i.test(asked);
+}
+
 export function createGraphPagesPart(makers: Pick<ReplyMaker, 'json' | 'refused'> & { readonly errorLog: (line: string) => void }, source: GraphPagesSource): GraphPagesPart {
   const { json, refused, errorLog } = makers;
+  /**
+   * The page set's answer as the bytes a browser receives, kept for the set it was made from: the set the source
+   * answers is that source's own cached answer, so one answer is one body however many clients ask for it, and a
+   * publication that moves the set hands over a new one (madarch-tzte.23.8).
+   *
+   * It is gzipped because it is the largest answer the wiki gives — the current madarch tree's page set is 16 527 510
+   * bytes for 35 370 pages, and 2 406 ms of the index's own stand was the browser taking those bytes over a local
+   * socket where the server had answers to give in 209 ms. A body under `GZIP_MIN_BYTES` is sent as it stands: a small
+   * graph pays nothing for a compression nothing would save.
+   */
+  // The plain body and the compressed one are both kept for the set they were made from: a client that does not
+  // accept gzip is answered as it stands, and the compression is paid once per set either way (`Bun.gzipSync`, the
+  // runtime the server runs on — `src/index.ts`).
+  let encoded: { readonly set: unknown; readonly plain: ArrayBuffer; readonly gzip: ArrayBuffer | undefined } | undefined;
+  const bodiesOf = (set: Awaited<ReturnType<GraphPagesSource['pageSet']>>): { readonly plain: ArrayBuffer; readonly gzip: ArrayBuffer | undefined } => {
+    if (encoded === undefined || encoded.set !== set) {
+      const bytes = new TextEncoder().encode(JSON.stringify(set));
+      const asBuffer = (held: Uint8Array): ArrayBuffer => held.buffer.slice(held.byteOffset, held.byteOffset + held.byteLength) as ArrayBuffer;
+      const compressible = bytes.byteLength >= GZIP_MIN_BYTES && typeof Bun !== 'undefined';
+      encoded = { set, plain: asBuffer(bytes), gzip: compressible ? asBuffer(Bun.gzipSync(bytes)) : undefined };
+    }
+    return encoded;
+  };
   return {
-    pages: async (): Promise<Handled> => {
+    pages: async (request?: Request): Promise<Handled> => {
       const set = await source.pageSet();
-      return { response: json(200, set) };
+      const { plain, gzip } = bodiesOf(set);
+      // A request that names no gzip — `accept-encoding: identity`, a bare library, a client that sends none — is
+      // answered as the bytes stand: a `content-encoding` its client cannot read is worse than a longer answer.
+      const compressed = gzip !== undefined && acceptsGzip(request);
+      const body = compressed ? gzip : plain;
+      return {
+        response: new Response(body, {
+          status: 200,
+          headers: {
+            'content-type': 'application/json; charset=utf-8',
+            'cache-control': 'no-cache',
+            vary: 'accept-encoding',
+            ...(compressed ? { 'content-encoding': 'gzip' } : {}),
+          },
+        }),
+      };
     },
     page: async (request: Request): Promise<Handled> => {
       const asked = new URL(request.url).searchParams.get('id');

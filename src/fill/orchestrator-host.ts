@@ -31,6 +31,7 @@ import type { SqlExecutor } from '../query/sql-driver.js';
 import { FACT_APPLICATION, createFactStoreSchema } from './fact-store.js';
 import { emptyPageSetMessage, readPageChanges, readPageModel, readPageSet, type GraphPagesSource } from './graph-pages.js';
 import { readNodeDiagrams } from './graph-diagrams.js';
+import { createPageReadCache } from './page-cache.js';
 import type { FactLayer, FactSource } from './facts.js';
 import { graphReadsOver, type DraftReading, type GraphReadLimits } from './graph-reads.js';
 import {
@@ -447,8 +448,18 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
   /** The page channels this process's server holds open: a publication wakes each of them, and each reads its own product's changes. */
   const pageListeners = new Set<() => void>();
 
-  /** Every open page channel hears that a publication landed; a listener that fails is its own stream's business. */
+  /**
+   * The answers this process has already read of the graph (madarch-tzte.23.8): the
+   * page set, a page model and a diagram answer per product and node, kept between
+   * publications because a page of the current tree costs seconds of store reads
+   * (`page-cache.ts`). The same publication that wakes the channels below drops them,
+   * so a client is never handed a page older than the change it was told about.
+   */
+  const pageCache = createPageReadCache();
+
+  /** Every open page channel hears that a publication landed, and nothing kept from before it stands; a listener that fails is its own stream's business. */
   function notifyPages(): void {
+    pageCache.drop();
     for (const listener of [...pageListeners]) {
       try {
         listener();
@@ -498,21 +509,43 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
             };
           }
           const product = productNameOf(folder);
-          return await readPageSet({ database, product, folder, at: (options.clock ?? Date.now)() });
+          // A set read before this process's last publication is the set the store still holds: the page set is a
+          // function of the product's facts, and the publication that changed them dropped what this cache kept.
+          const kept = pageCache.pageSet(product);
+          if (kept !== undefined) return kept;
+          // The generation is taken before the store is read, so an answer a publication overtakes while it is read is
+          // never kept (`page-cache.ts`).
+          const generation = pageCache.generation;
+          return pageCache.keepPageSet(product, await readPageSet({ database, product, folder, at: (options.clock ?? Date.now)() }), generation);
         },
         async page(id: string) {
           const database = await pageDatabase();
           if (database === undefined) {
             return { ok: false, code: 'graph-pages/no-graph', message: `this home holds no fill's graph yet: the pages are drawn from the graph a fill run writes — run a fill, and the page ${id} appears as its units publish` };
           }
-          return await readPageModel({ database, product: productNameOf(folder), id, at: (options.clock ?? Date.now)() });
+          const product = productNameOf(folder);
+          const kept = pageCache.page(product, id);
+          if (kept !== undefined) return { ok: true as const, page: kept };
+          const generation = pageCache.generation;
+          const read = await readPageModel({ database, product, id, at: (options.clock ?? Date.now)() });
+          // A refusal is a cheap answer (an id's own kind, or one fact's absence) and is never kept: a page that
+          // stands nowhere must stand as soon as its node is published. A page that shows drafts is not kept either:
+          // a draft set is recorded before its unit publishes, so a page's drafts move without a publication, and the
+          // cache is dropped by publications only.
+          const keep = read.ok && read.page.drafts.length === 0;
+          return read.ok ? { ok: true as const, page: keep ? pageCache.keepPage(product, id, read.page, generation) : read.page } : read;
         },
         async diagrams(id: string) {
           const database = await pageDatabase();
           if (database === undefined) {
             return { ok: false, code: 'graph-pages/no-graph', message: `this home holds no fill's graph yet: the diagrams are drawn from the graph a fill run writes — run a fill, and the diagrams of ${id} appear as its units publish` };
           }
-          return await readNodeDiagrams({ database, product: productNameOf(folder), id, at: (options.clock ?? Date.now)() });
+          const product = productNameOf(folder);
+          const kept = pageCache.diagrams(product, id);
+          if (kept !== undefined) return kept;
+          const generation = pageCache.generation;
+          const read = await readNodeDiagrams({ database, product, id, at: (options.clock ?? Date.now)() });
+          return read.ok ? pageCache.keepDiagrams(product, id, read, generation) : read;
         },
         async changes(after: number) {
           const database = await pageDatabase();

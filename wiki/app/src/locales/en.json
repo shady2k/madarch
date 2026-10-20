@@ -583,6 +583,7 @@
         "likec4": "LikeC4",
         "mermaid": "Mermaid"
       }
-    }
+    },
+    "listingRest": "{{shown}} of {{count}} listed: this index draws the first {{shown}} of this kind, and the graph holds {{count}}."
   }
 }

@@ -620,9 +620,12 @@ export async function answerGraphRead(options: FactGraphReaderOptions, request: 
         const kinds = request.kinds ?? FACT_EDGE_KINDS;
         if (kinds.length === 0) raise(`${at}: the read ${describedRead(request)} names no edge kind: a read of edges answers the kinds it is given`);
         const groups = adjacencyGroups(kinds);
-        const clause = groups.map((group, index) => `(kind = ANY($${index + 2}::text[]) AND ${group.expression} = $${groups.length + 2})`).join(' OR ');
-        const scope = productScope(request.product, groups.length + 3);
-        const values: unknown[] = [kinds, ...groups.map((group) => group.kinds), request.id, ...scope.values];
+        // Each group asks for its own field's end by containment, which the store's index of an edge fact's value
+        // answers (`fill_fact_edge_values`); the id is bound as the JSON the field must hold, so a term end
+        // (`{"to": {"id": …}}`) and a plain one (`{"to": …}`) are the same kind of question.
+        const clause = groups.map((group, index) => `(kind = ANY($${index + 2}::text[]) AND value @> $${groups.length + 2 + index}::jsonb)`).join(' OR ');
+        const scope = productScope(request.product, groups.length * 2 + 2);
+        const values: unknown[] = [kinds, ...groups.map((group) => group.kinds), ...groups.map((group) => endContainedIn(group, request.id)), ...scope.values];
         const rows = await inTransaction(options, async (executor) => (await executor.query(`SELECT ${FACT_COLUMNS} FROM fill_fact f WHERE f.kind = ANY($1::text[]) AND (${clause})${scope.sql}`, values)).rows);
         return byId(rows);
       }
@@ -719,22 +722,50 @@ function endJoin(plain: string, kinds: readonly FactEdgeKind[], firstParameter: 
   return { sql: clauses.length === 0 ? `e.${plain}` : `CASE ${clauses.join(' ')} ELSE e.${plain} END`, values };
 }
 
-/** How the ends of the given edge kinds stand in the store, as one expression per field name. */
-function adjacencyGroups(kinds: readonly FactEdgeKind[]): readonly { readonly kinds: readonly FactEdgeKind[]; readonly expression: string }[] {
-  const byExpression = new Map<string, FactEdgeKind[]>();
-  const add = (expression: string, kind: FactEdgeKind): void => {
-    const held = byExpression.get(expression) ?? [];
-    held.push(kind);
-    byExpression.set(expression, held);
+/**
+ * How the ends of the given edge kinds stand in the store: one group per field an end is
+ * kept in, with the kinds whose ends are read out of that field — and whether the field
+ * holds a term (a document link's `to`) rather than the fact id itself.
+ *
+ * The groups are what a read of one node's edges asks with, and the question they ask is
+ * a containment question (`value @> {"to": …}`) rather than a text comparison of one
+ * field (`value->>'to' = …`): the store indexes the value of an edge fact once
+ * (`fill_fact_edge_values`, `fact-store.ts`), and a containment is the form that index
+ * answers. madarch-tzte.23.8 measured a node's page reading every edge fact of the
+ * product to find its own, which is what the containment form and its index replace.
+ */
+interface AdjacencyGroup {
+  readonly kinds: readonly FactEdgeKind[];
+  /** The field the end is kept in (`from`, `to`, `variable`, `caller`, `callee`). */
+  readonly field: string;
+  /** Whether the field holds a term naming a node (`{form, id}`), as a document link's `to` does. */
+  readonly toTerm: boolean;
+}
+
+function adjacencyGroups(kinds: readonly FactEdgeKind[]): readonly AdjacencyGroup[] {
+  // Grouped by the field *and* by the shape it holds: `to` is a fact id for fourteen kinds and a term for a document
+  // link (`EDGE_END_FIELDS`, `toTerm`), so one group per field would ask a document link's end the plain way and never
+  // find it (madarch-tzte.23.8's review, D1).
+  const byField = new Map<string, { field: string; kinds: FactEdgeKind[]; toTerm: boolean }>();
+  const key = (field: string, toTerm: boolean): string => `${toTerm ? 'term' : 'id'}\u0000${field}`;
+  const add = (field: string, toTerm: boolean, kind: FactEdgeKind): void => {
+    const held = byField.get(key(field, toTerm)) ?? { field, kinds: [], toTerm };
+    held.kinds.push(kind);
+    byField.set(key(field, toTerm), held);
   };
   for (const kind of kinds) {
     const fields = EDGE_END_FIELDS[kind];
-    if (fields.from !== null) add(`value->>'${fields.from}'`, kind);
-    if (fields.to !== null) add(fields.toTerm === true ? `value->'${fields.to}'->>'id'` : `value->>'${fields.to}'`, kind);
+    if (fields.from !== null) add(fields.from, false, kind);
+    if (fields.to !== null) add(fields.to, fields.toTerm === true, kind);
   }
-  return [...byExpression.entries()]
-    .map(([expression, group]) => ({ expression, kinds: [...new Set(group)].sort(byCodePoint) }))
-    .sort((left, right) => byCodePoint(left.expression, right.expression));
+  return [...byField.entries()]
+    .map(([, group]) => ({ field: group.field, toTerm: group.toTerm, kinds: [...new Set(group.kinds)].sort(byCodePoint) }))
+    .sort((left, right) => byCodePoint(left.field, right.field) || Number(left.toTerm) - Number(right.toTerm));
+}
+
+/** The value an edge fact's end is contained in, as the read asks the store for it: the id, or the term naming it. */
+function endContainedIn(group: AdjacencyGroup, id: string): string {
+  return JSON.stringify(group.toTerm ? { [group.field]: { id } } : { [group.field]: id });
 }
 
 /** One file's lines at one pinned commit: the commit's own bytes, split as a reader counts lines. */

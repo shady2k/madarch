@@ -69,8 +69,8 @@ export const FACT_STORE_TABLES = ['fill_fact', 'fill_fact_holding', PAGE_CHANGE_
 
 /**
  * The schema: one row per fact, one row per fact and publishing unit. The
- * indexes answer the two reads a publication and a graph reader make: a unit's
- * own facts, and the facts of one kind.
+ * indexes answer the reads a publication and a graph reader make: a unit's own
+ * facts, the facts of one kind, and the ends an edge fact names (madarch-tzte.23.8).
  */
 const SCHEMA: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS fill_fact (
@@ -92,6 +92,13 @@ const SCHEMA: readonly string[] = [
   )`,
   'CREATE INDEX IF NOT EXISTS fill_fact_kind ON fill_fact (kind)',
   'CREATE INDEX IF NOT EXISTS fill_fact_holding_unit ON fill_fact_holding (unit_id)',
+  // A node's page reads the edges that name it (`adjacent`, graph-reads.ts), which asks for one end of an edge fact by
+  // containment (`value @> {"to": …}`): without an index that question reads every edge fact of the product, and on the
+  // current madarch tree a page's relations cost 2 210 ms of a read that answers ten rows (madarch-tzte.23.8). The
+  // index covers the whole value column and not only the edge kinds: a read names its kinds as a parameter
+  // (`kind = ANY($1)`), and a partial index whose predicate names a fixed list of kinds is one the planner cannot
+  // prove such a read implies — it would never be used.
+  'CREATE INDEX IF NOT EXISTS fill_fact_edge_values ON fill_fact USING gin (value jsonb_path_ops)',
   // A table this branch created before the foreign key existed: the constraint is what makes a
   // concurrent publisher hold its fact's row, so a table without it would be a store whose sweep waits
   // for nobody. The name is the one PostgreSQL gives the constraint the declaration above makes.

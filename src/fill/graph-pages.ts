@@ -332,27 +332,54 @@ function pageFactsOfRows(rows: readonly unknown[], read: GraphRead): readonly Fa
 }
 
 /**
- * One product's page set, read now: every fact of a page-worthy kind that a unit
- * of this product holds (`fill_fact` joined through its holdings onto the unit
- * that published it, `fact-store.ts`), in code point order of the kind, the label
- * and the id. A home's database carries several products' facts, so the join onto
- * `fill_unit.product` is what keeps one product's pages out of another's.
+ * The two narrow reads a page set is made of, before the facts themselves are fetched:
+ * every page-worthy fact's id and kind, and every fact id a unit of one product holds.
+ *
+ * **Why the read is three statements and not one.** madarch-tzte.23.8 measured the page
+ * set's read on the current madarch tree (35 370 pages, 283 000 facts) taking **860 746
+ * ms cold and 940 018 ms warm**: the answer was one statement, and the question "does a
+ * unit of this product hold this fact" was worked out inside it once per page-worthy
+ * fact — a join repeated per row of a scan. The same answer is read here as what it is:
+ * the page-worthy facts of the store by their kind (a narrow read of the kind's index),
+ * the ids one product's units hold (one join of the holding onto the unit, once), the
+ * intersection in this process, and then the facts of those ids by their primary key in
+ * bounded batches (`PAGE_SET_FETCH`) — so no statement repeats a join per row, and only
+ * the facts a page is made of are ever read whole.
+ */
+export const PAGE_SET_KINDS_SQL = `SELECT f.id, f.kind FROM fill_fact f WHERE f.kind = ANY($1::text[])`;
+
+/** The ids every fact one product's units hold: the join of the holding onto the publishing unit, read once. */
+export const PAGE_SET_HELD_SQL = `SELECT h.id FROM fill_fact_holding h JOIN fill_unit u ON u.unit_id = h.unit_id WHERE u.product = $1`;
+
+/** How many facts one fetch of a page set's own facts reads: a batch of ids is one statement, and its rows are the pages. */
+export const PAGE_SET_FETCH = 1_000;
+
+/**
+ * One product's page set, read now: every fact of a page-worthy kind that a unit of
+ * this product holds, in code point order of the kind, the label and the id. A home's
+ * database carries several products' facts, so the product's own holdings
+ * (`PAGE_SET_HELD_SQL`) are what keep one product's pages out of another's, and the
+ * page-worthy facts themselves are read by their kind and then by their id
+ * (`PAGE_SET_KINDS_SQL`, `PAGE_SET_FETCH`).
  */
 export async function readPageSet(options: { readonly database: FactStoreDatabase; readonly product: string; readonly folder: string; readonly at?: number }): Promise<GraphPageSetAnswer> {
   const at = here();
   const readAt = options.at ?? Date.now();
   return await pageTransaction(at, options.database, `readPageSet(${options.product})`, ['fill_fact', 'fill_fact_holding', 'fill_unit', 'fill_page_change'], async (executor) => {
-    const { rows } = await executor.query<PageRow>(
-      `SELECT f.id, f.kind, f.schema_version, f.provenance, f.layer, f.status, f.value
-         FROM fill_fact f
-        WHERE f.kind = ANY($1::text[])
-          AND EXISTS (
-            SELECT 1 FROM fill_fact_holding h JOIN fill_unit u ON u.unit_id = h.unit_id
-             WHERE h.id = f.id AND u.product = $2
-          )`,
-      [PAGE_KINDS, options.product],
-    );
-    const facts = pageFactsOfRows(rows, { read: 'facts', ids: rows.map((row) => row.id) });
+    const { rows: candidates } = await executor.query<{ id: string; kind: string }>(PAGE_SET_KINDS_SQL, [PAGE_KINDS]);
+    const { rows: heldRows } = await executor.query<{ id: string }>(PAGE_SET_HELD_SQL, [options.product]);
+    const held = new Set(heldRows.map((row) => row.id));
+    const ids = candidates.map((row) => row.id).filter((id) => held.has(id)).sort(byCodePoint);
+    const rows: PageRow[] = [];
+    for (let at = 0; at < ids.length; at += PAGE_SET_FETCH) {
+      const batch = ids.slice(at, at + PAGE_SET_FETCH);
+      const fetched = await executor.query<PageRow>(
+        `SELECT f.id, f.kind, f.schema_version, f.provenance, f.layer, f.status, f.value FROM fill_fact f WHERE f.id = ANY($1::text[])`,
+        [batch],
+      );
+      rows.push(...fetched.rows);
+    }
+    const facts = pageFactsOfRows(rows, { read: 'facts', ids });
     const pages = facts.map(pageEntryOf).sort((left, right) => byCodePoint(left.kind, right.kind) || byCodePoint(left.label, right.label) || byCodePoint(left.id, right.id));
     const counts: GraphPageCount[] = [];
     for (const page of pages) {

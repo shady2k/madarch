@@ -31,7 +31,7 @@ import type {
   RepoEntry,
 } from './api.js';
 import { navigateTo, statusContext } from './hold.js';
-import { codeHref, codePlace, graphKindGroups, originOf } from './graph.js';
+import { codeHref, codePlace, graphKindGroups, originOf, type GraphKindGroup } from './graph.js';
 import { addressOfGraphPage } from './routes.js';
 import { GraphDiagramsSection } from './graph-diagrams.js';
 
@@ -208,12 +208,63 @@ function DraftRow({ draft }: { draft: GraphDraftRow }): ReactElement {
 }
 
 /**
+ * How many of one kind's rows the index draws (madarch-tzte.23.8).
+ *
+ * The index is the one page that draws every page-worthy node, and the current madarch
+ * tree holds 35 370 of them: drawing them holds the browser for seconds — measured, the
+ * index stood in 4 137 ms cold and 4 987 ms warm with 142 180 nodes drawn — and the rows
+ * are not what a person reads first. So a kind's group draws the first of its rows —
+ * `INDEX_ROWS_SHOWN` of them — and says in its own words how many the kind holds and how
+ * many of them stand: the count in the header is the whole count from the first paint, so
+ * a list shorter than the kind is never silent about it. Every page the graph holds is
+ * still in the page set the app reads, in the navigation's per-kind list, and reachable by
+ * its address; listing tens of thousands of rows at once is a later task's (a search or a
+ * windowed list), named in the change record.
+ */
+export const INDEX_ROWS_SHOWN = 150;
+
+/** One kind's group of the index: its header, its whole count, the rows this page draws and how many it does not. */
+function GraphKindSection({ group, shown: rowsShown }: { group: GraphKindGroup; shown: number }): ReactElement {
+  const { t } = useTranslation();
+  const shown = Math.min(group.entries.length, rowsShown);
+  return (
+    <section data-graph-kind={group.kind} className="home-group mt-7 first:mt-0">
+      <header className="home-group-head">
+        <h2 className="text-ink">{t('graph.kind.' + group.kind, { defaultValue: group.kind })}</h2>
+        <span className="home-count" data-testid="graph-kind-count">{group.entries.length}</span>
+      </header>
+      <ul className="home-rows">
+        {group.entries.slice(0, shown).map((entry) => (
+          <li key={entry.id}>
+            <GraphLink id={entry.id} address={entry.page} className="home-row">
+              <span className="home-row-title">{entry.label}</span>
+              <span className="graph-chip">{layerWord(entry.layer, t)}</span>
+            </GraphLink>
+          </li>
+        ))}
+      </ul>
+      {/* A group the page does not draw whole says so, in its own words: this index lists the first of its kind. */}
+      {shown < group.entries.length && (
+        <p className="graph-note" data-testid="graph-kind-listing" data-shown={shown}>
+          {t('graph.listingRest', { shown, count: group.entries.length })}
+        </p>
+      )}
+    </section>
+  );
+}
+
+/**
  * The graph's index: every page-worthy node of the product, one group per kind with
  * the kind's count, each node a link to its page. An empty graph shows the server's
  * own what-to-do message: the fill writes the pages, and they appear as its units
  * publish.
  */
-export function GraphIndexPage({ set, repos }: { set: GraphPageSet; repos: readonly RepoEntry[] }): ReactElement {
+export function GraphIndexPage({ set, repos, rowsShown = INDEX_ROWS_SHOWN }: {
+  set: GraphPageSet;
+  repos: readonly RepoEntry[];
+  /** How many of a kind's rows the page draws: the page's own bound, overridable for a test. */
+  rowsShown?: number;
+}): ReactElement {
   const { t } = useTranslation();
   const { publish } = useContext(statusContext);
   const groups = graphKindGroups(set);
@@ -236,24 +287,7 @@ export function GraphIndexPage({ set, repos }: { set: GraphPageSet; repos: reado
         <p className="graph-empty" data-testid="graph-empty">{set.message === null ? t('graph.empty', { product: set.product }) : t('graph.serverSays', { message: set.message })}</p>
       ) : (
         <div className="home-groups">
-          {groups.map((group) => (
-            <section key={group.kind} data-graph-kind={group.kind} className="home-group mt-7 first:mt-0">
-              <header className="home-group-head">
-                <h2 className="text-ink">{t('graph.kind.' + group.kind, { defaultValue: group.kind })}</h2>
-                <span className="home-count" data-testid="graph-kind-count">{group.entries.length}</span>
-              </header>
-              <ul className="home-rows">
-                {group.entries.map((entry) => (
-                  <li key={entry.id}>
-                    <GraphLink id={entry.id} address={entry.page} className="home-row">
-                      <span className="home-row-title">{entry.label}</span>
-                      <span className="graph-chip">{layerWord(entry.layer, t)}</span>
-                    </GraphLink>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ))}
+          {groups.map((group) => <GraphKindSection key={group.kind} group={group} shown={rowsShown} />)}
         </div>
       )}
     </main>

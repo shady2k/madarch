@@ -17,6 +17,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { createElement } from 'react';
 import { App } from './app.js';
 import { GRAPH_EVENTS_PATH, codeHref, graphKindGroups, originOf, shortGraphLabel } from './graph.js';
+import { GraphIndexPage, INDEX_ROWS_SHOWN } from './graph-pages.js';
 import { addressOfGraphPage, routeOf, GRAPH_INDEX_ADDRESS } from './routes.js';
 import { setWikiLanguage } from './i18n.js';
 import type { GraphPageModel, GraphPageSet, Page, PageList, Product, RepoEntry, ReposList } from './api.js';
@@ -324,8 +325,8 @@ function pagesFrame(change: { seq: number; nodes: string[]; unit: string; genera
   return `id: ${change.seq}\nevent: pages\ndata: ${JSON.stringify({ ...change, publication: 'p-' + change.seq })}\n\n`;
 }
 
-function world(): World {
-  return { set: pageSet(), pages: { [MODULE]: modulePage() }, graph: true, documents };
+function world(overrides: Partial<World> = {}): World {
+  return { set: pageSet(), pages: { [MODULE]: modulePage() }, graph: true, documents, ...overrides };
 }
 
 describe('the graph in the navigation', () => {
@@ -397,6 +398,32 @@ describe('the graph in the navigation', () => {
     const counts = [...document.querySelectorAll('[data-testid="graph-kind-count"]')].map((entry) => entry.textContent);
     expect(counts).toEqual(['1', '1', '1']);
     expect(document.querySelector(`a[href="/p/graph/${MODULE}"]`)).not.toBeNull();
+  });
+
+  test('a kind of more nodes than the page draws is listed up to the page\'s bound, and the group says how many the kind holds', async () => {
+    // The current madarch tree holds 29 605 symbols: the index draws the first of a kind's rows and names the rest by
+    // their count, because drawing tens of thousands of rows is seconds of the browser's time (madarch-tzte.23.8).
+    const many = 9;
+    const symbols = Array.from({ length: many }, (_unused, index) => {
+      const id = `symbol:${index.toString(16).padStart(64, '0')}`;
+      return { id, kind: 'symbol', label: `acme-shop:src/checkout.ts#checkout.place${String(index).padStart(3, '0')}`, page: addressOfGraphPage(id), layer: 'extracted' as const, status: 'proposed' as const };
+    });
+    const set = pageSet({ pages: [pageSet().pages[0]!, ...symbols], counts: [{ kind: 'module', count: 1 }, { kind: 'symbol', count: many }], total: many + 1 });
+    intoApp(createElement(GraphIndexPage, { set, repos: [], rowsShown: 4 }));
+    await until(() => document.querySelector('[data-testid="graph-index"]') !== null, 'the graph index');
+    const symbolGroup = (): Element | null => document.querySelector('[data-graph-kind="symbol"]');
+    // The first four of the kind stand, the group counts all nine, and its own line says how many stand.
+    expect(symbolGroup()?.querySelectorAll('.home-row').length).toBe(4);
+    expect(symbolGroup()?.querySelector('[data-testid="graph-kind-count"]')?.textContent).toBe(String(many));
+    const listing = symbolGroup()?.querySelector('[data-testid="graph-kind-listing"]');
+    expect(listing?.getAttribute('data-shown')).toBe('4');
+    expect(listing?.textContent).toBe(`4 of ${many} listed: this index draws the first 4 of this kind, and the graph holds ${many}.`);
+    // The rows it draws are the server's own order, from the first.
+    const labels = [...(symbolGroup()?.querySelectorAll('.home-row-title') ?? [])].map((row) => row.textContent);
+    expect(labels).toEqual(symbols.slice(0, 4).map((entry) => entry.label));
+    // A kind the bound draws whole says nothing, and the page's own bound is a slice of a graph this size.
+    expect(document.querySelector('[data-graph-kind="module"] [data-testid="graph-kind-listing"]')).toBeNull();
+    expect(INDEX_ROWS_SHOWN).toBeLessThan(35_114);
   });
 });
 

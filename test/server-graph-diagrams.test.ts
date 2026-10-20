@@ -35,7 +35,10 @@ async function sourceWith(): Promise<GraphPagesSource> {
     diagrams: async (id: string) => id === fx.shop.id
       ? {
           ok: true as const,
-          page: { node: { id: fx.shop.id, kind: 'repository', label: 'acme-shop', page: `/p/graph/${fx.shop.id}`, layer: 'extracted' as const, status: 'proposed' as const }, readAt: 1_700_000_000_000 } as never,
+          product: 'Fixture Product',
+          node: { id: fx.shop.id, kind: 'repository' as const, label: 'acme-shop', page: `/p/graph/${fx.shop.id}`, layer: 'extracted' as const, status: 'proposed' as const },
+          page: `/p/graph/${fx.shop.id}`,
+          readAt: 1_700_000_000_000,
           diagrams: [{ spec: { type: 'module-dependency' as const, nodes: [fx.shop.id] }, model: module }],
         }
       : { ok: false as const, code: 'graph-pages/no-such-node', message: `the graph holds no page of ${id}` },
