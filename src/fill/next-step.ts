@@ -7,6 +7,9 @@
  * charter's own list of outcomes and the order it names them in: **open questions
  * first, then uncovered important nodes.**
  *
+ * 0. **The page is itself an open question.** A question's own page — the page the
+ *    product's step opens, and the page a person answers it on — recommends answering
+ *    it, since that is the one act it is for.
  * 1. **A question the page itself raises.** The page's open questions are ranked by
  *    what depends on the answer (`GraphQuestion.rank`), so the question that would
  *    change the most pages comes first.
@@ -15,7 +18,8 @@
  *    about: the step names it and nothing invents what stands there.
  * 3. **An assumption to review.** A page of facts no person has accepted yet (0005:
  *    an agent's reading is `proposed`) asks for the person's word when nothing else is
- *    waiting.
+ *    waiting — and only while nobody has decided: a page a person has accepted or
+ *    rejected has had that word.
  * 4. **Nothing.** A page whose questions are answered, whose scope is covered and
  *    whose assumptions a person accepted has no step, and the page says so instead of
  *    inventing one.
@@ -28,6 +32,9 @@
  * the charter rather than from this code.
  */
 import type { FactKind } from './facts.js';
+import { byCodePoint } from '../model/order.js';
+import { pageAddress } from './page-changes.js';
+import { byQuestionRank } from './question-types.js';
 
 /** The page address a step opens, as the server hands it out (`pageAddress`). */
 export type PageAddress = string;
@@ -86,27 +93,20 @@ export interface StepNode {
  * question's page is passed in, since this rule reads no graph of its own.
  */
 export function mostAskedQuestion<Q extends RankedQuestion & { readonly page: PageAddress }>(questions: readonly Q[]): Q | undefined {
-  let best: Q | undefined;
-  for (const question of questions) {
-    if (best === undefined) { best = question; continue; }
-    if (question.rank > best.rank) { best = question; continue; }
-    if (question.rank < best.rank) continue;
-    if (question.prompt < best.prompt) { best = question; continue; }
-    if (question.prompt > best.prompt) continue;
-    if (question.id < best.id) best = question;
-  }
-  return best;
+  // The one order every reader states: `byQuestionRank` (question-types.ts), so the product's step and a page's step
+  // can never disagree about which of two questions comes first.
+  return [...questions].sort(byQuestionRank)[0];
 }
 
 /** The question step: the question, its page, and why answering it is the next thing. */
 export function answerQuestionStep(question: RankedQuestion & { readonly page: PageAddress; readonly node: StepNode }): GraphNextStep {
-  const pages = question.rank === 1 ? 'one page depends' : `${String(question.rank)} pages depend`;
+  const changed = question.rank === 1 ? 'one page' : `${String(question.rank)} pages`;
   return {
     rule: 'answer-question',
     question: { id: question.id, type: question.type, prompt: question.prompt, rank: question.rank, page: question.page },
     target: question.page,
     node: question.node,
-    reason: `the answer changes ${pages} on it (${question.type}): answer it, and only those pages are read again`,
+    reason: `the answer changes ${changed} (a ${question.type} question): answer it, and only those pages are read again`,
   };
 }
 
@@ -127,7 +127,7 @@ export function reviewAssumptionStep(node: StepNode, assumptions: number): Graph
 
 /** The step a page with nothing waiting recommends: a step, and an honest one. */
 export function nothingToDo(node: StepNode): GraphNextStep {
-  return { rule: 'nothing-to-do', target: node.page, node, reason: 'no question on this page or the pages it is bound to is open, its scope is covered, and its proposals are settled: nothing waits for a person here' };
+  return { rule: 'nothing-to-do', target: node.page, node, reason: 'no question on this page is open, its scope is covered and what it proposes is settled: nothing waits for a person here' };
 }
 
 /**
@@ -140,15 +140,19 @@ export function isImportant(node: { readonly importance?: number }): boolean {
   return node.importance !== undefined && node.importance > 0;
 }
 
-/** What a page's own next step is read from: the page, its questions, its neighbours' questions and its coverage. */
+/** What a page's own next step is read from: the page, its questions, its coverage and what a person decided. */
 export interface PageStepInput {
   readonly node: StepNode;
   /** The open questions about this page's node, in any order; the rule ranks them. */
   readonly questions: readonly RankedQuestion[];
+  /** The open question this page *is*, when its node is a question: the page a person answers it on. */
+  readonly own?: RankedQuestion;
   /** Whether a complete coverage of any of the page's scopes exists. */
   readonly covered: boolean;
   /** How many of the page's facts an agent inferred and no person accepted (0005: `proposed`). */
   readonly assumptions: number;
+  /** Whether a person has accepted or rejected what the page proposes, or null when nobody has. */
+  readonly decided?: boolean;
 }
 
 /**
@@ -157,12 +161,17 @@ export interface PageStepInput {
  * nothing waits.
  */
 export function pageNextStep(input: PageStepInput): GraphNextStep {
-  const own = mostAskedQuestion(input.questions.map((question) => ({ ...question, page: input.node.page, node: input.node })));
-  if (own !== undefined) return answerQuestionStep(own);
+  // A question's own page is where it is answered, so it recommends that before anything else — and its page address is
+  // its own, never the page of the node it is about.
+  if (input.own !== undefined) {
+    return answerQuestionStep({ ...input.own, page: input.node.page, node: input.node });
+  }
+  const asked = mostAskedQuestion(input.questions.map((question) => ({ ...question, page: pageAddress(question.id), node: input.node })));
+  if (asked !== undefined) return answerQuestionStep(asked);
   if (input.covered === false && isImportant(input.node)) {
     return coverNodeStep(input.node, `no complete coverage of this node's scope was published, and the fill ranked it important (${String(input.node.importance)}): read it, so what stands here is read and not assumed`);
   }
-  if (input.assumptions > 0) return reviewAssumptionStep(input.node, input.assumptions);
+  if (input.assumptions > 0 && input.decided !== true) return reviewAssumptionStep(input.node, input.assumptions);
   return nothingToDo(input.node);
 }
 

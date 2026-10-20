@@ -915,6 +915,12 @@ export interface AnswerValue {
   /** The answer or the note, as the person or the agent wrote it. */
   readonly text: string;
   /**
+   * Who wrote it, when that is not the reader that recorded it: a person's own name, as
+   * the wiki took it. An agent's answer names no one, and reads as its reader
+   * (`provenance.source.system`).
+   */
+  readonly by?: string;
+  /**
    * What an agent's answer rests on, when it came with evidence: the place it
    * read, as `repository@commit:path`. A person's answer needs none: their words
    * are the record.
@@ -2094,7 +2100,7 @@ const VALUE_FIELDS: { readonly [K in FactKind]: readonly (keyof FactValueOf<K> &
   'state': ['repository', 'machine', 'name', 'initial', 'final'],
   'coverage': ['repository', 'scope', 'complete', 'read', 'unread'],
   'question': ['repository', 'type', 'about', 'prompt'],
-  'answer': ['repository', 'subject', 'decision', 'text', 'evidence'],
+  'answer': ['repository', 'subject', 'decision', 'text', 'by', 'evidence'],
   'contains': ['from', 'to'],
   'defines': ['from', 'to'],
   'import': ['from', 'to', 'specifier'],
@@ -2628,6 +2634,16 @@ export function checkFact(fact: unknown): FactProblem[] {
       if (repositoryPathProblem(normalized) === undefined && repositoryPathProblem(placeFile) === undefined && normalized !== placeFile) {
         add('provenance.place.file', `the place names ${shown(placeFile)} but the ${kind} is ${shown(normalized)}: ${withArticle(kind)} fact stands at its own file`);
       }
+    }
+  }
+
+  // An agent's answer rests on something it read (the self-filling charter's outcome 5: «Открытые вопросы должны
+  // закрываться, если агент в процессе нашел ответ»). A proposed answer with no evidence closes a question nobody can
+  // check, so the schema refuses it at its own field; a person's answer needs none, because their words are the record.
+  if (valueReads && kind === 'answer' && layer === 'inferred') {
+    const evidence = (value as Record<string, unknown>)['evidence'];
+    if (typeof evidence !== 'string' || evidence.trim() === '') {
+      add('value.evidence', 'a proposed answer names what it rests on, in "evidence": an agent closes a question with the place it read, never with a claim alone (decision 0005 makes an agent\'s reading proposed, and a proposed answer nobody can check is no answer)');
     }
   }
 

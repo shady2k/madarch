@@ -364,7 +364,7 @@ export function createGraphPagesPart(makers: Pick<ReplyMaker, 'json' | 'refused'
 export function decisionStatus(code: string): number {
   if (code === 'graph-pages/no-graph') return 503;
   if (code === 'graph-pages/no-such-node' || code === 'graph-pages/not-a-question' || code === 'graph-pages/not-a-page') return 404;
-  if (code === 'graph-pages/not-a-fact-id' || code === 'graph-pages/empty-answer') return 400;
+  if (code === 'graph-pages/not-a-fact-id' || code === 'graph-pages/empty-answer' || code === 'graph-pages/not-a-verdict') return 400;
   return 500;
 }
 

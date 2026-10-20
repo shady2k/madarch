@@ -335,12 +335,16 @@ describe('the page set a client is sent', () => {
     changeSeq: 12,
     readAt: 1_700_000_000_000,
     message: null,
+    questions: emptyQuestionSet(),
+    nextStep: emptyNextStep(PRODUCT),
   });
   const placedSource: GraphPagesSource = {
     pageSet: async () => placed(),
     page: async (id: string) => ({ ok: false as const, code: 'graph-pages/no-such-node', message: `no page ${id}` }),
     diagrams: async (id: string) => ({ ok: false as const, code: 'graph-pages/no-such-node', message: `no diagrams ${id}` }),
     changes: async () => ({ changes: [], lastSeq: 0, truncated: false, marker: null }),
+    answer: async () => ({ ok: false as const, code: 'graph-pages/no-graph', message: 'no graph' }),
+    decide: async () => ({ ok: false as const, code: 'graph-pages/no-graph', message: 'no graph' }),
     subscribe: () => () => undefined,
   };
   const placedPart = (): ReturnType<typeof createGraphPagesPart> => createGraphPagesPart({

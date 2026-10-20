@@ -30,7 +30,7 @@ import type { FillStageConfigurationRead } from './config.js';
 import type { SqlExecutor } from '../query/sql-driver.js';
 import { FACT_APPLICATION, createFactStoreSchema } from './fact-store.js';
 import { emptyNextStep, emptyPageSetMessage, emptyQuestionSet, readDecisionSubject, readPageChanges, readPageModel, readPageSet, type GraphDecisionWrite, type GraphPagesSource } from './graph-pages.js';
-import { answerDocument, acceptanceDocument, ANSWERS_FOLDER, ACCEPTANCES_FOLDER, decisionFile, removeDecision, writeDecision, type DecisionRecord } from './decisions.js';
+import { answerDocument, acceptanceDocument, ANSWERS_FOLDER, ACCEPTANCES_FOLDER, commitDecision, decisionFile, discardDecision, stageDecision, type DecisionRecord, type StagedDecision } from './decisions.js';
 import { applyDecisions } from './declared.js';
 import { labelOf } from './graph-reads.js';
 import { readNodeDiagrams } from './graph-diagrams.js';
@@ -402,9 +402,9 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
     return await opening;
   }
 
-  /** A person's decision as it was filed: the document the product's git holds, or why it could not be written. */
+  /** A person's decision as it was filed: the document waiting to be committed, or why it could not be written. */
 type FiledDecision =
-  | { readonly ok: true; readonly file: string; readonly record: DecisionRecord }
+  | { readonly ok: true; readonly staged: StagedDecision; readonly record: DecisionRecord }
   | { readonly ok: false; readonly code: string; readonly message: string };
 
 /**
@@ -429,19 +429,17 @@ async function fileDecision(
   if (what === 'answer') {
     if (text === '') return { ok: false, code: 'graph-pages/empty-answer', message: `the answer to ${subject} is empty: an answer is the words a person wrote, and an empty one closes nothing` };
     const prompt = typeof value['prompt'] === 'string' ? value['prompt'] : '';
-    const record: DecisionRecord = { kind: 'answer', subject, text, by: author, at, file: decisionFile(ANSWERS_FOLDER, subject) };
     try {
-      const file = writeDecision(productFolder, ANSWERS_FOLDER, subject, answerDocument({ subject, prompt, text, by: author, at }));
-      return { ok: true, file, record: { ...record, file } };
+      const staged = stageDecision(productFolder, ANSWERS_FOLDER, subject, answerDocument({ subject, prompt, text, by: author, at }));
+      return { ok: true, staged, record: { kind: 'answer', subject, text, by: author, at, file: staged.file } };
     } catch (error) {
       return { ok: false, code: 'graph-pages/write-failed', message: `the product's git holds the answers of ${productFolder}, and the answer to ${subject} could not be written there: ${(error as Error).message}` };
     }
   }
   const label = labelOf(fact);
-  const record: DecisionRecord = { kind: 'acceptance', subject, verdict: what, note: text, by: author, at, file: decisionFile(ACCEPTANCES_FOLDER, subject) };
   try {
-    const file = writeDecision(productFolder, ACCEPTANCES_FOLDER, subject, acceptanceDocument({ subject, label, verdict: what, note: text, by: author, at }));
-    return { ok: true, file, record: { ...record, file } };
+    const staged = stageDecision(productFolder, ACCEPTANCES_FOLDER, subject, acceptanceDocument({ subject, label, verdict: what, note: text, by: author, at }));
+    return { ok: true, staged, record: { kind: 'acceptance', subject, verdict: what, note: text, by: author, at, file: staged.file } };
   } catch (error) {
     return { ok: false, code: 'graph-pages/write-failed', message: `the product's git holds the acceptances of ${productFolder}, and the ${what === 'accepted' ? 'acceptance' : 'rejection'} of ${subject} could not be written there: ${(error as Error).message}` };
   }
@@ -686,6 +684,11 @@ async function fileDecision(
    * in neither.
    */
   async function decideAbout(productFolder: string, subject: string, what: 'answer' | 'accepted' | 'rejected', words: string, by: string): Promise<GraphDecisionWrite> {
+    // A verdict the wiki does not know is refused here as well as at the route: the service is an interface of its own,
+    // and a decision it cannot read is never written into the product's git.
+    if (what !== 'answer' && what !== 'accepted' && what !== 'rejected') {
+      return { ok: false, code: 'graph-pages/not-a-verdict', message: `the verdict ${JSON.stringify(what)} on ${subject} is no decision: a person accepts a page or rejects it, so the verdict is "accepted" or "rejected"` };
+    }
     const now = (options.clock ?? Date.now)();
     const database = await pageDatabase();
     if (database === undefined) return { ok: false, code: 'graph-pages/no-graph', message: 'this home holds no fill\'s graph yet: a person answers a question and accepts a page once a fill published them' };
@@ -695,18 +698,22 @@ async function fileDecision(
     const filed = await fileDecision(productFolder, subject, what, words, by, now, shown.fact);
     if (filed.ok === false) return filed;
     try {
-      const applied = await applyDecisions({ database, product, records: [filed.record], at: now });
+      const applied = await applyDecisions({ database, product, records: [filed.record] });
       const refused = applied.refusals[0];
       if (refused !== undefined) {
-        removeDecision(productFolder, filed.file);
+        // The graph refused the record, so the product's git keeps the document it held before this decision — which
+        // is the person's earlier answer, not an empty folder.
+        discardDecision(filed.staged);
         return { ok: false, code: 'graph-pages/refused', message: refused.message, file: refused.file };
       }
+      // The graph holds the record: the document takes its place in the product's git, whole, in one rename.
+      const file = commitDecision(productFolder, filed.staged);
       // A person's change is this process's own: it drops the pages the decision moved and wakes the channels, so a
       // page someone reads is read again and a page the decision did not touch stands as it was.
       notifyPagesOf(product, applied.pages);
-      return { ok: true, file: filed.file, pages: applied.pages };
+      return { ok: true, file, pages: applied.pages };
     } catch (error) {
-      removeDecision(productFolder, filed.file);
+      discardDecision(filed.staged);
       throw error;
     }
   }

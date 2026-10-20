@@ -81,11 +81,15 @@ describe('the answers kept between publications', () => {
     // The page the decision moved is read from the store again; the page it did not touch is the page it was.
     expect(cache.page(PRODUCT, MODULE)).toBeUndefined();
     expect(cache.page(PRODUCT, SYMBOL)).toBe(symbolPage);
-    expect(cache.pageSet(PRODUCT)).toBe(set);
+    // The page set is read again too: it carries the product's questions and its own next step, and a decision moves
+    // both — the answer closes a question and settles a page, and the index shows both.
+    expect(cache.pageSet(PRODUCT)).toBeUndefined();
     // The generation moved, so a read that started before the decision is never kept after it.
     expect(cache.generation).toBe(generation + 1);
     expect(cache.keepPage(PRODUCT, MODULE, modulePage, generation)).toBe(modulePage);
     expect(cache.page(PRODUCT, MODULE)).toBeUndefined();
+    expect(cache.keepPageSet(PRODUCT, set, generation)).toBe(set);
+    expect(cache.pageSet(PRODUCT)).toBeUndefined();
   });
 
   test('a decision about a page nobody read costs nothing kept', () => {

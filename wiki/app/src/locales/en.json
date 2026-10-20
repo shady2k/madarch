@@ -626,9 +626,10 @@
       "filed": "Written to the product's git at {{file}}, and the pages that depend on it are read again.",
       "answerTitle": "Answer this question",
       "answerLabel": "Your answer (Markdown)",
-      "answerSubmit": "Answer"
+      "answerSubmit": "Answer",
+      "proposed": "proposed by an agent ({{layer}}) and not yet a person's word"
     },
-    "openQuestionsTitle": "Open questions",
+    "openQuestionsTitle": "Questions of this product",
     "noOpenQuestions": "No question is open in this product's graph.",
     "openQuestionsCount": "{{open}} open, {{answered}} answered, by the charter's types.",
     "questionRank_one": "{{count}} page depends on the answer",
@@ -636,6 +637,7 @@
     "questionRank_few": "{{count}} pages depend on the answer",
     "questionRank_many": "{{count}} pages depend on the answer",
     "questionDependsOn": "Depends on it:",
-    "questionOpen": "open"
+    "questionOpen": "open",
+    "questionsCut": "Some of the product's questions are not listed here:"
   }
 }

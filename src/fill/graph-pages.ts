@@ -574,7 +574,11 @@ export async function readPageSet(options: { readonly database: FactStoreDatabas
       `SELECT DISTINCT f.value->>'scope' AS scope FROM fill_fact f WHERE f.kind = 'coverage' AND f.value->>'complete' = 'true'${productScopeSql(options.product, 1).sql}`,
       [options.product],
     )).rows.map((row) => row.scope));
-    const uncovered = [...pages].filter((page) => page.importance !== undefined && coveredScopes.has(page.id) === false)
+    // A page's scope is read by its own id, by its place (`<repository>:<path>`) and by the snapshot it was read at
+    // (`coverageScopesOf`), so a node whose coverage landed under its place is covered as well: a snapshot's coverage is
+    // a repository's reading and names no node of its own.
+    const coveredPage = (page: GraphPageEntry): boolean => coveredScopes.has(page.id) || (page.code !== undefined && coveredScopes.has(`${page.code.repository}:${page.code.file}`));
+    const uncovered = [...pages].filter((page) => page.importance !== undefined && coveredPage(page) === false)
       .sort((left, right) => (right.importance ?? 0) - (left.importance ?? 0) || byCodePoint(left.id, right.id))[0];
     const asked = questions.groups.flatMap((group) => group.questions).filter((question) => question.open);
     const nextStep = productNextStep({
@@ -727,8 +731,12 @@ export async function readPageModel(options: {
     // The page's own decision: the acceptance or rejection a person recorded about it, the latest first when a person
     // changed their mind (answers are ordered by id, and an acceptance names its own words); and, for a question's own
     // page, the answer that closed it.
-    const decision = decisions.filter((entry) => entry.decision !== 'answers').sort((left, right) => byCodePoint(right.id, left.id))[0] ?? null;
-    const answer = decisions.filter((entry) => entry.decision === 'answers').sort((left, right) => byCodePoint(right.id, left.id))[0] ?? answers.get(id) ?? null;
+    // A person's word first, then an agent's: a page shows the acceptance a person recorded about it before one an
+    // agent proposed, and each layer in code point order of its id so the page is the same everywhere.
+    const pick = (entries: readonly GraphAnswerRecord[]): GraphAnswerRecord | null =>
+      [...entries].sort((left, right) => (left.layer === 'declared' ? 0 : 1) - (right.layer === 'declared' ? 0 : 1) || byCodePoint(left.id, right.id))[0] ?? null;
+    const decision = pick(decisions.filter((entry) => entry.decision !== 'answers'));
+    const answer = pick(decisions.filter((entry) => entry.decision === 'answers')) ?? answers.get(id) ?? null;
     // The node's own fact stands first, and the facts about it follow in code point order of their ids: a reader
     // asks "what is this" before "what is said about it".
     const facts = [node, ...[...claimFacts.values()], ...ruleFacts].sort((left, right) => (left.id === node.id ? -1 : right.id === node.id ? 1 : 0) || byCodePoint(left.id, right.id));
@@ -801,11 +809,18 @@ export async function readPageModel(options: {
     const entry = pageEntryOf(node);
     const stepNode: StepNode = { id, kind: node.kind, label: entry.label, page: pageAddress(id), ...(entry.importance === undefined ? {} : { importance: entry.importance }) };
     const openQuestions: RankedQuestion[] = questionsHeld.rows.filter((question) => question.open).map((question) => ({ id: question.id, type: question.type, prompt: question.prompt, rank: question.rank }));
+    const ownQuestion = node.kind === 'question' && answer === null
+      ? { id, type: typeof (node.value as { type?: unknown }).type === 'string' ? String((node.value as { type: string }).type) : 'meaning', prompt: entry.label, rank: dependentsOf(nodeRefOf(node), edgeFacts, refs).length }
+      : undefined;
     const nextStep = pageNextStep({
       node: stepNode,
       questions: openQuestions,
+      ...(ownQuestion === undefined ? {} : { own: ownQuestion }),
       covered: uniqueCoverage.some((row) => row.complete),
-      assumptions: assumptionsHeld.rows.length,
+      // A question's own fact is `inferred`, but it is no proposed content for a person to accept: the page's one act is
+      // answering it, and an answered question waits for nobody.
+      assumptions: node.kind === 'question' ? 0 : assumptionsHeld.rows.length,
+      decided: decision !== null,
     });
     const cut = [factsHeld.marker, relationsHeld.marker, coverageHeld.marker, questionsHeld.marker, draftsHeld.marker, ...markers];
     const out = relationsHeld.rows.filter((relation) => relation.direction !== 'in');
@@ -998,7 +1013,7 @@ export function answerOf(fact: Fact): GraphAnswerRecord {
     text,
     layer: fact.layer,
     status: fact.status,
-    by: fact.provenance.source.system,
+    by: typeof value['by'] === 'string' && value['by'] !== '' ? value['by'] : fact.provenance.source.system,
     ...(typeof evidence === 'string' && evidence !== '' ? { evidence } : {}),
     ...(place === undefined ? {} : {
       code: {
@@ -1017,10 +1032,16 @@ function subjectOf(fact: Fact): string {
   return String((fact.value as unknown as Record<string, unknown>)['subject']);
 }
 
-/** The answers the graph holds, by the node each decides about, in code point order of the answer's id. */
+/**
+ * The answers the graph holds, by the node each decides about: a person's own word wins over an
+ * agent's reading of the same node (0005 makes the person's `declared` and the agent's
+ * `inferred`), and two answers of one layer stand in code point order of their ids, so the
+ * page shows the same one on every machine.
+ */
 function answersBySubject(facts: readonly Fact[]): Map<string, GraphAnswerRecord> {
   const found = new Map<string, GraphAnswerRecord>();
-  for (const fact of [...facts].sort((left, right) => byCodePoint(left.id, right.id))) found.set(subjectOf(fact), answerOf(fact));
+  const ordered = [...facts].sort((left, right) => (left.layer === 'declared' ? 1 : 0) - (right.layer === 'declared' ? 1 : 0) || byCodePoint(left.id, right.id));
+  for (const fact of ordered) found.set(subjectOf(fact), answerOf(fact));
   return found;
 }
 

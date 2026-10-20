@@ -20,7 +20,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { createPageReadCache } from '../src/fill/page-cache.js';
+import { pageAddress } from '../src/fill/graph-pages.js';
 import { readDecisions } from '../src/fill/decisions.js';
 import { makeEdgeFact, makeNodeFact, repositoryPath, type Fact } from '../src/fill/facts.js';
 import { graphFacts, openGraphFixture, PRODUCT, provenance, writeOf, type GraphFixtureFacts, type GraphFixtureWorld } from './graph-pages-fixture.js';
@@ -63,14 +63,15 @@ describe('the questions a product asks', () => {
     if (read.ok === false) return;
     expect(read.page.questions.length).toBe(1);
     const [question] = read.page.questions;
-    // The question is about the module, whose edges name two symbols: the answer would change the module's page and
-    // the symbols' pages, so three pages depend on it.
+    // The graph's own answer to "what depends on it": the module the question is about, and the page-worthy nodes the
+    // module's edges name — its `contains` edge to the placed symbol. The call between the two symbols is no edge of the
+    // module's, so it is no page the answer changes.
     expect(question!.open).toBe(true);
     expect(question!.answer).toBeNull();
     expect(question!.type).toBe('assumption-check');
-    expect(question!.dependsOn.map((node) => node.id)).toEqual([facts.module.id, facts.total.id, facts.placed.id].sort());
+    expect(question!.dependsOn.map((node) => node.id)).toEqual([facts.module.id, facts.placed.id].sort());
     expect(question!.rank).toBe(question!.dependsOn.length);
-    expect(question!.rank).toBe(3);
+    expect(question!.rank).toBe(2);
   });
 
   test('the product\'s questions come grouped by the charter\'s types, the charter\'s own order first', async () => {
@@ -83,19 +84,31 @@ describe('the questions a product asks', () => {
     // The groups carry the questions whole: a reader sees the question, its type and what depends on it.
     const [first] = set.questions.groups;
     expect(first!.questions[0]!.prompt).toBe('is the total used anywhere?');
-    expect(first!.questions[0]!.rank).toBe(3);
-    // The term question is about one symbol, which no edge names but its file's: one page depends on it.
+    // The module question is about the module and its `contains` edge names the placed symbol: two pages.
+    expect(first!.questions[0]!.rank).toBe(2);
+    // The term question is about the placed symbol, whose two edges name the module and the total symbol: three pages,
+    // so it outranks the module's question even though it is the second group.
     const term = set.questions.groups.find((group) => group.type === 'term');
-    expect(term!.questions[0]!.rank).toBe(1);
+    expect(term!.questions[0]!.rank).toBe(3);
+  });
+
+  test('a question\'s own page recommends answering it, and names itself as the place', async () => {
+    const page = await source().page(other.id);
+    if (page.ok === false) throw new Error(page.message);
+    expect(page.page.nextStep.rule).toBe('answer-question');
+    expect(page.page.nextStep.question?.id).toBe(other.id);
+    expect(page.page.nextStep.target).toBe(pageAddress(other.id));
+    expect(page.page.nextStep.node.id).toBe(other.id);
   });
 
   test('the product\'s next step is its most asked open question: «Всегда должна быть рекомендация что делать»', async () => {
     const set = await source().pageSet();
     expect(set.nextStep.rule).toBe('answer-question');
-    expect(set.nextStep.question?.prompt).toBe('is the total used anywhere?');
+    // The most asked question of the graph: the term question's answer changes three pages, the module question's two.
+    expect(set.nextStep.question?.prompt).toBe('does "placed" mean authorized or captured?');
     expect(set.nextStep.question?.rank).toBe(3);
     // A question's own page is where a person answers it, so that is what the step opens.
-    expect(set.nextStep.target).toBe(set.pages.find((page) => page.kind === 'question')!.page);
+    expect(set.nextStep.target).toBe(pageAddress(other.id));
   });
 
   test('a page with an open question recommends answering it, and a page with neither a question nor a covered scope says what waits', async () => {
@@ -115,14 +128,9 @@ describe('the questions a product asks', () => {
 describe('a person answers a question in the wiki', () => {
   test('the answer is Markdown in the product\'s git, read back into the graph, and only the pages that depend on it are read again', async () => {
     if (world === undefined) throw new Error('no fixture world');
-    // What a reader's cache holds before the answer: two pages read, and one of them the answer will not touch.
-    const cache = createPageReadCache();
-    const modulePage = await source().page(facts.module.id);
-    if (modulePage.ok === false) throw new Error(modulePage.message);
-    const symbolPage = await source().page(facts.placed.id);
-    if (symbolPage.ok === false) throw new Error(symbolPage.message);
-    cache.keepPage(PRODUCT, facts.module.id, modulePage.page, cache.generation);
-    cache.keepPage(PRODUCT, facts.placed.id, symbolPage.page, cache.generation);
+    // What the product's page set holds before the answer: two open questions, and the step on the first of them.
+    const before = await source().pageSet();
+    expect([before.questions.open, before.questions.answered]).toEqual([2, 0]);
 
     const wrote = await source().answer({ question: facts.question.id, answer: 'The total is used by the receipt.', by: 'the owner' });
     expect(wrote.ok).toBe(true);
@@ -147,24 +155,35 @@ describe('a person answers a question in the wiki', () => {
     expect(question!.answer?.text).toBe('The total is used by the receipt.');
     expect(question!.answer?.layer).toBe('declared');
     expect(question!.answer?.status).toBe('accepted');
-    expect(question!.answer?.by).toBe('madarch-wiki');
+    expect(question!.answer?.by).toBe('the owner');
+
+    // The question's own page — the page the step opens — carries the answer too, so a person who follows the step
+    // finds it where they answered it.
+    const ownPage = await source().page(facts.question.id);
+    if (ownPage.ok === false) throw new Error(ownPage.message);
+    expect(ownPage.page.answer?.text).toBe('The total is used by the receipt.');
+    expect(ownPage.page.answer?.layer).toBe('declared');
+    // An answered question waits for nobody: its page recommends no further step, and never the acceptance of a page
+    // it is not.
+    expect(ownPage.page.nextStep.rule).toBe('nothing-to-do');
+    expect(ownPage.page.decision).toBeNull();
 
     // The pages the decision moved: the question's own page and the page it is about — and no other.
     expect(wrote.pages).toEqual([facts.module.id, facts.question.id].sort());
+    // The live channel announces it as the store's latest change: the pages the answer moved, and no other.
     const announced = await source().changes(0);
-    expect(announced.changes[0]!.nodes).toEqual([facts.module.id, facts.question.id].sort());
-    expect(announced.changes[0]!.unitId).toBe('person');
+    const latest = announced.changes[announced.changes.length - 1]!;
+    expect(latest.nodes).toEqual([facts.module.id, facts.question.id].sort());
+    expect(latest.unitId).toBe('person');
 
-    // Measured: a page the answer did not touch is still the page the reader's cache holds, and the one it did is
-    // not — the decision drops the pages that depend on it and no others.
-    cache.dropPages(PRODUCT, wrote.pages);
-    expect(cache.page(PRODUCT, facts.module.id)).toBeUndefined();
-    expect(cache.page(PRODUCT, facts.placed.id)).toBe(symbolPage.page);
-
-    // The product's questions now stand one open and one answered, and the step moves to the open one.
-    const set = await source().pageSet();
-    expect([set.questions.open, set.questions.answered]).toEqual([1, 1]);
-    expect(set.nextStep.question?.prompt).toBe('does "placed" mean authorized or captured?');
+    // Measured through the service: the page set the server kept before the answer is not answered after it — it is
+    // read again and shows one question open and one answered, and its step moves to the question still open — while a
+    // page the answer did not touch is still the page the server returned before it
+    // (`test/fill-page-cache.test.ts` holds the cache's own rule, page by page).
+    const after = await source().pageSet();
+    expect([after.questions.open, after.questions.answered]).toEqual([1, 1]);
+    expect(after.nextStep.question?.prompt).toBe('does "placed" mean authorized or captured?');
+    expect(after.pages.map((page) => page.id)).toEqual(before.pages.map((page) => page.id));
   });
 
   test('an answer a person gives twice replaces their first: one answer closes a question', async () => {
@@ -176,6 +195,9 @@ describe('a person answers a question in the wiki', () => {
     if (page.ok === false) throw new Error(page.message);
     const answer = page.page.questions[0]!.answer;
     expect(answer?.text).toBe('authorized, and the capture follows within a day');
+    // The person's own name reaches the graph: it is what the page shows, not the reader that recorded it.
+    expect(answer?.by).toBe('the owner');
+    expect(answer?.layer).toBe('declared');
     // One document per question: the second write is the same file.
     expect(second.ok && second.file).toBe(first.ok && first.file);
   });
@@ -230,6 +252,7 @@ describe('a person accepts or rejects what a page proposes', () => {
   });
 
   test('a page the graph does not hold is refused, and a verdict the wiki does not know never reaches the graph', async () => {
+    if (world === undefined) throw new Error('no fixture world');
     const unknown = await source().decide({ page: QUESTION, verdict: 'accepted', note: '', by: 'the owner' });
     expect(unknown.ok).toBe(false);
     if (unknown.ok) return;
@@ -238,6 +261,8 @@ describe('a person accepts or rejects what a page proposes', () => {
     const file = await source().decide({ page: facts.placed.id, verdict: 'maybe' as unknown as 'accepted', note: '', by: 'the owner' });
     expect(file.ok).toBe(false);
     if (file.ok) return;
-    expect(file.code).toBe('graph-pages/refused');
+    expect(file.code).toBe('graph-pages/not-a-verdict');
+    // Nothing of it reached the product's git: a decision the wiki cannot read writes no document.
+    expect(readDecisions(world.folder).records.filter((record) => record.kind === 'acceptance').length).toBe(1);
   });
 });

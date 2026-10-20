@@ -181,9 +181,14 @@ export type DecisionRead =
 export function parseDecisionDocument(file: string, text: string, relative: string): DecisionRead {
   const problems: DecisionProblem[] = [];
   const lines = text.split('\n');
+  // The fields stand in the document's header, before the first section heading: a line of the person's own Markdown
+  // that happens to start `Question:` or `Page:` is their text (a note reading "Page: 12" is an ordinary sentence),
+  // and a heading of theirs inside their answer is their text as well.
+  const headingAt = lines.findIndex((line) => /^##\s/.test(line.trim()));
+  const header = headingAt < 0 ? lines : lines.slice(0, headingAt);
   const field = (name: string): { readonly value: string; readonly line: number } | undefined => {
     let found: { value: string; line: number } | undefined;
-    for (const [index, line] of lines.entries()) {
+    for (const [index, line] of header.entries()) {
       const at = line.match(new RegExp(`^${name}:\\s?(.*)$`));
       if (at === null) continue;
       if (found !== undefined) {
@@ -282,24 +287,48 @@ export function readDecisions(productFolder: string): DecisionsRead {
 }
 
 /**
- * Writes one decision document, atomically: the text stands at its path whole or not at
- * all (a temporary file beside it, renamed over it), so a reader never meets half a
- * document and a crash leaves the earlier decision standing. The answer is the path the
- * record names, relative to the product's folder.
+ * One decision document written but not yet in place: the text stands in a temporary file
+ * beside its path, and the decision stands — its earlier version included — exactly as it
+ * was until `commitDecision` moves it over.
+ *
+ * The two steps are what keeps a decision in both places or in neither: a person's answer
+ * is a record the product's git already holds, and a graph write that fails must not have
+ * destroyed the earlier answer's document. The graph write runs between the two.
  */
-export function writeDecision(productFolder: string, folder: string, subject: string, text: string): string {
+export interface StagedDecision {
+  /** The path the record names, relative to the product's folder (`answers/<digest>.md`). */
+  readonly file: string;
+  /** The temporary file the text stands in until the decision is committed. */
+  readonly temporary: string;
+}
+
+/** Writes one decision document beside its path, ready to be committed: the text is whole on disk or not at all. */
+export function stageDecision(productFolder: string, folder: string, subject: string, text: string): StagedDecision {
   const root = resolve(productFolder);
   const relative = decisionFile(folder, subject);
   const absolute = join(root, relative);
   mkdirSync(join(root, folder), { recursive: true });
-  const temporary = `${absolute}.tmp`;
+  const temporary = `${absolute}.${String(process.pid)}.tmp`;
   writeFileSync(temporary, text, { flag: 'w', mode: 0o644 });
-  renameSync(temporary, absolute);
-  return relative;
+  return { file: relative, temporary };
 }
 
-/** Removes one decision document, when the caller decides to leave nothing behind after a failed write. */
-export function removeDecision(productFolder: string, relative: string): void {
-  const absolute = join(resolve(productFolder), relative);
-  if (existsSync(absolute)) rmSync(absolute);
+/** Puts one staged decision in its place: the earlier document at that path is replaced whole, in one rename. */
+export function commitDecision(productFolder: string, staged: StagedDecision): string {
+  renameSync(staged.temporary, join(resolve(productFolder), staged.file));
+  return staged.file;
+}
+
+/**
+ * Drops one staged decision, leaving the document already at its path as it was: a graph
+ * write that was refused or failed writes nothing into the product's git, and the decision
+ * a person took earlier stands.
+ */
+export function discardDecision(staged: StagedDecision): void {
+  if (existsSync(staged.temporary)) rmSync(staged.temporary);
+}
+
+/** Writes one decision document whole, in one step, for a caller that has nothing else to keep in step with it. */
+export function writeDecision(productFolder: string, folder: string, subject: string, text: string): string {
+  return commitDecision(productFolder, stageDecision(productFolder, folder, subject, text));
 }

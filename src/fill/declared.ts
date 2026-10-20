@@ -33,6 +33,7 @@ import { byCodePoint } from '../model/order.js';
 import { runningVersion } from '../product/version.js';
 import type { AcceptanceRecord, AnswerRecord, DecisionRecord } from './decisions.js';
 import { makeNodeFact, type Fact, type FactProvenance } from './facts.js';
+import { productScopeSql } from './graph-reads.js';
 import { PAGE_CHANGE_TABLE, isPageId, pagesTouchedBy } from './page-changes.js';
 import type { FactStoreDatabase } from './fact-store.js';
 import { raise, withLocation } from './fsm-core.js';
@@ -78,8 +79,9 @@ interface Subject {
 }
 
 /** One node's own repository and commit, read from the store; null when the graph holds no such node. */
-async function subjectIn(executor: SqlExecutor, id: string): Promise<Subject | null> {
-  const { rows } = await executor.query<{ value: unknown; provenance: unknown }>('SELECT value, provenance FROM fill_fact WHERE id = $1', [id]);
+async function subjectIn(executor: SqlExecutor, product: string, id: string): Promise<Subject | null> {
+  const scope = productScopeSql(product, 2);
+  const { rows } = await executor.query<{ value: unknown; provenance: unknown }>(`SELECT f.value, f.provenance FROM fill_fact f WHERE f.id = $1${scope.sql}`, [id, ...scope.values]);
   const row = rows[0];
   if (row === undefined) return null;
   const value = (row.value ?? {}) as unknown as Record<string, unknown>;
@@ -102,7 +104,7 @@ export function factOfRecord(record: DecisionRecord, subject: Subject): Fact {
   const text = record.kind === 'answer' ? record.text : record.note;
   return makeNodeFact({
     kind: 'answer',
-    value: { repository: subject.repository, subject: record.subject, decision, text: text === '' ? `${decision === 'accepts' ? 'accepted' : 'rejected'} through the wiki` : text },
+    value: { repository: subject.repository, subject: record.subject, decision, text: text === '' ? `${decision === 'accepts' ? 'accepted' : 'rejected'} through the wiki` : text, by: record.by },
     provenance: provenanceOf(subject),
     layer: 'declared',
     status: 'accepted',
@@ -133,7 +135,6 @@ export async function applyDecisions(options: {
   readonly database: FactStoreDatabase;
   readonly product: string;
   readonly records: readonly DecisionRecord[];
-  readonly at: number;
 }): Promise<DeclaredRead> {
   const at = 'src/fill/declared.ts';
   if (options.product.trim() === '') raise(`${at}: the decisions of "" were read: a product is named by the name its runs give it`);
@@ -141,7 +142,7 @@ export async function applyDecisions(options: {
     const written: DeclaredWrite[] = [];
     const refusals: DeclaredRefusal[] = [];
     for (const record of [...options.records].sort((left, right) => byCodePoint(left.file, right.file))) {
-      const subject = await subjectIn(executor, record.subject);
+      const subject = await subjectIn(executor, options.product, record.subject);
       if (subject === null) {
         refusals.push({ file: record.file, message: `the decision is about ${record.subject}, and the graph holds no such node among the facts of "${options.product}": a decision is about a node the fill published` });
         continue;

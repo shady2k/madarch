@@ -102,6 +102,8 @@ export function pageSetOf(answer: unknown): GraphPageSet | null {
   if (typeof held['total'] !== 'number') return null;
   if (!held['pages'].every(isListEntry)) return null;
   const pages = held['pages'] as GraphPageListEntry[];
+  const questions = held['questions'];
+  const nextStep = held['nextStep'];
   return {
     product: typeof held['product'] === 'string' ? held['product'] : '',
     pages,
@@ -110,6 +112,10 @@ export function pageSetOf(answer: unknown): GraphPageSet | null {
     changeSeq: typeof held['changeSeq'] === 'number' ? held['changeSeq'] : 0,
     readAt: typeof held['readAt'] === 'number' ? held['readAt'] : 0,
     message: typeof held['message'] === 'string' ? held['message'] : null,
+    // The product's questions and its next step are read only when the server answered them: a server older than the
+    // change answers a page set without them, and a page set without a step shows no step rather than an invented one.
+    ...(questions !== null && typeof questions === 'object' && Array.isArray((questions as Record<string, unknown>)['groups']) ? { questions: questions as GraphPageSet['questions'] } : {}),
+    ...(nextStep !== null && typeof nextStep === 'object' && typeof (nextStep as Record<string, unknown>)['rule'] === 'string' ? { nextStep: nextStep as GraphPageSet['nextStep'] } : {}),
   };
 }
 

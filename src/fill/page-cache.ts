@@ -176,7 +176,11 @@ export function createPageReadCache(options: { readonly pages?: number; readonly
         held.pages.delete(nodeKey(product, id));
         held.diagrams.delete(nodeKey(product, id));
       }
-      if (held.pages.size === 0 && held.diagrams.size === 0 && held.pageSet === undefined) products.delete(product);
+      // The page set carries the product's questions and its own next step, so every decision can move it: a person's
+      // answer closes a question and a decision settles what a page proposes, and the index reads both. It is therefore
+      // never kept across a decision, while every page the decision did not touch stands.
+      held.pageSet = undefined;
+      if (held.pages.size === 0 && held.diagrams.size === 0) products.delete(product);
       generation += 1;
     },
     get generation(): number {

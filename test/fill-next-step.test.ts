@@ -26,9 +26,9 @@ describe('the step one page recommends', () => {
       assumptions: 2,
     });
     expect(step.rule).toBe('answer-question');
-    expect(step.question).toEqual({ id: QUESTION_ID, type: 'assumption-check', prompt: 'Is an order placed at authorization or at capture?', rank: 3, page: `/p/graph/${MODULE_ID}` });
+    expect(step.question).toEqual({ id: QUESTION_ID, type: 'assumption-check', prompt: 'Is an order placed at authorization or at capture?', rank: 3, page: `/p/graph/${QUESTION_ID}` });
     // The page the step opens is the question's own page: that is where a person answers it.
-    expect(step.target).toBe(`/p/graph/${MODULE_ID}`);
+    expect(step.target).toBe(`/p/graph/${QUESTION_ID}`);
     expect(step.node.id).toBe(MODULE_ID);
     expect(step.reason).toBe('the answer changes 3 pages depend on it (assumption-check): answer it, and only those pages are read again');
   });
@@ -46,6 +46,17 @@ describe('the step one page recommends', () => {
     expect(pageNextStep({ node: unranked, questions: [], covered: false, assumptions: 1 }).rule).toBe('review-assumption');
     // A rank of zero is no importance either: stage 5 measured that nothing depends on it.
     expect(isImportant({ importance: 0 })).toBe(false);
+  });
+
+  test('a page that is itself an open question recommends answering it, and a page a person decided no longer asks', () => {
+    // A question's own page is the page a person answers it on, so it names that act first — and its own address.
+    const own = pageNextStep({ node: { ...node, kind: 'question' }, questions: [], own: { id: QUESTION_ID, type: 'term', prompt: 'does "placed" mean authorized or captured?', rank: 2 }, covered: true, assumptions: 1 });
+    expect(own.rule).toBe('answer-question');
+    expect(own.question?.id).toBe(QUESTION_ID);
+    expect(own.target).toBe(`/p/graph/${MODULE_ID}`);
+    // A page whose proposals a person has accepted no longer asks for that word (the same page, with a decision).
+    expect(pageNextStep({ node, questions: [], covered: true, assumptions: 2 }).rule).toBe('review-assumption');
+    expect(pageNextStep({ node, questions: [], covered: true, assumptions: 2, decided: true }).rule).toBe('nothing-to-do');
   });
 
   test('a covered page with settled proposals has nothing to do, and says so', () => {

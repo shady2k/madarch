@@ -19,9 +19,10 @@ import {
   answerDocument,
   acceptanceDocument,
   decisionFile,
+  discardDecision,
   parseDecisionDocument,
   readDecisions,
-  removeDecision,
+  stageDecision,
   writeDecision,
 } from '../src/fill/decisions.js';
 
@@ -124,8 +125,12 @@ describe('the product\'s git holds the decisions, one file per decided node', ()
       writeFileSync(join(made.folder, ANSWERS_FOLDER, 'notes.md'), 'a scribble\n');
       const withStray = readDecisions(made.folder);
       expect(withStray.problems.map((problem) => [problem.file, problem.line])).toEqual([[join(made.folder, ANSWERS_FOLDER, 'notes.md'), 1]]);
-      removeDecision(made.folder, relative);
-      expect(readDecisions(made.folder).records.map((record) => record.kind)).toEqual(['acceptance']);
+      // A staged decision that is dropped writes nothing: the document already at its path stands as it was.
+      const staged = stageDecision(made.folder, ANSWERS_FOLDER, QUESTION, answerDocument({ subject: QUESTION, prompt: 'Why?', text: 'A second answer nobody committed.', by: BY, at: AT }));
+      expect(readFileSync(join(made.folder, staged.file), 'utf8')).toContain('Because the card is captured last.');
+      discardDecision(staged);
+      // The committed answer and the acceptance stand; the staged one wrote nothing.
+      expect(readDecisions(made.folder).records.map((record) => [record.kind, record.kind === 'answer' ? record.text : ''])).toEqual([['acceptance', ''], ['answer', 'Because the card is captured last.']]);
     } finally {
       made.close();
     }

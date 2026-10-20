@@ -188,15 +188,15 @@ function CoverageRow({ row }: { row: GraphCoverageRow }): ReactElement {
 function QuestionRow({ question, onAnswered }: { question: GraphQuestionEntry; onAnswered?: (answer: GraphDecisionAnswer) => void }): ReactElement {
   const { t } = useTranslation();
   return (
-    <li className="graph-question" data-question={question.id} data-open={question.open ? 'true' : 'false'}>
+    <li className="graph-question" data-question={question.id} data-open={(question.open ?? true) ? 'true' : 'false'}>
       <GraphLink id={question.id} address={addressOfGraphPage(question.id)} className="graph-question-prompt">{question.prompt}</GraphLink>
       <span className="graph-chip">{t('graph.questionType.' + question.type, { defaultValue: question.type })}</span>
       <span className="graph-chip">{layerWord(question.layer, t)}</span>
-      <span className="graph-chip" data-testid="graph-question-rank">{t('graph.questionRank', { count: question.rank })}</span>
-      {question.dependsOn.length > 0 && (
+      <span className="graph-chip" data-testid="graph-question-rank">{t('graph.questionRank', { count: question.rank ?? 0 })}</span>
+      {(question.dependsOn ?? []).length > 0 && (
         <span className="graph-question-depends" data-testid="graph-question-depends">
           {t('graph.questionDependsOn')}{' '}
-          {question.dependsOn.map((node, at) => (
+          {(question.dependsOn ?? []).map((node, at) => (
             <span key={node.id}>
               {at > 0 && ', '}
               {node.page !== undefined ? <GraphLink id={node.id} address={node.page}>{node.label}</GraphLink> : node.label}
@@ -302,11 +302,11 @@ export function GraphIndexPage({ set, repos, rowsShown = INDEX_ROWS_SHOWN }: {
       <p className="home-lead" data-testid="graph-lead">{t('graph.lead', { product: set.product, count: set.total })}</p>
       {/* What the product recommends next, decided from the graph: its most asked open question, else the most
         * important node no coverage reached (the charter's outcome 5). */}
-      <NextStepSection step={set.nextStep} />
+      {set.nextStep !== undefined && <NextStepSection step={set.nextStep} />}
 
       {/* The product's questions, grouped by the charter's types: the pages they concern are one link away, and the
         * answer a person gives writes Markdown into the product's git. */}
-      <GraphQuestionsSection questions={set.questions} />
+      {set.questions !== undefined && <GraphQuestionsSection questions={set.questions} />}
 
       {/* The server's message is in its own words and the app does not rewrite it: it is
         * the what-to-do, quoted with the language of the chrome around it. */}
@@ -376,8 +376,9 @@ export function QuestionAnswerForm({ question, onAnswered = () => undefined }: {
       setSaving(false);
     }
   };
-  if (question.answer !== null) {
-    return <QuestionAnswer answer={question.answer} />;
+  const held = question.answer ?? null;
+  if (held !== null) {
+    return <QuestionAnswer answer={held} />;
   }
   if (filed !== null) {
     return <p className="graph-question-filed" role="status" data-testid="graph-question-filed">{t('graph.decision.filed', { file: filed.file })}</p>;
@@ -422,7 +423,7 @@ export function PageDecisionSection({ page }: { page: GraphPageModel }): ReactEl
   const [by, setBy] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [decided, setDecided] = useState<GraphAnswerRecord | null>(page.decision);
+  const [decided, setDecided] = useState<GraphAnswerRecord | null>(page.decision ?? null);
   const decide = async (verdict: 'accepted' | 'rejected'): Promise<void> => {
     setSaving(true);
     setError(null);
@@ -462,7 +463,11 @@ export function PageDecisionSection({ page }: { page: GraphPageModel }): ReactEl
         <div className="graph-decision-record" data-testid="graph-decision-record">
           <span className="graph-chip">
             {decided.decision === 'accepts' ? <CircleCheckIcon aria-hidden="true" /> : <CircleDashedIcon aria-hidden="true" />}
-            {decided.decision === 'accepts' ? t('graph.decision.accepted') : t('graph.decision.rejected')}
+            {/* Who decided it, as the record says: only a person's own word is `declared` (decision 0005), and an agent's
+              * proposed verdict is never shown as a person's. */}
+            {decided.layer !== 'declared'
+              ? t('graph.decision.proposed', { layer: layerWord(decided.layer, t) })
+              : decided.decision === 'accepts' ? t('graph.decision.accepted') : t('graph.decision.rejected')}
           </span>
           <span className="graph-chip">{t('graph.decision.by', { by: decided.by })}</span>
           {decided.text !== '' && <p className="graph-decision-text">{decided.text}</p>}
@@ -487,18 +492,22 @@ export function GraphQuestionsSection({ questions }: { questions: GraphQuestionS
     <section className="graph-questions-open" data-testid="graph-questions-open" aria-labelledby="graph-questions-open-title">
       <h2 id="graph-questions-open-title">{t('graph.openQuestionsTitle')}</h2>
       <p className="graph-note">{t('graph.openQuestionsCount', { open: questions.open, answered: questions.answered })}</p>
+      {/* A question set the server's cap cut says so in its own words: a shorter list is never a silent one. */}
+      {questions.truncated && questions.marker !== null && (
+        <p className="graph-cut" role="status" data-testid="graph-questions-cut">{t('graph.questionsCut')} {questions.marker}</p>
+      )}
       {questions.groups.map((group) => (
         <div className="graph-question-group" key={group.type} data-testid="graph-question-group" data-question-type={group.type}>
           <h3 className="graph-question-group-title">{t('graph.questionType.' + group.type, { defaultValue: group.type })}</h3>
           <ul className="graph-question-list">
             {group.questions.map((question) => (
-              <li className="graph-question" key={question.id} data-question={question.id} data-open={question.open ? 'true' : 'false'}>
+              <li className="graph-question" key={question.id} data-question={question.id} data-open={(question.open ?? true) ? 'true' : 'false'}>
                 <GraphLink id={question.id} address={addressOfGraphPage(question.id)} className="graph-question-prompt">{question.prompt}</GraphLink>
-                <span className="graph-chip" data-testid="graph-question-rank">{t('graph.questionRank', { count: question.rank })}</span>
-                {question.dependsOn.length > 0 && (
+                <span className="graph-chip" data-testid="graph-question-rank">{t('graph.questionRank', { count: question.rank ?? 0 })}</span>
+                {(question.dependsOn ?? []).length > 0 && (
                   <span className="graph-question-depends" data-testid="graph-question-depends">
                     {t('graph.questionDependsOn')}{' '}
-                    {question.dependsOn.map((node, at) => (
+                    {(question.dependsOn ?? []).map((node, at) => (
                       <span key={node.id}>
                         {at > 0 && ', '}
                         {node.page !== undefined ? <GraphLink id={node.id} address={node.page}>{node.label}</GraphLink> : node.label}
@@ -506,7 +515,7 @@ export function GraphQuestionsSection({ questions }: { questions: GraphQuestionS
                     ))}
                   </span>
                 )}
-                {question.open ? <span className="graph-chip graph-chip-open">{t('graph.questionOpen')}</span> : <QuestionAnswer answer={question.answer!} />}
+                {(question.open ?? true) ? <span className="graph-chip graph-chip-open">{t('graph.questionOpen')}</span> : <QuestionAnswer answer={question.answer!} />}
               </li>
             ))}
           </ul>
@@ -593,7 +602,7 @@ export function GraphNodePage({ page, repos }: { page: GraphPageModel; repos: re
 
       {/* What to do next (the self-filling charter's outcome 5): the server decided it from the graph, and every page
         * carries one — «Всегда должна быть рекомендация что делать». */}
-      <NextStepSection step={page.nextStep} />
+      {page.nextStep !== undefined && <NextStepSection step={page.nextStep} />}
 
       {/* A question's own page is where a person answers it: the answer the graph holds, or the form that writes one. */}
       {node.kind === 'question' && (
@@ -609,8 +618,8 @@ export function GraphNodePage({ page, repos }: { page: GraphPageModel; repos: re
               status: node.status,
               dependsOn: [],
               rank: 0,
-              answer: page.answer,
-              open: page.answer === null,
+              answer: page.answer ?? null,
+              open: (page.answer ?? null) === null,
             }}
           />
         </section>

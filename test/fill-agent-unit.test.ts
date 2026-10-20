@@ -431,7 +431,9 @@ describe('one agent unit, end to end', () => {
             value: { repository: REPOSITORY, subject: question.id, decision: 'answers', text: 'one.ts is the only entry point the folder has', evidence: `${REPOSITORY}@${COMMIT}:a/one.ts` },
             place: { repository: REPOSITORY, file: 'a/one.ts', startLine: 1, endLine: 2 },
           } } },
-          { answer: { status: 'done', covered: ['a'], remaining: ['b', 'c'], summary: 'the first folder holds one file, and it is the way in' } },
+          // The unit read the whole scope, so it publishes its set: a unit that leaves places uncovered splits into
+          // children, and what this test holds is the answer it wrote, not its coverage.
+          { answer: { status: 'done', covered: ['a', 'b', 'c'], remaining: [], summary: 'the first folder holds one file, and it is the way in' } },
         ],
       },
     });
@@ -454,7 +456,7 @@ describe('one agent unit, end to end', () => {
       const page = await readPageModel({ database: opened.owner, product: PRODUCT, id: question.id });
       expect(page.ok).toBe(true);
       if (page.ok === false) throw new Error(page.message);
-      const shown = page.page.decision;
+      const shown = page.page.answer;
       expect(shown?.decision).toBe('answers');
       expect(shown?.text).toBe('one.ts is the only entry point the folder has');
       expect(shown?.layer).toBe('inferred');

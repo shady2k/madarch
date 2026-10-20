@@ -538,10 +538,10 @@ export type GraphPageSet = {
   readAt: number;
   /** The what-to-do message when the set is empty, else null. */
   message: string | null;
-  /** The product's open questions, grouped by the charter's types and ranked by what depends on the answer. */
-  questions: GraphQuestionSet;
+  /** The product's open questions, grouped by the charter's types; absent from a server older than the change. */
+  questions?: GraphQuestionSet;
   /** What to do next with the product: its most asked question, else the most important node no coverage reached. */
-  nextStep: GraphNextStep;
+  nextStep?: GraphNextStep;
 };
 
 /** One fact as a page shows it. */
@@ -608,12 +608,12 @@ export type GraphQuestionEntry = {
   layer: GraphLayer;
   status: GraphStatus;
   code?: GraphCodeLink;
-  /** The pages an answer would change, the question's subject first. */
-  dependsOn: GraphNodeRef[];
+  /** The pages an answer would change, the question's subject first; absent from a server older than the change. */
+  dependsOn?: GraphNodeRef[];
   /** How many pages depend on the answer: `dependsOn`'s own size. */
-  rank: number;
-  answer: GraphAnswerRecord | null;
-  open: boolean;
+  rank?: number;
+  answer?: GraphAnswerRecord | null;
+  open?: boolean;
 };
 
 /** One group of the product's questions: the charter's own type, or the one an agent wrote. */
@@ -675,11 +675,11 @@ export type GraphPageModel = {
   coverageScopes: string[];
   questions: GraphQuestionEntry[];
   /** What a person decided about the page's proposed content, or null when nobody has. */
-  decision: GraphAnswerRecord | null;
+  decision?: GraphAnswerRecord | null;
   /** The answer that closed this node's own question, when the node is a question. */
-  answer: GraphAnswerRecord | null;
-  /** What to do next with this page: the charter's order, open questions first. */
-  nextStep: GraphNextStep;
+  answer?: GraphAnswerRecord | null;
+  /** What to do next with this page: the charter's order, open questions first; absent from a server older than the change. */
+  nextStep?: GraphNextStep;
   drafts: GraphDraftRow[];
   counts: { facts: number; assumptions: number; out: number; in: number; coverage: number; questions: number; drafts: number };
   truncated: boolean;

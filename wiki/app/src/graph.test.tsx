@@ -863,8 +863,12 @@ describe('open questions, answers and the next step on the graph pages', () => {
     const installed = install(world());
     window.history.pushState({}, '', addressOfGraphPage(MODULE));
     intoApp(createElement(App, { reconnectMs: 5 }));
-    await until(() => document.querySelector('[data-testid="graph-accept"]') !== null, 'the acceptance buttons');
-    (document.querySelector('[data-testid="graph-accept"]') as HTMLButtonElement).click();
+    await until(() => document.querySelector('[data-testid="graph-decision-form"]') !== null, 'the acceptance form');
+    const form = document.querySelector('[data-testid="graph-decision-form"]') as HTMLFormElement;
+    const note = form.querySelector('textarea') as HTMLTextAreaElement;
+    note.value = 'the boundary is right';
+    note.dispatchEvent(new Event('input', { bubbles: true }));
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     await until(() => document.querySelector('[data-testid="graph-decision-record"]') !== null, 'the decision record');
     expect(document.querySelector('[data-testid="graph-decision-record"]')?.textContent).toContain('Accepted by a person');
     expect(installed.calls).toContain('/api/graph/decide');

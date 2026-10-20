@@ -25,10 +25,11 @@ charter asks for, and puts a next step on every page:
   dropped.
 - **`src/fill/facts.ts`** gains one fact kind, `answer`: the record that closes a question
   or settles what a page proposes. Its `decision` is `answers`, `accepts` or `rejects`; its
-  `subject` is the node it decides about; its `text` is the words. A person's answer is
-  `declared` and accepted as it stands (0005's one declared layer a stage never writes,
-  as `claim` carries it too); an agent's is `inferred` and proposed, with the place it read
-  as its evidence.
+  `subject` is the node it decides about; its `text` is the words; its `by` is the person's
+  own name, when the record is theirs. A person's answer is `declared` and accepted as it
+  stands (0005's one declared layer a stage never writes, as `claim` carries it too); an
+  agent's is `inferred`, proposed, and the schema refuses it without the `evidence` it read —
+  a proposed answer nobody can check is no answer.
 - **`src/fill/graph-pages.ts`**: a page's questions now carry what depends on the answer
   (`dependsOn`: the pages a reading of the answer would change — the node the question is
   about and the page-worthy nodes its edges name) and its rank (that list's size), the
@@ -47,7 +48,9 @@ charter asks for, and puts a next step on every page:
   the discussion record the wiki already keeps: `answers/` and `acceptances/`, one file per decided node, one file per decided node, dated, signed, with the person's own
   Markdown under its heading unchanged — a heading of their own inside an answer stays their
   text. A file that is neither document is a problem with its full path and 1-based line.
-- **`src/fill/declared.ts`** reads those documents back into the graph in one transaction:
+- **`src/fill/declared.ts`** reads those documents back into the graph in one transaction
+  (a person's write is staged in the product's git, committed only once the graph holds it,
+  and a refused graph write leaves the earlier document standing):
   the `answer` fact each one names, held by the product itself (`fill_fact_holding.product`,
   the holder `person`) rather than by a unit, the person's earlier answer about the same node
   retired so one answer closes a question, and `fill_page_change` rows for the pages the
@@ -84,6 +87,44 @@ charter asks for, and puts a next step on every page:
 - **The fill's capability text**, proposed by `fill-pipeline-monday` and not current: the
   graph pages' own requirement text lands with the stage that closes decision 0026, as
   madarch-tzte.20.1–23.8 recorded theirs.
+
+## Design and decisions
+
+- **One record kind, one act.** A question's answer and a page's acceptance are the same act
+  by the same two kinds of author, so they are one fact kind (`answer`) with a `decision`:
+  one read, one page section, one place for a test to state what a decision is.
+- **A person's record belongs to the product, not to a unit.** `fill_fact_holding.product`
+  and the holder `person` make it visible to every product-scoped read and to no unit's
+  replacement; a unit's publication drops only its own holdings, so a person's answer cannot
+  be deleted by a fill that publishes the same node again.
+- **Two steps, in both places or in neither.** A decision is written to a temporary file
+  beside its document, the graph takes the record, and only then is the document renamed
+  into place: a refused graph write discards the temporary and leaves the person's earlier
+  answer in the product's git, and a crash between the two leaves the earlier document with
+  nothing half-written.
+- **A person's word wins over an agent's.** A node's answer and its acceptance are read with
+  `declared` first and `inferred` after, each layer in code point order of its id; an agent
+  whose answer an earlier run published cannot outrank the person who answered afterwards.
+- **Ranked by what depends on it.** A question's rank is the pages an answer would change —
+  the node it is about and the page-worthy nodes that node's edges name — measured from the
+  graph's own reads, never a separate table.
+- **The step, in the charter's order.** The page's own open question first, then a scope
+  nobody covered on a node stage 5 ranked important (a page whose coverage landed under its
+  place scope is covered too, `coverageScopesOf`'s own three tokens), then an assumption to
+  review while nobody has decided, then nothing; a question's own page recommends answering
+  it, since that is the one act it is for.
+- **Open points for the integrator**, in the order they matter:
+  1. **Reading the documents back on their own.** A decision reaches the graph in the request
+     that writes it (`applyDecisions`); nothing reads `answers/` and `acceptances/` at a
+     service start or after a store is rebuilt from git, so a decision hand-edited in the
+     product's repository, or one written while the store was gone, waits for its next write.
+     `readDecisions` is the reader such a step needs; a fill run's start is where it belongs.
+  2. **What the page set pays for the ranks.** The page set now reads one question set — two
+     narrow reads of two kinds and, per distinct node a question is about, that node's edges
+     (`QUESTIONS_RANKED = 200`, with the marker that names what the bound left out). On a
+     product with hundreds of questions the first page-set read after a publication pays that
+     cost; the answer is kept until the next publication, and nothing measured it yet on a
+     fill of the madarch tree.
 
 ## Preserved contracts
 

@@ -626,9 +626,10 @@
       "filed": "Записано в git продукта: {{file}}; страницы, которые от него зависят, прочитаны заново.",
       "answerTitle": "Ответьте на этот вопрос",
       "answerLabel": "Ваш ответ (Markdown)",
-      "answerSubmit": "Ответить"
+      "answerSubmit": "Ответить",
+      "proposed": "предложено агентом ({{layer}}), это ещё не слово человека"
     },
-    "openQuestionsTitle": "Открытые вопросы",
+    "openQuestionsTitle": "Вопросы продукта",
     "noOpenQuestions": "В графе продукта нет открытых вопросов.",
     "openQuestionsCount": "{{open}} открыто, {{answered}} отвечено, по типам устава.",
     "questionRank_one": "от ответа зависит {{count}} страница",
@@ -636,6 +637,7 @@
     "questionRank_few": "от ответа зависят {{count}} страницы",
     "questionRank_many": "от ответа зависит {{count}} страниц",
     "questionDependsOn": "От него зависит:",
-    "questionOpen": "открыт"
+    "questionOpen": "открыт",
+    "questionsCut": "Часть вопросов продукта здесь не показана:"
   }
 }
