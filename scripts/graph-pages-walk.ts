@@ -1294,6 +1294,12 @@ async function livePhase(options: WalkOptions, product: Product): Promise<void> 
 
 // ---- the speed of a page and of the index -----------------------------------
 
+/** The server answer above which the walk keeps its own request line: a stand that waited on the server names what it waited for (madarch-tzte.23.8). */
+const SLOW_REQUEST_MS = 200;
+
+/** How often the walk samples the serving process's own loop while pages stand: a stall is work no route names (madarch-tzte.23.8). */
+const LOOP_SAMPLE_MS = 50;
+
 /** One read, as it cost and what it answered. */
 interface Timed<T> { readonly ms: number; readonly value: T }
 
@@ -1319,6 +1325,9 @@ interface Answer {
   readonly durationMs: number;
   readonly bytes: number;
 }
+
+/** What a page whose context cannot be read any more recorded: no long task, no navigation. */
+const EMPTY_THREAD: Thread = { longTasks: 0, busyMs: 0, longestTasks: [], navigation: null };
 
 /** The page's own thread on the navigation it stands on: a stand is a wait on the network or on the browser, and only this tells them apart. */
 async function threadOf(target: Page): Promise<Thread> {
@@ -1357,7 +1366,11 @@ async function standPage(page: Page, url: string): Promise<{ standMs: number; di
   } catch {
     // A page that never stands is a number of its own: the walk records what the page showed instead of failing.
     const shown = await page.evaluate(() => ({ path: window.location.pathname, text: (document.body?.textContent ?? '').replace(/\s+/gu, ' ').slice(0, 300) })).catch(() => null);
-    return { standMs: -1, diagramsMs: -1, settledMs: -1, thread: await threadOf(page), answers: await answersOf(page), shown };
+    // A page whose context died with it (a crashed renderer) records the failure as its number:
+    // the walk's own read of the thread must not become the failure the walk reports.
+    const thread = await threadOf(page).catch(() => EMPTY_THREAD);
+    const answers = await answersOf(page).catch(() => []);
+    return { standMs: -1, diagramsMs: -1, settledMs: -1, thread, answers, shown };
   }
   const standMs = Date.now() - started;
   // Read the thread and the answers now, before the diagrams: the page's own stand is what the bar names,
@@ -1395,10 +1408,24 @@ async function speedPhase(options: WalkOptions, product: Product): Promise<void>
   const services: StartedServer[] = [];
   let browser: Browser | undefined;
   let page: Page | undefined;
+  /** The loop's own sampler, cleared with the phase. */
+  let loopTimer: ReturnType<typeof setInterval> | undefined;
   const notes: string[] = [];
   const note = (line: string): void => {
     if (notes.length < 200) notes.push(line);
     console.error(`walk: ${line}`);
+  };
+  // The server's own request lines, kept only where one took long: a stand that waited on the
+  // server names the answer it waited for, and one that waited on the browser names none
+  // (madarch-tzte.23.8). The server logs `METHOD /path status … <ms>ms`, so the number is read
+  // from the line rather than measured a second time.
+  const slow: string[] = [];
+  let slowDropped = 0;
+  const logRequest = (line: string): void => {
+    const ms = Number(/(?:^|\s)(\d+)ms(?:\s|$)/u.exec(line)?.[1] ?? '0');
+    if (ms < SLOW_REQUEST_MS) return;
+    if (slow.length < 60) slow.push(line);
+    else slowDropped += 1;
   };
   try {
     const source = fill.service.pages(product.folder);
@@ -1421,7 +1448,7 @@ async function speedPhase(options: WalkOptions, product: Product): Promise<void>
       host: '127.0.0.1',
       graphPages: (folder) => fill.service.pages(folder),
       env: { ...process.env, MADARCH_WIKI_DIAGRAM: 'mermaid', MADARCH_WIKI_CACHE: cache },
-      log: () => undefined,
+      log: logRequest,
       errorLog: (line) => note(`server: ${line}`),
     });
     services.push(started);
@@ -1486,6 +1513,18 @@ async function speedPhase(options: WalkOptions, product: Product): Promise<void>
     // The browser: the index that stands, and one page per kind — cold and warm.
     browser = await puppeteer.launch({ executablePath: resolveBrowserExecutable(), headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
     page = await newPage(browser, note);
+    // The process that owns the store serves the wiki from the same loop the browser's answers are made on,
+    // so work that holds that loop — a store's own long job, a collection — answers no route and writes no
+    // request line. This samples the loop while the pages stand, because a stand that waited on such work
+    // names nothing else (madarch-tzte.23.8).
+    const loopStalls: number[] = [];
+    let loopNext = Date.now() + LOOP_SAMPLE_MS;
+    loopTimer = setInterval(() => {
+      const now = Date.now();
+      const lag = now - loopNext;
+      loopNext = now + LOOP_SAMPLE_MS;
+      if (lag >= SLOW_REQUEST_MS) loopStalls.push(lag);
+    }, LOOP_SAMPLE_MS);
     /** The index stands when its groups and the rows the page draws are there (23.8). */
     const standIndex = async (): Promise<{ standMs: number; thread: Thread; answers: Answer[] }> => {
       const at = Date.now();
@@ -1523,8 +1562,11 @@ async function speedPhase(options: WalkOptions, product: Product): Promise<void>
       stands[kind] = { id: chosenPage.id, label: chosenPage.label, cold, warm, facts: numbers['facts'], relations: numbers['relations'], diagrams: numbers['diagrams'] };
     }
     measure('speedStands', stands);
+    measure('speedSlowRequests', { overMs: SLOW_REQUEST_MS, lines: slow, dropped: slowDropped });
+    measure('speedEventLoop', { sampleMs: LOOP_SAMPLE_MS, overMs: SLOW_REQUEST_MS, stalls: loopStalls.length, longestMs: [...loopStalls].sort((one, two) => two - one).slice(0, 6) });
     measure('speedNotes', { notes });
   } finally {
+    if (loopTimer !== undefined) clearInterval(loopTimer);
     try {
       if (browser !== undefined) await browser.close();
     } finally {

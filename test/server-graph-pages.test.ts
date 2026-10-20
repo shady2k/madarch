@@ -364,19 +364,31 @@ describe('the page set a client is sent', () => {
     });
   });
 
-  test('the two shapes are two bodies, each compressed once for its own set, and neither answers the other\'s bytes', async () => {
+  test('the two shapes are two bodies, each kept for the set it was made from, and a new set is new bytes', async () => {
     const ask = (fields: string): Request => new Request(`http://127.0.0.1:1/api/graph/pages${fields}`, { headers: { 'accept-encoding': 'gzip' } });
-    const pagesPart = part();
-    const readBack = async (handled: Awaited<ReturnType<GraphPagesPart['pages']>>): Promise<unknown> => {
+    // The source answers one set object until the test replaces it: that identity is what a body is kept for.
+    let held = bigSet();
+    const pagesPart = createGraphPagesPart({
+      json: (status: number, body: unknown) => Response.json(body, { status }),
+      refused: (status: number, error: { message: string }) => ({ response: Response.json({ message: error.message }, { status }), refusal: error.message }),
+      errorLog: () => undefined,
+    }, { ...source, pageSet: async () => held });
+    const readBack = async (handled: Awaited<ReturnType<GraphPagesPart['pages']>>): Promise<{ total: number; pages: unknown[] }> => {
       expect(handled.response.headers.get('content-encoding')).toBe('gzip');
-      return JSON.parse(new TextDecoder().decode(Bun.gunzipSync(new Uint8Array(await handled.response.arrayBuffer()))));
+      return JSON.parse(new TextDecoder().decode(Bun.gunzipSync(new Uint8Array(await handled.response.arrayBuffer())))) as { total: number; pages: unknown[] };
     };
-    const listed = { ...bigSet(), pages: bigSet().pages.map((entry) => ({ id: entry.id, kind: entry.kind, label: entry.label, layer: entry.layer })) };
-    // The list, then the whole set, then the list again: one kept body per shape, and the second read
-    // of a shape is the body it was made from.
-    expect(await readBack(await pagesPart.pages(ask('?fields=nav')))).toEqual(listed);
-    expect(await readBack(await pagesPart.pages(ask('')))).toEqual(bigSet());
-    expect(await readBack(await pagesPart.pages(ask('?fields=nav')))).toEqual(listed);
+    const listedOf = (set: ReturnType<typeof bigSet>): unknown[] => set.pages.map((entry) => ({ id: entry.id, kind: entry.kind, label: entry.label, layer: entry.layer }));
+    // The list, then the whole set, then the list again: one kept body per shape, and neither answers the other's bytes.
+    expect((await readBack(await pagesPart.pages(ask('?fields=nav')))).pages).toEqual(listedOf(held));
+    expect((await readBack(await pagesPart.pages(ask('')))).pages).toEqual(held.pages);
+    expect((await readBack(await pagesPart.pages(ask('?fields=nav')))).pages).toEqual(listedOf(held));
+    // The body is the one kept for that set: a set whose contents moved under the same object is still
+    // answered as the set it was made from, which is what the source's own cache makes stable.
+    held.total = 7;
+    expect((await readBack(await pagesPart.pages(ask('?fields=nav')))).total).toBe(2_000);
+    // A new set is new bytes.
+    held = { ...held, total: 7 };
+    expect((await readBack(await pagesPart.pages(ask('?fields=nav')))).total).toBe(7);
   });
 
   test('a fields value the page set cannot give is a wrong value, named with the one it accepts', async () => {
