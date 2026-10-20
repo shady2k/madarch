@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Type } from 'typebox';
 import { readFillStageConfiguration } from '../src/fill/config.js';
+import { createStageRegistry } from '../src/fill/stages/index.js';
+import { overviewDeclaration } from '../src/fill/stages/overview.js';
 import {
   deriveStageGraph, resolveStageConfiguration, snapshotStageConfigurations, StageRegistry, type DerivedStageGraph,
 } from '../src/fill/registry.js';
@@ -1122,5 +1124,38 @@ describe('a cycle of the stage graph is refused, naming it', () => {
     if (read.ok) throw new Error('expected a starvation');
     expect(read.cycles).toEqual([]);
     expect(read.starvation.map((starved) => starved.path)).toEqual(['a → b-facts → b (disabled)']);
+  });
+});
+
+describe('the stages a run registers, together', () => {
+  // The registry a wired run holds: the eight deterministic stages and every agent stage of 0026 this
+  // build lands. A fake source is enough — derivation reads declarations and runs nothing.
+  const snapshots = {
+    pins: async () => [],
+    open: async () => { throw new Error('derivation reads no repository'); },
+  };
+  const registry = createStageRegistry({ snapshots, agent: { agent: { id: 'fake-agent', command: 'fake-agent' } } });
+
+  test('read together with no cycle, stage 8 before stage 10 and by no edge of stage 10 back', () => {
+    // madarch-tzte.26.1, run of 2026-10-20: the overview declared an optional consume of `claim`, which
+    // stage 10 also produces, and stage 10 reads the overview's claims — the pair was a cycle
+    // (doc-intent → overview → doc-intent) and every run of the product was refused.
+    const read = deriveStageGraph(registry);
+    if (!read.ok) throw new Error(`the declared stages do not read together: ${read.cycles.map((cycle) => cycle.join(' → ')).join('; ')}`);
+    const order = read.graph.order;
+    expect(order).toContain('overview');
+    expect(order).toContain('doc-intent');
+    // 0026: a later pass relies on the results of earlier ones — stage 10 reads the overview's claims.
+    expect(order.indexOf('doc-intent')).toBeGreaterThan(order.indexOf('overview'));
+    expect(read.graph.edges.some((edge) => edge.from === 'overview' && edge.to === 'doc-intent')).toBe(true);
+    expect(read.graph.edges.some((edge) => edge.from === 'doc-intent' && edge.to === 'overview')).toBe(false);
+  });
+
+  test('the overview declares no consume of a kind an agent stage writes: the unit reads the intent so far through its own tool', () => {
+    // The packet never reads a kind an agent unit writes (0026, "Agent input"), and the overview's own
+    // words say the intent the graph holds is left to the unit's `claims_about` tool. A declared consume
+    // of `claim` was the half of the cycle above that stage 8 brought to the pair.
+    const declared = overviewDeclaration().consumes.optional.map((consume) => consume.capability);
+    expect(declared).not.toContain('claim');
   });
 });

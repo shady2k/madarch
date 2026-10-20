@@ -28,6 +28,7 @@ import { createFillOrchestratorService, type FillOrchestratorService, type FillR
 import { readProgress, readUnitReads } from '../src/fill/orchestrator-store.js';
 import { answerMembership } from '../src/fill/graph-reads.js';
 import { OVERVIEW_STAGE_ID } from '../src/fill/stages/overview.js';
+import { DOC_INTENT_STAGE_ID } from '../src/fill/stages/doc-intent.js';
 import { PRODUCT_SCOPE_NAME } from '../src/fill/stages/agent-stage.js';
 import { UNIT_TOOL_PATH } from '../src/fill/unit-tools.js';
 import { startServer, type StartedServer } from '../src/server/http.js';
@@ -90,9 +91,18 @@ interface Open {
  */
 function agentScript(commit: string): Record<string, unknown> {
   return {
-    // The product's one overview unit (stage 8, madarch-tzte.24.1's shape): its scope is the whole
-    // product, its places are the repositories, and it reads the bytes of the file the test changes.
-    byPrompt: [],
+    // The agent stages of 0026 this build lands, each with its own answer: the product's one overview
+    // unit (stage 8, its scope the whole product, its places the repositories) reads the bytes of the
+    // file the test changes; stage 10's unit of the training repository's documents names them all, so
+    // its coverage is complete and it splits into nothing.
+    byPrompt: [
+      {
+        matches: '"scope": "training"',
+        steps: [
+          { answer: { status: 'done', covered: ['README.md', 'docs/architecture.md', 'services/orders/README.md', 'model-ids.json'], remaining: [], summary: 'The README promises a retention the orders service spells out' } },
+        ],
+      },
+    ],
     steps: [
       { call: { tool: 'evidence_span', arguments: { repository: TRAINING, commit, file: CHANGED, startLine: 1, endLine: 200 } } },
       { call: { tool: 'evidence_span', arguments: { repository: PRODUCT, commit: git(product, 'rev-parse', 'HEAD'), file: 'workspace.yaml', startLine: 1, endLine: 200 } } },
@@ -272,6 +282,8 @@ describe('a commit, and what it reruns', () => {
   /** The commit the one-file commit made in the training repository, and the commit the fill stood on before it. */
   let changed = '';
   let previous = '';
+  /** The training repository fact's id, which stage 10's unit of it is named by. */
+  let trainingRepositoryId = '';
 
   beforeAll(async () => {
     // One wiring and one service for every run: decision 0027's "a second run of the same product reuses what
@@ -292,6 +304,9 @@ describe('a commit, and what it reruns', () => {
     opened.script(changed);
     third = await opened.run('run-three');
     pages = await opened.pagesOf('run-three');
+    trainingRepositoryId = await opened.owner.transaction('snapshot', async (executor) => (
+      await executor.query<{ id: string }>("SELECT id FROM fill_fact WHERE kind = 'repository' AND value->>'repository' = $1", [TRAINING])
+    ).rows[0]!.id);
     for (const [name, result] of [['run-one', first], ['run-two', second], ['run-three', third]] as const) {
       if (result.state === 'succeeded' && result.settled) continue;
       // eslint-disable-next-line no-console
@@ -307,7 +322,7 @@ describe('a commit, and what it reruns', () => {
     expect({ state: first?.state, settled: first?.settled, reused: first?.reused }).toEqual({ state: 'succeeded', settled: true, reused: [] });
     // A run plans before anything publishes, and the agent stage plans from the graph (0027): the first run of a
     // product plans no agent unit, and the run after the graph is filled plans one per repository.
-    expect((first?.units ?? []).filter((unit) => unit.stageId === OVERVIEW_STAGE_ID)).toEqual([]);
+    expect((first?.units ?? []).filter((unit) => unit.stageId === OVERVIEW_STAGE_ID || unit.stageId === DOC_INTENT_STAGE_ID)).toEqual([]);
     expect({ state: second?.state, settled: second?.settled }).toEqual({ state: 'succeeded', settled: true });
     // 0026's hierarchy, its top: the product's one overview unit, whose scope is every repository the run pins.
     expect((second?.units ?? []).filter((unit) => unit.stageId === OVERVIEW_STAGE_ID).map((unit) => `${unit.unitId}: ${unit.state}`)).toEqual([
@@ -333,10 +348,15 @@ describe('a commit, and what it reruns', () => {
     // outside both, and the store's own answer below is what says the overview unit was the only agent unit.
     expect((third?.units ?? []).filter((unit) => unit.stageId === OVERVIEW_STAGE_ID).map((unit) => unit.unitId))
       .toEqual([`${OVERVIEW_STAGE_ID}/${PRODUCT_SCOPE_NAME}`]);
+    // Stage 10's unit of the training repository's documents is inherited too: the commit moved no
+    // document, and its reads stand. The unit's id is the repository fact's own (24.3's plan), read
+    // from the store here rather than guessed.
     expect([...(third?.reused ?? [])].sort()).toEqual([
       `snapshot/${PRODUCT}`,
       `modules/modules:${PRODUCT}`,
       `history/${PRODUCT}@${git(product, 'rev-parse', 'HEAD')}`,
+      // The unit's id is the store's: the stage's own, then the unit's, which is the repository fact's id.
+      `doc-intent/${trainingRepositoryId}`,
     ].sort());
   }, 900_000);
 

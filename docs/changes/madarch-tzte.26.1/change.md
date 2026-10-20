@@ -247,6 +247,19 @@ None.
   and `measuredMoved` answering `false` killed `the pages the update announces are the pages its
   publications changed` (`test/fill-impact.test.ts`). Each probe was one throwaway edit on the pod,
   run once and discarded with the staging it ran in.
+- **The stage cycle the merged tree had, and whose defect it was.** With madarch-tzte.24.3's stage
+  10 (`doc-intent`) landed, every run of a wired product was refused with
+  `stage cycle doc-intent → overview → doc-intent`. The registry draws capability edges by the
+  capability's name, and both agent stages declared an optional consume of `claim` while both produce
+  it — so each drew an edge against the other. The propagation this change adds draws no stage edges;
+  the declarations did. The defect was stage 8's: the overview's packet never reads a kind an agent
+  unit writes — its own words say the intent the graph holds is left to the unit's `claims_about`
+  tool — so its optional `claim` consume was dead weight inherited from madarch-tzte.22.3's reference
+  declaration, and it is removed here, with a test that derives the whole registered registry and
+  requires the pair to read with stage 10 after stage 8. Stage 10's optional `claim` consume stands:
+  it is what orders stage 10 after stage 8, which is 0026's "every later pass relies on the results
+  of previous ones", and its unit reads the overview's claims through the same tool. Madarch-tzte.24.3
+  owns that stage's declaration; nothing of it is changed here.
 - **On madarch-tzte.24.1's shape.** This change is rebased on it (base `24ec77f2`): the landed
   agent stage of a run is stage 8, the product's overview (`src/fill/stages/overview.ts`), built on
   the shape's `createAgentStage`, and the generic `agent-unit` is the shape's reference declaration no
