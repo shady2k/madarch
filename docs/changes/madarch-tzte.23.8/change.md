@@ -173,6 +173,56 @@ None.
 - **No `mutation` receipt.** The owner runs Stryker once per assembled stage, off the
   path; acceptance escalates per `mutationFallback: escalate`.
 
+## Acceptance evidence
+
+Measured on the current madarch tree on the pod, not estimated. The store: a product of a
+shallow clone of `main` at `aa19c35b` (1 129 files) filled by the eight deterministic
+stages in one process — **2 981 units in 1 878 passes in 1 291 873 ms**, 23 kinds,
+283 000 facts, **35 370 pages** (symbol 29 605, test 3 088, entry-point 2 375, module 295,
+package 5, repository 2). The walk: `scripts/graph-pages-walk.ts --phase speed` over that
+store, headless Chromium at the owner's 1150x900 window, on a SkyPilot pod of 8 GB
+(`MADARCH_SKY_MEMORY=8`; the 4 GB pod ran the process out of memory during the browser
+phase, exit 137, madarch-tzte.21.11's ground).
+
+**What the reads cost, before and after this change** (each number is one read of the
+same store):
+
+| read | before | after |
+| --- | --- | --- |
+| the page set, store | 860 746 ms cold, 940 018 ms warm | 341 319 ms cold, **1 ms** warm |
+| a repository page, store | 20 631–21 428 ms | **0 ms** warm |
+| a repository page's diagrams, store | 48 225–48 851 ms cold | **0 ms** warm |
+| a page's relations (`adjacent`) | 2 749 ms of a page | included above |
+| `/api/graph/pages` in the browser | 2 406 ms, 16 527 510 bytes | **195–211 ms, 2 249 358 bytes** (gzip) |
+| the index, browser | 4 137 ms cold, 4 987 ms warm, 142 180 nodes | **3 980 ms cold, 3 342 ms warm, 607 rows, 3 132 nodes** |
+
+**Against the task's bar.** The index and the four node pages do **not** stand in under a
+second after warm-up: the index stood in **3 342 ms** and the pages in **2 411–3 247 ms
+cold and 2 765–2 968 ms warm** (`speedStands`). The graph's own answers are no longer what
+a reader waits for — a page's model and diagrams come from the service in **2–28 ms** and
+its diagrams in **108–392 ms**, and the page set in **195 ms** — and what remains is on
+the app's own load path, measured by the browser's resource timings:
+- **`/api/architecture` takes 2 798–5 810 ms** on every page load, for a 33 KB answer (the
+  app's shell, not the graph's);
+- the app parses the **2 249 358 bytes** of the page set and groups its 35 370 entries on
+  every page load (`pageSetOf`, `graphKindGroups`, `wiki/app/src/graph.ts`), which is the
+  rest of the stand time.
+
+This change therefore fixes the cause it measured in the reads — the statement repeated per
+row, the unindexed edge scan, the page model read again for diagrams, the 16.5 MB body taken
+whole, and 35 370 rows drawn at once — and it does **not** meet the bar, because the app
+still pays seconds for things that are not the graph's answers. The next step is named under
+open points: the architecture answer's cost on every load, and a page set the app does not
+have to parse whole (a slim list answer, or a search over it).
+
+**What stands in tests and checks**: `bun run check` (`tsc --noEmit`) exit 0 at every commit;
+the feature document gate clean; the focused suites on the pod (`madarch-sky-test`) — the
+cache, the diagrams read, the page set, the two server parts, the diagram models and the
+edge reads — **153 pass, 2 fail** before the last commit (the two the rebase onto
+madarch-tzte.23.7 changed the node choice of, answered in it), see the queue entry for the
+run at the final SHA; `wiki/app`: `bun run check`, `bun test` (**220 pass, 0 fail**),
+`bun run build`; and the review's findings, answered commit by commit.
+
 ## DONE WHEN
 
 On the current madarch tree, filled on the pod: the graph index and a repository, a
