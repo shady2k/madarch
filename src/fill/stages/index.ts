@@ -22,6 +22,7 @@ import { createInventoryStage } from './inventory.js';
 import { createModulesStage } from './modules.js';
 import { createNarrativeStage } from './narrative.js';
 import { createOverviewStage } from './overview.js';
+import { createRecoveryStage } from './recovery.js';
 import { createSemanticResolutionStage } from './semantic-resolution.js';
 import { createSnapshotStage } from './snapshot.js';
 import { createSyntaxStage } from './syntax.js';
@@ -85,7 +86,12 @@ export function createStageRegistry(wiring: FillStageWiring): StageRegistry {
     // Stage 12 of 0026 (madarch-tzte.24.5): the modules understood bottom-up, each parent from its children's
     // bounded summaries, on the agent-stage shape.
     registry.register(createUnderstandingStage(agent));
+    // Stage 13 of 0026 (madarch-tzte.24.6): the system recovered from every earlier reading and reconciled
+    // with the intended model the product declares, on the agent-stage shape.
+    registry.register(createRecoveryStage(agent));
     // The pages stage of 0026 (madarch-tzte.25.1): a page's narrative text, each sentence tied to its facts.
+    // It stands last: a page's sentences cite the claims the stages before it wrote, and its own optional
+    // consume of `claim` orders it after this stage's publications.
     registry.register(createNarrativeStage(agent));
   }
   return registry;

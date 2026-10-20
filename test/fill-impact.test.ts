@@ -296,8 +296,11 @@ function reranByTheCommit(options: {
     ...['services/checkout/src/checkout.ts', 'services/orders/src/order.go', 'services/payments/src/payment.ts']
       .map((path) => `semantic-resolution/file:${repository}:${path}`),
     // The agent units the commit's own readings moved: the overview's recorded span (madarch-tzte.26.1) and the
-    // boundary refinement's reads, which the clustering the commit replans made stale (madarch-tzte.24.2).
+    // boundary refinement's reads, which the clustering the commit replans made stale (madarch-tzte.24.2) — and
+    // the product's recovery unit, whose recorded reads stand on the module tree stage 5 re-measures at the new
+    // commit (madarch-tzte.24.6: the recovery reads its module summaries out of that tree's claims).
     options.agentUnitOfRepository,
+    `recovery/${PRODUCT_SCOPE_NAME}`,
   ].sort();
 }
 
