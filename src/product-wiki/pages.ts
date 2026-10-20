@@ -137,6 +137,16 @@ export type ProductWikiContract =
   | { known: true; version: number }
   | { known: false; version?: number; message: string };
 
+/**
+ * Every page's text as `page()` serves it, with the revision it was read at, from one
+ * walk of the product (madarch-tzte.23.8): a reader that needs both — the Architecture
+ * answer is keyed by the revision and scans the texts — pays for one walk rather than two,
+ * and reads the text a reader reads (the header's field lines blanked, `blankFieldLines`).
+ */
+export type ProductWikiTexts =
+  | { ok: true; revision: string; texts: ReadonlyMap<string, string> }
+  | { ok: false; message: string };
+
 /** The wiki's pages as one ask found them, and how the registry is served. */
 export type ProductWikiPages =
   | { ok: true; revision: string; pages: WikiPageEntry[]; contract?: ProductWikiContract }
@@ -181,6 +191,8 @@ export interface ProductWiki {
   pages(): ProductWikiPages;
   /** One page by its path within the product, read from disk now. */
   page(path: string): ProductWikiPage;
+  /** Every page's text as `page()` serves it, and the revision it was read at, from one walk of the product. */
+  pageTexts(): ProductWikiTexts;
   /** The product's questions as the set's form computes their state, read from disk now. */
   questions(): ProductWikiQuestions;
   /** Every page's recommendation inputs (path, title, kind, id, text and structural findings) from one product walk, without the per-page full reads. */
@@ -483,6 +495,22 @@ class FreshProductWiki implements ProductWiki {
       return changedAt === undefined ? question : { ...question, changedAt };
     });
     return { ok: true, questions: withChange, openCount: withChange.filter((question) => question.state === 'open').length, kindName: questionKind.name, ...(questionForm.answererField === undefined ? {} : { answererLabel: questionForm.answererField }), ...(questionForm.concernsField === undefined ? {} : { concernsLabel: questionForm.concernsField }) };
+  }
+
+  pageTexts(): ProductWikiTexts {
+    const taken = this.snapshot();
+    if (!taken.ok) return taken;
+    const { revision, paths, texts, docs } = taken.snapshot;
+    const served = new Map<string, string>();
+    for (const path of paths) {
+      const markdown = texts.get(path) ?? '';
+      const doc = docs.byPath.get(path);
+      // The text a page's reader reads: the header block shows the form's fields, and the body's
+      // copies of those lines are blanked (`page()`), so an element id a field line names is no
+      // mention in the answer's backlinks either.
+      served.set(path, doc === undefined ? markdown : blankFieldLines(markdown, doc.fields));
+    }
+    return { ok: true, revision, texts: served };
   }
 
   nextStepPages(): { ok: true; pages: RecommendationPage[] } | { ok: false; message: string } {
