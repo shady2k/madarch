@@ -21,7 +21,7 @@ import type { ProductWiki } from '../product-wiki/pages.js';
 import { readProductDiscussions, writeProductDiscussion, writeProductDiscussionAction, writeProductPageDiscussion, answerProductQuestion, restoreProductDiscussionAnchor } from '../product/discussion-writer.js';
 import { readProductRepos } from '../product-wiki/repos.js';
 import { readProductModel } from '../product-wiki/model.js';
-import { architectureBundle } from '../product-wiki/architecture.js';
+import { createArchitectureAnswer } from './architecture-answer.js';
 import { likec4Webcomponent } from '../product-wiki/likec4-webcomponent.js';
 import { renderModel } from '../render/prepare.js';
 import { readStagesIndex, type StagesIndex } from '../wiki/stages.js';
@@ -161,7 +161,7 @@ export interface WikiPart {
   product: () => Handled;
   /** `GET /api/questions`: the product's questions as the set's form computes them. */
   questions: () => Handled;
-  /** `GET /api/architecture`: the whole Architecture bundle, read fresh. */
+  /** `GET /api/architecture`: the whole Architecture bundle of the revision the product stands at — built once and kept until a page, a model file or the manifest moves (`architecture-answer.ts`). */
   architecture: () => Handled | Promise<Handled>;
   /** `GET /api/architecture/likec4.js`: the LikeC4 webcomponent bundle of the rendered workspace. */
   likec4Script: () => Handled | Promise<Handled>;
@@ -246,6 +246,8 @@ export function createWikiPart(
     report = { at: Date.now(), value };
     return value;
   };
+  /** The Architecture answer of this product, built once per revision (madarch-tzte.23.8). */
+  const architecture = createArchitectureAnswer(wiki);
   /** One install at a time: two tabs must not write one agents folder together, and npm runs outside the model state's own lock. */
   let installTail: Promise<void> = Promise.resolve();
   const oneInstallAtATime = async <T,>(operation: () => Promise<T>): Promise<T> => {
@@ -290,21 +292,12 @@ export function createWikiPart(
       if (!asked.ok) return { response: json(500, { message: asked.message }) };
       return { response: json(200, { questions: asked.questions, openCount: asked.openCount }) };
     },
-    architecture: async (): Promise<Handled> => {
-      const product = readProductModel(wiki.product);
-      const pages = new Map<string, string>();
-      const listed = wiki.pages();
-      if (listed.ok) {
-        for (const entry of listed.pages) {
-          const asked = wiki.page(entry.path);
-          if (asked.ok) pages.set(entry.path, asked.page.markdown);
-        }
-      }
-      const bundle = product.model === undefined
-        ? { notes: product.notes, errors: product.errors, warnings: product.warnings, sources: product.sources }
-        : await architectureBundle(product.model, product.notes, product.warnings, product.sources, pages);
-      return { response: json(200, bundle) };
-    },
+    architecture: async (): Promise<Handled> => ({
+      // The bundle of the revision the product stands at, built once and kept until a
+      // page, a model file or the manifest moves (src/server/architecture-answer.ts):
+      // the app asks it on every page load, and a render of every view is seconds.
+      response: json(200, await architecture.answer()),
+    }),
     likec4Script: async (): Promise<Handled> => {
       const product = readProductModel(wiki.product);
       if (product.model === undefined) {

@@ -22,7 +22,13 @@ content hash)" and "On the current madarch tree filled on the pod: the index and
 repository, module, package and symbol page each stand in under 1 s after warm-up,
 measured in headless Chromium and recorded."
 
-This change is the measurement and the fix at the cause.
+The first part of this change fixed the graph's own reads and kept its answers, and it
+recorded what remained: the index stood in **3 342 ms** warm and the four pages in
+**2 765–2 968 ms**, because `/api/architecture` took **2 798–5 810 ms** for a 33 KB answer on
+every page load and the app parsed and grouped the page set's **16 527 510 bytes** every time.
+This part fixes those two and measures the stands again: the Architecture answer is built once
+per revision of the product, and the navigation and the index read a page set in the four
+fields they show.
 
 ## Rationale
 
@@ -32,6 +38,12 @@ exactly what they were; this change moves how those answers are read and cached,
 the numbers a reader waits for. No current requirement names the time a page takes
 to stand, and none is added here: decision 0026's "Pages" already asks for a live
 page, and a page that stands in four seconds is that requirement met thinly.
+
+Nothing a reader can do with a page changes either. `/api/graph/pages` still answers every
+entry whole to a client that names no fields, and the one parameter this part adds
+(`?fields=nav`) asks for the four fields the navigation and the index read; the Architecture
+answer is a function of the same revision the wiki's change stream reports, so a client sees
+the answer of the revision whose change it was told about.
 
 ## Out of scope
 
@@ -47,13 +59,19 @@ page, and a page that stands in four seconds is that requirement met thinly.
 - **A second process on one home's database.** Decision 0027 makes one process the
   writer; the caches this change keeps are dropped by the publications *this*
   process makes, which is the same rule the live channel already states.
+- **The LikeC4 webcomponent's own render.** `/api/architecture/likec4.js` renders the
+  workspace when a diagram tab draws LikeC4; it is not on the graph pages' load path, and
+  this change leaves its render as it is.
+- **A search over the page set.** The index draws the first 150 rows of a kind (below);
+  listing every row of a 35 825-node kind, or searching it, is madarch-zpow's (filed from this
+  record, blocked by this task).
 - **The `mutation` receipt.** The owner runs Stryker once per assembled stage, off
   the path; acceptance escalates per `mutationFallback: escalate`.
 
 ## Preserved contracts
 
-- server/protocol: the three graph routes and the two diagram routes answer the same shapes, the same refusals with their own `code`s, and the same log lines; no route, field or message is added or removed, and a cached answer is the answer a fresh read would give.
-- product-wiki/live: a publication this process makes still wakes every open channel and still announces only the pages it touched, and a page a reader holds is re-read after it; the caches are dropped by the same publication that wakes the channel, so a client never sees a page older than its own change event.
+- server/protocol: the three graph routes and the two diagram routes answer the same shapes to a client that names no fields — `GET /api/graph/pages` answers every entry whole, field for field — the same refusals with their own `code`s, and the same log lines; one parameter is added beside them, `?fields=nav` (the four fields a list shows), and a value it cannot give is refused naming the field and the one it accepts; no route is added or removed, and a cached or narrowed answer is the answer a fresh read would give.
+- product-wiki/live: a publication this process makes still wakes every open channel and still announces only the pages it touched, and a page a reader holds is re-read after it; the graph's caches are dropped by the same publication that wakes the channel, and the Architecture answer is keyed by the revision the change stream itself reports — a saved page or model file is the change a client is told about, and it is the key's own change — so a client never sees a page or an answer older than its own change event.
 - product-wiki/pages: a document page is still the product's Markdown read at every ask, and the graph's pages are still a view beside it.
 - server/serves-wiki: a product folder is still served as its own wiki, and one product's cached pages never answer under another product's address.
 - fill-orchestrator/host: the background server still owns the fill and its database, and the pages are still reads of that same store through that owner.
@@ -148,7 +166,48 @@ None.
   first paint. **Nothing is hidden silently, and every page is still in the page set the app
   holds** — but a page past the 150th of its kind is not listed on the index: an index of
   35 114 nodes needs a search or a windowed list, and that is a later task's (named under
-  open points).
+  open points). Every entry of that set is now the four fields a list shows
+  (`?fields=nav`, below): of the four fields the list leaves out, two are addresses the app
+  builds from the id (`page`) or a state no list draws (`status`), and two — the code place
+  (`code`) and the rank (`importance`) — are what a node's own page shows whole.
+- **The Architecture answer is built once per revision, and its key is the change the wiki
+  already reports.** `/api/architecture` was read fresh at every ask: `src/server/wiki-app.ts`
+  parsed and compiled the merged model, then read **every page's Markdown through
+  `ProductWiki.page`, which walks the whole page set once per page**, and handed both to
+  `architectureBundle` — which renders every view of the model through a temporary query
+  database. The app asks it on every page load (the shell's count and a document page's
+  element links), so a reader paid all of it every time. `src/server/architecture-answer.ts`
+  keys the answer by the answer's own dependencies: the wiki's revision, which digests every
+  page's path and Markdown, the model's source bytes, the stages' inputs and the product's
+  manifest (`stagesSourceDigest` reads it) and the registry's bytes. That is the revision the
+  change stream itself sends, so a saved page, model file or manifest is the change a browser
+  is told about and the key's own change. One walk per ask (`ProductWiki.pageTexts`) gives
+  both halves — the revision and the pages' texts as a page's reader reads them, the header's
+  field lines blanked, so a field line that names an element is no backlink — and two readers
+  of one revision share one build. The identity the answer reads is the manifest's own, read
+  at every build: the wiki opens the product once and keeps the repositories it read then, so
+  a repository declared since would otherwise never reach the answer. A product whose model
+  does not compile answers its errors **without scanning a page** for a backlink — a page set
+  nothing names is work no reader reads; the one walk that gives the answer its key is still
+  paid, once per ask.
+- **A product's answers survive the products home's own refresh.** The home re-reads its
+  products whenever a request arrives more than five seconds after the last one
+  (`src/server/http.ts`), and it used to build every product's wiki part again there — which
+  threw away the answers those parts hold, the Architecture bundle and the page set's two
+  bodies among them, so a reader who paused between pages paid a render on every page. The
+  refresh now keeps the entry of a product whose manifest is the one it was opened from
+  (`keepsProductEntry`); its pages are still read fresh at every ask, and a product created,
+  removed or moved, or a manifest rewritten, is a new or absent entry.
+- **The page set is answered in the fields a list shows, and the whole set is still
+  answered whole.** `GET /api/graph/pages?fields=nav` (`LIST_FIELDS_PARAM`,
+  `src/server/graph-pages.ts`) narrows each entry to its id, kind, label and layer — the
+  fields `GraphNav` and `GraphIndexPage` read — and keeps the answer's own fields (product,
+  counts, total, change number, moment, message) and their order. A request that names no
+  fields is answered every entry whole, field for field, and a `fields` value the route
+  cannot give is refused naming it. The app asks the list's fields and builds each node's
+  address from its id (`addressOfGraphPage`), the rule the server's own `page` field
+  follows, and its own type for the list (`GraphPageListEntry`) is the class of what it reads,
+  so a field a list needs cannot go missing silently. The two shapes are two kept bodies, so neither pays for the other.
 
 ### Open points and known limitations
 
@@ -167,9 +226,32 @@ None.
   next read — the right trade for a reader of a finished graph, a cost during a fill.
 - **The index lists the first 150 rows of a kind** (above): the counts say how many a kind
   holds, and a search or a windowed list over the page set is the follow-up.
-- **`/api/pages` and `/api/architecture` are on the same page load** and are not this
-  change's: `/api/architecture` took **5 810 ms** on the browser's own timing in this
-  measurement, which is the app's shell rather than the graph's answers.
+- **The Architecture answer's first read after a change still renders every view.** The
+  answer is kept per revision, so the first ask after a start or after a saved page, model
+  file or manifest pays the whole build — a render through a temporary query database, then
+  the backlinks over every page. Nothing is kept across a restart, and a product with no
+  model at all answers at once (its answer names no page).
+- **`/api/architecture/likec4.js` still renders on every ask.** It is not on the graph
+  pages' load path (a LikeC4 tab asks it), and this change leaves it as it is.
+- **The list's own read is still the page set's read.** The whole set is built by the fill's
+  page cache and then narrowed, so the narrowing is free but the set is not: the answer
+  below is one body per shape for the set it was made from.
+- **A search over the page set is still a later task's.** The navigation lists 12 nodes of
+  a kind and the index 150, each with the kind's whole count; a node past those is reachable
+  by its address, and a search or a windowed list is **madarch-zpow's**, filed from this record
+  and blocked by this task.
+- **The list's body is a second copy of the page set in the process.** One product holds the
+  whole set's plain and compressed bodies (16 740 703 bytes and 2 277 744 in this store) and
+  the list's two (6 550 525 and 1 695 661): about 27 MB of the 4 GB pod's memory for the
+  largest graph measured. That is the price of encoding once per set instead of per ask.
+- **A stand that waits on the store's own process cannot be attributed to a route.** One
+  cold load in each of this part's runs timed out at the app's own 5 s page-list read; the
+  server logged no slow answer for it (`speedSlowRequests`), so what held the one thread was
+  not a route. The walk now samples that thread's loop (`speedEventLoop`) to name it, and the
+  runs are recorded below.
+- **A walk's report names its revision as a label, not a commit.** The pod's staged folder is
+  no git checkout, so `--revision` is what the caller writes (`af671373` here) and
+  `speedNotes` carries it; the `pin` it does record is the product's code checkout.
 - **No `mutation` receipt.** The owner runs Stryker once per assembled stage, off the
   path; acceptance escalates per `mutationFallback: escalate`.
 
@@ -196,32 +278,120 @@ same store):
 | `/api/graph/pages` in the browser | 2 406 ms, 16 527 510 bytes | **195–211 ms, 2 249 358 bytes** (gzip) |
 | the index, browser | 4 137 ms cold, 4 987 ms warm, 142 180 nodes | **3 980 ms cold, 3 342 ms warm, 607 rows, 3 132 nodes** |
 
-**Against the task's bar.** The index and the four node pages do **not** stand in under a
-second after warm-up: the index stood in **3 342 ms** and the pages in **2 411–3 247 ms
-cold and 2 765–2 968 ms warm** (`speedStands`). The graph's own answers are no longer what
-a reader waits for — a page's model and diagrams come from the service in **2–28 ms** and
-its diagrams in **108–392 ms**, and the page set in **195 ms** — and what remains is on
-the app's own load path, measured by the browser's resource timings:
-- **`/api/architecture` takes 2 798–5 810 ms** on every page load, for a 33 KB answer (the
-  app's shell, not the graph's);
-- the app parses the **2 249 358 bytes** of the page set and groups its 35 370 entries on
-  every page load (`pageSetOf`, `graphKindGroups`, `wiki/app/src/graph.ts`), which is the
-  rest of the stand time.
+**Against the task's bar, in the first part's measurement.** The index and the four node
+pages did **not** stand in under a second: the index stood in **3 342 ms** and the pages in
+**2 411–3 247 ms cold and 2 765–2 968 ms warm** (`speedStands`). The graph's own answers were
+no longer what a reader waited for — a page's model came from the service in **2–28 ms**, its
+diagrams in **108–392 ms**, the page set in **195 ms** — and what remained was on the app's
+own load path: **`/api/architecture` at 2 798–5 810 ms** on every page load for a 33 KB
+answer, and the app parsing the page set's **2 249 358 bytes** and grouping its 35 370 entries
+on every load.
 
-This change therefore fixes the cause it measured in the reads — the statement repeated per
-row, the unindexed edge scan, the page model read again for diagrams, the 16.5 MB body taken
-whole, and 35 370 rows drawn at once — and it does **not** meet the bar, because the app
-still pays seconds for things that are not the graph's answers. The next step is named under
-open points: the architecture answer's cost on every load, and a page set the app does not
-have to parse whole (a slim list answer, or a search over it).
+**The second part, measured on one store, before and after.** The tree this part starts from
+(`af671373`, 1 136 files), filled on the pod: **3 002 units in 1 888 passes in 1 267 447 ms**
+— 23 kinds, **287 795 facts** (occurrence 117 644, reference 34 974, contains 33 148,
+defines 30 013, symbol 30 013, comment 14 606, call 10 209, section 6 214, test 3 121,
+entry-point 2 387, import 1 454, coverage 1 303, the rest below a thousand) and **35 825
+pages** (symbol 30 013, test 3 121, entry-point 2 387, module 297, package 5, repository 2).
+The walk ran on that store twice — once on the code this part starts from, once with this
+part's fixes — on a SkyPilot pod of 8 GB (`MADARCH_SKY_MEMORY=8`) at the owner's 1150x900
+window. (A second fill of the same tree for the final run: 3 002 units in 1 888 passes in
+969 232 ms, the same 35 825 pages; its walk is the "after" column.)
 
-**What stands in tests and checks**: `bun run check` (`tsc --noEmit`) exit 0 at every commit;
-the feature document gate clean; the focused suites on the pod (`madarch-sky-test`) — the
-cache, the diagrams read, the page set, the two server parts, the diagram models and the
-edge reads — **153 pass, 2 fail** before the last commit (the two the rebase onto
-madarch-tzte.23.7 changed the node choice of, answered in it), see the queue entry for the
-run at the final SHA; `wiki/app`: `bun run check`, `bun test` (**220 pass, 0 fail**),
-`bun run build`; and the review's findings, answered commit by commit.
+| the stand (headless Chromium) | before this part | after this part |
+| --- | --- | --- |
+| the graph index, warm | 2 667 ms | **467 ms** |
+| a repository page, warm | 1 044 ms | **416 ms** |
+| a package page, warm | 2 677 ms | **313 ms** |
+| a module page, warm | 2 559 ms | **553 ms** |
+| a symbol page, warm | 2 921 ms | **619 ms** |
+| the graph index, cold | 4 551 ms | 3 711 ms |
+| a node page, cold | 2 821 / 2 896 ms, and two of the four never stood | 346 / 502 / 710 ms, and one of the four never stood (below) |
+| `/api/graph/pages` over HTTP | 564 ms cold, 90 ms warm, **16 740 703 bytes** | 475 ms cold, 78 ms warm; the list the app asks for **164 ms cold, 22 ms warm, 6 550 525 bytes** |
+| `/api/architecture` in the browser | 2 044–3 454 ms on every load | **3–87 ms** once built; the first ask of a revision **3 087 ms** (the index's cold stand includes it) |
+
+Three runs of this walk stand behind the after column — the one above, and two on the code before
+the review's fixes, at **567 / 614 / 509 / 422 / 574 ms** and **518 / 438 / 391 / 467 / 521 ms**
+warm — the same range, so the bar is met on every run of this part and not on one lucky one. All
+three are kept (the paragraph below names where).
+
+**Where the before seconds went, from the browser's own thread.** The index's warm stand was
+**513 ms of long tasks inside a 2 667 ms stand**: the page was idle for two seconds, waiting.
+Its answers say on what: `/api/architecture` started at 594 ms and took **2 044 ms**, and
+`/api/product` — a 565-byte answer — took **1 443 ms**, because the one server thread could not
+answer it while the Architecture bundle rendered. Two of the four pages never stood at all
+before (`speedStands.package.cold`, `.symbol.cold`, `standMs: -1`): their `/api/pages` request
+waited at the app's own 5 s bound while that render held the thread. After this part the
+index's warm stand is **182 ms of long tasks inside 467 ms**, its `/api/architecture` answer
+costs **3–87 ms**, and its page set **42–164 ms**.
+
+**The stands that did not stand.** A page's first (cold) load timed out in every run of this
+walk, before and after this part, and which page it was moved between runs: the before run lost
+the **package** and the **symbol** pages, the run after the first fixes lost the **module**, and
+the final run lost the **package** again. Each time its `/api/pages` request waited at the app's
+own 5 s bound, the page showed that refusal, and no route logged a slow answer
+(`speedSlowRequests`: the only answers over 200 ms in the final run are the page set's own first
+encoding, 314 ms, and the Architecture build, 3 087 ms). What holds that thread is the one
+process that serves the wiki — and, in this walk, also owns the store and reads the bytes the
+walk encodes: sampled every 50 ms during the final run, its loop was held **twice, the longer
+for 2 349 ms** (`speedEventLoop`). That measurement says a loop stall, not which work stalled
+it. It is recorded under open points, not claimed as fixed.
+
+This part therefore fixes the two causes the first part named — the Architecture answer built
+on every page load, and a page set the browser parses whole on every page load — and the bar is
+met on the warm stands: **467 / 416 / 313 / 553 / 619 ms**, each under a second, against
+**2 667 / 1 044 / 2 677 / 2 559 / 2 921 ms** before.
+
+**What stands in tests and checks.** `bun run check` (`tsc --noEmit`) exit 0 at every commit
+and at the final tree; the feature document gate clean. On the pod (`madarch-sky-test --avx2`),
+before the second review's test edits:
+- the focused suites — the Architecture answer's cache, the graph routes and the page set's two
+  shapes, the products home, the Architecture bundle — **60 pass, 0 fail** (exit 0);
+- `test/server-graphs.test.ts` alone: **31 pass, 0 fail** (six of its tests failed once inside a
+  mixed five-file run on the same pod and pass alone: load, not a defect);
+- the graph's Chromium acceptance (`MADARCH_WIKI_E2E=1 test/wiki-graph-pages-e2e.test.ts`, the
+  production-built app against a real server): **2 pass, 0 fail** (exit 0);
+- `wiki/app`: `bun install --frozen-lockfile && bun run check && bun test && bun run build` —
+  `tsc` exit 0, **225 pass, 0 fail**, the build exit 0;
+- **CI on the final revision `3bd54c89`** (run `39390026273`): all five test shards, the checks
+  job and the product-documents run green. That is the evidence for the second review's test
+  edits — the products-home test that drives the refresh, the stricter app reader and two
+  record-only claims — which the pod could not run: it was out of capacity for the whole window
+  (`Failed to provision resources`, 4 GB and 8 GB, four attempts). The first version of that
+  products-home test was red in CI on `c0c9f4a4` and is corrected in `3bd54c89`;
+- the reports this record quotes: the four walks' `STAGE23_WALK` values, kept as
+  `before.json`, `after.json`, `after2.json` and `final.json` in
+  `/home/dev/.cache/madarch-stage23-walk-238/artifacts/walk23-8-app/` on this machine, beside the
+  first part's report in the folder above. Each runs' screenshots lived in the pod's own
+  `.walk23-8-app*` folders and were not kept: the screenshots of the first part's walk stand in
+  `/home/dev/.cache/madarch-stage23-walk-238/shots/`.
+
+**The reviews.** Two read-only rounds of `prime-agent --provider shady2k-gateway --model
+deepseek-v4.1-flash-auto`, neither running anything on this machine, both over
+`git diff origin/main...HEAD` and this record.
+
+- **First round: NOT APPROVED** — ten defects, ten findings. Answered: the record committed with
+  the change (D1); the answer reads the manifest again at every build, and the key simplified to
+  the revision that already covers the manifest through `stagesSourceDigest` (D2, D3, D5); the
+  duplicate `elements:` key in a fixture replaced by one list (D4); the products home keeps a
+  product's entry (D6, with a test that drives the refresh, below); the kept-bodies test answers
+  one set object and a new set is new bytes (D7); the answer scans the served page text, the
+  header's field lines blanked, as the page route serves it (D8); the four dropped fields named
+  (D9); and the walks re-run and recorded (D10). Findings answered: the walk records a dead page's
+  failure instead of aborting, the architecture page names the new module and the parameter, the
+  memory the two kept bodies add is named under open points, and the revision the walk records is
+  a label the report carries (the pod's folder is no git checkout).
+- **Second round: NOT APPROVED** — eight defects. Answered: the products home's keeping has a
+  test that drives the refresh over a home and shows a kept entry while a saved page is still
+  read fresh (D1); the no-model answer's claim and its test say "scans no page text" and the walk
+  is counted (D2, D3); each run's failed cold stand is named as it was (D4); the four walks'
+  reports are kept in one folder and cited (D5); the route's interface comment says the answer is
+  built once per revision (D6); madarch-zpow is filed for the search or windowed list (D7); and
+  the working tree's last edit is committed, so the judged tree is a revision (D8). Findings
+  answered: the `fields` refusal names what it accepts, the app's reader refuses a page set whose
+  entry lacks a field a list draws instead of dropping the row, the stale-answer assertion is
+  gone, the module comment names the key's blind spot and the unreadable-pages case, and the
+  stall's attribution is hedged to what the sampler measured.
 
 ## DONE WHEN
 

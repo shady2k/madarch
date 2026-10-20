@@ -344,6 +344,20 @@ function countBy(items: readonly string[]): Record<string, number> {
 async function newPage(browser: Browser, note: (line: string) => void): Promise<Page> {
   const opened = await browser.newPage();
   await opened.setViewport({ width: 1150, height: 900 });
+  // The page's own thread work, kept on the document it ran in (madarch-tzte.23.8): a stand
+  // is a wait on the network or on the browser, and only the long tasks tell them apart. A
+  // browser that records no long tasks keeps the empty list and the timeline alone says it.
+  await opened.evaluateOnNewDocument(() => {
+    const held: { start: number; duration: number }[] = [];
+    (window as unknown as { __walkLongTasks: typeof held }).__walkLongTasks = held;
+    try {
+      new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) held.push({ start: Math.round(entry.startTime), duration: Math.round(entry.duration) });
+      }).observe({ entryTypes: ['longtask'] });
+    } catch {
+      // No long-task entries here: `threadOf` then reports zero busy milliseconds.
+    }
+  });
   opened.on('response', (response) => {
     if (response.status() >= 400) note(`browser: ${String(response.status())} ${response.url()}`);
   });
@@ -1280,6 +1294,12 @@ async function livePhase(options: WalkOptions, product: Product): Promise<void> 
 
 // ---- the speed of a page and of the index -----------------------------------
 
+/** The server answer above which the walk keeps its own request line: a stand that waited on the server names what it waited for (madarch-tzte.23.8). */
+const SLOW_REQUEST_MS = 200;
+
+/** How often the walk samples the serving process's own loop while pages stand: a stall is work no route names (madarch-tzte.23.8). */
+const LOOP_SAMPLE_MS = 50;
+
 /** One read, as it cost and what it answered. */
 interface Timed<T> { readonly ms: number; readonly value: T }
 
@@ -1290,8 +1310,55 @@ async function timed<T>(work: () => Promise<T>): Promise<Timed<T>> {
   return { ms: Date.now() - started, value };
 }
 
+/** What the page's own thread did on the navigation that opened it: the long tasks, and when the document was there. */
+interface Thread {
+  readonly longTasks: number;
+  readonly busyMs: number;
+  readonly longestTasks: readonly { startMs: number; ms: number }[];
+  readonly navigation: { responseMs: number; domContentLoadedMs: number; loadMs: number } | null;
+}
+
+/** One answer the page asked for, in the order it was asked for: where it started, what it took and how many bytes it carried. */
+interface Answer {
+  readonly path: string;
+  readonly startMs: number;
+  readonly durationMs: number;
+  readonly bytes: number;
+}
+
+/** What a page whose context cannot be read any more recorded: no long task, no navigation. */
+const EMPTY_THREAD: Thread = { longTasks: 0, busyMs: 0, longestTasks: [], navigation: null };
+
+/** The page's own thread on the navigation it stands on: a stand is a wait on the network or on the browser, and only this tells them apart. */
+async function threadOf(target: Page): Promise<Thread> {
+  return await target.evaluate(() => {
+    const held = (window as unknown as { __walkLongTasks?: { start: number; duration: number }[] }).__walkLongTasks ?? [];
+    const nav = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined;
+    return {
+      longTasks: held.length,
+      busyMs: Math.round(held.reduce((total, task) => total + task.duration, 0)),
+      longestTasks: [...held].sort((one, two) => two.duration - one.duration).slice(0, 5).map((task) => ({ startMs: task.start, ms: task.duration })),
+      navigation: nav === undefined
+        ? null
+        : { responseMs: Math.round(nav.responseEnd), domContentLoadedMs: Math.round(nav.domContentLoadedEventEnd), loadMs: Math.round(nav.loadEventEnd) },
+    };
+  });
+}
+
+/**
+ * The wiki's own answers on the navigation, in the order the browser asked for them: a
+ * script and a font are not what a stand waits on, and neither is the live channel — its
+ * entry's duration is how long the tab has held the stream open, not what any answer cost.
+ */
+async function answersOf(target: Page): Promise<Answer[]> {
+  return await target.evaluate(() => performance.getEntriesByType('resource')
+    .map((entry) => ({ path: new URL(entry.name).pathname, startMs: Math.round(entry.startTime), durationMs: Math.round(entry.duration), bytes: (entry as PerformanceResourceTiming).transferSize ?? 0 }))
+    .filter((entry) => entry.path.startsWith('/api/') && entry.path !== '/api/graph/events')
+    .sort((one, two) => one.startMs - two.startMs));
+}
+
 /** One node page as the browser stood it: until the page was there, and until its diagrams had settled. */
-async function standPage(page: Page, url: string): Promise<{ standMs: number; diagramsMs: number; settledMs: number; shown?: unknown }> {
+async function standPage(page: Page, url: string): Promise<{ standMs: number; diagramsMs: number; settledMs: number; thread: Thread; answers: Answer[]; shown?: unknown }> {
   const started = Date.now();
   await page.goto(url, { waitUntil: 'domcontentloaded' });
   try {
@@ -1299,11 +1366,19 @@ async function standPage(page: Page, url: string): Promise<{ standMs: number; di
   } catch {
     // A page that never stands is a number of its own: the walk records what the page showed instead of failing.
     const shown = await page.evaluate(() => ({ path: window.location.pathname, text: (document.body?.textContent ?? '').replace(/\s+/gu, ' ').slice(0, 300) })).catch(() => null);
-    return { standMs: -1, diagramsMs: -1, settledMs: -1, shown };
+    // A page whose context died with it (a crashed renderer) records the failure as its number:
+    // the walk's own read of the thread must not become the failure the walk reports.
+    const thread = await threadOf(page).catch(() => EMPTY_THREAD);
+    const answers = await answersOf(page).catch(() => []);
+    return { standMs: -1, diagramsMs: -1, settledMs: -1, thread, answers, shown };
   }
   const standMs = Date.now() - started;
+  // Read the thread and the answers now, before the diagrams: the page's own stand is what the bar names,
+  // and a diagram drawn after it would hold the thread for reasons of its own.
+  const thread = await threadOf(page);
+  const answers = await answersOf(page);
   await waitDiagrams(page, url);
-  return { standMs, diagramsMs: Date.now() - started - standMs, settledMs: Date.now() - started };
+  return { standMs, diagramsMs: Date.now() - started - standMs, settledMs: Date.now() - started, thread, answers };
 }
 
 /**
@@ -1315,6 +1390,12 @@ async function standPage(page: Page, url: string): Promise<{ standMs: number; di
  * It runs over a store a fill left (`--phase first`), on the page's own service, so the
  * numbers are the ones a reader's server pays and not a fixture's. Nothing here fixes or
  * changes anything: the record quotes what it prints.
+ *
+ * A stand is a wait on the network or a wait on the browser, and each is recorded on its
+ * own: the page's long tasks and their busy milliseconds, the navigation's own marks, and
+ * every answer the page asked for in the order it asked (`threadOf`, `answersOf`). A page
+ * that stood in two seconds with two hundred milliseconds of long tasks was waiting on
+ * the server; one that stood in two seconds busy throughout was drawing.
  */
 async function speedPhase(options: WalkOptions, product: Product): Promise<void> {
   if (!existsSync(join(product.home, '.madarch', 'fill', 'state.db'))) throw failedAt('the speed phase', `no fill's store stands in ${join(product.home, '.madarch', 'fill')}: run --phase first over this root first`);
@@ -1327,10 +1408,24 @@ async function speedPhase(options: WalkOptions, product: Product): Promise<void>
   const services: StartedServer[] = [];
   let browser: Browser | undefined;
   let page: Page | undefined;
+  /** The loop's own sampler, cleared with the phase. */
+  let loopTimer: ReturnType<typeof setInterval> | undefined;
   const notes: string[] = [];
   const note = (line: string): void => {
     if (notes.length < 200) notes.push(line);
     console.error(`walk: ${line}`);
+  };
+  // The server's own request lines, kept only where one took long: a stand that waited on the
+  // server names the answer it waited for, and one that waited on the browser names none
+  // (madarch-tzte.23.8). The server logs `METHOD /path status … <ms>ms`, so the number is read
+  // from the line rather than measured a second time.
+  const slow: string[] = [];
+  let slowDropped = 0;
+  const logRequest = (line: string): void => {
+    const ms = Number(/(?:^|\s)(\d+)ms(?:\s|$)/u.exec(line)?.[1] ?? '0');
+    if (ms < SLOW_REQUEST_MS) return;
+    if (slow.length < 60) slow.push(line);
+    else slowDropped += 1;
   };
   try {
     const source = fill.service.pages(product.folder);
@@ -1353,14 +1448,24 @@ async function speedPhase(options: WalkOptions, product: Product): Promise<void>
       host: '127.0.0.1',
       graphPages: (folder) => fill.service.pages(folder),
       env: { ...process.env, MADARCH_WIKI_DIAGRAM: 'mermaid', MADARCH_WIKI_CACHE: cache },
-      log: () => undefined,
+      log: logRequest,
       errorLog: (line) => note(`server: ${line}`),
     });
     services.push(started);
-    // The set over HTTP, cold and warm: the bytes a browser parses, not only the store's read.
+    // The set over HTTP, cold and warm: the bytes a browser parses, not only the store's read — the whole answer
+    // and the list's fields, which is the answer the app asks for (madarch-tzte.23.8).
     const httpCold = await timed(async () => await (await fetch(`${started.url}/api/graph/pages`)).text());
     const httpWarm = await timed(async () => await (await fetch(`${started.url}/api/graph/pages`)).text());
-    measure('speedPageSetHttp', { coldMs: httpCold.ms, warmMs: httpWarm.ms, bytes: Buffer.byteLength(httpCold.value, 'utf8') });
+    const listCold = await timed(async () => await (await fetch(`${started.url}/api/graph/pages?fields=nav`)).text());
+    const listWarm = await timed(async () => await (await fetch(`${started.url}/api/graph/pages?fields=nav`)).text());
+    measure('speedPageSetHttp', {
+      coldMs: httpCold.ms,
+      warmMs: httpWarm.ms,
+      bytes: Buffer.byteLength(httpCold.value, 'utf8'),
+      listColdMs: listCold.ms,
+      listWarmMs: listWarm.ms,
+      listBytes: Buffer.byteLength(listCold.value, 'utf8'),
+    });
     const reads: Record<string, unknown> = {};
     for (const kind of ['repository', 'package', 'module', 'symbol'] as const) {
       const chosenPage = chosen[kind]!;
@@ -1408,13 +1513,26 @@ async function speedPhase(options: WalkOptions, product: Product): Promise<void>
     // The browser: the index that stands, and one page per kind — cold and warm.
     browser = await puppeteer.launch({ executablePath: resolveBrowserExecutable(), headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
     page = await newPage(browser, note);
+    // The process that owns the store serves the wiki from the same loop the browser's answers are made on,
+    // so work that holds that loop — a store's own long job, a collection — answers no route and writes no
+    // request line. This samples the loop while the pages stand, because a stand that waited on such work
+    // names nothing else (madarch-tzte.23.8).
+    const loopStalls: number[] = [];
+    let loopNext = Date.now() + LOOP_SAMPLE_MS;
+    loopTimer = setInterval(() => {
+      const now = Date.now();
+      const lag = now - loopNext;
+      loopNext = now + LOOP_SAMPLE_MS;
+      if (lag >= SLOW_REQUEST_MS) loopStalls.push(lag);
+    }, LOOP_SAMPLE_MS);
     /** The index stands when its groups and the rows the page draws are there (23.8). */
-    const standIndex = async (): Promise<{ standMs: number }> => {
+    const standIndex = async (): Promise<{ standMs: number; thread: Thread; answers: Answer[] }> => {
       const at = Date.now();
       await page!.goto(`${started.url}/p/graph`, { waitUntil: 'domcontentloaded' });
       await page!.waitForSelector('[data-testid="graph-index"]', { timeout: 300_000 });
       await page!.waitForFunction(() => document.querySelectorAll('[data-testid="graph-index"] .home-row').length > 0, { timeout: 600_000 });
-      return { standMs: Date.now() - at };
+      const standMs = Date.now() - at;
+      return { standMs, thread: await threadOf(page!), answers: await answersOf(page!) };
     };
     const indexCold = await standIndex();
     const indexRows = await page.evaluate(() => ({
@@ -1437,19 +1555,18 @@ async function speedPhase(options: WalkOptions, product: Product): Promise<void>
     for (const kind of ['repository', 'package', 'module', 'symbol'] as const) {
       const chosenPage = chosen[kind]!;
       const address = `${started.url}${pageAddress(chosenPage.id)}`;
-      const resources = async (): Promise<unknown> => await page!.evaluate(() => performance.getEntriesByType('resource')
-        .filter((entry) => entry.name.includes('/api/graph/'))
-        .map((entry) => ({ path: new URL(entry.name).pathname, durationMs: Math.round(entry.duration), bytes: (entry as PerformanceResourceTiming).transferSize ?? 0 })));
       const cold = await standPage(page, address);
       const numbers = await pageNumbers(page);
-      const coldResources = await resources();
       await shot(page, join(shots, `page-${kind}.png`));
       const warm = await standPage(page, address);
-      stands[kind] = { id: chosenPage.id, label: chosenPage.label, cold, coldResources, warm, warmResources: await resources(), facts: numbers['facts'], relations: numbers['relations'], diagrams: numbers['diagrams'] };
+      stands[kind] = { id: chosenPage.id, label: chosenPage.label, cold, warm, facts: numbers['facts'], relations: numbers['relations'], diagrams: numbers['diagrams'] };
     }
     measure('speedStands', stands);
+    measure('speedSlowRequests', { overMs: SLOW_REQUEST_MS, lines: slow, dropped: slowDropped });
+    measure('speedEventLoop', { sampleMs: LOOP_SAMPLE_MS, overMs: SLOW_REQUEST_MS, stalls: loopStalls.length, longestMs: [...loopStalls].sort((one, two) => two - one).slice(0, 6) });
     measure('speedNotes', { notes });
   } finally {
+    if (loopTimer !== undefined) clearInterval(loopTimer);
     try {
       if (browser !== undefined) await browser.close();
     } finally {

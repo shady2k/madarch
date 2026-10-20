@@ -236,7 +236,7 @@ function GraphKindSection({ group, shown: rowsShown }: { group: GraphKindGroup; 
       <ul className="home-rows">
         {group.entries.slice(0, shown).map((entry) => (
           <li key={entry.id}>
-            <GraphLink id={entry.id} address={entry.page} className="home-row">
+            <GraphLink id={entry.id} className="home-row">
               <span className="home-row-title">{entry.label}</span>
               <span className="graph-chip">{layerWord(entry.layer, t)}</span>
             </GraphLink>

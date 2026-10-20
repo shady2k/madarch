@@ -506,14 +506,18 @@ export type GraphNodeRef = {
   page?: string;
 };
 
-/** One page-worthy node, as the page set and every page name it. */
-export type GraphPageEntry = {
+/** One page-worthy node, as a list names it: the fields the navigation and the index read (`/api/graph/pages?fields=nav`). */
+export type GraphPageListEntry = {
   id: string;
   kind: string;
   label: string;
-  /** The address the app answers the node's page at: `/p/graph/<the fact id>`. */
-  page: string;
   layer: GraphLayer;
+};
+
+/** One page-worthy node, as the page set and every page name it: the list's fields, and what only a node's own page shows. */
+export type GraphPageEntry = GraphPageListEntry & {
+  /** The address the app answers the node's page at: `/p/graph/<the fact id>`; a list leaves it out, and the app builds it from the id. */
+  page: string;
   status: GraphStatus;
   code?: GraphCodeLink;
   /** Stage 5's rank of the node, on the kinds that carry one. */
@@ -523,10 +527,10 @@ export type GraphPageEntry = {
 /** One kind's share of the page set. */
 export type GraphPageCount = { kind: string; count: number };
 
-/** `GET /api/graph/pages`: every page-worthy node of the product. */
+/** `GET /api/graph/pages`: every page-worthy node of the product, in the fields a list shows. */
 export type GraphPageSet = {
   product: string;
-  pages: GraphPageEntry[];
+  pages: GraphPageListEntry[];
   counts: GraphPageCount[];
   total: number;
   /** The change number a client subscribes from (`/api/graph/events?after=<changeSeq>`). */
@@ -628,8 +632,14 @@ export type GraphPageChange = {
 };
 
 
+/**
+ * The page set as a list reads it: the navigation and the index show a node's kind, its
+ * label and its layer, so the whole answer's code places and ranks are not asked for
+ * (madarch-tzte.23.8) — the graph's set is the largest answer the wiki gives and the
+ * browser parses it on every page load.
+ */
 export const getGraphPages = (signal?: AbortSignal): Promise<GraphPageSet> =>
-  readJson<GraphPageSet>('read the graph\'s pages', '/api/graph/pages', signal);
+  readJson<GraphPageSet>('read the graph\'s pages', '/api/graph/pages?fields=nav', signal);
 
 export const getGraphPage = (id: string, signal?: AbortSignal): Promise<GraphPageModel> =>
   readJson<GraphPageModel>(`read the graph page ${id}`, `/api/graph/page?id=${encodeURIComponent(id)}`, signal);

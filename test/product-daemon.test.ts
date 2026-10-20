@@ -1,8 +1,8 @@
 import { afterEach, expect, test } from 'bun:test';
-import { cpSync, mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { cpSync, mkdtempSync, mkdirSync, rmSync, statSync, utimesSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { startServer, type StartedServer } from '../src/server/http.js';
+import { keepsProductEntry, startServer, type StartedServer } from '../src/server/http.js';
 import { startDaemon, stopDaemon, daemonStatus, daemonCommand, isDaemonCommandLine, childReading, childReadings, ensureDaemon, startFailureWhy, type SpawnedChild } from '../src/product/daemon.js';
 import { spawnSync } from 'node:child_process';
 import { createServer as netServer } from 'node:net';
@@ -71,6 +71,52 @@ afterEach(async () => {
   previousMadarchHome = undefined; previousAppDist = undefined; previousApp = undefined;
   if (root) rmSync(root, { recursive: true, force: true }); root = undefined;
 });
+
+test('a product whose manifest did not move keeps the entry it was opened with, so the answers it built stand', () => {
+  // The home's refresh runs whenever a request arrives more than five seconds after the last one, and
+  // re-opening a product would drop the handler's answers — the Architecture bundle, the page set's
+  // bodies — so only a moved manifest opens a product again (madarch-tzte.23.8). A product the home
+  // holds no entry for, and a manifest that cannot be read, are opened.
+  expect(keepsProductEntry(undefined, 1)).toBe(false);
+  expect(keepsProductEntry({ manifest: 1 }, 1)).toBe(true);
+  expect(keepsProductEntry({ manifest: 1 }, 2)).toBe(false);
+  expect(keepsProductEntry({ manifest: 1 }, -1)).toBe(false);
+});
+
+test('the home keeps a product whose manifest did not move, and opens one whose manifest did', async () => {
+  // The refresh re-reads the home whenever a request arrives more than five seconds after the last one.
+  // Re-opening a product there would drop the answers its handler holds — the Architecture bundle, the
+  // page set's bodies — so the entry is kept while the manifest it was opened from stands, and a moved
+  // manifest is a new entry (madarch-tzte.23.8). A manifest whose bytes change under the same stamp is
+  // what tells the two apart from outside, and a moved stamp is what a real edit looks like.
+  root = mkdtempSync(join(tmpdir(), 'madarch-daemon-keeping-'));
+  const home = join(root, 'products'); mkdirSync(home);
+  product(home, 'alpha', 'alpha-id');
+  const manifest = join(home, 'alpha', 'workspace.yaml');
+  const whole = new Date(Math.floor(statSync(manifest).mtimeMs));
+  utimesSync(manifest, whole, whole);
+  server = await startServer({ productHome: home, appFolder: appDist(root), port: 0 });
+  const nameOf = async (): Promise<string> => {
+    const response = await fetch(`${server!.url}/products/alpha/api/product`);
+    expect(response.status).toBe(200);
+    return ((await response.json()) as { name: string }).name;
+  };
+  expect(await nameOf()).toBe('alpha');
+  // The bytes are another manifest from here on; the stamp the home keys the entry by is unchanged.
+  writeFileSync(manifest, 'schemaVersion: 1\nid: alpha-id\nname: Alpha renamed\n');
+  utimesSync(manifest, whole, whole);
+  await Bun.sleep(5_200);
+  expect(await nameOf()).toBe('alpha');
+  // A manifest whose stamp moved is a product opened again, and its new name is served.
+  writeFileSync(manifest, 'schemaVersion: 1\nid: alpha-id\nname: Alpha renamed\n');
+  await Bun.sleep(5_200);
+  expect(await nameOf()).toBe('Alpha renamed');
+  // And a page is still read at every ask through the kept entry: a saved document is served at once.
+  writeFileSync(join(home, 'alpha', 'docs', 'vision.md'), '# alpha vision\n\nThe saved body.\n');
+  const page = await fetch(`${server.url}/products/alpha/api/page?path=docs/vision.md`);
+  expect(page.status).toBe(200);
+  expect(((await page.json()) as { markdown: string }).markdown).toContain('The saved body.');
+}, 40_000);
 
 test('products-home mode lists products and routes each wiki under its folder', async () => {
   root = mkdtempSync(join(tmpdir(), 'madarch-daemon-home-'));

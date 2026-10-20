@@ -24,6 +24,13 @@
  * the document pages exactly as before and no graph section at all. A server that
  * answers an empty set with its what-to-do message is a different thing: it is
  * live, and the app subscribes, because the pages appear as the fill publishes.
+ *
+ * **The set is asked in the fields a list shows** (`?fields=nav`, madarch-tzte.23.8): a
+ * node's id, kind, label and layer are what the navigation and the index draw, and the
+ * whole answer's code places and ranks are what a node's own page shows instead. The
+ * addresses are the app's own rule (`addressOfGraphPage`), so a list entry needs no
+ * address of its own; the current madarch tree's whole set is 16 527 510 bytes of a
+ * parse the browser makes on every page load.
  */
 import { useEffect, useState } from 'react';
 import { appPath } from './app-base.js';
@@ -33,7 +40,7 @@ import {
   RequestError,
   type GraphCodeLink,
   type GraphPageChange,
-  type GraphPageEntry,
+  type GraphPageListEntry,
   type GraphPageModel,
   type GraphPageSet,
   type RepoEntry,
@@ -61,7 +68,7 @@ const maxGraphReconnectMs = 15_000;
 export const NAV_NODES_PER_KIND = 12;
 
 /** One kind's nodes of the page set, in the set's own order (code point of the label, then of the id). */
-export type GraphKindGroup = { kind: string; entries: GraphPageEntry[] };
+export type GraphKindGroup = { kind: string; entries: GraphPageListEntry[] };
 
 /**
  * The page set as the navigation and the index page show it: one group per kind, in
@@ -71,26 +78,30 @@ export type GraphKindGroup = { kind: string; entries: GraphPageEntry[] };
  */
 export function graphKindGroups(set: GraphPageSet | null): GraphKindGroup[] {
   if (set === null) return [];
-  const byKind = new Map<string, GraphPageEntry[]>();
+  const byKind = new Map<string, GraphPageListEntry[]>();
   for (const entry of set.pages) {
     const held = byKind.get(entry.kind);
     if (held === undefined) byKind.set(entry.kind, [entry]);
     else held.push(entry);
   }
-  return [...byKind.keys()].sort(byCodePoint).map((kind) => ({ kind, entries: byKind.get(kind) as GraphPageEntry[] }));
+  return [...byKind.keys()].sort(byCodePoint).map((kind) => ({ kind, entries: byKind.get(kind) as GraphPageListEntry[] }));
 }
 
 /**
- * The answer as a page set, or null when it is not one: `pages` a list and `total` a
- * number. A reader of a page set never trusts a shape it was not promised — a list it
- * cannot read would be a page of nothing.
+ * The answer as a page set, or null when it is not one: `pages` a list, `total` a number, and
+ * every entry carrying the four fields a list draws (madarch-tzte.23.8). A reader of a page set
+ * never trusts a shape it was not promised, and a row it cannot draw is no row: an entry missing
+ * its label or its layer is answered as no page set at all — the graph's section says the server
+ * answered something else — rather than dropped from a list that would then be smaller without
+ * saying so.
  */
 export function pageSetOf(answer: unknown): GraphPageSet | null {
   if (answer === null || typeof answer !== 'object') return null;
   const held = answer as Record<string, unknown>;
   if (!Array.isArray(held['pages'])) return null;
   if (typeof held['total'] !== 'number') return null;
-  const pages = held['pages'].filter((entry): entry is GraphPageEntry => entry !== null && typeof entry === 'object' && typeof (entry as Record<string, unknown>)['id'] === 'string' && typeof (entry as Record<string, unknown>)['kind'] === 'string');
+  if (!held['pages'].every(isListEntry)) return null;
+  const pages = held['pages'] as GraphPageListEntry[];
   return {
     product: typeof held['product'] === 'string' ? held['product'] : '',
     pages,
@@ -100,6 +111,13 @@ export function pageSetOf(answer: unknown): GraphPageSet | null {
     readAt: typeof held['readAt'] === 'number' ? held['readAt'] : 0,
     message: typeof held['message'] === 'string' ? held['message'] : null,
   };
+}
+
+/** Whether one entry carries the four fields a list draws: an id, a kind, a label and a layer. */
+function isListEntry(entry: unknown): entry is GraphPageListEntry {
+  if (entry === null || typeof entry !== 'object') return false;
+  const held = entry as Record<string, unknown>;
+  return typeof held['id'] === 'string' && typeof held['kind'] === 'string' && typeof held['label'] === 'string' && typeof held['layer'] === 'string';
 }
 
 /**
