@@ -314,7 +314,11 @@ export function recoverySections(): readonly AgentPacketSection[] {
 
 /** Whether a file's path is one the product's own model stands at (`madarch/*.yaml`, decision 0002). */
 function isModelPath(path: string): boolean {
-  return path.startsWith(`${RECOVERY_MODEL_FOLDER}/`) && path.endsWith('.yaml');
+  const prefix = `${RECOVERY_MODEL_FOLDER}/`;
+  // The model loader reads the *.yaml files directly inside `madarch/` (`src/model/load.ts` lists the
+  // folder, no recursion), so a file below a folder of it is no file of the model, and naming one would
+  // have the unit map a recovered part to an element no loaded model holds.
+  return path.startsWith(prefix) && path.endsWith('.yaml') && !path.slice(prefix.length).includes('/');
 }
 
 /** The text one summary claim states, as its object's literal or its own words. */

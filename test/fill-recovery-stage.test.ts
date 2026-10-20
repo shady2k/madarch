@@ -123,6 +123,9 @@ function fixture(options?: { readonly withoutModel?: boolean }): Graph {
   const paymentsUnit = makeNodeFact({ kind: 'deploy-unit', value: { repository: CODE_REPOSITORY, name: 'payments-gateway', form: 'service' }, provenance: provenance(CODE_REPOSITORY, ORDER_FILE, 1), layer: 'extracted' });
   // The product\'s own model file, and a document whose section stage 10 reads intent from.
   const modelFile = makeNodeFact({ kind: 'file', value: { repository: PRODUCT_REPOSITORY, path: repositoryPath(MODEL_FILE), roles: ['document'] }, provenance: provenance(PRODUCT_REPOSITORY, MODEL_FILE, 1), layer: 'extracted' });
+  // A YAML file below a folder of the model's own is no file of the model: the loader reads the *.yaml
+  // files directly inside `madarch/` (src/model/load.ts, no recursion), so the section names it never.
+  const nestedFile = makeNodeFact({ kind: 'file', value: { repository: PRODUCT_REPOSITORY, path: repositoryPath('madarch/spec/old.yaml'), roles: ['document'] }, provenance: provenance(PRODUCT_REPOSITORY, 'madarch/spec/old.yaml', 1), layer: 'extracted' });
   const architecture = makeNodeFact({ kind: 'document', value: { repository: PRODUCT_REPOSITORY, path: repositoryPath(ARCHITECTURE_FILE), mediaType: 'text/markdown', title: 'architecture' }, provenance: provenance(PRODUCT_REPOSITORY, ARCHITECTURE_FILE, 1), layer: 'extracted' });
   const components = makeNodeFact({ kind: 'section', value: { repository: PRODUCT_REPOSITORY, document: repositoryPath(ARCHITECTURE_FILE), anchor: 'components', heading: 'Components', level: 2 }, provenance: provenance(PRODUCT_REPOSITORY, ARCHITECTURE_FILE, 2), layer: 'extracted' });
   return {
@@ -142,7 +145,7 @@ function fixture(options?: { readonly withoutModel?: boolean }): Graph {
       orders,
       ordersUnit,
       paymentsUnit,
-      ...(options?.withoutModel ? [] : [modelFile]),
+      ...(options?.withoutModel ? [] : [modelFile, nestedFile]),
       architecture,
       components,
       makeEdgeFact({ kind: 'contains', value: { from: codeRepository.id, to: checkout.id }, provenance: provenance(CODE_REPOSITORY, ORDER_FILE, 1), layer: 'extracted' }),
@@ -486,7 +489,8 @@ describe('stage 13, the system recovered and reconciled with the intended one', 
       expect(packet['overview']).toEqual([
         { id: expect.any(String), predicate: 'is-for', subject: { node: ids.orders.id }, object: { literal: 'taking and settling orders' }, text: 'the orders module is for taking and settling orders', repository: PRODUCT_REPOSITORY, file: PRODUCT_README, line: 2 },
       ]);
-      // The intended model: the product repository\'s own model files, named and never pasted.
+      // The intended model: the product repository\'s own model files, named and never pasted - and a
+      // YAML file below a folder of `madarch/` is none of them, because the loader reads no recursion.
       expect(packet['intendedModel']).toEqual([{ id: ids.modelFile.id, repository: PRODUCT_REPOSITORY, path: MODEL_FILE }]);
       expect(packet['marker']).toBeNull();
       expect((packet['unit'] as { scope: string }).scope).toBe(PRODUCT_SCOPE);

@@ -268,7 +268,9 @@ function reran(result: FillRunResult): readonly string[] {
  * makes it compute again on any new commit (madarch-tzte.21.8's documented exception, `inputsOf`).
  *
  * The agent part is this task's: the training repository's agent unit, whose recorded span read answers different
- * bytes at the new pin, and no unit of the product repository, whose reads and spans the commit never touched.
+ * bytes at the new pin, and the product's agent units the re-measurement reaches — the recovery (madarch-tzte.24.6)
+ * reads the module tree stage 5 republishes, and the pages stage (25.1) carries the span read in every session its
+ * `byPrompt` entry does not answer — named beside the list below.
  */
 function reranByTheCommit(options: {
   readonly repository: string;
