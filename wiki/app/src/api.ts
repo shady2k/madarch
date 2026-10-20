@@ -659,6 +659,22 @@ export type GraphDraftRow = {
   fact: unknown;
 };
 
+/** One sentence of a page's narrative, and whether the facts it stands on still stand. */
+export type GraphNarrativeSentence = {
+  text: string;
+  facts: string[];
+  stale: boolean;
+};
+
+/** A page's narrative layer: the text the pages stage wrote, proposed in the product's git. */
+export type GraphNarrative = {
+  fact: string;
+  path: string;
+  status: string;
+  stale: boolean;
+  sentences: GraphNarrativeSentence[];
+};
+
 /** `GET /api/graph/page?id=…`: one node's whole page. */
 export type GraphPageModel = {
   product: string;
@@ -681,6 +697,8 @@ export type GraphPageModel = {
   /** What to do next with this page: the charter's order, open questions first; absent from a server older than the change. */
   nextStep?: GraphNextStep;
   drafts: GraphDraftRow[];
+  /** The page's narrative layer (decision 0026, "Pages"): an agent's proposed text, shown marked unverified; null where none stands yet. */
+  narrative: GraphNarrative | null;
   counts: { facts: number; assumptions: number; out: number; in: number; coverage: number; questions: number; drafts: number };
   truncated: boolean;
   marker: string | null;

@@ -41,6 +41,7 @@ function pageModel(id: string, readAt: number): GraphPageModelAnswer {
     // A module page with no question, no coverage and no proposal: the charter's last rule (nothing waits here).
     nextStep: { rule: 'nothing-to-do', target: `/p/graph/${id}`, node: { id, kind: 'module', label: 'checkout' }, reason: 'nothing waits' },
     drafts: [],
+    narrative: null,
     counts: { facts: 0, assumptions: 0, out: 0, in: 0, coverage: 0, questions: 0, drafts: 0 },
     truncated: false,
     marker: null,

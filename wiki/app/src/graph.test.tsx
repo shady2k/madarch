@@ -291,6 +291,16 @@ function modulePage(): GraphPageModel {
         fact: { kind: 'module', value: { name: 'checkout' } },
       },
     ],
+    narrative: {
+      fact: `narrative:${'9'.repeat(64)}`,
+      path: `docs/graph/module-${'9'.repeat(64)}.md`,
+      status: 'proposed',
+      stale: false,
+      sentences: [
+        { text: 'The checkout validates the cart before payment.', facts: [`claim:${'e'.repeat(64)}`], stale: false },
+        { text: 'The checkout refunds an order once.', facts: [`rule:${'f'.repeat(64)}`], stale: true },
+      ],
+    },
     counts: { facts: 2, assumptions: 1, out: 3, in: 1, coverage: 1, questions: 1, drafts: 1 },
     truncated: false,
     marker: null,
@@ -544,6 +554,57 @@ describe('one node’s page', () => {
 
     // The diagrams' slot stands on the page, named and not drawn.
     expect(document.querySelector('[data-testid="graph-diagrams"]')).not.toBeNull();
+  });
+
+  test('the narrative layer stands above the facts, marked unverified, and a stale sentence names itself', async () => {
+    install(world());
+    window.history.pushState({}, '', addressOfGraphPage(MODULE));
+    intoApp(createElement(App, { reconnectMs: 5 }));
+    await until(() => document.querySelector('[data-testid="graph-node"]') !== null, 'the node page');
+
+    // The narrative section stands above the facts it narrates (0026: "a second layer").
+    const node = document.querySelector('main#graph-node')!;
+    const sections = [...node.querySelectorAll(':scope > section')];
+    const narrative = sections.find((section) => section.getAttribute('data-testid') === 'graph-narrative');
+    const facts = sections.find((section) => section.getAttribute('data-testid') === 'graph-facts');
+    expect(narrative).toBeDefined();
+    expect(facts).toBeDefined();
+    expect(sections.indexOf(narrative!)).toBeLessThan(sections.indexOf(facts!));
+
+    // It is a proposal: the unverified mark stands beside the note, and the sentences
+    // carry the facts they stand on.
+    expect(document.querySelector('[data-testid="graph-narrative-badge"]')?.textContent).toContain('unverified');
+    const sentences = [...document.querySelectorAll('[data-testid="graph-narrative-sentence"]')];
+    expect(sentences.map((sentence) => sentence.getAttribute('data-stale'))).toEqual(['false', 'true']);
+    expect(sentences[0]?.textContent).toContain('The checkout validates the cart before payment.');
+    expect(sentences[0]?.querySelector('[data-testid="graph-narrative-sentence-stale"]')).toBeNull();
+    expect(sentences[1]?.querySelector('[data-testid="graph-narrative-sentence-stale"]')?.textContent).toBe('stale');
+    expect(sentences[1]?.textContent).toContain(`rule:${'f'.repeat(64)}`);
+    // A current page names no staleness of its own.
+    expect(document.querySelector('[data-testid="graph-narrative-stale"]')).toBeNull();
+  });
+
+  test('a page the graph holds no narrative for shows no narrative section', async () => {
+    const bare = world();
+    bare.pages = { [MODULE]: { ...modulePage(), narrative: null } };
+    install(bare);
+    window.history.pushState({}, '', addressOfGraphPage(MODULE));
+    intoApp(createElement(App, { reconnectMs: 5 }));
+    await until(() => document.querySelector('[data-testid="graph-node"]') !== null, 'the node page');
+    expect(document.querySelector('[data-testid="graph-narrative"]')).toBeNull();
+    expect(document.querySelector('[data-testid="graph-facts"]')).not.toBeNull();
+  });
+
+  test('a stale page says its text is being rewritten', async () => {
+    const stale = world();
+    stale.pages = { [MODULE]: { ...modulePage(), narrative: { ...modulePage().narrative!, stale: true } } };
+    install(stale);
+    window.history.pushState({}, '', addressOfGraphPage(MODULE));
+    intoApp(createElement(App, { reconnectMs: 5 }));
+    await until(() => document.querySelector('[data-testid="graph-node"]') !== null, 'the node page');
+    const mark = document.querySelector('[data-testid="graph-narrative-stale"]');
+    expect(mark).not.toBeNull();
+    expect(mark?.getAttribute('role')).toBe('status');
   });
 
   test('a place in a repository the manifest does not declare is text and links nothing', async () => {

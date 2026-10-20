@@ -26,6 +26,8 @@ import {
   type GraphCoverageRow,
   type GraphDecisionAnswer,
   type GraphDraftRow,
+  type GraphNarrative,
+  type GraphNarrativeSentence,
   type GraphNextStep,
   type GraphPageEntry,
   type GraphPageFact,
@@ -223,6 +225,47 @@ function DraftRow({ draft }: { draft: GraphDraftRow }): ReactElement {
       <span className="graph-draft-unit">{t('graph.draftHeldBy', { unit: draft.unit, generation: draft.generation })}</span>
       <code className="graph-draft-evidence">{draft.evidence}</code>
     </li>
+  );
+}
+
+/** One sentence of the narrative layer: the words, the facts it stands on, and its staleness. */
+function NarrativeSentenceRow({ sentence }: { sentence: GraphNarrativeSentence }): ReactElement {
+  const { t } = useTranslation();
+  return (
+    <li className="graph-narrative-sentence" data-testid="graph-narrative-sentence" data-stale={sentence.stale ? 'true' : 'false'}>
+      <span className="graph-narrative-text">{sentence.text}</span>
+      {sentence.stale && <span className="graph-chip graph-chip-stale" data-testid="graph-narrative-sentence-stale">{t('graph.narrativeSentenceStale')}</span>}
+      <ul className="graph-narrative-facts">
+        {sentence.facts.map((id) => <li key={id}><code>{id}</code></li>)}
+      </ul>
+    </li>
+  );
+}
+
+/**
+ * The page's narrative layer (decision 0026, "Pages"; madarch-tzte.25.1): the text an
+ * agent wrote about this node, shown as a layer above the graph-rendered facts, marked
+ * unverified — it is a proposal in the product's git (`status: proposed`), never a
+ * statement the graph asserts. A stale page says so: the unit that wrote it was
+ * replanned, and a new text is on its way; a sentence whose facts stand in the graph
+ * no more is marked by itself.
+ */
+export function GraphNarrativeSection({ narrative }: { narrative: GraphNarrative }): ReactElement {
+  const { t } = useTranslation();
+  return (
+    <section className="graph-narrative" data-testid="graph-narrative" aria-labelledby="graph-narrative-title">
+      <h2 id="graph-narrative-title">{t('graph.narrativeTitle')}</h2>
+      <p className="graph-note" data-testid="graph-narrative-badge">
+        <span className="graph-chip graph-chip-unverified">{t('graph.narrativeUnverified')}</span>
+        {' '}{t('graph.narrativeNote')}
+      </p>
+      {narrative.stale && (
+        <p className="graph-cut" role="status" data-testid="graph-narrative-stale">{t('graph.narrativeStale')}</p>
+      )}
+      <ul className="graph-narrative-list">
+        {narrative.sentences.map((sentence, at) => <NarrativeSentenceRow key={`${at}-${sentence.text}`} sentence={sentence} />)}
+      </ul>
+    </section>
   );
 }
 
@@ -633,6 +676,11 @@ export function GraphNodePage({ page, repos }: { page: GraphPageModel; repos: re
        * setting. A page the graph draws no diagram of shows the server's words, never an
        * empty frame. */}
       <GraphDiagramsSection node={node} readAt={page.readAt} repos={repos} />
+
+      {/* The narrative layer stands above the facts it narrates (0026: "a second layer"): proposed
+       * text, marked unverified, each sentence tied to the facts it names. 25.2 adds open questions
+       * and the next step beside it; this section is the narrative layer's alone. */}
+      {page.narrative !== null && <GraphNarrativeSection narrative={page.narrative} />}
 
       <section className="graph-facts" data-testid="graph-facts" aria-labelledby="graph-facts-title">
         <h2 id="graph-facts-title">{t('graph.factsTitle', { count: facts.length })}</h2>

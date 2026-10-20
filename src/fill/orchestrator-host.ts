@@ -34,6 +34,8 @@ import { answerDocument, acceptanceDocument, ANSWERS_FOLDER, ACCEPTANCES_FOLDER,
 import { applyDecisions } from './declared.js';
 import { labelOf } from './graph-reads.js';
 import { readNodeDiagrams } from './graph-diagrams.js';
+import { commitNarrativePages, type NarrativeOutboxResult } from './narrative-outbox.js';
+import { NARRATIVE_STAGE_ID } from './stages/narrative.js';
 import { createPageReadCache } from './page-cache.js';
 import type { Fact, FactLayer, FactSource } from './facts.js';
 import { answerMembership, graphReadsOver, recordedReadText, type DraftReading, type GraphReadLimits } from './graph-reads.js';
@@ -157,6 +159,13 @@ export interface FillRunResult {
   readonly reused: readonly string[];
   /** The enabled stages whose plan found a producer's inputs and nothing in them, so nobody reads it as a capability nothing produces. */
   readonly foundNothing: readonly string[];
+  /**
+   * What the pages outbox carried into the product's git after the run settled
+   * (decision 0027: "Git commits of pages are a separate idempotent outbox step"),
+   * when the run's stages hold the pages stage. A run of a registry without it
+   * names no field.
+   */
+  readonly pages?: NarrativeOutboxResult;
 }
 
 /** What opening one unit's tools is asked for: the unit, and where its bytes, its drafts and its writes stand. */
@@ -471,6 +480,8 @@ async function fileDecision(
    * and wiring in one place for every run of it.
    */
   const orchestrators = new Map<string, FillOrchestrator>();
+  /** The registry each product's orchestrator was built over: what the pages outbox asks for by name. */
+  const registries = new Map<string, StageRegistry>();
 
   async function orchestratorFor(product: FillProduct): Promise<FillOrchestrator | RefusedFillRun> {
     const held = orchestrators.get(product.name);
@@ -478,6 +489,7 @@ async function fileDecision(
     const wired = await wiringOf(product);
     if ('ok' in wired) return wired;
     const { wiring, registry } = wired;
+    registries.set(product.name, registry);
     const { owner, queue } = await open();
     const built = createOrchestrator({
       database: owner,
@@ -885,6 +897,21 @@ async function fileDecision(
         workers: request.workers ?? options.workers ?? 1,
         ...(request.maxPasses === undefined && options.maxPasses === undefined ? {} : { maxPasses: request.maxPasses ?? options.maxPasses }),
       });
+      // The pages outbox, after the run settled (0027: a separate idempotent step): every page the run's
+      // narrative units published is carried into the product's git here, never inside a publication. A
+      // registry without the pages stage — every run without an agent today — carries nothing, and pays
+      // nothing: the step is not even started.
+      let pages: NarrativeOutboxResult | undefined;
+      const registry = registries.get(request.product.name) ?? options.registry;
+      if (registry.all().some((stage) => stage.id === NARRATIVE_STAGE_ID)) {
+        pages = await commitNarrativePages({
+          database: (await open()).owner,
+          folder: request.product.folder,
+          product: request.product.name,
+          ...(options.clock === undefined ? {} : { clock: options.clock }),
+          ...(options.log === undefined ? {} : { log: options.log }),
+        });
+      }
       const status = await runStatus(orchestrator, request.runId);
       return {
         ok: true,
@@ -897,6 +924,7 @@ async function fileDecision(
         units: (status?.units ?? []).map((unit) => ({ unitId: unit.unitId, stageId: unit.stageId, state: unit.state, generation: unit.generation, attempts: unit.attempts })),
         reused,
         foundNothing,
+        ...(pages === undefined ? {} : { pages }),
       };
     },
     async status(request: { readonly product: FillProduct; readonly runId: string }): Promise<RunStatus | null> {

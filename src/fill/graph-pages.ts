@@ -51,6 +51,7 @@ import type { FactGraphReaderOptions } from './graph-reads.js';
 import { factsOfWrites, type FactStoreDatabase } from './fact-store.js';
 import {
   FACT_EDGE_KINDS,
+  FACT_ID_PATTERN,
   isFactId,
   isFactKind,
   type AnswerDecision,
@@ -59,6 +60,7 @@ import {
   type FactKind,
   type FactLayer,
   type FactStatus,
+  type NarrativeValue,
 } from './facts.js';
 import type { GraphDiagramsRead } from './graph-diagrams.js';
 import {
@@ -81,6 +83,7 @@ import {
   type GraphReadLimits,
   type GraphSnapshotSource,
 } from './graph-reads.js';
+import { narrativePagePath } from './narrative-text.js';
 import { here, raise, withLocation } from './fsm-core.js';
 import { pageNextStep, productNextStep, type GraphNextStep, type RankedQuestion, type StepNode } from './next-step.js';
 import { byQuestionRank, questionGroupOrder } from './question-types.js';
@@ -659,6 +662,37 @@ export interface GraphPageModelAnswer {
    */
   readonly tokens: number;
   readonly readAt: number;
+  /**
+   * The page's narrative text (decision 0026, "Pages"; madarch-tzte.25.1): the second
+   * layer an agent wrote above the graph-rendered facts, stored as Markdown in the
+   * product's git with status proposed, and shown marked unverified. `null` where no
+   * page stands for this node yet.
+   */
+  readonly narrative: GraphNarrative | null;
+}
+
+/** One sentence of a page's narrative text, and whether the facts it stands on still stand. */
+export interface GraphNarrativeSentence {
+  /** The sentence, as a reader reads it. */
+  readonly text: string;
+  /** The fact ids the sentence stands on, in code point order. */
+  readonly facts: readonly string[];
+  /** Whether the sentence is stale: a fact it stands on stands in the graph no more. */
+  readonly stale: boolean;
+}
+
+/** A page's narrative layer, as the fact of the kind `narrative` holds it. */
+export interface GraphNarrative {
+  /** The narrative fact's own id. */
+  readonly fact: string;
+  /** The file the page's Markdown stands at in the product repository. */
+  readonly path: string;
+  /** The fact's status (0005): an agent's page is `proposed` until a person decides. */
+  readonly status: string;
+  /** Whether the page is stale: the unit that wrote it was replaced, and a new page is on its way. */
+  readonly stale: boolean;
+  /** The sentences, in the page's own order. */
+  readonly sentences: readonly GraphNarrativeSentence[];
 }
 
 /** One page asked for: the page, or the refusal naming why the graph holds none. */
@@ -714,6 +748,11 @@ export async function readPageModel(options: {
     ];
     const rulesRead: GraphRead = { read: 'facts-with', kind: 'rule', field: 'subject', value: id };
     const questionsRead: GraphRead = { read: 'facts-with', kind: 'question', field: 'about', value: id };
+    // The page's narrative layer (0026, "Pages"): the fact the pages stage wrote about this node, whose
+    // sentences the page shows above its facts. One fact stands behind a page — the identity is the
+    // repository and the node — so the first of the reads is the page.
+    const narrativeRead: GraphRead = { read: 'facts-with', kind: 'narrative', field: 'about', value: id };
+    const narrativeFacts = [...factsOfRows(await context.read(narrativeRead), narrativeRead)].sort((left, right) => byCodePoint(left.id, right.id));
     const edgesRead: GraphRead = { read: 'adjacent', id, kinds: FACT_EDGE_KINDS };
     // The answers the graph holds: the product's answers to questions (a question is closed by the one that names it,
     // decided 0026's checked writes), and the answers that decide about this page — a question page's own answer, or
@@ -792,6 +831,7 @@ export async function readPageModel(options: {
     const coverageScopes = coverageHeld.rows.length === 0 ? [] : [...new Set(coverageHeld.rows.map((row) => row.scope))].sort(byCodePoint);
     const uniqueCoverage = coverageHeld.rows;
     const questions: GraphQuestion[] = questionsShown(questionFacts, nodeRefOf(node), edgeFacts, refs, answers);
+    const narrated = await narrativeOf({ executor, read: context.read, facts: narrativeFacts, limits, product: options.product });
     // A claim names two ends, and a page links them to their own pages: the nodes were read once, above, with the
     // nodes the edges name, so a claim about a module costs no read of its own.
     const pageFacts = facts.map((fact) => fact.kind === 'claim' ? { ...pageFactOf(fact), ends: claimEndsOf(fact, refs) } : pageFactOf(fact));
@@ -837,7 +877,8 @@ export async function readPageModel(options: {
       assumptions: node.kind === 'question' ? 0 : assumptionsHeld.rows.length,
       decided: decision !== null,
     });
-    const cut = [factsHeld.marker, relationsHeld.marker, coverageHeld.marker, questionsHeld.marker, draftsHeld.marker, ...markers];
+    const cut = [factsHeld.marker, relationsHeld.marker, coverageHeld.marker, questionsHeld.marker, draftsHeld.marker, narrated.marker, ...markers];
+
     const out = relationsHeld.rows.filter((relation) => relation.direction !== 'in');
     const into = relationsHeld.rows.filter((relation) => relation.direction !== 'out');
     const body: Omit<GraphPageModelAnswer, 'tokens'> = {
@@ -855,6 +896,7 @@ export async function readPageModel(options: {
       answer,
       nextStep,
       drafts: draftsHeld.rows,
+      narrative: narrated.narrative,
       counts: {
         facts: assertedHeld.length,
         assumptions: assumptionsHeld.rows.length,
@@ -890,6 +932,76 @@ function withProduct(request: GraphRead, product: string): GraphRead {
     default:
       return request;
   }
+}
+
+/** The most fact ids one page's narrative is checked against before the page's own bound cuts the list: a page is read by a person. */
+export const PAGE_NARRATIVE_IDS = 64;
+
+/**
+ * A page's narrative layer, read for the page model (madarch-tzte.25.1): the fact's
+ * sentences, each marked stale when a fact it stands on stands in the graph no more,
+ * and the whole layer marked stale when the unit that wrote it was replaced — the
+ * replan is on its way, and the page says so rather than standing as if it were
+ * current. The ids a sentence cites are read one by one through the page's own
+ * reader, in the page's one transaction; a list past the page's bound is cut, and
+ * the cut is named in the page's marker.
+ *
+ * The page shows the fact the writing unit's *current* generation holds. A node
+ * whose page was rewritten briefly holds the old page's fact beside the new one, and
+ * the store sweeps the old record when the new generation publishes (0027); between
+ * the replan and that publication, no current generation holds a page — the newest
+ * holding stands, and the layer says it is stale.
+ */
+async function narrativeOf(options: {
+  readonly executor: SqlExecutor;
+  readonly read: (request: GraphRead) => Promise<readonly unknown[]>;
+  readonly facts: readonly Fact[];
+  readonly limits: GraphReadLimits;
+  readonly product: string;
+}): Promise<{ readonly narrative: GraphNarrative | null; readonly marker: string | null }> {
+  if (options.facts.some((fact) => fact.kind !== 'narrative')) raise(`${here()}: a page's narrative is a fact of the kind "narrative" (src/fill/facts.ts)`);
+  const facts = options.facts;
+  if (facts.length === 0) return { narrative: null, marker: null };
+  // Every holding is scoped to this product's units: two fills of one code hold pages of one id, and
+  // another product's generations answer neither this page's freshness nor its staleness.
+  const held = await options.executor.query<{ id: string; held: number; current: number; unit_id: string }>(
+    `SELECT h.id, h.generation AS held, u.generation AS current, h.unit_id FROM fill_fact_holding h JOIN fill_unit u ON u.unit_id = h.unit_id
+      WHERE h.id = ANY($1::text[]) AND u.product = $2`,
+    [facts.map((fact) => fact.id), options.product],
+  );
+  const fresh = new Set(held.rows.filter((row) => Number(row.current) <= Number(row.held)).map((row) => row.id));
+  const fact = facts.find((candidate) => fresh.has(candidate.id))
+    ?? [...facts].sort((left, right) => {
+      const heldOf = (id: string): number => Math.max(...held.rows.filter((row) => row.id === id).map((row) => Number(row.held)));
+      return heldOf(right.id) - heldOf(left.id) || byCodePoint(right.id, left.id);
+    })[0]!;
+  const superseded = held.rows.length > 0 && !fresh.has(fact.id);
+  const value = fact.value as NarrativeValue;
+  const sentences = Array.isArray(value.sentences) ? value.sentences : [];
+  const cited = [...new Set(sentences.flatMap((sentence) => sentence.facts))].filter((id) => FACT_ID_PATTERN.test(id)).sort(byCodePoint);
+  const checked = cited.slice(0, PAGE_NARRATIVE_IDS);
+  const standing = new Set<string>();
+  for (const id of checked) {
+    const read: GraphRead = { read: 'fact', id, product: options.product };
+    if (factsOfRows(await options.read(read), read).length > 0) standing.add(id);
+  }
+  const marker = cited.length > checked.length
+    ? `the fact ids the page's sentences cite were cut at ${String(PAGE_NARRATIVE_IDS)} of ${String(cited.length)} by the page's own bound: the rest were not checked for staleness`
+    : null;
+  return {
+    marker,
+    narrative: {
+      fact: fact.id,
+      path: narrativePagePath(value.about),
+      status: fact.status,
+      stale: superseded,
+      sentences: sentences.map((sentence) => ({
+        text: sentence.text,
+        facts: [...sentence.facts].sort(byCodePoint),
+        stale: sentence.facts.some((id: string) => !standing.has(id)),
+      })),
+    },
+  };
 }
 
 /** The drafts a page shows, in code point order of the holding unit and its generation: never the database's collation. */

@@ -19,6 +19,7 @@ import { createGitHistoryReader, createHistoryStage, type CheckoutFolderOf } fro
 import { createIntentHistoryStage } from './intent-history.js';
 import { createInventoryStage } from './inventory.js';
 import { createModulesStage } from './modules.js';
+import { createNarrativeStage } from './narrative.js';
 import { createOverviewStage } from './overview.js';
 import { createSemanticResolutionStage } from './semantic-resolution.js';
 import { createSnapshotStage } from './snapshot.js';
@@ -79,6 +80,8 @@ export function createStageRegistry(wiring: FillStageWiring): StageRegistry {
     // Stage 12 of 0026 (madarch-tzte.24.5): the modules understood bottom-up, each parent from its children's
     // bounded summaries, on the agent-stage shape.
     registry.register(createUnderstandingStage(agent));
+    // The pages stage of 0026 (madarch-tzte.25.1): a page's narrative text, each sentence tied to its facts.
+    registry.register(createNarrativeStage(agent));
   }
   return registry;
 }

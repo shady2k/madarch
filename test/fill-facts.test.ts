@@ -55,7 +55,7 @@ const CHECKOUT_ELSEWHERE = '/srv/ci/workspace/checkout';
 const REPOSITORY = 'orders-api';
 
 /** A well-formed fact id of a node the samples point at, when the node itself is not what is under test. */
-function anyId(kind: 'file' | 'symbol' | 'state' | 'commit' | 'document' | 'api-endpoint' | 'deploy-unit'): string {
+function anyId(kind: 'file' | 'symbol' | 'state' | 'commit' | 'document' | 'api-endpoint' | 'deploy-unit' | 'module'): string {
   return `${kind}:${'0123456789abcdef'.repeat(4)}`;
 }
 
@@ -112,6 +112,7 @@ const SAMPLES: { readonly [K in FactKind]: FactValueOf<K> } = {
   'coverage': { repository: REPOSITORY, scope: 'module:checkout-payment', complete: false, read: ['src/order.ts', 'src/payment.ts'], unread: [{ what: 'src/legacy.js', reason: 'unsupported' }] },
   'question': { repository: REPOSITORY, type: 'assumption-check', about: anyId('symbol'), prompt: 'Is an order placed at authorization or at capture?' },
   'answer': { repository: REPOSITORY, subject: 'question:' + '3'.repeat(64), decision: 'answers', text: 'An order is placed when its card is authorized.', evidence: `${REPOSITORY}@${COMMIT}:src/payment.ts` },
+  'narrative': { about: anyId('module'), sentences: [{ text: 'The checkout validates the cart before payment.', facts: [anyId('file')] }] },
   'contains': { from: anyId('file'), to: anyId('symbol') },
   'defines': { from: anyId('file'), to: anyId('symbol') },
   'import': { from: anyId('file'), to: anyId('file'), specifier: '../model/order.js' },
@@ -167,6 +168,7 @@ const EXPECTED_LAYERS: Readonly<Record<FactKind, readonly FactLayer[]>> = {
   // an agent's answer to a question it found the evidence for, or a person's
   // own answer through the wiki
   'answer': ['declared', 'inferred'],
+  'narrative': ['inferred'],
   'transition': ['inferred'],
   'interaction': ['inferred'],
   // a claim is an agent's reading, or the product's own words when a
@@ -296,12 +298,16 @@ describe('the kinds the fill writes', () => {
     expect(FACT_STAGES.filter((stage) => !FACT_KINDS_IN_ORDER.some((kind) => FACT_KINDS[kind].stages.includes(stage)))).toEqual([]);
   });
 
-  test('the agent kinds are written by agent stages only, and every agent stage is 8 to 13', () => {
+  test('the agent kinds are written by agent stages only, and the agent stages are 8 to 13 beside the pages stage', () => {
     const agentKinds: readonly FactKind[] = ['claim', 'entity-proposal', 'question', 'rule', 'state', 'transition', 'interaction'];
     for (const kind of agentKinds) {
       for (const stage of FACT_KINDS[kind].stages) expect(AGENT_STAGES).toContain(stage);
     }
-    expect([...AGENT_STAGES]).toEqual([...FACT_STAGES].filter((stage) => Number(stage.split('-')[0]) >= 8));
+    // Decision 0026: the agent stages are 8 to 13; the Pages bullet's stage (madarch-tzte.25.1)
+    // stands beside them as 14 and writes the page's narrative fact alone.
+    expect([...AGENT_STAGES]).toEqual(['8-overview', '9-boundaries', '10-intent-documents', '11-intent-history', '12-understanding', '13-recovery']);
+    expect([...FACT_STAGES].filter((stage) => Number(stage.split('-')[0]) >= 8)).toEqual([...AGENT_STAGES, '14-narrative']);
+    expect(FACT_KINDS['narrative'].stages).toEqual(['14-narrative']);
     // A coverage is what every stage reports about what it read (0004's
     // coverage, 0026's "a unit at a limit returns what it has with its coverage").
     expect(FACT_KINDS['coverage'].stages).toEqual(FACT_STAGES);
@@ -336,9 +342,12 @@ describe('the kinds the fill writes', () => {
       expect(layers.sort()).toEqual([...EXPECTED_LAYERS[kind]]);
       // And the same rule read the other way: a kind that no deterministic
       // stage writes never claims the extracted layer, and a kind that no
-      // agent stage writes never claims the inferred one.
+      // agent stage writes never claims the inferred one. The pages stage
+      // (0026's "Pages", madarch-tzte.25.1) is agent-driven like 8 to 13: what
+      // it writes is an agent's reading, and nothing it writes is extracted.
+      const agentDriven = [...AGENT_STAGES, '14-narrative'];
       const writtenBy = (stages: readonly string[], agent: boolean): boolean =>
-        stages.some((stage) => AGENT_STAGES.includes(stage as never) === agent);
+        stages.some((stage) => agentDriven.includes(stage as never) === agent);
       const deterministic = writtenBy(definition.stages, false);
       const agent = writtenBy(definition.stages, true);
       if (!deterministic) expect(definition.layers).not.toContain('extracted');
@@ -1040,9 +1049,10 @@ describe('the check that names every reason a fact is not one the schema reads',
     // 0004 ("every fact carries its source, repository@ref, file and line") and
     // the item's DONE WHEN. A fact about the tree itself — the repository, its
     // snapshot, a commit, a directory, a `contains` edge — a scope the fill
-    // assembles (a module, a coverage, an entity proposal, a question) or a
-    // task key read from a commit message has no single file and line.
-    const placesNone: readonly FactKind[] = ['answer', 'contains', 'commit', 'coverage', 'directory', 'entity-proposal', 'module', 'question', 'repository', 'snapshot', 'task-key'];
+    // assembles (a module, a coverage, an entity proposal, a question), a
+    // task key read from a commit message, or a page whose bytes are the
+    // product's git's own (madarch-tzte.25.1) has no single file and line.
+    const placesNone: readonly FactKind[] = ['answer', 'contains', 'commit', 'coverage', 'directory', 'entity-proposal', 'module', 'narrative', 'question', 'repository', 'snapshot', 'task-key'];
     for (const kind of FACT_KINDS_IN_ORDER) {
       const fact = sampleFact(kind);
       const bare = { ...fact, provenance: { source: fact.provenance.source, repository: fact.provenance.repository } };
