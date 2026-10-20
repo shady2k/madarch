@@ -415,7 +415,19 @@ export function createUpdateWatch(options: UpdateWatchOptions): UpdateWatch {
     }
     const due = [...waiting.values()].filter((entry) => now - entry.since >= debounceMs);
     if (due.length > 0) {
-      if (!(await enabled())) {
+      let mayRun = false;
+      let readFailed = false;
+      try {
+        mayRun = await enabled();
+      } catch (error) {
+        // A settings file this machine cannot read is no answer about the person's choice: nothing is started, the
+        // commits keep waiting, and the reason is said once rather than a pass an hour.
+        readFailed = true;
+        say('enabled-unreadable', `no update runs by itself until this home's agent choice can be read, and a commit waits for it: ${(error as Error).message}`);
+      }
+      if (!mayRun && readFailed) {
+        // The commits keep waiting: they are asked for again once the choice reads.
+      } else if (!mayRun) {
         say('disabled', `no update runs by itself in this home: the wizard was not run, so no agent is chosen and nothing says what a run may spend — choose an agent in the wizard and updates follow commits to the default branch (${home})`);
         for (const entry of due) waiting.delete(seenKey(entry.product, entry.repository));
       } else {

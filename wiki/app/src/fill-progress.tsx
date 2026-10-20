@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactElement } from 'react';
 import { appPath } from './app-base.js';
+import { byCodePoint } from './sort.js';
 import { useTranslation } from 'react-i18next';
 
 /**
@@ -35,7 +36,7 @@ const workingStates = new Set(['running', 'leased', 'draft', 'validating']);
 function stageListOf(units: readonly Unit[]): string[] {
   const held = [...new Set(units.map((unit) => unit.stage).filter((stage) => stage !== ''))];
   const known = stageOrder.filter((stage) => held.includes(stage));
-  const unknown = held.filter((stage) => !stageOrder.includes(stage)).sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
+  const unknown = held.filter((stage) => !stageOrder.includes(stage)).sort(byCodePoint);
   return [...known, ...unknown];
 }
 
@@ -43,7 +44,13 @@ function elapsed(start: string, now: number): string {
   const seconds = Math.max(0, Math.floor((now - Date.parse(start)) / 1000));
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 }
-/** Live reader for atomic fill state and journal; controls operate on the product server API. */
+/**
+ * Live reader for atomic fill state and journal; controls operate on the product
+ * server API. A pause or a stop is taken by whichever holder of the run the server
+ * names — the landed fill's control file, or the orchestrator's own run — and the
+ * stop is offered only for a state a run can leave, so the panel never offers a
+ * control the server cannot take.
+ */
 export function FillProgressPanel({ open }: { open: boolean }): ReactElement {
   const { t } = useTranslation();
   const [run, setRun] = useState<Run | null>(null);
@@ -80,7 +87,7 @@ export function FillProgressPanel({ open }: { open: boolean }): ReactElement {
   return <aside className="context-panel fill-progress" aria-label={t('fill.title')} data-testid="fill-progress-panel" hidden={!open}>
     <h2>{t('fill.title')}</h2>
     {!run ? <p>{error || t('fill.idle')}</p> : <>
-      <p className="fill-run-state" data-testid="fill-run-id">{t(`fill.status.${run.status}`, { defaultValue: run.status })} · {elapsed(run.createdAt, now)}</p>
+      <p className="fill-run-state">{t(`fill.status.${run.status}`, { defaultValue: run.status })} · {elapsed(run.createdAt, now)}</p>
       <ol className="fill-stages">{stages.map((stage) => <li key={stage} data-stage={stage}><span>{t(`fill.stages.${stage}`, { defaultValue: stage })}</span><small>{counts.get(stage)?.done ?? 0}/{counts.get(stage)?.total ?? 0} · {counts.get(stage)?.working ?? 0} {t('fill.running')}</small></li>)}</ol>
       <p className="fill-activity" aria-live="polite">{latest?.summary ?? t('fill.waiting')}</p>
       <div className="fill-controls"><button type="button" disabled={run.status !== 'running'} onClick={() => void control('pause')}>{t('fill.pause')}</button><button type="button" disabled={terminalStates.has(run.status)} onClick={() => void control('stop')}>{t('fill.stop')}</button></div>

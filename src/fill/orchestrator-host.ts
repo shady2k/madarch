@@ -36,8 +36,10 @@ import type { FactLayer, FactSource } from './facts.js';
 import { graphReadsOver, type DraftReading, type GraphReadLimits } from './graph-reads.js';
 import {
   DEFAULT_ORCHESTRATOR_LIMITS,
+  cancelRun,
   createOrchestrator,
   driveRun,
+  pauseRun,
   planRun,
   resumeRun,
   runStatus,
@@ -209,6 +211,14 @@ export interface FillProgressAnswer {
   }[];
 }
 
+/** What a person asks of one run: the two controls the fill progress panel offers. */
+export type FillRunControl = 'pause' | 'stop';
+
+/** What one control did: the run's state afterwards, or the refusal in the store's own words. */
+export type FillRunControlAnswer =
+  | { readonly ok: true; readonly runId: string; readonly state: string }
+  | { readonly ok: false; readonly code: string; readonly reason: string };
+
 /** A run the service refused before it started, with what is missing. */
 export interface RefusedFillRun {
   readonly ok: false;
@@ -258,6 +268,15 @@ export interface FillOrchestratorService {
    * because nothing of a run is a truthful answer then.
    */
   progress(folder: string): Promise<FillProgressAnswer | null>;
+  /**
+   * The person's pause or stop of one of this product's runs (madarch-tzte.26.2):
+   * the run's own state machine takes it (`pauseRun`, `cancelRun`), so an update the
+   * server started by itself is paused and stopped where a person's own run is. A
+   * run this service does not hold — the landed fill's, whose state stands in
+   * `.madarch/fill` — answers `null` so its own control answers for it; a step a
+   * run's machine refuses answers a refusal in the machine's own words.
+   */
+  control(request: { readonly productFolder: string; readonly runId: string; readonly action: FillRunControl }): Promise<FillRunControlAnswer | null>;
   /**
    * Stops the queue and closes the database this service opened; safe to call
    * twice and safe to call before anything was opened.
@@ -623,6 +642,23 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
           };
         },
       };
+    },
+    async control(request: { readonly productFolder: string; readonly runId: string; readonly action: FillRunControl }): Promise<FillRunControlAnswer | null> {
+      const product: FillProduct = { name: productNameOf(request.productFolder), folder: request.productFolder };
+      const built = await orchestratorFor(product);
+      if ('ok' in built) return { ok: false, code: built.code, reason: built.reason };
+      // A run the store does not hold is the landed fill's, which keeps its own state file: `null` hands the
+      // control to that answer instead of pretending this process lost it.
+      if ((await runStatus(built, request.runId)) === null) return null;
+      try {
+        const settled = request.action === 'pause'
+          ? await pauseRun(built, { runId: request.runId })
+          : await cancelRun(built, { runId: request.runId, cause: 'stopped from the fill progress panel' });
+        return { ok: true, runId: settled.run.runId, state: settled.run.state };
+      } catch (error) {
+        // The machine's own words: a run that already ended, and one whose state cannot take this step, say which.
+        return { ok: false, code: 'fill-orchestrator/control-refused', reason: (error as Error).message };
+      }
     },
     async progress(folder: string): Promise<FillProgressAnswer | null> {
       const database = await pageDatabase();

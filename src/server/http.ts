@@ -46,7 +46,7 @@ import { listProducts } from '../product/list.js';
 import { basename } from 'node:path';
 import type { StartFillOptions, StartFillResult } from '../product/fill.js';
 import { UNIT_TOOL_PATH, type UnitToolAnswer, type UnitToolCall } from '../fill/unit-tools.js';
-import type { FillProgressAnswer } from '../fill/orchestrator-host.js';
+import type { FillProgressAnswer, FillRunControlAnswer } from '../fill/orchestrator-host.js';
 import { readChosenModel, saveChosenAgent } from '../product/fill-wizard.js';
 import { homeFromEnv } from '../product/home.js';
 
@@ -133,6 +133,13 @@ export interface ServerOptions {
      * a fill answers null, and the route falls back to the state file.
      */
     progress?(productFolder: string): Promise<FillProgressAnswer | null>;
+    /**
+     * The person's pause or stop of one of this process's runs (madarch-tzte.26.2):
+     * `POST /api/fill/control` asks here first, and the state file's own control
+     * answers where this process holds no such run. An update the server started by
+     * itself is paused and stopped where a person's own run is.
+     */
+    control?(request: { readonly productFolder: string; readonly runId: string; readonly action: 'pause' | 'stop' }): Promise<FillRunControlAnswer | null>;
   };
   /** Where request lines go; standard output by default. */
   log?: (line: string) => void;
@@ -330,6 +337,7 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
     productFolder: options.productFolder,
     unitTool: options.orchestrator?.unitTool,
     fillProgress: options.orchestrator?.progress,
+    fillControl: options.orchestrator?.control,
     graphPages: productWiki === undefined ? undefined : graphPagesOf(productWiki.product.folder, productWiki.product.name),
     graphDiagrams: productWiki === undefined ? undefined : graphDiagramsOf(productWiki.product.folder, productWiki.product.name),
   });
@@ -538,6 +546,8 @@ export function createHandler(dependencies: {
   graphDiagrams?: GraphDiagramsPart;
   /** The orchestrator's own answer for `GET /api/fill` (madarch-tzte.26.2), when this process owns a fill service. */
   fillProgress?: (productFolder: string) => Promise<FillProgressAnswer | null>;
+  /** The orchestrator's own answer for `POST /api/fill/control` (madarch-tzte.26.2); `null` for a run it does not hold. */
+  fillControl?: (request: { readonly productFolder: string; readonly runId: string; readonly action: 'pause' | 'stop' }) => Promise<FillRunControlAnswer | null>;
   /** The environment the handler judges a request against; the process's own when it is left out (the fill's sign-in choice reads it). */
   env?: ServerOptions['env'];
 }): ServerHandler {
@@ -670,7 +680,28 @@ export function createHandler(dependencies: {
       { method: 'POST', path: '/api/fill/agent-install', handle: (request) => wiki.fillAgentInstall(request) },
       { method: 'GET', path: '/api/fill/inventory', handle: () => wiki.fillInventory() },
       { method: 'POST', path: '/api/fill/test', handle: (request) => wiki.fillAgentTest(request) },
-      { method: 'POST', path: '/api/fill/control', handle: (request) => { const url = new URL(request.url); const action = url.searchParams.get('action'); if (action !== 'pause' && action !== 'stop') return refused(400, { message: 'fill action must be exactly pause or stop' }); return serializeState(() => wiki.fillControl(request, url.searchParams.get('runId') ?? '', action)); } },
+      { method: 'POST', path: '/api/fill/control', handle: async (request) => {
+        const url = new URL(request.url);
+        const action = url.searchParams.get('action');
+        if (action !== 'pause' && action !== 'stop') return refused(400, { message: 'fill action must be exactly pause or stop' });
+        const runId = url.searchParams.get('runId') ?? '';
+        // The orchestrator's own runs come first (madarch-tzte.26.2): the update the background server started by
+        // itself is paused and stopped by its own state machine. A run it does not hold falls through to the state
+        // file's control, which answers for the landed fill.
+        const control = dependencies.fillControl;
+        if (control !== undefined && fillProductFolder !== undefined) {
+          try {
+            const answer = await control({ productFolder: fillProductFolder, runId, action });
+            if (answer !== null) {
+              if (answer.ok) return { response: json(202, { runId: answer.runId, state: answer.state }) };
+              return refused(answer.code === 'fill-orchestrator/control-refused' ? 409 : 404, { message: answer.reason });
+            }
+          } catch (error) {
+            return refused(500, { message: `the fill's control could not be taken by this process's own runs: ${(error as Error).message}` });
+          }
+        }
+        return serializeState(() => wiki.fillControl(request, runId, action));
+      } },
       { method: 'GET', path: '/api/architecture', handle: () => wiki.architecture() },
       { method: 'GET', path: '/api/architecture/likec4.js', handle: () => wiki.likec4Script() },
       ...(wiki.reposDeclared ? ([{ method: 'GET', path: '/api/repos', handle: () => wiki.repos() }] as Route[]) : []),

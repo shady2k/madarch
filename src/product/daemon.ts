@@ -625,7 +625,12 @@ export async function serveDaemon(options: { home?: string; port: number; update
       port: options.port,
       host: '127.0.0.1',
       startFill,
-      orchestrator: { stop: () => orchestrator.stop(), unitTool: (call) => orchestrator.unitTool(call), progress: (folder) => orchestrator.progress(folder) },
+      orchestrator: {
+        stop: () => orchestrator.stop(),
+        unitTool: (call) => orchestrator.unitTool(call),
+        progress: (folder) => orchestrator.progress(folder),
+        control: (request) => orchestrator.control(request),
+      },
       graphPages: (productFolder) => orchestrator.pages(productFolder),
     });
     address = server.url;

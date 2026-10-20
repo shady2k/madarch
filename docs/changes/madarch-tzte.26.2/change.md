@@ -73,7 +73,16 @@ This change is six pieces and the wiring between them.
   holds instead of a list fixed in the app: the fill's stages are data (decision
   0027), a stage the panel knows by name keeps its translation and a stage it does
   not is shown under its own id, and the run states and stage names the
-  orchestrator uses are in both languages.
+  orchestrator uses are in both languages. Its pause and stop now reach the run the
+  answer names: the stop is offered only in a state a run can leave.
+- **`POST /api/fill/control`** and the service's `control` — the person's pause and
+  stop of one of the server's own runs, taken by the run's own state machine
+  (`pauseRun`, `cancelRun`): an update the background server started is paused and
+  stopped where a person's own run is. A run the service does not hold — the landed
+  fill's, whose state stands in `.madarch/fill` — answers `null` and the state
+  file's control answers for it, so a product served by `madarch serve` keeps its
+  own behaviour; a step a run's machine refuses answers 409 in the machine's
+  words.
 
 ## Rationale
 
@@ -98,12 +107,9 @@ progress panel while it runs.
   first read, and it never starts a product's first run: the wizard's Start is the
   person's own decision to fill.
 - **The agent-call cap the wizard sets** (`maxUnits`): see the limitations below.
-- **A pause or a stop of an update run from the panel.** The panel's controls are
-  the landed fill's (`POST /api/fill/control`, fill-runtime's control file); a run
-  the orchestrator keeps is paused and stopped through its own state machine
-  (`src/fill/orchestrator.ts`), and a route of its own is a later task's. The
-  panel's stop is offered only for a state the run can leave, so it never offers a
-  control the server cannot take.
+- **A resume of a paused run from the panel.** A paused run is planned again
+  (`resumeRun`) by a caller, and the panel offers pause and stop only; starting the
+  next run is the watcher's job after a commit or the person's through the wizard.
 - **Watching a repository of a product that is being added while the server runs**
   beyond the next pass: a product that appears in the home is watched from the pass
   that lists it, which is at most one interval later.
@@ -115,6 +121,7 @@ progress panel while it runs.
 - fill-orchestrator/cancel: unchanged — a run's pause and stop are its own state machine's, and the panel offers its control only where the run can leave that state.
 - product-repository/manifest: unchanged — the watcher reads a product's declared code repositories through the manifest's own reader and never writes it (`test/fill-updates.test.ts`).
 - product-wiki/shell: test — the fill progress keeps its place in the reading shell and its label, and now shows the stages the answer holds instead of a list fixed in the app (`wiki/app/src/app.test.ts`).
+- product-wiki/live: unchanged — a pause or a stop of the landed fill's run is still taken by its own state file where the process owns no such run, which is what the update's control falls through to (`test/fill-updates-run.test.ts`).
 - server/serves-wiki: test — `GET /api/fill` answers under a product's prefix as before, now from the process's own runs where it owns a fill service (`test/fill-updates-run.test.ts`).
 - product-wiki/internationalization: test — every new string is in English and Russian (`wiki/app/src/i18n.test.ts`).
 
@@ -125,6 +132,7 @@ progress panel while it runs.
 - fill-orchestrator/cancel: test
 - product-repository/manifest: test
 - product-wiki/shell: test
+- product-wiki/live: test
 - server/serves-wiki: test
 - product-wiki/internationalization: test
 

@@ -163,3 +163,57 @@ describe('the update a default-branch commit starts', () => {
     }
   }, 900_000);
 });
+
+describe('the person\'s control of a run the server keeps', () => {
+  test('a stop of a run this service holds is the run\'s own cancellation, and a run it does not hold answers null', async () => {
+    // A run the service asked not to drive: its units are planned and the run stands running, which is what a
+    // person stops from the panel.
+    const held = await service!.run({ product: { name: 'shop', folder: product }, runId: 'stop-me', maxPasses: 0 });
+    expect(held.ok).toBe(true);
+    const before = await service!.status({ product: { name: 'shop', folder: product }, runId: 'stop-me' });
+    // The run stands where the state machine left it after planning and no pass: it has not ended.
+    expect(['planning', 'running']).toContain(before?.run.state ?? 'ended');
+
+    const stopped = await service!.control({ productFolder: product, runId: 'stop-me', action: 'stop' });
+    expect(stopped).toEqual({ ok: true, runId: 'stop-me', state: 'cancelled' });
+    expect((await service!.status({ product: { name: 'shop', folder: product }, runId: 'stop-me' }))?.run.state).toBe('cancelled');
+
+    // The landed fill's run stands in the product's state file, not in this store: the answer is null, which is
+    // what lets that file's own control answer for it.
+    expect(await service!.control({ productFolder: product, runId: 'the-landed-fills-run', action: 'pause' })).toBeNull();
+  }, 900_000);
+
+  test('a step a run\'s machine refuses says so in the machine\'s words, not as a missing run', async () => {
+    // The update run ended succeeded: there is nothing left to stop, and the refusal names the state it stands in.
+    const refused = await service!.control({ productFolder: product, runId: updateRunId('shop', commit), action: 'stop' });
+    expect(refused?.ok).toBe(false);
+    if (refused === null || refused.ok) return;
+    expect(refused.code).toBe('fill-orchestrator/control-refused');
+    expect(refused.reason).toContain('cannot be cancelled');
+    expect(refused.reason).toContain('succeeded');
+  }, 900_000);
+
+  test('POST /api/fill/control takes the orchestrator\'s answer first and the state file\'s where it holds no run', async () => {
+    let server: StartedServer | undefined;
+    try {
+      server = await startServer({
+        productFolder: product,
+        port: 0,
+        host: '127.0.0.1',
+        orchestrator: { stop: async () => undefined, control: (request) => service!.control(request) },
+      });
+      const mine = await fetch(`${server.url}/api/fill/control?runId=${encodeURIComponent(updateRunId('shop', commit))}&action=stop`, { method: 'POST' });
+      expect(mine.status).toBe(409);
+      expect(((await mine.json()) as { error: { message: string } }).error.message).toContain('cannot be cancelled');
+      // A run the orchestrator does not hold falls through to the landed fill's state file, which answers its own 404.
+      const theirs = await fetch(`${server.url}/api/fill/control?runId=the-landed-fills-run&action=stop`, { method: 'POST' });
+      expect(theirs.status).toBe(404);
+      expect(((await theirs.json()) as { error: { message: string } }).error.message).toContain('No fill run is active');
+      // An action that is neither of the two is refused before anything is asked.
+      const wrong = await fetch(`${server.url}/api/fill/control?runId=${encodeURIComponent(updateRunId('shop', commit))}&action=restart`, { method: 'POST' });
+      expect(wrong.status).toBe(400);
+    } finally {
+      await server?.stop();
+    }
+  }, 900_000);
+});
