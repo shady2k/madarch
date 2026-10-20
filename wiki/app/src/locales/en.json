@@ -606,6 +606,7 @@
       }
     },
     "listingRest": "{{shown}} of {{count}} listed: this index draws the first {{shown}} of this kind, and the graph holds {{count}}.",
+    "rowNew": "new",
     "nextStep": {
       "title": "Next step",
       "answerQuestion": "Answer the question: {{prompt}}",

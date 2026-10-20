@@ -15,7 +15,7 @@
  * renders the view specifications madarch-tzte.23.2 builds); the slot names what will
  * stand there rather than drawing an empty frame.
  */
-import { useContext, useEffect, useState, type FormEvent, type ReactElement } from 'react';
+import { useContext, useEffect, useMemo, useRef, useState, type FormEvent, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CircleCheckIcon, CircleDashedIcon, FileCode2Icon, LightbulbIcon } from 'lucide-react';
 import { appPath } from './app-base.js';
@@ -31,6 +31,7 @@ import {
   type GraphNextStep,
   type GraphPageEntry,
   type GraphPageFact,
+  type GraphPageListEntry,
   type GraphPageModel,
   type GraphPageSet,
   type GraphQuestionEntry,
@@ -280,15 +281,25 @@ export function GraphNarrativeSection({ narrative }: { narrative: GraphNarrative
  * many of them stand: the count in the header is the whole count from the first paint, so
  * a list shorter than the kind is never silent about it. Every page the graph holds is
  * still in the page set the app reads, in the navigation's per-kind list, and reachable by
- * its address; listing tens of thousands of rows at once is a later task's (a search or a
- * windowed list), named in the change record.
+ * its address; and a page the graph gains while this tab holds the index draws whatever
+ * the window would hide of it, marked as an arrival, so a page appears on the index as
+ * facts arrive (madarch-tzte.23) on a graph of any size. Listing tens of thousands of rows
+ * at once is a later task's (a search or a windowed list), named in the change record.
  */
 export const INDEX_ROWS_SHOWN = 150;
 
 /** One kind's group of the index: its header, its whole count, the rows this page draws and how many it does not. */
-function GraphKindSection({ group, shown: rowsShown }: { group: GraphKindGroup; shown: number }): ReactElement {
+function GraphKindSection({ group, arrived, shown: rowsShown }: { group: GraphKindGroup; arrived: readonly GraphPageListEntry[]; shown: number }): ReactElement {
   const { t } = useTranslation();
-  const shown = Math.min(group.entries.length, rowsShown);
+  // The window draws the bound's rows of the kind's own order; the pages the graph gained
+  // while this tab held the index draw before them, marked as arrivals, and the rows this
+  // group draws stay at the page's bound (madarch-tzte.23.8's measured bound). An arrival
+  // the window already holds draws once, in its own place, not twice.
+  const windowRows = Math.max(0, rowsShown - Math.min(arrived.length, rowsShown));
+  const entries = group.entries.slice(0, windowRows);
+  const windowIds = new Set(entries.map((entry) => entry.id));
+  const fresh = arrived.filter((entry) => !windowIds.has(entry.id));
+  const shown = Math.min(entries.length, rowsShown);
   return (
     <section data-graph-kind={group.kind} className="home-group mt-7 first:mt-0">
       <header className="home-group-head">
@@ -296,7 +307,16 @@ function GraphKindSection({ group, shown: rowsShown }: { group: GraphKindGroup; 
         <span className="home-count" data-testid="graph-kind-count">{group.entries.length}</span>
       </header>
       <ul className="home-rows">
-        {group.entries.slice(0, shown).map((entry) => (
+        {fresh.map((entry) => (
+          <li key={entry.id} data-arrived="true">
+            <GraphLink id={entry.id} className="home-row">
+              <span className="home-row-title">{entry.label}</span>
+              <span className="graph-chip" data-testid="graph-row-new">{t('graph.rowNew')}</span>
+              <span className="graph-chip">{layerWord(entry.layer, t)}</span>
+            </GraphLink>
+          </li>
+        ))}
+        {entries.map((entry) => (
           <li key={entry.id}>
             <GraphLink id={entry.id} className="home-row">
               <span className="home-row-title">{entry.label}</span>
@@ -330,6 +350,35 @@ export function GraphIndexPage({ set, repos, rowsShown = INDEX_ROWS_SHOWN }: {
   const { t } = useTranslation();
   const { publish } = useContext(statusContext);
   const groups = graphKindGroups(set);
+  // The pages this tab has already drawn, or null before its first set. A page the graph
+  // gains while the reader holds the index is an arrival, and the index draws it even when
+  // it sorts beyond the window this page draws by default: a page that appears as facts
+  // arrive is the stage's own criterion (madarch-tzte.23), and a count alone does not show
+  // one — the kind's header counts the whole kind, not its newest page.
+  const seen = useRef<ReadonlySet<string> | null>(null);
+  const [drawn, setDrawn] = useState<ReadonlySet<string> | null>(null);
+  useEffect(() => {
+    setDrawn(seen.current);
+  }, [set]);
+  const arrivals = useMemo(() => {
+    const fresh = new Map<string, GraphPageListEntry[]>();
+    if (drawn === null) return fresh;
+    for (const entry of set.pages) {
+      if (drawn.has(entry.id)) continue;
+      const held = fresh.get(entry.kind);
+      if (held === undefined) fresh.set(entry.kind, [entry]);
+      else held.push(entry);
+    }
+    // The arrivals a kind draws are bounded by this page's own window, the newest kept, so
+    // the index draws no more rows after an arrival than it did before one.
+    for (const [kind, entries] of fresh) {
+      if (entries.length > rowsShown) fresh.set(kind, entries.slice(-rowsShown));
+    }
+    return fresh;
+  }, [set, rowsShown, drawn]);
+  useEffect(() => {
+    seen.current = new Set(set.pages.map((entry) => entry.id));
+  }, [set]);
   useEffect(() => {
     publish([t('graph.nodesCount', { count: set.total })]);
     return () => publish(null);
@@ -357,7 +406,9 @@ export function GraphIndexPage({ set, repos, rowsShown = INDEX_ROWS_SHOWN }: {
         <p className="graph-empty" data-testid="graph-empty">{set.message === null ? t('graph.empty', { product: set.product }) : t('graph.serverSays', { message: set.message })}</p>
       ) : (
         <div className="home-groups">
-          {groups.map((group) => <GraphKindSection key={group.kind} group={group} shown={rowsShown} />)}
+          {groups.map((group) => (
+            <GraphKindSection key={group.kind} group={group} arrived={arrivals.get(group.kind) ?? []} shown={rowsShown} />
+          ))}
         </div>
       )}
     </main>
