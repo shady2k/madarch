@@ -370,7 +370,7 @@ describe('stage 8, the product\'s overview hypothesis', () => {
       const prompt = sent[0]!;
       expect(prompt).toContain('You are one unit of madarch\'s fill that writes the product\'s overview hypothesis');
       expect(prompt).toContain('What you write is meaning');
-      expect(prompt).toContain('Facts this unit may write: claim, coverage, question — and nothing else');
+      expect(prompt).toContain('Facts this unit may write: answer, claim, coverage, question — and nothing else');
       expect(estimateTokens(prompt, DEFAULT_GRAPH_READ_LIMITS)).toBeLessThanOrEqual(20_000);
       // The packet is the last JSON object of the prompt, after the fixed part: the fixed part has blank lines of its
       // own, so the packet is read from where the object opens.
@@ -586,7 +586,7 @@ describe('stage 8\'s declaration', () => {
     // 0026's "Scale": the product at the top, a repository below it.
     expect(declaration.scale).toEqual({ level: 'product', child: 'repository' });
     expect(declaration.kinds).toEqual(OVERVIEW_KINDS);
-    expect(declaration.kinds).toEqual(['claim', 'question']);
+    expect(declaration.kinds).toEqual(['answer', 'claim', 'question']);
     // The section names are the packet's own, in the order the stage declares them.
     expect(declaration.sections?.map((section) => section.name)).toEqual(['repositories', 'modules', 'entryPoints', 'packages', 'documents', 'sections']);
     expect(createStageRegistry({ snapshots: createGitSnapshotSource(() => []) }).get(OVERVIEW_STAGE_ID)).toBeUndefined();

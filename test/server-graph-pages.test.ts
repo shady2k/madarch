@@ -20,7 +20,7 @@ import { startServer, type StartedServer } from '../src/index.js';
 import { startServer as startServerDirect } from '../src/server/http.js';
 import { makeNodeFact, type Fact } from '../src/fill/facts.js';
 import { createGraphPagesPart, type GraphPagesPart, type GraphPagesSource } from '../src/server/graph-pages.js';
-import { pageAddress, type GraphPageSetAnswer } from '../src/fill/graph-pages.js';
+import { emptyNextStep, emptyQuestionSet, pageAddress, type GraphPageSetAnswer } from '../src/fill/graph-pages.js';
 import { DEFAULT_STAGE_DEFAULTS, type FillStage } from '../src/fill/stage.js';
 import { writeOf, graphFacts, LATER_COMMIT, openGraphFixture, PRODUCT, provenance, type GraphFixtureFacts, type GraphFixtureWorld } from './graph-pages-fixture.js';
 
@@ -283,12 +283,16 @@ describe('the page set a client is sent', () => {
     changeSeq: 11,
     readAt: 1_700_000_000_000,
     message: null,
+    questions: emptyQuestionSet(),
+    nextStep: emptyNextStep(PRODUCT),
   });
   const source: GraphPagesSource = {
     pageSet: async () => bigSet(),
     page: async (id: string) => ({ ok: false as const, code: 'graph-pages/no-such-node', message: `no page ${id}` }),
     diagrams: async (id: string) => ({ ok: false as const, code: 'graph-pages/no-such-node', message: `no diagrams ${id}` }),
     changes: async () => ({ changes: [], lastSeq: 0, truncated: false, marker: null }),
+    answer: async () => ({ ok: false as const, code: 'graph-pages/no-graph', message: 'no graph' }),
+    decide: async () => ({ ok: false as const, code: 'graph-pages/no-graph', message: 'no graph' }),
     subscribe: () => () => undefined,
   };
   const part = (): ReturnType<typeof createGraphPagesPart> => createGraphPagesPart({
@@ -331,12 +335,16 @@ describe('the page set a client is sent', () => {
     changeSeq: 12,
     readAt: 1_700_000_000_000,
     message: null,
+    questions: emptyQuestionSet(),
+    nextStep: emptyNextStep(PRODUCT),
   });
   const placedSource: GraphPagesSource = {
     pageSet: async () => placed(),
     page: async (id: string) => ({ ok: false as const, code: 'graph-pages/no-such-node', message: `no page ${id}` }),
     diagrams: async (id: string) => ({ ok: false as const, code: 'graph-pages/no-such-node', message: `no diagrams ${id}` }),
     changes: async () => ({ changes: [], lastSeq: 0, truncated: false, marker: null }),
+    answer: async () => ({ ok: false as const, code: 'graph-pages/no-graph', message: 'no graph' }),
+    decide: async () => ({ ok: false as const, code: 'graph-pages/no-graph', message: 'no graph' }),
     subscribe: () => () => undefined,
   };
   const placedPart = (): ReturnType<typeof createGraphPagesPart> => createGraphPagesPart({
@@ -416,10 +424,12 @@ describe('a stream whose changes cannot be read', () => {
 
   /** A source whose change read always fails, with a cause that names a file, a line and a table. */
   const failing: GraphPagesSource = {
-    pageSet: async () => ({ product: PRODUCT, pages: [], counts: [], total: 0, changeSeq: 0, readAt: 0, message: null }),
+    pageSet: async () => ({ product: PRODUCT, pages: [], counts: [], total: 0, changeSeq: 0, readAt: 0, message: null, questions: emptyQuestionSet(), nextStep: emptyNextStep(PRODUCT) }),
     page: async () => ({ ok: false, code: 'graph-pages/no-such-node', message: 'nothing' }),
     diagrams: async () => ({ ok: false, code: 'graph-pages/no-such-node', message: 'nothing' }),
     changes: async () => { throw new Error('/tmp/madarch-runtime/work/src/fill/graph-pages.ts:741:2: the changes failed on fill_page_change'); },
+    answer: async () => ({ ok: false as const, code: 'graph-pages/no-graph', message: 'no graph' }),
+    decide: async () => ({ ok: false as const, code: 'graph-pages/no-graph', message: 'no graph' }),
     subscribe: () => () => undefined,
   };
 

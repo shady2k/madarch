@@ -308,6 +308,7 @@ export const FACT_NODE_KINDS = [
   'state',
   'coverage',
   'question',
+  'answer',
 ] as const;
 export type FactNodeKind = (typeof FACT_NODE_KINDS)[number];
 
@@ -889,6 +890,51 @@ export interface QuestionValue {
   readonly prompt: string;
 }
 
+/**
+ * Agent stages and a person: what closes a question, or what a person decides
+ * about a page's proposed content (decision 0026, "Writing"; the self-filling
+ * charter's outcome 5).
+ *
+ * A question is raised by a checked write and stays open until an answer names
+ * it; a page's proposed facts stand as proposed until a person accepts or
+ * rejects them. Both decisions are this one record, because both are one act: a
+ * person's or an agent's words about a node of the graph, written once and read
+ * back by every page that depends on it. A person's decision is `declared` and
+ * accepted as it stands — it is the product's own words — and the wiki keeps it
+ * as Markdown in the product's git (`decisions.ts`); an agent's is `inferred`
+ * and proposed, with the place it read as its evidence, and closes a question
+ * only when it carries that evidence.
+ */
+export interface AnswerValue {
+  /** The repository whose bytes the answer rests on, or the product's name for a person's answer. */
+  readonly repository: string;
+  /** What the decision is about: the fact id of the question it answers, or of the page it accepts or rejects. */
+  readonly subject: string;
+  /** What it does: answers a question, or accepts or rejects the proposed content of a page. */
+  readonly decision: AnswerDecision;
+  /** The answer or the note, as the person or the agent wrote it. */
+  readonly text: string;
+  /**
+   * Who wrote it, when that is not the reader that recorded it: a person's own name, as
+   * the wiki took it. An agent's answer names no one, and reads as its reader
+   * (`provenance.source.system`).
+   */
+  readonly by?: string;
+  /**
+   * What an agent's answer rests on, when it came with evidence: the place it
+   * read, as `repository@commit:path`. A person's answer needs none: their words
+   * are the record.
+   */
+  readonly evidence?: string;
+}
+
+/**
+ * What an answer does (0005's one act of deciding): it closes the question it
+ * names, or it settles what a page proposes.
+ */
+export const ANSWER_DECISIONS = ['answers', 'accepts', 'rejects'] as const;
+export type AnswerDecision = (typeof ANSWER_DECISIONS)[number];
+
 // ---- the value of each edge ----------------------------------------------
 
 /** Stage 1: a folder, a repository or a module holds a file, a folder or a symbol. */
@@ -1097,6 +1143,7 @@ export interface FactNodeValues {
   'state': StateValue;
   'coverage': CoverageValue;
   'question': QuestionValue;
+  'answer': AnswerValue;
 }
 
 /** The value type of one edge kind, by the kind's own name. */
@@ -1494,6 +1541,18 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     version: FACTS_SCHEMA_VERSION,
     identityValue: (value) => [['repository', value.repository], ['type', value.type], ['about', value.about ?? null], ['prompt', identityName(value.prompt)]],
   },
+  // An answer is written by an agent's checked write at the stage that found it, and by a person
+  // through the wiki: `declared` is that person's words, recorded by the acceptance path, the one
+  // layer no stage of this registry writes (as `claim` carries it too).
+  'answer': {
+    kind: 'answer',
+    shape: 'node',
+    stages: AGENT_STAGES,
+    place: 'optional',
+    layers: ['declared', 'inferred'],
+    version: FACTS_SCHEMA_VERSION,
+    identityValue: (value) => [['subject', value.subject], ['decision', value.decision], ['text', identityName(value.text)]],
+  },
 
   // ---- edges -------------------------------------------------------------
   'contains': {
@@ -1887,6 +1946,7 @@ function commitPart(part: unknown): string | undefined {
 const REPOSITORY_NAMED_KINDS: readonly string[] = [
   'snapshot', 'repository', 'directory', 'file', 'package', 'deploy-unit', 'table', 'column', 'symbol',
   'entry-point', 'test', 'module', 'document', 'section', 'commit', 'entity-proposal', 'state', 'coverage', 'question',
+  'answer',
 ];
 
 /**
@@ -1945,6 +2005,9 @@ const IDENTITY_PART_FORMS: Readonly<Record<string, (part: unknown) => string | u
   'task-key.key': textPart,
   'coverage.scope': textPart,
   'question.about': orAbsent(textPart),
+  'answer.subject': factIdPart,
+  'answer.decision': partIn(ANSWER_DECISIONS, 'decision an answer records'),
+  'answer.text': textPart,
   // The parts whose kind closes them to a list of forms: a value outside the
   // list names nothing the graph can join, so it is refused before any id is
   // computed from it.
@@ -2037,6 +2100,7 @@ const VALUE_FIELDS: { readonly [K in FactKind]: readonly (keyof FactValueOf<K> &
   'state': ['repository', 'machine', 'name', 'initial', 'final'],
   'coverage': ['repository', 'scope', 'complete', 'read', 'unread'],
   'question': ['repository', 'type', 'about', 'prompt'],
+  'answer': ['repository', 'subject', 'decision', 'text', 'by', 'evidence'],
   'contains': ['from', 'to'],
   'defines': ['from', 'to'],
   'import': ['from', 'to', 'specifier'],
@@ -2573,6 +2637,16 @@ export function checkFact(fact: unknown): FactProblem[] {
     }
   }
 
+  // An agent's answer rests on something it read (the self-filling charter's outcome 5: «Открытые вопросы должны
+  // закрываться, если агент в процессе нашел ответ»). A proposed answer with no evidence closes a question nobody can
+  // check, so the schema refuses it at its own field; a person's answer needs none, because their words are the record.
+  if (valueReads && kind === 'answer' && layer === 'inferred') {
+    const evidence = (value as Record<string, unknown>)['evidence'];
+    if (typeof evidence !== 'string' || evidence.trim() === '') {
+      add('value.evidence', 'a proposed answer names what it rests on, in "evidence": an agent closes a question with the place it read, never with a claim alone (decision 0005 makes an agent\'s reading proposed, and a proposed answer nobody can check is no answer)');
+    }
+  }
+
   // The identity's parts and the id they give. The value's own parts are read
   // whenever the value read, so a part the graph cannot join is named beside
   // every other reason — a provenance that did not read costs the provenance's
@@ -2685,6 +2759,7 @@ export const REGISTRY_KIND_MAPPINGS: { readonly [K in FactKind]: RegistryKindMap
   'state': { factKind: 'state', registryForms: ['component', 'fact', 'model-element'], relation: 'subject' },
   'coverage': { factKind: 'coverage', registryForms: REGISTRY_STORAGE_FORMS, relation: 'evidence' },
   'question': { factKind: 'question', registryForms: ['document', 'fact', 'task'], relation: 'subject' },
+  'answer': { factKind: 'answer', registryForms: ['document', 'fact', 'task'], relation: 'evidence' },
   'contains': { factKind: 'contains', registryForms: ['component', 'fact', 'model-element'], relation: 'evidence' },
   'defines': { factKind: 'defines', registryForms: ['component', 'fact', 'model-element'], relation: 'evidence' },
   'import': { factKind: 'import', registryForms: ['component', 'fact', 'model-element'], relation: 'evidence' },

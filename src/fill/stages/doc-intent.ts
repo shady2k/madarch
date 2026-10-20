@@ -67,11 +67,12 @@ export const DOC_INTENT_STAGE_VERSION = 1;
 
 /**
  * The fact kinds a unit of this stage may write: the intent a document states is a
- * claim, and a contradiction between it and the code (or a document naming nothing
- * of the graph) is a question. The coverage every unit leaves behind is the shape's
- * own (`src/fill/stages/agent-stage.ts`).
+ * claim, a contradiction between it and the code (or a document naming nothing
+ * of the graph) is a question, and the answer that closes a question the moment the
+ * unit finds the evidence for it (the self-filling charter's outcome 5). The coverage
+ * every unit leaves behind is the shape's own (`src/fill/stages/agent-stage.ts`).
  */
-export const DOC_INTENT_KINDS: readonly string[] = ['claim', 'question'];
+export const DOC_INTENT_KINDS: readonly string[] = ['answer', 'claim', 'question'];
 
 /** The most documents one packet's `documents` section holds, its cut named like every section's. */
 export const DOC_INTENT_DOCUMENT_ROWS = 40;

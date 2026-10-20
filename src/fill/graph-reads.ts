@@ -599,19 +599,26 @@ export interface SpanRow {
 }
 
 /**
- * The clause that scopes one store read to a product, and the value it binds: the
- * facts one of that product's units published (`fill_fact_holding` joined onto
- * `fill_unit.product`). A read that names no product is answered from the whole
- * store, which is what a unit's own graph is — one run's product — and what every
- * read before this field existed was.
+ * The clause that scopes one statement to a product, and the value it binds: the
+ * facts a unit of that product published (`fill_fact_holding` joined onto
+ * `fill_unit.product`) and the records the product itself holds, which are a person's
+ * own words written through the wiki (the holding's `product` column, `declared.ts`).
+ * `fact` is the name the statement gives the fact row it scopes. A read that names no
+ * product is answered from the whole store, which is what a unit's own graph is — one
+ * run's product — and what every read before this field existed was.
  */
-function productScope(product: string | undefined, parameter: number): { readonly sql: string; readonly values: readonly string[] } {
+export function productScopeSql(product: string | undefined, parameter: number, fact = 'f'): { readonly sql: string; readonly values: readonly string[] } {
   if (product === undefined) return { sql: '', values: [] };
   if (product.trim() === '') raise(`${here()}: a read of the store names the product "" to scope its facts: a product is named by the name its runs give it (src/fill/orchestrator-host.ts)`);
   return {
-    sql: ` AND EXISTS (SELECT 1 FROM fill_fact_holding h JOIN fill_unit u ON u.unit_id = h.unit_id WHERE h.id = f.id AND u.product = $${parameter})`,
+    sql: ` AND EXISTS (SELECT 1 FROM fill_fact_holding h LEFT JOIN fill_unit u ON u.unit_id = h.unit_id WHERE h.id = ${fact}.id AND (u.product = $${parameter} OR h.product = $${parameter}))`,
     values: [product],
   };
+}
+
+/** The clause that scopes one store read to a product: `productScopeSql`'s own, under the name the reads use. */
+function productScope(product: string | undefined, parameter: number): { readonly sql: string; readonly values: readonly string[] } {
+  return productScopeSql(product, parameter);
 }
 
 /**
@@ -666,7 +673,7 @@ export async function answerGraphRead(options: FactGraphReaderOptions, request: 
         const fromEnd = endJoin('value->>\'from\'', request.via, 3 + toEnd.values.length);
         // The edges counted are the ones this product's units published, when the read names a product: a scope's
         // contents are that product's graph, never a home's.
-        const edgeScope = request.product === undefined ? '' : ` AND EXISTS (SELECT 1 FROM fill_fact_holding h JOIN fill_unit u ON u.unit_id = h.unit_id WHERE h.id = e.id AND u.product = $${3 + toEnd.values.length + fromEnd.values.length})`;
+        const edgeScope = request.product === undefined ? '' : ` AND EXISTS (SELECT 1 FROM fill_fact_holding h LEFT JOIN fill_unit u ON u.unit_id = h.unit_id WHERE h.id = e.id AND (u.product = $${3 + toEnd.values.length + fromEnd.values.length} OR h.product = $${3 + toEnd.values.length + fromEnd.values.length}))`;
         const rows = await inTransaction(options, async (executor) => (await executor.query(
           `SELECT n.kind AS kind, count(*)::int AS count FROM fill_fact e JOIN fill_fact n ON n.id = ${toEnd.sql} WHERE e.kind = ANY($1::text[]) AND ${fromEnd.sql} = $2${edgeScope} GROUP BY n.kind`,
           [request.via, request.id, ...toEnd.values, ...fromEnd.values, ...scope.values.length === 0 ? [] : [request.product]],
@@ -1332,6 +1339,8 @@ export function labelOf(fact: Fact): string {
       return `coverage of ${text('scope') ?? ''}`;
     case 'question':
       return labelled(text('prompt') ?? fact.id);
+    case 'answer':
+      return labelled(text('text') ?? fact.id);
     default:
       return fact.kind;
   }

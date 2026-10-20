@@ -29,10 +29,13 @@ import { draftSetOf, factGraph, writeScope, type CheckedWriteDraft, type Checked
 import type { FillStageConfigurationRead } from './config.js';
 import type { SqlExecutor } from '../query/sql-driver.js';
 import { FACT_APPLICATION, createFactStoreSchema } from './fact-store.js';
-import { emptyPageSetMessage, readPageChanges, readPageModel, readPageSet, type GraphPagesSource } from './graph-pages.js';
+import { emptyNextStep, emptyPageSetMessage, emptyQuestionSet, readDecisionSubject, readPageChanges, readPageModel, readPageSet, type GraphDecisionWrite, type GraphPagesSource } from './graph-pages.js';
+import { answerDocument, acceptanceDocument, ANSWERS_FOLDER, ACCEPTANCES_FOLDER, commitDecision, decisionFile, discardDecision, stageDecision, type DecisionRecord, type StagedDecision } from './decisions.js';
+import { applyDecisions } from './declared.js';
+import { labelOf } from './graph-reads.js';
 import { readNodeDiagrams } from './graph-diagrams.js';
 import { createPageReadCache } from './page-cache.js';
-import type { FactLayer, FactSource } from './facts.js';
+import type { Fact, FactLayer, FactSource } from './facts.js';
 import { answerMembership, graphReadsOver, recordedReadText, type DraftReading, type GraphReadLimits } from './graph-reads.js';
 import {
   DEFAULT_ORCHESTRATOR_LIMITS,
@@ -399,6 +402,49 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
     return await opening;
   }
 
+  /** A person's decision as it was filed: the document waiting to be committed, or why it could not be written. */
+type FiledDecision =
+  | { readonly ok: true; readonly staged: StagedDecision; readonly record: DecisionRecord }
+  | { readonly ok: false; readonly code: string; readonly message: string };
+
+/**
+ * One person's decision written as Markdown in the product's git (`decisions.ts`): an
+ * answer to a question, or an acceptance or rejection of a page. An empty answer closes
+ * nothing and is refused before a file is written; the moment is the process's clock, to
+ * the second, so two decisions of one second name one moment.
+ */
+async function fileDecision(
+  productFolder: string,
+  subject: string,
+  what: 'answer' | 'accepted' | 'rejected',
+  words: string,
+  by: string,
+  now: number,
+  fact: Fact,
+): Promise<FiledDecision> {
+  const author = by.trim() === '' ? 'a reader of the wiki' : by.trim();
+  const at = new Date(now).toISOString().replace(/\.\d{3}Z$/, 'Z');
+  const text = words.trim();
+  const value = (fact.value ?? {}) as unknown as Record<string, unknown>;
+  if (what === 'answer') {
+    if (text === '') return { ok: false, code: 'graph-pages/empty-answer', message: `the answer to ${subject} is empty: an answer is the words a person wrote, and an empty one closes nothing` };
+    const prompt = typeof value['prompt'] === 'string' ? value['prompt'] : '';
+    try {
+      const staged = stageDecision(productFolder, ANSWERS_FOLDER, subject, answerDocument({ subject, prompt, text, by: author, at }));
+      return { ok: true, staged, record: { kind: 'answer', subject, text, by: author, at, file: staged.file } };
+    } catch (error) {
+      return { ok: false, code: 'graph-pages/write-failed', message: `the product's git holds the answers of ${productFolder}, and the answer to ${subject} could not be written there: ${(error as Error).message}` };
+    }
+  }
+  const label = labelOf(fact);
+  try {
+    const staged = stageDecision(productFolder, ACCEPTANCES_FOLDER, subject, acceptanceDocument({ subject, label, verdict: what, note: text, by: author, at }));
+    return { ok: true, staged, record: { kind: 'acceptance', subject, verdict: what, note: text, by: author, at, file: staged.file } };
+  } catch (error) {
+    return { ok: false, code: 'graph-pages/write-failed', message: `the product's git holds the acceptances of ${productFolder}, and the ${what === 'accepted' ? 'acceptance' : 'rejection'} of ${subject} could not be written there: ${(error as Error).message}` };
+  }
+}
+
   /** One product's fill — its wiring and the registry its stages are declared in — or the refusal the service answers a caller with where the host wired none. */
   async function wiringOf(product: FillProduct): Promise<ProductFill | RefusedFillRun> {
     if (stopped) return { ok: false, code: 'fill-orchestrator/stopped', reason: 'fill-orchestrator: this service was stopped and opens nothing further' };
@@ -578,11 +624,26 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
   /** Every open page channel hears that a publication landed, and nothing kept from before it stands; a listener that fails is its own stream's business. */
   function notifyPages(): void {
     pageCache.drop();
+    wakeChannels();
+  }
+
+  /**
+   * Every open page channel hears that the pages one decision moved are read again, and no
+   * other page's kept answer is dropped: a person's decision changes those pages and only
+   * those (the charter's "only the pages that depend on them are recomputed").
+   */
+  function notifyPagesOf(product: string, pages: readonly string[]): void {
+    pageCache.dropPages(product, pages);
+    wakeChannels();
+  }
+
+  /** Wakes every open stream: the stream reads its product's changes itself, so a wake-up is a hint and never a payload. */
+  function wakeChannels(): void {
     for (const listener of [...pageListeners]) {
       try {
         listener();
       } catch {
-        // A stream that ended between the publication and this call is dropping out of the set itself.
+        // A stream that ended between the change and this call is dropping out of the set itself.
       }
     }
   }
@@ -610,6 +671,53 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
     return read.product.name;
   }
 
+  /**
+   * One person's decision, in the two steps decision 0026 asks for: the words as Markdown in
+   * the product's git (`decisions.ts`), and the graph reading them back at once
+   * (`declared.ts`). The pages the decision moves are the ones the live channel announces, so
+   * a page a person is reading is read again and every other page stands (the charter's "only
+   * the pages that depend on them are recomputed").
+   *
+   * A question the graph does not hold, an empty answer, a refused document and a record the
+   * schema refuses are each answered by name, and a refused graph write removes the document
+   * it had just written: a decision either stands in both the product's git and the graph, or
+   * in neither.
+   */
+  async function decideAbout(productFolder: string, subject: string, what: 'answer' | 'accepted' | 'rejected', words: string, by: string): Promise<GraphDecisionWrite> {
+    // A verdict the wiki does not know is refused here as well as at the route: the service is an interface of its own,
+    // and a decision it cannot read is never written into the product's git.
+    if (what !== 'answer' && what !== 'accepted' && what !== 'rejected') {
+      return { ok: false, code: 'graph-pages/not-a-verdict', message: `the verdict ${JSON.stringify(what)} on ${subject} is no decision: a person accepts a page or rejects it, so the verdict is "accepted" or "rejected"` };
+    }
+    const now = (options.clock ?? Date.now)();
+    const database = await pageDatabase();
+    if (database === undefined) return { ok: false, code: 'graph-pages/no-graph', message: 'this home holds no fill\'s graph yet: a person answers a question and accepts a page once a fill published them' };
+    const product = productNameOf(productFolder);
+    const shown = await readDecisionSubject({ database, product, id: subject, question: what === 'answer' });
+    if (shown.ok === false) return shown;
+    const filed = await fileDecision(productFolder, subject, what, words, by, now, shown.fact);
+    if (filed.ok === false) return filed;
+    try {
+      const applied = await applyDecisions({ database, product, records: [filed.record] });
+      const refused = applied.refusals[0];
+      if (refused !== undefined) {
+        // The graph refused the record, so the product's git keeps the document it held before this decision — which
+        // is the person's earlier answer, not an empty folder.
+        discardDecision(filed.staged);
+        return { ok: false, code: 'graph-pages/refused', message: refused.message, file: refused.file };
+      }
+      // The graph holds the record: the document takes its place in the product's git, whole, in one rename.
+      const file = commitDecision(productFolder, filed.staged);
+      // A person's change is this process's own: it drops the pages the decision moved and wakes the channels, so a
+      // page someone reads is read again and a page the decision did not touch stands as it was.
+      notifyPagesOf(product, applied.pages);
+      return { ok: true, file, pages: applied.pages };
+    } catch (error) {
+      discardDecision(filed.staged);
+      throw error;
+    }
+  }
+
   return {
     pages(folder: string): GraphPagesSource {
       return {
@@ -624,6 +732,8 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
               changeSeq: 0,
               readAt: (options.clock ?? Date.now)(),
               message: emptyPageSetMessage(productNameOf(folder)),
+              questions: emptyQuestionSet(),
+              nextStep: emptyNextStep(productNameOf(folder)),
             };
           }
           const product = productNameOf(folder);
@@ -669,6 +779,12 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
           const database = await pageDatabase();
           if (database === undefined) return { changes: [], lastSeq: 0, truncated: false, marker: null };
           return await readPageChanges({ database, product: productNameOf(folder), after });
+        },
+        async answer(request: { readonly question: string; readonly answer: string; readonly by: string }): Promise<GraphDecisionWrite> {
+          return await decideAbout(folder, request.question, 'answer', request.answer, request.by);
+        },
+        async decide(request: { readonly page: string; readonly verdict: 'accepted' | 'rejected'; readonly note: string; readonly by: string }): Promise<GraphDecisionWrite> {
+          return await decideAbout(folder, request.page, request.verdict, request.note, request.by);
         },
         subscribe(listener: () => void): () => void {
           pageListeners.add(listener);

@@ -111,6 +111,7 @@ const SAMPLES: { readonly [K in FactKind]: FactValueOf<K> } = {
   'state': { repository: REPOSITORY, machine: 'OrderStatus', name: 'placed', initial: true },
   'coverage': { repository: REPOSITORY, scope: 'module:checkout-payment', complete: false, read: ['src/order.ts', 'src/payment.ts'], unread: [{ what: 'src/legacy.js', reason: 'unsupported' }] },
   'question': { repository: REPOSITORY, type: 'assumption-check', about: anyId('symbol'), prompt: 'Is an order placed at authorization or at capture?' },
+  'answer': { repository: REPOSITORY, subject: 'question:' + '3'.repeat(64), decision: 'answers', text: 'An order is placed when its card is authorized.', evidence: `${REPOSITORY}@${COMMIT}:src/payment.ts` },
   'contains': { from: anyId('file'), to: anyId('symbol') },
   'defines': { from: anyId('file'), to: anyId('symbol') },
   'import': { from: anyId('file'), to: anyId('file'), specifier: '../model/order.js' },
@@ -163,6 +164,9 @@ const EXPECTED_LAYERS: Readonly<Record<FactKind, readonly FactLayer[]>> = {
   'rule': ['inferred'],
   'state': ['inferred'],
   'question': ['inferred'],
+  // an agent's answer to a question it found the evidence for, or a person's
+  // own answer through the wiki
+  'answer': ['declared', 'inferred'],
   'transition': ['inferred'],
   'interaction': ['inferred'],
   // a claim is an agent's reading, or the product's own words when a
@@ -816,6 +820,22 @@ describe('the check that names every reason a fact is not one the schema reads',
     expect(checkFact(questionWithoutAbout)).toEqual([]);
   });
 
+  test('an agent closes a question with the place it read, and a person\'s answer needs none', () => {
+    // The self-filling charter's outcome 5: «Открытые вопросы должны закрываться, если агент в процессе нашел ответ».
+    // A proposed answer that names nothing it read is no answer a reader can check, so the schema refuses it at its own
+    // field; a person's word is the record, and it stands without evidence (0005's declared layer).
+    // The sample constructor reads the kind's first layer, which for an answer is a person's `declared`; the rule is
+    // the agent's, so the inferred fact is built here, with the evidence that makes it one.
+    const cited = makeNodeFact({ kind: 'answer', value: SAMPLES['answer'], provenance: provenanceFor('answer'), layer: 'inferred' });
+    expect(checkFact(cited)).toEqual([]);
+    // `evidence` is no part of the identity, so dropping it moves no id: the refusal is the field's alone.
+    const refused = { ...cited, value: { ...cited.value, evidence: undefined } };
+    expect(problemsOf(refused).paths).toEqual(['value.evidence']);
+    const person = makeNodeFact({ kind: 'answer', value: { ...SAMPLES['answer'], decision: 'accepts', text: 'the boundary is right', by: 'the owner', evidence: undefined }, provenance: provenanceFor('answer'), layer: 'declared', status: 'accepted' });
+    expect(checkFact(person)).toEqual([]);
+    expect((person.value as unknown as { by: string }).by).toBe('the owner');
+  });
+
   test('a fact handed to the check with no value at all is refused, never thrown out of', () => {
     // An agent's write or a damaged stored row may carry nothing where a value
     // belongs: the check names every reason and never throws. A missing field
@@ -1022,7 +1042,7 @@ describe('the check that names every reason a fact is not one the schema reads',
     // snapshot, a commit, a directory, a `contains` edge — a scope the fill
     // assembles (a module, a coverage, an entity proposal, a question) or a
     // task key read from a commit message has no single file and line.
-    const placesNone: readonly FactKind[] = ['contains', 'commit', 'coverage', 'directory', 'entity-proposal', 'module', 'question', 'repository', 'snapshot', 'task-key'];
+    const placesNone: readonly FactKind[] = ['answer', 'contains', 'commit', 'coverage', 'directory', 'entity-proposal', 'module', 'question', 'repository', 'snapshot', 'task-key'];
     for (const kind of FACT_KINDS_IN_ORDER) {
       const fact = sampleFact(kind);
       const bare = { ...fact, provenance: { source: fact.provenance.source, repository: fact.provenance.repository } };
