@@ -78,6 +78,7 @@ import type { RunSnapshot } from '../fill/orchestrator-store.js';
 import type { StageRegistry } from '../fill/registry.js';
 import { createGitSnapshotSource, type RepositoryPin, type SnapshotSource } from '../fill/snapshot.js';
 import { createStageReadReader, createStageReadSchema } from '../fill/stage-reads.js';
+import { AGENT_UNIT_STAGE_ID, type AgentUnitWiring } from '../fill/stages/agent-unit.js';
 import { createStageRegistry } from '../fill/stages/index.js';
 import { sameFolder } from './git.js';
 import { hashFillInput } from './fill-runtime.js';
@@ -93,6 +94,14 @@ export interface StagesFillOptions {
    * through the host; it neither opens nor closes it.
    */
   readonly database: FactStoreDatabase;
+  /**
+   * The agent the product's units are driven with (decision 0026, "Agents and
+   * tools"): where it is named, the agent unit stage is registered beside the eight
+   * deterministic stages and a run of this product plans its units. Left out, the
+   * fill is the deterministic one, and no unit an agent would have to read is
+   * planned — a run with no agent never plans work it cannot run.
+   */
+  readonly agent?: Omit<AgentUnitWiring, 'snapshots'>;
 }
 
 /** One product's stages fill: the registry the run derives its stage graph from, and the wiring the host drives it with. */
@@ -137,6 +146,7 @@ export async function createStagesFill(options: StagesFillOptions): Promise<Stag
   const registry = createStageRegistry({
     snapshots,
     checkoutOf: (repository: string) => rootOf(identity, repository),
+    ...(options.agent === undefined ? {} : { agent: options.agent }),
   });
   // The view a stage's own SQL reads through (the history stage's three queries)
   // stands before any run: it is the store's own schema, and no read may create
@@ -246,6 +256,12 @@ function rootOf(identity: ProductIdentity, repository: string): string {
  */
 function inputsOf(_identity: ProductIdentity, registry: StageRegistry, pins: readonly RepositoryPin[], ref: UnitRef): Readonly<Record<string, string>> {
   const inputs: Record<string, string> = { stages: declaredStagesDigest(registry) };
+  // An agent unit's facts stand on what it read, and nothing on its scope's own pin (decision 0026,
+  // "Updates"): its reads with their membership are rechecked by the orchestrator, the spans it read are
+  // rechecked against the run's own pins, and the prompt, schema and model versions it ran under are part
+  // of its stage's cache versions. A repository's commit here would replace every unit of every commit and
+  // rerun work the change never reached, which is exactly what the update is not.
+  if (ref.stageId === AGENT_UNIT_STAGE_ID) return inputs;
   const path = pathOfScope(pins, ref.scope);
   const readsFacts = RESOLUTION_STAGE_ID === ref.stageId;
   if (path !== undefined && !readsFacts) {

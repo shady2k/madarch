@@ -54,6 +54,7 @@
  * retracted or published generation leaves nothing to read as draft.
  */
 import type { DatabaseOwner } from '../adapters/database-owner.js';
+import { canonicalJsonDigest } from '../model/canonical.js';
 import { byCodePoint } from '../model/order.js';
 import type { SqlExecutor } from '../query/sql-driver.js';
 import { FACT_EDGE_KINDS, FACT_MEASURED_FIELDS, checkFact, type Fact } from './facts.js';
@@ -304,6 +305,33 @@ export interface FactApplicationInput {
 }
 
 /**
+ * Whether publishing one fact moves the row the store holds of its id. A fact's own row is its identity, so
+ * a republished id stands as it stands — except the fields its kind declares as measured
+ * (`FACT_MEASURED_FIELDS`), which the publication that carries them replaces, and the schema version, which the
+ * same statement writes. The rules are the publication's own statement's, read here so the pages a publication
+ * announces are the pages whose facts it changed and not the pages of every fact it cites again: stage 5
+ * re-measures a file's, a symbol's and a module's importance over the whole repository on every run, and a
+ * ranking that did not move is no change to any page (decision 0026, "Pages").
+ */
+function measuredMoved(stored: Fact, fact: Fact): boolean {
+  const measured = FACT_MEASURED_FIELDS[fact.kind] ?? [];
+  if (measured.length === 0) return false;
+  if (stored.schemaVersion !== fact.schemaVersion) return true;
+  const held = stored.value as unknown as Record<string, unknown>;
+  const wrote = fact.value as unknown as Record<string, unknown>;
+  for (const field of measured) {
+    if (Object.hasOwn(wrote, field) === false) continue;
+    if (canonicalJsonDigest(held[field] ?? null) !== canonicalJsonDigest(wrote[field] ?? null)) return true;
+  }
+  // The row's provenance moves with its value only where the publisher reads the row as its own source system,
+  // which is the statement's own condition: another reader measures the row and leaves its provenance alone.
+  const heldSystem = (stored.provenance as { source?: { system?: unknown } }).source?.system;
+  const wroteSystem = (fact.provenance as { source?: { system?: unknown } }).source?.system;
+  if (heldSystem === wroteSystem && canonicalJsonDigest(stored.provenance) !== canonicalJsonDigest(fact.provenance)) return true;
+  return false;
+}
+
+/**
  * Applies one unit's published draft set within the publication's transaction
  * and answers how many facts it applied. The unit's own holdings are replaced
  * with the facts it publishes now (an empty draft set drops them all), a fact
@@ -340,8 +368,37 @@ export async function applyPublishedFacts(input: FactApplicationInput): Promise<
       `SELECT f.id, f.kind, f.schema_version, f.provenance, f.layer, f.status, f.value FROM fill_fact f WHERE f.id = ANY($1::text[])`,
       [dropped],
     )).rows.map(storedFact);
+    // Which of the facts this publication writes this *product* did not hold before: a row another product's
+    // units stored stands as it stands, so a fact this product publishes for the first time is no new row and is
+    // still a fact that arrived in this product's graph — the page it is shown on appears here, or gains a
+    // relation, with no other signal. Read before anything of this publication is written.
+    const heldBefore = publishing.length === 0 ? [] : (await input.executor.query<{ id: string }>(
+      `SELECT DISTINCT h.id FROM fill_fact_holding h JOIN fill_unit u ON u.unit_id = h.unit_id
+        WHERE h.id = ANY($1::text[]) AND u.product = $2`,
+      [publishing.map((fact) => fact.id), input.unit.product],
+    )).rows.map((row) => row.id);
+    const heldBeforeSet = new Set(heldBefore);
+    const gained = new Set(publishing.map((fact) => fact.id).filter((id) => !heldBeforeSet.has(id)));
+    /** Every fact whose row this publication adds or moves: the pages it touches are these facts' pages. */
+    const changed: Fact[] = [];
     for (let at = 0; at < publishing.length; at += PUBLICATION_BATCH) {
       const batch = publishing.slice(at, at + PUBLICATION_BATCH);
+      // What the store holds of these ids before the batch is written: a republished fact whose row stands as it
+      // stands is no change to any page (0026, "Pages": a page is announced when its facts changed), and only a
+      // fact this publication adds, or whose measured fields it moves, is one. The read is by primary key, one
+      // statement per batch.
+      const standing = new Map<string, Fact>();
+      {
+        const { rows } = await input.executor.query<FactRow>(
+          `SELECT id, kind, schema_version, provenance, layer, status, value FROM fill_fact f WHERE f.id = ANY($1::text[])`,
+          [batch.map((fact) => fact.id)],
+        );
+        for (const row of rows) standing.set(row.id, storedFact(row));
+      }
+      for (const fact of batch) {
+        const stored = standing.get(fact.id);
+        if (stored === undefined || measuredMoved(stored, fact)) changed.push(fact);
+      }
       // The facts' own rows: the first publication of an id writes it, and a later one adds its holding
       // and leaves the row as it stands (the id is the fact's identity, so the difference is a reader's
       // own observation of the same fact) — except the fields its kind declares as measured
@@ -428,26 +485,36 @@ export async function applyPublishedFacts(input: FactApplicationInput): Promise<
     // A fact the unit stops holding but another unit still publishes is no change at all: the page it is
     // shown on holds the same fact afterwards, so only the facts the sweep removed count with the written
     // ones.
+    // One set of the pages' facts: a fact that is both new and foreign to this product is announced once.
+    const changedIds = new Set(changed.map((fact) => fact.id));
     await recordPagesTouched(input.executor, {
       unitId,
       generation,
       publication: input.digest,
-      facts: [...publishing, ...droppedFacts.filter((fact) => goneFromProduct.has(fact.id))],
+      facts: [
+        ...changed,
+        ...publishing.filter((fact) => gained.has(fact.id) && !changedIds.has(fact.id)),
+        ...droppedFacts.filter((fact) => goneFromProduct.has(fact.id)),
+      ],
     });
   });
   return publishing.length;
 }
 
 /**
- * The pages one publication touched, recorded in the publication's own
+ * The pages one publication changed, recorded in the publication's own
  * transaction (decision 0026, "Pages"; `page-changes.ts`): one row per page and
  * publication in `fill_page_change`, so the product's live channel (`GET
  * /api/graph/events`, `src/server/graph-pages.ts`) can tell a subscribed client
- * which pages to ask for again — and only those. The set is the facts the
- * publication writes *and* the facts it stops holding, because a page changes when
- * a fact about it arrives or when one goes: the rule is `pagesTouchedBy`, and this
- * function only writes what it answers. A publication that rolls back writes no
- * row, so a page is announced when its facts are committed and never before.
+ * which pages to ask for again — and only those. The set is the facts whose rows
+ * this publication added or moved *in this product's graph*, this product's first
+ * holding of a fact another product already stored included, and the facts it
+ * stopped holding that no unit of this product holds any more: a page changes when
+ * a fact about it arrives in this product's graph or leaves it, and a fact the
+ * publication only cites again is no change at all. The rule is `pagesTouchedBy`,
+ * and this function only writes what it answers. A publication that rolls back
+ * writes no row, so a page is announced when its facts are committed and never
+ * before.
  */
 async function recordPagesTouched(executor: SqlExecutor, publication: {
   readonly unitId: string;

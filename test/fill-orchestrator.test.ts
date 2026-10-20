@@ -45,6 +45,7 @@ import {
   type PlanOutcome,
   type RunControlReader,
   type UnitGraphReader,
+  type UnitRef,
 } from '../src/fill/orchestrator.js';
 import {
   createOrchestratorSchema,
@@ -63,6 +64,7 @@ import {
   recordUnitRead,
   type RunSnapshot,
 } from '../src/fill/orchestrator-store.js';
+import { GraphReadRefusal, readText, recordedReadText } from '../src/fill/graph-reads.js';
 import { createFillOrchestratorService } from '../src/fill/orchestrator-host.js';
 import { createPGliteQueryDatabase } from '../src/adapters/pglite-query-database.js';
 import { startServer } from '../src/server/http.js';
@@ -71,7 +73,7 @@ import { existsSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { advanceUnit, createFillStateSchema, leaseUnit, readChain, readRun, readRunUnits, readTransitions, readUnit } from '../src/fill/state-store.js';
+import { advanceUnit, createFillStateSchema, leaseUnit, readChain, readRun, readRunUnits, readTransitions, readUnit, readUnitGenerations } from '../src/fill/state-store.js';
 
 const NOW = 1_700_000_000_000;
 const QUEUE = 'fill-units';
@@ -118,6 +120,8 @@ async function openWorld(options: {
   control?: RunControlReader;
   /** Told whether each graph read was made with a transaction of the owner. */
   onGraph?: (withTransaction: boolean) => void;
+  /** The named inputs a unit's facts stand on; the run's commit unless the test names its own. */
+  inputs?: (ref: UnitRef) => Readonly<Record<string, string | Uint8Array>>;
   apply?: (input: { unitId: string; generation: number; digest: string; writes: readonly unknown[] }) => Promise<number>;
   /** An owner the test lends, wrapped to count the transactions a pass opens; the test closes it. */
   owner?: DatabaseOwner;
@@ -152,7 +156,7 @@ async function openWorld(options: {
       options.onGraph?.(transaction !== undefined);
       return graph.reader;
     },
-    inputs: () => ({ commit: commits.value }),
+    inputs: options.inputs ?? (() => ({ commit: commits.value })),
     facts: {
       apply: async ({ unit, digest, writes }) => {
         if (options.apply !== undefined) return await options.apply({ unitId: unit.unitId, generation: unit.generation, digest, writes });
@@ -504,7 +508,11 @@ describe('planning from the registry', () => {
     // The unit identity carries no run id (decision 0026), and each unit's inputs digest is the digest of
     // the named inputs the run hashed: the commit it stands on.
     expect(units.every((unit) => !unit.unitId.includes(runId))).toBe(true);
-    expect(new Set(units.map((unit) => unit.inputsDigest)).size).toBe(1);
+    // The digest is the unit's cache key's known part: the named inputs the run hashed and the versions that
+    // decide what the unit reads and answers, its stage's own among them (0026, "Updates"). Three stages answer
+    // three digests, and the two units of one stage answer one.
+    expect(new Set(units.map((unit) => unit.inputsDigest)).size).toBe(3);
+    expect(new Set(units.filter((unit) => unit.stageId === 'snapshot').map((unit) => unit.inputsDigest)).size).toBe(1);
 
     const configuration = await readRunConfiguration(opened.owner, runId);
     expect(configuration?.digest).toMatch(/^[0-9a-f]{64}$/);
@@ -984,9 +992,9 @@ describe('staleness from tracked reads, empty results included', () => {
     graph.rows.set(query, [{ module: 'core' }, { module: 'wiki' }]);
     const sweep = await invalidateStaleUnits(opened.orchestrator, { runId });
     expect(sweep.refused).toEqual([]);
-    expect(sweep.invalidated).toEqual([
-      { unitId: 'snapshot/src', generation: 1, replacement: 2, cause: 'a read the generation recorded answers something else now' },
-    ]);
+    expect(sweep.invalidated.map((unit) => [unit.unitId, unit.generation, unit.replacement])).toEqual([['snapshot/src', 1, 2]]);
+    // The sweep names the read that moved (madarch-tzte.26.1), so an update says why a unit was replaced.
+    expect(sweep.invalidated[0]!.cause).toBe('a read the generation recorded answers something else now: SELECT module FROM clusters');
     const generations = await (await import('../src/fill/state-store.js')).readUnitGenerations(opened.owner, 'snapshot/src');
     expect(generations.map((generation) => `${generation.generation}:${generation.state}`)).toEqual(['1:stale', '2:planned']);
     // The publication stays an immutable record of what was published, and the replacement is a new
@@ -2104,4 +2112,274 @@ describe('a draft set larger than one part', () => {
       await owner.close();
     }
   }, 60_000);
+});
+
+describe('a generation’s cache key, and what a run reaches over the declared capabilities', () => {
+  /**
+   * A stage that reads one query when it runs and drafts one write: `plan` names the units the test puts in
+   * the holder, so a run can plan a unit one time and not the next.
+   */
+  function readingStage(id: string, options: {
+    query?: string;
+    units: { names: string[] };
+    consumes?: readonly string[];
+    optionalConsumes?: readonly string[];
+    produces?: readonly string[];
+    cacheVersions?: () => Readonly<Record<string, string>>;
+  }): FillStage {
+    return fakeStage(id, {
+      consumes: {
+        required: (options.consumes ?? []).map((capability) => ({ capability, scope: 'repository' as const })),
+        optional: (options.optionalConsumes ?? []).map((capability) => ({ capability, scope: 'repository' as const, freshness: 'any' as const })),
+      },
+      produces: (options.produces ?? []).map((kind) => ({ kind, schemaVersion: 1, scope: 'repository' as const })),
+      ...(options.cacheVersions === undefined ? {} : { cacheVersions: options.cacheVersions }),
+      plan: () => ({ units: options.units.names.map((scope) => ({ id: scope, scope })), coverage: 'planned' }),
+      execute: async (unit, context) => {
+        if (options.query !== undefined) await context.graph.query(options.query);
+        context.draft.write({ kind: 'fact', evidence: `${unit.scope}:1`, value: { kind: `${id}-facts` } });
+        return { outcome: 'draft' };
+      },
+    });
+  }
+
+  /** Plans and drives one run to its end, answering what it planned. */
+  async function driveOne(opened: World, runId: string): Promise<Extract<PlanOutcome, { outcome: 'planned' }>> {
+    const started = await startRun(opened.orchestrator, { runId });
+    expect(started.ok).toBe(true);
+    const plan = await planRun(opened.orchestrator, { runId });
+    if (plan.outcome !== 'planned') throw new Error(`the run ${runId} was not planned: ${JSON.stringify(plan)}`);
+    const driven = await driveRun(opened.orchestrator, { runId });
+    expect({ state: driven.run.state, settled: driven.settled }).toEqual({ state: 'succeeded', settled: true });
+    return plan;
+  }
+
+  test('a published generation whose key stands is inherited by the next run, and one whose read moved is replaced before it runs', async () => {
+    const query = 'SELECT module FROM clusters';
+    const units = { names: ['src'] };
+    const registry = new StageRegistry().register(readingStage('snapshot', { query, units, produces: ['file-facts'] }));
+    const graph = fakeGraph({ [query]: [{ module: 'core' }] });
+    const opened = await world({ registry, graph });
+    await driveOne(opened, 'run-1');
+    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('published');
+
+    // The graph stands as it stood: the second run inherits the generation and works nothing on its behalf.
+    const second = await driveOne(opened, 'run-2');
+    expect(second.reused).toEqual(['snapshot/src']);
+    expect(second.units).toEqual([]);
+
+    // The graph moves under the publication: the third run replaces it, and its progress names the read that
+    // moved rather than saying only that something did.
+    graph.rows.set(query, [{ module: 'core' }, { module: 'wiki' }]);
+    const third = await driveOne(opened, 'run-3');
+    expect(third.reused).toEqual([]);
+    expect(third.units.map((unit) => `${unit.unitId}:${unit.generation}:${unit.state}`)).toEqual(['snapshot/src:2:planned']);
+    const stale = (await readProgress(opened.owner, 'run-3')).filter((event) => event.kind === 'unit-stale');
+    expect(stale.map((event) => event.unitId)).toEqual(['snapshot/src']);
+    expect(stale[0]!.summary).toContain('a read the generation recorded answers something else now: SELECT module FROM clusters');
+    expect((await readUnitGenerations(opened.owner, 'snapshot/src')).map((generation) => `${generation.generation}:${generation.state}`)).toEqual(['1:stale', '2:published']);
+  });
+
+  test('a version a stage declares as part of the key replaces every unit the last one planned', async () => {
+    const prompt = { value: 'packet@1' };
+    const units = { names: ['src'] };
+    const registry = new StageRegistry().register(readingStage('overview', { units, produces: ['product-overview'], cacheVersions: () => ({ prompt: prompt.value }) }));
+    const opened = await world({ registry });
+    await driveOne(opened, 'run-1');
+    // The same graph, the same inputs, another prompt: 0026's "the prompt, schema and model versions" is a part
+    // of the cache key, so the unit the last run planned is not inherited.
+    prompt.value = 'packet@2';
+    const second = await driveOne(opened, 'run-2');
+    expect(second.reused).toEqual([]);
+    expect(second.units.map((unit) => `${unit.unitId}:${unit.generation}`)).toEqual(['overview/src:2']);
+    const stale = (await readProgress(opened.owner, 'run-2')).filter((event) => event.kind === 'unit-stale');
+    // The reason names the version that moved, in the versions' own words (madarch-tzte.26.1's review, SHOULD-FIX 6).
+    expect(stale[0]!.summary).toContain('the versions that decide what it reads and answers moved: prompt packet@1 → packet@2');
+  });
+
+  test('a change a run publishes reaches the published units of the stages that consume it, and no others', async () => {
+    const query = 'SELECT module FROM clusters';
+    const producers = { names: ['src'] };
+    const consumers = { names: ['core'] };
+    const untouched = { names: ['repo'] };
+    const registry = new StageRegistry()
+      .register(readingStage('snapshot', { units: producers, produces: ['file-facts'] }))
+      // A consumer whose published generation the next run's plan does not name: only the sweep can reach it.
+      .register(readingStage('modules', { query, units: consumers, consumes: ['file-facts'], produces: ['module-facts'] }))
+      // A stage that consumes nothing this run's publications produce: its generation stands whatever moves.
+      .register(readingStage('history', { query, units: untouched, optionalConsumes: ['commit-facts'], produces: ['commit'] }));
+    const graph = fakeGraph({ [query]: [{ module: 'core' }] });
+    // The consumer's named inputs never move: the change this test propagates is its read, and nothing else.
+    const opened = await world({ registry, graph, inputs: (ref) => ({ commit: ref.stageId === 'modules' ? 'steady' : opened.commits.value }) });
+    await driveOne(opened, 'run-1');
+    for (const unitId of ['snapshot/src', 'modules/core', 'history/repo']) {
+      expect((await readUnit(opened.owner, unitId))?.state).toBe('published');
+    }
+
+    // The next run's plan names the producer only, and the producer's inputs moved: what it publishes is the
+    // change this run propagates, in the dependency order the declared capabilities give.
+    consumers.names = [];
+    untouched.names = [];
+    // The producer publishes again for a reason of its own (the test moves its inputs), and the consumer's read is
+    // what moved under the change: the propagation's own path is the read, so the assertion below names it.
+    graph.rows.set(query, [{ module: 'core' }, { module: 'wiki' }]);
+    opened.commits.value = 'ffeeddcc';
+    const second = await driveOne(opened, 'run-2');
+    expect(second.reused).toEqual([]);
+    // The producer ran as the plan named it, the consumer was replaced into this run by the sweep and ran after
+    // it, and the stage this run's facts feed nothing of stands as its record.
+    const ran = (await readRunUnits(opened.owner, 'run-2')).map((unit) => `${unit.unitId}:${unit.generation}:${unit.state}`);
+    expect(ran).toEqual(['modules/core:2:published', 'snapshot/src:2:published']);
+    const propagated = (await readProgress(opened.owner, 'run-2'))
+      .filter((event) => event.kind === 'unit-stale' && event.summary.includes('the change this run published reached it'));
+    expect(propagated.map((event) => event.unitId)).toEqual(['modules/core']);
+    // The scenario `reached-over-the-edges` names a moved read, and this one moved: the consumer's inputs stand
+    // still (its stage names no commit), and its query answers one row more.
+    expect(propagated[0]!.summary).toContain('a read the generation recorded answers something else now: SELECT module FROM clusters');
+    // The stage nothing of this run's publications feeds was not rechecked and stands as its record.
+    expect((await readUnit(opened.owner, 'history/repo'))?.generation).toBe(1);
+    expect((await readUnit(opened.owner, 'history/repo'))?.runId).toBe('run-1');
+  });
+
+  test('a read the graph can no longer answer makes the generation stale instead of failing the planning or the sweep', async () => {
+    // A commit that deletes a file an evidence span cited, or shortens it past the span's first line, leaves a
+    // recorded read the reader refuses (`spanRow`). The update it is part of must read that as the read having
+    // moved — the unit is replaced — and never as a failure of the run.
+    const query = 'SELECT module FROM clusters';
+    const units = { names: ['src'] };
+    const registry = new StageRegistry().register(readingStage('snapshot', { query, units, produces: ['file-facts'] }));
+    const graph = fakeGraph({ [query]: [{ module: 'core' }] });
+    const opened = await world({ registry, graph });
+    await driveOne(opened, 'run-1');
+    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('published');
+
+    graph.reader = { query: async () => { throw new GraphReadRefusal(`src/fill/graph-reads.ts:1:1: the read of src/one.ts asks for line 3, and the file was deleted at this pin`); } };
+    const started = await startRun(opened.orchestrator, { runId: 'run-2' });
+    expect(started.ok).toBe(true);
+    const plan = await planRun(opened.orchestrator, { runId: 'run-2' });
+    expect(plan.outcome).toBe('planned');
+    if (plan.outcome !== 'planned') return;
+    expect(plan.reused).toEqual([]);
+    expect(plan.units.map((unit) => `${unit.unitId}:${unit.generation}`)).toEqual(['snapshot/src:2']);
+    const stale = (await readProgress(opened.owner, 'run-2')).filter((event) => event.kind === 'unit-stale');
+    expect(stale.map((event) => event.unitId)).toEqual(['snapshot/src']);
+    expect(stale[0]!.summary).toContain('can no longer be answered: SELECT module FROM clusters (src/fill/graph-reads.ts:1:1: the read of src/one.ts asks for line 3, and the file was deleted at this pin)');
+  });
+
+  test('a reader that fails for a reason of its own is no movement of the graph: the planning fails, and replaces nothing', async () => {
+    const query = 'SELECT module FROM clusters';
+    const units = { names: ['src'] };
+    const registry = new StageRegistry().register(readingStage('snapshot', { query, units, produces: ['file-facts'] }));
+    const graph = fakeGraph({ [query]: [{ module: 'core' }] });
+    const opened = await world({ registry, graph });
+    await driveOne(opened, 'run-1');
+    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('published');
+
+    // A store error, a broken statement: a failure of the run, never a movement of the graph. The planning fails
+    // with it, and no generation is replaced for it.
+    graph.reader = { query: async () => { throw new Error('table fill_fact: the connection was closed'); } };
+    const started = await startRun(opened.orchestrator, { runId: 'run-2' });
+    expect(started.ok).toBe(true);
+    await expect(planRun(opened.orchestrator, { runId: 'run-2' })).rejects.toThrow('the connection was closed');
+    expect((await readUnit(opened.owner, 'snapshot/src'))?.generation).toBe(1);
+    expect((await readUnit(opened.owner, 'snapshot/src'))?.state).toBe('published');
+    expect(await readPublications(opened.owner, 'snapshot/src')).toHaveLength(1);
+
+    // The reader's own refusal is a movement of the graph: the same planning now replaces the generation.
+    graph.reader = { query: async () => { throw new GraphReadRefusal('src/fill/graph-reads.ts:1:1: the file src/one.ts is gone at this pin'); } };
+    const plan = await planRun(opened.orchestrator, { runId: 'run-2' });
+    expect(plan.outcome).toBe('planned');
+    if (plan.outcome !== 'planned') return;
+    expect(plan.reused).toEqual([]);
+    expect(plan.units.map((unit) => `${unit.unitId}:${unit.generation}`)).toEqual(['snapshot/src:2']);
+  });
+
+  test('a read the graph can no longer answer refuses the publication, and the attempt retries', async () => {
+    // The publication's own recheck reads through the same seam: a draft whose read the graph cannot answer stands
+    // on bytes nothing holds any more, and the publication is refused as a moved read rather than raising.
+    const query = 'SELECT module FROM clusters';
+    const units = { names: ['src'] };
+    const registry = new StageRegistry().register(readingStage('snapshot', { query, units, produces: ['file-facts'] }));
+    const graph = fakeGraph({ [query]: [{ module: 'core' }] });
+    const { world: opened, runId } = await plannedWorld({ registry, graph, limits: { retryDelayMs: 0 } });
+    await admitUnits(opened.orchestrator, { runId });
+    const reader = graph.reader;
+    let reads = 0;
+    graph.reader = {
+      query: async (text: string) => {
+        reads += 1;
+        // The attempt's own read is answered; the publication's recheck finds the file gone.
+        if (reads === 1) return await reader.query(text);
+        throw new GraphReadRefusal('src/fill/graph-reads.ts:1:1: the file src/one.ts is gone at this pin');
+      },
+    };
+    const outcome = await workOnce(opened.orchestrator, { worker: 'worker-1' });
+    expect(outcome.result).toBe('retried');
+    expect(String(outcome.summary)).toContain('unanswered: src/fill/graph-reads.ts:1:1: the file src/one.ts is gone at this pin');
+    expect(await readPublications(opened.owner, 'snapshot/src')).toEqual([]);
+    expect(opened.applied).toEqual([]);
+  });
+
+  test('a span read whose bytes did not move at the new pin leaves its generation standing, and one whose bytes moved replaces it', async () => {
+    // 0026, "Updates": a unit's cache key holds "the spans it read", and a span's key is the bytes — never the
+    // commit they were read at. The span row a read answers is the reader's, so this walks the rule with a
+    // reader whose answer the test writes.
+    const spanText = recordedReadText(readText({ read: 'span', repository: 'acme-shop', commit: 'a'.repeat(40), file: 'src/one.ts', startLine: 1, endLine: 2 }));
+    const spanRow = { repository: 'acme-shop', commit: 'b'.repeat(40), file: 'src/one.ts', startLine: 1, endLine: 2, totalLines: 3, lines: [{ line: 1, text: 'export const one = 1;' }, { line: 2, text: 'export const two = 2;' }] };
+    const units = { names: ['src'] };
+    const stage = fakeStage('snapshot', {
+      produces: [{ kind: 'file-facts', schemaVersion: 1, scope: 'repository' }],
+      plan: () => ({ units: units.names.map((scope) => ({ id: scope, scope })), coverage: 'planned' }),
+      execute: async (unit, context) => {
+        await context.graph.query(spanText);
+        context.draft.write({ kind: 'fact', evidence: `${unit.scope}:1`, value: { kind: 'file-facts' } });
+        return { outcome: 'draft' };
+      },
+    });
+    const registry = new StageRegistry().register(stage);
+    const graph = fakeGraph({ [spanText]: [spanRow] });
+    // The unit's named inputs stand still whatever commit the run pins: what this test moves is the pin, and the
+    // only part of the cache key a pin can move is the span's bytes.
+    const opened = await world({ registry, graph, inputs: () => ({ scope: 'src' }) });
+    await driveOne(opened, 'run-1');
+    // The commit moves, the bytes answer as they answered: nothing of the key moved, so the generation is inherited
+    // rather than replaced — and the recorded span read still names the commit it was read at, which is the point.
+    opened.commits.value = 'c'.repeat(40);
+    const second = await driveOne(opened, 'run-2');
+    expect(second.reused).toEqual(['snapshot/src']);
+    // The bytes answer something else: the same read, another membership, and the generation is replaced.
+    graph.rows.set(spanText, [{ ...spanRow, lines: [{ line: 1, text: 'export const one = 10;' }, { line: 2, text: 'export const two = 2;' }] }]);
+    const third = await driveOne(opened, 'run-3');
+    expect(third.reused).toEqual([]);
+    const stale = (await readProgress(opened.owner, 'run-3')).filter((event) => event.kind === 'unit-stale');
+    expect(stale.map((event) => event.unitId)).toEqual(['snapshot/src']);
+    expect(stale[0]!.summary).toContain('a read the generation recorded answers something else now: ');
+  });
+
+  test('a stage the product disabled is no work of the update: its published generation stands, whatever moved', async () => {
+    const query = 'SELECT module FROM clusters';
+    const units = { names: ['src'] };
+    const consumers = { names: ['core'] };
+    const registry = new StageRegistry()
+      .register(readingStage('snapshot', { units, produces: ['file-facts'] }))
+      .register(readingStage('modules', { query, units: consumers, consumes: ['file-facts'], produces: ['module-facts'] }));
+    const graph = fakeGraph({ [query]: [{ module: 'core' }] });
+    // The product's configuration, as the manifest would state it: nothing switched off at first, the consumer's
+    // stage disabled afterwards.
+    const configuration: { value: { ok: true; file: string; stages: Record<string, unknown>; lines: Record<string, number> } | undefined } = { value: undefined };
+    const opened = await world({ registry, graph, configuration: () => configuration.value });
+    await driveOne(opened, 'run-1');
+    expect((await readUnit(opened.owner, 'modules/core'))?.state).toBe('published');
+
+    // The consumer's read moves and the producer publishes, but the product disabled the consumer's stage: the
+    // generation of a stage this run does not run is left as its record (0026's "only affected units rerun" is
+    // about the work the run owes, and a disabled stage owes none).
+    consumers.names = [];
+    graph.rows.set(query, [{ module: 'core' }, { module: 'wiki' }]);
+    opened.commits.value = 'ffeeddcc';
+    configuration.value = { ok: true, file: '/product/workspace.yaml', stages: { modules: { enabled: false } }, lines: { modules: 3 } };
+    await driveOne(opened, 'run-2');
+    expect((await readUnit(opened.owner, 'modules/core'))?.generation).toBe(1);
+    expect((await readUnit(opened.owner, 'modules/core'))?.runId).toBe('run-1');
+  });
 });

@@ -374,7 +374,9 @@ describe('a fact another product still holds', () => {
       const ours = await readPageChanges({ database: own.owner, product: PRODUCT, after: oursBefore });
       expect(ours.changes).toHaveLength(1);
       // The module's page is announced here although another product keeps the row: this product's graph lost it.
-      expect(ours.changes[0]!.nodes).toEqual([all.module.id, all.placed.id, all.total.id].sort(byCodePoint));
+      // The call edge's other end is not announced: the publication cites the edge again and its row stands as it
+      // stands, so that page did not change (0026, "Pages"; madarch-tzte.26.1).
+      expect(ours.changes[0]!.nodes).toEqual([all.module.id, all.placed.id].sort(byCodePoint));
       // The other product's graph did not change, so its channel hears nothing, and its pages still show the edge.
       const theirs = await readPageChanges({ database: own.owner, product: 'Other Product', after: theirsBefore });
       expect(theirs.changes).toEqual([]);
@@ -382,6 +384,40 @@ describe('a fact another product still holds', () => {
       const stillTheirs = await readPageModel({ database: own.owner, product: 'Other Product', id: all.module.id });
       if (!stillTheirs.ok) throw new Error(`the other product's page was refused: ${stillTheirs.code}: ${stillTheirs.message}`);
       expect(stillTheirs.page.relations.out.map((relation) => relation.edge.kind)).toEqual(['contains']);
+    } finally {
+      await own.close();
+    }
+  }, 120_000);
+
+
+  test('a fact this product publishes for the first time is announced here, although another product stored its row', async () => {
+    // The other direction of the rule above: a row another product's units stored stands as it stands, so this
+    // product's first holding of it changes no row and is still a fact that arrived in this product's graph — its
+    // page appears here, and the other product's channel has nothing to say about it.
+    const all = graphFacts();
+    let held: readonly Fact[] = [all.placed];
+    const own = await openGraphFixture({ drafts: () => held.map((fact) => writeOf(fact)) });
+    try {
+      const first = await own.service.run({ product: { name: PRODUCT, folder: own.folder }, runId: 'run-gain-1' });
+      if (first.ok === false) throw new Error(`the first run was refused: ${first.code}: ${first.reason}`);
+      // Another product publishes the module first: the row stands in the shared store with its holding.
+      await publishForAnotherProduct(own.owner, 'Other Product', [all.module, all.holds]);
+      expect((await readPageModel({ database: own.owner, product: PRODUCT, id: all.module.id })).ok).toBe(false);
+      const oursBefore = (await readPageChanges({ database: own.owner, product: PRODUCT, after: 0 })).lastSeq;
+      const theirsBefore = (await readPageChanges({ database: own.owner, product: 'Other Product', after: 0 })).lastSeq;
+      // This product's unit publishes the same module and the same containment for the first time.
+      held = [all.placed, all.module, all.holds];
+      own.repin(LATER_COMMIT);
+      const second = await own.service.run({ product: { name: PRODUCT, folder: own.folder }, runId: 'run-gain-2' });
+      if (second.ok === false) throw new Error(`the second run was refused: ${second.code}: ${second.reason}`);
+      const ours = await readPageChanges({ database: own.owner, product: PRODUCT, after: oursBefore });
+      expect(ours.changes).toHaveLength(1);
+      // The module's page, listed whole: the containment is a relation its page shows and the placed symbol's page
+      // gains an incoming one, so both are announced and nothing else is — the placed fact itself stands.
+      expect(ours.changes[0]!.nodes).toEqual([all.module.id, all.placed.id].sort(byCodePoint));
+      // The page is really there now, and the other product's channel heard nothing: its graph did not change.
+      expect((await readPageModel({ database: own.owner, product: PRODUCT, id: all.module.id })).ok).toBe(true);
+      expect((await readPageChanges({ database: own.owner, product: 'Other Product', after: theirsBefore })).changes).toEqual([]);
     } finally {
       await own.close();
     }
@@ -469,9 +505,11 @@ describe('a publication that stops holding facts', () => {
       expect(firstOnly.truncated).toBe(true);
       const change = changes.changes[0]!;
       expect(change.generation).toBe(2);
-      // The module, the rule and the question are gone, and the pages of the symbols and the variable whose facts
-      // the publication repeats come with them; the file is no page.
-      expect(change.nodes).toEqual([all.endpoint.id, all.module.id, all.placed.id, all.question.id, all.rule.id, all.total.id, all.variable.id].sort(byCodePoint));
+      // The module, the rule and the question are gone, and the pages of the vars whose facts the publication
+      // writes again as they stood do not come with them: a page is announced when its facts changed, and a
+      // republished fact whose row stands is no change (0026, "Pages"; madarch-tzte.26.1). The call edge that
+      // names the other symbol is still held, so its page is not announced either, and the file is no page.
+      expect(change.nodes).toEqual([all.endpoint.id, all.module.id, all.placed.id, all.question.id, all.rule.id, all.variable.id].sort(byCodePoint));
       expect(changes.lastSeq).toBeGreaterThan(before);
       const set = await readPageSet({ database: own.owner, product: PRODUCT, folder: own.folder });
       expect(set.pages.map((page) => page.kind)).toEqual(['environment-variable', 'symbol', 'symbol']);

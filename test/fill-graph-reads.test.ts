@@ -19,6 +19,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Type } from 'typebox';
@@ -37,13 +38,16 @@ import {
   coverage,
   createFactGraphReader,
   createGraphReadContext,
+  answerMembership,
   describeScope,
   evidenceSpan,
   graphReadsOver,
   linesOf,
   neighbors,
   parseGraphRead,
+  recordedReadText,
   readText,
+  spanMembership,
   references,
   type GraphRead,
   type GraphReadContext,
@@ -909,13 +913,102 @@ describe('every read is the reading unit\u2019s dependency', () => {
 
       const sweep = await invalidateStaleUnits(opened.orchestrator, { runId });
       expect(sweep.refused).toEqual([]);
-      expect(sweep.invalidated).toEqual([
-        { unitId: 'reads/all', generation: 1, replacement: 2, cause: 'a read the generation recorded answers something else now' },
-      ]);
+      // The sweep names the read that moved (madarch-tzte.26.1): the measure of an update says why a unit is
+      // replaced and not merely that it was, so a person reads which part of the unit's graph moved.
+      expect(sweep.invalidated.map((entry) => [entry.unitId, entry.generation, entry.replacement])).toEqual([['reads/all', 1, 2]]);
+      expect(sweep.invalidated[0]!.cause).toStartWith('a read the generation recorded answers something else now: ');
+      expect(sweep.invalidated[0]!.cause).toContain('symbol:');
       const generations = await readUnitGenerations(opened.owner, 'reads/all');
       expect(generations.map((generation) => `${generation.generation}:${generation.state}`)).toEqual(['1:stale', '2:planned']);
     } finally {
       await opened.close();
     }
   }, 120_000);
+});
+
+describe("a span read as a unit's cache key", () => {
+  // Decision 0026, "Updates": a unit's cache key is "its queries with their result membership (empty results
+  // included), the spans it read, and the prompt, schema and model versions". A span's key is the bytes it
+  // read — the repository, the file, the lines and their text — and never the commit they were read at, or
+  // every span read of every unit would move on every commit.
+  let listRoot = '';
+  let firstPin = '';
+  let secondPin = '';
+
+  /** One Git call in the test's own repository. */
+  const git = (folder: string, ...args: string[]): string => execFileSync('git', args, { cwd: folder, encoding: 'utf8' }).trim();
+
+  /** One commit in the test's own repository, and the pin it stands at. */
+  function commitFile(text: string, message: string): string {
+    writeFileSync(join(listRoot, FILE), text);
+    git(listRoot, 'add', '-A');
+    git(listRoot, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', message);
+    return git(listRoot, 'rev-parse', 'HEAD');
+  }
+
+  beforeAll(() => {
+    listRoot = join(scratch!, 'span-key');
+    mkdirSync(join(listRoot, 'src'), { recursive: true });
+    writeFileSync(join(listRoot, FILE), 'export const one = 1;\nexport const two = 2;\nexport const three = 3;\n');
+    git(listRoot, 'init', '-q');
+    git(listRoot, 'config', 'user.name', 'Fixture');
+    git(listRoot, 'config', 'user.email', 'fixture@example.invalid');
+    git(listRoot, 'add', '-A');
+    git(listRoot, 'commit', '-qm', 'one');
+    firstPin = git(listRoot, 'rev-parse', 'HEAD');
+    // The second commit changes the file's last line and leaves the first two as they were.
+    secondPin = commitFile('export const one = 1;\nexport const two = 2;\nexport const three = 30;\n', 'two');
+  });
+
+  /** A reader over the span-key repository, pinned at the commit named. */
+  function readerAt(commit: string): { query(text: string): Promise<readonly unknown[]> } {
+    const pins: readonly RepositoryPin[] = [{ id: REPOSITORY, form: 'code', root: listRoot, commit }];
+    const source = createGitSnapshotSource(() => Promise.resolve(pins));
+    return createFactGraphReader({ database: shared!.owner, snapshot: { open: async (repository) => await source.open(repository) } });
+  }
+
+  test('is recorded by its place in the run’s pins, never by the commit it read', () => {
+    const asked = readText({ read: 'span', repository: REPOSITORY, commit: firstPin, file: FILE, startLine: 1, endLine: 2 });
+    // The recorded text names the repository, the file and the lines: the commit is the run's own pin, and
+    // a recheck answers the bytes at the pin the recheck runs under.
+    expect(recordedReadText(asked)).toBe(readText({ read: 'span', repository: REPOSITORY, file: FILE, startLine: 1, endLine: 2 }));
+    expect(recordedReadText(asked)).not.toContain(firstPin);
+    // A read of facts is recorded exactly as it asked: only a span's key drops its commit.
+    const facts = readText({ read: 'fact', id: `file:${'a'.repeat(64)}` });
+    expect(recordedReadText(facts)).toBe(facts);
+    // A stage's own SQL is no read of this grammar and is recorded as it stands.
+    expect(recordedReadText('SELECT 1')).toBe('SELECT 1');
+    // The recorded text is a read again, and it is answered at the reader's own pin.
+    expect(parseGraphRead(recordedReadText(asked))).toEqual({ read: 'span', repository: REPOSITORY, file: FILE, startLine: 1, endLine: 2 });
+  });
+
+  test('stands on its bytes: the same lines at another commit are the same membership, and moved lines are not', async () => {
+    const asked = readText({ read: 'span', repository: REPOSITORY, commit: firstPin, file: FILE, startLine: 1, endLine: 2 });
+    const recorded = recordedReadText(asked);
+    const first = await readerAt(firstPin).query(recorded);
+    const atSecond = await readerAt(secondPin).query(recorded);
+    // Lines 1 to 2 stand as they were in the second commit: the unit that read them has nothing to redo.
+    expect(spanMembership(atSecond)).toBe(spanMembership(first));
+    expect(answerMembership(recorded, atSecond)).toBe(answerMembership(asked, first));
+    // The membership is the bytes, not the commit: the two answers name different commits and one membership.
+    expect((atSecond[0] as { commit: string }).commit).toBe(secondPin);
+    expect((first[0] as { commit: string }).commit).toBe(firstPin);
+
+    // The last line moved, so a unit that read it answers something else at the second pin.
+    const lastLines = recordedReadText(readText({ read: 'span', repository: REPOSITORY, commit: firstPin, file: FILE, startLine: 3, endLine: 3 }));
+    const moved = await readerAt(secondPin).query(lastLines);
+    const was = await readerAt(firstPin).query(lastLines);
+    expect(answerMembership(lastLines, moved)).not.toBe(answerMembership(lastLines, was));
+  });
+
+  test('a span asked at a commit the run does not pin is still refused, and one that names none reads the pin', async () => {
+    const reader = readerAt(secondPin);
+    // The refusal the tools rely on: an agent asking for another commit's bytes is answered with the pin.
+    await expect(reader.query(readText({ read: 'span', repository: REPOSITORY, commit: firstPin, file: FILE, startLine: 1, endLine: 1 })))
+      .rejects.toThrow(new RegExp(`pins ${FILE} at ${firstPin}, and the repository "${REPOSITORY}" is pinned at ${secondPin}`));
+    // A read that names no commit is answered at the run's pin, which is the form a recorded read is replayed in.
+    const answered = await reader.query(recordedReadText(readText({ read: 'span', repository: REPOSITORY, commit: firstPin, file: FILE, startLine: 1, endLine: 1 })));
+    expect((answered[0] as { commit: string }).commit).toBe(secondPin);
+    expect((answered[0] as { lines: readonly { text: string }[] }).lines.map((line) => line.text)).toEqual(['export const one = 1;']);
+  });
 });

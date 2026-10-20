@@ -381,9 +381,13 @@ describe('one agent unit, end to end', () => {
       expect(sent[1]).toContain('200000 of its 272000-token window');
       expect(sent[1]).toContain('73.5%');
       // 0026: the agent's own file tools are off and its reads go through the session's server, so the span it read
-      // is a recorded dependency of the unit.
+      // is a recorded dependency of the unit — recorded as its place in the run's pins and the bytes it read, never
+      // by the commit it read them at (0026, "Updates"; madarch-tzte.26.1): a recheck at the run's next pin compares
+      // bytes with bytes, and a commit that leaves the span as it was is no change to this unit.
       const reads = await readUnitReads(opened.owner, unit.unitId, unit.generation);
-      expect(reads.filter((read) => (JSON.parse(read.query) as { read: string }).read === 'span').length).toBe(1);
+      const spans = reads.filter((read) => (JSON.parse(read.query) as { read: string }).read === 'span');
+      expect(spans.map((read) => JSON.parse(read.query))).toEqual([{ read: 'span', repository: REPOSITORY, file: 'a/one.ts', startLine: 1, endLine: 2 }]);
+      expect(spans[0]!.members).toBe(1);
 
       // Its draft set is published in one transaction (0027): the coverage of what it read. A published set is
       // the store's own facts and no second copy of them (madarch-tzte.21.11), so it is read as published facts.
