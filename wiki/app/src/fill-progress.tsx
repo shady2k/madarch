@@ -86,7 +86,11 @@ export function FillProgressPanel({ open }: { open: boolean }): ReactElement {
     if (!run) return;
     try {
       const response = await fetch(appPath(`/api/fill/control?runId=${encodeURIComponent(run.id)}&action=${action}`), { method: 'POST' });
-      if (!response.ok) throw new Error(`server answered ${response.status}`);
+      if (!response.ok) {
+        // The server's own words: a control a run's machine refused says why, and a bare status code would hide it.
+        const body = await response.json().catch(() => undefined) as { error?: { message?: string } } | undefined;
+        throw new Error(body?.error?.message ?? `server answered ${response.status}`);
+      }
       await refresh();
     } catch (caught) { setError(caught instanceof Error ? caught.message : String(caught)); }
   };

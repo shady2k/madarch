@@ -626,6 +626,12 @@ export function daemonUpdateWatch(home: string, service: FillOrchestratorService
       if (landed !== undefined) {
         return { started: false, deferred: true, reason: `the product ${JSON.stringify(request.product.name)} fills in ${landed.file}, which stands ${landed.status}: an update waits for that fill to end` };
       }
+      // A product that fills now is asked nothing: the store's chain says so before any run record is written, so a
+      // commit that waits for a fill leaves none behind. `run`'s own rule still governs the race.
+      const active = await service.activity({ product: request.product });
+      if (active.state === 'active' && active.activeRunState !== null && !['succeeded', 'completed_partial', 'blocked', 'failed', 'cancelled'].includes(active.activeRunState)) {
+        return { started: false, deferred: true, reason: `the product ${JSON.stringify(request.product.name)} already runs ${String(active.activeRunId)}, which stands ${active.activeRunState}` };
+      }
       const answer = await service.run({ product: request.product, runId: request.runId });
       if (answer.ok) return { started: true };
       // A fill of the product is in progress: the store's own rule (`startRun`) says so, and the commit waits.
@@ -636,7 +642,7 @@ export function daemonUpdateWatch(home: string, service: FillOrchestratorService
 }
 
 /** The daemon child's own entry (`madarch daemon-serve`): serves every valid product in the home until stopped. */
-export async function serveDaemon(options: { home?: string; port: number; updateWatch?: { readonly debounceMs?: number; readonly intervalMs?: number } }): Promise<number> {
+export async function serveDaemon(options: { home?: string; port: number }): Promise<number> {
   const home = homePath(options.home);
   // The service opens a unit's MCP server for a stage that runs an agent (0026), and the address it hands the
   // started server is this process's own: read when a unit's tools are opened, because the server knows its
@@ -671,7 +677,7 @@ export async function serveDaemon(options: { home?: string; port: number; update
     let watch: UpdateWatch | undefined;
     let watching: Promise<void> = Promise.resolve();
     try {
-      watch = daemonUpdateWatch(home, orchestrator, options.updateWatch ?? {});
+      watch = daemonUpdateWatch(home, orchestrator);
       const started = watch;
       watching = started.outset().then(() => undefined, (error: unknown) => {
         console.error(`the updates after commits to a default branch of the products home ${home} could not be watched, so no commit starts one: ${(error as Error).message}`);

@@ -209,6 +209,14 @@ describe('the person\'s control of a run the server keeps', () => {
     expect(refused.code).toBe('fill-orchestrator/control-refused');
     expect(refused.reason).toContain('cannot be cancelled');
     expect(refused.reason).toContain('succeeded');
+    // A pause is a step only a running run takes, and a run that ended says so instead of reporting a pause it did
+    // not take.
+    const paused = await service!.control({ productFolder: product, runId: lastRequest, action: 'pause' });
+    expect(paused?.ok).toBe(false);
+    if (paused === null || paused.ok) return;
+    expect(paused.code).toBe('fill-orchestrator/control-refused');
+    expect(paused.reason).toContain('succeeded');
+    expect(paused.reason).toContain('nothing was paused');
   }, 900_000);
 
   test('POST /api/fill/control takes the orchestrator\'s answer first and the state file\'s where it holds no run', async () => {

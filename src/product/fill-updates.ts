@@ -460,8 +460,8 @@ export function createUpdateWatch(options: UpdateWatchOptions): UpdateWatch {
     // quiet period, not the interval's next minute.
     const early = [...waiting.values()].filter((entry) => now - entry.since < debounceMs);
     if (early.length > 0) scheduleDue(Math.min(...early.map((entry) => entry.since + debounceMs - now)) + 1);
-    const due = [...waiting.values()].filter((entry) => now - entry.since >= debounceMs);
-    if (due.length > 0) {
+    const dueNow = [...waiting.values()].filter((entry) => now - entry.since >= debounceMs);
+    if (dueNow.length > 0) {
       let mayRun = false;
       let readFailed = false;
       try {
@@ -481,12 +481,12 @@ export function createUpdateWatch(options: UpdateWatchOptions): UpdateWatch {
         // The commits keep waiting: they are asked for again once the choice reads.
       } else if (!mayRun) {
         say('disabled', `no update runs by itself in this home: the wizard was not run, so no agent is chosen and nothing says what a run may spend — choose an agent in the wizard and updates follow commits to the default branch (${home})`);
-        for (const entry of due) waiting.delete(seenKey(entry.product, entry.repository));
+        for (const entry of dueNow) waiting.delete(seenKey(entry.product, entry.repository));
       } else {
         // One run per product covers every repository the product pins: the commit its id names is the newest the
         // product's moved branches hold.
         const byProduct = new Map<string, PendingUpdate>();
-        for (const entry of due) {
+        for (const entry of dueNow) {
           const held = byProduct.get(entry.product);
           const newer = held === undefined || entry.since > held.since || (entry.since === held.since && byCodePoint(entry.repository, held.repository) < 0);
           if (newer) byProduct.set(entry.product, entry);
@@ -522,6 +522,9 @@ export function createUpdateWatch(options: UpdateWatchOptions): UpdateWatch {
           if ('deferred' in answer && answer.deferred === true) {
             // The product fills now: the commit stays waiting, and the next pass asks again.
             say(`deferred:${entry.product}`, `the update of the product ${JSON.stringify(entry.product)} waits for the fill in progress: ${answer.reason}`);
+            // The fill that held it is asked about again on the debounce's own bound: the commit follows it within one
+            // quiet period of the fill ending, not at the next minute.
+            scheduleDue(debounceMs);
             continue;
           }
           const refusal = answer as { readonly started: false; readonly code: string; readonly reason: string };

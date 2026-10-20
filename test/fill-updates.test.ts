@@ -92,6 +92,21 @@ function fixture(): Fixture {
 const pause = (ms: number): Promise<void> => new Promise((answer) => setTimeout(answer, ms));
 
 /**
+ * Waits for a condition, up to a deadline that is a bound rather than a margin: the
+ * debounce's own timer is what a test waits for, and a loaded machine makes a fixed
+ * sleep a flake. The condition is polled every few milliseconds, and the failure
+ * names what never held.
+ */
+async function until(holds: () => boolean, what: string, deadlineMs = 5_000): Promise<void> {
+  const deadline = Date.now() + deadlineMs;
+  while (Date.now() < deadline) {
+    if (holds()) return;
+    await pause(5);
+  }
+  if (!holds()) throw new Error(`the watcher never came to ${what} within ${String(deadlineMs)} ms`);
+}
+
+/**
  * What a test's watcher asked for, in order: the requests and the answers, kept by
  * the starter itself. A test asserts on these rather than on one pass's report: the
  * debounce's own timer may run the pass that asks, and what the watcher asked the
@@ -140,7 +155,7 @@ describe('the update after commits to a default branch', () => {
       // Both commits land inside one debounce window: the run that follows names the newest of them, once.
       await watch.pass();
       expect(run.asked).toEqual([]);
-      await pause(60);
+      await until(() => run.asked.length > 0, 'the run two quick commits ask for');
       expect(run.asked).toEqual([{
         product: { name: 'shop', folder: world.product },
         runId: `update-shop-${second.slice(0, 12)}`,
@@ -182,7 +197,7 @@ describe('the update after commits to a default branch', () => {
       // The default branch itself moving is the one that starts the update.
       const moved = world.commit(world.codeRepo, 'index.ts', 'export const one = 1;\nexport const main = 3;\n', 'a default-branch commit');
       await watch.pass();
-      await pause(60);
+      await until(() => run.asked.length > 0, 'the run the default branch\'s commit asks for');
       expect(run.asked.map((request) => request.commit)).toEqual([moved]);
       watch.stop();
     } finally {
@@ -198,7 +213,7 @@ describe('the update after commits to a default branch', () => {
       await watch.outset();
       const edited = world.commit(world.productRepo, 'README.md', '# shop\n\nA shop for orders and payments.\n', 'the documents say what the product is');
       await watch.pass();
-      await pause(60);
+      await until(() => run.asked.length > 0, 'the run the product repository\'s commit asks for');
       expect(run.asked).toEqual([{
         product: { name: 'shop', folder: world.product },
         runId: `update-shop-${edited.slice(0, 12)}`,
@@ -224,7 +239,7 @@ describe('the update after commits to a default branch', () => {
       await watch.outset();
       const commit = world.commit(world.codeRepo, 'index.ts', 'export const one = 1;\nexport const four = 4;\n', 'a commit while a fill runs');
       await watch.pass();
-      await pause(60);
+      await until(() => run.answers.length > 0, 'the deferred answer a commit inside a fill gets');
       expect(run.answers.at(-1)).toEqual({ started: false, deferred: true, reason: 'the product "shop" already runs run-1, which stands running' });
       // The commit is still waiting: a deferral drops nothing.
       expect(watch.pending().map((entry) => entry.commit)).toEqual([commit]);
@@ -258,7 +273,7 @@ describe('the update after commits to a default branch', () => {
       await watch.outset();
       world.commit(world.codeRepo, 'index.ts', 'export const one = 1;\nexport const five = 5;\n', 'a commit nobody asked madarch to handle');
       await watch.pass();
-      await pause(60);
+      await until(() => lines.some((line) => line.includes('the wizard was not run')), 'the line that says no agent is chosen');
       expect(run.asked).toEqual([]);
       expect(lines.filter((line) => line.includes('the wizard was not run')).length).toBe(1);
       expect(lines.some((line) => line.includes('the wizard was not run') && line.includes(world.home))).toBe(true);
@@ -277,6 +292,7 @@ describe('the update after commits to a default branch', () => {
       const handled = world.commit(world.codeRepo, 'index.ts', 'export const one = 1;\nexport const six = 6;\n', 'a commit a run covers');
       await watch.pass();
       await pause(60);
+      await until(() => first.asked.length > 0, 'the run the first commit asks for');
       expect(first.asked.map((request) => request.commit)).toEqual([handled]);
       watch.stop();
       expect(readSeenHeads(world.home)[seenKey('shop', 'library')]).toEqual({ branch: 'main', commit: handled });
@@ -289,7 +305,7 @@ describe('the update after commits to a default branch', () => {
       expect(second.asked).toEqual([]);
       const waiting = world.commit(world.codeRepo, 'index.ts', 'export const one = 1;\nexport const seven = 7;\n', 'a commit whose run is deferred');
       await next.pass();
-      await pause(60);
+      await until(() => second.asked.length > 0, 'the deferred answer the second watcher gets');
       expect(second.asked.map((request) => request.commit)).toEqual([waiting]);
       expect(new Set(second.answers.map((answer) => ('deferred' in answer ? answer.deferred : null)))).toEqual(new Set([true]));
       next.stop();
@@ -299,7 +315,7 @@ describe('the update after commits to a default branch', () => {
       const restarted = watcherOf(world, third.start);
       await restarted.outset();
       expect(third.asked).toEqual([]);
-      await pause(60);
+      await until(() => third.asked.length > 0, 'the run the restarted watcher asks for a waiting commit');
       expect(third.asked.map((request) => request.commit)).toEqual([waiting]);
       restarted.stop();
     } finally {
@@ -318,7 +334,7 @@ describe('the update after commits to a default branch', () => {
       // the debounce is what runs the pass that asks.
       await watch.pass();
       expect(run.asked).toEqual([]);
-      await pause(120);
+      await until(() => run.asked.length > 0, 'the run the debounce\'s own timer starts');
       expect(run.asked.map((request) => request.commit)).toEqual([moved]);
       watch.stop();
     } finally {
@@ -340,7 +356,7 @@ describe('the update after commits to a default branch', () => {
       // to end does not: the second commit moves it again.
       await watch.pass();
       expect(run.asked).toEqual([]);
-      await pause(120);
+      await until(() => run.asked.length > 0, 'the run the second commit\'s debounce asks for');
       expect(run.asked.map((request) => request.commit)).toEqual([second]);
       expect(run.asked.length).toBe(1);
       watch.stop();
@@ -416,6 +432,30 @@ describe('the update after commits to a default branch', () => {
       // The product that is whole is watched in the same pass: one unreadable repository hides no other.
       expect(pass.unreadable.length).toBe(1);
       expect(readSeenHeads(world.home)[seenKey('shop', 'library')]).toEqual({ branch: 'main', commit: git(world.codeRepo, 'rev-parse', 'HEAD') });
+      watch.stop();
+    } finally {
+      world.remove();
+    }
+  });
+
+  test('a commit that lands while another is deferred is the commit the run is named after', async () => {
+    const world = fixture();
+    try {
+      // The product fills through both commits: the first waits, the second lands while it still waits, and the run
+      // that follows the fill names the newest of them — one run for the batch, never one per commit.
+      const run = recorder(() => ({ started: false, deferred: true, reason: 'the product "shop" already runs run-1, which stands running' }));
+      const watch = watcherOf(world, run.start, { debounceMs: 60 });
+      await watch.outset();
+      const first = world.commit(world.codeRepo, 'index.ts', 'export const one = 1;\nexport const eleven = 11;\n', 'the first commit of a batch');
+      await watch.pass();
+      await until(() => watch.pending().length === 1, 'the first commit waiting');
+      expect(watch.pending().map((entry) => entry.commit)).toEqual([first]);
+      const second = world.commit(world.codeRepo, 'index.ts', 'export const one = 1;\nexport const eleven = 11;\nexport const twelve = 12;\n', 'the second commit of the batch, while the first waits');
+      await watch.pass();
+      // The batch is one commit waiting, the newest, and the run asked for after it is that commit's.
+      expect(watch.pending().map((entry) => entry.commit)).toEqual([second]);
+      await until(() => run.asked.at(-1)?.commit === second, 'the run named after the newest commit of the batch');
+      expect(run.asked.at(-1)?.runId).toBe(`update-shop-${second.slice(0, 12)}`);
       watch.stop();
     } finally {
       world.remove();

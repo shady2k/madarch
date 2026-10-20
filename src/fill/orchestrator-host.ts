@@ -57,7 +57,7 @@ import {
 } from './orchestrator.js';
 import { createOrchestratorSchema, readProgress, readUnitPlan, recordUnitRead, type RunSnapshot } from './orchestrator-store.js';
 import type { QueueService } from './queue.js';
-import { createFillStateSchema, readLatestRun, readRunUnits } from './state-store.js';
+import { createFillStateSchema, readChain, readLatestRun, readRun, readRunUnits } from './state-store.js';
 import type { StageRegistry } from './registry.js';
 import type { SnapshotSource } from './snapshot.js';
 import {
@@ -211,6 +211,15 @@ export interface FillProgressAnswer {
   }[];
 }
 
+/** One product's chain of runs, as an update reads it before it asks for anything. */
+export interface FillActivity {
+  readonly state: 'idle' | 'active' | 'quiescent';
+  /** The run the chain follows, when it follows one. */
+  readonly activeRunId: string | null;
+  /** That run's state, or null when the chain follows none, or one this store no longer holds. */
+  readonly activeRunState: string | null;
+}
+
 /** What a person asks of one run: the two controls the fill progress panel offers. */
 export type FillRunControl = 'pause' | 'stop';
 
@@ -268,6 +277,14 @@ export interface FillOrchestratorService {
    * because nothing of a run is a truthful answer then.
    */
   progress(folder: string): Promise<FillProgressAnswer | null>;
+  /**
+   * Whether the product fills right now, read without creating anything: the chain
+   * of its runs and the run it follows (madarch-tzte.26.2). An automatic update asks
+   * this before it asks for a run, so a commit that must wait for a fill leaves no
+   * run record behind while it waits; `run`'s own rule still governs the race, where
+   * a fill starts between this read and the start.
+   */
+  activity(request: { readonly product: FillProduct }): Promise<FillActivity>;
   /**
    * The person's pause or stop of one of this product's runs (madarch-tzte.26.2):
    * the run's own state machine takes it (`pauseRun`, `cancelRun`), so an update the
@@ -400,12 +417,23 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
     return 'registry' in wired ? wired : { registry: options.registry, wiring: wired };
   }
 
+  /**
+   * One orchestrator per product, kept for the life of the service: a run's authority (its cancellation and its
+   * attempts' own aborts) stands in the instance that drives it, and the person's pause or stop must reach that
+   * instance — a second orchestrator built for the same product would cancel the store's rows and abort nothing
+   * (`cancelRun`'s revocation), leaving the work in flight. Building it once also keeps a product's stage registry
+   * and wiring in one place for every run of it.
+   */
+  const orchestrators = new Map<string, FillOrchestrator>();
+
   async function orchestratorFor(product: FillProduct): Promise<FillOrchestrator | RefusedFillRun> {
+    const held = orchestrators.get(product.name);
+    if (held !== undefined) return held;
     const wired = await wiringOf(product);
     if ('ok' in wired) return wired;
     const { wiring, registry } = wired;
     const { owner, queue } = await open();
-    return createOrchestrator({
+    const built = createOrchestrator({
       database: owner,
       registry,
       queue,
@@ -446,6 +474,8 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
       limits,
       ...(options.log === undefined ? {} : { log: options.log }),
     });
+    orchestrators.set(product.name, built);
+    return built;
   }
 
   /** The units' servers: the tokens they were minted, and the sessions those tokens answer for. */
@@ -643,13 +673,32 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
         },
       };
     },
+    async activity(request: { readonly product: FillProduct }): Promise<FillActivity> {
+      const database = await pageDatabase();
+      if (database === undefined) return { state: 'idle', activeRunId: null, activeRunState: null };
+      const chain = await readChain(database, request.product.name);
+      if (chain === null) return { state: 'idle', activeRunId: null, activeRunState: null };
+      const activeRunId = chain.context.activeRunId ?? null;
+      const active = activeRunId === null ? null : await readRun(database, activeRunId);
+      return { state: chain.state, activeRunId, activeRunState: active?.state ?? null };
+    },
     async control(request: { readonly productFolder: string; readonly runId: string; readonly action: FillRunControl }): Promise<FillRunControlAnswer | null> {
       const product: FillProduct = { name: productNameOf(request.productFolder), folder: request.productFolder };
       const built = await orchestratorFor(product);
       if ('ok' in built) return { ok: false, code: built.code, reason: built.reason };
       // A run the store does not hold is the landed fill's, which keeps its own state file: `null` hands the
       // control to that answer instead of pretending this process lost it.
-      if ((await runStatus(built, request.runId)) === null) return null;
+      const status = await runStatus(built, request.runId);
+      if (status === null) return null;
+      // A pause is a step only a running run takes: `pauseRun` settles a run it cannot pause and reports it as done,
+      // which would tell the person a control was taken that was not. The state says why instead.
+      if (request.action === 'pause' && status.run.state !== 'running') {
+        return {
+          ok: false,
+          code: 'fill-orchestrator/control-refused',
+          reason: `fill-orchestrator: run "${request.runId}" stands ${status.run.state}, and only a running run takes a pause: nothing was paused`,
+        };
+      }
       try {
         const settled = request.action === 'pause'
           ? await pauseRun(built, { runId: request.runId })
@@ -740,6 +789,7 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
       // A channel's listeners are the server's streams, and this service hears nothing more: the streams end with
       // the server's own connections (its stop closes them), and a stream whose read fails now says so in the log.
       pageListeners.clear();
+      orchestrators.clear();
       // A unit's token is a capability: stopping the service ends every session it minted.
       units.closeAll();
       if (opening === undefined) return;

@@ -680,6 +680,15 @@ export function createHandler(dependencies: {
           // The fill itself runs in this process's own environment (it is
           // spawned by src/product/fill-agents.ts), which is what the wizard's
           // `env` stands for when the server was given one.
+          // An update of this product may be filling now (madarch-tzte.26.2): a landed fill started over it would be
+          // two fills of one product at once, and the panel would hide the update behind the newcomer.
+          const progress = dependencies.fillProgress;
+          if (progress !== undefined) {
+            const current = await progress(fillProductFolder!);
+            if (current !== null && ['created', 'planning', 'running', 'pausing'].includes(current.run.status)) {
+              return refused(409, { message: `an update of this product is filling now (run ${current.run.id}, ${current.run.status}): wait for it to end, or stop it in the fill progress, before starting another fill` });
+            }
+          }
           const ompOptions = { model: chosenModel, ompExecutable: handlerEnv.MADARCH_OMP_EXECUTABLE, ompExtension: handlerEnv.MADARCH_OMP_EXTENSION };
           void startFill(fillProductFolder!, { agent: asked.agent, ...(asked.maxUnits === undefined ? {} : { maxUnits: asked.maxUnits as number }), ...(asked.agent === 'omp' ? ompOptions : {}) }).catch((error) => errorLog(`fill start failed: ${(error as Error).message}`));
           return { response: json(202, { accepted: true, status: 'starting' }) };
@@ -704,7 +713,10 @@ export function createHandler(dependencies: {
             const answer = await control({ productFolder: fillProductFolder, runId, action });
             if (answer !== null) {
               if (answer.ok) return { response: json(202, { runId: answer.runId, state: answer.state }) };
-              return refused(answer.code === 'fill-orchestrator/control-refused' ? 409 : 404, { message: answer.reason });
+              // A step a run's machine refused is the request's own fault (409); a service that cannot take any
+              // control at all is not ready to (503). Nothing here answers 404: a run this process does not hold
+              // answered `null` above, and the landed fill's own control answered for it.
+              return refused(answer.code === 'fill-orchestrator/control-refused' ? 409 : 503, { message: answer.reason });
             }
           } catch (error) {
             return refused(500, { message: `the fill's control could not be taken by this process's own runs: ${(error as Error).message}` });

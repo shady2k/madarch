@@ -38,11 +38,13 @@ This change is six pieces and the wiring between them.
   commits is one run — whose id is `update-`, the product's name and the commit's first twelve characters, so
   one commit never starts two runs.
 - **What the watcher remembers** — the products home's `.madarch/updates.json`: the head it has
-  *handled* per repository, written before the run is asked for. A repository with
-  no record there takes its first read as the baseline, so the server never starts
-  a run for work that stood before it looked (the first fill is the person's own),
-  and a restarted server neither loses a commit that waited nor asks twice for one
-  a run covers.
+  *handled* per repository, written after the pass's starts return. A run that
+  started covers its commit, and a server that dies between a start and the write
+  asks again under the same run id — which the store answers with the run it
+  already holds (`startRun`'s `existing`) — so nothing is lost and nothing is
+  asked for twice. A repository with no record there takes its first read as the
+  baseline, so the server never starts a run for work that stood before it looked
+  (the first fill is the person's own).
 - **When it may start a run** — only after the wizard was run in the person's own
   home (`readChosenAgent`, `src/product/fill-wizard.ts`, whose default is the
   person's home and not the products home): the agent the person chose is the one
@@ -132,6 +134,21 @@ baseline holds.
 - **Watching a repository of a product that is being added while the server runs**
   beyond the next pass: a product that appears in the home is watched from the pass
   that lists it, which is at most one interval later.
+- **Two products' updates in parallel.** One pass runs at a time and a start is the
+  whole run driven (`src/product/daemon.ts`'s `start`), so a second product's commit
+  waits for the first product's fill. One product filling at a time is what this
+  change promises; several filling at once is the scheduler's own work (decision
+  0027's resource limits), not the watcher's.
+- **A landed fill that was killed while it stood `running`.** Its state file keeps
+  saying `running` (`src/product/fill.ts` removes its own lock and writes a terminal
+  status only on a path it reaches), and the update of that product waits for it for
+  good. Recovering that state is the landed fill's own task; this change reads the
+  file as it stands and says so in the deferral line, which names the file and the
+  status.
+- **`serveDaemon`'s own start and stop of the watcher.** Its wiring is the tested
+  pieces (the service's `run`, `daemonUpdateWatch`'s deferral on both chains) joined
+  in one place; no test starts a daemon process and sends it a commit, which is a
+  walk on a served home rather than a suite's fixture.
 
 ## Preserved contracts
 
@@ -166,3 +183,62 @@ None.
   the limits the wizard set; a person sees it in the fill progress.
 - Tested with a repository the test makes: two quick commits give one run; a
   commit on another branch gives none.
+
+## Acceptance evidence
+
+The evidence is recorded on task madarch-tzte.26.2: `bun run check`, the focused
+suites on the SkyPilot pod, the wiki app's own checks, the feature document gate,
+green CI on the exact SHA, and two independent read-only review rounds by a fresh
+`deepseek-v4.1-flash-auto` session.
+
+- `bun run check` (`tsc --noEmit`): **exit 0** at every commit of the branch and at HEAD.
+- The focused suites, each with the tests' own exit status, on the worktree's own SkyPilot cluster:
+  - `test/fill-updates.test.ts` (the watcher, no tree-sitter): **11 pass, 0 fail, exit 0**.
+  - `test/fill-updates.test.ts` and `test/fill-updates-run.test.ts` on the AVX2 recipe (the syntax stage's grammars need it): **21 pass, 0 fail, exit 0**.
+- `wiki/app`: `bun install --frozen-lockfile && bun run check && bun test && bun run build`: **0 fail, exit 0**.
+- The feature document gate (`node .shady2k/documents.mjs check --phase feature --change madarch-tzte.26.2 --candidate worktree --target origin/main`): **clean, exit 0**.
+- CI on the exact SHA (pending).
+- The review: **two rounds**. Round one, over `git diff origin/main...HEAD` at `59c6dfdc`, returned **NOT APPROVED** with six defects and ten findings; every one is answered in `e863a613`, `451b8227`, `c654cfa0`, `d8785093` and the commits after them (D1 the agent choice read from the products home, D2 the landed fill hidden behind an update, D3 a control the panel offered and the server could not take, D4 the record's dangling limit paragraph, D5 an unreadable settings file killing the watcher, D6 the guarantee covering only orchestrator runs; F1-F10 the cost sentence, the missing debounce timer, the swallowed heads file, the panel's stage order and translations, the missing app tests, the run ids built from the implementation, the daemon's unnamed lines, the de-duplication that never cleared, the raw `spawnSync` in the run test, and the record's kind rationale). Round two returned **NOT APPROVED** with three defects and ten findings of its own (D7 the control reaching an orchestrator instance that drove nothing, D8 the record's stated write order, D9 a pause reported as taken by a run it cannot pause; F11 a deferral with no retry, F12 a shadowed name, F13 the panel dropping the server's message, F14 the untested daemon wiring, F15 one product's run holding the pass chain, F16 a dead landed fill blocking updates, F17 a landed fill starting over an update, F18 fixed margins in the tests, F19 the missing batch test, F20 every control failure answered 404). D7, D8, D9, F11, F12, F13, F14, F17, F18, F19 and F20 are answered in code and tests; F15 and F16 are named in "Out of scope" with what recovers them.
+
+### What the tests hold
+
+`test/fill-updates.test.ts`, over a products home the test makes (a product
+repository and one linked code repository, both Git checkouts it commits to):
+
+- two quick commits inside one debounce window start **one** run, named after the newest of them, and a pass after it asks for nothing;
+- a commit on another branch, and standing on that branch, start none; the default branch moving does;
+- the product repository is watched beside its code repositories;
+- a commit whose product fills waits, keeps waiting (a deferral drops nothing), and starts when the fill ends — under one run id;
+- no run before the wizard chose an agent, with the reason naming the home, once;
+- a restarted watcher asks never again for a handled commit and once for a waiting one, and a third watcher still finds a deferred commit waiting;
+- a commit's run is started by the debounce's own timer, with no interval and no other pass;
+- a second commit inside the debounce restarts it, and the two are one run at the newest commit;
+- a commit that lands while another waits is the commit the run is named after;
+- a damaged kept-heads file is said, with its path, rather than read as nothing;
+- a declared repository that is no checkout is reported with the full path it looked at, and hides no other product.
+
+`test/fill-updates-run.test.ts`, end to end on the server's own fill service
+(PGlite, the declared stages, a product the test makes):
+
+- the first fill publishes its facts, and a commit to the default branch then starts the update by itself — one run, named after the commit, published;
+- the update recomputes the units its commit touched and inherits the rest: the update is not a full refill;
+- the person finds it in the fill progress: the newest run, its units and its durable events, in order;
+- a product that never filled answers null, and the route falls back to the state file;
+- `GET /api/fill` answers the orchestrator's run on a served product;
+- a stop of a run the service holds is the run's own cancellation, a run it does not hold answers null, a pause of a run that ended is refused in the machine's words, and `POST /api/fill/control` takes the orchestrator's answer first and the landed fill's where it holds no run;
+- the landed fill's live run is what the progress shows while it runs, and its record stands aside when it ends;
+- an update waits for the landed fill of its product, naming the file and its status, and follows it when it ends.
+
+`wiki/app/src/app.test.ts`: the panel shows the stages the answer holds (with
+their counts and the run's latest activity), and offers no stop for a run that has
+ended.
+
+### Known limitations
+
+- **No mutation run.** The owner's rule runs Stryker once per assembled stage, off
+  the path; acceptance escalates per `mutationFallback: escalate`.
+- **The wizard's `maxUnits` cap binds nothing.** No registered stage runs an agent
+  (see "Out of scope"), so an update run spends no agent call.
+- **One product fills at a time**, and a landed fill killed while it stood `running`
+  holds its product's updates for good; both are named in "Out of scope" with what
+  recovers them.
