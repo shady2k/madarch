@@ -96,13 +96,19 @@ graph's own pages, read from the fill's fact store and never from a file
 (decision 0026, "Pages"). A page exists for the fact kinds the product
 registry may be about (`REGISTRY_KIND_MAPPINGS`'s `subject` role, read once in
 `src/fill/page-changes.ts`); the server answers the page set of a product
-(`/api/graph/pages`), one node's page model — its facts with code links, its
+(`/api/graph/pages`, whole, or `?fields=nav` for the four fields the navigation and
+the index draw), one node's page model — its facts with code links, its
 relations both ways, its coverage, its questions, its assumptions kept apart
 and its drafts marked (`/api/graph/page?id=…`) — and a live channel of the
 pages each publication touched (`/api/graph/events`, Server-Sent Events). The
 channel is woken by the orchestrator's own `unit-published` events, and the
 pages a publication touched are recorded in `fill_page_change` inside that
-publication's transaction (`src/fill/fact-store.ts`).
+publication's transaction (`src/fill/fact-store.ts`). The answers a reader waits
+on are kept where the process keeps them: the fill's store answers the page set,
+a page and a diagram from its own cache until a publication
+(`src/fill/page-cache.ts`), the page set's bodies are encoded once per set
+(`src/server/graph-pages.ts`), and the Architecture bundle is built once per
+revision of the product (`src/server/architecture-answer.ts`).
 
 ## From a document to a reader
 
