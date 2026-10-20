@@ -66,11 +66,15 @@ function model(elements: CompiledElement[], relations: CompiledRelation[] = []):
  */
 let caseDatabases: { owner: DatabaseOwner; histories: number; projection: boolean }[] = [];
 
+// The bound is named because hooks do not get the preload's default, and
+// closing the case's databases is the hook's work: PGlite shutdown under a
+// loaded runner took 5.9 s in CI (run 39415085797, test shard 4), over bun's
+// five.
 afterEach(async () => {
   const opened = caseDatabases;
   caseDatabases = [];
   for (const each of opened) await each.owner.close();
-});
+}, 30_000);
 
 /**
  * An owner for this case's next port. One PGlite is 1.7 s to boot on the

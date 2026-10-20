@@ -114,10 +114,14 @@ function queryOwner(): DatabaseOwner {
   return sharedQueryOwner;
 }
 
+// The bound is named because hooks do not get the preload's default, and
+// closing the file's database is the hook's work: PGlite shutdown under a
+// loaded runner took 5.9 s in CI (run 39415085797, test shard 4), over bun's
+// five.
 afterAll(async () => {
   await sharedQueryOwner?.close();
   sharedQueryOwner = undefined;
-});
+}, 30_000);
 
 /**
  * The databases this case opened for its own comparison histories, closed when
@@ -148,11 +152,13 @@ afterEach(async () => {
   const opened = caseDatabases;
   caseDatabases = [];
   for (const each of opened) await each.close();
+  // afterEach also closes the case's comparison databases; its bound is named
+  // for the same reason as the afterAll above.
   if (folder !== undefined) {
     rmSync(folder, { recursive: true, force: true });
     folder = undefined;
   }
-});
+}, 30_000);
 
 /** Test/local composition explicitly selects PGlite and injects the shared query owner. */
 async function startLocalServer(options: Omit<Parameters<typeof startServer>[0], 'queryDatabase'>): Promise<StartedServer> {

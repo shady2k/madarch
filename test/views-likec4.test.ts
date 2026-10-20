@@ -58,6 +58,13 @@ async function renderFixture(name: string): Promise<LikeC4Result> {
 const VALIDATE_MS = 15_000;
 
 /**
+ * The bound of the hook that closes the file's databases: hooks do not get the
+ * preload's default, and PGlite shutdown under a loaded runner took 5.9 s in CI
+ * (run 39415085797, test shard 4), over bun's five.
+ */
+const HOOK_CLOSE_MS = 30_000;
+
+/**
  * One history per fixture, opened the first time a case renders it and kept for
  * the file: rendering is the case's own work, a PGlite boot need not be. Two
  * fixtures cannot share one history: the store refuses two sources declaring
@@ -80,7 +87,7 @@ const OPEN_FIXTURES = 3;
 afterAll(async () => {
   for (const history of fileHistories.values()) await history.close();
   fileHistories.clear();
-});
+}, HOOK_CLOSE_MS);
 
 async function historyFor(name: string): Promise<HistoryStore> {
   const held = fileHistories.get(name);

@@ -94,10 +94,14 @@ function queryOwner(): DatabaseOwner {
   return sharedQueryOwner;
 }
 
+// The bound is named because hooks do not get the preload's default, and
+// closing the file's database is the hook's work: PGlite shutdown under a
+// loaded runner took 5.9 s in CI (run 39415085797, test shard 4), over bun's
+// five.
 afterAll(async () => {
   await sharedQueryOwner?.close();
   sharedQueryOwner = undefined;
-});
+}, 30_000);
 
 afterEach(async () => {
   await server?.stop();
