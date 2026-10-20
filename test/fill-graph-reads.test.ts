@@ -797,8 +797,32 @@ interface RunWorld {
 
 const QUEUE = 'fill-units';
 
-/** The fact the reading stage drafts once its tools answered: a stage publishes what it read. */
-const READER_FACT = makeNodeFact({ kind: 'module', value: { repository: REPOSITORY, name: 'reader-summary', seed: 'cluster' }, provenance: provenance(FILE, 1), layer: 'inferred' });
+/**
+ * The fact the reading stage drafts once its tools answered: a stage publishes
+ * what it read. The stage here stands for an agent stage, and an agent stage's
+ * module is a proposal now (madarch-tzte.24.2), so it carries the change it asks
+ * for and names a module of the fixture's clustering.
+ */
+/**
+ * The module the reading stage's proposal would replace. It is published nowhere
+ * in this fixture: the stage writes its draft straight into the machine's rows
+ (`context.draft.write`), which runs no tool-level referenced-node check — the
+ * schema's own read is what judged the proposal here — so the replaced module
+ * names a node this fixture never holds, and the test is about the reads, not
+ * about the write path's graph (which `test/fill-checked-writes.test.ts` holds).
+ */
+const READ_MODULE = makeNodeFact({ kind: 'module', value: { repository: REPOSITORY, name: 'checkout-payment', seed: 'cluster' }, provenance: provenance(FILE, 1), layer: 'extracted' });
+const READER_FACT = makeNodeFact({
+  kind: 'module',
+  value: {
+    repository: REPOSITORY,
+    name: 'reader-summary',
+    seed: 'cluster',
+    proposal: { change: 'rename', replaces: [READ_MODULE.id] },
+  },
+  provenance: provenance(FILE, 1),
+  layer: 'inferred',
+});
 
 /**
  * Opens a world whose stage reads through the graph reads: the process's owner,

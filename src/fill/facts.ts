@@ -709,6 +709,25 @@ export interface TestValue {
   readonly covers?: readonly string[];
 }
 
+/** The boundary change a stage-9 proposal asks for (decision 0026, "9 module-boundary refinement"). */
+export const MODULE_PROPOSAL_CHANGES = ['merge', 'split', 'rename'] as const;
+export type ModuleProposalChange = (typeof MODULE_PROPOSAL_CHANGES)[number];
+
+/**
+ * The boundary change a proposed module stands for (stage 9, madarch-tzte.24.2):
+ * what should change, and the modules of stage 5's clustering that would be
+ * replaced. The proposal never rewrites them — an agent's reading is `inferred`
+ * and always `proposed` (0005), and a person's acceptance is a record beside the
+ * facts, never a rewrite of them — so the replaced modules stand beside it until
+ * a person decides.
+ */
+export interface ModuleProposal {
+  /** The change asked for: the replaced modules become one, one becomes several, or one is renamed. */
+  readonly change: ModuleProposalChange;
+  /** The module facts this proposal would replace, by id, in code point order, each once. */
+  readonly replaces: readonly string[];
+}
+
 /**
  * Stage 5: a module — a cluster of files and symbols, seeded from a package
  * or build target and split until each fits a unit (0026's scale rule), or
@@ -725,6 +744,12 @@ export interface ModuleValue {
   readonly members?: number;
   /** What stage 5's PageRank made of it, in [0, 1]; the priority a run admits its units by. */
   readonly importance?: number;
+  /**
+   * The boundary change the module proposes, on an `inferred` module only
+   * (stage 9's): what changes and which modules of the clustering it would
+   * replace. An extracted module — stage 5's own clustering — carries none.
+   */
+  readonly proposal?: ModuleProposal;
 }
 
 /**
@@ -1481,7 +1506,10 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     stages: ['5-modules', '9-boundaries'],
     place: 'optional',
     layers: ['extracted', 'inferred'],
-    version: FACTS_SCHEMA_VERSION,
+    // 2 for the `proposal` stage 9's refinement carries (madarch-tzte.24.2); the
+    // identity is untouched, so a proposed module stands beside the modules it
+    // would replace, never over them.
+    version: 2,
     identityValue: (value) => [['repository', value.repository], ['parent', value.parent ?? null], ['name', identityName(value.name)]],
   },
   'document': {
@@ -2142,7 +2170,7 @@ const VALUE_FIELDS: { readonly [K in FactKind]: readonly (keyof FactValueOf<K> &
   'entry-point': ['repository', 'file', 'name', 'form'],
   'comment': ['text', 'form'],
   'test': ['repository', 'file', 'name', 'framework', 'covers'],
-  'module': ['repository', 'name', 'parent', 'seed', 'members', 'importance'],
+  'module': ['repository', 'name', 'parent', 'seed', 'members', 'importance', 'proposal'],
   'document': ['repository', 'path', 'mediaType', 'title', 'bytes', 'blob'],
   'section': ['repository', 'document', 'anchor', 'heading', 'level', 'startByte', 'endByte'],
   'commit': ['repository', 'commit', 'committedAt', 'authoredAt', 'subject', 'author', 'parents', 'files'],
@@ -2725,6 +2753,69 @@ export function checkFact(fact: unknown): FactProblem[] {
             });
           }
         });
+      }
+    }
+    // Stage 9's proposal (madarch-tzte.24.2): an `inferred` module is one proposal
+    // — the change it asks for, and the modules of the clustering it would replace —
+    // and an extracted module is stage 5's own clustering, which proposes nothing.
+    if (kind === 'module') {
+      const proposal = valueRecord['proposal'];
+      // A proposal that names itself among the modules it would replace would stand
+      // at the id it claims to stand beside: the identity is the repository, the
+      // parent and the name, so a proposal named after an existing module digests to
+      // that module's own id, and the publication would overwrite the clustering the
+      // proposal asked to refine. The replaces list is the proposal's own claim about
+      // other modules; its own id is never one of them.
+      if (proposal !== undefined && Array.isArray(proposal === null || proposal === undefined ? undefined : (proposal as Record<string, unknown>)['replaces']) && typeof record['id'] === 'string' && FACT_ID_PATTERN.test(record['id'] as string)) {
+        const own = record['id'] as string;
+        const replaces = (proposal as { replaces: readonly unknown[] })['replaces'];
+        const at = replaces.indexOf(own);
+        if (at >= 0) add(`value.proposal.replaces[${at}]`, `${shown(own)} is the id of this very fact: a proposal stands beside the modules it would replace, never over them — name the proposed module so its identity digests to its own id`);
+      }
+      const inferred = layer === 'inferred';
+      if (inferred && proposal === undefined) {
+        add('value.proposal', 'an inferred module is a proposal: name the change it asks for and the modules it would replace — an extracted module is the clustering stages read, and proposes nothing');
+      }
+      if (proposal !== undefined) {
+        if (!inferred) {
+          add('value.proposal', 'a proposal stands on an inferred module: the clustering is read, not proposed, and a person decides beside the facts, never over them');
+        } else if (typeof proposal !== 'object' || Array.isArray(proposal)) {
+          add('value.proposal', `the proposal of a module is an object with a change and the modules it would replace, not ${shown(proposal)}`);
+        } else {
+          const fields = proposal as Record<string, unknown>;
+          const unknown = unknownKeyProblem(fields, ['change', 'replaces']);
+          if (unknown !== undefined) add('value.proposal', unknown);
+          const message = partIn(MODULE_PROPOSAL_CHANGES, 'boundary change a proposal asks for')(fields['change']);
+          if (message !== undefined) add('value.proposal.change', message);
+          const replaces = fields['replaces'];
+          if (!Array.isArray(replaces) || replaces.length === 0) {
+            add('value.proposal.replaces', 'a proposal names the modules it would replace: at least one module fact id, in code point order, each once');
+          } else {
+            for (let index = 0; index < replaces.length; index += 1) {
+              const id = replaces[index];
+              if (typeof id !== 'string' || !FACT_ID_PATTERN.test(id)) {
+                add(`value.proposal.replaces[${index}]`, `${shown(id)} is no fact id: a proposal replaces modules the graph holds, each named by its id`);
+                continue;
+              }
+              if (!id.startsWith('module:')) {
+                add(`value.proposal.replaces[${index}]`, `${shown(id)} names no module: a boundary change replaces modules, and a module fact's id starts with "module:"`);
+                continue;
+              }
+              // The list is sorted, so a repeat is always beside its twin.
+              const previous = index === 0 ? undefined : replaces[index - 1];
+              if (typeof previous !== 'string') continue;
+              const order = byCodePoint(previous, id);
+              if (order > 0) add(`value.proposal.replaces[${index}]`, `${shown(id)} stands after ${shown(previous)}: the replaced modules are named in code point order`);
+              else if (order === 0) add(`value.proposal.replaces[${index}]`, `${shown(id)} is named twice: a proposal replaces each module once`);
+            }
+          }
+        }
+      }
+      // A proposed module is no clustering's output: it stands for a boundary an
+      // agent read out of the code, so its seed is the word for a cluster of what
+      // was read, never the package or build target a manifest seeds.
+      if (inferred && valueRecord['seed'] !== undefined && valueRecord['seed'] !== 'cluster') {
+        add('value.seed', `${shown(valueRecord['seed'])} is no seed of a proposed module: a proposal is a cluster the agent read out of the code, and its seed is "cluster"`);
       }
     }
     // A fact names one repository and one commit, in its value and in its

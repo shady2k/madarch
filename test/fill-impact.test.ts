@@ -125,6 +125,17 @@ function agentScript(commit: string): Record<string, unknown> {
           { answer: { status: 'done', covered: ['README.md', 'docs/architecture.md', 'services/orders/README.md', 'model-ids.json'], remaining: [], summary: 'The README promises a retention the orders service spells out' } },
         ],
       },
+      // Stage 9's units (madarch-tzte.24.2) are answered by their packet's own word: `clustering` is the key of
+      // the stage's own section and stands in no other stage's packet. The default steps would leave a unit of
+      // stage 9 recording the overview's span reads — which is the update's business and not its own — and the
+      // pages stage's units (25.1) must keep running those default steps, so the match is the section's key and
+      // not the unit's scope text.
+      {
+        matches: 'clustering',
+        steps: [
+          { answer: { status: 'done', covered: [], remaining: [], summary: 'The modules of this scope are read whole through the packet, and their boundary is proposed as it stands' } },
+        ],
+      },
     ],
     steps: [
       { call: { tool: 'evidence_span', arguments: { repository: TRAINING, commit, file: CHANGED, startLine: 1, endLine: 200 } } },
@@ -284,7 +295,8 @@ function reranByTheCommit(options: {
     `semantic-resolution/file:${repository}:${file}`,
     ...['services/checkout/src/checkout.ts', 'services/orders/src/order.go', 'services/payments/src/payment.ts']
       .map((path) => `semantic-resolution/file:${repository}:${path}`),
-    // The agent unit whose span read the commit moved.
+    // The agent units the commit's own readings moved: the overview's recorded span (madarch-tzte.26.1) and the
+    // boundary refinement's reads, which the clustering the commit replans made stale (madarch-tzte.24.2).
     options.agentUnitOfRepository,
   ].sort();
 }
@@ -309,6 +321,10 @@ describe('a commit, and what it reruns', () => {
   let previous = '';
   /** The training repository fact's id, which stage 10's unit of it is named by. */
   let trainingRepositoryId = '';
+  /** The training repository's clustering unit, which stage 9 plans at its top module (madarch-tzte.24.2). */
+  let trainingModuleUnitId = '';
+  /** The product repository fact's id, which stage 9's unit of it is named by. */
+  let shopRepositoryId = '';
 
   beforeAll(async () => {
     // One wiring and one service for every run: decision 0027's "a second run of the same product reuses what
@@ -341,6 +357,15 @@ describe('a commit, and what it reruns', () => {
     // The understanding units run-three holds (madarch-tzte.24.5): the stage plans one per module, and the
     // ids name no node a constant could spell, so they are read from the store like the repository's own.
     understandingUnitIds = understandingRecords.map((unit: { unitId: string }) => unit.unitId);
+    // Stage 9's units (madarch-tzte.24.2), which the run inherited: the training repository's clustering plans
+    // at its one top module, whose fact id the unit is named by, and the product repository's stays the
+    // repository unit its clustering leaves room for. The ids are the run's own record, read here rather than
+    // guessed: a unit id is a fact id or the fact the clustering's level below names, and the fixture holds
+    // neither spelling.
+    const boundariesUnits = (third?.reused ?? []).filter((unitId) => unitId.startsWith('boundaries/'));
+    expect(boundariesUnits).toHaveLength(2);
+    trainingModuleUnitId = boundariesUnits.find((unitId) => unitId.startsWith('boundaries/module:')) ?? '';
+    shopRepositoryId = boundariesUnits.find((unitId) => unitId.startsWith('boundaries/repository:')) ?? '';
     for (const [name, result] of [['run-one', first], ['run-two', second], ['run-three', third]] as const) {
       if (result.state === 'succeeded' && result.settled) continue;
       // eslint-disable-next-line no-console
@@ -371,9 +396,11 @@ describe('a commit, and what it reruns', () => {
     // repository whole, the history unit of the commit it left, the resolution units the stage's own pins-input
     // computes again, the product's overview unit, whose recorded span read the commit moved — and the pages
     // stage's units (25.1) whose own cache key moved the same way: this world's scripted agent reads the changed
-    // file's span in every unit's session but the ones the `byPrompt` entry answers (its own words match stage
-    // 10's unit of the training repository's documents, and every unit whose scope is that repository), so every
-    // page whose scope is not that one carries the span read, and the page is rewritten.
+    // file's span in every unit's session but the ones the `byPrompt` entries answer (stage 10's unit of the
+    // training repository's documents, every unit whose scope is that repository, and stage 9's units, whose
+    // prompts the entries for the training and product repositories answer), so every page whose scope is not
+    // that one carries the span read, and the page is rewritten. Stage 9's own units stand beside them reused:
+    // a comment-only commit moves no module, no member count and no containment (madarch-tzte.24.2).
     const { narrativeReran } = await narrativePlansOfRunTwo();
     expect(reran(third!)).toEqual([...reranByTheCommit({
       repository: TRAINING,
@@ -418,6 +445,12 @@ describe('a commit, and what it reruns', () => {
       ...moduleOfProduct.map((id) => `${INTENT_HISTORY_STAGE_ID}/${id}`),
       ...understandingUnitIds,
       ...narrativePlans.filter((plan) => plan.scope === TRAINING).map((plan) => plan.unit_id),
+      // Stage 9's units are inherited whole (madarch-tzte.24.2): a comment-only commit moves no module, no
+      // member count and no containment, and the recorded reads of both units stand. The training repository's
+      // clustering is one module unit, planned at the level below the repository because its estimate is past
+      // 0026's planned size, and the product repository's is the repository unit its one module leaves room for.
+      trainingModuleUnitId,
+      shopRepositoryId,
     ].sort());
   }, 900_000);
 
