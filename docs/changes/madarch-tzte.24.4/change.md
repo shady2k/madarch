@@ -113,7 +113,11 @@ nothing here re-decides them.
   instead — so the section holds each comment's fact id, its form and its
   file and line, and the unit reads the words with `evidence_span`, the one
   read that carries bytes (0026, "Agents and tools"). The section is still the
-  recorded read that makes a moved comment stale.
+  recorded read that makes a moved comment stale. Both sections read in the
+  module's own files — the same members the packet's own list holds — so a
+  member list the read's cap cut holds the section to the files it showed:
+  a comment of another module is never shown under this scope's label, and
+  the packet's marker is what names that cut.
 - **The comments read is the stage's own SQL, not a grammar read.** A
   `comment` fact carries no repository in its value (its identity is its
   provenance place), so the grammar's `facts-with` cannot select the comments
@@ -133,7 +137,11 @@ nothing here re-decides them.
   for the shown commits, their ids schema-checked). A module with more history
   than the bound holds is cut by the section's own bound, named in the
   packet's marker — a unit that cannot see a commit cannot state it, and the
-  plan's file-level units read the same history per file.
+  plan's file-level units read the same history per file. A commit whose
+  touched list is longer than a row holds is still one row, and the row itself
+  names the cut (`touchedMore`, the count of the scope's files it touched
+  beyond the twenty it lists): a row's cut is no packet cut, which alone the
+  marker names, and no reader is left to guess a merge's extent.
 - **Two predicates, so a reader can tell a purpose from a reason.** The
   schema's claim predicate is free (`one lower-case kebab token`); the fixed
   part pins this stage's own to `intent` (what the writers meant the part to

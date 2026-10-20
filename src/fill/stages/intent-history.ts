@@ -23,7 +23,10 @@
  * `commit` facts and `task-key` edges stage 7 published for the repository — the
  * commits whose changed files the module's files hold, each with the task keys its
  * message names. Both are the stage's own packet sections (`comments`, `commits`),
- * each a read of the graph recorded as the unit's dependency. A comment's *words*
+ * each a read of the graph recorded as the unit's dependency, both read in the
+ * module's own files (`scopeFiles`) — the same members the packet's own list
+ * holds, so a member list the read's own cap cut holds the section to the files
+ * it showed, and the packet's marker is what names that cut. A comment's *words*
  * are the file's bytes, and 0026 pastes no file content, so the section names
  * where each comment stands — its file, its line, its form — and the unit reads
  * the words with `evidence_span`, the one read that carries bytes. The comments
@@ -45,10 +48,11 @@
  */
 import { byCodePoint } from '../../model/order.js';
 import { ID_PATTERN } from '../../model/schema.js';
-import { estimateOfMembers, plannedTokens, MAX_TEXT_CODE_POINTS, type AgentPacketSection, type AgentSectionRequest } from '../agent-packet.js';
+import { estimateOfMembers, pathOfNode, plannedTokens, MAX_TEXT_CODE_POINTS, type AgentPacketSection, type AgentSectionRequest } from '../agent-packet.js';
 import {
   factsOfRows,
   graphReadsOver,
+  neighbors,
   type GraphReadContext,
 } from '../graph-reads.js';
 import { FACT_ID_PATTERN, repositoryPath, type CommentForm, type Fact } from '../facts.js';
@@ -90,7 +94,7 @@ export const INTENT_HISTORY_COMMENT_ROWS = 60;
 /** The most commits one packet holds, newest first; the cut is named in the packet's marker. */
 export const INTENT_HISTORY_COMMIT_ROWS = 40;
 
-/** The most of a commit's touched paths one row names; a commit that touched more is still one row, its list cut. */
+/** The most of a commit's touched paths one row names; a commit that touched more is still one row, and the row says how many more (`touchedMore`). */
 export const INTENT_HISTORY_TOUCHED_ROWS = 20;
 
 // ---------------------------------------------------------------------------------------------
@@ -115,16 +119,12 @@ function sqlText(value: string): string {
  * over the `fact` view (`STAGE_FACT_VIEW`, `src/fill/stage-reads.ts`): a
  * comment carries no repository in its value, so where it stands — the
  * provenance's repository and file — is what the read filters by. `files` are
- * the scope's own repository paths, each `repositoryPath` checked; `null` is a
- * scope whose file list nobody enumerated (a module whose member list the
- * answer's cap cut), which reads the repository's comments whole and filters in
- * code, never silently less.
+ * the scope's own repository paths, each `repositoryPath` checked, so the read
+ * answers exactly the scope's own comments and nothing beside them; a scope
+ * with no files asks for nothing and answers none.
  */
-export function commentsRead(repository: string, files: readonly string[] | null): string {
+export function commentsRead(repository: string, files: readonly string[]): string {
   const name = repositoryName(repository);
-  if (files === null) {
-    return `SELECT id, provenance, value FROM fact WHERE kind = 'comment' AND provenance->'repository'->>'id' = '${sqlText(name)}'`;
-  }
   const paths = files.map((file) => `'${sqlText(repositoryPath(file))}'`);
   return `SELECT id, provenance, value FROM fact WHERE kind = 'comment' AND provenance->'repository'->>'id' = '${sqlText(name)}' AND provenance->'place'->>'file' = ANY(ARRAY[${paths.join(', ')}])`;
 }
@@ -221,16 +221,24 @@ function inside(file: string, paths: readonly string[]): boolean {
 /**
  * The repository paths a section reads its comments and commits in: the scope's
  * own path when the unit covers one (a file or a folder a split named), or the
- * module's member files when the unit covers a whole module. `null` is a module
- * whose member list the read's own cap cut: the section then reads the
- * repository whole and filters in code, never silently less, and the packet's
- * own marker names the cut that caused it.
+ * module's member files when the unit covers a whole module — the same members
+ * the packet's own list holds, read here from the same graph, so a member list
+ * the read's own cap cut holds the section to the files it showed. The section
+ * never widens to the repository whole: a comment of another module is another
+ * unit's source, and the packet's own marker is what names the cut.
  */
-async function scopeFiles(request: AgentSectionRequest): Promise<readonly string[] | null> {
+async function scopeFiles(request: AgentSectionRequest): Promise<readonly string[]> {
   if (request.scope.path !== undefined) return [request.scope.path];
-  const members = await placeMembers(request.reads, request.unit.id);
-  if (members === null) return null;
-  return members.filter((member) => member.kind === 'file' || member.kind === 'directory').map((member) => member.path);
+  const placed = await neighbors(request.reads, { tool: 'neighbors', id: request.unit.id, direction: 'out', kinds: ['contains', 'defines'] });
+  const files = new Set<string>();
+  for (const row of placed.rows) {
+    // The member that stands at a place names it (the shape's own rule, `placeMembers`): a folder or a file, never
+    // a symbol that merely cites the path.
+    if (row.neighbor.kind !== 'file' && row.neighbor.kind !== 'directory') continue;
+    const path = pathOfNode(row.neighbor);
+    if (path !== undefined && path !== '') files.add(path);
+  }
+  return [...files];
 }
 
 /** One text as the packet keeps it: its first line, at most `MAX_TEXT_CODE_POINTS` code points, cut with an ellipsis. */
@@ -259,9 +267,9 @@ export function intentHistorySections(): readonly AgentPacketSection[] {
         const files = await scopeFiles(request);
         // A scope whose file list is empty holds no comments of its own, and an empty SQL array is no question at
         // all: the section answers nothing rather than asking the store for it.
-        if (files !== null && files.length === 0) return [];
+        if (files.length === 0) return [];
         const rows = (await request.graph.query(commentsRead(request.scope.repository, files))).map(commentOfRow)
-          .filter((comment) => files === null ? true : inside(comment.file, files))
+          .filter((comment) => inside(comment.file, files))
           .sort((left, right) => byCodePoint(left.file, right.file) || left.line - right.line || byCodePoint(left.id, right.id));
         return rows.map((comment) => ({ id: comment.id, form: comment.form, file: comment.file, line: comment.line }));
       },
@@ -277,7 +285,7 @@ export function intentHistorySections(): readonly AgentPacketSection[] {
         const commits = factsOfRows(await request.reads.read(commitsRead), commitsRead)
           .filter((fact) => {
             const changed = (fact.value as { files?: readonly unknown[] }).files ?? [];
-            return files === null ? changed.length > 0 : changed.some((file) => typeof file === 'string' && inside(file, files));
+            return changed.some((file) => typeof file === 'string' && inside(file, files));
           })
           .sort((left, right) => byCodePoint(String((right.value as { committedAt?: unknown }).committedAt ?? ''), String((left.value as { committedAt?: unknown }).committedAt ?? '')) || byCodePoint(left.id, right.id))
           .slice(0, INTENT_HISTORY_COMMIT_ROWS);
@@ -292,13 +300,16 @@ export function intentHistorySections(): readonly AgentPacketSection[] {
         }
         return commits.map((fact) => {
           const value = fact.value as { commit?: unknown; committedAt?: unknown; subject?: unknown; files?: readonly unknown[] };
-          const touched = [...new Set((value.files ?? []).filter((file): file is string => typeof file === 'string' && (files === null ? true : inside(file, files))))].sort(byCodePoint);
+          const touched = [...new Set((value.files ?? []).filter((file): file is string => typeof file === 'string' && inside(file, files)))].sort(byCodePoint);
           return {
             id: fact.id,
             commit: String(value.commit ?? ''),
             committedAt: String(value.committedAt ?? ''),
             subject: shortText(String(value.subject ?? '')),
             touched: touched.slice(0, INTENT_HISTORY_TOUCHED_ROWS),
+            // The cut a row's own list took is named where the reader reads it (a row's cut is no packet cut, which
+            // alone the marker names): a merge that touched more of this scope than the row holds says how many more.
+            touchedMore: Math.max(0, touched.length - INTENT_HISTORY_TOUCHED_ROWS),
             taskKeys: [...(keysOf.get(fact.id) ?? [])].sort(byCodePoint),
           };
         });
@@ -430,7 +441,7 @@ export function intentHistoryDeclaration(): AgentStageDeclaration {
       'Tie every claim to its source. A claim from a comment cites the file and lines the comment stands at; a claim from a commit cites a file that commit changed, and names the commit and its task key in its text.',
       'A task key (like ORD-12) names tracked work: a claim that states what a commit was for names the key, so a reader can find the work behind it.',
       'Behaviour the commits or the code show that no comment explains is undocumented: raise a question of type `undocumented-behaviour` about the node whose behaviour it is, naming the behaviour in one sentence. Never state as claimed what nobody\'s words say.',
-      'Your places are your module\'s own files, which the packet\'s `scope` and `members` sections name. A comment or commit outside them is another unit\'s source, and a claim about it is not yours to write; raise a question about what you can see only from outside.',
+      'Your places are your module\'s own files, which the packet\'s `scope` and `members` sections name — your scope\'s own path where your scope names one, and none where your scope is one file. A comment or commit outside them is another unit\'s source, and a claim about it is not yours to write; raise a question about what you can see only from outside.',
     ],
     task: 'Write the intent and the \'why\' rationale this module\'s comments and commits state, every claim cited to the words it stands on, and raise what they leave undocumented as a question.',
     answer: INTENT_HISTORY_ANSWER,

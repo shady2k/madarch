@@ -27,8 +27,10 @@ import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/d
 import { createPgBossQueue } from '../src/adapters/pg-boss-queue.js';
 import { createFactStoreSchema, applyPublishedFacts, readUnitFacts, FACT_APPLICATION } from '../src/fill/fact-store.js';
 import { makeEdgeFact, makeNodeFact, repositoryPath, type Fact, type FactProvenance } from '../src/fill/facts.js';
-import { createFactGraphReader, estimateTokens, DEFAULT_GRAPH_READ_LIMITS } from '../src/fill/graph-reads.js';
-import { draftSetOf } from '../src/fill/checked-writes.js';
+import { createFactGraphReader, estimateTokens, graphReadsOver, DEFAULT_GRAPH_READ_LIMITS } from '../src/fill/graph-reads.js';
+import { byCodePoint } from '../src/model/order.js';
+import type { AgentSectionRequest } from '../src/fill/agent-packet.js';
+import { draftSetOf, writeScope } from '../src/fill/checked-writes.js';
 import { createFillOrchestratorService, type ProductFillWiring } from '../src/fill/orchestrator-host.js';
 import {
   createOrchestrator,
@@ -46,9 +48,10 @@ import {
   INTENT_HISTORY_STAGE_ID,
   createIntentHistoryStage,
   intentHistoryDeclaration,
+  intentHistorySections,
   planIntentUnits,
 } from '../src/fill/stages/intent-history.js';
-import { StageRegistry } from '../src/fill/registry.js';
+import { deriveStageGraph, StageRegistry } from '../src/fill/registry.js';
 import { DEFAULT_STAGE_DEFAULTS, type FillStage } from '../src/fill/stage.js';
 import { FACT_KINDS } from '../src/fill/facts.js';
 import { Type } from 'typebox';
@@ -483,6 +486,7 @@ describe('stage 11, the intent the comments and commits state', () => {
         committedAt: HISTORY[1]!.at,
         subject: PAYMENT_COMMIT_SUBJECT,
         touched: [PAYMENT_FILE],
+        touchedMore: 0,
         taskKeys: ['PAY-4'],
       }]);
 
@@ -496,6 +500,7 @@ describe('stage 11, the intent the comments and commits state', () => {
         committedAt: HISTORY[0]!.at,
         subject: ORDER_COMMIT_SUBJECT,
         touched: [ORDER_FILE],
+        touchedMore: 0,
         taskKeys: ['ORD-12'],
       }]);
 
@@ -630,15 +635,19 @@ describe('stage 11, the intent the comments and commits state', () => {
     });
     try {
       const planned = await planAndAdmit(opened);
-      const results = await runToPublished(opened, planned.length);
-      // The orders unit published; the payments unit stopped at its turn limit and split. Which unit ran first is the
-      // scheduler's own order, so the results are compared as a set.
-      expect([...results].sort()).toEqual(['published', 'split']);
-      // The parent's thirty turns: its first prompt and every nudge after it name its file, and the child's one prompt
-      // is told apart by the scope text only its own packet spells.
-      expect(prompts(opened).filter((prompt) => prompt.includes(PAYMENT_FILE) && prompt.includes('"scope": "orders-api:src/payment.ts"') === false).length).toBe(30);
+      // Four ends over the run: the payments parent stops at its turn limit and splits; the split's child publishes;
+      // the child's publication is what releases the parent's join, whose attempt the script never answers either, so
+      // it stops a second time and, trying to seal the child its generation already sealed, ends blocked — the
+      // machine's own re-seal refusal (madarch-tzte.22.3: a parent whose children settled builds on them rather than
+      // sealing them again), which is what a person would resolve; and the orders unit publishes. Which runs first is
+      // the scheduler's own order, so the results are compared as a set.
+      const results = await runToPublished(opened, 4);
+      expect([...results].sort()).toEqual(['blocked', 'published', 'published', 'split']);
+      // The parent's two attempts of thirty turns each: its first prompt and every nudge after it name its file, and
+      // the child's one prompt is told apart by the scope text only its own packet spells.
+      expect(prompts(opened).filter((prompt) => prompt.includes(PAYMENT_FILE) && prompt.includes('"scope": "orders-api:src/payment.ts"') === false).length).toBe(60);
       const stopped = (await readProgress(opened.owner, RUN)).map((event) => event.summary).filter((summary) => summary.includes('stopped at its turn limit'));
-      expect(stopped.length).toBe(1);
+      expect(stopped.length).toBe(2);
       // A plan's unit id is the stage's own (`unitIdFor`): the stage id, then the module fact the plan named it by.
       let paymentUnit = planned[1]!;
       for (const unit of planned) {
@@ -676,6 +685,7 @@ describe('stage 11, the intent the comments and commits state', () => {
         committedAt: HISTORY[1]!.at,
         subject: PAYMENT_COMMIT_SUBJECT,
         touched: [PAYMENT_FILE],
+        touchedMore: 0,
         taskKeys: ['PAY-4'],
       }]);
     } finally {
@@ -704,6 +714,15 @@ describe('stage 11\'s declaration', () => {
     });
     expect(wired.get(INTENT_HISTORY_STAGE_ID)?.id).toBe(INTENT_HISTORY_STAGE_ID);
     expect(wired.get('overview')?.id).toBe('overview');
+    // The whole registered registry derives with every landed agent stage wired: stages 8, 10 and 11 all produce the
+    // one `claim` kind, and stage 10's optional `claim` consume draws its edge to every producer of it, so the graph
+    // must stay a DAG whatever a later agent stage produces beside the others (the cycle madarch-tzte.26.1 named).
+    const derived = deriveStageGraph(wired);
+    if (!derived.ok) throw new Error(`the agent-wired registry does not derive: ${JSON.stringify(derived)}`);
+    // Stage 10 after both of its claim producers, and the run's own order holds no cycle by construction: a refused
+    // derivation throws above.
+    expect(derived.graph.order.indexOf(INTENT_HISTORY_STAGE_ID)).toBeLessThan(derived.graph.order.indexOf('doc-intent'));
+    expect(derived.graph.order.indexOf('overview')).toBeLessThan(derived.graph.order.indexOf('doc-intent'));
   });
 });
 
@@ -757,6 +776,73 @@ describe('stage 11\'s plan', () => {
       ]);
     } finally {
       await big.close();
+    }
+  }, 60_000);
+});
+
+describe('stage 11\'s sections', () => {
+  test('a commit that touched more of the module than its row holds says how many more', async () => {
+    const owner = createPGliteDatabaseOwner();
+    try {
+      await createFillStateSchema(owner);
+      await createFactStoreSchema(owner);
+      await createStageReadSchema(owner);
+      // A module of twenty-two files, and one commit that touched all of them plus three files of another module: the
+      // row names twenty of the twenty-two and says two more stood, which is a cut the row itself names and no reader
+      // has to guess.
+      const repository = makeNodeFact({ kind: 'repository', value: { repository: 'cut-repo', form: 'code' }, provenance: provenance('cut-repo', 'src/f01.ts', 1), layer: 'extracted' });
+      const module = makeNodeFact({ kind: 'module', value: { repository: 'cut-repo', name: 'wide', seed: 'package', members: 22, importance: 1 }, provenance: provenance('cut-repo', 'src/f01.ts', 1), layer: 'extracted' });
+      const moduleFiles = Array.from({ length: 22 }, (_, index) => `src/f${String(index + 1).padStart(2, '0')}.ts`);
+      const files = moduleFiles.map((path) => makeNodeFact({ kind: 'file', value: { repository: 'cut-repo', path: repositoryPath(path), roles: ['source'] }, provenance: provenance('cut-repo', path, 1), layer: 'extracted' }));
+      const commit = makeNodeFact({
+        kind: 'commit',
+        value: {
+          repository: 'cut-repo', commit: 'b'.repeat(40), committedAt: '2024-01-03T00:00:00Z', authoredAt: '2024-01-03T00:00:00Z',
+          subject: 'WIDE-1 merge the wide branch', parents: [],
+          files: [...moduleFiles, 'src/other-01.ts', 'src/other-02.ts', 'src/other-03.ts'].map((path) => repositoryPath(path)),
+        },
+        provenance: { source: { system: 'git', version: '1.0.0' }, repository: { id: 'cut-repo', commit: 'b'.repeat(40) } },
+        layer: 'extracted',
+      });
+      const writes = [
+        repository, module, commit, ...files,
+        makeEdgeFact({ kind: 'contains', value: { from: repository.id, to: module.id }, provenance: provenance('cut-repo', 'src/f01.ts', 1), layer: 'extracted' }),
+        ...files.map((file) => makeEdgeFact({ kind: 'contains', value: { from: module.id, to: file.id }, provenance: provenance('cut-repo', 'src/f01.ts', 1), layer: 'extracted' })),
+        makeEdgeFact({ kind: 'task-key', value: { from: commit.id, key: 'WIDE-1' }, provenance: commit.provenance, layer: 'extracted' }),
+      ];
+      await createUnit(owner, { unitId: 'graph/all', product: 'fixture-product', runId: 'run-seed', stageId: 'graph', scopeKey: 'all', inputsDigest: 'graph-inputs', retries: 0, at: NOW });
+      const seed = await owner.transaction('snapshot', async (executor) => (await executor.query<{ unit_id: string; generation: number }>('SELECT unit_id, generation FROM fill_unit WHERE unit_id = $1', ['graph/all'])).rows[0]);
+      if (seed === undefined) throw new Error('the fixture unit was not created');
+      const record = { unitId: 'graph/all', generation: Number(seed.generation) } as Parameters<typeof applyPublishedFacts>[0]['unit'];
+      await owner.transaction('write', async (executor) => await applyPublishedFacts({
+        executor,
+        unit: record,
+        plan: { unitId: 'graph/all', generation: record.generation, runId: 'run-seed', stageId: 'graph', stageUnitId: 'all', scope: 'all', stagePosition: 0, planPosition: 0, plannedAt: NOW },
+        digest: 'graph-publication-1',
+        writes: writes.map((fact) => ({ kind: 'fact' as const, evidence: 'cut-repo@head', value: fact })),
+      }));
+      const reader = createFactGraphReader({ database: owner, snapshot: createGitSnapshotSource(() => []) });
+      const request: AgentSectionRequest = {
+        unit: { id: module.id, scope: 'cut-repo' },
+        scope: writeScope('cut-repo'),
+        reads: graphReadsOver(reader),
+        graph: reader,
+      };
+      const sections = intentHistorySections();
+      const rows = await sections.find((section) => section.name === 'commits')!.rows(request) as readonly {
+        commit: string; subject: string; touched: readonly string[]; touchedMore: number; taskKeys: readonly string[];
+      }[];
+      expect(rows.length).toBe(1);
+      expect(rows[0]!.subject).toBe('WIDE-1 merge the wide branch');
+      expect(rows[0]!.touched.length).toBe(20);
+      expect(rows[0]!.touched).toEqual([...moduleFiles].sort(byCodePoint).slice(0, 20));
+      expect(rows[0]!.touchedMore).toBe(2);
+      expect(rows[0]!.taskKeys).toEqual(['WIDE-1']);
+      // A commit whose touched list fits the row names nothing more.
+      const commentRows = await sections.find((section) => section.name === 'comments')!.rows(request) as readonly unknown[];
+      expect(commentRows).toEqual([]);
+    } finally {
+      await owner.close();
     }
   }, 60_000);
 });
