@@ -250,7 +250,10 @@ export function statusesOfLayer(layer: FactLayer): readonly FactStatus[] {
 
 // ---- the stages of the fill (decision 0026) ------------------------------
 
-/** The fill's stages, decision 0026's own order: 0–7 deterministic, 8–13 agent. */
+/**
+ * The fill's stages, decision 0026's own order: 0–7 deterministic, 8–13 agent, and 14
+ * the pages stage (0026, "Pages": the narrative text a page shows above its facts).
+ */
 export const FACT_STAGES = [
   '0-snapshot',
   '1-inventory',
@@ -266,6 +269,7 @@ export const FACT_STAGES = [
   '11-intent-history',
   '12-understanding',
   '13-recovery',
+  '14-narrative',
 ] as const;
 export type FactStage = (typeof FACT_STAGES)[number];
 
@@ -309,6 +313,7 @@ export const FACT_NODE_KINDS = [
   'coverage',
   'question',
   'answer',
+  'narrative',
 ] as const;
 export type FactNodeKind = (typeof FACT_NODE_KINDS)[number];
 
@@ -934,6 +939,37 @@ export interface AnswerValue {
  */
 export const ANSWER_DECISIONS = ['answers', 'accepts', 'rejects'] as const;
 export type AnswerDecision = (typeof ANSWER_DECISIONS)[number];
+/** The pages stage: one sentence of a page's narrative text, tied to the facts it stands on. */
+export interface NarrativeSentence {
+  /** The sentence, as one line a reader reads on the page. */
+  readonly text: string;
+  /**
+   * The facts the sentence stands on, by fact id — facts of the graph or claims
+   * an agent stage wrote — in code point order, each once. A sentence that names
+   * none stands on nothing, and no page carries one.
+   */
+  readonly facts: readonly string[];
+}
+
+/**
+ * Pages stage: one page's narrative text, as decision 0026's second layer ("stored as
+ * Markdown in the product's git with status proposed"). The page stands in the
+ * product's git by construction — the outbox step that commits it
+ * (`commitNarrativePages`, `src/fill/narrative-outbox.ts`) writes nowhere else — so
+ * the value names no repository, and the sentences' own citations stand in whichever
+ * repository their bytes stand in. The sentences are the page's own order; the file
+ * the product's git holds is this value rendered by `renderNarrativePage`
+ * (`src/fill/narrative-text.ts`), and the record is what the page reads and what a
+ * person's later edit of the file is compared against.
+ */
+export interface NarrativeValue {
+  /** The node the page is about, by fact id: the page of that node shows this text. */
+  readonly about: string;
+  /** The sentences, in the page's own order, each tied to the facts it stands on. */
+  readonly sentences: readonly NarrativeSentence[];
+}
+
+
 
 // ---- the value of each edge ----------------------------------------------
 
@@ -1144,6 +1180,7 @@ export interface FactNodeValues {
   'coverage': CoverageValue;
   'question': QuestionValue;
   'answer': AnswerValue;
+  'narrative': NarrativeValue;
 }
 
 /** The value type of one edge kind, by the kind's own name. */
@@ -1552,6 +1589,19 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     layers: ['declared', 'inferred'],
     version: FACTS_SCHEMA_VERSION,
     identityValue: (value) => [['subject', value.subject], ['decision', value.decision], ['text', identityName(value.text)]],
+  },
+  'narrative': {
+    kind: 'narrative',
+    shape: 'node',
+    stages: ['14-narrative'],
+    place: 'optional',
+    layers: ['inferred'],
+    version: FACTS_SCHEMA_VERSION,
+    // The page's identity is the node it is about and the words it was written with:
+    // a replanned unit that rewrites the page writes a different page, and both the
+    // store and a reader of the page must tell them apart. The sentences' canonical
+    // digest is the words' own name, in code point order as the value holds them.
+    identityValue: (value) => [['about', value.about], ['sentences', canonicalJsonDigest(value.sentences ?? [])]],
   },
 
   // ---- edges -------------------------------------------------------------
@@ -2008,6 +2058,8 @@ const IDENTITY_PART_FORMS: Readonly<Record<string, (part: unknown) => string | u
   'answer.subject': factIdPart,
   'answer.decision': partIn(ANSWER_DECISIONS, 'decision an answer records'),
   'answer.text': textPart,
+  // The node a page is about: a fact id the graph can hold, not free text.
+  'narrative.about': factIdPart,
   // The parts whose kind closes them to a list of forms: a value outside the
   // list names nothing the graph can join, so it is refused before any id is
   // computed from it.
@@ -2101,6 +2153,7 @@ const VALUE_FIELDS: { readonly [K in FactKind]: readonly (keyof FactValueOf<K> &
   'coverage': ['repository', 'scope', 'complete', 'read', 'unread'],
   'question': ['repository', 'type', 'about', 'prompt'],
   'answer': ['repository', 'subject', 'decision', 'text', 'by', 'evidence'],
+  'narrative': ['about', 'sentences'],
   'contains': ['from', 'to'],
   'defines': ['from', 'to'],
   'import': ['from', 'to', 'specifier'],
@@ -2313,6 +2366,13 @@ function placeProblemsOf(place: unknown): FactProblem[] {
  * a comment's text, a symbol's signature — is refused when it is not a field
  * of the kind's value, and its own type is the write path's, which has it.
  */
+/**
+ * The most code points one sentence of a page may hold: what the schema holds a
+ * sentence to, and what the page's own text module states for its readers
+ * (`NARRATIVE_SENTENCE_CODE_POINTS`, `src/fill/narrative-text.ts`).
+ */
+export const NARRATIVE_SENTENCE_BOUND = 2_000;
+
 export function checkFact(fact: unknown): FactProblem[] {
   if (typeof fact !== 'object' || fact === null || Array.isArray(fact)) {
     return [{ path: '', message: `a fact is an object with kind, schemaVersion, id, provenance, layer, status and value, not ${shown(fact)}` }];
@@ -2613,6 +2673,60 @@ export function checkFact(fact: unknown): FactProblem[] {
         }
       }
     }
+    if (kind === 'narrative') {
+      // The page's sentences: the page's own order (a reader reads them top to
+      // bottom, and the file the product's git holds keeps that order), each one
+      // sentence tied to the facts it stands on, each named once. A sentence is a
+      // sentence a reader reads, not a section: one past the schema's own bound is
+      // refused here, so the bound is the schema's and no reader's guess.
+      const sentences = (value as Record<string, unknown>)['sentences'];
+      if (!Array.isArray(sentences) || sentences.length === 0) {
+        add('value.sentences', `${shown(sentences)} is no page: a narrative fact carries its sentences as a list that holds at least one`);
+      } else {
+        const seenTexts = new Map<string, number>();
+        sentences.forEach((entry, index) => {
+          if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+            add(`value.sentences[${index}]`, `a sentence of a page is an object with text and facts, not ${shown(entry)}`);
+            return;
+          }
+          const sentence = entry as Record<string, unknown>;
+          const unknown = unknownKeyProblem(sentence, ['facts', 'text']);
+          if (unknown !== undefined) add(`value.sentences[${index}]`, unknown);
+          const text = sentence['text'];
+          if (typeof text !== 'string' || text.trim() === '') {
+            add(`value.sentences[${index}].text`, `${shown(text)} is no sentence: a sentence is the words a reader reads, and they are not empty`);
+          } else if ([...text].length > NARRATIVE_SENTENCE_BOUND) {
+            add(`value.sentences[${index}].text`, `the sentence holds ${String([...text].length)} code points, past the schema's own ${String(NARRATIVE_SENTENCE_BOUND)}: a sentence is what a reader reads in one breath, and a longer text is sections of a page, not one`);
+          } else {
+            const first = seenTexts.get(text);
+            if (first !== undefined) add(`value.sentences[${index}].text`, `${shown(text)} is written twice (first at value.sentences[${first}]): a page says each sentence once`);
+            else seenTexts.set(text, index);
+          }
+          const facts = sentence['facts'];
+          if (!Array.isArray(facts) || facts.length === 0) {
+            add(`value.sentences[${index}].facts`, `${shown(facts)} is no tie: every sentence of a page names the fact or claim ids it stands on, and names at least one`);
+          } else {
+            let previous: string | undefined;
+            const seen = new Set<string>();
+            facts.forEach((id, at) => {
+              if (typeof id !== 'string' || !FACT_ID_PATTERN.test(id)) {
+                add(`value.sentences[${index}].facts[${at}]`, `${shown(id)} is no fact id: a sentence stands on facts of the graph, named by their ids`);
+                return;
+              }
+              if (seen.has(id)) {
+                add(`value.sentences[${index}].facts[${at}]`, `${shown(id)} is named twice: a sentence names each fact it stands on once`);
+                return;
+              }
+              seen.add(id);
+              if (previous !== undefined && byCodePoint(previous, id) > 0) {
+                add(`value.sentences[${index}].facts[${at}]`, `${shown(id)} stands after ${shown(previous)}: the facts a sentence names are in code point order`);
+              }
+              previous = id;
+            });
+          }
+        });
+      }
+    }
     // A fact names one repository and one commit, in its value and in its
     // provenance: a file read from one repository is never filed under another.
     const namedRepository = (value as Record<string, unknown>)['repository'];
@@ -2760,6 +2874,7 @@ export const REGISTRY_KIND_MAPPINGS: { readonly [K in FactKind]: RegistryKindMap
   'coverage': { factKind: 'coverage', registryForms: REGISTRY_STORAGE_FORMS, relation: 'evidence' },
   'question': { factKind: 'question', registryForms: ['document', 'fact', 'task'], relation: 'subject' },
   'answer': { factKind: 'answer', registryForms: ['document', 'fact', 'task'], relation: 'evidence' },
+  'narrative': { factKind: 'narrative', registryForms: REGISTRY_STORAGE_FORMS, relation: 'evidence' },
   'contains': { factKind: 'contains', registryForms: ['component', 'fact', 'model-element'], relation: 'evidence' },
   'defines': { factKind: 'defines', registryForms: ['component', 'fact', 'model-element'], relation: 'evidence' },
   'import': { factKind: 'import', registryForms: ['component', 'fact', 'model-element'], relation: 'evidence' },
