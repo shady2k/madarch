@@ -161,7 +161,7 @@ export interface WikiPart {
   product: () => Handled;
   /** `GET /api/questions`: the product's questions as the set's form computes them. */
   questions: () => Handled;
-  /** `GET /api/architecture`: the whole Architecture bundle, read fresh. */
+  /** `GET /api/architecture`: the whole Architecture bundle of the revision the product stands at — built once and kept until a page, a model file or the manifest moves (`architecture-answer.ts`). */
   architecture: () => Handled | Promise<Handled>;
   /** `GET /api/architecture/likec4.js`: the LikeC4 webcomponent bundle of the rendered workspace. */
   likec4Script: () => Handled | Promise<Handled>;

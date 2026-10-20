@@ -7,7 +7,7 @@
  * cost nothing.
  *
  * The values here are the task's own: one build per revision, one build shared by two
- * readers of one revision, one walk of the product per ask, no page text read for a product
+ * readers of one revision, one walk of the product per ask, no backlink scan for a product
  * whose model does not compile, a rebuilt answer after each thing the answer depends on
  * moves, and the served page text (a header field line names no element).
  */
@@ -41,7 +41,7 @@ function wikiOf(at: string): ProductWiki {
   return opened.wiki;
 }
 
-/** The wiki as the answer reads it, counting the one walk an ask makes. */
+/** The wiki as the answer reads it, counting the walks an ask makes. */
 function counted(wiki: ProductWiki): { wiki: ProductWiki; reads: { walks: number } } {
   const reads = { walks: 0 };
   return {
@@ -182,16 +182,21 @@ describe('the page text the answer scans', () => {
 });
 
 describe('a product whose model does not compile', () => {
-  test('answers its errors and reads no page text at all, and the answer is kept like any other', async () => {
+  test('answers its errors without scanning the page text for backlinks, and the answer is kept like any other', async () => {
     product();
-    write('docs/vision.md', '# Vision\n\nThe shop serves its customers.\n');
-    const answer = createArchitectureAnswer(wikiOf(folder!));
+    write('docs/vision.md', '# VISION — The vision\n\nElement: shop\n\nThe shop serves its customers.\n');
+    const watched = counted(wikiOf(folder!));
+    const answer = createArchitectureAnswer(watched.wiki);
     const first = await answer.answer();
     expect(first.model).toBeUndefined();
     expect(first.errors).toHaveLength(1);
     expect(first.errors[0]!.file).toBe('model');
     expect(first.errors[0]!.message).toContain('no model');
+    // No element page can exist, so no backlink is scanned for one — the answer is its errors, and
+    // only the walk that gives it its key is paid, once per ask, which is what a revision costs.
+    expect(watched.reads.walks).toBe(1);
     const second = await answer.answer();
     expect(second).toBe(first);
+    expect(watched.reads.walks).toBe(2);
   }, 60_000);
 });

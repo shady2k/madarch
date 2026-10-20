@@ -63,7 +63,8 @@ the answer of the revision whose change it was told about.
   workspace when a diagram tab draws LikeC4; it is not on the graph pages' load path, and
   this change leaves its render as it is.
 - **A search over the page set.** The index draws the first 150 rows of a kind (below);
-  listing every row of a 35 370-node kind, or searching it, is a later task's.
+  listing every row of a 35 825-node kind, or searching it, is madarch-zpow's (filed from this
+  record, blocked by this task).
 - **The `mutation` receipt.** The owner runs Stryker once per assembled stage, off
   the path; acceptance escalates per `mutationFallback: escalate`.
 
@@ -186,8 +187,9 @@ None.
   of one revision share one build. The identity the answer reads is the manifest's own, read
   at every build: the wiki opens the product once and keeps the repositories it read then, so
   a repository declared since would otherwise never reach the answer. A product whose model
-  does not compile answers its errors **without reading a page at all** — a backlink over a
-  page set nothing names is work no reader reads.
+  does not compile answers its errors **without scanning a page** for a backlink — a page set
+  nothing names is work no reader reads; the one walk that gives the answer its key is still
+  paid, once per ask.
 - **A product's answers survive the products home's own refresh.** The home re-reads its
   products whenever a request arrives more than five seconds after the last one
   (`src/server/http.ts`), and it used to build every product's wiki part again there — which
@@ -236,7 +238,8 @@ None.
   below is one body per shape for the set it was made from.
 - **A search over the page set is still a later task's.** The navigation lists 12 nodes of
   a kind and the index 150, each with the kind's whole count; a node past those is reachable
-  by its address, and a search or a windowed list is the follow-up.
+  by its address, and a search or a windowed list is **madarch-zpow's**, filed from this record
+  and blocked by this task.
 - **The list's body is a second copy of the page set in the process.** One product holds the
   whole set's plain and compressed bodies (16 740 703 bytes and 2 277 744 in this store) and
   the list's two (6 550 525 and 1 695 661): about 27 MB of the 4 GB pod's memory for the
@@ -307,9 +310,10 @@ window. (A second fill of the same tree for the final run: 3 002 units in 1 888 
 | `/api/graph/pages` over HTTP | 564 ms cold, 90 ms warm, **16 740 703 bytes** | 475 ms cold, 78 ms warm; the list the app asks for **164 ms cold, 22 ms warm, 6 550 525 bytes** |
 | `/api/architecture` in the browser | 2 044–3 454 ms on every load | **3–87 ms** once built; the first ask of a revision **3 087 ms** (the index's cold stand includes it) |
 
-Two earlier runs of this walk, on the code before the review's fixes, stood in
-**567 / 614 / 509 / 422 / 574 ms** and **518 / 438 / 391 / 467 / 521 ms** warm — the same
-range, so the bar is met on every run of this part and not on one lucky one.
+Three runs of this walk stand behind the after column — the one above, and two on the code before
+the review's fixes, at **567 / 614 / 509 / 422 / 574 ms** and **518 / 438 / 391 / 467 / 521 ms**
+warm — the same range, so the bar is met on every run of this part and not on one lucky one. All
+three are kept (the paragraph below names where).
 
 **Where the before seconds went, from the browser's own thread.** The index's warm stand was
 **513 ms of long tasks inside a 2 667 ms stand**: the page was idle for two seconds, waiting.
@@ -321,16 +325,17 @@ waited at the app's own 5 s bound while that render held the thread. After this 
 index's warm stand is **182 ms of long tasks inside 467 ms**, its `/api/architecture` answer
 costs **3–87 ms**, and its page set **42–164 ms**.
 
-**The one stand that did not stand, in every run.** One of the four pages' first (cold) load
-timed out in each run of this walk, before and after this part, and never the same page twice:
-its `/api/pages` request waited at the app's own 5 s bound, the page showed that refusal, and
-no route logged a slow answer (`speedSlowRequests`: the only answers over 200 ms in the final
-run are the page set's own first encoding, 314 ms, and the Architecture build, 3 087 ms). What
-holds that thread is the process that owns the store and serves the wiki: sampled every 50 ms
-during the last run, its loop was held **twice, the longer for 2 349 ms** (`speedEventLoop`) —
-work no route names, which is the ground madarch-tzte.21.11 names for the store's own service
-and not a cost of any answer this change touched. It is recorded under open points, not
-claimed as fixed.
+**The stands that did not stand.** A page's first (cold) load timed out in every run of this
+walk, before and after this part, and which page it was moved between runs: the before run lost
+the **package** and the **symbol** pages, the run after the first fixes lost the **module**, and
+the final run lost the **package** again. Each time its `/api/pages` request waited at the app's
+own 5 s bound, the page showed that refusal, and no route logged a slow answer
+(`speedSlowRequests`: the only answers over 200 ms in the final run are the page set's own first
+encoding, 314 ms, and the Architecture build, 3 087 ms). What holds that thread is the one
+process that serves the wiki — and, in this walk, also owns the store and reads the bytes the
+walk encodes: sampled every 50 ms during the final run, its loop was held **twice, the longer
+for 2 349 ms** (`speedEventLoop`). That measurement says a loop stall, not which work stalled
+it. It is recorded under open points, not claimed as fixed.
 
 This part therefore fixes the two causes the first part named — the Architecture answer built
 on every page load, and a page set the browser parses whole on every page load — and the bar is
@@ -348,11 +353,39 @@ at the final tree:
   production-built app against a real server): **2 pass, 0 fail** (exit 0);
 - `wiki/app`: `bun install --frozen-lockfile && bun run check && bun test && bun run build` —
   `tsc` exit 0, **225 pass, 0 fail**, the build exit 0;
-- the write of this record's numbers: `STAGE23_WALK` lines from three runs, kept at
-  `/tmp/rep-before-238-app.json`, `/tmp/rep-after-238-app.json` and
-  `/tmp/rep-final-238-app.json` on this machine, with the screenshots under
-  `/home/dev/.cache/madarch-stage23-walk-238/` and the pod's `.walk23-8-app*` folders fetched
-  from it.
+- the reports this record quotes: the four walks' `STAGE23_WALK` values, kept as
+  `before.json`, `after.json`, `after2.json` and `final.json` in
+  `/home/dev/.cache/madarch-stage23-walk-238/artifacts/walk23-8-app/` on this machine, beside the
+  first part's report in the folder above. Each runs' screenshots lived in the pod's own
+  `.walk23-8-app*` folders and were not kept: the screenshots of the first part's walk stand in
+  `/home/dev/.cache/madarch-stage23-walk-238/shots/`.
+
+**The reviews.** Two read-only rounds of `prime-agent --provider shady2k-gateway --model
+deepseek-v4.1-flash-auto`, neither running anything on this machine, both over
+`git diff origin/main...HEAD` and this record.
+
+- **First round: NOT APPROVED** — ten defects, ten findings. Answered: the record committed with
+  the change (D1); the answer reads the manifest again at every build, and the key simplified to
+  the revision that already covers the manifest through `stagesSourceDigest` (D2, D3, D5); the
+  duplicate `elements:` key in a fixture replaced by one list (D4); the products home keeps a
+  product's entry (D6, with a test that drives the refresh, below); the kept-bodies test answers
+  one set object and a new set is new bytes (D7); the answer scans the served page text, the
+  header's field lines blanked, as the page route serves it (D8); the four dropped fields named
+  (D9); and the walks re-run and recorded (D10). Findings answered: the walk records a dead page's
+  failure instead of aborting, the architecture page names the new module and the parameter, the
+  memory the two kept bodies add is named under open points, and the revision the walk records is
+  a label the report carries (the pod's folder is no git checkout).
+- **Second round: NOT APPROVED** — eight defects. Answered: the products home's keeping has a
+  test that drives the refresh over a home and shows a kept entry while a saved page is still
+  read fresh (D1); the no-model answer's claim and its test say "scans no page text" and the walk
+  is counted (D2, D3); each run's failed cold stand is named as it was (D4); the four walks'
+  reports are kept in one folder and cited (D5); the route's interface comment says the answer is
+  built once per revision (D6); madarch-zpow is filed for the search or windowed list (D7); and
+  the working tree's last edit is committed, so the judged tree is a revision (D8). Findings
+  answered: the `fields` refusal names what it accepts, the app's reader refuses a page set whose
+  entry lacks a field a list draws instead of dropping the row, the stale-answer assertion is
+  gone, the module comment names the key's blind spot and the unreadable-pages case, and the
+  stall's attribution is hedged to what the sampler measured.
 
 ## DONE WHEN
 

@@ -23,6 +23,14 @@
  * **One build at a time.** Two readers of one revision share the build the first asked
  * for, so a page load that opens two tabs pays for the render once. A build that fails is
  * not kept: the next ask tries again, and the failure is the route's own to answer.
+ *
+ * **What the key cannot see.** The revision's model digest is read from the repositories the
+ * wiki opened with, while the build reads the manifest as it stands — so a model file saved
+ * under a repository declared *after* that open does not move the key until the manifest
+ * itself moves (in the served product the manifest's edit rebuilds the entry, so the window
+ * is the refresh's own). A product whose pages cannot be read at all still answers, with no
+ * backlinks and no page text — the refusal `/api/pages` gives is not this route's to invent —
+ * and nothing is kept for it, because a key needs the revision that walk gives.
  */
 import { readProduct, type ProductIdentity } from '../product/manifest.js';
 import { readProductModel } from '../product-wiki/model.js';

@@ -157,6 +157,7 @@ export function createGraphPagesPart(makers: Pick<ReplyMaker, 'json' | 'refused'
       if (asked !== null && asked !== LIST_FIELDS_PARAM) {
         return refused(400, {
           field: 'fields',
+          accepted: `${LIST_FIELDS_PARAM}, or no fields for the whole set`,
           message: `"fields" is ${JSON.stringify(asked)}, which the page set cannot give: ask for ${JSON.stringify(LIST_FIELDS_PARAM)} — the fields the navigation and the index read — or name no fields for the whole set`,
         });
       }

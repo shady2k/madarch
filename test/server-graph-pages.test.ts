@@ -382,11 +382,8 @@ describe('the page set a client is sent', () => {
     expect((await readBack(await pagesPart.pages(ask('?fields=nav')))).pages).toEqual(listedOf(held));
     expect((await readBack(await pagesPart.pages(ask('')))).pages).toEqual(held.pages);
     expect((await readBack(await pagesPart.pages(ask('?fields=nav')))).pages).toEqual(listedOf(held));
-    // The body is the one kept for that set: a set whose contents moved under the same object is still
-    // answered as the set it was made from, which is what the source's own cache makes stable.
-    held.total = 7;
+    // A set the source has not replaced is the same answer again; a new set is new bytes.
     expect((await readBack(await pagesPart.pages(ask('?fields=nav')))).total).toBe(2_000);
-    // A new set is new bytes.
     held = { ...held, total: 7 };
     expect((await readBack(await pagesPart.pages(ask('?fields=nav')))).total).toBe(7);
   });

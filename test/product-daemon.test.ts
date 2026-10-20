@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from 'bun:test';
-import { cpSync, mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { cpSync, mkdtempSync, mkdirSync, rmSync, statSync, utimesSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { keepsProductEntry, startServer, type StartedServer } from '../src/server/http.js';
@@ -82,6 +82,39 @@ test('a product whose manifest did not move keeps the entry it was opened with, 
   expect(keepsProductEntry({ manifest: 1 }, 2)).toBe(false);
   expect(keepsProductEntry({ manifest: 1 }, -1)).toBe(false);
 });
+
+test('the home\'s own refresh keeps a product\'s entry, so the answers it built stand while a saved page is still served', async () => {
+  // The refresh re-reads the home whenever a request arrives more than five seconds after the last one.
+  // Re-opening the product there would drop the answers its handler holds (madarch-tzte.23.8), so the
+  // entry is kept while its manifest does not move: this test makes the manifest's bytes unreadable
+  // without moving its stamp, which only a kept entry survives, and then shows a saved page is read
+  // fresh all the same.
+  root = mkdtempSync(join(tmpdir(), 'madarch-daemon-keeping-'));
+  const home = join(root, 'products'); mkdirSync(home);
+  product(home, 'alpha', 'alpha-id');
+  const manifest = join(home, 'alpha', 'workspace.yaml');
+  const whole = new Date(Math.floor(statSync(manifest).mtimeMs));
+  utimesSync(manifest, whole, whole);
+  server = await startServer({ productHome: home, appFolder: appDist(root), port: 0 });
+  const first = await fetch(`${server.url}/products/alpha/api/product`);
+  expect(first.status).toBe(200);
+  const stamp = statSync(manifest).mtimeMs;
+  // The bytes are no manifest from here on; the stamp the home keys the entry by is the one it had.
+  writeFileSync(manifest, 'this is not a manifest\n');
+  utimesSync(manifest, whole, whole);
+  expect(statSync(manifest).mtimeMs).toBe(stamp);
+  // Past the refresh's five seconds, a request re-reads the home — and the product stands: re-opening it
+  // would have refused this manifest and dropped the entry.
+  await Bun.sleep(5_200);
+  const kept = await fetch(`${server.url}/products/alpha/api/product`);
+  expect(kept.status).toBe(200);
+  expect(((await kept.json()) as { name: string }).name).toBe('alpha');
+  // A page is still read at every ask: the saved text is what the answer serves, kept entry or not.
+  writeFileSync(join(home, 'alpha', 'docs', 'vision.md'), '# alpha vision\n\nThe saved body.\n');
+  const page = await fetch(`${server.url}/products/alpha/api/page?path=docs/vision.md`);
+  expect(page.status).toBe(200);
+  expect(((await page.json()) as { markdown: string }).markdown).toContain('The saved body.');
+}, 30_000);
 
 test('products-home mode lists products and routes each wiki under its folder', async () => {
   root = mkdtempSync(join(tmpdir(), 'madarch-daemon-home-'));

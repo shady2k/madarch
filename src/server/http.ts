@@ -340,8 +340,6 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
   const productEntries = new Map<string, ProductEntry>();
   let homeStamp = -1;
   let lastRefresh = 0;
-  /** The manifest a product's entry is kept by: its modification time, or -1 when it cannot be read, which opens the product again. */
-  const manifestStamp = (folder: string): number => manifestStampOf(folder);
   const refreshProducts = (): void => {
     if (productHome === undefined) return;
     let stamp = -1;
@@ -357,7 +355,7 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
     const next = new Map<string, ProductEntry>();
     for (const item of listed.products) {
       const name = basename(item.folder);
-      const manifest = manifestStamp(item.folder);
+      const manifest = manifestStampOf(item.folder);
       const held = productEntries.get(name);
       // A product whose manifest is the one its entry was opened from keeps that entry: re-opening
       // every product on every refresh drops the answers it holds, and this refresh runs whenever a
