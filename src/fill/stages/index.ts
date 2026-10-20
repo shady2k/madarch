@@ -13,6 +13,7 @@ import { StageRegistry } from '../registry.js';
 import type { SnapshotSource } from '../snapshot.js';
 import type { AgentStageWiring } from './agent-stage.js';
 import { createBuildConfigurationStage } from './build-configuration.js';
+import { createDocIntentStage } from './doc-intent.js';
 import { createDocumentIndexStage } from './document-index.js';
 import { createGitHistoryReader, createHistoryStage, type CheckoutFolderOf } from './history.js';
 import { createInventoryStage } from './inventory.js';
@@ -68,6 +69,9 @@ export function createStageRegistry(wiring: FillStageWiring): StageRegistry {
   // a session with that agent (0026), and a stage registered without one would plan units that could not run. They
   // are registered one per stage of 0026 as each lands (madarch-tzte.24.1 lands stage 8): the landed agent unit of
   // 22.3 is the shape's own reference declaration (`agent-unit.ts`) and is no stage of a run.
-  if (wiring.agent !== undefined) registry.register(createOverviewStage({ snapshots: wiring.snapshots, ...wiring.agent }));
+  if (wiring.agent !== undefined) {
+    registry.register(createOverviewStage({ snapshots: wiring.snapshots, ...wiring.agent }));
+    registry.register(createDocIntentStage({ snapshots: wiring.snapshots, ...wiring.agent }));
+  }
   return registry;
 }
