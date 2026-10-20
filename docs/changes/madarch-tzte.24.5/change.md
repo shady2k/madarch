@@ -162,10 +162,12 @@ None.
 
 ## Acceptance evidence
 
-The checks, each command's own exit status, at hand-over. The branch is two commits
-over `origin/main` `272dbc06`, which it was rebased onto after the second commit
-(that rebase folds the stage-cycle fix of 8f0c95ab, madarch 26.1's impact
-propagation, and the doc-intent stage of 24.3 in).
+The checks, each command's own exit status, at hand-over. The branch is five commits
+over `origin/main` `81a7a99d`, which it was rebased onto last (that base folds the
+stage-cycle fix of 8f0c95ab, madarch 26.1's impact propagation, the doc-intent stage
+of 24.3, the intent-history stage of 24.4 and the questions work of PR #123 in; the
+second review round and the rebase conflict it resolved are the fourth and fifth
+commits).
 
 - `bun run check` (`tsc --noEmit`) exit 0 at every commit of the branch and after
   the rebase.
@@ -186,15 +188,20 @@ propagation, and the doc-intent stage of 24.3 in).
     `test/fill-impact.test.ts`, `test/fill-stages.test.ts`,
     `test/fill-registry.test.ts`, `test/fill-doc-intent-stage.test.ts` — 82 pass,
     0 fail, exit 0 after the impact fixture served stage 12's units.
-  - At hand-over: `test/fill-understanding-stage.test.ts`,
+  - At hand-over, on the rebased branch: `test/fill-understanding-stage.test.ts`,
     `test/fill-impact.test.ts`, `test/fill-stages.test.ts`,
     `test/fill-registry.test.ts`, `test/fill-agent-stage.test.ts`,
     `test/fill-overview-stage.test.ts`, `test/fill-agent-unit.test.ts`,
     `test/fill-agent-packet.test.ts`, `test/fill-orchestrator.test.ts`,
-    `test/fill-crash-suite.test.ts`, `test/fill-graph-reads.test.ts`,
-    `test/fill-doc-intent-stage.test.ts` — **246 pass, 0 fail, exit 0**; and
-    `test/product-daemon.test.ts`, `test/product-cli.test.ts` (the direct
-    importers of the host this change touches) — 117 pass, 0 fail, exit 0.
+    `test/fill-graph-reads.test.ts`, `test/fill-doc-intent-stage.test.ts`,
+    `test/fill-intent-history-stage.test.ts` — **242 pass, 1 fail, exit 1**, the
+    one fail a timeout of `test/fill-orchestrator.test.ts`'s wired-service test
+    under the pod's load; rerun alone: `test/fill-orchestrator.test.ts` — 76 pass,
+    0 fail, exit 0 — and `test/fill-crash-suite.test.ts` — 11 pass, 0 fail,
+    exit 0; and `test/product-daemon.test.ts`, `test/product-cli.test.ts` (the
+    direct importers of the host this change touches) — 117 pass, 0 fail, exit 0.
+    The load rule is AGENTS.md's own: a timeout outside the changed code, checked
+    alone before blaming the change.
 - CI on the exact SHA of the branch: named in the queue entry.
 - No mutation receipt: the owner's rule runs Stryker once per assembled stage,
   off the path; acceptance escalates per `mutationFallback: escalate`.
@@ -228,6 +235,25 @@ propagation, and the doc-intent stage of 24.3 in).
     inherited in run-three and named in the run's reused list from the store;
     the re-seal exposure of a same-partial re-answer is named in the open points;
     and this evidence names its runs and each command's own exit status.
+- The second review round (`glm-5.3-flash-auto`, read-only, over the follow-up
+  commits and the whole branch): verdict `fix-before-ship`, two defects and seven
+  findings, answered in the round-two commit and the rebase conflict it resolved:
+  - **D1** (the cycle guard tested `Set.add` for membership, which is the set, and
+    never fired): answered — the guard tests the set's own membership, and the
+    plan's test feeds a cyclic parent chain through the reader the plan walks and
+    quotes the refusal's own words.
+  - **D2** (the section's fan-in cap held by no test while the evidence claimed
+    it): answered — the cap is asserted beside the declaration, and the evidence's
+    claim now names what the test holds.
+  - **Findings**: the plan's three tree refusals are each exercised (a parent
+    across repositories and a parent that stands nowhere in the store; the cycle
+    through the reader, which is the seam the walk reads and the one place the
+    store's own identity cannot hold the malformation); the ordering depth is the
+    shape's own `MAX_PLAN_DEPTH - 1` rather than a literal; the waiting attempt's
+    reads are pinned exactly; the deep fixture's root answers `partial` over its
+    summary-less child and its coverage says incomplete; the impact test binds the
+    stage's inherited units non-empty; the base drift the reviewer flagged for
+    hand-over is this rebase.
 
 ## DONE WHEN
 
