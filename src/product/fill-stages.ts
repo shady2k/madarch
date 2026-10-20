@@ -78,7 +78,7 @@ import type { RunSnapshot } from '../fill/orchestrator-store.js';
 import type { StageRegistry } from '../fill/registry.js';
 import { createGitSnapshotSource, type RepositoryPin, type SnapshotSource } from '../fill/snapshot.js';
 import { createStageReadReader, createStageReadSchema } from '../fill/stage-reads.js';
-import { AGENT_UNIT_STAGE_ID, type AgentUnitWiring } from '../fill/stages/agent-unit.js';
+import type { AgentStageWiring } from '../fill/stages/agent-stage.js';
 import { createStageRegistry } from '../fill/stages/index.js';
 import { sameFolder } from './git.js';
 import { hashFillInput } from './fill-runtime.js';
@@ -101,7 +101,7 @@ export interface StagesFillOptions {
    * fill is the deterministic one, and no unit an agent would have to read is
    * planned — a run with no agent never plans work it cannot run.
    */
-  readonly agent?: Omit<AgentUnitWiring, 'snapshots'>;
+  readonly agent?: Omit<AgentStageWiring, 'snapshots'>;
 }
 
 /** One product's stages fill: the registry the run derives its stage graph from, and the wiring the host drives it with. */
@@ -260,8 +260,10 @@ function inputsOf(_identity: ProductIdentity, registry: StageRegistry, pins: rea
   // "Updates"): its reads with their membership are rechecked by the orchestrator, the spans it read are
   // rechecked against the run's own pins, and the prompt, schema and model versions it ran under are part
   // of its stage's cache versions. A repository's commit here would replace every unit of every commit and
-  // rerun work the change never reached, which is exactly what the update is not.
-  if (ref.stageId === AGENT_UNIT_STAGE_ID) return inputs;
+  // rerun work the change never reached, which is exactly what the update is not. The marker is the stage
+  // contract's own: a stage whose units read and write through the unit's MCP server is an agent stage
+  // (madarch-tzte.24.1's shape), whatever its id.
+  if (registry.get(ref.stageId)?.usesTools === true) return inputs;
   const path = pathOfScope(pins, ref.scope);
   const readsFacts = RESOLUTION_STAGE_ID === ref.stageId;
   if (path !== undefined && !readsFacts) {

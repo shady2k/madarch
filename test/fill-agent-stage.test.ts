@@ -10,7 +10,7 @@
  * over the fake ACP agent.
  */
 import { describe, expect, test } from 'bun:test';
-import { UNIT_ANSWER, buildUnitPacket, readAgentAnswer, unitFixedPart, type AgentAnswer, type AgentPacketSection, type UnitPacket } from '../src/fill/agent-packet.js';
+import { ANSWER_SCHEMA_VERSION, PROMPT_VERSION, UNIT_ANSWER, buildUnitPacket, readAgentAnswer, unitFixedPart, type AgentAnswer, type AgentPacketSection, type UnitPacket } from '../src/fill/agent-packet.js';
 import {
   AGENT_FAN_IN,
   AGENT_SUMMARY_TOKENS,
@@ -296,5 +296,23 @@ describe('a declaration the schema refuses at registration', () => {
     // refused at publication, after the agent run; the refusal lands where the declaration is read.
     expect(() => createAgentStage({ ...overviewDeclaration(), kinds: ['claim', 'entity-proposal'] }, wiring)).toThrow(/the agent stage "overview" declares the fact kind "entity-proposal" and names 0026's stage "8-overview"/);
     expect(() => createAgentStage({ ...overviewDeclaration(), kinds: ['claims'] }, wiring)).toThrow(/is no kind of the schema: the schema's kinds are/);
+  });
+
+  test("the stage it builds carries its cache key's versions: the prompt, the answer schema and the agent it is driven with", async () => {
+    // Decision 0026, "Updates": a unit's cache key holds "the prompt, schema and model versions" beside its
+    // reads, its spans and its inputs, so a run that resolves another of them replaces the units the last one
+    // planned. The shape puts them on every stage it builds, whatever its id — this is where madarch-tzte.26.1's
+    // round-3 review found them missing.
+    const { agentIdentity } = await import('../src/fill/stages/agent-stage.js');
+    const spec = { id: 'omp', command: 'opencode', args: ['--model', 'glm-5.3-flash'] };
+    const stage = createAgentStage(overviewDeclaration(), { agent: spec, snapshots: {} as never });
+    expect(stage.cacheVersions?.()).toEqual({
+      prompt: PROMPT_VERSION,
+      answer: ANSWER_SCHEMA_VERSION,
+      agent: agentIdentity(spec),
+    });
+    // The agent's own identity is the program, its arguments and its id: another model is another key.
+    const other = createAgentStage(overviewDeclaration(), { agent: { ...spec, args: ['--model', 'deepseek-v4.1'] }, snapshots: {} as never });
+    expect(other.cacheVersions?.()).not.toEqual(stage.cacheVersions?.());
   });
 });

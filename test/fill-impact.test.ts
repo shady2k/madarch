@@ -27,7 +27,8 @@ import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/d
 import { createFillOrchestratorService, type FillOrchestratorService, type FillRunResult } from '../src/fill/orchestrator-host.js';
 import { readProgress, readUnitReads } from '../src/fill/orchestrator-store.js';
 import { answerMembership } from '../src/fill/graph-reads.js';
-import { AGENT_UNIT_STAGE_ID } from '../src/fill/stages/agent-unit.js';
+import { OVERVIEW_STAGE_ID } from '../src/fill/stages/overview.js';
+import { PRODUCT_SCOPE_NAME } from '../src/fill/stages/agent-stage.js';
 import { UNIT_TOOL_PATH } from '../src/fill/unit-tools.js';
 import { startServer, type StartedServer } from '../src/server/http.js';
 import { createStagesFill, type StagesFill } from '../src/product/fill-stages.js';
@@ -89,25 +90,14 @@ interface Open {
  */
 function agentScript(commit: string): Record<string, unknown> {
   return {
-    byPrompt: [
-      {
-        matches: `"scope": "${TRAINING}"`,
-        steps: [
-          { call: { tool: 'evidence_span', arguments: { repository: TRAINING, commit, file: CHANGED, startLine: 1, endLine: 200 } } },
-          { answer: { status: 'done', covered: TRAINING_FILES, remaining: [], summary: 'The promotions service prices a discount as a share of the subtotal' } },
-        ],
-      },
-      {
-        matches: `"scope": "${PRODUCT}"`,
-        steps: [
-          { call: { tool: 'evidence_span', arguments: { repository: PRODUCT, commit: git(product, 'rev-parse', 'HEAD'), file: 'workspace.yaml', startLine: 1, endLine: 200 } } },
-          // The product repository holds its manifest and the checkout link a declared repository stands at, so
-          // both are places of its unit's scope and both are named covered: a unit that left one out would split.
-          { answer: { status: 'done', covered: ['workspace.yaml', `repos/${TRAINING}`], remaining: [], summary: 'The product declares one code repository, the training system' } },
-        ],
-      },
+    // The product's one overview unit (stage 8, madarch-tzte.24.1's shape): its scope is the whole
+    // product, its places are the repositories, and it reads the bytes of the file the test changes.
+    byPrompt: [],
+    steps: [
+      { call: { tool: 'evidence_span', arguments: { repository: TRAINING, commit, file: CHANGED, startLine: 1, endLine: 200 } } },
+      { call: { tool: 'evidence_span', arguments: { repository: PRODUCT, commit: git(product, 'rev-parse', 'HEAD'), file: 'workspace.yaml', startLine: 1, endLine: 200 } } },
+      { answer: { status: 'done', covered: [TRAINING, PRODUCT], remaining: [], summary: 'The training system prices a discount as a share of the subtotal; the product declares it as a repository' } },
     ],
-    steps: [],
   };
 }
 
@@ -116,7 +106,7 @@ function agentScript(commit: string): Record<string, unknown> {
  * no test sleeps. The fake agent's own clock is a constant, so a unit's ten-minute limit never trips on a
  * clock the run moves.
  */
-function runClock(): { now(): number; } {
+function runClock(): { now(): number } {
   let at = 1_700_000_000_000;
   return { now: () => (at += 1_000) };
 }
@@ -216,14 +206,6 @@ afterAll(() => {
   if (root !== '') rmSync(root, { recursive: true, force: true });
 });
 
-/** The fact ids the graph holds for the product's repositories, by the repository's own name. */
-async function repositoryIds(opened: Open): Promise<Readonly<Record<string, string>>> {
-  const rows = await opened.owner.transaction('snapshot', async (executor) => (
-    await executor.query<{ id: string; name: string }>("SELECT id, value->>'repository' AS name FROM fill_fact WHERE kind = 'repository'")
-  ).rows);
-  return Object.fromEntries(rows.map((row) => [row.name, row.id]));
-}
-
 /** The units a run planned and the ones it inherited, by unit id, in code point order. */
 function reran(result: FillRunResult): readonly string[] {
   const reused = new Set(result.reused);
@@ -311,7 +293,6 @@ describe('a commit, and what it reruns', () => {
     opened.script(changed);
     third = await opened.run('run-three');
     pages = await opened.pagesOf('run-three');
-    repositories = await repositoryIds(opened);
     for (const [name, result] of [['run-one', first], ['run-two', second], ['run-three', third]] as const) {
       if (result.state === 'succeeded' && result.settled) continue;
       // eslint-disable-next-line no-console
@@ -327,12 +308,12 @@ describe('a commit, and what it reruns', () => {
     expect({ state: first?.state, settled: first?.settled, reused: first?.reused }).toEqual({ state: 'succeeded', settled: true, reused: [] });
     // A run plans before anything publishes, and the agent stage plans from the graph (0027): the first run of a
     // product plans no agent unit, and the run after the graph is filled plans one per repository.
-    expect((first?.units ?? []).filter((unit) => unit.stageId === AGENT_UNIT_STAGE_ID)).toEqual([]);
+    expect((first?.units ?? []).filter((unit) => unit.stageId === OVERVIEW_STAGE_ID)).toEqual([]);
     expect({ state: second?.state, settled: second?.settled }).toEqual({ state: 'succeeded', settled: true });
-    expect((second?.units ?? []).filter((unit) => unit.stageId === AGENT_UNIT_STAGE_ID).map((unit) => `${unit.unitId}: ${unit.state}`).sort()).toEqual([
-      `${AGENT_UNIT_STAGE_ID}/${repositories[TRAINING]!}: published`,
-      `${AGENT_UNIT_STAGE_ID}/${repositories[PRODUCT]!}: published`,
-    ].sort());
+    // 0026's hierarchy, its top: the product's one overview unit, whose scope is every repository the run pins.
+    expect((second?.units ?? []).filter((unit) => unit.stageId === OVERVIEW_STAGE_ID).map((unit) => `${unit.unitId}: ${unit.state}`)).toEqual([
+      `${OVERVIEW_STAGE_ID}/${PRODUCT_SCOPE_NAME}: published`,
+    ]);
   }, 900_000);
 
   test('a one-file commit reruns the units it reaches and inherits every other unit', () => {
@@ -345,14 +326,13 @@ describe('a commit, and what it reruns', () => {
       file: CHANGED,
       commit: changed,
       previousCommit: previous,
-      agentUnitOfRepository: `${AGENT_UNIT_STAGE_ID}/${repositories[TRAINING]!}`,
+      agentUnitOfRepository: `${OVERVIEW_STAGE_ID}/${PRODUCT_SCOPE_NAME}`,
     }));
     // The units the run planned and inherited, listed whole: every unit of the product repository, whose pin,
     // reads and spans the commit did not move — its snapshot, its history, its clustering and its agent unit. This
     // list and the reran list above are the run's units and its inherited ones; what neither holds is what the
     // earlier runs published and this run planned nothing of, which the next test pins down by kind.
     expect([...(third?.reused ?? [])].sort()).toEqual([
-      `${AGENT_UNIT_STAGE_ID}/${repositories[PRODUCT]!}`,
       `snapshot/${PRODUCT}`,
       `modules/modules:${PRODUCT}`,
       `history/${PRODUCT}@${git(product, 'rev-parse', 'HEAD')}`,
@@ -360,24 +340,28 @@ describe('a commit, and what it reruns', () => {
   }, 900_000);
 
   test('the bytes the agent unit read moved at the new pin, and the ones the product unit read did not', async () => {
-    // A unit's cache key holds the spans it read (0026, "Updates"): the training repository's unit read lines 1 to
-    // 200 of the changed file, so the whole file, and it answers different bytes at the commit the update run pins
-    // (5 lines before the commit, 7 after). The product's unit read its own manifest, which the commit never touched.
-    const reads = await readUnitReads(opened!.owner, `${AGENT_UNIT_STAGE_ID}/${repositories[TRAINING]!}`, 1);
+    // A unit's cache key holds the spans it read (0026, "Updates"): the product's overview unit read the whole of
+    // the changed file (5 lines before the commit, 7 after) and the product's own manifest, and the changed file's
+    // span answers different bytes at the commit the update run pins while the manifest's stand as they stood.
+    const reads = await readUnitReads(opened!.owner, `${OVERVIEW_STAGE_ID}/${PRODUCT_SCOPE_NAME}`, 1);
     const spans = reads.filter((read) => (JSON.parse(read.query) as { read?: string }).read === 'span');
     expect(spans.map((read) => ({ query: JSON.parse(read.query), membership: read.membership }))).toEqual([
       { query: { read: 'span', repository: TRAINING, file: CHANGED, startLine: 1, endLine: 200 }, membership: expect.any(String) },
+      { query: { read: 'span', repository: PRODUCT, file: 'workspace.yaml', startLine: 1, endLine: 200 }, membership: expect.any(String) },
     ]);
-    // The reader the run reads through answers the span at its own pin: the same read, the moved bytes.
-    const reader = await opened!.fill.wiring.graph({ stageId: AGENT_UNIT_STAGE_ID, stageUnitId: repositories[TRAINING]!, unitId: `${AGENT_UNIT_STAGE_ID}/${repositories[TRAINING]!}`, scope: TRAINING, generation: 1 });
-    const now = await reader.query(spans[0]!.query);
-    expect(answerMembership(spans[0]!.query, now)).not.toBe(spans[0]!.membership);
+    const spanOf = (repository: string) => spans.find((read) => (JSON.parse(read.query) as { repository: string }).repository === repository)!;
+    // The reader the run reads through answers a span at its own pin: the same read, the moved bytes.
+    const reader = await opened!.fill.wiring.graph({ stageId: OVERVIEW_STAGE_ID, stageUnitId: PRODUCT_SCOPE_NAME, unitId: `${OVERVIEW_STAGE_ID}/${PRODUCT_SCOPE_NAME}`, scope: '*', generation: 1 });
+    const movedNow = await reader.query(spanOf(TRAINING).query);
+    expect(answerMembership(spanOf(TRAINING).query, movedNow)).not.toBe(spanOf(TRAINING).membership);
+    const keptNow = await reader.query(spanOf(PRODUCT).query);
+    expect(answerMembership(spanOf(PRODUCT).query, keptNow)).toBe(spanOf(PRODUCT).membership);
     // What the sweep said it replaced, and why: the run's own progress names the read that moved.
-    const stale = (await opened!.events('run-three')).filter((event) => event.kind === 'unit-stale' && event.unitId === `${AGENT_UNIT_STAGE_ID}/${repositories[TRAINING]!}`);
+    const stale = (await opened!.events('run-three')).filter((event) => event.kind === 'unit-stale' && event.unitId === `${OVERVIEW_STAGE_ID}/${PRODUCT_SCOPE_NAME}`);
     expect(stale.length).toBe(1);
     expect(stale[0]!.summary).toContain('went stale (a read the generation recorded answers something else now:');
     // The product repository's unit was not stale, and no event says it was.
-    expect((await opened!.events('run-three')).filter((event) => event.kind === 'unit-stale' && event.unitId === `${AGENT_UNIT_STAGE_ID}/${repositories[PRODUCT]!}`)).toEqual([]);
+
   }, 900_000);
 
   test('the pages the update announces are the pages its publications changed, and no other', async () => {

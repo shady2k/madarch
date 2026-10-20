@@ -1,7 +1,7 @@
 # A commit reruns only the agent units and pages its changes reach over the graph's edges
 
 Change: madarch-tzte.26.1
-Base: dbf138d8
+Base: 24ec77f2
 Tasks: madarch-tzte.26.1
 Kind: behavior
 
@@ -168,19 +168,21 @@ None.
   after one comment appended to `services/promotions/src/promotions.go`:
   - **the first run of the product plans no agent unit**, and its 41 units are the deterministic
     fill: a run plans before any stage publishes, and the agent stage's plan reads the graph the
-    other stages write. The run after it plans the two agent units (one per repository) and
+    other stages write. The run after it plans the product's one overview unit — stage 8 of decision
+    0026, the shape madarch-tzte.24.1 landed, whose scope is every repository the run pins — and
     inherits the six units the deterministic stages plan for a tree that did not change.
-  - **the update run reruns 14 units and inherits 4.** Rerun: the changed file's inventory,
+  - **the update run reruns 14 units and inherits 3.** Rerun: the changed file's inventory,
     syntax and resolution units, the three inventory units of the folders above it, the snapshot
     of the repository's pin, its clustering, its history at the new commit and the history unit of
     the commit it left (whose facts it retracts), the three resolution units the stage's own
     pins-input makes it compute again (madarch-tzte.21.8's documented exception, not this
-    change's), and the training repository's agent unit, whose recorded span read — lines 1 to 200
-    of the changed file, which holds 5 lines before the commit and 7 after it — answers different bytes. Inherited: the product
-    repository's snapshot, clustering, history and agent unit, whose reads and spans the commit
-    never touched. Its progress says what moved: `<unit> went stale (a read the generation
-    recorded answers something else now: {"endLine":200,"file":"services/promotions/src/
-    promotions.go","read":"span","repository":"training","startLine":1})`.
+    change's), and the product's overview unit, whose recorded span read — lines 1 to 200 of the
+    changed file, which holds 5 lines before the commit and 7 after it — answers different bytes (its
+    graph reads stand: a module fact's membership holds no rank, and the commit moved ranks only).
+    Inherited: the product repository's snapshot, clustering and history. Its progress says what
+    moved: `<unit> went stale (a read the generation recorded answers something else now:
+    {"endLine":200,"file":"services/promotions/src/promotions.go","read":"span",
+    "repository":"training","startLine":1})`.
   - **the update run announces four pages**: the training repository's module (its membership and
     importance were re-measured) and the three symbols the changed file declares (their importance
     moved, 0.013 836 481 472). The changed file's own page is not announced — a file fact's row is
@@ -190,11 +192,22 @@ None.
     that did not move included.
   - **the update rechecks what the change can reach.** The sweep considers the product's published
     generations whose stage consumes a fact kind a stage of the update published; in this product
-    that is the two agent units and the previous commit's history unit, and the product
-    repository's agent unit is rechecked and left standing.
-- **What the review changed.** One independent read-only review (a `prime-agent` session on
-  `deepseek-v4.1-flash-auto`, over this diff) found two defects, eight should-fix items and six
-  nits; all of them are answered here, with a test where a test can say it.
+    that is the overview unit and the previous commit's history unit. The base this measurement was
+    first taken on (dbf138d8) planned two agent units, one per repository, and their rerun-or-inherit
+    split was the sharpest contrast this page had; madarch-tzte.24.1's shape, which this change is
+    rebased on, plans the product's one unit at stage 8, and the per-repository units of its splits
+    carry the same key.
+- **What the review changed.** Three independent read-only reviews over this diff — two
+  `prime-agent` sessions on `deepseek-v4.1-flash-auto` (which hit its limit mid-confirmation) and the
+  confirmation on `glm-5.3-flash-auto` — found three defects, eleven should-fix items and fifteen
+  nits; all of them are answered here, with a test where a test can say it. The third round read the
+  rebased tree (madarch-tzte.24.1's shape) and held two defects: a span record a previous build wrote
+  (with its commit inside) replayed at a moved pin still raised, where the record claimed it was a
+  moved read — a recorded read is now replayed as a recheck replays it (`recordedReadText`, in the
+  sweep and in the publication's own recheck), with a test whose reader refuses any text that still
+  names a commit; and the cache-key versions surviving only on the shape's reference declaration, so
+  the stage a run registers had none — `createAgentStage` puts them on every stage it builds
+  (`agentIdentity` beside them), with a test over the declared overview stage and another model.
   - The two defects: a span recheck **raised** where the graph could no longer answer the read — a
     commit that deletes a file an evidence span cited, or shortens it past the span's first line —
     so the update run failed instead of going stale; a read that cannot be answered is now read as
@@ -233,6 +246,14 @@ None.
   and `measuredMoved` answering `false` killed `the pages the update announces are the pages its
   publications changed` (`test/fill-impact.test.ts`). Each probe was one throwaway edit on the pod,
   run once and discarded with the staging it ran in.
+- **On madarch-tzte.24.1's shape.** This change is rebased on it (base `24ec77f2`): the landed
+  agent stage of a run is stage 8, the product's overview (`src/fill/stages/overview.ts`), built on
+  the shape's `createAgentStage`, and the generic `agent-unit` is the shape's reference declaration no
+  run registers. The cache versions therefore live on the shape, every agent stage of it carries them,
+  and the product wiring exempts an agent unit by the stage contract's own marker (`usesTools`), not
+  by an id. The measured run's agent unit is the product's one overview unit; the per-repository units
+  of its splits carry the same key. The old-build span rows the first measurement read (the base
+  `dbf138d8` recorded them) are exactly what the round-3 defect fixed.
 - **The planning cost.** A run now rechecks every recorded read of every published generation it
   considers, so planning a product of `n` published units costs `n × reads` graph queries more than
   the one digest comparison it cost before. That is the price of 0026's cache key being what decides

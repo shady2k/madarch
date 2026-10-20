@@ -546,7 +546,10 @@ async function movedRead(orchestrator: FillOrchestrator, unit: UnitRecord, plan:
   if (reads.length === 0) return null;
   const reader = await orchestrator.graph(unitRef(unit, plan));
   for (const read of reads) {
-    const answered = await answerNow(reader, read.query);
+    // A read is replayed as a recheck replays it (`recordedReadText`): a span a build before this
+    // recorded under its commit — the only form there was — is normalized here, so a recheck at the run's
+    // own pin answers it instead of refusing the commit it names (madarch-tzte.26.1's round-3 review).
+    const answered = await answerNow(reader, recordedReadText(read.query));
     // A read that cannot be answered at all answers nothing that could match: the file a span cited is gone, or
     // shorter than the span's first line, and the generation that read it is stale by that fact alone.
     if (answered.kind === 'unanswered') return { query: read.query, unanswerable: answered.reason };
@@ -1447,7 +1450,7 @@ async function publishAttempt(
         // second transaction on its connection, so the pinned graph answers from inside this one.
         revalidate: async (read: TrackedRead, executor) => {
           const reader = await orchestrator.graph(unitRef(unit, request.plan), executor);
-          const answered = await answerNow(reader, read.query);
+          const answered = await answerNow(reader, recordedReadText(read.query));
           // A read the graph cannot answer now — the file a span cited is gone, or shorter than the span — refuses
           // the publication like any other read that moved: the draft stands on bytes nothing holds any more.
           if (answered.kind === 'unanswered') return { membership: `unanswered: ${answered.reason}`, members: 0 };

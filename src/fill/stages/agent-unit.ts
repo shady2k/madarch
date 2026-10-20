@@ -33,17 +33,17 @@
  * orchestrator's (`OrchestratorLimits`); the agent is the run's wiring. Nothing here
  * re-decides them.
  */
-import { canonicalJsonDigest } from '../../model/canonical.js';
 import type { FillStage } from '../stage.js';
-import type { AcpAgentSpec } from '../acp.js';
-import { ANSWER_SCHEMA_VERSION, PROMPT_VERSION, readAgentAnswer, UNIT_ANSWER, UNIT_ROLE } from '../agent-packet.js';
+import { readAgentAnswer, UNIT_ANSWER, UNIT_ROLE } from '../agent-packet.js';
 import { planUnits } from './agent-stage.js';
 import {
+  agentIdentity,
   createAgentStage,
   memberPlaces,
   type AgentStageDeclaration,
   type AgentStageWiring,
 } from './agent-stage.js';
+export { agentIdentity };
 
 /** The stage's id, as it is registered: one agent unit per scope, decision 0026's stages 8 to 13. */
 export const AGENT_UNIT_STAGE_ID = 'agent-unit';
@@ -111,28 +111,14 @@ export const AGENT_UNIT_DECLARATION: AgentStageDeclaration = {
 export type AgentUnitWiring = AgentStageWiring;
 
 /**
- * The identity of the agent a run drives, as a unit's cache key holds it (decision 0026,
- * "Updates"): the program, its arguments — which is where a model is named — and its own
- * id. A run driven with another agent, another model or another argument replaces the units
- * the last one planned, because an answer given to one model is not the answer another
- * would give.
- */
-export function agentIdentity(agent: AcpAgentSpec): string {
-  return canonicalJsonDigest({ id: agent.id, command: agent.command, args: agent.args ?? [] });
-}
-
-/**
  * The agent unit stage, registered over the run's wiring. A run that wires no agent
  * registers no agent union stage at all (`stages/index.ts`), so a product whose fill
- * has no agent never plans a unit that could read nothing.
- *
- * The stage carries its cache key's version part (madarch-tzte.26.1): the prompt the shape
- * sends and the answer it asks for, beside the identity of the agent it is driven with —
- * the parts of 0026's key the declaration's own `version` does not name.
+ * has no agent never plans a unit that could read nothing. The shape gives the stage its
+ * cache key's version part (madarch-tzte.26.1): the prompt it sends, the answer it asks
+ * for and the agent it is driven with.
  */
 export function createAgentUnitStage(wiring: AgentUnitWiring): FillStage {
-  const stage = createAgentStage(AGENT_UNIT_DECLARATION, wiring);
-  return { ...stage, cacheVersions: () => ({ prompt: PROMPT_VERSION, answer: ANSWER_SCHEMA_VERSION, agent: agentIdentity(wiring.agent) }) };
+  return createAgentStage(AGENT_UNIT_DECLARATION, wiring);
 }
 
 /**

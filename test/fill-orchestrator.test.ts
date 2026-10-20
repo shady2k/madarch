@@ -2266,6 +2266,38 @@ describe('a generation’s cache key, and what a run reaches over the declared c
     expect(stale[0]!.summary).toContain('can no longer be answered: SELECT module FROM clusters (src/fill/graph-reads.ts:1:1: the read of src/one.ts asks for line 3, and the file was deleted at this pin)');
   });
 
+  test('a span record a previous build wrote, with its commit inside, replays normalized instead of raising', async () => {
+    // The only form of a recorded span read there was before madarch-tzte.26.1 named the commit it was
+    // read at; replayed at a run's own pin the reader refuses it, and the run must read that as the read
+    // having moved — the generation is replaced — rather than fail. The reader here refuses any text that
+    // still carries a commit, and answers the normalized form from the row the test put there.
+    const normalized = recordedReadText(readText({ read: 'span', repository: 'acme-shop', commit: 'a'.repeat(40), file: 'src/one.ts', startLine: 1, endLine: 2 }));
+    const spanRow = { repository: 'acme-shop', commit: 'b'.repeat(40), file: 'src/one.ts', startLine: 1, endLine: 2, totalLines: 2, lines: [{ line: 1, text: 'export const one = 1;' }, { line: 2, text: 'export const two = 2;' }] };
+    const units = { names: ['src'] };
+    const stage = fakeStage('snapshot', {
+      produces: [{ kind: 'file-facts', schemaVersion: 1, scope: 'repository' }],
+      plan: () => ({ units: units.names.map((scope) => ({ id: scope, scope })), coverage: 'planned' }),
+      execute: () => ({ outcome: 'draft' }),
+    });
+    const registry = new StageRegistry().register(stage);
+    const graph = fakeGraph({ [normalized]: [spanRow] });
+    const opened = await world({ registry, graph });
+    // The generation is published, and its read is recorded the old way: the text names the commit.
+    await driveOne(opened, 'run-1');
+    const oldText = readText({ read: 'span', repository: 'acme-shop', commit: 'a'.repeat(40), file: 'src/one.ts', startLine: 1, endLine: 2 });
+    await recordUnitRead(opened.owner, { unitId: 'snapshot/src', generation: 1, query: oldText, rows: [spanRow], at: NOW });
+    graph.reader = {
+      query: async (text: string) => {
+        if (text.includes('"commit"')) throw new GraphReadRefusal("the read pins src/one.ts at a commit, and the repository is pinned at another: an evidence span is read at the commit of the run\u0027s pin");
+        return await graph.rows.get(text) ?? [];
+      },
+    };
+    const sweep = await invalidateStaleUnits(opened.orchestrator, { runId: 'run-1' });
+    expect(sweep.refused).toEqual([]);
+    expect(sweep.invalidated.map((unit) => [unit.unitId, unit.generation, unit.replacement])).toEqual([['snapshot/src', 1, 2]]);
+    expect(sweep.invalidated[0]!.cause).toContain('a read the generation recorded answers something else now:');
+  });
+
   test('a reader that fails for a reason of its own is no movement of the graph: the planning fails, and replaces nothing', async () => {
     const query = 'SELECT module FROM clusters';
     const units = { names: ['src'] };
