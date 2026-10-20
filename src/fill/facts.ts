@@ -250,7 +250,10 @@ export function statusesOfLayer(layer: FactLayer): readonly FactStatus[] {
 
 // ---- the stages of the fill (decision 0026) ------------------------------
 
-/** The fill's stages, decision 0026's own order: 0–7 deterministic, 8–13 agent. */
+/**
+ * The fill's stages, decision 0026's own order: 0–7 deterministic, 8–13 agent, and 14
+ * the pages stage (0026, "Pages": the narrative text a page shows above its facts).
+ */
 export const FACT_STAGES = [
   '0-snapshot',
   '1-inventory',
@@ -266,6 +269,7 @@ export const FACT_STAGES = [
   '11-intent-history',
   '12-understanding',
   '13-recovery',
+  '14-narrative',
 ] as const;
 export type FactStage = (typeof FACT_STAGES)[number];
 
@@ -308,6 +312,8 @@ export const FACT_NODE_KINDS = [
   'state',
   'coverage',
   'question',
+  'answer',
+  'narrative',
 ] as const;
 export type FactNodeKind = (typeof FACT_NODE_KINDS)[number];
 
@@ -703,6 +709,25 @@ export interface TestValue {
   readonly covers?: readonly string[];
 }
 
+/** The boundary change a stage-9 proposal asks for (decision 0026, "9 module-boundary refinement"). */
+export const MODULE_PROPOSAL_CHANGES = ['merge', 'split', 'rename'] as const;
+export type ModuleProposalChange = (typeof MODULE_PROPOSAL_CHANGES)[number];
+
+/**
+ * The boundary change a proposed module stands for (stage 9, madarch-tzte.24.2):
+ * what should change, and the modules of stage 5's clustering that would be
+ * replaced. The proposal never rewrites them — an agent's reading is `inferred`
+ * and always `proposed` (0005), and a person's acceptance is a record beside the
+ * facts, never a rewrite of them — so the replaced modules stand beside it until
+ * a person decides.
+ */
+export interface ModuleProposal {
+  /** The change asked for: the replaced modules become one, one becomes several, or one is renamed. */
+  readonly change: ModuleProposalChange;
+  /** The module facts this proposal would replace, by id, in code point order, each once. */
+  readonly replaces: readonly string[];
+}
+
 /**
  * Stage 5: a module — a cluster of files and symbols, seeded from a package
  * or build target and split until each fits a unit (0026's scale rule), or
@@ -719,6 +744,12 @@ export interface ModuleValue {
   readonly members?: number;
   /** What stage 5's PageRank made of it, in [0, 1]; the priority a run admits its units by. */
   readonly importance?: number;
+  /**
+   * The boundary change the module proposes, on an `inferred` module only
+   * (stage 9's): what changes and which modules of the clustering it would
+   * replace. An extracted module — stage 5's own clustering — carries none.
+   */
+  readonly proposal?: ModuleProposal;
 }
 
 /**
@@ -888,6 +919,82 @@ export interface QuestionValue {
   /** The question as a person reads it, one sentence. */
   readonly prompt: string;
 }
+
+/**
+ * Agent stages and a person: what closes a question, or what a person decides
+ * about a page's proposed content (decision 0026, "Writing"; the self-filling
+ * charter's outcome 5).
+ *
+ * A question is raised by a checked write and stays open until an answer names
+ * it; a page's proposed facts stand as proposed until a person accepts or
+ * rejects them. Both decisions are this one record, because both are one act: a
+ * person's or an agent's words about a node of the graph, written once and read
+ * back by every page that depends on it. A person's decision is `declared` and
+ * accepted as it stands — it is the product's own words — and the wiki keeps it
+ * as Markdown in the product's git (`decisions.ts`); an agent's is `inferred`
+ * and proposed, with the place it read as its evidence, and closes a question
+ * only when it carries that evidence.
+ */
+export interface AnswerValue {
+  /** The repository whose bytes the answer rests on, or the product's name for a person's answer. */
+  readonly repository: string;
+  /** What the decision is about: the fact id of the question it answers, or of the page it accepts or rejects. */
+  readonly subject: string;
+  /** What it does: answers a question, or accepts or rejects the proposed content of a page. */
+  readonly decision: AnswerDecision;
+  /** The answer or the note, as the person or the agent wrote it. */
+  readonly text: string;
+  /**
+   * Who wrote it, when that is not the reader that recorded it: a person's own name, as
+   * the wiki took it. An agent's answer names no one, and reads as its reader
+   * (`provenance.source.system`).
+   */
+  readonly by?: string;
+  /**
+   * What an agent's answer rests on, when it came with evidence: the place it
+   * read, as `repository@commit:path`. A person's answer needs none: their words
+   * are the record.
+   */
+  readonly evidence?: string;
+}
+
+/**
+ * What an answer does (0005's one act of deciding): it closes the question it
+ * names, or it settles what a page proposes.
+ */
+export const ANSWER_DECISIONS = ['answers', 'accepts', 'rejects'] as const;
+export type AnswerDecision = (typeof ANSWER_DECISIONS)[number];
+/** The pages stage: one sentence of a page's narrative text, tied to the facts it stands on. */
+export interface NarrativeSentence {
+  /** The sentence, as one line a reader reads on the page. */
+  readonly text: string;
+  /**
+   * The facts the sentence stands on, by fact id — facts of the graph or claims
+   * an agent stage wrote — in code point order, each once. A sentence that names
+   * none stands on nothing, and no page carries one.
+   */
+  readonly facts: readonly string[];
+}
+
+/**
+ * Pages stage: one page's narrative text, as decision 0026's second layer ("stored as
+ * Markdown in the product's git with status proposed"). The page stands in the
+ * product's git by construction — the outbox step that commits it
+ * (`commitNarrativePages`, `src/fill/narrative-outbox.ts`) writes nowhere else — so
+ * the value names no repository, and the sentences' own citations stand in whichever
+ * repository their bytes stand in. The sentences are the page's own order; the file
+ * the product's git holds is this value rendered by `renderNarrativePage`
+ * (`src/fill/narrative-text.ts`), and the record is what the page reads and what a
+ * person's later edit of the file is compared against.
+ */
+export interface NarrativeValue {
+  /** The node the page is about, by fact id: the page of that node shows this text. */
+  readonly about: string;
+  /** The sentences, in the page's own order, each tied to the facts it stands on. */
+  readonly sentences: readonly NarrativeSentence[];
+}
+
+
 
 // ---- the value of each edge ----------------------------------------------
 
@@ -1097,6 +1204,8 @@ export interface FactNodeValues {
   'state': StateValue;
   'coverage': CoverageValue;
   'question': QuestionValue;
+  'answer': AnswerValue;
+  'narrative': NarrativeValue;
 }
 
 /** The value type of one edge kind, by the kind's own name. */
@@ -1397,7 +1506,10 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     stages: ['5-modules', '9-boundaries'],
     place: 'optional',
     layers: ['extracted', 'inferred'],
-    version: FACTS_SCHEMA_VERSION,
+    // 2 for the `proposal` stage 9's refinement carries (madarch-tzte.24.2); the
+    // identity is untouched, so a proposed module stands beside the modules it
+    // would replace, never over them.
+    version: 2,
     identityValue: (value) => [['repository', value.repository], ['parent', value.parent ?? null], ['name', identityName(value.name)]],
   },
   'document': {
@@ -1493,6 +1605,31 @@ export const FACT_KINDS: { readonly [K in FactKind]: FactKindDefinition<K> } = {
     layers: ['inferred'],
     version: FACTS_SCHEMA_VERSION,
     identityValue: (value) => [['repository', value.repository], ['type', value.type], ['about', value.about ?? null], ['prompt', identityName(value.prompt)]],
+  },
+  // An answer is written by an agent's checked write at the stage that found it, and by a person
+  // through the wiki: `declared` is that person's words, recorded by the acceptance path, the one
+  // layer no stage of this registry writes (as `claim` carries it too).
+  'answer': {
+    kind: 'answer',
+    shape: 'node',
+    stages: AGENT_STAGES,
+    place: 'optional',
+    layers: ['declared', 'inferred'],
+    version: FACTS_SCHEMA_VERSION,
+    identityValue: (value) => [['subject', value.subject], ['decision', value.decision], ['text', identityName(value.text)]],
+  },
+  'narrative': {
+    kind: 'narrative',
+    shape: 'node',
+    stages: ['14-narrative'],
+    place: 'optional',
+    layers: ['inferred'],
+    version: FACTS_SCHEMA_VERSION,
+    // The page's identity is the node it is about and the words it was written with:
+    // a replanned unit that rewrites the page writes a different page, and both the
+    // store and a reader of the page must tell them apart. The sentences' canonical
+    // digest is the words' own name, in code point order as the value holds them.
+    identityValue: (value) => [['about', value.about], ['sentences', canonicalJsonDigest(value.sentences ?? [])]],
   },
 
   // ---- edges -------------------------------------------------------------
@@ -1887,6 +2024,7 @@ function commitPart(part: unknown): string | undefined {
 const REPOSITORY_NAMED_KINDS: readonly string[] = [
   'snapshot', 'repository', 'directory', 'file', 'package', 'deploy-unit', 'table', 'column', 'symbol',
   'entry-point', 'test', 'module', 'document', 'section', 'commit', 'entity-proposal', 'state', 'coverage', 'question',
+  'answer',
 ];
 
 /**
@@ -1945,6 +2083,11 @@ const IDENTITY_PART_FORMS: Readonly<Record<string, (part: unknown) => string | u
   'task-key.key': textPart,
   'coverage.scope': textPart,
   'question.about': orAbsent(textPart),
+  'answer.subject': factIdPart,
+  'answer.decision': partIn(ANSWER_DECISIONS, 'decision an answer records'),
+  'answer.text': textPart,
+  // The node a page is about: a fact id the graph can hold, not free text.
+  'narrative.about': factIdPart,
   // The parts whose kind closes them to a list of forms: a value outside the
   // list names nothing the graph can join, so it is refused before any id is
   // computed from it.
@@ -2027,7 +2170,7 @@ const VALUE_FIELDS: { readonly [K in FactKind]: readonly (keyof FactValueOf<K> &
   'entry-point': ['repository', 'file', 'name', 'form'],
   'comment': ['text', 'form'],
   'test': ['repository', 'file', 'name', 'framework', 'covers'],
-  'module': ['repository', 'name', 'parent', 'seed', 'members', 'importance'],
+  'module': ['repository', 'name', 'parent', 'seed', 'members', 'importance', 'proposal'],
   'document': ['repository', 'path', 'mediaType', 'title', 'bytes', 'blob'],
   'section': ['repository', 'document', 'anchor', 'heading', 'level', 'startByte', 'endByte'],
   'commit': ['repository', 'commit', 'committedAt', 'authoredAt', 'subject', 'author', 'parents', 'files'],
@@ -2037,6 +2180,8 @@ const VALUE_FIELDS: { readonly [K in FactKind]: readonly (keyof FactValueOf<K> &
   'state': ['repository', 'machine', 'name', 'initial', 'final'],
   'coverage': ['repository', 'scope', 'complete', 'read', 'unread'],
   'question': ['repository', 'type', 'about', 'prompt'],
+  'answer': ['repository', 'subject', 'decision', 'text', 'by', 'evidence'],
+  'narrative': ['about', 'sentences'],
   'contains': ['from', 'to'],
   'defines': ['from', 'to'],
   'import': ['from', 'to', 'specifier'],
@@ -2249,6 +2394,13 @@ function placeProblemsOf(place: unknown): FactProblem[] {
  * a comment's text, a symbol's signature — is refused when it is not a field
  * of the kind's value, and its own type is the write path's, which has it.
  */
+/**
+ * The most code points one sentence of a page may hold: what the schema holds a
+ * sentence to, and what the page's own text module states for its readers
+ * (`NARRATIVE_SENTENCE_CODE_POINTS`, `src/fill/narrative-text.ts`).
+ */
+export const NARRATIVE_SENTENCE_BOUND = 2_000;
+
 export function checkFact(fact: unknown): FactProblem[] {
   if (typeof fact !== 'object' || fact === null || Array.isArray(fact)) {
     return [{ path: '', message: `a fact is an object with kind, schemaVersion, id, provenance, layer, status and value, not ${shown(fact)}` }];
@@ -2549,6 +2701,123 @@ export function checkFact(fact: unknown): FactProblem[] {
         }
       }
     }
+    if (kind === 'narrative') {
+      // The page's sentences: the page's own order (a reader reads them top to
+      // bottom, and the file the product's git holds keeps that order), each one
+      // sentence tied to the facts it stands on, each named once. A sentence is a
+      // sentence a reader reads, not a section: one past the schema's own bound is
+      // refused here, so the bound is the schema's and no reader's guess.
+      const sentences = (value as Record<string, unknown>)['sentences'];
+      if (!Array.isArray(sentences) || sentences.length === 0) {
+        add('value.sentences', `${shown(sentences)} is no page: a narrative fact carries its sentences as a list that holds at least one`);
+      } else {
+        const seenTexts = new Map<string, number>();
+        sentences.forEach((entry, index) => {
+          if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+            add(`value.sentences[${index}]`, `a sentence of a page is an object with text and facts, not ${shown(entry)}`);
+            return;
+          }
+          const sentence = entry as Record<string, unknown>;
+          const unknown = unknownKeyProblem(sentence, ['facts', 'text']);
+          if (unknown !== undefined) add(`value.sentences[${index}]`, unknown);
+          const text = sentence['text'];
+          if (typeof text !== 'string' || text.trim() === '') {
+            add(`value.sentences[${index}].text`, `${shown(text)} is no sentence: a sentence is the words a reader reads, and they are not empty`);
+          } else if ([...text].length > NARRATIVE_SENTENCE_BOUND) {
+            add(`value.sentences[${index}].text`, `the sentence holds ${String([...text].length)} code points, past the schema's own ${String(NARRATIVE_SENTENCE_BOUND)}: a sentence is what a reader reads in one breath, and a longer text is sections of a page, not one`);
+          } else {
+            const first = seenTexts.get(text);
+            if (first !== undefined) add(`value.sentences[${index}].text`, `${shown(text)} is written twice (first at value.sentences[${first}]): a page says each sentence once`);
+            else seenTexts.set(text, index);
+          }
+          const facts = sentence['facts'];
+          if (!Array.isArray(facts) || facts.length === 0) {
+            add(`value.sentences[${index}].facts`, `${shown(facts)} is no tie: every sentence of a page names the fact or claim ids it stands on, and names at least one`);
+          } else {
+            let previous: string | undefined;
+            const seen = new Set<string>();
+            facts.forEach((id, at) => {
+              if (typeof id !== 'string' || !FACT_ID_PATTERN.test(id)) {
+                add(`value.sentences[${index}].facts[${at}]`, `${shown(id)} is no fact id: a sentence stands on facts of the graph, named by their ids`);
+                return;
+              }
+              if (seen.has(id)) {
+                add(`value.sentences[${index}].facts[${at}]`, `${shown(id)} is named twice: a sentence names each fact it stands on once`);
+                return;
+              }
+              seen.add(id);
+              if (previous !== undefined && byCodePoint(previous, id) > 0) {
+                add(`value.sentences[${index}].facts[${at}]`, `${shown(id)} stands after ${shown(previous)}: the facts a sentence names are in code point order`);
+              }
+              previous = id;
+            });
+          }
+        });
+      }
+    }
+    // Stage 9's proposal (madarch-tzte.24.2): an `inferred` module is one proposal
+    // — the change it asks for, and the modules of the clustering it would replace —
+    // and an extracted module is stage 5's own clustering, which proposes nothing.
+    if (kind === 'module') {
+      const proposal = valueRecord['proposal'];
+      // A proposal that names itself among the modules it would replace would stand
+      // at the id it claims to stand beside: the identity is the repository, the
+      // parent and the name, so a proposal named after an existing module digests to
+      // that module's own id, and the publication would overwrite the clustering the
+      // proposal asked to refine. The replaces list is the proposal's own claim about
+      // other modules; its own id is never one of them.
+      if (proposal !== undefined && Array.isArray(proposal === null || proposal === undefined ? undefined : (proposal as Record<string, unknown>)['replaces']) && typeof record['id'] === 'string' && FACT_ID_PATTERN.test(record['id'] as string)) {
+        const own = record['id'] as string;
+        const replaces = (proposal as { replaces: readonly unknown[] })['replaces'];
+        const at = replaces.indexOf(own);
+        if (at >= 0) add(`value.proposal.replaces[${at}]`, `${shown(own)} is the id of this very fact: a proposal stands beside the modules it would replace, never over them — name the proposed module so its identity digests to its own id`);
+      }
+      const inferred = layer === 'inferred';
+      if (inferred && proposal === undefined) {
+        add('value.proposal', 'an inferred module is a proposal: name the change it asks for and the modules it would replace — an extracted module is the clustering stages read, and proposes nothing');
+      }
+      if (proposal !== undefined) {
+        if (!inferred) {
+          add('value.proposal', 'a proposal stands on an inferred module: the clustering is read, not proposed, and a person decides beside the facts, never over them');
+        } else if (typeof proposal !== 'object' || Array.isArray(proposal)) {
+          add('value.proposal', `the proposal of a module is an object with a change and the modules it would replace, not ${shown(proposal)}`);
+        } else {
+          const fields = proposal as Record<string, unknown>;
+          const unknown = unknownKeyProblem(fields, ['change', 'replaces']);
+          if (unknown !== undefined) add('value.proposal', unknown);
+          const message = partIn(MODULE_PROPOSAL_CHANGES, 'boundary change a proposal asks for')(fields['change']);
+          if (message !== undefined) add('value.proposal.change', message);
+          const replaces = fields['replaces'];
+          if (!Array.isArray(replaces) || replaces.length === 0) {
+            add('value.proposal.replaces', 'a proposal names the modules it would replace: at least one module fact id, in code point order, each once');
+          } else {
+            for (let index = 0; index < replaces.length; index += 1) {
+              const id = replaces[index];
+              if (typeof id !== 'string' || !FACT_ID_PATTERN.test(id)) {
+                add(`value.proposal.replaces[${index}]`, `${shown(id)} is no fact id: a proposal replaces modules the graph holds, each named by its id`);
+                continue;
+              }
+              if (!id.startsWith('module:')) {
+                add(`value.proposal.replaces[${index}]`, `${shown(id)} names no module: a boundary change replaces modules, and a module fact's id starts with "module:"`);
+                continue;
+              }
+              // The list is sorted, so a repeat is always beside its twin.
+              const previous = index === 0 ? undefined : replaces[index - 1];
+              if (typeof previous !== 'string') continue;
+              const order = byCodePoint(previous, id);
+              if (order > 0) add(`value.proposal.replaces[${index}]`, `${shown(id)} stands after ${shown(previous)}: the replaced modules are named in code point order`);
+              else if (order === 0) add(`value.proposal.replaces[${index}]`, `${shown(id)} is named twice: a proposal replaces each module once`);
+            }
+          }
+        }
+      }
+      // A proposed module is no clustering's output: it stands for a boundary an
+      // agent read out of the code, so its seed is the word for a cluster of what
+      // was read, never the package or build target a manifest seeds.
+      if (inferred && valueRecord['seed'] !== undefined && valueRecord['seed'] !== 'cluster') {
+        add('value.seed', `${shown(valueRecord['seed'])} is no seed of a proposed module: a proposal is a cluster the agent read out of the code, and its seed is "cluster"`);
+      }
+    }
     // A fact names one repository and one commit, in its value and in its
     // provenance: a file read from one repository is never filed under another.
     const namedRepository = (value as Record<string, unknown>)['repository'];
@@ -2570,6 +2839,16 @@ export function checkFact(fact: unknown): FactProblem[] {
       if (repositoryPathProblem(normalized) === undefined && repositoryPathProblem(placeFile) === undefined && normalized !== placeFile) {
         add('provenance.place.file', `the place names ${shown(placeFile)} but the ${kind} is ${shown(normalized)}: ${withArticle(kind)} fact stands at its own file`);
       }
+    }
+  }
+
+  // An agent's answer rests on something it read (the self-filling charter's outcome 5: «Открытые вопросы должны
+  // закрываться, если агент в процессе нашел ответ»). A proposed answer with no evidence closes a question nobody can
+  // check, so the schema refuses it at its own field; a person's answer needs none, because their words are the record.
+  if (valueReads && kind === 'answer' && layer === 'inferred') {
+    const evidence = (value as Record<string, unknown>)['evidence'];
+    if (typeof evidence !== 'string' || evidence.trim() === '') {
+      add('value.evidence', 'a proposed answer names what it rests on, in "evidence": an agent closes a question with the place it read, never with a claim alone (decision 0005 makes an agent\'s reading proposed, and a proposed answer nobody can check is no answer)');
     }
   }
 
@@ -2685,6 +2964,8 @@ export const REGISTRY_KIND_MAPPINGS: { readonly [K in FactKind]: RegistryKindMap
   'state': { factKind: 'state', registryForms: ['component', 'fact', 'model-element'], relation: 'subject' },
   'coverage': { factKind: 'coverage', registryForms: REGISTRY_STORAGE_FORMS, relation: 'evidence' },
   'question': { factKind: 'question', registryForms: ['document', 'fact', 'task'], relation: 'subject' },
+  'answer': { factKind: 'answer', registryForms: ['document', 'fact', 'task'], relation: 'evidence' },
+  'narrative': { factKind: 'narrative', registryForms: REGISTRY_STORAGE_FORMS, relation: 'evidence' },
   'contains': { factKind: 'contains', registryForms: ['component', 'fact', 'model-element'], relation: 'evidence' },
   'defines': { factKind: 'defines', registryForms: ['component', 'fact', 'model-element'], relation: 'evidence' },
   'import': { factKind: 'import', registryForms: ['component', 'fact', 'model-element'], relation: 'evidence' },

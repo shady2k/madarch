@@ -70,12 +70,28 @@ import type { StageDraftWrite, StageDraftWriter } from './stage.js';
  * repository, a folder in it or one file, and a write about anything else is
  * another unit's (0026: work is divided, and a unit never fills another unit's
  * scope).
+ *
+ * A unit of 0026's hierarchy may also cover **the product** — the overview
+ * hypothesis and the system recovery are one unit per product, and what they
+ * state is about every repository the product pins — and that scope is spelled
+ * `PRODUCT_SCOPE` (`"*"`), the one text that is no repository name
+ * (`ID_PATTERN` admits no `*`). A write of such a unit cites the bytes it read
+ * in whichever repository they stand in, and the pinned-commit check below is
+ * what keeps it to the product's own repositories.
  */
 export interface WriteScope {
-  /** The product's own name for the repository, never a machine path or a URL. */
+  /** The product's own name for the repository, never a machine path or a URL; `PRODUCT_SCOPE` for the whole product. */
   readonly repository: string;
   /** The folder or the file the unit covers, as a repository path; absent when the unit covers the whole repository. */
   readonly path?: string;
+}
+
+/** The scope text of a unit that covers the whole product: every repository the run pinned (0026's hierarchy, `product`). */
+export const PRODUCT_SCOPE = '*';
+
+/** Whether a unit's scope is the product's: every repository the run pinned, with no path inside one. */
+export function isProductScope(scope: WriteScope): boolean {
+  return scope.repository === PRODUCT_SCOPE && scope.path === undefined;
 }
 
 /**
@@ -92,9 +108,12 @@ export interface WriteScope {
  */
 export function writeScope(text: string): WriteScope {
   const scope = typeof text === 'string' ? text : '';
+  // The product's own scope, `"*"`: one unit per product (0026's hierarchy) writes about every repository the run
+  // pinned, and its writes cite the bytes they read in whichever of them they stand.
+  if (scope === PRODUCT_SCOPE) return { repository: PRODUCT_SCOPE };
   const cut = scope.indexOf(':');
   const repository = cut < 0 ? scope : scope.slice(0, cut);
-  const shape = `a unit\'s scope is "<repository>" or "<repository>:<path>", the product\'s own name for the repository, never a machine path or a URL`;
+  const shape = `a unit\'s scope is "<repository>", "<repository>:<path>" or "${PRODUCT_SCOPE}" for the whole product, the product\'s own name for the repository, never a machine path or a URL`;
   if (!ID_PATTERN.test(repository)) {
     throw new Error(`checked-writes: ${JSON.stringify(text)} is no unit scope: ${shape}`);
   }
@@ -119,6 +138,9 @@ export function scopeText(scope: WriteScope): string {
  * inside a scope by this rule and no second one (`src/fill/graph-reads.ts`).
  */
 export function scopeHolds(scope: WriteScope, place: { readonly repository: string; readonly file: string }): boolean {
+  // A unit of the whole product covers every repository; the pinned-commit check of each write (`readPlace`) is
+  // what keeps it to the product's own repositories, since a scope text knows no pins.
+  if (isProductScope(scope)) return true;
   if (place.repository !== scope.repository) return false;
   if (scope.path === undefined) return true;
   return place.file === scope.path || place.file.startsWith(`${scope.path}/`);
@@ -168,10 +190,20 @@ export const SIMILAR_ENTITY_CAP = 5;
  * answers it in memory and the MCP server (madarch-tzte.22.2) wires it to the one
  * background server that owns the database.
  */
-/** One node the graph holds: the id it stands under and the kind of fact it is. */
+/**
+ * One node the graph holds: the id it stands under, the kind of fact it is, and
+ * the repository the fact stands in (its own provenance), which is what keeps a
+ * write inside the scope it was planned for (0026: a unit never fills another
+ * unit's scope). The repository is the line the schema itself draws — "one fact
+ * is one repository" — and the finest a node's fact carries: a module names no
+ * path of its own, and the folder a node's file stands at is the cited place's
+ * business, which the write's own place check holds to the scope.
+ */
 export interface WrittenNode {
   readonly id: string;
   readonly kind: FactKind;
+  /** The repository the node's fact stands in, as its provenance names it. */
+  readonly repository: string;
 }
 
 /**
@@ -184,7 +216,8 @@ export interface CheckedWriteGraph {
   /**
    * The node the graph holds at this id — a published fact, or a write another
    * unit's draft set holds — or `null` where nothing stands there. The kind is
-   * what the ends of an edge are held to (`EDGE_END_KINDS`).
+   * what the ends of an edge are held to (`EDGE_END_KINDS`), and the repository
+   * is what keeps a write inside its unit's scope.
    */
   node(id: string): Promise<WrittenNode | null>;
   /** The entities of one repository whose name is like the one proposed, closest first. */
@@ -291,6 +324,14 @@ export interface CheckedWriteSession {
   readonly layer: FactLayer;
   /** The one scope the unit may write inside. */
   readonly scope: WriteScope;
+  /**
+   * The stage the unit belongs to, and the fact kinds that stage declares — the only
+   * kinds its units may write (0026, "Writing": "every write is checked at once").
+   * A session that names none is bound by the schema alone (a stage's own draft is
+   * judged against its declared kinds before it is published, `src/fill/stages/draft.ts`).
+   */
+  readonly stage?: string;
+  readonly kinds?: readonly string[];
   /** The repositories the unit's run pinned: where the bytes a write cites are read. */
   readonly snapshot: WriteSnapshots;
   /** Where an accepted write lands: the unit's own draft set. */
@@ -556,8 +597,10 @@ async function readPlace(session: CheckedWriteSession, request: CitedPlaceReques
 }
 
 /** What the write path tells the reader of a refusal: the repository, the commit and the file a write cites. */
-function evidenceOf(session: CheckedWriteSession, cited: CitedPlace): string {
-  return `${session.scope.repository}@${cited.reader.commit}:${cited.place.file}`;
+function evidenceOf(cited: CitedPlace): string {
+  // The repository the cited bytes stand in, never the scope's own: a unit of the whole product cites a place in any
+  // of the repositories it covers, and its evidence has to name the one it read (`SnapshotReader.repository`).
+  return `${cited.reader.repository}@${cited.reader.commit}:${cited.place.file}`;
 }
 
 /** Every fact id a value carries, at the field it stands at, in the order the walk meets them. */
@@ -645,6 +688,15 @@ async function write(session: CheckedWriteSession, request: ToolWrite): Promise<
   if (typeof request.value !== 'object' || request.value === null || Array.isArray(request.value)) {
     kindShape.push({ field: 'value', reason: `a write carries the value of its fact as an object, not ${shown(request.value)}` });
   }
+  if (isFactKind(request.kind) && session.kinds !== undefined && !session.kinds.includes(request.kind)) {
+    // 0026, "Writing": a write is checked at once. A kind the unit's stage does not declare is refused here, with the
+    // kinds it does declare, rather than at publication, where the refusal would spend the unit's whole draft set and
+    // the agent run with it.
+    kindShape.push({
+      field: 'kind',
+      reason: `the stage ${JSON.stringify(session.stage ?? 'this unit belongs to')} writes ${session.kinds.join(', ')}, and ${shown(request.kind)} is no kind it declares: a fact of a kind its stage does not produce would be refused when its draft set is published, and the whole set with it`,
+    });
+  }
   refusals.push(...kindShape);
   const placeProblems = placeShape(request.place);
   refusals.push(...placeProblems);
@@ -657,7 +709,7 @@ async function write(session: CheckedWriteSession, request: ToolWrite): Promise<
 
   const provenance = {
     source: session.source,
-    repository: { id: session.scope.repository, commit: cited.reader.commit },
+    repository: { id: cited.reader.repository, commit: cited.reader.commit },
     place: cited.place,
   };
   let id: string | undefined;
@@ -687,13 +739,55 @@ async function write(session: CheckedWriteSession, request: ToolWrite): Promise<
   }
   if (refusals.length > 0) return { refusals };
 
+  // A module's identity is the repository, the parent and the name — no place, no
+  // commit — so a proposed module named after a module the clustering holds
+  // digests to that module's own id, and the publication would overwrite the
+  // extracted fact the proposal asked to refine (the measured fields — the seed
+  // and the member count — would be the proposal's, and the proposal itself would
+  // never land). A proposal stands beside the modules it would replace, never over
+  // them (0026, madarch-tzte.24.2): the graph is asked whether the id stands, and
+  // a standing one refuses the write by naming it.
+  if (request.kind === 'module') {
+    const standing = await session.graph.node(id);
+    if (standing !== null) {
+      refusals.push({
+        field: 'value.name',
+        reason: `${JSON.stringify(id)} is the id of the module the graph already holds${standing.kind === 'module' ? '' : ` (${article(standing.kind)} "${standing.kind}" fact)`}: a proposal stands beside the modules it would replace, never over them — name the proposed module so its identity digests to an id of its own`,
+        file: String(cited.place.file),
+        line: cited.place.range.startLine,
+      });
+      return { refusals };
+    }
+  }
+
   const held = await session.draft.writes();
   const own = draftedNodes(held);
   for (const reference of referencedIds(request.value)) {
     const drafted = own.get(reference.id);
-    const node = drafted === undefined ? await session.graph.node(reference.id) : { id: reference.id, kind: drafted };
+    // A node the unit's own draft set took passed the scope check when it was written,
+    // so it stands where this unit writes; the graph is asked only about the others.
+    const node = drafted === undefined ? await session.graph.node(reference.id) : { id: reference.id, kind: drafted, repository: session.scope.repository };
     if (node === null) {
       refusals.push({ field: reference.field, reason: `${JSON.stringify(reference.id)} stands nowhere in the graph: a write joins the nodes the graph holds — a published fact, or a write this unit's own draft set already took`, file: String(cited.place.file), line: cited.place.range.startLine });
+      continue;
+    }
+    // The scope the unit was planned for holds the nodes it names: a proposal that
+    // would replace a module of another repository is another unit's to write, and
+    // naming it here would fill past the scope the run divided (0026,
+    // madarch-tzte.24.2). The repository is the line a node's own fact carries — a
+    // module names no path — so the folder the cited bytes stand in stays the
+    // write's own place check, and the claims of a unit scoped to one document keep
+    // naming the code nodes of their repository. A node the unit's own draft set
+    // took passed this check when it was written; a unit of the whole product
+    // covers every repository the run pins, which the pinned-commit check of the
+    // cited bytes holds.
+    if (drafted === undefined && !isProductScope(session.scope) && node.repository !== session.scope.repository) {
+      refusals.push({
+        field: reference.field,
+        reason: `${JSON.stringify(reference.id)} stands in ${JSON.stringify(node.repository)}, and this unit's scope is ${scopeText(session.scope)}: a write names the nodes of its own repository`,
+        file: String(cited.place.file),
+        line: cited.place.range.startLine,
+      });
       continue;
     }
     // An edge's ends are the kinds the edge joins, which the schema declares
@@ -706,11 +800,21 @@ async function write(session: CheckedWriteSession, request: ToolWrite): Promise<
   }
   if (refusals.length > 0) return { refusals };
 
-  const entry: StageDraftWrite = { kind: request.tool, evidence: evidenceOf(session, cited), value: fact as unknown };
+  const entry: StageDraftWrite = { kind: request.tool, evidence: evidenceOf(cited), value: fact as unknown };
   await session.draft.append(entry);
   // The position is the one the write took in the set it read; the count is the set's own size after it,
   // read again, so a set another writer added to is never answered as a smaller one.
   return { drafted: { ok: true, fact: fact as unknown as Fact, write: entry, position: held.length + 1, writes: (await session.draft.writes()).length, evidence: entry.evidence }, refusals };
+}
+
+/**
+ * The repository a write that names one in its own value stands in: the one its cited place names, and the unit's own
+ * when the place names none (a place of no repository is refused before the value is read, so this only keeps such a
+ * value whole for the refusal that names the place).
+ */
+function repositoryCited(session: CheckedWriteSession, place: unknown): string {
+  const repository = typeof place === 'object' && place !== null ? (place as Record<string, unknown>)['repository'] : undefined;
+  return typeof repository === 'string' ? repository : session.scope.repository;
 }
 
 /** What one write ended in, inside the path: the fact that landed, or the refusals. */
@@ -745,7 +849,9 @@ export async function link(session: CheckedWriteSession, request: LinkRequest): 
  */
 export async function raiseQuestion(session: CheckedWriteSession, request: RaiseQuestionRequest): Promise<WriteAnswer> {
   const value = {
-    repository: session.scope.repository,
+    // The repository the question is raised in is the one its cited bytes stand in: a unit of one repository cites
+    // that repository, and a unit of the whole product cites whichever it read at.
+    repository: repositoryCited(session, request?.place),
     type: (request as { readonly type?: unknown })?.type,
     ...((request as { readonly about?: unknown })?.about === undefined ? {} : { about: request.about }),
     prompt: (request as { readonly prompt?: unknown })?.prompt,
@@ -761,8 +867,9 @@ export async function raiseQuestion(session: CheckedWriteSession, request: Raise
  */
 export async function proposeEntity(session: CheckedWriteSession, request: ProposeEntityRequest): Promise<EntityAnswer> {
   const asked = request ?? ({} as ProposeEntityRequest);
+  const repository = repositoryCited(session, asked.place);
   const value = {
-    repository: session.scope.repository,
+    repository,
     proposed: (asked as { readonly proposed?: unknown }).proposed,
     name: (asked as { readonly name?: unknown }).name,
     ...(asked.summary === undefined ? {} : { summary: asked.summary }),
@@ -770,7 +877,7 @@ export async function proposeEntity(session: CheckedWriteSession, request: Propo
   };
   const written = await write(session, { tool: 'entity', kind: 'entity-proposal', value, place: asked.place });
   const found = typeof asked.name === 'string'
-    ? await session.graph.similarEntities({ repository: session.scope.repository, name: asked.name })
+    ? await session.graph.similarEntities({ repository, name: asked.name })
     : [];
   const ordered = [...found].sort((left, right) => rank(left.similarity) - rank(right.similarity) || byCodePoint(left.id, right.id));
   return {
@@ -836,9 +943,18 @@ export function factGraph(database: FactStoreDatabase): CheckedWriteGraph {
     async node(id: string): Promise<WrittenNode | null> {
       const at = here();
       return await withLocation(at, `writeGraph.node(${id})`, ['fill_fact'], async () => await database.transaction('snapshot', async (executor: SqlExecutor) => {
-        const { rows } = await executor.query<{ id: string; kind: string }>('SELECT id, kind FROM fill_fact WHERE id = $1', [id]);
+        const { rows } = await executor.query<{ id: string; kind: string; provenance: unknown }>('SELECT id, kind, provenance FROM fill_fact WHERE id = $1', [id]);
         const row = rows[0];
-        return row === undefined || !isFactKind(row.kind) ? null : { id: row.id, kind: row.kind };
+        if (row === undefined || !isFactKind(row.kind)) return null;
+        // The node's own provenance names where it stands, which is what keeps a
+        // write that names it inside its unit's scope (0026: a unit never fills
+        // another unit's scope).
+        const cited = (row.provenance ?? {}) as { repository?: { id?: unknown } };
+        const repository = cited.repository?.id;
+        if (typeof repository !== 'string' || repository === '') {
+          throw new Error(`the fact ${id} stands in no repository its provenance names: a stored fact names the repository and commit it was read at`);
+        }
+        return { id: row.id, kind: row.kind, repository };
       }));
     },
     async similarEntities(request: { readonly repository: string; readonly name: string }): Promise<readonly SimilarEntity[]> {

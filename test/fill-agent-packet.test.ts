@@ -263,7 +263,7 @@ describe('the fixed part every unit is told', () => {
     expect(fixed).toContain('Example: {"status":"done","covered":["src/order.ts","src/cart.ts"],"remaining":[],"summary":"The checkout total is the cart total plus tax"}');
     // Every tool of 0026's catalogue, by name, and the kinds this unit may write.
     for (const name of UNIT_TOOL_NAMES) expect(fixed).toContain(`- ${name}: `);
-    expect(fixed).toContain('Facts this unit may write: claim, coverage, question, rule.');
+    expect(fixed).toContain('Facts this unit may write: claim, coverage, question, rule — and nothing else');
     // 0026: "The agent's own file tools are off".
     expect(fixed).toContain('You have no file, shell, network or terminal tools');
     // The packet's own cut is part of what the agent reads: a short packet it was not told about would read as a

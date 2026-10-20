@@ -29,15 +29,22 @@ import { draftSetOf, factGraph, writeScope, type CheckedWriteDraft, type Checked
 import type { FillStageConfigurationRead } from './config.js';
 import type { SqlExecutor } from '../query/sql-driver.js';
 import { FACT_APPLICATION, createFactStoreSchema } from './fact-store.js';
-import { emptyPageSetMessage, readPageChanges, readPageModel, readPageSet, type GraphPagesSource } from './graph-pages.js';
+import { emptyNextStep, emptyPageSetMessage, emptyQuestionSet, readDecisionSubject, readPageChanges, readPageModel, readPageSet, type GraphDecisionWrite, type GraphPagesSource } from './graph-pages.js';
+import { answerDocument, acceptanceDocument, ANSWERS_FOLDER, ACCEPTANCES_FOLDER, commitDecision, decisionFile, discardDecision, stageDecision, type DecisionRecord, type StagedDecision } from './decisions.js';
+import { applyDecisions } from './declared.js';
+import { labelOf } from './graph-reads.js';
 import { readNodeDiagrams } from './graph-diagrams.js';
+import { commitNarrativePages, type NarrativeOutboxResult } from './narrative-outbox.js';
+import { NARRATIVE_STAGE_ID } from './stages/narrative.js';
 import { createPageReadCache } from './page-cache.js';
-import type { FactLayer, FactSource } from './facts.js';
-import { graphReadsOver, type DraftReading, type GraphReadLimits } from './graph-reads.js';
+import type { Fact, FactLayer, FactSource } from './facts.js';
+import { answerMembership, graphReadsOver, recordedReadText, type DraftReading, type GraphReadLimits } from './graph-reads.js';
 import {
   DEFAULT_ORCHESTRATOR_LIMITS,
+  cancelRun,
   createOrchestrator,
   driveRun,
+  pauseRun,
   planRun,
   resumeRun,
   runStatus,
@@ -53,9 +60,9 @@ import {
   type UnitRef,
   type UnitToolsOpening,
 } from './orchestrator.js';
-import { createOrchestratorSchema, readUnitPlan, recordUnitRead, type RunSnapshot } from './orchestrator-store.js';
+import { createOrchestratorSchema, readProgress, readUnitPlan, recordUnitRead, type RunSnapshot } from './orchestrator-store.js';
 import type { QueueService } from './queue.js';
-import { createFillStateSchema } from './state-store.js';
+import { createFillStateSchema, readChain, readLatestRun, readRun, readRunUnits } from './state-store.js';
 import type { StageRegistry } from './registry.js';
 import type { SnapshotSource } from './snapshot.js';
 import {
@@ -115,6 +122,18 @@ export interface ProductFillWiring {
   guard?: HumanEditGuard;
 }
 
+/**
+ * What one product's fill is made of, where the host builds it per product: the
+ * declared stages and the wiring their units read and write through. A stage
+ * registry is built over one product's own repositories (a pin, a checkout per
+ * repository), so a host that serves many products answers one of these per
+ * product.
+ */
+export interface ProductFill {
+  readonly registry: StageRegistry;
+  readonly wiring: ProductFillWiring;
+}
+
 /** What one fill run is asked for. */
 export interface FillRunRequest {
   readonly product: FillProduct;
@@ -140,6 +159,13 @@ export interface FillRunResult {
   readonly reused: readonly string[];
   /** The enabled stages whose plan found a producer's inputs and nothing in them, so nobody reads it as a capability nothing produces. */
   readonly foundNothing: readonly string[];
+  /**
+   * What the pages outbox carried into the product's git after the run settled
+   * (decision 0027: "Git commits of pages are a separate idempotent outbox step"),
+   * when the run's stages hold the pages stage. A run of a registry without it
+   * names no field.
+   */
+  readonly pages?: NarrativeOutboxResult;
 }
 
 /** What opening one unit's tools is asked for: the unit, and where its bytes, its drafts and its writes stand. */
@@ -164,6 +190,55 @@ export interface UnitToolsRequest {
   /** The caps the unit's tool answers are cut by (0026's numbers when they are left out). */
   readonly limits?: Partial<GraphReadLimits>;
 }
+
+/**
+ * One product's fill as a watching person reads it (madarch-tzte.26.2): the newest
+ * run, the units it planned with their states, and its durable progress events in
+ * order. The field names are the ones the wiki's own fill progress reads, so the
+ * panel that shows a run written to `.madarch/fill` shows a run the orchestrator
+ * keeps in the database the same way.
+ */
+export interface FillProgressAnswer {
+  readonly run: {
+    readonly id: string;
+    readonly status: string;
+    readonly createdAt: string;
+    readonly updatedAt: string;
+    readonly product: string;
+  };
+  readonly units: readonly {
+    readonly unitId: string;
+    readonly stage: string;
+    readonly status: string;
+    readonly generation: number;
+    readonly attempts: number;
+  }[];
+  readonly events: readonly {
+    readonly seq: number;
+    readonly at: string;
+    readonly stage: string;
+    readonly unitId: string;
+    readonly type: string;
+    readonly summary: string;
+  }[];
+}
+
+/** One product's chain of runs, as an update reads it before it asks for anything. */
+export interface FillActivity {
+  readonly state: 'idle' | 'active' | 'quiescent';
+  /** The run the chain follows, when it follows one. */
+  readonly activeRunId: string | null;
+  /** That run's state, or null when the chain follows none, or one this store no longer holds. */
+  readonly activeRunState: string | null;
+}
+
+/** What a person asks of one run: the two controls the fill progress panel offers. */
+export type FillRunControl = 'pause' | 'stop';
+
+/** What one control did: the run's state afterwards, or the refusal in the store's own words. */
+export type FillRunControlAnswer =
+  | { readonly ok: true; readonly runId: string; readonly state: string }
+  | { readonly ok: false; readonly code: string; readonly reason: string };
 
 /** A run the service refused before it started, with what is missing. */
 export interface RefusedFillRun {
@@ -207,6 +282,31 @@ export interface FillOrchestratorService {
    */
   pages(folder: string): GraphPagesSource;
   /**
+   * The product's newest run, the units it planned and its durable progress
+   * events, in the shape a watching person reads (madarch-tzte.26.2): what the
+   * fill progress answers (`GET /api/fill`) — a run the background server started
+   * by itself after a commit included. `null` when the product never ran a fill,
+   * because nothing of a run is a truthful answer then.
+   */
+  progress(folder: string): Promise<FillProgressAnswer | null>;
+  /**
+   * Whether the product fills right now, read without creating anything: the chain
+   * of its runs and the run it follows (madarch-tzte.26.2). An automatic update asks
+   * this before it asks for a run, so a commit that must wait for a fill leaves no
+   * run record behind while it waits; `run`'s own rule still governs the race, where
+   * a fill starts between this read and the start.
+   */
+  activity(request: { readonly product: FillProduct }): Promise<FillActivity>;
+  /**
+   * The person's pause or stop of one of this product's runs (madarch-tzte.26.2):
+   * the run's own state machine takes it (`pauseRun`, `cancelRun`), so an update the
+   * server started by itself is paused and stopped where a person's own run is. A
+   * run this service does not hold — the landed fill's, whose state stands in
+   * `.madarch/fill` — answers `null` so its own control answers for it; a step a
+   * run's machine refuses answers a refusal in the machine's own words.
+   */
+  control(request: { readonly productFolder: string; readonly runId: string; readonly action: FillRunControl }): Promise<FillRunControlAnswer | null>;
+  /**
    * Stops the queue and closes the database this service opened; safe to call
    * twice and safe to call before anything was opened.
    */
@@ -226,8 +326,15 @@ export interface FillOrchestratorServiceOptions {
   readonly toolUrl?: () => string | undefined;
   /** The declared stages (madarch-tzte.19.3). */
   readonly registry: StageRegistry;
-  /** One product's wiring; a service without it refuses every run, naming what is missing. */
-  readonly wiring?: (product: FillProduct) => Promise<ProductFillWiring> | ProductFillWiring;
+  /**
+   * One product's wiring; a service without it refuses every run, naming what is
+   * missing. It is asked for once a run is asked for, after this service opened
+   * the process's database, so a host that builds its wiring over that database
+   * (the declared stages, `src/product/fill-stages.ts`) can name it. A wiring that
+   * carries its own registry (`ProductFill`) is the one the run's stages come from;
+   * otherwise the service's own `registry` is.
+   */
+  readonly wiring?: (product: FillProduct, context: { readonly owner: DatabaseOwner }) => Promise<ProductFillWiring | ProductFill> | ProductFillWiring | ProductFill;
   /**
    * The process's own database owner, when the host already holds one (decision
    * 0027's one owner per process, which is what lets a publication's facts and
@@ -304,8 +411,51 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
     return await opening;
   }
 
-  /** One product's wiring, or the refusal the service answers a caller with where the host wired none. */
-  async function wiringOf(product: FillProduct): Promise<ProductFillWiring | RefusedFillRun> {
+  /** A person's decision as it was filed: the document waiting to be committed, or why it could not be written. */
+type FiledDecision =
+  | { readonly ok: true; readonly staged: StagedDecision; readonly record: DecisionRecord }
+  | { readonly ok: false; readonly code: string; readonly message: string };
+
+/**
+ * One person's decision written as Markdown in the product's git (`decisions.ts`): an
+ * answer to a question, or an acceptance or rejection of a page. An empty answer closes
+ * nothing and is refused before a file is written; the moment is the process's clock, to
+ * the second, so two decisions of one second name one moment.
+ */
+async function fileDecision(
+  productFolder: string,
+  subject: string,
+  what: 'answer' | 'accepted' | 'rejected',
+  words: string,
+  by: string,
+  now: number,
+  fact: Fact,
+): Promise<FiledDecision> {
+  const author = by.trim() === '' ? 'a reader of the wiki' : by.trim();
+  const at = new Date(now).toISOString().replace(/\.\d{3}Z$/, 'Z');
+  const text = words.trim();
+  const value = (fact.value ?? {}) as unknown as Record<string, unknown>;
+  if (what === 'answer') {
+    if (text === '') return { ok: false, code: 'graph-pages/empty-answer', message: `the answer to ${subject} is empty: an answer is the words a person wrote, and an empty one closes nothing` };
+    const prompt = typeof value['prompt'] === 'string' ? value['prompt'] : '';
+    try {
+      const staged = stageDecision(productFolder, ANSWERS_FOLDER, subject, answerDocument({ subject, prompt, text, by: author, at }));
+      return { ok: true, staged, record: { kind: 'answer', subject, text, by: author, at, file: staged.file } };
+    } catch (error) {
+      return { ok: false, code: 'graph-pages/write-failed', message: `the product's git holds the answers of ${productFolder}, and the answer to ${subject} could not be written there: ${(error as Error).message}` };
+    }
+  }
+  const label = labelOf(fact);
+  try {
+    const staged = stageDecision(productFolder, ACCEPTANCES_FOLDER, subject, acceptanceDocument({ subject, label, verdict: what, note: text, by: author, at }));
+    return { ok: true, staged, record: { kind: 'acceptance', subject, verdict: what, note: text, by: author, at, file: staged.file } };
+  } catch (error) {
+    return { ok: false, code: 'graph-pages/write-failed', message: `the product's git holds the acceptances of ${productFolder}, and the ${what === 'accepted' ? 'acceptance' : 'rejection'} of ${subject} could not be written there: ${(error as Error).message}` };
+  }
+}
+
+  /** One product's fill — its wiring and the registry its stages are declared in — or the refusal the service answers a caller with where the host wired none. */
+  async function wiringOf(product: FillProduct): Promise<ProductFill | RefusedFillRun> {
     if (stopped) return { ok: false, code: 'fill-orchestrator/stopped', reason: 'fill-orchestrator: this service was stopped and opens nothing further' };
     if (options.wiring === undefined) {
       return {
@@ -314,17 +464,36 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
         reason: `fill-orchestrator: nothing wires the fill of "${product.name}": give the service a wiring that reads the product's pinned snapshot, its configuration, the graph its units read, and the inputs their facts stand on`,
       };
     }
-    return await options.wiring(product);
+    // The database is opened before the wiring is asked for: a host that builds its stages over the process's
+    // own owner cannot do it any earlier, and the refusal above keeps a service with nothing wired from opening
+    // a database at all.
+    const { owner } = await open();
+    const wired = await options.wiring(product, { owner });
+    return 'registry' in wired ? wired : { registry: options.registry, wiring: wired };
   }
 
+  /**
+   * One orchestrator per product, kept for the life of the service: a run's authority (its cancellation and its
+   * attempts' own aborts) stands in the instance that drives it, and the person's pause or stop must reach that
+   * instance — a second orchestrator built for the same product would cancel the store's rows and abort nothing
+   * (`cancelRun`'s revocation), leaving the work in flight. Building it once also keeps a product's stage registry
+   * and wiring in one place for every run of it.
+   */
+  const orchestrators = new Map<string, FillOrchestrator>();
+  /** The registry each product's orchestrator was built over: what the pages outbox asks for by name. */
+  const registries = new Map<string, StageRegistry>();
+
   async function orchestratorFor(product: FillProduct): Promise<FillOrchestrator | RefusedFillRun> {
+    const held = orchestrators.get(product.name);
+    if (held !== undefined) return held;
     const wired = await wiringOf(product);
     if ('ok' in wired) return wired;
-    const wiring = wired;
+    const { wiring, registry } = wired;
+    registries.set(product.name, registry);
     const { owner, queue } = await open();
-    return createOrchestrator({
+    const built = createOrchestrator({
       database: owner,
-      registry: options.registry,
+      registry,
       queue,
       queueName,
       product: product.name,
@@ -363,6 +532,8 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
       limits,
       ...(options.log === undefined ? {} : { log: options.log }),
     });
+    orchestrators.set(product.name, built);
+    return built;
   }
 
   /** The units' servers: the tokens they were minted, and the sessions those tokens answer for. */
@@ -409,7 +580,7 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
   async function unitSessionFor(request: UnitToolsRequest): Promise<UnitToolSession> {
     const wired = await wiringOf(request.product);
     if ('ok' in wired) throw new Error(`${wired.code}: ${wired.reason}`);
-    const wiring = wired;
+    const wiring = wired.wiring;
     const { owner } = await open();
     const plan = await readUnitPlan(owner, request.unit.unitId, request.unit.generation);
     if (plan === null) {
@@ -424,12 +595,15 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
     const reads = graphReadsOver({
       query: async (text: string) => {
         const rows = await reader.query(text);
-        await recordUnitRead(owner, { unitId: plan.unitId, generation: plan.generation, query: text, rows, at: (options.clock ?? Date.now)() });
+        await recordUnitRead(owner, { unitId: plan.unitId, generation: plan.generation, query: recordedReadText(text), rows, membership: answerMembership(text, rows), at: (options.clock ?? Date.now)() });
         return rows;
       },
     }, request.limits, { run: plan.runId, unit: { unitId: plan.unitId, generation: plan.generation } } satisfies DraftReading);
     const snapshot = await sourceOf(wiring, request.product);
     const scope = writeScope(plan.scope);
+    // The kinds the unit's stage declares are the only kinds its writes may carry (0026, "Writing"): the refusal is
+    // the unit's own tool answering at once, never the publication throwing its whole draft set away.
+    const stage = options.registry.get(plan.stageId);
     return {
       unit: { unitId: plan.unitId, generation: plan.generation },
       reads,
@@ -438,6 +612,8 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
         source: request.source ?? { system: 'madarch-fill-agent', version: runningVersion() },
         layer: request.layer ?? 'inferred',
         scope,
+        stage: plan.stageId,
+        ...(stage === undefined ? {} : { kinds: stage.produces.map((produced) => produced.kind) }),
         snapshot,
         draft: request.draft,
         graph: await writeGraphOf(wiring, request.product, owner),
@@ -460,11 +636,26 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
   /** Every open page channel hears that a publication landed, and nothing kept from before it stands; a listener that fails is its own stream's business. */
   function notifyPages(): void {
     pageCache.drop();
+    wakeChannels();
+  }
+
+  /**
+   * Every open page channel hears that the pages one decision moved are read again, and no
+   * other page's kept answer is dropped: a person's decision changes those pages and only
+   * those (the charter's "only the pages that depend on them are recomputed").
+   */
+  function notifyPagesOf(product: string, pages: readonly string[]): void {
+    pageCache.dropPages(product, pages);
+    wakeChannels();
+  }
+
+  /** Wakes every open stream: the stream reads its product's changes itself, so a wake-up is a hint and never a payload. */
+  function wakeChannels(): void {
     for (const listener of [...pageListeners]) {
       try {
         listener();
       } catch {
-        // A stream that ended between the publication and this call is dropping out of the set itself.
+        // A stream that ended between the change and this call is dropping out of the set itself.
       }
     }
   }
@@ -492,6 +683,53 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
     return read.product.name;
   }
 
+  /**
+   * One person's decision, in the two steps decision 0026 asks for: the words as Markdown in
+   * the product's git (`decisions.ts`), and the graph reading them back at once
+   * (`declared.ts`). The pages the decision moves are the ones the live channel announces, so
+   * a page a person is reading is read again and every other page stands (the charter's "only
+   * the pages that depend on them are recomputed").
+   *
+   * A question the graph does not hold, an empty answer, a refused document and a record the
+   * schema refuses are each answered by name, and a refused graph write removes the document
+   * it had just written: a decision either stands in both the product's git and the graph, or
+   * in neither.
+   */
+  async function decideAbout(productFolder: string, subject: string, what: 'answer' | 'accepted' | 'rejected', words: string, by: string): Promise<GraphDecisionWrite> {
+    // A verdict the wiki does not know is refused here as well as at the route: the service is an interface of its own,
+    // and a decision it cannot read is never written into the product's git.
+    if (what !== 'answer' && what !== 'accepted' && what !== 'rejected') {
+      return { ok: false, code: 'graph-pages/not-a-verdict', message: `the verdict ${JSON.stringify(what)} on ${subject} is no decision: a person accepts a page or rejects it, so the verdict is "accepted" or "rejected"` };
+    }
+    const now = (options.clock ?? Date.now)();
+    const database = await pageDatabase();
+    if (database === undefined) return { ok: false, code: 'graph-pages/no-graph', message: 'this home holds no fill\'s graph yet: a person answers a question and accepts a page once a fill published them' };
+    const product = productNameOf(productFolder);
+    const shown = await readDecisionSubject({ database, product, id: subject, question: what === 'answer' });
+    if (shown.ok === false) return shown;
+    const filed = await fileDecision(productFolder, subject, what, words, by, now, shown.fact);
+    if (filed.ok === false) return filed;
+    try {
+      const applied = await applyDecisions({ database, product, records: [filed.record] });
+      const refused = applied.refusals[0];
+      if (refused !== undefined) {
+        // The graph refused the record, so the product's git keeps the document it held before this decision — which
+        // is the person's earlier answer, not an empty folder.
+        discardDecision(filed.staged);
+        return { ok: false, code: 'graph-pages/refused', message: refused.message, file: refused.file };
+      }
+      // The graph holds the record: the document takes its place in the product's git, whole, in one rename.
+      const file = commitDecision(productFolder, filed.staged);
+      // A person's change is this process's own: it drops the pages the decision moved and wakes the channels, so a
+      // page someone reads is read again and a page the decision did not touch stands as it was.
+      notifyPagesOf(product, applied.pages);
+      return { ok: true, file, pages: applied.pages };
+    } catch (error) {
+      discardDecision(filed.staged);
+      throw error;
+    }
+  }
+
   return {
     pages(folder: string): GraphPagesSource {
       return {
@@ -506,6 +744,8 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
               changeSeq: 0,
               readAt: (options.clock ?? Date.now)(),
               message: emptyPageSetMessage(productNameOf(folder)),
+              questions: emptyQuestionSet(),
+              nextStep: emptyNextStep(productNameOf(folder)),
             };
           }
           const product = productNameOf(folder);
@@ -552,12 +792,87 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
           if (database === undefined) return { changes: [], lastSeq: 0, truncated: false, marker: null };
           return await readPageChanges({ database, product: productNameOf(folder), after });
         },
+        async answer(request: { readonly question: string; readonly answer: string; readonly by: string }): Promise<GraphDecisionWrite> {
+          return await decideAbout(folder, request.question, 'answer', request.answer, request.by);
+        },
+        async decide(request: { readonly page: string; readonly verdict: 'accepted' | 'rejected'; readonly note: string; readonly by: string }): Promise<GraphDecisionWrite> {
+          return await decideAbout(folder, request.page, request.verdict, request.note, request.by);
+        },
         subscribe(listener: () => void): () => void {
           pageListeners.add(listener);
           return () => {
             pageListeners.delete(listener);
           };
         },
+      };
+    },
+    async activity(request: { readonly product: FillProduct }): Promise<FillActivity> {
+      const database = await pageDatabase();
+      if (database === undefined) return { state: 'idle', activeRunId: null, activeRunState: null };
+      const chain = await readChain(database, request.product.name);
+      if (chain === null) return { state: 'idle', activeRunId: null, activeRunState: null };
+      const activeRunId = chain.context.activeRunId ?? null;
+      const active = activeRunId === null ? null : await readRun(database, activeRunId);
+      return { state: chain.state, activeRunId, activeRunState: active?.state ?? null };
+    },
+    async control(request: { readonly productFolder: string; readonly runId: string; readonly action: FillRunControl }): Promise<FillRunControlAnswer | null> {
+      const product: FillProduct = { name: productNameOf(request.productFolder), folder: request.productFolder };
+      const built = await orchestratorFor(product);
+      if ('ok' in built) return { ok: false, code: built.code, reason: built.reason };
+      // A run the store does not hold is the landed fill's, which keeps its own state file: `null` hands the
+      // control to that answer instead of pretending this process lost it.
+      const status = await runStatus(built, request.runId);
+      if (status === null) return null;
+      // A pause is a step only a running run takes: `pauseRun` settles a run it cannot pause and reports it as done,
+      // which would tell the person a control was taken that was not. The state says why instead.
+      if (request.action === 'pause' && status.run.state !== 'running') {
+        return {
+          ok: false,
+          code: 'fill-orchestrator/control-refused',
+          reason: `fill-orchestrator: run "${request.runId}" stands ${status.run.state}, and only a running run takes a pause: nothing was paused`,
+        };
+      }
+      try {
+        const settled = request.action === 'pause'
+          ? await pauseRun(built, { runId: request.runId })
+          : await cancelRun(built, { runId: request.runId, cause: 'stopped from the fill progress panel' });
+        return { ok: true, runId: settled.run.runId, state: settled.run.state };
+      } catch (error) {
+        // The machine's own words: a run that already ended, and one whose state cannot take this step, say which.
+        return { ok: false, code: 'fill-orchestrator/control-refused', reason: (error as Error).message };
+      }
+    },
+    async progress(folder: string): Promise<FillProgressAnswer | null> {
+      const database = await pageDatabase();
+      if (database === undefined) return null;
+      const product = productNameOf(folder);
+      const latest = await readLatestRun(database, product);
+      if (latest === null) return null;
+      const units = await readRunUnits(database, latest.runId);
+      const events = await readProgress(database, latest.runId);
+      return {
+        run: {
+          id: latest.runId,
+          status: latest.state,
+          createdAt: new Date(latest.createdAt).toISOString(),
+          updatedAt: new Date(latest.updatedAt).toISOString(),
+          product,
+        },
+        units: units.map((unit) => ({
+          unitId: unit.unitId,
+          stage: unit.stageId,
+          status: unit.state,
+          generation: unit.generation,
+          attempts: unit.context.attempt,
+        })),
+        events: events.map((event) => ({
+          seq: event.seq,
+          at: new Date(event.at).toISOString(),
+          stage: event.stage,
+          unitId: event.unitId,
+          type: event.kind,
+          summary: event.summary,
+        })),
       };
     },
     async unitTools(request: UnitToolsRequest): Promise<UnitToolsHandle> {
@@ -582,6 +897,21 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
         workers: request.workers ?? options.workers ?? 1,
         ...(request.maxPasses === undefined && options.maxPasses === undefined ? {} : { maxPasses: request.maxPasses ?? options.maxPasses }),
       });
+      // The pages outbox, after the run settled (0027: a separate idempotent step): every page the run's
+      // narrative units published is carried into the product's git here, never inside a publication. A
+      // registry without the pages stage — every run without an agent today — carries nothing, and pays
+      // nothing: the step is not even started.
+      let pages: NarrativeOutboxResult | undefined;
+      const registry = registries.get(request.product.name) ?? options.registry;
+      if (registry.all().some((stage) => stage.id === NARRATIVE_STAGE_ID)) {
+        pages = await commitNarrativePages({
+          database: (await open()).owner,
+          folder: request.product.folder,
+          product: request.product.name,
+          ...(options.clock === undefined ? {} : { clock: options.clock }),
+          ...(options.log === undefined ? {} : { log: options.log }),
+        });
+      }
       const status = await runStatus(orchestrator, request.runId);
       return {
         ok: true,
@@ -594,6 +924,7 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
         units: (status?.units ?? []).map((unit) => ({ unitId: unit.unitId, stageId: unit.stageId, state: unit.state, generation: unit.generation, attempts: unit.attempts })),
         reused,
         foundNothing,
+        ...(pages === undefined ? {} : { pages }),
       };
     },
     async status(request: { readonly product: FillProduct; readonly runId: string }): Promise<RunStatus | null> {
@@ -607,6 +938,7 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
       // A channel's listeners are the server's streams, and this service hears nothing more: the streams end with
       // the server's own connections (its stop closes them), and a stream whose read fails now says so in the log.
       pageListeners.clear();
+      orchestrators.clear();
       // A unit's token is a capability: stopping the service ends every session it minted.
       units.closeAll();
       if (opening === undefined) return;

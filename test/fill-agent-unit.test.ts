@@ -24,6 +24,7 @@ import { createPgBossQueue } from '../src/adapters/pg-boss-queue.js';
 import { createFactStoreSchema, applyPublishedFacts, FACT_APPLICATION, readUnitFacts } from '../src/fill/fact-store.js';
 import { makeEdgeFact, makeNodeFact, repositoryPath, type Fact, type FactProvenance } from '../src/fill/facts.js';
 import { createFactGraphReader, estimateTokens, DEFAULT_GRAPH_READ_LIMITS } from '../src/fill/graph-reads.js';
+import { readPageModel } from '../src/fill/graph-pages.js';
 import { draftSetOf } from '../src/fill/checked-writes.js';
 import { createFillOrchestratorService, type FillOrchestratorService, type ProductFillWiring } from '../src/fill/orchestrator-host.js';
 import {
@@ -40,21 +41,26 @@ import { createStageRegistry } from '../src/fill/stages/index.js';
 import { MEMBER_ESTIMATE_TOKENS } from '../src/fill/agent-packet.js';
 import {
   AGENT_UNIT_STAGE_ID,
-  coveredPlaces,
+  childrenOfPlaces,
+  coveredOf,
   createAgentUnitStage,
   MAX_PLAN_UNITS,
-  placesOfMembers,
+  memberPlaces,
   planUnits,
   readUnitAnswer,
-  splitChildren,
+  type AgentPlace,
 } from '../src/fill/stages/agent-unit.js';
+import { OVERVIEW_STAGE_ID } from '../src/fill/stages/overview.js';
 import { StageRegistry } from '../src/fill/registry.js';
+import { writeScope } from '../src/fill/checked-writes.js';
+import type { UnitPacket } from '../src/fill/agent-packet.js';
 import { DEFAULT_STAGE_DEFAULTS, type FillStage, type StageDraftWrite, type StageGraphReader } from '../src/fill/stage.js';
 import { FACT_KINDS } from '../src/fill/facts.js';
 import { Type } from 'typebox';
 import { createGitSnapshotSource, type RepositoryPin } from '../src/fill/snapshot.js';
 import { createFillStateSchema, createUnit, readRunUnits, readUnit } from '../src/fill/state-store.js';
 import { UNIT_TOOL_PATH } from '../src/fill/unit-tools.js';
+import type { UnitTimers } from '../src/fill/unit-limits.js';
 import { startServer, type StartedServer } from '../src/server/http.js';
 import type { QueueService } from '../src/fill/queue.js';
 
@@ -157,6 +163,10 @@ interface WorldOptions {
   readonly limits?: Parameters<typeof createOrchestrator>[0]['limits'];
   /** Folders the repository holds besides the fixture's three: a scope whose member list a read cannot enumerate. */
   readonly wide?: readonly string[];
+  /** The timers a turn's watch is armed on: a test's fire at once, so the deadline arrives on the clock it moves. */
+  readonly timers?: UnitTimers;
+  /** Facts the graph holds beside the fixture's: a question a test asks the unit to answer, and nothing more. */
+  readonly extraFacts?: readonly Fact[];
 }
 
 async function openWorld(options: WorldOptions): Promise<World> {
@@ -184,7 +194,7 @@ async function openWorld(options: WorldOptions): Promise<World> {
     unit: record0,
     plan: { unitId: 'graph/all', generation: record0.generation, runId: 'run-seed', stageId: 'graph', stageUnitId: 'all', scope: 'all', stagePosition: 0, planPosition: 0, plannedAt: NOW },
     digest: 'graph-publication-1',
-    writes: graph.facts().map((fact) => ({ kind: 'fact' as const, evidence: `${REPOSITORY}@${COMMIT}`, value: fact })),
+    writes: [...graph.facts(), ...options.extraFacts ?? []].map((fact) => ({ kind: 'fact' as const, evidence: `${REPOSITORY}@${COMMIT}`, value: fact })),
   }));
 
   const pins: readonly RepositoryPin[] = [{ id: REPOSITORY, form: 'code', root: join(root!, REPOSITORY), commit: COMMIT }];
@@ -208,6 +218,7 @@ async function openWorld(options: WorldOptions): Promise<World> {
       clock,
       cwd: folder,
       timeouts: { initializeMs: 30_000, sessionMs: 30_000 },
+      ...(options.timers === undefined ? {} : { timers: options.timers }),
     }));
 
   let server: StartedServer | undefined;
@@ -307,6 +318,26 @@ async function planAndAdmit(opened: World): Promise<{ unitId: string; generation
   return { unitId: unit.unitId, generation: unit.generation };
 }
 
+/**
+ * A timers seam that fires the watch as soon as it can: the deadline is the clock's to say, so a test moves that clock
+ * by hand and the wait the watch asked for is never taken. The callback runs once the turn's prompt has gone out,
+ * because a microtask is queued after the synchronous call that writes it.
+ */
+function instantTimers(): { readonly timers: UnitTimers; readonly waits: readonly number[] } {
+  const waits: number[] = [];
+  return {
+    waits,
+    timers: {
+      setTimeout: (callback: () => void, ms: number): unknown => {
+        waits.push(ms);
+        queueMicrotask(callback);
+        return waits.length;
+      },
+      clearTimeout: (): void => undefined,
+    },
+  };
+}
+
 /** The prompt texts the fake agent was sent, in order. */
 function prompts(opened: World): readonly string[] {
   return opened.sent()
@@ -353,9 +384,13 @@ describe('one agent unit, end to end', () => {
       expect(sent[1]).toContain('200000 of its 272000-token window');
       expect(sent[1]).toContain('73.5%');
       // 0026: the agent's own file tools are off and its reads go through the session's server, so the span it read
-      // is a recorded dependency of the unit.
+      // is a recorded dependency of the unit — recorded as its place in the run's pins and the bytes it read, never
+      // by the commit it read them at (0026, "Updates"; madarch-tzte.26.1): a recheck at the run's next pin compares
+      // bytes with bytes, and a commit that leaves the span as it was is no change to this unit.
       const reads = await readUnitReads(opened.owner, unit.unitId, unit.generation);
-      expect(reads.filter((read) => (JSON.parse(read.query) as { read: string }).read === 'span').length).toBe(1);
+      const spans = reads.filter((read) => (JSON.parse(read.query) as { read: string }).read === 'span');
+      expect(spans.map((read) => JSON.parse(read.query))).toEqual([{ read: 'span', repository: REPOSITORY, file: 'a/one.ts', startLine: 1, endLine: 2 }]);
+      expect(spans[0]!.members).toBe(1);
 
       // Its draft set is published in one transaction (0027): the coverage of what it read. A published set is
       // the store's own facts and no second copy of them (madarch-tzte.21.11), so it is read as published facts.
@@ -372,6 +407,64 @@ describe('one agent unit, end to end', () => {
       expect(stored).toBe(1);
       const after = await readRunUnits(opened.owner, RUN);
       expect(after.map((record) => record.state)).toEqual(['published']);
+    } finally {
+      await opened.close();
+    }
+  }, 120_000);
+
+  test('a unit closes a question when it finds the answer with evidence, and the question\'s page shows the answer', async () => {
+    // The self-filling charter's outcome 5: «Открытые вопросы должны закрываться, если агент в процессе нашел ответ».
+    // The graph holds one open question about the first folder; the agent reads the bytes that answer it and writes the
+    // answer as a fact of the schema, cited to the place it read. The question is closed by it — `inferred` and
+    // proposed, because it is the agent's reading (0005) — and its evidence is the span the unit read.
+    const ids = fixture();
+    const question = makeNodeFact({
+      kind: 'question',
+      value: { repository: REPOSITORY, type: 'undocumented-behaviour', about: ids.files[0]!.id, prompt: 'why does the first folder hold one file?' },
+      provenance: provenance('a/one.ts', 1),
+      layer: 'inferred',
+    });
+    const opened = await openWorld({
+      extraFacts: [question],
+      script: {
+        byPrompt: [],
+        steps: [
+          { say: 'reading the scope' },
+          { call: { tool: 'assert_fact', arguments: {
+            kind: 'answer',
+            value: { repository: REPOSITORY, subject: question.id, decision: 'answers', text: 'one.ts is the only entry point the folder has', evidence: `${REPOSITORY}@${COMMIT}:a/one.ts` },
+            place: { repository: REPOSITORY, file: 'a/one.ts', startLine: 1, endLine: 2 },
+          } } },
+          // The unit read the whole scope, so it publishes its set: a unit that leaves places uncovered splits into
+          // children, and what this test holds is the answer it wrote, not its coverage.
+          { answer: { status: 'done', covered: ['a', 'b', 'c'], remaining: [], summary: 'the first folder holds one file, and it is the way in' } },
+        ],
+      },
+    });
+    try {
+      const unit = await planAndAdmit(opened);
+      const worked = await workOnce(opened.orchestrator, { worker: 'w1' });
+      expect(worked.result).toBe('published');
+      expect(worked.unitId).toBe(unit.unitId);
+
+      // The answer is the unit's own fact: the schema's `answer` kind, at the agent's inferred layer, proposed until a
+      // person accepts it (0005), and cited to the bytes the unit read.
+      const published = (await readUnitFacts(opened.owner, unit.unitId)).map((entry) => entry.fact);
+      const answer = published.find((fact) => fact.kind === 'answer') as unknown as { value: { repository: string; subject: string; decision: string; text: string; evidence: string }; layer: string; status: string } | undefined;
+      expect(answer).toBeDefined();
+      expect(answer!.value).toEqual({ repository: REPOSITORY, subject: question.id, decision: 'answers', text: 'one.ts is the only entry point the folder has', evidence: `${REPOSITORY}@${COMMIT}:a/one.ts` });
+      expect(answer!.layer).toBe('inferred');
+      expect(answer!.status).toBe('proposed');
+
+      // And the question's page is closed by it: a reader of the wiki sees the answer, who found it and what it read.
+      const page = await readPageModel({ database: opened.owner, product: PRODUCT, id: question.id });
+      expect(page.ok).toBe(true);
+      if (page.ok === false) throw new Error(page.message);
+      const shown = page.page.answer;
+      expect(shown?.decision).toBe('answers');
+      expect(shown?.text).toBe('one.ts is the only entry point the folder has');
+      expect(shown?.layer).toBe('inferred');
+      expect(shown?.evidence).toBe(`${REPOSITORY}@${COMMIT}:a/one.ts`);
     } finally {
       await opened.close();
     }
@@ -414,8 +507,13 @@ describe('one agent unit, end to end', () => {
       const worked = await workOnce(opened.orchestrator, { worker: 'w1' });
       expect(worked.result).toBe('split');
 
-      // 0026's hard stop: the turn in flight was cancelled through the protocol, after 80% of the window.
-      expect(opened.sent().filter((message) => message['method'] === 'session/cancel').length).toBe(1);
+      // 0026's hard stop: the unit stopped at its context window, and the turn in flight was cancelled. The stop is
+      // read from the run's own progress, because the agent's record cannot be: the connection closes right behind
+      // the cancel, so reading that record would race the SIGTERM. The protocol's cancel, with the order it is sent
+      // in, is asserted where it can be waited for (`test/fill-acp.test.ts`, "a turn the caller bounds").
+      const stopLines = (await readProgress(opened.owner, RUN)).map((event) => event.summary).filter((summary) => summary.includes('stopped at its context window'));
+      expect(stopLines.length).toBe(1);
+      expect(stopLines[0]).toContain('220000 of 272000 tokens');
       expect(prompts(opened)[0]).toContain(`"id": "${ids.repository.id}"`);
 
       // The parent stands waiting for its children, with the places it did not cover as the children's scopes.
@@ -538,6 +636,54 @@ describe('one agent unit, end to end', () => {
     }
   }, 180_000);
 
+  test('a turn in flight that never ends is stopped at 0026\'s ten minutes by the watch, and the unit keeps its coverage', async () => {
+    // The finding this change answers (madarch-tzte.38): `session.prompt` is awaited and the limits are judged at
+    // turn boundaries, so a turn that sends no update and never answers was bounded by no clock the guard could
+    // see. The clock is the seam's and the timers are the test's: ten minutes pass without waiting.
+    let at = NOW;
+    const timers = instantTimers();
+    const opened = await openWorld({
+      // The agent takes the turn and sends nothing at all — no message, no usage, no answer.
+      script: { byPrompt: [], steps: [{ wait: true }] },
+      // Every read of the clock is two and a half minutes later than the one before, so the unit's ten minutes pass
+      // within the turn's own wait and no test sleeps.
+      clock: () => { at += 150_000; return at; },
+      timers: timers.timers,
+      // A clock that jumps two and a half minutes at a time would lapse the orchestrator's own lease: this test
+      // holds the lease still so the limit it measures is the unit's, not the sweep's.
+      limits: { leaseMs: 86_400_000 },
+    });
+    try {
+      const unit = await planAndAdmit(opened);
+      const worked = await workOnce(opened.orchestrator, { worker: 'w1' });
+      // The attempt ends rather than staying inside the await: the unit returns what it has, with its coverage.
+      expect(worked.result).toBe('split');
+      // The turn in flight was armed on a watch of the guard's own clock, and the watch's cause is the guard's:
+      // 0026's ten minutes. Two things are proven elsewhere: the time the watch arms for is asserted in
+      // `test/fill-unit-limits.test.ts`, and the protocol's cancel of a turn that never ends — with the order it is
+      // sent in — in `test/fill-acp.test.ts`. Here the attempt itself ends rather than staying inside the await,
+      // which is this finding's own point, so nothing is read from the agent's record: the connection closes right
+      // behind the cancel and that read would race the kill.
+      expect(timers.waits.length).toBeGreaterThan(0);
+      const stopped = (await readProgress(opened.owner, RUN)).map((event) => event.summary).filter((summary) => summary.includes('stopped at its time limit'));
+      expect(stopped.length).toBe(1);
+      expect(stopped[0]).toContain('of 600 seconds');
+      // Nothing was read, so every place of the scope is a `budget` gap and a child unit's own scope: a silent turn
+      // costs the unit its work and never the graph's account of what nobody read.
+      const draft = await readUnitDraft(opened.owner, unit.unitId, unit.generation);
+      const coverage = draft?.writes.at(-1)?.value as { kind: string; value: { complete: boolean; read: string[]; unread: { what: string; reason: string }[] } };
+      expect(coverage.kind).toBe('coverage');
+      expect(coverage.value.complete).toBe(false);
+      expect(coverage.value.read).toEqual([]);
+      expect(coverage.value.unread).toEqual([{ what: 'a', reason: 'budget' }, { what: 'b', reason: 'budget' }, { what: 'c', reason: 'budget' }]);
+      const children = (await readRunUnits(opened.owner, RUN)).filter((record) => record.unitId !== unit.unitId);
+      expect(children.length).toBe(3);
+      expect(children.every((record) => record.state === 'planned')).toBe(true);
+    } finally {
+      await opened.close();
+    }
+  }, 180_000);
+
   test('an answer that names a place among its remaining covers it no longer, and the place becomes a child', async () => {
     // The unit contract's own words: a `done` answer whose `remaining` is not empty is read as `partial`. The
     // coverage counts `a` and `b` and leaves `c` as a budget gap, and the gap is a child unit's own scope.
@@ -654,17 +800,23 @@ describe('one agent unit, end to end', () => {
 });
 
 
-describe('registering the agent unit stage', () => {
-  test('a run that wires an agent registers the stage; a run that wires none holds no unit that could read nothing', () => {
+describe('registering the agent stages of a run', () => {
+  test('a run that wires an agent registers its agent stages; a run that wires none holds no unit that could read nothing', () => {
     const snapshots = createGitSnapshotSource(() => []);
     // A run with no agent: 0026's agent units are a session with an agent, so a stage registered without one would
-    // plan units that could not run.
+    // plan units that could not run. Since madarch-tzte.24.1 the registry holds the fill's own agent stages (stage 8
+    // today); the generic agent unit of 22.3 is the shape's reference declaration and is no stage of a run, because
+    // it would read the same scopes a second time.
+    expect(createStageRegistry({ snapshots }).all().map((stage) => stage.id)).not.toContain(OVERVIEW_STAGE_ID);
     expect(createStageRegistry({ snapshots }).all().map((stage) => stage.id)).not.toContain(AGENT_UNIT_STAGE_ID);
     const wired = createStageRegistry({ snapshots, agent: { agent: { id: 'fake-agent', command: 'bun' } } });
-    expect(wired.get(AGENT_UNIT_STAGE_ID)?.usesTools).toBe(true);
-    // It declares the kinds 0026's agent units write, each with the schema's own version.
-    expect(wired.get(AGENT_UNIT_STAGE_ID)?.produces.map((produced) => produced.kind)).toEqual(['claim', 'coverage', 'entity-proposal', 'interaction', 'question', 'rule', 'state', 'transition']);
-    expect(wired.get(AGENT_UNIT_STAGE_ID)?.produces.every((produced) => produced.schemaVersion === FACT_KINDS[produced.kind as 'claim'].version)).toBe(true);
+    expect(wired.get(OVERVIEW_STAGE_ID)?.usesTools).toBe(true);
+    expect(wired.get(AGENT_UNIT_STAGE_ID)).toBeUndefined();
+    // Stage 8 writes the overview hypothesis as claims and questions, the answer that closes a question the unit found
+    // the evidence for (madarch-tzte.25.2), and the coverage the shape adds to every agent stage; each kind carries the
+    // schema's own version.
+    expect(wired.get(OVERVIEW_STAGE_ID)?.produces.map((produced) => produced.kind)).toEqual(['answer', 'claim', 'coverage', 'question']);
+    expect(wired.get(OVERVIEW_STAGE_ID)?.produces.every((produced) => produced.schemaVersion === FACT_KINDS[produced.kind as 'claim'].version)).toBe(true);
   });
 });
 
@@ -843,39 +995,58 @@ describe('the unit contract, read', () => {
     expect(readUnitAnswer('{"status":"done","covered":["a",3,{"b":1}],"remaining":[]}')).toEqual({ status: 'done', covered: ['a'], remaining: [] });
   });
 
+  /** One place of the repository's scope, as the shape's place reader hands it to the coverage and the split. */
+  function placeOf(path: string): AgentPlace {
+    return { id: `directory:${path}`, place: path, scope: `acme-shop:${path}`, repository: 'acme-shop', commit: 'a'.repeat(40), estimatedTokens: MEMBER_ESTIMATE_TOKENS };
+  }
+
   test('a place counts as covered only inside the scope, and the answer\'s own `remaining` is a refusal to claim it', () => {
-    const places = ['a', 'b', 'c'];
+    const places = ['a', 'b', 'c'].map(placeOf);
     const cite = (file: string): StageDraftWrite => ({ kind: 'fact', evidence: `acme-shop@${'a'.repeat(40)}:${file}`, value: { kind: 'question', value: { repository: 'acme-shop', type: 'assumption-check', prompt: 'why?' }, provenance: { source: { system: 'test', version: '1' }, repository: { id: 'acme-shop', commit: 'a'.repeat(40) }, place: { file, range: { startLine: 1, startColumn: 0, endLine: 1, endColumn: 1 } } } } });
     // A write inside a place covers that place; a write outside every place covers none; a path named with the
     // repository's prefix is read as its own path.
-    expect(coveredPlaces({ answer: undefined, writes: [cite('a/one.ts')], places, repository: 'acme-shop' })).toEqual(['a']);
-    expect(coveredPlaces({ answer: { status: 'done', covered: ['acme-shop:b', 'elsewhere/x.ts'], remaining: [] }, writes: [], places, repository: 'acme-shop' })).toEqual(['b']);
+    expect(coveredOf({ answer: undefined, writes: [cite('a/one.ts')], places })).toEqual(['a']);
+    expect(coveredOf({ answer: { covered: ['acme-shop:b', 'elsewhere/x.ts'], remaining: [] }, writes: [], places })).toEqual(['b']);
     // The contract's own words: a `done` answer whose `remaining` is not empty is read as `partial`.
-    expect(coveredPlaces({ answer: { status: 'done', covered: ['a', 'b', 'c'], remaining: ['c'] }, writes: [], places, repository: 'acme-shop' })).toEqual(['a', 'b']);
+    expect(coveredOf({ answer: { covered: ['a', 'b', 'c'], remaining: ['c'] }, writes: [], places })).toEqual(['a', 'b']);
     // A place nothing names, and a write that cites nothing, are no cover.
-    expect(coveredPlaces({ answer: undefined, writes: [{ kind: 'fact', evidence: 'x', value: { kind: 'coverage' } }], places, repository: 'acme-shop' })).toEqual([]);
+    expect(coveredOf({ answer: undefined, writes: [{ kind: 'fact', evidence: 'x', value: { kind: 'coverage' } }], places })).toEqual([]);
   });
 
-  test('a split names one child per uncovered place, at most eight, and a place past that bound stays a gap; a scope is never its own child', () => {
-    const members = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'].map((path) => ({ kind: 'directory' as const, label: `acme-shop:${path}/`, id: `directory:${path}`, file: path, place: `acme-shop:${path}` }));
-    const eight = splitChildren({ scope: { repository: 'acme-shop' }, members, remaining: members.map((member) => String(member.file)) });
+  test('a split names one child per uncovered place, at most eight, and a scope is never its own child', () => {
+    const places = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'].map(placeOf);
+    const eight = childrenOfPlaces({ scope: writeScope('acme-shop'), places, covered: [] });
     expect(eight.map((child) => child.scope)).toEqual(['acme-shop:a', 'acme-shop:b', 'acme-shop:c', 'acme-shop:d', 'acme-shop:e', 'acme-shop:f', 'acme-shop:g', 'acme-shop:h']);
     expect(eight.map((child) => child.id)).toEqual(['directory:a', 'directory:b', 'directory:c', 'directory:d', 'directory:e', 'directory:f', 'directory:g', 'directory:h']);
     // Each child is about one member's work, in 0026's own estimate.
     expect(eight.every((child) => child.estimatedTokens === MEMBER_ESTIMATE_TOKENS)).toBe(true);
+    // The places nothing covered are the children; a place a unit covered is no child of it.
+    expect(childrenOfPlaces({ scope: writeScope('acme-shop'), places, covered: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'] }).map((child) => child.scope)).toEqual(['acme-shop:j']);
     // A file's members stand at the file itself: such a place is no child of the scope it names.
-    expect(splitChildren({ scope: { repository: 'acme-shop', path: 'src/order.ts' }, members: [{ kind: 'symbol', label: 'OrderService.total', id: 'symbol:total', file: 'src/order.ts', place: 'acme-shop:src/order.ts' }], remaining: ['src/order.ts'] })).toEqual([]);
-    // A place the member list does not hold has no id to name a child by, and stays a coverage gap.
-    expect(splitChildren({ scope: { repository: 'acme-shop' }, members: [], remaining: ['a'] })).toEqual([]);
+    expect(childrenOfPlaces({ scope: writeScope('acme-shop:src/order.ts'), places: [{ ...placeOf('src/order.ts'), id: 'symbol:total' }], covered: [] })).toEqual([]);
   });
 
-  test('the places one packet\'s member list names are its paths, each once, in code point order', () => {
-    expect(placesOfMembers([
-      { kind: 'file', label: 'acme-shop:src/b.ts', id: 'file:b', file: 'src/b.ts', place: 'acme-shop:src/b.ts' },
-      { kind: 'file', label: 'acme-shop:src/a.ts', id: 'file:a', file: 'src/a.ts', place: 'acme-shop:src/a.ts' },
-      { kind: 'entry-point', label: 'serve', id: 'entry-point:serve', file: 'src/a.ts', place: 'acme-shop:src/a.ts' },
-      { kind: 'module', label: 'checkout', id: 'module:checkout' },
-    ])).toEqual(['src/a.ts', 'src/b.ts']);
-    expect(placesOfMembers([])).toEqual([]);
+  test('the places a packet\'s member list holds are its folders and files, each once, in code point order', () => {
+    const members = [
+      { kind: 'file' as const, label: 'acme-shop:src/b.ts', id: 'file:b', file: 'src/b.ts', place: 'acme-shop:src/b.ts' },
+      { kind: 'file' as const, label: 'acme-shop:src/a.ts', id: 'file:a', file: 'src/a.ts', place: 'acme-shop:src/a.ts' },
+      { kind: 'entry-point' as const, label: 'serve', id: 'entry-point:serve', file: 'src/a.ts', place: 'acme-shop:src/a.ts' },
+      { kind: 'module' as const, label: 'checkout', id: 'module:checkout' },
+    ];
+    const packet = {
+      unit: { id: 'acme-shop:src', scope: 'acme-shop:src' },
+      place: { repository: 'acme-shop', path: 'src', commit: 'a'.repeat(40) },
+      members,
+      membersCut: false,
+    } as unknown as UnitPacket;
+    const places = memberPlaces({ unit: { id: 'acme-shop:src', scope: 'acme-shop:src' }, scope: writeScope('acme-shop:src'), packet, graph: { async query() { return []; } } });
+    // The member that stands at a path names it: the entry point at `src/a.ts` does not take the file's place.
+    expect(places.places.map((place) => [place.place, place.id, place.scope])).toEqual([
+      ['src/a.ts', 'file:a', 'acme-shop:src/a.ts'],
+      ['src/b.ts', 'file:b', 'acme-shop:src/b.ts'],
+    ]);
+    expect(places.cut).toBe(false);
+    // A member list a read cut is no enumeration of the scope: the places say so, and the coverage names the gap.
+    expect(memberPlaces({ unit: { id: 'acme-shop', scope: 'acme-shop' }, scope: writeScope('acme-shop'), packet: { ...packet, membersCut: true } as unknown as UnitPacket, graph: { async query() { return []; } } }).cut).toBe(true);
   });
 });

@@ -11,15 +11,22 @@
  */
 import { StageRegistry } from '../registry.js';
 import type { SnapshotSource } from '../snapshot.js';
-import { createAgentUnitStage, type AgentUnitWiring } from './agent-unit.js';
+import type { AgentStageWiring } from './agent-stage.js';
+import { createBoundariesStage } from './boundaries.js';
 import { createBuildConfigurationStage } from './build-configuration.js';
+import { createDocIntentStage } from './doc-intent.js';
 import { createDocumentIndexStage } from './document-index.js';
 import { createGitHistoryReader, createHistoryStage, type CheckoutFolderOf } from './history.js';
+import { createIntentHistoryStage } from './intent-history.js';
 import { createInventoryStage } from './inventory.js';
 import { createModulesStage } from './modules.js';
+import { createNarrativeStage } from './narrative.js';
+import { createOverviewStage } from './overview.js';
+import { createRecoveryStage } from './recovery.js';
 import { createSemanticResolutionStage } from './semantic-resolution.js';
 import { createSnapshotStage } from './snapshot.js';
 import { createSyntaxStage } from './syntax.js';
+import { createUnderstandingStage } from './understanding.js';
 
 /** What a run's stages read from outside the graph: pinned repositories and their Git checkouts. */
 export interface FillStageWiring {
@@ -33,12 +40,13 @@ export interface FillStageWiring {
    */
   readonly checkoutOf?: CheckoutFolderOf;
   /**
-   * The agent a run's agent units are driven with (decision 0026, madarch-tzte.22.3).
-   * A run that wires none registers no agent unit stage at all, so a product whose
-   * fill has no agent never plans a unit that could read nothing; a run that wires
-   * one registers it beside the deterministic stages.
+   * The agent a run's agent stages are driven with (decision 0026, madarch-tzte.22.3
+   * and 24.1). A run that wires none registers no agent stage at all, so a product
+   * whose fill has no agent never plans a unit that could read nothing; a run that
+   * wires one registers the agent stages of 0026 this build holds beside the
+   * deterministic ones, in stage order.
    */
-  readonly agent?: Omit<AgentUnitWiring, 'snapshots'>;
+  readonly agent?: Omit<AgentStageWiring, 'snapshots'>;
 }
 
 /** The folder a run that wired no Git answers with: no folder, which the history stage refuses by name. */
@@ -63,7 +71,28 @@ export function createStageRegistry(wiring: FillStageWiring): StageRegistry {
     .register(createDocumentIndexStage(wiring.snapshots))
     .register(createHistoryStage(createGitHistoryReader(wiring.checkoutOf ?? noCheckout), wiring.snapshots));
   // The agent stages stand only where the run names the agent they are driven with: an agent unit's whole work is
-  // a session with that agent (0026), and a stage registered without one would plan units that could not run.
-  if (wiring.agent !== undefined) registry.register(createAgentUnitStage({ snapshots: wiring.snapshots, ...wiring.agent }));
+  // a session with that agent (0026), and a stage registered without one would plan units that could not run. They
+  // are registered one per stage of 0026 as each lands (madarch-tzte.24.1 lands stage 8): the landed agent unit of
+  // 22.3 is the shape's own reference declaration (`agent-unit.ts`) and is no stage of a run.
+  // Stage order is 0026's own (8 overview, 9 boundaries, 10 intent from documents, 11 intent from comments and
+  // commits, 12 modules bottom-up), and the graph the declarations
+  // derive decides when each runs — the calls name it only for a reader.
+  if (wiring.agent !== undefined) {
+    const agent = { snapshots: wiring.snapshots, ...wiring.agent };
+    registry.register(createOverviewStage(agent));
+    registry.register(createBoundariesStage(agent));
+    registry.register(createDocIntentStage(agent));
+    registry.register(createIntentHistoryStage(agent));
+    // Stage 12 of 0026 (madarch-tzte.24.5): the modules understood bottom-up, each parent from its children's
+    // bounded summaries, on the agent-stage shape.
+    registry.register(createUnderstandingStage(agent));
+    // Stage 13 of 0026 (madarch-tzte.24.6): the system recovered from every earlier reading and reconciled
+    // with the intended model the product declares, on the agent-stage shape.
+    registry.register(createRecoveryStage(agent));
+    // The pages stage of 0026 (madarch-tzte.25.1): a page's narrative text, each sentence tied to its facts.
+    // It stands last: a page's sentences cite the claims the stages before it wrote, and its own optional
+    // consume of `claim` orders it after this stage's publications.
+    registry.register(createNarrativeStage(agent));
+  }
   return registry;
 }

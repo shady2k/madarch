@@ -1,11 +1,10 @@
-import { afterEach, describe, expect, test } from 'bun:test';
+import { afterAll, afterEach, describe, expect, test } from 'bun:test';
 import type { AsyncQueryDatabase } from '../src/query/types.js';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { startServer, type StartedServer } from '../src/index.js';
+import { createPGliteDatabaseOwner, createPGliteQueryDatabase, startServer, type DatabaseOwner, type StartedServer } from '../src/index.js';
 import { createGraphs } from '../src/server/graphs.js';
-import { createPGliteQueryDatabase } from '../src/adapters/pglite-query-database.js';
 import { createHandler } from '../src/server/http.js';
 import { createSourceStores, type SourceStores } from '../src/server/sources.js';
 import { PGlite } from '@electric-sql/pglite';
@@ -67,6 +66,43 @@ let lines: string[];
 let errors: string[];
 const clockNow = { value: DAY(10) };
 
+/**
+ * The bound of a case that starts a server and sends it a model: the server
+ * keeps each source as a file-backed PGlite of its own (`src/server/sources.ts`)
+ * beside the query projection the case is lent, and one PGlite is 1.66 s to boot
+ * on the 2-CPU pod the tests run on (measured 2026-10-20, madarch-cznn), so a
+ * case here takes 2.3-6 s where a case without a server takes half a second.
+ */
+const SERVER_MS = 15_000;
+
+/**
+ * The file's query database, one PGlite for every case: it holds the graphs'
+ * projection, and each server the cases start is lent a database on it. One
+ * PGlite is 1.66 s to boot on the 2-CPU pod the tests run on (measured
+ * 2026-10-20, madarch-cznn: a bare instance 1.66 s, a schema 0.07 s more), and
+ * a case's own projection is replaced source by source at every rebuild
+ * (`sql-query-database.ts`'s `rebuild` replaces its scoped sources), so no case
+ * reads another case's rows: no case asks a source it did not send or build.
+ * The owner is closed after the file, as decision 0027 says the caller that
+ * opened it does.
+ */
+let sharedQueryOwner: DatabaseOwner | undefined;
+
+/** The file's query owner, opened on the first case that needs it (decision 0027: the caller that opened the owner closes it, never the adapters lent it). */
+function queryOwner(): DatabaseOwner {
+  sharedQueryOwner ??= createPGliteDatabaseOwner({ vector: true });
+  return sharedQueryOwner;
+}
+
+// The bound is named because hooks do not get the preload's default, and
+// closing the file's database is the hook's work: PGlite shutdown under a
+// loaded runner took 5.9 s in CI (run 39415085797, test shard 4), over bun's
+// five.
+afterAll(async () => {
+  await sharedQueryOwner?.close();
+  sharedQueryOwner = undefined;
+}, 30_000);
+
 afterEach(async () => {
   await server?.stop();
   server = undefined;
@@ -78,7 +114,7 @@ afterEach(async () => {
 
 /** Test/local composition explicitly selects PGlite and injects the shared query owner. */
 async function startLocalServer(options: Omit<Parameters<typeof startServer>[0], 'queryDatabase'>): Promise<StartedServer> {
-  return startServer({ ...options, queryDatabase: await createPGliteQueryDatabase({ clock: options.clock }) });
+  return startServer({ ...options, queryDatabase: await createPGliteQueryDatabase({ owner: queryOwner(), clock: options.clock }) });
 }
 
 /** A history-only query owner that fails if a source-history test accidentally starts a graph query. */
@@ -117,8 +153,8 @@ function send(source: string, commit: string, committedAt: string, elements: Rec
 }
 
 describe('server query database owner', () => {
-  test('an invalid startup option closes the injected shared query owner', async () => {
-    const database = await createPGliteQueryDatabase();
+  test('an invalid startup option closes the injected shared query database', async () => {
+    const database = await createPGliteQueryDatabase({ owner: queryOwner() });
     let closed = false;
     const queryDatabase = {
       forSources(sources: readonly string[]) { return database.forSources(sources); },
@@ -128,16 +164,16 @@ describe('server query database owner', () => {
 
     await expect(startServer({ queryDatabase, port: 0 })).rejects.toThrow('neither a data folder nor a product folder');
     expect(closed).toBe(true);
-  });
+  }, SERVER_MS);
 
   test('model routes require an explicitly injected shared query database', async () => {
     folder = mkdtempSync(join(tmpdir(), 'madarch-server-http-no-query-db-'));
     await expect(startServer({ dataFolder: folder, port: 0 })).rejects.toThrow('pass queryDatabase explicitly');
   });
 
-  test('startup validation closes the injected shared query owner', async () => {
+  test('startup validation closes the injected shared query database', async () => {
     folder = mkdtempSync(join(tmpdir(), 'madarch-server-http-invalid-product-'));
-    const database = await createPGliteQueryDatabase();
+    const database = await createPGliteQueryDatabase({ owner: queryOwner() });
     let closed = false;
     const queryDatabase = {
       forSources(sources: readonly string[]) { return database.forSources(sources); },
@@ -149,9 +185,9 @@ describe('server query database owner', () => {
     expect(closed).toBe(true);
   });
 
-  test('model routes use and close the injected shared query owner', async () => {
+  test('model routes use and close the injected shared query database', async () => {
     folder = mkdtempSync(join(tmpdir(), 'madarch-server-http-query-db-'));
-    const database = await createPGliteQueryDatabase();
+    const database = await createPGliteQueryDatabase({ owner: queryOwner() });
     let facadeCount = 0;
     let closeCount = 0;
     const queryDatabase = {
@@ -174,7 +210,7 @@ describe('server query database owner', () => {
     await server.stop();
     server = undefined;
     expect(closeCount).toBe(1);
-  });
+  }, SERVER_MS);
 });
 
 describe('protocol versions', () => {
@@ -415,7 +451,7 @@ describe('two sources that both declare core', () => {
     expect(sources.map((s) => s.source)).toEqual(['github.com/acme/first', 'github.com/acme/second']);
     expect(sources[0]).toEqual({ id: expect.any(String), source: 'github.com/acme/first', commit: 'c1', committedAt: '2026-09-01T12:00:00.000Z', storedAt: '2026-09-10T00:00:00.000Z' });
     expect(sources[1]!.storedAt).toBe('2026-09-10T00:00:00.000Z');
-  });
+  }, SERVER_MS);
 });
 
 describe('source ids', () => {
@@ -431,7 +467,7 @@ describe('source ids', () => {
       expect(each.id).not.toContain(each.source);
     }
     expect(sources[0]!.id).not.toBe(sources[1]!.id);
-  });
+  }, SERVER_MS);
 
   test('a source keeps its id across sends and a restart', async () => {
     await start();
@@ -499,7 +535,7 @@ describe('POST /sources — the rename claim', () => {
     expect(error.message).toContain('github.com/acme/second');
 
     expect((await sourcesOf(await fetch(`${server!.url}/sources`))).map((each) => each.source)).toEqual(['github.com/acme/first', 'github.com/acme/second']);
-  });
+  }, SERVER_MS);
 
   test('a claim repeating the source\'s own name answers already the name and changes nothing', async () => {
     await start();
@@ -512,7 +548,7 @@ describe('POST /sources — the rename claim', () => {
     expect(await response.json()).toEqual({ renamed: false, reason: 'already the name', source: 'shop', id });
 
     expect(await (await fetch(`${server!.url}/sources`)).text()).toBe(before);
-  });
+  }, SERVER_MS);
   test('retrying a rename after its sidecar write failed repairs the sidecar and rebuilds views', async () => {
     await start();
     await send('shop', 'c1', '2026-09-01T12:00:00Z', [element('a')]);
@@ -639,7 +675,7 @@ describe('POST /sources — the rename claim', () => {
       expect(refused.status).toBe(409);
       expect((await errorOf(refused)).message).toContain('"shop"');
     }
-  });
+  }, SERVER_MS);
 
   test('one source renamed several times: every former name explains the rename to the newest', async () => {
     await start();
@@ -654,7 +690,7 @@ describe('POST /sources — the rename claim', () => {
       expect((await errorOf(refused)).message).toContain('"c"');
     }
     expect((await sourcesOf(await fetch(`${server!.url}/sources`))).map((each) => each.source)).toEqual(['c']);
-  });
+  }, SERVER_MS);
 
   test('the rename survives a restart: the new name and the id stay, the old name stays retired', async () => {
     await start(historyOnlyQueryDatabase());
@@ -680,7 +716,7 @@ describe('POST /sources — the rename claim', () => {
     const underOld = await send('shop', 'c2', '2026-09-02T12:00:00Z', [element('b')]);
     expect(underOld.status).toBe(409);
     expect((await errorOf(underOld)).message).toContain('"moved"');
-  });
+  }, SERVER_MS);
 });
 
 describe('unknown paths and methods', () => {
@@ -906,7 +942,7 @@ describe('concurrent model and view requests', () => {
         return stored;
       },
     };
-    const queryDatabase = await createPGliteQueryDatabase();
+    const queryDatabase = await createPGliteQueryDatabase({ owner: queryOwner() });
     const graphs = createGraphs({ historyOf: (source) => realSources.historyOf(source), database: queryDatabase });
     const handler = createHandler({ sources, graphs, log: () => {}, errorLog: () => {} });
     let pendingStore: Promise<Response> | undefined;

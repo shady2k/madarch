@@ -40,6 +40,7 @@
  * Nothing here writes the graph: the only row this module ever writes is the
  * unit's own read record.
  */
+import { canonicalJsonDigest } from '../model/canonical.js';
 import { byCodePoint } from '../model/order.js';
 import { ID_PATTERN } from '../model/schema.js';
 import type { SqlExecutor } from '../query/sql-driver.js';
@@ -58,7 +59,7 @@ import {
 } from './facts.js';
 import { scopeHolds, scopeText, writeScope } from './checked-writes.js';
 import { here, raise, withLocation } from './fsm-core.js';
-import { queryDigest, recordUnitRead, recordUnitReadIn, withDraftParts } from './orchestrator-store.js';
+import { queryDigest, readMembership, recordUnitRead, recordUnitReadIn, withDraftParts } from './orchestrator-store.js';
 import type { SnapshotSource } from './snapshot.js';
 import type { StageDraftWrite } from './stage.js';
 
@@ -155,8 +156,13 @@ export type GraphRead =
    * `<repository>:<path>`); a write that cites no place stands in no scope.
    */
   | { readonly read: 'drafts'; readonly run: string; readonly reader: ReadingUnit; readonly in: string }
-  /** The lines of one file at one pinned commit, from `startLine` to `endLine`, both counted as a reader counts them. */
-  | { readonly read: 'span'; readonly repository: string; readonly commit: string; readonly file: string; readonly startLine: number; readonly endLine: number };
+  /**
+   * The lines of one file at one pinned commit, from `startLine` to `endLine`, both counted as a reader
+   * counts them. A read that names no commit is answered at the run's own pin of that repository, which
+   * is what a recorded span read is replayed as: a unit's cache key holds the bytes it read, never the
+   * commit it read them at (decision 0026, "Updates"; `recordedReadText`).
+   */
+  | { readonly read: 'span'; readonly repository: string; readonly commit?: string; readonly file: string; readonly startLine: number; readonly endLine: number };
 
 /** Every read kind's own name, for a refusal that must name the read it does not know. */
 export const GRAPH_READ_KINDS = ['fact', 'facts', 'adjacent', 'held', 'facts-with', 'drafts', 'span'] as const;
@@ -259,10 +265,13 @@ export function parseGraphRead(text: string): GraphRead | null {
         : { read: 'drafts', run, reader, about: readFactId(about, text) };
     }
     case 'span':
+      // A span names the commit it is read at, or none: none is the run's own pin, which is the form a recorded
+      // span read is replayed in (`recordedReadText`), so a unit's cache key stands on its bytes and not on the
+      // commit those bytes were read at (decision 0026, "Updates").
       return {
         read: 'span',
         repository: readRepository(fields['repository'], text),
-        commit: readCommit(fields['commit'], text),
+        ...(fields['commit'] === undefined ? {} : { commit: readCommit(fields['commit'], text) }),
         file: readFile(fields['file'], text),
         startLine: readLine(fields['startLine'], 'startLine', text),
         endLine: readLine(fields['endLine'], 'endLine', text),
@@ -569,6 +578,14 @@ async function inTransaction<R>(options: FactGraphReaderOptions, work: (executor
   return await options.database.transaction('snapshot', async (executor) => await work(executor));
 }
 
+/**
+ * A read the graph cannot answer as it was asked because nothing stands there any more: the file a span cites is
+ * gone, or shorter than the span's first line. It is the one failure of a read that a recheck reads as the read
+ * having moved (madarch-tzte.26.1): every other failure of a reader — a store error, a statement a stage wrote
+ * wrong — is a failure of the run, never a movement of the graph.
+ */
+export class GraphReadRefusal extends Error {}
+
 /** The row a span read answers: one file's lines at one pinned commit, with the file's own line count. */
 export interface SpanRow {
   readonly repository: string;
@@ -582,19 +599,26 @@ export interface SpanRow {
 }
 
 /**
- * The clause that scopes one store read to a product, and the value it binds: the
- * facts one of that product's units published (`fill_fact_holding` joined onto
- * `fill_unit.product`). A read that names no product is answered from the whole
- * store, which is what a unit's own graph is — one run's product — and what every
- * read before this field existed was.
+ * The clause that scopes one statement to a product, and the value it binds: the
+ * facts a unit of that product published (`fill_fact_holding` joined onto
+ * `fill_unit.product`) and the records the product itself holds, which are a person's
+ * own words written through the wiki (the holding's `product` column, `declared.ts`).
+ * `fact` is the name the statement gives the fact row it scopes. A read that names no
+ * product is answered from the whole store, which is what a unit's own graph is — one
+ * run's product — and what every read before this field existed was.
  */
-function productScope(product: string | undefined, parameter: number): { readonly sql: string; readonly values: readonly string[] } {
+export function productScopeSql(product: string | undefined, parameter: number, fact = 'f'): { readonly sql: string; readonly values: readonly string[] } {
   if (product === undefined) return { sql: '', values: [] };
   if (product.trim() === '') raise(`${here()}: a read of the store names the product "" to scope its facts: a product is named by the name its runs give it (src/fill/orchestrator-host.ts)`);
   return {
-    sql: ` AND EXISTS (SELECT 1 FROM fill_fact_holding h JOIN fill_unit u ON u.unit_id = h.unit_id WHERE h.id = f.id AND u.product = $${parameter})`,
+    sql: ` AND EXISTS (SELECT 1 FROM fill_fact_holding h LEFT JOIN fill_unit u ON u.unit_id = h.unit_id WHERE h.id = ${fact}.id AND (u.product = $${parameter} OR h.product = $${parameter}))`,
     values: [product],
   };
+}
+
+/** The clause that scopes one store read to a product: `productScopeSql`'s own, under the name the reads use. */
+function productScope(product: string | undefined, parameter: number): { readonly sql: string; readonly values: readonly string[] } {
+  return productScopeSql(product, parameter);
 }
 
 /**
@@ -649,7 +673,7 @@ export async function answerGraphRead(options: FactGraphReaderOptions, request: 
         const fromEnd = endJoin('value->>\'from\'', request.via, 3 + toEnd.values.length);
         // The edges counted are the ones this product's units published, when the read names a product: a scope's
         // contents are that product's graph, never a home's.
-        const edgeScope = request.product === undefined ? '' : ` AND EXISTS (SELECT 1 FROM fill_fact_holding h JOIN fill_unit u ON u.unit_id = h.unit_id WHERE h.id = e.id AND u.product = $${3 + toEnd.values.length + fromEnd.values.length})`;
+        const edgeScope = request.product === undefined ? '' : ` AND EXISTS (SELECT 1 FROM fill_fact_holding h LEFT JOIN fill_unit u ON u.unit_id = h.unit_id WHERE h.id = e.id AND (u.product = $${3 + toEnd.values.length + fromEnd.values.length} OR h.product = $${3 + toEnd.values.length + fromEnd.values.length}))`;
         const rows = await inTransaction(options, async (executor) => (await executor.query(
           `SELECT n.kind AS kind, count(*)::int AS count FROM fill_fact e JOIN fill_fact n ON n.id = ${toEnd.sql} WHERE e.kind = ANY($1::text[]) AND ${fromEnd.sql} = $2${edgeScope} GROUP BY n.kind`,
           [request.via, request.id, ...toEnd.values, ...fromEnd.values, ...scope.values.length === 0 ? [] : [request.product]],
@@ -772,17 +796,85 @@ function endContainedIn(group: AdjacencyGroup, id: string): string {
 async function spanRow(options: FactGraphReaderOptions, request: Extract<GraphRead, { read: 'span' }>, at: string): Promise<SpanRow> {
   if (request.endLine < request.startLine) raise(`${at}: the read ${describedRead(request)} asks for the lines ${request.startLine} to ${request.endLine} of ${request.file}: a span starts at a line and ends at that line or a later one`);
   const reader = await options.snapshot.open(request.repository);
-  if (reader.commit !== request.commit) {
+  if (request.commit !== undefined && reader.commit !== request.commit) {
     raise(`${at}: the read ${describedRead(request)} pins ${request.file} at ${request.commit}, and the repository "${request.repository}" is pinned at ${reader.commit}: an evidence span is read at the commit of the run's pin`);
   }
+  // A read that named no commit asks for the run's own pin (`GraphRead`'s span), which is the form a recorded
+  // span read is replayed in: a unit's cache key holds the bytes it read, never the commit they were read at.
+  const commit = request.commit ?? reader.commit;
   const lines = linesOf(await reader.readText(request.file));
   if (request.startLine > lines.length) {
-    raise(`${at}: the read ${describedRead(request)} asks for line ${request.startLine} of ${request.file} at ${request.commit} in the repository "${request.repository}", and that file has ${lines.length} ${lines.length === 1 ? 'line' : 'lines'}: a span cites lines the file holds (the path read here is ${request.file})`);
+    throw new GraphReadRefusal(`${at}: the read ${describedRead(request)} asks for line ${request.startLine} of ${request.file} at ${commit} in the repository "${request.repository}", and that file has ${lines.length} ${lines.length === 1 ? 'line' : 'lines'}: a span cites lines the file holds (the path read here is ${request.file})`);
   }
   const end = Math.min(request.endLine, lines.length);
   const held: { line: number; text: string }[] = [];
   for (let line = request.startLine; line <= end; line += 1) held.push({ line, text: lines[line - 1] ?? '' });
-  return { repository: request.repository, commit: reader.commit, file: request.file, startLine: request.startLine, endLine: end, totalLines: lines.length, lines: held };
+  return { repository: request.repository, commit, file: request.file, startLine: request.startLine, endLine: end, totalLines: lines.length, lines: held };
+}
+
+/**
+ * The membership a span read's answer stands under: the bytes it read — the
+ * repository, the file, the lines and their text — and never the commit those
+ * bytes were read at (decision 0026, "Updates"). A unit's cache key holds "the
+ * spans it read"; a commit that leaves the bytes of a span as they were is no
+ * change to a unit that read them, and a membership that carried the commit
+ * would call every span read of every unit moved on every commit.
+ */
+export function spanMembership(rows: readonly unknown[]): string {
+  const row = rows.length === 1 ? rows[0] : undefined;
+  if (row === null || typeof row !== 'object' || Array.isArray(row)) raise(`${here()}: a span read answered ${rows.length} ${rows.length === 1 ? 'row' : 'rows'} and its first is no span: a span read answers the one span row of the lines it read`);
+  const fields = row as Record<string, unknown>;
+  const { repository, file, startLine, endLine, lines } = fields;
+  if (typeof repository !== 'string' || typeof file !== 'string' || typeof startLine !== 'number' || typeof endLine !== 'number' || !Array.isArray(lines)) {
+    raise(`${here()}: a span read answered ${JSON.stringify(row)}, which is no span row: a span row names the repository, the file, the first and the last line and the lines it holds`);
+  }
+  return canonicalJsonDigest({ repository, file, startLine, endLine, lines });
+}
+
+/**
+ * The text one read is recorded under, as the dependency a recheck replays: a span
+ * read is recorded by its place in the run's pins — the repository, the file and the
+ * lines — and never by the commit it was read at, so a recheck at the run's next pin
+ * compares bytes with bytes (`spanMembership`). Every other read is recorded as the
+ * canonical text it asked for, which is the text the reader is given back.
+ */
+export function recordedReadText(text: string): string {
+  const request = readOf(text);
+  if (request === null) return text;
+  if (request.read !== 'span') return readText(request);
+  return readText({ read: 'span', repository: request.repository, file: request.file, startLine: request.startLine, endLine: request.endLine });
+}
+
+/**
+ * The read one text names, or null where it is no read of this grammar: a stage's own named read
+ * (`src/fill/stage-reads.ts`) and its own SQL are answered by other readers, and a text this module does
+ * not know is recorded as it stands rather than refused by a recorder that was only asking what it was.
+ */
+function readOf(text: string): GraphRead | null {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith('{')) return null;
+  let value: unknown;
+  try {
+    value = JSON.parse(trimmed);
+  } catch {
+    return null;
+  }
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+  const kind = (value as Record<string, unknown>)['read'];
+  if ((GRAPH_READ_KINDS as readonly unknown[]).includes(kind) === false) return null;
+  return parseGraphRead(text);
+}
+
+/**
+ * The membership one read's answer stands under: a span's bytes (`spanMembership`),
+ * every other read's rows (`readMembership`, the digest of the rows in a canonical
+ * order, an empty answer included). Recording and rechecking both take it here, so a
+ * read is compared with itself and never with a second reading of what it answered.
+ */
+export function answerMembership(text: string, rows: readonly unknown[]): string {
+  const request = readOf(text);
+  if (request !== null && request.read === 'span') return spanMembership(rows);
+  return readMembership(rows);
 }
 
 /**
@@ -851,7 +943,8 @@ export function createGraphReadContext(options: FactGraphReadsOptions): GraphRea
     ...(options.drafts === undefined ? {} : { drafts: options.drafts }),
     async read(request: GraphRead): Promise<readonly unknown[]> {
       const rows = await answerGraphRead(options, request);
-      const record = { unitId: unit.unitId, generation: unit.generation, query: readText(request), rows, at: (options.clock ?? Date.now)() };
+      const text = readText(request);
+      const record = { unitId: unit.unitId, generation: unit.generation, query: recordedReadText(text), rows, membership: answerMembership(text, rows), at: (options.clock ?? Date.now)() };
       if (options.executor !== undefined) await recordUnitReadIn(options.executor, record);
       else await recordUnitRead(options.database, record);
       return rows;
@@ -1246,6 +1339,8 @@ export function labelOf(fact: Fact): string {
       return `coverage of ${text('scope') ?? ''}`;
     case 'question':
       return labelled(text('prompt') ?? fact.id);
+    case 'answer':
+      return labelled(text('text') ?? fact.id);
     default:
       return fact.kind;
   }

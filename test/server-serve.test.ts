@@ -6,6 +6,14 @@ import { fileURLToPath } from 'node:url';
 
 const SERVE = fileURLToPath(new URL('../scripts/serve.ts', import.meta.url));
 
+/**
+ * The bound of the one case here that runs the server itself: it starts
+ * `scripts/serve.ts` as a real process, waits for its line, sends a model and
+ * asks a view (4.33 s on GitHub's runners, 2026-10-20). Every other case in this
+ * file only asks the command line for a refusal and ends in under half a second.
+ */
+const RUNS_THE_SERVER_MS = 20_000;
+
 let folder: string | undefined;
 const running: ReturnType<typeof Bun.spawn>[] = [];
 
@@ -123,5 +131,5 @@ describe('the server command line', () => {
       proc.kill();
       await proc.exited;
     }
-  });
+  }, RUNS_THE_SERVER_MS);
 });

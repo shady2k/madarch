@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { afterAll, describe, expect, test } from 'bun:test';
 import { buildTestViewSet, createTestQueryEngine } from './query-test-engine.js';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -37,8 +37,53 @@ const AT = { valid: DAY(2), known: DAY(2) };
 
 interface Built {
   engine: AsyncQueryEngine;
-  history: HistoryStore;
   model: CompiledModel;
+}
+
+/**
+ * The bound of the hook that closes the file's databases: hooks do not get the
+ * preload's default, and PGlite shutdown under a loaded runner took 5.9 s in CI
+ * (run 39415085797, test shard 4), over bun's five.
+ */
+const HOOK_CLOSE_MS = 30_000;
+
+/**
+ * One history per fixture, opened the first time a case builds that fixture and
+ * kept for the file: a case still stores its own fixture and rebuilds the query
+ * engine from that history alone, so the cases stay independent, and what goes
+ * away is a PGlite boot per case (1.66 s on the 2-CPU pod the tests run on,
+ * measured 2026-10-20, madarch-cznn). Two fixtures cannot share one history:
+ * the store refuses two sources declaring the same element id, and these
+ * fixtures all hold the reference system's `shop`.
+ */
+const fileHistories = new Map<string, HistoryStore>();
+
+/**
+ * How many fixture histories stay open. The pod the tests run on has 4 GB, and
+ * eight open PGlite databases are enough to be killed for memory (measured
+ * 2026-10-20, madarch-cznn: `bun test test/views.test.ts` exited 137 with all
+ * its cases passed). Two keep the cases of one fixture cheap, which is how they
+ * are grouped, and bound the memory.
+ */
+const OPEN_FIXTURES = 2;
+
+afterAll(async () => {
+  for (const history of fileHistories.values()) await history.close();
+  fileHistories.clear();
+}, HOOK_CLOSE_MS);
+
+async function historyFor(name: string): Promise<HistoryStore> {
+  const held = fileHistories.get(name);
+  if (held !== undefined) return held;
+  const history = createPGliteHistory({ clock: fakeClock(DAY(1)) });
+  fileHistories.set(name, history);
+  const oldest = fileHistories.keys().next().value;
+  if (fileHistories.size > OPEN_FIXTURES && oldest !== undefined) {
+    const dropped = fileHistories.get(oldest)!;
+    fileHistories.delete(oldest);
+    await dropped.close();
+  }
+  return history;
 }
 
 /** Loads and compiles one fixture, stores it as one version, and builds a query engine from that history. */
@@ -46,16 +91,15 @@ async function build(name: string): Promise<Built> {
   const { model, errors } = loadModel(fixture(name));
   expect(errors).toEqual([]);
   const compiled = compileModel(model!);
-  const history = createPGliteHistory({ clock: fakeClock(DAY(1)) });
+  const history = await historyFor(name);
   expect((await history.store({ source: 's', commit: name, committedAt: DAY(1), model: compiled })).errors).toEqual([]);
   const engine = await createTestQueryEngine();
   await engine.rebuild(await history.assertions());
-  return { engine, history, model: compiled };
+  return { engine, model: compiled };
 }
 
 async function close(built: Built): Promise<void> {
   await await built.engine.close();
-  await built.history.close();
 }
 
 async function viewsOf(name: string): Promise<View[]> {
@@ -744,13 +788,15 @@ describe('views/labels for a topic or queue', async () => {
     const compiled = compileModel(model!);
     const restock = compiled.relations.find((relation) => relation.id === 'inventory-asks-restock')!;
     restock.action = 'receive';
-    const history = createPGliteHistory({ clock: fakeClock(DAY(1)) });
+    // A variant of `views-events` is a fixture of its own: one history per
+    // fixture, and a second version of the same source at the same moment would
+    // close the first.
+    const history = await historyFor('views-events:receive');
     expect((await history.store({ source: 's', commit: 'receive', committedAt: DAY(1), model: compiled })).errors).toEqual([]);
     const engine = await createTestQueryEngine();
     await engine.rebuild(await history.assertions());
     const { views } = await buildTestViewSet(engine, compiled, AT);
     await engine.close();
-    await history.close();
 
     expect(viewOf(views!, undefined).arrows.find((arrow) => arrow.to === 'jobs')?.names).toEqual(['receives from restock: asks for restock']);
   });

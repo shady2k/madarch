@@ -47,16 +47,20 @@
  */
 import { byCodePoint } from '../model/order.js';
 import type { SqlExecutor } from '../query/sql-driver.js';
+import type { FactGraphReaderOptions } from './graph-reads.js';
 import { factsOfWrites, type FactStoreDatabase } from './fact-store.js';
 import {
   FACT_EDGE_KINDS,
+  FACT_ID_PATTERN,
   isFactId,
   isFactKind,
+  type AnswerDecision,
   type FactEdgeKind,
   type Fact,
   type FactKind,
   type FactLayer,
   type FactStatus,
+  type NarrativeValue,
 } from './facts.js';
 import type { GraphDiagramsRead } from './graph-diagrams.js';
 import {
@@ -69,6 +73,7 @@ import {
   estimateTokens,
   graphReadLimits,
   labelOf,
+  productScopeSql,
   nodeRefOf,
   type CoverageRow,
   type DraftRow,
@@ -78,7 +83,10 @@ import {
   type GraphReadLimits,
   type GraphSnapshotSource,
 } from './graph-reads.js';
+import { narrativePagePath } from './narrative-text.js';
 import { here, raise, withLocation } from './fsm-core.js';
+import { pageNextStep, productNextStep, type GraphNextStep, type RankedQuestion, type StepNode } from './next-step.js';
+import { byQuestionRank, questionGroupOrder } from './question-types.js';
 import { withDraftParts } from './orchestrator-store.js';
 import type { StageDraftWrite } from './stage.js';
 
@@ -106,6 +114,12 @@ import { PAGE_KINDS, isPageId, isPageKind, namesFactId, pageAddress } from './pa
  */
 export const PAGE_LIST_TOKENS = 32_000;
 
+/**
+ * The address the graph's index stands at, as the wiki app routes it (`GRAPH_INDEX_ADDRESS`,
+ * `wiki/app/src/routes.ts`): the product's own page, where its next step is shown.
+ */
+export const GRAPH_INDEX_ADDRESS = '/p/graph';
+
 /** The most page changes one notification's answer holds; a reader past it is told so (see `readPageChanges`). */
 export const PAGE_CHANGES_PER_ANSWER = 500;
 
@@ -117,6 +131,15 @@ export const PAGE_CHANGES_PER_ANSWER = 500;
  */
 const NO_SPANS: GraphSnapshotSource = {
   open: async (repository: string): Promise<never> => raise(`${here()}: the page of a graph node reads no bytes: a page's code link is the fact's own provenance, so the snapshot of "${repository}" is not opened`),
+};
+
+/**
+ * The database a read that already holds an executor names: `answerGraphRead` runs inside the transaction the
+ * caller lent it (`FactGraphReaderOptions.executor`) and never opens one of its own, so a read of a question set is
+ * one transaction of the page it is part of.
+ */
+const LENT_DATABASE: FactStoreDatabase = {
+  transaction: async () => raise(`${here()}: a graph read inside a transaction that was lent an executor opened one of its own: every read of a page stands in the page's transaction (src/fill/graph-reads.ts)`),
 };
 
 /** The caps a page's reads answer within: the page's own, unless a caller names others. */
@@ -257,10 +280,38 @@ export interface GraphRelation {
   readonly end?: string;
 }
 
-/** One open question on a page: the question fact's own words and the place it was raised from. */
+/** One answer the graph records: what closed a question, or what a person decided about a page. */
+export interface GraphAnswerRecord {
+  readonly id: string;
+  /** What it does: closes the question it names (`answers`), or settles what a page proposes. */
+  readonly decision: AnswerDecision;
+  /** The answer or the note, as it was written. */
+  readonly text: string;
+  /** `declared` for a person's own words, `inferred` for an agent's finding (decision 0005). */
+  readonly layer: FactLayer;
+  readonly status: FactStatus;
+  /** Who wrote it: the reader that found it (`madarch-fill-agent`), or the person the wiki records. */
+  readonly by: string;
+  /** What an agent's answer read, when it came with evidence: `repository@commit:path`. */
+  readonly evidence?: string;
+  readonly code?: GraphCodeLink;
+}
+
+/**
+ * One question on a page: the question fact's own words, the place it was raised
+ * from, what depends on the answer, and the answer that closed it.
+ *
+ * **What depends on it.** The charter (outcome 5) makes every question name what
+ * depends on it and ranks the question by that. The graph's own answer is the pages a
+ * reading of the answer would change: the node the question is about, and the
+ * page-worthy nodes its edges name at either end — the same relations the page shows,
+ * read once per page. `dependsOn` is that list, the subject first, and `rank` is its
+ * size, so the question about a node ten modules depend on stands above the one about a
+ * leaf.
+ */
 export interface GraphQuestion {
   readonly id: string;
-  /** The kind of question (`assumption-check`, `contradiction`, `unverifiable`). */
+  /** The kind of question: the charter's own token (`meaning`, `contradiction`, `unverifiable`), or the one an agent invented. */
   readonly type: string;
   /** What it is about, as the question names it: a fact id, or a scope. */
   readonly about?: string;
@@ -269,6 +320,14 @@ export interface GraphQuestion {
   readonly layer: FactLayer;
   readonly status: FactStatus;
   readonly code?: GraphCodeLink;
+  /** The pages that depend on the answer, the question's subject first, in code point order of the label and the id. */
+  readonly dependsOn: readonly GraphNodeRef[];
+  /** How many pages depend on the answer: `dependsOn`'s own size. */
+  readonly rank: number;
+  /** The answer that closed the question, or null while it is open. */
+  readonly answer: GraphAnswerRecord | null;
+  /** Whether the question still waits for an answer: an answered question is never open, whoever answered it. */
+  readonly open: boolean;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -301,6 +360,118 @@ export interface GraphPageSetAnswer {
   readonly readAt: number;
   /** What to do when the set is empty (0026: an empty graph answers a message, never an error); null when it holds a page. */
   readonly message: string | null;
+  /** The product's open questions, grouped by the charter's types and ranked by what depends on the answer. */
+  readonly questions: GraphQuestionSetAnswer;
+  /** What to do next with the product: the charter's order, its open questions first (see `next-step.ts`). */
+  readonly nextStep: GraphNextStep;
+}
+
+/**
+ * One group of the product's questions: the charter's own type, or the one an agent
+ * invented, and the questions of it in rank order.
+ */
+export interface GraphQuestionGroup {
+  readonly type: string;
+  readonly questions: readonly GraphQuestion[];
+}
+
+/**
+ * A product's questions, whole: the groups by the charter's types (the eight first, in
+ * the charter's order, then any other type an agent wrote), how many are open and
+ * answered, and what a bound cut.
+ */
+export interface GraphQuestionSetAnswer {
+  readonly groups: readonly GraphQuestionGroup[];
+  /** The questions no answer closed, in the whole set's rank order. */
+  readonly open: number;
+  /** The questions an answer closed, whoever answered them. */
+  readonly answered: number;
+  readonly total: number;
+  readonly truncated: boolean;
+  readonly marker: string | null;
+}
+
+/** The most distinct nodes a question set ranks in one read: each rank is a read of that node's edges. */
+export const QUESTIONS_RANKED = 200;
+
+/** The facts of one kind a product holds, in code point order of the id: the read a question set is built from. */
+async function factsOfKindIn(executor: SqlExecutor, product: string, kind: FactKind): Promise<readonly Fact[]> {
+  const scope = productScopeSql(product, 2);
+  const rows = (await executor.query<Record<string, unknown>>(
+    `SELECT f.id, f.kind, f.schema_version, f.provenance, f.layer, f.status, f.value FROM fill_fact f WHERE f.kind = $1${scope.sql} ORDER BY f.id ASC`,
+    [kind, ...scope.values],
+  )).rows;
+  return factsOfRows(rows, { read: 'facts', ids: rows.map((row) => String(row['id'])) });
+}
+
+/**
+ * A product's questions, grouped by the charter's types and ranked by what depends on
+ * the answer (the self-filling charter's outcome 5; decision 0026, "Writing").
+ *
+ * The read is three narrow ones and, per distinct node a question is about, a read of
+ * that node's edges: the questions of the product, the answers that closed them, and the
+ * pages an answer would change (`dependsOn`). Nodes past `QUESTIONS_RANKED` are left
+ * unranked and the answer says so — a question is never dropped, and a rank is never
+ * invented for one the read did not measure.
+ */
+export async function readProductQuestions(options: {
+  readonly executor: SqlExecutor;
+  readonly product: string;
+  readonly limits?: Partial<GraphReadLimits>;
+}): Promise<GraphQuestionSetAnswer> {
+  const at = here();
+  const limits = pageLimits(options.limits);
+  const questionFacts = await factsOfKindIn(options.executor, options.product, 'question');
+  const answerFacts = (await factsOfKindIn(options.executor, options.product, 'answer')).filter((fact) => (fact.value as unknown as Record<string, unknown>)['decision'] === 'answers');
+  const answers = answersBySubject(answerFacts);
+  const abouts = [...new Set(questionFacts.map((fact) => (fact.value as unknown as Record<string, unknown>)['about']).filter((about): about is string => typeof about === 'string' && isPageId(about)))].sort(byCodePoint);
+  const ranked = abouts.slice(0, QUESTIONS_RANKED);
+  const refs = new Map<string, GraphNodeRef>();
+  const dependents = new Map<string, readonly GraphNodeRef[]>();
+  // One read of one node's edges and one of the nodes they name, per distinct node a question is about: the pages an
+  // answer would change are that node's relations, and the reads are the graph's own (`graph-reads.ts`), so a
+  // question set ranks by the same rule a page does.
+  const reader: FactGraphReaderOptions = { database: LENT_DATABASE, snapshot: NO_SPANS, executor: options.executor };
+  for (const about of ranked) {
+    const edgesRead: GraphRead = { read: 'adjacent', id: about, kinds: FACT_EDGE_KINDS, product: options.product };
+    const edges = factsOfRows(await answerGraphRead(reader, edgesRead), edgesRead);
+    const ids = new Set<string>([about]);
+    for (const edge of edges) {
+      const pair = endsOf(edge.kind as FactEdgeKind, edge.value);
+      for (const end of [pair.from, pair.to]) if (end !== undefined && isPageId(end)) ids.add(end);
+    }
+    const nodesRead: GraphRead = { read: 'facts', ids: [...ids].sort(byCodePoint), product: options.product };
+    for (const fact of factsOfRows(await answerGraphRead(reader, nodesRead), nodesRead)) refs.set(fact.id, nodeRefOf(fact));
+    const subject = refs.get(about) ?? { id: about, kind: null, label: about };
+    const ends = [...ids].filter((id) => id !== about).sort(byCodePoint).map((id) => pageRefOf(refs.get(id) ?? { id, kind: null, label: id }));
+    dependents.set(about, [pageRefOf(subject), ...ends]);
+  }
+  const questions = questionFacts.map((fact) => {
+    const about = (fact.value as unknown as Record<string, unknown>)['about'];
+    const held = typeof about === 'string' ? dependents.get(about) : undefined;
+    return questionShown(fact, held ?? [], answers);
+  });
+  const open = questions.filter((question) => question.open).sort(byQuestionRank);
+  const answered = questions.filter((question) => question.open === false).sort(byQuestionRank);
+  const ordered = [...open, ...answered];
+  const groups: GraphQuestionGroup[] = [];
+  for (const type of questionGroupOrder(ordered.map((question) => question.type))) {
+    groups.push({ type, questions: ordered.filter((question) => question.type === type) });
+  }
+  const held = bounded(ordered, limits, `the ${String(ordered.length)} questions the product asks`, limits.answerTokens);
+  const cut: string[] = [];
+  if (held.rows.length < ordered.length) cut.push(held.marker ?? `the question set was cut`);
+  if (abouts.length > ranked.length) cut.push(`${String(abouts.length - ranked.length)} of the ${String(abouts.length)} nodes the questions are about were not ranked (the read ranks ${String(QUESTIONS_RANKED)}): their questions stand last in their group, unranked`);
+  const kept = new Set(held.rows.map((question) => question.id));
+  const groupsHeld: GraphQuestionGroup[] = groups.map((group) => ({ type: group.type, questions: group.questions.filter((question) => kept.has(question.id)) })).filter((group) => group.questions.length > 0);
+  return {
+    groups: groupsHeld,
+    open: open.filter((question) => kept.has(question.id)).length,
+    answered: answered.filter((question) => kept.has(question.id)).length,
+    total: ordered.filter((question) => kept.has(question.id)).length,
+    truncated: cut.length > 0,
+    marker: cut.length === 0 ? null : cut.join('; '),
+  };
 }
 
 /**
@@ -310,6 +481,16 @@ export interface GraphPageSetAnswer {
  */
 export function emptyPageSetMessage(product: string): string {
   return `the fill has published no page-worthy node for the product "${product}" yet: the pages are drawn from the graph a fill run writes, and they appear as its units publish`;
+}
+
+/** The question set of a product that published none: no group, no count, nothing cut. */
+export function emptyQuestionSet(): GraphQuestionSetAnswer {
+  return { groups: [], open: 0, answered: 0, total: 0, truncated: false, marker: null };
+}
+
+/** The step of a product nothing is published for: the fill writes the pages, so there is nothing to do on one yet. */
+export function emptyNextStep(product: string): GraphNextStep {
+  return { rule: 'nothing-to-do', target: GRAPH_INDEX_ADDRESS, node: { id: product, kind: null, label: product }, reason: 'the fill has published nothing for this product yet: its questions and its coverage appear as its units publish, and a page recommends a step once the graph holds one' };
 }
 
 /** The message a server that holds no fill's graph gives instead of an empty set. */
@@ -362,7 +543,7 @@ export const PAGE_SET_FETCH = 1_000;
  * page-worthy facts themselves are read by their kind and then by their id
  * (`PAGE_SET_KINDS_SQL`, `PAGE_SET_FETCH`).
  */
-export async function readPageSet(options: { readonly database: FactStoreDatabase; readonly product: string; readonly folder: string; readonly at?: number }): Promise<GraphPageSetAnswer> {
+export async function readPageSet(options: { readonly database: FactStoreDatabase; readonly product: string; readonly folder: string; readonly at?: number; readonly limits?: Partial<GraphReadLimits> }): Promise<GraphPageSetAnswer> {
   const at = here();
   const readAt = options.at ?? Date.now();
   return await pageTransaction(at, options.database, `readPageSet(${options.product})`, ['fill_fact', 'fill_fact_holding', 'fill_unit', 'fill_page_change'], async (executor) => {
@@ -388,6 +569,26 @@ export async function readPageSet(options: { readonly database: FactStoreDatabas
       else counts.push({ kind: page.kind, count: 1 });
     }
     const changeSeq = await latestPageChangeIn(executor, options.product);
+    // The product's own next step (the charter's outcome 5): its most asked open question, else the most important
+    // node no complete coverage reached. The questions are the set's own read (one narrow read per kind and one per
+    // node a question is about), and the coverage the one read below says which scopes stand covered.
+    const questions = await readProductQuestions({ executor, product: options.product, limits: pageLimits(options.limits) });
+    const coveredScopes = new Set((await executor.query<{ scope: string }>(
+      `SELECT DISTINCT f.value->>'scope' AS scope FROM fill_fact f WHERE f.kind = 'coverage' AND f.value->>'complete' = 'true'${productScopeSql(options.product, 1).sql}`,
+      [options.product],
+    )).rows.map((row) => row.scope));
+    // A page's scope is read by its own id, by its place (`<repository>:<path>`) and by the snapshot it was read at
+    // (`coverageScopesOf`), so a node whose coverage landed under its place is covered as well: a snapshot's coverage is
+    // a repository's reading and names no node of its own.
+    const coveredPage = (page: GraphPageEntry): boolean => coveredScopes.has(page.id) || (page.code !== undefined && coveredScopes.has(`${page.code.repository}:${page.code.file}`));
+    const uncovered = [...pages].filter((page) => page.importance !== undefined && coveredPage(page) === false)
+      .sort((left, right) => (right.importance ?? 0) - (left.importance ?? 0) || byCodePoint(left.id, right.id))[0];
+    const asked = questions.groups.flatMap((group) => group.questions).filter((question) => question.open);
+    const nextStep = productNextStep({
+      product: { id: options.product, kind: null, label: options.product, page: GRAPH_INDEX_ADDRESS },
+      questions: asked.map((question) => ({ id: question.id, type: question.type, prompt: question.prompt, rank: question.rank, page: pageAddress(question.id), node: { id: question.id, kind: 'question', label: question.prompt, page: pageAddress(question.id) } })),
+      ...(uncovered === undefined ? {} : { uncovered: { id: uncovered.id, kind: uncovered.kind, label: uncovered.label, page: uncovered.page, ...(uncovered.importance === undefined ? {} : { importance: uncovered.importance }) } }),
+    });
     return {
       product: options.product,
       pages,
@@ -396,6 +597,8 @@ export async function readPageSet(options: { readonly database: FactStoreDatabas
       changeSeq,
       readAt,
       message: pages.length === 0 ? emptyPageSetMessage(options.product) : null,
+      questions,
+      nextStep,
     };
   });
 }
@@ -404,8 +607,8 @@ export async function readPageSet(options: { readonly database: FactStoreDatabas
 async function latestPageChangeIn(executor: SqlExecutor, product: string): Promise<number> {
   const { rows } = await executor.query<{ last: unknown }>(
     `SELECT COALESCE(max(c.seq), 0) AS last
-       FROM fill_page_change c JOIN fill_unit u ON u.unit_id = c.unit_id
-      WHERE u.product = $1`,
+       FROM fill_page_change c LEFT JOIN fill_unit u ON u.unit_id = c.unit_id
+      WHERE u.product = $1 OR c.product = $1`,
     [product],
   );
   const last = rows[0]?.last;
@@ -435,8 +638,14 @@ export interface GraphPageModelAnswer {
   readonly coverage: readonly CoverageRow[];
   /** The scope tokens the coverage section was read by, in code point order: the node's own id, its place, and the snapshot its fact was read at. */
   readonly coverageScopes: readonly string[];
-  /** The open questions about the node, in code point order of the question's words, then its id. */
+  /** The questions about the node, the open ones first, then by what depends on the answer. */
   readonly questions: readonly GraphQuestion[];
+  /** What a person decided about the page's proposed content (0005's acceptance record), or null when nobody has. */
+  readonly decision: GraphAnswerRecord | null;
+  /** The answer that closed this node's own question, when the node is a question: a person's, or an agent's with its evidence. */
+  readonly answer: GraphAnswerRecord | null;
+  /** What to do next with this page: the charter's order, open questions first (see `next-step.ts`). */
+  readonly nextStep: GraphNextStep;
   /** The writes other units now hold about the node, each marked as a draft and never mixed into the facts. */
   readonly drafts: readonly DraftRow[];
   readonly counts: { readonly facts: number; readonly assumptions: number; readonly out: number; readonly in: number; readonly coverage: number; readonly questions: number; readonly drafts: number };
@@ -453,6 +662,37 @@ export interface GraphPageModelAnswer {
    */
   readonly tokens: number;
   readonly readAt: number;
+  /**
+   * The page's narrative text (decision 0026, "Pages"; madarch-tzte.25.1): the second
+   * layer an agent wrote above the graph-rendered facts, stored as Markdown in the
+   * product's git with status proposed, and shown marked unverified. `null` where no
+   * page stands for this node yet.
+   */
+  readonly narrative: GraphNarrative | null;
+}
+
+/** One sentence of a page's narrative text, and whether the facts it stands on still stand. */
+export interface GraphNarrativeSentence {
+  /** The sentence, as a reader reads it. */
+  readonly text: string;
+  /** The fact ids the sentence stands on, in code point order. */
+  readonly facts: readonly string[];
+  /** Whether the sentence is stale: a fact it stands on stands in the graph no more. */
+  readonly stale: boolean;
+}
+
+/** A page's narrative layer, as the fact of the kind `narrative` holds it. */
+export interface GraphNarrative {
+  /** The narrative fact's own id. */
+  readonly fact: string;
+  /** The file the page's Markdown stands at in the product repository. */
+  readonly path: string;
+  /** The fact's status (0005): an agent's page is `proposed` until a person decides. */
+  readonly status: string;
+  /** Whether the page is stale: the unit that wrote it was replaced, and a new page is on its way. */
+  readonly stale: boolean;
+  /** The sentences, in the page's own order. */
+  readonly sentences: readonly GraphNarrativeSentence[];
 }
 
 /** One page asked for: the page, or the refusal naming why the graph holds none. */
@@ -508,12 +748,34 @@ export async function readPageModel(options: {
     ];
     const rulesRead: GraphRead = { read: 'facts-with', kind: 'rule', field: 'subject', value: id };
     const questionsRead: GraphRead = { read: 'facts-with', kind: 'question', field: 'about', value: id };
+    // The page's narrative layer (0026, "Pages"): the fact the pages stage wrote about this node, whose
+    // sentences the page shows above its facts. One fact stands behind a page — the identity is the
+    // repository and the node — so the first of the reads is the page.
+    const narrativeRead: GraphRead = { read: 'facts-with', kind: 'narrative', field: 'about', value: id };
+    const narrativeFacts = [...factsOfRows(await context.read(narrativeRead), narrativeRead)].sort((left, right) => byCodePoint(left.id, right.id));
     const edgesRead: GraphRead = { read: 'adjacent', id, kinds: FACT_EDGE_KINDS };
+    // The answers the graph holds: the product's answers to questions (a question is closed by the one that names it,
+    // decided 0026's checked writes), and the answers that decide about this page — a question page's own answer, or
+    // the acceptance a person recorded about the page (0005's acceptance record beside the fact). Both are reads of
+    // the `answer` kind alone, so a page pays two index-backed reads and never a scan of its product's facts.
+    const openAnswersRead: GraphRead = { read: 'facts-with', kind: 'answer', field: 'decision', value: 'answers' };
+    const decisionsRead: GraphRead = { read: 'facts-with', kind: 'answer', field: 'subject', value: id };
     const claimFacts = new Map<string, Fact>();
     for (const claimRead of claimsReads) for (const fact of factsOfRows(await context.read(claimRead), claimRead)) claimFacts.set(fact.id, fact);
     const ruleFacts = factsOfRows(await context.read(rulesRead), rulesRead);
     const questionFacts = factsOfRows(await context.read(questionsRead), questionsRead);
     const edgeFacts = factsOfRows(await context.read(edgesRead), edgesRead);
+    const answers = answersBySubject(factsOfRows(await context.read(openAnswersRead), openAnswersRead));
+    const decisions = factsOfRows(await context.read(decisionsRead), decisionsRead).map(answerOf);
+    // The page's own decision: the acceptance or rejection a person recorded about it, the latest first when a person
+    // changed their mind (answers are ordered by id, and an acceptance names its own words); and, for a question's own
+    // page, the answer that closed it.
+    // The answers' one precedence (`byAnswerPrecedence`, on the records the read answered): a person's word first, then
+    // the smallest id of the layer — the same answer the question set and the index show.
+    const byRecordPrecedence = (left: GraphAnswerRecord, right: GraphAnswerRecord): number =>
+      (left.layer === 'declared' ? 0 : 1) - (right.layer === 'declared' ? 0 : 1) || byCodePoint(left.id, right.id);
+    const decision = decisions.filter((entry) => entry.decision !== 'answers').sort(byRecordPrecedence)[0] ?? null;
+    const answer = decisions.filter((entry) => entry.decision === 'answers').sort(byRecordPrecedence)[0] ?? answers.get(id) ?? null;
     // The node's own fact stands first, and the facts about it follow in code point order of their ids: a reader
     // asks "what is this" before "what is said about it".
     const facts = [node, ...[...claimFacts.values()], ...ruleFacts].sort((left, right) => (left.id === node.id ? -1 : right.id === node.id ? 1 : 0) || byCodePoint(left.id, right.id));
@@ -568,7 +830,8 @@ export async function readPageModel(options: {
     const coverageHeld = bounded(everyCoverage, limits, `the coverage the page of ${id} shows`, limits.answerTokens);
     const coverageScopes = coverageHeld.rows.length === 0 ? [] : [...new Set(coverageHeld.rows.map((row) => row.scope))].sort(byCodePoint);
     const uniqueCoverage = coverageHeld.rows;
-    const questions: GraphQuestion[] = questionFacts.map((fact) => questionOf(fact)).sort((left, right) => byCodePoint(left.prompt, right.prompt) || byCodePoint(left.id, right.id));
+    const questions: GraphQuestion[] = questionsShown(questionFacts, nodeRefOf(node), edgeFacts, refs, answers);
+    const narrated = await narrativeOf({ executor, read: context.read, facts: narrativeFacts, limits, product: options.product });
     // A claim names two ends, and a page links them to their own pages: the nodes were read once, above, with the
     // nodes the edges name, so a claim about a module costs no read of its own.
     const pageFacts = facts.map((fact) => fact.kind === 'claim' ? { ...pageFactOf(fact), ends: claimEndsOf(fact, refs) } : pageFactOf(fact));
@@ -581,7 +844,41 @@ export async function readPageModel(options: {
     const relationsHeld = bounded(relations, limits, `the relations of ${id}`, limits.answerTokens);
     const questionsHeld = bounded(questions, limits, `the questions about ${id}`, limits.answerTokens);
     const draftsHeld = bounded(drafts, limits, `the drafts about ${id}`, limits.answerTokens);
-    const cut = [factsHeld.marker, relationsHeld.marker, coverageHeld.marker, questionsHeld.marker, draftsHeld.marker, ...markers];
+    // What to do next (the self-filling charter's outcome 5): the page's own open questions first, in the order their
+    // answers would change pages (`nextStep`), then a scope nobody covered, then an assumption to review.
+    const entry = pageEntryOf(node);
+    const stepNode: StepNode = { id, kind: node.kind, label: entry.label, page: pageAddress(id), ...(entry.importance === undefined ? {} : { importance: entry.importance }) };
+    const openQuestions: RankedQuestion[] = questionsHeld.rows.filter((question) => question.open).map((question) => ({ id: question.id, type: question.type, prompt: question.prompt, rank: question.rank }));
+    // The question's own rank is what the answer would change, measured the way the product's question set measures it:
+    // the node the question is about and that node's edges — never the question fact's own (a question names no edges).
+    let ownQuestion: RankedQuestion | undefined;
+    if (node.kind === 'question' && answer === null) {
+      const about = (node.value as { about?: unknown }).about;
+      let rank = 1;
+      if (typeof about === 'string' && isPageId(about)) {
+        const aboutEdgesRead: GraphRead = { read: 'adjacent', id: about, kinds: FACT_EDGE_KINDS };
+        const aboutEdges = factsOfRows(await context.read(aboutEdgesRead), aboutEdgesRead);
+        rank = dependentsOf({ id: about, kind: null, label: about }, aboutEdges, refs).length;
+      }
+      ownQuestion = {
+        id,
+        type: typeof (node.value as { type?: unknown }).type === 'string' ? String((node.value as { type: string }).type) : 'meaning',
+        prompt: entry.label,
+        rank,
+      };
+    }
+    const nextStep = pageNextStep({
+      node: stepNode,
+      questions: openQuestions,
+      ...(ownQuestion === undefined ? {} : { own: ownQuestion }),
+      covered: uniqueCoverage.some((row) => row.complete),
+      // A question's own fact is `inferred`, but it is no proposed content for a person to accept: the page's one act is
+      // answering it, and an answered question waits for nobody.
+      assumptions: node.kind === 'question' ? 0 : assumptionsHeld.rows.length,
+      decided: decision !== null,
+    });
+    const cut = [factsHeld.marker, relationsHeld.marker, coverageHeld.marker, questionsHeld.marker, draftsHeld.marker, narrated.marker, ...markers];
+
     const out = relationsHeld.rows.filter((relation) => relation.direction !== 'in');
     const into = relationsHeld.rows.filter((relation) => relation.direction !== 'out');
     const body: Omit<GraphPageModelAnswer, 'tokens'> = {
@@ -595,7 +892,11 @@ export async function readPageModel(options: {
       coverage: uniqueCoverage,
       coverageScopes,
       questions: questionsHeld.rows,
+      decision,
+      answer,
+      nextStep,
       drafts: draftsHeld.rows,
+      narrative: narrated.narrative,
       counts: {
         facts: assertedHeld.length,
         assumptions: assumptionsHeld.rows.length,
@@ -631,6 +932,76 @@ function withProduct(request: GraphRead, product: string): GraphRead {
     default:
       return request;
   }
+}
+
+/** The most fact ids one page's narrative is checked against before the page's own bound cuts the list: a page is read by a person. */
+export const PAGE_NARRATIVE_IDS = 64;
+
+/**
+ * A page's narrative layer, read for the page model (madarch-tzte.25.1): the fact's
+ * sentences, each marked stale when a fact it stands on stands in the graph no more,
+ * and the whole layer marked stale when the unit that wrote it was replaced — the
+ * replan is on its way, and the page says so rather than standing as if it were
+ * current. The ids a sentence cites are read one by one through the page's own
+ * reader, in the page's one transaction; a list past the page's bound is cut, and
+ * the cut is named in the page's marker.
+ *
+ * The page shows the fact the writing unit's *current* generation holds. A node
+ * whose page was rewritten briefly holds the old page's fact beside the new one, and
+ * the store sweeps the old record when the new generation publishes (0027); between
+ * the replan and that publication, no current generation holds a page — the newest
+ * holding stands, and the layer says it is stale.
+ */
+async function narrativeOf(options: {
+  readonly executor: SqlExecutor;
+  readonly read: (request: GraphRead) => Promise<readonly unknown[]>;
+  readonly facts: readonly Fact[];
+  readonly limits: GraphReadLimits;
+  readonly product: string;
+}): Promise<{ readonly narrative: GraphNarrative | null; readonly marker: string | null }> {
+  if (options.facts.some((fact) => fact.kind !== 'narrative')) raise(`${here()}: a page's narrative is a fact of the kind "narrative" (src/fill/facts.ts)`);
+  const facts = options.facts;
+  if (facts.length === 0) return { narrative: null, marker: null };
+  // Every holding is scoped to this product's units: two fills of one code hold pages of one id, and
+  // another product's generations answer neither this page's freshness nor its staleness.
+  const held = await options.executor.query<{ id: string; held: number; current: number; unit_id: string }>(
+    `SELECT h.id, h.generation AS held, u.generation AS current, h.unit_id FROM fill_fact_holding h JOIN fill_unit u ON u.unit_id = h.unit_id
+      WHERE h.id = ANY($1::text[]) AND u.product = $2`,
+    [facts.map((fact) => fact.id), options.product],
+  );
+  const fresh = new Set(held.rows.filter((row) => Number(row.current) <= Number(row.held)).map((row) => row.id));
+  const fact = facts.find((candidate) => fresh.has(candidate.id))
+    ?? [...facts].sort((left, right) => {
+      const heldOf = (id: string): number => Math.max(...held.rows.filter((row) => row.id === id).map((row) => Number(row.held)));
+      return heldOf(right.id) - heldOf(left.id) || byCodePoint(right.id, left.id);
+    })[0]!;
+  const superseded = held.rows.length > 0 && !fresh.has(fact.id);
+  const value = fact.value as NarrativeValue;
+  const sentences = Array.isArray(value.sentences) ? value.sentences : [];
+  const cited = [...new Set(sentences.flatMap((sentence) => sentence.facts))].filter((id) => FACT_ID_PATTERN.test(id)).sort(byCodePoint);
+  const checked = cited.slice(0, PAGE_NARRATIVE_IDS);
+  const standing = new Set<string>();
+  for (const id of checked) {
+    const read: GraphRead = { read: 'fact', id, product: options.product };
+    if (factsOfRows(await options.read(read), read).length > 0) standing.add(id);
+  }
+  const marker = cited.length > checked.length
+    ? `the fact ids the page's sentences cite were cut at ${String(PAGE_NARRATIVE_IDS)} of ${String(cited.length)} by the page's own bound: the rest were not checked for staleness`
+    : null;
+  return {
+    marker,
+    narrative: {
+      fact: fact.id,
+      path: narrativePagePath(value.about),
+      status: fact.status,
+      stale: superseded,
+      sentences: sentences.map((sentence) => ({
+        text: sentence.text,
+        facts: [...sentence.facts].sort(byCodePoint),
+        stale: sentence.facts.some((id: string) => !standing.has(id)),
+      })),
+    },
+  };
 }
 
 /** The drafts a page shows, in code point order of the holding unit and its generation: never the database's collation. */
@@ -721,7 +1092,7 @@ async function nodeRefsOf(context: GraphReadContext, ids: readonly string[]): Pr
 }
 
 /** One question fact as a page shows it, refused by name where the value is not the kind's own shape. */
-function questionOf(fact: Fact): GraphQuestion {
+function questionOf(fact: Fact): Omit<GraphQuestion, 'answer' | 'dependsOn' | 'open' | 'rank'> {
   const value = (fact.value ?? {}) as unknown as Record<string, unknown>;
   const type = value['type'];
   const prompt = value['prompt'];
@@ -746,6 +1117,105 @@ function questionOf(fact: Fact): GraphQuestion {
       },
     }),
   };
+}
+
+/**
+ * One answer fact as a page shows it, refused by name where the value is not the
+ * kind's own shape: an answer names the node it decides about, says what it does, and
+ * carries the words a person reads.
+ */
+export function answerOf(fact: Fact): GraphAnswerRecord {
+  const value = (fact.value ?? {}) as unknown as Record<string, unknown>;
+  const decision = value['decision'];
+  const text = value['text'];
+  const subject = value['subject'];
+  if (typeof subject !== 'string' || isFactId(subject) === false) raise(`${here()}: the answer ${fact.id} names the subject ${JSON.stringify(subject)}: an answer names the fact it decides about, by the fact's own id (src/fill/facts.ts)`);
+  if (decision !== 'answers' && decision !== 'accepts' && decision !== 'rejects') raise(`${here()}: the answer ${fact.id} records the decision ${JSON.stringify(decision)}: an answer answers a question, or accepts or rejects a page's proposed content (src/fill/facts.ts)`);
+  if (typeof text !== 'string' || text.trim() === '') raise(`${here()}: the answer ${fact.id} carries the text ${JSON.stringify(text)}: an answer is the words a person reads`);
+  const evidence = value['evidence'];
+  const place = fact.provenance.place;
+  return {
+    id: fact.id,
+    decision,
+    text,
+    layer: fact.layer,
+    status: fact.status,
+    by: typeof value['by'] === 'string' && value['by'] !== '' ? value['by'] : fact.provenance.source.system,
+    ...(typeof evidence === 'string' && evidence !== '' ? { evidence } : {}),
+    ...(place === undefined ? {} : {
+      code: {
+        repository: fact.provenance.repository.id,
+        commit: fact.provenance.repository.commit,
+        file: place.file,
+        startLine: place.range.startLine,
+        endLine: place.range.endLine,
+      },
+    }),
+  };
+}
+
+/** The answer one answer fact records, by the node it decides about. */
+function subjectOf(fact: Fact): string {
+  return String((fact.value as unknown as Record<string, unknown>)['subject']);
+}
+
+/**
+ * The order answers of one node stand in: a person's own word first (0005 makes the person's
+ * `declared` and the agent's `inferred`), then code point order of the id — the one selector
+ * every reader of answers shares, so the question set, the index and a question's own page
+ * cannot show two different answers to one question.
+ */
+function byAnswerPrecedence(left: Fact, right: Fact): number {
+  return (left.layer === 'declared' ? 0 : 1) - (right.layer === 'declared' ? 0 : 1) || byCodePoint(left.id, right.id);
+}
+
+/** The answers the graph holds, by the node each decides about: the first answer in precedence order, and no other. */
+function answersBySubject(facts: readonly Fact[]): Map<string, GraphAnswerRecord> {
+  const found = new Map<string, GraphAnswerRecord>();
+  for (const fact of [...facts].sort(byAnswerPrecedence)) {
+    const subject = subjectOf(fact);
+    if (found.has(subject) === false) found.set(subject, answerOf(fact));
+  }
+  return found;
+}
+
+/**
+ * One question as a page shows it: the question's own words, the pages its answer would
+ * change, and the answer that closed it.
+ */
+function questionShown(fact: Fact, dependents: readonly GraphNodeRef[], answers: ReadonlyMap<string, GraphAnswerRecord>): GraphQuestion {
+  const base = questionOf(fact);
+  const answer = answers.get(fact.id) ?? null;
+  return { ...base, dependsOn: dependents, rank: dependents.length, answer, open: answer === null };
+}
+
+/**
+ * What one question's answer would change: the node it is about, and the page-worthy
+ * nodes that node's edges name at either end — the pages a reading of the answer moves.
+ * The subject stands first; the rest are in code point order of their ids.
+ */
+function dependentsOf(subject: GraphNodeRef, edges: readonly Fact[], refs: ReadonlyMap<string, GraphNodeRef>): readonly GraphNodeRef[] {
+  const ends = new Set<string>();
+  for (const edge of edges) {
+    const pair = endsOf(edge.kind as FactEdgeKind, edge.value);
+    for (const end of [pair.from, pair.to]) if (end !== undefined && end !== subject.id && isPageId(end)) ends.add(end);
+  }
+  // Every name in the list is a page the answer would change, and each carries its page's address, so a reader reaches
+  // it in one click (`pageRefOf`, the rule the relations read by).
+  const others = [...ends].sort(byCodePoint).map((id) => pageRefOf(refs.get(id) ?? { id, kind: null, label: id }));
+  return [pageRefOf(subject), ...others];
+}
+
+/**
+ * The question records one page's question facts are shown as, with what depends on
+ * each and the answers the graph holds: the page reads its questions, its own edges and
+ * every answer of the product once, and this makes the rows a reader sees.
+ */
+function questionsShown(questionFacts: readonly Fact[], subject: GraphNodeRef, edges: readonly Fact[], refs: ReadonlyMap<string, GraphNodeRef>, answers: ReadonlyMap<string, GraphAnswerRecord>): GraphQuestion[] {
+  const dependents = dependentsOf(subject, edges, refs);
+  return questionFacts
+    .map((fact) => questionShown(fact, dependents, answers))
+    .sort((left, right) => byCodePoint(left.open ? '0' : '1', right.open ? '0' : '1') || right.rank - left.rank || byCodePoint(left.prompt, right.prompt) || byCodePoint(left.id, right.id));
 }
 
 /**
@@ -885,11 +1355,65 @@ export interface GraphPagesSource {
   /** The page changes after one sequence number, in publication order. */
   readonly changes: (after: number) => Promise<GraphPageChanges>;
   /**
+   * Answers one of the product's questions (the self-filling charter's outcome 5): the
+   * person's words are written as Markdown in the product's git (`decisions.ts`), and the
+   * graph reads them back at once (`declared.ts`), so the pages that depend on the answer
+   * are the only ones read again.
+   */
+  readonly answer: (request: { readonly question: string; readonly answer: string; readonly by: string }) => Promise<GraphDecisionWrite>;
+  /**
+   * Records a person's acceptance or rejection of a page's proposed content, the same two
+   * steps: Markdown in the product's git, read back into the graph.
+   */
+  readonly decide: (request: { readonly page: string; readonly verdict: 'accepted' | 'rejected'; readonly note: string; readonly by: string }) => Promise<GraphDecisionWrite>;
+  /**
    * Hears that something may have been published: the listener reads the changes
    * itself, so a wake-up is a hint and never a payload a failed read could lose.
    * The answer ends the subscription.
    */
   readonly subscribe: (listener: () => void) => () => void;
+}
+
+/** What a person's decision did: the document the product's git holds, and the pages the graph read again. */
+export type GraphDecisionWrite =
+  | {
+    readonly ok: true;
+    /** The decision's document, relative to the product's folder (`answers/<digest>.md`). */
+    readonly file: string;
+    /** The pages the decision moved, in code point order: what the live channel announces. */
+    readonly pages: readonly string[];
+  }
+  | { readonly ok: false; readonly code: string; readonly message: string; readonly file?: string };
+
+/** One node a person decides about, read so the decision is about a node the graph really holds. */
+export type GraphDecisionSubject =
+  | { readonly ok: true; readonly fact: Fact }
+  | { readonly ok: false; readonly code: string; readonly message: string };
+
+/**
+ * The node one person's decision is about, read from the store: a question for an answer,
+ * a page for an acceptance. An id the store does not hold, a node of another kind and a
+ * node another product holds are each refused by name — a decision about nothing would be
+ * a record nobody could read back.
+ */
+export async function readDecisionSubject(options: { readonly database: FactStoreDatabase; readonly product: string; readonly id: string; readonly question: boolean }): Promise<GraphDecisionSubject> {
+  const at = here();
+  const id = options.id;
+  if (isFactId(id) === false) {
+    return { ok: false, code: 'graph-pages/not-a-fact-id', message: `"${id}" is no fact id: a decision is about a node of the graph, named by the fact id of its own node (a kind, a colon and the 64 lower-case hexadecimal digits of the fact's identity)` };
+  }
+  const kind = id.slice(0, id.indexOf(':'));
+  if (options.question) {
+    if (kind !== 'question') return { ok: false, code: 'graph-pages/not-a-question', message: `the node ${id} is a "${kind}" fact, not a question: a person answers an open question, and the questions are the graph's "question" facts` };
+  } else if (isPageKind(kind as FactKind) === false) {
+    return { ok: false, code: 'graph-pages/not-a-page', message: `the node ${id} is a "${kind}" fact, and no page exists for that kind: a person accepts or rejects a page, and a page exists for ${PAGE_KINDS.join(', ')}` };
+  }
+  return await pageTransaction(at, options.database, `readDecisionSubject(${id})`, ['fill_fact', 'fill_fact_holding', 'fill_unit'], async (executor) => {
+    const read: GraphRead = { read: 'fact', id, product: options.product };
+    const fact = factsOfRows(await answerGraphRead({ database: LENT_DATABASE, snapshot: NO_SPANS, executor }, read), read)[0];
+    if (fact === undefined) return { ok: false as const, code: 'graph-pages/no-such-node', message: `the graph holds no "${kind}" fact of the id ${id} among the facts the product "${options.product}" holds: a person's decision is about a node a fill published (decision 0026)` };
+    return { ok: true as const, fact };
+  });
 }
 
 /** One page change as a client receives it: the publication, and the pages it touched. */
@@ -930,8 +1454,8 @@ export async function readPageChanges(options: { readonly database: FactStoreDat
     // they were all of them). The extra row is what tells a full answer from a cut one.
     const { rows } = await executor.query<{ seq: unknown; node_id: string; unit_id: string; generation: unknown; publication: string }>(
       `SELECT c.seq, c.node_id, c.unit_id, c.generation, c.publication
-         FROM fill_page_change c JOIN fill_unit u ON u.unit_id = c.unit_id
-        WHERE u.product = $1 AND c.seq > $2
+         FROM fill_page_change c LEFT JOIN fill_unit u ON u.unit_id = c.unit_id
+        WHERE (u.product = $1 OR c.product = $1) AND c.seq > $2
         ORDER BY c.seq ASC
         LIMIT $3`,
       [options.product, options.after, limit + 1],

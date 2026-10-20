@@ -55,7 +55,7 @@ const CHECKOUT_ELSEWHERE = '/srv/ci/workspace/checkout';
 const REPOSITORY = 'orders-api';
 
 /** A well-formed fact id of a node the samples point at, when the node itself is not what is under test. */
-function anyId(kind: 'file' | 'symbol' | 'state' | 'commit' | 'document' | 'api-endpoint' | 'deploy-unit'): string {
+function anyId(kind: 'file' | 'symbol' | 'state' | 'commit' | 'document' | 'api-endpoint' | 'deploy-unit' | 'module'): string {
   return `${kind}:${'0123456789abcdef'.repeat(4)}`;
 }
 
@@ -111,6 +111,8 @@ const SAMPLES: { readonly [K in FactKind]: FactValueOf<K> } = {
   'state': { repository: REPOSITORY, machine: 'OrderStatus', name: 'placed', initial: true },
   'coverage': { repository: REPOSITORY, scope: 'module:checkout-payment', complete: false, read: ['src/order.ts', 'src/payment.ts'], unread: [{ what: 'src/legacy.js', reason: 'unsupported' }] },
   'question': { repository: REPOSITORY, type: 'assumption-check', about: anyId('symbol'), prompt: 'Is an order placed at authorization or at capture?' },
+  'answer': { repository: REPOSITORY, subject: 'question:' + '3'.repeat(64), decision: 'answers', text: 'An order is placed when its card is authorized.', evidence: `${REPOSITORY}@${COMMIT}:src/payment.ts` },
+  'narrative': { about: anyId('module'), sentences: [{ text: 'The checkout validates the cart before payment.', facts: [anyId('file')] }] },
   'contains': { from: anyId('file'), to: anyId('symbol') },
   'defines': { from: anyId('file'), to: anyId('symbol') },
   'import': { from: anyId('file'), to: anyId('file'), specifier: '../model/order.js' },
@@ -163,6 +165,10 @@ const EXPECTED_LAYERS: Readonly<Record<FactKind, readonly FactLayer[]>> = {
   'rule': ['inferred'],
   'state': ['inferred'],
   'question': ['inferred'],
+  // an agent's answer to a question it found the evidence for, or a person's
+  // own answer through the wiki
+  'answer': ['declared', 'inferred'],
+  'narrative': ['inferred'],
   'transition': ['inferred'],
   'interaction': ['inferred'],
   // a claim is an agent's reading, or the product's own words when a
@@ -292,12 +298,16 @@ describe('the kinds the fill writes', () => {
     expect(FACT_STAGES.filter((stage) => !FACT_KINDS_IN_ORDER.some((kind) => FACT_KINDS[kind].stages.includes(stage)))).toEqual([]);
   });
 
-  test('the agent kinds are written by agent stages only, and every agent stage is 8 to 13', () => {
+  test('the agent kinds are written by agent stages only, and the agent stages are 8 to 13 beside the pages stage', () => {
     const agentKinds: readonly FactKind[] = ['claim', 'entity-proposal', 'question', 'rule', 'state', 'transition', 'interaction'];
     for (const kind of agentKinds) {
       for (const stage of FACT_KINDS[kind].stages) expect(AGENT_STAGES).toContain(stage);
     }
-    expect([...AGENT_STAGES]).toEqual([...FACT_STAGES].filter((stage) => Number(stage.split('-')[0]) >= 8));
+    // Decision 0026: the agent stages are 8 to 13; the Pages bullet's stage (madarch-tzte.25.1)
+    // stands beside them as 14 and writes the page's narrative fact alone.
+    expect([...AGENT_STAGES]).toEqual(['8-overview', '9-boundaries', '10-intent-documents', '11-intent-history', '12-understanding', '13-recovery']);
+    expect([...FACT_STAGES].filter((stage) => Number(stage.split('-')[0]) >= 8)).toEqual([...AGENT_STAGES, '14-narrative']);
+    expect(FACT_KINDS['narrative'].stages).toEqual(['14-narrative']);
     // A coverage is what every stage reports about what it read (0004's
     // coverage, 0026's "a unit at a limit returns what it has with its coverage").
     expect(FACT_KINDS['coverage'].stages).toEqual(FACT_STAGES);
@@ -332,9 +342,12 @@ describe('the kinds the fill writes', () => {
       expect(layers.sort()).toEqual([...EXPECTED_LAYERS[kind]]);
       // And the same rule read the other way: a kind that no deterministic
       // stage writes never claims the extracted layer, and a kind that no
-      // agent stage writes never claims the inferred one.
+      // agent stage writes never claims the inferred one. The pages stage
+      // (0026's "Pages", madarch-tzte.25.1) is agent-driven like 8 to 13: what
+      // it writes is an agent's reading, and nothing it writes is extracted.
+      const agentDriven = [...AGENT_STAGES, '14-narrative'];
       const writtenBy = (stages: readonly string[], agent: boolean): boolean =>
-        stages.some((stage) => AGENT_STAGES.includes(stage as never) === agent);
+        stages.some((stage) => agentDriven.includes(stage as never) === agent);
       const deterministic = writtenBy(definition.stages, false);
       const agent = writtenBy(definition.stages, true);
       if (!deterministic) expect(definition.layers).not.toContain('extracted');
@@ -380,9 +393,10 @@ describe('the kinds the fill writes', () => {
     // `document` and `section` to 2 when their byte spans were added to them
     // (madarch-tzte.21.4, stage 6), the resolution edges `call`, `reference` and
     // `inherits` to 2 when their precision was added to them (madarch-tzte.21.6,
-    // stage 4), and `file` to 3 and `symbol` to 2 when stage 5's importance was
-    // added to them (madarch-tzte.21.7).
-    const moved: Readonly<Record<string, number>> = { 'call': 2, 'document': 2, 'file': 3, 'inherits': 2, 'reference': 2, 'section': 2, 'symbol': 2 };
+    // stage 4), `file` to 3 and `symbol` to 2 when stage 5's importance was
+    // added to them (madarch-tzte.21.7), and `module` to 2 when stage 9's
+    // proposal was added to it (madarch-tzte.24.2).
+    const moved: Readonly<Record<string, number>> = { 'call': 2, 'document': 2, 'file': 3, 'inherits': 2, 'module': 2, 'reference': 2, 'section': 2, 'symbol': 2 };
     for (const kind of FACT_KINDS_IN_ORDER) {
       expect(Number.isInteger(FACT_KINDS[kind].version)).toBe(true);
       // 0027: a stage declares the fact kind's version for what it produces,
@@ -532,12 +546,17 @@ describe('ids: content-addressed, stable, and never a run', () => {
       // The layer and the status are not identity either: how a fact was
       // obtained and whether anyone accepted it never changes what it is. Each
       // layer the kind admits is built through the constructor, with the last
-      // status that layer allows, and the id does not move.
+      // status that layer allows, and the id does not move — an inferred
+      // module's proposal included, which is what the layer writes and the
+      // identity never reads (madarch-tzte.24.2).
       for (const layer of EXPECTED_LAYERS[kind]) {
         const status = statusesOfLayer(layer).at(-1) as FactStatus;
+        const value = layer === 'inferred' && kind === 'module'
+          ? { ...(SAMPLES[kind] as unknown as Record<string, unknown>), proposal: { change: 'rename', replaces: [`module:${'f'.repeat(64)}`] } }
+          : SAMPLES[kind];
         const again = FACT_KINDS[kind].shape === 'node'
-          ? makeNodeFact({ kind: kind as never, value: SAMPLES[kind] as never, provenance: provenanceFor(kind), layer, status })
-          : makeEdgeFact({ kind: kind as never, value: SAMPLES[kind] as never, provenance: provenanceFor(kind), layer, status });
+          ? makeNodeFact({ kind: kind as never, value: value as never, provenance: provenanceFor(kind), layer, status })
+          : makeEdgeFact({ kind: kind as never, value: value as never, provenance: provenanceFor(kind), layer, status });
         expect(again.id).toBe(sampleFact(kind).id);
         expect(again.layer).toBe(layer);
         expect(again.status).toBe(status);
@@ -816,6 +835,22 @@ describe('the check that names every reason a fact is not one the schema reads',
     expect(checkFact(questionWithoutAbout)).toEqual([]);
   });
 
+  test('an agent closes a question with the place it read, and a person\'s answer needs none', () => {
+    // The self-filling charter's outcome 5: «Открытые вопросы должны закрываться, если агент в процессе нашел ответ».
+    // A proposed answer that names nothing it read is no answer a reader can check, so the schema refuses it at its own
+    // field; a person's word is the record, and it stands without evidence (0005's declared layer).
+    // The sample constructor reads the kind's first layer, which for an answer is a person's `declared`; the rule is
+    // the agent's, so the inferred fact is built here, with the evidence that makes it one.
+    const cited = makeNodeFact({ kind: 'answer', value: SAMPLES['answer'], provenance: provenanceFor('answer'), layer: 'inferred' });
+    expect(checkFact(cited)).toEqual([]);
+    // `evidence` is no part of the identity, so dropping it moves no id: the refusal is the field's alone.
+    const refused = { ...cited, value: { ...cited.value, evidence: undefined } };
+    expect(problemsOf(refused).paths).toEqual(['value.evidence']);
+    const person = makeNodeFact({ kind: 'answer', value: { ...SAMPLES['answer'], decision: 'accepts', text: 'the boundary is right', by: 'the owner', evidence: undefined }, provenance: provenanceFor('answer'), layer: 'declared', status: 'accepted' });
+    expect(checkFact(person)).toEqual([]);
+    expect((person.value as unknown as { by: string }).by).toBe('the owner');
+  });
+
   test('a fact handed to the check with no value at all is refused, never thrown out of', () => {
     // An agent's write or a damaged stored row may carry nothing where a value
     // belongs: the check names every reason and never throws. A missing field
@@ -1020,9 +1055,10 @@ describe('the check that names every reason a fact is not one the schema reads',
     // 0004 ("every fact carries its source, repository@ref, file and line") and
     // the item's DONE WHEN. A fact about the tree itself — the repository, its
     // snapshot, a commit, a directory, a `contains` edge — a scope the fill
-    // assembles (a module, a coverage, an entity proposal, a question) or a
-    // task key read from a commit message has no single file and line.
-    const placesNone: readonly FactKind[] = ['contains', 'commit', 'coverage', 'directory', 'entity-proposal', 'module', 'question', 'repository', 'snapshot', 'task-key'];
+    // assembles (a module, a coverage, an entity proposal, a question), a
+    // task key read from a commit message, or a page whose bytes are the
+    // product's git's own (madarch-tzte.25.1) has no single file and line.
+    const placesNone: readonly FactKind[] = ['answer', 'contains', 'commit', 'coverage', 'directory', 'entity-proposal', 'module', 'narrative', 'question', 'repository', 'snapshot', 'task-key'];
     for (const kind of FACT_KINDS_IN_ORDER) {
       const fact = sampleFact(kind);
       const bare = { ...fact, provenance: { source: fact.provenance.source, repository: fact.provenance.repository } };
@@ -1066,6 +1102,77 @@ describe('the check that names every reason a fact is not one the schema reads',
     // Only a part the check already refused stops the digest: a fact whose
     // identity names a machine path is not digested at all.
     expect(problemsOf({ ...file, value: { ...file.value, path: '/opt/madarch-checkout/src/order.ts' } }).paths).toEqual(['value.path']);
+  });
+});
+
+describe('the proposal a stage-9 module carries (madarch-tzte.24.2)', () => {
+  /** The problems the check names for a variant of the sample module fact. */
+  function problemsOf(variant: unknown): { paths: string[]; messages: string[] } {
+    const problems = checkFact(variant);
+    return { paths: problems.map((problem) => problem.path), messages: problems.map((problem) => problem.message) };
+  }
+
+  /** The sample module fact, read as the schema holds its value. */
+  function moduleValueOf(variant: Partial<Record<string, unknown>>, layer: 'extracted' | 'inferred' = 'extracted'): unknown {
+    const fact = sampleFact('module');
+    return { ...fact, layer, value: { ...(fact.value as unknown as Record<string, unknown>), ...variant } };
+  }
+
+  /** One valid proposal: the merge of two modules of the clustering. */
+  const proposal = { change: 'merge', replaces: [`module:${'b'.repeat(64)}`, `module:${'c'.repeat(64)}`] };
+
+  test('an inferred module is a proposal, and an extracted one proposes nothing', () => {
+    // Stage 9's refinement is inferred, and what it writes is proposed until a
+    // person accepts it: an inferred module without its proposal is an assertion
+    // about nothing, and an extracted module — stage 5's own clustering — is read,
+    // never proposed.
+    expect(checkFact(moduleValueOf({ proposal }, 'inferred')).length).toBe(0);
+    expect(problemsOf(moduleValueOf({}, 'inferred')).paths).toEqual(['value.proposal']);
+    expect(problemsOf(moduleValueOf({ proposal })).paths).toEqual(['value.proposal']);
+    expect(problemsOf(moduleValueOf({ proposal })).messages[0]).toContain('a proposal stands on an inferred module');
+    expect(problemsOf(moduleValueOf({ proposal: 'merge everything' }, 'inferred')).paths).toEqual(['value.proposal']);
+  });
+
+  test('the proposal names its change and the modules it would replace, each once, in code point order', () => {
+    expect(problemsOf(moduleValueOf({ proposal: { change: 'fork', replaces: [`module:${'b'.repeat(64)}`] } }, 'inferred')).paths).toEqual(['value.proposal.change']);
+    expect(problemsOf(moduleValueOf({ proposal: { change: 'merge' } }, 'inferred')).paths).toEqual(['value.proposal.replaces']);
+    expect(problemsOf(moduleValueOf({ proposal: { change: 'merge', replaces: [] } }, 'inferred')).paths).toEqual(['value.proposal.replaces']);
+    expect(problemsOf(moduleValueOf({ proposal: { change: 'merge', replaces: [`module:${'b'.repeat(64)}`] } }, 'inferred')).paths).toEqual([]);
+    // The replaced modules are named in code point order, each once: a reader of
+    // the proposal reads the same list whatever wrote it.
+    const first = `module:${'b'.repeat(64)}`;
+    const second = `module:${'c'.repeat(64)}`;
+    expect(problemsOf(moduleValueOf({ proposal: { change: 'merge', replaces: [second, first] } }, 'inferred')).paths).toEqual(['value.proposal.replaces[1]']);
+    expect(problemsOf(moduleValueOf({ proposal: { change: 'merge', replaces: [first, first] } }, 'inferred')).paths).toEqual(['value.proposal.replaces[1]']);
+    // A proposal replaces modules, and nothing else: an id of another kind names
+    // no boundary.
+    expect(problemsOf(moduleValueOf({ proposal: { change: 'merge', replaces: [`file:${'b'.repeat(64)}`] } }, 'inferred')).paths).toEqual(['value.proposal.replaces[0]']);
+    expect(problemsOf(moduleValueOf({ proposal: { change: 'merge', replaces: ['not-an-id'] } }, 'inferred')).paths).toEqual(['value.proposal.replaces[0]']);
+    // A field the proposal does not carry is refused at its key, like every
+    // record's.
+    expect(problemsOf(moduleValueOf({ proposal: { change: 'merge', replaces: [first], reason: 'because' } }, 'inferred')).paths).toEqual(['value.proposal']);
+  });
+
+  test('a proposal never names itself among the modules it would replace', () => {
+    // The identity is the repository, the parent and the name: a proposal named
+    // after a module of the clustering digests to that module's own id, and the
+    // publication would overwrite the extracted fact the proposal asked to
+    // refine. The check refuses the write at the list's own leg.
+    const fact = sampleFact('module');
+    const value = {
+      ...(fact.value as unknown as Record<string, unknown>),
+      seed: 'cluster',
+      proposal: { change: 'rename', replaces: [fact.id] },
+    };
+    const self = { ...fact, layer: 'inferred', value };
+    expect(problemsOf(self).paths).toEqual(['value.proposal.replaces[0]']);
+    expect(problemsOf(self).messages[0]).toContain('never over them');
+  });
+
+  test('a proposed module is no package\'s or build target\'s seed: its seed is the word for a cluster', () => {
+    expect(problemsOf(moduleValueOf({ proposal, seed: 'package' }, 'inferred')).paths).toEqual(['value.seed']);
+    expect(problemsOf(moduleValueOf({ proposal, seed: 'build-target' }, 'inferred')).paths).toEqual(['value.seed']);
+    expect(checkFact(moduleValueOf({ proposal, seed: 'cluster' }, 'inferred')).length).toBe(0);
   });
 });
 

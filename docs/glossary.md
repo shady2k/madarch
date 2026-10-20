@@ -296,6 +296,34 @@ of node the graph holds none of has no page (0026, "Pages").
 One format of a wiki page's view: LikeC4 (interactive), Mermaid, or archify
 (drawn by the renderer kept in `vendor/archify/`, at LikeC4's positions).
 
+**Open question**:
+What the fill does not know and a person or an agent must settle: a `question`
+fact of the graph, raised by a checked write or by a stage, of one of the
+charter's eight types (meaning, contradiction, undocumented behaviour,
+assumption check, term, unverifiable, decision rationale, access or document
+needed). It is open until an answer names it, and its rank is how many pages an
+answer would change.
+_Avoid_: issue (the tracker's), comment (the wiki's discussion)
+
+**Answer**:
+The record that closes an open question, and — the same fact — what a person
+decides about a page's proposed content: an `answer` fact whose `decision` is
+`answers`, `accepts` or `rejects`, held by the product rather than by a unit of
+a run. A person's answer is `declared` and stands accepted; an agent's is
+`inferred`, proposed, and cites the place it read.
+
+**Decision record**:
+A person's answer or acceptance as Markdown in the product's git:
+`answers/` and `acceptances/`, one file per decided node, dated and signed, with
+the person's own Markdown under its heading. The graph reads it back, so the
+record is the file and the graph is its reading.
+_Avoid_: comment (a discussion message, which is a different record)
+
+**Next step**:
+What a page recommends doing next, decided from the graph alone: its own most
+depended-on open question first, then a scope nobody covered on a node the fill
+ranked important, then an assumption to review, and nothing when nothing waits.
+
 ## Open
 
 - The name of the file that lists the repositories composing the graph and

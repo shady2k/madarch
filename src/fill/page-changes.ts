@@ -85,9 +85,14 @@ export const PAGE_CHANGE_SCHEMA: readonly string[] = [
     node_id text NOT NULL,
     unit_id text NOT NULL,
     generation integer NOT NULL,
-    publication text NOT NULL
+    publication text NOT NULL,
+    product text
   )`,
   `CREATE INDEX IF NOT EXISTS ${PAGE_CHANGE_TABLE}_unit ON ${PAGE_CHANGE_TABLE} (unit_id)`,
+  // A change a person's own record makes is no unit's publication (no fill unit published it) and is the
+  // product's: the column names it, and a store created before it existed gains it here.
+  `ALTER TABLE ${PAGE_CHANGE_TABLE} ADD COLUMN IF NOT EXISTS product text`,
+  `CREATE INDEX IF NOT EXISTS ${PAGE_CHANGE_TABLE}_product ON ${PAGE_CHANGE_TABLE} (product)`,
 ];
 
 /**

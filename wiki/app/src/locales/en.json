@@ -289,7 +289,15 @@
       "paused": "Paused",
       "stopped": "Stopped",
       "complete": "Complete",
-      "blocked": "Blocked"
+      "blocked": "Blocked",
+      "created": "Created",
+      "planning": "Planning",
+      "succeeded": "Complete",
+      "completed_partial": "Complete, partly covered",
+      "failed": "Failed",
+      "cancelled": "Cancelled",
+      "pausing": "Pausing",
+      "cancelling": "Stopping"
     },
     "stages": {
       "inventory": "Inventory",
@@ -297,7 +305,15 @@
       "claims": "Claims",
       "code-map": "Code map",
       "synthesis": "Synthesis",
-      "question-review": "Question review"
+      "question-review": "Question review",
+      "snapshot": "Snapshot",
+      "build-configuration": "Build and configuration",
+      "syntax": "Syntax",
+      "semantic-resolution": "Semantic resolution",
+      "modules": "Modules",
+      "document-index": "Documents",
+      "history": "History",
+      "agent-unit": "Agent unit"
     }
   },
   "wizard": {
@@ -452,6 +468,11 @@
     "draftsTitle_few": "{{count}} drafts",
     "draftsTitle_many": "{{count}} drafts",
     "noDrafts": "No unit holds a draft about this node.",
+    "narrativeTitle": "Narrative",
+    "narrativeUnverified": "unverified",
+    "narrativeNote": "What an agent wrote about this node, proposed in the product's git: every sentence names the facts it stands on, and a person accepts or rewrites it.",
+    "narrativeStale": "This text is stale: the unit that wrote it was replanned, and a new text is on its way.",
+    "narrativeSentenceStale": "stale",
     "draftsNote": "A draft is what a unit has written and not published: it is not a fact yet, and it leaves when the unit ends or publishes.",
     "draftMark": "draft",
     "draftHeldBy": "held by {{unit}}, generation {{generation}}",
@@ -585,6 +606,44 @@
       }
     },
     "listingRest": "{{shown}} of {{count}} listed: this index draws the first {{shown}} of this kind, and the graph holds {{count}}.",
-    "rowNew": "new"
+    "rowNew": "new",
+    "nextStep": {
+      "title": "Next step",
+      "answerQuestion": "Answer the question: {{prompt}}",
+      "coverNode": "Read the scope of {{label}}: no coverage reached it",
+      "reviewAssumption": "Accept or reject what {{label}} proposes",
+      "nothing": "Nothing waits for a person on this page",
+      "openQuestion": "Open the question"
+    },
+    "decision": {
+      "title_one": "What this page proposes: {{count}} proposal to accept or reject",
+      "title_other": "What this page proposes: {{count}} proposals to accept or reject",
+      "title_few": "What this page proposes: {{count}} proposals to accept or reject",
+      "title_many": "What this page proposes: {{count}} proposals to accept or reject",
+      "note": "An agent inferred these facts, and no person has accepted them (decision 0005). Accepting or rejecting writes your decision as Markdown in the product's git, and the graph reads it back.",
+      "accept": "Accept what the page proposes",
+      "reject": "Reject what the page proposes",
+      "accepted": "Accepted by a person",
+      "rejected": "Rejected by a person",
+      "by": "by {{by}}",
+      "noteLabel": "Your reason (optional, Markdown)",
+      "byLabel": "Your name (optional)",
+      "byPlaceholder": "a reader of the wiki",
+      "filed": "Written to the product's git at {{file}}, and the pages that depend on it are read again.",
+      "answerTitle": "Answer this question",
+      "answerLabel": "Your answer (Markdown)",
+      "answerSubmit": "Answer",
+      "proposed": "proposed by an agent ({{layer}}) and not yet a person's word"
+    },
+    "openQuestionsTitle": "Questions of this product",
+    "noOpenQuestions": "No question is open in this product's graph.",
+    "openQuestionsCount": "{{open}} open, {{answered}} answered, by the charter's types.",
+    "questionRank_one": "{{count}} page depends on the answer",
+    "questionRank_other": "{{count}} pages depend on the answer",
+    "questionRank_few": "{{count}} pages depend on the answer",
+    "questionRank_many": "{{count}} pages depend on the answer",
+    "questionDependsOn": "Depends on it:",
+    "questionOpen": "open",
+    "questionsCut": "Some of the product's questions are not listed here:"
   }
 }

@@ -1606,6 +1606,60 @@ describe('the reading shell', () => {
     expect(place?.getAttribute('aria-label')).toBe('Fill progress');
   });
 
+
+  test('the fill progress shows the run the server answers, with its own stages and its latest activity', async () => {
+    // The answer an orchestrator keeps (madarch-tzte.26.2): a run whose units stand in the declared stages, one of
+    // them still running. The panel's stage list is this answer's, not a list the app holds.
+    const answered = {
+      run: { id: 'update-shop-abcdef123456', status: 'running', createdAt: new Date().toISOString() },
+      units: [
+        { unitId: 'inventory/file:shop:src/order.ts', stage: 'inventory', status: 'published' },
+        { unitId: 'syntax/file:shop:src/order.ts', stage: 'syntax', status: 'running' },
+      ],
+      events: [{ seq: 3, at: new Date().toISOString(), stage: 'syntax', unitId: 'syntax/file:shop:src/order.ts', type: 'unit-progress', summary: 'read the file' }],
+    };
+    install((target) => {
+      const base = answerFor(product, listWithPages, pagesAtR1);
+      if (target === '/api/fill') return { body: answered };
+      return base(target);
+    });
+    goto('/p/docs/vision.md');
+    await intoApp(createElement(App));
+    await until(() => document.querySelector('main#page') !== null, 'the page');
+    // The context panel's own button opens it.
+    (document.querySelector('.shell-context') as HTMLButtonElement).click();
+    await until(() => document.querySelector('[data-testid="fill-progress-panel"]')?.hasAttribute('hidden') === false, 'the opened panel');
+    await until(() => text().includes('read the file'), 'the run\'s latest activity');
+    const panel = document.querySelector('[data-testid="fill-progress-panel"]') as HTMLElement;
+    // The stages are the answer's own, in the fill's order, and each names what it holds.
+    const stages = [...panel.querySelectorAll('li')].map((row) => [row.getAttribute('data-stage'), row.textContent]);
+    expect(stages).toEqual([
+      ['inventory', 'Inventory1/1 · 0 running'],
+      ['syntax', 'Syntax0/1 · 1 running'],
+    ]);
+    expect(panel.querySelector('.fill-run-state')?.textContent).toContain('Running');
+    // A run that stands running offers both controls, and the stop of a run that ended offers none.
+    expect((panel.querySelectorAll('.fill-controls button')[0] as HTMLButtonElement).disabled).toBe(false);
+    expect((panel.querySelectorAll('.fill-controls button')[1] as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  test('the fill progress offers no stop for a run that already ended', async () => {
+    install((target) => {
+      const base = answerFor(product, listWithPages, pagesAtR1);
+      if (target === '/api/fill') return { body: { run: { id: 'update-shop-abcdef123456', status: 'succeeded', createdAt: new Date().toISOString() }, units: [], events: [] } };
+      return base(target);
+    });
+    goto('/p/docs/vision.md');
+    await intoApp(createElement(App));
+    await until(() => document.querySelector('main#page') !== null, 'the page');
+    (document.querySelector('.shell-context') as HTMLButtonElement).click();
+    await until(() => document.querySelector('[data-testid="fill-progress-panel"]')?.hasAttribute('hidden') === false, 'the opened panel');
+    await until(() => text().includes('Complete'), 'the run\'s state');
+    const buttons = document.querySelectorAll('[data-testid="fill-progress-panel"] .fill-controls button');
+    expect((buttons[0] as HTMLButtonElement).disabled).toBe(true);
+    expect((buttons[1] as HTMLButtonElement).disabled).toBe(true);
+  });
+
   test('the menu button opens the navigation and closes it again', async () => {
     install(answerFor(product, shellList, shellPages));
     goto('/p/docs/vision.md');

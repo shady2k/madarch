@@ -81,6 +81,8 @@ const documents: Record<string, Page> = {
 };
 
 const MODULE = `module:${'a'.repeat(64)}`;
+const QUESTION = `question:${'6'.repeat(64)}`;
+const OTHER_QUESTION = `question:${'7'.repeat(64)}`;
 const SYMBOL = `symbol:${'b'.repeat(64)}`;
 const ENDPOINT = `api-endpoint:${'c'.repeat(64)}`;
 const FILE = `file:${'d'.repeat(64)}`;
@@ -110,6 +112,59 @@ function pageSet(overrides: Partial<GraphPageSet> = {}): GraphPageSet {
     changeSeq: 41,
     readAt: 1_700_000_000_000,
     message: null,
+    questions: {
+      groups: [
+        {
+          type: 'assumption-check',
+          questions: [
+            {
+              id: QUESTION,
+              type: 'assumption-check',
+              about: MODULE,
+              prompt: 'is the total used anywhere?',
+              layer: 'inferred',
+              status: 'proposed',
+              dependsOn: [
+                { id: MODULE, kind: 'module', label: 'checkout', page: addressOfGraphPage(MODULE) },
+                { id: SYMBOL, kind: 'symbol', label: 'acme-shop:src/checkout.ts#checkout.place', page: addressOfGraphPage(SYMBOL) },
+              ],
+              rank: 2,
+              answer: null,
+              open: true,
+            },
+          ],
+        },
+        {
+          type: 'term',
+          questions: [
+            {
+              id: OTHER_QUESTION,
+              type: 'term',
+              about: SYMBOL,
+              prompt: 'does “placed” mean authorized or captured?',
+              layer: 'inferred',
+              status: 'proposed',
+              dependsOn: [{ id: SYMBOL, kind: 'symbol', label: 'acme-shop:src/checkout.ts#checkout.place', page: addressOfGraphPage(SYMBOL) }],
+              rank: 1,
+              answer: null,
+              open: true,
+            },
+          ],
+        },
+      ],
+      open: 2,
+      answered: 0,
+      total: 2,
+      truncated: false,
+      marker: null,
+    },
+    nextStep: {
+      rule: 'answer-question',
+      question: { id: QUESTION, type: 'assumption-check', prompt: 'is the total used anywhere?', rank: 2, page: addressOfGraphPage(QUESTION) },
+      target: addressOfGraphPage(QUESTION),
+      node: { id: QUESTION, kind: 'question', label: 'is the total used anywhere?' },
+      reason: 'the answer changes 2 pages depend on it (assumption-check): answer it, and only those pages are read again',
+    },
     ...overrides,
   };
 }
@@ -201,14 +256,30 @@ function modulePage(): GraphPageModel {
     coverageScopes: [MODULE],
     questions: [
       {
-        id: `question:${'6'.repeat(64)}`,
+        id: QUESTION,
         type: 'assumption-check',
         about: MODULE,
         prompt: 'is the total used anywhere?',
         layer: 'inferred',
         status: 'proposed',
+        dependsOn: [
+          { id: MODULE, kind: 'module', label: 'checkout', page: addressOfGraphPage(MODULE) },
+          { id: SYMBOL, kind: 'symbol', label: 'acme-shop:src/checkout.ts#checkout.place', page: addressOfGraphPage(SYMBOL) },
+        ],
+        rank: 2,
+        answer: null,
+        open: true,
       },
     ],
+    decision: null,
+    answer: null,
+    nextStep: {
+      rule: 'answer-question',
+      question: { id: QUESTION, type: 'assumption-check', prompt: 'is the total used anywhere?', rank: 2, page: addressOfGraphPage(QUESTION) },
+      target: addressOfGraphPage(MODULE),
+      node: { id: MODULE, kind: 'module', label: 'checkout' },
+      reason: 'the answer changes 2 pages depend on it (assumption-check): answer it, and only those pages are read again',
+    },
     drafts: [
       {
         asDraft: true,
@@ -220,6 +291,16 @@ function modulePage(): GraphPageModel {
         fact: { kind: 'module', value: { name: 'checkout' } },
       },
     ],
+    narrative: {
+      fact: `narrative:${'9'.repeat(64)}`,
+      path: `docs/graph/module-${'9'.repeat(64)}.md`,
+      status: 'proposed',
+      stale: false,
+      sentences: [
+        { text: 'The checkout validates the cart before payment.', facts: [`claim:${'e'.repeat(64)}`], stale: false },
+        { text: 'The checkout refunds an order once.', facts: [`rule:${'f'.repeat(64)}`], stale: true },
+      ],
+    },
     counts: { facts: 2, assumptions: 1, out: 3, in: 1, coverage: 1, questions: 1, drafts: 1 },
     truncated: false,
     marker: null,
@@ -273,6 +354,8 @@ function answer(world: World, target: string): Blade | 'stream' {
     if (page === undefined) return { body: { message: 'the wiki does not hold ' + path }, status: 404 };
     return { body: page };
   }
+  if (target === '/api/graph/answer') return { body: { file: `answers/${'6'.repeat(64)}.md`, pages: [MODULE, QUESTION] } };
+  if (target === '/api/graph/decide') return { body: { file: `acceptances/${'8'.repeat(64)}.md`, pages: [MODULE] } };
   if (target.startsWith('/api/discussions')) return { body: { discussions: [] } };
   return { body: { message: 'the server does not answer ' + target }, status: 404 };
 }
@@ -524,6 +607,57 @@ describe('one node’s page', () => {
 
     // The diagrams' slot stands on the page, named and not drawn.
     expect(document.querySelector('[data-testid="graph-diagrams"]')).not.toBeNull();
+  });
+
+  test('the narrative layer stands above the facts, marked unverified, and a stale sentence names itself', async () => {
+    install(world());
+    window.history.pushState({}, '', addressOfGraphPage(MODULE));
+    intoApp(createElement(App, { reconnectMs: 5 }));
+    await until(() => document.querySelector('[data-testid="graph-node"]') !== null, 'the node page');
+
+    // The narrative section stands above the facts it narrates (0026: "a second layer").
+    const node = document.querySelector('main#graph-node')!;
+    const sections = [...node.querySelectorAll(':scope > section')];
+    const narrative = sections.find((section) => section.getAttribute('data-testid') === 'graph-narrative');
+    const facts = sections.find((section) => section.getAttribute('data-testid') === 'graph-facts');
+    expect(narrative).toBeDefined();
+    expect(facts).toBeDefined();
+    expect(sections.indexOf(narrative!)).toBeLessThan(sections.indexOf(facts!));
+
+    // It is a proposal: the unverified mark stands beside the note, and the sentences
+    // carry the facts they stand on.
+    expect(document.querySelector('[data-testid="graph-narrative-badge"]')?.textContent).toContain('unverified');
+    const sentences = [...document.querySelectorAll('[data-testid="graph-narrative-sentence"]')];
+    expect(sentences.map((sentence) => sentence.getAttribute('data-stale'))).toEqual(['false', 'true']);
+    expect(sentences[0]?.textContent).toContain('The checkout validates the cart before payment.');
+    expect(sentences[0]?.querySelector('[data-testid="graph-narrative-sentence-stale"]')).toBeNull();
+    expect(sentences[1]?.querySelector('[data-testid="graph-narrative-sentence-stale"]')?.textContent).toBe('stale');
+    expect(sentences[1]?.textContent).toContain(`rule:${'f'.repeat(64)}`);
+    // A current page names no staleness of its own.
+    expect(document.querySelector('[data-testid="graph-narrative-stale"]')).toBeNull();
+  });
+
+  test('a page the graph holds no narrative for shows no narrative section', async () => {
+    const bare = world();
+    bare.pages = { [MODULE]: { ...modulePage(), narrative: null } };
+    install(bare);
+    window.history.pushState({}, '', addressOfGraphPage(MODULE));
+    intoApp(createElement(App, { reconnectMs: 5 }));
+    await until(() => document.querySelector('[data-testid="graph-node"]') !== null, 'the node page');
+    expect(document.querySelector('[data-testid="graph-narrative"]')).toBeNull();
+    expect(document.querySelector('[data-testid="graph-facts"]')).not.toBeNull();
+  });
+
+  test('a stale page says its text is being rewritten', async () => {
+    const stale = world();
+    stale.pages = { [MODULE]: { ...modulePage(), narrative: { ...modulePage().narrative!, stale: true } } };
+    install(stale);
+    window.history.pushState({}, '', addressOfGraphPage(MODULE));
+    intoApp(createElement(App, { reconnectMs: 5 }));
+    await until(() => document.querySelector('[data-testid="graph-node"]') !== null, 'the node page');
+    const mark = document.querySelector('[data-testid="graph-narrative-stale"]');
+    expect(mark).not.toBeNull();
+    expect(mark?.getAttribute('role')).toBe('status');
   });
 
   test('a place in a repository the manifest does not declare is text and links nothing', async () => {
@@ -781,5 +915,76 @@ describe('the graph’s navigation labels (madarch-tzte.23.4)', () => {
     const row = document.querySelector(`[data-testid="graph-nav"] a[data-graph-node="${SYMBOL}"]`)!;
     expect(row.getAttribute('title')).toBe('acme-shop:src/checkout.ts#checkout.place');
     expect(row.querySelector('[data-testid="graph-nav-label"]')?.textContent).toBe('checkout.place');
+  });
+});
+
+describe('open questions, answers and the next step on the graph pages', () => {
+  test('every page shows the step the server decided, and the index groups the product\'s questions by the charter\'s types', async () => {
+    install(world());
+    window.history.pushState({}, '', GRAPH_INDEX_ADDRESS);
+    intoApp(createElement(App, { reconnectMs: 5 }));
+    await until(() => document.querySelector('[data-testid="graph-index"]') !== null, 'the graph index');
+    await until(() => document.querySelector('[data-testid="graph-next-step"]') !== null, 'the index\'s next step');
+    // The product\'s own step: its most asked open question, and the page the step opens is the question\'s own page.
+    const step = document.querySelector('[data-testid="graph-next-step"]')!;
+    expect(step.getAttribute('data-rule')).toBe('answer-question');
+    expect(step.querySelector('[data-testid="graph-next-step-action"]')?.textContent).toContain('is the total used anywhere?');
+    const opened = step.querySelector('a')?.getAttribute('href');
+    expect(opened).toBe(`/p/graph/${QUESTION}`);
+    // The questions come grouped by the charter\'s types, in the charter\'s order, each naming what depends on it.
+    const groups = [...document.querySelectorAll('[data-testid="graph-question-group"]')].map((group) => group.getAttribute('data-question-type'));
+    expect(groups).toEqual(['assumption-check', 'term']);
+    const first = document.querySelector('[data-testid="graph-question-group"]')!;
+    expect(first.textContent).toContain('is the total used anywhere?');
+    expect(first.querySelector('[data-testid="graph-question-rank"]')?.textContent).toContain('2');
+    const depends = first.querySelector('[data-testid="graph-question-depends"]');
+    expect(depends?.textContent).toContain('checkout');
+    expect([...(depends?.querySelectorAll('a') ?? [])].map((link) => link.getAttribute('href'))).toEqual([`/p/graph/${MODULE}`, `/p/graph/${SYMBOL}`]);
+  });
+
+  test('a node\'s page shows its own step, its question\'s rank, and the form that answers it', async () => {
+    install(world());
+    window.history.pushState({}, '', addressOfGraphPage(MODULE));
+    intoApp(createElement(App, { reconnectMs: 5 }));
+    await until(() => document.querySelector('[data-testid="graph-node"]') !== null, 'the module\'s page');
+    await until(() => document.querySelector('[data-testid="graph-next-step"]') !== null, 'the page\'s next step');
+    expect(document.querySelector('[data-testid="graph-next-step"]')?.getAttribute('data-rule')).toBe('answer-question');
+    // The question stands under the page with what depends on the answer, and the person answers it where it stands.
+    expect(document.querySelector('[data-testid="graph-question-rank"]')?.textContent).toContain('2');
+    expect(document.querySelector('[data-testid="graph-answer-form"]')).not.toBeNull();
+    // The page proposes facts no person accepted, so it also asks for that decision.
+    expect(document.querySelector('[data-testid="graph-decision"]')).not.toBeNull();
+  });
+
+  test('an answer typed on a page is posted to the graph, which files it in the product\'s git', async () => {
+    const installed = install(world());
+    window.history.pushState({}, '', addressOfGraphPage(MODULE));
+    intoApp(createElement(App, { reconnectMs: 5 }));
+    await until(() => document.querySelector('[data-testid="graph-answer-form"]') !== null, 'the answer form');
+    const form = document.querySelector('[data-testid="graph-answer-form"]') as HTMLFormElement;
+    const [answerField, byField] = [...form.querySelectorAll('textarea, input')] as (HTMLTextAreaElement | HTMLInputElement)[];
+    answerField!.value = 'The total is used by the receipt.';
+    answerField!.dispatchEvent(new Event('input', { bubbles: true }));
+    byField!.value = 'the owner';
+    byField!.dispatchEvent(new Event('input', { bubbles: true }));
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    await until(() => document.querySelector('[data-testid="graph-question-filed"]') !== null, 'the answer filed');
+    expect(document.querySelector('[data-testid="graph-question-filed"]')?.textContent).toContain(`answers/${'6'.repeat(64)}.md`);
+    expect(installed.calls).toContain('/api/graph/answer');
+  });
+
+  test('a page\'s proposed content is accepted or rejected from the page, and the decision is posted to the graph', async () => {
+    const installed = install(world());
+    window.history.pushState({}, '', addressOfGraphPage(MODULE));
+    intoApp(createElement(App, { reconnectMs: 5 }));
+    await until(() => document.querySelector('[data-testid="graph-decision-form"]') !== null, 'the acceptance form');
+    const form = document.querySelector('[data-testid="graph-decision-form"]') as HTMLFormElement;
+    const note = form.querySelector('textarea') as HTMLTextAreaElement;
+    note.value = 'the boundary is right';
+    note.dispatchEvent(new Event('input', { bubbles: true }));
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    await until(() => document.querySelector('[data-testid="graph-decision-record"]') !== null, 'the decision record');
+    expect(document.querySelector('[data-testid="graph-decision-record"]')?.textContent).toContain('Accepted by a person');
+    expect(installed.calls).toContain('/api/graph/decide');
   });
 });

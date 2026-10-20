@@ -1,7 +1,7 @@
 /// <reference lib="dom" />
 import { describe, expect, test } from 'bun:test';
 import { createGraphDiagramsPart } from '../src/server/graph-diagrams.js';
-import type { GraphPagesSource } from '../src/fill/graph-pages.js';
+import { emptyNextStep, emptyQuestionSet, type GraphPagesSource } from '../src/fill/graph-pages.js';
 import { buildDiagram } from '../src/fill/diagrams.js';
 import { DIAGRAM_FIXTURE, readsOf } from './fill-diagram-fixture.js';
 
@@ -30,7 +30,7 @@ async function sourceWith(): Promise<GraphPagesSource> {
   const clean = readsOf(fx.facts.filter((fact) => fact.id !== fx.orphanImportsGone.id));
   const module = await buildDiagram({ type: 'module-dependency', nodes: [fx.shop.id] }, clean);
   return {
-    pageSet: async () => ({ product: 'Fixture Product', pages: [], counts: [], total: 0, changeSeq: 0, readAt: 0, message: null }),
+    pageSet: async () => ({ product: 'Fixture Product', pages: [], counts: [], total: 0, changeSeq: 0, readAt: 0, message: null, questions: emptyQuestionSet(), nextStep: emptyNextStep('Fixture Product') }),
     page: async () => ({ ok: false, code: 'graph-pages/no-such-node', message: 'nothing' }),
     diagrams: async (id: string) => id === fx.shop.id
       ? {
@@ -43,6 +43,8 @@ async function sourceWith(): Promise<GraphPagesSource> {
         }
       : { ok: false as const, code: 'graph-pages/no-such-node', message: `the graph holds no page of ${id}` },
     changes: async () => ({ changes: [], lastSeq: 0, truncated: false, marker: null }),
+    answer: async () => ({ ok: false as const, code: 'graph-pages/no-graph', message: 'no graph' }),
+    decide: async () => ({ ok: false as const, code: 'graph-pages/no-graph', message: 'no graph' }),
     subscribe: () => () => undefined,
   };
 }

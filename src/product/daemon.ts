@@ -23,6 +23,9 @@ import { ensureBuilt } from '../product-wiki/app.js';
 import type { ServeEnv } from '../product-wiki/serve.js';
 import { startServer } from '../server/http.js';
 import { createFillOrchestratorService, type FillOrchestratorService, type FillOrchestratorServiceOptions } from '../fill/orchestrator-host.js';
+import { createStagesFill } from './fill-stages.js';
+import { fillStatePaths, readFillJson } from './fill-runtime.js';
+import { createUpdateWatch, type UpdateWatch } from './fill-updates.js';
 import { UNIT_TOOL_PATH } from '../fill/unit-tools.js';
 import { selfCommand } from './self-command.js';
 import { StageRegistry } from '../fill/registry.js';
@@ -560,14 +563,82 @@ export function daemonStatus(options: { home?: string }): number {
  * products home. It opens the process's fill database and its queue only when a
  * run is first asked for, so a server that serves wikis pays nothing for a fill
  * nobody started. The fill's own stages are registered by the tasks that write
- * them (madarch-tzte.19.6 registers the first ones), and until a wiring is given
- * a run is refused with what is missing rather than publishing nothing.
+ * them (madarch-tzte.19.6 registers the first ones, madarch-tzte.21.8 wires the
+ * eight deterministic ones), and a product whose stages cannot be built is
+ * refused with what is missing rather than publishing nothing.
  */
-export function daemonFillOrchestrator(home: string, options: Omit<FillOrchestratorServiceOptions, 'home' | 'registry'> & { readonly registry?: StageRegistry } = {}): FillOrchestratorService {
-  // The registry is taken out before the rest is spread: a caller that leaves it out gets the empty
-  // registry this process holds today, never the `undefined` a spread would put back.
-  const { registry, ...rest } = options;
-  return createFillOrchestratorService({ home, registry: registry ?? new StageRegistry(), ...rest });
+export function daemonFillOrchestrator(home: string, options: Omit<FillOrchestratorServiceOptions, 'home' | 'registry' | 'wiring'> & { readonly registry?: StageRegistry; readonly wiring?: FillOrchestratorServiceOptions['wiring'] } = {}): FillOrchestratorService {
+  // The registry and the wiring are taken out before the rest is spread: a caller that leaves them out gets
+  // this daemon's own, never the `undefined` a spread would put back.
+  const { registry, wiring, ...rest } = options;
+  return createFillOrchestratorService({
+    home,
+    registry: registry ?? new StageRegistry(),
+    // A product's fill is the declared stages over its own repositories (madarch-tzte.21.8's wiring), built when
+    // a run is first asked for and over the database this service already opened: the process keeps one database
+    // owner (decision 0027), and a registry is built per product because its pins are that product's checkouts.
+    wiring: wiring ?? (async (product, context) => await createStagesFill({ product: product.folder, database: context.owner })),
+    ...rest,
+  });
+}
+
+/**
+ * The landed fill's own state, where it is one that holds the product: the fill a
+ * person started from the wizard keeps `run.json` under the product's
+ * `.madarch/fill`, and a run that stands `running` or `paused` there is a fill of
+ * that product in progress. A product that never ran one, and one whose state
+ * cannot be read, answer nothing: an unreadable state file is not a fill that
+ * holds the product, and the update it would block is not this function's to guess.
+ */
+export async function landedFillOf(folder: string): Promise<{ status: string; file: string } | undefined> {
+  const paths = fillStatePaths(folder);
+  let run: { status?: unknown };
+  try {
+    run = await readFillJson<{ status?: unknown }>(paths.run);
+  } catch {
+    return undefined;
+  }
+  if (typeof run.status !== 'string') return undefined;
+  return run.status === 'running' || run.status === 'paused' ? { status: run.status, file: paths.run } : undefined;
+}
+
+/**
+ * The update after commits to a product's default branch (madarch-tzte.26.2;
+ * decision 0026, "Updates"): the watcher of the server's own products home, which
+ * starts one debounced run of a product whose default branch moved. A start is the
+ * fill service's own run, so it faces the product's chain of runs (`startRun`): the
+ * fill in progress refuses it, and the watcher leaves the commit waiting for the
+ * next pass. The run is named after its product and commit, so one commit never
+ * starts two runs, and its progress is what the fill progress answers.
+ */
+export function daemonUpdateWatch(home: string, service: FillOrchestratorService, options: { readonly debounceMs?: number; readonly intervalMs?: number; readonly log?: (line: string) => void; readonly enabled?: () => Promise<boolean> | boolean } = {}): UpdateWatch {
+  return createUpdateWatch({
+    home,
+    ...(options.debounceMs === undefined ? {} : { debounceMs: options.debounceMs }),
+    ...(options.intervalMs === undefined ? {} : { intervalMs: options.intervalMs }),
+    ...(options.enabled === undefined ? {} : { enabled: options.enabled }),
+    log: options.log ?? ((line: string) => console.log(`updates: ${line}`)),
+    start: async (request) => {
+      // The landed fill — the one the wizard's own Start runs — keeps its state in the product's `.madarch/fill` and
+      // is no run of this service: an update started over it would be a second fill of one product at once, so the
+      // commit waits for it exactly as it waits for a run of the orchestrator (`startRun`'s chain, below).
+      const landed = await landedFillOf(request.product.folder);
+      if (landed !== undefined) {
+        return { started: false, deferred: true, reason: `the product ${JSON.stringify(request.product.name)} fills in ${landed.file}, which stands ${landed.status}: an update waits for that fill to end` };
+      }
+      // A product that fills now is asked nothing: the store's chain says so before any run record is written, so a
+      // commit that waits for a fill leaves none behind. `run`'s own rule still governs the race.
+      const active = await service.activity({ product: request.product });
+      if (active.state === 'active' && active.activeRunState !== null && !['succeeded', 'completed_partial', 'blocked', 'failed', 'cancelled'].includes(active.activeRunState)) {
+        return { started: false, deferred: true, reason: `the product ${JSON.stringify(request.product.name)} already runs ${String(active.activeRunId)}, which stands ${active.activeRunState}` };
+      }
+      const answer = await service.run({ product: request.product, runId: request.runId });
+      if (answer.ok) return { started: true };
+      // A fill of the product is in progress: the store's own rule (`startRun`) says so, and the commit waits.
+      if (answer.code === 'fill-orchestrator/chain-active' || answer.code === 'fill-orchestrator/chain-held') return { started: false, deferred: true, reason: answer.reason };
+      return { started: false, code: answer.code, reason: answer.reason };
+    },
+  });
 }
 
 /** The daemon child's own entry (`madarch daemon-serve`): serves every valid product in the home until stopped. */
@@ -589,11 +660,43 @@ export async function serveDaemon(options: { home?: string; port: number }): Pro
       port: options.port,
       host: '127.0.0.1',
       startFill,
-      orchestrator,
+      orchestrator: {
+        stop: () => orchestrator.stop(),
+        unitTool: (call) => orchestrator.unitTool(call),
+        progress: (folder) => orchestrator.progress(folder),
+        control: (request) => orchestrator.control(request),
+      },
       graphPages: (productFolder) => orchestrator.pages(productFolder),
     });
     address = server.url;
-    await new Promise<void>((resolveDone) => { process.once('SIGTERM', resolveDone); process.once('SIGINT', resolveDone); });
+    // The update after commits to a default branch (madarch-tzte.26.2) runs beside the wikis: its first pass reads
+    // each repository's head as the baseline, and a commit after it starts one debounced run of that product. The
+    // pass is not awaited here — a head that moved while the server was stopped starts a whole run in it, and a
+    // server that could not be stopped until a fill ended would be a server nobody can stop — and a watcher that
+    // cannot start says so and the server serves on, since a wiki still answers without it.
+    let watch: UpdateWatch | undefined;
+    let watching: Promise<void> = Promise.resolve();
+    try {
+      watch = daemonUpdateWatch(home, orchestrator);
+      const started = watch;
+      watching = started.outset().then(() => undefined, (error: unknown) => {
+        console.error(`the updates after commits to a default branch of the products home ${home} could not be watched, so no commit starts one: ${(error as Error).message}`);
+        started.stop();
+      });
+    } catch (error) {
+      console.error(`the updates after commits to a default branch of the products home ${home} could not be watched, so no commit starts one: ${(error as Error).message}`);
+      watch?.stop();
+      watch = undefined;
+    }
+    try {
+      await new Promise<void>((resolveDone) => { process.once('SIGTERM', resolveDone); process.once('SIGINT', resolveDone); });
+    } finally {
+      // No pass starts after this one, and a run already under way is not waited for: a stop that waited for a fill
+      // to end is a stop nobody can use. The orchestrator's own recovery owns what a killed run leaves (decision
+      // 0027's crash suite), and the pass that loses the database says so in the log through `watching`.
+      watch?.stop();
+      void watching;
+    }
     await server.stop();
     return 0;
   } catch (error) {
