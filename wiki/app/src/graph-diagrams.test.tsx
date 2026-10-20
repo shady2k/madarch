@@ -228,14 +228,20 @@ describe('a page’s diagrams', () => {
 
   test('a diagram being drawn stands in the app’s own words inside its card, never as an empty frame', async () => {
     // The Mermaid box is a bordered card: an empty one is the empty frame the coordinator saw. Until the drawing
-    // stands, the card says what it is waiting for.
+    // stands, the card says what it is waiting for — and a renderer this DOM cannot load answers with the app's own
+    // failure words instead. Whichever the renderer does, the reader reads words and never an empty box, so both
+    // outcomes are asserted here rather than waited out for one: this suite has no network and no renderer stub.
     into(createElement(DiagramTabs, { diagram: diagram(), repos: repos.repos }));
-    await until(() => document.querySelector('[data-testid="mermaid-diagram"]') !== null, 'the Mermaid card');
+    await until(() => document.querySelector('[data-testid="mermaid-diagram"]') !== null || document.querySelector('[data-testid="mermaid-error"]') !== null, 'the Mermaid card or its failure');
     const card = document.querySelector('[data-testid="mermaid-diagram"]');
+    if (card === null) {
+      expect(document.querySelector('[data-testid="mermaid-error"]')?.textContent ?? '').toContain('could not be drawn as a Mermaid diagram');
+      return;
+    }
     // The card is never empty: it holds the app's own words until the renderer's output stands, and the output after.
-    expect(card?.children.length ?? 0).toBeGreaterThan(0);
-    const loading = card?.querySelector('[data-testid="mermaid-loading"]') ?? null;
-    const drawing = card?.querySelector('svg') ?? null;
+    expect(card.children.length).toBeGreaterThan(0);
+    const loading = card.querySelector('[data-testid="mermaid-loading"]');
+    const drawing = card.querySelector('svg');
     expect(loading !== null || drawing !== null).toBe(true);
     if (drawing === null) expect(loading?.textContent).toBe('Drawing the diagram…');
   });

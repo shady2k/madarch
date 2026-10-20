@@ -65,8 +65,8 @@ until then.
   madarch-tzte.23.4's; this change draws none of them differently and adds no tab.
 - **The page model and its reads.** The page set, the page model and the live channel
   are madarch-tzte.23.1's. Page speed on a large tree is madarch-tzte.23.8's; this change
-  adds no cache, no query change and no route, and the two tasks touch the same three
-  regions — see "Open points for the integrator" for the landing order.
+  adds no cache, no query change and no route, and the two tasks touch the same five
+  regions — see "Open points for the integrator" for the list and the landing order.
 - **`activity`, `class` and `deployment`.** The schema holds no kind for a step, an
   attribute or a deployment target (23.2's own limitation), and no deterministic stage
   writes `table`, `column`, `state`, `transition` or `interaction` (23.5's own evidence).
@@ -271,8 +271,7 @@ worker's machine):
   were given as one) and fifteen findings — answered in **`18d12dc2`**: the leaf rule
   (a module that holds no child keeps one view), `ModuleScopes.childModules`, the
   record's numbers rewritten from the runs, the look stopping when the diagram is near,
-  "8 steps of 600 px", the mechanism named in "Preserved contracts", five reads, the
-  stale comments, a depth of zero refused for a non-module scope, a collapsed depth-zero
+  "8 steps of 600 px", the mechanism named in "Preserved contracts", the stale comments, a depth of zero refused for a non-module scope, a collapsed depth-zero
   view drilling into the level its modules stand in, the `readNodeDiagrams` seam tested
   and a module **with neighbours** walked, the retitled and added cases, the level
   refusal per type, the module branch no longer gated on its repository fact, the live
@@ -284,7 +283,8 @@ worker's machine):
   diagram…"), `sameSpec` stops a drill-down that is its own view (the three tests that
   encoded the loop now assert the element's page instead), the collision and the landing
   order are an open point for the integrator, the record claims only what exists at its
-  revision, and the round-2 findings one by one.
+  revision, the reads of a module page (four, then five once the child-module read was
+  named), and the round-2 findings one by one.
 - **Round 3 — NOT APPROVED on text only**: the four defects hold, and what remained was
   the record's own wording and numbers (one string said, two added; three figures; "exactly
   as long"; the tree named for the walk; five shared regions rather than three; two test
@@ -306,8 +306,10 @@ Not run, and not claimed: the owner runs Stryker once per assembled stage, off t
   adds its speed phase beside them), both touch `src/fill/graph-diagrams.ts` (this one
   `readNodeDiagrams` and the new `moduleScopesOf`; 23.8 the same read path, which it
   reworks to build and keep models faster), and both touch the app's diagram section.
-  23.8's record already declares that this change makes the diagrams' node choice, so the
-  order that needs the least rebasing is **23.7 first, then 23.8 rebased onto it**; a
+  The app files 23.8 shares are the two catalogues (both add a key) — its own section
+  files are `wiki/app/src/graph-pages.tsx` and `graph.test.tsx`, which this change does not
+  touch. 23.8's record already declares that this change makes the diagrams' node choice,
+  so the order that needs the least rebasing is **23.7 first, then 23.8 rebased onto it**; a
   module page now costs the reads named above, which 23.8's own measurements should
   expect. Two more regions are shared: 23.8 rewrites `src/fill/graph-reads.ts` (the
   `edgesIn` SQL this change's `moduleNeighbours` reads through), and both branches create
