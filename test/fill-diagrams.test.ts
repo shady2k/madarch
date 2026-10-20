@@ -317,6 +317,16 @@ describe('the size of a view', () => {
     expect(labels(await buildDiagram(model.elements[0]!.drillDown!.view, clean, { limits: { nodes: 40 } }))).toEqual(['web-api', 'web-app', 'web-shared']);
   });
 
+  test('a module view at a depth of zero draws the modules it names themselves, and folds them like any other view', async () => {
+    // Depth 0 is what a page of one module and its neighbours is made of: no child of the scope holds a neighbour.
+    const model = await buildDiagram({ type: 'module-dependency', nodes: [fx.webApi.id, fx.webApiRoutes.id], level: 0 }, clean);
+    expect(model.elements.map((element) => element.label)).toEqual(['web-api', 'web-api-routes']);
+    expect(model.level).toBe(0);
+    // The two are a module and the cluster below it, joined by no import: the view says nothing rather than something
+    // it does not hold.
+    expect(model.edges).toEqual([]);
+  });
+
   test('a module view is drawn a depth below its scopes, and folds into a module when the level above is one', async () => {
     // A depth of two draws the clusters below the top-level ones, and only the web's api cluster is two levels deep.
     const deep = await buildDiagram({ type: 'module-dependency', nodes: [fx.web.id], level: 2 }, clean);
@@ -518,7 +528,7 @@ describe('a view the graph does not answer', () => {
   test('a malformed spec is refused field by field', async () => {
     await expect(buildDiagram({ type: 'module-dependency', nodes: [fx.shop.id, fx.shop.id] }, clean)).rejects.toThrow(/twice: a view's nodes are a set, each named once/);
     await expect(buildDiagram({ type: 'module-dependency', nodes: ['acme-shop'] }, clean)).rejects.toThrow(/a node is a fact id/);
-    await expect(buildDiagram({ type: 'module-dependency', nodes: [], level: 0 }, clean)).rejects.toThrow(/a level is a whole number, at least 1/);
+    await expect(buildDiagram({ type: 'module-dependency', nodes: [], level: -1 }, clean)).rejects.toThrow(/a level is a whole number, at least 0/);
     await expect(buildDiagram({ type: 'activity' } as unknown as DiagramViewSpec, clean)).rejects.toThrow(/the view names the diagram type "activity": the types this module draws are/);
     await expect(buildDiagram(null as unknown as DiagramViewSpec, clean)).rejects.toThrow(/the view is null: a view specification is an object/);
     await expect(buildDiagram('c4-context' as unknown as DiagramViewSpec, clean)).rejects.toThrow(/the view is "c4-context": a view specification is an object/);

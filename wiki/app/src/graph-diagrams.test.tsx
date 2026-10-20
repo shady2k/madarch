@@ -199,6 +199,50 @@ describe('a page’s diagrams', () => {
     expect(document.querySelector('[data-testid="graph-diagram-edge-evidence"]')?.textContent).toBe('assumption');
   });
 
+  test('a diagram the reader has not come near is held back in the app’s own words, and drawn once it is near', async () => {
+    // The reader is at the top of a long page and this diagram stands far below their window: no frame is mounted —
+    // an empty box is exactly what the page must not show — and the page says why in its own words. Their scrolling
+    // moves the diagram into the window, and the drawing stands.
+    const measured = Element.prototype.getBoundingClientRect;
+    let top = 5000;
+    try {
+      Element.prototype.getBoundingClientRect = function measuredBox(this: Element): DOMRect {
+        return { width: 800, height: 40, top, bottom: top + 40, left: 0, right: 800, x: 0, y: top, toJSON: () => ({}) } as DOMRect;
+      };
+      into(createElement(DiagramTabs, { diagram: diagram(), repos: repos.repos }));
+      await until(() => document.querySelector('[data-testid="graph-diagram-tabs"]') !== null, 'the tabs');
+      await until(() => document.querySelector('[data-testid="graph-diagram-deferred"]') !== null, 'the deferral’s words');
+      expect(document.querySelector('[data-panel]')).toBeNull();
+      expect(document.body.textContent ?? '').toContain('The diagram is drawn when you scroll to it.');
+      // The reader scrolls: the diagram's box comes into the window and the app draws it.
+      top = 100;
+      window.dispatchEvent(new Event('scroll'));
+      await until(() => document.querySelector('[data-testid="mermaid-diagram"]') !== null || document.querySelector('[data-testid="mermaid-error"]') !== null, 'the drawing');
+      expect(document.querySelector('[data-testid="graph-diagram-deferred"]')).toBeNull();
+      expect(document.querySelector('[data-panel="mermaid"]')).not.toBeNull();
+    } finally {
+      Element.prototype.getBoundingClientRect = measured;
+    }
+  });
+
+  test('a tab the reader opens is drawn at once, wherever the diagram stands', async () => {
+    // A click is the reader's own answer that the diagram is in front of them: the panel stands without waiting for a
+    // scroll, so a tab is never a button that does nothing.
+    const measured = Element.prototype.getBoundingClientRect;
+    try {
+      Element.prototype.getBoundingClientRect = function measuredBox(this: Element): DOMRect {
+        return { width: 800, height: 40, top: 5000, bottom: 5040, left: 0, right: 800, x: 0, y: 5000, toJSON: () => ({}) } as DOMRect;
+      };
+      into(createElement(DiagramTabs, { diagram: diagram(), repos: repos.repos }));
+      await until(() => document.querySelector('[data-testid="graph-diagram-deferred"]') !== null, 'the deferral’s words');
+      document.querySelector<HTMLButtonElement>('[data-testid="graph-diagram-tabs"] button[data-tab="archify"]')!.click();
+      await until(() => document.querySelector('[data-testid="graph-diagram-archify"]') !== null, 'the archify frame');
+      expect(document.querySelector('[data-testid="graph-diagram-deferred"]')).toBeNull();
+    } finally {
+      Element.prototype.getBoundingClientRect = measured;
+    }
+  });
+
   test('a diagram the graph answers with nothing says so, and draws no frame', async () => {
     into(createElement(DiagramTabs, { diagram: diagram({ empty: true, elements: [], edges: [], tabs: [mermaidTab('flowchart LR\n')] }), repos: repos.repos }));
     await until(() => document.querySelector('[data-testid="graph-diagram-empty"]') !== null, 'the empty diagram’s words');

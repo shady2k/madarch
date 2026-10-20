@@ -520,6 +520,29 @@ async function shot(page: Page, path: string): Promise<void> {
   }
 }
 
+/**
+ * One screenshot of one diagram's own frame — its tabs and the open panel — rather than
+ * the window it happens to stand in: a reader checking a picture reads the drawing, and
+ * a window shot of a long page shows whatever is at the top of it.
+ */
+async function shotPanel(page: Page, type: string, path: string): Promise<void> {
+  const box = await page.evaluate((asked: string) => {
+    const article = document.querySelector(`[data-diagram-type="${asked}"]`);
+    if (article === null) return null;
+    const parts = [article.querySelector('[data-testid="graph-diagram-tabs"]'), article.querySelector('[data-panel]')].filter((part) => part !== null);
+    const rects = parts.map((part) => part.getBoundingClientRect());
+    if (rects.length === 0) return null;
+    const left = Math.min(...rects.map((rect) => rect.left));
+    const right = Math.max(...rects.map((rect) => rect.right));
+    const top = Math.min(...rects.map((rect) => rect.top)) + window.scrollY;
+    const bottom = Math.max(...rects.map((rect) => rect.bottom)) + window.scrollY;
+    // The browser refuses a capture taller than its own bound; a diagram's frame is bounded by the same number.
+    return { x: Math.max(0, left), y: Math.max(0, top), width: Math.max(1, right - left), height: Math.min(1600, Math.max(1, bottom - top)) };
+  }, type);
+  if (box === null) return;
+  await page.screenshot({ path, clip: { x: Math.floor(box.x), y: Math.floor(box.y), width: Math.floor(box.width), height: Math.floor(box.height) } });
+}
+
 /** The tabs one diagram offers and the one the app opened first; a diagram with no tab draws nothing. */
 async function tabsOf(page: Page, type: string): Promise<{ offered: string[]; first: string; empty: string | null }> {
   return await page.evaluate((asked: string) => {
@@ -675,6 +698,111 @@ async function pageNumbers(page: Page): Promise<Record<string, unknown>> {
   });
 }
 
+/** What one diagram's own frame holds right now: which renderer panel stands, and whether it drew. */
+interface DiagramFrame {
+  readonly type: string;
+  /** The renderer whose panel is mounted, or null when the app holds the diagram back until it is in view. */
+  readonly panel: string | null;
+  /** Whether the panel's own drawing stands: a Mermaid drawing with a box or a label in it, or another renderer's frame. */
+  readonly drawn: boolean;
+  /** The diagram the graph answers with nothing: the page says so and draws no frame, which is no defect. */
+  readonly empty: boolean;
+  /** A renderer whose drawing failed: the page's own failure words, which is no empty frame either. */
+  readonly failed: boolean;
+  /** The app holding the drawing back until the reader comes near it, in its own words. */
+  readonly deferred: boolean;
+  /** The Mermaid drawing's own boxes, labels and size, as the browser computed them; null when no svg stands. */
+  readonly nodes: number | null;
+  readonly labels: number | null;
+  readonly width: number | null;
+  readonly height: number | null;
+  /** The words the page stands in this diagram: its empty sentence, its failure, or its deferral; null when it drew. */
+  readonly words: string | null;
+}
+
+/**
+ * One pass down a long page, the way a reader scrolls it: every step moves the window
+ * down a screenful and records what each diagram on the page holds. A diagram's frame
+ * that stood before the reader reached it and an empty one are both read here, so a
+ * page whose later diagrams draw no frame is named by its type rather than left to a
+ * picture.
+ */
+async function scrollPass(page: Page, what: string, shots: string): Promise<Record<string, unknown>> {
+  const size = await page.evaluate(() => ({ height: document.documentElement.scrollHeight, viewport: window.innerHeight }));
+  // The page as the reader's first screen finds it: nothing scrolled yet.
+  const atTop = await readFrames(page);
+  const firstDrawn = new Map<string, { top: number; waitedMs: number; frame: DiagramFrame }>();
+  const step = 600;
+  for (let top = 0; top < size.height; top += step) {
+    await page.evaluate((y: number) => window.scrollTo(0, y), top);
+    const inView = await page.evaluate(() => [...document.querySelectorAll('[data-testid="graph-diagram"]')]
+      .filter((article) => {
+        const rect = article.getBoundingClientRect();
+        return rect.bottom > 0 && rect.top < window.innerHeight;
+      })
+      .map((article) => article.getAttribute('data-diagram-type') ?? ''));
+    // A frame the reader has just reached is given its own moment to draw, and the wait is bounded: a frame that
+    // never draws is recorded as it stands rather than waited on for ever. An empty diagram and a failed renderer
+    // are answers, not waits.
+    const started = Date.now();
+    for (const type of inView) {
+      while (firstDrawn.has(type) === false && Date.now() - started < 20_000) {
+        const held = (await readFrames(page)).find((frame) => frame.type === type);
+        if (held !== undefined && (held.drawn || held.empty || held.failed)) break;
+        await new Promise((rest) => setTimeout(rest, 200));
+      }
+      const frame = (await readFrames(page)).find((each) => each.type === type);
+      if (frame !== undefined && firstDrawn.has(type) === false) firstDrawn.set(type, { top, waitedMs: Date.now() - started, frame });
+    }
+  }
+  // The whole page scrolled, the reader at its foot: every diagram the page holds, as it stands.
+  const afterScroll = await readFrames(page);
+  await shot(page, join(shots, 'page-scrolled-to-the-foot.png'));
+  const held: Record<string, unknown> = {
+    pageHeight: size.height,
+    viewport: size.viewport,
+    steps: Math.ceil(size.height / step),
+    atTop,
+    firstDrawn: Object.fromEntries([...firstDrawn].map(([type, seen]) => [type, seen])),
+    afterScroll,
+    // A diagram that holds no drawing once the reader has been down the whole page is the defect this pass names.
+    framesWithoutADrawing: afterScroll.filter((frame) => frame.drawn === false && frame.empty === false && frame.failed === false).map((frame) => frame.type),
+  };
+  console.log(`STAGE23_WALK_SCROLL ${JSON.stringify({ what, ...held })}`);
+  return held;
+}
+
+/** Every diagram on the page and what its frame holds, in the page's own order. */
+async function readFrames(target: Page | Frame): Promise<readonly DiagramFrame[]> {
+  return await target.evaluate(() => [...document.querySelectorAll('[data-testid="graph-diagram"]')].map((article) => {
+    const type = article.getAttribute('data-diagram-type') ?? '';
+    const panel = article.querySelector('[data-panel]')?.getAttribute('data-panel') ?? null;
+    const svg = article.querySelector('[data-testid="mermaid-diagram"] svg');
+    const box = svg === null ? null : svg.getBoundingClientRect();
+    const boxes = svg === null ? 0 : svg.querySelectorAll('g.node').length;
+    const labels = svg === null ? 0 : svg.querySelectorAll('text, .nodeLabel').length;
+    const empty = article.querySelector('[data-testid="graph-diagram-empty"]') !== null;
+    const failed = article.querySelector('[data-testid="mermaid-error"]') !== null;
+    const deferred = article.querySelector('[data-testid="graph-diagram-deferred"]') !== null;
+    const words = article.querySelector('[data-testid="graph-diagram-deferred"], [data-testid="mermaid-error"], [data-testid="graph-diagram-empty"]')?.textContent?.trim() ?? null;
+    return {
+      type,
+      panel,
+      // A frame that stands empty is no drawing: an svg with no box and no label in it is the defect this pass
+      // names, and another renderer's frame stands as a frame.
+      drawn: article.querySelector('[data-testid="graph-diagram-archify"], [data-testid="graph-diagram-likec4"]') !== null || boxes + labels > 0,
+      empty,
+      failed,
+      deferred,
+      nodes: svg === null ? null : boxes,
+      labels: svg === null ? null : labels,
+      width: box === null ? null : Math.round(box.width),
+      height: box === null ? null : Math.round(box.height),
+      words,
+    };
+  }));
+}
+
 /** One diagram, in every renderer tab it offers. */
 async function walkDiagram(page: Page, nodeId: string, type: string, shots: string): Promise<Record<string, unknown>> {
   const tabs = await tabsOf(page, type);
@@ -690,7 +818,8 @@ async function walkDiagram(page: Page, nodeId: string, type: string, shots: stri
     const drawn = await measureDrawing(page, `[data-diagram-type="${type}"] [data-testid="mermaid-diagram"]`, 'mermaid', type);
     const labels = await page.evaluate((asked: string) => [...document.querySelectorAll(`[data-diagram-type="${asked}"] [data-testid="mermaid-diagram"] svg text, [data-diagram-type="${asked}"] [data-testid="mermaid-diagram"] .nodeLabel`)].map((node) => node.textContent ?? ''), type);
     held['mermaid'] = { ...drawn, elapsedMs: mermaidTab.elapsedMs, labels };
-    await shot(page, join(shots, `diagram-${type}-mermaid.png`));
+    await shotPanel(page, type, join(shots, `diagram-${type}-mermaid.png`));
+    await shot(page, join(shots, `window-diagram-${type}-mermaid.png`));
   } catch (error) {
     // A renderer that does not draw is a defect of the diagram, not a reason to lose
     // the rest of the walk: it is recorded and the walk goes on.
@@ -908,6 +1037,9 @@ async function livePhase(options: WalkOptions, product: Product): Promise<void> 
     await openNode(page, mermaidServer.url, repository.id);
     const types = await page.evaluate(() => [...document.querySelectorAll('[data-testid="graph-diagram"]')].map((article) => article.getAttribute('data-diagram-type') ?? ''));
     measure('repositoryDiagramTypes', types);
+    // The reader arrives at the top of the page; the diagrams stand below the facts and relations, so the page is
+    // scrolled to its foot one screenful at a time and every diagram's frame is read as it comes into view.
+    measure('scrollPass', await scrollPass(page, 'the repository page', shots));
     const diagrams: Record<string, unknown> = {};
     for (const type of types) diagrams[type] = await walkDiagram(page, repository.id, type, shots);
     // Archify, on the server whose setting puts it first.
@@ -923,7 +1055,8 @@ async function livePhase(options: WalkOptions, product: Product): Promise<void> 
       // count is of dashed lines and components, read off the drawing's text too.
       const dashed = await opened.frame.evaluate(() => [...document.querySelectorAll('[class*="dashed"]')].filter((node) => node.tagName.toLowerCase() !== 'polygon').length);
       const text = await opened.frame.evaluate(() => document.body.textContent ?? '');
-      await shot(page, join(shots, `diagram-${type}-archify.png`));
+      await shotPanel(page, type, join(shots, `diagram-${type}-archify.png`));
+      await shot(page, join(shots, `window-diagram-${type}-archify.png`));
       diagrams[type] = { ...(diagrams[type] as Record<string, unknown>), archifyTabs: tabs, archify: { ...drawn, elapsedMs: opened.elapsedMs, dashed, text: text.slice(0, 400) } };
     }
     // LikeC4, on the server whose setting puts it first, for the types that offer it.
@@ -932,7 +1065,8 @@ async function livePhase(options: WalkOptions, product: Product): Promise<void> 
       const tabs = await tabsOf(page, type);
       if (!tabs.offered.includes('likec4')) continue;
       const opened = await openTab(page, repository.id, type, 'likec4');
-      await shot(page, join(shots, `diagram-${type}-likec4.png`));
+      await shotPanel(page, type, join(shots, `diagram-${type}-likec4.png`));
+      await shot(page, join(shots, `window-diagram-${type}-likec4.png`));
       diagrams[type] = { ...(diagrams[type] as Record<string, unknown>), likec4Tabs: tabs, likec4: { elapsedMs: opened.elapsedMs, ...(opened.likec4 ?? { svgs: 0, texts: [], undrawn: 'no state' }) } };
     }
     measure('diagrams', diagrams);

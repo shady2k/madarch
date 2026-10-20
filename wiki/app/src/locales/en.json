@@ -570,6 +570,7 @@
       "loading": "Reading this page's diagrams…",
       "failed": "This page's diagrams could not be read: {{message}}",
       "empty": "The graph holds nothing this view shows: no element of this diagram stands in the graph yet.",
+      "deferred": "The diagram is drawn when you scroll to it.",
       "elementsTitle_few": "{{count}} elements",
       "elementsTitle_many": "{{count}} elements",
       "edgesTitle_few": "{{count}} arrows",

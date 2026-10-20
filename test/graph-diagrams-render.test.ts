@@ -350,6 +350,15 @@ describe('which diagrams a page draws', () => {
     expect(repository.map((spec) => spec.type)).toEqual(['c4-context', 'c4-container', 'c4-component', 'module-dependency', 'er']);
     expect(repository[0]!.nodes).toEqual([]);
     expect(repository.slice(1).map((spec) => spec.nodes)).toEqual([['repository:1'], ['repository:1'], ['repository:1'], ['repository:1']]);
+    // A repository whose real structure stands below a single top-level module draws that level in both module views
+    // (madarch-tzte.23.7): the scope is the module whose children are the first level with more than one.
+    expect(diagramSpecsFor({ kind: 'repository', id: 'repository:1', moduleScopes: { view: ['module:1'], neighbours: [] } }).map((spec) => [spec.type, spec.nodes])).toEqual([
+      ['c4-context', []],
+      ['c4-container', ['repository:1']],
+      ['c4-component', ['module:1']],
+      ['module-dependency', ['module:1']],
+      ['er', ['repository:1']],
+    ]);
     expect(diagramSpecsFor({ kind: 'package', id: 'package:1' })).toEqual([{ type: 'c4-container', nodes: ['package:1'] }]);
     expect(diagramSpecsFor({ kind: 'deploy-unit', id: 'deploy-unit:1' })).toEqual([{ type: 'c4-container', nodes: ['deploy-unit:1'] }]);
     expect(diagramSpecsFor({ kind: 'table', id: 'table:1' }).map((spec) => spec.type)).toEqual(['er', 'c4-container']);
@@ -357,10 +366,19 @@ describe('which diagrams a page draws', () => {
     expect(diagramSpecsFor({ kind: 'column', id: 'column:1', tableId: 'table:1' })).toEqual([{ type: 'er', nodes: ['table:1'] }]);
     expect(diagramSpecsFor({ kind: 'column', id: 'column:1', repositoryId: 'repository:1' })).toEqual([{ type: 'er', nodes: ['repository:1'] }]);
     expect(diagramSpecsFor({ kind: 'column', id: 'column:1' })).toEqual([]);
-    // A module is drawn among its siblings, a state by its machine, and a symbol by no spec of its own: its
-    // sequence is made once the graph answers which interactions name it (`readNodeDiagrams`).
-    expect(diagramSpecsFor({ kind: 'module', id: 'module:1', repositoryId: 'repository:1' }).map((spec) => spec.type)).toEqual(['c4-component', 'module-dependency']);
+    // A module is its own child modules beside the modules it relates to, a state by its machine, and a symbol by no
+    // spec of its own: its sequence is made once the graph answers which interactions name it (`readNodeDiagrams`).
+    expect(diagramSpecsFor({ kind: 'module', id: 'module:1', repositoryId: 'repository:1' })).toEqual([
+      { type: 'c4-component', nodes: ['module:1'] },
+      { type: 'module-dependency', nodes: ['module:1'] },
+    ]);
     expect(diagramSpecsFor({ kind: 'module', id: 'module:1' })).toEqual([]);
+    // A module with neighbours is drawn as itself among them: no child of its scope holds a neighbour, so the view
+    // names the modules it draws.
+    expect(diagramSpecsFor({ kind: 'module', id: 'module:1', repositoryId: 'repository:1', moduleScopes: { view: ['module:1'], neighbours: ['module:2'] } })).toEqual([
+      { type: 'c4-component', nodes: ['module:1'] },
+      { type: 'module-dependency', nodes: ['module:1', 'module:2'], level: 0 },
+    ]);
     expect(diagramSpecsFor({ kind: 'state', id: 'state:1' })).toEqual([{ type: 'state', nodes: ['state:1'] }]);
     expect(diagramSpecsFor({ kind: 'symbol', id: 'symbol:1' })).toEqual([]);
     expect(diagramSpecsFor({ kind: 'api-endpoint', id: 'api-endpoint:1', repositoryId: 'repository:1' })).toEqual([{ type: 'c4-container', nodes: ['repository:1'] }]);

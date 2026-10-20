@@ -14,6 +14,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { UNRESOLVED_PREFIX, buildDiagram, buildFactStoreDiagram, factStoreDiagramReads, type DiagramGraphReads } from '../src/fill/diagrams.js';
+import { moduleNeighbours, moduleViewScope } from '../src/fill/graph-diagrams.js';
 import { applyPublishedFacts, createFactStoreSchema } from '../src/fill/fact-store.js';
 import { makeEdgeFact, makeNodeFact, repositoryPath, type Fact } from '../src/fill/facts.js';
 import { createOrchestratorSchema, type UnitPlanRecord } from '../src/fill/orchestrator-store.js';
@@ -132,6 +133,32 @@ describe('the relations an agent proposed', () => {
     const readByRead = await buildDiagram({ type: 'module-dependency', nodes: [fx.shop.id] }, reads);
     expect(once).toEqual(readByRead);
     expect(once.edges.map((arrow) => arrow.label)).toEqual(['import']);
+  });
+});
+
+describe('the level a repository page draws', () => {
+  test('the store answers the scope whose children are the first level with more than one module', async () => {
+    // acme-shop is clustered in two top-level modules, so the page is drawn at the repository's own level; acme-web's
+    // three top-level modules are its structure too. Neither answers a module of its own, and a repository the graph
+    // does not hold answers its own id.
+    expect(await moduleViewScope(reads, { id: fx.shop.id, name: 'acme-shop' })).toEqual([fx.shop.id]);
+    expect(await moduleViewScope(reads, { id: fx.web.id, name: 'acme-web' })).toEqual([fx.web.id]);
+    expect(await moduleViewScope(reads, { id: 'repository:' + '0'.repeat(64), name: 'absent' })).toEqual(['repository:' + '0'.repeat(64)]);
+  });
+
+  test('the modules a module relates to are read from the imports the store holds, rolled up to the module', async () => {
+    // acme-web's three top-level modules import nothing of one another: the api cluster's two children are the level
+    // below it, and no import joins the three.
+    expect(await moduleNeighbours(reads, fx.webApi, 'acme-web')).toEqual([]);
+    // the shop's checkout imports payment's file, which names the payment module of its own level.
+    expect(await moduleNeighbours(reads, fx.checkout, 'acme-shop')).toEqual([fx.payment.id]);
+  });
+
+  test('a view at a depth of zero draws the modules it names, and no relation of a level below them', async () => {
+    const model = await buildDiagram({ type: 'module-dependency', nodes: [fx.checkout.id, fx.payment.id], level: 0 }, reads);
+    expect(model.elements.map((element) => element.label)).toEqual(['checkout', 'payment']);
+    // The import of checkout's file into payment's file rolls up to the two modules named.
+    expect(model.edges.map((arrow) => [arrow.from, arrow.to, arrow.label])).toEqual([[fx.checkout.id, fx.payment.id, 'import']]);
   });
 });
 

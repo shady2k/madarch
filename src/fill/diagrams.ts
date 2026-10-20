@@ -73,7 +73,8 @@ export type DiagramEvidence = 'assumption' | 'fact' | 'unresolved';
  * in the order the scenario takes them: the graph holds no order between
  * interactions, so the order is the chooser's, which is what 0026 means by "an
  * agent only chooses what to show". `level` is a C4 type's own level where the
- * spec names one, and module-dependency's depth under the scopes it names.
+ * spec names one, and module-dependency's depth under the scopes it names: 1 draws
+ * what stands below them, and 0 draws the modules a view names themselves.
  */
 export interface DiagramViewSpec {
   readonly type: DiagramType;
@@ -849,8 +850,8 @@ function checkedSpec(spec: DiagramViewSpec): CheckedSpec {
     level = declaration.depth ? 1 : (declaration.level ?? 1);
   } else {
     const asked = spec.level;
-    if (typeof asked !== 'number' || Number.isInteger(asked) === false || asked < 1) {
-      raise(`${at}: the view names the level ${shown(asked)}: a level is a whole number, at least 1`);
+    if (typeof asked !== 'number' || Number.isInteger(asked) === false || asked < 0) {
+      raise(`${at}: the view names the level ${shown(asked)}: a level is a whole number, at least 0 — 0 draws the modules a view names themselves and 1 what stands below them`);
     }
     if (declaration.depth) {
       level = asked;
@@ -1030,8 +1031,14 @@ async function linkEdges(
 // One view of each type
 // ---------------------------------------------------------------------------------------------
 
-/** The modules one level below a container, `depth` levels down, in code point order. */
+/**
+ * The modules one level below a container, `depth` levels down, in code point order. A
+ * depth of zero is the container itself: a module view that draws the modules it names
+ * rather than what stands below them, which is how a module and its neighbours are
+ * drawn. A repository is no module, so a depth of zero draws nothing for one.
+ */
 async function modulesBelow(container: Fact, depth: number, reads: DiagramGraphReads): Promise<readonly Fact[]> {
+  if (depth === 0) return container.kind === 'module' ? [container] : [];
   let level: readonly Fact[] = container.kind === 'module'
     ? await reads.factsWith('module', 'parent', container.id)
     // A repository's top-level modules name no parent: stage 5 holds them by the repository's own `contains` edge.
@@ -1415,12 +1422,13 @@ async function sizeView(
       }))].sort(byCodePoint);
       for (const id of stood) moved.set(id, level);
       // The view the element opens: the same type, scoped by the elements it stands for — or, for a type that draws what
-      // stands below its scopes, scoped by the level above them at depth 1, which draws exactly those elements. Only
-      // module-dependency takes a level of its own; a C4 type or an ER view names none, and a spec naming one would be
-      // refused by this module's own check.
-      const drill: DiagramViewSpec = checked.declaration.drawsBelow
+      // stands below its scopes, scoped by the level above them at depth 1, which draws exactly those elements (and, for
+      // a view that drew the scopes themselves, at depth 0, which draws them again). Only module-dependency takes a
+      // level of its own; a C4 type or an ER view names none, and a spec naming one would be refused by this module's
+      // own check.
+      const drill: DiagramViewSpec = checked.declaration.drawsBelow && checked.level > 0
         ? { type: checked.type, nodes: [level], ...(checked.declaration.depth ? { level: 1 } : {}) }
-        : { type: checked.type, nodes: stands };
+        : { type: checked.type, nodes: stands, ...(checked.declaration.depth && checked.level === 0 ? { level: 0 } : {}) };
       next.push({
         ...elementOfFact(fact),
         standsFor: stands,
