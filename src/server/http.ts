@@ -46,6 +46,7 @@ import { listProducts } from '../product/list.js';
 import { basename } from 'node:path';
 import type { StartFillOptions, StartFillResult } from '../product/fill.js';
 import { UNIT_TOOL_PATH, type UnitToolAnswer, type UnitToolCall } from '../fill/unit-tools.js';
+import type { FillProgressAnswer } from '../fill/orchestrator-host.js';
 import { readChosenModel, saveChosenAgent } from '../product/fill-wizard.js';
 import { homeFromEnv } from '../product/home.js';
 
@@ -123,6 +124,15 @@ export interface ServerOptions {
   orchestrator?: {
     stop(): Promise<void>;
     unitTool?(request: UnitToolCall): Promise<UnitToolAnswer | null>;
+    /**
+     * One product's newest fill run, its units and its progress events
+     * (madarch-tzte.26.2): what `GET /api/fill` answers while this process owns
+     * the fill's orchestrator, so a person watches a run the orchestrator keeps —
+     * the update the background server started by itself included — with the same
+     * panel that shows a run written to `.madarch/fill`. A product that never ran
+     * a fill answers null, and the route falls back to the state file.
+     */
+    progress?(productFolder: string): Promise<FillProgressAnswer | null>;
   };
   /** Where request lines go; standard output by default. */
   log?: (line: string) => void;
@@ -319,6 +329,7 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
     startFill: options.startFill,
     productFolder: options.productFolder,
     unitTool: options.orchestrator?.unitTool,
+    fillProgress: options.orchestrator?.progress,
     graphPages: productWiki === undefined ? undefined : graphPagesOf(productWiki.product.folder, productWiki.product.name),
     graphDiagrams: productWiki === undefined ? undefined : graphDiagramsOf(productWiki.product.folder, productWiki.product.name),
   });
@@ -375,7 +386,7 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
       next.set(name, {
         wiki: opened.wiki,
         manifest,
-        handler: createHandler({ env, sources, graphs, log, errorLog, wiki: createWikiPart(makeJson, wikiRefused, opened.wiki, appFolder, { env }), appFolder, startFill: options.startFill, productFolder: item.folder, unitTool: options.orchestrator?.unitTool, graphPages: graphPagesOf(item.folder, opened.wiki.product.name), graphDiagrams: graphDiagramsOf(item.folder, opened.wiki.product.name) }),
+        handler: createHandler({ env, sources, graphs, log, errorLog, wiki: createWikiPart(makeJson, wikiRefused, opened.wiki, appFolder, { env }), appFolder, startFill: options.startFill, productFolder: item.folder, unitTool: options.orchestrator?.unitTool, fillProgress: options.orchestrator?.progress, fillControl: options.orchestrator?.control, graphPages: graphPagesOf(item.folder, opened.wiki.product.name), graphDiagrams: graphDiagramsOf(item.folder, opened.wiki.product.name) }),
       });
     }
     productEntries.clear();
@@ -525,6 +536,8 @@ export function createHandler(dependencies: {
   graphPages?: GraphPagesPart;
   /** The graph's diagrams and their generated documents (madarch-tzte.23.4). */
   graphDiagrams?: GraphDiagramsPart;
+  /** The orchestrator's own answer for `GET /api/fill` (madarch-tzte.26.2), when this process owns a fill service. */
+  fillProgress?: (productFolder: string) => Promise<FillProgressAnswer | null>;
   /** The environment the handler judges a request against; the process's own when it is left out (the fill's sign-in choice reads it). */
   env?: ServerOptions['env'];
 }): ServerHandler {
@@ -599,7 +612,21 @@ export function createHandler(dependencies: {
         { method: 'GET', path: '/api/graph/likec4.html', handle: (request: Request) => dependencies.graphDiagrams!.likec4Page(request) },
         { method: 'GET', path: '/api/graph/archify', handle: (request: Request) => dependencies.graphDiagrams!.archify(request) },
       ] as Route[])),
-      { method: 'GET', path: '/api/fill', handle: () => wiki.fill() },
+      { method: 'GET', path: '/api/fill', handle: async (): Promise<Handled> => {
+        // The orchestrator's own run comes first (madarch-tzte.26.2): a run it keeps in the process's database —
+        // the update it started after a commit included — is what the fill progress shows. The state file answers
+        // where this process owns no orchestrator or the product never ran one there.
+        const progress = dependencies.fillProgress;
+        if (progress !== undefined && fillProductFolder !== undefined) {
+          try {
+            const answer = await progress(fillProductFolder);
+            if (answer !== null) return { response: json(200, answer) };
+          } catch (error) {
+            return refused(500, { message: `the fill's progress could not be read from this process's own runs: ${(error as Error).message}` });
+          }
+        }
+        return wiki.fill();
+      } },
       { method: 'POST', path: '/api/fill/start', handle: async (request) => {
         if (!startFill || fillProductFolder === undefined) return refused(503, { message: 'The fill entry point is not configured for this server' });
         const { body, bad } = await jsonBody(request); if (bad) return bad;

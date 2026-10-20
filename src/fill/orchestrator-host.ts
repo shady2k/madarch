@@ -53,9 +53,9 @@ import {
   type UnitRef,
   type UnitToolsOpening,
 } from './orchestrator.js';
-import { createOrchestratorSchema, readUnitPlan, recordUnitRead, type RunSnapshot } from './orchestrator-store.js';
+import { createOrchestratorSchema, readProgress, readUnitPlan, recordUnitRead, type RunSnapshot } from './orchestrator-store.js';
 import type { QueueService } from './queue.js';
-import { createFillStateSchema } from './state-store.js';
+import { createFillStateSchema, readLatestRun, readRunUnits } from './state-store.js';
 import type { StageRegistry } from './registry.js';
 import type { SnapshotSource } from './snapshot.js';
 import {
@@ -115,6 +115,18 @@ export interface ProductFillWiring {
   guard?: HumanEditGuard;
 }
 
+/**
+ * What one product's fill is made of, where the host builds it per product: the
+ * declared stages and the wiring their units read and write through. A stage
+ * registry is built over one product's own repositories (a pin, a checkout per
+ * repository), so a host that serves many products answers one of these per
+ * product.
+ */
+export interface ProductFill {
+  readonly registry: StageRegistry;
+  readonly wiring: ProductFillWiring;
+}
+
 /** What one fill run is asked for. */
 export interface FillRunRequest {
   readonly product: FillProduct;
@@ -165,6 +177,38 @@ export interface UnitToolsRequest {
   readonly limits?: Partial<GraphReadLimits>;
 }
 
+/**
+ * One product's fill as a watching person reads it (madarch-tzte.26.2): the newest
+ * run, the units it planned with their states, and its durable progress events in
+ * order. The field names are the ones the wiki's own fill progress reads, so the
+ * panel that shows a run written to `.madarch/fill` shows a run the orchestrator
+ * keeps in the database the same way.
+ */
+export interface FillProgressAnswer {
+  readonly run: {
+    readonly id: string;
+    readonly status: string;
+    readonly createdAt: string;
+    readonly updatedAt: string;
+    readonly product: string;
+  };
+  readonly units: readonly {
+    readonly unitId: string;
+    readonly stage: string;
+    readonly status: string;
+    readonly generation: number;
+    readonly attempts: number;
+  }[];
+  readonly events: readonly {
+    readonly seq: number;
+    readonly at: string;
+    readonly stage: string;
+    readonly unitId: string;
+    readonly type: string;
+    readonly summary: string;
+  }[];
+}
+
 /** A run the service refused before it started, with what is missing. */
 export interface RefusedFillRun {
   readonly ok: false;
@@ -207,6 +251,14 @@ export interface FillOrchestratorService {
    */
   pages(folder: string): GraphPagesSource;
   /**
+   * The product's newest run, the units it planned and its durable progress
+   * events, in the shape a watching person reads (madarch-tzte.26.2): what the
+   * fill progress answers (`GET /api/fill`) — a run the background server started
+   * by itself after a commit included. `null` when the product never ran a fill,
+   * because nothing of a run is a truthful answer then.
+   */
+  progress(folder: string): Promise<FillProgressAnswer | null>;
+  /**
    * Stops the queue and closes the database this service opened; safe to call
    * twice and safe to call before anything was opened.
    */
@@ -226,8 +278,15 @@ export interface FillOrchestratorServiceOptions {
   readonly toolUrl?: () => string | undefined;
   /** The declared stages (madarch-tzte.19.3). */
   readonly registry: StageRegistry;
-  /** One product's wiring; a service without it refuses every run, naming what is missing. */
-  readonly wiring?: (product: FillProduct) => Promise<ProductFillWiring> | ProductFillWiring;
+  /**
+   * One product's wiring; a service without it refuses every run, naming what is
+   * missing. It is asked for once a run is asked for, after this service opened
+   * the process's database, so a host that builds its wiring over that database
+   * (the declared stages, `src/product/fill-stages.ts`) can name it. A wiring that
+   * carries its own registry (`ProductFill`) is the one the run's stages come from;
+   * otherwise the service's own `registry` is.
+   */
+  readonly wiring?: (product: FillProduct, context: { readonly owner: DatabaseOwner }) => Promise<ProductFillWiring | ProductFill> | ProductFillWiring | ProductFill;
   /**
    * The process's own database owner, when the host already holds one (decision
    * 0027's one owner per process, which is what lets a publication's facts and
@@ -304,8 +363,8 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
     return await opening;
   }
 
-  /** One product's wiring, or the refusal the service answers a caller with where the host wired none. */
-  async function wiringOf(product: FillProduct): Promise<ProductFillWiring | RefusedFillRun> {
+  /** One product's fill — its wiring and the registry its stages are declared in — or the refusal the service answers a caller with where the host wired none. */
+  async function wiringOf(product: FillProduct): Promise<ProductFill | RefusedFillRun> {
     if (stopped) return { ok: false, code: 'fill-orchestrator/stopped', reason: 'fill-orchestrator: this service was stopped and opens nothing further' };
     if (options.wiring === undefined) {
       return {
@@ -314,17 +373,22 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
         reason: `fill-orchestrator: nothing wires the fill of "${product.name}": give the service a wiring that reads the product's pinned snapshot, its configuration, the graph its units read, and the inputs their facts stand on`,
       };
     }
-    return await options.wiring(product);
+    // The database is opened before the wiring is asked for: a host that builds its stages over the process's
+    // own owner cannot do it any earlier, and the refusal above keeps a service with nothing wired from opening
+    // a database at all.
+    const { owner } = await open();
+    const wired = await options.wiring(product, { owner });
+    return 'registry' in wired ? wired : { registry: options.registry, wiring: wired };
   }
 
   async function orchestratorFor(product: FillProduct): Promise<FillOrchestrator | RefusedFillRun> {
     const wired = await wiringOf(product);
     if ('ok' in wired) return wired;
-    const wiring = wired;
+    const { wiring, registry } = wired;
     const { owner, queue } = await open();
     return createOrchestrator({
       database: owner,
-      registry: options.registry,
+      registry,
       queue,
       queueName,
       product: product.name,
@@ -409,7 +473,7 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
   async function unitSessionFor(request: UnitToolsRequest): Promise<UnitToolSession> {
     const wired = await wiringOf(request.product);
     if ('ok' in wired) throw new Error(`${wired.code}: ${wired.reason}`);
-    const wiring = wired;
+    const wiring = wired.wiring;
     const { owner } = await open();
     const plan = await readUnitPlan(owner, request.unit.unitId, request.unit.generation);
     if (plan === null) {
@@ -558,6 +622,39 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
             pageListeners.delete(listener);
           };
         },
+      };
+    },
+    async progress(folder: string): Promise<FillProgressAnswer | null> {
+      const database = await pageDatabase();
+      if (database === undefined) return null;
+      const product = productNameOf(folder);
+      const latest = await readLatestRun(database, product);
+      if (latest === null) return null;
+      const units = await readRunUnits(database, latest.runId);
+      const events = await readProgress(database, latest.runId);
+      return {
+        run: {
+          id: latest.runId,
+          status: latest.state,
+          createdAt: new Date(latest.createdAt).toISOString(),
+          updatedAt: new Date(latest.updatedAt).toISOString(),
+          product,
+        },
+        units: units.map((unit) => ({
+          unitId: unit.unitId,
+          stage: unit.stageId,
+          status: unit.state,
+          generation: unit.generation,
+          attempts: unit.context.attempt,
+        })),
+        events: events.map((event) => ({
+          seq: event.seq,
+          at: new Date(event.at).toISOString(),
+          stage: event.stage,
+          unitId: event.unitId,
+          type: event.kind,
+          summary: event.summary,
+        })),
       };
     },
     async unitTools(request: UnitToolsRequest): Promise<UnitToolsHandle> {

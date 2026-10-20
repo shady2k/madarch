@@ -289,7 +289,13 @@
       "paused": "Приостановлено",
       "stopped": "Остановлено",
       "complete": "Завершено",
-      "blocked": "Заблокировано"
+      "blocked": "Заблокировано",
+      "created": "Создано",
+      "planning": "Планирование",
+      "succeeded": "Завершено",
+      "completed_partial": "Завершено, покрыто не всё",
+      "failed": "Ошибка",
+      "cancelled": "Отменено"
     },
     "stages": {
       "inventory": "Инвентаризация",
@@ -297,7 +303,15 @@
       "claims": "Утверждения",
       "code-map": "Карта кода",
       "synthesis": "Синтез",
-      "question-review": "Проверка вопросов"
+      "question-review": "Проверка вопросов",
+      "snapshot": "Снимок",
+      "build-configuration": "Сборка и конфигурация",
+      "syntax": "Синтаксис",
+      "semantic-resolution": "Семантическое разрешение",
+      "modules": "Модули",
+      "document-index": "Документы",
+      "history": "История",
+      "agent-unit": "Единица агента"
     }
   },
   "wizard": {

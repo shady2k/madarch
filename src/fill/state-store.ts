@@ -420,6 +420,24 @@ export async function readRun(database: FillStateDatabase, runId: string): Promi
   }, 'snapshot');
 }
 
+/**
+ * The newest run one product holds, or null when it never ran: the run a person
+ * watches in the fill progress (madarch-tzte.26.2). A run's own `created_at`
+ * orders them, and the run id breaks a tie — two runs created in one millisecond
+ * are two runs, and the answer is still one of them, never an arbitrary one of
+ * two reads.
+ */
+export async function readLatestRun(database: FillStateDatabase, product: string): Promise<RunRecord | null> {
+  const at = here();
+  return run(at, database, `readLatestRun(${product})`, ['fill_run'], async (executor) => {
+    const { rows } = await executor.query<RunRow>(
+      'SELECT run_id, product, state, context, created_at, updated_at FROM fill_run WHERE product = $1 ORDER BY created_at DESC, run_id DESC LIMIT 1',
+      [product],
+    );
+    return rows[0] === undefined ? null : runRecord(rows[0]);
+  }, 'snapshot');
+}
+
 /** Takes one step on a run: a refused step writes nothing. */
 export async function advanceRun(database: FillStateDatabase, options: { readonly runId: string; readonly event: RunEvent }): Promise<StoreStep<RunRecord, RunState>> {
   const at = here();

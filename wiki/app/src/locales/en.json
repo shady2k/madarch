@@ -289,7 +289,13 @@
       "paused": "Paused",
       "stopped": "Stopped",
       "complete": "Complete",
-      "blocked": "Blocked"
+      "blocked": "Blocked",
+      "created": "Created",
+      "planning": "Planning",
+      "succeeded": "Complete",
+      "completed_partial": "Complete, partly covered",
+      "failed": "Failed",
+      "cancelled": "Cancelled"
     },
     "stages": {
       "inventory": "Inventory",
@@ -297,7 +303,15 @@
       "claims": "Claims",
       "code-map": "Code map",
       "synthesis": "Synthesis",
-      "question-review": "Question review"
+      "question-review": "Question review",
+      "snapshot": "Snapshot",
+      "build-configuration": "Build and configuration",
+      "syntax": "Syntax",
+      "semantic-resolution": "Semantic resolution",
+      "modules": "Modules",
+      "document-index": "Documents",
+      "history": "History",
+      "agent-unit": "Agent unit"
     }
   },
   "wizard": {
