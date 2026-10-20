@@ -28,6 +28,11 @@
  *   extended      streams a schema-valid update kind madarch does not name
  *   old-protocol  answers initialize with a protocol version the client lacks
  *   no-session-id answers session/new without an id
+ *   silent        accepts session/prompt and answers nothing at all, not even a
+ *                 session/cancel: the turn is the caller's own to end
+ *   deaf          answers initialize and session/new, then stops reading its
+ *                 standard input: a prompt larger than a pipe stays unwritten, and
+ *                 the cancel behind it is never read either
  *   hang          never answers initialize
  *   late-initialize answers initialize long after the client's bound
  *   crash         writes to standard error and exits 1 before answering
@@ -326,6 +331,12 @@ async function runPrompt(id: number | string, sessionId: string, text: string): 
     respond(id, { stopReason: 'end_turn' });
     return;
   }
+  if (scenario === 'silent') {
+    // A turn that sends nothing and never answers, and that ignores the cancel as well: what the caller's own
+    // bound alone can end.
+    pendingPrompt = { id, sessionId, text, turn };
+    return;
+  }
   if (scenario === 'dies-mid-turn') {
     chunk(sessionId, 'stopping');
     setTimeout(() => process.exit(1), 20);
@@ -481,6 +492,8 @@ lines.on('line', (line: string) => {
       // never calls a tool starts no server at all.
       serversBySession.set(`fake-session-${sessionNumber}`, heldServers);
       respond(message.id, { sessionId: `fake-session-${sessionNumber}`, modes: { currentModeId: 'ask' } });
+      // `deaf` stops reading here, in the same turn as the answer, so the client's next message meets a full pipe.
+      if (scenario === 'deaf') lines.pause();
       return;
     }
     case 'session/prompt': {
@@ -489,6 +502,8 @@ lines.on('line', (line: string) => {
       return;
     }
     case 'session/cancel': {
+      // The `silent` scenario ignores the cancel too: a turn only the caller can end is the whole point of it.
+      if (scenario === 'silent') return;
       const params = message.params ?? {};
       if (pendingPrompt !== undefined && pendingPrompt.sessionId === String(params.sessionId)) {
         const stopped = pendingPrompt;

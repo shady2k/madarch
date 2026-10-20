@@ -15,7 +15,10 @@ import {
   createUnitLimitGuard,
   unitLimitBounds,
   UNIT_LIMIT_CAUSES,
+  watchUnitTimeLimit,
+  type UnitLimitCause,
   type UnitLimitVerdict,
+  type UnitTimers,
 } from '../src/fill/unit-limits.js';
 
 /** 0026's numbers, as the task and the decision state them. */
@@ -27,6 +30,30 @@ const STOP_AT = 0.8 * WINDOW;   // 217600
 function movableClock(start = 1_700_000_000_000): { now: () => number; advance: (ms: number) => void } {
   let at = start;
   return { now: () => at, advance: (ms: number) => { at += ms; } };
+}
+
+/**
+ * A timers seam the test fires by hand: the watch arms its deadline here and nothing
+ * runs until the test says so. `fire` runs the callback armed last whether or not it
+ * was cleared — a runtime that already queued a callback is what a disarm meets.
+ */
+function handTimers(): { readonly timers: UnitTimers; readonly waits: readonly number[]; readonly cleared: readonly unknown[]; fire(): void } {
+  const callbacks: (() => void)[] = [];
+  const waits: number[] = [];
+  const cleared: unknown[] = [];
+  return {
+    waits,
+    cleared,
+    timers: {
+      setTimeout: (callback: () => void, ms: number): unknown => { waits.push(ms); callbacks.push(callback); return callbacks.length; },
+      clearTimeout: (handle: unknown): void => { cleared.push(handle); },
+    },
+    fire(): void {
+      const callback = callbacks.pop();
+      if (callback === undefined) throw new Error('the watch armed no timer for this test to fire');
+      callback();
+    },
+  };
 }
 
 describe('the limits of one agent unit', () => {
@@ -171,5 +198,122 @@ describe('the limits of one agent unit', () => {
     const within: UnitLimitVerdict = guard.observe({ contextUsed: 1_000, turns: 2 });
     expect(guard.describe(within)).toContain('within its limits: 1000 of 272000 tokens (0.4%)');
     expect(guard.describe(within)).toContain('2 of 30 turns');
+  });
+});
+
+describe('the unit\'s clock reaches a turn that streams nothing', () => {
+  test('the time left is 0026\'s ten minutes, read from the guard\'s own clock and never below zero', () => {
+    const clock = movableClock();
+    const guard = createUnitLimitGuard({ limits: DEFAULT_STAGE_LIMITS, clock: clock.now });
+    expect(guard.remainingMs()).toBe(600_000);
+    clock.advance(599_999);
+    expect(guard.remainingMs()).toBe(1);
+    clock.advance(1);
+    expect(guard.remainingMs()).toBe(0);
+    // A clock past the limit leaves no time to arm, never a negative wait.
+    clock.advance(120_000);
+    expect(guard.remainingMs()).toBe(0);
+  });
+
+  test('a watch armed on that time answers the guard\'s own time limit, and nothing before it', () => {
+    const clock = movableClock();
+    const guard = createUnitLimitGuard({ limits: DEFAULT_STAGE_LIMITS, clock: clock.now });
+    const timers = handTimers();
+    const stops: UnitLimitCause[] = [];
+    const watch = watchUnitTimeLimit({ guard, timers: timers.timers, onStop: (cause) => stops.push(cause) });
+    try {
+      expect(timers.waits).toEqual([600_000]);
+      // A fire before the limit judges the unit within it, and the watch arms again for the millisecond left.
+      clock.advance(599_999);
+      timers.fire();
+      expect(stops).toEqual([]);
+      expect(timers.waits).toEqual([600_000, 1]);
+      clock.advance(1);
+      timers.fire();
+      expect(stops).toEqual(['time']);
+      // The cause is the guard's own, and its words are 0026's ten minutes: the watch invents no limit.
+      expect(guard.describe({ kind: 'stop', cause: 'time', state: guard.state() })).toContain('stopped at its time limit: 600 of 600 seconds');
+    } finally {
+      watch.disarm();
+    }
+  });
+
+  test('a watch disarmed by the turn\'s own end stops, and a callback the runtime already queued does nothing', () => {
+    const clock = movableClock();
+    const guard = createUnitLimitGuard({ limits: DEFAULT_STAGE_LIMITS, clock: clock.now });
+    const timers = handTimers();
+    const stops: UnitLimitCause[] = [];
+    const watch = watchUnitTimeLimit({ guard, timers: timers.timers, onStop: (cause) => stops.push(cause) });
+    watch.disarm();
+    expect(timers.cleared).toEqual([1]);
+    clock.advance(600_000);
+    timers.fire();
+    expect(stops).toEqual([]);
+    // Nothing re-armed it, so the seam holds the one wait it was armed for and no second one.
+    expect(timers.waits).toEqual([600_000]);
+    expect(guard.remainingMs()).toBe(0);
+  });
+
+  test('a watch reports the wrap-up signal the guard crosses while the turn runs, and still bounds the time', () => {
+    const clock = movableClock();
+    const guard = createUnitLimitGuard({ limits: DEFAULT_STAGE_LIMITS, clock: clock.now });
+    const timers = handTimers();
+    const stops: UnitLimitCause[] = [];
+    let wraps = 0;
+    // What madarch sent stands as the guard's floor when the agent reports nothing: 70% of 0026's window is crossed.
+    guard.sent(190_400);
+    const watch = watchUnitTimeLimit({ guard, timers: timers.timers, onStop: (cause) => stops.push(cause), onWrap: () => { wraps += 1; } });
+    try {
+      timers.fire();
+      expect(wraps).toBe(1);
+      expect(stops).toEqual([]);
+      expect(guard.warned()).toBe(true);
+      // The wrap-up message is a turn of its own, so the watch stays armed behind the turn in flight.
+      expect(timers.waits).toEqual([600_000, 600_000]);
+      clock.advance(600_000);
+      timers.fire();
+      expect(stops).toEqual(['time']);
+      // A stopped watch arms nothing: the two waits above are every timer it ever asked for.
+      expect(timers.waits).toEqual([600_000, 600_000]);
+    } finally {
+      watch.disarm();
+    }
+  });
+
+  test('a watch the wrap-up handler disarms arms nothing behind it', () => {
+    const clock = movableClock();
+    const guard = createUnitLimitGuard({ limits: DEFAULT_STAGE_LIMITS, clock: clock.now });
+    const timers = handTimers();
+    const stops: UnitLimitCause[] = [];
+    guard.sent(190_400);
+    // A caller may end the watch where it learns the unit is wrapping up — the turn it bounds may already be over.
+    const watch = watchUnitTimeLimit({ guard, timers: timers.timers, onStop: (cause) => stops.push(cause), onWrap: () => watch.disarm() });
+    try {
+      timers.fire();
+      expect(stops).toEqual([]);
+      // Nothing is armed behind the disarm: the watch asked for one timer and cannot outlive it.
+      expect(timers.cleared).toEqual([]);
+      expect(timers.waits).toEqual([600_000]);
+    } finally {
+      watch.disarm();
+    }
+  });
+
+  test('a unit with no time left is stopped by the first fire there is', () => {
+    const clock = movableClock();
+    const guard = createUnitLimitGuard({ limits: DEFAULT_STAGE_LIMITS, clock: clock.now });
+    clock.advance(600_000);
+    const timers = handTimers();
+    const stops: UnitLimitCause[] = [];
+    const watch = watchUnitTimeLimit({ guard, timers: timers.timers, onStop: (cause) => stops.push(cause) });
+    try {
+      // A timer of no milliseconds is one some runtimes fire at once and others refuse: the watch asks for the
+      // shortest wait there is, and the guard answers the stop.
+      expect(timers.waits).toEqual([1]);
+      timers.fire();
+      expect(stops).toEqual(['time']);
+    } finally {
+      watch.disarm();
+    }
   });
 });

@@ -55,6 +55,7 @@ import { Type } from 'typebox';
 import { createGitSnapshotSource, type RepositoryPin } from '../src/fill/snapshot.js';
 import { createFillStateSchema, createUnit, readRunUnits, readUnit } from '../src/fill/state-store.js';
 import { UNIT_TOOL_PATH } from '../src/fill/unit-tools.js';
+import type { UnitTimers } from '../src/fill/unit-limits.js';
 import { startServer, type StartedServer } from '../src/server/http.js';
 import type { QueueService } from '../src/fill/queue.js';
 
@@ -157,6 +158,8 @@ interface WorldOptions {
   readonly limits?: Parameters<typeof createOrchestrator>[0]['limits'];
   /** Folders the repository holds besides the fixture's three: a scope whose member list a read cannot enumerate. */
   readonly wide?: readonly string[];
+  /** The timers a turn's watch is armed on: a test's fire at once, so the deadline arrives on the clock it moves. */
+  readonly timers?: UnitTimers;
 }
 
 async function openWorld(options: WorldOptions): Promise<World> {
@@ -208,6 +211,7 @@ async function openWorld(options: WorldOptions): Promise<World> {
       clock,
       cwd: folder,
       timeouts: { initializeMs: 30_000, sessionMs: 30_000 },
+      ...(options.timers === undefined ? {} : { timers: options.timers }),
     }));
 
   let server: StartedServer | undefined;
@@ -305,6 +309,26 @@ async function planAndAdmit(opened: World): Promise<{ unitId: string; generation
   const unit = planned.units[0]!;
   expect(planned.units.map((planned_) => planned_.stageId)).toEqual([AGENT_UNIT_STAGE_ID]);
   return { unitId: unit.unitId, generation: unit.generation };
+}
+
+/**
+ * A timers seam that fires the watch as soon as it can: the deadline is the clock's to say, so a test moves that clock
+ * by hand and the wait the watch asked for is never taken. The callback runs once the turn's prompt has gone out,
+ * because a microtask is queued after the synchronous call that writes it.
+ */
+function instantTimers(): { readonly timers: UnitTimers; readonly waits: readonly number[] } {
+  const waits: number[] = [];
+  return {
+    waits,
+    timers: {
+      setTimeout: (callback: () => void, ms: number): unknown => {
+        waits.push(ms);
+        queueMicrotask(callback);
+        return waits.length;
+      },
+      clearTimeout: (): void => undefined,
+    },
+  };
 }
 
 /** The prompt texts the fake agent was sent, in order. */
@@ -414,8 +438,13 @@ describe('one agent unit, end to end', () => {
       const worked = await workOnce(opened.orchestrator, { worker: 'w1' });
       expect(worked.result).toBe('split');
 
-      // 0026's hard stop: the turn in flight was cancelled through the protocol, after 80% of the window.
-      expect(opened.sent().filter((message) => message['method'] === 'session/cancel').length).toBe(1);
+      // 0026's hard stop: the unit stopped at its context window, and the turn in flight was cancelled. The stop is
+      // read from the run's own progress, because the agent's record cannot be: the connection closes right behind
+      // the cancel, so reading that record would race the SIGTERM. The protocol's cancel, with the order it is sent
+      // in, is asserted where it can be waited for (`test/fill-acp.test.ts`, "a turn the caller bounds").
+      const stopLines = (await readProgress(opened.owner, RUN)).map((event) => event.summary).filter((summary) => summary.includes('stopped at its context window'));
+      expect(stopLines.length).toBe(1);
+      expect(stopLines[0]).toContain('220000 of 272000 tokens');
       expect(prompts(opened)[0]).toContain(`"id": "${ids.repository.id}"`);
 
       // The parent stands waiting for its children, with the places it did not cover as the children's scopes.
@@ -533,6 +562,54 @@ describe('one agent unit, end to end', () => {
       const coverage = draft?.writes.at(-1)?.value as { kind: string; value: { complete: boolean } };
       expect(coverage.kind).toBe('coverage');
       expect(coverage.value.complete).toBe(false);
+    } finally {
+      await opened.close();
+    }
+  }, 180_000);
+
+  test('a turn in flight that never ends is stopped at 0026\'s ten minutes by the watch, and the unit keeps its coverage', async () => {
+    // The finding this change answers (madarch-tzte.38): `session.prompt` is awaited and the limits are judged at
+    // turn boundaries, so a turn that sends no update and never answers was bounded by no clock the guard could
+    // see. The clock is the seam's and the timers are the test's: ten minutes pass without waiting.
+    let at = NOW;
+    const timers = instantTimers();
+    const opened = await openWorld({
+      // The agent takes the turn and sends nothing at all — no message, no usage, no answer.
+      script: { byPrompt: [], steps: [{ wait: true }] },
+      // Every read of the clock is two and a half minutes later than the one before, so the unit's ten minutes pass
+      // within the turn's own wait and no test sleeps.
+      clock: () => { at += 150_000; return at; },
+      timers: timers.timers,
+      // A clock that jumps two and a half minutes at a time would lapse the orchestrator's own lease: this test
+      // holds the lease still so the limit it measures is the unit's, not the sweep's.
+      limits: { leaseMs: 86_400_000 },
+    });
+    try {
+      const unit = await planAndAdmit(opened);
+      const worked = await workOnce(opened.orchestrator, { worker: 'w1' });
+      // The attempt ends rather than staying inside the await: the unit returns what it has, with its coverage.
+      expect(worked.result).toBe('split');
+      // The turn in flight was armed on a watch of the guard's own clock, and the watch's cause is the guard's:
+      // 0026's ten minutes. Two things are proven elsewhere: the time the watch arms for is asserted in
+      // `test/fill-unit-limits.test.ts`, and the protocol's cancel of a turn that never ends — with the order it is
+      // sent in — in `test/fill-acp.test.ts`. Here the attempt itself ends rather than staying inside the await,
+      // which is this finding's own point, so nothing is read from the agent's record: the connection closes right
+      // behind the cancel and that read would race the kill.
+      expect(timers.waits.length).toBeGreaterThan(0);
+      const stopped = (await readProgress(opened.owner, RUN)).map((event) => event.summary).filter((summary) => summary.includes('stopped at its time limit'));
+      expect(stopped.length).toBe(1);
+      expect(stopped[0]).toContain('of 600 seconds');
+      // Nothing was read, so every place of the scope is a `budget` gap and a child unit's own scope: a silent turn
+      // costs the unit its work and never the graph's account of what nobody read.
+      const draft = await readUnitDraft(opened.owner, unit.unitId, unit.generation);
+      const coverage = draft?.writes.at(-1)?.value as { kind: string; value: { complete: boolean; read: string[]; unread: { what: string; reason: string }[] } };
+      expect(coverage.kind).toBe('coverage');
+      expect(coverage.value.complete).toBe(false);
+      expect(coverage.value.read).toEqual([]);
+      expect(coverage.value.unread).toEqual([{ what: 'a', reason: 'budget' }, { what: 'b', reason: 'budget' }, { what: 'c', reason: 'budget' }]);
+      const children = (await readRunUnits(opened.owner, RUN)).filter((record) => record.unitId !== unit.unitId);
+      expect(children.length).toBe(3);
+      expect(children.every((record) => record.state === 'planned')).toBe(true);
     } finally {
       await opened.close();
     }

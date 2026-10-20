@@ -3,7 +3,9 @@
  * Protocol (decision 0026): madarch starts one agent process, initializes the
  * connection once, and per unit creates one session — with the unit's MCP
  * server attached — sends one prompt, follows the streamed updates, and can
- * cancel the turn. The protocol's schema and its JSON-RPC framing come from
+ * cancel the turn, and ends a turn itself when the caller's own bound passes
+ * without an answer from the agent (decision 0026's ten minutes,
+ * madarch-tzte.38). The protocol's schema and its JSON-RPC framing come from
  * the official TypeScript library (`@agentclientprotocol/sdk`), which the
  * compiled binary ships too: the library reaches the wire through web streams
  * over the child's stdio, and both `bun run` and `bun build --compile` were
@@ -28,6 +30,11 @@
  * - Every failure names what failed and where: the ACP method, the agent id,
  *   the program resolved to its full path, the folder it runs in, and the end
  *   of the agent's standard error.
+ * - A turn ends when the caller says so. An aborted `prompt` signal sends
+ *   `session/cancel` and resolves the turn as cancelled without waiting for the
+ *   agent: a turn that sends nothing and never answers is bounded by the
+ *   caller's clock and not by the agent's willingness to read a cancel
+ *   (madarch-tzte.38).
  */
 import { spawn, type ChildProcess } from 'node:child_process';
 import { accessSync, constants as fsConstants, statSync } from 'node:fs';
@@ -117,8 +124,12 @@ export interface AcpSession {
   readonly sessionId: string;
   /** The mode state `session/new` returned, when it returned one. */
   readonly modes: unknown;
-  /** Send one prompt turn and wait for its stop reason; `onUpdate` sees each update as it arrives. */
-  prompt(text: string, options?: { onUpdate?: (update: AcpUpdate) => void }): Promise<AcpPromptResult>;
+  /**
+   * Send one prompt turn and wait for its stop reason; `onUpdate` sees each update as it arrives. An aborted
+   * `signal` ends the turn as cancelled: madarch sends `session/cancel` and stops waiting for the agent, so a turn
+   * the agent never answers is bounded by the caller's own clock (decision 0026's ten minutes, madarch-tzte.38).
+   */
+  prompt(text: string, options?: { onUpdate?: (update: AcpUpdate) => void; signal?: AbortSignal }): Promise<AcpPromptResult>;
   /** Send `session/cancel`; the prompt in flight then ends with `stopReason: "cancelled"`. */
   cancel(): Promise<void>;
   /** This session's token accounting, as reported. */
@@ -544,27 +555,67 @@ export async function connectAcpAgent(spec: AcpAgentSpec, options: ConnectAcpOpt
         async prompt(text, promptOptions) {
           if (inFlight) throw new AcpError(`src/fill/acp.ts:prompt: session ${sessionId} of ${spec.id} (${executable}) already has a prompt in flight`);
           if (!text.trim()) throw new AcpError(`src/fill/acp.ts:prompt: the prompt for session ${sessionId} of ${spec.id} (${executable}) is empty`);
+          const signal = promptOptions?.signal;
+          // A turn the caller gave up on before it was sent is no turn: nothing goes to the agent, and the end is the
+          // cancel the caller asked for rather than a failure of an agent that was never asked.
+          if (signal?.aborted === true) return { stopReason: 'cancelled', text: '', updates: [] };
           inFlight = true;
           state.updates = [];
           state.text = [];
           state.onUpdate = (update) => promptOptions?.onUpdate?.(update);
-          try {
-            const answer = await request<acp.PromptResponse>(acp.methods.agent.session.prompt, { sessionId, prompt: [{ type: 'text', text }] }, null);
-            turns += 1;
-            const usage = readUsage(answer.usage);
-            if (usage !== undefined) { reports += 1; last = usage; }
-            return { stopReason: String(answer.stopReason), text: state.text.join(''), ...(usage === undefined ? {} : { usage }), updates: [...state.updates] };
-          } catch (error) {
-            // A cancelled turn may end as the protocol's own `-32800` instead
-            // of a `cancelled` stop reason, and a turn cut short by this
-            // client's own close is a cancel too; all three mean the same to a
-            // caller.
-            if (closing || (error instanceof acp.RequestError && error.code === REQUEST_CANCELLED)) {
-              turns += 1;
-              return { stopReason: 'cancelled', text: state.text.join(''), updates: [...state.updates] };
+          const cancelled = (): AcpPromptResult => ({ stopReason: 'cancelled', text: state.text.join(''), updates: [...state.updates] });
+          /** Whether the agent ended this turn itself: a bound that passes afterwards has nothing to cancel. */
+          let settled = false;
+          /**
+           * The turn ran: counted once. A turn ended by the caller's bound ran as much as one the agent answered —
+           * what the agent did not report is its usage, not the turn.
+           */
+          let counted = false;
+          const countTurn = (): void => { if (!counted) { counted = true; turns += 1; } };
+          /** The turn as the agent ends it, read the way this module reads an agent's end. */
+          const answered = async (): Promise<AcpPromptResult> => {
+            try {
+              const answer = await request<acp.PromptResponse>(acp.methods.agent.session.prompt, { sessionId, prompt: [{ type: 'text', text }] }, null);
+              countTurn();
+              const usage = readUsage(answer.usage);
+              if (usage !== undefined) { reports += 1; last = usage; }
+              return { stopReason: String(answer.stopReason), text: state.text.join(''), ...(usage === undefined ? {} : { usage }), updates: [...state.updates] };
+            } catch (error) {
+              // A cancelled turn may end as the protocol's own `-32800` instead
+              // of a `cancelled` stop reason, and a turn cut short by this
+              // client's own close is a cancel too; all three mean the same to a
+              // caller.
+              if (closing || (error instanceof acp.RequestError && error.code === REQUEST_CANCELLED)) {
+                countTurn();
+                return { stopReason: 'cancelled', text: state.text.join(''), updates: [...state.updates] };
+              }
+              throw await wrapped(error, 'session/prompt');
+            } finally {
+              settled = true;
             }
-            throw await wrapped(error, 'session/prompt');
+          };
+          /** The caller's own end of the turn: the protocol's cancel, and this client's answer without waiting. */
+          let release: (() => void) | undefined;
+          const ended = signal === undefined ? undefined : new Promise<AcpPromptResult>((settle) => {
+            const onAbort = (): void => {
+              // A turn the agent already ended is no turn to cancel: the bound arrived after the answer.
+              if (settled) return;
+              // `session/cancel` is a notification and an agent may answer it or not — and its write is queued behind
+              // the prompt's own on this connection, which an agent that stopped reading its standard input never
+              // drains. The turn therefore ends here, on the caller's word, and the cancel is sent behind it: a bound
+              // that waited for a pipe would be no bound at all (madarch-tzte.38).
+              void client.agent.notify(acp.methods.agent.session.cancel, { sessionId }).catch(() => undefined);
+              countTurn();
+              settle(cancelled());
+            };
+            signal.addEventListener('abort', onAbort, { once: true });
+            release = () => signal.removeEventListener('abort', onAbort);
+          });
+          try {
+            const turn = answered();
+            return ended === undefined ? await turn : await Promise.race([turn, ended]);
           } finally {
+            release?.();
             inFlight = false;
             state.onUpdate = undefined;
           }
