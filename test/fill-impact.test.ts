@@ -268,7 +268,9 @@ function reran(result: FillRunResult): readonly string[] {
  * makes it compute again on any new commit (madarch-tzte.21.8's documented exception, `inputsOf`).
  *
  * The agent part is this task's: the training repository's agent unit, whose recorded span read answers different
- * bytes at the new pin, and no unit of the product repository, whose reads and spans the commit never touched.
+ * bytes at the new pin, and the product's agent units the re-measurement reaches — the recovery (madarch-tzte.24.6)
+ * reads the module tree stage 5 republishes, and the pages stage (25.1) carries the span read in every session its
+ * `byPrompt` entry does not answer — named beside the list below.
  */
 function reranByTheCommit(options: {
   readonly repository: string;
@@ -296,8 +298,11 @@ function reranByTheCommit(options: {
     ...['services/checkout/src/checkout.ts', 'services/orders/src/order.go', 'services/payments/src/payment.ts']
       .map((path) => `semantic-resolution/file:${repository}:${path}`),
     // The agent units the commit's own readings moved: the overview's recorded span (madarch-tzte.26.1) and the
-    // boundary refinement's reads, which the clustering the commit replans made stale (madarch-tzte.24.2).
+    // boundary refinement's reads, which the clustering the commit replans made stale (madarch-tzte.24.2) — and
+    // the product's recovery unit, whose recorded reads stand on the module tree stage 5 re-measures at the new
+    // commit (madarch-tzte.24.6: the recovery reads its module summaries out of that tree's claims).
     options.agentUnitOfRepository,
+    `recovery/${PRODUCT_SCOPE_NAME}`,
   ].sort();
 }
 
