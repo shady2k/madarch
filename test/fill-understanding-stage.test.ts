@@ -23,6 +23,7 @@ import { createPgBossQueue } from '../src/adapters/pg-boss-queue.js';
 import { createFactStoreSchema, applyPublishedFacts } from '../src/fill/fact-store.js';
 import { makeEdgeFact, makeNodeFact, repositoryPath, type Fact, type FactProvenance } from '../src/fill/facts.js';
 import { createFactGraphReader } from '../src/fill/graph-reads.js';
+import type { StageGraphReader } from '../src/fill/stage.js';
 import { draftSetOf } from '../src/fill/checked-writes.js';
 import { createFillOrchestratorService, type ProductFillWiring } from '../src/fill/orchestrator-host.js';
 import { createOrchestrator, planRun, schedulerPass, startRun, workOnce, type FillOrchestrator } from '../src/fill/orchestrator.js';
@@ -32,6 +33,7 @@ import {
   UNDERSTANDING_KINDS,
   UNDERSTANDING_STAGE_ID,
   UNDERSTANDING_SUMMARY_PREDICATE,
+  UNDERSTANDING_SUMMARY_ROWS,
   boundSummary,
   createUnderstandingStage,
   moduleUnits,
@@ -40,7 +42,7 @@ import {
 } from '../src/fill/stages/understanding.js';
 import { StageRegistry } from '../src/fill/registry.js';
 import { DEFAULT_STAGE_DEFAULTS, type FillStage } from '../src/fill/stage.js';
-import { FACT_KINDS } from '../src/fill/facts.js';
+import { FACTS_SCHEMA_VERSION, FACT_KINDS } from '../src/fill/facts.js';
 import { Type } from 'typebox';
 import { createGitSnapshotSource, type RepositoryPin } from '../src/fill/snapshot.js';
 import { createFillStateSchema, createUnit, readTransitions } from '../src/fill/state-store.js';
@@ -63,6 +65,19 @@ function provenance(file: string, line: number): FactProvenance {
     source: { system: 'tree-sitter', version: '1.0.0' },
     repository: { id: REPOSITORY, commit: COMMITS[REPOSITORY] ?? 'a'.repeat(40) },
     place: { file: repositoryPath(file), range: { startLine: line, startColumn: 0, endLine: line, endColumn: 10 } },
+  };
+}
+
+/** One fact as the store's own row spells it, with an id the test names where the fact's own would not close a cycle. */
+function rowOf(fact: Fact, id?: string): Record<string, unknown> {
+  return {
+    id: id ?? fact.id,
+    kind: fact.kind,
+    schema_version: FACTS_SCHEMA_VERSION,
+    provenance: fact.provenance,
+    layer: fact.layer,
+    status: fact.status,
+    value: fact.value,
   };
 }
 
@@ -460,16 +475,15 @@ describe('stage 12, the modules understood bottom-up', () => {
       // The waiting attempt's own reads: the module tree only. No read of a child's claims stands in the
       // generation's record from before the join, because a claim read that answers empty there and non-empty
       // after the children publish would refuse this unit's publication at 0027's recheck for good.
-      const midReads = await readUnitReads(opened.owner, `${UNDERSTANDING_STAGE_ID}/${tree.checkout.id}`, 1);
-      // The waiting attempt recorded exactly the tree reads: the parent chain and the children — no read of a
-      // child's claims, which would answer empty there and non-empty after the children publish, and refuse
-      // this unit's publication at 0027's recheck for good.
-      // The waiting attempt's reads are the parent chain's fact reads and the children read — three on this
-      // tree — and none of them reads a child's claims, which would answer empty there and non-empty after
-      // the children publish, and refuse this unit's publication at 0027's recheck for good.
-      const waitingReads = midReads.slice(0, 3);
-      expect(waitingReads.length).toBe(3);
-      for (const read of waitingReads) {
+            const midReads = await readUnitReads(opened.owner, `${UNDERSTANDING_STAGE_ID}/${tree.checkout.id}`, 1);
+      // Every read this generation recorded before its packet's own `held` count — the wrapper's tree reads
+      // and the packet's head — names no child's claims: a claim read that answers empty before the join and
+      // non-empty after the children publish would refuse this unit's publication at 0027's recheck for good.
+      // The children's summaries stand in the section, which reads them after the held count, on the joined
+      // attempt where the join's own freshness check has settled them.
+      const heldAt = midReads.findIndex((read) => read.query.includes('"read":"held"'));
+      expect(heldAt).toBeGreaterThan(0);
+      for (const read of midReads.slice(0, heldAt)) {
         expect(read.query).not.toContain('"kind":"claim"');
       }
 
@@ -692,7 +706,10 @@ describe('stage 12, the modules understood bottom-up', () => {
           { matches: 'src/cart.ts', steps: [{ exit: 1 }] },
           // checkout's joined attempt: the section holds the failed child's summary as `null`.
           { matches: 'src/order.ts', steps: [{ answer: { status: 'partial', covered: ['src/order.ts'], remaining: [], summary: 'checkout is understood but its child cart did not finish' } }] },
-          { matches: 'src/shop.ts', steps: [doneAnswer('src/shop.ts', 'shop is the ordering shop')] },
+          // The root builds on checkout's published partial understanding, and its own answer is `partial`:
+          // its packet holds checkout's summary, but checkout's child stands `null` in it, and the fixed
+          // part's own rule has the unit answer `partial` over what it did not read.
+          { matches: 'src/shop.ts', steps: [{ answer: { status: 'partial', covered: ['src/shop.ts'], remaining: [], summary: 'shop is understood through checkout, whose own child did not finish' } }] },
         ],
         steps: [{ answerMembers: { summary: 'the module was read' } }],
       },
@@ -720,8 +737,11 @@ describe('stage 12, the modules understood bottom-up', () => {
       const checkoutPrompt = prompts(opened).find((prompt) => prompt.includes(`"module": "${tree.cart.id}"`))!;
       expect(checkoutPrompt).toContain('"childrenSummaries"');
       expect(checkoutPrompt).toContain('"summary": null');
-      // The root built on checkout's published partial understanding.
+      // The root built on checkout's published partial understanding, and named its own gap the same way.
       expect(stateOf.get(`${UNDERSTANDING_STAGE_ID}/${tree.shop.id}`)).toBe('published');
+      const shopFacts = await publishedFacts(opened, `${UNDERSTANDING_STAGE_ID}/${tree.shop.id}`);
+      const shopCoverage = shopFacts.find((fact) => fact.kind === 'coverage')!.value as unknown as { scope: string; complete: boolean; read: readonly string[] };
+      expect(shopCoverage).toMatchObject({ scope: tree.shop.id, complete: false, read: ['src/shop.ts'] });
     } finally {
       await opened.close();
     }
@@ -741,8 +761,12 @@ describe('stage 12\'s declaration', () => {
     // The schema's own table writes both kinds at this stage of the fill.
     expect(FACT_KINDS.claim.stages).toContain('12-understanding');
     expect(FACT_KINDS.rule.stages).toContain('12-understanding');
-    // The section names are the packet's own, in the order the stage declares them.
+    // The section names are the packet's own, in the order the stage declares them, and the section's own
+    // cap is the fan-in bound the declaration resolves: the plan's refusal and the packet's cut cannot
+    // disagree about how many children one parent reads.
     expect(declaration.sections?.map((section) => section.name)).toEqual(['childrenSummaries']);
+    expect(declaration.sections?.[0]?.max).toBe(UNDERSTANDING_SUMMARY_ROWS);
+    expect(UNDERSTANDING_SUMMARY_ROWS).toBe(50);
     // The answer is the unit contract: how far the module was read, and what is left.
     expect(declaration.answer.fields.map((field) => field.name)).toEqual(['status', 'covered', 'remaining', 'summary']);
     // The registry holds no understanding stage where the run wires no agent: a stage whose units run an
@@ -793,11 +817,94 @@ describe('stage 12\'s declaration', () => {
         }
         expect(message).toContain(`the module ${wide.id} (wide) of ${REPOSITORY} holds 52 child modules and the fan-in bound is 50`);
         expect(message).toContain('an intermediate grouping level');
+        // The tree's other malformations are refused by name where the plan reads it: a parent that stands
+        // nowhere, a parent across repositories, and a cycle of parent links. The cycle is one the store
+        // cannot hold — a module fact's parent is part of its own identity, so two facts cannot name each
+        // other — and is fed to the plan through a reader that answers it, which is the seam the plan's
+        // own walk reads through.
+        const cycleReader: StageGraphReader = {
+          query: async (text: string) => {
+            const read = JSON.parse(text) as { read?: string; kind?: string; value?: string };
+            if (read.read === 'facts-with' && read.kind === 'repository') {
+              return [rowOf(makeNodeFact({ kind: 'repository', value: { repository: REPOSITORY, form: 'code' }, provenance: provenance('src/shop.ts', 1), layer: 'extracted' }))];
+            }
+            if (read.read === 'facts-with' && read.kind === 'module') {
+              const a = 'module:' + 'a'.repeat(64);
+              const b = 'module:' + 'b'.repeat(64);
+              const idOf = (name: string): string => (name === 'cycle-a' ? a : b);
+              return [
+                rowOf(makeNodeFact({ kind: 'module', value: { repository: REPOSITORY, name: 'cycle-a', parent: b, seed: 'cluster', members: 1, importance: 0.5 }, provenance: provenance('src/shop.ts', 1), layer: 'extracted' }), idOf('cycle-a')),
+                rowOf(makeNodeFact({ kind: 'module', value: { repository: REPOSITORY, name: 'cycle-b', parent: a, seed: 'cluster', members: 1, importance: 0.5 }, provenance: provenance('src/order.ts', 1), layer: 'extracted' }), idOf('cycle-b')),
+              ];
+            }
+            return [];
+          },
+        };
+        {
+          let cycleMessage = '';
+          try {
+            await moduleUnits(cycleReader);
+          } catch (error) {
+            cycleMessage = error instanceof Error ? error.message : String(error);
+          }
+          expect(cycleMessage).toContain('stands on a cycle of parent links');
+          expect(cycleMessage).toContain('a cycle is a tree no unit order can name');
+        }
+        // A parent across repositories: the second module names a parent the first repository holds.
+        const crossOwner = createPGliteDatabaseOwner();
+        try {
+            // The other repository's module facts stand in their own repository's provenance: one fact is
+            // one repository, and the schema refuses a fact whose value names another.
+            const otherProvenance = (file: string, line: number): FactProvenance => ({
+              source: { system: 'tree-sitter', version: '1.0.0' },
+              repository: { id: 'another-repo', commit: COMMITS[REPOSITORY] ?? 'a'.repeat(40) },
+              place: { file: repositoryPath(file), range: { startLine: line, startColumn: 0, endLine: line, endColumn: 10 } },
+            });
+            const other = makeNodeFact({ kind: 'module', value: { repository: 'another-repo', name: 'other-repo-module', seed: 'cluster', members: 1, importance: 0.5 }, provenance: otherProvenance('src/shop.ts', 1), layer: 'extracted' });
+            const child = makeNodeFact({ kind: 'module', value: { repository: REPOSITORY, name: 'child', parent: other.id, seed: 'cluster', members: 1, importance: 0.5 }, provenance: provenance('src/order.ts', 1), layer: 'extracted' });
+            await seedFacts(crossOwner, [
+              makeNodeFact({ kind: 'repository', value: { repository: REPOSITORY, form: 'code' }, provenance: provenance('src/shop.ts', 1), layer: 'extracted' }),
+              makeNodeFact({ kind: 'repository', value: { repository: 'another-repo', form: 'code' }, provenance: otherProvenance('src/order.ts', 1), layer: 'extracted' }),
+              other,
+              child,
+            ]);
+            let crossMessage = '';
+            try {
+              await moduleUnits(createFactGraphReader({ database: crossOwner, snapshot: snapshots }));
+            } catch (error) {
+              crossMessage = error instanceof Error ? error.message : String(error);
+            }
+            expect(crossMessage).toContain(`of ${REPOSITORY} names the parent`);
+            expect(crossMessage).toContain('of another-repo');
+            expect(crossMessage).toContain("a module's parent stands in its own repository");
+            // A parent that stands nowhere.
+            const missingOwner = createPGliteDatabaseOwner();
+            try {
+              const missingId = 'module:' + 'd'.repeat(64);
+              const orphan = moduleFact('orphan', missingId, 'src/shop.ts', 1, 0.5);
+              await seedFacts(missingOwner, [
+                makeNodeFact({ kind: 'repository', value: { repository: REPOSITORY, form: 'code' }, provenance: provenance('src/shop.ts', 1), layer: 'extracted' }),
+                orphan,
+              ]);
+              let missingMessage = '';
+              try {
+                await moduleUnits(createFactGraphReader({ database: missingOwner, snapshot: snapshots }));
+              } catch (error) {
+                missingMessage = error instanceof Error ? error.message : String(error);
+              }
+              expect(missingMessage).toContain(`names the parent ${missingId}`);
+              expect(missingMessage).toContain('a parent that stands nowhere');
+            } finally {
+              await missingOwner.close();
+            }
+          } finally {
+            await crossOwner.close();
+          }
       } finally {
         await wideOwner.close();
       }
     } finally {
       await owner.close();
     }
-  });
+  }, 120_000);
 });

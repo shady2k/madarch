@@ -57,6 +57,7 @@ import { unitIdFor } from '../orchestrator.js';
 import { writeScope } from '../checked-writes.js';
 import type { FillStage, StageContext, StageExecutionResult, StageGraphReader, StagePlan, StageUnit } from '../stage.js';
 import {
+  MAX_PLAN_DEPTH,
   SPLIT_CHILDREN,
   createAgentStage,
   memberPlaces,
@@ -352,9 +353,10 @@ export async function moduleUnits(graph: StageGraphReader): Promise<StagePlan> {
   const depth = (id: string): number => {
     const held = depthOf.get(id);
     if (held !== undefined) return held;
-    if (!walking.add(id)) {
+    if (walking.has(id)) {
       raise(`the module ${id} stands on a cycle of parent links: ${[...walking].sort(byCodePoint).join(' -> ')} -> ${id} — a module's parent chain ends at a root, and a cycle is a tree no unit order can name`);
     }
+    walking.add(id);
     const module_ = modules.get(id)!;
     const answer = module_.parent === undefined ? 0 : depth(module_.parent) + 1;
     walking.delete(id);
@@ -386,7 +388,7 @@ export async function moduleUnits(graph: StageGraphReader): Promise<StagePlan> {
  * unordered parent usually reads every summary anyway; the fallback is for the
  * race the plan order cannot close.
  */
-export const MAX_ORDERED_DEPTH = 3 - 1;
+export const MAX_ORDERED_DEPTH = MAX_PLAN_DEPTH - 1;
 
 /** The depth of one module in its tree, read through the unit's own reader: the chain of parent values up to a root. */
 async function depthOf(reads: GraphReadContext, moduleId: string): Promise<number> {

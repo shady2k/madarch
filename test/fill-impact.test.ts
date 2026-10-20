@@ -385,7 +385,6 @@ describe('a commit, and what it reruns', () => {
     // Stage 10's unit of the training repository's documents is inherited too: the commit moved no
     // document, and its reads stand. The unit's id is the repository fact's own (24.3's plan), read
     // from the store here rather than guessed.
-<<<<<<< HEAD
     // Stage 11's units are inherited too: a run plans before any stage publishes, and at planning the reads the
     // units recorded — the commits of their repository and the comments of their files, both the stage's own SQL —
     // still answer what they answered when the units ran in run-two. The commit moves those reads (a new commit
@@ -394,23 +393,26 @@ describe('a commit, and what it reruns', () => {
     // files, and the product repository's own module stands as one unit; the ids are the store's own.
     const intentUnitsOfTraining = await factIds(opened!, "kind = 'file' AND value->>'repository' = $1", [TRAINING]);
     const moduleOfProduct = await factIds(opened!, "kind = 'module' AND value->>'repository' = $1", [PRODUCT]);
-=======
     // Stage 12's units (madarch-tzte.24.5) are inherited as the others are: the one module the training
     // repository clusters into was understood from the graph and its children's summaries, and the commit
-    // moved neither. The units are read from the store, as the repository fact's id is above.
->>>>>>> 2bfd3f52 (The review round and the stages that run together: the split bounds the tree can order, the plan refusals, and the impact fixture)
+    // moves what that makes of it into the next run's planning. The units are read from the store, as the
+    // repository fact's id is above, and the stage is bound non-empty: the clustering holds one module, so
+    // one unit must have run and been reused.
+    expect(understandingUnitIds.length).toBeGreaterThan(0);
+=======
+    // moved neither. The units are read from the store, as the repository fact's id is above, and the
+    // stage is bound non-empty: the clustering holds one module, so one unit must have run and been reused.
+    expect(understandingUnitIds.length).toBeGreaterThan(0);
+>>>>>>> 55b5f01d (Round two: the cycle guard fires, the section cap is held by a test, and the plan refusals are exercised)
     expect([...(third?.reused ?? [])].sort()).toEqual([
       `snapshot/${PRODUCT}`,
       `modules/modules:${PRODUCT}`,
       `history/${PRODUCT}@${git(product, 'rev-parse', 'HEAD')}`,
       // The unit's id is the store's: the stage's own, then the unit's, which is the repository fact's id.
       `doc-intent/${trainingRepositoryId}`,
-<<<<<<< HEAD
       ...intentUnitsOfTraining.map((id) => `${INTENT_HISTORY_STAGE_ID}/${id}`),
       ...moduleOfProduct.map((id) => `${INTENT_HISTORY_STAGE_ID}/${id}`),
-=======
       ...understandingUnitIds,
->>>>>>> 2bfd3f52 (The review round and the stages that run together: the split bounds the tree can order, the plan refusals, and the impact fixture)
     ].sort());
   }, 900_000);
 
