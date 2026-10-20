@@ -399,11 +399,6 @@ describe('a commit, and what it reruns', () => {
     // repository fact's id is above, and the stage is bound non-empty: the clustering holds one module, so
     // one unit must have run and been reused.
     expect(understandingUnitIds.length).toBeGreaterThan(0);
-=======
-    // moved neither. The units are read from the store, as the repository fact's id is above, and the
-    // stage is bound non-empty: the clustering holds one module, so one unit must have run and been reused.
-    expect(understandingUnitIds.length).toBeGreaterThan(0);
->>>>>>> 55b5f01d (Round two: the cycle guard fires, the section cap is held by a test, and the plan refusals are exercised)
     expect([...(third?.reused ?? [])].sort()).toEqual([
       `snapshot/${PRODUCT}`,
       `modules/modules:${PRODUCT}`,
