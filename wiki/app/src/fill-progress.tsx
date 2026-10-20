@@ -1,17 +1,62 @@
 import { useEffect, useMemo, useState, type ReactElement } from 'react';
 import { appPath } from './app-base.js';
+import { byCodePoint } from './sort.js';
 import { useTranslation } from 'react-i18next';
 
-type FillStage = 'inventory' | 'index' | 'claims' | 'code-map' | 'synthesis' | 'question-review';
-type Unit = { stage: FillStage; status: 'pending' | 'running' | 'complete' | 'blocked' | 'stale' };
+/**
+ * One fill's progress, as the server answers it (`GET /api/fill`, madarch-tzte.26.2).
+ *
+ * The answer is one run: its state, the units it planned with their states, and
+ * its durable progress events. A run written to the product's `.madarch/fill`
+ * state and a run the orchestrator keeps in the server's own database have the
+ * same shape, so this panel shows both — the update the background server starts
+ * by itself after a commit to the default branch is one of the server's runs and
+ * appears here the moment it is created.
+ *
+ * The stages are the answer's own, not a list fixed here: the fill's declared
+ * stages are data (decision 0027), and a stage the panel does not know by name is
+ * shown under its own id rather than hidden.
+ */
+type Unit = { stage: string; status: string };
 type Run = { id: string; status: string; createdAt: string };
-type Event = { stage: FillStage; unitId: string; at: string; type: string; summary: string };
-const stages: FillStage[] = ['inventory', 'index', 'claims', 'code-map', 'synthesis', 'question-review'];
+type Event = { stage: string; unitId: string; at: string; type: string; summary: string };
+
+/**
+ * The order this panel knows the fill's stages in: the orchestrator's declared stages
+ * first (decision 0026's order), then the landed pipeline's. It orders and never
+ * filters: a stage the panel does not know stands after these in code point order,
+ * under its own id, so a stage added to the fill is shown before its name is
+ * translated.
+ */
+const stageOrder = [
+  'snapshot', 'inventory', 'build-configuration', 'syntax', 'semantic-resolution', 'modules', 'document-index', 'history', 'agent-unit',
+  'index', 'claims', 'code-map', 'synthesis', 'question-review',
+];
+/** The run states a run never leaves: its stop is its own end, so the panel offers none. */
+const terminalStates = new Set(['stopped', 'complete', 'succeeded', 'completed_partial', 'failed', 'cancelled', 'blocked']);
+/** The unit states that mean a unit's work stands, and the ones that mean it is being worked on now. */
+const doneStates = new Set(['complete', 'published']);
+const workingStates = new Set(['running', 'leased', 'draft', 'validating']);
+
+/** The stages the answer holds, in the panel's order, with a stage it does not know after them in code-point order. */
+function stageListOf(units: readonly Unit[]): string[] {
+  const held = [...new Set(units.map((unit) => unit.stage).filter((stage) => stage !== ''))];
+  const known = stageOrder.filter((stage) => held.includes(stage));
+  const unknown = held.filter((stage) => !stageOrder.includes(stage)).sort(byCodePoint);
+  return [...known, ...unknown];
+}
+
 function elapsed(start: string, now: number): string {
   const seconds = Math.max(0, Math.floor((now - Date.parse(start)) / 1000));
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 }
-/** Live reader for atomic fill state and journal; controls operate on the product server API. */
+/**
+ * Live reader for atomic fill state and journal; controls operate on the product
+ * server API. A pause or a stop is taken by whichever holder of the run the server
+ * names — the landed fill's control file, or the orchestrator's own run — and the
+ * stop is offered only for a state a run can leave, so the panel never offers a
+ * control the server cannot take.
+ */
 export function FillProgressPanel({ open }: { open: boolean }): ReactElement {
   const { t } = useTranslation();
   const [run, setRun] = useState<Run | null>(null);
@@ -28,13 +73,24 @@ export function FillProgressPanel({ open }: { open: boolean }): ReactElement {
     } catch (caught) { setError(caught instanceof Error ? caught.message : String(caught)); }
   };
   useEffect(() => { void refresh(); const timer = window.setInterval(() => { void refresh(); setNow(Date.now()); }, 5000); return () => window.clearInterval(timer); }, []);
-  const counts = useMemo(() => Object.fromEntries(stages.map((stage) => [stage, units.filter((unit) => unit.stage === stage).reduce((result, unit) => ({ ...result, [unit.status]: result[unit.status] + 1 }), { pending: 0, running: 0, complete: 0, blocked: 0, stale: 0 })])) as unknown as Record<FillStage, Record<string, number>>, [units]);
+  const stages = useMemo(() => stageListOf(units), [units]);
+  const counts = useMemo(
+    () => new Map(stages.map((stage) => {
+      const of = units.filter((unit) => unit.stage === stage);
+      return [stage, { done: of.filter((unit) => doneStates.has(unit.status)).length, working: of.filter((unit) => workingStates.has(unit.status)).length, total: of.length }];
+    })),
+    [stages, units],
+  );
   const latest = events.at(-1);
   const control = async (action: 'pause' | 'stop'): Promise<void> => {
     if (!run) return;
     try {
       const response = await fetch(appPath(`/api/fill/control?runId=${encodeURIComponent(run.id)}&action=${action}`), { method: 'POST' });
-      if (!response.ok) throw new Error(`server answered ${response.status}`);
+      if (!response.ok) {
+        // The server's own words: a control a run's machine refused says why, and a bare status code would hide it.
+        const body = await response.json().catch(() => undefined) as { error?: { message?: string } } | undefined;
+        throw new Error(body?.error?.message ?? `server answered ${response.status}`);
+      }
       await refresh();
     } catch (caught) { setError(caught instanceof Error ? caught.message : String(caught)); }
   };
@@ -42,9 +98,9 @@ export function FillProgressPanel({ open }: { open: boolean }): ReactElement {
     <h2>{t('fill.title')}</h2>
     {!run ? <p>{error || t('fill.idle')}</p> : <>
       <p className="fill-run-state">{t(`fill.status.${run.status}`, { defaultValue: run.status })} · {elapsed(run.createdAt, now)}</p>
-      <ol className="fill-stages">{stages.map((stage) => <li key={stage} data-stage={stage}><span>{t(`fill.stages.${stage}`)}</span><small>{counts[stage].complete}/{units.filter((unit) => unit.stage === stage).length} · {counts[stage].running} {t('fill.running')}</small></li>)}</ol>
+      <ol className="fill-stages">{stages.map((stage) => <li key={stage} data-stage={stage}><span>{t(`fill.stages.${stage}`, { defaultValue: stage })}</span><small>{counts.get(stage)?.done ?? 0}/{counts.get(stage)?.total ?? 0} · {counts.get(stage)?.working ?? 0} {t('fill.running')}</small></li>)}</ol>
       <p className="fill-activity" aria-live="polite">{latest?.summary ?? t('fill.waiting')}</p>
-      <div className="fill-controls"><button type="button" disabled={run.status !== 'running'} onClick={() => void control('pause')}>{t('fill.pause')}</button><button type="button" disabled={run.status === 'stopped' || run.status === 'complete'} onClick={() => void control('stop')}>{t('fill.stop')}</button></div>
+      <div className="fill-controls"><button type="button" disabled={run.status !== 'running'} onClick={() => void control('pause')}>{t('fill.pause')}</button><button type="button" disabled={terminalStates.has(run.status)} onClick={() => void control('stop')}>{t('fill.stop')}</button></div>
       {error && <p role="alert">{error}</p>}
     </>}
   </aside>;
