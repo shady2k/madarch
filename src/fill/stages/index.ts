@@ -16,6 +16,7 @@ import { createBuildConfigurationStage } from './build-configuration.js';
 import { createDocIntentStage } from './doc-intent.js';
 import { createDocumentIndexStage } from './document-index.js';
 import { createGitHistoryReader, createHistoryStage, type CheckoutFolderOf } from './history.js';
+import { createIntentHistoryStage } from './intent-history.js';
 import { createInventoryStage } from './inventory.js';
 import { createModulesStage } from './modules.js';
 import { createOverviewStage } from './overview.js';
@@ -72,6 +73,7 @@ export function createStageRegistry(wiring: FillStageWiring): StageRegistry {
   if (wiring.agent !== undefined) {
     registry.register(createOverviewStage({ snapshots: wiring.snapshots, ...wiring.agent }));
     registry.register(createDocIntentStage({ snapshots: wiring.snapshots, ...wiring.agent }));
+    registry.register(createIntentHistoryStage({ snapshots: wiring.snapshots, ...wiring.agent }));
   }
   return registry;
 }
