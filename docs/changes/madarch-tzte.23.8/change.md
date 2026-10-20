@@ -76,41 +76,44 @@ None.
 
 ## Design and decisions
 
-- **The cause is four reads, and each is measured on the current tree.** A walk phase
-  (`scripts/graph-pages-walk.ts --phase speed`) times the store's own reads, the HTTP
-  answer and a headless Chromium at the owner's 1150x900 window over a store the fill
-  left, and `--phase explain` times the statements themselves. On the current madarch
-  tree (1 129 files, 35 370 pages, 283 000 facts, 23 kinds):
+- **The cause is four reads, and each is measured.** A walk phase
+  (`scripts/graph-pages-walk.ts --phase speed`, `--phase explain`) times the store's own
+  reads, the HTTP answers and a headless Chromium at the owner's 1150x900 window over a
+  store a fill left, and `--phase explain` plans and times the statements themselves. On
+  the current madarch tree (1 129 files at `aa19c35b`, 35 370 pages, 283 000 facts,
+  23 kinds), before this change:
   - **the page set's statement** — one statement with "does a unit of this product hold
     this fact" asked inside it once per page-worthy fact — took **860 746 ms cold and
-    940 018 ms warm** (`speedPageSet`); the store answered its first statement in 27 ms,
-    so the cost was the statement and not the open;
-  - **a page's own read** took **2 378 ms** for a repository and 2 218 ms of that was the
-    one read of its relations (`speedReadBreakdown.adjacentMs`), which asked for one end
-    of an edge fact by comparing a field of every edge fact of the product (108 000
-    rows);
-  - **a page's diagrams** took **28 708 ms cold**, because a diagrams ask read the whole
-    page model first and then built five models over every module and symbol of the
-    repository (`speedReads.repository.diagramsColdMs`);
-  - **the index** stood in **4 137 ms cold and 4 987 ms warm** with `/api/graph/pages`
-    taking **2 406 ms of it in the browser** for **16 527 510 bytes**, while the server
-    had the answer to give in 209 ms (`speedPageSetHttp`) — the index was the largest
-    answer the wiki sends, taken whole and rendered as 35 370 rows in 142 180 nodes.
+    940 018 ms warm** (`speedPageSet` on the 4 GB pod); the store answered its first
+    statement in 27 ms, so the cost was the statement and not the open;
+  - **a page's relations** took **2 210 ms** of the page's own read
+    (`speedReadBreakdown.adjacentMs`), asking for one end of an edge fact by comparing a
+    field of every edge fact of the product (108 000 rows);
+  - **a page's diagrams** took **28 708 ms cold** for a repository: a diagrams ask read
+    the whole page model first and then built five models over every module and symbol
+    of the repository (`speedReads.repository.diagramsColdMs`);
+  - **the index** stood in **4 137 ms cold and 4 987 ms warm**, `/api/graph/pages`
+    taking **2 406 ms of it in the browser** for **16 527 510 plain bytes** while the
+    server had the answer to give in 209 ms (`speedPageSetHttp`) — the largest answer the
+    wiki sends, taken whole and drawn as 35 370 rows in 142 180 nodes.
 - **The page set is read as three narrow reads and not one wide one.** The page-worthy
-  facts by their kind, the ids one product's units hold (one join of the holding onto
-  the unit), the intersection in this process, and then the facts of those ids by their
+  facts by their kind, the ids one product's units hold (one join of the holding onto the
+  unit), the intersection in this process, and then the facts of those ids by their
   primary key in batches of a thousand (`PAGE_SET_KINDS_SQL`, `PAGE_SET_HELD_SQL`,
-  `PAGE_SET_FETCH`, `graph-pages.ts`). No statement repeats a join per row, and only the
-  facts a page is made of are read whole. Measured on the same store: **276 618 ms**,
-  3.4 times less than the one statement it replaces, and the same answer to the row.
+  `PAGE_SET_FETCH`, `graph-pages.ts`). No statement repeats a join per row. Measured on
+  the same store: **276 618 ms** and **304 792 ms** on two runs, against 860 746 and
+  940 018 ms for the statement it replaces, and the same answer to the row.
 - **An edge fact's value is indexed once, and a page's relations ask by containment.**
   `fill_fact_edge_values` is a GIN index over the value of every fact (`jsonb_path_ops`),
   and `adjacent` (`graph-reads.ts`) asks `value @> {"to": …}` for each field an end is
-  kept in (`from`, `to`, `variable`, `caller`, `callee`, and a document link's term) —
-  the same question the field comparison asked, in the form that index answers. The index
-  is not partial: a read names its kinds as a parameter (`kind = ANY($1)`), and a partial
-  index whose predicate names a fixed list of kinds is one the planner cannot prove such
-  a read implies, so it would never be used.
+  kept in (`from`, `to`, `variable`, `caller`, `callee`, and a document link's term — a
+  term asked as `{"to": {"id": …}}`, which is its own group). The index is not partial: a
+  read names its kinds as a parameter (`kind = ANY($1)`), and a partial index whose
+  predicate names a fixed list of kinds is one the planner cannot prove such a read
+  implies, so it would never be used. It is also a **footprint** the store did not have
+  before: one more copy of every fact's value, built once on an existing store at the
+  first open (the build is a one-time cost on a 283 000-fact store, and the store's own
+  size is madarch-tzte.21.11's ground).
 - **A diagrams ask no longer reads a page model.** It needs three things of the page —
   the node's kind, its entry as the page set names it, and the repository or table its
   value names — and all three are the node's own fact (`readNodeDiagrams`,
@@ -118,46 +121,55 @@ None.
   does, `wiki/app/src/graph-diagrams.tsx`) pays for the page once, and a page read that
   fails on something a diagram never shows (a draft set the schema refuses) leaves the
   page's diagrams standing.
-- **The answers are kept until a publication, and no longer.** `src/fill/page-cache.ts` is
-  the cache the fill service keeps (`orchestrator-host.ts`): the page set, a page model
-  and a diagram answer per product and node, dropped by `notifyPages()` — the same
-  `unit-published` event that wakes the live channel — so an answer kept can never be
-  older than the change a client was told about. It is bounded by entries (256 pages, 32
-  diagram answers) because a repository page's diagrams are models over every module and
-  symbol of it, and a browsing session must cost a bounded amount of memory. Measured:
-  the page set read again **0 ms**, a page **0 ms**, a page's diagrams **0 ms**.
-- **The index's own answer is one body, compressed once.** `src/server/graph-pages.ts`
-  keeps the encoded body of the page set it was asked for (`GZIP_MIN_BYTES` is the size
-  under which nothing is compressed) and sends it with `content-encoding: gzip`: the
-  browser's 2 406 ms for 16 527 510 bytes was the answer being taken whole over a socket,
-  and the same answer compressed is 1 500 000 bytes of transfer. The set the source
-  answers is that source's own cached answer, so one answer is one body however many
-  clients ask for it, and a publication hands over a new one.
-- **The index draws a slice at a time and says so.** 35 370 rows in one React commit held
-  the browser for seconds (142 180 nodes drawn); `GraphIndexPage` draws the first 50 rows
-  of each kind at once — the index, its counts and its first links stand — and the rest
-  500 at a time in the browser's own turns (`INDEX_FIRST_ROWS`, `INDEX_ROWS_PER_STEP`,
-  `wiki/app/src/graph-pages.tsx`). Nothing is cut: a kind's count in the group's header
-  is its whole count from the first paint, and a group still filling names how many of
-  its rows stand (`graph.listingRest`, both catalogues) until they all do.
+- **The answers are kept until a publication, and no longer.** `src/fill/page-cache.ts`
+  is the cache the fill service keeps (`orchestrator-host.ts`): the page set, a page
+  model and a diagram answer per product and node, dropped by `notifyPages()` — the same
+  `unit-published` event that wakes the live channel — so an answer kept is never older
+  than the change a client was told about. Three things it does not keep: a **refusal**
+  (cheap, and a page must stand as soon as its node is published), a **page that shows
+  drafts** (a draft set is recorded before its unit publishes, so its page moves without
+  a publication), and an answer a publication **overtook while it was read** (each read
+  takes the cache's generation first and `keep*` refuses an older one). It is bounded by
+  entries — 4 products, 256 page models, 8 diagram answers — because a repository page's
+  diagrams are models over every module and symbol of it. Measured: a page set, a page and
+  a page's diagrams read again after the first read cost **0–1 ms**.
+- **The index's own answer is one body, compressed once, and only for a client that takes
+  gzip.** `src/server/graph-pages.ts` keeps the plain and the compressed body of the set it
+  was asked for (`GZIP_MIN_BYTES` is the size under which nothing is compressed), answers
+  `content-encoding: gzip` only when the request's `accept-encoding` allows it, says
+  `vary: accept-encoding`, and keeps both bodies for the set, so one answer is one body
+  however many clients ask and a publication hands over a new one. Measured in the browser:
+  `/api/graph/pages` took **2 406 ms for 16 527 510 bytes** before, and **195 ms for
+  2 249 357 bytes** after; the server's own answer is **80 ms** warm.
+- **The index draws the first of each kind's rows and names the rest.** Drawing 35 370 rows
+  held the browser for seconds (142 180 nodes); `GraphIndexPage` draws the first
+  `INDEX_ROWS_SHOWN` (150) rows of each kind, and a kind with more says so in its own words
+  (`graph.listingRest`, both catalogues), with the kind's whole count in its header from the
+  first paint. **Nothing is hidden silently, and every page is still in the page set the app
+  holds** — but a page past the 150th of its kind is not listed on the index: an index of
+  35 114 nodes needs a search or a windowed list, and that is a later task's (named under
+  open points).
 
 ### Open points and known limitations
 
-- **The page set's first read after a start still costs 276 618 ms on this store.** What
-  is read is 35 370 facts and 283 000 holdings, and the embedded store answers at about
-  2.5 ms a row on the 4 GB pod: a projection table would not be faster, because the rows
-  themselves are the cost. The cache makes every read after it free, and a publication
-  drops it — so a reader watching a fill pays it again for the set, which is named here
-  rather than hidden. The store's own read rate is madarch-tzte.21.11's ground.
-- **A publication drops the whole cache.** A fill's steady state therefore rebuilds a
-  page on its next read, which is the right trade for a reader of a finished graph and a
-  cost during a fill (23.1's channel already states that a publication moves pages).
-- **The memory bound is by entries, not by bytes.** A page of a very large repository
-  keeps a diagram answer of its own kind; the entries bound is what keeps a browsing
-  session inside the pod's 4 GB, and a re-read after an eviction is a read of the store.
-- **`/api/pages` (the product's document list) is on the same page load** and is not this
-  change's: it is read fresh on every ask (`src/product-wiki/pages.ts`), and the
-  measurements here report what it costs beside the graph's own answers.
+- **The page set's first read after a start still costs 276 618–484 264 ms on this store.**
+  What is read is 35 370 facts and 283 000 holdings, and the embedded store answers at
+  about a millisecond a row on the pod: a projection table would not be faster, because
+  the rows themselves are the cost. The cache makes every read after it free, and a
+  publication drops it, so a reader watching a fill pays it again. The store's own read
+  rate is madarch-tzte.21.11's ground.
+- **A page's cold read costs ~20 s and its claims, rules and questions ~2.8 s each.** Those
+  are `facts-with` reads (`value #>> $2 = $3` with a parameter path), which no index here
+  answers; with the page cached they cost nothing after the first read. Indexing a value
+  path is a later task's, and this change's own read (`adjacent`) is the one it made
+  indexed.
+- **A publication drops the whole cache**, so a fill's steady state rebuilds a page on its
+  next read — the right trade for a reader of a finished graph, a cost during a fill.
+- **The index lists the first 150 rows of a kind** (above): the counts say how many a kind
+  holds, and a search or a windowed list over the page set is the follow-up.
+- **`/api/pages` and `/api/architecture` are on the same page load** and are not this
+  change's: `/api/architecture` took **5 810 ms** on the browser's own timing in this
+  measurement, which is the app's shell rather than the graph's answers.
 - **No `mutation` receipt.** The owner runs Stryker once per assembled stage, off the
   path; acceptance escalates per `mutationFallback: escalate`.
 

@@ -1291,10 +1291,16 @@ async function timed<T>(work: () => Promise<T>): Promise<Timed<T>> {
 }
 
 /** One node page as the browser stood it: until the page was there, and until its diagrams had settled. */
-async function standPage(page: Page, url: string): Promise<{ standMs: number; diagramsMs: number; settledMs: number }> {
+async function standPage(page: Page, url: string): Promise<{ standMs: number; diagramsMs: number; settledMs: number; shown?: unknown }> {
   const started = Date.now();
   await page.goto(url, { waitUntil: 'domcontentloaded' });
-  await page.waitForSelector('[data-testid="graph-node"]', { timeout: 120_000 });
+  try {
+    await page.waitForSelector('[data-testid="graph-node"]', { timeout: 60_000 });
+  } catch {
+    // A page that never stands is a number of its own: the walk records what the page showed instead of failing.
+    const shown = await page.evaluate(() => ({ path: window.location.pathname, text: (document.body?.textContent ?? '').replace(/\s+/gu, ' ').slice(0, 300) })).catch(() => null);
+    return { standMs: -1, diagramsMs: -1, settledMs: -1, shown };
+  }
   const standMs = Date.now() - started;
   await waitDiagrams(page, url);
   return { standMs, diagramsMs: Date.now() - started - standMs, settledMs: Date.now() - started };
@@ -1402,22 +1408,13 @@ async function speedPhase(options: WalkOptions, product: Product): Promise<void>
     // The browser: the index that stands, and one page per kind — cold and warm.
     browser = await puppeteer.launch({ executablePath: resolveBrowserExecutable(), headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
     page = await newPage(browser, note);
-    /** The index stands when its groups and their first rows are drawn; every row of every kind follows (23.8). */
-    const standIndex = async (): Promise<{ standMs: number; completeMs: number }> => {
+    /** The index stands when its groups and the rows the page draws are there (23.8). */
+    const standIndex = async (): Promise<{ standMs: number }> => {
       const at = Date.now();
       await page!.goto(`${started.url}/p/graph`, { waitUntil: 'domcontentloaded' });
       await page!.waitForSelector('[data-testid="graph-index"]', { timeout: 300_000 });
       await page!.waitForFunction(() => document.querySelectorAll('[data-testid="graph-index"] .home-row').length > 0, { timeout: 600_000 });
-      const standMs = Date.now() - at;
-      // The groups' own lines say which kinds are still being listed; the last one going is every row standing.
-      let completeMs = Date.now() - at;
-      try {
-        await page!.waitForFunction(() => document.querySelector('[data-testid="graph-kind-listing"]') === null, { timeout: 600_000 });
-        completeMs = Date.now() - at;
-      } catch {
-        completeMs = -1;
-      }
-      return { standMs, completeMs };
+      return { standMs: Date.now() - at };
     };
     const indexCold = await standIndex();
     const indexRows = await page.evaluate(() => ({

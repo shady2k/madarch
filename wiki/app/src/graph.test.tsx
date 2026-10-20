@@ -17,7 +17,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { createElement } from 'react';
 import { App } from './app.js';
 import { GRAPH_EVENTS_PATH, codeHref, graphKindGroups, originOf, shortGraphLabel } from './graph.js';
-import { GraphIndexPage, INDEX_FIRST_ROWS, INDEX_ROWS_PER_STEP } from './graph-pages.js';
+import { GraphIndexPage, INDEX_ROWS_SHOWN } from './graph-pages.js';
 import { addressOfGraphPage, routeOf, GRAPH_INDEX_ADDRESS } from './routes.js';
 import { setWikiLanguage } from './i18n.js';
 import type { GraphPageModel, GraphPageSet, Page, PageList, Product, RepoEntry, ReposList } from './api.js';
@@ -400,34 +400,30 @@ describe('the graph in the navigation', () => {
     expect(document.querySelector(`a[href="/p/graph/${MODULE}"]`)).not.toBeNull();
   });
 
-  test('a kind of more nodes than the first slice lists them in steps, and the group says how many stand until then', async () => {
-    // The current madarch tree holds 29 605 symbols: a group of them is drawn a slice at a time, the count in its
-    // header is the whole count from the first paint, and the rows still to come are named until they stand
-    // (madarch-tzte.23.8). The page's two bounds are the page's own, and a test names small ones to see the slices.
+  test('a kind of more nodes than the page draws is listed up to the page\'s bound, and the group says how many the kind holds', async () => {
+    // The current madarch tree holds 29 605 symbols: the index draws the first of a kind's rows and names the rest by
+    // their count, because drawing tens of thousands of rows is seconds of the browser's time (madarch-tzte.23.8).
     const many = 9;
     const symbols = Array.from({ length: many }, (_unused, index) => {
       const id = `symbol:${index.toString(16).padStart(64, '0')}`;
       return { id, kind: 'symbol', label: `acme-shop:src/checkout.ts#checkout.place${String(index).padStart(3, '0')}`, page: addressOfGraphPage(id), layer: 'extracted' as const, status: 'proposed' as const };
     });
     const set = pageSet({ pages: [pageSet().pages[0]!, ...symbols], counts: [{ kind: 'module', count: 1 }, { kind: 'symbol', count: many }], total: many + 1 });
-    intoApp(createElement(GraphIndexPage, { set, repos: [], firstRows: 2, rowsPerStep: 2 }));
+    intoApp(createElement(GraphIndexPage, { set, repos: [], rowsShown: 4 }));
     await until(() => document.querySelector('[data-testid="graph-index"]') !== null, 'the graph index');
     const symbolGroup = (): Element | null => document.querySelector('[data-graph-kind="symbol"]');
-    // The first slice stands at once, the group counts all of them, and its own line names what stands.
-    expect(symbolGroup()?.querySelectorAll('.home-row').length).toBe(2);
+    // The first four of the kind stand, the group counts all nine, and its own line says how many stand.
+    expect(symbolGroup()?.querySelectorAll('.home-row').length).toBe(4);
     expect(symbolGroup()?.querySelector('[data-testid="graph-kind-count"]')?.textContent).toBe(String(many));
-    expect(symbolGroup()?.querySelector('[data-testid="graph-kind-listing"]')?.getAttribute('data-shown')).toBe('2');
-    // Then the rest arrive, a step at a time: every node of the kind is listed, in the server's own order, and the
-    // line the group kept while it filled is gone.
-    await until(() => symbolGroup()?.querySelectorAll('.home-row').length === many, 'every symbol of the group');
-    expect(symbolGroup()?.querySelector('[data-testid="graph-kind-listing"]')).toBeNull();
+    const listing = symbolGroup()?.querySelector('[data-testid="graph-kind-listing"]');
+    expect(listing?.getAttribute('data-shown')).toBe('4');
+    expect(listing?.textContent).toBe(`4 of ${many} listed: this index draws the first 4 of this kind, and the graph holds ${many}.`);
+    // The rows it draws are the server's own order, from the first.
     const labels = [...(symbolGroup()?.querySelectorAll('.home-row-title') ?? [])].map((row) => row.textContent);
-    expect(labels[0]).toBe('acme-shop:src/checkout.ts#checkout.place000');
-    expect(labels[labels.length - 1]).toBe(`acme-shop:src/checkout.ts#checkout.place${String(many - 1).padStart(3, '0')}`);
-    // The page's own bounds are what every reader gets, and they are a slice of a graph this size: the index of the
-    // current madarch tree holds 35 114 pages.
-    expect(INDEX_FIRST_ROWS).toBeLessThan(35_114);
-    expect(INDEX_ROWS_PER_STEP).toBeGreaterThan(INDEX_FIRST_ROWS);
+    expect(labels).toEqual(symbols.slice(0, 4).map((entry) => entry.label));
+    // A kind the bound draws whole says nothing, and the page's own bound is a slice of a graph this size.
+    expect(document.querySelector('[data-graph-kind="module"] [data-testid="graph-kind-listing"]')).toBeNull();
+    expect(INDEX_ROWS_SHOWN).toBeLessThan(35_114);
   });
 });
 
