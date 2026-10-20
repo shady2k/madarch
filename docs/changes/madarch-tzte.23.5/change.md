@@ -26,12 +26,12 @@ its numbers and its screenshots — and the one script that makes the walk repea
   through the orchestrator service with the stages wiring, starts the wiki server
   over that same store, and drives headless Chromium at the owner's 1150x900
   window. Phases `first`, `live` and `all`, and a scratch root that keeps the clone,
-  the home and the store, so the sixteen-minute fill is paid once.
+  the home and the store, so the 20.7-minute fill of the current tree is paid once.
 - **The walk's evidence** — the pages, the diagrams per type and renderer tab, the
   label sizes and the overlaps the browser computed, the render times, and the page
   that appears in the open browser while a second run publishes after a one-file
-  commit — is in the "Acceptance evidence" section below, with the screenshots in
-  `/home/dev/.cache/madarch-stage23-walk/`.
+  commit — is in the "Acceptance evidence" section below, with its screenshots in a
+  scratch folder outside the checkout (the names are listed there).
 
 No product behaviour changes: the script is a walk, it ships in no binary path that
 a reader runs, and every route, page and diagram it reads is a landed one.
@@ -178,19 +178,20 @@ eight deterministic stages with no agent:
   6 164, test 3 088, entry-point 2 374, import 1 419, coverage 1 284, file 1 128,
   directory 556, module 293, task-key 222, document 347, document-link 97, inherits 29,
   package 5, commit 2, snapshot 1, repository 1. Its page set is **35 114 pages**:
-  symbol 29 353, test 3 088, entry-point 2 374, module 293, package 5, repository 1.
-  This run's product declares no code repository (the checkout is the product, as 21.8's
-  walk made it), so its pages carry no code links — which is why the browser walk uses a
-  product shaped the way `madarch new` leaves one.
+  symbol 29 353, test 3 088, entry-point 2 374, module 293, package 5, repository 1. The
+  run's own `STAGE23_WALK` lines are kept beside this walk's, as `first-run.txt` in the
+  folder named above. This run's product declares no code repository (the checkout is the
+  product, as 21.8's walk made it), so its pages carry no code links — which is why the
+  browser walk uses a product shaped the way `madarch new` leaves one.
 - **The product the browser reads.** `stage23-product`: a product repository holding
   `workspace.yaml` and `docs/vision.md`, with its code repository `engine` a shallow
   checkout of `https://github.com/shady2k/madarch.git` at `4f67fc27` (194 tracked files
   — the pin 21.8's own walk used). The fill: `succeeded`, `settled`, **536 units in 412
-  passes in 82.4 s** — inventory 396, syntax 49, semantic-resolution 49, document-index
+  passes in 80.5 s** — inventory 396, syntax 49, semantic-resolution 49, document-index
   34, build-configuration 2, modules 2, snapshot 2, history 2 — and the graph held **23
-  kinds and 20 102 facts**. **2 575 pages**: symbol 1 986, test 338, entry-point 147,
+  kinds and 19 403 facts**. **2 575 pages**: symbol 1 986, test 338, entry-point 147,
   module 101, repository 2, package 1; 2 472 of them carry a code place and 2 087 stage
-  5's importance. A page set read is one statement: **3.4 s** here, and 3.4-3.8 s on
+  5's importance. A page set read is one statement: **3.8 s** here, and 3.4-3.8 s on
   every later read of the run.
 - **Why the browser is the pinned checkout.** The current tree's store is 1.5 GB on disk
   on this 2 CPU / 4 GB pod, and a run interrupted mid-read leaves a write-ahead log the
@@ -203,42 +204,52 @@ eight deterministic stages with no agent:
 
 ### What a reader sees: the index and four node pages
 
-- **The graph's index** (`/p/graph`) stands in **4.7 s** with all **2 575 rows** in six
+**A code link is a place in code**: the `graph-place` of a fact or a relation, and the
+element places under the diagrams. The page's fields also carry the repository's origin
+link, and the walk counts the two apart (`places` and `originLink` in its report) — the
+numbers below are places.
+
+- **The graph's index** (`/p/graph`) stands in **5.1 s** with all **2 575 rows** in six
   kind groups (entry-point 147, module 101, package 1, repository 2, symbol 1 986, test
   338), the lead line naming the product and the count, and 51 node links in the
   sidebar (12 per kind, the navigation's own bound).
-- **A repository page** (`engine`, the code repository) stands in **4.9 s**: its fields
+- **A repository page** (`engine`, the code repository) stands in **4.7 s**: its fields
   (Kind/Repository, Obtained/extracted, Status/proposed, Repository/engine), **1 fact**,
   **0 assumptions**, **17 relations** (all outgoing, each naming what it joins and
   linking the page of the node at its other end where that node has a page), **2
-  coverage records**, 0 open questions, 0 drafts, **2 code links** and **5 diagrams**.
-- **A package page** (`engine:madarch`) stands in **4.0 s**: Kind/Package with `In code
-  engine · package.json:2`, 1 fact, 1 coverage record, **4 code links** — one of them
-  `https://github.com/shady2k/madarch/blob/4f67fc2710807d28f75bab8d77351c8fb7f5bc1b/package.json#L2`
-  — and 1 diagram.
+  coverage records**, 0 open questions, 0 drafts, **1 place link**
+  (`…/blob/4f67fc2710807d28f75bab8d77351c8fb7f5bc1b/package.json#L2`) and **5
+  diagrams**.
+- **A package page** (`engine:madarch`) stands in **3.8 s**: Kind/Package with `In code
+  engine · package.json:2`, 1 fact, 1 coverage record and **3 place links**, one of them
+  the same `package.json#L2`.
 - **A module page** (`madarch`, the repository's top module, importance 1) stands in
-  **4.7 s**: 1 fact, 17 relations (16 out, 1 in), 1 coverage record, 1 code link and 2
-  diagrams.
-- **A symbol page** (`engine:src/model/errors.ts#ModelError`) stands in **4.1 s**: 1
+  **4.8 s**: 1 fact, 17 relations (16 out, 1 in), 1 coverage record, **no place link** —
+  the module's own fact stands at no line, and the files its relations end at have no
+  page and no link of their own here — and 2 diagrams.
+- **A symbol page** (`engine:src/model/errors.ts#ModelError`) stands in **4.6 s**: 1
   fact with `In code engine · src/model/errors.ts:6-14`, **43 relations** (all
-  incoming), 1 coverage record, **45 code links** (one of them
-  `https://github.com/shady2k/madarch/blob/4f67fc2710807d28f75bab8d77351c8fb7f5bc1b/src/model/errors.ts#L6-L14`),
-  0 drafts, and no diagram — the page says so in its own words ("no diagram of this
-  node's kind is drawn from the graph yet"), which is what a symbol's page holds on a
-  fill with no `interaction` fact.
+  incoming), 1 coverage record, **44 place links** (the first
+  `…/blob/4f67fc2710807d28f75bab8d77351c8fb7f5bc1b/src/model/errors.ts#L6-L14`), 0
+  drafts, and no diagram — the page says so in its own words ("no diagram of this node's
+  kind is drawn from the graph yet"), which is what a symbol's page holds on a fill with
+  no `interaction` fact.
 
 ### The diagrams, type by type and tab by tab
 
 The repository page draws five diagrams in the order its kind gives them
 (`["c4-context","c4-container","c4-component","module-dependency","er"]`), and each is
-rendered in every tab its type supports, `MADARCH_WIKI_DIAGRAM` deciding the first:
+rendered in every tab its type supports, `MADARCH_WIKI_DIAGRAM` deciding the first. The
+tab a diagram opens on is read from the strip's own `aria-selected`, and the walk waits
+for the section to settle before it reads any of it (the app reads a page's diagrams
+after the page stands):
 
 | diagram | tabs (first = the setting's) | Mermaid | archify | LikeC4 |
 | --- | --- | --- | --- | --- |
-| c4-context | `mermaid`, `likec4`, `archify` (first `mermaid`) | 2 nodes, 180×128, 2 labels at 16 px, 0 overlaps, 472 ms | 2 nodes, 698×1063, 7 labels at 8 px, 0 overlaps, 1 007 ms | the page's own words, `data-likec4-undrawn="empty"` |
-| c4-container | `mermaid`, `likec4`, `archify` (first `mermaid`) | 1 node, 168×64, 16 px, 0 overlaps, 15 ms | 1 node, 698×481, 5 labels at 8 px, 0 overlaps, 27 ms | the page's own words |
-| c4-component | `mermaid`, `likec4`, `archify` (first `mermaid`) | 1 node, 166×70, 16 px, 0 overlaps, 14 ms | 1 node, 698×481, 5 labels at 8 px, 0 overlaps, 43 ms | the page's own words |
-| module-dependency | `mermaid`, `archify` (first `mermaid`) | 1 node, 166×70, 16 px, 0 overlaps, 14 ms | 1 node, 698×481, 5 labels at 8 px, 0 overlaps, 15 ms | — (the type offers none) |
+| c4-context | `mermaid`, `likec4`, `archify` (first `mermaid`) | 2 nodes, 180×128, 2 labels at 16 px, 0 overlaps, 232 ms | 2 nodes, 698×1063, 7 labels at 8 px, 0 overlaps, 43 ms | the page's own words, `data-likec4-undrawn="empty"` (28.7 s) |
+| c4-container | `mermaid`, `likec4`, `archify` (first `mermaid`) | 1 node, 168×64, 16 px, 0 overlaps, 27 ms | 1 node, 698×481, 5 labels at 8 px, 0 overlaps, 22 ms | the page's own words (20.1 s) |
+| c4-component | `mermaid`, `likec4`, `archify` (first `mermaid`) | 1 node, 166×70, 16 px, 0 overlaps, 18 ms | 1 node, 698×481, 5 labels at 8 px, 0 overlaps, 13 ms | the page's own words (20.1 s) |
+| module-dependency | `mermaid`, `archify` (first `mermaid`) | 1 node, 166×70, 16 px, 0 overlaps, 16 ms | 1 node, 698×481, 5 labels at 8 px, 0 overlaps, 20 ms | — (the type offers none) |
 | er | **none** | — | — | — |
 
 - **The first tab follows the setting.** On the server whose setting is `mermaid` every
@@ -256,18 +267,16 @@ rendered in every tab its type supports, `MADARCH_WIKI_DIAGRAM` deciding the fir
   its page, evidence `fact`, `data-dashed="false"`), `engine:madarch` for the container,
   `madarch` for the component and the module view.
 - **LikeC4's three tabs stand, and their page's own word is `empty`.** The bundle is
-  generated on the first ask (37.5 s for the context view, 20.1 s and 20.1 s for the
-  next two, each kept by content hash) and the page reports
+  generated on the first ask (28.7 s for the context view, 20.1 s and 20.1 s for the next
+  two, each kept by content hash) and the page reports
   `data-likec4-undrawn="empty"` after the walk had waited twenty seconds past the page's
   eight-second sentence. Its composed tree does carry the model's labels (`engine`,
-  `stage23-product`, `engine:madarch`, `engine · package.json:2-2`, `madarch`), so what
-  is missing is the drawing the page's watchdog counts, not the model. **This is a
-  finding for the LikeC4 page's owner, not this change's**: on these small views the
-  page says "the view is empty" while its boxes stand
-  (`src/product-wiki/likec4-watch.ts`, `data-likec4-undrawn`); the Mermaid and archify
-  tabs draw the same models and the numbers above are theirs. A model without image
-  reading took this walk's screenshots, so the sentence and the label text are the
-  evidence; the coordinator reads the picture.
+  `stage23-product`, `engine:madarch`, `madarch`), so what the page counts as a drawing is
+  missing, not the model. **This is a finding for that page's owner, not this change's**
+  (`src/product-wiki/likec4-watch.ts`, `data-likec4-undrawn`): the Mermaid and archify
+  tabs draw the same models, and the numbers in the table are theirs. A model without
+  image reading took this walk's screenshots, so the sentence and the label text are the
+  evidence here; the pictures are for the coordinator.
 
 ### A page appearing in the open browser while a run publishes
 
@@ -277,15 +286,24 @@ with a symbol and an import of `./probe-gone.js`, which no tree holds — and dr
 second run in the same process:
 
 - the run planned **8 units, 5 of them inherited**, ran 4 passes and published in
-  **12.0 s** (`stoppedBecause: "a pass and its claims together changed nothing"`);
-- the walk's own read of the live channel saw the new page **7.7 s** after the run began,
-  and the reader's index showed its row **11.8 s** after it — **no reload**: the flag was
+  **12.4 s**; it ended `state: "running"`, `settled: false`, with
+  `stoppedBecause: "a pass and its claims together changed nothing"` — the run had
+  nothing left to do, and the queue's own record of it stays `running` (see the open
+  points: that state refuses the next run of the same product);
+- the walk's own read of the live channel saw the new page **8.3 s** after the run began,
+  and the reader's index showed its row **12.4 s** after it — **no reload**: the flag was
   still there when the row was found (`flagSurvived: true`);
 - the index grew from **2 575 to 2 577 rows** and gained **two pages**: the symbol
-  `engine:src/stage23walk/probe.ts#stage23WalkProbe20261020002109` and its entry point;
-- the new symbol's page then stood in **4.0 s** with its fact (`In code engine ·
-  src/stage23walk/probe.ts:5-7`), 1 relation, 0 assumptions and 4 code links, one of
-  them `.../blob/bb6930b73aea3be3ffc920bbb85dcf7e20955b78/src/stage23walk/probe.ts#L5-L7`.
+  `engine:src/stage23walk/probe.ts#stage23WalkProbe20261020005017` and its entry point;
+- the new symbol's page then stood in **3.9 s** with its fact (`In code engine ·
+  src/stage23walk/probe.ts:5-7`), 1 relation, 0 assumptions and **3 place links**, the
+  first `…/blob/4046ba1dc4531ab96785f2f8d9b0addd045eab86/src/stage23walk/probe.ts#L5-L7`;
+- the repository page's two views that roll the new import up were then walked again:
+  **c4-component and module-dependency each draw one element (`madarch`), no arrow, no
+  `(unresolved)` label and no dashed element or edge** — the import the walk added stays
+  inside the module the repository view collapses to, so nothing unresolved reaches these
+  pages (the dashes 0026 asks for are `data-dashed`, and their rendering is 23.4's and
+  23.6's evidence).
 
 ### What the deterministic fill cannot draw, and what the walk shows instead
 
@@ -294,29 +312,35 @@ stages publish no fact that three of them are made of, so the walk records their
 with the reason rather than a picture:
 
 - **ER** stands on a repository page as a spec (`src/fill/graph-diagrams.ts:58`) and
-  draws the repository's `table` facts (`src/fill/diagrams.ts`, `gatherTables`). No stage
-  writes `table` or `column`: the only declared writer is the agent unit
-  (`src/fill/stages/agent-unit.ts:114`), and a stage may not write a kind it does not
-  declare (`src/fill/stages/draft.ts`). The model is therefore empty and the page says so
-  in its own words, with no tab to switch.
+  draws the repository's `table` facts (`src/fill/diagrams.ts`, `gatherTables`). No
+  registered stage declares `table` or `column` among the kinds it produces: the schema's
+  own entry for them names the build stage (`src/fill/facts.ts`, `FACT_KINDS`), while no
+  stage's `produces` list carries them
+  (`src/fill/stages/build-configuration.ts:157-166`), and a stage may not write a kind it
+  does not declare (`src/fill/stages/draft.ts`). The model is therefore empty and the
+  page says so in its own words, with no tab to switch.
 - **state** is given to a `state` node only (`src/fill/graph-diagrams.ts:72-73`), and no
-  stage writes a `state` or a `transition` fact, so no page holds the type.
+  stage writes a `state` or a `transition` fact (the agent unit is their only declared
+  writer, `src/fill/stages/agent-unit.ts:113-115`), so no page holds the type.
 - **sequence** is added to a symbol's page only when the graph holds `interaction` edges
   naming it (`src/fill/graph-diagrams.ts:145-148`), and no stage writes `interaction`.
 - **Assumptions dashed.** Every fact a deterministic stage publishes is `extracted`; an
   assumption is an `inferred` fact (`src/fill/graph-pages.ts:551-553`), and this fill has
   none — the walk counts 0 assumption rows on every page it opens. The other half of
   0026's rule, the *unresolved* end drawn dashed, is the model's (`data-dashed` on the
-  element and edge rows) and is 23.4's and 23.6's evidence; on this product the walk's
-  one unresolved import stays inside the module the repository view collapses to, so no
-  dashed line stands on these pages.
+  element and edge rows), and the walk measures it after the one-file commit: **0 dashed
+  elements and 0 dashed edges**, because the import it adds stays inside the module the
+  repository view collapses to. The dashed rendering itself is 23.4's and 23.6's evidence
+  (their fixture has modules apart).
 - **A file's page.** `file` is a `place` in the registry's own table
   (`src/fill/facts.ts:2666`), so a file has no page and the index holds none; the walk
   opens what a reader gets instead: the app's refusal in the server's words at
-  `/p/graph/file:<id>` ("This page stands nowhere… a "file" fact, and no page exists for
-  that kind"), the product's own document page (`docs/vision.md`, "Stage 23 product", in
-  3.5 s beside the graph's navigation) and the file's place in code linked from the facts
-  and relations of the nodes it holds, as the package and symbol rows above show.
+  `/p/graph/file:<id>` (the walk's id is sixty-four zeros: the refusal of a kind with no
+  page is answered before any lookup, `src/fill/graph-pages.ts:451-461`, so no row has to
+  exist for it), the product's own document page (`docs/vision.md`, "Stage 23 product",
+  in 66.8 s over two attempts — the first lost the app's own page list under the pod's
+  load, the second stood in a few seconds) and the file's place in code linked from the
+  facts and relations of the nodes it holds, as the package and symbol rows above show.
 
 These are gaps between the task's bar and the stages' scope, not defects of the pages:
 23.2 and 23.4 accepted ER, state and sequence by rendering them from a fixture whose
@@ -329,13 +353,19 @@ facts an agent would have written, and this walk is the one that shows what a pr
   ER diagram's Mermaid panel: an empty model draws no frame and no tab strip, so the walk
   would have waited for ever. It now reads a diagram's tabs first and records the page's
   own sentence for a type that offers none.
+- **A page's diagrams are read after the page stands, not with it.** Reading
+  `data-diagram-type` as soon as the node page was there collected nothing (the app reads
+  a page's diagrams in its own effect, `wiki/app/src/graph-diagrams.tsx`), so one run's
+  screenshots had no after-publish diagrams and its report an empty section. The walk now
+  waits for the diagrams section to settle — a drawing, the page's "no diagram" words or
+  a failed read — and fails by name when the two views it wants after the run are absent.
 - **A page load can lose the app's own document list.** `/api/pages` is read on every page
   load under a five-second bound (23.3's app); under the pod's load it misses it and the
   app shows "Could not read the page list: the request to `/api/pages` timed out after
-  5000 ms" — seen here on the file-refusal page (two attempts, 66.7 s wall) and on an
-  earlier run's repository page, whose second attempt stood. The walk opens a page up to
-  three times (23.4's acceptance walk met the same line and answered it the same way) and
-  reports the attempt that stood.
+  5000 ms" — seen here on the document page (two attempts) and on an earlier run's
+  repository page, whose second attempt stood. The walk opens a page up to three times
+  (23.4's acceptance walk met the same line and answered it the same way) and reports the
+  attempt that stood.
 - **A second run of one product cannot start while an earlier one is still recorded
   running.** A walk that stopped a run before it settled left the product's chain active
   and the next run was refused `fill-orchestrator/chain-active`, naming the earlier run;
@@ -347,17 +377,18 @@ facts an agent would have written, and this walk is the one that shows what a pr
 
 ### The checks
 
-- `bun run check` (`tsc --noEmit`): this change touches no file under `src` or `test`;
-  the walk's script is under `scripts/`, which `tsconfig.json` does not include, so it is
-  checked by bundling it for the pod's runtime (`bun build
-  scripts/graph-pages-walk.ts --target bun`, which resolves and parses every import) and
-  by running it.
+- `bun run check` (`tsc --noEmit`) on the pod on the committed tree: **exit 0**. This
+  change touches no file under `src` or `test`; the walk's script is under `scripts/`,
+  which `tsconfig.json` does not include, so it is checked by bundling it for the pod's
+  runtime (`bun build scripts/graph-pages-walk.ts --target bun`, exit 0) and by running
+  it.
 - The feature document gate for this change: clean (`node .shady2k/documents.mjs check
   --phase feature --change madarch-tzte.23.5 --candidate worktree --target origin/main`).
-- The walk itself on the pod (SkyPilot, `--avx2`, 2 CPU / 4 GB): **exit 0 in 455 s**, all
-  phases in one process, 23 screenshots and `report.json` fetched out of it.
-- The landed suites the walk reads through, on the same pod; CI on the exact SHA. Both
-  are named in the queue entry with their own exit statuses.
+- The walk itself on the pod (SkyPilot, `--avx2`, 2 CPU / 4 GB): **exit 0 in 523 s**, all
+  phases in one process, **23 screenshots** and `report.json` fetched out of it.
+- The landed suites the walk reads through, on the same pod, and CI on the exact SHA: both
+  stand on the task as its `static`, `test` and `review` check records, and in the queue
+  entry with their own exit statuses.
 
 ## DONE WHEN
 

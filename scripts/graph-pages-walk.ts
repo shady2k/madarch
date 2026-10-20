@@ -62,8 +62,15 @@ import { byCodePoint } from '../src/model/order.js';
 const SELF = fileURLToPath(import.meta.url);
 
 /** One error of the walk, naming this file and the step that raised it. */
+/** The line of this script that raised one of its own errors, or '?' where the stack does not say. */
+function callerLine(): string {
+  const frames = (new Error().stack ?? '').split('\n').filter((line) => line.includes(SELF));
+  const caller = frames[1] ?? frames[0] ?? '';
+  return /:(\d+):\d+\)?$/u.exec(caller)?.[1] ?? '?';
+}
+
 function failedAt(where: string, message: string): Error {
-  return new Error(`${SELF} (${where}): ${message}`);
+  return new Error(`${SELF}:${callerLine()} (${where}): ${message}`);
 }
 
 // ---- the walk's own options -------------------------------------------------
@@ -156,6 +163,18 @@ function copyResults(options: WalkOptions): void {
   say(`copied the screenshots and the report into ${options.copyInto}`);
 }
 
+// ---- programs ---------------------------------------------------------------
+
+/** One program's run, refused with the step, the command line and the program's own words. */
+function run(step: string, command: readonly string[]): string {
+  try {
+    return execFileSync(command[0]!, command.slice(1), { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  } catch (error) {
+    const held = error as { stderr?: Buffer | string; status?: number };
+    throw failedAt(step, `${command.join(' ')} refused it (exit ${String(held.status ?? 'unknown')}): ${String(held.stderr ?? '').trim()}`);
+  }
+}
+
 // ---- git --------------------------------------------------------------------
 
 /** One git answer, refused with the command, the folder and git's own words. */
@@ -199,7 +218,7 @@ function prepareProduct(options: WalkOptions): Product {
   if (!existsSync(join(folder, '.git'))) {
     rmSync(folder, { recursive: true, force: true });
     mkdirSync(folder, { recursive: true });
-    execFileSync('git', ['init', '--initial-branch=main', folder], { stdio: ['ignore', 'pipe', 'pipe'] });
+    run('git init', ['git', 'init', '--initial-branch=main', folder]);
     // The manifest a draft product carries, plus the one code repository it spans.
     writeFileSync(join(folder, 'workspace.yaml'), [
       'schemaVersion: 1',
@@ -224,10 +243,10 @@ function prepareProduct(options: WalkOptions): Product {
     say(`cloning ${options.origin} at ${options.pin} into ${code}`);
     // A shallow fetch of the pin itself: a branch, a tag or the forty digits of a
     // commit, which `git clone --branch` cannot take.
-    execFileSync('git', ['init', '--initial-branch=main', code], { stdio: ['ignore', 'pipe', 'pipe'] });
-    execFileSync('git', ['-C', code, 'remote', 'add', 'origin', options.origin], { stdio: ['ignore', 'pipe', 'pipe'] });
-    execFileSync('git', ['-C', code, 'fetch', '--depth', '1', 'origin', options.pin], { stdio: ['ignore', 'pipe', 'pipe'] });
-    execFileSync('git', ['-C', code, 'checkout', '--detach', 'FETCH_HEAD'], { stdio: ['ignore', 'pipe', 'pipe'] });
+    run('git init', ['git', 'init', '--initial-branch=main', code]);
+    run('git remote add', ['git', '-C', code, 'remote', 'add', 'origin', options.origin]);
+    run(`git fetch --depth 1 ${options.pin}`, ['git', '-C', code, 'fetch', '--depth', '1', 'origin', options.pin]);
+    run('git checkout FETCH_HEAD', ['git', '-C', code, 'checkout', '--detach', 'FETCH_HEAD']);
   }
   const head = git(folder, ['rev-parse', 'HEAD']);
   const codeHead = git(code, ['rev-parse', 'HEAD']);
@@ -345,7 +364,10 @@ interface Measured {
 /** What the browser computed for one drawing: its boxes, its label sizes and the boxes that overlap. */
 async function measureDrawing(target: Page | Frame, scope: string | null, renderer: string, diagram: string): Promise<Measured> {
   const boxes = await target.evaluate((options: { scope: string | null; archify: boolean }) => {
-    const root: ParentNode = options.scope === null ? document.body : (document.querySelector(options.scope) ?? document.body);
+    // A scope that is not there is a failure of the measurement, never the whole page.
+    const scoped = options.scope === null ? null : document.querySelector(options.scope);
+    if (options.scope !== null && scoped === null) throw new Error(`the drawing's own box ${options.scope} is not on the page`);
+    const root: ParentNode = scoped ?? document.body;
     const area = (element: Element): number => {
       const rect = element.getBoundingClientRect();
       return rect.width * rect.height;
@@ -454,7 +476,7 @@ async function likec4State(target: Page, id: string, type: string): Promise<{ sv
     }
     await new Promise((rest) => setTimeout(rest, 200));
   }
-  return last ?? { svgs: 0, texts: [], undrawn: 'no page' };
+  return last ?? { svgs: 0, texts: [], undrawn: 'the LikeC4 page could not be read' };
 }
 
 /** The frame of one generated document, once the browser has it. */
@@ -590,9 +612,32 @@ async function openUntil(page: Page, url: string, selector: string, what: string
   throw failedAt(what, `${url} never stood in three attempts: ${JSON.stringify(held)}`);
 }
 
+/**
+ * Waits for a node page's diagrams to settle: the app reads them after the page stands
+ * (`useGraphDiagrams`), so a reader of `data-diagram-type` straight after the page is a
+ * reader of nothing. Loading is not settled; a drawing, the page's own "no diagram"
+ * words or a failed read is.
+ */
+async function waitDiagrams(page: Page, what: string): Promise<void> {
+  try {
+    await page.waitForFunction(() => {
+      const section = document.querySelector('[data-testid="graph-diagrams"]');
+      if (section === null) return false;
+      if (section.querySelector('[data-testid="graph-diagrams-loading"]') !== null) return false;
+      return section.querySelector('[data-testid="graph-diagram"]') !== null
+        || section.querySelector('[data-testid="graph-diagram-none"]') !== null
+        || section.querySelector('[data-testid="graph-diagrams-error"]') !== null;
+    }, { timeout: 90_000 });
+  } catch (error) {
+    throw failedAt('the diagrams of a page', `${what} never settled its diagrams: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 /** Opens one node's page and waits for it; answers how long the page took to stand. */
 async function openNode(page: Page, base: string, id: string): Promise<number> {
-  return await openUntil(page, `${base}${pageAddress(id)}`, '[data-testid="graph-node"]', `the page ${pageAddress(id)}`);
+  const started = await openUntil(page, `${base}${pageAddress(id)}`, '[data-testid="graph-node"]', `the page ${pageAddress(id)}`);
+  await waitDiagrams(page, `the page ${pageAddress(id)}`);
+  return started;
 }
 
 /** One node page's own numbers, as the reader sees them. */
@@ -601,7 +646,11 @@ async function pageNumbers(page: Page): Promise<Record<string, unknown>> {
     const count = (selector: string): number => document.querySelectorAll(selector).length;
     const text = (selector: string): string => document.querySelector(selector)?.textContent?.trim() ?? '';
     const firstCodeLink = document.querySelector('[data-testid="graph-node"] a[href^="http"]')?.getAttribute('href') ?? null;
-    const firstPlaceLink = document.querySelector('[data-testid="graph-place"]')?.getAttribute('href') ?? null;
+    // A code link is a place in code (`graph-place`, a fact's own provenance), not the
+    // repository's origin link the page's fields carry: the walk counts places, and keeps
+    // the origin link beside them so the two cannot be read as one.
+    const places = [...document.querySelectorAll('[data-testid="graph-node"] a[data-testid="graph-place"][href], [data-testid="graph-node"] a[data-testid="graph-diagram-place"][href]')];
+    const firstPlaceLink = places[0]?.getAttribute('href') ?? null;
     return {
       title: text('main#graph-node h1'),
       node: document.querySelector('main#graph-node')?.getAttribute('data-node') ?? null,
@@ -614,9 +663,11 @@ async function pageNumbers(page: Page): Promise<Record<string, unknown>> {
       coverage: count('[data-testid="graph-coverage"] li.graph-coverage'),
       questions: count('[data-testid="graph-questions"] li.graph-question'),
       drafts: count('[data-testid="graph-drafts"] li.graph-draft'),
-      codeLinks: count('[data-testid="graph-node"] a[href^="http"]'),
-      firstCodeLink,
+      places: places.length,
+      externalLinks: count('[data-testid="graph-node"] a[href^="http"]'),
+      originLink: firstCodeLink,
       firstPlaceLink,
+      placeLinks: places.map((link) => link.getAttribute('href') ?? '').slice(0, 5),
       diagrams: count('[data-testid="graph-diagram"]'),
       diagramsSlot: text('[data-testid="graph-diagram-none"]'),
       bodyText: (document.querySelector('main#graph-node')?.textContent ?? '').slice(0, 1500),
@@ -742,8 +793,10 @@ async function livePhase(options: WalkOptions, product: Product): Promise<void> 
   let browser: Browser | undefined;
   let page: Page | undefined;
   const notes: string[] = [];
+  let notesDropped = 0;
   const note = (line: string): void => {
     if (notes.length < 300) notes.push(line);
+    else notesDropped += 1;
     console.error(`walk: ${line}`);
   };
   const serve = async (tab: string): Promise<StartedServer> => {
@@ -1008,6 +1061,11 @@ async function livePhase(options: WalkOptions, product: Product): Promise<void> 
     // the graph does not hold drawn dashed (0026: "assumptions or unresolved").
     await openNode(page, mermaidServer.url, repository.id);
     const afterTypes = await page.evaluate(() => [...document.querySelectorAll('[data-testid="graph-diagram"]')].map((article) => article.getAttribute('data-diagram-type') ?? ''));
+    // The two views that roll the new import up must be there: an empty list here is the
+    // race the section's own wait closes, so a walk that still sees none fails by name.
+    for (const wanted of ['c4-component', 'module-dependency']) {
+      if (!afterTypes.includes(wanted)) throw failedAt('the diagrams after the run', `the repository page drew ${JSON.stringify(afterTypes)}: ${wanted} is missing`);
+    }
     const afterPublish: Record<string, unknown> = {};
     for (const type of afterTypes) {
       if (type !== 'c4-component' && type !== 'module-dependency') continue;
@@ -1027,7 +1085,8 @@ async function livePhase(options: WalkOptions, product: Product): Promise<void> 
       await shot(page, join(shots, `diagram-${type}-after-publish.png`));
     }
     measure('afterPublish', afterPublish);
-    measure('browserNotes', notes);
+    // A cap with no marker would read as the whole story: the dropped count is named.
+    measure('browserNotes', { notes, dropped: notesDropped });
   } finally {
     try {
       if (browser !== undefined) await browser.close();
@@ -1070,4 +1129,6 @@ function prepareProductForProbe(options: WalkOptions): Product {
   return { folder, code: join(folder, 'repos', codeName), codeName, home: join(options.root, 'home') };
 }
 
-process.exit(await main());
+// The exit code is set, not exited with: `process.exit` can cut piped standard output, and
+// a lost `STAGE23_WALK` line is a lost measurement.
+process.exitCode = await main();
