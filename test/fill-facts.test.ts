@@ -824,11 +824,13 @@ describe('the check that names every reason a fact is not one the schema reads',
     // The self-filling charter's outcome 5: «Открытые вопросы должны закрываться, если агент в процессе нашел ответ».
     // A proposed answer that names nothing it read is no answer a reader can check, so the schema refuses it at its own
     // field; a person's word is the record, and it stands without evidence (0005's declared layer).
-    const proposed = { ...SAMPLES['answer'], evidence: undefined };
-    const refused = makeNodeFact({ kind: 'answer', value: proposed, provenance: provenanceFor('answer'), layer: 'inferred' });
-    expect(problemsOf(refused).paths).toEqual(['value.evidence']);
-    const cited = sampleFact('answer');
+    // The sample constructor reads the kind's first layer, which for an answer is a person's `declared`; the rule is
+    // the agent's, so the inferred fact is built here, with the evidence that makes it one.
+    const cited = makeNodeFact({ kind: 'answer', value: SAMPLES['answer'], provenance: provenanceFor('answer'), layer: 'inferred' });
     expect(checkFact(cited)).toEqual([]);
+    // `evidence` is no part of the identity, so dropping it moves no id: the refusal is the field's alone.
+    const refused = { ...cited, value: { ...cited.value, evidence: undefined } };
+    expect(problemsOf(refused).paths).toEqual(['value.evidence']);
     const person = makeNodeFact({ kind: 'answer', value: { ...SAMPLES['answer'], decision: 'accepts', text: 'the boundary is right', by: 'the owner', evidence: undefined }, provenance: provenanceFor('answer'), layer: 'declared', status: 'accepted' });
     expect(checkFact(person)).toEqual([]);
     expect((person.value as unknown as { by: string }).by).toBe('the owner');

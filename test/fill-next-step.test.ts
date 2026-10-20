@@ -30,7 +30,7 @@ describe('the step one page recommends', () => {
     // The page the step opens is the question's own page: that is where a person answers it.
     expect(step.target).toBe(`/p/graph/${QUESTION_ID}`);
     expect(step.node.id).toBe(MODULE_ID);
-    expect(step.reason).toBe('the answer changes 3 pages depend on it (assumption-check): answer it, and only those pages are read again');
+    expect(step.reason).toBe('the answer changes 3 pages (assumption-check): answer it, and only those pages are read again');
   });
 
   test('a page with no question asks for the scope nobody read, when the fill ranked it important', () => {

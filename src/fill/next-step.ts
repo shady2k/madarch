@@ -106,7 +106,7 @@ export function answerQuestionStep(question: RankedQuestion & { readonly page: P
     question: { id: question.id, type: question.type, prompt: question.prompt, rank: question.rank, page: question.page },
     target: question.page,
     node: question.node,
-    reason: `the answer changes ${changed} (a ${question.type} question): answer it, and only those pages are read again`,
+    reason: `the answer changes ${changed} (${question.type}): answer it, and only those pages are read again`,
   };
 }
 
