@@ -59,7 +59,7 @@ describe('the diagrams of one node', () => {
   });
 
   test('a repository is the product\'s context, its containers, its modules and its tables; a package is the container it is', async () => {
-    const repository = await diagramsOf(facts.module.id.slice(0, 0) + `repository:${'9'.repeat(64)}`);
+    const repository = await diagramsOf(`repository:${'9'.repeat(64)}`);
     // The fixture publishes no repository fact: the node the graph does not hold is a page that stands nowhere.
     expect(repository.ok).toBe(false);
     if (repository.ok === false) expect(repository.code).toBe('graph-pages/no-such-node');
@@ -100,8 +100,9 @@ describe('the diagrams of one node', () => {
       // provenance, no layer, no value): the page refuses to show a draft set the schema refuses.
       writes: [{ kind: 'fact' as const, evidence: 'src/checkout.ts:12', value: { kind: 'module', id: facts.module.id } as unknown as Fact }],
     });
-    const page = await readPageModel({ database: world!.owner, product: PRODUCT, id: facts.module.id });
-    expect(page.ok).toBe(false);
+    // A draft set the schema refuses is refused by name, never shown as a page (0026 keeps a draft a run's units see,
+    // and `readPageDraftsIn` raises rather than dropping the write).
+    await expect(readPageModel({ database: world!.owner, product: PRODUCT, id: facts.module.id })).rejects.toThrow(/draft write/);
     const read = await diagramsOf(facts.module.id);
     expect(read.ok).toBe(true);
     if (read.ok) expect(read.diagrams.map((diagram) => diagram.spec.type)).toEqual(['c4-component', 'module-dependency']);

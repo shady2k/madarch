@@ -513,7 +513,10 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
           // function of the product's facts, and the publication that changed them dropped what this cache kept.
           const kept = pageCache.pageSet(product);
           if (kept !== undefined) return kept;
-          return pageCache.keepPageSet(product, await readPageSet({ database, product, folder, at: (options.clock ?? Date.now)() }));
+          // The generation is taken before the store is read, so an answer a publication overtakes while it is read is
+          // never kept (`page-cache.ts`).
+          const generation = pageCache.generation;
+          return pageCache.keepPageSet(product, await readPageSet({ database, product, folder, at: (options.clock ?? Date.now)() }), generation);
         },
         async page(id: string) {
           const database = await pageDatabase();
@@ -523,10 +526,14 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
           const product = productNameOf(folder);
           const kept = pageCache.page(product, id);
           if (kept !== undefined) return { ok: true as const, page: kept };
+          const generation = pageCache.generation;
           const read = await readPageModel({ database, product, id, at: (options.clock ?? Date.now)() });
           // A refusal is a cheap answer (an id's own kind, or one fact's absence) and is never kept: a page that
-          // stands nowhere must stand as soon as its node is published.
-          return read.ok ? { ok: true as const, page: pageCache.keepPage(product, id, read.page) } : read;
+          // stands nowhere must stand as soon as its node is published. A page that shows drafts is not kept either:
+          // a draft set is recorded before its unit publishes, so a page's drafts move without a publication, and the
+          // cache is dropped by publications only.
+          const keep = read.ok && read.page.drafts.length === 0;
+          return read.ok ? { ok: true as const, page: keep ? pageCache.keepPage(product, id, read.page, generation) : read.page } : read;
         },
         async diagrams(id: string) {
           const database = await pageDatabase();
@@ -536,8 +543,9 @@ export function createFillOrchestratorService(options: FillOrchestratorServiceOp
           const product = productNameOf(folder);
           const kept = pageCache.diagrams(product, id);
           if (kept !== undefined) return kept;
+          const generation = pageCache.generation;
           const read = await readNodeDiagrams({ database, product, id, at: (options.clock ?? Date.now)() });
-          return read.ok ? pageCache.keepDiagrams(product, id, read) : read;
+          return read.ok ? pageCache.keepDiagrams(product, id, read, generation) : read;
         },
         async changes(after: number) {
           const database = await pageDatabase();

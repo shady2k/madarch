@@ -1291,13 +1291,13 @@ async function timed<T>(work: () => Promise<T>): Promise<Timed<T>> {
 }
 
 /** One node page as the browser stood it: until the page was there, and until its diagrams had settled. */
-async function standPage(page: Page, url: string): Promise<{ nodeMs: number; diagramsMs: number }> {
+async function standPage(page: Page, url: string): Promise<{ standMs: number; diagramsMs: number; settledMs: number }> {
   const started = Date.now();
   await page.goto(url, { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('[data-testid="graph-node"]', { timeout: 120_000 });
-  const nodeMs = Date.now() - started;
+  const standMs = Date.now() - started;
   await waitDiagrams(page, url);
-  return { nodeMs, diagramsMs: Date.now() - started };
+  return { standMs, diagramsMs: Date.now() - started - standMs, settledMs: Date.now() - started };
 }
 
 /**
@@ -1362,6 +1362,7 @@ async function speedPhase(options: WalkOptions, product: Product): Promise<void>
       const pageWarm = await timed(async () => await source.page(chosenPage.id));
       const diagramsCold = await timed(async () => await source.diagrams(chosenPage.id));
       const diagramsWarm = await timed(async () => await source.diagrams(chosenPage.id));
+      const diagrams = diagramsCold.value;
       reads[kind] = {
         id: chosenPage.id,
         label: chosenPage.label,
@@ -1371,7 +1372,7 @@ async function speedPhase(options: WalkOptions, product: Product): Promise<void>
         diagramsWarmMs: diagramsWarm.ms,
         facts: pageCold.value.ok ? pageCold.value.page.facts.length : null,
         relations: pageCold.value.ok ? pageCold.value.page.counts.out + pageCold.value.page.counts.in : null,
-        diagrams: answer.ok ? answer.diagrams.map((held) => `${held.spec.type}: ${String(held.model.elements.length)} elements, ${String(held.model.edges.length)} edges`) : answer.message,
+        diagrams: diagrams.ok ? diagrams.diagrams.map((held) => `${held.spec.type}: ${String(held.model.elements.length)} elements, ${String(held.model.edges.length)} edges`) : diagrams.message,
       };
     }
     measure('speedReads', reads);
@@ -1497,11 +1498,11 @@ async function explained(executor: { query<T>(text: string, values?: readonly un
 }
 
 /**
- * What the graph's own statements cost on a filled store (madarch-tzte.23.8): the page
- * set's statement and a join-shaped candidate for it, the edges one page reads, and the
- * same read after an index over the edge values is created — then the index is dropped,
- * so the store stands as the fill left it. Plans are printed whole, so "a seq scan of
- * every edge fact per page" is a line of the record and not a guess.
+ * What the graph's own statements cost on a filled store (madarch-tzte.23.8): the two
+ * narrow reads a page set is made of, one batch of the facts it fetches, the whole read
+ * the code makes, and the edges one page reads — each planned and each timed, so "the
+ * product question was asked once per row" and "a page read every edge fact" are lines of
+ * the record and not guesses. It changes nothing and leaves nothing behind.
  */
 async function explainPhase(options: WalkOptions, product: Product): Promise<void> {
   if (!existsSync(join(product.home, '.madarch', 'fill', 'state.db'))) throw failedAt('the explain phase', `no fill's store stands in ${join(product.home, '.madarch', 'fill')}: run --phase first over this root first`);

@@ -50,10 +50,10 @@ describe('the answers kept between publications', () => {
     const cache = createPageReadCache();
     expect(cache.pageSet(PRODUCT)).toBeUndefined();
     const set = pageSet(PRODUCT, 1_700_000_000_000);
-    expect(cache.keepPageSet(PRODUCT, set)).toBe(set);
+    expect(cache.keepPageSet(PRODUCT, set, cache.generation)).toBe(set);
     expect(cache.pageSet(PRODUCT)).toBe(set);
     const page = pageModel(MODULE, 1_700_000_000_100);
-    expect(cache.keepPage(PRODUCT, MODULE, page)).toBe(page);
+    expect(cache.keepPage(PRODUCT, MODULE, page, cache.generation)).toBe(page);
     expect(cache.page(PRODUCT, MODULE)).toBe(page);
     // A publication landed: nothing kept stands for the store it read.
     cache.drop();
@@ -66,13 +66,13 @@ describe('the answers kept between publications', () => {
   test('one product\'s answers are never another\'s, and the same node id in two products is two entries', () => {
     const cache = createPageReadCache();
     const one = pageModel(MODULE, 1_700_000_000_000);
-    cache.keepPage(PRODUCT, MODULE, one);
+    cache.keepPage(PRODUCT, MODULE, one, cache.generation);
     expect(cache.page(OTHER, MODULE)).toBeUndefined();
     const two = pageModel(MODULE, 1_700_000_000_001);
-    cache.keepPage(OTHER, MODULE, two);
+    cache.keepPage(OTHER, MODULE, two, cache.generation);
     expect(cache.page(PRODUCT, MODULE)).toBe(one);
     expect(cache.page(OTHER, MODULE)).toBe(two);
-    cache.keepPageSet(PRODUCT, pageSet(PRODUCT, 1));
+    cache.keepPageSet(PRODUCT, pageSet(PRODUCT, 1), cache.generation);
     expect(cache.pageSet(OTHER)).toBeUndefined();
   });
 
@@ -81,23 +81,37 @@ describe('the answers kept between publications', () => {
     const first = pageModel(MODULE, 1);
     const second = pageModel(SYMBOL, 2);
     const third = pageModel(`symbol:${'3'.repeat(64)}`, 3);
-    cache.keepPage(PRODUCT, MODULE, first);
-    cache.keepPage(PRODUCT, SYMBOL, second);
-    cache.keepPage(PRODUCT, third.node.id, third);
+    cache.keepPage(PRODUCT, MODULE, first, cache.generation);
+    cache.keepPage(PRODUCT, SYMBOL, second, cache.generation);
+    cache.keepPage(PRODUCT, third.node.id, third, cache.generation);
     expect(cache.page(PRODUCT, MODULE)).toBeUndefined();
     expect(cache.page(PRODUCT, SYMBOL)).toBe(second);
     expect(cache.page(PRODUCT, third.node.id)).toBe(third);
     expect(cache.kept.pages).toBe(2);
     // Keeping a key again moves it to the end, so the next eviction takes the other one.
-    cache.keepPage(PRODUCT, SYMBOL, second);
+    cache.keepPage(PRODUCT, SYMBOL, second, cache.generation);
     const fourth = pageModel(`symbol:${'4'.repeat(64)}`, 4);
-    cache.keepPage(PRODUCT, fourth.node.id, fourth);
+    cache.keepPage(PRODUCT, fourth.node.id, fourth, cache.generation);
     expect(cache.page(PRODUCT, third.node.id)).toBeUndefined();
     expect(cache.page(PRODUCT, SYMBOL)).toBe(second);
     expect(cache.kept.pages).toBe(2);
     // The default bounds are a reading session's window, not the graph: the current madarch tree holds 35 114 pages.
     expect(PAGE_CACHE_ENTRIES).toBeLessThan(35_114);
     expect(DIAGRAM_CACHE_ENTRIES).toBeLessThan(35_114);
+  });
+
+  test('a read that started before a publication is never kept after it', () => {
+    const cache = createPageReadCache();
+    const before = cache.generation;
+    const page = pageModel(MODULE, 1_700_000_000_000);
+    // The publication lands while the read is in flight: the answer it read is not the store's any more.
+    cache.drop();
+    cache.keepPage(PRODUCT, MODULE, page, before);
+    expect(cache.page(PRODUCT, MODULE)).toBeUndefined();
+    // A read that started after the publication is kept as usual.
+    cache.keepPage(PRODUCT, MODULE, page, cache.generation);
+    expect(cache.page(PRODUCT, MODULE)).toBe(page);
+    expect(cache.generation).toBe(before + 1);
   });
 
   test('a bound that is no whole number is refused by name, never silently un-bounded', () => {

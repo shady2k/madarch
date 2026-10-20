@@ -29,7 +29,10 @@ import type { GraphPageModelAnswer, GraphPageSetAnswer } from './graph-pages.js'
 
 /** The most page models one product keeps, and the most diagram answers: a reading session's window, not the graph. */
 export const PAGE_CACHE_ENTRIES = 256;
-export const DIAGRAM_CACHE_ENTRIES = 32;
+export const DIAGRAM_CACHE_ENTRIES = 8;
+
+/** The most products kept at once: a home serves a handful, and the whole of a products home is not a reading session. */
+export const PRODUCT_CACHE_ENTRIES = 4;
 
 // The bounds are small on purpose, and a diagram answer is the reason: building a repository page's five models cost
 // 28 708 ms on the current madarch tree (madarch-tzte.23.8), and the process ran out of memory (exit 137) holding a
@@ -48,16 +51,22 @@ interface ProductCache {
 export interface PageReadCache {
   /** The page set kept for a product, when one is kept. */
   pageSet(product: string): GraphPageSetAnswer | undefined;
-  keepPageSet(product: string, answer: GraphPageSetAnswer): GraphPageSetAnswer;
+  keepPageSet(product: string, answer: GraphPageSetAnswer, generation: number): GraphPageSetAnswer;
   /** The page model kept for one node of a product, when one is kept. */
   page(product: string, id: string): GraphPageModelAnswer | undefined;
-  keepPage(product: string, id: string, answer: GraphPageModelAnswer): GraphPageModelAnswer;
+  keepPage(product: string, id: string, answer: GraphPageModelAnswer, generation: number): GraphPageModelAnswer;
   /** The diagrams kept for one node of a product, when they are kept. */
   diagrams(product: string, id: string): GraphDiagramsRead | undefined;
-  keepDiagrams(product: string, id: string, answer: GraphDiagramsRead): GraphDiagramsRead;
+  keepDiagrams(product: string, id: string, answer: GraphDiagramsRead, generation: number): GraphDiagramsRead;
   /** Drops every answer kept: a publication landed, and nothing kept here stands for the store it read. */
   drop(): void;
-  /** What stands kept now, for a test and for a bounded-memory check. */
+  /**
+   * How many publications have dropped this cache. A read takes it before it reads the store and hands it back to
+   * `keep*`, which keeps nothing a publication has overtaken: a read that started before a publication committed can
+   * never be kept after it.
+   */
+  readonly generation: number;
+  /** The most products kept at once, and what stands kept now, for a test and for a bounded-memory check. */
   readonly kept: { readonly products: number; readonly pages: number; readonly diagrams: number };
 }
 
@@ -102,35 +111,52 @@ export function createPageReadCache(options: { readonly pages?: number; readonly
     if (!Number.isInteger(bound) || bound < 1) throw new Error(`src/fill/page-cache.ts: the ${name} cache is bounded by ${JSON.stringify(bound)}: a bound is a whole number, one or more`);
   }
   const products = new Map<string, ProductCache>();
-  const of = (product: string): ProductCache => {
-    const held = products.get(product) ?? { pages: new BoundedMap<GraphPageModelAnswer>(pageBound), diagrams: new BoundedMap<GraphDiagramsRead>(diagramBound) };
-    if (products.get(product) === undefined) products.set(product, held);
-    return held;
+  let generation = 0;
+  /** The product's own answers, keeping at most one product's set of them beyond the bound. */
+  const productOf = (product: string): ProductCache => {
+    const found = products.get(product);
+    if (found !== undefined) return found;
+    while (products.size >= PRODUCT_CACHE_ENTRIES) {
+      const oldest = products.keys().next();
+      if (oldest.done === true) break;
+      products.delete(oldest.value);
+    }
+    const made: ProductCache = { pages: new BoundedMap<GraphPageModelAnswer>(pageBound), diagrams: new BoundedMap<GraphDiagramsRead>(diagramBound) };
+    products.set(product, made);
+    return made;
   };
+
   return {
     pageSet(product: string): GraphPageSetAnswer | undefined {
       return products.get(product)?.pageSet;
     },
-    keepPageSet(product: string, answer: GraphPageSetAnswer): GraphPageSetAnswer {
-      of(product).pageSet = answer;
+    keepPageSet(product: string, answer: GraphPageSetAnswer, at: number): GraphPageSetAnswer {
+      if (at !== generation) return answer;
+      productOf(product).pageSet = answer;
       return answer;
     },
     page(product: string, id: string): GraphPageModelAnswer | undefined {
       return products.get(product)?.pages.get(nodeKey(product, id));
     },
-    keepPage(product: string, id: string, answer: GraphPageModelAnswer): GraphPageModelAnswer {
-      of(product).pages.set(nodeKey(product, id), answer);
+    keepPage(product: string, id: string, answer: GraphPageModelAnswer, at: number): GraphPageModelAnswer {
+      if (at !== generation) return answer;
+      productOf(product).pages.set(nodeKey(product, id), answer);
       return answer;
     },
     diagrams(product: string, id: string): GraphDiagramsRead | undefined {
       return products.get(product)?.diagrams.get(nodeKey(product, id));
     },
-    keepDiagrams(product: string, id: string, answer: GraphDiagramsRead): GraphDiagramsRead {
-      of(product).diagrams.set(nodeKey(product, id), answer);
+    keepDiagrams(product: string, id: string, answer: GraphDiagramsRead, at: number): GraphDiagramsRead {
+      if (at !== generation) return answer;
+      productOf(product).diagrams.set(nodeKey(product, id), answer);
       return answer;
     },
     drop(): void {
+      generation += 1;
       products.clear();
+    },
+    get generation(): number {
+      return generation;
     },
     get kept(): { readonly products: number; readonly pages: number; readonly diagrams: number } {
       let pages = 0;

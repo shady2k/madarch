@@ -227,8 +227,8 @@ export const INDEX_ROWS_PER_STEP = 500;
 /** How many of a kind's rows to draw now: its first slice at once, then a step per turn of the browser's loop. */
 function useProgressiveRows(total: number, first: number, step: number): number {
   const [shown, setShown] = useState(() => Math.min(total, first));
-  // A set that grew (a publication added a page of this kind) starts again from the first slice: the new rows sort
-  // into the group, and a reader sees the group as it is now rather than a count of rows from before it.
+  // A set that shrank below what stands drawn starts again from the first slice; one that grew keeps its place and
+  // goes on adding a step at a time, so a publication that adds a page never takes the list a reader is reading away.
   useEffect(() => {
     setShown((held) => (held > total ? Math.min(total, first) : Math.min(held, total)));
   }, [total]);
@@ -243,7 +243,7 @@ function useProgressiveRows(total: number, first: number, step: number): number 
 }
 
 /** One kind's group of the index: its header, its count, the rows drawn now and the rows still to come. */
-function GraphKindSection({ group, repos, first, step }: { group: GraphKindGroup; repos: readonly RepoEntry[]; first: number; step: number }): ReactElement {
+function GraphKindSection({ group, first, step }: { group: GraphKindGroup; first: number; step: number }): ReactElement {
   const { t } = useTranslation();
   const shown = useProgressiveRows(group.entries.length, first, step);
   const entries = group.entries.slice(0, shown);
@@ -308,7 +308,7 @@ export function GraphIndexPage({ set, repos, firstRows = INDEX_FIRST_ROWS, rowsP
         <p className="graph-empty" data-testid="graph-empty">{set.message === null ? t('graph.empty', { product: set.product }) : t('graph.serverSays', { message: set.message })}</p>
       ) : (
         <div className="home-groups">
-          {groups.map((group) => <GraphKindSection key={group.kind} group={group} repos={repos} first={firstRows} step={rowsPerStep} />)}
+          {groups.map((group) => <GraphKindSection key={group.kind} group={group} first={firstRows} step={rowsPerStep} />)}
         </div>
       )}
     </main>

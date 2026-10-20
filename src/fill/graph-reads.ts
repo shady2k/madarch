@@ -743,11 +743,15 @@ interface AdjacencyGroup {
 }
 
 function adjacencyGroups(kinds: readonly FactEdgeKind[]): readonly AdjacencyGroup[] {
-  const byField = new Map<string, { kinds: FactEdgeKind[]; toTerm: boolean }>();
+  // Grouped by the field *and* by the shape it holds: `to` is a fact id for fourteen kinds and a term for a document
+  // link (`EDGE_END_FIELDS`, `toTerm`), so one group per field would ask a document link's end the plain way and never
+  // find it (madarch-tzte.23.8's review, D1).
+  const byField = new Map<string, { field: string; kinds: FactEdgeKind[]; toTerm: boolean }>();
+  const key = (field: string, toTerm: boolean): string => `${toTerm ? 'term' : 'id'}\u0000${field}`;
   const add = (field: string, toTerm: boolean, kind: FactEdgeKind): void => {
-    const held = byField.get(field) ?? { kinds: [], toTerm };
+    const held = byField.get(key(field, toTerm)) ?? { field, kinds: [], toTerm };
     held.kinds.push(kind);
-    byField.set(field, held);
+    byField.set(key(field, toTerm), held);
   };
   for (const kind of kinds) {
     const fields = EDGE_END_FIELDS[kind];
@@ -755,8 +759,8 @@ function adjacencyGroups(kinds: readonly FactEdgeKind[]): readonly AdjacencyGrou
     if (fields.to !== null) add(fields.to, fields.toTerm === true, kind);
   }
   return [...byField.entries()]
-    .map(([field, group]) => ({ field, toTerm: group.toTerm, kinds: [...new Set(group.kinds)].sort(byCodePoint) }))
-    .sort((left, right) => byCodePoint(left.field, right.field));
+    .map(([, group]) => ({ field: group.field, toTerm: group.toTerm, kinds: [...new Set(group.kinds)].sort(byCodePoint) }))
+    .sort((left, right) => byCodePoint(left.field, right.field) || Number(left.toTerm) - Number(right.toTerm));
 }
 
 /** The value an edge fact's end is contained in, as the read asks the store for it: the id, or the term naming it. */

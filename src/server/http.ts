@@ -547,7 +547,7 @@ export function createHandler(dependencies: {
       { method: 'GET', path: '/api/registry', handle: () => wiki.registry() },
       { method: 'GET', path: '/api/events', handle: wiki.events },
       ...(dependencies.graphPages === undefined ? [] : ([
-        { method: 'GET', path: '/api/graph/pages', handle: () => dependencies.graphPages!.pages() },
+        { method: 'GET', path: '/api/graph/pages', handle: (request: Request) => dependencies.graphPages!.pages(request) },
         { method: 'GET', path: '/api/graph/page', handle: (request: Request) => dependencies.graphPages!.page(request) },
         { method: 'GET', path: '/api/graph/events', handle: (request: Request) => dependencies.graphPages!.events(request) },
       ] as Route[])),
