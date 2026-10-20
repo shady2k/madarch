@@ -29,6 +29,7 @@ import { readProgress, readUnitReads } from '../src/fill/orchestrator-store.js';
 import { answerMembership } from '../src/fill/graph-reads.js';
 import { OVERVIEW_STAGE_ID } from '../src/fill/stages/overview.js';
 import { DOC_INTENT_STAGE_ID } from '../src/fill/stages/doc-intent.js';
+import { INTENT_HISTORY_STAGE_ID } from '../src/fill/stages/intent-history.js';
 import { PRODUCT_SCOPE_NAME } from '../src/fill/stages/agent-stage.js';
 import { UNIT_TOOL_PATH } from '../src/fill/unit-tools.js';
 import { startServer, type StartedServer } from '../src/server/http.js';
@@ -94,8 +95,21 @@ function agentScript(commit: string): Record<string, unknown> {
     // The agent stages of 0026 this build lands, each with its own answer: the product's one overview
     // unit (stage 8, its scope the whole product, its places the repositories) reads the bytes of the
     // file the test changes; stage 10's unit of the training repository's documents names them all, so
-    // its coverage is complete and it splits into nothing.
+    // its coverage is complete and it splits into nothing; stage 11's unit of the training
+    // repository's one module names every file the repository holds, and its places — the module's own
+    // member files — are all inside that list. Its prompt is told apart by the `comments` section, which
+    // no other stage's packet holds.
     byPrompt: [
+      {
+        matches: '"comments"',
+        steps: [
+          // Stage 11 plans one unit per module, and the fixture holds two: the training repository's module, whose
+          // member files the first list names, and the product repository's own module, whose members are its
+          // manifest and the training checkout's link. A unit that names every place it was shown publishes without
+          // splitting, which is what the rerun expectations below count on.
+          { answer: { status: 'done', covered: [...TRAINING_FILES, 'repos/training', 'workspace.yaml'], remaining: [], summary: 'The module comments and commits state the pricing rules and the tracked work that built them' } },
+        ],
+      },
       {
         matches: '"scope": "training"',
         steps: [
@@ -302,7 +316,12 @@ describe('a commit, and what it reruns', () => {
     git(checkout, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'PRM-8 spell the minimum order out');
     changed = git(checkout, 'rev-parse', 'HEAD');
     opened.script(changed);
-    third = await opened.run('run-three');
+    try {
+      third = await opened.run('run-three');
+    } catch (error) {
+      for (const event of await readProgress(opened!.owner, 'run-two')) console.log('R2EVENT', event.kind, event.unitId, event.summary);
+      throw error;
+    }
     pages = await opened.pagesOf('run-three');
     trainingRepositoryId = await opened.owner.transaction('snapshot', async (executor) => (
       await executor.query<{ id: string }>("SELECT id FROM fill_fact WHERE kind = 'repository' AND value->>'repository' = $1", [TRAINING])
@@ -312,6 +331,7 @@ describe('a commit, and what it reruns', () => {
       // eslint-disable-next-line no-console
       console.log(name, JSON.stringify({ state: result.state, settled: result.settled, stopped: result.stoppedBecause, units: result.units, events: (await opened.events(name)).slice(-14) }, null, 1));
     }
+
   }, 1_800_000);
 
   afterAll(async () => {
@@ -322,7 +342,7 @@ describe('a commit, and what it reruns', () => {
     expect({ state: first?.state, settled: first?.settled, reused: first?.reused }).toEqual({ state: 'succeeded', settled: true, reused: [] });
     // A run plans before anything publishes, and the agent stage plans from the graph (0027): the first run of a
     // product plans no agent unit, and the run after the graph is filled plans one per repository.
-    expect((first?.units ?? []).filter((unit) => unit.stageId === OVERVIEW_STAGE_ID || unit.stageId === DOC_INTENT_STAGE_ID)).toEqual([]);
+    expect((first?.units ?? []).filter((unit) => unit.stageId === OVERVIEW_STAGE_ID || unit.stageId === DOC_INTENT_STAGE_ID || unit.stageId === INTENT_HISTORY_STAGE_ID)).toEqual([]);
     expect({ state: second?.state, settled: second?.settled }).toEqual({ state: 'succeeded', settled: true });
     // 0026's hierarchy, its top: the product's one overview unit, whose scope is every repository the run pins.
     expect((second?.units ?? []).filter((unit) => unit.stageId === OVERVIEW_STAGE_ID).map((unit) => `${unit.unitId}: ${unit.state}`)).toEqual([
@@ -330,7 +350,7 @@ describe('a commit, and what it reruns', () => {
     ]);
   }, 900_000);
 
-  test('a one-file commit reruns the units it reaches and inherits every other unit', () => {
+  test('a one-file commit reruns the units it reaches and inherits every other unit', async () => {
     expect(third?.state).toBe('succeeded');
     // The units the commit reran: the changed file's own, its folder chain's, the three units that read the
     // repository whole, the history unit of the commit it left, the resolution units the stage's own pins-input
@@ -351,12 +371,22 @@ describe('a commit, and what it reruns', () => {
     // Stage 10's unit of the training repository's documents is inherited too: the commit moved no
     // document, and its reads stand. The unit's id is the repository fact's own (24.3's plan), read
     // from the store here rather than guessed.
+    // Stage 11's units are inherited too: a run plans before any stage publishes, and at planning the reads the
+    // units recorded — the commits of their repository and the comments of their files, both the stage's own SQL —
+    // still answer what they answered when the units ran in run-two. The commit moves those reads (a new commit
+    // fact, and a new comment in the changed file), and what that makes of the units is the next run's planning,
+    // not this run's list. The training repository's module stood past 0026's planned size, so the plan named its
+    // files, and the product repository's own module stands as one unit; the ids are the store's own.
+    const intentUnitsOfTraining = await factIds(opened!, "kind = 'file' AND value->>'repository' = $1", [TRAINING]);
+    const moduleOfProduct = await factIds(opened!, "kind = 'module' AND value->>'repository' = $1", [PRODUCT]);
     expect([...(third?.reused ?? [])].sort()).toEqual([
       `snapshot/${PRODUCT}`,
       `modules/modules:${PRODUCT}`,
       `history/${PRODUCT}@${git(product, 'rev-parse', 'HEAD')}`,
       // The unit's id is the store's: the stage's own, then the unit's, which is the repository fact's id.
       `doc-intent/${trainingRepositoryId}`,
+      ...intentUnitsOfTraining.map((id) => `${INTENT_HISTORY_STAGE_ID}/${id}`),
+      ...moduleOfProduct.map((id) => `${INTENT_HISTORY_STAGE_ID}/${id}`),
     ].sort());
   }, 900_000);
 
