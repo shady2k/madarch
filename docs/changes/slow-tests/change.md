@@ -6,14 +6,18 @@ Tasks: madarch-cznn
 Kind: no-behavior
 
 ## Intent
-The cases of the server, view and model-check test files that took 4.4-9.2 s on
+The cases of the server, view and model-check test files that took about 4-9 s on
 GitHub's runners (test/server-graphs.test.ts, test/server-views.test.ts,
-test/server-http.test.ts, test/server-sources.test.ts, test/views-one-view.test.ts,
-test/views-likec4.test.ts, test/model-check-requirements.test.ts,
-test/model-check-problems.test.ts) each take about a second or two again, and
-the few whose work is genuinely long name their own bound in the test. No case
-changes what it asserts: the same fixtures, the same expected values, the same
-shapes under test.
+test/server-http.test.ts, test/server-serve.test.ts, test/server-wiki.test.ts,
+test/views-one-view.test.ts, test/views-likec4.test.ts, test/views.test.ts,
+test/model-check-requirements.test.ts, test/model-check-problems.test.ts) each
+take about a second or two again, and the few whose work is genuinely long name
+their own bound in the test. No case changes what it asserts: the same fixtures,
+the same expected values, the same shapes under test.
+
+Left out on purpose: test/server-sources.test.ts, whose cases at the margin keep
+their file-backed per-source histories because the history file *is* what those
+cases prove (file names, sidecars, restarts); the same cut does not apply.
 
 ## Rationale
 The margin cost shard reruns (madarch-cznn): CI run 39171437383 failed shard 2 on
@@ -97,6 +101,11 @@ five-second stop of a case with no bound of its own):
 - test/views-one-view.test.ts: 24 pass, file 36.3 s against 60.9 s before.
 - test/views-likec4.test.ts: the case that validates with the real likec4 at
   5.0 s on the pod under its own 15 s bound (4.8 s on CI).
+- test/server-serve.test.ts: the case that runs `scripts/serve.ts` as a process,
+  4.33 s on CI and 6.8 s on the pod, under its own 20 s bound; 89 pass across
+  server-serve, server-wiki and server-graphs in one run.
+- test/server-wiki.test.ts: the case that serves a drafted product with a built
+  app, 4.30 s on CI and 6.7 s on the pod, under its own 20 s bound.
 - test/model-check-requirements.test.ts: the fence cases stopped at 5 332 and
   5 026 ms — six tests of their own, 2.1-3.1 s each.
 - test/model-check-problems.test.ts: the hub at 6.4 s on the pod and the
@@ -108,5 +117,6 @@ check` clean with them. CI on the pushed revision is the gate.
 
 ## DONE WHEN
 Every case of the files above runs in about two seconds on the 2-CPU pod, or
-names its own bound with the measurement that justifies it, `bun run check`
-passes, and CI is green on the pushed revision.
+names its own bound with the measurement that justifies it, the left-out
+test/server-sources.test.ts keeps every case it states, `bun run check` passes,
+and CI is green on the pushed revision.

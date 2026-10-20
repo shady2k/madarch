@@ -73,7 +73,7 @@ const clockNow = { value: DAY(10) };
  * on the 2-CPU pod the tests run on (measured 2026-10-20, madarch-cznn), so a
  * case here takes 2.3-6 s where a case without a server takes half a second.
  */
-const SERVER_MS = 10_000;
+const SERVER_MS = 15_000;
 
 /**
  * The file's query database, one PGlite for every case: it holds the graphs'
@@ -149,7 +149,7 @@ function send(source: string, commit: string, committedAt: string, elements: Rec
 }
 
 describe('server query database owner', () => {
-  test('an invalid startup option closes the injected shared query owner', async () => {
+  test('an invalid startup option closes the injected shared query database', async () => {
     const database = await createPGliteQueryDatabase({ owner: queryOwner() });
     let closed = false;
     const queryDatabase = {
@@ -167,7 +167,7 @@ describe('server query database owner', () => {
     await expect(startServer({ dataFolder: folder, port: 0 })).rejects.toThrow('pass queryDatabase explicitly');
   });
 
-  test('startup validation closes the injected shared query owner', async () => {
+  test('startup validation closes the injected shared query database', async () => {
     folder = mkdtempSync(join(tmpdir(), 'madarch-server-http-invalid-product-'));
     const database = await createPGliteQueryDatabase({ owner: queryOwner() });
     let closed = false;
@@ -181,7 +181,7 @@ describe('server query database owner', () => {
     expect(closed).toBe(true);
   });
 
-  test('model routes use and close the injected shared query owner', async () => {
+  test('model routes use and close the injected shared query database', async () => {
     folder = mkdtempSync(join(tmpdir(), 'madarch-server-http-query-db-'));
     const database = await createPGliteQueryDatabase({ owner: queryOwner() });
     let facadeCount = 0;

@@ -50,7 +50,7 @@ const clockNow = { value: NOW };
  * on the 2-CPU pod the tests run on (measured 2026-10-20, madarch-cznn), so a
  * case here takes 2.5-5 s where a database-backed one takes half a second.
  */
-const SERVER_MS = 10_000;
+const SERVER_MS = 15_000;
 
 /**
  * The bound of a case that runs the real `likec4` validator: it spawns a node

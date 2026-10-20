@@ -20,8 +20,9 @@
  * a preload does not reach every file of a run that holds several — a
  * throwaway case that sleeps 6 s passed alone and was stopped at 5 000 ms
  * beside another test file — so a case whose work is long names its own bound
- * in the test, and the slow cases themselves open one database per case rather
- * than three (`test/server-graphs.test.ts` is the worked example).
+ * in the test, and the slow cases themselves open one database per case where
+ * the case's shape allows it, two where it holds two sources
+ * (`test/server-graphs.test.ts` is the worked example).
  */
 import { setDefaultTimeout } from 'bun:test';
 

@@ -37,7 +37,6 @@ const AT = { valid: DAY(2), known: DAY(2) };
 
 interface Built {
   engine: AsyncQueryEngine;
-  history: HistoryStore;
   model: CompiledModel;
 }
 
@@ -89,7 +88,7 @@ async function build(name: string): Promise<Built> {
   expect((await history.store({ source: 's', commit: name, committedAt: DAY(1), model: compiled })).errors).toEqual([]);
   const engine = await createTestQueryEngine();
   await engine.rebuild(await history.assertions());
-  return { engine, history, model: compiled };
+  return { engine, model: compiled };
 }
 
 async function close(built: Built): Promise<void> {

@@ -15,14 +15,15 @@ import {
 const DAY = (day: number) => Date.UTC(2026, 8, day); // September 2026
 
 /**
- * The bound of a case that holds two sources, and so opens two databases: one
- * history per source, which is the shape the product stores a source in. One
- * PGlite is 1.66 s to boot on the 2-CPU pod the tests run on (measured
- * 2026-10-20, madarch-cznn), twice the file's other cases, so these name their
- * own twenty seconds instead of leaning on a suite default: a run of several
- * test files stops a test with no bound of its own at bun's five.
+ * The bound of a case that opens two databases: two histories when it holds two
+ * sources (the shape the product stores a source in), or one history beside the
+ * query database the case opened of its own to watch facades close. One PGlite
+ * is 1.66 s to boot on the 2-CPU pod the tests run on (measured 2026-10-20,
+ * madarch-cznn), twice the file's other cases, so these cases name their own
+ * twenty seconds instead of leaning on a suite default: a run of several test
+ * files stops a test with no bound of its own at bun's five.
  */
-const TWO_SOURCES_MS = 20_000;
+const TWO_DATABASES_MS = 20_000;
 
 /** A clock a test moves by hand, never the real one. */
 function fakeClock(initial: number): Clock & { set(t: number): void } {
@@ -127,7 +128,7 @@ describe('a graph built from two sources', () => {
 
     expect(view.error).toBeUndefined();
     expect(view.elements?.map((e) => e.id).sort()).toEqual(['one-root', 'two-root']);
-  }, TWO_SOURCES_MS);
+  }, TWO_DATABASES_MS);
 
   test('a graph listing one source answers that source alone', async () => {
     const clock = fakeClock(DAY(9));
@@ -143,7 +144,7 @@ describe('a graph built from two sources', () => {
     expect(view.elements?.map((e) => e.id)).toEqual(['one-root']);
     expect(single.name).toBe('github.com/acme/one');
     expect(single.sources).toEqual(['github.com/acme/one']);
-  }, TWO_SOURCES_MS);
+  }, TWO_DATABASES_MS);
 
   test('a relation across the two sources joins them in the union view', async () => {
     const clock = fakeClock(DAY(9));
@@ -158,7 +159,7 @@ describe('a graph built from two sources', () => {
     await graphs.close();
 
     expect(view.relations?.map((r) => [r.from, r.to])).toEqual([['one-api', 'two-api']]);
-  }, TWO_SOURCES_MS);
+  }, TWO_DATABASES_MS);
 });
 
 describe('shared query database ownership', () => {
@@ -182,7 +183,7 @@ describe('shared query database ownership', () => {
 
     expect(answer.elements?.map((each) => each.id)).toEqual(['b-root']);
     expect(answer.error).toBeUndefined();
-  }, TWO_SOURCES_MS);
+  }, TWO_DATABASES_MS);
 
   test('removing a graph clears its source rows from the shared projection', async () => {
     const clock = fakeClock(DAY(9));
@@ -229,7 +230,7 @@ describe('shared query database ownership', () => {
     await database.close();
     expect(ownerCloses).toBe(1);
     await history.close();
-  }, TWO_SOURCES_MS);
+  }, TWO_DATABASES_MS);
 });
 
 describe('asynchronous graph engine construction', () => {
@@ -359,7 +360,7 @@ describe('a graph is a set of sources', () => {
     expect((thrown as Error).message).toContain('github.com/acme/one');
     expect((thrown as Error).message).toContain('github.com/acme/two');
     await graphs.close();
-  }, TWO_SOURCES_MS);
+  }, TWO_DATABASES_MS);
 
   test('an id one source dropped before another declares it is no clash', async () => {
     const clock = fakeClock(DAY(9));
@@ -376,7 +377,7 @@ describe('a graph is a set of sources', () => {
     const union = graphs.addGraph('union', ['github.com/acme/one', 'github.com/acme/two']);
     expect(await (await (await union.engine()).view({ depth: 0 })).elements?.map((each) => each.id)).toEqual(['core']);
     await graphs.close();
-  }, TWO_SOURCES_MS);
+  }, TWO_DATABASES_MS);
 });
 
 describe('keeping a built graph in step', () => {
@@ -650,7 +651,7 @@ describe('keeping a built graph in step', () => {
     expect((thrown as Error).message).toContain('github.com/acme/one');
     expect((thrown as Error).message).toContain('github.com/acme/two');
     await graphs.close();
-  }, TWO_SOURCES_MS);
+  }, TWO_DATABASES_MS);
 });
 
 describe('graph names', () => {

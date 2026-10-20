@@ -71,10 +71,11 @@ const fileHistories = new Map<string, HistoryStore>();
  * How many fixture histories stay open: the pod the tests run on has 4 GB, and
  * eight open PGlite databases are enough to be killed for memory (measured
  * 2026-10-20, madarch-cznn, `bun test test/views.test.ts` exited 137 with all
- * its cases passed). Two keep the cases of one fixture cheap, which is how they
- * are grouped, and bound the memory.
+ * its cases passed). Three hold this file's five fixtures without the churn of
+ * evicting one a later case still needs, and still bound the memory to well
+ * under the kill.
  */
-const OPEN_FIXTURES = 2;
+const OPEN_FIXTURES = 3;
 
 afterAll(async () => {
   for (const history of fileHistories.values()) await history.close();
