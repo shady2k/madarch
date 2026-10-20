@@ -295,6 +295,29 @@ export function readSeenHeads(home: string): Record<string, { branch: string; co
   return read;
 }
 
+/**
+ * What one read of the kept heads could not use, named where it stands: a file that
+ * was written and cannot be read back is no record, and the watcher says so once
+ * rather than reading it as "nothing has been watched" in silence and skipping the
+ * commit that waited in it.
+ */
+export function seenHeadsNote(home: string): string | undefined {
+  const file = join(home, UPDATE_STATE_FILE);
+  let text: string;
+  try {
+    text = readFileSync(file, 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+    return `the heads the watcher keeps in ${file} cannot be read, so every repository is read as a baseline and a commit that waited there is not asked for again: ${(error as Error).message}`;
+  }
+  try {
+    JSON.parse(text);
+    return undefined;
+  } catch (error) {
+    return `the heads the watcher keeps in ${file} are not a JSON record, so every repository is read as a baseline and a commit that waited there is not asked for again: ${(error as Error).message}`;
+  }
+}
+
 /** Writes the heads, whole, through a temporary file: a reader never sees half a record. */
 function writeSeenHeads(home: string, seen: Record<string, { branch: string; commit: string }>): void {
   const file = join(home, UPDATE_STATE_FILE);
@@ -326,6 +349,8 @@ export function createUpdateWatch(options: UpdateWatchOptions): UpdateWatch {
     watcher.on('error', (error: Error) => log(`the watcher on ${path} failed, and the interval reads the refs until it works again: ${error.message}`));
     return () => watcher.close();
   });
+  const keptNote = seenHeadsNote(home);
+  if (keptNote !== undefined) log(keptNote);
   const seen = readSeenHeads(home);
   const waiting = new Map<string, PendingUpdate>();
   const watchers = new Map<string, () => void>();

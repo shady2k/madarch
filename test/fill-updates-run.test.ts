@@ -16,7 +16,6 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startServer, type StartedServer } from '../src/index.js';
-import { countPublishedFactsByKind } from '../src/fill/fact-store.js';
 import type { FillOrchestratorService, FillRunResult } from '../src/fill/orchestrator-host.js';
 import type { RunStatus } from '../src/fill/orchestrator.js';
 import { daemonFillOrchestrator, daemonUpdateWatch } from '../src/product/daemon.js';

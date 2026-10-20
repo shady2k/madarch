@@ -24,6 +24,7 @@ import {
   headOf,
   readSeenHeads,
   repositoriesOf,
+  seenHeadsNote,
   seenKey,
   updateRunId,
   UPDATE_STATE_FILE,
@@ -340,6 +341,35 @@ describe('the update after commits to a default branch', () => {
       expect(pass.unreadable.length).toBe(1);
       expect(readSeenHeads(world.home)[seenKey('shop', 'library')]).toEqual({ branch: 'main', commit: git(world.codeRepo, 'rev-parse', 'HEAD') });
       watch.stop();
+    } finally {
+      world.remove();
+    }
+  });
+
+  test('a kept-heads file that cannot be read is said, not read as nothing', async () => {
+    const world = fixture();
+    try {
+      // A record written and damaged: the watcher says where it stands, and every repository is read as a baseline.
+      mkdirSync(join(world.home, '.madarch'), { recursive: true });
+      writeFileSync(join(world.home, UPDATE_STATE_FILE), '{"repositories": {');
+      expect(seenHeadsNote(world.home) ?? '').toContain(join(world.home, UPDATE_STATE_FILE));
+      const lines: string[] = [];
+      const run = recorder();
+      const watch = createUpdateWatch({
+        home: world.home,
+        start: run.start,
+        debounceMs: 20,
+        intervalMs: 0,
+        enabled: () => true,
+        log: (line) => lines.push(line),
+        watchPath: () => () => undefined,
+      });
+      const pass = await watch.outset();
+      expect(pass.asked).toEqual([]);
+      expect(lines.some((line) => line.includes(join(world.home, UPDATE_STATE_FILE)) && line.includes('not a JSON record'))).toBe(true);
+      watch.stop();
+      // A home with no such file says nothing about it.
+      expect(seenHeadsNote(join(world.home, 'elsewhere'))).toBeUndefined();
     } finally {
       world.remove();
     }
