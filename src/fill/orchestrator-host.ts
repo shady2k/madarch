@@ -36,7 +36,7 @@ import { labelOf } from './graph-reads.js';
 import { readNodeDiagrams } from './graph-diagrams.js';
 import { createPageReadCache } from './page-cache.js';
 import type { Fact, FactLayer, FactSource } from './facts.js';
-import { graphReadsOver, type DraftReading, type GraphReadLimits } from './graph-reads.js';
+import { answerMembership, graphReadsOver, recordedReadText, type DraftReading, type GraphReadLimits } from './graph-reads.js';
 import {
   DEFAULT_ORCHESTRATOR_LIMITS,
   cancelRun,
@@ -583,7 +583,7 @@ async function fileDecision(
     const reads = graphReadsOver({
       query: async (text: string) => {
         const rows = await reader.query(text);
-        await recordUnitRead(owner, { unitId: plan.unitId, generation: plan.generation, query: text, rows, at: (options.clock ?? Date.now)() });
+        await recordUnitRead(owner, { unitId: plan.unitId, generation: plan.generation, query: recordedReadText(text), rows, membership: answerMembership(text, rows), at: (options.clock ?? Date.now)() });
         return rows;
       },
     }, request.limits, { run: plan.runId, unit: { unitId: plan.unitId, generation: plan.generation } } satisfies DraftReading);

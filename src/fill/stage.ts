@@ -284,6 +284,15 @@ export interface FillStage {
    * no server is opened for its units.
    */
   usesTools?: boolean;
+  /**
+   * The versions that decide what a stage's units read and answer beside its own: the prompt it
+   * sends, the answer schema it asks for, the model it drives (decision 0026, "Updates": a unit's
+   * cache key is its reads, its spans, its inputs and "the prompt, schema and model versions").
+   * Recorded with every unit's plan, so a unit planned under one of them is replaced when a run
+   * resolves another; a stage whose prompt cannot change names none. The values are strings a run
+   * compares and never reads, and the stage's own `version` is compared beside them.
+   */
+  cacheVersions?(): Readonly<Record<string, string>>;
   /** Names the stage's units from the graph, without running anything. */
   plan(graph: StageGraphReader): Promise<StagePlan> | StagePlan;
   /** Runs one unit and returns its outcome; the draft writes went through the context. */

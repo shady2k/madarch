@@ -47,6 +47,8 @@ import { byCodePoint } from '../model/order.js';
 import type { FillControl } from '../product/fill-runtime.js';
 import { hashFillInputs } from '../product/fill-runtime.js';
 import { here, raise, withLocation } from './fsm-core.js';
+import { GraphReadRefusal, answerMembership, recordedReadText } from './graph-reads.js';
+import { SnapshotError } from './snapshot.js';
 import type { UnitAdvanceEvent, UnitChildOutcome, UnitFailedChildPolicy, UnitRetryCause, UnitState } from './fsm.js';
 import type { ResolvedStageConfiguration, StageContext, StageDraftSet, StageDraftWriter, StageDraftWrite, StageExecutionResult, StageGraphReader, StageUnitTools } from './stage.js';
 import {
@@ -99,6 +101,7 @@ import {
   readRunUnits,
   readUnit,
   readUnitGeneration,
+  readProductUnits,
   replaceStaleGeneration,
   revokeUnitLease,
   type ChainRecord,
@@ -334,11 +337,6 @@ export function unitIdFor(stageId: string, stageUnitId: string): string {
   return `${stageId}/${stageUnitId}`;
 }
 
-/** The digest of a unit's named inputs: fill-runtime's own hashing, taken canonically. */
-export function inputsDigest(inputs: Readonly<Record<string, string | Uint8Array>>): string {
-  return canonicalJsonDigest(hashFillInputs(inputs));
-}
-
 /**
  * A unit's place in the admission order, as decision 0027 fixes it: the earlier
  * stage first (the fill goes from the general to the particular, and the stage
@@ -447,21 +445,163 @@ function unitRef(unit: UnitRecord, plan: UnitPlanRecord): UnitRef {
   return { stageId: unit.stageId, stageUnitId: plan.stageUnitId, unitId: unit.unitId, scope: plan.scope, generation: unit.generation };
 }
 
-/** A unit's inputs digest, recomputed from the caller's own inputs seam. */
-async function currentInputsDigest(orchestrator: FillOrchestrator, unit: UnitRecord, plan: UnitPlanRecord): Promise<string> {
-  return inputsDigest(await orchestrator.inputs(unitRef(unit, plan)));
+/**
+ * The versions that decide what one stage's units read and answer, beside the versions of the stage
+ * module's own code: the stage's `id@version` and whatever it names through `cacheVersions` — the prompt
+ * it sends, the answer schema it asks for, the model it drives (decision 0026, "Updates"). They are part
+ * of a unit's cache key (0027's `inputsDigest` holds their digest), so a run that resolves another of
+ * them replaces the units the last one planned rather than inheriting them.
+ */
+export function stageCacheVersions(stage: FillStage): Readonly<Record<string, string>> {
+  return { stage: `${stage.id}@${String(stage.version)}`, ...(stage.cacheVersions?.() ?? {}) };
+}
+
+/**
+ * The part of a unit's cache key that is known before it runs, and its two halves: the digest of its named
+ * inputs and of the versions that decide what it reads and answers. The digest is what the store keeps as the
+ * generation's `inputs_digest`, so a run compares what it would plan with what the standing generation was
+ * planned under; the halves are kept apart so a run that finds it moved can say which of them moved. The other
+ * two parts of 0026's key — its reads with their membership and its spans — are rechecked against the graph and
+ * the pins (`generationFresh`).
+ */
+async function cacheKeyOf(orchestrator: FillOrchestrator, unit: UnitRecord, plan: UnitPlanRecord): Promise<CacheKeyParts> {
+  return await cacheKeyFor(orchestrator, unitRef(unit, plan));
+}
+
+/** One unit's cache key's known part, from the reference the run's seams name it by. */
+async function cacheKeyFor(orchestrator: FillOrchestrator, ref: UnitRef): Promise<CacheKeyParts> {
+  const inputs = hashFillInputs(await orchestrator.inputs(ref));
+  const versions = stageCacheVersions(stageOf(orchestrator, ref.stageId));
+  return { digest: canonicalJsonDigest({ inputs, versions }), versions };
+}
+
+/** The digest of a unit's named inputs and of the versions that decide what it reads and answers. */
+interface CacheKeyParts {
+  readonly digest: string;
+  readonly versions: Readonly<Record<string, string>>;
+}
+
+/** The digest alone, for the walks that only compare and replace. */
+async function currentCacheDigest(orchestrator: FillOrchestrator, unit: UnitRecord, plan: UnitPlanRecord): Promise<string> {
+  return (await cacheKeyOf(orchestrator, unit, plan)).digest;
+}
+
+/**
+ * What moved between the versions a generation was planned under and the ones a run resolves now, in the
+ * versions' own words: `<key> <was> → <now>` for each that differs, and a key the plan row does not hold named as
+ * one the run cannot compare. Empty where they stand as they stood.
+ */
+function movedVersions(recorded: Readonly<Record<string, string>> | undefined, now: Readonly<Record<string, string>>): readonly string[] {
+  if (recorded === undefined) return [];
+  const keys = [...new Set([...Object.keys(recorded), ...Object.keys(now)])].sort(byCodePoint);
+  return keys.filter((key) => recorded[key] !== now[key]).map((key) => `${key} ${recorded[key] ?? 'none'} → ${now[key] ?? 'none'}`);
+}
+
+/** Why a generation's cache key moved, or that it did not: decision 0026's four parts, as a run reads them. */
+export type CacheKeyVerdict =
+  | { readonly fresh: true }
+  | { readonly fresh: false; readonly cause: string; /** The digest the generation's known part resolves to now. */ readonly digest: string };
+
+/**
+ * Whether one generation still stands for what a run would plan of it (decision 0026, "Updates"): its
+ * named inputs and the versions that decide what it reads and answers hash what they hashed, and every
+ * read it recorded answers what it answered — an empty answer that became a non-empty one, and a span
+ * whose bytes at the run's own pin changed, included. A generation whose key moved is replaced, never
+ * inherited and never overwritten (0027): a published one keeps its publication as its record.
+ */
+export async function generationFresh(orchestrator: FillOrchestrator, unit: UnitRecord, known?: { readonly digest: string; readonly versions: Readonly<Record<string, string>> }): Promise<CacheKeyVerdict> {
+  const plan = await readUnitPlan(orchestrator.database, unit.unitId, unit.generation);
+  if (plan === null) {
+    // Nothing says what the generation's scope was, so its key cannot be read: it is reported as stale with the
+    // digest the run resolves for it, never with the one it stands on — a replacement under an old digest would
+    // move again on the next run.
+    const resolved = known ?? await cacheKeyFor(orchestrator, { stageId: unit.stageId, stageUnitId: unit.scopeKey, unitId: unit.unitId, scope: unit.scopeKey, generation: unit.generation });
+    return { fresh: false, cause: `the generation ${unit.generation} of "${unit.unitId}" holds no plan row, so nothing says what its scope was`, digest: resolved.digest };
+  }
+  // A caller that has just computed this unit's key hands it over: planning compares the generation it would plan
+  // with the one standing, and the two are one key.
+  const key = known ?? await cacheKeyOf(orchestrator, unit, plan);
+  if (key.digest !== unit.inputsDigest) {
+    const versions = movedVersions(plan.cacheVersions, key.versions);
+    if (versions.length > 0) return { fresh: false, cause: `the versions that decide what it reads and answers moved: ${versions.join(', ')}`, digest: key.digest };
+    if (plan.cacheVersions === undefined) {
+      return { fresh: false, cause: `its named inputs moved, or the versions it was planned under are not recorded: ${unit.inputsDigest} is now ${key.digest}`, digest: key.digest };
+    }
+    return { fresh: false, cause: `its named inputs moved: ${unit.inputsDigest} is now ${key.digest}`, digest: key.digest };
+  }
+  const moved = await movedRead(orchestrator, unit, plan);
+  if (moved !== null) {
+    return { fresh: false, cause: movedReadReason(moved), digest: key.digest };
+  }
+  return { fresh: true };
+}
+
+/**
+ * The first read a generation recorded that answers something else now, or null when every read still
+ * answers what it answered (empty answers included, and a span's bytes at the run's own pin, `answerMembership`).
+ * The read is named, so the generation the sweep replaces says which part of its cache key moved.
+ */
+async function movedRead(orchestrator: FillOrchestrator, unit: UnitRecord, plan: UnitPlanRecord): Promise<MovedRead | null> {
+  const reads = await readUnitReads(orchestrator.database, unit.unitId, unit.generation);
+  if (reads.length === 0) return null;
+  const reader = await orchestrator.graph(unitRef(unit, plan));
+  for (const read of reads) {
+    // A read is replayed as a recheck replays it (`recordedReadText`): a span a build before this
+    // recorded under its commit — the only form there was — is normalized here, so a recheck at the run's
+    // own pin answers it instead of refusing the commit it names (madarch-tzte.26.1's round-3 review).
+    const answered = await answerNow(reader, recordedReadText(read.query));
+    // A read that cannot be answered at all answers nothing that could match: the file a span cited is gone, or
+    // shorter than the span's first line, and the generation that read it is stale by that fact alone.
+    if (answered.kind === 'unanswered') return { query: read.query, unanswerable: answered.reason };
+    if (answerMembership(read.query, answered.rows) !== read.membership) return { query: read.query };
+  }
+  return null;
+}
+
+/** One read a generation recorded that no longer stands: the read, and why it cannot be answered where it cannot. */
+interface MovedRead {
+  readonly query: string;
+  /** The reader's own words, where the read cannot be answered at all rather than answered differently. */
+  readonly unanswerable?: string;
+}
+
+/** The sentence a moved read is reported by, in the read's own terms. */
+function movedReadReason(moved: MovedRead): string {
+  return moved.unanswerable === undefined
+    ? `a read the generation recorded answers something else now: ${readNamed(moved.query)}`
+    : `a read the generation recorded can no longer be answered: ${readNamed(moved.query)} (${moved.unanswerable})`;
+}
+
+/**
+ * What one recorded read answers now, or why nothing stands there to read any more. A graph that moved under a
+ * unit is no defect of the store: a commit that deletes a file an evidence span cited, or shortens it past the
+ * span's first line, makes the read unanswerable — `SnapshotError` for a repository, a commit or a file the pin
+ * no longer holds, `GraphReadRefusal` for a span the file is too short for — and the run reads that as the read
+ * having moved rather than as a failure of the update it is running (`movedRead`, and the publication's own
+ * recheck). Every other failure of a reader — a store error, a statement a stage wrote wrong — is rethrown: it is
+ * no movement of the graph, and a generation is never replaced for it.
+ */
+async function answerNow(
+  reader: UnitGraphReader,
+  query: string,
+): Promise<{ readonly kind: 'read'; readonly rows: readonly unknown[] } | { readonly kind: 'unanswered'; readonly reason: string }> {
+  try {
+    return { kind: 'read', rows: await reader.query(query) };
+  } catch (error) {
+    if (error instanceof SnapshotError || error instanceof GraphReadRefusal) return { kind: 'unanswered', reason: error.message };
+    throw error;
+  }
 }
 
 /** Whether every read a generation recorded still answers what it answered (empty answers included). */
 async function readsFresh(orchestrator: FillOrchestrator, unit: UnitRecord, plan: UnitPlanRecord): Promise<boolean> {
-  const reads = await readUnitReads(orchestrator.database, unit.unitId, unit.generation);
-  if (reads.length === 0) return true;
-  const reader = await orchestrator.graph(unitRef(unit, plan));
-  for (const read of reads) {
-    const rows = await reader.query(read.query);
-    if (readMembership(rows) !== read.membership) return false;
-  }
-  return true;
+  return (await movedRead(orchestrator, unit, plan)) === null;
+}
+
+/** One read's text as a sentence names it: its first 160 code points, cut with an ellipsis. */
+function readNamed(query: string): string {
+  const points = [...query];
+  return points.length <= 160 ? query : `${points.slice(0, 159).join('')}…`;
 }
 
 /** The plan rows of one run, by unit id. */
@@ -610,28 +750,33 @@ export async function planRun(orchestrator: FillOrchestrator, options: { readonl
     for (const [planPosition, scope] of plan.units.entries()) {
       const unitId = unitIdFor(stageId, scope.id);
       const ref: UnitRef = { stageId, stageUnitId: scope.id, unitId, scope: scope.scope, generation: 1 };
-      const digest = inputsDigest(await orchestrator.inputs(ref));
+      const digest = canonicalJsonDigest({ inputs: hashFillInputs(await orchestrator.inputs(ref)), versions: stageCacheVersions(stage) });
       const before = await readUnit(database, unitId);
       const answer = await createUnit(database, {
         unitId, product: orchestrator.product, runId: run.runId, stageId,
         scopeKey: scope.id, inputsDigest: digest, retries: orchestrator.limits.retries, at,
       });
       if (answer.runId !== run.runId) {
-        // The identity already has a generation another run owns. Decision 0027's reuse is exact: a
-        // published generation whose inputs did not move is inherited and planned for nothing, a
-        // published or stale one whose inputs moved is replaced under this run, and anything else — a
-        // generation another run is working on, or one that ended blocked, failed or cancelled — is
-        // refused, because two runs may not work one unit and a lost generation is not silently reused.
+        // The identity already has a generation another run owns. Decision 0027's reuse is exact, and decision
+        // 0026's cache key decides it whole: a published generation whose key did not move — its named inputs and
+        // versions, every read it recorded, the spans it read — is inherited and planned for nothing, a published
+        // or stale one whose key moved is replaced under this run, and anything else — a generation another run is
+        // working on, or one that ended blocked, failed or cancelled — is refused, because two runs may not work
+        // one unit and a lost generation is not silently reused.
         if (answer.state === 'published' || answer.state === 'stale') {
-          if (answer.state === 'published' && answer.inputsDigest === digest) {
-            reused.push(unitId);
-            continue;
-          }
           if (answer.state === 'published') {
-            const invalidated = await advanceUnit(database, { unitId, event: { type: 'invalidate', at, replacement: answer.generation + 1, cause: `the run ${run.runId} plans this unit against inputs that moved: ${answer.inputsDigest} is now ${digest}` } });
+            // The digest this planning computed is the key the standing generation is compared with: one
+            // computation of the unit's inputs per unit, not two.
+            const verdict = await generationFresh(orchestrator, answer, { digest, versions: stageCacheVersions(stage) });
+            if (verdict.fresh) {
+              reused.push(unitId);
+              continue;
+            }
+            const invalidated = await advanceUnit(database, { unitId, event: { type: 'invalidate', at, replacement: answer.generation + 1, cause: `the run ${run.runId} plans this unit against a cache key that moved: ${verdict.cause}` } });
             if (!invalidated.ok) {
               return { outcome: 'refused', run, code: invalidated.refusal.code, reason: `fill-orchestrator: unit "${unitId}" could not be invalidated for run "${run.runId}": ${invalidated.refusal.reason}` };
             }
+            await emit(orchestrator, { runId: run.runId, at, stage: stageId, unitId, generation: answer.generation, kind: 'unit-stale', summary: `${unitId} went stale (${verdict.cause}); generation ${answer.generation + 1} replaces it` });
           }
           const replaced = await replaceStaleGeneration(database, { unitId, runId: run.runId, inputsDigest: digest, retries: orchestrator.limits.retries, at });
           if (!replaced.ok) {
@@ -639,7 +784,7 @@ export async function planRun(orchestrator: FillOrchestrator, options: { readonl
           }
           await recordUnitPlan(database, {
             unitId, generation: replaced.record.generation, runId: run.runId, stageId, stageUnitId: scope.id,
-            scope: scope.scope, stagePosition, planPosition, at,
+            scope: scope.scope, stagePosition, planPosition, at, cacheVersions: stageCacheVersions(stage),
           });
           units.push({ unitId, stageId, stageUnitId: scope.id, scope: scope.scope, generation: replaced.record.generation, stagePosition, planPosition, state: replaced.record.state, created: true });
           await emit(orchestrator, { runId: run.runId, at, stage: stageId, unitId, generation: replaced.record.generation, kind: 'unit-planned', summary: `planned ${unitId} (${scope.scope}) as generation ${replaced.record.generation}, replacing the stale generation ${answer.generation} this unit stood on` });
@@ -654,7 +799,7 @@ export async function planRun(orchestrator: FillOrchestrator, options: { readonl
       }
       await recordUnitPlan(database, {
         unitId, generation: answer.generation, runId: run.runId, stageId, stageUnitId: scope.id,
-        scope: scope.scope, stagePosition, planPosition, at,
+        scope: scope.scope, stagePosition, planPosition, at, cacheVersions: stageCacheVersions(stage),
       });
       const created = before === null;
       units.push({ unitId, stageId, stageUnitId: scope.id, scope: scope.scope, generation: answer.generation, stagePosition, planPosition, state: answer.state, created });
@@ -1181,7 +1326,9 @@ async function attemptUnit(
   const attemptReader: StageGraphReader = {
     query: async (text: string) => {
       const rows = await reader.query(text);
-      await recordUnitRead(orchestrator.database, { unitId: unit.unitId, generation: unit.generation, query: text, rows, at: orchestrator.clock() });
+      // The read is recorded as a recheck replays it (0026, "Updates"): a span by its place in the run's pins and
+      // its bytes, every other read by its canonical text and the rows it answered.
+      await recordUnitRead(orchestrator.database, { unitId: unit.unitId, generation: unit.generation, query: recordedReadText(text), rows, membership: answerMembership(text, rows), at: orchestrator.clock() });
       await emit(orchestrator, { runId: unit.runId, at: orchestrator.clock(), stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-read', summary: `${unit.unitId} read "${text}" and answered ${rows.length} ${rows.length === 1 ? 'row' : 'rows'}` });
       return rows;
     },
@@ -1303,8 +1450,13 @@ async function publishAttempt(
         // second transaction on its connection, so the pinned graph answers from inside this one.
         revalidate: async (read: TrackedRead, executor) => {
           const reader = await orchestrator.graph(unitRef(unit, request.plan), executor);
-          const rows = await reader.query(read.query);
-          return { membership: readMembership(rows), members: rows.length };
+          const answered = await answerNow(reader, recordedReadText(read.query));
+          // A read the graph cannot answer now — the file a span cited is gone, or shorter than the span — refuses
+          // the publication like any other read that moved: the draft stands on bytes nothing holds any more.
+          if (answered.kind === 'unanswered') return { membership: `unanswered: ${answered.reason}`, members: 0 };
+          // The membership the read was recorded under, recomputed the same way (`answerMembership`): a span's
+          // bytes answer at the run's pin, and every other read's rows digest as they did.
+          return { membership: answerMembership(read.query, answered.rows), members: answered.rows.length };
         },
         held: request.held,
         apply: async (executor, writes, digest) => await orchestrator.facts.apply({ executor, unit, plan: request.plan, digest, writes }),
@@ -1455,7 +1607,7 @@ async function splitAttempt(
       return await refuse(`the split names "${childUnitId}" as a child, and it stands in run "${existing.runId}": a child of this split is this run's to seal`);
     }
     const childRef: UnitRef = { stageId: unit.stageId, stageUnitId: child.id, unitId: childUnitId, scope: child.scope, generation: existing.generation };
-    const childDigest = inputsDigest(await orchestrator.inputs(childRef));
+    const childDigest = canonicalJsonDigest({ inputs: hashFillInputs(await orchestrator.inputs(childRef)), versions: stageCacheVersions(stageOf(orchestrator, unit.stageId)) });
     if (existing.inputsDigest !== childDigest) {
       return await refuse(`the split names "${childUnitId}" as a child, and its generation ${existing.generation} stands on inputs ${existing.inputsDigest}, which are not this split's ${childDigest}`);
     }
@@ -1489,7 +1641,7 @@ async function splitAttempt(
     for (const [index, child] of request.children.entries()) {
       const childUnitId = unitIdFor(unit.stageId, child.id);
       const ref: UnitRef = { stageId: unit.stageId, stageUnitId: child.id, unitId: childUnitId, scope: child.scope, generation: 1 };
-      const digest = inputsDigest(await orchestrator.inputs(ref));
+      const digest = canonicalJsonDigest({ inputs: hashFillInputs(await orchestrator.inputs(ref)), versions: stageCacheVersions(stageOf(orchestrator, unit.stageId)) });
       const created = await createUnitIn(executor, {
         unitId: childUnitId, product: orchestrator.product, runId: unit.runId, stageId: unit.stageId,
         scopeKey: child.id, inputsDigest: digest, retries: orchestrator.limits.retries, at,
@@ -1498,6 +1650,7 @@ async function splitAttempt(
         unitId: childUnitId, generation: created.generation, runId: unit.runId, stageId: unit.stageId,
         stageUnitId: child.id, scope: child.scope, stagePosition: request.plan.stagePosition,
         planPosition: request.plan.planPosition + index, at,
+        cacheVersions: stageCacheVersions(stageOf(orchestrator, unit.stageId)),
       });
       children.push({ unitId: childUnitId, generation: created.generation });
     }
@@ -1861,11 +2014,21 @@ export interface StaleUnit {
 }
 
 /**
- * Marks what the run's own inputs and reads moved: a generation whose named
- * inputs no longer hash the same, or a published generation whose recorded reads
- * no longer answer the same — an empty read that became non-empty included — is
- * invalidated and its replacement generation opened. A published generation
- * stays an immutable record, marked stale and linked to its replacement.
+ * Marks what moved, and opens the generation that replaces it — the run's own units, and the product's
+ * published generations this run did not plan (decision 0026, "Updates").
+ *
+ * The run's own units are swept as they were: a generation whose named inputs and versions no longer
+ * hash the same, or a published generation whose recorded reads no longer answer the same — an empty
+ * read that became non-empty included, a span's bytes at the run's own pin included — is invalidated
+ * and its replacement generation opened.
+ *
+ * **A commit propagates over the graph's edges.** The stages that published in this run moved the facts
+ * they produce; a published generation of another run whose stage consumes one of those kinds stands for
+ * facts that may have moved under it, so it is rechecked by the same cache key and, where the key moved,
+ * replaced into this run — which is what makes an update rerun exactly the units a change reaches. A
+ * generation whose stage this run does not run is left as its record: a stage a product disabled is not
+ * work this run owes. A published generation stays an immutable record, marked stale and linked to its
+ * replacement.
  */
 /** What one staleness sweep did: the generations it replaced, and the steps the machine refused. */
 export interface StaleSweep {
@@ -1881,19 +2044,12 @@ export async function invalidateStaleUnits(orchestrator: FillOrchestrator, optio
   const plans = await runPlans(orchestrator, run.runId);
   const stale: StaleUnit[] = [];
   const refused: UnitRefusal[] = [];
-  for (const unit of await readRunUnits(database, run.runId)) {
-    if (!LIVE_STATES.includes(unit.state) && unit.state !== 'published') continue;
-    const plan = plans.get(unit.unitId);
-    if (plan === undefined) continue;
-    const digest = await currentInputsDigest(orchestrator, unit, plan);
-    let cause: string | null = null;
-    if (digest !== unit.inputsDigest) cause = `the unit's named inputs moved: ${unit.inputsDigest} is now ${digest}`;
-    else if (unit.state === 'published' && !(await readsFresh(orchestrator, unit, plan))) cause = 'a read the generation recorded answers something else now';
-    if (cause === null) continue;
+  /** Opens the replacement of one generation the sweep found stale, and records what it replaced. */
+  const replace = async (unit: UnitRecord, plan: UnitPlanRecord, digest: string, cause: string): Promise<void> => {
     const invalidated = await advanceUnit(database, { unitId: unit.unitId, event: { type: 'invalidate', at, replacement: unit.generation + 1, cause } });
     if (!invalidated.ok) {
       refused.push({ unitId: unit.unitId, code: invalidated.refusal.code, reason: invalidated.refusal.reason });
-      continue;
+      return;
     }
     await retractUnitDraft(database, { unitId: unit.unitId, generation: unit.generation, at });
     const replaced = await replaceStaleGeneration(database, { unitId: unit.unitId, runId: run.runId, inputsDigest: digest, retries: orchestrator.limits.retries, at });
@@ -1901,11 +2057,86 @@ export async function invalidateStaleUnits(orchestrator: FillOrchestrator, optio
     await recordUnitPlan(database, {
       unitId: unit.unitId, generation: replaced.record.generation, runId: run.runId, stageId: unit.stageId,
       stageUnitId: plan.stageUnitId, scope: plan.scope, stagePosition: plan.stagePosition, planPosition: plan.planPosition, at,
+      cacheVersions: stageCacheVersions(stageOf(orchestrator, unit.stageId)),
     });
     await emit(orchestrator, { runId: run.runId, at, stage: unit.stageId, unitId: unit.unitId, generation: unit.generation, kind: 'unit-stale', summary: `${unit.unitId} went stale (${cause}); generation ${replaced.record.generation} replaces it` });
     stale.push({ unitId: unit.unitId, generation: unit.generation, replacement: replaced.record.generation, cause });
+  };
+
+  const own = await readRunUnits(database, run.runId);
+  for (const unit of own) {
+    if (!LIVE_STATES.includes(unit.state) && unit.state !== 'published') continue;
+    const plan = plans.get(unit.unitId);
+    if (plan === undefined) continue;
+    if (unit.state === 'published') {
+      // Every part of the key: the inputs and versions, and every read the publication recorded.
+      const verdict = await generationFresh(orchestrator, unit);
+      if (verdict.fresh) continue;
+      await replace(unit, plan, verdict.digest, verdict.cause);
+      continue;
+    }
+    // A generation an attempt still holds, or one waiting for a retry: its named inputs and the versions decide,
+    // because its reads are a previous attempt's and the attempt that runs next reads again.
+    const key = await cacheKeyOf(orchestrator, unit, plan);
+    if (key.digest === unit.inputsDigest) continue;
+    const versions = movedVersions(plan.cacheVersions, key.versions);
+    const cause = versions.length > 0
+      ? `the versions that decide what it reads and answers moved: ${versions.join(', ')}`
+      : `the unit's named inputs moved: ${unit.inputsDigest} is now ${key.digest}`;
+    await replace(unit, plan, key.digest, cause);
+  }
+
+  // What a commit reaches over the graph's edges: the product's published generations this run did not
+  // plan, whose stage consumes a kind the stages that published here produce (`propagatedUnits`).
+  for (const { unit, plan } of await propagatedUnits(orchestrator, { runId: run.runId, own })) {
+    const verdict = await generationFresh(orchestrator, unit);
+    if (verdict.fresh) continue;
+    // A generation whose plan row is gone is replaced too, under the plan its unit's own record names:
+    // nothing the change reached is skipped in silence, whatever its store holds.
+    const resolved = plan ?? {
+      unitId: unit.unitId, generation: unit.generation, runId: unit.runId, stageId: unit.stageId,
+      stageUnitId: unit.scopeKey, scope: unit.scopeKey, stagePosition: 0, planPosition: 0, plannedAt: unit.updatedAt,
+    };
+    await replace(unit, resolved, verdict.digest, `the change this run published reached it: ${verdict.cause}`);
   }
   return { invalidated: stale, refused };
+}
+
+/**
+ * The published generations of the product that this run did not plan and that the change it publishes
+ * can reach (decision 0026, "Updates"): each one's stage consumes one of the fact kinds a stage that
+ * published a unit in this run produces.
+ *
+ * That is what "propagates over graph edges" is made of — the declared capabilities are the edges, so a
+ * commit reruns the units whose producer moved and no unit of a stage nothing touched. A generation whose
+ * stage is not one this run enabled is left out: a stage a product switched off is not work this run owes,
+ * and its published facts stay what they are.
+ */
+async function propagatedUnits(
+  orchestrator: FillOrchestrator,
+  options: { readonly runId: string; readonly own: readonly UnitRecord[] },
+): Promise<readonly { readonly unit: UnitRecord; readonly plan: UnitPlanRecord | null }[]> {
+  const graph = await currentGraph(orchestrator, options.runId);
+  const enabled = new Set(graph.order);
+  const published = await readProductUnits(orchestrator.database, { product: orchestrator.product, state: 'published' });
+  const ownIds = new Set(options.own.map((unit) => unit.unitId));
+  const candidates = published.filter((unit) => !ownIds.has(unit.unitId) && enabled.has(unit.stageId));
+  if (candidates.length === 0) return [];
+  // The kinds this run published: the `produces` of every stage whose units stand published in it.
+  const movedKinds = new Set<string>();
+  for (const stageId of new Set(options.own.filter((unit) => unit.state === 'published').map((unit) => unit.stageId))) {
+    for (const produced of stageOf(orchestrator, stageId).produces) movedKinds.add(produced.kind);
+  }
+  if (movedKinds.size === 0) return [];
+  const reached: { unit: UnitRecord; plan: UnitPlanRecord | null }[] = [];
+  for (const unit of candidates) {
+    const stage = orchestrator.registry.get(unit.stageId);
+    if (stage === undefined) continue;
+    const consumed = [...stage.consumes.required, ...stage.consumes.optional].map((entry) => entry.capability);
+    if (!consumed.some((kind) => movedKinds.has(kind))) continue;
+    reached.push({ unit, plan: await readUnitPlan(orchestrator.database, unit.unitId, unit.generation) });
+  }
+  return reached;
 }
 
 /** What the human-edit guard answered for one stage. */

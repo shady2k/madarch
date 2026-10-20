@@ -591,7 +591,7 @@ export async function readRunUnits(database: FillStateDatabase, runId: string): 
     // already knew. A generation's lease is the one its row's fence names, and a unit's generation is
     // the one its own row names, so the join answers the same records as the per-row reads did.
     const rows = await executor.query<UnitRow & GenerationRow & LeaseRow>(
-      `SELECT u.unit_id, u.product, u.stage_id, u.scope_key, u.generation AS unit_generation, u.created_at,
+      `SELECT u.unit_id, u.product, u.stage_id, u.scope_key, u.created_at,
               g.unit_id AS generation_unit_id, g.generation, g.run_id, g.state, g.inputs_digest, g.fence, g.context,
               g.published_at, g.stale_at, g.updated_at,
               l.attempt, l.fence AS lease_fence, l.holder, l.issued_at, l.expires_at, l.revoked_at, l.unit_id AS lease_unit_id
@@ -605,15 +605,38 @@ export async function readRunUnits(database: FillStateDatabase, runId: string): 
     // own generations — so a unit whose row names a generation the store does not
     // hold is no unit of this run and is not answered as one.
     for (const row of rows.rows) {
-      const generation: GenerationRow = { ...row, generation: row.generation };
       const lease: LeaseRow | undefined = row.lease_unit_id === null || row.lease_unit_id === undefined
         ? undefined
         : { ...row, attempt: row.attempt, fence: row.lease_fence, holder: row.holder, issued_at: row.issued_at, expires_at: row.expires_at, revoked_at: row.revoked_at };
-      records.push(unitRecord(row, generation, lease));
+      records.push(unitRecord(row, row, lease));
     }
     // The database's collation is not the code point order this repository's listing promises, so the
     // order is taken here, exactly as `readUnitGenerations` takes it by generation number.
     return records.sort((left, right) => byCodePoint(left.unitId, right.unitId));
+  }, 'snapshot');
+}
+
+/**
+ * Every unit of one product whose generation in force stands in the named state, in code point order of
+ * their ids. The orchestrator reads the product's published generations this way when it propagates what
+ * a commit moved (decision 0026, "Updates"): a unit's own row names the generation in force, so a replaced
+ * one is answered once, at the generation that replaced it.
+ */
+export async function readProductUnits(database: FillStateDatabase, options: { readonly product: string; readonly state: UnitState }): Promise<readonly UnitRecord[]> {
+  const at = here();
+  return run(at, database, `readProductUnits(${options.product}/${options.state})`, ['fill_unit', 'fill_unit_generation', 'fill_unit_lease'], async (executor) => {
+    const rows = await executor.query<UnitRow & GenerationRow & LeaseRow>(
+      `SELECT u.unit_id, u.product, u.stage_id, u.scope_key, u.created_at,
+              g.unit_id AS generation_unit_id, g.generation, g.run_id, g.state, g.inputs_digest, g.fence, g.context,
+              g.published_at, g.stale_at, g.updated_at,
+              l.attempt, l.fence AS lease_fence, l.holder, l.issued_at, l.expires_at, l.revoked_at, l.unit_id AS lease_unit_id
+         FROM fill_unit u JOIN fill_unit_generation g ON g.unit_id = u.unit_id AND g.generation = u.generation
+         LEFT JOIN fill_unit_lease l ON l.unit_id = u.unit_id AND l.generation = g.generation AND l.fence = g.fence
+        WHERE u.product = $1 AND g.state = $2`,
+      [options.product, options.state],
+    );
+    return rows.rows.map((row) => unitRecord(row, row, row.lease_unit_id === null || row.lease_unit_id === undefined ? undefined : row))
+      .sort((left, right) => byCodePoint(left.unitId, right.unitId));
   }, 'snapshot');
 }
 

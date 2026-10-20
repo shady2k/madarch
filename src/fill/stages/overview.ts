@@ -196,13 +196,15 @@ export function overviewDeclaration(): AgentStageDeclaration {
         { capability: 'module', scope: 'repository', freshness: 'any' },
       ],
       // Read where the run published them, and read as absent where it did not: a product with no documents still has
-      // an overview, and its coverage says what it read.
+      // an overview, and its coverage says what it read. The intent claims an agent stage writes are named by no
+      // consume here on purpose: the unit reads them through its own `claims_about` tool, and a declared one would
+      // order this stage after every later agent stage that writes claims — stage 10 does — and close a cycle
+      // through the claim those stages both produce (madarch-tzte.26.1, run of 2026-10-20).
       optional: [
         { capability: 'entry-point', scope: 'repository', freshness: 'any' },
         { capability: 'package', scope: 'repository', freshness: 'any' },
         { capability: 'document', scope: 'file', freshness: 'any' },
         { capability: 'section', scope: 'file', freshness: 'any' },
-        { capability: 'claim', scope: 'repository', freshness: 'any' },
       ],
     },
     sections: overviewSections(),

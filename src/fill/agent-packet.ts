@@ -74,6 +74,16 @@ import type { StageGraphReader, StageLimits } from './stage.js';
 export const PACKET_TOKENS = 20_000;
 
 /**
+ * The versions of the prompt every unit of the stage is sent and of the answer it is asked for: bumped when
+ * the fixed part, the packet's shape or the answer schema changes. Decision 0026, "Updates", makes "the
+ * prompt, schema and model versions" part of a unit's cache key, so a run that resolves another of them
+ * replaces the units the last one planned rather than inheriting an answer given to a question it no
+ * longer asks. The agent unit stage names them as its `cacheVersions` (`stages/agent-unit.ts`).
+ */
+export const PROMPT_VERSION = 'packet@1';
+export const ANSWER_SCHEMA_VERSION = 'answer@1';
+
+/**
  * 0026's planned size: "planned size ~50%" of the window. It is not one of the
  * limits a product configures (0027's `limits` name the window, the two
  * thresholds, the turns and the time), so it stands here as the decision's own
