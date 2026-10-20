@@ -70,3 +70,12 @@ Artifacts (documents, tasks, commit messages, code comments) are written in Engl
   below Chrome. On that renderer word labels widen a `flowchart LR` until it
   shrinks under 12 px; `%%{init}%%` flowchart settings are honoured, ELK is
   not.
+- The SkyPilot pool is shared, and its scarce shape is a 2 CPU / 8 GB AVX2 pod
+  (the browser walk's). When `madarch-sky-test` exits 3 with "Failed to
+  provision", neither shrink the request (the evidence needs the memory) nor
+  poll the wrapper in a loop: queue the same launch once with `sky-pilot
+  launch -y -c <cluster> recipes:madarch-avx2 --workdir
+  ~/.cache/madarch-sky-test/<cluster>/stage … --retry-until-up`, the wrapper's
+  own cluster name and staged folder, and it retries every 30 s and starts the
+  moment a slot frees (measured 2026-10-20: fifteen wrapper attempts over
+  40 minutes all refused, the queued launch held the queue and started).

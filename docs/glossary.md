@@ -232,8 +232,9 @@ too many of them; a modelling choice, not a kind of element.
 **Wiki** (`src/product-wiki/`, `wiki/app/`, `scripts/wiki.ts`):
 A product's wiki and a repository's static site. The served wiki is madarch's
 own thin app (`wiki/app/`), served by a local madarch through the `madarch new`
-and `madarch serve` commands (`src/product-wiki/`), showing the product's pages
-read from its working tree; the static export (`scripts/wiki.ts`) is the
+and `madarch serve` commands (`src/product-wiki/`), showing the product's
+document pages read from its working tree and its graph pages read from the
+fill's fact store; the static export (`scripts/wiki.ts`) is the
 read-only site generated from a repository's compiled model and its own
 documents, built by one of two engines, Zensical or Starlight (the Starlight
 template is `wiki/starlight/`). (Decision 0018.)
@@ -278,8 +279,18 @@ Madarch's own React app built by Vite from `wiki/app/`, served by the local
 madarch server to show a product's wiki.
 
 **Page**:
-One Markdown file under a product's `docs/`, or its `README.md`; shown at the
-address `/p/` plus its path within the product.
+What a product's wiki shows at `/p/`, from one of two sources: a document page,
+one Markdown file under the product's `docs/` or its `README.md`, read from git
+at every ask; or a graph page, a view of one page-worthy graph node read from
+the fill's fact store, never a file in git (decision 0026, "Pages").
+
+**Graph page** (`src/fill/graph-pages.ts`, `src/server/graph-pages.ts`):
+The live page of one page-worthy graph node: its facts with their code places,
+its relations both ways, its coverage, its questions, its assumptions kept
+apart and the diagrams its kind draws; read from the fill's fact store at every
+ask and updated in the browser as facts are published. The graph's index stands
+at `/p/graph`, a node's page at `/p/graph/` plus the node's fact id, and a kind
+of node the graph holds none of has no page (0026, "Pages").
 
 **Diagram tab**:
 One format of a wiki page's view: LikeC4 (interactive), Mermaid, or archify

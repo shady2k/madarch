@@ -406,6 +406,59 @@ describe('the graph in the navigation', () => {
     expect(document.querySelector('[data-graph-kind="module"] [data-testid="graph-kind-listing"]')).toBeNull();
     expect(INDEX_ROWS_SHOWN).toBeLessThan(35_114);
   });
+
+  test('a page the graph gains while the reader holds the index shows on it, marked new, even beyond the window the page draws', async () => {
+    // The index draws the first rows of a kind (madarch-tzte.23.8); a page that arrives as
+    // facts arrive draws all the same — the stage's criterion is a page appearing while a
+    // reader watches — and the rows the group draws stay at the page's bound, so an arrival
+    // never costs the window the rows it already held. The stage-23 walk measures this on a
+    // real fill; this test holds it at the bound the walk's store is far past.
+    const many = 9;
+    const symbol = (index: number, name: string): { id: string; kind: string; label: string; layer: 'extracted' } => ({
+      id: `symbol:${index.toString(16).padStart(64, '0')}`,
+      kind: 'symbol',
+      label: `acme-shop:src/checkout.ts#${name}`,
+      layer: 'extracted',
+    });
+    const placed = Array.from({ length: many }, (_unused, index) => symbol(index, `checkout.place${String(index).padStart(3, '0')}`));
+    const first = pageSet({
+      pages: [pageSet().pages[0]!, ...placed],
+      counts: [{ kind: 'module', count: 1 }, { kind: 'symbol', count: many }],
+      total: many + 1,
+    });
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    root.render(createElement(GraphIndexPage, { set: first, repos: [], rowsShown: 4 }));
+    rendered = { root };
+    await until(() => document.querySelector('[data-testid="graph-index"]') !== null, 'the graph index');
+    // A first paint draws no arrivals: everything it holds came with the set it was opened on.
+    expect(document.querySelectorAll('[data-testid="graph-row-new"]').length).toBe(0);
+
+    // The graph gains a symbol whose label sorts beyond everything the window held.
+    const late = symbol(many, 'zz.late.arrival');
+    const grown = pageSet({
+      pages: [pageSet().pages[0]!, ...placed, late],
+      counts: [{ kind: 'module', count: 1 }, { kind: 'symbol', count: many + 1 }],
+      total: many + 2,
+      changeSeq: 43,
+    });
+    root.render(createElement(GraphIndexPage, { set: grown, repos: [], rowsShown: 4 }));
+    await until(() => document.querySelector(`a[href="/p/graph/${late.id}"]`) !== null, 'the arrival\'s row');
+    const symbolGroup = (): Element | null => document.querySelector('[data-graph-kind="symbol"]');
+    expect(symbolGroup()?.querySelector('[data-testid="graph-row-new"]')?.textContent).toBe('new');
+    expect(symbolGroup()?.querySelector('[data-arrived="true"] a')?.getAttribute('href')).toBe(`/p/graph/${late.id}`);
+    // The rows the group draws stay at the page's bound: the arrival first, then the window's own first rows.
+    expect(symbolGroup()?.querySelectorAll('.home-row').length).toBe(4);
+    expect(symbolGroup()?.querySelector('[data-testid="graph-kind-count"]')?.textContent).toBe(String(many + 1));
+    // The window's own rows are not marked as arrivals.
+    expect(symbolGroup()?.querySelectorAll('li:not([data-arrived="true"]) .home-row').length).toBe(3);
+    // Reading the set again — the next read the channel drives, a new answer — marks
+    // nothing: the arrival was an arrival once.
+    root.render(createElement(GraphIndexPage, { set: { ...grown }, repos: [], rowsShown: 4 }));
+    await new Promise((step) => setTimeout(step, 60));
+    expect(document.querySelectorAll('[data-testid="graph-row-new"]').length).toBe(0);
+  });
 });
 
 describe('one node’s page', () => {
