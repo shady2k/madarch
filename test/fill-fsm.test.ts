@@ -511,13 +511,14 @@ const RUN_EXPECTED: readonly RunExpectation[] = [
   { from: 'running', event: 'pause', to: 'pausing', guards: [], actions: ['record-pause-intent', 'emit-progress'] },
   { from: 'pausing', event: 'drain', to: 'paused', guards: ['nothing-in-flight-or-waiting'], actions: ['record-paused', 'emit-progress'] },
   { from: 'paused', event: 'resume', to: 'planning', guards: [], actions: ['reopen-planning-epoch', 'emit-progress'] },
+  { from: 'running', event: 'replan', to: 'planning', guards: ['replan-stages-named'], actions: ['reopen-planning-epoch', 'emit-progress'] },
   ...(['created', 'planning', 'running', 'pausing', 'paused'] as const).map((from): RunExpectation => ({
     from, event: 'cancel', to: 'cancelling', guards: [], actions: ['revoke-run-authority', 'record-cancel-intent', 'emit-progress'],
   })),
   { from: 'cancelling', event: 'drained', to: 'cancelled', guards: ['nothing-runnable-in-flight-or-waiting', 'no-pending-publication'], actions: ['record-cancelled', 'emit-progress'] },
 ];
 
-const RUN_EVENTS: readonly RunEvent['type'][] = ['plan', 'start', 'complete', 'complete-partial', 'block', 'fail', 'pause', 'drain', 'resume', 'cancel', 'drained'];
+const RUN_EVENTS: readonly RunEvent['type'][] = ['plan', 'start', 'replan', 'complete', 'complete-partial', 'block', 'fail', 'pause', 'drain', 'resume', 'cancel', 'drained'];
 
 const settled: RunEvidence = { runnable: 0, inFlight: 0, waiting: 0, coverageMet: true, pendingPublications: 0 };
 
@@ -530,6 +531,7 @@ function runEventFor(expectation: RunExpectation): RunEvent {
   switch (expectation.event) {
     case 'plan': return { type: 'plan', at, configuration: 'sha256:configuration' };
     case 'start': return { type: 'start', at, stages: 3 };
+    case 'replan': return { type: 'replan', at, stages: 2 };
     case 'complete': return { type: 'complete', at, evidence: settled };
     case 'complete-partial': return { type: 'complete-partial', at, evidence: { ...settled, coverageMet: false } };
     case 'block': return { type: 'block', at, starvationPath: 'synthesis → claims → inventory (disabled)' };

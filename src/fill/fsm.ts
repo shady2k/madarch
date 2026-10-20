@@ -478,6 +478,7 @@ export interface RunEvidence {
 export type RunEvent =
   | { readonly type: 'plan'; readonly at: number; readonly configuration: string }
   | { readonly type: 'start'; readonly at: number; readonly stages: number }
+  | { readonly type: 'replan'; readonly at: number; readonly stages: number }
   | { readonly type: 'complete'; readonly at: number; readonly evidence: RunEvidence }
   | { readonly type: 'complete-partial'; readonly at: number; readonly evidence: RunEvidence }
   | { readonly type: 'block'; readonly at: number; readonly starvationPath: string }
@@ -500,6 +501,10 @@ const runGuards: MachineSpec<RunState, RunEvent, RunContext>['guards'] = {
   'stage-graph-resolved': {
     describe: 'planning resolved at least one stage to run',
     check: (_context, event) => event.type === 'start' && event.stages > 0,
+  },
+  'replan-stages-named': {
+    describe: 'the reopened planning names the stages it is about to plan',
+    check: (_context, event) => event.type === 'replan' && event.stages > 0,
   },
   'planning-closed': {
     describe: 'the run\'s planning epoch is closed',
@@ -629,6 +634,9 @@ const runTransitions: MachineSpec<RunState, RunEvent, RunContext>['transitions']
   runTransition('running', 'pause', 'pausing', { actions: ['record-pause-intent', 'emit-progress'] }),
   runTransition('pausing', 'drain', 'paused', { guards: ['nothing-in-flight-or-waiting'], actions: ['record-paused', 'emit-progress'] }),
   runTransition('paused', 'resume', 'planning', { actions: ['reopen-planning-epoch', 'emit-progress'] }),
+  // A stage whose producers have settled inside the run plans then (madarch-tzte.26.3): the run
+  // reopens its planning epoch for the stages that are due and closes it again when they are planned.
+  runTransition('running', 'replan', 'planning', { guards: ['replan-stages-named'], actions: ['reopen-planning-epoch', 'emit-progress'] }),
   ...(['created', 'planning', 'running', 'pausing', 'paused'] as const).map((from) => runTransition(from, 'cancel', 'cancelling', { actions: ['revoke-run-authority', 'record-cancel-intent', 'emit-progress'] })),
   runTransition('cancelling', 'drained', 'cancelled', { guards: ['nothing-runnable-in-flight-or-waiting', 'no-pending-publication'], actions: ['record-cancelled', 'emit-progress'] }),
 ];

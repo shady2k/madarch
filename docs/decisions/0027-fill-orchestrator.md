@@ -139,3 +139,20 @@ lost before its lease stands `ready` with nothing for a worker to claim, so the
 run's sweep offers such a unit the queue again under its own singleton key, which
 is idempotent. Both are in `docs/changes/fill-crash-suite`, with the tests that
 hold them.
+
+## Amendment (2026-10-20, madarch-tzte.26.3)
+
+The first fill measured in madarch-tzte.26.1 planned no agent unit: a run plans
+before any stage publishes, and a stage whose plan reads the graph its producers
+write — every agent stage of 0026 — read an empty graph. The run therefore takes
+one more step the table above did not name: `running → replan → planning`, which
+reopens the planning epoch, taken when the run is quiet — nothing runnable, in
+flight or waiting — and followed by `start` once the stages that planned no unit
+and whose producers have published past their recorded attempt are planned. The
+completion guard is the same closed planning epoch, closed again by the
+re-planning's start; a stage whose plan answered is never planned again by the
+run that recorded it, and a commit's update run (madarch-tzte.26.1) still reruns
+only what it reaches. The change record names why this shape and not planning
+deferred into the run: the deterministic stages' plans are incremental against
+what the previous runs published, and a stage planned after its producer's
+publication would diff the run's own output and plan nothing.

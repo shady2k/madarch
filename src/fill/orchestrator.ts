@@ -59,6 +59,9 @@ import {
   readMembership,
   readRunConfiguration,
   readRunPlans,
+  readRunPublicationCount,
+  readRunPublicationStages,
+  readRunStagePlans,
   readSealedChildren,
   readSplitParents,
   readUnitDraftHead,
@@ -66,6 +69,7 @@ import {
   readUnitReads,
   recordUnitRead,
   recordRunConfiguration,
+  recordRunStagePlanned,
   recordUnitDraft,
   recordUnitDraftIn,
   recordUnitPlan,
@@ -738,25 +742,84 @@ export async function planRun(orchestrator: FillOrchestrator, options: { readonl
   const units: PlannedUnit[] = [];
   const reused: string[] = [];
   const foundNothing: string[] = [];
+  // The watermark every attempt of this planning records (madarch-tzte.26.3):
+  // what the run has published by now — nothing at a first planning, the
+  // publications of its earlier attempts at a resumed one.
+  const publishedByNow = await readRunPublicationCount(database, run.runId);
   for (const [stagePosition, stageId] of graph.order.entries()) {
-    const stage = stageOf(orchestrator, stageId);
-    const plan: StagePlan = await stage.plan(await orchestrator.graph({ stageId, stageUnitId: '', unitId: '', scope: '', generation: 0 }));
-    if (plan.coverage === 'nothing-found') {
-      foundNothing.push(stageId);
-      // Decision 0027's distinction, made durable: a producer that found nothing is reported, so nobody
-      // reads a plan of no units as a capability nothing produces.
-      await emit(orchestrator, { runId: run.runId, at, stage: stageId, unitId: '', generation: null, kind: 'stage-found-nothing', summary: `stage ${stageId} read its producer's inputs and found nothing to plan in them` });
-    }
-    for (const [planPosition, scope] of plan.units.entries()) {
-      const unitId = unitIdFor(stageId, scope.id);
-      const ref: UnitRef = { stageId, stageUnitId: scope.id, unitId, scope: scope.scope, generation: 1 };
-      const digest = canonicalJsonDigest({ inputs: hashFillInputs(await orchestrator.inputs(ref)), versions: stageCacheVersions(stage) });
-      const before = await readUnit(database, unitId);
-      const answer = await createUnit(database, {
-        unitId, product: orchestrator.product, runId: run.runId, stageId,
-        scopeKey: scope.id, inputsDigest: digest, retries: orchestrator.limits.retries, at,
-      });
-      if (answer.runId !== run.runId) {
+    const stage = await planStageUnits(orchestrator, { run, graph, stageId, stagePosition, at });
+    if (stage.refusal !== undefined) return { outcome: 'refused', run, code: stage.refusal.code, reason: stage.refusal.reason };
+    units.push(...stage.units);
+    reused.push(...stage.reused);
+    if (stage.foundNothing) foundNothing.push(stageId);
+    // The stage's attempt is what a re-planning of the run reads (madarch-tzte.26.3):
+    // a stage that planned no unit may be planned again once the run has published
+    // past its attempt what a producer of its inputs makes, and never twice
+    // without one.
+    await recordRunStagePlanned(database, { runId: run.runId, stageId, units: stage.units.length, publications: publishedByNow, at });
+    await emit(orchestrator, {
+      runId: run.runId, at, stage: stageId, unitId: '', generation: null, kind: 'stage-planned',
+      summary: `stage ${stageId} planned ${stage.units.length} ${stage.units.length === 1 ? 'unit' : 'units'}${stage.reused.length > 0 ? ` and inherited ${stage.reused.length}` : ''}`,
+    });
+  }
+
+  if (run.state !== 'running') {
+    const started = await advanceRun(database, { runId: run.runId, event: { type: 'start', at, stages: graph.order.length } });
+    if (!started.ok) return { outcome: 'refused', run, code: started.refusal.code, reason: started.refusal.reason };
+    await emit(orchestrator, { runId: run.runId, at, stage: '', unitId: '', generation: null, kind: 'run-started', summary: `the run started ${graph.order.length} stages: ${graph.order.join(', ')}` });
+    return { outcome: 'planned', run: started.record, graph, snapshot, configurationDigest, units, reused, foundNothing };
+  }
+  return { outcome: 'planned', run, graph, snapshot, configurationDigest, units, reused, foundNothing };
+}
+
+
+/** What planning one stage of a run gave. */
+interface StagePlanOutcome {
+  readonly stageId: string;
+  readonly units: readonly PlannedUnit[];
+  readonly reused: readonly string[];
+  readonly foundNothing: boolean;
+}
+
+/** The refusal planning one unit ended on, with the machine's own code and words. */
+interface PlanRefusal {
+  readonly code: string;
+  readonly reason: string;
+}
+
+/**
+ * Asks one stage for its units and records each unit's place in the plan: the
+ * body of a planning wave. A unit whose identity holds a published generation
+ * of another run is inherited when 0026's whole cache key stands and replaced
+ * when it moved; anything else another run holds is refused, because two runs
+ * may not work one unit.
+ */
+async function planStageUnits(
+  orchestrator: FillOrchestrator,
+  options: { readonly run: RunRecord; readonly graph: DerivedStageGraph; readonly stageId: string; readonly stagePosition: number; readonly at: number },
+): Promise<StagePlanOutcome & { readonly refusal?: PlanRefusal }> {
+  const database = orchestrator.database;
+  const { run, graph, stageId, stagePosition, at } = options;
+  const units: PlannedUnit[] = [];
+  const reused: string[] = [];
+  const stage = stageOf(orchestrator, stageId);
+  const plan: StagePlan = await stage.plan(await orchestrator.graph({ stageId, stageUnitId: '', unitId: '', scope: '', generation: 0 }));
+  const foundNothing = plan.coverage === 'nothing-found';
+  if (foundNothing) {
+    // Decision 0027's distinction, made durable: a producer that found nothing is reported, so nobody
+    // reads a plan of no units as a capability nothing produces.
+    await emit(orchestrator, { runId: run.runId, at, stage: stageId, unitId: '', generation: null, kind: 'stage-found-nothing', summary: `stage ${stageId} read its producer's inputs and found nothing to plan in them` });
+  }
+  for (const [planPosition, scope] of plan.units.entries()) {
+    const unitId = unitIdFor(stageId, scope.id);
+    const ref: UnitRef = { stageId, stageUnitId: scope.id, unitId, scope: scope.scope, generation: 1 };
+    const digest = canonicalJsonDigest({ inputs: hashFillInputs(await orchestrator.inputs(ref)), versions: stageCacheVersions(stage) });
+    const before = await readUnit(database, unitId);
+    const answer = await createUnit(database, {
+      unitId, product: orchestrator.product, runId: run.runId, stageId,
+      scopeKey: scope.id, inputsDigest: digest, retries: orchestrator.limits.retries, at,
+    });
+    if (answer.runId !== run.runId) {
         // The identity already has a generation another run owns. Decision 0027's reuse is exact, and decision
         // 0026's cache key decides it whole: a published generation whose key did not move — its named inputs and
         // versions, every read it recorded, the spans it read — is inherited and planned for nothing, a published
@@ -774,13 +837,13 @@ export async function planRun(orchestrator: FillOrchestrator, options: { readonl
             }
             const invalidated = await advanceUnit(database, { unitId, event: { type: 'invalidate', at, replacement: answer.generation + 1, cause: `the run ${run.runId} plans this unit against a cache key that moved: ${verdict.cause}` } });
             if (!invalidated.ok) {
-              return { outcome: 'refused', run, code: invalidated.refusal.code, reason: `fill-orchestrator: unit "${unitId}" could not be invalidated for run "${run.runId}": ${invalidated.refusal.reason}` };
+              return { stageId, units, reused, foundNothing, refusal: { code: invalidated.refusal.code, reason: `fill-orchestrator: unit "${unitId}" could not be invalidated for run "${run.runId}": ${invalidated.refusal.reason}` } };
             }
             await emit(orchestrator, { runId: run.runId, at, stage: stageId, unitId, generation: answer.generation, kind: 'unit-stale', summary: `${unitId} went stale (${verdict.cause}); generation ${answer.generation + 1} replaces it` });
           }
           const replaced = await replaceStaleGeneration(database, { unitId, runId: run.runId, inputsDigest: digest, retries: orchestrator.limits.retries, at });
           if (!replaced.ok) {
-            return { outcome: 'refused', run, code: replaced.refusal.code, reason: `fill-orchestrator: unit "${unitId}" could not be replaced for run "${run.runId}": ${replaced.refusal.reason}` };
+            return { stageId, units, reused, foundNothing, refusal: { code: replaced.refusal.code, reason: `fill-orchestrator: unit "${unitId}" could not be replaced for run "${run.runId}": ${replaced.refusal.reason}` } };
           }
           await recordUnitPlan(database, {
             unitId, generation: replaced.record.generation, runId: run.runId, stageId, stageUnitId: scope.id,
@@ -791,10 +854,11 @@ export async function planRun(orchestrator: FillOrchestrator, options: { readonl
           continue;
         }
         return {
-          outcome: 'refused',
-          run,
-          code: 'fill-orchestrator/unit-in-another-run',
-          reason: `fill-orchestrator: unit "${unitId}" stands ${answer.state} in run "${answer.runId}", and run "${run.runId}" plans it: a unit is worked by one run at a time, so finish or cancel that run before this one plans the unit`,
+          stageId, units, reused, foundNothing,
+          refusal: {
+            code: 'fill-orchestrator/unit-in-another-run',
+            reason: `fill-orchestrator: unit "${unitId}" stands ${answer.state} in run "${answer.runId}", and run "${run.runId}" plans it: a unit is worked by one run at a time, so finish or cancel that run before this one plans the unit`,
+          },
         };
       }
       await recordUnitPlan(database, {
@@ -805,15 +869,129 @@ export async function planRun(orchestrator: FillOrchestrator, options: { readonl
       units.push({ unitId, stageId, stageUnitId: scope.id, scope: scope.scope, generation: answer.generation, stagePosition, planPosition, state: answer.state, created });
       if (created) await emit(orchestrator, { runId: run.runId, at, stage: stageId, unitId, generation: answer.generation, kind: 'unit-planned', summary: `planned ${unitId} (${scope.scope})` });
     }
-  }
+  return { stageId, units, reused, foundNothing };
+}
 
-  if (run.state !== 'running') {
+/**
+ * The stages of one run that are due to be planned again (madarch-tzte.26.3):
+ * the enabled stages that planned no unit, and that the run has published for
+ * at any time of the run — the parent test is a publication of the run,
+ * whenever it stood, because a publication after the attempt always moves the
+ * count past the watermark, so nothing due is missed; a parent that published
+ * earlier in the run costs an empty stage one plan call per publication batch,
+ * each naming no unit when the plan is answered. A stage whose plan reads the
+ * graph its producers write planned against the graph as it stood at the run's
+ * planning, and a producer's publication can be exactly what its plan was
+ * waiting to read. The watermark is the publication count the attempt
+ * recorded, and a stage whose re-planning answered nothing is not asked again
+ * until the run publishes past it. A stage whose last attempt named units is
+ * not due: its plan is answered, and 0026's cache key decides what a later run
+ * reuses.
+ */
+function stagesToReplan(
+  graph: DerivedStageGraph,
+  attempts: ReadonlyMap<string, { readonly publications: number; readonly units: number }>,
+  publishedBy: ReadonlyMap<string, number>,
+  publications: number,
+): readonly { readonly stageId: string; readonly stagePosition: number }[] {
+  const parentsOf = new Map<string, string[]>();
+  for (const edge of graph.edges) parentsOf.set(edge.to, [...(parentsOf.get(edge.to) ?? []), edge.from]);
+  const due: { stageId: string; stagePosition: number }[] = [];
+  for (const [stagePosition, stageId] of graph.order.entries()) {
+    const attempt = attempts.get(stageId);
+    if (attempt === undefined || attempt.units > 0 || attempt.publications >= publications) continue;
+    const parents = parentsOf.get(stageId) ?? [];
+    if (!parents.some((parent) => (publishedBy.get(parent) ?? 0) > 0)) continue;
+    due.push({ stageId, stagePosition });
+  }
+  return due;
+}
+
+/** What one re-planning of a run's empty stages gave. */
+type ReplanOutcome =
+  | {
+    readonly outcome: 'planned';
+    /** True when the re-planning planned at least one stage; false when none was due. */
+    readonly planned: boolean;
+    readonly run: RunRecord;
+    readonly units: readonly PlannedUnit[];
+    readonly reused: readonly string[];
+    readonly foundNothing: readonly string[];
+  }
+  | { readonly outcome: 'refused'; readonly run: RunRecord; readonly code: string; readonly reason: string };
+
+/**
+ * Plans the run's stages that planned no unit and whose producers have
+ * published since (madarch-tzte.26.3), as one planning epoch of the run: a
+ * running run reopens its planning epoch for them and closes it again when
+ * they are planned, so a completion is still guarded by a closed planning
+ * epoch. This is the second planning epoch of the first fill: a run plans
+ * before anything publishes, and a stage whose plan reads what its producers
+ * write — the agent stages of 0026, whose plans name their units from the
+ * graph — plans no unit there; planned again at the moment nothing else is
+ * outstanding, it names them, and the first fill does its agent work in the
+ * run that started it, without a second run, a person or a watcher. A run that
+ * stands planning — one that crashed between the re-planning step and its
+ * planning, or one a pause resumed — closes its epoch with whatever it plans
+ * here, so the resume lands on the same result.
+ */
+export async function replanAfterPublications(orchestrator: FillOrchestrator, options: { readonly runId: string }): Promise<ReplanOutcome> {
+  const database = orchestrator.database;
+  const run = await readRun(database, options.runId);
+  if (run === null) raise(`no run ${options.runId} is recorded: a run is created before it plans`);
+  if (run.state !== 'planning' && run.state !== 'running') return { outcome: 'planned', planned: false, run, units: [], reused: [], foundNothing: [] };
+  const graph = await currentGraph(orchestrator, run.runId);
+  const at = orchestrator.clock();
+  const attempts = new Map((await readRunStagePlans(database, run.runId)).map((record) => [record.stageId, { publications: record.publications, units: record.units }]));
+  const publishedBy = new Map((await readRunPublicationStages(database, run.runId)).map((record) => [record.stageId, record.publications]));
+  const publications = await readRunPublicationCount(database, run.runId);
+  const due = stagesToReplan(graph, attempts, publishedBy, publications);
+  if (due.length === 0) {
+    if (run.state !== 'planning') return { outcome: 'planned', planned: false, run, units: [], reused: [], foundNothing: [] };
+    // A run that stands planning with nothing due is one that crashed between
+    // the re-planning step and its planning, or one a pause resumed: the epoch
+    // closes with nothing left to plan.
     const started = await advanceRun(database, { runId: run.runId, event: { type: 'start', at, stages: graph.order.length } });
     if (!started.ok) return { outcome: 'refused', run, code: started.refusal.code, reason: started.refusal.reason };
     await emit(orchestrator, { runId: run.runId, at, stage: '', unitId: '', generation: null, kind: 'run-started', summary: `the run started ${graph.order.length} stages: ${graph.order.join(', ')}` });
-    return { outcome: 'planned', run: started.record, graph, snapshot, configurationDigest, units, reused, foundNothing };
+    return { outcome: 'planned', planned: false, run: started.record, units: [], reused: [], foundNothing: [] };
   }
-  return { outcome: 'planned', run, graph, snapshot, configurationDigest, units, reused, foundNothing };
+  const reopened = run.state === 'running'
+    ? await advanceRun(database, { runId: run.runId, event: { type: 'replan', at, stages: due.length } })
+    : { ok: true as const, record: run, transition: '', effects: [] as readonly string[] };
+  if (!reopened.ok) {
+    await emit(orchestrator, { runId: run.runId, at, stage: '', unitId: '', generation: null, kind: 'run-refused', summary: `the run's re-planning was refused: ${reopened.refusal.reason}` });
+    return { outcome: 'refused', run, code: reopened.refusal.code, reason: reopened.refusal.reason };
+  }
+  const units: PlannedUnit[] = [];
+  const reused: string[] = [];
+  const foundNothing: string[] = [];
+  for (const { stageId, stagePosition } of due) {
+    const stage = await planStageUnits(orchestrator, { run: reopened.record, graph, stageId, stagePosition, at });
+    if (stage.refusal !== undefined) {
+      await emit(orchestrator, { runId: run.runId, at, stage: stageId, unitId: '', generation: null, kind: 'run-refused', summary: `the run's re-planning was refused: ${stage.refusal.reason}` });
+      return { outcome: 'refused', run: reopened.record, code: stage.refusal.code, reason: stage.refusal.reason };
+    }
+    units.push(...stage.units);
+    reused.push(...stage.reused);
+    if (stage.foundNothing) foundNothing.push(stageId);
+    await recordRunStagePlanned(database, { runId: run.runId, stageId, units: stage.units.length, publications, at });
+    await emit(orchestrator, {
+      runId: run.runId, at, stage: stageId, unitId: '', generation: null, kind: 'stage-planned',
+      summary: `stage ${stageId} planned ${stage.units.length} ${stage.units.length === 1 ? 'unit' : 'units'}${stage.reused.length > 0 ? ` and inherited ${stage.reused.length}` : ''} once its producers published`,
+    });
+  }
+  const started = await advanceRun(database, { runId: run.runId, event: { type: 'start', at, stages: graph.order.length } });
+  if (!started.ok) {
+    await emit(orchestrator, { runId: run.runId, at, stage: '', unitId: '', generation: null, kind: 'run-refused', summary: `the run's re-planning was refused: ${started.refusal.reason}` });
+    return { outcome: 'refused', run: reopened.record, code: started.refusal.code, reason: started.refusal.reason };
+  }
+  if (run.state === 'running') {
+    await emit(orchestrator, { runId: run.runId, at, stage: '', unitId: '', generation: null, kind: 'run-replanned', summary: `the run reopened planning and planned ${due.length} ${due.length === 1 ? 'stage' : 'stages'}: ${due.map((stage) => stage.stageId).join(', ')}` });
+  } else {
+    await emit(orchestrator, { runId: run.runId, at, stage: '', unitId: '', generation: null, kind: 'run-started', summary: `the run started ${graph.order.length} stages: ${graph.order.join(', ')}` });
+  }
+  return { outcome: 'planned', planned: true, run: started.record, units, reused, foundNothing };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -2199,10 +2377,14 @@ export interface SchedulerOutcome {
   readonly settlement: RunSettleOutcome;
   /** Every named step the machine refused in this pass, so nothing is dropped in silence. */
   readonly refused: readonly UnitRefusal[];
-  /** True when the pass changed something: a unit was admitted, swept or the run settled. */
+  /** True when the pass changed something: a unit was admitted, swept, planned or the run settled. */
   readonly moved: boolean;
   /** The stages the human-edit guard found edited in this pass. */
   readonly guarded: readonly string[];
+  /** The units the pass's planning wave inherited (madarch-tzte.26.3), beside `planRun`'s own. */
+  readonly reused: readonly string[];
+  /** The stages whose plan found a producer's inputs but nothing in them, in this pass's wave. */
+  readonly foundNothing: readonly string[];
 }
 
 /**
@@ -2230,22 +2412,41 @@ export async function schedulerPass(orchestrator: FillOrchestrator, options: { r
   if (run === null) raise(`no run ${options.runId} is recorded`);
   if (['succeeded', 'completed_partial', 'blocked', 'failed', 'cancelled', 'paused'].includes(run.state)) {
     const settlement = await settleRun(orchestrator, { runId: run.runId });
-    return { run: settlement.run, admitted: 0, swept: 0, stale: 0, settlement, refused: [], moved: false, guarded: [] };
+    return { run: settlement.run, admitted: 0, swept: 0, stale: 0, settlement, refused: [], moved: false, guarded: [], reused: [], foundNothing: [] };
   }
   const control = await orchestrator.control(run.runId);
   if (control === 'stopped') {
     const cancelled = await cancelRun(orchestrator, { runId: run.runId, cause: 'the person stopped the run' });
-    return { run: cancelled.run, admitted: 0, swept: cancelled.cancelledUnits.length, stale: 0, settlement: cancelled.settlement, refused: cancelled.refused, moved: true, guarded: [] };
+    return { run: cancelled.run, admitted: 0, swept: cancelled.cancelledUnits.length, stale: 0, settlement: cancelled.settlement, refused: cancelled.refused, moved: true, guarded: [], reused: [], foundNothing: [] };
   }
   if (control === 'paused' && run.state === 'running') {
     const settlement = await pauseRun(orchestrator, { runId: run.runId });
-    return { run: settlement.run, admitted: 0, swept: 0, stale: 0, settlement, refused: [], moved: true, guarded: [] };
+    return { run: settlement.run, admitted: 0, swept: 0, stale: 0, settlement, refused: [], moved: true, guarded: [], reused: [], foundNothing: [] };
   }
 
   const swept = await sweepUnits(orchestrator, { runId: run.runId });
+  // A stage that planned no unit and whose producers have published since plans
+  // here (madarch-tzte.26.3), before the pass admits anything: the units the
+  // re-planning names stand in this pass's admission, in the stage order the
+  // plan rows record. The run is quiet when the re-planning is due — a plan is
+  // answered from the publications of the whole run, not from whichever stage
+  // published last — and a run that stands planning is answered whatever it
+  // holds, for its epoch is the one a crash between the re-planning step and
+  // its planning left open. A run-level refusal stands in the pass's refusals,
+  // so nothing is dropped in silence.
+  const quiet = (await runEvidence(orchestrator, run.runId));
+  const wave = quiet.runnable === 0 && quiet.inFlight === 0 && quiet.waiting === 0 || run.state === 'planning'
+    ? await replanAfterPublications(orchestrator, { runId: run.runId })
+    : { outcome: 'planned' as const, planned: false, run, units: [], reused: [], foundNothing: [] };
   const admission = await admitUnits(orchestrator, { runId: run.runId });
-  const refused: UnitRefusal[] = [...swept.refused, ...admission.refused];
+  const refused: UnitRefusal[] = [
+    ...swept.refused,
+    ...wave.outcome === 'refused' ? [{ unitId: '', code: wave.code, reason: wave.reason }] : [],
+    ...admission.refused,
+  ];
   run = admission.run;
+  const waveReused = wave.outcome === 'planned' ? wave.reused : [];
+  const waveFoundNothing = wave.outcome === 'planned' ? wave.foundNothing : [];
 
   // A stage whose units are all published passes through the human-edit guard once per process.
   const guarded: string[] = [];
@@ -2265,7 +2466,7 @@ export async function schedulerPass(orchestrator: FillOrchestrator, options: { r
       if (verdict.outcome === 'conflict') {
         guarded.push(stageId);
         const blocked = await blockRun(orchestrator, { runId: run.runId, reason: `human-edit-wins: the published output of stage ${stageId} was edited by a person, and the run waits for that review` });
-        return { run: blocked.run, admitted: admission.admittedNow, swept: swept.swept.length, stale: 0, settlement: blocked, refused, moved: true, guarded };
+        return { run: blocked.run, admitted: admission.admittedNow, swept: swept.swept.length, stale: 0, settlement: blocked, refused, moved: true, guarded, reused: waveReused, foundNothing: waveFoundNothing };
       }
     }
   }
@@ -2287,8 +2488,10 @@ export async function schedulerPass(orchestrator: FillOrchestrator, options: { r
     stale: stale.invalidated.length,
     settlement,
     refused,
-    moved: admission.admittedNow > 0 || swept.swept.length > 0 || stale.invalidated.length > 0 || (settlement.outcome !== 'waiting' && settlement.outcome !== 'unchanged'),
+    moved: admission.admittedNow > 0 || swept.swept.length > 0 || stale.invalidated.length > 0 || (wave.outcome === 'planned' && wave.planned) || (settlement.outcome !== 'waiting' && settlement.outcome !== 'unchanged'),
     guarded,
+    reused: waveReused,
+    foundNothing: waveFoundNothing,
   };
 }
 
@@ -2304,6 +2507,12 @@ export interface DriveOutcome {
   readonly settled: boolean;
   /** Why the loop stopped, when it stopped without settling the run. */
   readonly stoppedBecause?: string;
+  /** The units the run's planning waves inherited (madarch-tzte.26.3), beside `planRun`'s own. */
+  readonly reused: readonly string[];
+  /** The stages whose plan found a producer's inputs but nothing in them, across the run's waves. */
+  readonly foundNothing: readonly string[];
+  /** The run-level refusals the passes' re-planning ended on (madarch-tzte.26.3), oldest first. */
+  readonly refused: readonly { readonly code: string; readonly reason: string }[];
 }
 
 /**
@@ -2320,12 +2529,23 @@ export async function driveRun(
   const maxPasses = options.maxPasses ?? 1_000;
   let work = 0;
   let passes = 0;
+  const reused: string[] = [];
+  const foundNothing: string[] = [];
+  const refused: { code: string; reason: string }[] = [];
   let run = await readRun(orchestrator.database, options.runId);
   if (run === null) raise(`no run ${options.runId} is recorded`);
   while (passes < maxPasses) {
     passes += 1;
     const pass = await schedulerPass(orchestrator, { runId: run.runId });
     run = pass.run;
+    reused.push(...pass.reused);
+    foundNothing.push(...pass.foundNothing);
+    // The re-planning's run-level refusals ride out to the caller (madarch-tzte.26.3):
+    // a pass records them, the loop collects them, and a run they stopped is the
+    // caller's to hear about, not a `planning` state nothing names.
+    for (const refusal of pass.refused) {
+      if (refusal.unitId === '' && !refused.some((held) => held.code === refusal.code && held.reason === refusal.reason)) refused.push({ code: refusal.code, reason: refusal.reason });
+    }
     let claimedThisPass = 0;
     for (let worker = 0; worker < workers; worker += 1) {
       const outcome = await workOnce(orchestrator, { worker: `worker-${worker + 1}` });
@@ -2333,12 +2553,12 @@ export async function driveRun(
       claimedThisPass += 1;
       work += 1;
     }
-    if ((TERMINAL_RUN_STATES as readonly string[]).includes(run.state)) return { run, passes, work, settled: true };
+    if ((TERMINAL_RUN_STATES as readonly string[]).includes(run.state)) return { run, passes, work, settled: true, reused, foundNothing, refused };
     if (claimedThisPass === 0 && !pass.moved) {
-      return { run, passes, work, settled: false, stoppedBecause: 'a pass and its claims together changed nothing' };
+      return { run, passes, work, settled: false, stoppedBecause: 'a pass and its claims together changed nothing', reused, foundNothing, refused };
     }
   }
-  return { run, passes, work, settled: false, stoppedBecause: `the run did not finish within ${maxPasses} passes` };
+  return { run, passes, work, settled: false, stoppedBecause: `the run did not finish within ${maxPasses} passes`, reused, foundNothing, refused };
 }
 
 /** One run's own status, for a host that reports it: the state, the counts and the events so far. */

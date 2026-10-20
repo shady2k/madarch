@@ -21,6 +21,7 @@ import { existsSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { createPGliteDatabaseOwner, type DatabaseOwner } from '../adapters/database-owner.js';
+import { byCodePoint } from '../model/order.js';
 import { readProduct } from '../product/manifest.js';
 import { runningVersion } from '../product/version.js';
 import { createPgBossQueue } from '../adapters/pg-boss-queue.js';
@@ -890,8 +891,6 @@ async function fileDecision(
       if (!started.ok) return { ok: false, code: started.code, reason: started.reason };
       const planned = await planRun(orchestrator, { runId: request.runId });
       if (planned.outcome === 'refused') return { ok: false, code: planned.code, reason: planned.reason };
-      const reused = planned.outcome === 'planned' ? planned.reused : [];
-      const foundNothing = planned.outcome === 'planned' ? planned.foundNothing : [];
       const driven = await driveRun(orchestrator, {
         runId: request.runId,
         workers: request.workers ?? options.workers ?? 1,
@@ -913,6 +912,16 @@ async function fileDecision(
         });
       }
       const status = await runStatus(orchestrator, request.runId);
+      // A re-planning the run could not take is the caller's to hear about
+      // (madarch-tzte.26.3): the run stands whatever it stands and the refusal
+      // names itself, where a planning refusal has always been a refused answer.
+      if (!driven.settled && driven.refused.length > 0) {
+        return { ok: false, code: driven.refused[0]!.code, reason: driven.refused[0]!.reason };
+      }
+      // The run inherits across its planning waves (madarch-tzte.26.3): what the
+      // first planning inherited and what every later wave inherited, one list.
+      const reused = [...new Set([...(planned.outcome === 'planned' ? planned.reused : []), ...driven.reused])].sort(byCodePoint);
+      const foundNothing = [...new Set([...(planned.outcome === 'planned' ? planned.foundNothing : []), ...driven.foundNothing])].sort(byCodePoint);
       return {
         ok: true,
         runId: driven.run.runId,
