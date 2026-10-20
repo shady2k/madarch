@@ -145,10 +145,11 @@ None.
   unit's facts stand on what it read — rechecked as reads and spans — and on the versions its
   stage names; the wiring therefore names no pin for it. Its scope's *bytes* are still covered:
   every span it read is compared at the new pin.
-- **A product's fill can now be the agent one.** `createStagesFill` takes the agent its units are
-  driven with and registers the agent unit stage beside the eight deterministic stages
-  (`StagesFillOptions.agent`). A product that names none keeps exactly the fill it had: no agent
-  unit is planned, and a run never plans work it cannot run.
+- **A product's fill can now be the agent one.** `createStagesFill` takes the agent its stages are
+  driven with and registers the agent stages of 0026 this build holds beside the eight deterministic
+  ones (`StagesFillOptions.agent`; madarch-tzte.24.1's shape registers stage 8, the product's
+  overview). A product that names none keeps exactly the fill it had: no agent unit is planned, and a
+  run never plans work it cannot run.
 - **A page is announced when its facts changed.** `applyPublishedFacts` announced the pages of every
   fact a publication wrote, and a publication writes the facts it cites again — stage 5 re-measures a
   file's, a symbol's and a module's importance over the whole repository on every run. Measured on the
@@ -225,8 +226,8 @@ None.
     rechecked once at planning and again at the sweep, and says so); a moved version was reported as
     two opaque digests (the plan row now records `cache_versions` and the reason names the version:
     `prompt packet@1 → packet@2`); `span-unchanged`, `disabled-stage` and the read-moved cause had no
-    test at their own level (each has one now, and the propagation test's reached unit is replaced by
-    the sweep's plan row rather than by its plan); the planning cost — one graph query per recorded
+    test at their own level (each has one now; the propagation's reached unit is replaced through the
+    sweep, which writes the replacement's plan row into the run); the planning cost — one graph query per recorded
     read per published unit — is named here rather than measured, and the digest is no longer
     computed twice per unit in the sweep; and rows a previous build wrote (`fill_unit_read` with a
     span's commit inside, `fill_unit_plan` with no `cache_versions`) are handled rather than

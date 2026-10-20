@@ -2091,7 +2091,13 @@ export async function invalidateStaleUnits(orchestrator: FillOrchestrator, optio
   for (const { unit, plan } of await propagatedUnits(orchestrator, { runId: run.runId, own })) {
     const verdict = await generationFresh(orchestrator, unit);
     if (verdict.fresh) continue;
-    await replace(unit, plan, verdict.digest, `the change this run published reached it: ${verdict.cause}`);
+    // A generation whose plan row is gone is replaced too, under the plan its unit's own record names:
+    // nothing the change reached is skipped in silence, whatever its store holds.
+    const resolved = plan ?? {
+      unitId: unit.unitId, generation: unit.generation, runId: unit.runId, stageId: unit.stageId,
+      stageUnitId: unit.scopeKey, scope: unit.scopeKey, stagePosition: 0, planPosition: 0, plannedAt: unit.updatedAt,
+    };
+    await replace(unit, resolved, verdict.digest, `the change this run published reached it: ${verdict.cause}`);
   }
   return { invalidated: stale, refused };
 }
@@ -2109,7 +2115,7 @@ export async function invalidateStaleUnits(orchestrator: FillOrchestrator, optio
 async function propagatedUnits(
   orchestrator: FillOrchestrator,
   options: { readonly runId: string; readonly own: readonly UnitRecord[] },
-): Promise<readonly { readonly unit: UnitRecord; readonly plan: UnitPlanRecord }[]> {
+): Promise<readonly { readonly unit: UnitRecord; readonly plan: UnitPlanRecord | null }[]> {
   const graph = await currentGraph(orchestrator, options.runId);
   const enabled = new Set(graph.order);
   const published = await readProductUnits(orchestrator.database, { product: orchestrator.product, state: 'published' });
@@ -2122,15 +2128,13 @@ async function propagatedUnits(
     for (const produced of stageOf(orchestrator, stageId).produces) movedKinds.add(produced.kind);
   }
   if (movedKinds.size === 0) return [];
-  const reached: { unit: UnitRecord; plan: UnitPlanRecord }[] = [];
+  const reached: { unit: UnitRecord; plan: UnitPlanRecord | null }[] = [];
   for (const unit of candidates) {
     const stage = orchestrator.registry.get(unit.stageId);
     if (stage === undefined) continue;
     const consumed = [...stage.consumes.required, ...stage.consumes.optional].map((entry) => entry.capability);
     if (!consumed.some((kind) => movedKinds.has(kind))) continue;
-    const plan = await readUnitPlan(orchestrator.database, unit.unitId, unit.generation);
-    if (plan === null) continue;
-    reached.push({ unit, plan });
+    reached.push({ unit, plan: await readUnitPlan(orchestrator.database, unit.unitId, unit.generation) });
   }
   return reached;
 }

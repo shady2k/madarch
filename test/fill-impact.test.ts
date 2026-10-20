@@ -269,7 +269,6 @@ describe('a commit, and what it reruns', () => {
   let second: FillRunResult | undefined;
   let third: FillRunResult | undefined;
   let pages: readonly string[] = [];
-  let repositories: Readonly<Record<string, string>> = {};
   /** The commit the one-file commit made in the training repository, and the commit the fill stood on before it. */
   let changed = '';
   let previous = '';
@@ -319,8 +318,8 @@ describe('a commit, and what it reruns', () => {
   test('a one-file commit reruns the units it reaches and inherits every other unit', () => {
     expect(third?.state).toBe('succeeded');
     // The units the commit reran: the changed file's own, its folder chain's, the three units that read the
-    // repository whole, and the agent unit whose read moved — the training repository's, because the commit is
-    // in it. No unit of an untouched file and no unit of the product repository runs.
+    // repository whole, the history unit of the commit it left, the resolution units the stage's own pins-input
+    // computes again, and the product's overview unit, whose recorded span read the commit moved.
     expect(reran(third!)).toEqual(reranByTheCommit({
       repository: TRAINING,
       file: CHANGED,
@@ -328,10 +327,12 @@ describe('a commit, and what it reruns', () => {
       previousCommit: previous,
       agentUnitOfRepository: `${OVERVIEW_STAGE_ID}/${PRODUCT_SCOPE_NAME}`,
     }));
-    // The units the run planned and inherited, listed whole: every unit of the product repository, whose pin,
-    // reads and spans the commit did not move — its snapshot, its history, its clustering and its agent unit. This
-    // list and the reran list above are the run's units and its inherited ones; what neither holds is what the
-    // earlier runs published and this run planned nothing of, which the next test pins down by kind.
+    // The units the run planned and inherited, listed whole: the product repository's snapshot, clustering and
+    // history, whose pin, reads and spans the commit did not move. The two lists hold the run's planned units and
+    // the ones it inherited between them; a unit an earlier run published that this run plans nothing of stands
+    // outside both, and the store's own answer below is what says the overview unit was the only agent unit.
+    expect((third?.units ?? []).filter((unit) => unit.stageId === OVERVIEW_STAGE_ID).map((unit) => unit.unitId))
+      .toEqual([`${OVERVIEW_STAGE_ID}/${PRODUCT_SCOPE_NAME}`]);
     expect([...(third?.reused ?? [])].sort()).toEqual([
       `snapshot/${PRODUCT}`,
       `modules/modules:${PRODUCT}`,
@@ -339,8 +340,7 @@ describe('a commit, and what it reruns', () => {
     ].sort());
   }, 900_000);
 
-  test('the bytes the agent unit read moved at the new pin, and the ones the product unit read did not', async () => {
-    // A unit's cache key holds the spans it read (0026, "Updates"): the product's overview unit read the whole of
+  test("the bytes the overview unit read moved at the new pin, and the manifest span stands as it stood", async () => {
     // the changed file (5 lines before the commit, 7 after) and the product's own manifest, and the changed file's
     // span answers different bytes at the commit the update run pins while the manifest's stand as they stood.
     const reads = await readUnitReads(opened!.owner, `${OVERVIEW_STAGE_ID}/${PRODUCT_SCOPE_NAME}`, 1);
@@ -360,8 +360,6 @@ describe('a commit, and what it reruns', () => {
     const stale = (await opened!.events('run-three')).filter((event) => event.kind === 'unit-stale' && event.unitId === `${OVERVIEW_STAGE_ID}/${PRODUCT_SCOPE_NAME}`);
     expect(stale.length).toBe(1);
     expect(stale[0]!.summary).toContain('went stale (a read the generation recorded answers something else now:');
-    // The product repository's unit was not stale, and no event says it was.
-
   }, 900_000);
 
   test('the pages the update announces are the pages its publications changed, and no other', async () => {

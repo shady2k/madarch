@@ -62,11 +62,6 @@ const SCHEMA: readonly string[] = [
     PRIMARY KEY (unit_id, generation)
   )`,
   'CREATE INDEX IF NOT EXISTS fill_unit_plan_run ON fill_unit_plan (run_id)',
-  // The versions that decided what a unit reads and answers when it was planned — its stage's `id@version` and the
-  // stage's own prompt, answer-schema and model versions (madarch-tzte.26.1): recorded with the plan, so a run that
-  // resolves another names the one that moved instead of two digests. `ADD COLUMN IF NOT EXISTS` is what adds it to
-  // a store a previous build filled, and a plan row that holds none was written before this column existed.
-  'ALTER TABLE fill_unit_plan ADD COLUMN IF NOT EXISTS cache_versions jsonb',
   `CREATE TABLE IF NOT EXISTS fill_event (
     run_id text NOT NULL,
     seq integer NOT NULL,
@@ -127,11 +122,36 @@ const SCHEMA: readonly string[] = [
   )`,
 ];
 
+/**
+ * The column a build before madarch-tzte.26.1 did not write: the versions that decided what a unit
+ * reads and answers when it was planned — its stage's `id@version` and the stage's own prompt,
+ * answer-schema and model versions — recorded with the plan, so a run that resolves another names the
+ * one that moved instead of two digests. A plan row that holds none was written before it existed.
+ */
+const CACHE_VERSIONS_COLUMN = 'ALTER TABLE fill_unit_plan ADD COLUMN IF NOT EXISTS cache_versions jsonb';
+
+/**
+ * The schema's one key, for the lock that keeps two processes from adding the column at once: the
+ * crash suite starts several executor processes beside the server, and concurrent `ALTER TABLE` on
+ * one table answers "tuple concurrently updated" to whichever loses. The lock is the transaction's,
+ * so it is held for exactly the statement it guards.
+ */
+const CACHE_VERSIONS_LOCK = 724_913_556;
+
 /** Creates the orchestrator's tables and indexes; safe to run on every start of the process's owner. */
 export async function createOrchestratorSchema(database: OrchestratorDatabase): Promise<void> {
   const at = here();
   await run(at, database, 'createOrchestratorSchema', ORCHESTRATOR_TABLES, async (executor) => {
     for (const statement of SCHEMA) await executor.query(statement);
+    // The column is added under the lock and only where it is missing: the check first, so a store a
+    // previous build filled and this build opened pays one query and no DDL at all.
+    await executor.query('SELECT pg_advisory_xact_lock($1)', [CACHE_VERSIONS_LOCK]);
+    const { rows } = await executor.query<{ present: boolean }>(
+      `SELECT EXISTS (SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'fill_unit_plan' AND column_name = 'cache_versions') AS present`,
+    );
+    if (rows[0]?.present === true) return;
+    await executor.query(CACHE_VERSIONS_COLUMN);
   }, 'write');
 }
 
