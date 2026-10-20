@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { afterAll, describe, expect, test } from 'bun:test';
 import { createTestQueryEngine } from './query-test-engine.js';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -35,8 +35,46 @@ const AT = { valid: DAY(2), known: DAY(2) };
 
 interface Built {
   engine: AsyncQueryEngine;
-  history: HistoryStore;
   model: CompiledModel;
+}
+
+/**
+ * The bound of the case that renders the whole view set and then asks for four
+ * of its views one at a time: five renders over one engine, 6.9 s on the 2-CPU
+ * pod (measured 2026-10-20, madarch-cznn), over the five seconds an unnamed test
+ * really runs under.
+ */
+const WHOLE_SET_MS = 20_000;
+
+/**
+ * The bound of the hook that closes the file's databases: hooks do not get the
+ * preload's default, and PGlite shutdown under a loaded runner took 5.9 s in CI
+ * (run 39415085797, test shard 4), over bun's five.
+ */
+const HOOK_CLOSE_MS = 30_000;
+
+/**
+ * One history per fixture, opened the first time a case builds it and kept for
+ * the file: a case still stores its own fixture and rebuilds the query engine
+ * from that history alone, so the cases stay independent, and what goes away is
+ * a PGlite boot per case (1.66 s on the 2-CPU pod the tests run on, measured
+ * 2026-10-20, madarch-cznn). Two fixtures cannot share one history: the store
+ * refuses two sources declaring the same element id.
+ */
+const fileHistories = new Map<string, HistoryStore>();
+
+afterAll(async () => {
+  for (const history of fileHistories.values()) await history.close();
+  fileHistories.clear();
+}, HOOK_CLOSE_MS);
+
+function historyFor(name: string): HistoryStore {
+  let history = fileHistories.get(name);
+  if (history === undefined) {
+    history = createPGliteHistory({ clock: { now: () => DAY(1) } });
+    fileHistories.set(name, history);
+  }
+  return history;
 }
 
 /** Loads and compiles one fixture, stores it as one version, and builds a query engine from that history. */
@@ -44,16 +82,15 @@ async function build(name: string): Promise<Built> {
   const { model, errors } = loadModel(fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url)));
   expect(errors).toEqual([]);
   const compiled = compileModel(model!);
-  const history = createPGliteHistory({ clock: { now: () => DAY(1) } });
+  const history = historyFor(name);
   expect((await history.store({ source: 's', commit: name, committedAt: DAY(1), model: compiled })).errors).toEqual([]);
   const engine = await createTestQueryEngine();
   await engine.rebuild(await history.assertions());
-  return { engine, history, model: compiled };
+  return { engine, model: compiled };
 }
 
 async function close(built: Built): Promise<void> {
   await await built.engine.close();
-  await built.history.close();
 }
 
 /** The view set's page without its links to other pages: the "Up:" and "Open:" lines and the blank line each leaves. */
@@ -227,7 +264,7 @@ describe('views/one-view mermaid', async () => {
     } finally {
       await close(built);
     }
-  });
+  }, WHOLE_SET_MS);
 
   test('the page of shop, written by hand from the fixture: the frame, its neighbour, numbered arrows and the table, no links', async () => {
     const built = await build('views-drill-down');

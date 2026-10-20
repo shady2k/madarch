@@ -53,13 +53,26 @@ Artifacts (documents, tasks, commit messages, code comments) are written in Engl
   temporary folder before and after the suites with
   `.shady2k/run-scratch-check.mjs`. A leftover run folder in the temp folder
   therefore means a run was killed; the next run sweeps it.
-- A test that names no bound of its own runs under a ten-second default
-  rather than Bun's five (madarch-tzte.36): `setDefaultTimeout` in
+- A test that names no bound of its own is meant to run under a ten-second
+  default rather than Bun's five (madarch-tzte.36): `setDefaultTimeout` in
   `test/deadline.ts`, which both `bunfig.toml` files preload — not bunfig's
   `[test] timeout`, which Bun 1.4.2 ignores (measured: a test that sleeps 7 s
-  still fails at 5 s with it set). A test that names its own longer bound keeps
-  it. The default is not the fix for a slow test: the slow ones are
-  madarch-cznn, which brings it back down.
+  still fails at 5 s with it set). The preload does not reach every file of a
+  run that holds several: measured on the pod 2026-10-20 (madarch-cznn), a
+  throwaway case that sleeps 6 s passed three times in a row under
+  `bun test test/tmp-probe-a.test.ts` and was stopped at 5 000 ms in
+  `bun test test/tmp-probe-a.test.ts test/server-graphs.test.ts`, and CI shard
+  run 39351539188 stopped a case with no bound at 5 036 ms while its own file's
+  cases naming 15 000 ran 5.9 s and passed. So a case whose work is long names
+  its own bound in the test; the five seconds are what an unnamed case really
+  runs under, in a shard or a full run alike. The default is not the fix for a
+  slow test either — the cause is usually the databases a case opens: one
+  PGlite is 1.66 s to boot on the pod (a bare instance measured; the adapters'
+  schema adds 0.07 s), so a case that opened two histories and a query database
+  cost 4.5-6.4 s. One owner per case, lent to its history and its query
+  database (`createPGliteDatabaseOwner({ vector: true })`; decision 0027),
+  made `test/server-graphs.test.ts` 31 cases of 1.65-2.5 s, the cases holding
+  two sources 3.4-5.1 s under their own 20 s bound (madarch-cznn).
 - Views are accepted by rendering every page the way a reader sees it, not by
   parse checks: GitHub's own Mermaid renderer in a 1150 px column (open
   `viewscreen.githubusercontent.com/markdown/mermaid?color_mode=dark` and
