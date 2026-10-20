@@ -51,12 +51,15 @@ import puppeteer, { type Browser, type Frame, type Page } from 'puppeteer';
 import { resolveBrowserExecutable } from './chromium.js';
 import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { countPublishedFactsByKind } from '../src/fill/fact-store.js';
-import { pageAddress } from '../src/fill/graph-pages.js';
+import { PAGE_KINDS, PAGE_SET_FETCH, PAGE_SET_HELD_SQL, PAGE_SET_KINDS_SQL, pageAddress } from '../src/fill/graph-pages.js';
 import { createFillOrchestratorService, fillDatabasePath, type FillOrchestratorService, type FillRunResult } from '../src/fill/orchestrator-host.js';
 import { createStagesFill, type StagesFill } from '../src/product/fill-stages.js';
 import { startServer, type StartedServer } from '../src/index.js';
 import { LIKEC4_DRAWINGS_SOURCE } from '../src/product-wiki/likec4-drawings.js';
 import { byCodePoint } from '../src/model/order.js';
+import { buildFactStoreDiagram } from '../src/fill/diagrams.js';
+import { answerGraphRead, type GraphRead } from '../src/fill/graph-reads.js';
+import { FACT_EDGE_KINDS } from '../src/fill/facts.js';
 
 /** This script's own name, in front of every error it raises (the project's rule for a message). */
 const SELF = fileURLToPath(import.meta.url);
@@ -76,7 +79,7 @@ function failedAt(where: string, message: string): Error {
 // ---- the walk's own options -------------------------------------------------
 
 interface WalkOptions {
-  readonly phase: 'all' | 'first' | 'live' | 'probe';
+  readonly phase: 'all' | 'first' | 'live' | 'probe' | 'speed' | 'explain';
   readonly root: string;
   readonly origin: string;
   readonly pin: string;
@@ -102,7 +105,7 @@ function parseOptions(argv: readonly string[]): WalkOptions {
     at += 1;
   }
   const phase = flags.get('phase') ?? 'all';
-  if (phase !== 'all' && phase !== 'first' && phase !== 'live' && phase !== 'probe') throw failedAt('the arguments', `--phase ${JSON.stringify(phase)} is none of all, first, live, probe`);
+  if (phase !== 'all' && phase !== 'first' && phase !== 'live' && phase !== 'probe' && phase !== 'speed' && phase !== 'explain') throw failedAt('the arguments', `--phase ${JSON.stringify(phase)} is none of all, first, live, probe, speed, explain`);
   const workers = Number(flags.get('workers') ?? '8');
   if (!Number.isInteger(workers) || workers < 1 || workers > 64) throw failedAt('the arguments', '--workers is a whole number from 1 to 64');
   const copyInto = flags.get('copy-into');
@@ -1275,6 +1278,275 @@ async function livePhase(options: WalkOptions, product: Product): Promise<void> 
   }
 }
 
+// ---- the speed of a page and of the index -----------------------------------
+
+/** One read, as it cost and what it answered. */
+interface Timed<T> { readonly ms: number; readonly value: T }
+
+/** How long one read takes: the clock around the read, and the read's own answer. */
+async function timed<T>(work: () => Promise<T>): Promise<Timed<T>> {
+  const started = Date.now();
+  const value = await work();
+  return { ms: Date.now() - started, value };
+}
+
+/** One node page as the browser stood it: until the page was there, and until its diagrams had settled. */
+async function standPage(page: Page, url: string): Promise<{ nodeMs: number; diagramsMs: number }> {
+  const started = Date.now();
+  await page.goto(url, { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('[data-testid="graph-node"]', { timeout: 120_000 });
+  const nodeMs = Date.now() - started;
+  await waitDiagrams(page, url);
+  return { nodeMs, diagramsMs: Date.now() - started };
+}
+
+/**
+ * The speed of the graph's index and of one page per kind (madarch-tzte.23.8): what the
+ * store's own reads cost, what the HTTP answers cost, and how long a headless Chromium at
+ * the owner's 1150x900 window takes to stand the index and a repository's, a package's, a
+ * module's and a symbol's page — cold, and again after the warm-up read the task names.
+ *
+ * It runs over a store a fill left (`--phase first`), on the page's own service, so the
+ * numbers are the ones a reader's server pays and not a fixture's. Nothing here fixes or
+ * changes anything: the record quotes what it prints.
+ */
+async function speedPhase(options: WalkOptions, product: Product): Promise<void> {
+  if (!existsSync(join(product.home, '.madarch', 'fill', 'state.db'))) throw failedAt('the speed phase', `no fill's store stands in ${join(product.home, '.madarch', 'fill')}: run --phase first over this root first`);
+  if (!existsSync(join(options.app, 'index.html'))) throw failedAt('the wiki app', `the built app is missing: ${join(options.app, 'index.html')} (build wiki/app first)`);
+  const shots = join(options.root, 'shots-speed');
+  mkdirSync(shots, { recursive: true });
+  const cache = join(options.root, 'wiki-cache');
+  mkdirSync(cache, { recursive: true });
+  const fill = await openFill(options, product);
+  const services: StartedServer[] = [];
+  let browser: Browser | undefined;
+  let page: Page | undefined;
+  const notes: string[] = [];
+  const note = (line: string): void => {
+    if (notes.length < 200) notes.push(line);
+    console.error(`walk: ${line}`);
+  };
+  try {
+    const source = fill.service.pages(product.folder);
+    // The page set, read the way a client reads it: once cold, once warm.
+    const setCold = await timed(async () => await source.pageSet());
+    const setWarm = await timed(async () => await source.pageSet());
+    const set = setCold.value;
+    measure('speedPageSet', {
+      coldMs: setCold.ms,
+      warmMs: setWarm.ms,
+      total: set.total,
+      byKind: Object.fromEntries(set.counts.map((count) => [count.kind, count.count])),
+      changeSeq: set.changeSeq,
+    });
+    const chosen = choosePages(set.pages, product.codeName);
+    const started = await startServer({
+      productFolder: product.folder,
+      appFolder: options.app,
+      port: 0,
+      host: '127.0.0.1',
+      graphPages: (folder) => fill.service.pages(folder),
+      env: { ...process.env, MADARCH_WIKI_DIAGRAM: 'mermaid', MADARCH_WIKI_CACHE: cache },
+      log: () => undefined,
+      errorLog: (line) => note(`server: ${line}`),
+    });
+    services.push(started);
+    // The set over HTTP, cold and warm: the bytes a browser parses, not only the store's read.
+    const httpCold = await timed(async () => await (await fetch(`${started.url}/api/graph/pages`)).text());
+    const httpWarm = await timed(async () => await (await fetch(`${started.url}/api/graph/pages`)).text());
+    measure('speedPageSetHttp', { coldMs: httpCold.ms, warmMs: httpWarm.ms, bytes: Buffer.byteLength(httpCold.value, 'utf8') });
+    const reads: Record<string, unknown> = {};
+    for (const kind of ['repository', 'package', 'module', 'symbol'] as const) {
+      const chosenPage = chosen[kind]!;
+      const pageCold = await timed(async () => await source.page(chosenPage.id));
+      const pageWarm = await timed(async () => await source.page(chosenPage.id));
+      const diagramsCold = await timed(async () => await source.diagrams(chosenPage.id));
+      const diagramsWarm = await timed(async () => await source.diagrams(chosenPage.id));
+      reads[kind] = {
+        id: chosenPage.id,
+        label: chosenPage.label,
+        pageColdMs: pageCold.ms,
+        pageWarmMs: pageWarm.ms,
+        diagramsColdMs: diagramsCold.ms,
+        diagramsWarmMs: diagramsWarm.ms,
+        facts: pageCold.value.ok ? pageCold.value.page.facts.length : null,
+        relations: pageCold.value.ok ? pageCold.value.page.counts.out + pageCold.value.page.counts.in : null,
+        diagrams: answer.ok ? answer.diagrams.map((held) => `${held.spec.type}: ${String(held.model.elements.length)} elements, ${String(held.model.edges.length)} edges`) : answer.message,
+      };
+    }
+    measure('speedReads', reads);
+
+    // What one page's own store reads cost, read by the page's own grammar: the statements a
+    // page model makes, each on its own, so the record names where the time goes.
+    const breakdown: Record<string, unknown> = {};
+    for (const kind of ['repository', 'symbol'] as const) {
+      const id = chosen[kind]!.id;
+      const read = async (request: GraphRead): Promise<number> => (await timed(async () => await answerGraphRead({
+        database: fill.owner,
+        snapshot: { open: async (repository: string): Promise<never> => { throw new Error(`the speed walk opens no snapshot of ${repository}`); } },
+      }, request))).ms;
+      const scoped = (request: GraphRead): GraphRead => ({ ...request, product: set.product }) as GraphRead;
+      breakdown[kind] = {
+        id,
+        nodeFactMs: await read(scoped({ read: 'fact', id })),
+        claimsAboutMs: await read(scoped({ read: 'facts-with', kind: 'claim', field: 'subject.id', value: id })),
+        claimsOfMs: await read(scoped({ read: 'facts-with', kind: 'claim', field: 'object.id', value: id })),
+        rulesMs: await read(scoped({ read: 'facts-with', kind: 'rule', field: 'subject', value: id })),
+        questionsMs: await read(scoped({ read: 'facts-with', kind: 'question', field: 'about', value: id })),
+        adjacentMs: await read(scoped({ read: 'adjacent', id, kinds: FACT_EDGE_KINDS })),
+      };
+    }
+    measure('speedReadBreakdown', breakdown);
+
+    // The browser: the index that stands, and one page per kind — cold and warm.
+    browser = await puppeteer.launch({ executablePath: resolveBrowserExecutable(), headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
+    page = await newPage(browser, note);
+    /** The index stands when its groups and their first rows are drawn; every row of every kind follows (23.8). */
+    const standIndex = async (): Promise<{ standMs: number; completeMs: number }> => {
+      const at = Date.now();
+      await page!.goto(`${started.url}/p/graph`, { waitUntil: 'domcontentloaded' });
+      await page!.waitForSelector('[data-testid="graph-index"]', { timeout: 300_000 });
+      await page!.waitForFunction(() => document.querySelectorAll('[data-testid="graph-index"] .home-row').length > 0, { timeout: 600_000 });
+      const standMs = Date.now() - at;
+      // The groups' own lines say which kinds are still being listed; the last one going is every row standing.
+      let completeMs = Date.now() - at;
+      try {
+        await page!.waitForFunction(() => document.querySelector('[data-testid="graph-kind-listing"]') === null, { timeout: 600_000 });
+        completeMs = Date.now() - at;
+      } catch {
+        completeMs = -1;
+      }
+      return { standMs, completeMs };
+    };
+    const indexCold = await standIndex();
+    const indexRows = await page.evaluate(() => ({
+      /** What the browser paid for each graph answer: its own duration, and the bytes it carried. */
+      resources: performance.getEntriesByType('resource')
+        .map((entry) => ({ path: new URL(entry.name).pathname, durationMs: Math.round(entry.duration), bytes: (entry as PerformanceResourceTiming).transferSize ?? 0 }))
+        .sort((left, right) => right.durationMs - left.durationMs)
+        .slice(0, 12),
+      rows: document.querySelectorAll('[data-testid="graph-index"] .home-row').length,
+      groups: document.querySelectorAll('[data-testid="graph-index"] .home-group').length,
+      lead: document.querySelector('[data-testid="graph-lead"]')?.textContent ?? '',
+      nodes: document.querySelectorAll('*').length,
+      navNodes: document.querySelectorAll('[data-testid="graph-nav"] a[data-graph-node]').length,
+    }));
+    await shot(page, join(shots, 'graph-index.png'));
+    const indexWarm = await standIndex();
+    measure('speedIndex', { cold: indexCold, warm: indexWarm, ...indexRows });
+
+    const stands: Record<string, unknown> = {};
+    for (const kind of ['repository', 'package', 'module', 'symbol'] as const) {
+      const chosenPage = chosen[kind]!;
+      const address = `${started.url}${pageAddress(chosenPage.id)}`;
+      const resources = async (): Promise<unknown> => await page!.evaluate(() => performance.getEntriesByType('resource')
+        .filter((entry) => entry.name.includes('/api/graph/'))
+        .map((entry) => ({ path: new URL(entry.name).pathname, durationMs: Math.round(entry.duration), bytes: (entry as PerformanceResourceTiming).transferSize ?? 0 })));
+      const cold = await standPage(page, address);
+      const numbers = await pageNumbers(page);
+      const coldResources = await resources();
+      await shot(page, join(shots, `page-${kind}.png`));
+      const warm = await standPage(page, address);
+      stands[kind] = { id: chosenPage.id, label: chosenPage.label, cold, coldResources, warm, warmResources: await resources(), facts: numbers['facts'], relations: numbers['relations'], diagrams: numbers['diagrams'] };
+    }
+    measure('speedStands', stands);
+    measure('speedNotes', { notes });
+  } finally {
+    try {
+      if (browser !== undefined) await browser.close();
+    } finally {
+      for (const server of services) await server.stop();
+      await closeFill(fill);
+    }
+  }
+}
+
+// ---- what the store's own statements cost ------------------------------------
+
+/** One statement's plan, as PostgreSQL names its nodes: the shapes a reader of the numbers needs. */
+interface Explained {
+  readonly ms: number;
+  readonly rows: number;
+  /** The plan's whole text, one line per node, so a seq scan and an index scan are told apart. */
+  readonly plan: string;
+}
+
+/** Runs one statement under `EXPLAIN (ANALYZE)`, answering what it cost and how the database answered it. */
+async function explained(executor: { query<T>(text: string, values?: readonly unknown[]): Promise<{ rows: T[] }> }, text: string, values: readonly unknown[], analyze: boolean): Promise<Explained> {
+  const started = Date.now();
+  const { rows } = await executor.query<Record<string, unknown>>(`EXPLAIN (${analyze ? 'ANALYZE, ' : ''}FORMAT JSON) ${text}`, values);
+  const elapsed = Date.now() - started;
+  // A driver answers `EXPLAIN (FORMAT JSON)` as a row holding the plan: a plain array, or `{"QUERY PLAN": [...]}`.
+  const body = rows[0] as Record<string, unknown> | undefined;
+  const answer = body === undefined ? undefined : (Array.isArray(body) ? body : (body['QUERY PLAN'] ?? body));
+  const held = (Array.isArray(answer) ? answer[0] : answer) as { Plan?: Record<string, unknown> } | undefined;
+  const plan = held?.Plan ?? {};
+  const lines: string[] = [];
+  const walk = (node: Record<string, unknown>, depth: number): void => {
+    const name = String(node['Node Type'] ?? '?');
+    const detail = node['Node Type'] === 'Seq Scan' || node['Node Type'] === 'Index Scan' || node['Node Type'] === 'Index Only Scan' || node['Node Type'] === 'Bitmap Index Scan'
+      ? ` on ${String(node['Relation Name'] ?? node['Index Name'] ?? '')}`
+      : '';
+    const time = typeof node['Actual Total Time'] === 'number' ? ` ${String(Math.round((node['Actual Total Time'] as number) * 10) / 10)} ms` : '';
+    const count = typeof node['Actual Rows'] === 'number' ? ` ${String(node['Actual Rows'])} rows` : '';
+    lines.push(`${'  '.repeat(depth)}${name}${detail}${count}${time}`);
+    for (const child of (node['Plans'] as Record<string, unknown>[] | undefined) ?? []) walk(child, depth + 1);
+  };
+  walk(plan, 0);
+  return { ms: typeof plan['Actual Total Time'] === 'number' ? Math.round((plan['Actual Total Time'] as number) * 10) / 10 : elapsed, rows: typeof plan['Actual Rows'] === 'number' ? plan['Actual Rows'] : -1, plan: lines.join('\n') };
+}
+
+/**
+ * What the graph's own statements cost on a filled store (madarch-tzte.23.8): the page
+ * set's statement and a join-shaped candidate for it, the edges one page reads, and the
+ * same read after an index over the edge values is created — then the index is dropped,
+ * so the store stands as the fill left it. Plans are printed whole, so "a seq scan of
+ * every edge fact per page" is a line of the record and not a guess.
+ */
+async function explainPhase(options: WalkOptions, product: Product): Promise<void> {
+  if (!existsSync(join(product.home, '.madarch', 'fill', 'state.db'))) throw failedAt('the explain phase', `no fill's store stands in ${join(product.home, '.madarch', 'fill')}: run --phase first over this root first`);
+  const fill = await openFill(options, product);
+  try {
+    const productName = fill.stages.product.name;
+    // The store's own cost of being asked anything at all: an open, a checkpoint or a write-ahead log replayed, told
+    // apart from the statement measured after it.
+    const trivial = await timed(async () => await fill.owner.transaction('snapshot', async (executor) => await executor.query('SELECT 1')));
+    measure('explainStoreAnswers', { firstStatementMs: trivial.ms });
+    const run = async (text: string, values: readonly unknown[], analyze: boolean): Promise<Explained> =>
+      await explained({ query: async (inner, params) => await fill.owner.transaction('snapshot', async (executor) => await executor.query(inner, params)) }, text, values, analyze);
+    // The page set's own statements (madarch-tzte.23.8): the page-worthy facts by kind, the product's holdings, and
+    // the facts by id that a batch of them fetches. Each is planned and then run bounded, so the numbers arrive in
+    // seconds and a statement that only pays off at its end cannot hide behind the bound.
+    const bounded = async (text: string, values: readonly unknown[]): Promise<Explained> => await run(`SELECT * FROM (${text}) AS held LIMIT 500`, values, true);
+    measure('explainPageSetKinds', { plan: (await run(PAGE_SET_KINDS_SQL, [PAGE_KINDS], false)).plan, bounded: await bounded(PAGE_SET_KINDS_SQL, [PAGE_KINDS]) });
+    measure('explainPageSetHeld', { plan: (await run(PAGE_SET_HELD_SQL, [productName], false)).plan, bounded: await bounded(PAGE_SET_HELD_SQL, [productName]) });
+    // What each step of the read costs on its own: the two narrow reads and one batch of the facts, so the number
+    // that dominates is a line and not a guess.
+    const step = async (name: string, text: string, values: readonly unknown[]): Promise<void> => {
+      const started = Date.now();
+      const { rows } = await fill.owner.transaction('snapshot', async (executor) => await executor.query<Record<string, unknown>>(text, values));
+      measure(`explainStep_${name}`, { ms: Date.now() - started, rows: rows.length });
+    };
+    await step('kinds', PAGE_SET_KINDS_SQL, [PAGE_KINDS]);
+    await step('held', PAGE_SET_HELD_SQL, [productName]);
+    const firstIds = (await fill.owner.transaction('snapshot', async (executor) => await executor.query<{ id: string }>(PAGE_SET_KINDS_SQL, [PAGE_KINDS]))).rows.slice(0, PAGE_SET_FETCH).map((row) => row.id);
+    await step('fetch', `SELECT f.id, f.kind, f.schema_version, f.provenance, f.layer, f.status, f.value FROM fill_fact f WHERE f.id = ANY($1::text[])`, [firstIds]);
+    // The read the code makes of the whole set, and the moment it costs: the number the fix has to move.
+    const readStarted = Date.now();
+    const set = await fill.service.pages(product.folder).pageSet();
+    measure('explainPageSetRead', { ms: Date.now() - readStarted, total: set.total });
+    // One page's edges, as the read grammar builds them: the statement a node's relations are read by.
+    const symbol = set.pages.find((entry) => entry.kind === 'symbol');
+    if (symbol !== undefined) {
+      const startedAdjacent = Date.now();
+      const read = await answerGraphRead({ database: fill.owner, snapshot: { open: async (): Promise<never> => { throw new Error('no snapshot'); } } }, { read: 'adjacent', id: symbol.id, kinds: FACT_EDGE_KINDS, product: productName });
+      measure('explainAdjacentRead', { id: symbol.id, rows: read.length, ms: Date.now() - startedAdjacent });
+    }
+  } finally {
+    await closeFill(fill);
+  }
+}
+
 // ---- the run ----------------------------------------------------------------
 
 async function main(): Promise<number> {
@@ -1287,6 +1559,10 @@ async function main(): Promise<number> {
   try {
     if (options.phase === 'probe') {
       await probePhase(options, prepareProductForProbe(options));
+    } else if (options.phase === 'speed') {
+      await speedPhase(options, prepareProductForProbe(options));
+    } else if (options.phase === 'explain') {
+      await explainPhase(options, prepareProductForProbe(options));
     } else {
       const product = prepareProduct(options);
       if (options.phase !== 'live') await firstPhase(options, product);

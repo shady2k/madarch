@@ -17,6 +17,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { createElement } from 'react';
 import { App } from './app.js';
 import { GRAPH_EVENTS_PATH, codeHref, graphKindGroups, originOf, shortGraphLabel } from './graph.js';
+import { GraphIndexPage, INDEX_FIRST_ROWS, INDEX_ROWS_PER_STEP } from './graph-pages.js';
 import { addressOfGraphPage, routeOf, GRAPH_INDEX_ADDRESS } from './routes.js';
 import { setWikiLanguage } from './i18n.js';
 import type { GraphPageModel, GraphPageSet, Page, PageList, Product, RepoEntry, ReposList } from './api.js';
@@ -324,8 +325,8 @@ function pagesFrame(change: { seq: number; nodes: string[]; unit: string; genera
   return `id: ${change.seq}\nevent: pages\ndata: ${JSON.stringify({ ...change, publication: 'p-' + change.seq })}\n\n`;
 }
 
-function world(): World {
-  return { set: pageSet(), pages: { [MODULE]: modulePage() }, graph: true, documents };
+function world(overrides: Partial<World> = {}): World {
+  return { set: pageSet(), pages: { [MODULE]: modulePage() }, graph: true, documents, ...overrides };
 }
 
 describe('the graph in the navigation', () => {
@@ -397,6 +398,36 @@ describe('the graph in the navigation', () => {
     const counts = [...document.querySelectorAll('[data-testid="graph-kind-count"]')].map((entry) => entry.textContent);
     expect(counts).toEqual(['1', '1', '1']);
     expect(document.querySelector(`a[href="/p/graph/${MODULE}"]`)).not.toBeNull();
+  });
+
+  test('a kind of more nodes than the first slice lists them in steps, and the group says how many stand until then', async () => {
+    // The current madarch tree holds 29 605 symbols: a group of them is drawn a slice at a time, the count in its
+    // header is the whole count from the first paint, and the rows still to come are named until they stand
+    // (madarch-tzte.23.8). The page's two bounds are the page's own, and a test names small ones to see the slices.
+    const many = 9;
+    const symbols = Array.from({ length: many }, (_unused, index) => {
+      const id = `symbol:${index.toString(16).padStart(64, '0')}`;
+      return { id, kind: 'symbol', label: `acme-shop:src/checkout.ts#checkout.place${String(index).padStart(3, '0')}`, page: addressOfGraphPage(id), layer: 'extracted' as const, status: 'proposed' as const };
+    });
+    const set = pageSet({ pages: [pageSet().pages[0]!, ...symbols], counts: [{ kind: 'module', count: 1 }, { kind: 'symbol', count: many }], total: many + 1 });
+    intoApp(createElement(GraphIndexPage, { set, repos: [], firstRows: 2, rowsPerStep: 2 }));
+    await until(() => document.querySelector('[data-testid="graph-index"]') !== null, 'the graph index');
+    const symbolGroup = (): Element | null => document.querySelector('[data-graph-kind="symbol"]');
+    // The first slice stands at once, the group counts all of them, and its own line names what stands.
+    expect(symbolGroup()?.querySelectorAll('.home-row').length).toBe(2);
+    expect(symbolGroup()?.querySelector('[data-testid="graph-kind-count"]')?.textContent).toBe(String(many));
+    expect(symbolGroup()?.querySelector('[data-testid="graph-kind-listing"]')?.getAttribute('data-shown')).toBe('2');
+    // Then the rest arrive, a step at a time: every node of the kind is listed, in the server's own order, and the
+    // line the group kept while it filled is gone.
+    await until(() => symbolGroup()?.querySelectorAll('.home-row').length === many, 'every symbol of the group');
+    expect(symbolGroup()?.querySelector('[data-testid="graph-kind-listing"]')).toBeNull();
+    const labels = [...(symbolGroup()?.querySelectorAll('.home-row-title') ?? [])].map((row) => row.textContent);
+    expect(labels[0]).toBe('acme-shop:src/checkout.ts#checkout.place000');
+    expect(labels[labels.length - 1]).toBe(`acme-shop:src/checkout.ts#checkout.place${String(many - 1).padStart(3, '0')}`);
+    // The page's own bounds are what every reader gets, and they are a slice of a graph this size: the index of the
+    // current madarch tree holds 35 114 pages.
+    expect(INDEX_FIRST_ROWS).toBeLessThan(35_114);
+    expect(INDEX_ROWS_PER_STEP).toBeGreaterThan(INDEX_FIRST_ROWS);
   });
 });
 

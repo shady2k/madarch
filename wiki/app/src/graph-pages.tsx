@@ -15,7 +15,7 @@
  * renders the view specifications madarch-tzte.23.2 builds); the slot names what will
  * stand there rather than drawing an empty frame.
  */
-import { useContext, useEffect, type ReactElement } from 'react';
+import { useContext, useEffect, useState, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FileCode2Icon } from 'lucide-react';
 import { appPath } from './app-base.js';
@@ -31,7 +31,7 @@ import type {
   RepoEntry,
 } from './api.js';
 import { navigateTo, statusContext } from './hold.js';
-import { codeHref, codePlace, graphKindGroups, originOf } from './graph.js';
+import { codeHref, codePlace, graphKindGroups, originOf, type GraphKindGroup } from './graph.js';
 import { addressOfGraphPage } from './routes.js';
 import { GraphDiagramsSection } from './graph-diagrams.js';
 
@@ -208,12 +208,84 @@ function DraftRow({ draft }: { draft: GraphDraftRow }): ReactElement {
 }
 
 /**
+ * How many rows of one kind the index draws at once, and how many it adds per turn of
+ * the browser's loop (madarch-tzte.23.8).
+ *
+ * The index is the one page that draws every page-worthy node, and the current madarch
+ * tree holds 35 114 of them: rendering them in one React commit holds the browser for
+ * seconds before the page stands at all (measured: the index stands in 5.1 s with the
+ * page set read alone costing 3.4 s of it, madarch-tzte.23.5). So the first rows of
+ * every kind are drawn at once — the index, its counts and its first links stand — and
+ * the rest are added a step at a time, in the browser's own time. Nothing is cut: the
+ * kind's count in the group's header is its whole count from the first paint, the rows
+ * still to come are named in the group's own words until they stand, and a step is
+ * small enough that a reader never waits for one.
+ */
+export const INDEX_FIRST_ROWS = 50;
+export const INDEX_ROWS_PER_STEP = 500;
+
+/** How many of a kind's rows to draw now: its first slice at once, then a step per turn of the browser's loop. */
+function useProgressiveRows(total: number, first: number, step: number): number {
+  const [shown, setShown] = useState(() => Math.min(total, first));
+  // A set that grew (a publication added a page of this kind) starts again from the first slice: the new rows sort
+  // into the group, and a reader sees the group as it is now rather than a count of rows from before it.
+  useEffect(() => {
+    setShown((held) => (held > total ? Math.min(total, first) : Math.min(held, total)));
+  }, [total]);
+  useEffect(() => {
+    if (shown >= total) return undefined;
+    const timer = window.setTimeout(() => {
+      setShown((held) => Math.min(total, held + step));
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [shown, total, step]);
+  return shown;
+}
+
+/** One kind's group of the index: its header, its count, the rows drawn now and the rows still to come. */
+function GraphKindSection({ group, repos, first, step }: { group: GraphKindGroup; repos: readonly RepoEntry[]; first: number; step: number }): ReactElement {
+  const { t } = useTranslation();
+  const shown = useProgressiveRows(group.entries.length, first, step);
+  const entries = group.entries.slice(0, shown);
+  return (
+    <section data-graph-kind={group.kind} className="home-group mt-7 first:mt-0">
+      <header className="home-group-head">
+        <h2 className="text-ink">{t('graph.kind.' + group.kind, { defaultValue: group.kind })}</h2>
+        <span className="home-count" data-testid="graph-kind-count">{group.entries.length}</span>
+      </header>
+      <ul className="home-rows">
+        {entries.map((entry) => (
+          <li key={entry.id}>
+            <GraphLink id={entry.id} address={entry.page} className="home-row">
+              <span className="home-row-title">{entry.label}</span>
+              <span className="graph-chip">{layerWord(entry.layer, t)}</span>
+            </GraphLink>
+          </li>
+        ))}
+      </ul>
+      {/* A group still filling says how much of it stands: a shorter list is never a silent one. */}
+      {shown < group.entries.length && (
+        <p className="graph-note" data-testid="graph-kind-listing" data-shown={shown}>
+          {t('graph.listingRest', { shown, count: group.entries.length })}
+        </p>
+      )}
+    </section>
+  );
+}
+
+/**
  * The graph's index: every page-worthy node of the product, one group per kind with
  * the kind's count, each node a link to its page. An empty graph shows the server's
  * own what-to-do message: the fill writes the pages, and they appear as its units
  * publish.
  */
-export function GraphIndexPage({ set, repos }: { set: GraphPageSet; repos: readonly RepoEntry[] }): ReactElement {
+export function GraphIndexPage({ set, repos, firstRows = INDEX_FIRST_ROWS, rowsPerStep = INDEX_ROWS_PER_STEP }: {
+  set: GraphPageSet;
+  repos: readonly RepoEntry[];
+  /** How many of a kind's rows stand at once, and how many are added per turn: the page's own bounds, overridable for a test. */
+  firstRows?: number;
+  rowsPerStep?: number;
+}): ReactElement {
   const { t } = useTranslation();
   const { publish } = useContext(statusContext);
   const groups = graphKindGroups(set);
@@ -236,24 +308,7 @@ export function GraphIndexPage({ set, repos }: { set: GraphPageSet; repos: reado
         <p className="graph-empty" data-testid="graph-empty">{set.message === null ? t('graph.empty', { product: set.product }) : t('graph.serverSays', { message: set.message })}</p>
       ) : (
         <div className="home-groups">
-          {groups.map((group) => (
-            <section key={group.kind} data-graph-kind={group.kind} className="home-group mt-7 first:mt-0">
-              <header className="home-group-head">
-                <h2 className="text-ink">{t('graph.kind.' + group.kind, { defaultValue: group.kind })}</h2>
-                <span className="home-count" data-testid="graph-kind-count">{group.entries.length}</span>
-              </header>
-              <ul className="home-rows">
-                {group.entries.map((entry) => (
-                  <li key={entry.id}>
-                    <GraphLink id={entry.id} address={entry.page} className="home-row">
-                      <span className="home-row-title">{entry.label}</span>
-                      <span className="graph-chip">{layerWord(entry.layer, t)}</span>
-                    </GraphLink>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ))}
+          {groups.map((group) => <GraphKindSection key={group.kind} group={group} repos={repos} first={firstRows} step={rowsPerStep} />)}
         </div>
       )}
     </main>

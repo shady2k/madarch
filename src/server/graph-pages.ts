@@ -37,6 +37,9 @@ export interface GraphPagesPart {
   events: (request: Request) => Promise<Handled>;
 }
 
+/** The answer size under which the page set is sent as it stands: below it a compression saves less than it costs. */
+const GZIP_MIN_BYTES = 64 * 1024;
+
 /** How often a stream over a quiet product says it is alive: an SSE comment, which is no event. */
 const KEEP_ALIVE_MS = 30_000;
 
@@ -71,10 +74,42 @@ export function emptyGraphPagesSource(product: string): GraphPagesSource {
  */
 export function createGraphPagesPart(makers: Pick<ReplyMaker, 'json' | 'refused'> & { readonly errorLog: (line: string) => void }, source: GraphPagesSource): GraphPagesPart {
   const { json, refused, errorLog } = makers;
+  /**
+   * The page set's answer as the bytes a browser receives, kept for the set it was made from: the set the source
+   * answers is that source's own cached answer, so one answer is one body however many clients ask for it, and a
+   * publication that moves the set hands over a new one (madarch-tzte.23.8).
+   *
+   * It is gzipped because it is the largest answer the wiki gives — the current madarch tree's page set is 16 527 510
+   * bytes for 35 370 pages, and 2 406 ms of the index's own stand was the browser taking those bytes over a local
+   * socket where the server had answers to give in 209 ms. A body under `GZIP_MIN_BYTES` is sent as it stands: a small
+   * graph pays nothing for a compression nothing would save.
+   */
+  let encoded: { readonly set: unknown; readonly body: ArrayBuffer; readonly compressed: boolean } | undefined;
+  const bodyOf = (set: Awaited<ReturnType<GraphPagesSource['pageSet']>>): { readonly body: ArrayBuffer; readonly compressed: boolean } => {
+    if (encoded !== undefined && encoded.set === set) return encoded;
+    const bytes = new TextEncoder().encode(JSON.stringify(set));
+    // `Bun.gzipSync` is the platform's own compressor, and the server runs on Bun (`src/index.ts`); a runtime without
+    // it sends the body as it stands rather than failing an answer.
+    const compress = bytes.byteLength >= GZIP_MIN_BYTES && typeof Bun !== 'undefined';
+    const packed = compress ? Bun.gzipSync(bytes) : bytes;
+    const body = packed.buffer.slice(packed.byteOffset, packed.byteOffset + packed.byteLength) as ArrayBuffer;
+    encoded = { set, body, compressed: compress };
+    return encoded;
+  };
   return {
     pages: async (): Promise<Handled> => {
       const set = await source.pageSet();
-      return { response: json(200, set) };
+      const { body, compressed } = bodyOf(set);
+      return {
+        response: new Response(body, {
+          status: 200,
+          headers: {
+            'content-type': 'application/json; charset=utf-8',
+            'cache-control': 'no-cache',
+            ...(compressed ? { 'content-encoding': 'gzip' } : {}),
+          },
+        }),
+      };
     },
     page: async (request: Request): Promise<Handled> => {
       const asked = new URL(request.url).searchParams.get('id');

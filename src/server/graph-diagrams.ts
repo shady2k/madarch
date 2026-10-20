@@ -82,11 +82,11 @@ export function createGraphDiagramsPart(makers: Pick<ReplyMaker, 'json' | 'refus
       const read = await readDiagrams(asked);
       if (!read.ok) return pageRefused(makers.refused, read);
       const answer = graphDiagramsAnswer({
-        product: read.page.product,
-        node: read.page.node,
+        product: read.product,
+        node: read.node,
         diagrams: read.diagrams,
         chosen: chosen.tab,
-        readAt: read.page.readAt,
+        readAt: read.readAt,
       });
       return { response: json(200, answer) };
     },

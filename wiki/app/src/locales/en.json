@@ -583,6 +583,7 @@
         "likec4": "LikeC4",
         "mermaid": "Mermaid"
       }
-    }
+    },
+    "listingRest": "{{shown}} of {{count}} listed: the rest of this kind follows as the page draws them."
   }
 }

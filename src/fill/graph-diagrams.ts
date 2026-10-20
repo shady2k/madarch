@@ -30,12 +30,23 @@
  * model, which the page shows as its own words rather than as an empty frame.
  */
 import type { FactStoreDatabase } from './fact-store.js';
-import { readPageModel, type GraphPageModelAnswer } from './graph-pages.js';
+import { pageEntryOf, pageAddress, type GraphPageEntry } from './graph-pages.js';
 import { isPageKind } from './page-changes.js';
 import { buildFactStoreDiagram, factStoreDiagramReads, type DiagramGraphReads, type DiagramLimits, type DiagramModel, type DiagramViewSpec } from './diagrams.js';
-import { endsOf } from './graph-reads.js';
+import { answerGraphRead, endsOf, factsOfRows, type GraphRead, type GraphSnapshotSource } from './graph-reads.js';
 import { byCodePoint } from '../model/order.js';
-import type { Fact, FactEdgeKind, FactKind, FactNodeKind } from './facts.js';
+import { isFactId, isFactKind, type Fact, type FactEdgeKind, type FactKind, type FactNodeKind } from './facts.js';
+import { PAGE_KINDS, isPageId } from './page-changes.js';
+
+/**
+ * The snapshot a diagrams ask never reads: a diagram's elements carry the place their
+ * fact was read at (the fact's own provenance, madarch-tzte.23.2), so no byte of a
+ * repository is opened for one, and a read that asked for a snapshot is refused by name
+ * rather than answered from something else.
+ */
+const NO_PAGE_SPANS: GraphSnapshotSource = {
+  open: async (repository: string): Promise<never> => { throw new Error(`src/fill/graph-diagrams.ts: the diagrams of a graph node read no bytes: a diagram's place is its fact's own provenance, so the snapshot of "${repository}" is not opened`); },
+};
 
 /** The node a page is about, as the specs are derived from it. */
 export interface DiagramNode {
@@ -219,19 +230,28 @@ export interface NodeDiagram {
 
 /** One page's diagrams, or the refusal that says why the page has none. */
 export type GraphDiagramsRead =
-  | { readonly ok: true; readonly page: GraphPageModelAnswer; readonly diagrams: readonly NodeDiagram[] }
+  | {
+    readonly ok: true;
+    readonly product: string;
+    /** The node the page is about, as the page set names it: the same entry a page model carries. */
+    readonly node: GraphPageEntry;
+    /** The address the page is served at (`pageAddress`). */
+    readonly page: string;
+    readonly readAt: number;
+    readonly diagrams: readonly NodeDiagram[];
+  }
   | { readonly ok: false; readonly code: string; readonly message: string };
 
 /** The repository a node's own value or place names, as the graph spells it. */
-function repositoryOf(page: GraphPageModelAnswer): string | undefined {
-  const value = page.value;
+function repositoryOf(fact: Fact): string | undefined {
+  const value = fact.value;
   if (value !== null && typeof value === 'object' && typeof (value as { repository?: unknown }).repository === 'string') return (value as { repository: string }).repository;
-  return page.node.code?.repository;
+  return fact.provenance.place === undefined ? undefined : fact.provenance.repository.id;
 }
 
 /** The table a column's value names, as the graph spells it. */
-function tableOf(page: GraphPageModelAnswer): string | undefined {
-  const value = page.value;
+function tableOf(fact: Fact): string | undefined {
+  const value = fact.value;
   if (value !== null && typeof value === 'object' && typeof (value as { table?: unknown }).table === 'string') return (value as { table: string }).table;
   return undefined;
 }
@@ -264,14 +284,24 @@ async function oneFactOf(reads: DiagramGraphReads, kind: FactNodeKind, field: st
 }
 
 /**
- * One node's diagrams, read now from the fact store: the page's own kind decides
- * the specifications (`diagramSpecsFor`), and every model is built inside one
- * `snapshot` transaction of its own, so a diagram never draws an element read
- * before a publication beside an arrow read after it.
+ * One node's diagrams, read now from the fact store: the page's own kind decides the
+ * specifications (`diagramSpecsFor`) and what its siblings are (`moduleScopesOf`), and
+ * every model is built inside one `snapshot` transaction of its own, so a diagram never
+ * draws an element read before a publication beside an arrow read after it.
  *
- * A page the graph holds none of, and a fact of a kind with no page, are refused
- * with the page model's own words — a page about nothing would read as an absence
- * nobody stated (0005).
+ * **The node's own fact is the only page read here** (madarch-tzte.23.8). A page model is
+ * a dozen reads of the store and every fact about the node — measured on the current tree
+ * at 21 428 ms a repository page — and a diagrams ask needs three things of it: the node's
+ * kind, its entry as the page set names it, and the repository or table its value names.
+ * All three are the node's own fact, so this reads that fact and no other page read: a
+ * client that asks a page and its diagrams side by side (the app does,
+ * `wiki/app/src/graph-diagrams.tsx`) pays for the page once, and a page read that fails on
+ * something a diagram never shows (a draft set the schema refuses) leaves the diagrams
+ * standing.
+ *
+ * A node the graph holds none of, and a fact of a kind with no page, are refused with the
+ * page model's own words — a page about nothing would read as an absence nobody stated
+ * (0005).
  */
 export async function readNodeDiagrams(options: {
   readonly database: FactStoreDatabase;
@@ -280,30 +310,63 @@ export async function readNodeDiagrams(options: {
   readonly limits?: Partial<DiagramLimits>;
   readonly at?: number;
 }): Promise<GraphDiagramsRead> {
-  const page = await readPageModel({ database: options.database, product: options.product, id: options.id, ...(options.at === undefined ? {} : { at: options.at }) });
-  if (!page.ok) return { ok: false, code: page.code, message: page.message };
-  const kind = page.page.node.kind as FactKind;
-  if (!isPageKind(kind)) return { ok: false, code: 'graph-pages/not-a-page', message: `the node ${options.id} is a "${kind}" fact, and no page exists for that kind: a page exists for the kinds a registry document may be about (src/fill/page-changes.ts)` };
+  const id = options.id;
+  const refusal = pageRefusalOf(id);
+  if (refusal !== undefined) return refusal;
+  const readAt = options.at ?? Date.now();
+  const node = await pageNodeOf(options.database, options.product, id);
+  if (node === undefined) {
+    return { ok: false, code: 'graph-pages/no-such-node', message: `the graph holds no "${id.slice(0, id.indexOf(':'))}" fact of the id ${id} among the facts the product "${options.product}" publishes: a page is read after the unit that publishes its node (decision 0026)` };
+  }
+  const kind = node.kind;
   const reads = factStoreDiagramReads(options.database, options.product);
-  const repository = repositoryOf(page.page);
+  const repository = repositoryOf(node);
   const repositoryId = repository === undefined ? undefined : await oneFactOf(reads, 'repository', 'repository', repository);
-  const table = tableOf(page.page);
+  const table = tableOf(node);
   const tableId = table === undefined ? undefined : await oneFactOf(reads, 'table', 'name', table);
-  const moduleScopes = await moduleScopesOf(reads, kind, options.id, repository, repositoryId);
+  const moduleScopes = await moduleScopesOf(reads, kind, id, repository, repositoryId);
   const specs: DiagramViewSpec[] = [...diagramSpecsFor({
     kind,
-    id: options.id,
+    id,
     moduleScopes,
     ...(repositoryId === undefined ? {} : { repositoryId }),
     ...(tableId === undefined ? {} : { tableId }),
   })];
   if (kind === 'symbol') {
-    const steps = await reads.edges([options.id], ['interaction']);
+    const steps = await reads.edges([id], ['interaction']);
     if (steps.length > 0) specs.push({ type: 'sequence', nodes: [], scenario: steps.map((step) => step.id).sort((left, right) => (left < right ? -1 : left > right ? 1 : 0)) });
   }
   const diagrams: NodeDiagram[] = [];
   for (const spec of specs) {
     diagrams.push({ spec, model: await buildFactStoreDiagram(spec, options.database, { product: options.product, ...(options.limits === undefined ? {} : { limits: options.limits }) }) });
   }
-  return { ok: true, page: page.page, diagrams };
+  return { ok: true, product: options.product, node: pageEntryOf(node), page: pageAddress(id), readAt, diagrams };
+}
+
+/**
+ * The refusal an id that names no page gets before any read, in the page model's own
+ * words: an id that is no fact id (400) and a kind no page exists for (404). Both are
+ * answered from the id alone — a fact id carries its kind in front of its digest — so
+ * neither costs a read of the store.
+ */
+function pageRefusalOf(id: string): Extract<GraphDiagramsRead, { readonly ok: false }> | undefined {
+  if (!isFactId(id)) {
+    return { ok: false, code: 'graph-pages/not-a-fact-id', message: `"${id}" is no fact id: a page is named by the fact id of its node (a kind, a colon and the 64 lower-case hexadecimal digits of the fact's identity)` };
+  }
+  if (isPageId(id) === false) {
+    const kind = id.slice(0, id.indexOf(':'));
+    return {
+      ok: false,
+      code: 'graph-pages/not-a-page',
+      message: `the node ${id} is ${isFactKind(kind) ? `a "${kind}" fact` : 'no fact of a kind this graph reads'}, and no page exists for that kind: a page exists for ${PAGE_KINDS.join(', ')} (decision 0026, "Pages"; the kinds a registry document may be about)`,
+    };
+  }
+  return undefined;
+}
+
+/** One node's own fact, as its page's first question reads it: undefined when no unit of the product holds it. */
+async function pageNodeOf(database: FactStoreDatabase, product: string, id: string): Promise<Fact | undefined> {
+  const request: GraphRead = { read: 'fact', id, product };
+  const rows = await answerGraphRead({ database, snapshot: NO_PAGE_SPANS }, request);
+  return factsOfRows(rows, request)[0];
 }
