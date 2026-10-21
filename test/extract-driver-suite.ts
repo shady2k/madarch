@@ -119,8 +119,10 @@ function canonical(iso: string): string {
 
 /** The instant text one microsecond after an ISO instant, for 0028's tie rule. */
 function plusMicrosecond(iso: string): string {
-  const date = new Date(`${iso.slice(0, 23)}Z`);
-  const micros = Number(iso.slice(24, 30)) + 1;
+  const match = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?Z$/.exec(iso);
+  if (match === null) throw new Error(`plusMicrosecond: ${iso} is not a UTC instant`);
+  const micros = Number((match[2] ?? '').padEnd(6, '0')) + 1;
+  const date = new Date(`${match[1]}Z`);
   date.setUTCSeconds(date.getUTCSeconds() + Math.floor(micros / 1_000_000));
   return `${date.toISOString().slice(0, 19)}.${String(micros % 1_000_000).padStart(6, '0')}Z`;
 }
