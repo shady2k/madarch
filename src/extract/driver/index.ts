@@ -198,7 +198,8 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
       try {
         extractions.push(extractor(tree));
       } catch (error) {
-        throw new Error(`extract driver: an extractor failed over commit ${commit.hash} ("${commit.subject}", generation ${commit.generation}) of ${repository}: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
+        const name = extractor.name === '' ? 'an unnamed extractor' : `the extractor "${extractor.name}"`;
+        throw new Error(`extract driver: ${name} failed over commit ${commit.hash} ("${commit.subject}", generation ${commit.generation}) of ${repository}: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
       }
     }
     return extractions;
