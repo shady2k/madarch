@@ -157,6 +157,11 @@ export function readGoFile(path: string, root: SyntaxNode): GoFileFacts {
   const calledMethods = new Map<string, Set<string>>();
 
   walkTree(root, (node) => {
+    // A function whose text verifies a token with HS256 (`jwt.WithValidMethods([]string{"HS256"})`).
+    if ((node.type === 'function_declaration' || node.type === 'method_declaration') && /['"]HS256['"]/.test(node.text)) {
+      const name = node.childForFieldName('name')?.text;
+      if (name !== undefined) hs256Functions.push(name);
+    }
     if (node.type === 'package_clause') {
       packageName = node.namedChild(0)?.text ?? '';
       return;
@@ -207,15 +212,11 @@ export function readGoFile(path: string, root: SyntaxNode): GoFileFacts {
       }
       return;
     }
-    // A function whose text verifies a token with HS256 (`jwt.WithValidMethods([]string{"HS256"})`).
-    if ((node.type === 'function_declaration' || node.type === 'method_declaration') && /['"]HS256['"]/.test(node.text)) {
-      const name = node.childForFieldName('name')?.text;
-      if (name !== undefined) hs256Functions.push(name);
-    }
-    // One const spec per line here; a const block carries several.
+    // One const spec per line here; a const block carries several. The value
+    // field is an expression list; its single element is the literal.
     if (node.type === 'const_spec') {
       const name = node.childForFieldName('name')?.text;
-      const value = node.childForFieldName('value');
+      const value = node.childForFieldName('value')?.namedChild(0) ?? null;
       const literal = value === null ? undefined : stringValue(value);
       if (name !== undefined && literal !== undefined) consts.set(name, literal);
       return;
@@ -298,16 +299,14 @@ export function readGoFile(path: string, root: SyntaxNode): GoFileFacts {
       return;
     }
     if (/^kafka\.ReaderConfig\{/.test(node.text)) {
-      let topic: string | undefined;
-      let group: string | undefined;
-      walkTree(node, (element) => {
-        if (element.type !== 'keyed_element') return;
-        const key = element.childForFieldName('key')?.text;
-        const value = element.childForFieldName('value');
-        if (key === 'Topic') topic = value?.text;
-        if (key === 'GroupID') group = stringValue(value) ?? value?.text;
+      const topicMatch = /\bTopic:\s*([A-Za-z0-9_.]+)/.exec(node.text);
+      const groupMatch = /\bGroupID:\s*"([^"]*)"/.exec(node.text);
+      kafkaSites.push({
+        kind: 'consume',
+        topic: topicMatch?.[1],
+        group: groupMatch?.[1],
+        span: spanOf(node, path),
       });
-      kafkaSites.push({kind: 'consume', topic, group, span: spanOf(node, path)});
       return;
     }
     // The consumer loop: the handler applied as a statement, then the commit reading only its own error.

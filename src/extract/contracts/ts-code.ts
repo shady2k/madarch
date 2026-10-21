@@ -149,7 +149,7 @@ export function readTsFile(path: string, root: SyntaxNode): TsFileFacts {
       }
       return;
     }
-    if (node.type === 'type_alias') {
+    if (node.type === 'type_alias' || node.type === 'type_alias_declaration') {
       const name = node.childForFieldName('name')?.text;
       const value = node.childForFieldName('value');
       if (name !== undefined && value !== null && value.type === 'union_type') {
@@ -179,12 +179,21 @@ export function readTsFile(path: string, root: SyntaxNode): TsFileFacts {
       });
       return;
     }
-    if (node.type === 'variable_declarator' && node.parent?.type === 'lexical_declaration' && node.parent.parent?.type === 'program') {
+    if (node.type === 'variable_declarator') {
       const name = node.childForFieldName('name')?.text;
       const value = node.childForFieldName('value');
-      if (name !== undefined && value !== null && value.type === 'call_expression') {
-        if (calleeName(value) === 'express') appVar = name;
-        if (calleeName(value) === 'Router') routerFactories.set(name, '');
+      if (name !== undefined && value !== null) {
+        // The app of the file is the one variable `express()` builds; it stands
+        // inside the app factory, not at the top level.
+        if (value.type === 'call_expression' && calleeName(value) === 'express') appVar = name;
+        // The client field a deadline comes from: `const deadline = ... this.<field>`.
+        if (name === 'deadline' && deadlineField === undefined) {
+          const match = /this\.([A-Za-z0-9_]+)/.exec(value.text);
+          if (match !== null) {
+            const className = classOfField(root, match[1]!);
+            if (className !== undefined) deadlineField = {field: match[1]!, className};
+          }
+        }
       }
       return;
     }
@@ -305,15 +314,6 @@ export function readTsFile(path: string, root: SyntaxNode): TsFileFacts {
       }
       return;
     }
-    // The client field a deadline comes from: `const deadline = ... this.<field>`.
-    if (node.type === 'variable_declarator' && node.childForFieldName('name')?.text === 'deadline' && deadlineField === undefined) {
-      const match = /this\.([A-Za-z0-9_]+)/.exec(node.childForFieldName('value')?.text ?? '');
-      if (match !== null) {
-        const className = classOfField(root, match[1]!);
-        if (className !== undefined) deadlineField = {field: match[1]!, className};
-      }
-      return;
-    }
   });
 
   // A file starts a process when a top-level statement listens, or calls a local function that listens.
@@ -375,6 +375,11 @@ export function readTsFile(path: string, root: SyntaxNode): TsFileFacts {
       mounts.push({prefix: firstText, middlewares, factory});
       continue;
     }
+    // A path-less `use` after a route or a mount of this file is the error
+    // tail of the pipeline, not a middleware of the routes before it.
+    const pipelineStarted = registrations.some((other) => other !== reg && other.verb !== 'use' && other.spanNode.startIndex < reg.spanNode.startIndex)
+      || mounts.length > 0;
+    if (pipelineStarted) continue;
     for (const part of parts) {
       if (part.type === 'identifier') {
         const resolved = middlewareName(bindings, part.text);

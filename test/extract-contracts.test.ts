@@ -36,6 +36,7 @@ import {
 } from '../src/extract/contracts/schema.js';
 import {extractContracts} from '../src/extract/contracts/index.js';
 import {readGoFile} from '../src/extract/contracts/go-code.js';
+import {readTsFile} from '../src/extract/contracts/ts-code.js';
 import {readSyntaxTree} from '../src/fill/stages/syntax-extract.js';
 import type {Extraction, ExtractedEdge, ExtractedNode, TreeReader} from '../src/extract/records.js';
 
@@ -170,15 +171,67 @@ describe('extract contracts (training repository)', () => {
     console.log('gaps:', extraction.gaps.map((gap) => `${gap.path}: ${gap.reason}`).join(' | ') || '(none)');
   });
 
+  test('diagnostic: TS file facts', async () => {
+    for (const p of ['services/payments/src/events/publishers.ts', 'services/payments/src/app.ts', 'services/checkout/src/app.ts']) {
+      const bytes = extractionRead(p);
+      const dump: unknown[] = [];
+      const read = await readSyntaxTree(p, bytes, (file) => {
+        if (p === 'services/payments/src/events/publishers.ts') {
+          const probe = (node: import('web-tree-sitter').Node): void => {
+            if (node.type.includes('alias') || node.type.includes('union') || node.text.startsWith('export type')) {
+              dump.push({type: node.type, name: node.childForFieldName('name')?.text ?? '-', value: node.childForFieldName('value')?.type ?? '-', text: node.text.slice(0, 60)});
+            }
+            for (let i = 0; i < node.childCount; i++) {
+              const child = node.child(i);
+              if (child !== null) probe(child);
+            }
+          };
+          probe(file.root);
+        }
+        const facts = readTsFile(p, file.root);
+        dump.push({
+          consts: [...facts.consts],
+          typeUnions: [...facts.typeUnions],
+          appMiddlewares: facts.appMiddlewares,
+          mounts: facts.mounts,
+          routes: facts.routes.map((route) => `${route.method} ${route.path}`),
+          entry: facts.entry,
+        });
+        return facts;
+      });
+      if (!read.read) {
+        console.log(p, 'UNREAD');
+        continue;
+      }
+      console.log(p, JSON.stringify(dump[0]));
+    }
+  });
+
   test('diagnostic: Go file facts', async () => {
     for (const p of ['services/promotions/cmd/promotions/main.go', 'services/orders/internal/relay/kafka.go', 'services/orders/internal/consumer/payments.go', 'services/orders/cmd/orders/main.go']) {
       const bytes = extractionRead(p);
-      const read = await readSyntaxTree(p, bytes, (file) => readGoFile(p, file.root));
+      const shapes: string[] = [];
+      const read = await readSyntaxTree(p, bytes, (file) => {
+        if (p === 'services/promotions/cmd/promotions/main.go') {
+          const probe = (node: import('web-tree-sitter').Node): void => {
+            if (/const/.test(node.type) || node.type === 'short_var_declaration') {
+              shapes.push(`${node.type}: name=${node.childForFieldName('name')?.text ?? '-'} value=${JSON.stringify(node.childForFieldName('value')?.text ?? '-')} left=${node.childForFieldName('left')?.text ?? '-'} text=${JSON.stringify(node.text.slice(0, 44))}`);
+            }
+            for (let i = 0; i < node.childCount; i++) {
+              const child = node.child(i);
+              if (child !== null) probe(child);
+            }
+          };
+          probe(file.root);
+        }
+        return readGoFile(p, file.root);
+      });
       if (!read.read) {
         console.log(p, 'UNREAD');
         continue;
       }
       const facts = read.value;
+      if (shapes.length > 0) console.log('shapes:', shapes.join(' || '));
       console.log(
         p,
         JSON.stringify({
@@ -364,7 +417,7 @@ describe('extract contracts (training repository)', () => {
       fileKey(clientLocation.path),
       operationKey(protoPath, 'payments.v1.Payments/Authorize'),
     );
-    expect(called.properties['client']).toBe(clientLocation.symbol);
+    expect(called.properties['client']).toBe(`PaymentsClient.${clientLocation.symbol}`);
     expect(called.properties['deadlineMs']).toBe(8000);
   });
 
