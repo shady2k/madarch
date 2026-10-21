@@ -484,7 +484,8 @@ export async function extractCode(reader: TreeReader): Promise<Extraction> {
     const members = paths.map((path) => fileFacts.get(path)!);
     const parsed = members.filter((file) => file.syntax.parsed);
     const go = members.find((file) => file.source.language === 'go');
-    const packageName = go === undefined ? undefined : /^package\s+(\w+)/m.exec(decoderSafe(go.source.bytes))?.[1];
+    const goCode = members.find((file) => file.source.language === 'go' && file.source.role === 'code') ?? go;
+    const packageName = goCode === undefined ? undefined : goCode.decls.packageName;
     const allTests = members.every((file) => file.source.role !== 'code');
     addNode({
       key: moduleKey(folder),
@@ -528,6 +529,7 @@ export async function extractCode(reader: TreeReader): Promise<Extraction> {
   }
 
   // ---- cycles ----------------------------------------------------------------------------------------
+  const fileCycleFolders: Set<string>[] = [];
   const emitCycles = (level: 'module' | 'file', graph: Map<string, Set<string>>): void => {
     const members = new Set<string>(graph.keys());
     for (const targets of graph.values()) for (const target of targets) members.add(target);
@@ -540,21 +542,27 @@ export async function extractCode(reader: TreeReader): Promise<Extraction> {
         if (from < to && graph.get(to)?.has(from) === true) pairs.push([from, to]);
       }
     }
+    // A folder is a module, so a root folder and its subfolders "cycle" through plain layering; a module cycle is
+    // stored only where a cycle of files crosses exactly those folders.
+    const backed = (component: string[]): boolean =>
+      level === 'file' ||
+      fileCycleFolders.some((folders) => component.every((member) => folders.has(member)));
     const seen = new Set<string>();
-    for (const component of [...components, ...pairs].sort((left, right) => byCodePoint(left.join('+'), right.join('+')))) {
+    for (const component of [...components, ...pairs].filter(backed).sort((left, right) => byCodePoint(left.join('+'), right.join('+')))) {
       const id = component.join('+');
       if (seen.has(id)) continue;
       seen.add(id);
       const inside = new Set(component);
       const internal: string[] = [];
       for (const from of component) for (const to of [...(graph.get(from) ?? [])].sort(byCodePoint)) if (inside.has(to)) internal.push(`${from} -> ${to}`);
+      if (level === 'file') fileCycleFolders.push(new Set(component.map((member) => moduleKey(folderOf(member.slice(member.indexOf(':') + 1))))));
       const key = cycleKey(level, component);
       addNode({ key, kind: KIND_CYCLE, label: component.map((member) => member.slice(member.indexOf(':') + 1)).join(' <-> '), properties: { level, size: component.length, members: component, edges: internal } });
       for (const member of component) addEdge({ type: REL_CYCLE_MEMBER, from: key, to: member, discriminator: '', properties: {} });
     }
   };
-  emitCycles('module', moduleGraph);
   emitCycles('file', fileGraph);
+  emitCycles('module', moduleGraph);
 
   // ---- the test catalogue --------------------------------------------------------------------------------
   for (const file of parsedFiles) {

@@ -123,7 +123,7 @@ export async function readTestDetails(file: SourceFile, tests: readonly Extracte
     for (const test of tests) byStart.set(test.span.startByte, test);
     const e2eFile = /(?:^|[./_-])e2e(?:[./_-]|$)/i.test(file.path);
 
-    const visit = (node: SyntaxNode, suite: readonly string[], inLoop: boolean, range?: { startByte: number; endByte: number }): void => {
+    const visit = (node: SyntaxNode, suite: readonly string[], inLoop: boolean, range?: { startByte: number; endByte: number }, suiteSkipped = false): void => {
       if (file.language === 'go') {
         if (node.type === 'function_declaration') {
           const name = node.childForFieldName('name');
@@ -141,13 +141,13 @@ export async function readTestDetails(file: SourceFile, tests: readonly Extracte
         if (call !== undefined) {
           if (isSuite(call)) {
             const next = call.name === undefined ? suite : [...suite, call.name];
-            if (call.callback !== undefined) for (const child of named(call.callback)) visit(child, next, inLoop, { startByte: node.startIndex, endByte: node.endIndex });
+            if (call.callback !== undefined) for (const child of named(call.callback)) visit(child, next, inLoop, { startByte: node.startIndex, endByte: node.endIndex }, suiteSkipped || isSkip(call));
             return;
           }
           const test = byStart.get(node.startIndex) ?? tests.find((candidate) => candidate.name === call.name && candidate.span.startByte >= node.startIndex && candidate.span.endByte <= node.endIndex);
           if (test !== undefined) {
-            const skipped = isSkip(call);
-            const reason = skipped ? tsSkipReason(node, call, text) : undefined;
+            const skipped = isSkip(call) || suiteSkipped || call.modifier === 'todo';
+            const reason = !skipped ? undefined : call.modifier === 'todo' ? 'marked todo' : suiteSkipped && !isSkip(call) ? 'its suite is skipped' : tsSkipReason(node, call, text);
             const rows = call.each !== undefined && call.each.type === 'array' ? named(call.each).length : undefined;
             const table = call.each !== undefined || inLoop;
             details.set(test.span.startByte, {
@@ -164,7 +164,7 @@ export async function readTestDetails(file: SourceFile, tests: readonly Extracte
         }
       }
       const loop = inLoop || node.type === 'for_in_statement' || node.type === 'for_statement';
-      for (const child of named(node)) visit(child, suite, loop, range);
+      for (const child of named(node)) visit(child, suite, loop, range, suiteSkipped);
     };
     visit(parsed.root, [], false);
     return details;
@@ -195,7 +195,9 @@ function goDetail(fn: SyntaxNode, test: ExtractedTest, text: string, e2eFile: bo
         rows = body === null ? 0 : named(body).filter((child) => child.type !== 'comment').length;
       }
     }
-    if (node.type === 'call_expression' && !skipped) {
+    // Only a statement of the test's own body skips it; one inside an `if` or a subtest does not.
+    const topLevelStatement = node.parent?.type === 'expression_statement' && node.parent.parent?.parent?.id === fn.id;
+    if (node.type === 'call_expression' && !skipped && topLevelStatement) {
       const callee = node.childForFieldName('function');
       if (callee !== null && callee.type === 'selector_expression') {
         const field = callee.childForFieldName('field');

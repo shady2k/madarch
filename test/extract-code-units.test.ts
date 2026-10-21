@@ -303,6 +303,20 @@ describe('a Go repository', () => {
   });
 });
 
+describe('skips', () => {
+  test('a skipped suite skips its cases, a todo is not a running case, and a conditional Go skip does not skip the test', async () => {
+    const result = await extractCode(treeOf({
+      'a/x.test.ts': "describe.skip('off', () => {\n  it('inside', () => {});\n});\nit.todo('later');\nit('runs', () => {});\n",
+      'a/y_test.go': 'package a\n\nimport "testing"\n\nfunc TestMaybe(t *testing.T) {\n\tif testing.Short() {\n\t\tt.Skip("short")\n\t}\n}\n',
+    }));
+    const byName = new Map(result.nodes.filter((n) => n.kind === 'code.test-case').map((n) => [n.properties['name'] as string, n.properties]));
+    expect(byName.get('inside')!['skipped']).toBe(true);
+    expect(byName.get('later')!['skipped']).toBe(true);
+    expect(byName.get('runs')!['skipped']).toBe(false);
+    expect(byName.get('TestMaybe')!['skipped']).toBe(false);
+  });
+});
+
 describe('what cannot be read is a gap', () => {
   test('a manifest that is not JSON, a go.mod with no module, a file of bytes that are not text and a file that fails to read', async () => {
     const files: Record<string, string> = {

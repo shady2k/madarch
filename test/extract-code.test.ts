@@ -762,6 +762,9 @@ describe('payments.cycle', () => {
     // Cycles of the other services are records too; the payments cycle is among them and is the only file-level one of payments.
     const paymentFileCycles = cycles.filter((c) => c.properties['level'] === 'file' && (c.properties['members'] as string[]).some((m) => m.includes('services/payments/')));
     expect(paymentFileCycles.map((c) => c.key)).toEqual([fileCycle.key]);
+    // A folder and its subfolders are not a cycle: the only module cycle of payments is domain <-> events.
+    const paymentModuleCycles = cycles.filter((c) => c.properties['level'] === 'module' && (c.properties['members'] as string[]).some((m) => m.includes('services/payments/')));
+    expect(paymentModuleCycles.map((c) => c.properties['members'])).toEqual([[moduleKey(`${PAYMENTS}/domain`), moduleKey(`${PAYMENTS}/events`)]]);
   });
 });
 
@@ -779,7 +782,8 @@ describe('dead-export', () => {
     // The report that once used it imports the file now for formatMoney only.
     expect(edges(REL_OCCURRENCE, undefined, sym(location.path, 'formatMoney')).length).toBeGreaterThan(0);
     const dead = ex.nodes.filter((n) => n.kind === KIND_SYMBOL && n.properties['deadExport'] === true);
-    expect(dead.map((n) => n.key)).toContain(legacy);
+    // The key names one dead export; nothing else in the repository is flagged.
+    expect(dead.map((n) => n.key)).toEqual([legacy]);
     // A dead export is a symbol of production code: never a test, a main function or a route.
     for (const n of dead) {
       expect(n.properties['test'] ?? false, n.key).toBe(false);
