@@ -13,7 +13,7 @@
  */
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -21,7 +21,7 @@ import { beforeAll, describe, expect, test } from 'bun:test';
 import type { DatabaseOwner } from '../src/adapters/database-owner.js';
 import type { GraphId, GraphStore } from '../src/graph/index.js';
 import { fillGraph, remapKey } from '../src/extract/driver/index.js';
-import { HISTORY_EXTRACTOR, TREE_EXTRACTORS } from '../src/extract/driver/extractors.js';
+import { HISTORY_EXTRACTOR, OWNERS, TREE_EXTRACTORS } from '../src/extract/driver/extractors.js';
 import type { FillOptions, FillReport } from '../src/extract/driver/index.js';
 import type { Extraction, TreeReader } from '../src/extract/records.js';
 
@@ -46,21 +46,6 @@ function blobAt(repository: string, commit: string, filePath: string): string {
   return git(repository, 'show', `${commit}:${filePath}`);
 }
 
-/** A minimal extractor that files every tree path as a code.file node carrying its content digest. */
-function extractFiles(tree: TreeReader): Extraction {
-  return {
-    producer: 'code.extract.files',
-    nodes: tree.paths.map((filePath) => ({
-      key: `code.file:${filePath}`,
-      kind: 'code.file',
-      label: filePath.slice(filePath.lastIndexOf('/') + 1),
-      properties: { path: filePath, sha256: sha(tree.read(filePath)) },
-    })),
-    edges: [],
-    gaps: [],
-  };
-}
-
 /**
  * The fill the suite runs: every extractor that has landed (wired in
  * src/extract/driver/extractors.ts), the history extractor with the answer
@@ -71,7 +56,8 @@ const fillOf = (owner: DatabaseOwner, store: GraphStore, repository: string): Fi
   owner,
   store,
   repository,
-  extractors: [...TREE_EXTRACTORS, extractFiles],
+  extractors: TREE_EXTRACTORS,
+  owners: OWNERS,
   history: HISTORY_EXTRACTOR,
   snapshots: KEY.snapshots,
 });
@@ -335,5 +321,56 @@ export function extractDriverTests(label: string, make: () => { owner: DatabaseO
       const identity: GraphId = env.report.repositoryNode;
       expect(identity).toMatch(/^[1-9][0-9]*$/);
     }, 60_000);
+
+    test('ownership: in the training fill no file or symbol key has a version from two producers, and no other producer\'s file node shares a key with the lister\'s', async () => {
+      const dup = await env.query<{ key: string; n: string }>(
+        `SELECT v.properties->>'recordKey' AS key, count(*)::text AS n FROM node_version v JOIN node_kind k ON k.id = v.kind_id
+         WHERE k.key IN ('code.file', 'code.symbol') AND v.recorded_to = 'infinity' AND v.valid_to = 'infinity'
+         GROUP BY 1 HAVING count(*) > 1`,
+      );
+      expect(dup).toEqual([]);
+      // The only file nodes of another producer are reference nodes for ends the lister no longer holds (a file deleted before the last commit), so none shares a key with the lister's current node.
+      const clash = await env.query<{ key: string }>(
+        `SELECT o.properties->>'recordKey' AS key FROM node_version o JOIN node_kind k ON k.id = o.kind_id
+         JOIN node_version f ON f.properties->>'recordKey' = o.properties->>'recordKey' AND f.producer = 'code.extract.files' AND f.recorded_to = 'infinity' AND f.valid_to = 'infinity'
+         WHERE k.key = 'code.file' AND o.producer <> 'code.extract.files' AND o.recorded_to = 'infinity' AND o.valid_to = 'infinity'`,
+      );
+      expect(clash).toEqual([]);
+    }, 60_000);
+
+    test('ownership: two producers emitting the same node key publish exactly one version, and the other\'s extra properties become a facet', async () => {
+      const tiny = path.join(workspace, 'tiny');
+      git(workspace, 'init', '-q', '-b', 'main', tiny);
+      writeFileSync(path.join(tiny, 'a.txt'), 'one\n');
+      git(tiny, 'add', '.');
+      execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-q', '-m', 'one'], { cwd: tiny, env: { ...process.env, GIT_COMMITTER_DATE: '2026-01-01T00:00:00Z', GIT_AUTHOR_DATE: '2026-01-01T00:00:00Z' } });
+      const fileKey = FILE + 'a.txt';
+      const owning = (tree: TreeReader): Extraction => ({ producer: 'code.extract.files', nodes: tree.paths.map((p) => ({ key: FILE + p, kind: 'code.file' as const, label: p, properties: { path: p } })), edges: [], gaps: [] });
+      const other = (): Extraction => ({
+        producer: 'code.extract.other',
+        nodes: [
+          { key: fileKey, kind: 'code.file', label: 'a.txt', properties: { path: 'a.txt', role: 'notes' } },
+          { key: 'code.thing:t', kind: 'code.thing', label: 't', properties: {} },
+        ],
+        edges: [{ type: 'code.refers', from: 'code.thing:t', to: fileKey, discriminator: '', properties: {} }],
+        gaps: [],
+      });
+      // The other producer is listed first: the owner still publishes first.
+      await fillGraph({ owner: env.owner, store: env.store, repository: tiny, extractors: [other, owning], owners: { 'code.file': 'code.extract.files' } });
+      const versions = await env.query<{ producer: string; id: string }>(
+        `SELECT v.producer, v.node_id::text AS id FROM node_version v JOIN node_kind k ON k.id = v.kind_id
+         WHERE k.key = 'code.file' AND v.properties->>'recordKey' = $1 AND v.recorded_to = 'infinity'`, [fileKey],
+      );
+      expect(versions.map((row) => row.producer)).toEqual(['code.extract.files']);
+      const facets = await env.query<{ properties: Record<string, unknown> }>(
+        `SELECT v.properties FROM node_version v JOIN node_kind k ON k.id = v.kind_id WHERE k.key = 'code.facet' AND v.producer = 'code.extract.other' AND v.recorded_to = 'infinity'`,
+      );
+      expect(facets.map((row) => row.properties['role'])).toEqual(['notes']);
+      expect(facets.map((row) => 'path' in row.properties)).toEqual([false]);
+      const edge = await env.query<{ dst: string }>(
+        `SELECT e.dst_id::text AS dst FROM edge_version e JOIN relation_type r ON r.id = e.relation_type_id WHERE r.key = 'code.refers' AND e.recorded_to = 'infinity'`,
+      );
+      expect(edge.map((row) => row.dst)).toEqual([versions[0]!.id]);
+    }, 120_000);
   });
 }

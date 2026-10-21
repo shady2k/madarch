@@ -72,6 +72,15 @@ export interface FillOptions {
   /** The default branch to walk; the repository's `HEAD` by default. */
   readonly ref?: string;
   readonly extractors: readonly TreeExtractor[];
+  /**
+   * Node ownership: each kind named here has exactly one owning producer, the
+   * only one that publishes versions of nodes of that kind. Another producer's
+   * node of the kind is dropped by the driver and its edges end at the owner's
+   * node; see `publishExtraction`. The owners publish first within a commit,
+   * in the order this list holds them (an owner of a later kind may name an
+   * earlier owner's nodes). Kinds not named have no owner and publish as before.
+   */
+  readonly owners?: Readonly<Record<string, string>>;
   /** The history records, published once, at the last commit, under their own producer. */
   readonly history?: HistoryExtractor;
   /** The snapshots the caller pins, each name to the revision it pins; handed to the history extractor. */
@@ -246,7 +255,7 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
   };
 
   /** Publishes one extraction as one complete publication of its producer at one instant. */
-  const publishExtraction = async (extraction: Extraction, generation: number, effectiveTime: string, renames: readonly { from: string; to: string }[], inputDigest: string, where: string): Promise<boolean> => {
+  const publishExtraction = async (extraction: Extraction, present: ReadonlyMap<string, Extraction>, generation: number, effectiveTime: string, renames: readonly { from: string; to: string }[], inputDigest: string, where: string): Promise<boolean> => {
     const through = async <T>(step: string, work: () => Promise<T>): Promise<T> => {
       try {
         return await work();
@@ -255,8 +264,37 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
         throw new Error(`extract driver: ${step} failed for producer "${extraction.producer}" over ${where}: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
       }
     };
-    const foreignKinds = [...new Set(extraction.edges.flatMap((edge) => [edge.from, edge.to]).filter((key) => !extraction.nodes.some((node) => node.key === key)).map((key) => key.slice(0, key.indexOf(':'))))].filter((kind) => kind.startsWith('code.'));
-    await through('registering the extractor schema', () => registerSchema(extraction, foreignKinds));
+    // Ownership. A kind with an owning producer that took part in this commit is
+    // published by that owner only: this producer's own node of the kind is
+    // dropped, and its properties stay only where the owner lacks them, as a
+    // node of this producer's own (`code.facet`) tied to the owner's node by a
+    // `code.facet-of` edge. An edge end of such a kind is the owner's node.
+    const owners = options.owners ?? {};
+    const ownerOf = (key: string): string | undefined => {
+      const kind = key.slice(0, key.indexOf(':'));
+      const owner = owners[kind];
+      return owner !== undefined && owner !== extraction.producer && present.has(owner) ? owner : undefined;
+    };
+    const ownerNode = (key: string) => present.get(ownerOf(key)!)!.nodes.find((node) => node.key === key);
+    const ownKept = extraction.nodes.filter((node) => ownerOf(node.key) === undefined);
+    const facets: { node: Extraction['nodes'][number]; ownerHas: boolean }[] = [];
+    for (const node of extraction.nodes) {
+      if (ownerOf(node.key) === undefined) continue;
+      const held = ownerNode(node.key);
+      const extra = Object.fromEntries(Object.entries(node.properties).filter(([name]) => held === undefined || !(name in held.properties)));
+      if (Object.keys(extra).length === 0) continue;
+      facets.push({
+        node: { key: `code.facet:${extraction.producer}#${node.key}`, kind: 'code.facet', label: node.label, properties: { ...extra, ownerKey: node.key }, ...(node.span === undefined ? {} : { span: node.span }) },
+        ownerHas: held !== undefined,
+      });
+    }
+    const effective: Extraction = {
+      ...extraction,
+      nodes: [...ownKept, ...facets.map((facet) => facet.node)],
+      edges: [...extraction.edges, ...facets.filter((facet) => facet.ownerHas).map((facet) => ({ type: 'code.facet-of' as const, from: facet.node.key, to: String(facet.node.properties['ownerKey']), discriminator: '', properties: {} }))],
+    };
+    const foreignKinds = [...new Set(effective.edges.flatMap((edge) => [edge.from, edge.to]).filter((key) => !effective.nodes.some((node) => node.key === key)).map((key) => key.slice(0, key.indexOf(':'))))].filter((kind) => kind.startsWith('code.'));
+    await through('registering the extractor schema', () => registerSchema(effective, foreignKinds));
     for (const gap of extraction.gaps) gaps.push({ producer: extraction.producer, path: gap.path, reason: gap.reason });
     const map = await (await keys(extraction.producer)).current();
     const found = await query<{ input_digest: string; published: boolean }>(
@@ -286,14 +324,25 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
     // this producer, with the kind its key names; the same logical key may
     // then exist under two producers, which the per-producer rule above
     // already allows.
-    const declared = new Set(extraction.nodes.map((node) => node.key));
-    // Every end an edge names and the extraction does not declare is repeated
-    // as a node of this producer on its own — the one already in the map as an
-    // unchanged item, the new one opened here — so the complete sweep never
-    // ends a node an edge of the next commit still needs.
-    const foreignEnds = [...new Set(extraction.edges.flatMap((edge) => [edge.from, edge.to]))]
+    const ownerKeyMaps = new Map<string, Map<string, GraphId>>();
+    for (const owner of new Set(Object.values(owners))) if (owner !== extraction.producer && present.has(owner)) ownerKeyMaps.set(owner, await (await keys(owner)).current());
+    const declared = new Set(effective.nodes.map((node) => node.key));
+    const ownedIds = new Map<string, GraphId>();
+    const foreignEnds = [...new Set(effective.edges.flatMap((edge) => [edge.from, edge.to]))]
       .filter((key) => !declared.has(key))
-      .sort();
+      .sort()
+      .filter((key) => {
+        const owner = ownerOf(key);
+        if (owner === undefined) return true;
+        const id = ownerNode(key) === undefined ? undefined : ownerKeyMaps.get(owner)?.get(key);
+        if (id !== undefined) {
+          ownedIds.set(key, id);
+          return false;
+        }
+        // The owner holds no node of this key in this commit: the end stays this producer's own reference node, said as a gap.
+        gaps.push({ producer: extraction.producer, path: key, reason: `the end ${key} has no node of its owner "${owner}" at this commit, so it stays a reference node of this producer` });
+        return true;
+      });
     const stubOf = (key: string) => {
       const kind = key.slice(0, key.indexOf(':'));
       if (!kind.startsWith('code.')) {
@@ -302,7 +351,7 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
       return { key, kind, label: key.slice(key.lastIndexOf('/') + 1) };
     };
     const nodes = [
-      ...extraction.nodes.map((node) => ({
+      ...effective.nodes.map((node) => ({
         ...(map.has(node.key) ? { id: map.get(node.key)! } : {}),
         ref: node.key,
         kind: node.kind,
@@ -327,7 +376,7 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
     // the extraction made; the record contract's span or discriminator has to
     // tell them apart, and a fill refuses rather than choose silently.
     const seenEdges = new Map<string, string>();
-    for (const edge of extraction.edges) {
+    for (const edge of effective.edges) {
       const logicalKey = `${edge.type}\u0000${edge.from}\u0000${edge.to}\u0000${edge.discriminator}`;
       const first = seenEdges.get(logicalKey);
       if (first !== undefined) {
@@ -335,11 +384,11 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
       }
       seenEdges.set(logicalKey, edge.span === undefined ? 'none' : `bytes ${edge.span.byteStart}-${edge.span.byteEnd} of ${edge.span.path}`);
     }
-    const publishedEdges = extraction.edges.map((edge) => {
+    const publishedEdges = effective.edges.map((edge) => {
       if (edge.type === OCCURRENCE && edge.span === undefined) {
         throw new Error(`extract driver: ${where}: producer "${extraction.producer}" emits an occurrence edge (${edge.from} -> ${edge.to}) without the span that positions it`);
       }
-      const end = (key: string) => (map.has(key) ? { id: map.get(key)! } as const : { ref: key } as const);
+      const end = (key: string) => ownedIds.has(key) ? { id: ownedIds.get(key)! } as const : (map.has(key) ? { id: map.get(key)! } as const : { ref: key } as const);
       return {
         relation: edge.type,
         src: end(edge.from),
@@ -369,15 +418,23 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
   };
 
   const commits: CommitFill[] = [];
+  let lastPresent: ReadonlyMap<string, Extraction> = new Map();
   for (const commit of walk) {
     const commitStarted = Date.now();
     const tree = commitTree(repository, commit.hash);
     const extractions = await runExtractors(commit, tree);
     let publications = 0;
     let gapCount = 0;
-    for (const extraction of extractions) {
+    // Owners publish first, in the order the owners list holds them, so an edge of a later producer can end at an owner's node of the same commit.
+    const rank = (producer: string): number => {
+      const at = [...new Set(Object.values(options.owners ?? {}))].indexOf(producer);
+      return at < 0 ? Number.MAX_SAFE_INTEGER : at;
+    };
+    const present = new Map(extractions.map((extraction) => [extraction.producer as string, extraction]));
+    lastPresent = present;
+    for (const extraction of [...extractions].sort((a, b) => rank(a.producer) - rank(b.producer))) {
       const inputDigest = sha256Hex(new TextEncoder().encode(`${commit.hash}\n${commit.tree}`));
-      const published = await publishExtraction(extraction, commit.generation, commit.effectiveTime, commit.renames, inputDigest, `commit ${commit.hash} ("${commit.subject}", generation ${commit.generation}) of ${repository}`);
+      const published = await publishExtraction(extraction, present, commit.generation, commit.effectiveTime, commit.renames, inputDigest, `commit ${commit.hash} ("${commit.subject}", generation ${commit.generation}) of ${repository}`);
       if (published) publications += 1;
       gapCount += extraction.gaps.length;
     }
@@ -392,7 +449,7 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
       throw new Error(`extract driver: the history extractor failed over ${repository} (${walk.length} first-parent commits): ${error instanceof Error ? error.message : String(error)}`, { cause: error });
     }
     const inputDigest = sha256Hex(new TextEncoder().encode(walk.map((commit) => `${commit.hash} ${commit.committerTime} ${commit.effectiveTime}`).join('\n')));
-    await publishExtraction(extraction, walk.length, last.effectiveTime, [], inputDigest, `the history of ${repository} (${walk.length} first-parent commits)`);
+    await publishExtraction(extraction, lastPresent, walk.length, last.effectiveTime, [], inputDigest, `the history of ${repository} (${walk.length} first-parent commits)`);
   }
 
   return { repositoryNode, commits, totalMs: Date.now() - started, gaps };
