@@ -8,7 +8,11 @@ concurrency:
 # The product's checks, once per push of any branch; a pull request from this
 # repository shows its branch's push run, so it is not run twice. Changes limited
 # to documents, tracker data or local hook tooling cannot touch the product and
-# are ignored here; see .shady2k/integration.md, "CI". Workflow changes are not
+# are ignored here; see .shady2k/integration.md, "CI". Of .shady2k only the files
+# madarch never executes are ignored: the wiki runs .shady2k/checks/* (src/product-wiki/
+# checking.ts) and CI runs run-scratch-check.mjs and check-test-shards.mjs, so a
+# change to those runs the suite (a setup update once merged unrun and broke a test).
+# Workflow changes are not
 # ignored: CI validates changes to its own actions and runner images. The
 # product-documents check is separate and runs on every push (documents.yml).
 # Unfinished work skips a run with [skip ci] in the pushed commit's message.
@@ -17,7 +21,18 @@ on:
     paths-ignore:
       - 'docs/**'
       - '.beads/**'
-      - '.shady2k/**'
+      - '.shady2k/trackers/**'
+      - '.shady2k/supervisors/**'
+      - '.shady2k/tracker-sync.*'
+      - '.shady2k/tracker.mjs'
+      - '.shady2k/connect.sh'
+      - '.shady2k/adapter*.mjs'
+      - '.shady2k/push*.mjs'
+      - '.shady2k/hooks.test.mjs'
+      - '.shady2k/documents*'
+      - '.shady2k/document-policy.json'
+      - '.shady2k/config.json'
+      - '.shady2k/integration.md'
       - '.githooks/**'
       - '*.md'
 
@@ -101,6 +116,12 @@ jobs:
       # The fact store's PostgreSQL leg (madarch-tzte.20.2): the sharded test job sets no server, so this
       # is the only place the fill's own tables and a publication through them run on a server.
       - run: bun test test/fill-fact-store-postgres.test.ts
+        env:
+          MADARCH_TEST_POSTGRES_URL: postgres://madarch_test:madarch_test@127.0.0.1:5432/madarch_test
+      # The temporal graph store's PostgreSQL leg (madarch-bjdx): the sharded test job sets no server, so this is
+      # the only place the graph's exclusion constraints, its fenced publications and its concurrent writers run
+      # on a server.
+      - run: bun test test/graph-store-postgres.test.ts
         env:
           MADARCH_TEST_POSTGRES_URL: postgres://madarch_test:madarch_test@127.0.0.1:5432/madarch_test
       # The fill's crash-injection suite with several executor processes

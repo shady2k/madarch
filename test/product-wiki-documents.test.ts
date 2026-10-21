@@ -440,6 +440,24 @@ describe('the set check at serve time', () => {
     }
   });
 
+  test('runProductCheck does not run over a FIFO registry: it returns at once, naming the file', () => {
+    const pipeFolder = mkdtempSync(join(tmpdir(), 'madarch-fifo-registry-'));
+    try {
+      mkdirSync(join(pipeFolder, 'docs'));
+      execFileSync('mkfifo', [join(pipeFolder, 'docs', 'kinds.yaml')]);
+      const started = Date.now();
+      const run = runProductCheck(pipeFolder);
+      expect(Date.now() - started).toBeLessThan(2000);
+      expect(run.ran).toBe(false);
+      if (!run.ran) {
+        expect(run.message).toContain('docs/kinds.yaml is not a regular file');
+        expect(run.message).toContain(join(pipeFolder, 'docs', 'kinds.yaml'));
+      }
+    } finally {
+      rmSync(pipeFolder, { recursive: true, force: true });
+    }
+  });
+
   test('runProductCheck names the failing script when it exits wrongly', () => {
     const held = process.env['MADARCH_PRODUCT_CHECK'];
     const broken = join(tmpdir(), `madarch-broken-check-${Date.now()}.mjs`);
