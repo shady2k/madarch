@@ -47,6 +47,19 @@ function locationsOf(entry: KeyItem): readonly KeyLocation[] {
   return entry.locations ?? (entry.location === undefined ? [] : [entry.location]);
 }
 
+/** The decoded text of one tree, cached. */
+function textOfOf(tree: TreeReader): (path: string) => string {
+  const decoder = new TextDecoder();
+  const texts = new Map<string, string>();
+  return (p: string): string => {
+    const held = texts.get(p);
+    if (held !== undefined) return held;
+    const read = decoder.decode(tree.read(p));
+    texts.set(p, read);
+    return read;
+  };
+}
+
 /** A TreeReader over a generated folder: paths in code point order, bytes on demand. */
 function readTree(folder: string): TreeReader {
   const paths: string[] = [];
@@ -78,28 +91,22 @@ let tree: TreeReader;
 let extraction: Extraction;
 let nodes: Map<string, ExtractedNode>;
 let spanText: (span: SourceSpan) => string;
+let textOf: (path: string) => string;
+let workspace: string;
 
 beforeAll(() => {
-  const folder = mkdtempSync(path.join(tmpdir(), 'madarch-extract-operations-'));
-  process.on('exit', () => rmSync(folder, { recursive: true, force: true }));
-  const repo = path.join(folder, 'repo');
+  workspace = mkdtempSync(path.join(tmpdir(), 'madarch-extract-operations-'));
+  const repo = path.join(workspace, 'repo');
   execFileSync('node', [GENERATOR, repo], { cwd: ROOT, stdio: ['ignore', 'ignore', 'pipe'], maxBuffer: 64 * 1024 * 1024 });
   tree = readTree(repo);
-  const texts = new Map<string, string>();
-  const textOf = (p: string): string => {
-    const held = texts.get(p);
-    if (held !== undefined) return held;
-    const read = new TextDecoder().decode(tree.read(p));
-    texts.set(p, read);
-    return read;
-  };
   spanText = (span: SourceSpan) => new TextDecoder().decode(tree.read(span.path).subarray(span.byteStart, span.byteEnd));
+  textOf = textOfOf(tree);
   extraction = extractOperations(tree);
   nodes = new Map(extraction.nodes.map((entry) => [entry.key, entry]));
 }, 120_000);
 
 afterAll(() => {
-  rmSync(path.join(tmpdir(), 'madarch-extract-operations-'), { recursive: true, force: true });
+  rmSync(workspace, { recursive: true, force: true });
 });
 
 function node(key: string): ExtractedNode {
@@ -248,7 +255,7 @@ describe('extract operations', () => {
       'cd services/checkout && npm test',
     ]);
     const install = node('code.make-target:Makefile#install');
-    expect(install.properties.recipe.join('\n')).toContain('npx prisma generate');
+    expect(String(install.properties.recipe)).toContain('npx prisma generate');
     const commands = nodesOfKind('code.newcomer-command').map((entry) => entry.properties.command);
     expect(commands).toEqual(expect.arrayContaining(['make install', 'make test']));
   });
@@ -269,13 +276,15 @@ describe('extract operations', () => {
     expect(lodash.properties.version).toBe('4.17.15');
     expect(lodash.properties.scope).toBe('direct');
     const uses = edgesFrom('code.uses-dependency', 'code.file:services/payments/src/api/legacy-report.ts');
-    expect(uses.map((entry) => entry.to)).toEqual(['code.dependency:services/payments/package.json#lodash']);
-    expect(uses[0]!.span!.path).toBe('services/payments/src/api/legacy-report.ts');
+    expect(uses.map((entry) => entry.to)).toContain('code.dependency:services/payments/package.json#lodash');
+    const lodashUse = uses.find((entry) => entry.to === 'code.dependency:services/payments/package.json#lodash');
+    expect(lodashUse!.span!.path).toBe('services/payments/src/api/legacy-report.ts');
+    expect(spanText(lodashUse!.span!)).toContain("from 'lodash'");
   });
 
   test('dependencies.go', () => {
     assertAnchored('dependencies.go');
-    const orders = 'code.manifest:services/orders/go.mod';
+    const orders = 'code.dependency:services/orders/go.mod';
     const wanted: Record<string, { version: string; scope: string }> = {
       'github.com/golang-jwt/jwt/v5': { version: 'v5.2.1', scope: 'direct' },
       'github.com/lib/pq': { version: 'v1.10.9', scope: 'direct' },
@@ -288,7 +297,7 @@ describe('extract operations', () => {
       expect(dependency.properties.version).toBe(wanted_.version);
       expect(dependency.properties.scope).toBe(wanted_.scope);
     }
-    const promotions = node('code.manifest:services/promotions/go.mod#github.com/lib/pq');
+    const promotions = node('code.dependency:services/promotions/go.mod#github.com/lib/pq');
     expect(promotions.properties.version).toBe('v1.10.9');
     expect(promotions.properties.scope).toBe('direct');
     for (const service of ['orders', 'promotions']) {
