@@ -33,7 +33,9 @@ const plan = PLAN as PlanCommit[];
 const subjectOf = (id: string): string => {
   const entry = plan.find((c) => c.id === id);
   if (entry === undefined) throw new Error(`history.mjs has no commit ${id}`);
-  return entry.message.split('\n')[0];
+  const subject = entry.message.split('\n')[0];
+  if (subject === undefined) throw new Error(`history.mjs carries no subject line for commit ${id}`);
+  return subject;
 };
 
 // ---- the fixture -----------------------------------------------------------
@@ -67,7 +69,7 @@ const commitsOfKind = (): ExtractedNode[] => extraction.nodes.filter((n) => n.ki
 const commitBySubject = (subject: string): ExtractedNode => {
   const hits = commitsOfKind().filter((n) => n.properties.subject === subject);
   if (hits.length !== 1) throw new Error(`${hits.length} commit nodes carry the subject ${JSON.stringify(subject)}`);
-  return hits[0];
+  return hits[0]!;
 };
 const fileNode = (p: string): ExtractedNode => node(`code.file:${p}`);
 const heldAt = (snapshot: string, p: string): ExtractedEdge | undefined =>
@@ -83,12 +85,13 @@ const contentAt = (snapshot: string, p: string): string => {
 
 /** An instant plus one microsecond, as the extractor writes effective times. */
 const plusMicro = (iso: string): string => {
-  const m = /^(.+T)(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?Z$/u.exec(iso);
+  const m = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?Z$/u.exec(iso);
   if (m === null) throw new Error(`no instant: ${iso}`);
-  const micros = ((Number(m[2]) * 60 + Number(m[3])) * 60 + Number(m[4])) * 1_000_000 + Number((m[5] ?? '').padEnd(6, '0') || 0) + 1;
-  const at = new Date(Math.floor(micros / 1_000_000) * 1000);
+  const atSeconds = Math.floor(Date.parse(`${m[1]}T${m[2]}:${m[3]}:${m[4]}Z`) / 1000);
+  const micros = Number((m[5] ?? '').padEnd(6, '0') || 0) + 1;
+  const seconds = atSeconds + Math.floor(micros / 1_000_000);
   const fraction = String(micros % 1_000_000).padStart(6, '0');
-  return `${at.toISOString().slice(0, 19)}.${fraction}Z`;
+  return `${new Date(seconds * 1000).toISOString().slice(0, 19)}.${fraction}Z`;
 };
 
 // ---- the cases -------------------------------------------------------------
@@ -110,9 +113,9 @@ describe('the history extractor against the answer key', () => {
   test('rename.identity: the move is one identity-keeping edge and the history continues', () => {
     const renames = edgesOf('code.renamed-to');
     expect(renames).toHaveLength(1);
-    const [rename] = renames;
-    expect(rename.from).toBe('code.file:services/orders/src/order.go');
-    expect(rename.to).toBe('code.file:services/orders/internal/domain/order.go');
+    const rename = renames[0]!;
+    expect(rename.from).toBe(`code.file:${'services/orders/src/order.go'}`);
+    expect(rename.to).toBe(`code.file:${'services/orders/internal/domain/order.go'}`);
     expect(rename.properties.similarity, 'R100: the content is kept').toBe(1);
     // At the May snapshot the file stands at the old path; at the end it stands
     // at the new one, and the old path is gone.
@@ -222,7 +225,7 @@ describe('the history extractor against the answer key', () => {
   test('history.feature-branch: two branch commits valid at the 2026-08-04 merge', () => {
     const merges = commitsOfKind().filter((n) => n.properties.merge === true);
     expect(merges, key.plantedCounts.mergeCommits).toHaveLength(1);
-    const merge = merges[0];
+    const merge = merges[0]!;
     expect(merge.properties.mergedBranch, 'the branch name').toBe('feature/checkout-observability');
     expect(merge.properties.committedAt, 'the merge date').toBe('2026-08-04T10:00:00Z');
     const branch = commitsOfKind().filter((n) => n.properties.onFirstParent === false);
@@ -251,8 +254,8 @@ describe('the history extractor against the answer key', () => {
     const authors = extraction.nodes.filter((n) => n.kind === 'code.author').map((n) => n.label).sort(byCodePoint);
     expect(authors).toEqual(['Avery Quinn', 'Rin Tanaka', 'Sam Okafor']);
     const times = commitsOfKind().map((n) => String(n.properties.committedAt)).sort(byCodePoint);
-    expect(times[0].startsWith('2026-04-13'), `oldest ${times[0]}`).toBe(true);
-    expect(times[times.length - 1].startsWith('2026-10-12'), `newest ${times[times.length - 1]}`).toBe(true);
+    expect(times[0]!.startsWith('2026-04-13'), `oldest ${times[0]}`).toBe(true);
+    expect(times[times.length - 1]!.startsWith('2026-10-12'), `newest ${times[times.length - 1]}`).toBe(true);
   });
 
   // hotspot: "order_service.go is the change hotspot: 28 of the 71 non-merge
@@ -273,8 +276,8 @@ describe('the history extractor against the answer key', () => {
   // commits that touch either changes both (0 change pricing.go only, 0 change
   // tax.go only). Neither file imports the other."
   test('change-coupling: pricing.go and tax.go change together in 6 commits, none alone', () => {
-    const pricing = 'code.file:services/orders/internal/pricing/pricing.go';
-    const tax = 'code.file:services/orders/internal/pricing/tax.go';
+    const pricing = `code.file:${'services/orders/internal/pricing/pricing.go'}`;
+    const tax = `code.file:${'services/orders/internal/pricing/tax.go'}`;
     const [a, b] = [pricing, tax].sort(byCodePoint);
     const pair = edgesOf('code.changed-with').find((e) => e.from === a && e.to === b);
     expect(pair, 'a coupling edge joins the pair').toBeDefined();
@@ -301,7 +304,7 @@ describe('the history extractor against the answer key', () => {
     for (const edge of touched) {
       const authored = edgesOf('code.authored').filter((e) => e.to === edge.from);
       expect(authored, edge.from).toHaveLength(1);
-      expect(node(authored[0].from).label, edge.from).toBe('Rin Tanaka');
+      expect(node(authored[0]!.from).label, edge.from).toBe('Rin Tanaka');
     }
   });
 
@@ -315,11 +318,11 @@ describe('the history extractor against the answer key', () => {
       .filter((row) => row.parent !== undefined);
     const backwards = withParent.filter((row) => String(row.n.properties.committedAt) < String(node(row.parent!.to).properties.committedAt));
     expect(backwards, 'exactly one commit is out of committer order').toHaveLength(1);
-    const anomaly = backwards[0].n;
+    const anomaly = backwards[0]!.n;
     expect(anomaly.properties.subject).toBe('Pin the Go toolchain in the Dockerfiles');
     expect(String(anomaly.properties.committedAt).startsWith('2026-09-04'), 'the raw committer time of the key').toBe(true);
     expect(String(anomaly.properties.authoredAt).startsWith('2026-09-16'), 'the author date of the key').toBe(true);
-    const parentEffective = String(node(backwards[0].parent!.to).properties.effectiveAt);
+    const parentEffective = String(node(backwards[0]!.parent!.to).properties.effectiveAt);
     expect(parentEffective.startsWith('2026-09-14'), `the parent's effective time ${parentEffective}`).toBe(true);
     expect(anomaly.properties.effectiveAt, 'the policy: parent effective plus one microsecond').toBe(plusMicro(parentEffective));
   });
