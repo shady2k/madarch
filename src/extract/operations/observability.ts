@@ -152,7 +152,9 @@ function metricsEndpoints(t: TreeText, records: Records): void {
     if (counters.length === 0) continue;
     const service = serviceOf(path);
     if (service === undefined) continue;
-    const registered = [...t.tree.paths].some((other) => other.startsWith(`services/${service}/`) && other.endsWith('.go') && t.text(other).includes('"/metrics"'));
+    const registered = [...t.tree.paths]
+      .filter((other) => other.startsWith(`services/${service}/`) && other.endsWith('.go'))
+      .some((other) => /["'`][A-Z]* ?\/metrics["'`]/.test(t.text(other)));
     if (!registered) continue;
     const receiver = /func \(\w+ \*?([A-Za-z0-9_]+)\) ServeHTTP/.exec(text)?.[1] ?? 'Metrics';
     const distinct = [...new Set(counters)].sort(byCodePoint);

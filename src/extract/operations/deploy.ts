@@ -4,7 +4,7 @@
  * the chain between them — deployment, image, process, port — followed as far
  * as the files name each other (the image meets its Dockerfile by name only).
  */
-import { LineCounter, isMap, isScalar, isSeq, parseDocument } from 'yaml';
+import { LineCounter, isMap, isScalar, isSeq, parseAllDocuments } from 'yaml';
 import type { PropertyValue } from '../records.js';
 import { readDockerfile } from '../../fill/stages/manifest-format.js';
 import type { Records } from './accumulate.js';
@@ -122,7 +122,7 @@ function listenPort(t: TreeText, path: string): { port: number; addr: string; li
   for (const [index, line] of lines.entries()) {
     const constant = /(?:const\s+)?listenAddr\s*=\s*"([^"]+)"/.exec(line) ?? /listenAddr\s*=\s*"([^"]+)"/.exec(line);
     if (constant !== null) {
-      const port = Number.parseInt((constant[1] ?? '').replace(/^\[:?/, ''), 10);
+      const port = Number.parseInt((constant[1] ?? '').replace(/^[:\[]/, ''), 10);
       if (Number.isFinite(port)) return { port, addr: constant[1] ?? '', line: index + 1 };
     }
     const tsConst = /\.listen\(\s*([A-Z][A-Z0-9_]*)\b/.exec(line);
@@ -160,22 +160,21 @@ interface K8sWorkload {
 function k8sWorkloads(t: TreeText, records: Records, path: string): K8sWorkload[] {
   const text = t.text(path);
   const lineCounter = new LineCounter();
-  const document = parseDocument(text, { lineCounter, keepSourceTokens: true });
+  const documents = parseAllDocuments(text, { lineCounter, keepSourceTokens: true });
   const workloads: K8sWorkload[] = [];
-  for (const error of document.errors) {
-    records.gap(path, `line ${lineCounter.linePos(error.pos?.[0] ?? 0).line}: ${error.message}`);
-  }
-  if (document.errors.length > 0) return workloads;
-  const documents = 'errors' in document ? splitDocuments(text) : [];
-  for (const one of documents) {
-    const parsed = parseDocument(one.text, { lineCounter: new LineCounter() });
+  for (const document of documents) {
+    for (const error of document.errors) {
+      records.gap(path, `line ${lineCounter.linePos(error.pos?.[0] ?? 0).line}: ${error.message}`);
+    }
+    const parsed = document;
     if (!isMap(parsed.contents)) continue;
     const kind = scalarText0(parsed.contents.items.find((pair) => isScalar(pair.key) && pair.key.value === 'kind')?.value);
     const metadata = parsed.contents.items.find((pair) => isScalar(pair.key) && pair.key.value === 'metadata')?.value;
     const name = isMap(metadata) ? scalarText0(metadata.items.find((pair) => isScalar(pair.key) && pair.key.value === 'name')?.value) : null;
     if (kind === null || name === null) continue;
-    const firstLine = lineCounter.linePos(one.start).line;
-    const lastLine = lineCounter.linePos(one.end >= text.length ? text.length - 1 : one.end).line;
+    const range = parsed.range ?? [0, 0, text.length - 1];
+    const firstLine = lineCounter.linePos(range[0] ?? 0).line;
+    const lastLine = lineCounter.linePos(Math.min((range[2] ?? text.length - 1), text.length - 1)).line;
     const workload: K8sWorkload = {
       kind,
       name,
@@ -254,23 +253,6 @@ function k8sWorkloads(t: TreeText, records: Records, path: string): K8sWorkload[
     workloads.push(workload);
   }
   return workloads;
-}
-
-/** Splits a multi-document YAML text into its documents with their byte ranges. */
-function splitDocuments(text: string): { text: string; start: number; end: number }[] {
-  const marker = /^---\s*$/gm;
-  const bounds: number[] = [0];
-  for (const match of text.matchAll(marker)) {
-    if (match.index !== undefined && match.index > 0) bounds.push(match.index);
-  }
-  bounds.push(text.length);
-  const documents: { text: string; start: number; end: number }[] = [];
-  for (let index = 0; index + 1 < bounds.length; index += 1) {
-    const start = bounds[index] ?? 0;
-    const end = bounds[index + 1] ?? text.length;
-    documents.push({ text: text.slice(start, end), start, end });
-  }
-  return documents.filter((one) => one.text.trim() !== '');
 }
 
 function scalarText0(node: unknown): string | null {

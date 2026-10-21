@@ -6,7 +6,7 @@
  * value it sets. A variable read but defined nowhere is still a variable: the
  * missing definition is a fact about the repository, not a silence.
  */
-import { LineCounter, isMap, isScalar, isSeq, parseDocument } from 'yaml';
+import { LineCounter, isMap, isScalar, isSeq, parseAllDocuments } from 'yaml';
 import type { PropertyValue } from '../records.js';
 import { byCodePoint } from '../../model/order.js';
 import type { Records } from './accumulate.js';
@@ -205,10 +205,10 @@ function envExampleDefinitions(t: TreeText): EnvDefinition[] {
 }
 
 /** The env: entries of YAML that set an explicit value, as in deploy/k8s. */
-function yamlEnvDefinitions(t: TreeText, path: string): EnvDefinition[] {
+function yamlEnvDefinitions(t: TreeText, records: Records, path: string): EnvDefinition[] {
   const definitions: EnvDefinition[] = [];
   const lineCounter = new LineCounter();
-  const document = parseDocument(t.text(path), { lineCounter, keepSourceTokens: true });
+  const documents = parseAllDocuments(t.text(path), { lineCounter, keepSourceTokens: true });
   const visit = (node: unknown): void => {
     if (!isMap(node)) return;
     const env = node.items.find((pair) => isScalar(pair.key) && pair.key.value === 'env')?.value;
@@ -238,7 +238,12 @@ function yamlEnvDefinitions(t: TreeText, path: string): EnvDefinition[] {
       visit(pair.value);
     }
   };
-  visit(document.contents);
+  for (const document of documents) {
+    for (const error of document.errors) {
+      records.gap(path, `line ${lineCounter.linePos(error.pos?.[0] ?? 0).line}: ${error.message}`);
+    }
+    visit(document.contents);
+  }
   return definitions;
 }
 
@@ -270,7 +275,7 @@ export function extractEnv(t: TreeText, records: Records): Map<string, EnvRead[]
     }
   }
   for (const path of t.pathsUnder('deploy', /\.ya?ml$/)) {
-    definitions.push(...yamlEnvDefinitions(t, path));
+    definitions.push(...yamlEnvDefinitions(t, records, path));
   }
 
   for (const [variable, sites] of [...byVariable].sort((left, right) => byCodePoint(left[0], right[0]))) {

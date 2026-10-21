@@ -14,6 +14,11 @@ export class Records {
 
   private readonly held = new Set<string>();
 
+  constructor(private readonly tree?: {
+    readonly spanOfFile: (path: string) => { readonly path: string; readonly byteStart: number; readonly byteEnd: number; readonly lineStart: number; readonly lineEnd: number };
+    readonly has: (path: string) => boolean;
+  }) {}
+
   /** Adds one node unless its key is held already; the first declaration stands. */
   add(node: ExtractedNode): void {
     if (this.held.has(node.key)) return;
@@ -58,7 +63,7 @@ export class Records {
       kind: 'code.file',
       label: path.slice(path.lastIndexOf('/') + 1),
       properties: { path },
-      span: undefined,
+      span: this.tree !== undefined && this.tree.has(path) ? this.tree.spanOfFile(path) : undefined,
     });
     return key;
   }

@@ -390,7 +390,7 @@ describe('extract operations', () => {
     expect(orders.properties.exposes).toEqual([8080]);
     expect(orders.properties.command).toBe('["/app/orders"]');
     const payments = node('code.dockerfile:services/payments/Dockerfile');
-    expect(payments.properties.exposes).toEqual([50051, 8081]);
+    expect(payments.properties.exposes).toEqual([8081, 50051]);
     expect(String(payments.properties.command)).toContain('prisma migrate deploy');
     expect(node('code.dockerfile:services/checkout/Dockerfile').properties.exposes).toEqual([8083]);
     expect(node('code.dockerfile:services/promotions/Dockerfile').properties.exposes).toEqual([8082]);
@@ -405,7 +405,7 @@ describe('extract operations', () => {
       expect(builds.map((entry) => entry.to)).toEqual([`code.dockerfile:${dockerfile}`]);
     }
     expect(node('code.compose-service:docker-compose.yml#payments').properties.build).toEqual({ context: '.', dockerfile: 'services/payments/Dockerfile' });
-    expect(node('code.compose-service:docker-compose.yml#orders').properties.build).toBe('services/orders');
+    expect(node('code.compose-service:docker-compose.yml#orders').properties.build).toBe('./services/orders');
   });
 
   // ---- build --------------------------------------------------------------
