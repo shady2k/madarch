@@ -12,6 +12,7 @@ import {promisify} from 'node:util';
 import {byCodePoint} from '../src/model/order.js';
 import type {ExtractedEdge, ExtractedNode, Extraction, SourceSpan, TreeReader} from '../src/extract/records.js';
 import {columnKey, fileKey, functionKey, indexKey, tableKey} from '../src/extract/data-model/keys.js';
+import {extractDataModel} from '../src/extract/data-model/extract.js';
 const execFileAsync = promisify(execFile);
 const worktreeRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const generator = path.join(worktreeRoot, 'examples/training-repository/generate.mjs');
@@ -95,7 +96,7 @@ function edgesBetween(type: string, from: string, to: string): ExtractedEdge[] {
 function oneEdge(type: string, from: string, to: string): ExtractedEdge {
   const found = edgesBetween(type, from, to);
   expect(found, `expected exactly one ${type} edge ${from} -> ${to}, found ${found.length}`).toHaveLength(1);
-  return found[0];
+  return found[0]!;
 }
 
 function textOf(pathname: string): string {
@@ -407,7 +408,14 @@ describe('outbox items (answer key)', () => {
     expect(cited).toContain('FOR UPDATE SKIP LOCKED');
     const mark = oneEdge('code.writes-table', functionKey('services/orders/internal/relay/relay.go', 'Relay.markPublished'), outbox);
     expect(citedTexts(mark).join('\n')).toContain('UPDATE outbox SET published_at');
-    expectAnchorsCited(item);
+    // The table-access locations of the item at relay.go must be cited; the
+    // item's kafka.go location (the broker publish) is a contract record the
+    // contracts extractor carries, not a table access.
+    for (const location of item.locations ?? []) {
+      if (location.path !== 'services/orders/internal/relay/relay.go') continue;
+      const citedHere = extraction.edges.some((edge) => edge.span?.path === location.path && citedTexts(edge).some((text) => text.includes(location.anchor)));
+      expect(citedHere, `no record cites the anchor of ${item.id} at ${location.path}: ${location.anchor}`).toBe(true);
+    }
   });
 
   keyCase('outbox.chain', () => {
@@ -418,7 +426,7 @@ describe('outbox items (answer key)', () => {
     expect(edgesBetween('code.writes-table', functionKey('services/orders/internal/relay/relay.go', 'Relay.markPublished'), tableKey('orders', 'outbox')).length > 0).toBe(true);
   });
 
-  test.todo('outbox.adr: a document-fact; docs/adr/0002-outbox.md is the documents extractor input, not a data-model record');
+  test.todo('outbox.adr: a document-fact; docs/adr/0002-outbox.md is the documents extractor input, not a data-model record', () => {});
 });
 
 function columnsOf(database: string, table: string): string[] {
