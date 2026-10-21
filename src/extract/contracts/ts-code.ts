@@ -289,18 +289,19 @@ export function readTsFile(path: string, root: SyntaxNode): TsFileFacts {
           if (args !== null && args !== undefined) registrations.push({verb, object, pathText, args, spanNode: node});
         }
       }
-      // A read of a request query parameter.
-      if (fn !== null && fn !== undefined && fn.type === 'member_expression') {
-        const object = fn.childForFieldName('object');
-        if (object !== null && object !== undefined && (object.text === 'req.query' || object.text === 'request.query')) {
-          const name = fn.childForFieldName('property')?.text;
-          if (name !== undefined && name !== '') inputs.push({name, fn: enclosingFunctionName(node), span: spanOf(node, path)});
-        }
-      }
       // A SQL execution sink.
       const prop = fn !== null && fn !== undefined && fn.type === 'member_expression' ? fn.childForFieldName('property')?.text ?? '' : '';
       if (prop.startsWith('$queryRaw')) {
         sqlSinks.push({callee: prop, fn: enclosingFunctionName(node), span: spanOf(node, path)});
+      }
+      return;
+    }
+    // A read of a request query parameter: `req.query.<name>`.
+    if (node.type === 'member_expression') {
+      const object = node.childForFieldName('object');
+      if (object !== null && object !== undefined && (object.text === 'req.query' || object.text === 'request.query')) {
+        const name = node.childForFieldName('property')?.text;
+        if (name !== undefined && name !== '') inputs.push({name, fn: enclosingFunctionName(node), span: spanOf(node, path)});
       }
       return;
     }
@@ -327,7 +328,11 @@ export function readTsFile(path: string, root: SyntaxNode): TsFileFacts {
     const first = node.namedChild(0);
     if (first === null || first.type !== 'call_expression') return;
     const fn = first.childForFieldName('function');
-    const inner = fn?.type === 'member_expression' ? fn.childForFieldName('object') : fn;
+    let inner = fn?.type === 'member_expression' ? fn.childForFieldName('object') : fn;
+    // `main().catch(...)`: the object is the call `main()`; its function names the entry.
+    if (inner !== null && inner !== undefined && inner.type === 'call_expression') {
+      inner = inner.childForFieldName('function');
+    }
     if (inner === null || inner === undefined || inner.type !== 'identifier') return;
     const name = inner.text;
     const body = functionBodyOf(root, name);
@@ -613,7 +618,7 @@ function classOfField(root: SyntaxNode, field: string): string | undefined {
     walkTree(body, (inner) => {
       if (found !== undefined) return;
       const isParameterProperty = inner.type === 'required_parameter' && /private|readonly|public/.test(inner.text);
-      const isProperty = inner.type === 'property_definition' && /private|readonly|public/.test(inner.text);
+      const isProperty = (inner.type === 'property_definition' || inner.type === 'field_definition') && /private|readonly|public/.test(inner.text);
       if ((isParameterProperty || isProperty) && new RegExp(`\\b${field}\\b`).test(inner.text)) {
         found = node.childForFieldName('name')?.text;
       }

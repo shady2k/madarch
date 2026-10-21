@@ -158,6 +158,14 @@ function startsOf(file: string, symbol: string): readonly {kind: string; symbol:
 }
 
 describe('extract contracts (training repository)', () => {
+  test('diagnostic: what the extractor held', () => {
+    const kinds = new Map<string, number>();
+    for (const node of extraction.nodes) kinds.set(node.kind, (kinds.get(node.kind) ?? 0) + 1);
+    console.log('nodes:', [...kinds.entries()].sort().map(([k, n]) => `${k}=${n}`).join(' '));
+    console.log('edges:', extraction.edges.map((e) => `${e.type} ${e.from} -> ${e.to}`).sort().join(' | '));
+    console.log('gaps:', extraction.gaps.map((gap) => `${gap.path}: ${gap.reason}`).join(' | ') || '(none)');
+  });
+
   test('every answer-key item of the contracts areas is carried', () => {
     const mine = key.items.filter((i) => /^(contract|entrypoints|interaction|security)\./.test(i.id));
     expect(mine.length).toBe(19);

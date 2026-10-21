@@ -205,9 +205,12 @@ export function readGoFile(path: string, root: SyntaxNode): GoFileFacts {
           }
         });
       }
-      // A function whose text verifies with HS256.
-      if (/"HS256"/.test(node.text)) hs256Functions.push(name);
       return;
+    }
+    // A function whose text verifies a token with HS256 (`jwt.WithValidMethods([]string{"HS256"})`).
+    if ((node.type === 'function_declaration' || node.type === 'method_declaration') && /['"]HS256['"]/.test(node.text)) {
+      const name = node.childForFieldName('name')?.text;
+      if (name !== undefined) hs256Functions.push(name);
     }
     // One const spec per line here; a const block carries several.
     if (node.type === 'const_spec') {
@@ -234,7 +237,7 @@ export function readGoFile(path: string, root: SyntaxNode): GoFileFacts {
         // The interface methods the file declares.
         if (body?.type === 'interface_type') {
           walkTree(body, (element) => {
-            if (element.type !== 'method_element') return;
+            if (element.type !== 'method_spec' && element.type !== 'method_element') return;
             const methodName = element.childForFieldName('name')?.text;
             if (methodName !== undefined) interfaceMethods.push(methodName);
           });
@@ -250,21 +253,14 @@ export function readGoFile(path: string, root: SyntaxNode): GoFileFacts {
         chainBindings.set(left, chainOf(right));
         return;
       }
-      // `server := &http.Server{Addr: ...}` -- a server a main starts.
-      const rightComposite = right?.type === 'composite_literal' ? right : right?.namedChild(0);
-      if (left !== undefined && rightComposite !== null && rightComposite !== undefined && rightComposite.type === 'composite_literal') {
-        const typeText = rightComposite.childForFieldName('type')?.text ?? '';
-        if (typeText === 'http.Server') {
-          const body = rightComposite.childForFieldName('body');
-          if (body !== null) {
-            walkTree(body, (element) => {
-              if (element.type !== 'keyed_element' || serverAddrs.has(left)) return;
-              if (element.childForFieldName('key')?.text === 'Addr') {
-                const value = element.childForFieldName('value');
-                serverAddrs.set(left, value?.type === 'identifier' ? value.text : stringValue(value) ?? value?.text ?? '');
-              }
-            });
-          }
+      // `server := &http.Server{Addr: ...}` -- a server a main starts. The right
+      // side is found by its text, whatever the parse wraps around it.
+      if (left !== undefined && !serverAddrs.has(left)) {
+        const rightNode = node.childForFieldName('right');
+        const rightText = rightNode?.text ?? '';
+        if (rightText.includes('http.Server{')) {
+          const addrMatch = /Addr:\s*([A-Za-z0-9_.":]+)/.exec(rightText);
+          if (addrMatch !== null) serverAddrs.set(left, addrMatch[1]!);
         }
       }
       return;
@@ -295,27 +291,23 @@ export function readGoFile(path: string, root: SyntaxNode): GoFileFacts {
       return;
     }
     // kafka.Message{...} -- a publish site; kafka.ReaderConfig{...} -- a consume site.
-    if (node.type === 'composite_literal') {
-      const typeText = node.childForFieldName('type')?.text ?? '';
-      if (typeText === 'kafka.Message') {
-        kafkaSites.push({kind: 'publish', span: spanOf(node, path)});
-        return;
-      }
-      if (typeText === 'kafka.ReaderConfig') {
-        let topic: string | undefined;
-        let group: string | undefined;
-        const body = node.childForFieldName('body');
-        if (body !== null) {
-          walkTree(body, (element) => {
-            if (element.type !== 'keyed_element') return;
-            const key = element.childForFieldName('key')?.text;
-            const value = element.childForFieldName('value');
-            if (key === 'Topic') topic = value?.text;
-            if (key === 'GroupID') group = stringValue(value) ?? value?.text;
-          });
-        }
-        kafkaSites.push({kind: 'consume', topic, group, span: spanOf(node, path)});
-      }
+    // The composite is the one node of the tree whose text starts with the type,
+    // whatever the parse wraps around it.
+    if (/^kafka\.Message\{/.test(node.text)) {
+      kafkaSites.push({kind: 'publish', span: spanOf(node, path)});
+      return;
+    }
+    if (/^kafka\.ReaderConfig\{/.test(node.text)) {
+      let topic: string | undefined;
+      let group: string | undefined;
+      walkTree(node, (element) => {
+        if (element.type !== 'keyed_element') return;
+        const key = element.childForFieldName('key')?.text;
+        const value = element.childForFieldName('value');
+        if (key === 'Topic') topic = value?.text;
+        if (key === 'GroupID') group = stringValue(value) ?? value?.text;
+      });
+      kafkaSites.push({kind: 'consume', topic, group, span: spanOf(node, path)});
       return;
     }
     // The consumer loop: the handler applied as a statement, then the commit reading only its own error.
