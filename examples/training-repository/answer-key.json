@@ -3,8 +3,8 @@
   "snapshots": {
     "snapshot-2026-05-01": "a5cd30ac38f956862c292bedfc9144288b4beb9a",
     "snapshot-2026-06-01": "c2e6657b75400db8cfec0c529600916635522c46",
-    "snapshot-2026-08-15": "034382e120f00f6a93837151271b2d143f6ea3c7",
-    "snapshot-final": "197d7be3ed0fb6bc88c9d19900bac30772d5b586"
+    "snapshot-2026-08-15": "8c2b23032627b471122c47c007be44679ff5e3de",
+    "snapshot-final": "5d1b757530bc568a46a423559b53baa00ac2c84a"
   },
   "plantedCounts": {
     "commits": 72,

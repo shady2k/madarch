@@ -46,7 +46,7 @@ commits are never counted; the feature branch's commits are.
 
 `package-lock.json` (lockfile v3) and `go.sum` were produced by `npm install` and
 `go mod tidy` on 2026-10-21 against the public registries, so they are real and
-resolvable; they are committed by the history's `Commit the lock files` step, after
+resolvable (the `funding` entries of the lock were removed: they are links to sponsor pages, not part of resolution); they are committed by the history's `Commit the lock files` step, after
 the last dependency was added. The generated repository's Docker images and compose
 file were not built or run when the fixture was made; the Go and TypeScript code was
 vetted, type-checked and tested (see the change record).
