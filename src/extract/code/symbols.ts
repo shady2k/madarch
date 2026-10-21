@@ -8,7 +8,7 @@
  */
 import type { ExtractedSymbol, SyntaxSpan } from '../../fill/stages/syntax-extract.js';
 import type { SymbolKind } from '../../fill/facts.js';
-import { symbolKey } from './keys.js';
+import { fileKey, symbolKey } from './keys.js';
 
 const FUNCTION_LIKE: ReadonlySet<SymbolKind> = new Set(['constructor', 'function', 'method']);
 
@@ -34,7 +34,7 @@ function sizeOf(span: SyntaxSpan): number {
   return span.endByte - span.startByte;
 }
 
-export function indexSymbols(path: string, symbols: readonly ExtractedSymbol[]): FileSymbol[] {
+export function indexSymbols(path: string, symbols: readonly ExtractedSymbol[], topNames: ReadonlySet<string> | undefined): FileSymbol[] {
   const functions = symbols.filter((symbol) => FUNCTION_LIKE.has(symbol.symbolKind));
   const indexed: FileSymbol[] = [];
   for (const symbol of symbols) {
@@ -43,6 +43,9 @@ export function indexSymbols(path: string, symbols: readonly ExtractedSymbol[]):
       .sort((left, right) => sizeOf(right.span) - sizeOf(left.span));
     const outer = containers[0];
     const key = symbolKey(path, symbol.qualifiedName);
+    // A name with no container that the file does not declare at its top is declared inside a block
+    // (a test callback, a `describe` body): it is a local of the file, not a symbol of its structure.
+    const blockLocal = outer === undefined && topNames !== undefined && !symbol.qualifiedName.includes('.') && !topNames.has(symbol.qualifiedName);
     indexed.push({
       key,
       qualifiedName: symbol.qualifiedName,
@@ -50,8 +53,8 @@ export function indexSymbols(path: string, symbols: readonly ExtractedSymbol[]):
       symbolKind: symbol.symbolKind,
       span: symbol.span,
       definitionSpan: symbol.definitionSpan,
-      local: outer !== undefined,
-      keptKey: outer === undefined ? key : symbolKey(path, outer.qualifiedName),
+      local: outer !== undefined || blockLocal,
+      keptKey: blockLocal ? fileKey(path) : outer === undefined ? key : symbolKey(path, outer.qualifiedName),
       functionLike: FUNCTION_LIKE.has(symbol.symbolKind),
     });
   }

@@ -21,6 +21,8 @@ export interface TestCaseDetail {
   readonly skipped: boolean;
   readonly skipReason?: string;
   readonly cases?: number;
+  /** The byte range of the innermost `describe` that holds the case: its setup and helpers stand there. */
+  readonly suiteRange?: { readonly startByte: number; readonly endByte: number };
 }
 
 function textOf(node: SyntaxNode, text: string): string {
@@ -121,7 +123,7 @@ export async function readTestDetails(file: SourceFile, tests: readonly Extracte
     for (const test of tests) byStart.set(test.span.startByte, test);
     const e2eFile = /(?:^|[./_-])e2e(?:[./_-]|$)/i.test(file.path);
 
-    const visit = (node: SyntaxNode, suite: readonly string[], inLoop: boolean): void => {
+    const visit = (node: SyntaxNode, suite: readonly string[], inLoop: boolean, range?: { startByte: number; endByte: number }): void => {
       if (file.language === 'go') {
         if (node.type === 'function_declaration') {
           const name = node.childForFieldName('name');
@@ -139,7 +141,7 @@ export async function readTestDetails(file: SourceFile, tests: readonly Extracte
         if (call !== undefined) {
           if (isSuite(call)) {
             const next = call.name === undefined ? suite : [...suite, call.name];
-            if (call.callback !== undefined) for (const child of named(call.callback)) visit(child, next, inLoop);
+            if (call.callback !== undefined) for (const child of named(call.callback)) visit(child, next, inLoop, { startByte: node.startIndex, endByte: node.endIndex });
             return;
           }
           const test = byStart.get(node.startIndex) ?? tests.find((candidate) => candidate.name === call.name && candidate.span.startByte >= node.startIndex && candidate.span.endByte <= node.endIndex);
@@ -155,13 +157,14 @@ export async function readTestDetails(file: SourceFile, tests: readonly Extracte
               skipped,
               ...(reason === undefined ? {} : { skipReason: reason }),
               ...(rows === undefined ? {} : { cases: rows }),
+              ...(range === undefined ? {} : { suiteRange: range }),
             });
             return;
           }
         }
       }
       const loop = inLoop || node.type === 'for_in_statement' || node.type === 'for_statement';
-      for (const child of named(node)) visit(child, suite, loop);
+      for (const child of named(node)) visit(child, suite, loop, range);
     };
     visit(parsed.root, [], false);
     return details;

@@ -11,6 +11,7 @@ import { repositoryPath } from '../../fill/facts.js';
 import { resolutionFacts, type ResolutionSymbolRow } from '../../fill/stages/resolution-facts.js';
 import type { ExtractedFileResolution } from '../../fill/stages/resolution-extract.js';
 import type { SyntaxSpan } from '../../fill/stages/syntax-extract.js';
+import { fileKey } from './keys.js';
 import type { FileSymbol } from './symbols.js';
 
 const COMMIT = '0'.repeat(40);
@@ -46,6 +47,7 @@ export function resolveFile(
   findings: ExtractedFileResolution,
   files: readonly string[],
   symbolsByFile: ReadonlyMap<string, readonly FileSymbol[]>,
+  lines: number,
 ): FileResolution {
   const rows = (symbols: readonly FileSymbol[], file: string): ResolutionSymbolRow[] =>
     symbols.map((symbol) => ({
@@ -61,6 +63,14 @@ export function resolveFile(
     readSymbols.set(file, rows(symbols, file));
     for (const symbol of symbols) keyById.set(idOfKey(symbol.key), symbol.key);
   }
+  // The file itself holds what stands outside every declaration (a test callback, a script's top-level
+  // statements): without a holder the resolver drops the name, and the site would be lost.
+  const fileId = idOfKey(fileKey(path));
+  keyById.set(fileId, fileKey(path));
+  readSymbols.set(path, [
+    ...(readSymbols.get(path) ?? []),
+    { id: fileId, file: repositoryPath(path), qualifiedName: '', symbolKind: 'module', range: { startLine: 1, startColumn: 0, endLine: lines + 1, endColumn: 1_000_000 } },
+  ]);
   const spanAt = new Map<string, SyntaxSpan>();
   for (const mention of findings.mentions) spanAt.set(`${mention.span.startLine}:${mention.span.startColumn}`, mention.span);
   const result = resolutionFacts({

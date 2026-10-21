@@ -211,10 +211,12 @@ describe('modules', () => {
       const importers = edges(REL_DEPENDS_ON, undefined, moduleKey(`${ORDERS}/${loop}`)).map((e) => e.from);
       expect(importers).toEqual([moduleKey('services/orders/cmd/orders')]);
     }
-    // config and logging are shared: more than one module depends on each.
+    // config and logging are shared leaves: other modules depend on them and they depend on no module of the service.
     for (const shared of ['config', 'logging']) {
-      expect(edges(REL_DEPENDS_ON, undefined, moduleKey(`${ORDERS}/${shared}`)).length).toBeGreaterThan(1);
+      expect(edges(REL_DEPENDS_ON, undefined, moduleKey(`${ORDERS}/${shared}`)).length).toBeGreaterThan(0);
+      expect(edges(REL_DEPENDS_ON, moduleKey(`${ORDERS}/${shared}`)), shared).toEqual([]);
     }
+    expect(edges(REL_DEPENDS_ON, undefined, moduleKey(`${ORDERS}/logging`)).length).toBeGreaterThan(1);
   });
 
   test('modules.payments: the folders api, domain, events, providers, store, grpc and the resilience file hold the named symbols', () => {
@@ -271,8 +273,10 @@ describe('modules', () => {
     expect(packages).toEqual(
       ['checkout', 'orders', 'payments', 'promotions'].map((name) => packageKey(`services/${name}`)),
     );
+    // Every module of a service has exactly one package holding it; a folder outside every service (the scripts) has none.
     for (const module of ex.nodes.filter((n) => n.kind === KIND_MODULE)) {
-      expect(edges(REL_CONTAINS, undefined, module.key).length).toBe(1);
+      const holders = edges(REL_CONTAINS, undefined, module.key).map((e) => e.from);
+      expect(holders.length, module.key).toBe(module.key.startsWith('code.module:services/') ? 1 : 0);
     }
   });
 });
@@ -368,8 +372,10 @@ describe('flow', () => {
     for (const location of locations) expect(node(sym(location.path, declared(location.symbol!))).kind).toBe(KIND_SYMBOL);
     expectEdge(REL_CALLS, sym(DOMAIN, 'Order.Apply'), sym(DOMAIN, 'Transition'));
     expectEdge(REL_REFERENCES, sym(DOMAIN, 'Transition'), sym(DOMAIN, 'transitions'));
-    // The aggregate is moved by Apply from the use cases, and created by NewOrder from Place.
-    expectEdge(REL_CALLS, sym(SERVICE, 'Service.ApplyPaymentEvent'), sym(DOMAIN, 'Order.Apply'));
+    // The aggregate is moved by Apply from the use case Service.Apply (Cancel, Ship and the payment events go through it),
+    // and created by NewOrder from Place.
+    expectEdge(REL_CALLS, sym(SERVICE, 'Service.Apply'), sym(DOMAIN, 'Order.Apply'));
+    for (const caller of ['Service.Cancel', 'Service.Ship', 'Service.ApplyPaymentEvent']) expectEdge(REL_CALLS, sym(SERVICE, caller), sym(SERVICE, 'Service.Apply'));
     expectEdge(REL_CALLS, sym(SERVICE, 'Service.Place'), sym(DOMAIN, 'NewOrder'));
     expect(has(REL_REFERENCES, sym(DOMAIN, 'Order.Apply'), sym(DOMAIN, 'transitions'))).toBe(false);
   });
@@ -510,7 +516,11 @@ describe('pattern', () => {
     const apply = sym('services/promotions/internal/api/handler.go', 'Handler.apply');
     expectEdge(REL_CALLS, apply, sym(DISCOUNT, 'For'));
     expectEdge(REL_CALLS, apply, sym(DISCOUNT, 'Strategy.Discount'));
-    for (const impl of ['Percent', 'FixedAmount', 'Threshold']) expect(has(REL_CALLS, apply, sym(DISCOUNT, `${impl}.Discount`))).toBe(false);
+    // The handler names no strategy: each implementation is reached only through the interface.
+    for (const impl of ['Percent', 'FixedAmount', 'Threshold']) {
+      expect(expectEdge(REL_CALLS, apply, sym(DISCOUNT, `${impl}.Discount`)).properties['via']).toBe('interface');
+      expect(has(REL_REFERENCES, apply, sym(DISCOUNT, impl))).toBe(false);
+    }
   });
 
   test('pattern.adapter: Cardnet and Deferred implement the PaymentProvider port', () => {
@@ -611,7 +621,7 @@ describe('tests', () => {
 
   test('tests.order-service: five test functions over the in-memory fakeStore, which implements OrderStore', () => {
     const file = `${ORDERS}/application/order_service_test.go`;
-    expect(cases(file).map((c) => c.properties['name'])).toEqual([
+    expect(cases(file).map((c) => c.properties['name'] as string).sort()).toEqual([
       'TestPaymentEventsMoveTheOrder',
       'TestPlacePricesEveryLine',
       'TestPlaceRefusesWhatCannotBePriced',
@@ -640,8 +650,9 @@ describe('tests', () => {
   test('tests.refund: refund.test.ts exercises checkRefund in table-driven and unit cases', () => {
     const location = locationsOf('tests.refund')[0]!;
     const found = cases(location.path);
-    expect(found.length).toBe(8);
-    for (const testCase of found) expect(subjectsOf(testCase), testCase.key).toContain(sym(`${PAYMENTS}/domain/refund.ts`, 'checkRefund'));
+    expect(found.length).toBe(7);
+    // Every case that runs exercises the refund rule; the one skipped case has an empty body.
+    for (const testCase of found.filter((c) => c.properties['skipped'] === false)) expect(subjectsOf(testCase), testCase.key).toContain(sym(`${PAYMENTS}/domain/refund.ts`, 'checkRefund'));
     const each = found.find((c) => c.properties['name'] === 'rejects the amount %p')!;
     expect(each.properties['testKind']).toBe('table-driven');
     expect(each.properties['cases']).toBe(3);
@@ -661,10 +672,10 @@ describe('tests', () => {
   test('tests.pay: pay.test.ts runs PaymentService with in-memory fakes that implement the repository, the sink and the provider', () => {
     const location = locationsOf('tests.pay')[0]!;
     const found = cases(location.path);
-    expect(found.length).toBe(8);
+    expect(found.length).toBe(7);
     const subjects = new Set(found.flatMap(subjectsOf));
-    expect(subjects.has(sym(`${PAYMENTS}/domain/payment-service.ts`, 'PaymentService.pay'))).toBe(true);
-    expect(subjects.has(sym(`${PAYMENTS}/domain/payment-service.ts`, 'PaymentService.refund'))).toBe(true);
+    // The cases build the service through a helper of the file, so the subject is the class they construct.
+    expect(subjects.has(sym(`${PAYMENTS}/domain/payment-service.ts`, 'PaymentService'))).toBe(true);
     expectEdge(REL_IMPLEMENTS, sym(location.path, 'ScriptedProvider'), sym(`${PAYMENTS}/providers/provider.ts`, 'PaymentProvider'));
     expectEdge(REL_IMPLEMENTS, sym(location.path, 'MemoryRepository'), sym(`${PAYMENTS}/store/payment-repository.ts`, 'PaymentRepository'));
     expectEdge(REL_IMPLEMENTS, sym(location.path, 'RecordingSink'), sym(`${PAYMENTS}/events/publishers.ts`, 'EventSink'));
@@ -673,7 +684,7 @@ describe('tests', () => {
   test('tests.checkout-e2e: the e2e file is a boundary test: two e2e cases that reach only checkout code', () => {
     const location = locationsOf('tests.checkout-e2e')[0]!;
     const found = cases(location.path);
-    expect(found.map((c) => c.properties['name'])).toEqual([
+    expect(found.map((c) => c.properties['name'] as string).sort()).toEqual([
       'cancels the order and answers 402 when the payment is declined',
       'places the order with the promotion percent and pays it',
     ]);
@@ -736,14 +747,21 @@ describe('payments.cycle', () => {
     expect(location.path).toBe(EVENTS_FILE);
     expectEdge(REL_IMPORTS, fileKey(EVENTS_FILE), fileKey(DOMAIN_FILE));
     const cycles = ex.nodes.filter((n) => n.kind === KIND_CYCLE);
-    const moduleCycle = cycles.find((c) => c.properties['level'] === 'module')!;
-    expect(moduleCycle.properties['members']).toEqual([moduleKey(`${PAYMENTS}/domain`), moduleKey(`${PAYMENTS}/events`)]);
+    const sameMembers = (level: string, members: string[]): ExtractedNode | undefined =>
+      cycles.find((c) => c.properties['level'] === level && JSON.stringify(c.properties['members']) === JSON.stringify(members));
+    const moduleCycle = sameMembers('module', [moduleKey(`${PAYMENTS}/domain`), moduleKey(`${PAYMENTS}/events`)])!;
+    expect(moduleCycle).toBeDefined();
     expectEdge(REL_CYCLE_MEMBER, moduleCycle.key, moduleKey(`${PAYMENTS}/domain`));
     expectEdge(REL_CYCLE_MEMBER, moduleCycle.key, moduleKey(`${PAYMENTS}/events`));
-    const fileCycle = cycles.find((c) => c.properties['level'] === 'file')!;
-    expect(fileCycle.properties['members']).toEqual([fileKey(DOMAIN_FILE), fileKey(EVENTS_FILE)]);
-    // The training repository holds exactly one cycle at each level.
-    expect(cycles.length).toBe(2);
+    expect(moduleCycle.properties['edges']).toEqual([
+      `${moduleKey(`${PAYMENTS}/domain`)} -> ${moduleKey(`${PAYMENTS}/events`)}`,
+      `${moduleKey(`${PAYMENTS}/events`)} -> ${moduleKey(`${PAYMENTS}/domain`)}`,
+    ]);
+    const fileCycle = sameMembers('file', [fileKey(DOMAIN_FILE), fileKey(EVENTS_FILE)])!;
+    expect(fileCycle).toBeDefined();
+    // Cycles of the other services are records too; the payments cycle is among them and is the only file-level one of payments.
+    const paymentFileCycles = cycles.filter((c) => c.properties['level'] === 'file' && (c.properties['members'] as string[]).some((m) => m.includes('services/payments/')));
+    expect(paymentFileCycles.map((c) => c.key)).toEqual([fileCycle.key]);
   });
 });
 

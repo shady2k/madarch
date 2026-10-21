@@ -20,7 +20,7 @@ import { extractFileSyntax, type ExtractedFileSyntax, type SyntaxSpan } from '..
 import { resolveSpecifier } from '../../fill/stages/syntax-facts.js';
 import type { ExtractedEdge, ExtractedNode, Extraction, ExtractionGap, PropertyValue, SchemaKey, SourceSpan, TreeReader } from '../records.js';
 import { memberSites } from './bodies.js';
-import { readDecls } from './decls.js';
+import { readDecls, type FileDecls } from './decls.js';
 import { cycles } from './graph.js';
 import {
   CODE_PRODUCER,
@@ -76,6 +76,7 @@ interface FileFacts {
   readonly source: SourceFile;
   readonly syntax: ExtractedFileSyntax;
   readonly resolution: ExtractedFileResolution;
+  readonly decls: FileDecls;
   readonly symbols: FileSymbol[];
 }
 
@@ -168,16 +169,19 @@ export async function extractCode(reader: TreeReader): Promise<Extraction> {
     } else if (syntax.unread.length > 0) {
       for (const unread of syntax.unread) gap(source.path, `the file is read as far as the parser went (${unread.reason}): ${unread.what}`);
     }
-    files.push({ source, syntax, resolution, symbols: indexSymbols(source.path, syntax.symbols) });
+    const { decls } = await readDecls(source);
+    const topNames = syntax.parsed && source.language === 'typescript' ? new Set(decls.tops.map((top) => top.name)) : undefined;
+    files.push({ source, syntax, resolution, decls, symbols: indexSymbols(source.path, syntax.symbols, topNames) });
   }
   const parsedFiles = files.filter((file) => file.syntax.parsed);
+  const fileFacts = new Map(files.map((file) => [file.source.path, file]));
   const known = new Set(sources.map((source) => source.path));
   const goFolders = new Set(sources.filter((source) => source.language === 'go').map((source) => folderOf(source.path)));
 
   // ---- the program ----------------------------------------------------------------
   const contexts: FileCtx[] = [];
   for (const file of parsedFiles) {
-    const { decls } = await readDecls(file.source);
+    const { decls } = file;
     const imports = new Map<string, Binding>();
     for (const entry of file.resolution.imports) {
       if (file.source.language === 'go') {
@@ -222,7 +226,7 @@ export async function extractCode(reader: TreeReader): Promise<Extraction> {
     for (const mention of file.resolution.mentions) mentionAt.set(`${mention.span.startLine}:${mention.span.startColumn}`, mention);
     const covered = new Set<string>();
     try {
-      const resolved = resolveFile(path, file.resolution, allPaths, symbolsByFile);
+      const resolved = resolveFile(path, file.resolution, allPaths, symbolsByFile, lineCountOf(file.source.bytes));
       for (const occurrence of resolved.occurrences) {
         const at = `${occurrence.span.startLine}:${occurrence.span.startColumn}`;
         covered.add(at);
@@ -365,7 +369,7 @@ export async function extractCode(reader: TreeReader): Promise<Extraction> {
       const target = symbolByKey.get(site.to);
       if (target === undefined) continue;
       const to = target.keptKey;
-      if (target.local && to === from) continue;
+      if (target.local && (to === from || to.startsWith('code.file:'))) continue;
       addEdge({
         type: REL_OCCURRENCE,
         from,
@@ -477,7 +481,7 @@ export async function extractCode(reader: TreeReader): Promise<Extraction> {
 
   const rootCounts = new Map<string, { source: number; test: number }>();
   for (const [folder, paths] of moduleFiles) {
-    const members = paths.map((path) => files.find((file) => file.source.path === path)!);
+    const members = paths.map((path) => fileFacts.get(path)!);
     const parsed = members.filter((file) => file.syntax.parsed);
     const go = members.find((file) => file.source.language === 'go');
     const packageName = go === undefined ? undefined : /^package\s+(\w+)/m.exec(decoderSafe(go.source.bytes))?.[1];
@@ -527,7 +531,20 @@ export async function extractCode(reader: TreeReader): Promise<Extraction> {
   const emitCycles = (level: 'module' | 'file', graph: Map<string, Set<string>>): void => {
     const members = new Set<string>(graph.keys());
     for (const targets of graph.values()) for (const target of targets) members.add(target);
-    for (const component of cycles([...members], graph)) {
+    const components = cycles([...members], graph);
+    // A component can be wide (one root folder and every folder under it import each other); the pairs
+    // that import each other directly are the cycles a reader can act on, so each pair is a record too.
+    const pairs: string[][] = [];
+    for (const [from, targets] of graph) {
+      for (const to of targets) {
+        if (from < to && graph.get(to)?.has(from) === true) pairs.push([from, to]);
+      }
+    }
+    const seen = new Set<string>();
+    for (const component of [...components, ...pairs].sort((left, right) => byCodePoint(left.join('+'), right.join('+')))) {
+      const id = component.join('+');
+      if (seen.has(id)) continue;
+      seen.add(id);
       const inside = new Set(component);
       const internal: string[] = [];
       for (const from of component) for (const to of [...(graph.get(from) ?? [])].sort(byCodePoint)) if (inside.has(to)) internal.push(`${from} -> ${to}`);
@@ -568,13 +585,37 @@ export async function extractCode(reader: TreeReader): Promise<Extraction> {
       addNode({ key, kind: KIND_TEST_CASE, label: full, properties, span: toSpan(path, test.span) });
       addEdge({ type: REL_CONTAINS, from: fileKey(path), to: key, discriminator: '', properties: {} });
       const subjects = new Map<string, number>();
+      const within = (site: { span: SyntaxSpan }, from: number, to: number): boolean => site.span.startByte >= from && site.span.endByte <= to;
+      const caseSpans = file.syntax.tests.map((other) => other.span);
+      const reached = (site: { to: string }): void => {
+        const found = symbolByKey.get(site.to);
+        if (found === undefined) return;
+        const foundFile = fileFacts.get(fileOfSymbol(found.key));
+        if (foundFile !== undefined && foundFile.source.role === 'code') subjects.set(found.keptKey, (subjects.get(found.keptKey) ?? 0) + 1);
+      };
+      const visitedHelpers = new Set<string>();
+      const follow = (site: { span: SyntaxSpan; to: string }): void => {
+        reached(site);
+        // A helper that stands in a test file (a builder, a `listen` function) is part of what the case does.
+        const helper = symbolByKey.get(site.to);
+        if (helper === undefined || visitedHelpers.has(helper.keptKey)) return;
+        const helperPath = fileOfSymbol(helper.key);
+        const helperFile = fileFacts.get(helperPath);
+        if (helperFile === undefined || helperFile.source.role === 'code') return;
+        visitedHelpers.add(helper.keptKey);
+        const kept = symbolByKey.get(helper.keptKey) ?? helper;
+        for (const inner of siteTargets.get(helperPath) ?? []) {
+          if (within(inner, kept.span.startByte, kept.span.endByte)) follow({ span: inner.span, to: inner.to });
+        }
+      };
       for (const site of siteTargets.get(path) ?? []) {
-        if (site.span.startByte < test.span.startByte || site.span.endByte > test.span.endByte) continue;
-        const target = symbolByKey.get(site.to);
-        if (target === undefined) continue;
-        const targetFile = files.find((candidate) => candidate.source.path === fileOfSymbol(target.key));
-        if (targetFile === undefined || targetFile.source.role !== 'code') continue;
-        subjects.set(site.to, (subjects.get(site.to) ?? 0) + 1);
+        const direct = within(site, test.span.startByte, test.span.endByte);
+        // Setup and helpers written beside the cases of the suite (a `beforeEach`) belong to every case of it.
+        const setup =
+          detail?.suiteRange !== undefined &&
+          within(site, detail.suiteRange.startByte, detail.suiteRange.endByte) &&
+          !caseSpans.some((span) => within(site, span.startByte, span.endByte));
+        if (direct || setup) follow({ span: site.span, to: site.to });
       }
       for (const [subject, count] of subjects) addEdge({ type: REL_TESTS, from: key, to: subject, discriminator: '', properties: { count } });
     }
@@ -586,6 +627,12 @@ export async function extractCode(reader: TreeReader): Promise<Extraction> {
   );
   const sortedGaps = [...gaps].sort((left, right) => byCodePoint(left.path, right.path) || byCodePoint(left.reason, right.reason));
   return { producer: CODE_PRODUCER, nodes: sortedNodes, edges: sortedEdges, gaps: sortedGaps };
+}
+
+function lineCountOf(bytes: Uint8Array): number {
+  let lines = 1;
+  for (const byte of bytes) if (byte === 10) lines += 1;
+  return lines;
 }
 
 function decoderSafe(bytes: Uint8Array): string {
