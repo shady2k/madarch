@@ -264,7 +264,7 @@ export function extractDriverTests(label: string, make: () => { owner: DatabaseO
         [anomaly.hash],
       ))[0]!;
       expect(commit.label).toBe(anomaly.subject);
-      expect(commit.raw).toBe(anomaly.committer);
+      expect(commit.raw).toBe(canonical(anomaly.committer)); // the raw time as the store writes instants
       expect(commit.effective).toBe(expected);
     }, 60_000);
 
@@ -306,6 +306,7 @@ export function extractDriverTests(label: string, make: () => { owner: DatabaseO
          WHERE n.nspname = current_schema() AND c.relkind = 'r' ORDER BY pg_total_relation_size(c.oid) DESC`,
       );
       for (const row of sizes) console.log(`[measure] ${row.table_name}: ${Number(row.bytes)} bytes`);
+      for (const table of GRAPH_TABLES) console.log(`[measure] ${table}: ${(await env.query<{ n: string }>(`SELECT count(*)::text AS n FROM ${table}`))[0]!.n} rows`);
       expect(sizes.length).toBe(GRAPH_TABLES.length);
       const identity: GraphId = env.report.repositoryNode;
       expect(identity).toMatch(/^[1-9][0-9]*$/);
