@@ -37,7 +37,7 @@ None.
 Decision 0028. Records carry logical keys, no time and no database ids; kinds and relation types are the engine's extractor schema under the `code.` prefix.
 
 ## Acceptance evidence
-To be filled by each task with the test run on the pod.
+- madarch-o0eq.1 (contracts, entrypoints, interactions, security): test/extract-contracts.test.ts names one case per answer-key item of those areas (19 items, all code-fact) and runs green on the SkyPilot pod beside test/neutral-repository-names.test.ts: 24 tests across 2 files, 0 fail, madarch-sky-test exit 0, 2026-10-21, log run-20261021-202712.log.txt under ~/.cache/madarch-sky-test/madarch-feature-madarch-extract-0f9468.
 
 ## DONE WHEN
 Every code-fact and history-fact item of the answer key in the extractors' areas is produced and asserted by a test on the generated training repository; what cannot be read is named as a gap.

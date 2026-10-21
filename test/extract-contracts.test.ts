@@ -35,9 +35,6 @@ import {
   sqlSinkKey,
 } from '../src/extract/contracts/schema.js';
 import {extractContracts} from '../src/extract/contracts/index.js';
-import {readGoFile} from '../src/extract/contracts/go-code.js';
-import {readTsFile} from '../src/extract/contracts/ts-code.js';
-import {readSyntaxTree} from '../src/fill/stages/syntax-extract.js';
 import type {Extraction, ExtractedEdge, ExtractedNode, TreeReader} from '../src/extract/records.js';
 
 const testFolder = path.dirname(fileURLToPath(import.meta.url));
@@ -108,7 +105,6 @@ async function folderReader(dir: string): Promise<{reader: TreeReader; folder: s
 }
 
 let extraction: Extraction;
-let extractionRead: (path: string) => Uint8Array;
 
 beforeAll(async () => {
   const scratch = await mkdtemp(path.join(tmpdir(), 'madarch-o0eq1-'));
@@ -119,7 +115,6 @@ beforeAll(async () => {
   });
   const {reader} = await folderReader(generated);
   extraction = await extractContracts(reader);
-  extractionRead = (p: string) => reader.read(p);
   await rm(scratch, {recursive: true, force: true});
 }, 240_000);
 
@@ -163,93 +158,6 @@ function startsOf(file: string, symbol: string): readonly {kind: string; symbol:
 }
 
 describe('extract contracts (training repository)', () => {
-  test('diagnostic: what the extractor held', () => {
-    const kinds = new Map<string, number>();
-    for (const node of extraction.nodes) kinds.set(node.kind, (kinds.get(node.kind) ?? 0) + 1);
-    console.log('nodes:', [...kinds.entries()].sort().map(([k, n]) => `${k}=${n}`).join(' '));
-    console.log('edges:', extraction.edges.map((e) => `${e.type} ${e.from} -> ${e.to}`).sort().join(' | '));
-    console.log('gaps:', extraction.gaps.map((gap) => `${gap.path}: ${gap.reason}`).join(' | ') || '(none)');
-  });
-
-  test('diagnostic: TS file facts', async () => {
-    for (const p of ['services/payments/src/events/publishers.ts', 'services/payments/src/app.ts', 'services/checkout/src/app.ts']) {
-      const bytes = extractionRead(p);
-      const dump: unknown[] = [];
-      const read = await readSyntaxTree(p, bytes, (file) => {
-        if (p === 'services/payments/src/events/publishers.ts') {
-          const probe = (node: import('web-tree-sitter').Node): void => {
-            if (node.type.includes('alias') || node.type.includes('union') || node.text.startsWith('export type')) {
-              dump.push({type: node.type, name: node.childForFieldName('name')?.text ?? '-', value: node.childForFieldName('value')?.type ?? '-', text: node.text.slice(0, 60)});
-            }
-            for (let i = 0; i < node.childCount; i++) {
-              const child = node.child(i);
-              if (child !== null) probe(child);
-            }
-          };
-          probe(file.root);
-        }
-        const facts = readTsFile(p, file.root);
-        dump.push({
-          consts: [...facts.consts],
-          typeUnions: [...facts.typeUnions],
-          appMiddlewares: facts.appMiddlewares,
-          mounts: facts.mounts,
-          routes: facts.routes.map((route) => `${route.method} ${route.path}`),
-          entry: facts.entry,
-        });
-        return facts;
-      });
-      if (!read.read) {
-        console.log(p, 'UNREAD');
-        continue;
-      }
-      console.log(p, JSON.stringify(dump[0]));
-    }
-  });
-
-  test('diagnostic: Go file facts', async () => {
-    for (const p of ['services/promotions/cmd/promotions/main.go', 'services/orders/internal/relay/kafka.go', 'services/orders/internal/consumer/payments.go', 'services/orders/cmd/orders/main.go']) {
-      const bytes = extractionRead(p);
-      const shapes: string[] = [];
-      const read = await readSyntaxTree(p, bytes, (file) => {
-        if (p === 'services/promotions/cmd/promotions/main.go') {
-          const probe = (node: import('web-tree-sitter').Node): void => {
-            if (/const/.test(node.type) || node.type === 'short_var_declaration') {
-              shapes.push(`${node.type}: name=${node.childForFieldName('name')?.text ?? '-'} value=${JSON.stringify(node.childForFieldName('value')?.text ?? '-')} left=${node.childForFieldName('left')?.text ?? '-'} text=${JSON.stringify(node.text.slice(0, 44))}`);
-            }
-            for (let i = 0; i < node.childCount; i++) {
-              const child = node.child(i);
-              if (child !== null) probe(child);
-            }
-          };
-          probe(file.root);
-        }
-        return readGoFile(p, file.root);
-      });
-      if (!read.read) {
-        console.log(p, 'UNREAD');
-        continue;
-      }
-      const facts = read.value;
-      if (shapes.length > 0) console.log('shapes:', shapes.join(' || '));
-      console.log(
-        p,
-        JSON.stringify({
-          consts: [...facts.consts],
-          serverAddrs: [...facts.serverAddrs],
-          kafkaSites: facts.kafkaSites.map((site) => ({kind: site.kind, topic: site.topic, group: site.group})),
-          methods: facts.methods,
-          interfaceMethods: facts.interfaceMethods,
-          switchCases: [...facts.switchCases],
-          statusComparisons: facts.statusComparisons,
-          unconditionalCommit: facts.unconditionalCommit,
-          hs256: facts.hs256Functions,
-          rawStarts: facts.rawStarts,
-        }),
-      );
-    }
-  });
-
   test('every answer-key item of the contracts areas is carried', () => {
     const mine = key.items.filter((i) => /^(contract|entrypoints|interaction|security)\./.test(i.id));
     expect(mine.length).toBe(19);
