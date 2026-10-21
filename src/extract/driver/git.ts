@@ -35,9 +35,13 @@ export interface CommitFact {
   readonly renames: readonly { readonly from: string; readonly to: string }[];
 }
 
-/** Runs git once, with the environment the readings depend on. */
+/** Runs git once, with the environment the readings depend on; a failure names the repository and what was asked. */
 function runGit(repository: string, args: readonly string[], input?: Buffer, maxBuffer = 1 << 28): Buffer {
-  return execFileSync('git', args, { cwd: repository, input, maxBuffer, env: { ...process.env, TZ: 'UTC', LC_ALL: 'C' } });
+  try {
+    return execFileSync('git', args, { cwd: repository, input, maxBuffer, env: { ...process.env, TZ: 'UTC', LC_ALL: 'C' } });
+  } catch (error) {
+    throw new Error(`extract driver: git ${args.join(' ')} failed in ${repository}: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
+  }
 }
 
 function runGitText(repository: string, args: readonly string[]): string {

@@ -20,7 +20,7 @@ import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, test } from 'bun:test';
 import type { DatabaseOwner } from '../src/adapters/database-owner.js';
 import type { GraphId, GraphStore } from '../src/graph/index.js';
-import { fillGraph } from '../src/extract/driver/index.js';
+import { fillGraph, remapKey } from '../src/extract/driver/index.js';
 import { extractOperations } from '../src/extract/operations/index.js';
 import type { CommitFact, FillOptions, FillReport } from '../src/extract/driver/index.js';
 import type { Extraction, TreeReader } from '../src/extract/records.js';
@@ -72,6 +72,25 @@ function extractHistory(commits: readonly CommitFact[]): Extraction {
     gaps: [],
   };
 }
+
+// The rename remap's own contract (reviewed): a whole path part matches, a path inside another
+// path does not, and a chain git detects in one commit lands on the final path once.
+describe('the rename remap', () => {
+  const moved = 'services/orders/src/order.go';
+  test('remaps a key whose path part is the renamed path, bounded by the part separators', () => {
+    expect(remapKey(`code.file:${moved}`, moved, 'services/orders/internal/domain/order.go')).toBe('code.file:services/orders/internal/domain/order.go');
+    expect(remapKey(`code.symbol:${moved}#Order`, moved, 'a.go')).toBe('code.symbol:a.go#Order');
+  });
+  test('leaves a key whose path only contains the renamed path inside another path', () => {
+    expect(remapKey('code.file:vendor/services/orders/src/order.go', moved, 'a.go')).toBeNull();
+    expect(remapKey('code.file:services/orders/src/order.go.txt', moved, 'a.go')).toBeNull();
+    expect(remapKey('code.file:services/orders/srcx/order.go', moved, 'a.go')).toBeNull();
+  });
+  test('remaps a directory rename through every key under it, and nothing else', () => {
+    expect(remapKey('code.file:services/orders/src/pricing.go', 'services/orders/src', 'services/orders/internal')).toBe('code.file:services/orders/internal/pricing.go');
+    expect(remapKey('code.file:services/orders/internal/store/store.go', 'services/orders/src', 'services/orders/internal')).toBeNull();
+  });
+});
 
 export interface DriverEnv {
   owner: DatabaseOwner;

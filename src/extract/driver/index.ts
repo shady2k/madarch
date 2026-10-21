@@ -100,11 +100,15 @@ function spanProperty(span: SourceSpan): Record<string, unknown> {
 }
 
 /**
- * The key of a renamed record: the old path occurs in it as a whole path part
- * (its own key, or a prefix followed by `/` or `#`, the record contract's two
- * part separators), and that part is replaced by the new path.
+ * The key of a renamed record: the old path occurs in it as one whole path
+ * part, bounded on both sides — before it the kind's `:`, a `/` between path
+ * steps or a `#` before a following part; after it a `/`, a `#`, or the key's
+ * end — and that part is replaced by the new path. A path that only occurs
+ * inside another path (`vendor/services/orders/src/order.go` while
+ * `services/orders/src/order.go` is renamed) is not a match: an unchanged
+ * file keeps its identity.
  */
-function remapKey(key: string, from: string, to: string): string | null {
+export function remapKey(key: string, from: string, to: string): string | null {
   let out = '';
   let at = 0;
   let changed = false;
@@ -114,17 +118,46 @@ function remapKey(key: string, from: string, to: string): string | null {
       out += key.slice(at);
       break;
     }
-    const after = found + from.length;
-    if (after !== key.length && key[after] !== '/' && key[after] !== '#') {
+    const end = found + from.length;
+    const before = found > 0 ? key[found - 1]! : '';
+    const after = end < key.length ? key[end]! : '';
+    const bounded = (before === ':' || before === '/' || before === '#') && (after === '' || after === '/' || after === '#');
+    if (!bounded) {
       out += key.slice(at, found + 1);
       at = found + 1;
       continue;
     }
     out += `${key.slice(at, found)}${to}`;
-    at = after;
+    at = end;
     changed = true;
   }
   return changed ? out : null;
+}
+
+/**
+ * Applies one commit's renames to a producer's keys. Every key's text is
+ * remapped through the whole rename list first (so a chain git detects within
+ * one commit moves a key once, to its final path) and only then do the
+ * entries move, so two records can never collapse onto one identity silently:
+ * a collision refuses the fill, naming both.
+ */
+function applyRenames(map: Map<string, GraphId>, renames: readonly { readonly from: string; readonly to: string }[], where: string): void {
+  if (renames.length === 0) return;
+  const moved = new Map<string, GraphId[]>();
+  for (const [key, id] of map) {
+    let text: string = remapKey(key, renames[0]!.from, renames[0]!.to) ?? key;
+    for (const { from, to } of renames.slice(1)) text = remapKey(text, from, to) ?? text;
+    if (text === key) continue;
+    const held = moved.get(text) ?? [];
+    held.push(id);
+    moved.set(text, held);
+    map.delete(key);
+  }
+  for (const [key, ids] of moved) {
+    if (ids.length > 1) throw new Error(`extract driver: ${where}: git's rename detection maps ${ids.length} records of producer onto the one key ${JSON.stringify(key)} (${ids.join(', ')}); an ambiguous match is never chosen silently`);
+    if (map.has(key)) throw new Error(`extract driver: ${where}: git's rename detection moves a record onto the key ${JSON.stringify(key)} another record already holds; an ambiguous match is never chosen silently`);
+    map.set(key, ids[0]!);
+  }
 }
 
 /** One query through the owner, for what the store's own interface does not expose. */
@@ -146,7 +179,7 @@ class ProducerKeys {
 
 /** Fills the graph from one repository's default branch. See the module comment for the guarantees. */
 export async function fillGraph(options: FillOptions): Promise<FillReport> {
-  if (options.extractors.length === 0 && options.history === undefined) throw new Error('extract driver: no extractor and no history was given, so nothing would be published');
+  if (options.extractors.length === 0 && options.history === undefined) throw new Error(`extract driver: ${options.repository}: no extractor and no history was given, so nothing would be published`);
   const started = Date.now();
   const repository = options.repository;
   const walk = walkDefaultBranch(repository, options.ref ?? 'HEAD');
@@ -206,19 +239,18 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
   };
 
   /** Publishes one extraction as one complete publication of its producer at one instant. */
-  const publishExtraction = async (extraction: Extraction, generation: number, effectiveTime: string, renames: readonly { from: string; to: string }[], inputDigest: string): Promise<boolean> => {
-    await registerSchema(extraction);
+  const publishExtraction = async (extraction: Extraction, generation: number, effectiveTime: string, renames: readonly { from: string; to: string }[], inputDigest: string, where: string): Promise<boolean> => {
+    const through = async <T>(step: string, work: () => Promise<T>): Promise<T> => {
+      try {
+        return await work();
+      } catch (error) {
+        if (error instanceof Error && error.message.startsWith('extract driver:')) throw error;
+        throw new Error(`extract driver: ${step} failed for producer "${extraction.producer}" over ${where}: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
+      }
+    };
+    await through('registering the extractor schema', () => registerSchema(extraction));
     for (const gap of extraction.gaps) gaps.push({ producer: extraction.producer, path: gap.path, reason: gap.reason });
     const map = await (await keys(extraction.producer)).current();
-    for (const { from, to } of renames) {
-      for (const [key, id] of [...map.entries()]) {
-        const remapped = remapKey(key, from, to);
-        if (remapped !== null && remapped !== key) {
-          map.delete(key);
-          map.set(remapped, id);
-        }
-      }
-    }
     const found = await query<{ input_digest: string; published: boolean }>(
       owner,
       `SELECT input_digest, published_at IS NOT NULL AS published FROM work_item WHERE producer = $1 AND scope_id = $2::bigint AND generation = $3::bigint`,
@@ -230,12 +262,14 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
       if (existing.input_digest !== inputDigest) {
         throw new Error(`extract driver: ${repository}: generation ${generation} of producer "${extraction.producer}" was published with input digest ${existing.input_digest}, but the walk now reads ${inputDigest}: the history changed under a fixed generation number, and what the store already believes is not rewritten`);
       }
-      return false; // already published, exactly this input: a refill writes nothing
+      return false; // already published, exactly this input: a refill writes nothing, and the map the store recovered already knows every published rename
     }
+    // The renames are applied only for a generation this fill publishes: a skipped generation's renames are already in the map the store recovered.
+    applyRenames(map, renames, where);
     if (existing === undefined) {
-      await store.openWorkItem({ producer: extraction.producer, scope: repositoryNode, generation, inputDigest, leaseToken, leaseUntil });
+      await through('opening the work item', () => store.openWorkItem({ producer: extraction.producer, scope: repositoryNode, generation, inputDigest, leaseToken, leaseUntil }));
     } else {
-      await store.leaseWorkItem({ producer: extraction.producer, scope: repositoryNode, generation, leaseToken, leaseUntil, inputDigest });
+      await through('leasing the work item', () => store.leaseWorkItem({ producer: extraction.producer, scope: repositoryNode, generation, leaseToken, leaseUntil, inputDigest }));
     }
     const nodes = extraction.nodes.map((node) => ({
       ...(map.has(node.key) ? { id: map.get(node.key)! } : {}),
@@ -259,7 +293,7 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
         validFrom: effectiveTime,
       };
     });
-    const result = await store.publish({
+    const result = await through('publishing', () => store.publish({
       producer: extraction.producer,
       scope: repositoryNode,
       generation,
@@ -268,7 +302,7 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
       nodes,
       edges,
       complete: { validTo: effectiveTime },
-    });
+    }));
     if (!result.unchangedInput) {
       for (const [key, id] of Object.entries(result.refs)) map.set(key, id);
       const held = new Set(extraction.nodes.map((node) => node.key));
@@ -286,7 +320,7 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
     let gapCount = 0;
     for (const extraction of extractions) {
       const inputDigest = sha256Hex(new TextEncoder().encode(`${commit.hash}\n${commit.tree}`));
-      const published = await publishExtraction(extraction, commit.generation, commit.effectiveTime, commit.renames, inputDigest);
+      const published = await publishExtraction(extraction, commit.generation, commit.effectiveTime, commit.renames, inputDigest, `commit ${commit.hash} ("${commit.subject}", generation ${commit.generation}) of ${repository}`);
       if (published) publications += 1;
       gapCount += extraction.gaps.length;
     }
@@ -301,7 +335,7 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
       throw new Error(`extract driver: the history extractor failed over ${repository} (${walk.length} first-parent commits): ${error instanceof Error ? error.message : String(error)}`, { cause: error });
     }
     const inputDigest = sha256Hex(new TextEncoder().encode(walk.map((commit) => `${commit.hash} ${commit.committerTime} ${commit.effectiveTime}`).join('\n')));
-    await publishExtraction(extraction, walk.length, last.effectiveTime, [], inputDigest);
+    await publishExtraction(extraction, walk.length, last.effectiveTime, [], inputDigest, `the history of ${repository} (${walk.length} first-parent commits)`);
   }
 
   return { repositoryNode, commits, totalMs: Date.now() - started, gaps };
@@ -318,14 +352,20 @@ async function findOrCreateRepositoryNode(owner: DatabaseOwner, store: GraphStor
   );
   if (found.length > 1) throw new Error(`extract driver: ${repository}: the store holds ${found.length} repository nodes of producer "${DRIVER_PRODUCER}" with this path (${found.map((row) => row.id).join(', ')}); a repository path names one node`);
   if (found.length === 1) return found[0]!.id;
-  const nodeId = await store.newNode();
-  await store.openNode({
-    nodeId,
-    kind: REPOSITORY_KIND,
-    label: repository.slice(repository.lastIndexOf('/') + 1),
-    properties: { path: repository },
-    validFrom: firstEffective,
-    owner: { producer: DRIVER_PRODUCER, scope: nodeId },
-  });
-  return nodeId;
+  let nodeId: GraphId;
+  let opened: { nodeId: GraphId; versionId: GraphId };
+  try {
+    nodeId = await store.newNode();
+    opened = await store.openNode({
+      nodeId,
+      kind: REPOSITORY_KIND,
+      label: repository.slice(repository.lastIndexOf('/') + 1),
+      properties: { path: repository },
+      validFrom: firstEffective,
+      owner: { producer: DRIVER_PRODUCER, scope: nodeId },
+    });
+  } catch (error) {
+    throw new Error(`extract driver: making the repository node of ${repository} failed: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
+  }
+  return opened.nodeId;
 }
