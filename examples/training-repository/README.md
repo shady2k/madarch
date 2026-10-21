@@ -12,7 +12,7 @@ Madarch checkout. Two runs give identical commit ids.
 - `template/` is the final state of the generated repository as real files (Go,
   TypeScript, SQL, Prisma, proto, YAML, Markdown, Dockerfiles, lock files). One file
   name differs: `_env.example` is written as `.env.example` (the test pods do not
-  receive files named `.env*`).
+  receive files named `.env*`). Files named `*.template` are written without the suffix; the jest test files use it so that `bun test` does not pick them up from the template.
 - `history.mjs` is the plan: about seventy commits by three authors with fixed dates,
   task keys and messages, which files each commit adds, moves or removes, and which of
   the three counted files (the hotspot `order_service.go`, `pricing.go`, `tax.go`) it

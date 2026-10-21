@@ -10,6 +10,7 @@
 //   being built and the second is not...
 //   <comment> @@ end
 //
+// A file named "<path>.template" is written as "<path>".
 // <comment> is "//", "#", "--" or "<!--" (the last one closed by "-->"). Blocks
 // may nest (a line is written when every open block admits it). A file exists from the commit whose plan entry adds it.
 // Usage: node generate.mjs <destination-folder outside the checkout>
@@ -115,9 +116,13 @@ export async function generate(destination) {
     }
   }
 
-  const files = await templateFiles();
+  // A template file named "<path>.template" is written as "<path>": the suffix keeps test runners
+  // that walk the checkout from picking up the generated repository's own *.test.ts files.
+  const onDisk = new Map();
+  for (const f of await templateFiles()) onDisk.set(f.endsWith('.template') ? f.slice(0, -'.template'.length) : f, f);
+  const files = [...onDisk.keys()].sort((x, y) => (x < y ? -1 : x > y ? 1 : 0));
   const sources = new Map();
-  for (const f of files) sources.set(f, await readFile(path.join(templateRoot, f), 'utf8'));
+  for (const f of files) sources.set(f, await readFile(path.join(templateRoot, onDisk.get(f)), 'utf8'));
   const named = COMMITS.filter((c) => c.id);
   const ids = new Set(named.map((c) => c.id));
   if (ids.size !== named.length) throw new Error('history.mjs: a commit id is used twice');
@@ -195,7 +200,7 @@ export async function generate(destination) {
     ctx.reach.add(commit.id ?? `merge:${commit.merge}`);
 
     const next = new Map();
-    for (const [outPath, tpl] of ctx.state) next.set(outPath, render(sources.get(tpl), ctx.reach, ids, `template/${tpl}`));
+    for (const [outPath, tpl] of ctx.state) next.set(outPath, render(sources.get(tpl), ctx.reach, ids, `template/${onDisk.get(tpl)}`));
     const previous = commit.merge ? contexts.get('main').rendered : ctx.rendered;
     const changed = new Set();
     for (const [p, text] of next) if (previous.get(p) !== text) changed.add(p);
