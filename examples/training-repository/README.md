@@ -58,3 +58,7 @@ determinism, the excluded files, the history (authors, merge, rename, date anoma
 provider authorship), the snapshots, the planted counts against git and the plan, every
 key location at its snapshot, and that the generated TypeScript, JSON and `go.sum`
 are well formed. The mutation of the generator is not part of this fixture's checks.
+
+## The agent-stage fixture
+
+`agent-stage/` holds the previous generator and answer key, unchanged except for paths. The fill pipeline tests (`test/fill-claims.test.ts`, `test/fill-critic-persistence.test.ts`, `test/fill-impact.test.ts`, `test/fill-intent-history-stage.test.ts`) keep this old input until the fill pipeline is rebuilt per decision 0028, which deletes them together.

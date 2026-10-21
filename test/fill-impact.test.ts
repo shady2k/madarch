@@ -10,7 +10,7 @@
  * expected units and pages and nothing else (listed)".
  *
  * The fixture is the training repository this project's generator makes
- * (`examples/training-repository/generate.mjs`, which AGENTS.md allows a test to
+ * (`examples/training-repository/agent-stage/generate.mjs`, which AGENTS.md allows a test to
  * use) as the one code repository of a product the test makes. Every agent unit is
  * driven by the fake ACP agent (`test/fixtures/acp-fake-agent`): no real prompt, no
  * network, no token spent. The fake agent reads one evidence span of the file the
@@ -41,7 +41,7 @@ import { startServer, type StartedServer } from '../src/server/http.js';
 import { createStagesFill, type StagesFill } from '../src/product/fill-stages.js';
 
 const FAKE_AGENT = join(import.meta.dir, 'fixtures', 'acp-fake-agent', 'acp-fake-agent.ts');
-const GENERATOR = fileURLToPath(new URL('../examples/training-repository/generate.mjs', import.meta.url));
+const GENERATOR = fileURLToPath(new URL('../examples/training-repository/agent-stage/generate.mjs', import.meta.url));
 
 /** The product's name, and the name of the one code repository it declares. */
 const PRODUCT = 'shop';
