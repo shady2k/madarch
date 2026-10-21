@@ -38,6 +38,7 @@ Decision 0028. Records carry logical keys, no time and no database ids; kinds an
 
 ## Acceptance evidence
 To be filled by each task with the test run on the pod.
+- madarch-o0eq.4 (the history extractor): `bun run check && bun test test/extract-history.test.ts` on the pod, exit 0, 16 pass / 0 fail, 95 expect() calls (run-20261021-202314); `bun test test/neutral-repository-names.test.ts test/extract-history.test.ts`, exit 0, 20 pass / 0 fail (run-20261021-202541).
 
 ## DONE WHEN
 Every code-fact and history-fact item of the answer key in the extractors' areas is produced and asserted by a test on the generated training repository; what cannot be read is named as a gap.
