@@ -274,6 +274,10 @@ describe('extract contracts (training repository)', () => {
     expect(published.properties['constant']).toBe('OrdersTopic');
     expect(published.properties['constantPath']).toBe(constantLocation.path);
     expect(published.properties['via']).toBe('outbox');
+    // The relay publishes the outbox rows and nothing else: no edge to the
+    // channel the same service only consumes.
+    expect(edgesOf(REL_PUBLISHES).filter((e) => e.to === channelKey('payments.events')).map((e) => e.from))
+      .toEqual([fileKey('services/payments/src/events/publishers.ts')]);
   });
 
   test('contract.asyncapi.payments-events: payments.events published by payments, consumed by orders', () => {
@@ -403,6 +407,7 @@ describe('extract contracts (training repository)', () => {
     const inside = node(routeKey(router, 'POST', '/orders'));
     expect(inside.properties['authGroup']).toBe(true);
     expect((inside.properties['middleware'] as string[])).toContain('RequireAuth');
+    expect((inside.properties['middleware'] as string[])).toContain('deps.Metrics.Count');
     expect(inside.properties['authAlgorithm']).toBe('HS256');
     const ship = node(routeKey(router, 'POST', '/orders/{id}/ship'));
     expect((ship.properties['middleware'] as string[])).toContain('RequireRole("support")');

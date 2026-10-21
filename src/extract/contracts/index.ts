@@ -49,8 +49,8 @@ import type {ExtractedEdge, ExtractedNode, Extraction, ExtractionGap, PropertyVa
 
 /** The contract folders this extractor reads, with their formats. */
 const CONTRACT_FOLDERS: readonly [string, (path: string) => boolean][] = [
-  ['openapi', (p) => p.startsWith('contracts/openapi/') && p.endsWith('.yaml')],
-  ['asyncapi', (p) => p.startsWith('contracts/asyncapi/') && p.endsWith('.yaml')],
+  ['openapi', (p) => p.startsWith('contracts/openapi/') && /\.ya?ml$/.test(p)],
+  ['asyncapi', (p) => p.startsWith('contracts/asyncapi/') && /\.ya?ml$/.test(p)],
   ['proto', (p) => p.startsWith('contracts/proto/') && p.endsWith('.proto')],
 ];
 
@@ -260,19 +260,25 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
 
     for (const site of file.go.kafkaSites) {
       if (site.kind === 'publish') {
-        const viaOutbox = [...goFiles, ...tsFiles].some((held) => {
-          if (serviceOf(held.path) !== service) return false;
-          const text = textOf(reader, held.path);
-          return text !== undefined && /FROM outbox|INTO outbox/.test(text);
-        });
+        // The site names no topic: it publishes the rows of the outbox table.
+        // A channel is claimed only when the constant that names it is written
+        // into that same table -- the writer's file carries the INSERT.
         for (const channel of channels) {
           const constant = constantForService(service, channel);
           if (constant === undefined) continue;
+          const constantText = textOf(reader, constant.path);
+          if (constantText === undefined || !/INTO\s+outbox/.test(constantText)) continue;
+          const readsOutbox = [...goFiles, ...tsFiles].some((held) => {
+            if (serviceOf(held.path) !== service) return false;
+            const text = textOf(reader, held.path);
+            return text !== undefined && /FROM\s+outbox/.test(text);
+          });
+          if (!readsOutbox) continue;
           addEdge(REL_PUBLISHES, fileKey(file.path), channelKey(channel), {
             topic: channel,
             constant: constant.name,
             constantPath: constant.path,
-            ...(viaOutbox ? {via: 'outbox'} : {}),
+            via: 'outbox',
           }, site.span);
         }
         continue;

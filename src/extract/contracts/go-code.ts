@@ -104,13 +104,18 @@ function chainOf(call: SyntaxNode): {names: string[]; auth: boolean} {
   if (args !== null) {
     for (let i = 0; i < args.childCount; i++) {
       const arg = args.child(i);
-      if (arg === null || arg.type !== 'call_expression') continue;
-      const name = calleeName(arg) ?? arg.text;
-      const first = arg.childForFieldName('arguments')?.namedChild(0) ?? null;
-      const literal = stringValue(first);
-      const shown = literal !== undefined ? `${name}("${literal}")` : name;
-      names.push(shown);
-      if (name === 'RequireAuth') auth = true;
+      if (arg === null || arg.type === ',' || arg.type === '(' || arg.type === ')') continue;
+      if (arg.type === 'call_expression') {
+        const name = calleeName(arg) ?? arg.text;
+        const first = arg.childForFieldName('arguments')?.namedChild(0) ?? null;
+        const literal = stringValue(first);
+        const shown = literal !== undefined ? `${name}("${literal}")` : name;
+        names.push(shown);
+        if (name === 'RequireAuth') auth = true;
+        continue;
+      }
+      // A middleware value without its own call (`deps.Metrics.Count`).
+      names.push(arg.text);
     }
   }
   return {names, auth};
@@ -130,6 +135,8 @@ function unwrappedHandler(node: SyntaxNode): string {
       held = only;
     }
   }
+  // A literal handler has no name to carry; the property stays small.
+  if (held.type === 'func_literal') return '<function literal>';
   return held.text;
 }
 
