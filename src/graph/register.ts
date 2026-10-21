@@ -7,32 +7,42 @@
  */
 import { GraphError } from './errors.js';
 import type { WriteContext } from './versions.js';
-import { checkRegistry, type GraphRegistry } from './vocabulary.js';
+import { checkCodeSchema, checkRegistry, type GraphRegistry } from './vocabulary.js';
 
 export async function registerVocabulary(ctx: WriteContext, registry: GraphRegistry): Promise<{ kinds: number; relations: number }> {
   checkRegistry(registry);
+  return await register(ctx, registry, 'product');
+}
+
+/** Registers extractor-schema keys (`code.`) in the engine's namespace; a driver calls it with what extractors emit. */
+export async function registerCodeSchema(ctx: WriteContext, schema: GraphRegistry): Promise<{ kinds: number; relations: number }> {
+  checkCodeSchema(schema);
+  return await register(ctx, schema, 'engine');
+}
+
+async function register(ctx: WriteContext, registry: GraphRegistry, namespace: 'product' | 'engine'): Promise<{ kinds: number; relations: number }> {
   let kinds = 0;
   let relations = 0;
   for (const [index, key] of registry.kinds.entries()) {
-    const made = await ctx.tx.query(`INSERT INTO node_kind (key, namespace, registered_at) VALUES ($1, 'product', $2::timestamptz) ON CONFLICT (key) DO NOTHING RETURNING id`, [key, ctx.at]);
+    const made = await ctx.tx.query(`INSERT INTO node_kind (key, namespace, registered_at) VALUES ($1, '${namespace}', $2::timestamptz) ON CONFLICT (key) DO NOTHING RETURNING id`, [key, ctx.at]);
     if (made.rows.length > 0) kinds += 1;
     else {
       const existing = await ctx.tx.query<{ namespace: string }>('SELECT namespace FROM node_kind WHERE key = $1', [key]);
-      if (existing.rows[0]?.namespace !== 'product') throw new GraphError('register vocabulary', `kinds[${index}]`, `"${key}" is already registered outside the product namespace`, registry.origin);
+      if (existing.rows[0]?.namespace !== namespace) throw new GraphError('register vocabulary', `kinds[${index}]`, `"${key}" is already registered outside the product namespace`, registry.origin);
     }
   }
   for (const [index, relation] of registry.relations.entries()) {
     const discriminated = relation.discriminated === true;
     const positioned = relation.positioned === true;
     const made = await ctx.tx.query(
-      `INSERT INTO relation_type (key, namespace, discriminated, positioned, registered_at) VALUES ($1, 'product', $2, $3, $4::timestamptz) ON CONFLICT (key) DO NOTHING RETURNING id`,
+      `INSERT INTO relation_type (key, namespace, discriminated, positioned, registered_at) VALUES ($1, '${namespace}', $2, $3, $4::timestamptz) ON CONFLICT (key) DO NOTHING RETURNING id`,
       [relation.key, discriminated, positioned, ctx.at],
     );
     if (made.rows.length > 0) relations += 1;
     else {
       const existing = await ctx.tx.query<{ namespace: string; discriminated: boolean; positioned: boolean }>('SELECT namespace, discriminated, positioned FROM relation_type WHERE key = $1', [relation.key]);
       const row = existing.rows[0];
-      if (row?.namespace !== 'product' || row.discriminated !== discriminated || row.positioned !== positioned) {
+      if (row?.namespace !== namespace || row.discriminated !== discriminated || row.positioned !== positioned) {
         throw new GraphError('register vocabulary', `relations[${index}]`, `"${relation.key}" is already registered with other settings (discriminated ${row?.discriminated}, positioned ${row?.positioned}); an encoding is never reused or changed`, registry.origin);
       }
     }

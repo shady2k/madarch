@@ -21,9 +21,9 @@ import { canonicalJsonDigest } from '../model/canonical.js';
 import { byCodePoint } from '../model/order.js';
 import { claimDigest, nodePayloadDigest, edgePayloadDigest, sha256Hex, type ByteSpan, type ClaimContent, type GraphId } from './digest.js';
 import { GraphError, type GraphOrigin } from './errors.js';
-import { ALL_STATES, checkSpan, compareInstants, instantText, type Instant, type StateSpan } from './time.js';
+import { ALL_STATES, checkSpan, compareInstants, instantText, tsText, type Instant, type StateSpan } from './time.js';
 import {
-  assertEndpoints, checkId, closeVersion, correctEdgeVersion, correctNodeVersion, currentNodeVersions, edgeIdentity, edgeRow, EDGE_COLUMNS, EDGE_FROM,
+  assertEndpoints, endEdgeVersion, lockNodes, reconcileEdges, requireLater, checkId, closeVersion, correctEdgeVersion, correctNodeVersion, currentNodeVersions, edgeIdentity, edgeRow, EDGE_COLUMNS, EDGE_FROM,
   endNode, openEdgeVersion, openNodeVersion, reopenEdge, reopenNode, requireNode, resolveEdge,
   type EdgeVersionRow, type NodeVersionRow, type WriteContext,
 } from './versions.js';
@@ -135,6 +135,14 @@ export interface PublishInput {
   nodes?: readonly PublishNode[];
   edges?: readonly PublishEdge[];
   ends?: readonly PublishEnd[];
+  /**
+   * The publication is the whole of what its producer and scope assert: every
+   * current version of that producer and scope it did not repeat (nodes other
+   * than content nodes, and edges) has its validity ended, with the cascade for
+   * other producers' edges, as for `ends`. `true` ends them at the recorded
+   * instant; `{ validTo }` at the given valid time (a tree's commit time).
+   */
+  complete?: boolean | { validTo: Instant };
 }
 
 export interface PublishResult {
@@ -150,6 +158,8 @@ export interface PublishResult {
   cascades: { edgeVersion: GraphId; replacedBy: GraphId | null }[];
   /** Items that found their current version unchanged and wrote nothing. */
   unchanged: number;
+  /** Versions a `complete` publication ended because it did not repeat them (nodes and edges). */
+  swept: { nodes: number; edges: number };
   publishedDigest: string;
 }
 
@@ -173,6 +183,7 @@ interface Run {
   summary: unknown[];
   endedNodes: Set<GraphId>;
   writtenNodes: Set<GraphId>;
+  touchedEdges: Set<GraphId>;
 }
 
 function refuseForeign(item: { producer?: string; scope?: GraphId; origin?: GraphOrigin }, run: Run, path: string): void {
@@ -201,21 +212,24 @@ function checkOwned(version: { producer: string; scope: GraphId }, kind: string,
 export async function publish(ctx: WriteContext, input: PublishInput): Promise<PublishResult> {
   const scope = checkId(input.scope, OP, 'scope');
   if (input.producer === '') throw new GraphError(OP, 'producer', 'a publication names its producer');
-  const locked = await ctx.tx.query<{ id: string; published: boolean; lease_token: string; expired: boolean; input_digest: string }>(
-    `SELECT id::text AS id, published_at IS NOT NULL AS published, lease_token, lease_until <= $4::timestamptz AS expired, input_digest
+  // One publication at a time per producer and scope: the stream's "has this input been published" question is answered under this lock.
+  await ctx.tx.query(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, [`graph-publication:${input.producer}:${scope}`]);
+  const locked = await ctx.tx.query<{ id: string; published: boolean; lease_token: string; lease_until: string; input_digest: string }>(
+    `SELECT id::text AS id, published_at IS NOT NULL AS published, lease_token, ${tsText('lease_until')} AS lease_until, input_digest
      FROM work_item WHERE producer = $1 AND scope_id = $2::bigint AND generation = $3::bigint FOR UPDATE`,
-    [input.producer, scope, String(input.generation), ctx.at],
+    [input.producer, scope, String(input.generation)],
   );
   const raw = locked.rows[0];
   if (raw === undefined) throw new GraphError(OP, 'generation', `fenced-publication: there is no work item for generation ${input.generation} of producer "${input.producer}" and scope ${scope}; a unit publishes only a generation that was planned`);
-  const item: Locked = { id: raw.id, published: raw.published, leaseToken: raw.lease_token, leaseExpired: raw.expired, inputDigest: raw.input_digest };
+  const item: Locked = { id: raw.id, published: raw.published, leaseToken: raw.lease_token, leaseExpired: compareInstants(raw.lease_until, ctx.now()) <= 0, // judged after the lock was won, by a fresh reading of the clock
+     inputDigest: raw.input_digest };
   const name = `generation ${input.generation} of producer "${input.producer}" and scope ${scope}`;
   if (item.published) throw new GraphError(OP, 'generation', `fenced-publication: ${name} was already published; a generation is published exactly once, whatever its content`);
   if (item.leaseToken !== input.leaseToken) throw new GraphError(OP, 'leaseToken', `fenced-publication: the lease of ${name} passed to another worker; this unit's token no longer holds it, so it publishes nothing`);
-  if (item.leaseExpired) throw new GraphError(OP, 'leaseToken', `fenced-publication: the lease of ${name} has expired at ${ctx.at}; a unit whose lease passed publishes nothing`);
+  if (item.leaseExpired) throw new GraphError(OP, 'leaseToken', `fenced-publication: the lease of ${name} has expired; a unit whose lease passed publishes nothing`);
   if (item.inputDigest !== input.inputDigest) throw new GraphError(OP, 'inputDigest', `fenced-publication: ${name} read inputs digest ${input.inputDigest} but its work item now names ${item.inputDigest}; its reads are stale, so it publishes nothing`);
 
-  const result: PublishResult = { unchangedInput: false, refs: {}, nodeVersionsOpened: 0, edgeVersionsOpened: 0, corrections: 0, cascades: [], unchanged: 0, publishedDigest: '' };
+  const result: PublishResult = { unchangedInput: false, refs: {}, nodeVersionsOpened: 0, edgeVersionsOpened: 0, corrections: 0, cascades: [], unchanged: 0, swept: { nodes: 0, edges: 0 }, publishedDigest: '' };
   const previous = await ctx.tx.query<{ input_digest: string; published_digest: string }>(
     `SELECT input_digest, published_digest FROM work_item WHERE producer = $1 AND scope_id = $2::bigint AND published_at IS NOT NULL ORDER BY generation DESC LIMIT 1`,
     [input.producer, scope],
@@ -224,11 +238,17 @@ export async function publish(ctx: WriteContext, input: PublishInput): Promise<P
     result.unchangedInput = true;
     result.publishedDigest = previous.rows[0].published_digest;
   } else {
-    const run: Run = { ctx, workItem: item.id, owner: { producer: input.producer, scope }, refs: new Map(), result, summary: [], endedNodes: new Set(), writtenNodes: new Set() };
+    ctx.cascadeLog = result.cascades;
+    const run: Run = { ctx, workItem: item.id, owner: { producer: input.producer, scope }, refs: new Map(), result, summary: [], endedNodes: new Set(), writtenNodes: new Set(), touchedEdges: new Set() };
     const nodes = input.nodes ?? [];
     for (const [index, node] of nodes.entries()) await publishNode(run, node, `nodes[${index}]`);
     for (const [index, end] of (input.ends ?? []).entries()) await publishEnd(run, end, `ends[${index}]`);
     for (const [index, edge] of (input.edges ?? []).entries()) await publishEdge(run, edge, `edges[${index}]`);
+    if (input.complete !== undefined && input.complete !== false) {
+      const end = input.complete === true ? ctx.at : instantText(input.complete.validTo, OP, 'complete.validTo');
+      run.summary.push({ complete: end });
+      await sweep(run, end);
+    }
     result.refs = Object.fromEntries([...run.refs.entries()].sort(([a], [b]) => byCodePoint(a, b)));
     result.publishedDigest = canonicalJsonDigest({ generation: input.generation, inputDigest: input.inputDigest, items: run.summary, producer: input.producer, scope });
   }
@@ -286,45 +306,50 @@ async function publishNode(run: Run, node: PublishNode, path: string): Promise<v
   run.writtenNodes.add(id);
   const current = await currentNodeVersions(ctx, id);
   for (const version of current) checkOwned(version, 'node', id, run, `${path}.id`, origin);
-  const target = latestWithStates(current, states);
-  if (target === undefined) {
-    await openNodeVersion(ctx, { nodeId: id, kind: node.kind, label: node.label, properties, ...(node.content === undefined ? {} : { content: node.content }), ...(claim === undefined ? {} : { claim }), validFrom, ...(validTo === undefined ? {} : { validTo }), states, ...own }, path);
+  const { target, nextStart } = pickTarget(current, states, validFrom);
+  const openFresh = async (from: string, to: string | undefined, content: boolean): Promise<void> => {
+    await openNodeVersion(ctx, { nodeId: id, kind: node.kind, label: node.label, properties, ...(content && node.content !== undefined ? { content: node.content } : {}), ...(claim === undefined ? {} : { claim }), validFrom: from, ...(to === undefined ? {} : { validTo: to }), states, ...own }, path);
     run.result.nodeVersionsOpened += 1;
+  };
+  if (target === undefined) {
+    // Nothing of this node holds at that instant: a new span, which stops where the next one starts.
+    await openFresh(validFrom, validTo ?? nextStart, true);
+    await reconcileEdges(ctx, id, 'cascade', run.workItem, path, origin);
     return;
   }
   if (target.kind !== node.kind) throw new GraphError(OP, `${path}.kind`, `node ${id} is a ${target.kind}; the kind of an identity never changes (it is ${node.kind} here)`, origin);
-  if (target.payloadDigest === payload && compareInstants(target.validFrom, validFrom) <= 0 && compareInstants(validFrom, target.validTo) < 0 && (validTo === undefined || validTo === target.validTo)) {
+  const samePayload = target.payloadDigest === payload;
+  if (samePayload && (validTo === undefined || validTo === target.validTo)) {
     run.result.unchanged += 1;
     return;
   }
-  const patch = { label: node.label, properties, ...(claim === undefined ? {} : { claim }), validFrom, ...(validTo === undefined ? {} : { validTo }) };
-  const cmp = compareInstants(validFrom, target.validFrom);
-  if (cmp > 0 && compareInstants(validFrom, target.validTo) < 0 && target.payloadDigest !== payload) {
-    // Succession on the valid axis (a rename, a move): the old belief is kept up to the new start.
-    await closeVersion(ctx, 'node_version', target.versionId, { workItem: run.workItem, as: 'correction' }, `${path}.id`, origin);
+  if (samePayload || validFrom === target.validFrom) {
+    // Same start (or only the end differs): a correction of the version that holds at that instant.
+    await correctNodeVersion(ctx, target.versionId, { label: node.label, properties, ...(claim === undefined ? {} : { claim }), ...(validTo === undefined ? {} : { validTo }), states }, { workItem: run.workItem, as: 'correction' }, run.workItem, path, origin, 'cascade');
     run.result.corrections += 1;
-    await reopenNode(ctx, target.versionId, validFrom, run.workItem, path, origin);
-    await openNodeVersion(ctx, { nodeId: id, kind: node.kind, label: node.label, properties, ...(node.content === undefined ? {} : { content: node.content }), ...(claim === undefined ? {} : { claim }), validFrom, validTo: validTo ?? target.validTo, states, ...own }, path);
     run.result.nodeVersionsOpened += 1;
     return;
   }
-  if (cmp >= 0 && compareInstants(validFrom, target.validTo) >= 0) {
-    // The old version ended before this one starts: a new span of existence, nothing to correct.
-    await openNodeVersion(ctx, { nodeId: id, kind: node.kind, label: node.label, properties, ...(node.content === undefined ? {} : { content: node.content }), ...(claim === undefined ? {} : { claim }), validFrom, ...(validTo === undefined ? {} : { validTo }), states, ...own }, path);
-    run.result.nodeVersionsOpened += 1;
-    return;
-  }
-  await correctNodeVersion(ctx, target.versionId, { ...patch, validFrom: cmp > 0 ? target.validFrom : validFrom, states }, { workItem: run.workItem, as: 'correction' }, run.workItem, path, origin);
+  // Succession on the valid axis (a rename, a move): the old belief is kept up to the new start.
+  requireLater(ctx, target.recordedFrom, OP, `${path}.id`, origin);
+  await lockNodes(ctx, [id], 'UPDATE');
+  await closeVersion(ctx, 'node_version', target.versionId, { workItem: run.workItem, as: 'correction' }, `${path}.id`, origin);
   run.result.corrections += 1;
-  run.result.nodeVersionsOpened += 1;
+  await reopenNode(ctx, target.versionId, validFrom, run.workItem, path, origin);
+  await openFresh(validFrom, validTo ?? target.validTo, false);
+  await reconcileEdges(ctx, id, 'cascade', run.workItem, path, origin);
 }
 
-function latestWithStates(versions: readonly NodeVersionRow[], states: StateSpan): NodeVersionRow | undefined;
-function latestWithStates(versions: readonly EdgeVersionRow[], states: StateSpan): EdgeVersionRow | undefined;
-function latestWithStates(versions: readonly (NodeVersionRow | EdgeVersionRow)[], states: StateSpan): NodeVersionRow | EdgeVersionRow | undefined {
-  return versions
-    .filter((v) => v.states.from === states.from && v.states.to === states.to)
-    .sort((a, b) => compareInstants(b.validFrom, a.validFrom))[0];
+/**
+ * The version of the same states that holds at the instant `validFrom` (the one
+ * a correction or succession applies to), and, when none does, the start of the
+ * next version of those states, where a new span has to stop.
+ */
+function pickTarget<T extends NodeVersionRow | EdgeVersionRow>(versions: readonly T[], states: StateSpan, validFrom: string): { target: T | undefined; nextStart: string | undefined } {
+  const same = versions.filter((v) => v.states.from === states.from && v.states.to === states.to);
+  const target = same.find((v) => compareInstants(v.validFrom, validFrom) <= 0 && compareInstants(validFrom, v.validTo) < 0);
+  const later = same.filter((v) => compareInstants(v.validFrom, validFrom) > 0).sort((a, b) => compareInstants(a.validFrom, b.validFrom))[0];
+  return { target, nextStart: later?.validFrom };
 }
 
 async function publishEnd(run: Run, end: PublishEnd, path: string): Promise<void> {
@@ -358,36 +383,62 @@ async function publishEdge(run: Run, edge: PublishEdge, path: string): Promise<v
   const payload = edgePayloadDigest({ relation: edge.relation, src, dst, discriminator: resolved.discriminator, position: resolved.position, properties });
   run.summary.push({ keyHash: resolved.keyHash, payload, states, validFrom, validTo: validTo ?? null });
   const identity = await edgeIdentity(ctx, resolved.keyHash);
+  run.touchedEdges.add(identity);
   const found = await ctx.tx.query<Raw>(`SELECT ${EDGE_COLUMNS} FROM ${EDGE_FROM} WHERE e.edge_id = $1::bigint AND e.recorded_to = 'infinity'`, [identity]);
   const current = found.rows.map(edgeRow);
   for (const version of current) checkOwned(version, 'edge', identity, run, path, origin);
-  const target = latestWithStates(current, states);
-  const open = async (): Promise<void> => {
-    await openEdgeVersion(ctx, { ...base, ...(validTo === undefined ? {} : { validTo }) }, path);
+  const { target, nextStart } = pickTarget(current, states, validFrom);
+  const open = async (to: string | undefined): Promise<void> => {
+    await openEdgeVersion(ctx, { ...base, ...(to === undefined ? {} : { validTo: to }) }, path);
     run.result.edgeVersionsOpened += 1;
   };
   if (target === undefined) {
-    await open();
+    await open(validTo ?? nextStart);
     return;
   }
-  if (target.payloadDigest === payload && compareInstants(target.validFrom, validFrom) <= 0 && compareInstants(validFrom, target.validTo) < 0 && (validTo === undefined || validTo === target.validTo)) {
+  const samePayload = target.payloadDigest === payload;
+  if (samePayload && (validTo === undefined || validTo === target.validTo)) {
     run.result.unchanged += 1;
     return;
   }
-  if (compareInstants(validFrom, target.validTo) >= 0) {
-    await open();
-    return;
-  }
-  if (compareInstants(validFrom, target.validFrom) > 0 && target.payloadDigest !== payload) {
-    await assertEndpoints(ctx, { src, dst, validFrom, validTo: validTo ?? target.validTo, states }, OP, path, origin);
-    await closeVersion(ctx, 'edge_version', target.versionId, { workItem: run.workItem, as: 'correction' }, path, origin);
+  if (samePayload || validFrom === target.validFrom) {
+    await correctEdgeVersion(ctx, target.versionId, { properties, ...(validTo === undefined ? {} : { validTo }), states }, { workItem: run.workItem, as: 'correction' }, run.workItem, path, origin);
     run.result.corrections += 1;
-    await reopenEdge(ctx, target.versionId, validFrom, run.workItem, path, origin);
-    await openEdgeVersion(ctx, { ...base, validTo: validTo ?? target.validTo }, path);
     run.result.edgeVersionsOpened += 1;
     return;
   }
-  await correctEdgeVersion(ctx, target.versionId, { properties, validFrom: compareInstants(validFrom, target.validFrom) > 0 ? target.validFrom : validFrom, ...(validTo === undefined ? {} : { validTo }), states }, { workItem: run.workItem, as: 'correction' }, run.workItem, path, origin);
+  await assertEndpoints(ctx, { src, dst, validFrom, validTo: validTo ?? target.validTo, states }, OP, path, origin);
+  requireLater(ctx, target.recordedFrom, OP, path, origin);
+  await closeVersion(ctx, 'edge_version', target.versionId, { workItem: run.workItem, as: 'correction' }, path, origin);
   run.result.corrections += 1;
+  await reopenEdge(ctx, target.versionId, validFrom, run.workItem, path, origin);
+  await openEdgeVersion(ctx, { ...base, validTo: validTo ?? target.validTo }, path);
   run.result.edgeVersionsOpened += 1;
+}
+
+/** Ends what a complete publication did not repeat: its producer's and scope's current nodes (not shared content), then its edges. */
+async function sweep(run: Run, end: string): Promise<void> {
+  const { ctx } = run;
+  const nodes = await ctx.tx.query<{ id: string }>(
+    `SELECT DISTINCT v.node_id::text AS id FROM node_version v JOIN node_kind k ON k.id = v.kind_id
+     WHERE v.producer = $1 AND v.scope_id = $2::bigint AND v.recorded_to = 'infinity' AND v.valid_to > $3::timestamptz AND k.key <> $4 ORDER BY 1`,
+    [run.owner.producer, run.owner.scope, end, CONTENT_KIND],
+  );
+  for (const row of nodes.rows) {
+    if (run.writtenNodes.has(row.id) || run.endedNodes.has(row.id)) continue;
+    const done = await endNode(ctx, row.id, end, run.workItem, 'complete');
+    run.result.swept.nodes += 1;
+    run.result.corrections += done.nodeVersionsClosed;
+    run.result.cascades.push(...done.cascades);
+  }
+  const edges = await ctx.tx.query<Raw>(
+    `SELECT ${EDGE_COLUMNS} FROM ${EDGE_FROM} WHERE e.producer = $1 AND e.scope_id = $2::bigint AND e.recorded_to = 'infinity' AND e.valid_to > $3::timestamptz ORDER BY e.id`,
+    [run.owner.producer, run.owner.scope, end],
+  );
+  for (const raw of edges.rows) {
+    const edge = edgeRow(raw);
+    if (run.touchedEdges.has(edge.edgeId) || edge.recordedFrom === ctx.at) continue;
+    await endEdgeVersion(ctx, edge.versionId, end, { workItem: run.workItem, as: 'correction' }, 'complete');
+    run.result.swept.edges += 1;
+  }
 }

@@ -10,6 +10,7 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, test } from 'bun:test';
 import type { DatabaseOwner } from '../src/adapters/database-owner.js';
+import type { OuterTransaction } from '../src/history/types.js';
 import { createGraphStore, type GraphId, type GraphLens, type GraphStore } from '../src/graph/index.js';
 
 export const day = (n: number, hours = 0): Date => new Date(Date.UTC(2026, 0, n, hours));
@@ -86,6 +87,58 @@ async function frozenRows(env: Env): Promise<Map<string, string>> {
   return new Map(rows.map((r) => [`${r.t}:${r.id}`, r.body]));
 }
 
+type Settled<T> = PromiseSettledResult<T>;
+const settle = <T>(promise: Promise<T>): Promise<Settled<T>> => promise.then((value) => ({ status: 'fulfilled', value }) as Settled<T>, (reason) => ({ status: 'rejected', reason }) as Settled<T>);
+const reasonOf = (r: Settled<unknown>): string => (r.status === 'rejected' ? (r.reason instanceof Error ? r.reason.message : String(r.reason)) : '');
+
+/**
+ * Runs two writes against the owner in a forced order. On a server the first
+ * transaction does its work and then holds its locks until a second connection
+ * is seen waiting on a lock, and only then commits; so the second really starts
+ * while the first is open, and the case fails if it never has to wait. PGlite
+ * has one connection and serialises transactions, so there they run one after
+ * the other: the outcome the lock produces on a server is the one reached.
+ */
+async function interleave<A, B>(env: Env, first: (tx: OuterTransaction) => Promise<A>, second: (tx: OuterTransaction) => Promise<B>, beforeRelease: () => void = () => {}): Promise<[Settled<A>, Settled<B>]> {
+  if (env.owner.backend === 'pglite') {
+    const one = await settle(env.owner.transaction('write', first));
+    beforeRelease();
+    return [one, await settle(env.owner.transaction('write', second))];
+  }
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let worked!: () => void;
+  const firstWorked = new Promise<void>((resolve) => {
+    worked = resolve;
+  });
+  const one = settle(env.owner.transaction('write', async (tx) => {
+    try {
+      return await first(tx);
+    } finally {
+      worked();
+      await gate;
+    }
+  }));
+  await firstWorked;
+  const two = settle(env.owner.transaction('write', second));
+  const deadline = Date.now() + 15_000;
+  for (;;) {
+    const waiting = await env.query(`SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`);
+    if (waiting.length > 0) break;
+    if (Date.now() > deadline) {
+      release();
+      await Promise.all([one, two]);
+      throw new Error('the second writer never waited on the first one\'s lock, so the interleaving this case needs did not happen');
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  beforeRelease();
+  release();
+  return [await one, await two];
+}
+
 export function graphStoreTests(label: string, getOwner: () => DatabaseOwner): void {
   const run = (name: string, body: (env: Env) => Promise<void>): void => {
     test(name, async () => {
@@ -106,7 +159,8 @@ export function graphStoreTests(label: string, getOwner: () => DatabaseOwner): v
 
     run('schema: exclusion constraints, current partial indexes and the historical GiST index exist', async (env) => {
       const exclusion = await env.query<{ conrelid: string }>(`SELECT conrelid::regclass::text AS conrelid FROM pg_constraint WHERE contype = 'x' ORDER BY 1`);
-      expect(exclusion.map((c) => c.conrelid.replace(/^.*\./, ''))).toEqual(['edge_version', 'node_version']);
+      // no-overlap on both tables, plus the node table's one-key-per-state-node and one-digest-per-content-node exclusions.
+      expect(exclusion.map((c) => c.conrelid.replace(/^.*\./, ''))).toEqual(['edge_version', 'node_version', 'node_version', 'node_version', 'node_version']);
       const indexes = await env.query<{ indexname: string; indexdef: string }>(`SELECT indexname, indexdef FROM pg_indexes WHERE schemaname = current_schema()`);
       const current = indexes.filter((i) => /WHERE \(?recorded_to = 'infinity'/.test(i.indexdef)).map((i) => i.indexname).sort();
       expect(current).toEqual(['edge_version_current_dst', 'edge_version_current_edge', 'edge_version_current_src', 'node_version_current', 'node_version_current_kind']);
@@ -398,16 +452,81 @@ export function graphStoreTests(label: string, getOwner: () => DatabaseOwner): v
       await refused(env.store.publish({ producer: 'A', scope: scopeA, generation: 3, leaseToken: 'ta3', inputDigest: 'a3', ends: [{ node: { id: m }, validTo: day(4) }] }), /fenced-publication.*belongs to producer "B"/s);
     });
 
-    run('endpoint-integrity: ending a node while an edge to it is inserted never leaves an edge past the end', async (env) => {
+    run('endpoint-integrity: an edge inserted after the node ended (the end holds its lock first) is refused', async (env) => {
       const a = await node(env, 'A');
       const b = await node(env, 'B');
       env.setClock(day(2));
-      const results = await Promise.allSettled([env.store.endNode(b.nodeId, day(5)), edge(env, a.nodeId, b.nodeId)]);
-      expect(results[0]!.status).toBe('fulfilled');
-      // Either the edge was refused (the end came first) or it was inserted and the end trimmed it (the edge came first).
-      const strays = await env.query(`SELECT 1 FROM edge_version WHERE recorded_to = 'infinity' AND valid_to > '2026-01-05T00:00:00Z'`);
-      expect(strays).toEqual([]);
-      if (results[1]!.status === 'rejected') expect(String((results[1] as PromiseRejectedResult).reason)).toMatch(/endpoint-integrity/);
+      const [ended, inserted] = await interleave(env, (tx) => env.store.endNode(b.nodeId, day(5), tx), (tx) => env.store.openEdge({ relation: 'uses', src: a.nodeId, dst: b.nodeId, validFrom: day(1), owner: env.own() }, tx));
+      expect(ended.status).toBe('fulfilled');
+      expect(reasonOf(inserted)).toMatch(/endpoint-integrity/);
+      expect(await env.query(`SELECT 1 FROM edge_version WHERE recorded_to = 'infinity' AND valid_to > '2026-01-05T00:00:00Z'`)).toEqual([]);
+    });
+
+    run('endpoint-integrity: a node ended after an edge to it was inserted (the insert holds its lock first) trims that edge', async (env) => {
+      const a = await node(env, 'A');
+      const b = await node(env, 'B');
+      env.setClock(day(2));
+      const [inserted, ended] = await interleave(env, (tx) => env.store.openEdge({ relation: 'uses', src: a.nodeId, dst: b.nodeId, validFrom: day(1), owner: env.own() }, tx), (tx) => env.store.endNode(b.nodeId, day(5), tx));
+      expect(inserted.status).toBe('fulfilled');
+      expect(ended.status).toBe('fulfilled');
+      expect((ended as PromiseFulfilledResult<{ cascades: unknown[] }>).value.cascades.length).toBe(1);
+      expect(await env.query(`SELECT 1 FROM edge_version WHERE recorded_to = 'infinity' AND valid_to > '2026-01-05T00:00:00Z'`)).toEqual([]);
+    });
+
+    run('endpoint-integrity: a node succession that ends the node trims the edges other producers hold to it', async (env) => {
+      const scopeA = await env.store.newNode();
+      const scopeB = await env.store.newNode();
+      env.setClock(day(2));
+      await env.store.openWorkItem({ producer: 'A', scope: scopeA, generation: 1, inputDigest: 'a1', leaseToken: 'ta1', leaseUntil: day(30) });
+      await env.store.openWorkItem({ producer: 'B', scope: scopeB, generation: 1, inputDigest: 'b1', leaseToken: 'tb1', leaseUntil: day(30) });
+      const n = (await env.store.publish({ producer: 'A', scope: scopeA, generation: 1, leaseToken: 'ta1', inputDigest: 'a1', nodes: [{ ref: 'n', kind: 'component', label: 'N', validFrom: day(1) }] })).refs['n']!;
+      const m = (await env.store.publish({ producer: 'B', scope: scopeB, generation: 1, leaseToken: 'tb1', inputDigest: 'b1', nodes: [{ ref: 'm', kind: 'component', label: 'M', validFrom: day(1) }], edges: [{ relation: 'uses', src: { ref: 'm' }, dst: { id: n }, validFrom: day(1) }] })).refs['m']!;
+      env.setClock(day(3));
+      const work = await env.store.openWorkItem({ producer: 'A', scope: scopeA, generation: 2, inputDigest: 'a2', leaseToken: 'ta2', leaseUntil: day(30) });
+      // From day 5 N is renamed, and it holds only until day 6.
+      const done = await env.store.publish({ producer: 'A', scope: scopeA, generation: 2, leaseToken: 'ta2', inputDigest: 'a2', nodes: [{ id: n, kind: 'component', label: 'N renamed', validFrom: day(5), validTo: day(6) }] });
+      expect(done.cascades.length).toBe(1);
+      const edges = await env.query<{ valid_to: string; closed_as: string | null; closed_by: string | null }>(`SELECT ${iso('valid_to')} AS valid_to, closed_as, closed_by::text AS closed_by FROM edge_version WHERE src_id = ${m} ORDER BY id`);
+      expect(edges.map((e) => e.closed_as)).toEqual(['cascade', null]);
+      expect(edges[0]!.closed_by).toBe(work);
+      expect(edges[1]!.valid_to).toBe('2026-01-06T00:00:00Z');
+      expect(await env.query(`SELECT 1 FROM edge_version WHERE recorded_to = 'infinity' AND valid_to > '2026-01-06T00:00:00Z'`)).toEqual([]);
+    });
+
+    run('endpoint-integrity: removing a node version closes the edges that lose their end as recorded cascades', async (env) => {
+      const a = await node(env, 'A');
+      const b = await node(env, 'B');
+      await edge(env, a.nodeId, b.nodeId);
+      env.setClock(day(2));
+      await env.store.removeVersion('node_version', a.versionId);
+      expect(await env.query(`SELECT 1 FROM edge_version WHERE recorded_to = 'infinity'`)).toEqual([]);
+      expect((await env.query<{ closed_as: string }>(`SELECT closed_as FROM edge_version`)).map((r) => r.closed_as)).toEqual(['cascade']);
+      expect((await env.store.callees(a.nodeId, { valid: day(1, 12), known: day(1, 12) }, { relation: 'uses' })).rows.length).toBe(1);
+      await refused(env.store.removeVersion('node_identity' as never, '1'), /not a version table/);
+    });
+
+    run('endpoint-integrity: an edge recorded before its endpoint was recorded is refused', async (env) => {
+      env.setClock(day(5));
+      const a = await node(env, 'A');
+      const b = await node(env, 'B');
+      // Another store instance, whose clock still reads day 2, records an edge: its known time precedes both ends.
+      const early = createGraphStore(env.owner, { now: () => day(2) });
+      await refused(early.openEdge({ relation: 'uses', src: a.nodeId, dst: b.nodeId, validFrom: day(1), owner: env.own() }), /endpoint-integrity/);
+      const late = createGraphStore(env.owner, { now: () => day(6) });
+      await late.openEdge({ relation: 'uses', src: a.nodeId, dst: b.nodeId, validFrom: day(1), owner: env.own() });
+    });
+
+    run('recorded time: a store behind another store\'s clock retries whole, and a publication has one recorded instant', async (env) => {
+      env.setClock(day(5));
+      const a = await node(env, 'A');
+      const behind = createGraphStore(env.owner, { now: () => day(2) });
+      await behind.openWorkItem({ producer: 'p1', scope: env.scope, generation: 1, inputDigest: 'i', leaseToken: 't', leaseUntil: day(30) });
+      const done = await behind.publish({ producer: 'p1', scope: env.scope, generation: 1, leaseToken: 't', inputDigest: 'i', nodes: [{ id: a.nodeId, kind: 'component', label: 'A renamed', validFrom: day(1) }, { ref: 'b', kind: 'component', label: 'B', validFrom: day(1) }] });
+      expect(done.corrections).toBe(1);
+      const stamps = await env.query<{ n: string; later: boolean }>(`SELECT count(DISTINCT recorded_from)::text AS n, bool_and(recorded_from > '2026-01-05T00:00:00Z'::timestamptz) AS later FROM node_version WHERE opened_by IS NOT NULL`);
+      expect(stamps[0]!.n).toBe('1'); // the corrected version and the new node share one instant
+      expect(stamps[0]!.later).toBe(true); // and it is after the version the other store recorded
+      expect((await env.store.node(a.nodeId, { known: day(9) }))?.label).toBe('A renamed');
     });
 
     run('states-stable: a transition state takes a key in a gap and leaves every existing version unchanged', async (env) => {
@@ -446,7 +565,7 @@ export function graphStoreTests(label: string, getOwner: () => DatabaseOwner): v
       expect(await read(day(1, 12), 'to-be')).toEqual(toBeBefore);
       expect((await env.store.stateChain({ valid: day(5), known: day(1, 12) })).map((c) => c.stateKey)).toEqual([1000, 3000]);
       // A key is never reused by another state.
-      await refused(state('another transition', 2000), /states-stable.*state key 2000/);
+      await refused(state('another transition', 2000), /states-stable.*state key/);
     });
 
     run('states-stable: reordering two states gives new keys and leaves the earlier known time\'s reading unchanged', async (env) => {
@@ -476,7 +595,40 @@ export function graphStoreTests(label: string, getOwner: () => DatabaseOwner): v
       expect(await readQ(day(3, 12), 'to-be')).toBe(false);
       expect(await readQ(day(3, 12), 4000)).toBe(true);
       // The old keys stay taken.
-      await refused(state('reuse', 3000), /states-stable.*state key 3000/);
+      await refused(state('reuse', 3000), /states-stable.*state key/);
+    });
+
+    run('states-stable: a state node keeps its key, and two writers cannot give one key to two nodes', async (env) => {
+      const state = (label: string, key: number, tx?: OuterTransaction) => env.store.openNode({ kind: 'engine:state', label, properties: { stateKey: key }, validFrom: day(1), owner: env.own() }, tx);
+      const s1 = await state('as-is', 1000);
+      env.setClock(day(2));
+      await refused(env.store.correctNode(s1.versionId, { properties: { stateKey: 1500 } }), /states-stable.*keeps its state key/);
+      // The database holds the rule: a state node row without its key, or with another, is refused.
+      await refused(env.query(`INSERT INTO node_version (node_id, kind_id, label, valid_from, recorded_from, states, producer, scope_id, payload_digest, properties)
+        SELECT node_id, kind_id, label, valid_from, recorded_from + interval '1 day', int8range(5, 6), producer, scope_id, 'x', properties FROM node_version WHERE id = ${s1.versionId}`), /states-stable/);
+      const [one, two] = await interleave(env, (tx) => state('first', 7, tx), (tx) => state('second', 7, tx));
+      expect(one.status).toBe('fulfilled');
+      expect(reasonOf(two)).toMatch(/states-stable.*state key/);
+      expect(await env.query(`SELECT 1 FROM node_version WHERE state_key = 7`)).toHaveLength(1);
+    });
+
+    run('states-stable: the state chain is one entry per state and follows the after-edges', async (env) => {
+      const state = async (label: string, key: number): Promise<GraphId> => (await env.store.openNode({ kind: 'engine:state', label, properties: { stateKey: key }, validFrom: day(1), owner: env.own() })).nodeId;
+      const [s1, s2, s3] = [await state('as-is', 1000), await state('middle', 2000), await state('to-be', 3000)];
+      // A later state is joined after the earlier one: src is after dst.
+      await edge(env, s2, s1, {}, 'engine:state-after');
+      await edge(env, s3, s2, {}, 'engine:state-after');
+      const chain = async (): Promise<string[]> => (await env.store.stateChain({ valid: day(2), known: day(2) })).map((c) => `${c.label}:${c.stateKey}`);
+      expect(await chain()).toEqual(['as-is:1000', 'middle:2000', 'to-be:3000']);
+      // A state in the gap that nothing joins breaks the chain, and the read says where.
+      env.setClock(day(3));
+      await state('transition', 1500);
+      await refused(env.store.stateChain({ valid: day(4), known: day(4) }), /chain is broken here/);
+      // An after-edge against key order is refused too.
+      const second = await fresh(getOwner());
+      const [a, b] = [await second.store.openNode({ kind: 'engine:state', label: 'a', properties: { stateKey: 1 }, validFrom: day(1), owner: second.own() }), await second.store.openNode({ kind: 'engine:state', label: 'b', properties: { stateKey: 2 }, validFrom: day(1), owner: second.own() })];
+      await edge(second, a.nodeId, b.nodeId, {}, 'engine:state-after');
+      await refused(second.store.stateChain({ valid: day(2), known: day(2) }), /against key order/);
     });
 
     run('acceptance-bound: a changed statement reads as proposed; the earlier version stays accepted at the earlier known time', async (env) => {
@@ -529,21 +681,21 @@ export function graphStoreTests(label: string, getOwner: () => DatabaseOwner): v
     run('content-immutable: bytes and digest never change, and an evidence span keeps resolving after the file changes', async (env) => {
       const original = new TextEncoder().encode('line one\nline two\nline three\n');
       const changed = new TextEncoder().encode('line one\nline 2\nline three\n');
-      const file = await node(env, 'orders.go', { kind: 'engine:file' });
+      const file = await node(env, 'orders.go', { kind: 'code.file' });
       const v1 = await env.store.openNode({ kind: 'engine:content', label: 'orders.go@1', properties: {}, content: original, validFrom: day(1), owner: env.own() });
       expect((await env.store.node(v1.nodeId, { known: day(2) }))?.contentSha256).toBe(sha(original));
-      const link = await edge(env, file.nodeId, v1.nodeId, { validFrom: day(1) }, 'engine:links-content');
+      const link = await edge(env, file.nodeId, v1.nodeId, { validFrom: day(1) }, 'code.links-content');
       const span = { contentSha256: sha(original), start: 9, end: 17 };
       expect(new TextDecoder().decode((await env.store.contentBytes(span.contentSha256, span))!)).toBe('line two');
       // Day 3: the file changes. The old link ends, the new content is another node, and the old content is untouched.
       env.setClock(day(3));
       await env.store.endEdge(link.versionId, day(3));
       const v2 = await env.store.openNode({ kind: 'engine:content', label: 'orders.go@2', properties: {}, content: changed, validFrom: day(3), owner: env.own() });
-      await edge(env, file.nodeId, v2.nodeId, { validFrom: day(3) }, 'engine:links-content');
+      await edge(env, file.nodeId, v2.nodeId, { validFrom: day(3) }, 'code.links-content');
       expect(v2.nodeId).not.toBe(v1.nodeId);
       expect(new TextDecoder().decode((await env.store.contentBytes(span.contentSha256, span))!)).toBe('line two');
       expect(new TextDecoder().decode((await env.store.contentBytes(sha(changed), { start: 9, end: 15 }))!)).toBe('line 2');
-      const linked = async (valid: Date): Promise<string[]> => (await env.store.callees(file.nodeId, { valid, known: day(4) }, { relation: 'engine:links-content' })).rows.map((r) => r.dst.label);
+      const linked = async (valid: Date): Promise<string[]> => (await env.store.callees(file.nodeId, { valid, known: day(4) }, { relation: 'code.links-content' })).rows.map((r) => r.dst.label);
       expect(await linked(day(2))).toEqual(['orders.go@1']);
       expect(await linked(day(4))).toEqual(['orders.go@2']);
       // A content node cannot be given other bytes, by the store or by the database; only content nodes carry bytes.
@@ -561,6 +713,17 @@ export function graphStoreTests(label: string, getOwner: () => DatabaseOwner): v
       const same = await env.store.publish({ producer: 'p2', scope: scope2, generation: 1, leaseToken: 't', inputDigest: 'i', nodes: [{ ref: 'c', kind: 'engine:content', label: 'copy', content: original, validFrom: day(6) }] });
       expect(same.refs['c']).toBe(v1.nodeId);
       expect(same.nodeVersionsOpened).toBe(0);
+    });
+
+    run('content-immutable: two writers cannot give one content node two digests', async (env) => {
+      const id = await env.store.newNode();
+      const content = (bytes: string, from: Date, to: Date) => (tx: OuterTransaction) =>
+        env.store.openNode({ kind: 'engine:content', label: bytes, properties: {}, nodeId: id, content: new TextEncoder().encode(bytes), validFrom: from, validTo: to, owner: env.own() }, tx);
+      // Disjoint valid ranges, so the overlap constraint cannot be what stops the second.
+      const [one, two] = await interleave(env, content('first bytes', day(1), day(2)), content('other bytes', day(3), day(4)));
+      expect(one.status).toBe('fulfilled');
+      expect(reasonOf(two)).toMatch(/content-immutable/);
+      expect(await env.query(`SELECT 1 FROM node_version WHERE node_id = ${id}`)).toHaveLength(1);
     });
 
     describe('fenced-publication', () => {
@@ -638,15 +801,66 @@ export function graphStoreTests(label: string, getOwner: () => DatabaseOwner): v
         expect((await env.store.node(n, { known: day(4) }))?.label).toBe('N renamed');
       });
 
-      run('fenced-publication: two writers of one generation at once publish exactly once', async (env) => {
+      run('fenced-publication: two writers of one generation publish exactly once (the second waits for the first)', async (env) => {
         env.setClock(day(2));
         await plan(env, 'p1', env.scope, 1);
         const nodes = [{ ref: 'a', kind: 'component', label: 'A', validFrom: day(1) }];
-        const outcomes = await Promise.allSettled([env.store.publish(input('p1', env.scope, 1, { nodes })), env.store.publish(input('p1', env.scope, 1, { nodes }))]);
-        expect(outcomes.filter((o) => o.status === 'fulfilled').length).toBe(1);
-        const failed = outcomes.find((o) => o.status === 'rejected') as PromiseRejectedResult;
-        expect(String(failed.reason)).toMatch(/fenced-publication.*already published/s);
+        const [one, two] = await interleave(env, (tx) => env.store.publish(input('p1', env.scope, 1, { nodes }), tx), (tx) => env.store.publish(input('p1', env.scope, 1, { nodes }), tx));
+        expect(one.status).toBe('fulfilled');
+        expect(reasonOf(two)).toMatch(/fenced-publication.*already published/s);
         expect(await env.count('node_version')).toBe(1);
+      });
+
+      run('fenced-publication: two generations with the same input publish once (the stream is locked, not only the generation)', async (env) => {
+        env.setClock(day(2));
+        await plan(env, 'p1', env.scope, 1, 't-p1-1', 'same');
+        await plan(env, 'p1', env.scope, 2, 't-p1-2', 'same');
+        const nodes = [{ kind: 'component', label: 'A', validFrom: day(1) }];
+        const [one, two] = await interleave(env, (tx) => env.store.publish({ ...input('p1', env.scope, 1, { nodes }), inputDigest: 'same' }, tx), (tx) => env.store.publish({ ...input('p1', env.scope, 2, { nodes }), inputDigest: 'same' }, tx));
+        expect(one.status).toBe('fulfilled');
+        expect(two.status).toBe('fulfilled');
+        expect((two as PromiseFulfilledResult<{ unchangedInput: boolean }>).value.unchangedInput).toBe(true);
+        expect(await env.count('node_version')).toBe(1);
+      });
+
+      run('fenced-publication: a lease that passes to another worker while a publication waits stops that publication', async (env) => {
+        env.setClock(day(2));
+        await plan(env, 'p1', env.scope, 1, 'worker-1');
+        const [moved, late] = await interleave(
+          env,
+          (tx) => env.store.leaseWorkItem({ producer: 'p1', scope: env.scope, generation: 1, leaseToken: 'worker-2', leaseUntil: day(30) }, tx),
+          (tx) => env.store.publish({ ...input('p1', env.scope, 1, { nodes: [{ kind: 'component', label: 'A', validFrom: day(1) }] }), leaseToken: 'worker-1' }, tx),
+        );
+        expect(moved.status).toBe('fulfilled');
+        expect(reasonOf(late)).toMatch(/fenced-publication.*passed to another worker/s);
+        expect(await env.count('node_version')).toBe(0);
+      });
+
+      run('fenced-publication: the lease is judged after the lock, not at the instant the publication began', async (env) => {
+        env.setClock(day(3));
+        await plan(env, 'p1', env.scope, 1, 't-p1-1', 'in-1', day(4));
+        // The publication starts on day 3 and waits for the work item's lock; by the time it gets it, the clock reads day 5.
+        const [held, late] = await interleave(
+          env,
+          (tx) => env.store.leaseWorkItem({ producer: 'p1', scope: env.scope, generation: 1, leaseToken: 't-p1-1', leaseUntil: day(4) }, tx),
+          (tx) => env.store.publish(input('p1', env.scope, 1, { nodes: [{ kind: 'component', label: 'A', validFrom: day(1) }] }), tx),
+          () => env.setClock(day(5)),
+        );
+        expect(held.status).toBe('fulfilled');
+        expect(reasonOf(late)).toMatch(/fenced-publication.*expired/s);
+      });
+
+      run('fenced-publication: a correction applies to the version that holds at its valid instant, not the latest one', async (env) => {
+        const x = await node(env, 'X', { validTo: day(10) });
+        await node(env, 'X later', { nodeId: x.nodeId, validFrom: day(10) });
+        env.setClock(day(12));
+        await plan(env, 'p1', env.scope, 1);
+        const done = await env.store.publish(input('p1', env.scope, 1, { nodes: [{ id: x.nodeId, kind: 'component', label: 'X fixed', validFrom: day(5) }] }));
+        expect(done.corrections).toBe(1);
+        const at = async (valid: Date): Promise<string | undefined> => (await env.store.node(x.nodeId, { valid, known: day(13) }))?.label;
+        expect(await at(day(3))).toBe('X');
+        expect(await at(day(7))).toBe('X fixed');
+        expect(await at(day(12))).toBe('X later');
       });
 
       run('fenced-publication: a refill that finds the same payload writes nothing, and a producer on the same input publishes nothing', async (env) => {
@@ -679,6 +893,53 @@ export function graphStoreTests(label: string, getOwner: () => DatabaseOwner): v
         expect((await env.query<{ g: string }>(`SELECT count(*)::text AS g FROM work_item WHERE published_at IS NOT NULL`))[0]!.g).toBe('3');
       });
 
+      run('fenced-publication: a complete publication ends what its producer and scope did not repeat, and nothing else', async (env) => {
+        const scopeB = await env.store.newNode();
+        env.setClock(day(2));
+        await plan(env, 'A', env.scope, 1);
+        await plan(env, 'B', scopeB, 1);
+        const full = {
+          nodes: [{ ref: 'a', kind: 'component', label: 'A', validFrom: day(1) }, { ref: 'b', kind: 'component', label: 'B', validFrom: day(1) }, { ref: 'c', kind: 'component', label: 'C', validFrom: day(1) }],
+          edges: [{ relation: 'uses', src: { ref: 'a' }, dst: { ref: 'b' }, validFrom: day(1) }, { relation: 'uses', src: { ref: 'b' }, dst: { ref: 'c' }, validFrom: day(1) }],
+        };
+        const one = await env.store.publish(input('A', env.scope, 1, full));
+        const [a, b, c] = [one.refs['a']!, one.refs['b']!, one.refs['c']!];
+        // Producer B owns another node and an edge to C, which A will drop.
+        const other = await env.store.publish(input('B', scopeB, 1, { nodes: [{ ref: 'x', kind: 'component', label: 'X', validFrom: day(1) }], edges: [{ relation: 'uses', src: { ref: 'x' }, dst: { id: c }, validFrom: day(1) }] }));
+        const x = other.refs['x']!;
+        // Day 3: the tree no longer holds C or the edge b -> c; the tree changed on valid day 2 12:00.
+        env.setClock(day(3));
+        await plan(env, 'A', env.scope, 2);
+        const two = await env.store.publish(input('A', env.scope, 2, {
+          complete: { validTo: day(2, 12) },
+          nodes: [{ id: a, kind: 'component', label: 'A', validFrom: day(1) }, { id: b, kind: 'component', label: 'B', validFrom: day(1) }],
+          edges: [{ relation: 'uses', src: { id: a }, dst: { id: b }, validFrom: day(1) }],
+        }));
+        expect(two.swept).toEqual({ nodes: 1, edges: 0 }); // C is swept; its edge from b is closed by the end's cascade, B's edge from x by the cascade too
+        expect(two.cascades.length).toBe(2);
+        const seen = async (valid: Date, known: Date): Promise<string[]> => labels((await env.store.traverse(a, ['uses'], 'out', { valid, known })).rows);
+        expect(await seen(day(2), day(4))).toEqual(['B', 'C']);
+        expect(await seen(day(3), day(4))).toEqual(['B']);
+        expect(await seen(day(3), day(2, 12))).toEqual(['B', 'C']); // what was known before the sweep is unchanged
+        // B's own node X is untouched, and the edge x -> c ends with C.
+        expect((await env.store.node(x, { valid: day(5), known: day(5) }))?.label).toBe('X');
+        expect((await env.store.callees(x, { valid: day(3), known: day(5) }, { relation: 'uses' })).rows).toEqual([]);
+        // A refill of the same tree against complete writes nothing more: a third generation finds nothing unrepeated.
+        env.setClock(day(4));
+        await plan(env, 'A', env.scope, 3);
+        const rows = await env.count('node_version') + await env.count('edge_version');
+        const three = await env.store.publish(input('A', env.scope, 3, { complete: { validTo: day(2, 12) }, nodes: two.refs ? [{ id: a, kind: 'component', label: 'A', validFrom: day(1) }, { id: b, kind: 'component', label: 'B', validFrom: day(1) }] : [], edges: [{ relation: 'uses', src: { id: a }, dst: { id: b }, validFrom: day(1) }] }));
+        expect(three.swept).toEqual({ nodes: 0, edges: 0 });
+        expect(await env.count('node_version') + await env.count('edge_version')).toBe(rows);
+        // An edge A drops while keeping its ends is swept as an edge.
+        env.setClock(day(5));
+        await plan(env, 'A', env.scope, 4);
+        const four = await env.store.publish(input('A', env.scope, 4, { complete: true, nodes: [{ id: a, kind: 'component', label: 'A', validFrom: day(1) }, { id: b, kind: 'component', label: 'B', validFrom: day(1) }] }));
+        expect(four.swept).toEqual({ nodes: 0, edges: 1 });
+        expect(await seen(day(6), day(6))).toEqual([]);
+        expect(await seen(day(4), day(6))).toEqual(['B']);
+      });
+
       run('fenced-publication: a rename keeps the identity and succeeds the old name on the valid axis', async (env) => {
         env.setClock(day(2));
         await plan(env, 'p1', env.scope, 1);
@@ -701,14 +962,26 @@ export function graphStoreTests(label: string, getOwner: () => DatabaseOwner): v
       const bare = await fresh(getOwner(), false);
       // Without a registry the store holds the engine's own prefixed keys and nothing else.
       const engineKinds = await bare.query<{ key: string; namespace: string }>(`SELECT key, namespace FROM node_kind ORDER BY key`);
-      expect(engineKinds.every((k) => k.namespace === 'engine' && k.key.startsWith('engine:'))).toBe(true);
+      const ownKey = (k: { key: string }): boolean => k.key.startsWith('engine:') || k.key.startsWith('code.');
+      expect(engineKinds.every((k) => k.namespace === 'engine' && ownKey(k))).toBe(true);
+      // The store's own mechanics are engine:, the extractor schema is code.; no code structure is keyed engine:.
       expect(engineKinds.map((k) => k.key)).toEqual([
-        'engine:acceptance', 'engine:answer', 'engine:claim', 'engine:commit', 'engine:content', 'engine:directory', 'engine:evidence', 'engine:file', 'engine:question', 'engine:state', 'engine:symbol',
+        'code.commit', 'code.directory', 'code.file', 'code.repository', 'code.symbol',
+        'engine:acceptance', 'engine:answer', 'engine:claim', 'engine:content', 'engine:evidence', 'engine:question', 'engine:state',
       ]);
       const engineRelations = await bare.query<{ key: string; namespace: string; positioned: boolean; discriminated: boolean }>(`SELECT key, namespace, positioned, discriminated FROM relation_type ORDER BY key`);
-      expect(engineRelations.every((r) => r.namespace === 'engine' && r.key.startsWith('engine:'))).toBe(true);
-      expect(engineRelations.filter((r) => r.positioned).map((r) => r.key)).toEqual(['engine:occurrence']);
+      expect(engineRelations.every((r) => r.namespace === 'engine' && ownKey(r))).toBe(true);
+      expect(engineRelations.map((r) => r.key)).toEqual([
+        'code.calls', 'code.contains', 'code.imports', 'code.inherits', 'code.links-content', 'code.occurrence',
+        'engine:answers', 'engine:contradicts', 'engine:evidence-of', 'engine:state-after', 'engine:subject-of', 'engine:supports',
+      ]);
+      expect(engineRelations.filter((r) => r.positioned).map((r) => r.key)).toEqual(['code.occurrence']);
       expect(engineRelations.some((r) => r.discriminated)).toBe(false);
+      // A driver registers more extractor-schema keys from what extractors emit; only code. keys are accepted there.
+      expect(await bare.store.registerCodeSchema({ kinds: ['code.table'], relations: [{ key: 'code.foreign-key', discriminated: true }] })).toEqual({ kinds: 1, relations: 1 });
+      expect((await bare.query<{ namespace: string }>(`SELECT namespace FROM node_kind WHERE key = 'code.table'`))[0]!.namespace).toBe('engine');
+      await refused(bare.store.registerCodeSchema({ kinds: ['table'], relations: [] }), /starts with "code\."/);
+      await refused(bare.store.registerCodeSchema({ kinds: ['engine:table'], relations: [] }), /starts with "code\."/);
       // A product kind is unknown until the registry names it.
       await refused(bare.store.openNode({ kind: 'component', label: 'x', validFrom: day(1), owner: { producer: 'p', scope: await bare.store.newNode() } }), /node kind "component" is not registered/);
       const registry = { kinds: ['component'], relations: [{ key: 'uses' }, { key: 'foreign-key', discriminated: true }], origin: { file: 'registry.yaml', line: 4 } };
@@ -720,7 +993,8 @@ export function graphStoreTests(label: string, getOwner: () => DatabaseOwner): v
       await refused(bare.store.registerVocabulary({ kinds: [], relations: [{ key: 'uses', discriminated: true }] }), /already registered with other settings/);
       expect(await bare.query(`SELECT id, key FROM relation_type ORDER BY id`)).toEqual(encodingBefore);
       // A product key may not use the engine's prefix, and a malformed registry names the entry and its file and line.
-      await refused(bare.store.registerVocabulary({ kinds: ['engine:file2'], relations: [], origin: { file: 'registry.yaml', line: 9 } }), /kinds\[0\].*"engine:"|"engine:".*kinds\[0\].*registry\.yaml:9/s);
+      await refused(bare.store.registerVocabulary({ kinds: ['engine:file2'], relations: [], origin: { file: 'registry.yaml', line: 9 } }), /"engine:file2".*neither.*kinds\[0\].*registry\.yaml:9/s);
+      await refused(bare.store.registerVocabulary({ kinds: [], relations: [{ key: 'code.depends' }], origin: { file: 'registry.yaml', line: 12 } }), /"code\.depends".*neither.*relations\[0\]\.key.*registry\.yaml:12/s);
       await refused(bare.store.registerVocabulary({ kinds: ['a', 'a'], relations: [] }), /registered twice/);
       await refused(bare.store.registerVocabulary({ kinds: [' padded'], relations: [] }), /without surrounding blanks/);
       // Discriminators and positions follow the relation type's declaration.
@@ -732,11 +1006,11 @@ export function graphStoreTests(label: string, getOwner: () => DatabaseOwner): v
       await bare.store.openEdge({ relation: 'foreign-key', src: a.nodeId, dst: b.nodeId, discriminator: 'orders_id', validFrom: day(1), owner });
       await bare.store.openEdge({ relation: 'foreign-key', src: a.nodeId, dst: b.nodeId, discriminator: 'billing_id', validFrom: day(1), owner });
       await refused(bare.store.openEdge({ relation: 'uses', src: a.nodeId, dst: b.nodeId, position: { start: 1, end: 2 }, validFrom: day(1), owner }), /is not positioned/);
-      await refused(bare.store.openEdge({ relation: 'engine:occurrence', src: a.nodeId, dst: b.nodeId, validFrom: day(1), owner }), /is positioned/);
+      await refused(bare.store.openEdge({ relation: 'code.occurrence', src: a.nodeId, dst: b.nodeId, validFrom: day(1), owner }), /is positioned/);
       // Two parallel relations of one discriminated type are two identities; two occurrences are keyed by their starting byte.
       expect(await bare.count('edge_identity')).toBe(2);
-      await bare.store.openEdge({ relation: 'engine:occurrence', src: a.nodeId, dst: b.nodeId, position: { start: 4, end: 9 }, validFrom: day(1), owner });
-      await bare.store.openEdge({ relation: 'engine:occurrence', src: a.nodeId, dst: b.nodeId, position: { start: 20, end: 24 }, validFrom: day(1), owner });
+      await bare.store.openEdge({ relation: 'code.occurrence', src: a.nodeId, dst: b.nodeId, position: { start: 4, end: 9 }, validFrom: day(1), owner });
+      await bare.store.openEdge({ relation: 'code.occurrence', src: a.nodeId, dst: b.nodeId, position: { start: 20, end: 24 }, validFrom: day(1), owner });
       expect(await bare.count('edge_identity')).toBe(4);
       // The module's own source names no product kind: engine keys carry the prefix, and only the registry's entry point writes the product namespace.
       const { readFileSync, readdirSync } = await import('node:fs');
@@ -744,7 +1018,7 @@ export function graphStoreTests(label: string, getOwner: () => DatabaseOwner): v
       for (const file of readdirSync(dir)) {
         const text = readFileSync(new URL(file, dir), 'utf8');
         if (file !== 'register.ts') expect(text, `${file} writes the product namespace`).not.toMatch(/'product'\s*,|VALUES \(\$1, 'product'/);
-        if (file === 'vocabulary.ts') for (const m of text.matchAll(/key: '([^']+)'|^\s*'([a-z-]+:[a-z-]+)',$/gm)) expect((m[1] ?? m[2])!.startsWith('engine:')).toBe(true);
+        if (file === 'vocabulary.ts') for (const m of text.matchAll(/key: '([^']+)'|^\s*'((?:engine:|code\.)[a-z-]+)',$/gm)) expect(/^(engine:|code\.)/.test((m[1] ?? m[2])!)).toBe(true);
       }
       void env;
     });
@@ -753,8 +1027,8 @@ export function graphStoreTests(label: string, getOwner: () => DatabaseOwner): v
       run('callers and callees: the edges of the call relation that end or start at a node, with their nodes, paged by keyset', async (env) => {
         // f -> g, h -> g, k -> g, g -> m, and a `uses` edge f -> g that is no call.
         const [f, g, h, k, m] = [await node(env, 'f'), await node(env, 'g'), await node(env, 'h'), await node(env, 'k'), await node(env, 'm')];
-        for (const caller of [f, h, k]) await edge(env, caller.nodeId, g.nodeId, {}, 'engine:calls');
-        await edge(env, g.nodeId, m.nodeId, {}, 'engine:calls');
+        for (const caller of [f, h, k]) await edge(env, caller.nodeId, g.nodeId, {}, 'code.calls');
+        await edge(env, g.nodeId, m.nodeId, {}, 'code.calls');
         await edge(env, f.nodeId, g.nodeId);
         const lens: GraphLens = { valid: day(2), known: day(2) };
         expect(labels((await env.store.callers(g.nodeId, lens)).rows.map((r) => r.src))).toEqual(['f', 'h', 'k']);
@@ -779,9 +1053,9 @@ export function graphStoreTests(label: string, getOwner: () => DatabaseOwner): v
         const n: Record<string, GraphId> = {};
         for (const name of names) n[name] = (await node(env, name)).nodeId;
         const contains: Record<string, string> = {};
-        for (const [from, to] of [['R', 'D1'], ['D1', 'F1'], ['R', 'F2']] as const) contains[`${from}>${to}`] = (await edge(env, n[from]!, n[to]!, {}, 'engine:contains')).versionId;
-        for (const [from, to] of [['F1', 'F2'], ['F1', 'E'], ['E', 'F2']] as const) await edge(env, n[from]!, n[to]!, {}, 'engine:imports');
-        const within = async (l: GraphLens): Promise<string[]> => (await env.store.relationsWithin(n['R']!, 'engine:imports', l)).rows.map((r) => `${r.src.label}>${r.dst.label}`);
+        for (const [from, to] of [['R', 'D1'], ['D1', 'F1'], ['R', 'F2']] as const) contains[`${from}>${to}`] = (await edge(env, n[from]!, n[to]!, {}, 'code.contains')).versionId;
+        for (const [from, to] of [['F1', 'F2'], ['F1', 'E'], ['E', 'F2']] as const) await edge(env, n[from]!, n[to]!, {}, 'code.imports');
+        const within = async (l: GraphLens): Promise<string[]> => (await env.store.relationsWithin(n['R']!, 'code.imports', l)).rows.map((r) => `${r.src.label}>${r.dst.label}`);
         expect(await within({ valid: day(3), known: day(3) })).toEqual(['F1>F2']);
         // Day 5: R stopped containing F2 (recorded day 6). Valid day 7: F2 is outside, so no import is within. Valid day 3, or known day 5: still within.
         env.setClock(day(6));

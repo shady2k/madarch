@@ -37,3 +37,20 @@ export function databaseMessage(error: unknown): string {
   if (typeof error === 'object' && error !== null && 'message' in error && typeof error.message === 'string') return error.message;
   return String(error);
 }
+
+/**
+ * Thrown inside a write transaction whose recorded instant is earlier than a
+ * version it has to close, because another store instance (another process
+ * with its own clock) recorded that version first. The store that owns the
+ * transaction retries the whole write with a clock moved past `after`; it is
+ * never swallowed halfway, so no publication holds two recorded instants.
+ */
+export class GraphClockBehind extends GraphError {
+  readonly after: string;
+
+  constructor(operation: string, path: string, after: string, origin?: GraphOrigin) {
+    super(operation, path, `the recorded instant is earlier than ${after}, when another writer recorded the version to close; the write is retried with a later clock`, origin);
+    this.name = 'GraphClockBehind';
+    this.after = after;
+  }
+}

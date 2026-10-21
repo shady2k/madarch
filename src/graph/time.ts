@@ -76,3 +76,17 @@ export function checkValid(from: string, to: string, operation: string, path: st
     throw new GraphError(operation, path, `a valid range must not be empty, got [${from}, ${to})`, origin);
   }
 }
+
+/** The microseconds since the epoch of a finite canonical instant. */
+export function instantMicros(value: string): bigint {
+  const match = ISO.exec(value);
+  if (match === null) throw new Error(`instantMicros: ${value} is not a finite canonical instant`);
+  return BigInt(new Date(`${match[1]}.000Z`).getTime()) * 1000n + BigInt((match[2] ?? '').padEnd(6, '0'));
+}
+
+/** The canonical instant of a count of microseconds since the epoch. */
+export function microsInstant(micros: bigint): string {
+  const ms = micros / 1000n;
+  const rest = micros % 1000n;
+  return new Date(Number(ms)).toISOString().replace(/\.(\d{3})Z$/, `.$1${String(rest).padStart(3, '0')}Z`);
+}

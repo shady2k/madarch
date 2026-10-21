@@ -43,10 +43,13 @@ The design is decision 0028 (docs/decisions/0028-temporal-graph-store.md). Choic
 - The database refuses what the write path never does: a trigger allows an update of a version only to close its recorded_to together with who closed it and why, and refuses every delete; another trigger holds content nodes to one set of bytes and claims to a digest.
 - A work item is the only table beside the graph's own; it carries the unit's lease token, lease expiry, input digest and the published mark, and a publication locks its row.
 - Reads take the lens as the first three parameters of one visibility predicate that is applied to every edge and to both end nodes on every hop; results that can be large are pages with a keyset cursor and a next marker.
-- A concurrent writer that wins a lock second may hold an earlier recorded instant than a version the first just wrote; its close is recorded one microsecond after that version.
+- Recorded time is one microsecond-resolution instant per transaction. A writer whose clock is behind another writer's version retries the whole write with a later clock; an instant never changes mid-publication.
+- The vocabulary has two engine prefixes: code. for the extractor schema (registered by the driver from what extractors emit) and engine: for the store's own mechanics (content, claim, evidence, acceptance, question, answer, state, state-after). A product key may use neither.
+- State-key stability and content immutability are exclusion constraints of the database, so concurrent writers cannot break them.
+- A publication with complete set ends what its producer and scope did not repeat.
 
 ## Acceptance evidence
-Run on the SkyPilot pod: bun run check exit 0; test/graph-store.test.ts and test/graph-store-postgres.test.ts, 38 cases each, all passing, the second against a PostgreSQL 17.5 server with btree_gist.
+Run on the SkyPilot pod: bun run check exit 0; test/graph-store.test.ts and test/graph-store-postgres.test.ts, 51 cases each, all passing, the second against a PostgreSQL 17.5 server with btree_gist.
 
 ## DONE WHEN
 Every constraint of decision 0028 that concerns the storage layer (graph-only, no-overlap, append-only, known-then, every-hop, endpoint-integrity, states-stable, acceptance-bound, content-immutable, fenced-publication, registry-kinds) is a passing case on PGlite and on PostgreSQL, and the pull request's CI is green on every shard.

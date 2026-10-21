@@ -13,7 +13,7 @@ import type { ByteSpan, GraphId } from './digest.js';
 import { GraphError } from './errors.js';
 import { ALL_STATES, instantText, type Instant } from './time.js';
 import { EDGE_COLUMNS, EDGE_FROM, NODE_COLUMNS, NODE_FROM, checkId, edgeRow, nodeRow, type EdgeVersionRow, type NodeVersionRow } from './versions.js';
-import { ACCEPTANCE_KIND, CALLS, CLAIM_KIND, CONTAINS, CONTENT_KIND, STATE_KIND } from './vocabulary.js';
+import { ACCEPTANCE_KIND, STATE_AFTER, CALLS, CLAIM_KIND, CONTAINS, CONTENT_KIND, STATE_KIND } from './vocabulary.js';
 
 type Raw = Record<string, unknown>;
 
@@ -96,16 +96,44 @@ export interface StateEntry {
   label: string;
 }
 
-/** The architecture states seen at a valid and a known time, in chain (key) order. */
+/**
+ * The architecture states seen at a valid and a known time, one entry per
+ * state, in chain (key) order. Where `engine:state-after` edges exist (a state
+ * is after the one it points to) the chain must be the single path they draw
+ * through the keys: a gap or a disconnected state, or an edge against the key
+ * order, is refused naming the states rather than read as a chain.
+ */
 export async function readStateChain(tx: OuterTransaction, at: { valid: string; known: string }): Promise<StateEntry[]> {
   const found = await tx.query<Raw>(
-    `SELECT v.node_id::text AS node_id, (v.properties->>'stateKey')::bigint::text AS state_key, v.label
+    `SELECT DISTINCT ON (v.node_id) v.node_id::text AS node_id, v.state_key::text AS state_key, v.label
      FROM node_version v JOIN node_kind k ON k.id = v.kind_id
      WHERE k.key = $3 AND v.valid_from <= $1::timestamptz AND $1::timestamptz < v.valid_to AND v.recorded_from <= $2::timestamptz AND $2::timestamptz < v.recorded_to
-     ORDER BY (v.properties->>'stateKey')::bigint, v.node_id`,
+     ORDER BY v.node_id, v.id`,
     [at.valid, at.known, STATE_KIND],
   );
-  return found.rows.map((r) => ({ nodeId: r['node_id'] as string, stateKey: Number(r['state_key']), label: r['label'] as string }));
+  const chain = found.rows.map((r) => ({ nodeId: r['node_id'] as string, stateKey: Number(r['state_key']), label: r['label'] as string })).sort((a, b) => a.stateKey - b.stateKey);
+  const links = await tx.query<Raw>(
+    `SELECT DISTINCT e.src_id::text AS src, e.dst_id::text AS dst
+     FROM edge_version e JOIN relation_type r ON r.id = e.relation_type_id
+     WHERE r.key = $3 AND e.valid_from <= $1::timestamptz AND $1::timestamptz < e.valid_to AND e.recorded_from <= $2::timestamptz AND $2::timestamptz < e.recorded_to`,
+    [at.valid, at.known, STATE_AFTER],
+  );
+  if (links.rows.length === 0) return chain;
+  const after = new Set(links.rows.map((r) => `${r['src']}>${r['dst']}`));
+  const byNode = new Map(chain.map((c) => [c.nodeId, c]));
+  for (const key of after) {
+    const [src, dst] = key.split('>') as [string, string];
+    const later = byNode.get(src);
+    const earlier = byNode.get(dst);
+    if (later === undefined || earlier === undefined) throw new GraphError('read state chain', 'engine:state-after', `an after-edge joins node ${src} to node ${dst}, and one of them is no state seen at ${at.valid} known ${at.known}`);
+    if (later.stateKey <= earlier.stateKey) throw new GraphError('read state chain', 'engine:state-after', `state "${later.label}" (key ${later.stateKey}) is after "${earlier.label}" (key ${earlier.stateKey}), against key order: within one chain, key order is chain order`);
+  }
+  for (let i = 1; i < chain.length; i += 1) {
+    const later = chain[i]!;
+    const earlier = chain[i - 1]!;
+    if (!after.has(`${later.nodeId}>${earlier.nodeId}`)) throw new GraphError('read state chain', 'engine:state-after', `state "${later.label}" (key ${later.stateKey}) is not joined after "${earlier.label}" (key ${earlier.stateKey}): the chain is broken here`);
+  }
+  return chain;
 }
 
 /** One node as the lens sees it, or null when the lens does not see it. */

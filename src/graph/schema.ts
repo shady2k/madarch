@@ -17,7 +17,7 @@
  */
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import { GraphError, databaseMessage } from './errors.js';
-import { ENGINE_NODE_KINDS, ENGINE_PREFIX, ENGINE_RELATIONS } from './vocabulary.js';
+import { CODE_NODE_KINDS, CODE_PREFIX, CODE_RELATIONS, ENGINE_NODE_KINDS, ENGINE_PREFIX, ENGINE_RELATIONS } from './vocabulary.js';
 
 /** The graph's own tables, in code-point order. */
 export const GRAPH_TABLES = [
@@ -58,7 +58,7 @@ const SCHEMA: readonly string[] = [
     key text NOT NULL UNIQUE CHECK (key <> ''),
     namespace text NOT NULL CHECK (namespace IN ('engine', 'product')),
     registered_at timestamptz NOT NULL,
-    CHECK ((namespace = 'engine') = (left(key, ${ENGINE_PREFIX.length}) = '${ENGINE_PREFIX}'))
+    CHECK ((namespace = 'engine') = (left(key, ${ENGINE_PREFIX.length}) = '${ENGINE_PREFIX}' OR left(key, ${CODE_PREFIX.length}) = '${CODE_PREFIX}'))
   )`,
   `CREATE TABLE IF NOT EXISTS relation_type (
     id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -67,7 +67,7 @@ const SCHEMA: readonly string[] = [
     discriminated boolean NOT NULL DEFAULT false,
     positioned boolean NOT NULL DEFAULT false,
     registered_at timestamptz NOT NULL,
-    CHECK ((namespace = 'engine') = (left(key, ${ENGINE_PREFIX.length}) = '${ENGINE_PREFIX}'))
+    CHECK ((namespace = 'engine') = (left(key, ${ENGINE_PREFIX.length}) = '${ENGINE_PREFIX}' OR left(key, ${CODE_PREFIX.length}) = '${CODE_PREFIX}'))
   )`,
   `CREATE TABLE IF NOT EXISTS node_identity (
     id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -97,10 +97,17 @@ const SCHEMA: readonly string[] = [
     label text NOT NULL,
     content bytea,
     content_sha256 text,
-    claim_digest text,${VERSION_COLUMNS},${VERSION_CHECKS},
+    claim_digest text,
+    state_key bigint,${VERSION_COLUMNS},${VERSION_CHECKS},
     CHECK ((content IS NULL) = (content_sha256 IS NULL)),
     CHECK (content_sha256 IS NULL OR content_sha256 = encode(sha256(content), 'hex')),
     CHECK (claim_digest IS NULL OR length(claim_digest) = 64),
+    CHECK (state_key IS NULL OR state_key >= 0),
+    -- states-stable: a state key belongs to one state node for good and a state node keeps its key, whatever versions or writers come.
+    CONSTRAINT node_version_state_key_one_node EXCLUDE USING gist (state_key WITH =, node_id WITH <>) WHERE (state_key IS NOT NULL),
+    CONSTRAINT node_version_state_one_key EXCLUDE USING gist (node_id WITH =, state_key WITH <>) WHERE (state_key IS NOT NULL),
+    -- content-immutable: one content node holds one digest, whatever versions or writers come.
+    CONSTRAINT node_version_content_one_digest EXCLUDE USING gist (node_id WITH =, content_sha256 WITH <>) WHERE (content_sha256 IS NOT NULL),
     CONSTRAINT node_version_no_overlap EXCLUDE USING gist (
       node_id WITH =,
       tstzrange(valid_from, valid_to) WITH &&,
@@ -163,6 +170,13 @@ const SCHEMA: readonly string[] = [
     ELSIF NEW.content IS NOT NULL THEN
       RAISE EXCEPTION 'content-immutable: only a content node carries bytes (node % is %)', NEW.node_id, kind_key;
     END IF;
+    IF kind_key = 'engine:state' THEN
+      IF NEW.state_key IS NULL OR NEW.state_key <> (NEW.properties->>'stateKey')::bigint THEN
+        RAISE EXCEPTION 'states-stable: state node % must carry state_key equal to its properties.stateKey', NEW.node_id;
+      END IF;
+    ELSIF NEW.state_key IS NOT NULL THEN
+      RAISE EXCEPTION 'states-stable: only a state node carries a state key (node % is %)', NEW.node_id, kind_key;
+    END IF;
     IF kind_key = 'engine:claim' AND NEW.claim_digest IS NULL THEN
       RAISE EXCEPTION 'acceptance-bound: claim node % carries no revision digest', NEW.node_id;
     END IF;
@@ -207,10 +221,10 @@ export async function createGraphSchema(owner: DatabaseOwner, at: string): Promi
       const exists = await tx.query(`SELECT 1 FROM pg_trigger WHERE tgname = $1 AND tgrelid = $2::regclass`, [trigger.name, trigger.table]);
       if (exists.rows.length === 0) await tx.query(`CREATE TRIGGER ${trigger.name} ${trigger.statement}`);
     }
-    for (const key of ENGINE_NODE_KINDS) {
+    for (const key of [...ENGINE_NODE_KINDS, ...CODE_NODE_KINDS]) {
       await tx.query(`INSERT INTO node_kind (key, namespace, registered_at) VALUES ($1, 'engine', $2::timestamptz) ON CONFLICT (key) DO NOTHING`, [key, at]);
     }
-    for (const relation of ENGINE_RELATIONS) {
+    for (const relation of [...ENGINE_RELATIONS, ...CODE_RELATIONS]) {
       await tx.query(
         `INSERT INTO relation_type (key, namespace, discriminated, positioned, registered_at) VALUES ($1, 'engine', $2, $3, $4::timestamptz) ON CONFLICT (key) DO NOTHING`,
         [relation.key, relation.discriminated === true, relation.positioned === true, at],

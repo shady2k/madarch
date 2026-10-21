@@ -24,20 +24,21 @@ import {
   readAll, readCallees, readCallers, readClaims, readContentBytes, readNode, readOutgoingDiff, readRelationsWithin, readStateChain, readTraversal, resolveLens,
   type ClaimEntry, type EdgeEntry, type GraphLens, type OutgoingDiff, type Page, type PageOptions, type StateEntry,
 } from './reads.js';
-import { registerVocabulary } from './register.js';
+import { registerCodeSchema, registerVocabulary } from './register.js';
 import { createGraphSchema } from './schema.js';
-import { instantText } from './time.js';
+import { instantMicros, microsInstant } from './time.js';
 import {
-  closeVersion, correctEdgeVersion, correctNodeVersion, endEdgeVersion, endNode, newNodeIdentity, openEdgeVersion, openNodeVersion,
+  closeVersion, removeNodeVersion, correctEdgeVersion, correctNodeVersion, endEdgeVersion, endNode, newNodeIdentity, openEdgeVersion, openNodeVersion,
   type EdgePatch, type EndResult, type NewEdgeVersion, type NewNodeVersion, type NodePatch, type NodeVersionRow, type WriteContext,
 } from './versions.js';
 import type { GraphRegistry } from './vocabulary.js';
 
-export { GraphError } from './errors.js';
+export { GraphClockBehind, GraphError } from './errors.js';
+import { GraphClockBehind } from './errors.js';
 export type { GraphOrigin } from './errors.js';
 export { GRAPH_TABLES } from './schema.js';
 export { ALL_STATES, plusMicrosecond, type Instant, type StateSpan } from './time.js';
-export { ENGINE_NODE_KINDS, ENGINE_PREFIX, ENGINE_RELATIONS, CALLS, CONTAINS, STATE_KIND, CONTENT_KIND, CLAIM_KIND, ACCEPTANCE_KIND, type GraphRegistry, type RelationDeclaration } from './vocabulary.js';
+export { CODE_NODE_KINDS, CODE_PREFIX, CODE_RELATIONS, ENGINE_NODE_KINDS, ENGINE_PREFIX, ENGINE_RELATIONS, CALLS, CONTAINS, STATE_KIND, CONTENT_KIND, CLAIM_KIND, ACCEPTANCE_KIND, type GraphRegistry, type RelationDeclaration } from './vocabulary.js';
 export { claimCanonicalForm, claimDigest, sha256Hex, type ByteSpan, type ClaimContent, type EvidenceSpan, type GraphId } from './digest.js';
 export type { EdgeEntry, GraphLens, OutgoingDiff, Page, PageOptions, ClaimEntry, StateEntry } from './reads.js';
 export type { PublishInput, PublishNode, PublishEdge, PublishEnd, PublishResult, WorkItemInput, LeaseInput, NodeRef } from './publish.js';
@@ -49,25 +50,50 @@ export interface GraphStoreOptions {
 }
 
 export class GraphStore {
-  private last = 0;
+  /** The last recorded instant this store handed out, in microseconds since the epoch. */
+  private last = 0n;
 
   constructor(private readonly owner: DatabaseOwner, private readonly options: GraphStoreOptions = {}) {}
 
+  private reading(): bigint {
+    return BigInt((this.options.now ?? (() => new Date()))().getTime()) * 1000n;
+  }
+
   /** The clock's reading, never before the last recorded instant. */
-  private current(): number {
-    return Math.max((this.options.now ?? (() => new Date()))().getTime(), this.last);
+  private current(): bigint {
+    const reading = this.reading();
+    return reading > this.last ? reading : this.last;
   }
 
-  /** The next recorded instant: strictly later than the previous one. */
+  private nowText(): string {
+    return microsInstant(this.current());
+  }
+
+  /** The next recorded instant: strictly later than the previous one, in microseconds. */
   private tick(): string {
-    const reading = (this.options.now ?? (() => new Date()))().getTime();
-    this.last = Math.max(reading, this.last + 1);
-    return instantText(new Date(this.last), 'record', 'clock');
+    const reading = this.reading();
+    this.last = reading > this.last ? reading : this.last + 1n;
+    return microsInstant(this.last);
   }
 
+  /**
+   * Runs a write. Recorded time is one instant for the whole transaction. When
+   * another writer's clock was ahead of it (`GraphClockBehind`), the whole
+   * write is retried with this store's clock moved past that instant, never
+   * patched halfway; inside the caller's own transaction there is no retry.
+   */
   private async write<T>(transaction: OuterTransaction | undefined, work: (ctx: WriteContext) => Promise<T>): Promise<T> {
-    if (transaction !== undefined) return await work({ tx: transaction, at: this.tick() });
-    return await this.owner.transaction('write', (tx) => work({ tx, at: this.tick() }));
+    const context = (tx: OuterTransaction): WriteContext => ({ tx, at: this.tick(), now: () => this.nowText() });
+    if (transaction !== undefined) return await work(context(transaction));
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        return await this.owner.transaction('write', (tx) => work(context(tx)));
+      } catch (error) {
+        if (!(error instanceof GraphClockBehind) || attempt >= 5) throw error;
+        const behind = instantMicros(error.after) + 1n;
+        if (behind > this.last) this.last = behind;
+      }
+    }
   }
 
   private async read<T>(transaction: OuterTransaction | undefined, work: (tx: OuterTransaction) => Promise<T>): Promise<T> {
@@ -83,6 +109,11 @@ export class GraphStore {
   /** Registers the product's kinds and relation types from the registry the caller passes. */
   registerVocabulary(registry: GraphRegistry, transaction?: OuterTransaction): Promise<{ kinds: number; relations: number }> {
     return this.write(transaction, (ctx) => registerVocabulary(ctx, registry));
+  }
+
+  /** Registers extractor-schema kinds and relation types (keys under `code.`) from what extractors emit. */
+  registerCodeSchema(schema: GraphRegistry, transaction?: OuterTransaction): Promise<{ kinds: number; relations: number }> {
+    return this.write(transaction, (ctx) => registerCodeSchema(ctx, schema));
   }
 
   /** A new node identity, which carries no knowledge until a version is opened. */
@@ -116,9 +147,12 @@ export class GraphStore {
     return this.write(transaction, (ctx) => endEdgeVersion(ctx, versionId, validTo, { workItem: null, as: 'correction' }));
   }
 
-  /** Closes a version without replacing it: a removal that keeps the belief it held. */
+  /** Closes a version without replacing it: a removal that keeps the belief it held; a node's edges that lose their end are closed as recorded cascades, under the node's lock. */
   removeVersion(table: 'node_version' | 'edge_version', versionId: GraphId, transaction?: OuterTransaction): Promise<void> {
-    return this.write(transaction, (ctx) => closeVersion(ctx, table, versionId, { workItem: null, as: 'correction' }, 'version'));
+    return this.write(transaction, async (ctx) => {
+      if (table === 'node_version') await removeNodeVersion(ctx, versionId, null);
+      else await closeVersion(ctx, table, versionId, { workItem: null, as: 'correction' }, 'version');
+    });
   }
 
   openWorkItem(input: WorkItemInput, transaction?: OuterTransaction): Promise<GraphId> {
@@ -136,7 +170,7 @@ export class GraphStore {
 
   /** One node as the lens sees it, or null. */
   node(id: GraphId, lens?: GraphLens, transaction?: OuterTransaction): Promise<NodeVersionRow | null> {
-    return this.read(transaction, async (tx) => await readNode(tx, id, await resolveLens(tx, lens, instantText(new Date(this.current()), 'read', 'clock'))));
+    return this.read(transaction, async (tx) => await readNode(tx, id, await resolveLens(tx, lens, this.nowText())));
   }
 
   callers(node: GraphId, lens?: GraphLens, options?: PageOptions & { relation?: string }, transaction?: OuterTransaction): Promise<Page<EdgeEntry>> {
@@ -158,7 +192,7 @@ export class GraphStore {
   /** The as-is against to-be diff of a node's outgoing relations, whole. */
   outgoingDiff(node: GraphId, lens?: Pick<GraphLens, 'valid' | 'known'>, transaction?: OuterTransaction): Promise<OutgoingDiff> {
     return this.read(transaction, async (tx) => {
-      const resolved = await resolveLens(tx, lens, instantText(new Date(this.current()), 'read', 'clock'));
+      const resolved = await resolveLens(tx, lens, this.nowText());
       return await readOutgoingDiff(tx, node, resolved);
     });
   }
@@ -169,7 +203,7 @@ export class GraphStore {
 
   stateChain(lens?: Pick<GraphLens, 'valid' | 'known'>, transaction?: OuterTransaction): Promise<StateEntry[]> {
     return this.read(transaction, async (tx) => {
-      const resolved = await resolveLens(tx, { ...lens, state: 0 }, instantText(new Date(this.current()), 'read', 'clock'));
+      const resolved = await resolveLens(tx, { ...lens, state: 0 }, this.nowText());
       return await readStateChain(tx, resolved);
     });
   }
@@ -185,7 +219,7 @@ export class GraphStore {
   }
 
   private async lens(tx: OuterTransaction, lens: GraphLens | undefined) {
-    return await resolveLens(tx, lens, instantText(new Date(this.current()), 'read', 'clock'));
+    return await resolveLens(tx, lens, this.nowText());
   }
 }
 

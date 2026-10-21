@@ -12,15 +12,19 @@
  */
 import type { OuterTransaction } from '../history/types.js';
 import { claimDigest as digestOfClaim, edgeKeyHash, edgePayloadDigest, nodePayloadDigest, sha256Hex, type ByteSpan, type ClaimContent, type GraphId } from './digest.js';
-import { GraphError, databaseCode, databaseMessage, type GraphOrigin } from './errors.js';
+import { GraphClockBehind, GraphError, databaseCode, databaseMessage, type GraphOrigin } from './errors.js';
 import { ALL_STATES, checkSpan, checkValid, compareInstants, instantText, plusMicrosecond, tsText, type Instant, type StateSpan } from './time.js';
 import { CLAIM_KIND, CONTENT_KIND, STATE_KIND } from './vocabulary.js';
 
 /** The transaction a write runs in and the instant it is recorded at. */
 export interface WriteContext {
   tx: OuterTransaction;
-  /** Canonical recorded instant. */
+  /** Canonical recorded instant; fixed for the whole transaction. */
   at: string;
+  /** A fresh reading of the store's clock, for checks that must not use a stale instant (a lease's expiry after the lock). */
+  now: () => string;
+  /** Where `reconcileEdges` records the cascades it makes, when the caller wants them (a publication reports them). */
+  cascadeLog?: { edgeVersion: GraphId; replacedBy: GraphId | null }[];
 }
 
 /** Who owns a version: the extraction recipe and the scope node it ran for. */
@@ -30,14 +34,15 @@ export interface Owner {
 }
 
 /**
- * Keeps a close later than the version it closes. Concurrent writers take their
- * recorded instant before they win the lock, so the one that wins second can
- * hold an earlier instant than a version the first just wrote; its close is
- * recorded a microsecond after that version instead, which keeps every range
- * non-empty. An equal instant is not bumped: it means the same publication.
+ * A close must come after the version it closes. A version recorded at the
+ * very same instant belongs to this transaction (the range would be empty); an
+ * earlier instant means another writer's clock is ahead, and the write is
+ * retried whole with a later clock (`GraphClockBehind`).
  */
-export function laterThan(ctx: WriteContext, recordedFrom: string): void {
-  if (compareInstants(ctx.at, recordedFrom) < 0) ctx.at = plusMicrosecond(recordedFrom);
+export function requireLater(ctx: WriteContext, recordedFrom: string, operation: string, path: string, origin?: GraphOrigin): void {
+  const order = compareInstants(ctx.at, recordedFrom);
+  if (order < 0) throw new GraphClockBehind(operation, path, recordedFrom, origin);
+  if (order === 0) throw new GraphError(operation, path, `the version was recorded at ${ctx.at}, the same instant as this change, so its recorded range would be empty; change it in a later write`, origin);
 }
 
 /** Why and by which publication a version was closed. */
@@ -168,6 +173,9 @@ export async function guarded<T>(operation: string, path: string, origin: GraphO
     if (error instanceof GraphError) throw error;
     const code = databaseCode(error);
     const text = databaseMessage(error);
+    if (code === '23P01' && text.includes('node_version_state_key_one_node')) throw new GraphError(operation, path, `states-stable: this state key is already used by another state node; a state key is never reused, a new state takes a key in a gap (${text})`, origin);
+    if (code === '23P01' && text.includes('node_version_state_one_key')) throw new GraphError(operation, path, `states-stable: a state node keeps its state key; a state key is never renumbered, a reorder makes new state nodes with new keys (${text})`, origin);
+    if (code === '23P01' && text.includes('node_version_content_one_digest')) throw new GraphError(operation, path, `content-immutable: a content node's bytes and digest never change (${text})`, origin);
     if (code === '23P01') throw new GraphError(operation, path, `no-overlap: the database refused a version that overlaps another version of the same identity on valid time, recorded time and states (${text})`, origin);
     if (code === '23514' || code === '23502') throw new GraphError(operation, path, `the database refused a null or empty range or an invalid column (${text})`, origin);
     if (code === '23503') throw new GraphError(operation, path, `the database refused a reference to something that does not exist (${text})`, origin);
@@ -237,20 +245,13 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-/** Checks the properties of a state node: a stable integer key that no other state node ever used. */
-async function checkStateKey(ctx: WriteContext, nodeId: GraphId, properties: unknown, operation: string, path: string, origin?: GraphOrigin): Promise<void> {
+/** The stable key of a state node's properties, checked to be a whole non-negative number. The database enforces that no other node ever holds it and that the node keeps it. */
+function stateKeyOf(properties: unknown, operation: string, path: string, origin?: GraphOrigin): number {
   const key = isPlainObject(properties) ? properties['stateKey'] : undefined;
   if (typeof key !== 'number' || !Number.isSafeInteger(key) || key < 0) {
     throw new GraphError(operation, `${path}.properties.stateKey`, `an architecture state carries a whole non-negative stateKey, got ${JSON.stringify(key)}`, origin);
   }
-  const other = await ctx.tx.query<{ node_id: string }>(
-    `SELECT v.node_id::text AS node_id FROM node_version v JOIN node_kind k ON k.id = v.kind_id
-     WHERE k.key = $1 AND (v.properties->>'stateKey')::bigint = $2::bigint AND v.node_id <> $3::bigint LIMIT 1`,
-    [STATE_KIND, String(key), nodeId],
-  );
-  if (other.rows[0] !== undefined) {
-    throw new GraphError(operation, `${path}.properties.stateKey`, `states-stable: state key ${key} was already used by state node ${other.rows[0].node_id}; a key is never reused or renumbered, a new state takes a key in a gap`, origin);
-  }
+  return key;
 }
 
 /**
@@ -278,17 +279,17 @@ export async function openNodeVersion(ctx: WriteContext, input: NewNodeVersion, 
   if (input.owner.producer === '') throw new GraphError(OP_OPEN_NODE, `${path}.owner.producer`, 'every version carries its producer', origin);
   const nodeId = input.nodeId === undefined ? await newNodeIdentity(ctx) : input.nodeId;
   if (input.nodeId !== undefined) await requireNode(ctx, nodeId, OP_OPEN_NODE, `${path}.nodeId`, origin);
-  if (input.kind === STATE_KIND) await checkStateKey(ctx, nodeId, stored, OP_OPEN_NODE, path, origin);
+  const stateKey = input.kind === STATE_KIND ? stateKeyOf(stored, OP_OPEN_NODE, path, origin) : null;
   const payload = nodePayloadDigest({ kind: input.kind, label: input.label, properties: stored, contentSha256: contentSha, claimDigest: digest });
   const made = await guarded(OP_OPEN_NODE, path, origin, () =>
     ctx.tx.query<{ id: string }>(
       `INSERT INTO node_version (node_id, kind_id, label, content, content_sha256, claim_digest, valid_from, valid_to, recorded_from, states,
-                                producer, scope_id, opened_by, payload_digest, properties)
+                                producer, scope_id, opened_by, payload_digest, properties, state_key)
        VALUES ($1::bigint, $2::bigint, $3, CASE WHEN $4::text IS NULL THEN NULL ELSE decode($4::text, 'hex') END, $5, $6, $7::timestamptz, $8::timestamptz, $9::timestamptz,
-               int8range($10::bigint, $11::bigint), $12, $13::bigint, $14::bigint, $15, $16::jsonb)
+               int8range($10::bigint, $11::bigint), $12, $13::bigint, $14::bigint, $15, $16::jsonb, $17::bigint)
        RETURNING id::text AS id`,
       [nodeId, kind, input.label, input.content === undefined ? null : Buffer.from(input.content).toString('hex'), contentSha, digest, validFrom, validTo, ctx.at,
-        String(states.from), String(states.to), input.owner.producer, scope, input.openedBy ?? null, payload, JSON.stringify(stored)],
+        String(states.from), String(states.to), input.owner.producer, scope, input.openedBy ?? null, payload, JSON.stringify(stored), stateKey === null ? null : String(stateKey)],
     ),
   );
   return { nodeId, versionId: made.rows[0]!.id };
@@ -296,6 +297,7 @@ export async function openNodeVersion(ctx: WriteContext, input: NewNodeVersion, 
 
 /** Closes a version at `at`: the only change a version row ever gets. */
 export async function closeVersion(ctx: WriteContext, table: 'node_version' | 'edge_version', versionId: GraphId, closure: Closure, path: string, origin?: GraphOrigin): Promise<void> {
+  if (table !== 'node_version' && table !== 'edge_version') throw new GraphError('close version', path, `${JSON.stringify(table)} is not a version table (node_version or edge_version)`, origin);
   const closed = await guarded('close version', path, origin, () =>
     ctx.tx.query(
       `UPDATE ${table} SET recorded_to = $2::timestamptz, closed_by = $3::bigint, closed_as = $4 WHERE id = $1::bigint AND recorded_to = 'infinity' RETURNING id`,
@@ -344,11 +346,10 @@ const OP_CORRECT_NODE = 'correct node version';
  * node's validity is `endNode`, which trims those edges and records the
  * cascade).
  */
-export async function correctNodeVersion(ctx: WriteContext, versionId: GraphId, patch: NodePatch, closure: Closure, openedBy: GraphId | null, path = 'node', origin?: GraphOrigin): Promise<GraphId> {
+export async function correctNodeVersion(ctx: WriteContext, versionId: GraphId, patch: NodePatch, closure: Closure, openedBy: GraphId | null, path = 'node', origin?: GraphOrigin, mode: ReconcileMode = 'refuse'): Promise<GraphId> {
   const old = await loadNodeVersion(ctx, versionId, `${path}.version`, origin);
   if (old.recordedTo !== 'infinity') throw new GraphError(OP_CORRECT_NODE, `${path}.version`, `node version ${versionId} was already closed at ${old.recordedTo}; only a current version is corrected`, origin);
-  if (old.recordedFrom === ctx.at) throw new GraphError(OP_CORRECT_NODE, `${path}.version`, `node version ${versionId} was recorded at ${ctx.at}, the same instant as this correction, so its recorded range would be empty; correct it at a later instant`, origin);
-  laterThan(ctx, old.recordedFrom);
+  requireLater(ctx, old.recordedFrom, OP_CORRECT_NODE, `${path}.version`, origin);
   if ((patch.claim !== undefined) !== (old.claimDigest !== null) && patch.claim !== undefined) throw new GraphError(OP_CORRECT_NODE, `${path}.claim`, 'only a claim node carries a claim', origin);
   const validFrom = instantText(patch.validFrom ?? old.validFrom, OP_CORRECT_NODE, `${path}.validFrom`, origin);
   const validTo = instantText(patch.validTo ?? old.validTo, OP_CORRECT_NODE, `${path}.validTo`, origin);
@@ -363,21 +364,21 @@ export async function correctNodeVersion(ctx: WriteContext, versionId: GraphId, 
   } else if (patch.properties !== undefined && old.claimDigest !== null) {
     properties = { ...patch.properties, claim: (old.properties as Record<string, unknown>)['claim'] };
   }
-  if (old.kind === STATE_KIND) await checkStateKey(ctx, old.nodeId, properties, OP_CORRECT_NODE, path);
+  const stateKey = old.kind === STATE_KIND ? stateKeyOf(properties, OP_CORRECT_NODE, path, origin) : null;
   const payload = nodePayloadDigest({ kind: old.kind, label, properties, contentSha256: old.contentSha256, claimDigest: digest });
   await lockNodes(ctx, [old.nodeId], 'UPDATE');
   await closeVersion(ctx, 'node_version', versionId, closure, `${path}.version`, origin);
   const made = await guarded(OP_CORRECT_NODE, path, origin, () =>
     ctx.tx.query<{ id: string }>(
       `INSERT INTO node_version (node_id, kind_id, label, content, content_sha256, claim_digest, valid_from, valid_to, recorded_from, states,
-                                producer, scope_id, opened_by, payload_digest, properties)
+                                producer, scope_id, opened_by, payload_digest, properties, state_key)
        SELECT node_id, kind_id, $2, content, content_sha256, $3, $4::timestamptz, $5::timestamptz, $6::timestamptz, int8range($7::bigint, $8::bigint),
-              producer, scope_id, $9::bigint, $10, $11::jsonb
+              producer, scope_id, $9::bigint, $10, $11::jsonb, $12::bigint
        FROM node_version WHERE id = $1::bigint RETURNING id::text AS id`,
-      [versionId, label, digest, validFrom, validTo, ctx.at, String(states.from), String(states.to), openedBy, payload, JSON.stringify(properties)],
+      [versionId, label, digest, validFrom, validTo, ctx.at, String(states.from), String(states.to), openedBy, payload, JSON.stringify(properties), stateKey === null ? null : String(stateKey)],
     ),
   );
-  await assertCurrentEdgesCovered(ctx, old.nodeId, `${path}.version`, origin);
+  await reconcileEdges(ctx, old.nodeId, mode, closure.workItem, `${path}.version`, origin);
   return made.rows[0]!.id;
 }
 
@@ -397,8 +398,8 @@ interface Slice {
 async function currentSlices(ctx: WriteContext, nodeId: GraphId): Promise<Slice[]> {
   const found = await ctx.tx.query<Raw>(
     `SELECT ${tsText('valid_from')} AS valid_from, ${tsText('valid_to')} AS valid_to, lower(states)::text AS lo, upper(states)::text AS hi
-     FROM node_version WHERE node_id = $1::bigint AND recorded_to = 'infinity'`,
-    [nodeId],
+     FROM node_version WHERE node_id = $1::bigint AND recorded_to = 'infinity' AND recorded_from <= $2::timestamptz`,
+    [nodeId, ctx.at],
   );
   return found.rows.map((r) => ({ validFrom: r['valid_from'] as string, validTo: r['valid_to'] as string, statesFrom: Number(r['lo']), statesTo: Number(r['hi']) }));
 }
@@ -409,7 +410,7 @@ async function currentSlices(ctx: WriteContext, nodeId: GraphId): Promise<Slice[
  * known-time axis needs no sweep: an edge is recorded from now on, and the
  * slices are what is believed now.
  */
-export function firstUncovered(slices: readonly Slice[], validFrom: string, validTo: string, states: StateSpan): string | null {
+export function firstUncovered(slices: readonly Slice[], validFrom: string, validTo: string, states: StateSpan): { from: string; text: string } | null {
   const cuts = new Set<string>([validFrom, validTo]);
   for (const slice of slices) {
     for (const t of [slice.validFrom, slice.validTo]) if (compareInstants(t, validFrom) > 0 && compareInstants(t, validTo) < 0) cuts.add(t);
@@ -427,7 +428,7 @@ export function firstUncovered(slices: readonly Slice[], validFrom: string, vali
       if (lo > reached) break;
       if (hi > reached) reached = hi;
     }
-    if (reached < states.to) return `valid [${from}, ${to}) in states from ${reached} to ${states.to}`;
+    if (reached < states.to) return { from, text: `valid [${from}, ${to}) in states from ${reached} to ${states.to}` };
   }
   return null;
 }
@@ -443,26 +444,50 @@ export async function assertEndpoints(ctx: WriteContext, edge: { src: GraphId; d
   for (const [end, id] of [['src', edge.src], ['dst', edge.dst]] as const) {
     const gap = firstUncovered(await currentSlices(ctx, id), edge.validFrom, edge.validTo, edge.states);
     if (gap !== null) {
-      throw new GraphError(operation, `${path}.${end}`, `endpoint-integrity: node ${id} does not exist for the whole of the edge's valid time and states: nothing believed now covers ${gap}; end the edge no later than the node, or open the node first`, origin);
+      throw new GraphError(operation, `${path}.${end}`, `endpoint-integrity: node ${id} does not exist for the whole of the edge's valid time and states: nothing believed now covers ${gap.text}; end the edge no later than the node, or open the node first`, origin);
     }
   }
 }
 
-/** After a node's correction, every current edge touching it must still find its end. */
-async function assertCurrentEdgesCovered(ctx: WriteContext, nodeId: GraphId, path: string, origin?: GraphOrigin): Promise<void> {
+export type ReconcileMode = 'refuse' | 'cascade';
+
+/**
+ * After a node's version changed or was removed, every current edge touching
+ * it must still find its end. `refuse` throws for one that does not; `cascade`
+ * closes it as a recorded cascade naming `workItem` and reopens it trimmed to
+ * the part the node still covers (or leaves it closed when none is covered).
+ */
+export async function reconcileEdges(ctx: WriteContext, nodeId: GraphId, mode: ReconcileMode, workItem: GraphId | null, path: string, origin?: GraphOrigin): Promise<{ edgeVersion: GraphId; replacedBy: GraphId | null }[]> {
   const touching = await ctx.tx.query<Raw>(
-    `SELECT e.id::text AS id, e.src_id::text AS src, e.dst_id::text AS dst, ${tsText('e.valid_from')} AS valid_from, ${tsText('e.valid_to')} AS valid_to,
-            lower(e.states)::text AS lo, upper(e.states)::text AS hi
-     FROM edge_version e WHERE (e.src_id = $1::bigint OR e.dst_id = $1::bigint) AND e.recorded_to = 'infinity'`,
+    `SELECT ${EDGE_COLUMNS} FROM ${EDGE_FROM} WHERE (e.src_id = $1::bigint OR e.dst_id = $1::bigint) AND e.recorded_to = 'infinity' ORDER BY e.id FOR UPDATE OF e`,
     [nodeId],
   );
   const slices = await currentSlices(ctx, nodeId);
+  const done: { edgeVersion: GraphId; replacedBy: GraphId | null }[] = [];
   for (const raw of touching.rows) {
-    const gap = firstUncovered(slices, raw['valid_from'] as string, raw['valid_to'] as string, { from: Number(raw['lo']), to: Number(raw['hi']) });
-    if (gap !== null) {
-      throw new GraphError('correct node version', path, `endpoint-integrity: the correction would leave current edge version ${raw['id']} without its end node ${nodeId}: nothing covers ${gap}; end the node with endNode, which closes such edges as recorded cascades`, origin);
+    const edge = edgeRow(raw);
+    const gap = firstUncovered(slices, edge.validFrom, edge.validTo, edge.states);
+    if (gap === null) continue;
+    if (mode === 'refuse') {
+      throw new GraphError('correct node version', path, `endpoint-integrity: the change would leave current edge version ${edge.versionId} without its end node ${nodeId}: nothing covers ${gap.text}; end the node with endNode, which closes such edges as recorded cascades`, origin);
     }
+    requireLater(ctx, edge.recordedFrom, 'reconcile edges', `${path}.cascade`, origin);
+    await closeVersion(ctx, 'edge_version', edge.versionId, { workItem, as: 'cascade' }, `${path}.cascade`, origin);
+    const replacedBy = compareInstants(edge.validFrom, gap.from) < 0 ? await reopenEdge(ctx, edge.versionId, gap.from, workItem, `${path}.cascade`, origin) : null;
+    done.push({ edgeVersion: edge.versionId, replacedBy });
+    ctx.cascadeLog?.push({ edgeVersion: edge.versionId, replacedBy });
   }
+  return done;
+}
+
+/** Withdraws a node version (closes its `recorded_to` with no replacement): the node's edges that lose their end are closed as recorded cascades, under the node's lock. */
+export async function removeNodeVersion(ctx: WriteContext, versionId: GraphId, workItem: GraphId | null, path = 'node', origin?: GraphOrigin): Promise<{ edgeVersion: GraphId; replacedBy: GraphId | null }[]> {
+  const old = await loadNodeVersion(ctx, versionId, `${path}.version`, origin);
+  if (old.recordedTo !== 'infinity') throw new GraphError('remove node version', `${path}.version`, `node version ${versionId} was already closed at ${old.recordedTo}`, origin);
+  await lockNodes(ctx, [old.nodeId], 'UPDATE');
+  requireLater(ctx, old.recordedFrom, 'remove node version', `${path}.version`, origin);
+  await closeVersion(ctx, 'node_version', versionId, { workItem, as: 'correction' }, `${path}.version`, origin);
+  return await reconcileEdges(ctx, old.nodeId, 'cascade', workItem, `${path}.version`, origin);
 }
 
 export interface EndResult {
@@ -478,9 +503,9 @@ export async function reopenNode(ctx: WriteContext, versionId: GraphId, validTo:
   const made = await guarded(OP_END_NODE, path, origin, () =>
     ctx.tx.query<{ id: string }>(
       `INSERT INTO node_version (node_id, kind_id, label, content, content_sha256, claim_digest, valid_from, valid_to, recorded_from, states,
-                                producer, scope_id, opened_by, payload_digest, properties)
+                                producer, scope_id, opened_by, payload_digest, properties, state_key)
        SELECT node_id, kind_id, label, content, content_sha256, claim_digest, valid_from, $2::timestamptz, $3::timestamptz, states,
-              producer, scope_id, $4::bigint, payload_digest, properties FROM node_version WHERE id = $1::bigint RETURNING id::text AS id`,
+              producer, scope_id, $4::bigint, payload_digest, properties, state_key FROM node_version WHERE id = $1::bigint RETURNING id::text AS id`,
       [versionId, validTo, ctx.at, workItem],
     ),
   );
@@ -503,8 +528,7 @@ export async function endNode(ctx: WriteContext, nodeId: GraphId, validToInput: 
   const beyond = (await currentNodeVersions(ctx, nodeId)).filter((v) => compareInstants(v.validTo, validTo) > 0);
   if (beyond.length === 0) throw new GraphError(OP_END_NODE, `${path}.node`, `node ${nodeId} has no current version that holds beyond ${validTo}, so there is nothing to end`, origin);
   for (const version of beyond) {
-    if (version.recordedFrom === ctx.at) throw new GraphError(OP_END_NODE, `${path}.node`, `node version ${version.versionId} was recorded at ${ctx.at}, the same instant: write and end a node in different publications`, origin);
-    laterThan(ctx, version.recordedFrom);
+    requireLater(ctx, version.recordedFrom, OP_END_NODE, `${path}.node`, origin);
     await closeVersion(ctx, 'node_version', version.versionId, { workItem, as: 'correction' }, `${path}.node`, origin);
     result.nodeVersionsClosed += 1;
     if (compareInstants(version.validFrom, validTo) < 0) {
@@ -518,8 +542,7 @@ export async function endNode(ctx: WriteContext, nodeId: GraphId, validToInput: 
   );
   for (const raw of touching.rows) {
     const edge = edgeRow(raw);
-    if (edge.recordedFrom === ctx.at) throw new GraphError(OP_END_NODE, `${path}.node`, `edge version ${edge.versionId} was recorded at ${ctx.at}, the same instant, so it cannot be closed as a cascade of this end`, origin);
-    laterThan(ctx, edge.recordedFrom);
+    requireLater(ctx, edge.recordedFrom, OP_END_NODE, `${path}.cascade`, origin);
     await closeVersion(ctx, 'edge_version', edge.versionId, { workItem, as: 'cascade' }, `${path}.cascade`, origin);
     let replacedBy: GraphId | null = null;
     if (compareInstants(edge.validFrom, validTo) < 0) replacedBy = await reopenEdge(ctx, edge.versionId, validTo, workItem, `${path}.cascade`, origin);
@@ -634,8 +657,7 @@ const OP_CORRECT_EDGE = 'correct edge version';
 export async function correctEdgeVersion(ctx: WriteContext, versionId: GraphId, patch: EdgePatch, closure: Closure, openedBy: GraphId | null, path = 'edge', origin?: GraphOrigin): Promise<GraphId> {
   const old = await loadEdgeVersion(ctx, versionId, `${path}.version`, origin);
   if (old.recordedTo !== 'infinity') throw new GraphError(OP_CORRECT_EDGE, `${path}.version`, `edge version ${versionId} was already closed at ${old.recordedTo}; only a current version is corrected`, origin);
-  if (old.recordedFrom === ctx.at) throw new GraphError(OP_CORRECT_EDGE, `${path}.version`, `edge version ${versionId} was recorded at ${ctx.at}, the same instant as this correction, so its recorded range would be empty`, origin);
-  laterThan(ctx, old.recordedFrom);
+  requireLater(ctx, old.recordedFrom, OP_CORRECT_EDGE, `${path}.version`, origin);
   const validFrom = instantText(patch.validFrom ?? old.validFrom, OP_CORRECT_EDGE, `${path}.validFrom`, origin);
   const validTo = instantText(patch.validTo ?? old.validTo, OP_CORRECT_EDGE, `${path}.validTo`, origin);
   checkValid(validFrom, validTo, OP_CORRECT_EDGE, path, origin);
@@ -661,8 +683,7 @@ export async function endEdgeVersion(ctx: WriteContext, versionId: GraphId, vali
   const old = await loadEdgeVersion(ctx, versionId, `${path}.version`, origin);
   const validTo = instantText(validToInput, 'end edge', `${path}.validTo`, origin);
   if (old.recordedTo !== 'infinity') throw new GraphError('end edge', `${path}.version`, `edge version ${versionId} was already closed at ${old.recordedTo}`, origin);
-  if (old.recordedFrom === ctx.at) throw new GraphError('end edge', `${path}.version`, `edge version ${versionId} was recorded at ${ctx.at}, the same instant`, origin);
-  laterThan(ctx, old.recordedFrom);
+  requireLater(ctx, old.recordedFrom, 'end edge', `${path}.version`, origin);
   if (validTo === 'infinity' || validTo === '-infinity' || compareInstants(old.validTo, validTo) <= 0) throw new GraphError('end edge', `${path}.validTo`, `edge version ${versionId} already ends at ${old.validTo}, not after ${validTo}`, origin);
   await closeVersion(ctx, 'edge_version', versionId, closure, `${path}.version`, origin);
   return compareInstants(old.validFrom, validTo) < 0 ? await reopenEdge(ctx, versionId, validTo, closure.workItem, path, origin) : null;

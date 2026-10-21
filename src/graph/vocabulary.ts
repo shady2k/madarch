@@ -11,23 +11,24 @@
  */
 import { GraphError } from './errors.js';
 
-/** Every engine key starts with this prefix; no product key may. */
+/** The store's own knowledge mechanics: content, claims, evidence, acceptance, questions, states. */
 export const ENGINE_PREFIX = 'engine:';
+/** The extractor schema: code structure, history, configuration, data model, contracts. */
+export const CODE_PREFIX = 'code.';
 
-/** The engine's node kinds: extractor schema (file, directory, symbol, commit) and store mechanics. */
+/** The store's own node kinds (knowledge mechanics only). */
 export const ENGINE_NODE_KINDS = [
   'engine:acceptance',
   'engine:answer',
   'engine:claim',
-  'engine:commit',
   'engine:content',
-  'engine:directory',
   'engine:evidence',
-  'engine:file',
   'engine:question',
   'engine:state',
-  'engine:symbol',
 ] as const;
+
+/** The extractor schema's node kinds the store knows from the start; a driver registers the rest from what extractors emit. */
+export const CODE_NODE_KINDS = ['code.commit', 'code.directory', 'code.file', 'code.repository', 'code.symbol'] as const;
 
 export interface RelationDeclaration {
   key: string;
@@ -37,25 +38,35 @@ export interface RelationDeclaration {
   positioned?: boolean;
 }
 
-/** The engine's relation types. `engine:occurrence` is the positioned one; no other engine type is discriminated. */
+/** The store's own relation types (knowledge mechanics only). */
 export const ENGINE_RELATIONS: readonly RelationDeclaration[] = [
-  { key: 'engine:after' },
   { key: 'engine:answers' },
-  { key: 'engine:calls' },
-  { key: 'engine:contains' },
   { key: 'engine:contradicts' },
   { key: 'engine:evidence-of' },
-  { key: 'engine:imports' },
-  { key: 'engine:inherits' },
-  { key: 'engine:links-content' },
-  { key: 'engine:occurrence', positioned: true },
+  { key: 'engine:state-after' },
   { key: 'engine:subject-of' },
   { key: 'engine:supports' },
 ];
 
+/** The extractor schema's relation types known from the start. `code.occurrence` is the positioned one. */
+export const CODE_RELATIONS: readonly RelationDeclaration[] = [
+  { key: 'code.calls' },
+  { key: 'code.contains' },
+  { key: 'code.imports' },
+  { key: 'code.inherits' },
+  { key: 'code.links-content' },
+  { key: 'code.occurrence', positioned: true },
+];
+
+/** True when a key belongs to the engine's namespaces (`engine:` or `code.`). */
+export function isEngineKey(key: string): boolean {
+  return key.startsWith(ENGINE_PREFIX) || key.startsWith(CODE_PREFIX);
+}
+
 /** The relation types the store itself reads: calls and containment. */
-export const CALLS = 'engine:calls';
-export const CONTAINS = 'engine:contains';
+export const CALLS = 'code.calls';
+export const CONTAINS = 'code.contains';
+export const STATE_AFTER = 'engine:state-after';
 export const STATE_KIND = 'engine:state';
 export const CONTENT_KIND = 'engine:content';
 export const CLAIM_KIND = 'engine:claim';
@@ -76,8 +87,8 @@ export function checkRegistry(registry: GraphRegistry): void {
     if (typeof key !== 'string' || key.trim() === '' || key !== key.trim()) {
       throw new GraphError('register vocabulary', path, `a vocabulary key is a non-empty text without surrounding blanks, got ${JSON.stringify(key)}`, registry.origin);
     }
-    if (key.startsWith(ENGINE_PREFIX)) {
-      throw new GraphError('register vocabulary', path, `"${key}" uses the prefix "${ENGINE_PREFIX}", which belongs to the engine's own vocabulary; a product key may not`, registry.origin);
+    if (isEngineKey(key)) {
+      throw new GraphError('register vocabulary', path, `"${key}" uses the prefix "${ENGINE_PREFIX}" or "${CODE_PREFIX}", which belong to the engine's own vocabulary; a product key may use neither`, registry.origin);
     }
     if (seen.has(key)) throw new GraphError('register vocabulary', path, `"${key}" is registered twice in one registry (a kind and a relation type share no key either)`, registry.origin);
     seen.add(key);
@@ -85,4 +96,19 @@ export function checkRegistry(registry: GraphRegistry): void {
   registry.kinds.forEach((key, index) => check(key, `kinds[${index}]`));
   seen.clear();
   registry.relations.forEach((relation, index) => check(relation.key, `relations[${index}].key`));
+}
+
+/** Refuses an extractor schema that is malformed or whose keys do not start with `code.`. */
+export function checkCodeSchema(schema: GraphRegistry): void {
+  const seen = new Set<string>();
+  const check = (key: string, path: string): void => {
+    if (typeof key !== 'string' || !key.startsWith(CODE_PREFIX) || key === CODE_PREFIX || key !== key.trim()) {
+      throw new GraphError('register code schema', path, `an extractor schema key starts with "${CODE_PREFIX}" and has a name after it, got ${JSON.stringify(key)}`, schema.origin);
+    }
+    if (seen.has(key)) throw new GraphError('register code schema', path, `"${key}" is declared twice`, schema.origin);
+    seen.add(key);
+  };
+  schema.kinds.forEach((key, index) => check(key, `kinds[${index}]`));
+  seen.clear();
+  schema.relations.forEach((relation, index) => check(relation.key, `relations[${index}].key`));
 }
