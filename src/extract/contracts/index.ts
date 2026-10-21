@@ -237,7 +237,10 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
         ...(route.authGroup && auth !== undefined && route.middleware.some((name) => name.replace(/\(.*/, '') === auth) ? {authAlgorithm: 'HS256'} : {}),
       };
       const handlerFile = goMethodFiles.get(route.handlerSymbol);
-      if (handlerFile !== undefined) properties['handlerPath'] = handlerFile;
+      if (handlerFile !== undefined) {
+        properties['handlerPath'] = handlerFile;
+        properties['handlerKey'] = `code.symbol:${handlerFile}#${route.handlerSymbol}`;
+      }
       nodes.push({
         key: routeKey(file.path, route.method, route.path),
         kind: KIND_ROUTE,

@@ -58,10 +58,10 @@ export const handlerKey = symbolKey;
 export const fileKey = (path: string): string => `${KIND_FILE}:${path}`;
 
 /** `code.module:<folder>` -- a Go package or a TypeScript folder. */
-export const moduleKey = (folder: string): string => `${KIND_MODULE}:${folder}`;
+export const moduleKey = (folder: string): string => `${KIND_MODULE}:${folder === '' ? '.' : folder}`;
 
 /** `code.package:<folder>` -- the root of a go.mod or a package.json. */
-export const packageKey = (folder: string): string => `${KIND_PACKAGE}:${folder}`;
+export const packageKey = (folder: string): string => `${KIND_PACKAGE}:${folder === '' ? '.' : folder}`;
 
 /** `code.test-case:<path>#<suite path> > <name>` -- one test case of a test file. */
 export const testCaseKey = (path: string, name: string, ordinal: number): string => `${KIND_TEST_CASE}:${path}#${name}${ordinal === 0 ? '' : `~${ordinal}`}`;

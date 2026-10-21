@@ -10,9 +10,9 @@ export const DATA_MODEL_NODE_KINDS = [
   'code.column',
   'code.database',
   'code.file',
-  'code.function',
   'code.index',
   'code.migration',
+  'code.symbol',
   'code.table',
 ] as const;
 
@@ -50,8 +50,13 @@ export function migrationKey(database: string, name: string): string {
   return `code.migration:${database}/${name}`;
 }
 
+/**
+ * The function a table access starts from is a symbol of the code-structure
+ * extractor (src/extract/code/keys.ts, symbolKey): one key shape names a symbol
+ * in every extractor, so a function here and the same symbol there are one node.
+ */
 export function functionKey(path: string, qualifiedName: string): string {
-  return `code.function:${path}#${qualifiedName}`;
+  return `code.symbol:${path}#${qualifiedName}`;
 }
 
 export function fileKey(path: string): string {
