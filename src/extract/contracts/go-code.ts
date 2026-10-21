@@ -273,9 +273,11 @@ export function readGoFile(path: string, root: SyntaxNode): GoFileFacts {
       }
       return;
     }
-    // `return Chain(A, B)(mux)` -- the router's global chain.
+    // `return Chain(A, B)(mux)` -- the router's global chain. The return's
+    // value is an expression list; its element is the wrapped call.
     if (node.type === 'return_statement') {
-      const call = node.namedChild(0);
+      const listed = node.namedChild(0);
+      const call = listed?.type === 'expression_list' ? listed.namedChild(0) : listed;
       if (call !== null && call !== undefined && call.type === 'call_expression') {
         const inner = call.childForFieldName('function');
         if (inner !== null && inner !== undefined && inner.type === 'call_expression' && calleeName(inner) === 'Chain') {
