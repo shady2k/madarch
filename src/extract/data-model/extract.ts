@@ -465,12 +465,12 @@ export async function extractDataModel(tree: TreeReader): Promise<Extraction> {
       continue;
     }
     const separator = key.indexOf('#');
-    const filePath = key.slice('code.function:'.length, separator);
+    const filePath = key.slice('code.symbol:'.length, separator);
     const qualifiedName = key.slice(separator + 1);
     const region = codeFiles.map((file) => file.access).find((access) => access.path === filePath)?.regions.find((candidate) => candidate.qualifiedName === qualifiedName);
     nodes.push({
       key: functionKey(filePath, qualifiedName),
-      kind: 'code.function',
+      kind: 'code.symbol',
       label: qualifiedName,
       properties: {language: region?.language ?? '', symbolKind: region?.symbolKind ?? ''},
       ...(region !== undefined ? {span: region.span} : {}),
