@@ -293,7 +293,7 @@ describe('database items (answer key)', () => {
     expect(edgesBetween('code.reads-table', flush, tableKey('orders', 'outbox')).length > 0).toBe(true);
     const mark = functionKey('services/orders/internal/relay/relay.go', 'Relay.markPublished');
     expect(edgesBetween('code.writes-table', mark, tableKey('orders', 'outbox')).length > 0).toBe(true);
-    const reportReads = edgesOf('code.reads-table').filter((edge) => edge.from.startsWith('code.function:services/payments/src/api/legacy-report.ts#'));
+    const reportReads = edgesOf('code.reads-table').filter((edge) => edge.from.startsWith(functionIn('services/payments/src/api/legacy-report.ts')));
     expect(reportReads.some((edge) => edge.to === tableKey('payments', 'payments')), 'the legacy report reads payments').toBe(true);
     expect(reportReads.some((edge) => edge.to === tableKey('payments', 'refunds')), 'the legacy report reads refunds').toBe(true);
   });
@@ -350,9 +350,9 @@ describe('table-access items (answer key)', () => {
     expect(edgesOf('code.writes-table').some((edge) => edge.to === table && edge.from === functionKey(repository, 'PrismaPaymentRepository.save'))).toBe(true);
     expect(edgesOf('code.reads-table').some((edge) => edge.to === table && edge.from === functionKey(repository, 'PrismaPaymentRepository.findById'))).toBe(true);
     expect(edgesOf('code.reads-table').some((edge) => edge.to === table && edge.from === functionKey(repository, 'PrismaPaymentRepository.findByIdempotencyKey'))).toBe(true);
-    const reportReads = edgesOf('code.reads-table').filter((edge) => edge.to === table && edge.from.startsWith('code.function:services/payments/src/api/legacy-report.ts#'));
+    const reportReads = edgesOf('code.reads-table').filter((edge) => edge.to === table && edge.from.startsWith(functionIn('services/payments/src/api/legacy-report.ts')));
     expect(reportReads.length > 0, 'the legacy report reads payments').toBe(true);
-    expect(edgesOf('code.writes-table').some((edge) => edge.to === table && edge.from.startsWith('code.function:services/payments/src/api/legacy-report.ts#'))).toBe(false);
+    expect(edgesOf('code.writes-table').some((edge) => edge.to === table && edge.from.startsWith(functionIn('services/payments/src/api/legacy-report.ts')))).toBe(false);
     expectAnchorsCited(item);
   });
 
@@ -361,7 +361,7 @@ describe('table-access items (answer key)', () => {
     const repository = 'services/payments/src/store/payment-repository.ts';
     expect(edgesOf('code.writes-table').some((edge) => edge.to === table && edge.from === functionKey(repository, 'PrismaPaymentRepository.addRefund'))).toBe(true);
     expect(edgesOf('code.reads-table').some((edge) => edge.to === table && edge.from === functionKey(repository, 'PrismaPaymentRepository.refundedTotal'))).toBe(true);
-    expect(edgesOf('code.reads-table').some((edge) => edge.to === table && edge.from.startsWith('code.function:services/payments/src/api/legacy-report.ts#'))).toBe(true);
+    expect(edgesOf('code.reads-table').some((edge) => edge.to === table && edge.from.startsWith(functionIn('services/payments/src/api/legacy-report.ts')))).toBe(true);
     expectAnchorsCited(item);
   });
 
@@ -434,6 +434,7 @@ describe("the extractor's stated limits, each named with its case", () => {
   test('a SQL string no function holds is attributed to the file, and spans survive non-ASCII bytes', async () => {
     const code = 'services/alpha/src/notes.ts';
     const migration = 'services/alpha/migrations/0001_things.sql';
+    const bytesOf = (source: TreeReader): Map<string, Uint8Array> => new Map(source.paths.map((pathname) => [pathname, source.read(pathname)]));
     const tree: TreeReader = {
       paths: [code, migration],
       read(pathname: string): Uint8Array {
@@ -446,12 +447,18 @@ describe("the extractor's stated limits, each named with its case", () => {
         return new TextEncoder().encode(texts[pathname]!);
       },
     };
+    syntheticBytes = bytesOf(tree);
     const read = await extractDataModel(tree);
     const things = tableKey('alpha', 'things');
-    const loadRead = oneEdge('code.reads-table', functionKey(code, 'load'), things);
-    expect(citedTexts(loadRead).join('\n')).toContain("pool.query('SELECT id FROM things')");
+    const localEdge = (type: string, from: string, to: string): ExtractedEdge => {
+      const found = read.edges.filter((edge) => edge.type === type && edge.from === from && edge.to === to);
+      expect(found, `expected exactly one ${type} edge ${from} -> ${to}, found ${found.length}`).toHaveLength(1);
+      return found[0]!;
+    };
+    const loadRead = localEdge('code.reads-table', functionKey(code, 'load'), things);
+    expect(citedTextsOf(read, loadRead).join('\n')).toContain("pool.query('SELECT id FROM things')");
     // The file-scope constant's insert belongs to the file itself.
-    oneEdge('code.writes-table', fileKey(code), things);
+    localEdge('code.writes-table', fileKey(code), things);
   });
 
   test('an ALTER or CREATE INDEX that names an undeclared table is a gap, never a silence', async () => {
@@ -472,6 +479,25 @@ describe("the extractor's stated limits, each named with its case", () => {
     expect(read.gaps.some((gap) => gap.path === migration && gap.reason.includes('CREATE INDEX idx_missing'))).toBe(true);
   });
 });
+
+/** The texts a record of a local extraction cites: its span and each call site. */
+function citedTextsOf(source: Extraction, edge: ExtractedEdge): string[] {
+  const decode = (span: SourceSpan): string => new TextDecoder().decode(sourceRead(span.path).slice(span.byteStart, span.byteEnd));
+  const sites = [edge.span ?? undefined, ...((edge.properties['sites'] as readonly SourceSpan[] | undefined) ?? [])];
+  return sites.filter((site): site is SourceSpan => site !== undefined).map(decode);
+}
+
+let syntheticBytes: Map<string, Uint8Array> | undefined;
+function sourceRead(pathname: string): Uint8Array {
+  const held = syntheticBytes?.get(pathname);
+  if (held === undefined) throw new Error(`no such path was read this run: ${pathname}`);
+  return held;
+}
+
+/** The key prefix of every function node of one file (built, so no scanner reads it as a source). */
+function functionIn(filePath: string): string {
+  return `code.function:${filePath}#`;
+}
 
 function columnsOf(database: string, table: string): string[] {
   const prefix = `${tableKey(database, table)}/`;
