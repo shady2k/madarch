@@ -1,457 +1,2384 @@
 {
-  "version": 1,
-  "sourceModel": [
-    {
-      "id": "checkout-api",
-      "kind": "service",
-      "name": "Checkout",
-      "file": "model-ids.json",
-      "symbol": "checkout-api"
-    },
-    {
-      "id": "checkout-cart",
-      "kind": "module",
-      "name": "Cart",
-      "file": "model-ids.json",
-      "symbol": "checkout-cart"
-    },
-    {
-      "id": "checkout-pricing",
-      "kind": "module",
-      "name": "Pricing",
-      "file": "model-ids.json",
-      "symbol": "checkout-pricing"
-    },
-    {
-      "id": "checkout-payment-step",
-      "kind": "module",
-      "name": "Payment step",
-      "file": "model-ids.json",
-      "symbol": "checkout-payment-step"
-    },
-    {
-      "id": "checkout-confirmation",
-      "kind": "module",
-      "name": "Confirmation",
-      "file": "model-ids.json",
-      "symbol": "checkout-confirmation"
-    },
-    {
-      "id": "cart-cache",
-      "kind": "store",
-      "name": "Cart cache",
-      "file": "model-ids.json",
-      "symbol": "cart-cache"
-    },
-    {
-      "id": "orders-api",
-      "kind": "service",
-      "name": "Orders",
-      "file": "model-ids.json",
-      "symbol": "orders-api"
-    },
-    {
-      "id": "orders-db",
-      "kind": "store",
-      "name": "Orders database",
-      "file": "model-ids.json",
-      "symbol": "orders-db"
-    },
-    {
-      "id": "promotions-api",
-      "kind": "service",
-      "name": "Promotions",
-      "file": "model-ids.json",
-      "symbol": "promotions-api"
-    },
-    {
-      "id": "promotions-db",
-      "kind": "store",
-      "name": "Promotions database",
-      "file": "model-ids.json",
-      "symbol": "promotions-db"
-    },
-    {
-      "id": "payments-api",
-      "kind": "service",
-      "name": "Payments",
-      "file": "model-ids.json",
-      "symbol": "payments-api"
-    },
-    {
-      "id": "payments-db",
-      "kind": "store",
-      "name": "Payments database",
-      "file": "model-ids.json",
-      "symbol": "payments-db"
-    },
-    {
-      "id": "card-vault-db",
-      "kind": "store",
-      "name": "Card vault database",
-      "file": "model-ids.json",
-      "symbol": "card-vault-db"
-    },
-    {
-      "id": "fraud-features",
-      "kind": "store",
-      "name": "Risk features",
-      "file": "model-ids.json",
-      "symbol": "fraud-features"
-    },
-    {
-      "id": "reconciliation-db",
-      "kind": "store",
-      "name": "Reconciliation database",
-      "file": "model-ids.json",
-      "symbol": "reconciliation-db"
-    },
-    {
-      "id": "event-bus",
-      "kind": "broker",
-      "name": "Event bus",
-      "file": "model-ids.json",
-      "symbol": "event-bus"
-    }
-  ],
-  "entities": [
-    {
-      "kind": "service",
-      "id": "checkout-api",
-      "name": "Checkout",
-      "file": "services/checkout/src/checkout.ts",
-      "symbol": "checkoutService"
-    },
-    {
-      "kind": "module",
-      "id": "checkout-cart",
-      "name": "Cart",
-      "file": "services/checkout/src/checkout.ts",
-      "symbol": "cartModule"
-    },
-    {
-      "kind": "module",
-      "id": "checkout-pricing",
-      "name": "Pricing",
-      "file": "services/checkout/src/checkout.ts",
-      "symbol": "pricingModule"
-    },
-    {
-      "kind": "module",
-      "id": "checkout-payment-step",
-      "name": "Payment step",
-      "file": "services/checkout/src/checkout.ts",
-      "symbol": "paymentStepModule"
-    },
-    {
-      "kind": "module",
-      "id": "checkout-confirmation",
-      "name": "Confirmation",
-      "file": "services/checkout/src/checkout.ts",
-      "symbol": "confirmationModule"
-    },
-    {
-      "kind": "store",
-      "id": "cart-cache",
-      "name": "Cart cache",
-      "file": "services/checkout/src/checkout.ts",
-      "symbol": "cartStore"
-    },
-    {
-      "kind": "service",
-      "id": "orders-api",
-      "name": "Orders",
-      "file": "services/orders/src/order.go",
-      "symbol": "ServiceID"
-    },
-    {
-      "kind": "store",
-      "id": "orders-db",
-      "name": "Orders database",
-      "file": "services/orders/src/order.go",
-      "symbol": "StoreID"
-    },
-    {
-      "kind": "service",
-      "id": "promotions-api",
-      "name": "Promotions",
-      "file": "services/promotions/src/promotions.go",
-      "symbol": "ServiceID"
-    },
-    {
-      "kind": "store",
-      "id": "promotions-db",
-      "name": "Promotions database",
-      "file": "services/promotions/src/promotions.go",
-      "symbol": "StoreID"
-    },
-    {
-      "kind": "service",
-      "id": "payments-api",
-      "name": "Payments",
-      "file": "services/payments/src/payment.ts",
-      "symbol": "serviceId"
-    },
-    {
-      "kind": "store",
-      "id": "payments-db",
-      "name": "Payments database",
-      "file": "services/payments/src/payment.ts",
-      "symbol": "storeId"
-    },
-    {
-      "kind": "store",
-      "id": "card-vault-db",
-      "name": "Card vault database",
-      "file": "services/payments/src/payment.ts",
-      "symbol": "vaultStoreId"
-    },
-    {
-      "kind": "store",
-      "id": "fraud-features",
-      "name": "Risk features",
-      "file": "services/payments/src/payment.ts",
-      "symbol": "featureStoreId"
-    },
-    {
-      "kind": "store",
-      "id": "reconciliation-db",
-      "name": "Reconciliation database",
-      "file": "services/payments/src/payment.ts",
-      "symbol": "reconciliationStoreId"
-    },
-    {
-      "kind": "data entity",
-      "id": "order",
-      "name": "Order",
-      "file": "services/orders/src/order.go",
-      "symbol": "Order"
-    },
-    {
-      "kind": "data entity",
-      "id": "order-number",
-      "name": "Order number",
-      "file": "services/orders/src/order.go",
-      "symbol": "OrderNumber"
-    },
-    {
-      "kind": "data entity",
-      "id": "order-contents",
-      "name": "Order contents",
-      "file": "services/orders/src/order.go",
-      "symbol": "OrderContents"
-    },
-    {
-      "kind": "data entity",
-      "id": "card-token",
-      "name": "Payment card token",
-      "file": "services/payments/src/payment.ts",
-      "symbol": "CardToken"
-    },
-    {
-      "kind": "data entity",
-      "id": "card-number",
-      "name": "Masked payment card number",
-      "file": "services/payments/src/payment.ts",
-      "symbol": "CardNumber"
-    },
-    {
-      "kind": "data entity",
-      "id": "settlement-report",
-      "name": "Settlement report",
-      "file": "services/payments/src/payment.ts",
-      "symbol": "SettlementReport"
-    }
-  ],
-  "businessRules": [
-    {
-      "id": "discounts",
-      "file": "services/checkout/src/checkout.ts",
-      "symbol": "discountFor",
-      "expected": "percentage discount is subtracted from subtotal"
-    },
-    {
-      "id": "discount-calculation",
-      "file": "services/promotions/src/promotions.go",
-      "symbol": "Discount",
-      "expected": "integer amount is subtotal times percent divided by 100"
-    },
-    {
-      "id": "tax",
-      "file": "services/checkout/src/checkout.ts",
-      "symbol": "taxRate",
-      "expected": "code tax rate is 8%, contradicting README claim of 5%"
-    },
-    {
-      "id": "retention",
-      "file": "services/orders/src/order.go",
-      "symbol": "RunRetentionJob",
-      "expected": "retention job removes orders not shipped at 90 days from the orders store"
-    }
-  ],
-  "stateMachine": {
-    "entity": "Order",
-    "file": "services/orders/src/order.go",
-    "states": [
-      "pending_payment",
-      "confirmed",
-      "cancelled",
-      "shipped"
-    ],
-    "transitions": [
-      {
-        "from": "pending_payment",
-        "event": "payment-captured",
-        "to": "confirmed"
-      },
-      {
-        "from": "pending_payment",
-        "event": "payment-failed",
-        "to": "cancelled"
-      },
-      {
-        "from": "confirmed",
-        "event": "shipment-dispatched",
-        "to": "shipped"
-      },
-      {
-        "event": "expiry after 90 days",
-        "to": "purged",
-        "file": "services/orders/src/order.go",
-        "symbol": "PurgeExpired",
-        "fromStates": [
-          "pending_payment",
-          "confirmed",
-          "cancelled"
-        ],
-        "condition": "day - CreatedDay >= 90 and state != shipped"
-      }
-    ]
+  "fixtureVersion": 2,
+  "snapshots": {
+    "snapshot-2026-02-01": "91ca934cad3dd89eda5f8ac2136a80757e11cf75",
+    "snapshot-2026-06-01": "244dded0024896e15b9d7e2d473609025a3818b4",
+    "snapshot-final": "882869b77c421c884a8b760e241b4d0323415676"
   },
-  "interactions": [
+  "plantedCounts": {
+    "mainCommits": 61,
+    "hotspotCommits": 12,
+    "pricingTogether": 3,
+    "pricingOnly": 1,
+    "taxOnly": 1,
+    "largeFileLines": 100
+  },
+  "countingRules": {
+    "hotspot": "Count commits on main that change the order_service.go path.",
+    "coChange": "Count each main commit once according to whether it changes pricing.go, tax.go, or both; merge commits and renames are counted only if Git reports that path changed.",
+    "largeFile": "Count newline-terminated lines in final legacy-report.ts."
+  },
+  "items": [
     {
-      "caller": "checkout-api",
-      "callee": "promotions-api",
-      "kind": "HTTP",
-      "file": "services/checkout/src/checkout.ts",
-      "symbol": "applyPromotion"
+      "id": "service.orders",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/orders/cmd/orders/main.go",
+        "symbol": "ListenAndServe"
+      },
+      "expectedWikiStatement": "Orders is a Go HTTP service listening on port 8080.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: Orders is a Go HTTP service listening on port 8080.",
+        "mustShow": [
+          "Orders is a Go HTTP service listening on port 8080."
+        ],
+        "mustLink": [
+          "ListenAndServe"
+        ],
+        "mustNotClaim": []
+      }
     },
     {
-      "caller": "payments-api",
-      "callee": "event-bus",
-      "kind": "event",
-      "file": "services/payments/src/payment.ts",
-      "symbol": "publishPaymentEvent"
+      "id": "service.payments",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/payments/src/index.ts",
+        "symbol": "express"
+      },
+      "expectedWikiStatement": "Payments is a TypeScript Express service.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: Payments is a TypeScript Express service.",
+        "mustShow": [
+          "Payments is a TypeScript Express service."
+        ],
+        "mustLink": [
+          "express"
+        ],
+        "mustNotClaim": []
+      }
     },
     {
-      "caller": "orders-api",
-      "callee": "event-bus",
-      "kind": "event",
-      "file": "services/orders/src/order.go",
-      "symbol": "PublishOrderEvent"
-    }
-  ],
-  "contradictions": [
-    {
-      "claim": "README says 10% discount on every order",
-      "code applies a caller-supplied percentage": null,
-      "document": "README.md",
-      "file": "services/checkout/src/checkout.ts",
-      "symbol": "discountFor"
+      "id": "service.promotions",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/promotions/cmd/promotions/main.go",
+        "symbol": "ListenAndServe"
+      },
+      "expectedWikiStatement": "Promotions is a Go HTTP service.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: Promotions is a Go HTTP service.",
+        "mustShow": [
+          "Promotions is a Go HTTP service."
+        ],
+        "mustLink": [
+          "ListenAndServe"
+        ],
+        "mustNotClaim": []
+      }
     },
     {
-      "claim": "README says flat 5% tax",
-      "code uses 8%": null,
-      "document": "README.md",
-      "file": "services/checkout/src/checkout.ts",
-      "symbol": "taxRate"
+      "id": "service.checkout",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/checkout/src/index.ts",
+        "symbol": "express"
+      },
+      "expectedWikiStatement": "Checkout is a TypeScript Express backend for the frontend.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: Checkout is a TypeScript Express backend for the frontend.",
+        "mustShow": [
+          "Checkout is a TypeScript Express backend for the frontend."
+        ],
+        "mustLink": [
+          "express"
+        ],
+        "mustNotClaim": []
+      }
     },
     {
-      "claim": "README says orders retained indefinitely",
-      "code expires non-shipped orders": null,
-      "document": "services/orders/README.md",
-      "file": "services/orders/src/order.go",
-      "symbol": "RunRetentionJob"
-    }
-  ],
-  "undocumentedBehaviour": [
-    {
-      "claim": "retention job purges non-shipped orders after 90 days",
-      "file": "services/orders/src/order.go",
-      "symbol": "RunRetentionJob"
-    }
-  ],
-  "intentEvidence": [
-    {
-      "claim": "stable identifier makes payment callback idempotent",
-      "file": "services/payments/src/payment.ts",
-      "symbol": "capture",
-      "comment": "Keep the order identifier stable across retries so the payment callback is idempotent."
-    }
-  ],
-  "terms": [
-    {
-      "documentTerm": "payment token",
-      "codeTerm": "CardToken",
-      "codeFile": "services/payments/src/payment.ts",
-      "symbol": "CardToken",
-      "expectedQuestion": "term"
-    }
-  ],
-  "links": [
-    {
-      "id": "opens",
-      "url": "https://www.rfc-editor.org/rfc/rfc9110",
-      "file": "README.md",
-      "treatment": "public standards page; expected accessible without signing in"
+      "id": "newcomer.prerequisites",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "README.md",
+        "symbol": "Go 1.22"
+      },
+      "expectedWikiStatement": "Run needs Go 1.22, Node 20 and Docker Compose.",
+      "evidenceClass": "document-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: Run needs Go 1.22, Node 20 and Docker Compose.",
+        "mustShow": [
+          "Run needs Go 1.22, Node 20 and Docker Compose."
+        ],
+        "mustLink": [
+          "Go 1.22"
+        ],
+        "mustNotClaim": []
+      }
     },
     {
-      "id": "needs-sign-in",
-      "url": "https://github.com/settings/profile",
-      "file": "README.md",
-      "treatment": "neutral well-known service account settings; requires a GitHub account and sign-in; do not fetch authenticated content or treat login page as source evidence"
-    }
-  ],
-  "expectedOpenQuestions": [
-    {
-      "type": "contradiction",
-      "subject": "published discount/tax/retention claims differ from code",
-      "file": "README.md"
+      "id": "newcomer.up",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "Makefile",
+        "symbol": "up"
+      },
+      "expectedWikiStatement": "make up starts the services with Docker Compose.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: make up starts the services with Docker Compose.",
+        "mustShow": [
+          "make up starts the services with Docker Compose."
+        ],
+        "mustLink": [
+          "up"
+        ],
+        "mustNotClaim": []
+      }
     },
     {
-      "type": "undocumented behaviour",
-      "subject": "automatic 90-day expiry of non-shipped orders",
-      "file": "services/orders/src/order.go"
+      "id": "newcomer.seed",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "Makefile",
+        "symbol": "seed"
+      },
+      "expectedWikiStatement": "make seed loads a demo customer.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: make seed loads a demo customer.",
+        "mustShow": [
+          "make seed loads a demo customer."
+        ],
+        "mustLink": [
+          "seed"
+        ],
+        "mustNotClaim": []
+      }
     },
     {
-      "type": "assumption check",
-      "subject": "whether percentage discount applies to every order",
-      "file": "services/checkout/src/checkout.ts"
+      "id": "newcomer.request",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "README.md",
+        "symbol": "curl request"
+      },
+      "expectedWikiStatement": "The first example request creates an order.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: The first example request creates an order.",
+        "mustShow": [
+          "The first example request creates an order."
+        ],
+        "mustLink": [
+          "POST"
+        ],
+        "mustNotClaim": []
+      }
     },
     {
-      "type": "term",
-      "subject": "payment token versus CardToken / PaymentToken terminology",
-      "file": "services/payments/src/payment.ts"
+      "id": "newcomer.tests",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "Makefile",
+        "symbol": "test"
+      },
+      "expectedWikiStatement": "make test runs the Orders Go tests.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: make test runs the Orders Go tests.",
+        "mustShow": [
+          "make test runs the Orders Go tests."
+        ],
+        "mustLink": [
+          "test"
+        ],
+        "mustNotClaim": []
+      }
     },
     {
-      "type": "unverifiable",
-      "subject": "private content behind sign-in link",
-      "file": "README.md"
+      "id": "newcomer.failure",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "README.md",
+        "symbol": "5432"
+      },
+      "expectedWikiStatement": "A typical local failure is port 5432 already in use.",
+      "evidenceClass": "document-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: A typical local failure is port 5432 already in use.",
+        "mustShow": [
+          "A typical local failure is port 5432 already in use."
+        ],
+        "mustLink": [
+          "5432"
+        ],
+        "mustNotClaim": []
+      }
     },
     {
-      "type": "meaning",
-      "subject": "business meaning of cancellation on expiry",
-      "file": "services/orders/src/order.go"
+      "id": "flow.orders.route",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/orders/internal/api/router.go",
+        "symbol": "Handle(\"/orders\""
+      },
+      "expectedWikiStatement": "The Orders route is registered with middleware.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: The Orders route is registered with middleware.",
+        "mustShow": [
+          "The Orders route is registered with middleware."
+        ],
+        "mustLink": [
+          "Handle(\"/orders\""
+        ],
+        "mustNotClaim": []
+      }
     },
     {
-      "type": "decision rationale",
-      "subject": "why non-shipped orders expire at 90 days",
-      "file": "services/orders/src/order.go"
+      "id": "flow.orders.middleware",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/orders/internal/api/router.go",
+        "symbol": "auth("
+      },
+      "expectedWikiStatement": "The route is wrapped in auth middleware.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: The route is wrapped in auth middleware.",
+        "mustShow": [
+          "The route is wrapped in auth middleware."
+        ],
+        "mustLink": [
+          "auth("
+        ],
+        "mustNotClaim": []
+      }
     },
     {
-      "type": "access or document needed",
-      "subject": "private project workspace details; sign-in needed",
-      "file": "README.md"
+      "id": "flow.orders.handler",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/orders/internal/api/router.go",
+        "symbol": "func(w http.ResponseWriter"
+      },
+      "expectedWikiStatement": "The route handler accepts an order request.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: The route handler accepts an order request.",
+        "mustShow": [
+          "The route handler accepts an order request."
+        ],
+        "mustLink": [
+          "func(w http.ResponseWriter"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "flow.orders.domain",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/orders/internal/domain/order.go",
+        "symbol": "Transition"
+      },
+      "expectedWikiStatement": "The handler flow reaches the Order domain state machine.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: The handler flow reaches the Order domain state machine.",
+        "mustShow": [
+          "The handler flow reaches the Order domain state machine."
+        ],
+        "mustLink": [
+          "Transition"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "flow.orders.repository",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/orders/internal/store/order_repository.go",
+        "symbol": "OrderRepository"
+      },
+      "expectedWikiStatement": "OrderRepository persists orders using database/sql.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: OrderRepository persists orders using database/sql.",
+        "mustShow": [
+          "OrderRepository persists orders using database/sql."
+        ],
+        "mustLink": [
+          "OrderRepository"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "flow.orders.table",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/orders/migrations/0002_orders.sql",
+        "symbol": "CREATE TABLE orders"
+      },
+      "expectedWikiStatement": "Orders are stored in the orders table.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: Orders are stored in the orders table.",
+        "mustShow": [
+          "Orders are stored in the orders table."
+        ],
+        "mustLink": [
+          "CREATE TABLE orders"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "flow.orders.interface",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/orders/internal/application/order_service.go",
+        "symbol": "type Store interface"
+      },
+      "expectedWikiStatement": "The application service depends on a Store interface.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: The application service depends on a Store interface.",
+        "mustShow": [
+          "The application service depends on a Store interface."
+        ],
+        "mustLink": [
+          "type Store interface"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "flow.orders.repository-implementation",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/orders/internal/store/order_repository.go",
+        "symbol": "Save(o domain.Order)"
+      },
+      "expectedWikiStatement": "OrderRepository implements Store by providing Save.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: OrderRepository implements Store by providing Save.",
+        "mustShow": [
+          "OrderRepository implements Store by providing Save."
+        ],
+        "mustLink": [
+          "Save(o domain.Order)"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "exports.not-entrypoints",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/payments/src/format.ts",
+        "symbol": "formatInvoiceLegacy"
+      },
+      "expectedWikiStatement": "An exported helper is not necessarily a service entry point.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: An exported helper is not necessarily a service entry point.",
+        "mustShow": [
+          "An exported helper is not necessarily a service entry point."
+        ],
+        "mustLink": [
+          "formatInvoiceLegacy"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "pattern.singleton",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/orders/internal/config/config.go",
+        "symbol": "sync.Once"
+      },
+      "expectedWikiStatement": "Orders configuration is loaded once with sync.Once.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: Orders configuration is loaded once with sync.Once.",
+        "mustShow": [
+          "Orders configuration is loaded once with sync.Once."
+        ],
+        "mustLink": [
+          "sync.Once"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "pattern.strategy",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/promotions/internal/discount/strategy.go",
+        "symbol": "type Strategy interface"
+      },
+      "expectedWikiStatement": "Promotions uses a discount strategy interface.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: Promotions uses a discount strategy interface.",
+        "mustShow": [
+          "Promotions uses a discount strategy interface."
+        ],
+        "mustLink": [
+          "type Strategy interface"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "pattern.adapter",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/payments/src/providers/cardnet.ts",
+        "symbol": "implements PaymentProvider"
+      },
+      "expectedWikiStatement": "Cardnet adapts the payment provider interface.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: Cardnet adapts the payment provider interface.",
+        "mustShow": [
+          "Cardnet adapts the payment provider interface."
+        ],
+        "mustLink": [
+          "implements PaymentProvider"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "pattern.factory",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/payments/src/providers/factory.ts",
+        "symbol": "PaymentClientFactory"
+      },
+      "expectedWikiStatement": "PaymentClientFactory chooses a provider from configuration.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: PaymentClientFactory chooses a provider from configuration.",
+        "mustShow": [
+          "PaymentClientFactory chooses a provider from configuration."
+        ],
+        "mustLink": [
+          "PaymentClientFactory"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "pattern.inheritance",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/payments/src/providers/deferred.ts",
+        "symbol": "extends BaseProvider"
+      },
+      "expectedWikiStatement": "Deferred extends BaseProvider and implements PaymentProvider.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: Deferred extends BaseProvider and implements PaymentProvider.",
+        "mustShow": [
+          "Deferred extends BaseProvider and implements PaymentProvider."
+        ],
+        "mustLink": [
+          "extends BaseProvider"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "pattern.not-singleton",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/payments/src/http-client.ts",
+        "symbol": "let client"
+      },
+      "expectedWikiStatement": "The module-level client is reassigned per request, so it is not a singleton.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: The module-level client is reassigned per request, so it is not a singleton.",
+        "mustShow": [
+          "The module-level client is reassigned per request, so it is not a singleton."
+        ],
+        "mustLink": [
+          "let client"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "contract.openapi",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "contracts/openapi/orders.yaml",
+        "symbol": "createOrder"
+      },
+      "expectedWikiStatement": "OpenAPI defines Orders createOrder.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: OpenAPI defines Orders createOrder.",
+        "mustShow": [
+          "OpenAPI defines Orders createOrder."
+        ],
+        "mustLink": [
+          "createOrder"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "contract.proto",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "contracts/proto/payments.proto",
+        "symbol": "Authorize"
+      },
+      "expectedWikiStatement": "Payments implements the Authorize gRPC contract.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: Payments implements the Authorize gRPC contract.",
+        "mustShow": [
+          "Payments implements the Authorize gRPC contract."
+        ],
+        "mustLink": [
+          "Authorize"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "contract.asyncapi",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "contracts/asyncapi/order-events.yaml",
+        "symbol": "orders.events"
+      },
+      "expectedWikiStatement": "AsyncAPI describes the Orders event channel.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: AsyncAPI describes the Orders event channel.",
+        "mustShow": [
+          "AsyncAPI describes the Orders event channel."
+        ],
+        "mustLink": [
+          "orders.events"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "checkout.sequence",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/checkout/src/api/routes.ts",
+        "symbol": "/checkout"
+      },
+      "expectedWikiStatement": "Checkout places an order then requests payment authorization.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: Checkout places an order then requests payment authorization.",
+        "mustShow": [
+          "Checkout places an order then requests payment authorization."
+        ],
+        "mustLink": [
+          "/checkout"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "checkout.failure",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/checkout/test/checkout.e2e.test.ts",
+        "symbol": "declined"
+      },
+      "expectedWikiStatement": "A declined payment returns a failure response.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: A declined payment returns a failure response.",
+        "mustShow": [
+          "A declined payment returns a failure response."
+        ],
+        "mustLink": [
+          "declined"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "outbox.adr",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "docs/adr/0002-outbox.md",
+        "symbol": "transaction"
+      },
+      "expectedWikiStatement": "The outbox is the accepted event delivery decision.",
+      "evidenceClass": "document-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: The outbox is the accepted event delivery decision.",
+        "mustShow": [
+          "The outbox is the accepted event delivery decision."
+        ],
+        "mustLink": [
+          "transaction"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "outbox.table",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/orders/migrations/0004_outbox.sql",
+        "symbol": "CREATE TABLE outbox"
+      },
+      "expectedWikiStatement": "Orders stores pending events in the outbox table.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: Orders stores pending events in the outbox table.",
+        "mustShow": [
+          "Orders stores pending events in the outbox table."
+        ],
+        "mustLink": [
+          "CREATE TABLE outbox"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "outbox.writer",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/orders/internal/store/order_repository.go",
+        "symbol": "INSERT INTO outbox"
+      },
+      "expectedWikiStatement": "The order transaction writes its event into outbox.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: The order transaction writes its event into outbox.",
+        "mustShow": [
+          "The order transaction writes its event into outbox."
+        ],
+        "mustLink": [
+          "INSERT INTO outbox"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "outbox.relay",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/orders/internal/relay/relay.go",
+        "symbol": "SELECT topic,payload FROM outbox"
+      },
+      "expectedWikiStatement": "The relay reads outbox rows and publishes them.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: The relay reads outbox rows and publishes them.",
+        "mustShow": [
+          "The relay reads outbox rows and publishes them."
+        ],
+        "mustLink": [
+          "SELECT topic,payload FROM outbox"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "payments.timeout",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/payments/src/config.ts",
+        "symbol": "PAYMENT_TIMEOUT_MS"
+      },
+      "expectedWikiStatement": "Payments defaults PAYMENT_TIMEOUT_MS to 3000 ms; it is absent from .env.example and compose and startup does not fail.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer",
+        "operations"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: Payments defaults PAYMENT_TIMEOUT_MS to 3000 ms; it is absent from .env.example and compose and startup does not fail.",
+        "mustShow": [
+          "Payments defaults PAYMENT_TIMEOUT_MS to 3000 ms; it is absent from .env.example and compose and startup does not fail."
+        ],
+        "mustLink": [
+          "PAYMENT_TIMEOUT_MS"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "payments.retry",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/payments/src/api/routes.ts",
+        "symbol": "Idempotency-Key"
+      },
+      "expectedWikiStatement": "The pay endpoint accepts an idempotency key.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: The pay endpoint accepts an idempotency key.",
+        "mustShow": [
+          "The pay endpoint accepts an idempotency key."
+        ],
+        "mustLink": [
+          "Idempotency-Key"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "payments.idempotency",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/payments/src/api/routes.ts",
+        "symbol": "Idempotency-Key"
+      },
+      "expectedWikiStatement": "Payment retries use a stable idempotency key.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: Payment retries use a stable idempotency key.",
+        "mustShow": [
+          "Payment retries use a stable idempotency key."
+        ],
+        "mustLink": [
+          "Idempotency-Key"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "database.orders",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/orders/migrations/0003_order_items.sql",
+        "symbol": "REFERENCES orders"
+      },
+      "expectedWikiStatement": "Orders has one-to-many orders to order_items cardinality.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: Orders has one-to-many orders to order_items cardinality.",
+        "mustShow": [
+          "Orders has one-to-many orders to order_items cardinality."
+        ],
+        "mustLink": [
+          "REFERENCES orders"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "database.payments",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/payments/prisma/schema.prisma",
+        "symbol": "model Payment"
+      },
+      "expectedWikiStatement": "Payments has Payment and Refund records.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: Payments has Payment and Refund records.",
+        "mustShow": [
+          "Payments has Payment and Refund records."
+        ],
+        "mustLink": [
+          "model Payment"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "database.logical-reference",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/payments/prisma/schema.prisma",
+        "symbol": "logical reference"
+      },
+      "expectedWikiStatement": "payments.order_id is a logical cross-service reference with no FK.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: payments.order_id is a logical cross-service reference with no FK.",
+        "mustShow": [
+          "payments.order_id is a logical cross-service reference with no FK."
+        ],
+        "mustLink": [
+          "logical reference"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "database.promotions",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/promotions/migrations/0001_promotions.sql",
+        "symbol": "CREATE TABLE promotions"
+      },
+      "expectedWikiStatement": "Promotions owns a promotions table.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: Promotions owns a promotions table.",
+        "mustShow": [
+          "Promotions owns a promotions table."
+        ],
+        "mustLink": [
+          "CREATE TABLE promotions"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "table-access.orders",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/orders/internal/store/order_repository.go",
+        "symbol": "INSERT INTO orders"
+      },
+      "expectedWikiStatement": "The Orders repository writes orders.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: The Orders repository writes orders.",
+        "mustShow": [
+          "The Orders repository writes orders."
+        ],
+        "mustLink": [
+          "INSERT INTO orders"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "table-access.outbox",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/orders/internal/relay/relay.go",
+        "symbol": "FROM outbox"
+      },
+      "expectedWikiStatement": "The relay reads outbox.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: The relay reads outbox.",
+        "mustShow": [
+          "The relay reads outbox."
+        ],
+        "mustLink": [
+          "FROM outbox"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "dependencies.old-pin",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/payments/package.json",
+        "symbol": "4.17.15"
+      },
+      "expectedWikiStatement": "Payments pins lodash 4.17.15, a deliberately old version.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: Payments pins lodash 4.17.15, a deliberately old version.",
+        "mustShow": [
+          "Payments pins lodash 4.17.15, a deliberately old version."
+        ],
+        "mustLink": [
+          "4.17.15"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "dependencies.direct-transitive-dev",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/payments/package-lock.json",
+        "symbol": "node_modules/accepts"
+      },
+      "expectedWikiStatement": "The lockfile distinguishes direct, transitive and development dependencies.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: The lockfile distinguishes direct, transitive and development dependencies.",
+        "mustShow": [
+          "The lockfile distinguishes direct, transitive and development dependencies."
+        ],
+        "mustLink": [
+          "node_modules/accepts"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "deploy.orders",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "deploy/k8s/orders.yaml",
+        "symbol": "training/orders:1.0"
+      },
+      "expectedWikiStatement": "Kubernetes deploys the Orders image and maps service port 80 to container port 8080.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: Kubernetes deploys the Orders image and maps service port 80 to container port 8080.",
+        "mustShow": [
+          "Kubernetes deploys the Orders image and maps service port 80 to container port 8080."
+        ],
+        "mustLink": [
+          "training/orders:1.0"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "deploy.compose",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "docker-compose.yml",
+        "symbol": "services:"
+      },
+      "expectedWikiStatement": "Compose runs postgres, kafka and the four services with ports and environment.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: Compose runs postgres, kafka and the four services with ports and environment.",
+        "mustShow": [
+          "Compose runs postgres, kafka and the four services with ports and environment."
+        ],
+        "mustLink": [
+          "services:"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "deploy.image-process-port",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/orders/Dockerfile",
+        "symbol": "EXPOSE 8080"
+      },
+      "expectedWikiStatement": "The Orders image runs the process on port 8080.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: The Orders image runs the process on port 8080.",
+        "mustShow": [
+          "The Orders image runs the process on port 8080."
+        ],
+        "mustLink": [
+          "EXPOSE 8080"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "config.database-url",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/orders/internal/config/config.go",
+        "symbol": "DATABASE_URL"
+      },
+      "expectedWikiStatement": "DATABASE_URL is required by service storage.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer",
+        "operations"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: DATABASE_URL is required by service storage.",
+        "mustShow": [
+          "DATABASE_URL is required by service storage."
+        ],
+        "mustLink": [
+          "DATABASE_URL"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "config.kafka-brokers",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/orders/internal/config/config.go",
+        "symbol": "KAFKA_BROKERS"
+      },
+      "expectedWikiStatement": "Orders reads KAFKA_BROKERS.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer",
+        "operations"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: Orders reads KAFKA_BROKERS.",
+        "mustShow": [
+          "Orders reads KAFKA_BROKERS."
+        ],
+        "mustLink": [
+          "KAFKA_BROKERS"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "config.payment-provider",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/payments/src/config.ts",
+        "symbol": "PAYMENT_PROVIDER"
+      },
+      "expectedWikiStatement": "Payments defaults PAYMENT_PROVIDER to cardnet.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer",
+        "operations"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: Payments defaults PAYMENT_PROVIDER to cardnet.",
+        "mustShow": [
+          "Payments defaults PAYMENT_PROVIDER to cardnet."
+        ],
+        "mustLink": [
+          "PAYMENT_PROVIDER"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "config.jwt-secret",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/orders/internal/config/config.go",
+        "symbol": "JWT_SECRET"
+      },
+      "expectedWikiStatement": "Orders reads JWT_SECRET.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer",
+        "operations"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: Orders reads JWT_SECRET.",
+        "mustShow": [
+          "Orders reads JWT_SECRET."
+        ],
+        "mustLink": [
+          "JWT_SECRET"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "config.payment-timeout-ms",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/payments/src/config.ts",
+        "symbol": "PAYMENT_TIMEOUT_MS"
+      },
+      "expectedWikiStatement": "PAYMENT_TIMEOUT_MS defaults to 3000 ms and is not defined in sample or compose configuration.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer",
+        "operations"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: PAYMENT_TIMEOUT_MS defaults to 3000 ms and is not defined in sample or compose configuration.",
+        "mustShow": [
+          "PAYMENT_TIMEOUT_MS defaults to 3000 ms and is not defined in sample or compose configuration."
+        ],
+        "mustLink": [
+          "PAYMENT_TIMEOUT_MS"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "tests.state-machine",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/orders/internal/domain/order_test.go",
+        "symbol": "TestTransitions"
+      },
+      "expectedWikiStatement": "Go has a table-driven order state-transition test.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: Go has a table-driven order state-transition test.",
+        "mustShow": [
+          "Go has a table-driven order state-transition test."
+        ],
+        "mustLink": [
+          "TestTransitions"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "tests.pricing",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/orders/internal/pricing/pricing.go",
+        "symbol": "Discount"
+      },
+      "expectedWikiStatement": "Go pricing code is covered by pricing tests.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: Go pricing code is covered by pricing tests.",
+        "mustShow": [
+          "Go pricing code is covered by pricing tests."
+        ],
+        "mustLink": [
+          "Discount"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "tests.factory",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/payments/test/factory.test.ts",
+        "symbol": "factory selects provider"
+      },
+      "expectedWikiStatement": "Jest tests the provider factory.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: Jest tests the provider factory.",
+        "mustShow": [
+          "Jest tests the provider factory."
+        ],
+        "mustLink": [
+          "factory selects provider"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "tests.refund",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/payments/test/refund.test.ts",
+        "symbol": "refund captured payment"
+      },
+      "expectedWikiStatement": "Jest tests the refund rule.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: Jest tests the refund rule.",
+        "mustShow": [
+          "Jest tests the refund rule."
+        ],
+        "mustLink": [
+          "refund captured payment"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "tests.skipped",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/payments/test/refund.test.ts",
+        "symbol": "test.skip"
+      },
+      "expectedWikiStatement": "A vault sandbox refund test is skipped.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: A vault sandbox refund test is skipped.",
+        "mustShow": [
+          "A vault sandbox refund test is skipped."
+        ],
+        "mustLink": [
+          "test.skip"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "tests.checkout-e2e",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/checkout/test/checkout.e2e.test.ts",
+        "symbol": "declined"
+      },
+      "expectedWikiStatement": "Checkout has an end-to-end declined-payment case.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: Checkout has an end-to-end declined-payment case.",
+        "mustShow": [
+          "Checkout has an end-to-end declined-payment case."
+        ],
+        "mustLink": [
+          "declined"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "tests.promotions-none",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/promotions/go.mod",
+        "symbol": "module"
+      },
+      "expectedWikiStatement": "Promotions has no tests.",
+      "evidenceClass": "inference",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: Promotions has no tests.",
+        "mustShow": [
+          "Promotions has no tests."
+        ],
+        "mustLink": [
+          "no tests"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "payments.cycle.domain-to-events",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/payments/src/domain/payment.ts",
+        "symbol": "../events/publishers"
+      },
+      "expectedWikiStatement": "Payments domain imports events.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: Payments domain imports events.",
+        "mustShow": [
+          "Payments domain imports events."
+        ],
+        "mustLink": [
+          "../events/publishers"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "payments.cycle.events-to-domain",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/payments/src/events/publishers.ts",
+        "symbol": "../domain/payment"
+      },
+      "expectedWikiStatement": "Payments events imports the domain, forming a cycle.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: Payments events imports the domain, forming a cycle.",
+        "mustShow": [
+          "Payments events imports the domain, forming a cycle."
+        ],
+        "mustLink": [
+          "../domain/payment"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "large-file",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/payments/src/api/legacy-report.ts",
+        "symbol": "customer_id"
+      },
+      "expectedWikiStatement": "The legacy report file is the large endpoint, and concatenates an untrusted query value into SQL.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "security",
+        "operations"
+      ],
+      "requiredNow": false,
+      "judge": {
+        "readerTask": "Find evidence for: The legacy report file is the large endpoint, and concatenates an untrusted query value into SQL.",
+        "mustShow": [
+          "The legacy report file is the large endpoint, and concatenates an untrusted query value into SQL."
+        ],
+        "mustLink": [
+          "customer_id"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "dead-export",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/payments/src/format.ts",
+        "symbol": "formatInvoiceLegacy"
+      },
+      "expectedWikiStatement": "formatInvoiceLegacy has no references elsewhere in this repository.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: formatInvoiceLegacy has no references elsewhere in this repository.",
+        "mustShow": [
+          "formatInvoiceLegacy has no references elsewhere in this repository."
+        ],
+        "mustLink": [
+          "formatInvoiceLegacy"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "provider-authorship",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/payments/src/providers/factory.ts",
+        "symbol": "PaymentClientFactory"
+      },
+      "expectedWikiStatement": "All providers files are authored by one contributor.",
+      "evidenceClass": "history-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: All providers files are authored by one contributor.",
+        "mustShow": [
+          "All providers files are authored by one contributor."
+        ],
+        "mustLink": [
+          "PaymentClientFactory"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "security.export-route",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/orders/internal/api/router.go",
+        "symbol": "GET /orders/export"
+      },
+      "expectedWikiStatement": "GET /orders/export is registered outside the authenticated group.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "security"
+      ],
+      "requiredNow": false,
+      "judge": {
+        "readerTask": "Find evidence for: GET /orders/export is registered outside the authenticated group.",
+        "mustShow": [
+          "GET /orders/export is registered outside the authenticated group."
+        ],
+        "mustLink": [
+          "GET /orders/export"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "security.sql-input",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/payments/src/api/legacy-report.ts",
+        "symbol": "req.query.customer_id"
+      },
+      "expectedWikiStatement": "The report concatenates an untrusted query parameter into SQL.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "security"
+      ],
+      "requiredNow": false,
+      "judge": {
+        "readerTask": "Find evidence for: The report concatenates an untrusted query parameter into SQL.",
+        "mustShow": [
+          "The report concatenates an untrusted query parameter into SQL."
+        ],
+        "mustLink": [
+          "req.query.customer_id"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "docs.requirement-link",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "docs/requirements.md",
+        "symbol": "BR-1"
+      },
+      "expectedWikiStatement": "The requirement BR-1 links to the discount implementation.",
+      "evidenceClass": "document-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: The requirement BR-1 links to the discount implementation.",
+        "mustShow": [
+          "The requirement BR-1 links to the discount implementation."
+        ],
+        "mustLink": [
+          "BR-1"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "rename.identity",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/orders/internal/domain/order.go",
+        "symbol": "Transition"
+      },
+      "expectedWikiStatement": "The order state-machine file moved from services/orders/src/order.go without changing its identity.",
+      "evidenceClass": "history-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: The order state-machine file moved from services/orders/src/order.go without changing its identity.",
+        "mustShow": [
+          "The order state-machine file moved from services/orders/src/order.go without changing its identity."
+        ],
+        "mustLink": [
+          "Transition"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "date-anomaly",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/orders/internal/application/order_service.go",
+        "symbol": "Iteration"
+      },
+      "expectedWikiStatement": "One commit has a committer date earlier than its parent.",
+      "evidenceClass": "history-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: One commit has a committer date earlier than its parent.",
+        "mustShow": [
+          "One commit has a committer date earlier than its parent."
+        ],
+        "mustLink": [
+          "Iteration"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "to-be.loyalty",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "docs/plans/loyalty.md",
+        "symbol": "Loyalty"
+      },
+      "expectedWikiStatement": "Loyalty is planned beside the currently deployed services.",
+      "evidenceClass": "document-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: Loyalty is planned beside the currently deployed services.",
+        "mustShow": [
+          "Loyalty is planned beside the currently deployed services."
+        ],
+        "mustLink": [
+          "Loyalty"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "rule.discounts",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/checkout/src/pricing.ts",
+        "symbol": "discountFor"
+      },
+      "expectedWikiStatement": "A caller-supplied percentage is subtracted from the subtotal.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: A caller-supplied percentage is subtracted from the subtotal.",
+        "mustShow": [
+          "A caller-supplied percentage is subtracted from the subtotal."
+        ],
+        "mustLink": [
+          "discountFor"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "rule.discount-calculation",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/promotions/internal/discount/strategy.go",
+        "symbol": "Discount"
+      },
+      "expectedWikiStatement": "Promotion discount amount is subtotal times percent divided by 100.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: Promotion discount amount is subtotal times percent divided by 100.",
+        "mustShow": [
+          "Promotion discount amount is subtotal times percent divided by 100."
+        ],
+        "mustLink": [
+          "Discount"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "rule.tax",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/checkout/src/pricing.ts",
+        "symbol": "taxRate"
+      },
+      "expectedWikiStatement": "Checkout uses an 8% tax rate.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: Checkout uses an 8% tax rate.",
+        "mustShow": [
+          "Checkout uses an 8% tax rate."
+        ],
+        "mustLink": [
+          "taxRate"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "rule.retention",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/orders/internal/domain/order.go",
+        "symbol": "RunRetentionJob"
+      },
+      "expectedWikiStatement": "The retention job removes non-shipped orders at 90 days.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: The retention job removes non-shipped orders at 90 days.",
+        "mustShow": [
+          "The retention job removes non-shipped orders at 90 days."
+        ],
+        "mustLink": [
+          "RunRetentionJob"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "state.payment-captured",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/orders/internal/domain/order.go",
+        "symbol": "payment-captured"
+      },
+      "expectedWikiStatement": "pending_payment transitions to confirmed on payment-captured.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: pending_payment transitions to confirmed on payment-captured.",
+        "mustShow": [
+          "pending_payment transitions to confirmed on payment-captured."
+        ],
+        "mustLink": [
+          "payment-captured"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "state.payment-failed",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/orders/internal/domain/order.go",
+        "symbol": "payment-failed"
+      },
+      "expectedWikiStatement": "pending_payment transitions to cancelled on payment-failed.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: pending_payment transitions to cancelled on payment-failed.",
+        "mustShow": [
+          "pending_payment transitions to cancelled on payment-failed."
+        ],
+        "mustLink": [
+          "payment-failed"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "state.shipment",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/orders/internal/domain/order.go",
+        "symbol": "shipment-dispatched"
+      },
+      "expectedWikiStatement": "confirmed transitions to shipped on shipment-dispatched.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: confirmed transitions to shipped on shipment-dispatched.",
+        "mustShow": [
+          "confirmed transitions to shipped on shipment-dispatched."
+        ],
+        "mustLink": [
+          "shipment-dispatched"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "state.expiry",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/orders/internal/domain/order.go",
+        "symbol": "PurgeExpired"
+      },
+      "expectedWikiStatement": "At 90 days non-shipped orders are purged.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: At 90 days non-shipped orders are purged.",
+        "mustShow": [
+          "At 90 days non-shipped orders are purged."
+        ],
+        "mustLink": [
+          "PurgeExpired"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "interaction.checkout-promotions",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/checkout/src/promotions-client.ts",
+        "symbol": "applyPromotion"
+      },
+      "expectedWikiStatement": "Checkout calls Promotions over HTTP.",
+      "evidenceClass": "history-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: Checkout calls Promotions over HTTP.",
+        "mustShow": [
+          "Checkout calls Promotions over HTTP."
+        ],
+        "mustLink": [
+          "applyPromotion"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "interaction.checkout-orders",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/checkout/src/orders-client.ts",
+        "symbol": "placeOrder"
+      },
+      "expectedWikiStatement": "Checkout calls Orders over HTTP.",
+      "evidenceClass": "history-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: Checkout calls Orders over HTTP.",
+        "mustShow": [
+          "Checkout calls Orders over HTTP."
+        ],
+        "mustLink": [
+          "placeOrder"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "interaction.checkout-payments",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/checkout/src/payments-client.ts",
+        "symbol": "authorize"
+      },
+      "expectedWikiStatement": "Checkout calls Payments for authorization.",
+      "evidenceClass": "history-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: Checkout calls Payments for authorization.",
+        "mustShow": [
+          "Checkout calls Payments for authorization."
+        ],
+        "mustLink": [
+          "authorize"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "interaction.payments-events",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/payments/src/domain/payment.ts",
+        "symbol": "emitPaymentEvent"
+      },
+      "expectedWikiStatement": "Payments emits a payment event.",
+      "evidenceClass": "history-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: Payments emits a payment event.",
+        "mustShow": [
+          "Payments emits a payment event."
+        ],
+        "mustLink": [
+          "emitPaymentEvent"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "interaction.orders-events",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/orders/internal/relay/relay.go",
+        "symbol": "Publish"
+      },
+      "expectedWikiStatement": "Orders relay publishes events.",
+      "evidenceClass": "history-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: Orders relay publishes events.",
+        "mustShow": [
+          "Orders relay publishes events."
+        ],
+        "mustLink": [
+          "Publish"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "contradiction.discount",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "README.md",
+        "symbol": "10%"
+      },
+      "expectedWikiStatement": "README claims a fixed 10% discount while code accepts a caller-supplied percentage.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer",
+        "operations"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: README claims a fixed 10% discount while code accepts a caller-supplied percentage.",
+        "mustShow": [
+          "README claims a fixed 10% discount while code accepts a caller-supplied percentage."
+        ],
+        "mustLink": [
+          "10%"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "contradiction.tax",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "README.md",
+        "symbol": "5%"
+      },
+      "expectedWikiStatement": "README claims 5% tax while code uses 8%.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer",
+        "operations"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: README claims 5% tax while code uses 8%.",
+        "mustShow": [
+          "README claims 5% tax while code uses 8%."
+        ],
+        "mustLink": [
+          "5%"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "contradiction.retention",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/orders/README.md",
+        "symbol": "forever"
+      },
+      "expectedWikiStatement": "Orders README claims indefinite retention while code expires non-shipped orders.",
+      "evidenceClass": "document-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: Orders README claims indefinite retention while code expires non-shipped orders.",
+        "mustShow": [
+          "Orders README claims indefinite retention while code expires non-shipped orders."
+        ],
+        "mustLink": [
+          "forever"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "term.payment-token",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "docs/architecture.md",
+        "symbol": "payment token"
+      },
+      "expectedWikiStatement": "Prose payment token differs from CardToken and PaymentToken code types.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: Prose payment token differs from CardToken and PaymentToken code types.",
+        "mustShow": [
+          "Prose payment token differs from CardToken and PaymentToken code types."
+        ],
+        "mustLink": [
+          "payment token"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "link.public",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "README.md",
+        "symbol": "rfc-editor.org"
+      },
+      "expectedWikiStatement": "The RFC link is public and is not private project evidence.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: The RFC link is public and is not private project evidence.",
+        "mustShow": [
+          "The RFC link is public and is not private project evidence."
+        ],
+        "mustLink": [
+          "rfc-editor.org"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "link.sign-in",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "README.md",
+        "symbol": "github.com/settings/profile"
+      },
+      "expectedWikiStatement": "The workspace link requires GitHub sign-in and is not evidence of private content.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find evidence for: The workspace link requires GitHub sign-in and is not evidence of private content.",
+        "mustShow": [
+          "The workspace link requires GitHub sign-in and is not evidence of private content."
+        ],
+        "mustLink": [
+          "github.com/settings/profile"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "open.contradiction",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "README.md",
+        "symbol": "10%"
+      },
+      "expectedWikiStatement": "Expected open question (contradiction): Published discount/tax/retention claims differ from code.",
+      "evidenceClass": "inference",
+      "viewpoints": [
+        "product"
+      ],
+      "requiredNow": false,
+      "judge": {
+        "readerTask": "Find evidence for: Expected open question (contradiction): Published discount/tax/retention claims differ from code.",
+        "mustShow": [
+          "Expected open question (contradiction): Published discount/tax/retention claims differ from code."
+        ],
+        "mustLink": [
+          "Published discount/tax/retention claims differ from code."
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "open.behavior",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/orders/internal/domain/order.go",
+        "symbol": "Expire"
+      },
+      "expectedWikiStatement": "Expected open question (undocumented behaviour): Automatic expiry of non-shipped orders after 90 days.",
+      "evidenceClass": "inference",
+      "viewpoints": [
+        "product"
+      ],
+      "requiredNow": false,
+      "judge": {
+        "readerTask": "Find evidence for: Expected open question (undocumented behaviour): Automatic expiry of non-shipped orders after 90 days.",
+        "mustShow": [
+          "Expected open question (undocumented behaviour): Automatic expiry of non-shipped orders after 90 days."
+        ],
+        "mustLink": [
+          "Automatic expiry of non-shipped orders after 90 days."
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "open.assumption",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/checkout/src/pricing.ts",
+        "symbol": "discountFor"
+      },
+      "expectedWikiStatement": "Expected open question (assumption check): Does the discount apply to every order?",
+      "evidenceClass": "inference",
+      "viewpoints": [
+        "product"
+      ],
+      "requiredNow": false,
+      "judge": {
+        "readerTask": "Find evidence for: Expected open question (assumption check): Does the discount apply to every order?",
+        "mustShow": [
+          "Expected open question (assumption check): Does the discount apply to every order?"
+        ],
+        "mustLink": [
+          "Does the discount apply to every order?"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "open.term",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "docs/architecture.md",
+        "symbol": "payment token"
+      },
+      "expectedWikiStatement": "Expected open question (term): Payment token versus CardToken and PaymentToken.",
+      "evidenceClass": "inference",
+      "viewpoints": [
+        "product"
+      ],
+      "requiredNow": false,
+      "judge": {
+        "readerTask": "Find evidence for: Expected open question (term): Payment token versus CardToken and PaymentToken.",
+        "mustShow": [
+          "Expected open question (term): Payment token versus CardToken and PaymentToken."
+        ],
+        "mustLink": [
+          "Payment token versus CardToken and PaymentToken."
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "open.unverifiable",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "README.md",
+        "symbol": "github.com/settings/profile"
+      },
+      "expectedWikiStatement": "Expected open question (unverifiable): Private content behind a sign-in link.",
+      "evidenceClass": "inference",
+      "viewpoints": [
+        "product"
+      ],
+      "requiredNow": false,
+      "judge": {
+        "readerTask": "Find evidence for: Expected open question (unverifiable): Private content behind a sign-in link.",
+        "mustShow": [
+          "Expected open question (unverifiable): Private content behind a sign-in link."
+        ],
+        "mustLink": [
+          "Private content behind a sign-in link."
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "open.meaning",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/orders/internal/domain/order.go",
+        "symbol": "Cancelled"
+      },
+      "expectedWikiStatement": "Expected open question (meaning): Business meaning of cancellation on expiry.",
+      "evidenceClass": "inference",
+      "viewpoints": [
+        "product"
+      ],
+      "requiredNow": false,
+      "judge": {
+        "readerTask": "Find evidence for: Expected open question (meaning): Business meaning of cancellation on expiry.",
+        "mustShow": [
+          "Expected open question (meaning): Business meaning of cancellation on expiry."
+        ],
+        "mustLink": [
+          "Business meaning of cancellation on expiry."
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "open.rationale",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "services/orders/internal/domain/order.go",
+        "symbol": "Expire"
+      },
+      "expectedWikiStatement": "Expected open question (decision rationale): Why non-shipped orders expire after 90 days.",
+      "evidenceClass": "inference",
+      "viewpoints": [
+        "product"
+      ],
+      "requiredNow": false,
+      "judge": {
+        "readerTask": "Find evidence for: Expected open question (decision rationale): Why non-shipped orders expire after 90 days.",
+        "mustShow": [
+          "Expected open question (decision rationale): Why non-shipped orders expire after 90 days."
+        ],
+        "mustLink": [
+          "Why non-shipped orders expire after 90 days."
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "open.access",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "README.md",
+        "symbol": "github.com/settings/profile"
+      },
+      "expectedWikiStatement": "Expected open question (access or document needed): Private project workspace details need sign-in.",
+      "evidenceClass": "inference",
+      "viewpoints": [
+        "product"
+      ],
+      "requiredNow": false,
+      "judge": {
+        "readerTask": "Find evidence for: Expected open question (access or document needed): Private project workspace details need sign-in.",
+        "mustShow": [
+          "Expected open question (access or document needed): Private project workspace details need sign-in."
+        ],
+        "mustLink": [
+          "Private project workspace details need sign-in."
+        ],
+        "mustNotClaim": []
+      }
     }
   ]
 }

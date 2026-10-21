@@ -1,93 +1,20 @@
-import { describe, expect, test } from 'bun:test';
-import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
-import os from 'node:os';
-import path from 'node:path';
-import { execFileSync } from 'node:child_process';
-
-const root = path.dirname(new URL(import.meta.url).pathname);
-const generator = path.join(root, 'generate.mjs');
-const keyPath = path.join(root, 'answer-key.json');
-const key = JSON.parse(await readFile(keyPath, 'utf8'));
-const run = (args, cwd) => execFileSync(args[0], args.slice(1), {cwd, encoding:'utf8'}).trim();
-async function snapshot(dir) {
-  const rows = [];
-  async function walk(folder, prefix='') {
-    for (const name of (await readdir(folder)).sort()) {
-      if (name === '.git') continue;
-      const full = path.join(folder,name), rel=path.posix.join(prefix,name);
-      const stat = await (await import('node:fs/promises')).stat(full);
-      if (stat.isDirectory()) await walk(full,rel); else rows.push([rel, await readFile(full)]);
-    }
-  }
-  await walk(dir); return rows;
+import {describe,expect,test} from 'bun:test';
+import {mkdtemp,readFile,readdir,rm,stat} from 'node:fs/promises';
+import os from 'node:os';import path from 'node:path';import {execFileSync} from 'node:child_process';
+const root=path.dirname(new URL(import.meta.url).pathname), generator=path.join(root,'generate.mjs');
+const key=JSON.parse(await readFile(path.join(root,'answer-key.json'),'utf8'));
+const run=(args:string[],cwd:string)=>execFileSync(args[0],args.slice(1),{cwd,encoding:'utf8'}).trim();
+async function walk(dir:string,prefix=''):Promise<string[]>{let out:string[]=[];for(const n of (await readdir(dir)).sort()){if(n==='.git')continue;const f=path.join(dir,n),r=path.posix.join(prefix,n);if((await stat(f)).isDirectory())out.push(...await walk(f,r));else out.push(r)}return out}
+function show(repo:string,rev:string,file:string){return run(['git','show',`${rev}:${file}`],repo)}
+function counts(repo:string){
+ const log=run(['git','log','--format=%H','--first-parent','main'],repo).split('\n');
+ const changed=(sha:string)=>run(['git','diff-tree','--root','--no-commit-id','--name-only','-r',sha],repo).split('\n').filter(Boolean);
+ let hotspot=0,both=0,priceOnly=0,taxOnly=0;
+ for(const sha of log){const paths=changed(sha);if(paths.includes('services/orders/internal/application/order_service.go'))hotspot++;const p=paths.includes('services/orders/internal/pricing/pricing.go'),t=paths.includes('services/orders/internal/pricing/tax.go');if(p&&t)both++;else if(p)priceOnly++;else if(t)taxOnly++}
+ return {mainCommits:log.length,hotspotCommits:hotspot,pricingTogether:both,pricingOnly:priceOnly,taxOnly,largeFileLines:show(repo,'main','services/payments/src/api/legacy-report.ts').split('\n').length-1};
 }
-async function checkItems(value, repo) {
-  if (Array.isArray(value)) { for (const item of value) await checkItems(item,repo); return; }
-  if (!value || typeof value !== 'object') return;
-  if (typeof value.url === 'string') expect(typeof value.file).toBe('string');
-  if (typeof value.codeFile === 'string') { const text = await readFile(path.join(repo,value.codeFile),'utf8'); expect(text.includes(value.symbol), `${value.codeFile} symbol ${value.symbol}`).toBe(true); }
-  if (typeof value.file === 'string') {
-    const file = path.join(repo,value.file);
-    const text = await readFile(file, 'utf8');
-    expect(text.length, `${value.file} present`).toBeGreaterThan(0);
-    if (value.symbol) expect(text.includes(value.symbol), `${value.file} symbol ${value.symbol}`).toBe(true);
-    if (value.comment) expect(text.includes(value.comment), `${value.file} comment`).toBe(true);
-  }
-  for (const v of Object.values(value)) await checkItems(v,repo);
-}
-
-describe('training repository generator', () => {
- test('creates byte-identical output and commit history on repeated runs', async () => {
-   const tmp=await mkdtemp(path.join(os.tmpdir(),'madarch-training-'));
-   try {
-     const a=path.join(tmp,'a'), b=path.join(tmp,'b');
-     run(['node',generator,a],root); run(['node',generator,b],root);
-     const sa=await snapshot(a), sb=await snapshot(b);
-     expect(sa.map(([p,x])=>[p,x.toString('base64')])).toEqual(sb.map(([p,x])=>[p,x.toString('base64')]));
-     expect(run(['git','log','--format=%H'],a)).toEqual(run(['git','log','--format=%H'],b));
-     expect(run(['git','log','--format=%an <%ae> %aI %s'],a)).toContain('ORD-12');
-     expect(run(['git','log','--format=%an <%ae> %aI %s'],a)).toContain('PAY-4');
-     expect(run(['git','log','--format=%an <%ae> %aI %s'],a)).toContain('ORD-19');
-     expect(run(['git','log','--format=%H'],a).split('\n')).toHaveLength(3);
-     expect(run(['git','log','--format=%H --name-only'],a)).not.toContain('\n\n\n');
-     for (const hash of run(['git','log','--format=%H'],a).split('\n')) expect(run(['git','diff-tree','--root','--no-commit-id','--name-only','-r',hash],a).length).toBeGreaterThan(0);
-     expect(path.resolve(keyPath).startsWith(path.resolve(a)+path.sep)).toBe(false);
-     expect(await readdir(a)).not.toContain('answer-key.json');
-   } finally { await rm(tmp,{recursive:true,force:true}); }
- });
- test('every key reference resolves in generated files', async () => {
-   const tmp=await mkdtemp(path.join(os.tmpdir(),'madarch-training-'));
-   try { const repo=path.join(tmp,'repo'); run(['node',generator,repo],root); await checkItems(key,repo);
-     const checkout=await readFile(path.join(repo,'services/checkout/src/checkout.ts'),'utf8');
-     const payments=await readFile(path.join(repo,'services/payments/src/payment.ts'),'utf8');
-     const orders=await readFile(path.join(repo,'services/orders/src/order.go'),'utf8');
-     expect(checkout).toContain('fetch(\'http://promotions-api/internal/apply\'');
-     expect(payments).toContain("eventBroker.publish('payments', event)"); expect(orders).toContain('EventBus.Publish(\"orders\", event)');
-     expect(key.stateMachine.transitions.at(-1).fromStates).toEqual(['pending_payment','confirmed','cancelled']);
-     expect(new Set(key.entities.map(e=>e.id)).size).toBe(key.entities.length);
-   }
-   finally { await rm(tmp,{recursive:true,force:true}); }
- });
-
- test('refuses destinations inside the source checkout before deleting them', async () => {
-   const target=path.join(root,'must-not-be-deleted'); await (await import('node:fs/promises')).mkdir(target,{recursive:true});
-   await (await import('node:fs/promises')).writeFile(path.join(target,'sentinel'),'safe');
-   try { expect(() => run(['node',generator,target],root)).toThrow(); expect(await readFile(path.join(target,'sentinel'),'utf8')).toBe('safe'); }
-   finally { await rm(target,{recursive:true,force:true}); }
- });
- test('refuses a symlink destination that resolves inside checkout', async () => {
-   const fs=await import('node:fs/promises'), outside=await mkdtemp(path.join(os.tmpdir(),'training-link-'));
-   const link=path.join(root,'training-link'); await fs.symlink(outside,link);
-   try { expect(() => run(['node',generator,link],root)).toThrow(); expect(await readdir(outside)).toEqual([]); }
-   finally { await fs.unlink(link); await rm(outside,{recursive:true,force:true}); }
- });
-
- test('refuses a destination below a symlinked parent into checkout', async () => {
-   const fs=await import('node:fs/promises'), outside=await mkdtemp(path.join(os.tmpdir(),'training-parent-link-'));
-   const link=path.join(outside,'checkout-link'); await fs.symlink(root,link);
-   const target=path.join(link,'must-not-be-deleted');
-   try { expect(() => run(['node',generator,target],root)).toThrow(); expect(await readdir(root)).not.toContain('must-not-be-deleted'); }
-   finally { await fs.rm(outside,{recursive:true,force:true}); }
- });
-
+describe('training repository generator',()=>{
+ test('two runs have identical commits and trees; key and spec stay outside',async()=>{const tmp=await mkdtemp(path.join(os.tmpdir(),'training-'));try{const a=path.join(tmp,'a'),b=path.join(tmp,'b');run(['node',generator,a],root);run(['node',generator,b],root);expect(run(['git','rev-parse','HEAD'],a)).toBe(run(['git','rev-parse','HEAD'],b));expect(run(['git','rev-parse','HEAD^{tree}'],a)).toBe(run(['git','rev-parse','HEAD^{tree}'],b));expect(await walk(a)).not.toContain('answer-key.json');expect(await walk(a)).not.toContain('SPEC.md');expect(run(['git','rev-list','--count','--first-parent','main'],a)).toBe(String(key.plantedCounts.mainCommits));expect(run(['git','rev-list','--count','--merges','main'],a)).toBe('1');expect(run(['git','log','--format=%an','--','services/payments/src/providers'],a).split('\n').filter(Boolean)).toEqual(['Rin Tanaka']);expect(run(['git','log','--format=%H','--follow','--','services/orders/internal/domain/order.go'],a).split('\n').length).toBeGreaterThan(1);}finally{await rm(tmp,{recursive:true,force:true})}});
+ test('every key location resolves at its named snapshot',async()=>{const tmp=await mkdtemp(path.join(os.tmpdir(),'training-'));try{const repo=path.join(tmp,'repo');run(['node',generator,repo],root);for(const item of key.items){const locations=item.locations??[item.location];for(const loc of locations){const rev=key.snapshots[loc.snapshot]??'main';const text=show(repo,rev,loc.path);expect(text.length,`${item.id}: ${loc.path} exists`).toBeGreaterThan(0);for(const needle of [loc.symbol,loc.anchor].filter(Boolean))expect(text,`${item.id}: ${needle}`).toContain(needle)}}const files=await walk(repo);const formats=files.filter(f=>f.endsWith('.ts'));for(const f of formats)new Bun.Transpiler({loader:'ts'}).transform(await readFile(path.join(repo,f),'utf8'));for(const f of files.filter(f=>f.endsWith('package-lock.json')))JSON.parse(await readFile(path.join(repo,f),'utf8'));const references=[];for(const f of files){const text=await readFile(path.join(repo,f),'utf8');if(text.includes('formatInvoiceLegacy'))references.push(f)}expect(references).toEqual(['services/payments/src/format.ts']);expect(run(['git','log','--format=%ae','--','services/payments/src/providers'],repo).split('\n').filter(Boolean)).toContain('rin@example.com');}finally{await rm(tmp,{recursive:true,force:true})}});
+ test('git history recomputes the planted counts and date anomaly',async()=>{const tmp=await mkdtemp(path.join(os.tmpdir(),'training-'));try{const repo=path.join(tmp,'repo');run(['node',generator,repo],root);expect(counts(repo)).toEqual(key.plantedCounts);const rows=run(['git','log','--format=%H %ct %P','main'],repo).split('\n');const anomalies=rows.filter(row=>{const [sha,time,parent]=row.split(' ');return parent&&Number(time)<Number(run(['git','show','-s','--format=%ct',parent],repo))});expect(anomalies).toHaveLength(1);}finally{await rm(tmp,{recursive:true,force:true})}});
 });

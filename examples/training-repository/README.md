@@ -1,7 +1,7 @@
 # Training repository generator
 
-Run `node examples/training-repository/generate.mjs <destination>` from the Madarch checkout. The destination must be outside this repository; the generator replaces that destination and creates a deterministic Git repository with fixed authors, dates, and task keys.
+Run `node examples/training-repository/generate.mjs <destination>` from the Madarch checkout. The destination must be outside the checkout. The generator creates a deterministic, scripted Git repository with orders, payments, promotions and checkout services, contracts, operating files, and a six-month history.
 
-`answer-key.json` stays with this generator and is never copied to generated output. It records the entities, rules, state transitions, interactions, contradictions, undocumented behavior, terms, links, and expected open-question types. The sign-in URL is an account settings page and is not evidence of private project content.
+`answer-key.json` stays beside the generator and is never copied into the generated repository. It contains atomic wiki assertions, named snapshots and planted history counts. Each assertion points to evidence at a snapshot and states what the wiki should show, its viewpoint, whether it is needed now, and how to judge it.
 
-Run the focused regression with `bun test examples/training-repository/generator.test.ts`. This is an on-demand quality fixture, not a CI job.
+The generator regression is run with `madarch-sky-test <worktree> examples/training-repository/generator.test.ts`; it checks determinism, key locations, history counts and excluded files.
