@@ -322,7 +322,7 @@ describe('table-access items (answer key)', () => {
     const table = tableKey('orders', 'order_items');
     const repositoryPath = 'services/orders/internal/store/order_repository.go';
     expect(edgesOf('code.writes-table').some((edge) => edge.to === table && edge.from === functionKey(repositoryPath, 'insertItems'))).toBe(true);
-    expect(edgesOf('code.reads-table').some((edge) => edge.to === table && edge.from === functionKey(repositoryPath, 'attachItems'))).toBe(true);
+    expect(edgesOf('code.reads-table').some((edge) => edge.to === table && edge.from === functionKey(repositoryPath, 'OrderRepository.attachItems'))).toBe(true);
     expect(oneEdge('code.foreign-key', table, tableKey('orders', 'orders')).properties['onDelete']).toBe('CASCADE');
     expectAnchorsCited(item);
   });
