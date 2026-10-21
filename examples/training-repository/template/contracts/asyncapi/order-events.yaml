@@ -1,0 +1,83 @@
+asyncapi: 2.6.0
+info:
+  title: Order and payment events
+  version: 1.0.0
+  description: >
+    The two Kafka topics of the system. orders.events is written by the orders
+    outbox relay (services/orders/internal/relay); payments.events is written by
+    payments (services/payments/src/events/publishers.ts) and read by orders
+    (services/orders/internal/consumer/payments.go).
+servers:
+  local:
+    url: kafka:9092
+    protocol: kafka
+channels:
+  orders.events:
+    description: One message per change of an order; the key is the order id.
+    publish:
+      operationId: orderChanged
+      message:
+        $ref: '#/components/messages/OrderChanged'
+# @@ since payment-events
+  payments.events:
+    description: One message per payment outcome; the key is the order id.
+    subscribe:
+      operationId: paymentEvent
+      message:
+        $ref: '#/components/messages/PaymentEvent'
+# @@ end
+components:
+  messages:
+    OrderChanged:
+      name: OrderChanged
+      payload:
+        type: object
+        properties:
+          orderId:
+            type: string
+# @@ since full-payload
+          customerId:
+            type: string
+# @@ end
+          status:
+            type: string
+# @@ since expiry
+            description: An order status, or "purged" when the retention job removed the order.
+# @@ end
+# @@ since full-payload
+          totalCents:
+            type: integer
+          items:
+            type: array
+            items:
+              type: object
+              properties:
+                sku:
+                  type: string
+                quantity:
+                  type: integer
+                priceCents:
+                  type: integer
+          occurredAt:
+            type: string
+            format: date-time
+# @@ end
+# @@ since payment-events
+    PaymentEvent:
+      name: PaymentEvent
+      payload:
+        type: object
+        properties:
+          type:
+            type: string
+            enum: [payment.captured, payment.failed, payment.refunded]
+          orderId:
+            type: string
+          paymentId:
+            type: string
+          amountCents:
+            type: integer
+          reason:
+            type: string
+            description: Why the payment failed; only on payment.failed.
+# @@ end

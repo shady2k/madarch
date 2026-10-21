@@ -1,0 +1,43 @@
+// The payments service as checkout calls it. Implemented by
+// services/payments/src/grpc/server.ts, called from
+// services/checkout/src/payments-client.ts.
+syntax = "proto3";
+
+package payments.v1;
+
+service Payments {
+  // Authorize charges the card for an order. The idempotency key makes a
+  // repeated call return the first payment instead of charging again.
+  rpc Authorize(AuthorizeRequest) returns (AuthorizeReply);
+
+  // Refund gives part or all of a captured payment back.
+  rpc Refund(RefundRequest) returns (RefundReply);
+}
+
+message AuthorizeRequest {
+  string order_id = 1;
+  int64 amount_cents = 2;
+  string currency = 3;
+  // card_token is a vault reference, never a card number.
+  string card_token = 4;
+  string idempotency_key = 5;
+}
+
+message AuthorizeReply {
+  string payment_id = 1;
+  // status is "captured" or "declined".
+  string status = 2;
+  // decline_reason is set when the status is "declined".
+  string decline_reason = 3;
+}
+
+message RefundRequest {
+  string payment_id = 1;
+  int64 amount_cents = 2;
+  string reason = 3;
+}
+
+message RefundReply {
+  string refund_id = 1;
+  string status = 2;
+}

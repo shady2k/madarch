@@ -1,0 +1,42 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Payment {
+  id                String    @id
+  // orderId is a logical reference to the orders service. There is no relation
+  // and no foreign key: orders lives in another service and another database.
+  orderId           String    @map("order_id")
+  amountCents       Int       @map("amount_cents")
+  currency          String
+  status            String
+  idempotencyKey    String    @unique @map("idempotency_key")
+  providerReference String?   @map("provider_reference")
+  declineReason     String?   @map("decline_reason")
+  createdAt         DateTime  @map("created_at")
+  capturedAt        DateTime? @map("captured_at")
+// @@ since refunds
+  refunds           Refund[]
+// @@ end
+
+  @@index([orderId])
+  @@map("payments")
+}
+// @@ since refunds
+
+model Refund {
+  id          String   @id
+  paymentId   String   @map("payment_id")
+  payment     Payment  @relation(fields: [paymentId], references: [id])
+  amountCents Int      @map("amount_cents")
+  reason      String?
+  createdAt   DateTime @map("created_at")
+
+  @@map("refunds")
+}
+// @@ end

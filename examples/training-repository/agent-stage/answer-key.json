@@ -1,0 +1,457 @@
+{
+  "version": 1,
+  "sourceModel": [
+    {
+      "id": "checkout-api",
+      "kind": "service",
+      "name": "Checkout",
+      "file": "model-ids.json",
+      "symbol": "checkout-api"
+    },
+    {
+      "id": "checkout-cart",
+      "kind": "module",
+      "name": "Cart",
+      "file": "model-ids.json",
+      "symbol": "checkout-cart"
+    },
+    {
+      "id": "checkout-pricing",
+      "kind": "module",
+      "name": "Pricing",
+      "file": "model-ids.json",
+      "symbol": "checkout-pricing"
+    },
+    {
+      "id": "checkout-payment-step",
+      "kind": "module",
+      "name": "Payment step",
+      "file": "model-ids.json",
+      "symbol": "checkout-payment-step"
+    },
+    {
+      "id": "checkout-confirmation",
+      "kind": "module",
+      "name": "Confirmation",
+      "file": "model-ids.json",
+      "symbol": "checkout-confirmation"
+    },
+    {
+      "id": "cart-cache",
+      "kind": "store",
+      "name": "Cart cache",
+      "file": "model-ids.json",
+      "symbol": "cart-cache"
+    },
+    {
+      "id": "orders-api",
+      "kind": "service",
+      "name": "Orders",
+      "file": "model-ids.json",
+      "symbol": "orders-api"
+    },
+    {
+      "id": "orders-db",
+      "kind": "store",
+      "name": "Orders database",
+      "file": "model-ids.json",
+      "symbol": "orders-db"
+    },
+    {
+      "id": "promotions-api",
+      "kind": "service",
+      "name": "Promotions",
+      "file": "model-ids.json",
+      "symbol": "promotions-api"
+    },
+    {
+      "id": "promotions-db",
+      "kind": "store",
+      "name": "Promotions database",
+      "file": "model-ids.json",
+      "symbol": "promotions-db"
+    },
+    {
+      "id": "payments-api",
+      "kind": "service",
+      "name": "Payments",
+      "file": "model-ids.json",
+      "symbol": "payments-api"
+    },
+    {
+      "id": "payments-db",
+      "kind": "store",
+      "name": "Payments database",
+      "file": "model-ids.json",
+      "symbol": "payments-db"
+    },
+    {
+      "id": "card-vault-db",
+      "kind": "store",
+      "name": "Card vault database",
+      "file": "model-ids.json",
+      "symbol": "card-vault-db"
+    },
+    {
+      "id": "fraud-features",
+      "kind": "store",
+      "name": "Risk features",
+      "file": "model-ids.json",
+      "symbol": "fraud-features"
+    },
+    {
+      "id": "reconciliation-db",
+      "kind": "store",
+      "name": "Reconciliation database",
+      "file": "model-ids.json",
+      "symbol": "reconciliation-db"
+    },
+    {
+      "id": "event-bus",
+      "kind": "broker",
+      "name": "Event bus",
+      "file": "model-ids.json",
+      "symbol": "event-bus"
+    }
+  ],
+  "entities": [
+    {
+      "kind": "service",
+      "id": "checkout-api",
+      "name": "Checkout",
+      "file": "services/checkout/src/checkout.ts",
+      "symbol": "checkoutService"
+    },
+    {
+      "kind": "module",
+      "id": "checkout-cart",
+      "name": "Cart",
+      "file": "services/checkout/src/checkout.ts",
+      "symbol": "cartModule"
+    },
+    {
+      "kind": "module",
+      "id": "checkout-pricing",
+      "name": "Pricing",
+      "file": "services/checkout/src/checkout.ts",
+      "symbol": "pricingModule"
+    },
+    {
+      "kind": "module",
+      "id": "checkout-payment-step",
+      "name": "Payment step",
+      "file": "services/checkout/src/checkout.ts",
+      "symbol": "paymentStepModule"
+    },
+    {
+      "kind": "module",
+      "id": "checkout-confirmation",
+      "name": "Confirmation",
+      "file": "services/checkout/src/checkout.ts",
+      "symbol": "confirmationModule"
+    },
+    {
+      "kind": "store",
+      "id": "cart-cache",
+      "name": "Cart cache",
+      "file": "services/checkout/src/checkout.ts",
+      "symbol": "cartStore"
+    },
+    {
+      "kind": "service",
+      "id": "orders-api",
+      "name": "Orders",
+      "file": "services/orders/src/order.go",
+      "symbol": "ServiceID"
+    },
+    {
+      "kind": "store",
+      "id": "orders-db",
+      "name": "Orders database",
+      "file": "services/orders/src/order.go",
+      "symbol": "StoreID"
+    },
+    {
+      "kind": "service",
+      "id": "promotions-api",
+      "name": "Promotions",
+      "file": "services/promotions/src/promotions.go",
+      "symbol": "ServiceID"
+    },
+    {
+      "kind": "store",
+      "id": "promotions-db",
+      "name": "Promotions database",
+      "file": "services/promotions/src/promotions.go",
+      "symbol": "StoreID"
+    },
+    {
+      "kind": "service",
+      "id": "payments-api",
+      "name": "Payments",
+      "file": "services/payments/src/payment.ts",
+      "symbol": "serviceId"
+    },
+    {
+      "kind": "store",
+      "id": "payments-db",
+      "name": "Payments database",
+      "file": "services/payments/src/payment.ts",
+      "symbol": "storeId"
+    },
+    {
+      "kind": "store",
+      "id": "card-vault-db",
+      "name": "Card vault database",
+      "file": "services/payments/src/payment.ts",
+      "symbol": "vaultStoreId"
+    },
+    {
+      "kind": "store",
+      "id": "fraud-features",
+      "name": "Risk features",
+      "file": "services/payments/src/payment.ts",
+      "symbol": "featureStoreId"
+    },
+    {
+      "kind": "store",
+      "id": "reconciliation-db",
+      "name": "Reconciliation database",
+      "file": "services/payments/src/payment.ts",
+      "symbol": "reconciliationStoreId"
+    },
+    {
+      "kind": "data entity",
+      "id": "order",
+      "name": "Order",
+      "file": "services/orders/src/order.go",
+      "symbol": "Order"
+    },
+    {
+      "kind": "data entity",
+      "id": "order-number",
+      "name": "Order number",
+      "file": "services/orders/src/order.go",
+      "symbol": "OrderNumber"
+    },
+    {
+      "kind": "data entity",
+      "id": "order-contents",
+      "name": "Order contents",
+      "file": "services/orders/src/order.go",
+      "symbol": "OrderContents"
+    },
+    {
+      "kind": "data entity",
+      "id": "card-token",
+      "name": "Payment card token",
+      "file": "services/payments/src/payment.ts",
+      "symbol": "CardToken"
+    },
+    {
+      "kind": "data entity",
+      "id": "card-number",
+      "name": "Masked payment card number",
+      "file": "services/payments/src/payment.ts",
+      "symbol": "CardNumber"
+    },
+    {
+      "kind": "data entity",
+      "id": "settlement-report",
+      "name": "Settlement report",
+      "file": "services/payments/src/payment.ts",
+      "symbol": "SettlementReport"
+    }
+  ],
+  "businessRules": [
+    {
+      "id": "discounts",
+      "file": "services/checkout/src/checkout.ts",
+      "symbol": "discountFor",
+      "expected": "percentage discount is subtracted from subtotal"
+    },
+    {
+      "id": "discount-calculation",
+      "file": "services/promotions/src/promotions.go",
+      "symbol": "Discount",
+      "expected": "integer amount is subtotal times percent divided by 100"
+    },
+    {
+      "id": "tax",
+      "file": "services/checkout/src/checkout.ts",
+      "symbol": "taxRate",
+      "expected": "code tax rate is 8%, contradicting README claim of 5%"
+    },
+    {
+      "id": "retention",
+      "file": "services/orders/src/order.go",
+      "symbol": "RunRetentionJob",
+      "expected": "retention job removes orders not shipped at 90 days from the orders store"
+    }
+  ],
+  "stateMachine": {
+    "entity": "Order",
+    "file": "services/orders/src/order.go",
+    "states": [
+      "pending_payment",
+      "confirmed",
+      "cancelled",
+      "shipped"
+    ],
+    "transitions": [
+      {
+        "from": "pending_payment",
+        "event": "payment-captured",
+        "to": "confirmed"
+      },
+      {
+        "from": "pending_payment",
+        "event": "payment-failed",
+        "to": "cancelled"
+      },
+      {
+        "from": "confirmed",
+        "event": "shipment-dispatched",
+        "to": "shipped"
+      },
+      {
+        "event": "expiry after 90 days",
+        "to": "purged",
+        "file": "services/orders/src/order.go",
+        "symbol": "PurgeExpired",
+        "fromStates": [
+          "pending_payment",
+          "confirmed",
+          "cancelled"
+        ],
+        "condition": "day - CreatedDay >= 90 and state != shipped"
+      }
+    ]
+  },
+  "interactions": [
+    {
+      "caller": "checkout-api",
+      "callee": "promotions-api",
+      "kind": "HTTP",
+      "file": "services/checkout/src/checkout.ts",
+      "symbol": "applyPromotion"
+    },
+    {
+      "caller": "payments-api",
+      "callee": "event-bus",
+      "kind": "event",
+      "file": "services/payments/src/payment.ts",
+      "symbol": "publishPaymentEvent"
+    },
+    {
+      "caller": "orders-api",
+      "callee": "event-bus",
+      "kind": "event",
+      "file": "services/orders/src/order.go",
+      "symbol": "PublishOrderEvent"
+    }
+  ],
+  "contradictions": [
+    {
+      "claim": "README says 10% discount on every order",
+      "code applies a caller-supplied percentage": null,
+      "document": "README.md",
+      "file": "services/checkout/src/checkout.ts",
+      "symbol": "discountFor"
+    },
+    {
+      "claim": "README says flat 5% tax",
+      "code uses 8%": null,
+      "document": "README.md",
+      "file": "services/checkout/src/checkout.ts",
+      "symbol": "taxRate"
+    },
+    {
+      "claim": "README says orders retained indefinitely",
+      "code expires non-shipped orders": null,
+      "document": "services/orders/README.md",
+      "file": "services/orders/src/order.go",
+      "symbol": "RunRetentionJob"
+    }
+  ],
+  "undocumentedBehaviour": [
+    {
+      "claim": "retention job purges non-shipped orders after 90 days",
+      "file": "services/orders/src/order.go",
+      "symbol": "RunRetentionJob"
+    }
+  ],
+  "intentEvidence": [
+    {
+      "claim": "stable identifier makes payment callback idempotent",
+      "file": "services/payments/src/payment.ts",
+      "symbol": "capture",
+      "comment": "Keep the order identifier stable across retries so the payment callback is idempotent."
+    }
+  ],
+  "terms": [
+    {
+      "documentTerm": "payment token",
+      "codeTerm": "CardToken",
+      "codeFile": "services/payments/src/payment.ts",
+      "symbol": "CardToken",
+      "expectedQuestion": "term"
+    }
+  ],
+  "links": [
+    {
+      "id": "opens",
+      "url": "https://www.rfc-editor.org/rfc/rfc9110",
+      "file": "README.md",
+      "treatment": "public standards page; expected accessible without signing in"
+    },
+    {
+      "id": "needs-sign-in",
+      "url": "https://github.com/settings/profile",
+      "file": "README.md",
+      "treatment": "neutral well-known service account settings; requires a GitHub account and sign-in; do not fetch authenticated content or treat login page as source evidence"
+    }
+  ],
+  "expectedOpenQuestions": [
+    {
+      "type": "contradiction",
+      "subject": "published discount/tax/retention claims differ from code",
+      "file": "README.md"
+    },
+    {
+      "type": "undocumented behaviour",
+      "subject": "automatic 90-day expiry of non-shipped orders",
+      "file": "services/orders/src/order.go"
+    },
+    {
+      "type": "assumption check",
+      "subject": "whether percentage discount applies to every order",
+      "file": "services/checkout/src/checkout.ts"
+    },
+    {
+      "type": "term",
+      "subject": "payment token versus CardToken / PaymentToken terminology",
+      "file": "services/payments/src/payment.ts"
+    },
+    {
+      "type": "unverifiable",
+      "subject": "private content behind sign-in link",
+      "file": "README.md"
+    },
+    {
+      "type": "meaning",
+      "subject": "business meaning of cancellation on expiry",
+      "file": "services/orders/src/order.go"
+    },
+    {
+      "type": "decision rationale",
+      "subject": "why non-shipped orders expire at 90 days",
+      "file": "services/orders/src/order.go"
+    },
+    {
+      "type": "access or document needed",
+      "subject": "private project workspace details; sign-in needed",
+      "file": "README.md"
+    }
+  ]
+}

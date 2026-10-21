@@ -48,7 +48,7 @@ const correctYaml = 'contract: 1\nstages:\n  - id: architecture\n    name: Archi
 
 const productFixture = async () => {
   const root = await mkdtemp(join(tmpdir(), 'madarch-oci2-'));
-  const generator = fileURLToPath(new URL('../examples/training-repository/generate.mjs', import.meta.url));
+  const generator = fileURLToPath(new URL('../examples/training-repository/agent-stage/generate.mjs', import.meta.url));
   execFileSync('node', [generator, join(root, 'training-source-raw')], { stdio: ['ignore', 'pipe', 'pipe'] });
   await mkdir(join(root, 'repos'), { recursive: true });
   await mkdir(join(root, 'docs'), { recursive: true });

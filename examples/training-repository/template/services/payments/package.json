@@ -1,0 +1,55 @@
+{
+  "name": "payments",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Payments service of the training system: charges and refunds behind a provider adapter",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+// @@ since factory
+    "test": "jest",
+// @@ end
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+// @@ since grpc-server
+    "@grpc/grpc-js": "1.10.8",
+    "@grpc/proto-loader": "0.7.13",
+// @@ end
+// @@ since persist-pay
+    "@prisma/client": "5.14.0",
+// @@ end
+    "express": "4.19.2",
+    "jsonwebtoken": "9.0.2",
+// @@ since payment-events
+    "kafkajs": "2.2.4",
+// @@ end
+// @@ since legacy-report
+    "lodash": "4.17.15",
+// @@ end
+// @@ until persist-pay
+    "pino": "9.1.0"
+// @@ end
+// @@ since persist-pay
+    "pino": "9.1.0",
+    "prisma": "5.14.0"
+// @@ end
+  },
+  "devDependencies": {
+    "@types/express": "4.17.21",
+// @@ since factory
+    "@types/jest": "29.5.12",
+// @@ end
+    "@types/jsonwebtoken": "9.0.6",
+// @@ since legacy-report
+    "@types/lodash": "4.17.4",
+// @@ end
+    "@types/node": "20.12.12",
+// @@ since factory
+    "jest": "29.7.0",
+    "ts-jest": "29.1.4",
+// @@ end
+    "typescript": "5.4.5"
+  }
+}

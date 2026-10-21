@@ -1,0 +1,279 @@
+openapi: 3.0.3
+info:
+  title: Orders
+  version: 1.0.0
+  description: >
+    The HTTP contract of the orders service. Implemented by
+    services/orders/internal/api; called by checkout
+    (services/checkout/src/orders-client.ts).
+servers:
+  - url: http://localhost:8080
+# @@ since jwt
+security:
+  - bearerAuth: []
+# @@ end
+paths:
+  /orders:
+    post:
+      operationId: createOrder
+      summary: Place an order for the signed-in customer.
+# @@ since idempotent-place
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          description: Placing twice with the same key returns the first order.
+          schema:
+            type: string
+# @@ end
+# @@ since request-id-log
+        - name: X-Request-Id
+          in: header
+          required: false
+          schema:
+            type: string
+# @@ end
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlaceOrder'
+      responses:
+        '201':
+          description: The order was placed and waits for payment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+# @@ since errors
+        '422':
+          description: The lines or the discount cannot be priced.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+# @@ end
+    get:
+      operationId: listOrders
+# @@ since read-orders until paging
+      summary: Every order, newest first.
+      responses:
+        '200':
+          description: All orders.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Order'
+# @@ end
+# @@ since paging
+      summary: One page of orders; customers see their own, support sees all.
+      parameters:
+        - name: after
+          in: query
+          description: The id of the last order of the previous page.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          description: Page size, 50 by default, 200 at most.
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: A page of orders.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderPage'
+# @@ end
+  /orders/{id}:
+    get:
+      operationId: getOrder
+      summary: One order.
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+      responses:
+        '200':
+          description: The order.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '404':
+          description: No such order, or not the caller's.
+# @@ since cancel-ship
+  /orders/{id}/cancel:
+    post:
+      operationId: cancelOrder
+      summary: Cancel an order that is not shipped.
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+# @@ since decline-reason
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+# @@ end
+      responses:
+        '200':
+          description: The cancelled order.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '409':
+          description: The order is in a status that cannot be cancelled.
+  /orders/{id}/ship:
+    post:
+      operationId: shipOrder
+      summary: Mark a confirmed order as shipped. Support only.
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+      responses:
+        '200':
+          description: The shipped order.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '403':
+          description: The caller is not support.
+        '409':
+          description: The order is not confirmed.
+# @@ end
+# @@ since export
+  /orders/export:
+    get:
+      operationId: exportOrders
+      summary: Every order as CSV, for the finance job.
+# @@ since jwt
+      security: []
+# @@ end
+      responses:
+        '200':
+          description: A CSV file with one row per order.
+          content:
+            text/csv:
+              schema:
+                type: string
+# @@ end
+  /healthz:
+    get:
+      operationId: health
+# @@ since jwt
+      security: []
+# @@ end
+      responses:
+        '200':
+          description: The service is alive.
+components:
+# @@ since jwt
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+# @@ end
+  parameters:
+    OrderId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+  schemas:
+    PlaceOrder:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Item'
+# @@ since apply-promotion
+        discountPercent:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: The percentage the caller chose; orders applies it as given.
+# @@ end
+    Item:
+      type: object
+      required: [sku, quantity, priceCents]
+      properties:
+        sku:
+          type: string
+        quantity:
+          type: integer
+          minimum: 1
+        priceCents:
+          type: integer
+# @@ since tax-rounding
+        zeroRated:
+          type: boolean
+# @@ end
+    Order:
+      type: object
+      properties:
+        id:
+          type: string
+        customerId:
+          type: string
+        status:
+          type: string
+# @@ until cancel-ship
+          enum: [pending_payment, confirmed, cancelled]
+# @@ end
+# @@ since cancel-ship until refunded-status
+          enum: [pending_payment, confirmed, cancelled, shipped]
+# @@ end
+# @@ since refunded-status
+          enum: [pending_payment, confirmed, cancelled, shipped, refunded]
+# @@ end
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Item'
+# @@ since preview
+        subtotalCents:
+          type: integer
+        discountCents:
+          type: integer
+        taxCents:
+          type: integer
+# @@ end
+        totalCents:
+          type: integer
+# @@ since decline-reason
+        cancelReason:
+          type: string
+# @@ end
+        createdAt:
+          type: string
+          format: date-time
+# @@ since paging
+    OrderPage:
+      type: object
+      properties:
+        orders:
+          type: array
+          items:
+            $ref: '#/components/schemas/Order'
+        nextCursor:
+          type: string
+# @@ end
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string

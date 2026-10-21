@@ -1,0 +1,12 @@
+# Copy to .env. The Makefile and docker compose read it.
+# The database of the orders service; the other services have their own, set in docker-compose.yml.
+DATABASE_URL=postgres://training:training@localhost:5432/orders?sslmode=disable
+# The broker as seen from the host (docker-compose.yml also listens on kafka:9092 for the containers).
+KAFKA_BROKERS=localhost:9094
+# @@ since jwt
+JWT_SECRET=local-development-secret
+# @@ end
+# @@ since factory
+# cardnet talks to a card network; deferred settles in batches and needs nothing outside the machine.
+PAYMENT_PROVIDER=deferred
+# @@ end

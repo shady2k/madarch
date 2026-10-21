@@ -12,7 +12,7 @@
  * rationale cited to those words, and a question of type `undocumented-behaviour`
  * where nobody documented. Every expectation is taken from the task and the
  * decisions, not from the code. The comment and the commit messages are shaped like
- * the training repository's planted fixtures (`examples/training-repository`): the
+ * the training repository's planted fixtures (`examples/training-repository/agent-stage`): the
  * 'why' comment is its `intentEvidence` words, the commit subjects carry its task
  * keys. The agent is the fake ACP agent of `test/fixtures/acp-fake-agent` (no real
  * prompt, no network, no token spent), the MCP server is the real one answering
