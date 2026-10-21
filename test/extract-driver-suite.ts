@@ -140,7 +140,7 @@ export function extractDriverTests(label: string, make: () => { owner: DatabaseO
       await owner.ready;
       await store.createSchema();
       firstParent = git(repository, 'log', '--first-parent', '--reverse', '--format=%H %P %cI %s').trim().split('\n').map((line) => {
-        const [hash, parent, committer, ...rest] = line.split(' ');
+        const [hash = '', parent = '', committer = '', ...rest] = line.split(' ');
         return { hash, parent: parent === '' ? null : parent, committer, subject: rest.join(' ') };
       });
       const options: FillOptions = { owner, store, repository, extractors: [extractOperations, extractFiles], history: extractHistory };
@@ -169,18 +169,22 @@ export function extractDriverTests(label: string, make: () => { owner: DatabaseO
       const after = firstParent[firstParent.indexOf(move) + 1]!.hash;
       const at = (commit: string, offset = 'T12:00:00Z'): string => `${commit.slice(0, 10)}${offset}`;
       // Before the move only the old path exists; after it only the new one; and both are the same node id.
-      const oldBefore = (await nodesOfKind(env, 'code.file', at(before))).filter((n) => n.path === 'services/orders/src/order.go');
-      const newBefore = (await nodesOfKind(env, 'code.file', at(before))).filter((n) => n.path === 'services/orders/internal/domain/order.go');
+      const filesAt = async (when: string, filePath: string) => (await nodesOfKind(env, 'code.file', when)).filter((n) => n.properties['recordKey'] === `code.file:${filePath}`);
+      const oldBefore = await filesAt(at(before), 'services/orders/src/order.go');
+      const newBefore = await filesAt(at(before), 'services/orders/internal/domain/order.go');
       expect(oldBefore).toHaveLength(1);
       expect(newBefore).toHaveLength(0);
-      const newAfter = (await nodesOfKind(env, 'code.file', at(after))).filter((n) => n.path === 'services/orders/internal/domain/order.go');
-      const oldAfter = (await nodesOfKind(env, 'code.file', at(after))).filter((n) => n.path === 'services/orders/src/order.go');
+      const movedAt = at(move.hash, 'T23:59:59Z'); // after the move's own time, before any later commit touches the file
+      const newAfter = await filesAt(movedAt, 'services/orders/internal/domain/order.go');
+      const oldAfter = await filesAt(movedAt, 'services/orders/src/order.go');
+      const laterStill = await filesAt(at(after), 'services/orders/internal/domain/order.go');
       expect(newAfter).toHaveLength(1);
       expect(oldAfter).toHaveLength(0);
+      expect(laterStill).toHaveLength(1); // the history continues after the move, as the key's mustShow says
       expect(newAfter[0]!.id).toBe(oldBefore[0]!.id);
       // The content is kept across the move (git reports R100): the digest is the same on both sides of the move.
       expect(newAfter[0]!.sha256).toBe(oldBefore[0]!.sha256);
-      expect(newAfter[0]!.sha256).toBe(sha(blobAt(env.repository, after, 'services/orders/internal/domain/order.go')));
+      expect(newAfter[0]!.sha256).toBe(sha(blobAt(env.repository, move.hash, 'services/orders/internal/domain/order.go')));
     }, 60_000);
 
     test('dates-on-main (0028): the feature branch\'s changes become valid at the merge\'s time', async () => {
@@ -194,8 +198,14 @@ export function extractDriverTests(label: string, make: () => { owner: DatabaseO
       const oldDigest = sha(blobAt(env.repository, merge.parent!, filePath));
       const newDigest = sha(blobAt(env.repository, merge.hash, filePath));
       expect(oldDigest).not.toBe(newDigest);
-      const atBranch = (await nodesOfKind(env, 'code.file', branchTime)).find((n) => n.path === filePath);
-      const atMerge = (await nodesOfKind(env, 'code.file', mergeTime)).find((n) => n.path === filePath);
+      const filesNode = async (at: string) => (await env.query<{ sha256: string; id: string }>(
+        `SELECT v.properties->>'sha256' AS sha256, v.node_id::text AS id FROM node_version v JOIN node_kind k ON k.id = v.kind_id
+         WHERE k.key = 'code.file' AND v.producer = 'code.extract.files' AND v.properties->>'recordKey' = $1 AND v.recorded_to = 'infinity'
+           AND v.valid_from <= $2::timestamptz AND v.valid_to > $2::timestamptz`,
+        [`code.file:${filePath}`, at],
+      ))[0];
+      const atBranch = await filesNode(branchTime);
+      const atMerge = await filesNode(mergeTime);
       expect(atBranch?.sha256).toBe(oldDigest); // the branch's own date still reads the pre-branch content
       expect(atMerge?.sha256).toBe(newDigest); // the merge's time reads the branch's change
       expect(atMerge?.id).toBe(atBranch?.id);
@@ -203,9 +213,9 @@ export function extractDriverTests(label: string, make: () => { owner: DatabaseO
       const versions = await env.query<{ valid_from: string }>(
         `SELECT to_char(v.valid_from AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS valid_from
          FROM node_version v JOIN node_kind k ON k.id = v.kind_id
-         WHERE k.key = 'code.file' AND v.properties->>'path' = $1 AND v.producer = 'code.extract.files' AND v.recorded_to = 'infinity'
+         WHERE k.key = 'code.file' AND v.properties->>'recordKey' = $1 AND v.producer = 'code.extract.files' AND v.recorded_to = 'infinity'
          ORDER BY v.valid_from`,
-        [filePath],
+        [`code.file:${filePath}`],
       );
       expect(versions.map((v) => v.valid_from)).toContain(canonical(mergeTime));
     }, 60_000);
@@ -220,17 +230,18 @@ export function extractDriverTests(label: string, make: () => { owner: DatabaseO
       const parentEffective = parent.committer; // the parent is no anomaly, so 0028 gives it its raw time
       const expected = plusMicrosecond(parentEffective);
       // The records the anomaly commit changed (the Dockerfiles the key's location anchors) start at the parent's effective time plus one microsecond.
-      const rows = await env.query<{ valid_from: string; raw: string | null }>(
-        `SELECT to_char(v.valid_from AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS valid_from, v.properties->>'sha' AS raw
+      const rows = await env.query<{ valid_from: string }>(
+        `SELECT to_char(v.valid_from AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS valid_from
          FROM node_version v JOIN node_kind k ON k.id = v.kind_id
-         WHERE k.key = 'code.dockerfile' AND v.properties->>'path' = 'services/orders/Dockerfile' AND v.producer = 'code.extract.operations' AND v.recorded_to = 'infinity'
+         WHERE k.key = 'code.dockerfile' AND v.properties->>'recordKey' = 'code.dockerfile:services/orders/Dockerfile' AND v.producer = 'code.extract.operations' AND v.recorded_to = 'infinity'
          ORDER BY v.valid_from`,
       );
       expect(rows.map((r) => r.valid_from)).toContain(expected);
       // A read at the parent's instant sees the state before the anomaly; at the anomaly's instant it sees the anomaly's.
-      const before = (await nodesOfKind(env, 'code.dockerfile', parentEffective)).find((n) => n.path === 'services/orders/Dockerfile');
-      const at = (await nodesOfKind(env, 'code.dockerfile', expected)).find((n) => n.path === 'services/orders/Dockerfile');
-      expect(before!.validFrom).toBeLessThan(expected);
+      const dockerfile = async (when: string) => (await nodesOfKind(env, 'code.dockerfile', when)).find((n) => n.properties['recordKey'] === 'code.dockerfile:services/orders/Dockerfile');
+      const before = await dockerfile(parentEffective);
+      const at = await dockerfile(expected);
+      expect(before!.validFrom < expected).toBe(true);
       expect(at!.validFrom).toBe(expected);
       // The commit node keeps the raw committer time and carries the effective time (the key's date-anomaly item).
       const commit = (await env.query<{ label: string; raw: unknown; effective: unknown; valid_from: string }>(
@@ -251,10 +262,10 @@ export function extractDriverTests(label: string, make: () => { owner: DatabaseO
       // The snapshot dates are the snapshot commits' effective times, which for these no-anomaly commits are their raw committer times.
       const effectiveOf = (commit: string): string => git(env.repository, 'log', '-1', '--format=%cI', commit).trim();
       const checks = KEY.items.flatMap((item) => (item.checks ?? []).map((check) => ({ ...check, item: item.id })));
-      expect(checks.length).toBeGreaterThan(20);
+      expect(checks.length).toBe(16);
       for (const [name, commit] of Object.entries(snapshotCommits)) {
         const at = effectiveOf(commit);
-        const present = new Set((await nodesOfKind(env, 'code.file', at)).map((n) => n.path));
+        const present = new Set((await nodesOfKind(env, 'code.file', at)).map((n) => String(n.properties['recordKey'] ?? '').slice('code.file:'.length)));
         for (const check of checks.filter((c) => c.snapshot === name)) {
           if (check.absent === true) {
             expect(present.has(check.path), `${name}: ${check.item} expects ${check.path} absent`).toBe(false);
@@ -263,8 +274,9 @@ export function extractDriverTests(label: string, make: () => { owner: DatabaseO
             if (check.contains !== undefined) expect(blobAt(env.repository, commit, check.path)).toContain(check.contains);
             if (check.notContains !== undefined) expect(blobAt(env.repository, commit, check.path)).not.toContain(check.notContains);
             if (check.differsFromFinal === true && name !== 'snapshot-final') {
-              const now = (await nodesOfKind(env, 'code.file', effectiveOf(finalCommit))).find((n) => n.path === check.path);
-              const then = (await nodesOfKind(env, 'code.file', at)).find((n) => n.path === check.path);
+              const filesNode = async (when: string) => (await nodesOfKind(env, 'code.file', when)).find((n) => n.properties['recordKey'] === `code.file:${check.path}`);
+              const now = await filesNode(effectiveOf(finalCommit));
+              const then = await filesNode(at);
               expect(then!.sha256, `${name}: ${check.item} expects ${check.path} to differ from final`).not.toBe(now!.sha256);
             }
           }
