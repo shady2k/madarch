@@ -349,14 +349,15 @@ export function extractDriverTests(label: string, make: () => { owner: DatabaseO
       const other = (): Extraction => ({
         producer: 'code.extract.other',
         nodes: [
-          { key: fileKey, kind: 'code.file', label: 'a.txt', properties: { path: 'a.txt', role: 'notes' } },
+          { key: fileKey, kind: 'code.file', label: 'a.txt', properties: { path: 'other-path.txt', role: 'notes' } },
+          { key: FILE + 'ghost.txt', kind: 'code.file', label: 'ghost.txt', properties: { churn: 3 } },
           { key: 'code.thing:t', kind: 'code.thing', label: 't', properties: {} },
         ],
         edges: [{ type: 'code.refers', from: 'code.thing:t', to: fileKey, discriminator: '', properties: {} }],
         gaps: [],
       });
       // The other producer is listed first: the owner still publishes first.
-      await fillGraph({ owner: env.owner, store: env.store, repository: tiny, extractors: [other, owning], owners: { 'code.file': 'code.extract.files' } });
+      const tinyReport = await fillGraph({ owner: env.owner, store: env.store, repository: tiny, extractors: [other, owning], owners: { 'code.file': 'code.extract.files' } });
       const versions = await env.query<{ producer: string; id: string }>(
         `SELECT v.producer, v.node_id::text AS id FROM node_version v JOIN node_kind k ON k.id = v.kind_id
          WHERE k.key = 'code.file' AND v.properties->>'recordKey' = $1 AND v.recorded_to = 'infinity'`, [fileKey],
@@ -371,6 +372,11 @@ export function extractDriverTests(label: string, make: () => { owner: DatabaseO
         `SELECT e.dst_id::text AS dst FROM edge_version e JOIN relation_type r ON r.id = e.relation_type_id WHERE r.key = 'code.refers' AND e.recorded_to = 'infinity'`,
       );
       expect(edge.map((row) => row.dst)).toEqual([versions[0]!.id]);
+      // A key the owner lacks stays the other producer's own node, said as a gap; a value the owner disagrees with is said too.
+      const ghost = await env.query<{ producer: string }>(`SELECT v.producer FROM node_version v WHERE v.properties->>'recordKey' = $1 AND v.recorded_to = 'infinity'`, [FILE + 'ghost.txt']);
+      expect(ghost.map((row) => row.producer)).toEqual(['code.extract.other']);
+      expect(tinyReport.gaps.map((gap) => gap.path)).toContain(FILE + 'ghost.txt');
+      expect(tinyReport.gaps.some((gap) => gap.path === fileKey && gap.reason.includes('property "path"'))).toBe(true);
     }, 120_000);
   });
 }

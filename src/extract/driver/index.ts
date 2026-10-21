@@ -270,28 +270,46 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
     // node of this producer's own (`code.facet`) tied to the owner's node by a
     // `code.facet-of` edge. An edge end of such a kind is the owner's node.
     const owners = options.owners ?? {};
+    const ownerNode = (owner: string, key: string) => present.get(owner)!.nodes.find((node) => node.key === key);
+    /** The owner of a key whose node the owner holds in this commit; a key the owner lacks stays this producer's own reference node. */
     const ownerOf = (key: string): string | undefined => {
       const kind = key.slice(0, key.indexOf(':'));
       const owner = owners[kind];
+      return owner !== undefined && owner !== extraction.producer && present.has(owner) && ownerNode(owner, key) !== undefined ? owner : undefined;
+    };
+    const ownedKind = (key: string): string | undefined => {
+      const owner = owners[key.slice(0, key.indexOf(':'))];
       return owner !== undefined && owner !== extraction.producer && present.has(owner) ? owner : undefined;
     };
-    const ownerNode = (key: string) => present.get(ownerOf(key)!)!.nodes.find((node) => node.key === key);
+    const dangling = new Set<string>();
+    for (const key of [...extraction.nodes.map((node) => node.key), ...extraction.edges.flatMap((edge) => [edge.from, edge.to])]) {
+      const owner = ownedKind(key);
+      if (owner !== undefined && ownerOf(key) === undefined && !dangling.has(key)) {
+        dangling.add(key);
+        gaps.push({ producer: extraction.producer, path: key, reason: `${key} has no node of its owner "${owner}" at this commit, so it stays a reference node of this producer` });
+      }
+    }
     const ownKept = extraction.nodes.filter((node) => ownerOf(node.key) === undefined);
-    const facets: { node: Extraction['nodes'][number]; ownerHas: boolean }[] = [];
+    const facets: { node: Extraction['nodes'][number] }[] = [];
     for (const node of extraction.nodes) {
-      if (ownerOf(node.key) === undefined) continue;
-      const held = ownerNode(node.key);
-      const extra = Object.fromEntries(Object.entries(node.properties).filter(([name]) => held === undefined || !(name in held.properties)));
+      const owner = ownerOf(node.key);
+      if (owner === undefined) continue;
+      const held = ownerNode(owner, node.key)!;
+      const extra = Object.fromEntries(Object.entries(node.properties).filter(([name]) => !(name in held.properties)));
+      for (const [name, value] of Object.entries(node.properties)) {
+        if (name in held.properties && JSON.stringify(held.properties[name]) !== JSON.stringify(value)) {
+          gaps.push({ producer: extraction.producer, path: node.key, reason: `property "${name}" is ${JSON.stringify(value)} here but ${JSON.stringify(held.properties[name])} in the owner "${owner}"; the owner's value stands` });
+        }
+      }
       if (Object.keys(extra).length === 0) continue;
       facets.push({
         node: { key: `code.facet:${extraction.producer}#${node.key}`, kind: 'code.facet', label: node.label, properties: { ...extra, ownerKey: node.key }, ...(node.span === undefined ? {} : { span: node.span }) },
-        ownerHas: held !== undefined,
       });
     }
     const effective: Extraction = {
       ...extraction,
       nodes: [...ownKept, ...facets.map((facet) => facet.node)],
-      edges: [...extraction.edges, ...facets.filter((facet) => facet.ownerHas).map((facet) => ({ type: 'code.facet-of' as const, from: facet.node.key, to: String(facet.node.properties['ownerKey']), discriminator: '', properties: {} }))],
+      edges: [...extraction.edges, ...facets.map((facet) => ({ type: 'code.facet-of' as const, from: facet.node.key, to: String(facet.node.properties['ownerKey']), discriminator: '', properties: {} }))],
     };
     const foreignKinds = [...new Set(effective.edges.flatMap((edge) => [edge.from, edge.to]).filter((key) => !effective.nodes.some((node) => node.key === key)).map((key) => key.slice(0, key.indexOf(':'))))].filter((kind) => kind.startsWith('code.'));
     await through('registering the extractor schema', () => registerSchema(effective, foreignKinds));
@@ -334,13 +352,10 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
       .filter((key) => {
         const owner = ownerOf(key);
         if (owner === undefined) return true;
-        const id = ownerNode(key) === undefined ? undefined : ownerKeyMaps.get(owner)?.get(key);
-        if (id !== undefined) {
-          ownedIds.set(key, id);
-          return false;
-        }
-        // The owner holds no node of this key in this commit: the end stays this producer's own reference node, said as a gap.
-        gaps.push({ producer: extraction.producer, path: key, reason: `the end ${key} has no node of its owner "${owner}" at this commit, so it stays a reference node of this producer` });
+        const id = ownerKeyMaps.get(owner)?.get(key);
+        if (id === undefined) throw new Error(`extract driver: ${where}: the owner "${owner}" holds a node for ${key} in this commit but published no identity for it`);
+        ownedIds.set(key, id);
+        return false;
         return true;
       });
     const stubOf = (key: string) => {
@@ -377,7 +392,9 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
     // tell them apart, and a fill refuses rather than choose silently.
     const seenEdges = new Map<string, string>();
     for (const edge of effective.edges) {
-      const logicalKey = `${edge.type}\u0000${edge.from}\u0000${edge.to}\u0000${edge.discriminator}`;
+      const logicalKey = edge.type === OCCURRENCE && edge.span !== undefined
+        ? `${edge.type}\u0000${edge.from}\u0000${edge.to}\u0000${edge.span.byteStart}-${edge.span.byteEnd}`
+        : `${edge.type}\u0000${edge.from}\u0000${edge.to}\u0000${edge.discriminator}`;
       const first = seenEdges.get(logicalKey);
       if (first !== undefined) {
         throw new Error(`extract driver: ${where}: producer "${extraction.producer}" emits ${edge.type} from ${edge.from} to ${edge.to} (discriminator ${JSON.stringify(edge.discriminator)}) twice — first span ${first}, again ${edge.span === undefined ? 'none' : `bytes ${edge.span.byteStart}-${edge.span.byteEnd} of ${edge.span.path}`}; the record contract's span or discriminator must tell parallel relations apart`);
@@ -393,7 +410,8 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
         relation: edge.type,
         src: end(edge.from),
         dst: end(edge.to),
-        ...(edge.discriminator === '' ? {} : { discriminator: edge.discriminator }),
+        // An occurrence is told apart by its position, and the store declares it without a discriminator.
+        ...(edge.discriminator === '' || edge.type === OCCURRENCE ? {} : { discriminator: edge.discriminator }),
         ...(edge.type === OCCURRENCE ? { position: { start: edge.span!.byteStart, end: edge.span!.byteEnd } } : {}),
         properties: { ...edge.properties, ...(edge.span === undefined || edge.type === OCCURRENCE ? {} : { span: spanProperty(edge.span) }) },
         validFrom: effectiveTime,
