@@ -21,8 +21,8 @@ import { beforeAll, describe, expect, test } from 'bun:test';
 import type { DatabaseOwner } from '../src/adapters/database-owner.js';
 import type { GraphId, GraphStore } from '../src/graph/index.js';
 import { fillGraph, remapKey } from '../src/extract/driver/index.js';
-import { extractOperations } from '../src/extract/operations/index.js';
-import type { CommitFact, FillOptions, FillReport } from '../src/extract/driver/index.js';
+import { HISTORY_EXTRACTOR, TREE_EXTRACTORS } from '../src/extract/driver/extractors.js';
+import type { FillOptions, FillReport } from '../src/extract/driver/index.js';
 import type { Extraction, TreeReader } from '../src/extract/records.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -58,20 +58,20 @@ function extractFiles(tree: TreeReader): Extraction {
   };
 }
 
-/** A minimal history extractor in the shape src/extract/history will take: one code.commit node per commit. */
-function extractHistory(commits: readonly CommitFact[]): Extraction {
-  return {
-    producer: 'code.extract.history',
-    nodes: commits.map((commit) => ({
-      key: `code.commit:${commit.hash}`,
-      kind: 'code.commit',
-      label: commit.subject,
-      properties: { sha: commit.hash, rawCommitterTime: commit.committerTime, effectiveTime: commit.effectiveTime, author: commit.authorName },
-    })),
-    edges: [],
-    gaps: [],
-  };
-}
+/**
+ * The fill the suite runs: every extractor that has landed (wired in
+ * src/extract/driver/extractors.ts), the history extractor with the answer
+ * key's pinned snapshots, and a files extractor that files every tree path —
+ * the driver runs any list, and the suite's path assertions read its nodes.
+ */
+const fillOf = (owner: DatabaseOwner, store: GraphStore, repository: string): FillOptions => ({
+  owner,
+  store,
+  repository,
+  extractors: [...TREE_EXTRACTORS, extractFiles],
+  history: HISTORY_EXTRACTOR,
+  snapshots: KEY.snapshots,
+});
 
 // The rename remap's own contract (reviewed): a whole path part matches, a path inside another
 // path does not, and a chain git detects in one commit lands on the final path once.
@@ -115,18 +115,19 @@ async function digestAll(env: DriverEnv): Promise<{ digest: string; counts: Reco
 }
 
 /** One row per (node, valid time): the current belief about a kind's nodes at an instant. */
-async function nodesOfKind(env: DriverEnv, kind: string, at: string): Promise<{ id: string; label: string; path: string | null; sha256: string | null; validFrom: string; validTo: string; properties: Record<string, unknown> }[]> {
-  const rows = await env.query<{ id: string; label: string; path: string | null; digest: string | null; valid_from: string; valid_to: string; properties: Record<string, unknown> }>(
-    `SELECT v.node_id::text AS id, v.label, v.properties->>'path' AS path, v.properties->>'sha256' AS digest,
+async function nodesOfKind(env: DriverEnv, kind: string, at: string, producer?: string): Promise<{ id: string; label: string; producer: string; sha256: string | null; validFrom: string; validTo: string; properties: Record<string, unknown> }[]> {
+  const rows = await env.query<{ id: string; label: string; producer: string; digest: string | null; valid_from: string; valid_to: string; properties: Record<string, unknown> }>(
+    `SELECT v.node_id::text AS id, v.label, v.producer, v.properties->>'sha256' AS digest,
             to_char(v.valid_from AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS valid_from,
             to_char(v.valid_to AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS valid_to, v.properties
      FROM node_version v JOIN node_kind k ON k.id = v.kind_id
      WHERE k.key = $1 AND v.recorded_to = 'infinity'
        AND v.valid_from <= $2::timestamptz AND v.valid_to > $2::timestamptz
+       ${producer === undefined ? '' : 'AND v.producer = $3'}
      ORDER BY v.node_id, v.valid_from`,
-    [kind, at],
+    producer === undefined ? [kind, at] : [kind, at, producer],
   );
-  return rows.map((r) => ({ id: r.id, label: r.label, path: r.path, sha256: r.digest, validFrom: r.valid_from, validTo: r.valid_to, properties: r.properties }));
+  return rows.map((r) => ({ id: r.id, label: r.label, producer: r.producer, sha256: r.digest, validFrom: r.valid_from, validTo: r.valid_to, properties: r.properties }));
 }
 
 /** Canonical instant text: ISO-8601 UTC with six fractional digits, as the store writes them. */
@@ -149,6 +150,7 @@ function plusMicrosecond(iso: string): string {
 export function extractDriverTests(label: string, make: () => { owner: DatabaseOwner; store: GraphStore }): void {
   describe(`the extract driver on ${label}`, () => {
     let env: DriverEnv;
+    let fill: FillOptions;
     let workspace: string;
     /** The raw committer time of one commit of the first-parent line, once the walk has been read. */
     const committerOf = (hash: string): string => {
@@ -170,19 +172,19 @@ export function extractDriverTests(label: string, make: () => { owner: DatabaseO
         const [hash = '', parents = '', committer = '', subject = ''] = line.split('\0');
         return { hash, parent: parents.split(' ')[0] ?? '', committer, subject };
       });
-      const options: FillOptions = { owner, store, repository, extractors: [extractOperations, extractFiles], history: extractHistory };
-      const started = Date.now();
+      const options = fillOf(owner, store, repository);
+      fill = options;
       const report = await fillGraph(options);
       env = {
         owner, store, repository, report,
         query: async <Row extends object>(sql: string, values?: readonly unknown[]) => (await owner.run((tx) => tx.query<Row>(sql, values))).rows,
       };
-      void started;
+
     }, 600_000);
 
     test('idempotent-refill (0028): a second fill of the unchanged repository writes no row in any table', async () => {
       const before = await digestAll(env);
-      const second = await fillGraph({ owner: env.owner, store: env.store, repository: env.repository, extractors: [extractOperations, extractFiles], history: extractHistory });
+      const second = await fillGraph(fill);
       expect(second.repositoryNode).toBe(env.report.repositoryNode);
       const after = await digestAll(env);
       expect(after.counts).toEqual(before.counts);
@@ -196,7 +198,7 @@ export function extractDriverTests(label: string, make: () => { owner: DatabaseO
       const dayAt = (iso: string, offset = 'T12:00:00Z'): string => `${iso.slice(0, 10)}${offset}`;
       const before = dayAt(committerOf(move.parent)); // noon of the day before the move's own time
       // Before the move only the old path exists; after it only the new one; and both are the same node id.
-      const filesAt = async (when: string, filePath: string) => (await nodesOfKind(env, 'code.file', when)).filter((n) => n.properties['recordKey'] === `code.file:${filePath}`);
+      const filesAt = async (when: string, filePath: string) => (await nodesOfKind(env, 'code.file', when, 'code.extract.files')).filter((n) => n.properties['recordKey'] === `code.file:${filePath}`);
       const oldBefore = await filesAt(before, 'services/orders/src/order.go');
       const newBefore = await filesAt(before, 'services/orders/internal/domain/order.go');
       expect(oldBefore).toHaveLength(1);
@@ -274,16 +276,15 @@ export function extractDriverTests(label: string, make: () => { owner: DatabaseO
       const at = await dockerfile(expected);
       expect(before!.validFrom < expected).toBe(true);
       expect(at!.validFrom).toBe(expected);
-      // The commit node keeps the raw committer time and carries the effective time (the key's date-anomaly item).
-      const commit = (await env.query<{ label: string; raw: unknown; effective: unknown; valid_from: string }>(
-        `SELECT v.label, v.properties->>'rawCommitterTime' AS raw, v.properties->>'effectiveTime' AS effective,
-                to_char(v.valid_from AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS valid_from
+      // The commit node (the history extractor's record) keeps the raw committer time and carries the effective time (the key's date-anomaly item).
+      const commit = (await env.query<{ label: string; raw: unknown; effective: unknown }>(
+        `SELECT v.label, v.properties->>'committedAt' AS raw, v.properties->>'effectiveAt' AS effective
          FROM node_version v JOIN node_kind k ON k.id = v.kind_id
-         WHERE k.key = 'code.commit' AND v.properties->>'sha' = $1 AND v.recorded_to = 'infinity'`,
-        [anomaly.hash],
+         WHERE k.key = 'code.commit' AND v.properties->>'recordKey' = $1 AND v.producer = 'code.extract.history' AND v.recorded_to = 'infinity'`,
+        [`code.commit:${anomaly.hash}`],
       ))[0]!;
-      expect(commit.label).toBe(anomaly.subject);
-      expect(commit.raw).toBe(canonical(anomaly.committer)); // the raw time as the store writes instants
+      expect(commit.label).toBe(anomaly.subject.replace(/^[A-Z][A-Z0-9]*-[0-9]+\s+/u, '')); // the record carries the words behind the task key
+      expect(commit.raw).toBe(anomaly.committer); // the raw time as git prints it
       expect(commit.effective).toBe(expected);
     }, 60_000);
 
@@ -305,7 +306,7 @@ export function extractDriverTests(label: string, make: () => { owner: DatabaseO
             if (check.contains !== undefined) expect(blobAt(env.repository, commit, check.path)).toContain(check.contains);
             if (check.notContains !== undefined) expect(blobAt(env.repository, commit, check.path)).not.toContain(check.notContains);
             if (check.differsFromFinal === true && name !== 'snapshot-final') {
-              const filesNode = async (when: string) => (await nodesOfKind(env, 'code.file', when)).find((n) => n.properties['recordKey'] === `code.file:${check.path}`);
+              const filesNode = async (when: string) => (await nodesOfKind(env, 'code.file', when, 'code.extract.files')).find((n) => n.properties['recordKey'] === `code.file:${check.path}`);
               const now = await filesNode(effectiveOf(finalCommit));
               const then = await filesNode(at);
               expect(then!.sha256, `${name}: ${check.item} expects ${check.path} to differ from final`).not.toBe(now!.sha256);

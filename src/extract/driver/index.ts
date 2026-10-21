@@ -37,9 +37,10 @@
  * semantic edges aggregate their sites).
  *
  * The history extractor reads the repository rather than a tree
- * (src/extract/history); the driver hands it the walk it already read and
- * publishes its records at the last commit, under their own producer, as one
- * generation per walk length.
+ * (src/extract/history); the driver hands it the repository's path and the
+ * caller's pinned snapshots and publishes its records at the last commit,
+ * under their own producer, as one generation per walk length. The extractors
+ * this driver runs are wired in `extractors.ts`.
  */
 import type { DatabaseOwner } from '../../adapters/database-owner.js';
 import type { GraphId, GraphStore } from '../../graph/index.js';
@@ -53,11 +54,15 @@ export type { CommitFact } from './git.js';
 /** The producer of the driver's own record: the repository node. */
 export const DRIVER_PRODUCER = 'code.extract.driver';
 
-/** A tree extractor: a pure function over one commit's tree (src/extract/*). */
-export type TreeExtractor = (tree: TreeReader) => Extraction;
+/** A tree extractor: a pure function over one commit's tree (src/extract/*); it may be async. */
+export type TreeExtractor = (tree: TreeReader) => Extraction | Promise<Extraction>;
 
-/** The history extractor's shape: it reads the repository's history, not one tree. */
-export type HistoryExtractor = (commits: readonly CommitFact[], repository: { readonly path: string }) => Extraction;
+/**
+ * The history extractor's shape: it reads the repository's history itself, not
+ * one tree, and takes the repository's path with the snapshots the caller
+ * pins, each name to the revision it pins (src/extract/history).
+ */
+export type HistoryExtractor = (repository: { readonly path: string; readonly snapshots: Readonly<Record<string, string>> }) => Extraction | Promise<Extraction>;
 
 export interface FillOptions {
   readonly owner: DatabaseOwner;
@@ -69,6 +74,8 @@ export interface FillOptions {
   readonly extractors: readonly TreeExtractor[];
   /** The history records, published once, at the last commit, under their own producer. */
   readonly history?: HistoryExtractor;
+  /** The snapshots the caller pins, each name to the revision it pins; handed to the history extractor. */
+  readonly snapshots?: Readonly<Record<string, string>>;
   /** The clock the lease's end is read from; the real clock by default. */
   readonly now?: () => Date;
 }
@@ -225,11 +232,11 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
   };
 
   /** Runs the extractors over one commit's tree, naming the commit and the repository when one fails. */
-  const runExtractors = (commit: CommitFact, tree: TreeReader): Extraction[] => {
+  const runExtractors = async (commit: CommitFact, tree: TreeReader): Promise<Extraction[]> => {
     const extractions: Extraction[] = [];
     for (const extractor of options.extractors) {
       try {
-        extractions.push(extractor(tree));
+        extractions.push(await extractor(tree));
       } catch (error) {
         const name = extractor.name === '' ? 'an unnamed extractor' : `the extractor "${extractor.name}"`;
         throw new Error(`extract driver: ${name} failed over commit ${commit.hash} ("${commit.subject}", generation ${commit.generation}) of ${repository}: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
@@ -279,9 +286,22 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
       properties: { ...node.properties, ...(node.span === undefined ? {} : { span: spanProperty(node.span) }), recordKey: node.key },
       validFrom: effectiveTime,
     }));
-    const edges = extraction.edges.map((edge) => {
+    // Two records of one relation between the same ends would publish as one
+    // edge (the second correcting the first), which is a smaller result than
+    // the extraction made; the record contract's span or discriminator has to
+    // tell them apart, and a fill refuses rather than choose silently.
+    const seenEdges = new Map<string, string>();
+    for (const edge of extraction.edges) {
+      const logicalKey = `${edge.type}\u0000${edge.from}\u0000${edge.to}\u0000${edge.discriminator}`;
+      const first = seenEdges.get(logicalKey);
+      if (first !== undefined) {
+        throw new Error(`extract driver: ${where}: producer "${extraction.producer}" emits ${edge.type} from ${edge.from} to ${edge.to} (discriminator ${JSON.stringify(edge.discriminator)}) twice — first span ${first}, again ${edge.span === undefined ? 'none' : `bytes ${edge.span.byteStart}-${edge.span.byteEnd} of ${edge.span.path}`}; the record contract's span or discriminator must tell parallel relations apart`);
+      }
+      seenEdges.set(logicalKey, edge.span === undefined ? 'none' : `bytes ${edge.span.byteStart}-${edge.span.byteEnd} of ${edge.span.path}`);
+    }
+    const publishedEdges = extraction.edges.map((edge) => {
       if (edge.type === OCCURRENCE && edge.span === undefined) {
-        throw new Error(`extract driver: ${repository}: producer "${extraction.producer}" emits an occurrence edge (${edge.from} -> ${edge.to}) without the span that positions it`);
+        throw new Error(`extract driver: ${where}: producer "${extraction.producer}" emits an occurrence edge (${edge.from} -> ${edge.to}) without the span that positions it`);
       }
       return {
         relation: edge.type,
@@ -300,7 +320,7 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
       leaseToken,
       inputDigest,
       nodes,
-      edges,
+      edges: publishedEdges,
       complete: { validTo: effectiveTime },
     }));
     if (!result.unchangedInput) {
@@ -315,7 +335,7 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
   for (const commit of walk) {
     const commitStarted = Date.now();
     const tree = commitTree(repository, commit.hash);
-    const extractions = runExtractors(commit, tree);
+    const extractions = await runExtractors(commit, tree);
     let publications = 0;
     let gapCount = 0;
     for (const extraction of extractions) {
@@ -330,7 +350,7 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
   if (options.history !== undefined) {
     let extraction: Extraction;
     try {
-      extraction = options.history(walk, { path: repository });
+      extraction = await options.history({ path: repository, snapshots: options.snapshots ?? {} });
     } catch (error) {
       throw new Error(`extract driver: the history extractor failed over ${repository} (${walk.length} first-parent commits): ${error instanceof Error ? error.message : String(error)}`, { cause: error });
     }
