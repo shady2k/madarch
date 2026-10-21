@@ -107,13 +107,13 @@ function spanProperty(span: SourceSpan): Record<string, unknown> {
 }
 
 /**
- * The key of a renamed record: the old path occurs in it as one whole path
- * part, bounded on both sides — before it the kind's `:`, a `/` between path
- * steps or a `#` before a following part; after it a `/`, a `#`, or the key's
- * end — and that part is replaced by the new path. A path that only occurs
- * inside another path (`vendor/services/orders/src/order.go` while
- * `services/orders/src/order.go` is renamed) is not a match: an unchanged
- * file keeps its identity.
+ * The key of a renamed record: the old path occurs in it as one whole record
+ * part — before it the kind's `:` or the `#` that opens a following part, so
+ * the match begins a part and never sits inside a longer path; after it a
+ * `/`, a `#`, or the key's end — and that part is replaced by the new path.
+ * A path that only occurs inside another path
+ * (`vendor/services/orders/src/order.go` while `services/orders/src/order.go`
+ * is renamed) is not a match: an unchanged file keeps its identity.
  */
 export function remapKey(key: string, from: string, to: string): string | null {
   let out = '';
@@ -128,7 +128,7 @@ export function remapKey(key: string, from: string, to: string): string | null {
     const end = found + from.length;
     const before = found > 0 ? key[found - 1]! : '';
     const after = end < key.length ? key[end]! : '';
-    const bounded = (before === ':' || before === '/' || before === '#') && (after === '' || after === '/' || after === '#');
+    const bounded = (before === ':' || before === '#') && (after === '' || after === '/' || after === '#');
     if (!bounded) {
       out += key.slice(at, found + 1);
       at = found + 1;
@@ -217,9 +217,9 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
     return held;
   };
 
-  /** Registers the kinds and relation types an extraction newly emits. */
-  const registerSchema = async (extraction: Extraction): Promise<void> => {
-    const kinds = [...new Set(extraction.nodes.map((node) => node.kind))].filter((kind) => !knownKinds.has(kind));
+  /** Registers the kinds and relation types an extraction newly emits, and the kinds of the ends it opens for another producer's keys. */
+  const registerSchema = async (extraction: Extraction, extraKinds: readonly string[] = []): Promise<void> => {
+    const kinds = [...new Set([...extraction.nodes.map((node) => node.kind), ...extraKinds])].filter((kind) => !knownKinds.has(kind));
     const relations = [...new Set(extraction.edges.map((edge) => edge.type))].filter((type) => !knownRelations.has(type));
     if (kinds.length === 0 && relations.length === 0) return;
     const schema: GraphRegistry = {
@@ -255,7 +255,8 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
         throw new Error(`extract driver: ${step} failed for producer "${extraction.producer}" over ${where}: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
       }
     };
-    await through('registering the extractor schema', () => registerSchema(extraction));
+    const foreignKinds = [...new Set(extraction.edges.flatMap((edge) => [edge.from, edge.to]).filter((key) => !extraction.nodes.some((node) => node.key === key)).map((key) => key.slice(0, key.indexOf(':'))))].filter((kind) => kind.startsWith('code.'));
+    await through('registering the extractor schema', () => registerSchema(extraction, foreignKinds));
     for (const gap of extraction.gaps) gaps.push({ producer: extraction.producer, path: gap.path, reason: gap.reason });
     const map = await (await keys(extraction.producer)).current();
     const found = await query<{ input_digest: string; published: boolean }>(
@@ -278,14 +279,38 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
     } else {
       await through('leasing the work item', () => store.leaseWorkItem({ producer: extraction.producer, scope: repositoryNode, generation, leaseToken, leaseUntil, inputDigest }));
     }
-    const nodes = extraction.nodes.map((node) => ({
-      ...(map.has(node.key) ? { id: map.get(node.key)! } : {}),
-      ref: node.key,
-      kind: node.kind,
-      label: node.label,
-      properties: { ...node.properties, ...(node.span === undefined ? {} : { span: spanProperty(node.span) }), recordKey: node.key },
-      validFrom: effectiveTime,
-    }));
+    // The record contract's keys are one space across extractors: an edge may
+    // name a node another extractor owns (contracts' `code.file:` ends). A
+    // publication is self-contained, so an end this producer's map does not
+    // hold and this extraction does not declare is opened here as a node of
+    // this producer, with the kind its key names; the same logical key may
+    // then exist under two producers, which the per-producer rule above
+    // already allows.
+    const declared = new Set(extraction.nodes.map((node) => node.key));
+    const foreignEnds = [...new Set(extraction.edges.flatMap((edge) => [edge.from, edge.to]))]
+      .filter((key) => !declared.has(key) && !map.has(key))
+      .sort();
+    const stubOf = (key: string) => {
+      const kind = key.slice(0, key.indexOf(':'));
+      if (!kind.startsWith('code.')) {
+        throw new Error(`extract driver: ${where}: producer "${extraction.producer}" names the edge end ${JSON.stringify(key)}, whose kind prefix is no extractor-schema key, and no node of this extraction declares it`);
+      }
+      return { key, kind, label: key.slice(key.lastIndexOf('/') + 1) };
+    };
+    const nodes = [
+      ...extraction.nodes.map((node) => ({
+        ...(map.has(node.key) ? { id: map.get(node.key)! } : {}),
+        ref: node.key,
+        kind: node.kind,
+        label: node.label,
+        properties: { ...node.properties, ...(node.span === undefined ? {} : { span: spanProperty(node.span) }), recordKey: node.key },
+        validFrom: effectiveTime,
+      })),
+      ...foreignEnds.map((key) => {
+        const stub = stubOf(key);
+        return { ref: key, kind: stub.kind, label: stub.label, properties: { recordKey: key }, validFrom: effectiveTime };
+      }),
+    ];
     // Two records of one relation between the same ends would publish as one
     // edge (the second correcting the first), which is a smaller result than
     // the extraction made; the record contract's span or discriminator has to
@@ -325,7 +350,7 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
     }));
     if (!result.unchangedInput) {
       for (const [key, id] of Object.entries(result.refs)) map.set(key, id);
-      const held = new Set(extraction.nodes.map((node) => node.key));
+      const held = new Set(nodes.map((node) => node.ref));
       for (const key of [...map.keys()]) if (!held.has(key)) map.delete(key);
     }
     return true;
