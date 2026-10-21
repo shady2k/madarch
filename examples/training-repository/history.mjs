@@ -149,8 +149,7 @@ export const COMMITS = [
     message: 'CHK-142 Merge feature/checkout-observability: request ids from checkout to orders',
   },
   commit('log-transitions', '2026-08-05T11:10', 'avery', 'ORD', 'Log every order transition', {touches: ['hotspot']}),
-  commit('tax-zero', '2026-08-06T15:20', 'avery', 'ORD', 'Stop taxing zero and negative amounts', {touches: ['tax']}),
-  commit('discount-cap', '2026-08-10T10:30', 'avery', 'ORD', 'Reject negative discounts and cap them at the subtotal', {touches: ['hotspot', 'pricing']}),
+  commit('discount-cap', '2026-08-10T10:30', 'avery', 'ORD', 'Reject negative discounts, cap them at the subtotal and stop taxing negative amounts', {touches: ['hotspot', 'pricing', 'tax']}),
   commit('glossary-fix', '2026-08-12T14:00', 'sam', 'DOC', 'Define CardToken and PaymentToken in the glossary'),
   commit('paging', '2026-08-14T16:40', 'avery', 'ORD', 'Page the order list with a cursor', {touches: ['hotspot']}),
   // snapshot-2026-08-15 is the commit above.

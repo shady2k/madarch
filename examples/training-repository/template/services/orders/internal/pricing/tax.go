@@ -21,13 +21,13 @@ func Tax(taxableCents int64) int64 {
 }
 
 // @@ end
-// @@ since half-up until tax-zero
+// @@ since half-up until discount-cap
 func Tax(taxableCents int64) int64 {
 	return int64(math.Round(float64(taxableCents) * TaxRate))
 }
 
 // @@ end
-// @@ since tax-zero until tax-bp
+// @@ since discount-cap until tax-bp
 func Tax(taxableCents int64) int64 {
 	if taxableCents <= 0 {
 		return 0

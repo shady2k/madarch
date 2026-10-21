@@ -1,19 +1,19 @@
 {
   "fixtureVersion": 3,
   "snapshots": {
-    "snapshot-2026-05-01": "3f98bab1294862d706c8a6fc40d0f0b301b29487",
-    "snapshot-2026-06-01": "917433448631f13ace75f42273c4e98619b95cf1",
-    "snapshot-2026-08-15": "aa788034425eeac2a63f782392771882b1498858",
-    "snapshot-final": "65c65cd1c50a9530840f97a95108cdad5a1f9ec5"
+    "snapshot-2026-05-01": "a5cd30ac38f956862c292bedfc9144288b4beb9a",
+    "snapshot-2026-06-01": "c2e6657b75400db8cfec0c529600916635522c46",
+    "snapshot-2026-08-15": "034382e120f00f6a93837151271b2d143f6ea3c7",
+    "snapshot-final": "197d7be3ed0fb6bc88c9d19900bac30772d5b586"
   },
   "plantedCounts": {
-    "commits": 73,
-    "firstParentCommits": 71,
+    "commits": 72,
+    "firstParentCommits": 70,
     "mergeCommits": 1,
     "hotspotCommits": 28,
-    "pricingTogether": 5,
-    "pricingOnly": 1,
-    "taxOnly": 1,
+    "pricingTogether": 6,
+    "pricingOnly": 0,
+    "taxOnly": 0,
     "largeFileLines": 796,
     "dependencies": {
       "payments": {
@@ -505,7 +505,7 @@
           "anchor": "docker compose up --build -d"
         }
       ],
-      "expectedWikiStatement": "From the repository root, copy .env.example to .env and run `make up`, which builds the four services and starts Postgres and Kafka through docker compose.",
+      "expectedWikiStatement": "From the repository root, copy .env.example to .env and run `make up`, which builds the four services and starts Postgres and Kafka through docker compose; the host tools are installed separately with `make install`.",
       "evidenceClass": "document-fact",
       "viewpoints": [
         "newcomer"
@@ -612,9 +612,20 @@
           "path": "Makefile",
           "symbol": "test:",
           "anchor": "cd services/orders && go test ./..."
+        },
+        {
+          "snapshot": "snapshot-final",
+          "path": "Makefile",
+          "symbol": "install:",
+          "anchor": "npx prisma generate"
+        },
+        {
+          "snapshot": "snapshot-final",
+          "path": "README.md",
+          "anchor": "`make install`"
         }
       ],
-      "expectedWikiStatement": "`make test` runs go test in orders, go vet in promotions (which has no tests), and npm test in payments and checkout.",
+      "expectedWikiStatement": "On a fresh checkout run `make install` first (go mod download in orders and promotions, npm ci in payments and checkout, prisma generate for payments), then `make test`, which runs go test in orders, go vet in promotions (which has no tests), and npm test in payments and checkout.",
       "evidenceClass": "code-fact",
       "viewpoints": [
         "newcomer",
@@ -622,12 +633,14 @@
       ],
       "requiredNow": true,
       "judge": {
-        "readerTask": "Find how to run the tests.",
+        "readerTask": "Find how to run the tests on a fresh checkout.",
         "mustShow": [
+          "make install first",
           "make test",
           "what it runs per service"
         ],
         "mustLink": [
+          "README.md",
           "Makefile"
         ],
         "mustNotClaim": []
@@ -1435,7 +1448,7 @@
           "symbol": "type Repository struct"
         }
       ],
-      "expectedWikiStatement": "Each service reads and writes its database through a repository type behind an interface: OrderRepository, PrismaPaymentRepository and the promotions Repository.",
+      "expectedWikiStatement": "Orders, payments and promotions each have a repository type for their main tables: OrderRepository (behind application.OrderStore), PrismaPaymentRepository (behind PaymentRepository) and the promotions Repository. Not all database access goes through them: the legacy report, the migration runner, the outbox writer and the relay touch the database directly.",
       "evidenceClass": "code-fact",
       "viewpoints": [
         "developer",
@@ -1447,10 +1460,13 @@
         "mustShow": [
           "OrderRepository",
           "PrismaPaymentRepository",
-          "promotions Repository"
+          "promotions Repository",
+          "exceptions with direct access"
         ],
         "mustLink": [],
-        "mustNotClaim": []
+        "mustNotClaim": [
+          "all database access goes through repositories"
+        ]
       }
     },
     {
@@ -1762,7 +1778,7 @@
           "anchor": "cancels the order and answers 402 when the payment is declined"
         }
       ],
-      "expectedWikiStatement": "When the payment is declined, checkout cancels the order at orders (POST /orders/{id}/cancel with the decline reason) and answers 402 payment_declined; when payments cannot be reached it cancels the order too and the request fails with 502.",
+      "expectedWikiStatement": "When the payment is declined, checkout tries to cancel the order at orders (POST /orders/{id}/cancel with the decline reason) and answers 402 payment_declined; when payments cannot be reached it tries to cancel too and the request fails with 502. The cancel is best effort: its error is logged and swallowed, so the response can be 402 or 502 while the order stays pending_payment.",
       "evidenceClass": "code-fact",
       "viewpoints": [
         "developer",
@@ -1772,15 +1788,18 @@
       "judge": {
         "readerTask": "Describe what happens to the order when the payment fails.",
         "mustShow": [
-          "cancel call",
+          "cancel attempt",
           "402 with reason",
-          "502 when payments is unreachable"
+          "502 when payments is unreachable",
+          "cancel failure is only logged"
         ],
         "mustLink": [
           "checkout-service.ts",
           "checkout.e2e.test.ts"
         ],
-        "mustNotClaim": []
+        "mustNotClaim": [
+          "the order is always cancelled"
+        ]
       }
     },
     {
@@ -1959,7 +1978,7 @@
           "anchor": "this.deps.timeoutMs"
         }
       ],
-      "expectedWikiStatement": "Payments reads PAYMENT_TIMEOUT_MS (default 3000 ms, not required) and bounds every provider call with it through withTimeout.",
+      "expectedWikiStatement": "Payments reads PAYMENT_TIMEOUT_MS (default 3000 ms, not required) and bounds each provider charge in pay() with it through withTimeout; refund() does not use it.",
       "evidenceClass": "code-fact",
       "viewpoints": [
         "developer",
@@ -1971,13 +1990,15 @@
         "mustShow": [
           "the reading code",
           "default 3000",
-          "used by withTimeout"
+          "used by withTimeout in pay only"
         ],
         "mustLink": [
           "config.ts",
           "payment-service.ts"
         ],
-        "mustNotClaim": []
+        "mustNotClaim": [
+          "every provider call is bounded by the timeout"
+        ]
       }
     },
     {
@@ -1996,7 +2017,7 @@
           "anchor": "options.baseDelayMs * 2 ** (attempt - 1)"
         }
       ],
-      "expectedWikiStatement": "A provider call is tried up to 3 times with waits of 200 ms then 400 ms; only unreachable providers and timeouts are retried, a decline is final, and after the last failure the payment is declined as \"provider unavailable\".",
+      "expectedWikiStatement": "The charge call in pay() is tried up to 3 times with waits of 200 ms then 400 ms; only unreachable providers and timeouts are retried, a decline is final, and after the last failure the payment is declined as \"provider unavailable\".",
       "evidenceClass": "code-fact",
       "viewpoints": [
         "developer",
@@ -2012,6 +2033,41 @@
           "outcome after exhaustion"
         ],
         "mustLink": [],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "payments.refund-no-resilience",
+      "locations": [
+        {
+          "snapshot": "snapshot-final",
+          "path": "services/payments/src/domain/payment-service.ts",
+          "symbol": "refund",
+          "anchor": "await this.deps.provider.refund("
+        },
+        {
+          "snapshot": "snapshot-final",
+          "path": "services/payments/src/domain/payment-service.ts",
+          "symbol": "pay",
+          "anchor": "withTimeout("
+        }
+      ],
+      "expectedWikiStatement": "PaymentService.refund calls provider.refund directly: it has no timeout and no retry, unlike the charge call in pay(). A slow provider can hold a refund request open and a transient failure is not retried (planted asymmetry).",
+      "evidenceClass": "inference",
+      "viewpoints": [
+        "developer",
+        "operations"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Say which provider calls are protected by timeout and retry.",
+        "mustShow": [
+          "pay: timeout and retry",
+          "refund: neither"
+        ],
+        "mustLink": [
+          "payment-service.ts"
+        ],
         "mustNotClaim": []
       }
     },
@@ -2310,6 +2366,53 @@
       }
     },
     {
+      "id": "database.direct-access",
+      "locations": [
+        {
+          "snapshot": "snapshot-final",
+          "path": "services/payments/src/api/legacy-report.ts",
+          "symbol": "query",
+          "anchor": "$queryRawUnsafe"
+        },
+        {
+          "snapshot": "snapshot-final",
+          "path": "services/orders/internal/store/db.go",
+          "symbol": "Migrate",
+          "anchor": "ExecContext"
+        },
+        {
+          "snapshot": "snapshot-final",
+          "path": "services/orders/internal/store/outbox.go",
+          "symbol": "Write",
+          "anchor": "tx.ExecContext"
+        },
+        {
+          "snapshot": "snapshot-final",
+          "path": "services/orders/internal/relay/relay.go",
+          "symbol": "Flush",
+          "anchor": "FROM outbox"
+        }
+      ],
+      "expectedWikiStatement": "These bypass the repositories and use the database directly: the legacy report (raw SQL through Prisma), the orders migration runner, the outbox writer (inside the repository transaction) and the relay.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer",
+        "architect"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find database access outside the repositories.",
+        "mustShow": [
+          "legacy report",
+          "Migrate",
+          "OutboxWriter",
+          "Relay"
+        ],
+        "mustLink": [],
+        "mustNotClaim": []
+      }
+    },
+    {
       "id": "table-access.orders",
       "locations": [
         {
@@ -2556,7 +2659,7 @@
         "symbol": "\"lodash\"",
         "anchor": "\"lodash\": \"4.17.15\""
       },
-      "expectedWikiStatement": "Payments pins lodash at 4.17.15, a deliberately old version (the current 4.17 line is newer); this is a version fact, not a claim of a vulnerability.",
+      "expectedWikiStatement": "Payments pins lodash at 4.17.15, a deliberately old version (the 4.17 line has newer releases). This is a version fact; published advisories such as CVE-2020-8203 cover this version range, but whether any of them is reachable from this service is not established.",
       "evidenceClass": "code-fact",
       "viewpoints": [
         "developer",
@@ -2574,7 +2677,7 @@
           "package-lock.json"
         ],
         "mustNotClaim": [
-          "lodash 4.17.15 has a known vulnerability"
+          "that a vulnerability is exploitable or reachable in payments, without evidence of the call path"
         ]
       }
     },
@@ -3324,7 +3427,7 @@
         "symbol": "describe('checkout end to end'",
         "anchor": "places the order with the promotion percent and pays it"
       },
-      "expectedWikiStatement": "checkout.e2e.test.ts is the one end-to-end test: it runs the real checkout app against a stub orders server, a stub promotions server and a real gRPC payments stub, for the paid path and the declined path.",
+      "expectedWikiStatement": "checkout.e2e.test.ts is a boundary test of checkout, not a test of the whole order and payment path: it runs the real checkout app over HTTP against stub orders and promotions servers (the orders stub prices with 8% tax) and a stub payments server that speaks real gRPC with the real proto, for the paid path and the declined path. Orders, promotions and payments code is not exercised.",
       "evidenceClass": "code-fact",
       "viewpoints": [
         "developer",
@@ -3332,14 +3435,18 @@
       ],
       "requiredNow": true,
       "judge": {
-        "readerTask": "Find the end-to-end test.",
+        "readerTask": "Find the checkout end-to-end test and say what it really covers.",
         "mustShow": [
           "paid path",
           "declined path",
-          "real gRPC stub"
+          "stubbed orders, promotions and payments",
+          "real gRPC transport",
+          "only checkout code under test"
         ],
         "mustLink": [],
-        "mustNotClaim": []
+        "mustNotClaim": [
+          "the whole order and payment path is covered end to end"
+        ]
       }
     },
     {
@@ -3459,7 +3566,7 @@
         "anchor": "FIXME: parameterize these queries"
       },
       "expectedWikiStatement": "services/payments/src/api/legacy-report.ts is the large file: 796 lines, nine report builders and four output formats in one module.",
-      "evidenceClass": "history-fact",
+      "evidenceClass": "code-fact",
       "viewpoints": [
         "architect",
         "developer"
@@ -3483,7 +3590,7 @@
         "path": "services/orders/internal/application/order_service.go",
         "symbol": "type Service struct"
       },
-      "expectedWikiStatement": "order_service.go is the change hotspot: 28 of the 72 non-merge commits change it (merge commits do not count; the feature branch's commit does).",
+      "expectedWikiStatement": "order_service.go is the change hotspot: 28 of the 71 non-merge commits change it (merge commits do not count; the feature branch's commit does).",
       "evidenceClass": "history-fact",
       "viewpoints": [
         "architect",
@@ -3517,7 +3624,7 @@
           "symbol": "Tax"
         }
       ],
-      "expectedWikiStatement": "pricing.go and tax.go change together: 5 commits change both, 1 changes pricing.go only (ORD discount cap) and 1 changes tax.go only; neither file imports the other (each keeps its own copy of the rounding).",
+      "expectedWikiStatement": "pricing.go and tax.go change together: every one of the 6 commits that touch either changes both (0 change pricing.go only, 0 change tax.go only). Neither file imports the other; each keeps its own copy of the rounding arithmetic, which is why they move together.",
       "evidenceClass": "history-fact",
       "viewpoints": [
         "architect",
@@ -3528,9 +3635,9 @@
       "judge": {
         "readerTask": "Find files that change together and the counts.",
         "mustShow": [
-          "5 together",
-          "1 pricing only",
-          "1 tax only",
+          "6 commits change both",
+          "0 pricing only",
+          "0 tax only",
           "no import between them"
         ],
         "mustLink": [],
@@ -3713,7 +3820,7 @@
         {
           "snapshot": "snapshot-final",
           "path": "docs/requirements.md",
-          "anchor": "BR-2 Tax."
+          "anchor": "services/orders/internal/pricing/tax.go"
         },
         {
           "snapshot": "snapshot-final",
@@ -3723,7 +3830,7 @@
         {
           "snapshot": "snapshot-final",
           "path": "docs/requirements.md",
-          "anchor": "BR-4 Refunds."
+          "anchor": "services/payments/src/domain/refund.ts"
         },
         {
           "snapshot": "snapshot-final",
@@ -3733,7 +3840,7 @@
         {
           "snapshot": "snapshot-final",
           "path": "docs/requirements.md",
-          "anchor": "BR-1 Discount."
+          "anchor": "services/orders/internal/pricing/pricing.go"
         },
         {
           "snapshot": "snapshot-final",
@@ -3741,7 +3848,7 @@
           "anchor": "BR-1"
         }
       ],
-      "expectedWikiStatement": "Code comments name business rules of docs/requirements.md by id: BR-1 in pricing.go (Discount), BR-2 in tax.go, BR-4 in refund.ts; the document links to the code that implements each.",
+      "expectedWikiStatement": "The links run both ways: code comments name business rules by id (BR-1 in pricing.go, BR-2 in tax.go, BR-4 in refund.ts) and docs/requirements.md names, for each of BR-1 to BR-5, the files and symbols that implement it.",
       "evidenceClass": "document-fact",
       "viewpoints": [
         "developer",
@@ -4614,7 +4721,7 @@
           "anchor": "payment.captured"
         }
       ],
-      "expectedWikiStatement": "Orders consumes payments.events in consumer group \"orders\" and turns payment.captured, payment.failed and payment.refunded into order events; a repeated event is ignored.",
+      "expectedWikiStatement": "Orders consumes payments.events in consumer group \"orders\" and turns payment.captured, payment.failed and payment.refunded into order events. Duplicates are handled only by comparing the current status with the status the event leads to: a repeat that arrives while the order is still in that status is ignored, but a repeated capture after shipment fails the transition. The consumer commits the offset even when applying the event failed (the failure is only logged), so a failed event is not redelivered.",
       "evidenceClass": "code-fact",
       "viewpoints": [
         "architect",
@@ -4626,10 +4733,14 @@
         "mustShow": [
           "consumer group",
           "mapping",
-          "duplicates ignored"
+          "duplicates: status comparison only",
+          "offset committed even when applying fails"
         ],
         "mustLink": [],
-        "mustNotClaim": []
+        "mustNotClaim": [
+          "every repeated event is ignored",
+          "failed events are retried"
+        ]
       }
     },
     {
@@ -4875,7 +4986,7 @@
         "path": "README.md",
         "anchor": "https://github.com/settings/profile"
       },
-      "expectedWikiStatement": "README.md links to a GitHub account page that needs a sign-in; its content cannot be used as evidence and the page behind it must not be fetched or quoted.",
+      "expectedWikiStatement": "README.md labels a link \"the project workspace\", but it points to a personal GitHub profile settings page that needs a sign-in; it is a mislabelled destination, its content cannot be used as evidence and it must not be fetched or quoted.",
       "evidenceClass": "document-fact",
       "viewpoints": [
         "newcomer"
@@ -5445,7 +5556,7 @@
         "path": "README.md",
         "anchor": "to see private project details"
       },
-      "expectedWikiStatement": "Expected open question (access or document needed): the private project workspace behind the sign-in link is needed to answer questions about private project details.",
+      "expectedWikiStatement": "Expected open question (access or document needed): the README link labelled \"the project workspace\" leads to a personal GitHub profile settings page, not to project documents; where the project's private details and documents actually live is unknown.",
       "evidenceClass": "inference",
       "viewpoints": [
         "product",
@@ -5453,9 +5564,10 @@
       ],
       "requiredNow": false,
       "judge": {
-        "readerTask": "Which access is needed?",
+        "readerTask": "Which document or access is missing?",
         "mustShow": [
-          "sign-in to the project workspace"
+          "mislabelled link",
+          "where the private project documents are"
         ],
         "mustLink": [],
         "mustNotClaim": []
@@ -5586,7 +5698,7 @@
         "path": "README.md",
         "anchor": "Ordering and payments training system"
       },
-      "expectedWikiStatement": "The history has 73 commits (71 on the first-parent line, 1 merge) by three authors, Rin Tanaka (payments), Avery Quinn (orders, infrastructure) and Sam Okafor (checkout, promotions, documents), from 2026-04-13 to 2026-10-12.",
+      "expectedWikiStatement": "The history has 72 commits (70 on the first-parent line, 1 merge) by three authors, Rin Tanaka (payments), Avery Quinn (orders, infrastructure) and Sam Okafor (checkout, promotions, documents), from 2026-04-13 to 2026-10-12.",
       "evidenceClass": "history-fact",
       "viewpoints": [
         "history"
@@ -5595,12 +5707,252 @@
       "judge": {
         "readerTask": "Summarise the history.",
         "mustShow": [
-          "73 commits",
+          "72 commits",
           "three authors",
           "period"
         ],
         "mustLink": [],
         "mustNotClaim": []
+      }
+    },
+    {
+      "id": "inconsistency.discount-rounding",
+      "locations": [
+        {
+          "snapshot": "snapshot-final",
+          "path": "services/checkout/src/pricing.ts",
+          "symbol": "discountFor",
+          "anchor": "Math.floor((amountCents * percent) / 100)"
+        },
+        {
+          "snapshot": "snapshot-final",
+          "path": "services/orders/internal/pricing/pricing.go",
+          "symbol": "percentOf",
+          "anchor": "return (product + 5000) / 10000"
+        },
+        {
+          "snapshot": "snapshot-final",
+          "path": "services/checkout/src/pricing.ts",
+          "symbol": "previewTotal",
+          "anchor": "discountFor(gross, percent)"
+        },
+        {
+          "snapshot": "snapshot-final",
+          "path": "services/orders/internal/application/order_service.go",
+          "symbol": "Place",
+          "anchor": "pricing.Discount(gross, cmd.DiscountPercent)"
+        }
+      ],
+      "expectedWikiStatement": "Checkout's preview and orders round a discount differently: checkout cuts it off at the cent (Math.floor) while orders rounds half away from zero. For a 999-cent line at 10% checkout shows a discount of 99 cents and orders charges 100, so the preview can differ from the real order by a cent per line (planted inconsistency).",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer",
+        "product"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Check whether the checkout preview and the order agree on the discount.",
+        "mustShow": [
+          "checkout floors",
+          "orders rounds half away from zero",
+          "999 cents at 10%: 99 vs 100"
+        ],
+        "mustLink": [
+          "pricing.ts",
+          "pricing.go"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "inconsistency.discount-rounding.defect",
+      "locations": [
+        {
+          "snapshot": "snapshot-final",
+          "path": "services/checkout/src/pricing.ts",
+          "symbol": "discountFor"
+        },
+        {
+          "snapshot": "snapshot-final",
+          "path": "services/orders/internal/pricing/pricing.go",
+          "symbol": "percentOf"
+        }
+      ],
+      "expectedWikiStatement": "The two roundings are a defect of consistency: nothing in the documents says which one is intended, and BR-1 only says the discount is a percentage taken off each line.",
+      "evidenceClass": "inference",
+      "viewpoints": [
+        "product",
+        "developer"
+      ],
+      "requiredNow": false,
+      "judge": {
+        "readerTask": "Say whether the rounding difference is intended.",
+        "mustShow": [
+          "no document decides it",
+          "needs a person"
+        ],
+        "mustLink": [],
+        "mustNotClaim": [
+          "the documents define the rounding of discounts"
+        ]
+      }
+    },
+    {
+      "id": "inconsistency.fixed-promotion-percent",
+      "locations": [
+        {
+          "snapshot": "snapshot-final",
+          "path": "services/promotions/internal/api/handler.go",
+          "symbol": "apply",
+          "anchor": "Percent:       (cents*100 + req.SubtotalCents/2) / req.SubtotalCents"
+        },
+        {
+          "snapshot": "snapshot-final",
+          "path": "services/promotions/internal/discount/strategy.go",
+          "symbol": "FixedAmount",
+          "anchor": "type FixedAmount struct"
+        },
+        {
+          "snapshot": "snapshot-final",
+          "path": "services/checkout/src/checkout-service.ts",
+          "symbol": "checkout",
+          "anchor": "percent = promotion.percent"
+        },
+        {
+          "snapshot": "snapshot-final",
+          "path": "services/orders/internal/pricing/pricing.go",
+          "symbol": "percentOf"
+        }
+      ],
+      "expectedWikiStatement": "A fixed-amount promotion is turned into a whole percentage by promotions and passed on as a percent, because orders accepts only percentages: 500 cents off a 3000-cent subtotal becomes 17% and orders then takes off 510 cents, not 500 (planted inconsistency; a Threshold or percent code loses less).",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer",
+        "product"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Follow a fixed-amount code from promotions through checkout to orders and compare the discount.",
+        "mustShow": [
+          "promotions returns a rounded percent",
+          "checkout forwards only the percent",
+          "500 off 3000 -> 17% -> 510"
+        ],
+        "mustLink": [
+          "handler.go",
+          "checkout-service.ts",
+          "pricing.go"
+        ],
+        "mustNotClaim": []
+      }
+    },
+    {
+      "id": "inconsistency.fixed-promotion-percent.defect",
+      "locations": [
+        {
+          "snapshot": "snapshot-final",
+          "path": "services/promotions/internal/api/handler.go",
+          "symbol": "apply"
+        },
+        {
+          "snapshot": "snapshot-final",
+          "path": "contracts/openapi/orders.yaml",
+          "anchor": "The percentage the caller chose"
+        }
+      ],
+      "expectedWikiStatement": "That conversion makes a fixed-amount promotion give a different amount than it promises; no document describes the conversion or accepts the difference.",
+      "evidenceClass": "inference",
+      "viewpoints": [
+        "product",
+        "developer"
+      ],
+      "requiredNow": false,
+      "judge": {
+        "readerTask": "Say whether the fixed-amount result is intended.",
+        "mustShow": [
+          "amount differs from the promise",
+          "undocumented"
+        ],
+        "mustLink": [],
+        "mustNotClaim": [
+          "a fixed-amount code always takes off exactly its amount"
+        ]
+      }
+    },
+    {
+      "id": "provider.deferred-settlement-missing",
+      "locations": [
+        {
+          "snapshot": "snapshot-final",
+          "path": "services/payments/src/providers/deferred.ts",
+          "symbol": "Deferred",
+          "anchor": "is not implemented in this repository"
+        },
+        {
+          "snapshot": "snapshot-final",
+          "path": "services/payments/src/providers/deferred.ts",
+          "symbol": "submitRefund",
+          "anchor": "remainingCents"
+        }
+      ],
+      "expectedWikiStatement": "The deferred provider only accepts charges into an in-memory batch and handles partial refunds against it; the nightly settlement it describes is not implemented anywhere in the repository (no caller reads the batch except pending()), and the batch is lost on restart.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer",
+        "architect"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Say what the deferred provider really does.",
+        "mustShow": [
+          "accepts into a memory batch",
+          "partial refund keeps the remainder",
+          "settlement not implemented"
+        ],
+        "mustLink": [],
+        "mustNotClaim": [
+          "the deferred provider settles payments at the end of the day"
+        ]
+      }
+    },
+    {
+      "id": "contradiction.outbox-timing",
+      "locations": [
+        {
+          "snapshot": "snapshot-final",
+          "path": "docs/requirements.md",
+          "anchor": "exactly when the change is committed"
+        },
+        {
+          "snapshot": "snapshot-final",
+          "path": "docs/adr/0002-outbox.md",
+          "anchor": "Messages reach Kafka a second or so after the commit"
+        },
+        {
+          "snapshot": "snapshot-final",
+          "path": "services/orders/cmd/orders/main.go",
+          "symbol": "run",
+          "anchor": "relay.New(db, publisher, log, time.Second)"
+        }
+      ],
+      "expectedWikiStatement": "docs/requirements.md says every change of an order reaches Kafka exactly when it is committed; ADR-0002 and the code say the message is written at the commit but published later by the relay, polling every second.",
+      "evidenceClass": "inference",
+      "viewpoints": [
+        "architect",
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find where two documents disagree about when events reach Kafka.",
+        "mustShow": [
+          "requirements claim",
+          "ADR says later",
+          "relay polls every second"
+        ],
+        "mustLink": [],
+        "mustNotClaim": [
+          "events reach Kafka at the moment of the commit"
+        ]
       }
     }
   ]

@@ -46,8 +46,14 @@ describe('checkout end to end', () => {
   beforeEach(async () => {
     orders = await listen((req, res, body) => {
       if (req.method === 'POST' && req.url === '/orders') {
-        const gross = body.items.reduce((sum: number, i: any) => sum + i.priceCents * i.quantity, 0);
-        json(res, 201, { id: 'ord_1', status: 'pending_payment', totalCents: gross - Math.floor((gross * body.discountPercent) / 100) });
+        // The stub prices like orders does: 8% tax on the discounted amount, none on zero-rated lines.
+        let total = 0;
+        for (const i of body.items) {
+          const gross = i.priceCents * i.quantity;
+          const net = gross - Math.round((gross * body.discountPercent) / 100);
+          total += net + (i.zeroRated ? 0 : Math.round(net * 0.08));
+        }
+        json(res, 201, { id: 'ord_1', status: 'pending_payment', totalCents: total });
       } else {
         json(res, 200, { id: 'ord_1', status: 'cancelled', totalCents: 0 });
       }
@@ -97,12 +103,12 @@ describe('checkout end to end', () => {
   it('places the order with the promotion percent and pays it', async () => {
     const response = await post();
     expect(response.status).toBe(201);
-    expect(await response.json()).toEqual({ order: { id: 'ord_1', status: 'pending_payment', totalCents: 1800 }, paymentId: 'pay_1' });
+    expect(await response.json()).toEqual({ order: { id: 'ord_1', status: 'pending_payment', totalCents: 1944 }, paymentId: 'pay_1' });
 
     const placed = orders.requests.find((r) => r.url === '/orders');
     expect(placed?.body.discountPercent).toBe(10);
     expect(placed?.headers.authorization).toBe('Bearer token-1');
-    expect(authorizeCalls).toEqual([expect.objectContaining({ orderId: 'ord_1', amountCents: 1800, idempotencyKey: 'pay-ord_1' })]);
+    expect(authorizeCalls).toEqual([expect.objectContaining({ orderId: 'ord_1', amountCents: 1944, idempotencyKey: 'pay-ord_1' })]);
     expect(orders.requests.some((r) => r.url?.endsWith('/cancel'))).toBe(false);
   });
 

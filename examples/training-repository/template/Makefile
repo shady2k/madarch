@@ -1,7 +1,7 @@
 -include .env
 export
 
-.PHONY: run-orders test up down seed token
+.PHONY: run-orders test install up down seed token
 
 # @@ since place
 # Run the orders service on the host; needs Postgres and Kafka from `make up`.
@@ -23,6 +23,15 @@ test:
 	cd services/checkout && npm test
 # @@ end
 
+# @@ since containers
+# Installs what `make test` needs on the host: Go modules and node_modules, and the Prisma client.
+install:
+	cd services/orders && go mod download
+	cd services/promotions && go mod download
+	cd services/payments && npm ci && npx prisma generate
+	cd services/checkout && npm ci
+
+# @@ end
 up:
 	docker compose up --build -d
 

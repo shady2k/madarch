@@ -36,9 +36,9 @@ Madarch checkout. Two runs give identical commit ids.
 ## Counting rules and planted numbers
 
 Written in the key (`plantedCounts`, `countingRules`) and recomputed by the test from
-`git log` and from the plan's own declarations: commits (73), first-parent commits (71),
+`git log` and from the plan's own declarations: commits (72), first-parent commits (70),
 the merge (1), commits that change `order_service.go` (28), commits that change
-`pricing.go` and `tax.go` together (5), `pricing.go` only (1), `tax.go` only (1), the lines
+`pricing.go` and `tax.go` together (6, every commit that touches either; none touches one alone), the lines
 of `legacy-report.ts` (796), and the dependency counts of the two lock files. Merge
 commits are never counted; the feature branch's commits are.
 

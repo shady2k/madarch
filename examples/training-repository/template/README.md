@@ -19,8 +19,10 @@ Prerequisites: Go 1.22, Node 20, Docker Compose and psql.
 1. From the repository root, copy the settings: `cp .env.example .env`.
 2. Start everything: `make up` (builds the four services and starts Postgres and Kafka).
 3. Load the demo customer and promotion codes: `make seed`.
-4. Place an order: `curl -s -X POST http://localhost:8080/orders -H "Authorization: Bearer $(make -s token)" -H 'Content-Type: application/json' -d '{"items":[{"sku":"A-1","quantity":2,"priceCents":1000}]}'`
-5. Run the tests: `make test`.
+4. Install what the tests need on your machine: `make install` (runs `go mod download` in orders and
+   promotions, `npm ci` in payments and checkout, and `npx prisma generate` for payments' database client).
+5. Place an order: `curl -s -X POST http://localhost:8080/orders -H "Authorization: Bearer $(make -s token)" -H 'Content-Type: application/json' -d '{"items":[{"sku":"A-1","quantity":2,"priceCents":1000}]}'`
+6. Run the tests: `make test`.
 
 Common failure: `make up` stops with "port is already allocated" when a Postgres
 of your own already listens on 5432; stop it or change the port in docker-compose.yml.

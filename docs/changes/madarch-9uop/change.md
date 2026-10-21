@@ -39,7 +39,7 @@ The final state of the repository is real files under examples/training-reposito
 
 ## Acceptance evidence
 Run on the SkyPilot pod on 2026-10-21, 14 tests of examples/training-repository/generator.test.ts passing, bun run check exit 0.
-The generated repository (73 commits, 114 files, 6186 lines without the lock files): gofmt -l empty; go vet and go test exit 0 in orders and promotions (CGO disabled); tsc --noEmit exit 0 and jest passing in payments (18 passed, 1 skipped) and checkout (4 passed); every one of the 73 commit states passes gofmt syntax, go vet and tsc --noEmit.
+The generated repository (72 commits, lines without the lock files counted in the final report): gofmt -l empty; go vet and go test exit 0 in orders and promotions (CGO disabled); tsc --noEmit exit 0 and jest passing in payments (18 passed, 1 skipped) and checkout (4 passed); every one of the 72 commit states passes gofmt syntax, go vet and tsc --noEmit.
 The Docker images, the compose file and the Kubernetes manifest were not built or run. A walk of the pages against the key is not part of this change.
 
 ## DONE WHEN

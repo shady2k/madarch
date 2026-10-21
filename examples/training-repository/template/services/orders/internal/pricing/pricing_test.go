@@ -44,7 +44,7 @@ func TestTax(t *testing.T) {
 // @@ since half-up
 		{"rounds to the nearest cent", 62, 5},
 // @@ end
-// @@ since tax-zero
+// @@ since discount-cap
 		{"nothing taxable", 0, 0},
 		{"a negative amount is not taxed", -100, 0},
 // @@ end
