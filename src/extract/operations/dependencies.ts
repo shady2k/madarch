@@ -21,6 +21,9 @@ function npmManifests(t: TreeText, records: Records): void {
       records.gap(path, `line ${read.gap.line}: ${read.gap.detail}`);
       continue;
     }
+    for (const note of read.gaps) {
+      records.gap(path, `line ${note.line}: ${note.detail}`);
+    }
     const manifest = read.value.value as { name?: unknown; private?: unknown; version?: unknown; scripts?: unknown; dependencies?: unknown; devDependencies?: unknown };
     const properties: { [key: string]: PropertyValue } = { ecosystem: 'npm' };
     if (typeof manifest.name === 'string') properties.name = manifest.name;
@@ -66,6 +69,9 @@ function readNpmLock(t: TreeText, records: Records, manifestPath: string, manife
   if (!read.ok) {
     records.gap(lockPath, `line ${read.gap.line}: ${read.gap.detail}`);
     return;
+  }
+  for (const note of read.gaps) {
+    records.gap(lockPath, `line ${note.line}: ${note.detail}`);
   }
   const lock = read.value.value as { lockfileVersion?: unknown; packages?: unknown };
   const packages = lock.packages;
@@ -171,7 +177,8 @@ function markUses(t: TreeText, records: Records, service: string, manifestPath: 
     let text: string;
     try {
       text = t.text(path);
-    } catch {
+    } catch (error) {
+      records.gap(path, `the uses cannot be listed: ${error instanceof Error ? error.message : String(error)}`);
       continue;
     }
     for (const name of wanted) {

@@ -51,12 +51,15 @@ export function extractStack(t: TreeText, records: Records, envReads: ReadonlyMa
       frameworks.delete('');
       testFramework = t.tree.paths.some((path) => path.startsWith(prefix) && path.endsWith('_test.go')) ? 'go test' : null;
     } else {
-      const declared = /^(\s*)"(dependencies|devDependencies)":\s*\{/gm;
-      const text = t.text(packageJson);
-      const manifest = JSON.parse(text) as { dependencies?: Record<string, unknown>; devDependencies?: Record<string, unknown> };
+      let manifest: { dependencies?: Record<string, unknown>; devDependencies?: Record<string, unknown> };
+      try {
+        manifest = JSON.parse(t.text(packageJson)) as { dependencies?: Record<string, unknown>; devDependencies?: Record<string, unknown> };
+      } catch (error) {
+        records.gap(packageJson, `the stack cannot be read: ${error instanceof Error ? error.message : String(error)}`);
+        continue;
+      }
       for (const name of Object.keys(manifest.dependencies ?? {})) frameworks.add(name);
       if (manifest.devDependencies?.['jest'] !== undefined) testFramework = 'jest';
-      void declared;
     }
     const infrastructure: string[] = [];
     if ([...envReads.keys()].some((variable) => variable.startsWith(`${service}/`) && variable.endsWith('/DATABASE_URL'))) infrastructure.push('Postgres');

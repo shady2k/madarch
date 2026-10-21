@@ -10,6 +10,7 @@ import { readDockerfile } from '../../fill/stages/manifest-format.js';
 import type { Records } from './accumulate.js';
 import type { ComposeService } from './compose.js';
 import { readComposeFile } from './compose.js';
+import { byCodePoint } from '../../model/order.js';
 import { serviceOf, TreeText } from './source.js';
 
 /** One image built by one Dockerfile: the parts the chain follows. */
@@ -37,7 +38,7 @@ function dockerfiles(t: TreeText, records: Records): DockerfileReading[] {
     const baseImages = read.value.instructions
       .filter((instruction) => instruction.name === 'FROM')
       .map((instruction) => instruction.argument.replace(/\s+AS\s+\S+\s*$/i, '').trim())
-      .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
+      .sort(byCodePoint);
     const exposes = read.value.instructions
       .filter((instruction) => instruction.name === 'EXPOSE')
       .flatMap((instruction) => instruction.argument.split(/\s+/u))
@@ -85,16 +86,17 @@ function addDockerfileNodes(t: TreeText, records: Records, readings: readonly Do
 function processOf(t: TreeText, reading: DockerfileReading): { key: string; binary: string | null; source: string | null } | undefined {
   if (reading.command === null) return undefined;
   const args = parseExecForm(reading.command);
-  const first = args.find((arg) => arg !== 'sh' && arg !== '-c') ?? args[0];
+  const first = args.find((arg) => arg !== 'sh' && arg !== '-c' && arg !== 'node') ?? args[0];
   if (first === undefined) return undefined;
+  const script = args.find((arg) => /dist\/[A-Za-z0-9_.-]+\.js$/.test(arg)) ?? null;
   const binary = first.includes('/') && !first.includes(' ') ? first : null;
   let source: string | null = null;
   if (reading.goBinary !== null && reading.goPackage !== null && first.split('/').pop() === reading.goBinary) {
     const dir = reading.goPackage.replace(/^\.\//, '');
     source = `${reading.path.slice(0, reading.path.lastIndexOf('/'))}/${dir}`;
   }
-  const nodeScript = /(?:^|[\s&;])node\s+(dist\/[A-Za-z0-9_.-]+\.js)/.exec(reading.command)?.[1];
-  if (source === null && nodeScript !== undefined) {
+  const nodeScript = script ?? /(?:^|[\s&;])node\s+(dist\/[A-Za-z0-9_.-]+\.js)/.exec(reading.command)?.[1] ?? null;
+  if (source === null && nodeScript !== null) {
     const candidate = `${reading.path.slice(0, reading.path.lastIndexOf('/'))}/${nodeScript.replace(/^dist\//, 'src/').replace(/\.js$/, '.ts')}`;
     if (t.has(candidate)) source = candidate;
   }
@@ -166,13 +168,12 @@ function k8sWorkloads(t: TreeText, records: Records, path: string): K8sWorkload[
     for (const error of document.errors) {
       records.gap(path, `line ${lineCounter.linePos(error.pos?.[0] ?? 0).line}: ${error.message}`);
     }
-    const parsed = document;
-    if (!isMap(parsed.contents)) continue;
-    const kind = scalarText0(parsed.contents.items.find((pair) => isScalar(pair.key) && pair.key.value === 'kind')?.value);
-    const metadata = parsed.contents.items.find((pair) => isScalar(pair.key) && pair.key.value === 'metadata')?.value;
+    if (!isMap(document.contents)) continue;
+    const kind = scalarText0(document.contents.items.find((pair) => isScalar(pair.key) && pair.key.value === 'kind')?.value);
+    const metadata = document.contents.items.find((pair) => isScalar(pair.key) && pair.key.value === 'metadata')?.value;
     const name = isMap(metadata) ? scalarText0(metadata.items.find((pair) => isScalar(pair.key) && pair.key.value === 'name')?.value) : null;
     if (kind === null || name === null) continue;
-    const range = parsed.range ?? [0, 0, text.length - 1];
+    const range = document.range ?? [0, 0, text.length - 1];
     const firstLine = lineCounter.linePos(range[0] ?? 0).line;
     const lastLine = lineCounter.linePos(Math.min((range[2] ?? text.length - 1), text.length - 1)).line;
     const workload: K8sWorkload = {
@@ -188,7 +189,7 @@ function k8sWorkloads(t: TreeText, records: Records, path: string): K8sWorkload[
       lineEnd: lastLine,
     };
     if (kind === 'Deployment') {
-      const spec = parsed.contents.items.find((pair) => isScalar(pair.key) && pair.key.value === 'spec')?.value;
+      const spec = document.contents.items.find((pair) => isScalar(pair.key) && pair.key.value === 'spec')?.value;
       if (isMap(spec)) {
         const replicas = scalarText0(spec.items.find((pair) => isScalar(pair.key) && pair.key.value === 'replicas')?.value);
         workload.replicas = replicas === null ? null : Number.parseInt(replicas, 10);
@@ -234,7 +235,7 @@ function k8sWorkloads(t: TreeText, records: Records, path: string): K8sWorkload[
       }
     }
     if (kind === 'Service') {
-      const spec = parsed.contents.items.find((pair) => isScalar(pair.key) && pair.key.value === 'spec')?.value;
+      const spec = document.contents.items.find((pair) => isScalar(pair.key) && pair.key.value === 'spec')?.value;
       const ports = isMap(spec) ? spec.items.find((pair) => isScalar(pair.key) && pair.key.value === 'ports')?.value : undefined;
       if (isSeq(ports)) {
         for (const port of ports.items) {
@@ -327,7 +328,7 @@ export function extractDeploy(t: TreeText, records: Records): void {
             image: workload.image,
             containerPorts: [...workload.containerPorts].sort((left, right) => left - right),
             probePath: workload.probePath,
-            envFrom: workload.envFrom.sort((left, right) => (left < right ? -1 : left > right ? 1 : 0)),
+            envFrom: workload.envFrom.sort(byCodePoint),
           } satisfies { [key: string]: PropertyValue },
           span,
         });

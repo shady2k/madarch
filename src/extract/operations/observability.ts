@@ -18,7 +18,8 @@ function loggers(t: TreeText, records: Records): void {
     let text: string;
     try {
       text = t.text(path);
-    } catch {
+    } catch (error) {
+      records.gap(path, `the logger cannot be read: ${error instanceof Error ? error.message : String(error)}`);
       continue;
     }
     const lines = text.split('\n');
@@ -57,17 +58,24 @@ interface Endpoint {
   readonly statusOk: boolean;
 }
 
-/** The route registrations of one Go file. */
+/**
+ * The route registrations of one Go file. A named handler's response is read
+ * at the handler's own declaration, not at the registration line, so a
+ * statusOk property always sits where the answer is written.
+ */
 function goRegistrations(t: TreeText, path: string): Endpoint[] {
   const lines = t.lines(path);
   const found: Endpoint[] = [];
   lines.forEach((line, index) => {
     for (const match of line.matchAll(/\.(?:Handle|HandleFunc)\(\s*"([A-Z]+)\s+(\/[A-Za-z0-9_./:-]*)"\s*,\s*([^)]*)\)/g)) {
       const handler = (match[3] ?? '').trim();
-      const symbol = /^[A-Za-z0-9_.]+$/.test(handler)
-        ? (handler.split('.').pop() ?? '')
-        : (nearestGoDeclaration(lines, index) ?? '');
-      const body = lines.slice(index, index + 6).join('\n');
+      const named = /^[A-Za-z0-9_.]+$/.test(handler);
+      const symbol = named ? (handler.split('.').pop() ?? '') : (nearestGoDeclaration(lines, index) ?? '');
+      let body = lines.slice(index, index + 6).join('\n');
+      if (named && symbol !== '') {
+        const declared = lines.findIndex((candidate) => new RegExp(`^func\\s+(?:\\([^)]*\\)\\s+)?${symbol}\\s*\\(`).test(candidate));
+        if (declared >= 0) body = lines.slice(declared, declared + 8).join('\n');
+      }
       found.push({
         method: match[1] ?? '',
         path: match[2] ?? '',
@@ -144,7 +152,8 @@ function metricsEndpoints(t: TreeText, records: Records): void {
     let text: string;
     try {
       text = t.text(path);
-    } catch {
+    } catch (error) {
+      records.gap(path, `the metrics cannot be read: ${error instanceof Error ? error.message : String(error)}`);
       continue;
     }
     if (!/func \([^)]+\) ServeHTTP/.test(text)) continue;

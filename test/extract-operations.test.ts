@@ -190,14 +190,14 @@ describe('extract operations', () => {
       expect(passport.properties.infrastructure).toEqual(wanted.infrastructure);
       expect(passport.properties.testFramework).toBe(wanted.testFramework);
     }
-    expect(node('code.service:orders').properties.frameworks).toEqual(expect.arrayContaining([
+    expect(node(`code.service:${'orders'}`).properties.frameworks).toEqual(expect.arrayContaining([
       'net/http', 'database/sql', 'github.com/lib/pq', 'github.com/segmentio/kafka-go', 'github.com/golang-jwt/jwt/v5',
     ]));
-    expect(node('code.service:promotions').properties.frameworks).toEqual(expect.arrayContaining(['net/http', 'github.com/lib/pq']));
-    expect(node('code.service:payments').properties.frameworks).toEqual(expect.arrayContaining([
+    expect(node(`code.service:${'promotions'}`).properties.frameworks).toEqual(expect.arrayContaining(['net/http', 'github.com/lib/pq']));
+    expect(node(`code.service:${'payments'}`).properties.frameworks).toEqual(expect.arrayContaining([
       'express', '@prisma/client', 'kafkajs', 'jsonwebtoken', '@grpc/grpc-js', 'pino',
     ]));
-    expect(node('code.service:checkout').properties.frameworks).toEqual(expect.arrayContaining(['express', '@grpc/grpc-js', 'pino']));
+    expect(node(`code.service:${'checkout'}`).properties.frameworks).toEqual(expect.arrayContaining(['express', '@grpc/grpc-js', 'pino']));
     // each service is declared by its own manifest (the key's mustLink)
     for (const manifest of ['services/orders/go.mod', 'services/promotions/go.mod', 'services/payments/package.json', 'services/checkout/package.json']) {
       const service = manifest.split('/')[1];
@@ -209,27 +209,27 @@ describe('extract operations', () => {
 
   test('newcomer.prerequisites', () => {
     assertAnchored('newcomer.prerequisites');
-    const prerequisites = node('code.newcomer-prerequisites:README.md');
+    const prerequisites = node(`code.newcomer-prerequisites:${'README.md'}`);
     expect(prerequisites.properties.tools).toEqual(['Docker Compose', 'Go 1.22', 'Node 20', 'psql']);
   });
 
   test('newcomer.folder-command', () => {
     assertAnchored('newcomer.folder-command');
-    const up = node('code.make-target:Makefile#up');
+    const up = node(`code.make-target:${'Makefile#up'}`);
     expect(up.properties.recipe).toEqual(['docker compose up --build -d']);
     const step = [...nodesOfKind('code.newcomer-command')].find((entry) => entry.properties.command === 'make up');
     expect(step, 'no newcomer command reads make up').toBeDefined();
     expect(step!.properties.folder).toBe('.');
-    expect(edgesFrom('code.backed-by', step!.key).map((entry) => entry.to)).toEqual(['code.make-target:Makefile#up']);
+    expect(edgesFrom('code.backed-by', step!.key).map((entry) => entry.to)).toEqual([`code.make-target:${'Makefile#up'}`]);
     const copy = [...nodesOfKind('code.newcomer-command')].find((entry) => entry.properties.command === 'cp .env.example .env');
     expect(copy, 'no newcomer command copies .env.example').toBeDefined();
   });
 
   test('newcomer.seed', () => {
     assertAnchored('newcomer.seed');
-    const seed = node('code.make-target:Makefile#seed');
+    const seed = node(`code.make-target:${'Makefile#seed'}`);
     const files = edgesFrom('code.references', seed.key).map((entry) => entry.to).sort(byCodePoint);
-    expect(files).toEqual(['code.file:scripts/seed-orders.sql', 'code.file:scripts/seed-promotions.sql']);
+    expect(files).toEqual([`code.file:${'scripts/seed-orders.sql'}`, `code.file:${'scripts/seed-promotions.sql'}`]);
     const step = [...nodesOfKind('code.newcomer-command')].find((entry) => entry.properties.command === 'make seed');
     expect(step).toBeDefined();
   });
@@ -240,21 +240,21 @@ describe('extract operations', () => {
     expect(step, 'no newcomer command places the first request').toBeDefined();
     expect(String(step!.properties.command)).toContain('POST http://localhost:8080/orders');
     expect(String(step!.properties.command)).toContain('items');
-    const token = node('code.make-target:Makefile#token');
-    expect(edgesFrom('code.references', token.key).map((entry) => entry.to)).toEqual(['code.file:scripts/token.mjs']);
-    expect(edgesFrom('code.backed-by', step!.key).map((entry) => entry.to)).toEqual(['code.make-target:Makefile#token']);
+    const token = node(`code.make-target:${'Makefile#token'}`);
+    expect(edgesFrom('code.references', token.key).map((entry) => entry.to)).toEqual([`code.file:${'scripts/token.mjs'}`]);
+    expect(edgesFrom('code.backed-by', step!.key).map((entry) => entry.to)).toEqual([`code.make-target:${'Makefile#token'}`]);
   });
 
   test('newcomer.tests', () => {
     assertAnchored('newcomer.tests');
-    const test = node('code.make-target:Makefile#test');
+    const test = node(`code.make-target:${'Makefile#test'}`);
     expect(test.properties.recipe).toEqual([
       'cd services/orders && go test ./...',
       'cd services/promotions && go vet ./...',
       'cd services/payments && npm test',
       'cd services/checkout && npm test',
     ]);
-    const install = node('code.make-target:Makefile#install');
+    const install = node(`code.make-target:${'Makefile#install'}`);
     expect(String(install.properties.recipe)).toContain('npx prisma generate');
     const commands = nodesOfKind('code.newcomer-command').map((entry) => entry.properties.command);
     expect(commands).toEqual(expect.arrayContaining(['make install', 'make test']));
@@ -262,29 +262,29 @@ describe('extract operations', () => {
 
   test('newcomer.failure', () => {
     assertAnchored('newcomer.failure');
-    const failure = node('code.newcomer-failure:README.md#port-is-already-allocated');
+    const failure = node(`code.newcomer-failure:${'README.md#port-is-already-allocated'}`);
     expect(failure.properties.symptom).toBe('port is already allocated');
     expect(failure.properties.port).toBe(5432);
-    expect(edgesFrom('code.references', failure.key).map((entry) => entry.to)).toEqual(['code.file:docker-compose.yml']);
+    expect(edgesFrom('code.references', failure.key).map((entry) => entry.to)).toEqual([`code.file:${'docker-compose.yml'}`]);
   });
 
   // ---- dependencies -------------------------------------------------------
 
   test('dependencies.old-pin', () => {
     assertAnchored('dependencies.old-pin');
-    const lodash = node('code.dependency:services/payments/package.json#lodash');
+    const lodash = node(`code.dependency:${'services/payments/package.json#lodash'}`);
     expect(lodash.properties.version).toBe('4.17.15');
     expect(lodash.properties.scope).toBe('direct');
-    const uses = edgesFrom('code.uses-dependency', 'code.file:services/payments/src/api/legacy-report.ts');
-    expect(uses.map((entry) => entry.to)).toContain('code.dependency:services/payments/package.json#lodash');
-    const lodashUse = uses.find((entry) => entry.to === 'code.dependency:services/payments/package.json#lodash');
+    const uses = edgesFrom('code.uses-dependency', `code.file:${'services/payments/src/api/legacy-report.ts'}`);
+    expect(uses.map((entry) => entry.to)).toContain(`code.dependency:${'services/payments/package.json#lodash'}`);
+    const lodashUse = uses.find((entry) => entry.to === `code.dependency:${'services/payments/package.json#lodash'}`);
     expect(lodashUse!.span!.path).toBe('services/payments/src/api/legacy-report.ts');
     expect(spanText(lodashUse!.span!)).toContain("from 'lodash'");
   });
 
   test('dependencies.go', () => {
     assertAnchored('dependencies.go');
-    const orders = 'code.dependency:services/orders/go.mod';
+    const orders = `code.dependency:${'services/orders/go.mod'}`;
     const wanted: Record<string, { version: string; scope: string }> = {
       'github.com/golang-jwt/jwt/v5': { version: 'v5.2.1', scope: 'direct' },
       'github.com/lib/pq': { version: 'v1.10.9', scope: 'direct' },
@@ -297,7 +297,7 @@ describe('extract operations', () => {
       expect(dependency.properties.version).toBe(wanted_.version);
       expect(dependency.properties.scope).toBe(wanted_.scope);
     }
-    const promotions = node('code.dependency:services/promotions/go.mod#github.com/lib/pq');
+    const promotions = node(`code.dependency:${'services/promotions/go.mod#github.com/lib/pq'}`);
     expect(promotions.properties.version).toBe('v1.10.9');
     expect(promotions.properties.scope).toBe('direct');
     for (const service of ['orders', 'promotions']) {
@@ -305,7 +305,7 @@ describe('extract operations', () => {
       expect(sum.properties.format).toBe('go-sum');
       expect(edgesFrom('code.resolves', `code.manifest:services/${service}/go.mod`).map((entry) => entry.to)).toEqual([`code.lockfile:services/${service}/go.sum`]);
     }
-    expect(Number(node('code.lockfile:services/orders/go.sum').properties.modules)).toBeGreaterThanOrEqual(5);
+    expect(Number(node(`code.lockfile:${'services/orders/go.sum'}`).properties.modules)).toBeGreaterThanOrEqual(5);
   });
 
   test('dependencies.direct-transitive-dev', () => {
@@ -329,14 +329,14 @@ describe('extract operations', () => {
 
   test('dependencies.versions', () => {
     assertAnchored('dependencies.versions');
-    const payments = 'code.dependency:services/payments/package.json#';
+    const payments = `code.dependency:${'services/payments/package.json#'}`;
     for (const [name, version] of [['express', '4.19.2'], ['@grpc/grpc-js', '1.10.8'], ['kafkajs', '2.2.4'], ['@prisma/client', '5.14.0'], ['pino', '9.1.0']] as const) {
       expect(node(`${payments}${name}`).properties.version).toBe(version);
     }
     expect(node(`${payments}jest`).properties.version).toBe('29.7.0');
     expect(node(`${payments}jest`).properties.scope).toBe('dev');
     expect(node(`${payments}typescript`).properties.version).toBe('5.4.5');
-    expect(node('code.dependency:services/checkout/package.json#express').properties.version).toBe('4.19.2');
+    expect(node(`code.dependency:${'services/checkout/package.json#express'}`).properties.version).toBe('4.19.2');
   });
 
   // ---- deploy -------------------------------------------------------------
@@ -350,7 +350,7 @@ describe('extract operations', () => {
     expect(deployment.properties.probePath).toBe('/healthz');
     const service = node('code.k8s-service:deploy/k8s/orders.yaml#orders');
     expect(service.properties.ports).toEqual([{ name: 'http', port: 80, targetPort: 8080 }]);
-    expect(edgesFrom('code.targets', service.key).map((entry) => entry.to)).toEqual(['code.port:orders/8080']);
+    expect(edgesFrom('code.targets', service.key).map((entry) => entry.to)).toEqual([`code.port:${'orders/8080'}`]);
   });
 
   test('deploy.compose', () => {
@@ -372,28 +372,28 @@ describe('extract operations', () => {
   test('deploy.image-process-port', () => {
     assertAnchored('deploy.image-process-port');
     const deployment = 'code.k8s-deployment:deploy/k8s/orders.yaml#orders';
-    const image = 'code.image:registry.example.test/training/orders:1.4.0';
-    const dockerfile = 'code.dockerfile:services/orders/Dockerfile';
-    const processNode = 'code.process:services/orders/cmd/orders';
+    const image = `code.image:${'registry.example.test/training/orders:1.4.0'}`;
+    const dockerfile = `code.dockerfile:${'services/orders/Dockerfile'}`;
+    const processNode = `code.process:${'services/orders/cmd/orders'}`;
     expect(edgesFrom('code.runs', deployment).map((entry) => entry.to)).toEqual([image]);
     expect(edgesFrom('code.built-by', image).map((entry) => entry.to)).toEqual([dockerfile]);
     expect(edgesFrom('code.starts', dockerfile).map((entry) => entry.to)).toEqual([processNode]);
-    expect(edgesFrom('code.listens-on', processNode).map((entry) => entry.to)).toEqual(['code.port:orders/8080']);
+    expect(edgesFrom('code.listens-on', processNode).map((entry) => entry.to)).toEqual([`code.port:${'orders/8080'}`]);
     expect(node(image).properties.tag).toBe('1.4.0');
     expect(node(processNode).properties.binary).toBe('/app/orders');
   });
 
   test('deploy.dockerfiles', () => {
     assertAnchored('deploy.dockerfiles');
-    const orders = node('code.dockerfile:services/orders/Dockerfile');
+    const orders = node(`code.dockerfile:${'services/orders/Dockerfile'}`);
     expect(orders.properties.baseImages).toEqual(['alpine:3.20', 'golang:1.22.5-alpine']);
     expect(orders.properties.exposes).toEqual([8080]);
     expect(orders.properties.command).toBe('["/app/orders"]');
-    const payments = node('code.dockerfile:services/payments/Dockerfile');
+    const payments = node(`code.dockerfile:${'services/payments/Dockerfile'}`);
     expect(payments.properties.exposes).toEqual([8081, 50051]);
     expect(String(payments.properties.command)).toContain('prisma migrate deploy');
-    expect(node('code.dockerfile:services/checkout/Dockerfile').properties.exposes).toEqual([8083]);
-    expect(node('code.dockerfile:services/promotions/Dockerfile').properties.exposes).toEqual([8082]);
+    expect(node(`code.dockerfile:${'services/checkout/Dockerfile'}`).properties.exposes).toEqual([8083]);
+    expect(node(`code.dockerfile:${'services/promotions/Dockerfile'}`).properties.exposes).toEqual([8082]);
     // each compose service builds its own image from its own context
     for (const [service, dockerfile] of [
       ['orders', 'services/orders/Dockerfile'],
@@ -404,15 +404,15 @@ describe('extract operations', () => {
       const builds = edgesFrom('code.builds', `code.compose-service:docker-compose.yml#${service}`);
       expect(builds.map((entry) => entry.to)).toEqual([`code.dockerfile:${dockerfile}`]);
     }
-    expect(node('code.compose-service:docker-compose.yml#payments').properties.build).toEqual({ context: '.', dockerfile: 'services/payments/Dockerfile' });
-    expect(node('code.compose-service:docker-compose.yml#orders').properties.build).toBe('./services/orders');
+    expect(node(`code.compose-service:${'docker-compose.yml#payments'}`).properties.build).toEqual({ context: '.', dockerfile: 'services/payments/Dockerfile' });
+    expect(node(`code.compose-service:${'docker-compose.yml#orders'}`).properties.build).toBe('./services/orders');
   });
 
   // ---- build --------------------------------------------------------------
 
   test('build.ci', () => {
     assertAnchored('build.ci');
-    const workflow = node('code.ci-workflow:.github/workflows/ci.yml');
+    const workflow = node(`code.ci-workflow:${'.github/workflows/ci.yml'}`);
     expect(workflow.properties.name).toBe('ci');
     const steps: Record<string, string[]> = {
       orders: ['go vet ./...', 'go test ./...'],
@@ -424,7 +424,7 @@ describe('extract operations', () => {
       const record = node(`code.ci-job:.github/workflows/ci.yml#${job}`);
       expect(record.properties.steps).toEqual(wanted);
       expect(record.properties.workingDirectory).toBe(`services/${job}`);
-      expect(edgesFrom('code.contains-job', 'code.ci-workflow:.github/workflows/ci.yml').map((entry) => entry.to))
+      expect(edgesFrom('code.contains-job', `code.ci-workflow:${'.github/workflows/ci.yml'}`).map((entry) => entry.to))
         .toContain(`code.ci-job:.github/workflows/ci.yml#${job}`);
     }
   });
@@ -434,10 +434,10 @@ describe('extract operations', () => {
     for (const target of ['run-orders', 'test', 'install', 'up', 'down', 'seed', 'token']) {
       expect(maybeNode(`code.make-target:Makefile#${target}`), target).toBeDefined();
     }
-    const runOrders = node('code.make-target:Makefile#run-orders');
+    const runOrders = node(`code.make-target:${'Makefile#run-orders'}`);
     expect(runOrders.properties.recipe).toEqual(['cd services/orders && go run ./cmd/orders']);
     expect(runOrders.properties.phony).toBe(true);
-    expect(node('code.make-target:Makefile#down').properties.recipe).toEqual(['docker compose down']);
+    expect(node(`code.make-target:${'Makefile#down'}`).properties.recipe).toEqual(['docker compose down']);
   });
 
   // ---- config ---------------------------------------------------------------
@@ -451,10 +451,10 @@ describe('extract operations', () => {
     }
     const reads = edgesOf('code.reads-env').filter((entry) => entry.to.endsWith('/DATABASE_URL'));
     const byFile = new Map(reads.map((entry) => [entry.from, entry.properties.symbol]));
-    expect(byFile.get('code.file:services/orders/internal/config/config.go')).toBe('Load');
-    expect(byFile.get('code.file:services/payments/src/config.ts')).toBe('loadConfig');
-    expect(byFile.get('code.file:services/promotions/cmd/promotions/main.go')).toBe('main');
-    const envExample = node('code.env-definition:.env.example#DATABASE_URL');
+    expect(byFile.get(`code.file:${'services/orders/internal/config/config.go'}`)).toBe('Load');
+    expect(byFile.get(`code.file:${'services/payments/src/config.ts'}`)).toBe('loadConfig');
+    expect(byFile.get(`code.file:${'services/promotions/cmd/promotions/main.go'}`)).toBe('main');
+    const envExample = node(`code.env-definition:${'.env.example#DATABASE_URL'}`);
     expect(envExample.properties.value).toBe('postgres://training:training@localhost:5432/orders?sslmode=disable');
     for (const service of ['orders', 'payments', 'promotions']) {
       const defined = node(`code.env-definition:docker-compose.yml#${service}/DATABASE_URL`);
@@ -469,7 +469,7 @@ describe('extract operations', () => {
       expect(node(`code.env-var:${service}/KAFKA_BROKERS`).properties.required).toBe(true);
       expect(node(`code.env-var:${service}/KAFKA_BROKERS`).properties.default).toBeNull();
     }
-    expect(node('code.env-definition:.env.example#KAFKA_BROKERS').properties.value).toBe('localhost:9094');
+    expect(node(`code.env-definition:${'.env.example#KAFKA_BROKERS'}`).properties.value).toBe('localhost:9094');
     for (const service of ['orders', 'payments']) {
       expect(node(`code.env-definition:docker-compose.yml#${service}/KAFKA_BROKERS`).properties.value).toBe('kafka:9092');
     }
@@ -477,11 +477,11 @@ describe('extract operations', () => {
 
   test('config.payment-provider', () => {
     assertAnchored('config.payment-provider');
-    const provider = node('code.env-var:payments/PAYMENT_PROVIDER');
+    const provider = node(`code.env-var:${'payments/PAYMENT_PROVIDER'}`);
     expect(provider.properties.required).toBe(false);
     expect(provider.properties.default).toBe('cardnet');
-    expect(node('code.env-definition:.env.example#PAYMENT_PROVIDER').properties.value).toBe('deferred');
-    expect(node('code.env-definition:docker-compose.yml#payments/PAYMENT_PROVIDER').properties.value).toBe('${PAYMENT_PROVIDER:-deferred}');
+    expect(node(`code.env-definition:${'.env.example#PAYMENT_PROVIDER'}`).properties.value).toBe('deferred');
+    expect(node(`code.env-definition:${'docker-compose.yml#payments/PAYMENT_PROVIDER'}`).properties.value).toBe('${PAYMENT_PROVIDER:-deferred}');
   });
 
   test('config.jwt-secret', () => {
@@ -491,16 +491,16 @@ describe('extract operations', () => {
       expect(secret.properties.required).toBe(true);
       expect(secret.properties.default).toBeNull();
     }
-    expect(node('code.env-definition:.env.example#JWT_SECRET').properties.value).toBe('local-development-secret');
-    expect(node('code.env-definition:docker-compose.yml#orders/JWT_SECRET').properties.value).toBe('${JWT_SECRET:-local-development-secret}');
+    expect(node(`code.env-definition:${'.env.example#JWT_SECRET'}`).properties.value).toBe('local-development-secret');
+    expect(node(`code.env-definition:${'docker-compose.yml#orders/JWT_SECRET'}`).properties.value).toBe('${JWT_SECRET:-local-development-secret}');
   });
 
   test('config.payment-timeout-ms', () => {
     assertAnchored('config.payment-timeout-ms');
-    const timeout = node('code.env-var:payments/PAYMENT_TIMEOUT_MS');
+    const timeout = node(`code.env-var:${'payments/PAYMENT_TIMEOUT_MS'}`);
     expect(timeout.properties.required).toBe(false);
     expect(timeout.properties.default).toBe('3000');
-    const read = edgesOf('code.reads-env').find((entry) => entry.to === 'code.env-var:payments/PAYMENT_TIMEOUT_MS');
+    const read = edgesOf('code.reads-env').find((entry) => entry.to === `code.env-var:${'payments/PAYMENT_TIMEOUT_MS'}`);
     expect(read).toBeDefined();
     expect(read!.properties.symbol).toBe('loadConfig');
     // the key's checks: neither local file defines it
@@ -512,7 +512,7 @@ describe('extract operations', () => {
 
   test('config.service-urls', () => {
     assertAnchored('config.service-urls');
-    const checkout = 'code.env-var:checkout/';
+    const checkout = `code.env-var:${'checkout/'}`;
     expect(node(`${checkout}ORDERS_URL`).properties).toEqual({ required: false, default: 'http://localhost:8080' });
     expect(node(`${checkout}PROMOTIONS_URL`).properties).toEqual({ required: false, default: 'http://localhost:8082' });
     expect(node(`${checkout}PAYMENTS_ADDR`).properties).toEqual({ required: false, default: 'localhost:50051' });
@@ -520,7 +520,7 @@ describe('extract operations', () => {
     for (const name of ['ORDERS_URL', 'PROMOTIONS_URL', 'PAYMENTS_ADDR']) {
       expect(maybeNode(`code.env-definition:docker-compose.yml#checkout/${name}`)).toBeDefined();
     }
-    expect(maybeNode('code.env-definition:docker-compose.yml#checkout/PAYMENTS_DEADLINE_MS')).toBeUndefined();
+    expect(maybeNode(`code.env-definition:${'docker-compose.yml#checkout/PAYMENTS_DEADLINE_MS'}`)).toBeUndefined();
   });
 
   // ---- observability --------------------------------------------------------
@@ -559,7 +559,7 @@ describe('extract operations', () => {
 
   test('obs.metrics', () => {
     assertAnchored('obs.metrics');
-    const metrics = node('code.metrics-endpoint:services/orders/internal/api/metrics.go#Metrics');
+    const metrics = node(`code.metrics-endpoint:${'services/orders/internal/api/metrics.go#Metrics'}`);
     expect(metrics.properties.path).toBe('/metrics');
     expect(metrics.properties.format).toBe('prometheus-text');
     expect(metrics.properties.counters).toEqual([
