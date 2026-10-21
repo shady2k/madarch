@@ -129,8 +129,14 @@ export function extractDriverTests(label: string, make: () => { owner: DatabaseO
   describe(`the extract driver on ${label}`, () => {
     let env: DriverEnv;
     let workspace: string;
+    /** The raw committer time of one commit of the first-parent line, once the walk has been read. */
+    const committerOf = (hash: string): string => {
+      const found = firstParent.find((c) => c.hash === hash);
+      if (found === undefined) throw new Error(`the first-parent walk holds no commit ${hash}`);
+      return found.committer;
+    };
     /** The walk's own facts about the named commits, read from git: the expected values. */
-    let firstParent: { hash: string; parent: string | null; committer: string; subject: string }[];
+    let firstParent: { hash: string; parent: string; committer: string; subject: string }[];
 
     beforeAll(async () => {
       workspace = mkdtempSync(path.join(tmpdir(), 'madarch-extract-driver-'));
@@ -139,9 +145,9 @@ export function extractDriverTests(label: string, make: () => { owner: DatabaseO
       const { owner, store } = make();
       await owner.ready;
       await store.createSchema();
-      firstParent = git(repository, 'log', '--first-parent', '--reverse', '--format=%H %P %cI %s').trim().split('\n').map((line) => {
-        const [hash = '', parent = '', committer = '', ...rest] = line.split(' ');
-        return { hash, parent: parent === '' ? null : parent, committer, subject: rest.join(' ') };
+      firstParent = git(repository, 'log', '--first-parent', '--reverse', '--format=%H%x00%P%x00%cI%x00%s').trim().split('\n').map((line) => {
+        const [hash = '', parents = '', committer = '', subject = ''] = line.split('\0');
+        return { hash, parent: parents.split(' ')[0] ?? '', committer, subject };
       });
       const options: FillOptions = { owner, store, repository, extractors: [extractOperations, extractFiles], history: extractHistory };
       const started = Date.now();
@@ -165,19 +171,19 @@ export function extractDriverTests(label: string, make: () => { owner: DatabaseO
     test('rename-keeps-identity (rename.identity): services/orders/src/order.go and services/orders/internal/domain/order.go are one node', async () => {
       // The key: "moved, content kept, one identity, history continues after the move"; the move commit is "Move the order aggregate under internal/domain".
       const move = firstParent.find((c) => c.subject.includes('Move the order aggregate under internal/domain'))!;
-      const before = move.parent!;
       const after = firstParent[firstParent.indexOf(move) + 1]!.hash;
-      const at = (commit: string, offset = 'T12:00:00Z'): string => `${commit.slice(0, 10)}${offset}`;
+      const dayAt = (iso: string, offset = 'T12:00:00Z'): string => `${iso.slice(0, 10)}${offset}`;
+      const before = dayAt(committerOf(move.parent)); // noon of the day before the move's own time
       // Before the move only the old path exists; after it only the new one; and both are the same node id.
       const filesAt = async (when: string, filePath: string) => (await nodesOfKind(env, 'code.file', when)).filter((n) => n.properties['recordKey'] === `code.file:${filePath}`);
-      const oldBefore = await filesAt(at(before), 'services/orders/src/order.go');
-      const newBefore = await filesAt(at(before), 'services/orders/internal/domain/order.go');
+      const oldBefore = await filesAt(before, 'services/orders/src/order.go');
+      const newBefore = await filesAt(before, 'services/orders/internal/domain/order.go');
       expect(oldBefore).toHaveLength(1);
       expect(newBefore).toHaveLength(0);
-      const movedAt = at(move.hash, 'T23:59:59Z'); // after the move's own time, before any later commit touches the file
+      const movedAt = dayAt(move.committer, 'T23:59:59Z'); // after the move's own time, before any later commit touches the file
       const newAfter = await filesAt(movedAt, 'services/orders/internal/domain/order.go');
       const oldAfter = await filesAt(movedAt, 'services/orders/src/order.go');
-      const laterStill = await filesAt(at(after), 'services/orders/internal/domain/order.go');
+      const laterStill = await filesAt(dayAt(committerOf(after)), 'services/orders/internal/domain/order.go');
       expect(newAfter).toHaveLength(1);
       expect(oldAfter).toHaveLength(0);
       expect(laterStill).toHaveLength(1); // the history continues after the move, as the key's mustShow says
@@ -191,8 +197,10 @@ export function extractDriverTests(label: string, make: () => { owner: DatabaseO
       // The key (temporal items): the branch feature/checkout-observability is merged by CHK-142; its changes appear on main at the merge.
       const merge = firstParent.find((c) => c.subject.includes('Merge feature/checkout-observability'))!;
       const mergeTime = merge.committer; // 0028: a merge makes its branch's changes valid at the merge's time
-      const branchCommit = '7dedb74'; // CHK-140 Propagate request ids through checkout (its own date precedes the merge)
-      const branchTime = git(env.repository, 'log', '-1', '--format=%cI', branchCommit).trim();
+      // The branch's own commit that changed the file: the merge's second parent's line, read from git (CHK-140).
+      const secondParent = git(env.repository, 'log', '-1', '--format=%P', merge.hash).trim().split(' ')[1]!;
+      const branchTime = git(env.repository, 'log', '-1', '--format=%cI', secondParent).trim();
+      expect(git(env.repository, 'log', '-1', '--format=%s', secondParent).trim()).toContain('Propagate request ids through checkout');
       // The branch changed services/checkout/src/api/routes.ts; before the merge the tree still holds the old content.
       const filePath = 'services/checkout/src/api/routes.ts';
       const oldDigest = sha(blobAt(env.repository, merge.parent!, filePath));
