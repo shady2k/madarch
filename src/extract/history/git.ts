@@ -59,10 +59,23 @@ export interface LogEntry {
   readonly changes: readonly LogChange[];
 }
 
-/** One file of one tree: its repository path and the blob that holds its bytes. */
+/** One entry of one tree: its repository path, its git type and, for a blob, the id that holds its bytes. */
 export interface TreeEntry {
   readonly path: string;
-  readonly blob: string;
+  readonly type: string;
+  readonly blob?: string;
+}
+
+/**
+ * A revision the extractor hands git: never empty, never holding whitespace,
+ * never opening with a dash (git would read it as an option). A revision the
+ * repository holds - a commit id, a branch, a tag - is none of those.
+ */
+function revisionOf(revision: string, what: string): string {
+  if (typeof revision !== 'string' || revision.trim() === '' || /\s/u.test(revision) || revision.startsWith('-')) {
+    throw new Error(`${what}: ${JSON.stringify(revision)} is no revision this reader hands git: a commit id, a branch or a tag, never empty and never opening with a dash`);
+  }
+  return revision;
 }
 
 /** One failed git call says where it ran, what was asked and what git answered. */
@@ -109,7 +122,8 @@ export function defaultBranch(repository: string): string {
 
 /** Resolves what the caller pinned (a commit, a branch, anything git resolves) to the commit it names. */
 export function resolveCommit(what: string, repository: string, revision: string): string {
-  const commit = runGit(what, repository, ['rev-parse', '--verify', `${revision}^{commit}`]).trim();
+  const checked = revisionOf(revision, `${what}: the revision ${JSON.stringify(revision)}`);
+  const commit = runGit(what, repository, ['rev-parse', '--verify', `${checked}^{commit}`]).trim();
   if (!COMMIT_PATTERN.test(commit)) {
     throw new Error(`${what}: ${JSON.stringify(revision)} resolved to ${JSON.stringify(commit)}, which is no commit`);
   }
@@ -147,9 +161,12 @@ function commitId(text: string, what: string): string {
  */
 export function readLog(what: string, repository: string, revision: string, firstParentOnly: boolean): LogEntry[] {
   const where = `${what}: the log of ${revision} in ${repository}${firstParentOnly ? ' on the first-parent line' : ''}`;
+  // `--no-diff-merges` pins the counting rules' own ground: a merge commit
+  // changes no path of its own, whatever a machine's git configuration or
+  // version would otherwise show for one.
   const args = [
-    '--no-pager', 'log', '--no-color', '--no-show-signature', ...(firstParentOnly ? ['--first-parent'] : []),
-    `--format=${LOG_FORMAT}`, '--name-status', '-M', '-z', revision,
+    '--no-pager', 'log', '--no-color', '--no-show-signature', '--no-diff-merges', ...(firstParentOnly ? ['--first-parent'] : []),
+    `--format=${LOG_FORMAT}`, '--name-status', '-M', '-z', revisionOf(revision, `${where}: the revision`),
   ];
   const text = runGit(where, repository, args);
   const entries: LogEntry[] = [];
@@ -223,27 +240,26 @@ function parseChanges(section: string, commit: string, where: string): LogChange
   return changes;
 }
 
-/** Every blob of one commit's tree with its repository path, in code point order of the paths. */
+/** Every entry of one commit's tree with its repository path, in code point order of the paths. */
 export function listTree(what: string, repository: string, commit: string): readonly TreeEntry[] {
-  const where = `${what}: the tree of ${commit} in ${repository}`;
-  const text = runGit(where, repository, ['ls-tree', '-r', '-z', commit]);
+  const where = `${what}: the tree of ${revisionOf(commit, `${what}: the tree of`)}`;
+  const text = runGit(where, repository, ['ls-tree', '-r', '-z', revisionOf(commit, where)]);
   const entries: TreeEntry[] = [];
   for (const token of text.split('\x00')) {
     if (token === '') continue;
     const tab = token.indexOf('\t');
-    if (tab < 0) throw new Error(`${where} holds the entry ${JSON.stringify(token.slice(0, 120))}: an entry is its mode, its type, its blob id and its path behind a tab`);
+    if (tab < 0) throw new Error(`${where} holds the entry ${JSON.stringify(token.slice(0, 120))}: an entry is its mode, its type, its object id and its path behind a tab`);
     const meta = token.slice(0, tab).split(' ');
-    const [mode, type, blob] = meta;
-    if (mode === undefined || type === undefined || blob === undefined) {
-      throw new Error(`${where} holds the entry ${JSON.stringify(token.slice(0, 120))}: an entry is its mode, its type, its blob id and its path`);
+    const [mode, type, id] = meta;
+    if (mode === undefined || type === undefined || id === undefined) {
+      throw new Error(`${where} holds the entry ${JSON.stringify(token.slice(0, 120))}: an entry is its mode, its type, its object id and its path`);
     }
-    if (!COMMIT_PATTERN.test(blob)) {
-      throw new Error(`${where} holds the object id ${JSON.stringify(blob)}, which is not forty lower-case hexadecimal digits`);
+    if (!COMMIT_PATTERN.test(id)) {
+      throw new Error(`${where} holds the object id ${JSON.stringify(id)}, which is not forty lower-case hexadecimal digits`);
     }
-    if (type !== 'blob') continue;
     const path = token.slice(tab + 1);
     if (path === '') throw new Error(`${where} holds an entry of ${type} with no path`);
-    entries.push({path, blob});
+    entries.push(type === 'blob' ? {path, type, blob: id} : {path, type});
   }
   entries.sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
   return entries;

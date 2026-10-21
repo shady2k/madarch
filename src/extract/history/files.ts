@@ -10,7 +10,7 @@ import {byCodePoint} from '../../model/order.js';
 import type {ExtractedEdge, ExtractedNode, ExtractionGap} from '../records.js';
 import type {LogEntry, TreeEntry} from './git.js';
 import {listTree, readBlob, resolveCommit} from './git.js';
-import {commitKey, type CommitRecord} from './commits.js';
+import {commitKey, edgeOrder, type CommitRecord} from './commits.js';
 
 /** A file's node key: `code.file:<path>`. */
 export function fileKey(path: string): string {
@@ -101,21 +101,30 @@ export function fileRecords(repository: string, branch: string, all: readonly Lo
     }
   }
 
-  // The trees of the pinned snapshots and the tip.
+  // The trees of the pinned snapshots and the tip. An entry that is no blob (a
+  // submodule's gitlink, say) is a path this extractor cannot read, and is
+  // said as a gap of that path, once wherever it stands.
   const tip = resolveCommit(what, repository, branch);
   const tipTree = listTree(what, repository, tip);
-  const tipPaths = new Set(tipTree.map((entry) => entry.path));
+  const unreadPaths = new Set<string>();
+  const unread = (entry: TreeEntry): string | undefined => {
+    if (entry.blob !== undefined) return undefined;
+    unreadPaths.add(entry.path);
+    return `the tree holds ${entry.path} as a ${entry.type}, not as a blob of bytes`;
+  };
+  const tipPaths = new Set(tipTree.flatMap((entry) => (unread(entry) === undefined ? [entry.path] : [])));
   for (const path of tipPaths) {
     paths.add(path);
     identities.add(path);
   }
-  const snapshotTrees = new Map<string, readonly TreeEntry[]>();
+  const snapshotTrees = new Map<string, {commit: string; entries: readonly TreeEntry[]}>();
   for (const name of Object.keys(snapshots).sort(byCodePoint)) {
     const pinned = snapshots[name];
     if (typeof pinned !== 'string') {
       throw new Error(`${what}: the snapshot ${JSON.stringify(name)} is pinned at ${JSON.stringify(pinned)}, not a revision`);
     }
-    snapshotTrees.set(name, listTree(what, repository, resolveCommit(what, repository, pinned)));
+    const commit = resolveCommit(what, repository, pinned);
+    snapshotTrees.set(name, {commit, entries: listTree(what, repository, commit)});
   }
 
   // What each identity changed and who changed it: the commits of every path
@@ -169,11 +178,16 @@ export function fileRecords(repository: string, branch: string, all: readonly Lo
   // stands there.
   const linesOf = new Map<string, number>();
   for (const entry of tipTree) {
+    if (entry.blob === undefined) continue;
     try {
       linesOf.set(entry.path, countLines(readBlob(what, repository, entry.blob)));
     } catch (error) {
       gaps.push({path: entry.path, reason: `the bytes of blob ${entry.blob} could not be read: ${(error as Error).message}`});
     }
+  }
+  for (const path of unreadPaths) {
+    const reason = `the tree holds ${path} as an entry that is no blob, so its bytes are not read`;
+    if (!gaps.some((gap) => gap.path === path && gap.reason === reason)) gaps.push({path, reason});
   }
   for (const path of paths) {
     const root = identities.find(path);
@@ -188,10 +202,12 @@ export function fileRecords(repository: string, branch: string, all: readonly Lo
     });
   }
 
-  // The snapshot nodes and what each holds.
-  for (const name of snapshotTrees.keys()) {
-    nodes.push({key: snapshotKey(name), kind: 'code.snapshot', label: name, properties: {}});
-    for (const entry of snapshotTrees.get(name) ?? []) {
+  // The snapshot nodes, each naming the commit it is pinned at, and what each
+  // holds.
+  for (const [name, snapshot] of snapshotTrees) {
+    nodes.push({key: snapshotKey(name), kind: 'code.snapshot', label: name, properties: {commit: snapshot.commit}});
+    for (const entry of snapshot.entries) {
+      if (entry.blob === undefined) continue;
       edges.push({type: 'code.held', from: snapshotKey(name), to: fileKey(entry.path), discriminator: '', properties: {blob: entry.blob}});
     }
   }
@@ -245,7 +261,3 @@ function countLines(bytes: Buffer): number {
   return lines;
 }
 
-/** The order of the records' edges: type, both ends, then the discriminator. */
-function edgeOrder(left: ExtractedEdge, right: ExtractedEdge): number {
-  return byCodePoint(left.type, right.type) || byCodePoint(left.from, right.from) || byCodePoint(left.to, right.to) || byCodePoint(left.discriminator, right.discriminator);
-}

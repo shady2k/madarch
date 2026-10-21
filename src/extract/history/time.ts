@@ -14,10 +14,12 @@ export function isoSeconds(epochSeconds: number): string {
 }
 
 /**
- * Microseconds since the epoch: a raw committer time carries no fraction, and
- * the smallest bump decision 0028 allows (`parent effective + 1 microsecond`)
- * prints its six digits, so the string order of two effective times of one
- * first-parent line is their time order.
+ * Microseconds since the epoch, always with six fraction digits: the smallest
+ * bump decision 0028 allows (`parent effective + 1 microsecond`) must sort
+ * after its parent as a string, and `2026-09-14T14:15:00Z` would sort after
+ * `2026-09-14T14:15:00.000001Z` were the fraction elided where it is zero, so
+ * it never is: the string order of two effective times of one first-parent
+ * line is their time order.
  */
 export function isoMicros(micros: number): string {
   if (!Number.isSafeInteger(micros)) {
@@ -25,6 +27,5 @@ export function isoMicros(micros: number): string {
   }
   const seconds = Math.floor(micros / 1_000_000);
   const fraction = micros - seconds * 1_000_000;
-  if (fraction === 0) return isoSeconds(seconds);
   return `${isoSeconds(seconds).slice(0, -1)}.${String(fraction).padStart(6, '0')}Z`;
 }

@@ -9,7 +9,7 @@
  */
 import {byCodePoint} from '../../model/order.js';
 import type {Extraction, ExtractedEdge, ExtractedNode} from '../records.js';
-import {commitRecords} from './commits.js';
+import {commitRecords, edgeOrder} from './commits.js';
 import {fileRecords} from './files.js';
 import {defaultBranch, readLog} from './git.js';
 
@@ -50,7 +50,3 @@ export async function extractHistory(request: HistoryExtractionRequest): Promise
   return {producer: HISTORY_PRODUCER, nodes, edges, gaps: files.gaps};
 }
 
-/** The order of the extraction's edges: type, both ends, then the discriminator. */
-function edgeOrder(left: ExtractedEdge, right: ExtractedEdge): number {
-  return byCodePoint(left.type, right.type) || byCodePoint(left.from, right.from) || byCodePoint(left.to, right.to) || byCodePoint(left.discriminator, right.discriminator);
-}

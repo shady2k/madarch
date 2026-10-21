@@ -16,7 +16,7 @@ import path from 'node:path';
 import {afterAll, beforeAll, describe, expect, test} from 'bun:test';
 import {byCodePoint} from '../src/model/order.js';
 // @ts-expect-error the plan is plain JavaScript
-import {COMMITS as PLAN, SNAPSHOTS as PLAN_SNAPSHOTS} from '../examples/training-repository/history.mjs';
+import {COMMITS as PLAN} from '../examples/training-repository/history.mjs';
 import {extractHistory} from '../src/extract/history/index.js';
 import type {ExtractedEdge, ExtractedNode, Extraction} from '../src/extract/records.js';
 
@@ -29,14 +29,6 @@ const MY_ITEMS = key.items.filter((item: {id: string; evidenceClass: string}) =>
 
 type PlanCommit = {id?: string; message: string};
 const plan = PLAN as PlanCommit[];
-/** The subject the plan gives the commit whose id the key's snapshots name. */
-const subjectOf = (id: string): string => {
-  const entry = plan.find((c) => c.id === id);
-  if (entry === undefined) throw new Error(`history.mjs has no commit ${id}`);
-  const subject = entry.message.split('\n')[0];
-  if (subject === undefined) throw new Error(`history.mjs carries no subject line for commit ${id}`);
-  return subject;
-};
 
 // ---- the fixture -----------------------------------------------------------
 
@@ -54,7 +46,7 @@ beforeAll(async () => {
 }, 180_000);
 afterAll(async () => {
   if (repo !== undefined) await rm(path.dirname(repo), {recursive: true, force: true});
-});
+}, 30_000);
 
 // ---- reading the extraction ------------------------------------------------
 
@@ -63,7 +55,6 @@ const node = (key_: string): ExtractedNode => {
   if (hit === undefined) throw new Error(`the extraction holds no node ${key_}`);
   return hit;
 };
-const maybeNode = (key_: string): ExtractedNode | undefined => extraction.nodes.find((n) => n.key === key_);
 const edgesOf = (type: string): ExtractedEdge[] => extraction.edges.filter((e) => e.type === type);
 const commitsOfKind = (): ExtractedNode[] => extraction.nodes.filter((n) => n.kind === 'code.commit');
 const commitBySubject = (subject: string): ExtractedNode => {
@@ -289,6 +280,10 @@ describe('the history extractor against the answer key', () => {
     expect([...touchers(tax)].filter((c) => !touchers(pricing).has(c)), 'tax only').toHaveLength(key.plantedCounts.taxOnly);
     // The pairing carries support only: no other property, no position.
     expect(Object.keys(pair!.properties).sort(byCodePoint)).toEqual(['support']);
+    // A pair that met once is no coupling: every edge names at least two commits.
+    for (const edge of edgesOf('code.changed-with')) {
+      expect(Number(edge.properties.support), `${edge.from} with ${edge.to}`).toBeGreaterThanOrEqual(2);
+    }
   });
 
   // provider-authorship: "Every commit under services/payments/src/providers is
@@ -325,6 +320,9 @@ describe('the history extractor against the answer key', () => {
     const parentEffective = String(node(backwards[0]!.parent!.to).properties.effectiveAt);
     expect(parentEffective.startsWith('2026-09-14'), `the parent's effective time ${parentEffective}`).toBe(true);
     expect(anomaly.properties.effectiveAt, 'the policy: parent effective plus one microsecond').toBe(plusMicro(parentEffective));
+    // The bump must sort: effective times are read as strings, so the bumped
+    // instant must stand after its parent's in code point order too.
+    expect(String(anomaly.properties.effectiveAt) > parentEffective, 'the bumped effective time sorts after its parent').toBe(true);
   });
 
   // large-file: "services/payments/src/api/legacy-report.ts is the large file:
