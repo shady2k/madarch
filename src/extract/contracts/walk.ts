@@ -2,10 +2,13 @@
  * Walking helpers shared by the contracts extractor's code readers. They only
  * shape tree-sitter's nodes (web-tree-sitter, the grammars of
  * src/fill/stages/syntax-extract.ts) into questions a reader asks: which call
- * expressions stand in a tree, what a callee is named, what a string or an
- * object literal holds. Nothing here reads a file, a clock or a database.
+ * expressions stand in a tree, what a callee is named, what a string holds.
+ * A node lives no longer than the `readSyntaxTree` call that produced it, so
+ * every reader turns what it needs into plain data -- spans included -- before
+ * the walk returns.
  */
 import type {Node as SyntaxNode} from 'web-tree-sitter';
+import type {SourceSpan} from '../../extract/records.js';
 
 /** Visits every node of a tree, pre-order. */
 export function walkTree(node: SyntaxNode, visit: (node: SyntaxNode) => void): void {
@@ -14,6 +17,17 @@ export function walkTree(node: SyntaxNode, visit: (node: SyntaxNode) => void): v
     const child = node.child(i);
     if (child !== null) walkTree(child, visit);
   }
+}
+
+/** The schema's span of a node, measured while the node is alive. */
+export function spanOf(node: SyntaxNode, path: string): SourceSpan {
+  return {
+    path,
+    byteStart: node.startIndex,
+    byteEnd: node.endIndex,
+    lineStart: node.startPosition.row + 1,
+    lineEnd: node.endPosition.row + 1,
+  };
 }
 
 /** The name a call's callee ends with (`HandleFunc` of `mux.HandleFunc`), or undefined. */
@@ -45,16 +59,6 @@ export function stringValue(node: SyntaxNode | null): string | undefined {
   return undefined;
 }
 
-/** The nearest ancestor of one of the types, the node itself included. */
-export function enclosing(node: SyntaxNode, types: ReadonlySet<string>): SyntaxNode | undefined {
-  let held: SyntaxNode | null = node;
-  while (held !== null) {
-    if (types.has(held.type)) return held;
-    held = held.parent;
-  }
-  return undefined;
-}
-
 /** The name of the function or method a node stands in, if one does. */
 export function enclosingFunctionName(node: SyntaxNode): string | undefined {
   let held: SyntaxNode | null = node;
@@ -66,9 +70,4 @@ export function enclosingFunctionName(node: SyntaxNode): string | undefined {
     held = held.parent;
   }
   return undefined;
-}
-
-/** The declaration name of a declaration node, if it is one. */
-export function declarationName(node: SyntaxNode): string | undefined {
-  return node.childForFieldName('name')?.text;
 }
