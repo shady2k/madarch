@@ -179,7 +179,7 @@ export function readTsFile(path: string, root: SyntaxNode): TsFileFacts {
       });
       return;
     }
-    if (node.type === 'variable_declarator' && node.parent?.type === 'program') {
+    if (node.type === 'variable_declarator' && node.parent?.type === 'lexical_declaration' && node.parent.parent?.type === 'program') {
       const name = node.childForFieldName('name')?.text;
       const value = node.childForFieldName('value');
       if (name !== undefined && value !== null && value.type === 'call_expression') {

@@ -35,6 +35,8 @@ import {
   sqlSinkKey,
 } from '../src/extract/contracts/schema.js';
 import {extractContracts} from '../src/extract/contracts/index.js';
+import {readGoFile} from '../src/extract/contracts/go-code.js';
+import {readSyntaxTree} from '../src/fill/stages/syntax-extract.js';
 import type {Extraction, ExtractedEdge, ExtractedNode, TreeReader} from '../src/extract/records.js';
 
 const testFolder = path.dirname(fileURLToPath(import.meta.url));
@@ -105,6 +107,7 @@ async function folderReader(dir: string): Promise<{reader: TreeReader; folder: s
 }
 
 let extraction: Extraction;
+let extractionRead: (path: string) => Uint8Array;
 
 beforeAll(async () => {
   const scratch = await mkdtemp(path.join(tmpdir(), 'madarch-o0eq1-'));
@@ -115,6 +118,7 @@ beforeAll(async () => {
   });
   const {reader} = await folderReader(generated);
   extraction = await extractContracts(reader);
+  extractionRead = (p: string) => reader.read(p);
   await rm(scratch, {recursive: true, force: true});
 }, 240_000);
 
@@ -164,6 +168,33 @@ describe('extract contracts (training repository)', () => {
     console.log('nodes:', [...kinds.entries()].sort().map(([k, n]) => `${k}=${n}`).join(' '));
     console.log('edges:', extraction.edges.map((e) => `${e.type} ${e.from} -> ${e.to}`).sort().join(' | '));
     console.log('gaps:', extraction.gaps.map((gap) => `${gap.path}: ${gap.reason}`).join(' | ') || '(none)');
+  });
+
+  test('diagnostic: Go file facts', async () => {
+    for (const p of ['services/promotions/cmd/promotions/main.go', 'services/orders/internal/relay/kafka.go', 'services/orders/internal/consumer/payments.go', 'services/orders/cmd/orders/main.go']) {
+      const bytes = extractionRead(p);
+      const read = await readSyntaxTree(p, bytes, (file) => readGoFile(p, file.root));
+      if (!read.read) {
+        console.log(p, 'UNREAD');
+        continue;
+      }
+      const facts = read.value;
+      console.log(
+        p,
+        JSON.stringify({
+          consts: [...facts.consts],
+          serverAddrs: [...facts.serverAddrs],
+          kafkaSites: facts.kafkaSites.map((site) => ({kind: site.kind, topic: site.topic, group: site.group})),
+          methods: facts.methods,
+          interfaceMethods: facts.interfaceMethods,
+          switchCases: [...facts.switchCases],
+          statusComparisons: facts.statusComparisons,
+          unconditionalCommit: facts.unconditionalCommit,
+          hs256: facts.hs256Functions,
+          rawStarts: facts.rawStarts,
+        }),
+      );
+    }
   });
 
   test('every answer-key item of the contracts areas is carried', () => {
