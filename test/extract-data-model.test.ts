@@ -309,7 +309,7 @@ describe('table-access items (answer key)', () => {
     expect(writers).toContain(functionKey(repositoryPath, 'OrderRepository.Delete'));
     expect(writers).toContain(functionKey(repositoryPath, 'insertOrder'));
     for (const writer of writers) {
-      expect(writer.startsWith(`code.function:${repositoryPath}#`) || writer.startsWith('code.file:'), writer).toBe(true);
+      expect(writer.startsWith(`code.symbol:${repositoryPath}#`) || writer.startsWith('code.file:'), writer).toBe(true);
     }
     const readers = edgesOf('code.reads-table').filter((edge) => edge.to === table).map((edge) => edge.from);
     for (const reader of ['OrderRepository.Get', 'OrderRepository.List', 'OrderRepository.FindByRequestID', 'OrderRepository.ListCreatedBefore']) {
@@ -496,7 +496,7 @@ function sourceRead(pathname: string): Uint8Array {
 
 /** The key prefix of every function node of one file (built, so no scanner reads it as a source). */
 function functionIn(filePath: string): string {
-  return `code.function:${filePath}#`;
+  return `code.symbol:${filePath}#`;
 }
 
 function columnsOf(database: string, table: string): string[] {
