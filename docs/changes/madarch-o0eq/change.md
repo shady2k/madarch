@@ -38,6 +38,7 @@ Decision 0028. Records carry logical keys, no time and no database ids; kinds an
 
 ## Acceptance evidence
 To be filled by each task with the test run on the pod.
+- madarch-o0eq.5 (driver): PGlite `madarch-sky-test /home/dev/.herdr/worktrees/madarch/feature-madarch-graph-driver test/extract-driver.test.ts` on the pod (queued launch, run-queued-20261021-213412.log.txt), exit 0: 6 pass, 0 fail, bun test 48 s. Server PostgreSQL `.pod-pg.sh bun test test/extract-driver-postgres.test.ts` on the pod (run-pg-20261021-213928.log.txt), exit 0: 7 pass, 0 fail, bun test 58 s. The fill of the generated training repository (70 first-parent commits) takes 35 s on PGlite, 25 s on the server, and writes 1067 node versions and 347 edge versions; a second fill writes no row in any table. Full per-table sizes in the worker report.
 - madarch-o0eq.3 (operations): `madarch-sky-test /home/dev/.herdr/worktrees/madarch/feature-madarch-extract-operations test/extract-operations.test.ts` on the pod, exit 0: 29 pass, 0 fail, bun test 4.99 s, pod wall 25 s (run-20261021-193312.log.txt). Every item of the areas config, deploy, build, dependencies, obs, stack and newcomer is asserted by its named case; no todo. Known defect on the base branch, unchanged by this task: the neutral-names scan flags src/extract/records.ts lines 19 and 20, the contract's own docstring examples, reported to the coordinator.
 
 ## DONE WHEN
