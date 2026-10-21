@@ -198,7 +198,7 @@ type AgentClaimRow = Parameters<typeof assembleClaims>[0]['agentClaims'][number]
 const trainingPinnedSources = (): { scratch: string; root: string; sources: ReturnType<typeof createClaimSources>; materials: ExtractionMaterial[] } => {
   const scratch = mkdtempSync(join(tmpdir(), 'madarch-tzte14-training-'));
   const root = join(scratch, 'training-source');
-  const generator = fileURLToPath(new URL('../examples/training-repository/generate.mjs', import.meta.url));
+  const generator = fileURLToPath(new URL('../examples/training-repository/agent-stage/generate.mjs', import.meta.url));
   execFileSync('node', [generator, root], { cwd: fileURLToPath(new URL('..', import.meta.url)), stdio: ['ignore', 'pipe', 'pipe'] });
   const commit = execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
   const documentPaths = execFileSync('git', ['-C', root, 'ls-tree', '-r', '--name-only', commit], { encoding: 'utf8' }).split('\n').filter((path) => path.toLowerCase().endsWith('.md')).sort();
@@ -264,7 +264,7 @@ describe('typed open questions from claims, marks, agent answers and unread link
       expect(validateClaimsAnswer(answer, kinds, training.sources)).toEqual([]);
       const built = assembleClaims({ runId: 'checkpoint-marked', unitId: 'claims-repository', kinds, sources: training.sources, agentClaims: claims as AgentClaimRow[], agentQuestions: questions, inaccessibleLinks: recordUnattemptedLinks(training.materials, training.sources) });
       const extraction: ClaimsExtraction = { ...built, usage: { elapsedMs: 1, inputTokens: 2, outputTokens: 3 } };
-      const score = await scoreTrainingExtraction({ extraction, answerKeyPath: fileURLToPath(new URL('../examples/training-repository/answer-key.json', import.meta.url)), generatedRepo: training.root });
+      const score = await scoreTrainingExtraction({ extraction, answerKeyPath: fileURLToPath(new URL('../examples/training-repository/agent-stage/answer-key.json', import.meta.url)), generatedRepo: training.root });
       expect(score.questions.counts).toEqual({ expected: 8, found: 8 });
       expect(score.questions.missingTypes).toEqual([]);
       expect(score.questions.foundTypes).toEqual(['access-or-document-needed', 'assumption-check', 'contradiction', 'decision-rationale', 'meaning', 'term', 'undocumented-behaviour', 'unverifiable']);

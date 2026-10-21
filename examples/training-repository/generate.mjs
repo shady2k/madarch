@@ -1,65 +1,261 @@
 #!/usr/bin/env node
-import { execFileSync } from 'node:child_process';
-import { lstat, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+// Replays history.mjs over the files in template/ into a new git repository.
+//
+// template/ holds the final state of the generated repository as real files.
+// Earlier states are produced from the same files: a line that is only a
+// comment carrying "@@" is a directive, never written to the output.
+//
+//   <comment> @@ since <commit id> [until <commit id>]
+//   ...lines present only while the first commit is in the history of the one
+//   being built and the second is not...
+//   <comment> @@ end
+//
+// A file named "<path>.template" is written as "<path>".
+// <comment> is "//", "#", "--" or "<!--" (the last one closed by "-->"). Blocks
+// may nest (a line is written when every open block admits it). A file exists from the commit whose plan entry adds it.
+// Usage: node generate.mjs <destination-folder outside the checkout>
+import {execFileSync} from 'node:child_process';
+import {mkdir, rm, writeFile, readFile, readdir, lstat, realpath} from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import {fileURLToPath} from 'node:url';
+import {AUTHORS, COMMITS, TAGGED_FILES} from './history.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const source = path.resolve(here, '../reference-system/madarch');
-const answerKey = path.join(here, 'answer-key.json');
-const files = {
-  'README.md': `# Ordering and payments training system\n\nThe service applies a 10% discount to every order and calculates tax at a flat 5%. Orders are retained indefinitely. See [the HTTP semantics](https://www.rfc-editor.org/rfc/rfc9110). Sign in at [the project workspace](https://github.com/settings/profile) to see private project details.\n`,
-  'docs/architecture.md': `# Ordering and payments\n\nCheckout coordinates pricing, payment and order placement. The code calls Promotions over HTTP and receives payment outcomes as events.\n\nThe order state is pending_payment → confirmed → shipped; a failed payment moves it to cancelled.\n\nThe system calls a card number a payment token in prose, although code uses CardToken only for the vault reference and calls the captured value PaymentToken.\n`,
-  'services/checkout/src/checkout.ts': `export const checkoutService = 'checkout-api';\nexport const cartModule = 'checkout-cart';\nexport const pricingModule = 'checkout-pricing';\nexport const paymentStepModule = 'checkout-payment-step';\nexport const confirmationModule = 'checkout-confirmation';\nexport const cartStore = 'cart-cache';\nexport const taxRate = 0.08;\nexport const discountFor = (subtotal: number, percent: number) => subtotal * (1 - percent / 100);\nexport async function applyPromotion(orderId: string) { return fetch('http://promotions-api/internal/apply', { method: 'POST', body: orderId }); }\nexport function paymentToken(vaultReference: string) { return { kind: 'PaymentToken', vaultReference }; }\nexport function confirmCheckout() { return 'orders-api'; }\n`,
-  'services/orders/src/order.go': `package orders\n\nconst ServiceID = "orders-api"\nconst StoreID = "orders-db"\ntype State string\nconst ( PendingPayment State = "pending_payment"; Confirmed State = "confirmed"; Cancelled State = "cancelled"; Shipped State = "shipped" )\ntype OrderNumber string
-type OrderContents []string
-type Order struct { ID string; OrderNumber OrderNumber; Contents OrderContents; State State; CreatedDay int }\nfunc Transition(o *Order, event string) {\n switch {\n case o.State == PendingPayment && event == "payment-captured": o.State = Confirmed\n case o.State == PendingPayment && event == "payment-failed": o.State = Cancelled\n case o.State == Confirmed && event == "shipment-dispatched": o.State = Shipped\n }\n}\nfunc Expire(o *Order, day int) bool { return day-o.CreatedDay >= 90 && o.State != Shipped }\nfunc PurgeExpired(orders []Order, day int) []Order { kept:=make([]Order,0,len(orders)); for _,o:=range orders { if !Expire(&o,day) { kept=append(kept,o) } }; return kept }\nfunc RunRetentionJob(store *OrderStore, day int) { store.Orders = PurgeExpired(store.Orders, day) }\ntype OrderStore struct { Orders []Order }\nfunc PublishOrderEvent(event string) string { return EventBus.Publish("orders", event) }
-type eventBroker struct { Topics map[string][]string }
-func (b *eventBroker) Publish(topic, event string) string { b.Topics[topic] = append(b.Topics[topic], event); return event }
-var EventBus = &eventBroker{Topics: map[string][]string{}}\n`,
-  'services/promotions/src/promotions.go': `package promotions\n\nconst ServiceID = "promotions-api"\nconst StoreID = "promotions-db"\nfunc Discount(subtotal int, percent int) int { return subtotal * percent / 100 }\n`,
-  'services/payments/src/payment.ts': `export const serviceId = 'payments-api';\nexport const storeId = 'payments-db';\nexport const vaultId = 'card-vault';\nexport const vaultStoreId = 'card-vault-db';\nexport const fraudServiceId = 'fraud-api';\nexport const featureStoreId = 'fraud-features';\nexport const reconciliationId = 'reconciliation-job';\nexport const reconciliationStoreId = 'reconciliation-db';\nexport type CardNumber = { masked: string };\nexport type CardToken = { vaultReference: string };\nexport type PaymentEvent = 'payment-captured' | 'payment-failed';\nexport function publishPaymentEvent(event: PaymentEvent): PaymentEvent { return eventBroker.publish('payments', event); }
-const eventBroker = { topics: new Map<string, PaymentEvent[]>(), publish(topic: string, event: PaymentEvent) { this.topics.set(topic, [...(this.topics.get(topic) ?? []), event]); return event; } }
-export type SettlementReport = { id: string; total: number };\nexport function reconcileSettlement(report: SettlementReport) { return report }\n// Keep the order identifier stable across retries so the payment callback is idempotent.\nexport function capture(orderId: string): PaymentEvent { return orderId ? 'payment-captured' : 'payment-failed'; }\n`,
-  'services/orders/README.md': `# Orders service\n\nOrders remain available forever.\n`,
-};
-const symbols = Object.fromEntries(Object.entries(files).map(([f, text]) => [f, [...text.matchAll(/(?:export\s+(?:async\s+)?function|export\s+const|func|type|const)\s+([A-Za-z_][A-Za-z0-9_]*)/g)].map(x => x[1])]));
-const elements = [];
-for (const name of ['ordering', 'payments', 'platform']) {
-  const text = await readFile(path.join(source, `${name}.yaml`), 'utf8');
-  for (const block of text.split(/\n  - id: /).slice(1)) {
-    const id = block.match(/^([^\n]+)/)?.[1];
-    const kind = block.match(/^\s*kind: ([^\n]+)/m)?.[1];
-    const displayName = block.match(/^\s*name: ([^\n]+)/m)?.[1];
-    if (id && kind && displayName) elements.push({ id, kind, name: displayName });
+const checkout = path.resolve(here, '../..');
+const templateRoot = path.join(here, 'template');
+const DIRECTIVE = /^\s*(?:\/\/|#|--|<!--)\s*@@\s*(.*?)\s*(?:-->)?\s*$/;
+
+/** Every file under template/, as posix paths relative to it, sorted by code point. */
+export async function templateFiles(dir = templateRoot, prefix = '') {
+  const out = [];
+  for (const entry of await readdir(dir, {withFileTypes: true})) {
+    const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) out.push(...await templateFiles(path.join(dir, entry.name), rel));
+    else if (entry.isFile()) out.push(rel);
+    else throw new Error(`${path.join(dir, entry.name)}: only regular files and folders are allowed in template/`);
+  }
+  return out.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+}
+
+/**
+ * The text of one template file as the history reads it when `reach` (a Set of
+ * commit ids) is the set of commits already made. `name` is only for errors.
+ */
+export function render(text, reach, ids, name) {
+  const lines = text.split('\n');
+  const out = [];
+  const open = [];
+  for (let i = 0; i < lines.length; i++) {
+    const m = DIRECTIVE.exec(lines[i]);
+    if (!m) {
+      if (open.every((block) => block.on)) out.push(lines[i]);
+      continue;
+    }
+    const where = `${name}:${i + 1}`;
+    const words = m[1].split(/\s+/);
+    if (words[0] === 'end' && words.length === 1) {
+      if (!open.length) throw new Error(`${where}: "@@ end" with no open block`);
+      open.pop();
+      continue;
+    }
+    let on = true;
+    if (words.length % 2) throw new Error(`${where}: directive "${m[1]}" is not "since <id> [until <id>]"`);
+    for (let w = 0; w < words.length; w += 2) {
+      const kind = words[w], id = words[w + 1];
+      if (kind !== 'since' && kind !== 'until') throw new Error(`${where}: directive "${m[1]}" is not "since <id> [until <id>]"`);
+      if (!ids.has(id)) throw new Error(`${where}: "${id}" is not a commit id of history.mjs`);
+      if (kind === 'since' && !reach.has(id)) on = false;
+      if (kind === 'until' && reach.has(id)) on = false;
+    }
+    open.push({line: i + 1, on});
+  }
+  if (open.length) throw new Error(`${name}:${open[open.length - 1].line}: block is never closed with "@@ end"`);
+  return out.join('\n');
+}
+
+function gitRunner(dest) {
+  const base = {
+    PATH: process.env.PATH,
+    HOME: dest,
+    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_CONFIG_GLOBAL: '/dev/null',
+    GIT_TERMINAL_PROMPT: '0',
+    LC_ALL: 'C',
+    LANG: 'C',
+    TZ: 'UTC',
+  };
+  const config = ['-c', 'core.autocrlf=false', '-c', 'core.safecrlf=false', '-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgsign=false', '-c', 'gc.auto=0', '-c', 'core.fileMode=true', '-c', 'init.defaultBranch=main'];
+  return (args, {env = {}, input, allowFail = false} = {}) => {
+    try {
+      return execFileSync('git', [...config, ...args], {cwd: dest, env: {...base, ...env}, input, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe']});
+    } catch (error) {
+      if (allowFail) return null;
+      throw new Error(`git ${args.join(' ')} failed in ${dest}: ${error.stderr || error.message}`);
+    }
+  };
+}
+
+export async function generate(destination) {
+  if (!destination) throw new Error('Usage: node generate.mjs <destination-folder>');
+  const dest = path.resolve(destination);
+  if (dest === path.parse(dest).root || dest === checkout || dest.startsWith(checkout + path.sep) || checkout.startsWith(dest + path.sep)) {
+    throw new Error(`Destination ${dest} must be outside and separate from the checkout ${checkout}`);
+  }
+  try {
+    if ((await lstat(dest)).isSymbolicLink()) throw new Error(`Destination ${dest} must not be a symlink`);
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+  for (let p = path.dirname(dest); p !== path.dirname(p); p = path.dirname(p)) {
+    try {
+      const real = await realpath(p);
+      if (real === checkout || real.startsWith(checkout + path.sep)) throw new Error(`Destination parent ${p} resolves into the checkout`);
+      break;
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+  }
+
+  // A template file named "<path>.template" is written as "<path>": the suffix keeps test runners
+  // that walk the checkout from picking up the generated repository's own *.test.ts files.
+  const onDisk = new Map();
+  for (const f of await templateFiles()) onDisk.set(f.endsWith('.template') ? f.slice(0, -'.template'.length) : f, f);
+  const files = [...onDisk.keys()].sort((x, y) => (x < y ? -1 : x > y ? 1 : 0));
+  const sources = new Map();
+  for (const f of files) sources.set(f, await readFile(path.join(templateRoot, onDisk.get(f)), 'utf8'));
+  const named = COMMITS.filter((c) => c.id);
+  const ids = new Set(named.map((c) => c.id));
+  if (ids.size !== named.length) throw new Error('history.mjs: a commit id is used twice');
+
+  await rm(dest, {recursive: true, force: true});
+  await mkdir(dest, {recursive: true});
+  const git = gitRunner(dest);
+  git(['init', '--quiet']);
+
+  // One context per branch: the commits already made on it, the files it holds
+  // (output path -> template path) and what they rendered to.
+  const contexts = new Map([['main', {reach: new Set(), state: new Map(), rendered: new Map()}]]);
+  let current = 'main';
+  const shas = {};
+
+  const expand = (entry, label) => {
+    if (!entry.endsWith('/')) {
+      if (!sources.has(entry)) throw new Error(`history.mjs ${label}: ${entry} is not a file of template/`);
+      return [entry];
+    }
+    const hits = files.filter((f) => f.startsWith(entry));
+    if (!hits.length) throw new Error(`history.mjs ${label}: no file of template/ under ${entry}`);
+    return hits;
+  };
+
+  for (const commit of COMMITS) {
+    const branch = commit.branch ?? 'main';
+    if (!contexts.has(branch)) {
+      const from = contexts.get('main');
+      contexts.set(branch, {reach: new Set(from.reach), state: new Map(from.state), rendered: new Map(from.rendered)});
+      git(['checkout', '--quiet', '-b', branch]);
+      current = branch;
+    } else if (current !== branch) {
+      git(['checkout', '--quiet', branch]);
+      current = branch;
+    }
+    const ctx = contexts.get(branch);
+    const author = AUTHORS[commit.author];
+    const label = commit.id ?? `merge of ${commit.merge}`;
+    if (!author) throw new Error(`history.mjs ${label}: unknown author "${commit.author}"`);
+    const identity = {GIT_AUTHOR_NAME: author.name, GIT_AUTHOR_EMAIL: author.email, GIT_COMMITTER_NAME: author.name, GIT_COMMITTER_EMAIL: author.email};
+
+    if (commit.merge) {
+      if (branch !== 'main') throw new Error(`history.mjs ${label}: a merge happens on main`);
+      const other = contexts.get(commit.merge);
+      if (!other) throw new Error(`history.mjs ${label}: branch ${commit.merge} has no commits`);
+      for (const id of other.reach) ctx.reach.add(id);
+      for (const [outPath, tpl] of other.state) if (!ctx.state.has(outPath)) ctx.state.set(outPath, tpl);
+      // Conflicts are not a failure here: the tree is overwritten with the plan's own reading below.
+      git(['merge', '--no-ff', '--no-commit', commit.merge], {allowFail: true, env: identity});
+    } else {
+      for (const [from, to] of commit.move ?? []) {
+        if (!ctx.state.has(from)) throw new Error(`history.mjs ${label}: cannot move ${from}, it does not exist yet`);
+        if (!sources.has(to)) throw new Error(`history.mjs ${label}: ${to} is not a file of template/`);
+        ctx.state.delete(from);
+        ctx.state.set(to, to);
+      }
+      for (const entry of commit.add ?? []) {
+        if (typeof entry === 'object') {
+          // A file that first appears under another path than the one it ends at (later moved).
+          if (!sources.has(entry.tpl)) throw new Error(`history.mjs ${label}: ${entry.tpl} is not a file of template/`);
+          if (ctx.state.has(entry.as)) throw new Error(`history.mjs ${label}: ${entry.as} is added twice`);
+          ctx.state.set(entry.as, entry.tpl);
+          continue;
+        }
+        for (const f of expand(entry, label)) {
+          if (ctx.state.has(f)) throw new Error(`history.mjs ${label}: ${f} is added twice`);
+          ctx.state.set(f, f);
+        }
+      }
+      for (const f of commit.remove ?? []) {
+        if (!ctx.state.delete(f)) throw new Error(`history.mjs ${label}: cannot remove ${f}, it does not exist`);
+      }
+    }
+    ctx.reach.add(commit.id ?? `merge:${commit.merge}`);
+
+    const next = new Map();
+    for (const [outPath, tpl] of ctx.state) next.set(outPath, render(sources.get(tpl), ctx.reach, ids, `template/${onDisk.get(tpl)}`));
+    const previous = commit.merge ? contexts.get('main').rendered : ctx.rendered;
+    const changed = new Set();
+    for (const [p, text] of next) if (previous.get(p) !== text) changed.add(p);
+    for (const p of previous.keys()) if (!next.has(p)) changed.add(p);
+
+    if (!commit.merge) {
+      if (!changed.size) throw new Error(`history.mjs ${label}: the commit changes no file (${commit.message})`);
+      for (const [from, to] of commit.move ?? []) {
+        if (previous.get(from) !== next.get(to)) throw new Error(`history.mjs ${label}: the move ${from} -> ${to} must keep the content, but template/${to} reads differently in the two commits`);
+      }
+      const touched = Object.entries(TAGGED_FILES).filter(([, p]) => changed.has(p)).map(([tag]) => tag).sort();
+      const declared = [...(commit.touches ?? [])].sort();
+      if (touched.join() !== declared.join()) {
+        throw new Error(`history.mjs ${label}: declares touches [${declared}] but the commit changes [${touched}] among ${Object.values(TAGGED_FILES).join(', ')}`);
+      }
+    }
+
+    for (const p of previous.keys()) if (!next.has(p)) await rm(path.join(dest, p), {force: true});
+    for (const [p, text] of next) {
+      const target = path.join(dest, p);
+      await mkdir(path.dirname(target), {recursive: true});
+      await writeFile(target, text);
+    }
+    ctx.rendered = next;
+    if (commit.merge) contexts.get('main').rendered = next;
+
+    git(['add', '-A']);
+    const committed = commit.committerDate ?? commit.date;
+    const message = commit.merge ? `${commit.message}\n` : `${commit.message}\n${commit.body ? `\n${commit.body.trim()}\n` : ''}`;
+    git(['commit', '--quiet', '--no-verify', '--cleanup=verbatim', '-F', '-'], {
+      input: message,
+      env: {...identity, GIT_AUTHOR_DATE: commit.date, GIT_COMMITTER_DATE: committed},
+    });
+    const sha = git(['rev-parse', 'HEAD']).trim();
+    shas[commit.id ?? commit.message] = sha;
+    if (commit.merge) {
+      git(['branch', '-D', commit.merge]);
+      contexts.delete(commit.merge);
+    }
+  }
+
+  const main = contexts.get('main');
+  const missing = files.filter((f) => ![...main.state.values()].includes(f));
+  if (missing.length) throw new Error(`history.mjs never adds: ${missing.join(', ')}`);
+  const status = git(['status', '--porcelain']).trim();
+  if (status) throw new Error(`the generated repository is not clean after the last commit:\n${status}`);
+  return {dest, shas};
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  try {
+    const {dest} = await generate(process.argv[2]);
+    console.log(dest);
+  } catch (error) {
+    console.error(error.message);
+    process.exit(1);
   }
 }
-const selected = new Set(['checkout-api','checkout-cart','checkout-pricing','checkout-payment-step','checkout-confirmation','cart-cache','orders-api','orders-db','promotions-api','promotions-db','payments-api','payments-db','card-vault-db','fraud-features','reconciliation-db','event-bus']);
-const missing = [...selected].filter(id => !elements.some(e => e.id === id));
-if (missing.length) throw new Error(`Reference model ids missing: ${missing.join(', ')}`);
-const destination = path.resolve(process.argv[2] ?? '');
-if (!process.argv[2]) throw new Error('Usage: node generate.mjs <destination-folder>');
-if (destination === path.parse(destination).root) throw new Error('Destination must not be a filesystem root');
-const checkout = path.resolve(here, '../..');
-if (destination === checkout || destination.startsWith(`${checkout}${path.sep}`) || checkout.startsWith(`${destination}${path.sep}`)) throw new Error('Destination must be a separate directory outside this checkout');
-let parent = path.dirname(destination);
-while (parent !== path.dirname(parent)) { try { const resolved=await realpath(parent); if (resolved===path.parse(resolved).root || resolved===checkout || resolved.startsWith(`${checkout}${path.sep}`) || checkout.startsWith(`${resolved}${path.sep}`)) throw new Error('Destination must not resolve into or contain this checkout'); break; } catch (error) { if (error.code !== 'ENOENT') throw error; parent=path.dirname(parent); } }
-try { if ((await lstat(destination)).isSymbolicLink()) throw new Error('Destination must not be a symlink'); } catch (error) { if (error.code !== 'ENOENT') throw error; }
-await rm(destination, { recursive: true, force: true });
-await mkdir(destination, { recursive: true });
-const key = JSON.parse(await readFile(answerKey, 'utf8'));
-key.sourceModel = elements.filter(e => selected.has(e.id)).map(({id,name,kind})=>({id,name,kind,file:'model-ids.json',symbol:id}));
-await writeFile(path.join(destination, 'model-ids.json'), `${JSON.stringify(key.sourceModel, null, 2)}\n`);
-const run = (args, env={}) => execFileSync('git', args, {cwd: destination, stdio:'ignore', env:{...process.env,...env}});
-run(['init','--initial-branch=main']); run(['config','user.name','Training Repository']); run(['config','user.email','training@example.com']);
-const commits = [
-  {date:'2024-01-01T00:00:00Z',key:'ORD-12',message:'ORD-12 add order lifecycle', files:['services/orders/src/order.go','services/orders/README.md']},
-  {date:'2024-01-02T00:00:00Z',key:'PAY-4',message:'PAY-4 add checkout pricing and promotions', files:['services/checkout/src/checkout.ts','services/promotions/src/promotions.go']},
-  {date:'2024-01-03T00:00:00Z',key:'ORD-19',message:'ORD-19 document services and model', files:Object.keys(files).filter(f=>!['services/orders/src/order.go','services/orders/README.md','services/checkout/src/checkout.ts','services/promotions/src/promotions.go'].includes(f))},
-];
-for (const c of commits) {
-  for (const file of c.files) { const full=path.join(destination,file); await mkdir(path.dirname(full),{recursive:true}); await writeFile(full,files[file]); }
-  run(['add','.']);
-  run(['commit','--allow-empty','-m',c.message], {GIT_AUTHOR_NAME:'Training Repository',GIT_AUTHOR_EMAIL:'training@example.com',GIT_COMMITTER_NAME:'Training Repository',GIT_COMMITTER_EMAIL:'training@example.com',GIT_AUTHOR_DATE:c.date,GIT_COMMITTER_DATE:c.date});
-}
-console.log(destination);
