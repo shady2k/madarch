@@ -14,7 +14,7 @@
  * wiki shows that name rather than passing the product as checked.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { dirname as dirOf, join as joinPath, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -65,6 +65,19 @@ export function productCheckScript(): { ok: true; path: string } | { ok: false; 
 export function runProductCheck(productFolder: string): ProductCheckRun {
   const script = productCheckScript();
   if (!script.ok) return { ran: false, message: script.message };
+  // The set's check opens the registry to learn where the kinds collect, and opening a
+  // FIFO (or a device) with no writer blocks for ever, so the check is not run over a
+  // registry that is not a regular file: the wiki names it and serves plain pages.
+  const registry = joinPath(productFolder, 'docs', 'kinds.yaml');
+  let registryKind: ReturnType<typeof statSync> | undefined;
+  try {
+    registryKind = statSync(registry);
+  } catch {
+    registryKind = undefined; // absent or unresolvable: the check handles both without opening it
+  }
+  if (registryKind !== undefined && !registryKind.isFile()) {
+    return { ran: false, message: `docs/kinds.yaml is not a regular file (${registry}), so the set's product check was not run: it would block opening it` };
+  }
   const runners = ['node', process.execPath] as const;
   let lastFailure = '';
   for (const runner of runners) {
