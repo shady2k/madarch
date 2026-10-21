@@ -89,7 +89,7 @@ export async function extractFileAccess(path: string, bytes: Uint8Array): Promis
   // The call spans of the file, over text whose strings and comments are
   // spaces: the call a SQL literal stands in (`tx.ExecContext(ctx, \`INSERT
   // INTO outbox ...)\``) is the call site the access cites.
-  const masked = maskText(text, language);
+  const masked = maskText(text, language, toByte);
   // The call spans come from character offsets of the masked text; every span
   // this module hands out is a byte span (records.ts), so they are converted
   // once here, before they meet a literal's byte range.
@@ -350,13 +350,13 @@ function collectCodeDdl(content: string, span: SourceSpan): readonly CodeTableDe
  * scan over the text never reads a string or a comment as code, and the
  * offsets of the text stay the same.
  */
-function maskText(text: string, language: AccessLanguage): string {
+function maskText(text: string, language: AccessLanguage, toByte: readonly number[]): string {
   const scanned = language === 'go' ? scanGoText(text) : scanTsLikeText(text);
   const out = [...text];
-  const toChar = charCounter(text);
   for (const span of [...scanned.comments, ...scanned.strings]) {
-    const from = toChar[span.byteStart] ?? text.length;
-    const to = toChar[span.byteEnd] ?? text.length;
+    // The spans are byte spans; the character offset of a byte is found, not indexed.
+    const from = charAt(toByte, span.byteStart);
+    const to = charAt(toByte, span.byteEnd);
     for (let at = from; at < to; at++) out[at] = ' ';
   }
   return out.join('');
@@ -383,20 +383,6 @@ function matchingParenOf(masked: string, open: number): number {
     }
   }
   return -1;
-}
-
-/** The character offset of every byte, one entry past the end included. */
-function charCounter(text: string): number[] {
-  const offsets = new Array<number>(text.length + 1);
-  let byte = 0;
-  for (let index = 0; index < text.length; index++) {
-    offsets[index] = byte;
-    const codePoint = text.codePointAt(index)!;
-    byte += codePoint > 0xffff ? 4 : codePoint > 0x7f ? (codePoint > 0x7ff ? 3 : 2) : 1;
-    if (codePoint > 0xffff) index++;
-  }
-  offsets[text.length] = byte;
-  return offsets;
 }
 
 // ---- byte/char bookkeeping ------------------------------------------------
