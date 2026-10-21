@@ -27,6 +27,7 @@
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { PGlite } from '@electric-sql/pglite';
+import { btree_gist } from '@electric-sql/pglite/contrib/btree_gist';
 import { vector } from '@electric-sql/pglite-pgvector';
 import type { Pool, PoolConfig } from 'pg';
 import type { OuterTransaction } from '../history/types.js';
@@ -116,6 +117,12 @@ export interface PGliteDatabaseOwnerOptions {
    * and its schema check); a history-only owner does not.
    */
   vector?: boolean;
+  /**
+   * Loads `btree_gist`, which the temporal graph's no-overlap constraints
+   * need (decision 0028): an `EXCLUDE USING gist` that compares an identity
+   * with `=` beside its ranges. A server loads it with `CREATE EXTENSION`.
+   */
+  btreeGist?: boolean;
 }
 
 /**
@@ -160,7 +167,11 @@ class PGliteOwner implements DatabaseOwner {
   constructor(options: PGliteDatabaseOwnerOptions) {
     this.location = options.path ?? ':memory:';
     this.hasVector = options.vector === true;
-    const extensions = options.vector === true ? { extensions: { vector } } : {};
+    const loaded = {
+      ...(options.vector === true ? { vector } : {}),
+      ...(options.btreeGist === true ? { btree_gist } : {}),
+    };
+    const extensions = Object.keys(loaded).length > 0 ? { extensions: loaded } : {};
     this.database = options.path === undefined ? new PGlite(extensions) : new PGlite(options.path, extensions);
     this.ready = this.database.waitReady;
     // A caller observes a failed open on its own first use of the owner; a
