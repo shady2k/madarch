@@ -48,7 +48,7 @@ ${scenario ? `
 - Then: a result
 ` : ''}`).join('')}`;
 
-const change = ({ id = 'add-views', base, tasks = 'm-leaf', kind = 'behavior', extra = '', coverage, preserves = 'None.', rationale = '' }) => `# Add views
+const change = ({ id = 'add-views', base, tasks = 'm-leaf', kind = 'behavior', extra = '', coverage, preserves = 'None.', rationale = '', seen = 'Kind: command\nPlace: `madarch views` in a terminal\n\n1. The person runs it and sees the views listed.' }) => `# Add views
 
 Change: ${id}
 Base: ${base}
@@ -69,7 +69,7 @@ ${preserves}
 
 ## Coverage
 ${coverage ?? '- views/show: test-views'}
-
+${seen === null ? '' : `\n## Where it is seen\n${seen}\n`}
 ## Blocking questions
 None.
 ${extra}`;
@@ -189,6 +189,48 @@ test('feature phase: ready change passes; missing scenario, unknown task, epic a
     r.write('docs/changes/add-views/change.md', change({ base: r.base, tasks }));
     assert.ok(ids(runCheck(r.root, { phase: 'feature', change: 'add-views', candidate: 'worktree' }).violations).includes('untracked-change'), tasks);
   }
+});
+
+test('where a change is seen: its section parses into whereSeen, wrapped lines joined', () => {
+  const seen = 'Kind: screen\nPlace: the views page,\n  under the product\nMockup: docs/mockups/views.png\n\n1. The person opens the page\n   from the sidebar.\n- They see the views.';
+  assert.deepEqual(parseChange(change({ base: 'abc', seen }), 'add-views').whereSeen, {
+    kind: 'screen', place: 'the views page, under the product', mockup: 'docs/mockups/views.png',
+    steps: ['The person opens the page from the sidebar.', 'They see the views.'],
+  });
+  assert.deepEqual(parseChange(change({ base: 'abc', seen: 'Kind: internal\nPlace: the fill store\nReason: nothing a person reaches changes\n\n1. A test reads the store.' }), 'add-views').whereSeen,
+    { kind: 'internal', place: 'the fill store', internalReason: 'nothing a person reaches changes', steps: ['A test reads the store.'] });
+  assert.equal(parseChange(change({ base: 'abc', seen: null }), 'add-views').whereSeen, undefined);
+});
+
+test('a where-it-is-seen section that cannot be read exactly is refused, not guessed', () => {
+  const parse = (seen) => () => parseChange(change({ base: 'abc', seen }), 'add-views');
+  assert.throws(parse('Kind: page\nPlace: x\n\n1. y'), /Kind: page is not one of screen, command, request, log, internal/);
+  assert.throws(parse('Place: x\n\n1. y'), /missing "Kind:/);
+  assert.throws(parse('Kind: command\n\n1. y'), /missing "Place:/);
+  assert.throws(parse('Kind: command\nKind: log\nPlace: x'), /duplicate line "Kind:"/);
+  assert.throws(parse('Kind: command\nPlace: x\n\nThe person runs it.'), /expected "Kind:"/);
+  assert.throws(parse('Kind: command\nPlace: x\n\n1. y\nReason: late'), /expected "Kind:"/);
+});
+
+test('feature phase: a change with no section, or a screen without a mockup in the tree, is refused and told the form', () => {
+  const r = repo();
+  r.write('docs/changes/add-views/capabilities/views.md', capability('views', [['show', 'When asked, the server shall show views.']]));
+  r.write('docs/changes/add-views/change.md', change({ base: r.base, seen: null }));
+  r.tracker([row('m-leaf', 'task', { comments: [approval(r, 'add-views')] })]);
+  const missing = runCheck(r.root, { phase: 'feature', change: 'add-views', candidate: 'worktree' });
+  assert.deepEqual(ids(missing.violations), ['missing-observation']);
+  assert.match(missing.text, /## Where it is seen/);
+
+  const screen = 'Kind: screen\nPlace: the views page\nMockup: docs/mockups/views.png\n\n1. The person opens it.';
+  r.write('docs/changes/add-views/change.md', change({ base: r.base, seen: screen }));
+  assert.deepEqual(ids(runCheck(r.root, { phase: 'feature', change: 'add-views', candidate: 'worktree' }).violations), ['missing-mockup']);
+  r.write('docs/mockups/views.png', '');
+  assert.deepEqual(ids(runCheck(r.root, { phase: 'feature', change: 'add-views', candidate: 'worktree' }).violations), ['missing-mockup'], 'an empty file is no mockup');
+  r.write('docs/mockups/views.png', 'png');
+  assert.deepEqual(runCheck(r.root, { phase: 'feature', change: 'add-views', candidate: 'worktree' }).violations, []);
+  r.write('docs/changes/add-views/change.md', change({ base: r.base, seen: screen.replace('docs/mockups/views.png', 'docs/prototypes/P-001-views.md') }));
+  r.write('docs/prototypes/P-001-views.md', '# P-001 views\n');
+  assert.deepEqual(runCheck(r.root, { phase: 'feature', change: 'add-views', candidate: 'worktree' }).violations, []);
 });
 
 test('a requirement the proposal keeps unchanged is no delta', () => {

@@ -81,5 +81,6 @@
     "beads",
     "beads_rust"
   ],
-  "notifyPushes": true
+  "notifyPushes": true,
+  "openQuestions": "one-at-a-time"
 }

@@ -74,15 +74,26 @@ are the repository's installation, and each person's plugin and hooks are theirs
   with and `check-present.mjs` takes its path matcher from; `check-docs.mjs`
   reads the exported model, not files) and `time-format.mjs`
   (which `check.mjs` reads records by),
-  verbatim copies of shady2k-skills plugin 0.105.0 (setup and rules 0.45.0),
-  compared byte for byte at each setup. Their self-tests run from the plugin's
+  verbatim copies of shady2k-skills plugin 0.121.0 (setup and rules 0.51.0),
+  compared byte for byte at each setup, with the set's fixtures and templates
+  under `.shady2k/checks/`. Their self-tests run from the plugin's
   setup skill directory, where their fixtures are. `check.mjs` carries the
   record rules: a record is retired by a `void` record naming its comment, never
   edited or deleted, and a void that retires nothing only warns
   (`time-void-idle`). Since 0.45.0 `check-docs.mjs` reports a mutation check
   that was not made, or not on the judged revision, as a `not-made` note and
   never refuses on it; `documents.mjs` prints the notes beside its verdict
-  (and in `--json`).
+  (and in `--json`). Since 0.51.0 `check-commits.mjs` reads a standalone
+  task's criterion through `check.mjs`, so the three travel together. The
+  0.51.0 rules this installation has not switched on, each turned on only by
+  the value it reads (owner's profile, 2026-10-21, madarch-y47p): the outcome
+  rules (`orphaned-outcome`, `unobservable-first-stage`, `unserved-outcome`)
+  and the forecast rules (`unforecast-target`, `unmeasured-forecast`) wait for
+  ids on the vision and the charter, which come with the self-filling
+  milestone's re-plan; the commit check's code-path rule waits for
+  `codePaths` and the commit input it needs (each commit's paths and the
+  document gate's verdicts on its change records); the design-match and
+  judgement rules wait for the records they read.
 - **Present documents:** the config's `presentDocuments` (`AGENTS.md`, the
   glossary, `docs/system/architecture.md`, the current capability specs).
   `node .shady2k/checks/check-present.mjs --config .shady2k/config.json --base
@@ -153,11 +164,19 @@ are the repository's installation, and each person's plugin and hooks are theirs
   committed export. Tracker writes need no commit: the service publishes them,
   and a commit carries code and documents only.
 - **Tracker synchronization:** the set's mechanism, copied byte for byte from
-  shady2k-skills 0.107.0: `.shady2k/tracker-sync.mjs` (version in
-  `.shady2k/tracker-sync.version`), the br recipe `.shady2k/trackers/br.mjs`,
-  the unit template `.shady2k/supervisors/systemd-user/tracker-sync.service`;
-  run only through `node .shady2k/tracker.mjs <command>` (connect, publish,
-  sync, claim, transition, record, export, status, watch). Supervisor: the user
+  shady2k-skills 0.121.0 (setup 0.51.0, madarch-y47p): `.shady2k/tracker-sync.mjs`
+  (version in `.shady2k/tracker-sync.version`; `node .shady2k/tracker.mjs status
+  --expect-version <the set's version>` says when the copy is behind), the br
+  recipe `.shady2k/trackers/br.mjs`, the unit template
+  `.shady2k/supervisors/systemd-user/tracker-sync.service`; run only through
+  `node .shady2k/tracker.mjs <command>` (connect, publish, sync, claim,
+  transition, record, relink, export, status, watch). The hooks folder is the
+  repository's own (`core.hooksPath` is `.githooks`), so the mechanism writes
+  nothing there: each hook it needs carries its marker line itself, with a
+  command that names no machine's path (`tracker.mjs` resolves the store) —
+  `post-commit` and `post-merge` record the revision, `post-checkout` relinks
+  a checkout a pre-move branch left a folder in. Connect refuses, naming the
+  line, a hook that lacks its marker. Supervisor: the user
   unit `~/.config/systemd/user/madarch-tracker-sync.service` (this machine's,
   not committed) runs `tracker.mjs watch --interval 10 --debounce 2 --max-age 5`:
   a write is published after 2 s of quiet or 5 s at most (measured at setup:
@@ -175,6 +194,21 @@ are the repository's installation, and each person's plugin and hooks are theirs
 - **Document gate:** `.shady2k/documents.mjs` exports the documents and tracker
   records into `check-docs.mjs`'s contract and runs it; tests in
   `.shady2k/documents.test.mjs` (`node --test .shady2k/*.test.mjs`).
+  - **Where it is seen** (setup 0.51.0): a change record's section
+    `## Where it is seen`, before `## Blocking questions`, is exported as
+    `whereSeen`. Field lines first — `Kind:` (`screen`, `command`, `request`,
+    `log` or `internal`), `Place:` (where a person reaches the change),
+    `Mockup:` for a screen (an image, an HTML file or a `docs/prototypes/`
+    document in the tree), `Reason:` for internal (why nothing a person
+    reaches changes) — then the steps a person follows as a numbered or
+    bulleted list; an indented line continues the line above. A line it
+    cannot place is an error. A record without the section is refused as
+    `missing-observation` in the feature, acceptance and close phases, and
+    the refusal prints the form; for a screen change the wrapper exports the
+    tree's non-empty mockup files as `mockups` (rule `missing-mockup`). The
+    approval digest does not cover the section. The change records live at
+    the update (32 with open work) gain the section at their next gate run,
+    not in bulk (owner's profile, 2026-10-21).
   - `node .shady2k/documents.mjs check --phase <product|feature|acceptance|close> [--change <id>] [--candidate index|worktree|<rev>] [--target <rev>]`;
     defaults: candidate the working tree (`HEAD` for `acceptance`), target the
     local `main`, which must exist and be current (`git branch -f main

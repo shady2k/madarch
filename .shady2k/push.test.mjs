@@ -31,7 +31,10 @@ function setup() {
     ['config', 'commit.gpgsign', 'false'], ['config', 'tag.gpgsign', 'false'], ['remote', 'add', 'origin', remote]]) run('git', args);
   const files = [['adapter.mjs', '.shady2k/adapter.mjs'], ['push.mjs', '.shady2k/push.mjs'], ['config.json', '.shady2k/config.json'],
     ['checks/check-commits.mjs', '.shady2k/checks/check-commits.mjs'], ['checks/check-present.mjs', '.shady2k/checks/check-present.mjs'],
-    ['checks/document-format.mjs', '.shady2k/checks/document-format.mjs'], ['../.githooks/pre-push', '.githooks/pre-push']];
+    ['checks/document-format.mjs', '.shady2k/checks/document-format.mjs'],
+    // check-commits.mjs reads a task's criterion through check.mjs, which reads time-format.mjs (setup 0.51.0).
+    ['checks/check.mjs', '.shady2k/checks/check.mjs'], ['checks/time-format.mjs', '.shady2k/checks/time-format.mjs'],
+    ['../.githooks/pre-push', '.githooks/pre-push']];
   for (const [from, to] of files) {
     mkdirSync(dirname(join(root, to)), { recursive: true });
     copyFileSync(join(HERE, from), join(root, to));
