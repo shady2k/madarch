@@ -296,9 +296,13 @@ function matchingBrace(text: string, open: number): number {
   return -1;
 }
 
-/** Whether a string literal's content is worth an SQL reading. */
+/**
+ * Whether a string literal's content is worth an SQL reading. A fragment of a
+ * concatenated statement (`\` FROM orders WHERE id = $1\``) carries only the
+ * FROM clause, so the clause keywords count as much as the statement verbs.
+ */
 function looksLikeSql(content: string): boolean {
-  return /\b(?:SELECT\b|INSERT\s+INTO\b|UPDATE\s+\w+\s+SET\b|DELETE\s+FROM\b|CREATE\s+TABLE\b)/i.test(content);
+  return /\b(?:SELECT\b|FROM\b|JOIN\b|INSERT\s+INTO\b|UPDATE\s+\w+\s+SET\b|DELETE\s+FROM\b|CREATE\s+TABLE\b)/i.test(content);
 }
 
 /** The table accesses one SQL text holds, each at the literal's own span, named once. */
@@ -311,8 +315,14 @@ function collectSqlSites(content: string, span: SourceSpan, region: string): rea
   };
   for (const match of content.matchAll(/\bINSERT\s+INTO\s+"?(\w+)"?/gi)) push(match[1]!, 'write');
   for (const match of content.matchAll(/\bUPDATE\s+"?(\w+)"?\s+SET\b/gi)) push(match[1]!, 'write');
-  for (const match of content.matchAll(/\bDELETE\s+FROM\s+"?(\w+)"?/gi)) push(match[1]!, 'write');
-  for (const match of content.matchAll(/\bFROM\s+"?(\w+)"?/gi)) push(match[1]!, 'read');
+  const deletes = [...content.matchAll(/\bDELETE\s+FROM\s+"?(\w+)"?/gi)];
+  for (const match of deletes) push(match[1]!, 'write');
+  // The FROM of a DELETE is that delete, not a read.
+  const inDelete = (at: number): boolean => deletes.some((candidate) => candidate.index !== undefined && at >= candidate.index && at < candidate.index + candidate[0].length);
+  for (const match of content.matchAll(/\bFROM\s+"?(\w+)"?/gi)) {
+    if (inDelete(match.index ?? 0)) continue;
+    push(match[1]!, 'read');
+  }
   for (const match of content.matchAll(/\bJOIN\s+"?(\w+)"?/gi)) push(match[1]!, 'read');
   return [...sites.values()];
 }
