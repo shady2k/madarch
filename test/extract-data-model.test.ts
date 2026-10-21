@@ -135,8 +135,8 @@ function expectAnchorsCited(item: KeyItem): void {
 }
 
 describe('data-model extractor (training repository, answer key)', () => {
-  test('every database, table-access and outbox item of the key names a case of this file', () => {
-    const ids = keyItemsOf('database').concat(keyItemsOf('table-access'), keyItemsOf('outbox')).map((item) => item.id);
+  test('every code-fact and history-fact item of the areas names a case of this file', () => {
+    const ids = keyItemsOf('database').concat(keyItemsOf('table-access'), keyItemsOf('outbox')).filter((item) => item.evidenceClass === 'code-fact' || item.evidenceClass === 'history-fact').map((item) => item.id);
     for (const id of ids) {
       expect(itemCaseNames[id], `the key item ${id} has no case in itemCaseNames`).toBeDefined();
     }

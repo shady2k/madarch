@@ -257,7 +257,8 @@ export async function extractDataModel(tree: TreeReader): Promise<Extraction> {
       const to = resolveSite(file, site);
       if (to === undefined) continue;
       const type = site.verb === 'read' ? READS : WRITES;
-      const from = functionKey(file.path, site.region);
+      // A site no function region holds belongs to the file itself.
+      const from = site.region === '' ? fileKey(file.path) : functionKey(file.path, site.region);
       const key = `${type} ${from} ${to}`;
       const held = immediate.get(key);
       if (held !== undefined) {
@@ -265,9 +266,11 @@ export async function extractDataModel(tree: TreeReader): Promise<Extraction> {
         continue;
       }
       immediate.set(key, {type, from, to, via: site.via, sites: [{...site.span}]});
-      const accesses = regionAccesses.get(site.region) ?? [];
-      accesses.push({verb: site.verb, to, via: site.via});
-      regionAccesses.set(site.region, accesses);
+      if (site.region !== '') {
+        const accesses = regionAccesses.get(site.region) ?? [];
+        accesses.push({verb: site.verb, to, via: site.via});
+        regionAccesses.set(site.region, accesses);
+      }
     }
     edgeDrafts.push(...immediate.values());
     for (const draft of immediate.values()) endpointKeys.add(draft.from);
@@ -350,8 +353,9 @@ export async function extractDataModel(tree: TreeReader): Promise<Extraction> {
       continue;
     }
     const writes = scanScriptWrites(path, read.text);
-    if (writes.length === 0 && read.text.trim() !== '') {
-      gaps.push({path, reason: 'no INSERT, UPDATE, DELETE or SELECT statement could be read'});
+    const recognized = /\b(CREATE|ALTER|INSERT|UPDATE|DELETE|SELECT)\b/i.test(read.text);
+    if (writes.length === 0 && !recognized && read.text.trim() !== '') {
+      gaps.push({path, reason: 'no CREATE, ALTER, INSERT, UPDATE, DELETE or SELECT statement could be read'});
     }
     for (const write of writes) {
       const owners = [...databases.values()].filter((candidate) => candidate.tables.has(write.table));
@@ -450,7 +454,8 @@ export async function extractDataModel(tree: TreeReader): Promise<Extraction> {
   for (const key of [...endpointKeys].sort(byCodePoint)) {
     if (key.startsWith('code.file:')) {
       const filePath = key.slice('code.file:'.length);
-      nodes.push({key: fileKey(filePath), kind: 'code.file', label: filePath.slice(filePath.lastIndexOf('/') + 1), properties: {role: 'sql-script'}});
+      const role = /\.sql$/.test(filePath) ? 'sql-script' : 'code';
+      nodes.push({key: fileKey(filePath), kind: 'code.file', label: filePath.slice(filePath.lastIndexOf('/') + 1), properties: {role}});
       continue;
     }
     const separator = key.indexOf('#');
@@ -471,8 +476,7 @@ export async function extractDataModel(tree: TreeReader): Promise<Extraction> {
   for (const database of [...databases.values()].sort((left, right) => byCodePoint(left.name, right.name))) {
     for (const table of [...database.tables.values()].sort((left, right) => byCodePoint(left.name, right.name))) {
       for (const foreignKey of table.foreignKeys) {
-        const target = database.tables.get(`${table.schema === 'public' && !foreignKey.targetTable.includes('.') ? 'public.' : ''}${foreignKey.targetTable}`);
-        const targetTable = target ?? database.tables.get(`public.${foreignKey.targetTable}`);
+        const targetTable = database.tables.get(foreignKey.targetTable);
         if (targetTable === undefined) {
           gaps.push({
             path: table.span?.path ?? `databases/${database.name}`,
@@ -554,11 +558,12 @@ function databaseOf(databases: Map<string, MergedDatabase>, name: string): Merge
 }
 
 function tableOf(database: MergedDatabase, name: string, schema = 'public'): MergedTable {
-  const key = `${schema}.${name}`;
-  const held = database.tables.get(key);
+  // Keyed by the table's own name: the code names tables without their schema,
+  // and a database of one service holds one table of a name.
+  const held = database.tables.get(name);
   if (held !== undefined) return held;
   const created: MergedTable = {name, schema, columns: new Map(), primaryKey: [], foreignKeys: [], indexes: new Map()};
-  database.tables.set(key, created);
+  database.tables.set(name, created);
   return created;
 }
 
@@ -584,7 +589,7 @@ function applyStatements(database: MergedDatabase, statements: readonly SqlState
       continue;
     }
     if (statement.kind === 'alter-table-add-column') {
-      const table = database.tables.get(`${statement.schema}.${statement.table}`);
+      const table = database.tables.get(statement.table);
       if (table === undefined) {
         gaps.push({path: statement.column.span.path, reason: `ALTER TABLE ${statement.table} names a table no migration of ${database.name} declares`});
         continue;
@@ -593,13 +598,13 @@ function applyStatements(database: MergedDatabase, statements: readonly SqlState
       continue;
     }
     if (statement.kind === 'alter-table-add-foreign-key') {
-      const table = database.tables.get(`${statement.schema}.${statement.table}`);
+      const table = database.tables.get(statement.table);
       if (table === undefined) continue;
       table.foreignKeys.push(statement.foreignKey);
       continue;
     }
     if (statement.kind === 'create-index') {
-      const table = database.tables.get(`${statement.schema}.${statement.table}`);
+      const table = database.tables.get(statement.table);
       if (table === undefined) continue;
       applyIndex(table, statement.index);
     }

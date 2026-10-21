@@ -156,12 +156,18 @@ function languageOfPath(path: string): AccessLanguage | null {
   return null;
 }
 
-/** The innermost region whose span holds the byte range, or `undefined` where none does. */
+/**
+ * The innermost function or method whose span holds the byte range, or
+ * `undefined` where none does. A `const` the syntax reader declares inside a
+ * method (`const row = await this.prisma...`) holds the call site but is no
+ * function: the access belongs to the method that declares it.
+ */
 function regionFinder(regions: readonly FunctionRegion[]): (byteStart: number, byteEnd: number) => FunctionRegion | undefined {
+  const functions = regions.filter((region) => region.symbolKind === 'function' || region.symbolKind === 'method');
   return (byteStart, byteEnd) => {
     let best: FunctionRegion | undefined;
     let bestWidth = Number.MAX_SAFE_INTEGER;
-    for (const region of regions) {
+    for (const region of functions) {
       if (region.span.byteStart <= byteStart && byteEnd <= region.span.byteEnd) {
         const width = region.span.byteEnd - region.span.byteStart;
         if (width < bestWidth) {
@@ -204,7 +210,9 @@ function collectRegions(
       if (held) continue;
       regions.push({
         qualifiedName: candidate.name,
-        symbolKind: 'constant',
+        // The region holds a function body (an arrow or a function
+        // expression), whatever keyword declares it.
+        symbolKind: 'function',
         language,
         span: {
           path,
