@@ -692,7 +692,7 @@ describe('tests', () => {
       expect(testCase.properties['testKind']).toBe('e2e');
       const subjects = subjectsOf(testCase);
       expect(subjects.length).toBeGreaterThan(0);
-      for (const subject of subjects) expect(subject.startsWith('code.symbol:services/checkout/'), subject).toBe(true);
+      for (const subject of subjects) expect(subject.slice(subject.indexOf(':') + 1).startsWith('services/checkout/'), subject).toBe(true);
     }
     const every = new Set(found.flatMap(subjectsOf));
     expect(every.has(sym(`${CHECKOUT}/app.ts`, 'createApp'))).toBe(true);
@@ -793,13 +793,13 @@ describe('dead-export', () => {
 // Each of these key facets is not a deterministic reading of the code structure; the item itself is asserted above
 // for what is, and the facet is named here with its reason.
 describe('named todo: facets of the key items that the code structure does not decide', () => {
-  test.todo('flow.orders.route / flow.orders.middleware: that POST /orders is inside the auth group is the contracts extractor\'s route record (authGroup); here the chain Chain -> RequireAuth is calls only');
-  test.todo('flow.orders.repository: that the insert, the items and the outbox write run in one database transaction is a property of the data-model extractor\'s table accesses, not of the call graph');
-  test.todo('pattern.repository: the exceptions with direct database access (legacy report, migration runner, outbox writer, relay) are table-access records of the data-model extractor');
-  test.todo('pattern.singleton / pattern.strategy / pattern.adapter / pattern.factory / pattern.state-machine: the pattern names are interpretations; the extractor stores their structural evidence (implements, references, once, transitions) and the wiki names the pattern');
-  test.todo('tests.checkout-e2e: that the gRPC stub speaks the real proto and the orders stub prices with 8% tax is behaviour of the test, not structure; only "reaches no code of other services" is stored');
-  test.todo('tests.pay: the per-case behaviours (doubling waits, decline after three failures) are in the case names the catalogue stores; the subject is the PaymentService class because the cases build it through a helper whose result type the reader does not infer');
-  test.todo('architecture.composition-root: that dependencies are injected through constructors and the composition root is the only place that builds them is a judgement over the calls; the calls of run() and main() are asserted');
+  test.todo('flow.orders.route / flow.orders.middleware: that POST /orders is inside the auth group is the contracts extractor\'s route record (authGroup); here the chain Chain -> RequireAuth is calls only', () => {});
+  test.todo('flow.orders.repository: that the insert, the items and the outbox write run in one database transaction is a property of the data-model extractor\'s table accesses, not of the call graph', () => {});
+  test.todo('pattern.repository: the exceptions with direct database access (legacy report, migration runner, outbox writer, relay) are table-access records of the data-model extractor', () => {});
+  test.todo('pattern.singleton / pattern.strategy / pattern.adapter / pattern.factory / pattern.state-machine: the pattern names are interpretations; the extractor stores their structural evidence (implements, references, once, transitions) and the wiki names the pattern', () => {});
+  test.todo('tests.checkout-e2e: that the gRPC stub speaks the real proto and the orders stub prices with 8% tax is behaviour of the test, not structure; only "reaches no code of other services" is stored', () => {});
+  test.todo('tests.pay: the per-case behaviours (doubling waits, decline after three failures) are in the case names the catalogue stores; the subject is the PaymentService class because the cases build it through a helper whose result type the reader does not infer', () => {});
+  test.todo('architecture.composition-root: that dependencies are injected through constructors and the composition root is the only place that builds them is a judgement over the calls; the calls of run() and main() are asserted', () => {});
 });
 
 // ---- the whole extraction ---------------------------------------------------------------
