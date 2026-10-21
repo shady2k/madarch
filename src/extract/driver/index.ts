@@ -287,8 +287,12 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
     // then exist under two producers, which the per-producer rule above
     // already allows.
     const declared = new Set(extraction.nodes.map((node) => node.key));
+    // Every end an edge names and the extraction does not declare is repeated
+    // as a node of this producer on its own — the one already in the map as an
+    // unchanged item, the new one opened here — so the complete sweep never
+    // ends a node an edge of the next commit still needs.
     const foreignEnds = [...new Set(extraction.edges.flatMap((edge) => [edge.from, edge.to]))]
-      .filter((key) => !declared.has(key) && !map.has(key))
+      .filter((key) => !declared.has(key))
       .sort();
     const stubOf = (key: string) => {
       const kind = key.slice(0, key.indexOf(':'));
@@ -308,7 +312,14 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
       })),
       ...foreignEnds.map((key) => {
         const stub = stubOf(key);
-        return { ref: key, kind: stub.kind, label: stub.label, properties: { recordKey: key }, validFrom: effectiveTime };
+        return {
+          ...(map.has(key) ? { id: map.get(key)! } : {}),
+          ref: key,
+          kind: stub.kind,
+          label: stub.label,
+          properties: { recordKey: key },
+          validFrom: effectiveTime,
+        };
       }),
     ];
     // Two records of one relation between the same ends would publish as one
@@ -328,10 +339,11 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
       if (edge.type === OCCURRENCE && edge.span === undefined) {
         throw new Error(`extract driver: ${where}: producer "${extraction.producer}" emits an occurrence edge (${edge.from} -> ${edge.to}) without the span that positions it`);
       }
+      const end = (key: string) => (map.has(key) ? { id: map.get(key)! } as const : { ref: key } as const);
       return {
         relation: edge.type,
-        src: { ref: edge.from },
-        dst: { ref: edge.to },
+        src: end(edge.from),
+        dst: end(edge.to),
         ...(edge.discriminator === '' ? {} : { discriminator: edge.discriminator }),
         ...(edge.type === OCCURRENCE ? { position: { start: edge.span!.byteStart, end: edge.span!.byteEnd } } : {}),
         properties: { ...edge.properties, ...(edge.span === undefined || edge.type === OCCURRENCE ? {} : { span: spanProperty(edge.span) }) },
