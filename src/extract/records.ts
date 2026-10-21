@@ -15,10 +15,10 @@ export type SchemaKey = `code.${string}`;
 
 /**
  * A node's logical key: the same thing gives the same key in every run, and the
- * key names no run, date or database id. Write it as `<kind>:<stable parts>`,
- * for example `code.file:services/orders/go.mod` or
- * `code.table:orders/public.orders`; parts are joined with `/` or `#` and never
- * hold a space.
+ * key names no run, date or database id. Write it as the kind, a colon and its
+ * stable parts: a file's key is its kind and its repository path, a table's its
+ * kind, its database and its qualified name; parts are joined with `/` or `#`
+ * and never hold a space.
  */
 export type NodeKey = string;
 
