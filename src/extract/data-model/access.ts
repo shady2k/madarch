@@ -90,13 +90,22 @@ export async function extractFileAccess(path: string, bytes: Uint8Array): Promis
   // spaces: the call a SQL literal stands in (`tx.ExecContext(ctx, \`INSERT
   // INTO outbox ...)\``) is the call site the access cites.
   const masked = maskText(text, language);
-  const callSpans = collectCallSpans(masked);
+  // The call spans come from character offsets of the masked text; every span
+  // this module hands out is a byte span (records.ts), so they are converted
+  // once here, before they meet a literal's byte range.
+  const callSpans = collectCallSpans(masked).map((call) => ({
+    chainStart: toByte[call.chainStart]!,
+    openParen: toByte[call.openParen]!,
+    closeParen: toByte[call.closeParen]!,
+  }));
   for (const literal of strings.strings) {
     if (insideAny(literal.byteStart, literal.byteEnd, strings.comments)) continue;
     const content = text.slice(charAt(toByte, literal.byteStart), charAt(toByte, literal.byteEnd));
     if (!looksLikeSql(content)) continue;
+    // A literal no function region holds keeps the empty region name: the
+    // caller attributes it to the file itself, and never drops it.
     const holder = regionOf(literal.byteStart, literal.byteEnd);
-    if (holder === undefined) continue;
+    const regionName = holder?.qualifiedName ?? '';
     const site = callSpans.filter((call) => call.openParen < literal.byteStart && literal.byteEnd < call.closeParen).sort((left, right) => right.openParen - left.openParen)[0];
     const byteStart = site !== undefined ? site.chainStart : literal.byteStart;
     const byteEnd = site !== undefined ? site.closeParen + 1 : literal.byteEnd;
@@ -107,7 +116,7 @@ export async function extractFileAccess(path: string, bytes: Uint8Array): Promis
       lineStart: lineOf(text, toByte, byteStart),
       lineEnd: lineOf(text, toByte, byteEnd),
     };
-    for (const site of collectSqlSites(content, span, holder.qualifiedName)) sites.push(site);
+    for (const site of collectSqlSites(content, span, regionName)) sites.push(site);
     for (const declaration of collectCodeDdl(content, span)) tableDeclarations.push(declaration);
   }
   // Prisma client calls: `this.prisma.<model>.<op>(...)` or `prisma.<model>.<op>(...)`.
@@ -119,7 +128,7 @@ export async function extractFileAccess(path: string, bytes: Uint8Array): Promis
     const byteEnd = toByte[charEnd]!;
     if (insideAny(byteStart, byteEnd, strings.comments)) continue;
     const holder = regionOf(byteStart, byteEnd);
-    if (holder === undefined) continue;
+    const regionName = holder?.qualifiedName ?? '';
     const op = match[2]!;
     const verb = PRISMA_WRITE_OPS.has(op) ? 'write' : PRISMA_READ_OPS.has(op) ? 'read' : undefined;
     if (verb === undefined) continue;
@@ -128,7 +137,7 @@ export async function extractFileAccess(path: string, bytes: Uint8Array): Promis
       verb,
       via: 'prisma-client',
       model: match[1]!,
-      region: holder.qualifiedName,
+      region: regionName,
       span: {path, byteStart, byteEnd, lineStart: lineOf(text, toByte, byteStart), lineEnd: lineOf(text, toByte, byteEnd)},
     });
   }

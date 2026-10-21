@@ -52,7 +52,7 @@ export interface SqlTableDecl {
 export type SqlStatement =
   | {readonly kind: 'create-table'; readonly table: SqlTableDecl}
   | {readonly kind: 'alter-table-add-column'; readonly table: string; readonly schema: string; readonly column: SqlColumnDecl}
-  | {readonly kind: 'alter-table-add-foreign-key'; readonly table: string; readonly schema: string; readonly foreignKey: SqlForeignKeyDecl}
+  | {readonly kind: 'alter-table-add-foreign-key'; readonly table: string; readonly schema: string; readonly foreignKey: SqlForeignKeyDecl; readonly span: SourceSpan}
   | {readonly kind: 'create-index'; readonly table: string; readonly schema: string; readonly index: SqlIndexDecl}
   | {readonly kind: 'other'};
 
@@ -223,6 +223,7 @@ function parseStatement(path: string, bytes: ByteText, pieceStart: number, piece
       table: unquote(addForeignKey[2]!),
       schema: schema === '' ? 'public' : schema,
       foreignKey: {column: unquote(addForeignKey[4]!), constraint: unquote(addForeignKey[3]!), ...target},
+      span: span(),
     };
   }
   return {kind: 'other'};

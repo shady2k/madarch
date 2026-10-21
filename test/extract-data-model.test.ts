@@ -427,6 +427,50 @@ describe('outbox items (answer key)', () => {
   });
 
   test.todo('outbox.adr: a document-fact; docs/adr/0002-outbox.md is the documents extractor input, not a data-model record', () => {});
+  test.todo("outbox.relay: the item's Kafka-publish and at-least-once facets are carried by the contracts extractor's records and the relay's own documentation, not by a table access", () => {});
+});
+
+describe("the extractor's stated limits, each named with its case", () => {
+  test('a SQL string no function holds is attributed to the file, and spans survive non-ASCII bytes', async () => {
+    const code = 'services/alpha/src/notes.ts';
+    const migration = 'services/alpha/migrations/0001_things.sql';
+    const tree: TreeReader = {
+      paths: [code, migration],
+      read(pathname: string): Uint8Array {
+        const texts: Record<string, string> = {
+          // The comment's multi-byte characters make bytes and characters differ.
+          [code]: '// Café — the seed résumé.\nfunction load(pool: { query(text: string): unknown }): unknown {\n  return pool.query(\'SELECT id FROM things\');\n}\nconst seedSql = \'INSERT INTO things (id) VALUES (1)\';\n',
+          [migration]: 'CREATE TABLE things (\n  id TEXT PRIMARY KEY\n);\n',
+        };
+        if (!(pathname in texts)) throw new Error(`no such path in the tree: ${pathname}`);
+        return new TextEncoder().encode(texts[pathname]!);
+      },
+    };
+    const read = await extractDataModel(tree);
+    const things = tableKey('alpha', 'things');
+    const loadRead = oneEdge('code.reads-table', functionKey(code, 'load'), things);
+    expect(citedTexts(loadRead).join('\n')).toContain("pool.query('SELECT id FROM things')");
+    // The file-scope constant's insert belongs to the file itself.
+    oneEdge('code.writes-table', fileKey(code), things);
+  });
+
+  test('an ALTER or CREATE INDEX that names an undeclared table is a gap, never a silence', async () => {
+    const migration = 'services/beta/migrations/0001_missing.sql';
+    const tree: TreeReader = {
+      paths: [migration],
+      read(pathname: string): Uint8Array {
+        if (pathname !== migration) throw new Error(`no such path in the tree: ${pathname}`);
+        return new TextEncoder().encode([
+          'ALTER TABLE missing ADD CONSTRAINT f FOREIGN KEY (id) REFERENCES other (id);',
+          'CREATE INDEX idx_missing ON missing (id);',
+          '',
+        ].join('\n'));
+      },
+    };
+    const read = await extractDataModel(tree);
+    expect(read.gaps.some((gap) => gap.path === migration && gap.reason.includes('ALTER TABLE missing'))).toBe(true);
+    expect(read.gaps.some((gap) => gap.path === migration && gap.reason.includes('CREATE INDEX idx_missing'))).toBe(true);
+  });
 });
 
 function columnsOf(database: string, table: string): string[] {

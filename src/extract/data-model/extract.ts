@@ -225,8 +225,10 @@ export async function extractDataModel(tree: TreeReader): Promise<Extraction> {
     }
   }
 
-  // What each region accesses directly, resolved to its database.
-  const regionAccesses = new Map<string, ResolvedAccess[]>();
+  // What each region accesses directly, resolved to its database: keyed by
+  // the file's directory first, so two packages' same-named functions never
+  // lend each other an access.
+  const regionAccesses = new Map<string, Map<string, ResolvedAccess[]>>();
   const edgeDrafts: AccessEdgeDraft[] = [];
   const endpointKeys = new Set<string>();
   const noteGap = (path: string, reason: string): void => {
@@ -267,9 +269,12 @@ export async function extractDataModel(tree: TreeReader): Promise<Extraction> {
       }
       immediate.set(key, {type, from, to, via: site.via, sites: [{...site.span}]});
       if (site.region !== '') {
-        const accesses = regionAccesses.get(site.region) ?? [];
+        const directory = file.path.slice(0, file.path.lastIndexOf('/') + 1);
+        const packageAccesses = regionAccesses.get(directory) ?? new Map<string, ResolvedAccess[]>();
+        const accesses = packageAccesses.get(site.region) ?? [];
         accesses.push({verb: site.verb, to, via: site.via});
-        regionAccesses.set(site.region, accesses);
+        packageAccesses.set(site.region, accesses);
+        regionAccesses.set(directory, packageAccesses);
       }
     }
     edgeDrafts.push(...immediate.values());
@@ -315,11 +320,12 @@ export async function extractDataModel(tree: TreeReader): Promise<Extraction> {
           const collected = new Map<string, ResolvedAccess>();
           const visited = new Set<string>([caller.qualifiedName]);
           const stack = [firstHop];
+          const packageAccesses = regionAccesses.get(directoryOf(path)) ?? new Map<string, ResolvedAccess[]>();
           while (stack.length > 0) {
             const name = stack.pop()!;
             if (visited.has(name)) continue;
             visited.add(name);
-            for (const access of regionAccesses.get(name) ?? []) {
+            for (const access of packageAccesses.get(name) ?? []) {
               collected.set(`${access.verb} ${access.to}`, access);
             }
             const further = [...resolvedByCaller.values()].flat().find((entry) => entry.caller.qualifiedName === name);
@@ -534,6 +540,10 @@ function edgeOrder(left: ExtractedEdge, right: ExtractedEdge): number {
   return byCodePoint(`${left.type} ${left.from} ${left.to} ${left.discriminator}`, `${right.type} ${right.from} ${right.to} ${right.discriminator}`);
 }
 
+function directoryOf(path: string): string {
+  return path.slice(0, path.lastIndexOf('/') + 1);
+}
+
 function within(call: ResolvedCall, region: FunctionRegion): boolean {
   return call.site.byteStart >= region.span.byteStart && call.site.byteEnd <= region.span.byteEnd;
 }
@@ -599,13 +609,19 @@ function applyStatements(database: MergedDatabase, statements: readonly SqlState
     }
     if (statement.kind === 'alter-table-add-foreign-key') {
       const table = database.tables.get(statement.table);
-      if (table === undefined) continue;
+      if (table === undefined) {
+        gaps.push({path: statement.span.path, reason: `ALTER TABLE ${statement.table} names a table no migration of ${database.name} declares`});
+        continue;
+      }
       table.foreignKeys.push(statement.foreignKey);
       continue;
     }
     if (statement.kind === 'create-index') {
       const table = database.tables.get(statement.table);
-      if (table === undefined) continue;
+      if (table === undefined) {
+        gaps.push({path: statement.index.span.path, reason: `CREATE INDEX ${statement.index.name} names a table no migration of ${database.name} declares`});
+        continue;
+      }
       applyIndex(table, statement.index);
     }
   }
