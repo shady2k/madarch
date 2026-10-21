@@ -38,6 +38,7 @@ Decision 0028. Records carry logical keys, no time and no database ids; kinds an
 
 ## Acceptance evidence
 To be filled by each task with the test run on the pod.
+- madarch-o0eq.3 (operations): `madarch-sky-test /home/dev/.herdr/worktrees/madarch/feature-madarch-extract-operations test/extract-operations.test.ts` on the pod, exit 0: 29 pass, 0 fail, bun test 4.99 s, pod wall 25 s (run-20261021-193312.log.txt). Every item of the areas config, deploy, build, dependencies, obs, stack and newcomer is asserted by its named case; no todo. Known defect on the base branch, unchanged by this task: the neutral-names scan flags src/extract/records.ts lines 19 and 20, the contract's own docstring examples, reported to the coordinator.
 
 ## DONE WHEN
 Every code-fact and history-fact item of the answer key in the extractors' areas is produced and asserted by a test on the generated training repository; what cannot be read is named as a gap.
