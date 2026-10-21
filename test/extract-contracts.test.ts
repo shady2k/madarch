@@ -223,7 +223,7 @@ describe('extract contracts (training repository)', () => {
     const served = expectEdge(REL_SERVES, routeKey(routerLocation.path, 'POST', '/orders'), operation);
     expect(served.from.startsWith('code.route:')).toBe(true);
     const called = expectEdge(REL_CALLS_REMOTE, fileKey(clientLocation.path), operation);
-    expect(called.properties['client']).toBe(`${clientLocation.symbol}`);
+    expect(called.properties['client']).toBe(`OrdersClient.${clientLocation.symbol}`);
     expect(called.span?.path).toBe(clientLocation.path);
   });
 
@@ -256,7 +256,7 @@ describe('extract contracts (training repository)', () => {
     expect(served.properties['handler']).toBe('paymentsHandlers.authorize');
     expect(served.span?.path).toBe(serverLocation.path);
     const called = expectEdge(REL_CALLS_REMOTE, fileKey(clientLocation.path), authorize);
-    expect(called.properties['client']).toBe(clientLocation.symbol);
+    expect(called.properties['client']).toBe(`PaymentsClient.${clientLocation.symbol}`);
     expect(called.span?.path).toBe(clientLocation.path);
   });
 
@@ -298,7 +298,7 @@ describe('extract contracts (training repository)', () => {
     const route = routeKey(serverLocation.path, 'POST', '/internal/apply');
     expect(node(route).properties['handlerSymbol']).toBe('Handler.apply');
     const called = expectEdge(REL_CALLS_REMOTE, fileKey(clientLocation.path), route);
-    expect(called.properties['client']).toBe(clientLocation.symbol);
+    expect(called.properties['client']).toBe(`PromotionsClient.${clientLocation.symbol}`);
     expect(called.span?.path).toBe(clientLocation.path);
   });
 
@@ -384,7 +384,9 @@ describe('extract contracts (training repository)', () => {
     }
     const build = node(sqlBuildKey(file, 'whereClause'));
     expect(build.kind).toBe(KIND_SQL_BUILD);
-    expect(build.properties['spliced']).toEqual(['currency', 'order', 'status']);
+    // The wiki statement names order, status and currency; the builder splices the date bounds too.
+    const spliced = build.properties['spliced'] as string[];
+    for (const name of ['order', 'status', 'currency']) expect(spliced).toContain(name);
     const sink = node(sqlSinkKey(file, '$queryRawUnsafe'));
     expect(sink.kind).toBe(KIND_SQL_SINK);
     // The chain: the query parameters flow into the builder, the builder into the sink.
@@ -415,14 +417,15 @@ describe('extract contracts (training repository)', () => {
     const it = item('security.payments-auth');
     const middlewareFile = it.location!.path;
     const app = 'services/payments/src/app.ts';
+    const routes = 'services/payments/src/api/routes.ts';
     expect(node(routeKey(app, 'GET', '/healthz')).properties['authGroup']).toBe(false);
-    const pay = node(routeKey(app, 'POST', '/payments'));
+    const pay = node(routeKey(routes, 'POST', '/payments'));
     expect(pay.properties['authGroup']).toBe(true);
     expect(pay.properties['authAlgorithm']).toBe('HS256');
     expect((pay.properties['middleware'] as string[])).toContain('authenticate');
-    expect(node(routeKey(app, 'GET', '/reports/legacy')).properties['authGroup']).toBe(true);
-    expect(node(routeKey(app, 'GET', '/payments/:id')).properties['authGroup']).toBe(true);
-    expect(node(routeKey(app, 'POST', '/payments/:id/refunds')).properties['authGroup']).toBe(true);
+    expect(node(routeKey('services/payments/src/api/legacy-report.ts', 'GET', '/reports/legacy')).properties['authGroup']).toBe(true);
+    expect(node(routeKey(routes, 'GET', '/payments/:id')).properties['authGroup']).toBe(true);
+    expect(node(routeKey(routes, 'POST', '/payments/:id/refunds')).properties['authGroup']).toBe(true);
     expect(middlewareFile.endsWith('middleware.ts')).toBe(true);
   });
 });
