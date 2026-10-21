@@ -1,0 +1,181 @@
+contract: 1
+# The kinds this product keeps. Written at setup from the set's kind
+# table (the product-documents reference); the wiki reads this file alone
+# for its groups, its kind words and its next-step hints, so one change
+# of the set's vocabulary belongs here as data, never as engine code. The
+# contract: 1 on the first line is the contract version these words are
+# written against: the engine accepts the versions it knows, names a
+# version it does not support, and degrades to plain pages rather than
+# fail silently. A product may rename the kinds or retune the hints in
+# its own language; the id prefixes and the stages are the set's forms'
+# words, and a folder is the set's default: a chain document keeps its
+# kind by its id
+# wherever under docs/ it stands, so a described repository's derived
+# documents stand beside the repository they describe. The stages are
+# the set's life cycle; verify, release and operate keep their records
+# outside the kinds.
+
+stages:
+  - id: idea
+  - id: requirements
+  - id: design
+  - id: build
+  - id: verify
+  - id: release
+  - id: operate
+kinds:
+  - name: Vision
+    prefix: VIS
+    folder: docs/vision.md
+    stage: idea
+    hint: the product's direction; when it stands, the beliefs behind it are written as hypotheses and what people said is kept as sources
+  - name: Roadmap
+    prefix: ROA
+    folder: docs/roadmap.md
+    stage: idea
+    hint: what is near and what is far, and why in that order; the current milestone's charter narrows it
+  - name: Milestone
+    prefix: MIL
+    folder: docs/milestones
+    stage: idea
+    hint: the charter of one version — outcomes, observable criteria, exclusions and a budget — agreed with the owner before its work runs
+  - name: Source
+    prefix: S
+    folder: docs/sources
+    stage: idea
+    hint: what people actually said, kept with consent; the product's documents quote it by place
+  - name: Hypothesis
+    prefix: H
+    folder: docs/hypotheses
+    stage: idea
+    hint: a belief worth testing — its test, its metric, its threshold; the result is read onto the record when the test comes due
+    links:
+      - field: Grew from
+        targets:
+          - Vision
+          - Source
+          - Open question
+        backlink: Grew into
+        cardinality: many
+        required: true
+  - name: Open question
+    prefix: Q
+    folder: docs/questions
+    stage: idea
+    hint: what is not known, with who can answer and what settles it; an answer, or a not-applicable with a reason, closes it
+    links:
+      - field: Concerns
+        targets:
+          - Vision
+          - Practice
+          - Source
+          - Hypothesis
+          - User story
+          - Use case
+          - Product requirement
+          - Open question
+          - Prototype
+          - Result
+        backlink: Concerned by
+        cardinality: many
+        required: true
+  - name: Prototype
+    prefix: P
+    folder: docs/prototypes
+    stage: idea
+    hint: code that tests one hypothesis and is thrown away once its results are kept
+    links:
+      - field: Tests
+        targets:
+          - Hypothesis
+        backlink: Tested by
+        cardinality: many
+        required: true
+  - name: Result
+    prefix: R
+    folder: docs/results
+    stage: idea
+    hint: what was observed against the threshold — confirmed, refuted or unclear, and why
+    links:
+      - field: Of
+        targets:
+          - Prototype
+        backlink: Observed in
+        cardinality: many
+        required: true
+  - name: User story
+    prefix: US
+    folder: docs/stories
+    stage: requirements
+    hint: one slice of value for one role; it accepts through the use cases and requirements that grew from it
+    links:
+      - field: Grew from
+        targets:
+          - Vision
+          - Hypothesis
+        backlink: Grew into
+        cardinality: many
+        required: true
+  - name: Use case
+    prefix: UC
+    folder: docs/use-cases
+    stage: requirements
+    hint: one goal with its main success scenario; the product requirements it serves are written from it
+    links:
+      - field: Serves
+        targets:
+          - User story
+        backlink: Served by
+        cardinality: many
+        required: true
+  - name: Product requirement
+    prefix: FR
+    folder: docs/requirements
+    stage: requirements
+    hint: one thing a user can observe; the capability specs reference it by id, never restate it
+    links:
+      - field: Serves
+        targets:
+          - Use case
+          - User story
+        backlink: Served by
+        cardinality: many
+        required: true
+  - name: Decision
+    prefix: DEC
+    folder: docs/decisions
+    stage: design
+    hint: a consequential, hard-to-reverse choice with its reason kept where a reader needs it
+  - name: Design record
+    prefix: DES
+    folder: docs/changes
+    stage: design
+    hint: one change's design — drivers, options traded, the recorded decision — written before code
+  - name: Architecture
+    prefix: ARC
+    folder: docs/system/architecture.md
+    stage: design
+    hint: how the system does it — the parts, their zones and the boundaries, kept with the code's shape
+  - name: Capability
+    prefix: CAP
+    folder: docs/system/capabilities
+    stage: design
+    hint: the unit the accepted behaviour is kept by — its EARS requirements and Given/When/Then scenarios
+  - name: Change record
+    prefix: CHG
+    folder: docs/changes
+    stage: build
+    hint: one feature's proposal against the current specs; acceptance merges it into the capabilities it touches
+  - name: Exploration
+    prefix: EXP
+    folder: docs/explorations
+    stage: idea
+    hint: questions and observations kept where retention is asked for; it commits to nothing
+  - name: Practice
+    prefix: PRA
+    folder: docs/practices
+    stage: operate
+    hint: a class of error answered once as a rule; learned as the work went on, retired with its reason
+    statuses:
+      - active
+      - retired

@@ -7,6 +7,10 @@
 // every br command here discovers that store by walking up from cwd.
 //
 // Facts this recipe relies on (measured on br 0.7.0):
+// - The tracker's settings (config.yaml, exclusive claims among them) are state
+//   like the items: they are declared as a state file, so they travel on the ref
+//   and a second machine's connect rebuilds the same behaviour instead of the
+//   tracker's own default.
 // - A fresh store needs ONLY .beads/issues.jsonl to rebuild the database with
 //   the same item ids and comment ids (br init --prefix <p>, then
 //   br sync --import-only --rebuild). beads.base.jsonl is not read for item
@@ -77,6 +81,13 @@ function readJSON(file, what) {
 function storeDir(cwd) {
   return path.join(cwd, '.beads');
 }
+
+// The tracker's own settings file: this tracker keeps settings that change its
+// behaviour in a file beside its state (exclusive claims among them), and it is
+// state like the items are. Left out of the move, the setting silently changes
+// on every machine that connects. It travels on the ref and is read through the
+// same merge, never parsed as a JSON line.
+const CONFIG_PATH = '.beads/config.yaml';
 
 // ---- machine ordinals -------------------------------------------------------
 
@@ -167,7 +178,9 @@ function parseSides(file, name) {
   }
   const out = {};
   for (const [p, lines] of Object.entries(sides)) {
-    out[p] = lines.filter((l) => l.trim() !== '').map((l) => JSON.parse(l));
+    out[p] = p === CONFIG_PATH
+      ? lines.join('\n').replace(/\n+$/, '')
+      : lines.filter((l) => l.trim() !== '').map((l) => JSON.parse(l));
   }
   return out;
 }
@@ -358,10 +371,29 @@ function cmdMerge(argv) {
     return { ...rest, comments: (comments || []).map((c) => `${c.author}\u0000${c.text}`) };
   }
 
-  // Write the merged state files to --out: the merged issues.jsonl, and the
-  // base file as the merged ancestor.
+  // The tracker's own settings travel with the items, three-way against the merged
+  // ancestor, and ABSENCE is one of the three values: a machine that deleted the
+  // file did so to bring the tracker's own defaults back, and a merge that restored
+  // the ancestor's file would silently re-enable a setting such as exclusive claims.
+  // The side that moved away from the ancestor takes the merge; two sides that moved
+  // differently are a refusal for a person, exactly as two different recordings of
+  // one revision are.
+  const [oc, tc, bc] = [sides[CONFIG_PATH], theirsSides[CONFIG_PATH], baseSides[CONFIG_PATH]];
+  let settings; // undefined: the merged state carries no settings file at all
+  if (oc === tc) settings = oc;
+  else if (bc === oc) settings = tc;
+  else if (bc === tc) settings = oc;
+  else fail(`the tracker's own settings (${CONFIG_PATH}) differ between the two sides and neither is the merged ancestor's: a person must decide which setting this store keeps`);
+  // The mechanism writes what --out names and leaves anything else as it is, so a
+  // merged deletion is applied here, in the store this merge runs in.
+  if (settings === undefined) fs.rmSync(path.join(process.cwd(), CONFIG_PATH), { force: true });
+
+  // Write the merged state files to --out: the merged issues.jsonl, the base
+  // file as the merged ancestor, and the tracker's settings when either side has
+  // them.
   const mergedText = merged.map((i) => JSON.stringify(i)).join('\n') + (merged.length ? '\n' : '');
-  fs.writeFileSync(want.out, `=== ${issuesPath}\n${mergedText}=== ${basePath}\n${mergedText}`);
+  const settingsText = settings === undefined ? '' : `=== ${CONFIG_PATH}\n${settings}${settings.endsWith('\n') ? '' : '\n'}`;
+  fs.writeFileSync(want.out, `=== ${issuesPath}\n${mergedText}=== ${basePath}\n${mergedText}${settingsText}`);
   process.stdout.write(`merged ${merged.length} items\n`);
 }
 
@@ -479,17 +511,35 @@ function cmdPointerInstall(argv) {
   if (!fs.existsSync(store)) fail(`pointer-install: no store at ${store}`);
   const target = path.join(checkout, '.beads');
   const st = fs.lstatSync(target, { throwIfNoEntry: false });
+  let relinked = false;
   if (st) {
-    if (st && st.isSymbolicLink()) {
+    if (st.isSymbolicLink()) {
       const points = fs.readlinkSync(target);
       if (path.resolve(checkout, points) !== path.resolve(store)) {
         fail(`pointer-install: ${target} is a symlink to ${points}, not to the store ${store}`);
       }
-    } else if (st) {
-      fail(`pointer-install: a real .beads ${st.isDirectory() ? 'directory' : 'file'} stands at ${target}; refusing. A careless \"br init --force\" there would write into the shared store ${store} and rewrite its prefix, so nothing is overwritten`);
+    } else if (st.isDirectory()) {
+      // A branch from before the move tracks its own .beads folder, so checking
+      // it out replaces the pointer with a real folder; switching away leaves
+      // that folder behind holding the checkout's locks and nothing of the
+      // tracker. Leaving it there is what makes a tracker started in the
+      // checkout a second tracker, so it is relinked. Anything of the tracker's
+      // own in that folder makes it a tracker, and a tracker is refused by name,
+      // never overwritten.
+      // The locks br leaves behind are the leftover; anything else is state.
+      const held = fs.readdirSync(target).filter((n) => !/\.lock$/.test(n) && n !== 'locks');
+      if (held.length) {
+        fail(`pointer-install: a real .beads folder stands at ${target} and holds ${held.join(', ')}, which is a tracker of its own, not the pointer to ${store}; refusing to overwrite it. Move it aside (keeping it is this checkout's decision) and run connect again`);
+      }
+      fs.rmSync(target, { recursive: true, force: true });
+      fs.symlinkSync(store, target);
+      relinked = true;
+      process.stdout.write(`relinked .beads in ${checkout} to ${store} (the folder there held nothing but locks)\n`);
+    } else {
+      fail(`pointer-install: a real .beads file stands at ${target}; refusing. A careless \"br init --force\" there would write into the shared store ${store} and rewrite its prefix, so nothing is overwritten`);
     }
   }
-  if (!fs.existsSync(target)) fs.symlinkSync(store, target);
+  if (!relinked && !fs.existsSync(target)) fs.symlinkSync(store, target);
   const gi = path.join(checkout, '.gitignore');
   const line = '.beads';
   const cur = fs.existsSync(gi) ? fs.readFileSync(gi, 'utf8') : '';
@@ -503,6 +553,16 @@ function cmdPointerInstall(argv) {
 function cmdPointerCheck(argv) {
   const checkout = opt(argv, '--checkout');
   if (!checkout) fail('pointer-check: missing --checkout <path>');
+  // A real .beads folder where the pointer belongs is not a pointer: br walking
+  // up from the checkout finds that folder's own (possibly empty) database and
+  // answers with it, so a second tracker started beside the machine's store here
+  // would be certified as reaching it. It is refused by name instead, and the
+  // mechanism says which checkout is not pointed at the store.
+  const here = path.join(checkout, '.beads');
+  const st = fs.lstatSync(here, { throwIfNoEntry: false });
+  if (st && !st.isSymbolicLink()) {
+    fail(`${here} is a real ${st.isDirectory() ? 'folder' : 'file'}, not the link to the store ${storeDir(process.cwd())}. A tracker started there is a second tracker, not this machine's store. Run the mechanism's connect in this checkout to relink it: a folder holding nothing but locks is relinked, and a folder holding a tracker is refused and named`);
+  }
   // The proof is the checkout's OWN pointer: `br` is run in that checkout with
   // the environment it has, and this command never invents a variable of its
   // own. A checkout that reaches the store only because some private variable
@@ -592,7 +652,7 @@ export default {
   tracker: 'beads_rust',
   ref: 'refs/tracker/state',
   storePath: '.beads',
-  stateFiles: ['.beads/issues.jsonl', '.beads/beads.base.jsonl'],
+  stateFiles: ['.beads/issues.jsonl', '.beads/beads.base.jsonl', '.beads/config.yaml'],
   export: 'br sync --flush-only',
   import: 'br sync --import-only --rebuild',
   init: 'node <recipeFile> init --prefix <prefix>',

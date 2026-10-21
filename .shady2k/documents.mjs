@@ -43,8 +43,9 @@ export function isProduct(path) {
   return true;
 }
 
-const git = (root, args, env) => execFileSync('git', args, {
-  cwd: root, encoding: 'utf8', maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'pipe'], env: env ? { ...process.env, ...env } : process.env,
+const git = (root, args, env, input) => execFileSync('git', args, {
+  cwd: root, encoding: 'utf8', maxBuffer: 1 << 28, stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
+  input, env: env ? { ...process.env, ...env } : process.env,
 });
 
 // A candidate tree: the index (what a commit will hold), the working tree, or a revision.
@@ -108,8 +109,55 @@ export function checkRevisionOf(root, candidate, id) {
 // ---- change records -------------------------------------------------------
 
 const SECTIONS = ['Intent', 'Out of scope', 'Rationale', 'Changes to requirements', 'Preserved contracts', 'Coverage',
-  'Blocking questions', 'Design and decisions', 'Acceptance evidence', 'DONE WHEN'];
+  'Where it is seen', 'Blocking questions', 'Design and decisions', 'Acceptance evidence', 'DONE WHEN'];
 const none = (text) => /^none\.?$/i.test(text.trim()) || text.trim() === '';
+const SEEN_KINDS = ['screen', 'command', 'request', 'log', 'internal'];
+
+// "## Where it is seen": field lines `Kind:`, `Place:`, and `Mockup:` (a screen)
+// or `Reason:` (internal), then the steps a person follows as a numbered or
+// bulleted list. An indented line continues the field or step above it. An
+// absent section is no whereSeen, which the checker refuses as
+// missing-observation; a line it cannot place is an error, never a guess.
+const SEEN_FIELDS = { Kind: 'kind', Place: 'place', Mockup: 'mockup', Reason: 'internalReason' };
+function whereSeen(text) {
+  const seen = { steps: [] };
+  let last = null;
+  for (const line of text.split('\n')) {
+    if (!line.trim()) { last = null; continue; }
+    const field = line.match(/^(Kind|Place|Mockup|Reason): (.*)$/);
+    const step = line.match(/^(?:\d+\.|[-*]) (.+)$/);
+    if (field && !seen.steps.length) {
+      const key = SEEN_FIELDS[field[1]];
+      if (seen[key] !== undefined) throw new Error(`Where it is seen: duplicate line "${field[1]}:"`);
+      seen[key] = field[2].trim();
+      last = { key };
+    } else if (step) {
+      seen.steps.push(step[1].trim());
+      last = { step: seen.steps.length - 1 };
+    } else if (/^\s+\S/.test(line) && last) {
+      if (last.key) seen[last.key] += ` ${line.trim()}`;
+      else seen.steps[last.step] += ` ${line.trim()}`;
+    } else {
+      throw new Error(`Where it is seen: expected "Kind:", "Place:", "Mockup:" or "Reason:" lines, then the steps as a list, got: ${line}`);
+    }
+  }
+  if (seen.kind === undefined) throw new Error(`Where it is seen: missing "Kind: <${SEEN_KINDS.join(' | ')}>"`);
+  if (!SEEN_KINDS.includes(seen.kind)) throw new Error(`Where it is seen: Kind: ${seen.kind} is not one of ${SEEN_KINDS.join(', ')}`);
+  if (seen.place === undefined) throw new Error('Where it is seen: missing "Place: <where a person reaches the change>"');
+  return seen;
+}
+
+// Mockup files at a candidate: an image, an HTML file, or a prototype document,
+// each a regular non-empty file, so a screen change names one that really
+// stands in the tree (a symlink's blob is its target's name, not the file).
+const MOCKUP = /(\.(png|jpe?g|gif|svg|webp|html?)$)|(^docs\/prototypes\/.+\.md$)/i;
+function mockupsOf(root, src) {
+  const found = src.entries().filter((e) => /^100(644|755)$/.test(e.mode) && MOCKUP.test(e.path));
+  if (!found.length) return [];
+  const sizes = git(root, ['cat-file', '--batch-check=%(objectsize)'], undefined, found.map((e) => e.hash).join('\n') + '\n')
+    .trim().split('\n').map(Number);
+  return found.filter((_, i) => sizes[i] > 0).map((e) => e.path).sort();
+}
 
 function bullets(text, section, pattern) {
   if (none(text)) return [];
@@ -168,6 +216,7 @@ export function parseChange(text, dir) {
     coverage: bullets(s.Coverage ?? '', 'Coverage', ref).map((m) => ({
       capability: m[1], requirement: m[2], checks: (m[3] ?? '').split(/[\s,]+/).filter(Boolean),
     })),
+    ...(s['Where it is seen'] === undefined ? {} : { whereSeen: whereSeen(s['Where it is seen']) }),
   };
 }
 
@@ -323,6 +372,7 @@ export function buildInputs(root, { phase, change: changeId = null, candidate = 
   model.current = snapshot(src);
   const { base: _pin, ...fields } = parsed;
   model.change = { ...fields, deltas };
+  if (parsed.whereSeen?.kind === 'screen') model.mockups = mockupsOf(root, src);
   const policy = { ...stored, requireApproval: stored.requireApproval && (documents.approvalFor ?? KINDS).includes(parsed.kind) };
   return { model, policy, evidence: evidenceFor(rows, parsed, revision, policy), proposals: [...scope].sort() };
 }
@@ -358,6 +408,14 @@ export function runCheck(root, options) {
     }
   } else lines.push(`Document gate (${model.phase}) refused: the vision (docs/vision.md: Audience, Problem, Outcome, Exclusions) and the current charter (docs/milestones/${model.project.milestone.id}.md: Outcomes and acceptance, Exclusions) must be complete.`);
   lines.push('', ...violations.map((v) => `  ${v.id}: ${v.at}${v.why ? ` — ${v.why}` : ''}`), ...noted);
+  if (c && violations.some((v) => ['missing-observation', 'missing-mockup'].includes(v.id))) {
+    lines.push('', `Add to ${CHANGES}${c.id}/change.md, before "## Blocking questions", where a person sees the change:`,
+      '  ## Where it is seen', '',
+      `  Kind: <${SEEN_KINDS.join(' | ')}>`, '  Place: <the screen, command, request or log a person reaches it at>',
+      '  Mockup: <a screen only: an image, HTML file or docs/prototypes/ document in the tree>',
+      '  Reason: <internal only: why nothing a person reaches changes>', '',
+      '  1. <what the person does, and what they see>');
+  }
   if (c && violations.some((v) => ['unproved-check', 'stale-evidence'].includes(v.id))) {
     const missing = violations.filter((v) => v.id === 'unproved-check').map((v) => v.at);
     const ids = missing.length ? missing : policy.requiredChecks.filter((x) => !x.appliesTo || x.appliesTo.includes(c.kind)).map((x) => x.id);
