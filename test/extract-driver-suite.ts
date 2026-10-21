@@ -197,10 +197,12 @@ export function extractDriverTests(label: string, make: () => { owner: DatabaseO
       // The key (temporal items): the branch feature/checkout-observability is merged by CHK-142; its changes appear on main at the merge.
       const merge = firstParent.find((c) => c.subject.includes('Merge feature/checkout-observability'))!;
       const mergeTime = merge.committer; // 0028: a merge makes its branch's changes valid at the merge's time
-      // The branch's own commit that changed the file: the merge's second parent's line, read from git (CHK-140).
+      // The branch's own commits precede the merge; the merge's second parent is the branch tip (ORD-141).
       const secondParent = git(env.repository, 'log', '-1', '--format=%P', merge.hash).trim().split(' ')[1]!;
       const branchTime = git(env.repository, 'log', '-1', '--format=%cI', secondParent).trim();
-      expect(git(env.repository, 'log', '-1', '--format=%s', secondParent).trim()).toContain('Propagate request ids through checkout');
+      const branchSubjects = git(env.repository, 'log', '--reverse', `--format=%s`, `${merge.parent}..${secondParent}`).trim().split('\n');
+      expect(branchSubjects).toEqual(['CHK-140 Propagate request ids through checkout', 'ORD-141 Log the request id in the order service']);
+      expect(branchTime < mergeTime).toBe(true); // the branch's own date reads the pre-branch content on main
       // The branch changed services/checkout/src/api/routes.ts; before the merge the tree still holds the old content.
       const filePath = 'services/checkout/src/api/routes.ts';
       const oldDigest = sha(blobAt(env.repository, merge.parent!, filePath));
