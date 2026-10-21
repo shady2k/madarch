@@ -297,7 +297,8 @@ export function extractDriverTests(label: string, make: () => { owner: DatabaseO
       expect(checks.length).toBe(16);
       for (const [name, commit] of Object.entries(snapshotCommits)) {
         const at = effectiveOf(commit);
-        const present = new Set((await nodesOfKind(env, 'code.file', at)).map((n) => String(n.properties['recordKey'] ?? '').slice('code.file:'.length)));
+        // Presence in the tree is what the files extractor records for every path; the history producer's file nodes are dated churn records, published at the last commit.
+        const present = new Set((await nodesOfKind(env, 'code.file', at, 'code.extract.files')).map((n) => String(n.properties['recordKey'] ?? '').slice('code.file:'.length)));
         for (const check of checks.filter((c) => c.snapshot === name)) {
           if (check.absent === true) {
             expect(present.has(check.path), `${name}: ${check.item} expects ${check.path} absent`).toBe(false);
