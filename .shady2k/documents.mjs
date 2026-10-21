@@ -148,10 +148,11 @@ function whereSeen(text) {
 }
 
 // Mockup files at a candidate: an image, an HTML file, or a prototype document,
-// each non-empty, so a screen change names one that really stands in the tree.
+// each a regular non-empty file, so a screen change names one that really
+// stands in the tree (a symlink's blob is its target's name, not the file).
 const MOCKUP = /(\.(png|jpe?g|gif|svg|webp|html?)$)|(^docs\/prototypes\/.+\.md$)/i;
 function mockupsOf(root, src) {
-  const found = src.entries().filter((e) => MOCKUP.test(e.path));
+  const found = src.entries().filter((e) => /^100(644|755)$/.test(e.mode) && MOCKUP.test(e.path));
   if (!found.length) return [];
   const sizes = git(root, ['cat-file', '--batch-check=%(objectsize)'], undefined, found.map((e) => e.hash).join('\n') + '\n')
     .trim().split('\n').map(Number);

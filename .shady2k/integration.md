@@ -445,7 +445,11 @@ are the repository's installation, and each person's plugin and hooks are theirs
   run in the checkout under review (proved by one real call at the 0.45.0
   setup, 2026-10-13); gpt-6.1-sol the same way once its limit lifts, by the
   owner's choice. A way that stops answering is repaired with the owner told,
-  never silently replaced. Fallback: an independent same-model reviewer,
+  never silently replaced. 2026-10-21 (setup 0.51.0, madarch-y47p): the
+  `openai-codex` way refused with no key for that provider; the review ran on
+  gpt-6.1-sol through the owner's gateway, `prime-agent --provider
+  shady2k-gateway --model gpt-6.1-sol -p "<the review brief>"` (proved by that
+  review), and the owner was told. Fallback: an independent same-model reviewer,
   disclosed in the acceptance record.
 - **Pushes to the owner:** `notifyPushes` is on (owner's yes, 2026-10-13); the
   channel is this machine's, `~/.config/shady2k-skills/notify.json` naming the

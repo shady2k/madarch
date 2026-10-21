@@ -3,7 +3,7 @@
 //   node --test .shady2k/
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -226,6 +226,10 @@ test('feature phase: a change with no section, or a screen without a mockup in t
   assert.deepEqual(ids(runCheck(r.root, { phase: 'feature', change: 'add-views', candidate: 'worktree' }).violations), ['missing-mockup']);
   r.write('docs/mockups/views.png', '');
   assert.deepEqual(ids(runCheck(r.root, { phase: 'feature', change: 'add-views', candidate: 'worktree' }).violations), ['missing-mockup'], 'an empty file is no mockup');
+  r.remove('docs/mockups/views.png');
+  symlinkSync('missing.png', join(r.root, 'docs/mockups/views.png'));
+  assert.deepEqual(ids(runCheck(r.root, { phase: 'feature', change: 'add-views', candidate: 'worktree' }).violations), ['missing-mockup'], 'a symlink is no mockup');
+  r.remove('docs/mockups/views.png');
   r.write('docs/mockups/views.png', 'png');
   assert.deepEqual(runCheck(r.root, { phase: 'feature', change: 'add-views', candidate: 'worktree' }).violations, []);
   r.write('docs/changes/add-views/change.md', change({ base: r.base, seen: screen.replace('docs/mockups/views.png', 'docs/prototypes/P-001-views.md') }));
