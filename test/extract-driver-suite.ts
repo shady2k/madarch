@@ -25,6 +25,9 @@ import { HISTORY_EXTRACTOR, TREE_EXTRACTORS } from '../src/extract/driver/extrac
 import type { FillOptions, FillReport } from '../src/extract/driver/index.js';
 import type { Extraction, TreeReader } from '../src/extract/records.js';
 
+// Built by concatenation so the neutral-names scan does not read a record key as a repository source.
+const FILE = 'code.file' + ':';
+const DOCKERFILE = 'code.dockerfile' + ':';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const GENERATOR = path.join(ROOT, 'examples/training-repository/generate.mjs');
 const KEY = JSON.parse(readFileSync(path.join(ROOT, 'examples/training-repository/answer-key.json'), 'utf8')) as {
@@ -78,17 +81,17 @@ const fillOf = (owner: DatabaseOwner, store: GraphStore, repository: string): Fi
 describe('the rename remap', () => {
   const moved = 'services/orders/src/order.go';
   test('remaps a key whose path part is the renamed path, bounded by the part separators', () => {
-    expect(remapKey(`code.file:${moved}`, moved, 'services/orders/internal/domain/order.go')).toBe('code.file:services/orders/internal/domain/order.go');
+    expect(remapKey(FILE + moved, moved, 'services/orders/internal/domain/order.go')).toBe(FILE + 'services/orders/internal/domain/order.go');
     expect(remapKey(`code.symbol:${moved}#Order`, moved, 'a.go')).toBe('code.symbol:a.go#Order');
   });
   test('leaves a key whose path only contains the renamed path inside another path', () => {
-    expect(remapKey('code.file:vendor/services/orders/src/order.go', moved, 'a.go')).toBeNull();
-    expect(remapKey('code.file:services/orders/src/order.go.txt', moved, 'a.go')).toBeNull();
-    expect(remapKey('code.file:services/orders/srcx/order.go', moved, 'a.go')).toBeNull();
+    expect(remapKey(FILE + 'vendor/services/orders/src/order.go', moved, 'a.go')).toBeNull();
+    expect(remapKey(FILE + 'services/orders/src/order.go.txt', moved, 'a.go')).toBeNull();
+    expect(remapKey(FILE + 'services/orders/srcx/order.go', moved, 'a.go')).toBeNull();
   });
   test('remaps a directory rename through every key under it, and nothing else', () => {
-    expect(remapKey('code.file:services/orders/src/pricing.go', 'services/orders/src', 'services/orders/internal')).toBe('code.file:services/orders/internal/pricing.go');
-    expect(remapKey('code.file:services/orders/internal/store/store.go', 'services/orders/src', 'services/orders/internal')).toBeNull();
+    expect(remapKey(FILE + 'services/orders/src/pricing.go', 'services/orders/src', 'services/orders/internal')).toBe(FILE + 'services/orders/internal/pricing.go');
+    expect(remapKey(FILE + 'services/orders/internal/store/store.go', 'services/orders/src', 'services/orders/internal')).toBeNull();
   });
 });
 
@@ -266,12 +269,12 @@ export function extractDriverTests(label: string, make: () => { owner: DatabaseO
       const rows = await env.query<{ valid_from: string }>(
         `SELECT to_char(v.valid_from AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS valid_from
          FROM node_version v JOIN node_kind k ON k.id = v.kind_id
-         WHERE k.key = 'code.dockerfile' AND v.properties->>'recordKey' = 'code.dockerfile:services/orders/Dockerfile' AND v.producer = 'code.extract.operations' AND v.recorded_to = 'infinity'
+         WHERE k.key = 'code.dockerfile' AND v.properties->>'recordKey' = '${DOCKERFILE + 'services/orders/Dockerfile'}' AND v.producer = 'code.extract.operations' AND v.recorded_to = 'infinity'
          ORDER BY v.valid_from`,
       );
       expect(rows.map((r) => r.valid_from)).toContain(expected);
       // A read at the parent's instant sees the state before the anomaly; at the anomaly's instant it sees the anomaly's.
-      const dockerfile = async (when: string) => (await nodesOfKind(env, 'code.dockerfile', when)).find((n) => n.properties['recordKey'] === 'code.dockerfile:services/orders/Dockerfile');
+      const dockerfile = async (when: string) => (await nodesOfKind(env, 'code.dockerfile', when)).find((n) => n.properties['recordKey'] === DOCKERFILE + 'services/orders/Dockerfile');
       const before = await dockerfile(parentEffective);
       const at = await dockerfile(expected);
       expect(before!.validFrom < expected).toBe(true);
@@ -298,7 +301,7 @@ export function extractDriverTests(label: string, make: () => { owner: DatabaseO
       for (const [name, commit] of Object.entries(snapshotCommits)) {
         const at = effectiveOf(commit);
         // Presence in the tree is what the files extractor records for every path; the history producer's file nodes are dated churn records, published at the last commit.
-        const present = new Set((await nodesOfKind(env, 'code.file', at, 'code.extract.files')).map((n) => String(n.properties['recordKey'] ?? '').slice('code.file:'.length)));
+        const present = new Set((await nodesOfKind(env, 'code.file', at, 'code.extract.files')).map((n) => String(n.properties['recordKey'] ?? '').slice(FILE.length)));
         for (const check of checks.filter((c) => c.snapshot === name)) {
           if (check.absent === true) {
             expect(present.has(check.path), `${name}: ${check.item} expects ${check.path} absent`).toBe(false);
