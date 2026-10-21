@@ -35,10 +35,12 @@ Place: `node examples/training-repository/generate.mjs ~/madarch-walk/training` 
 None.
 
 ## Design and decisions
-The generator writes outside the source tree and creates a fixed git history with controlled authors, committer dates, messages and environment, so two runs give identical commit ids. The answer key holds one assertion per item (location, expected wiki statement, evidence class, viewpoints, whether it is required now, and a judge with the reader's task, what must be shown and linked and what must not be claimed); the planted counts are computed from the generator's commit plan and checked against the generated git log.
+The final state of the repository is real files under examples/training-repository/template; history.mjs plans about seventy commits and generate.mjs replays them, reading earlier states from the same files through since and until directives. The generator writes outside the source tree and creates a fixed git history with controlled authors, committer dates, messages and environment, so two runs give identical commit ids. The answer key holds one assertion per item (location, expected wiki statement, evidence class, viewpoints, whether it is required now, and a judge with the reader's task, what must be shown and linked and what must not be claimed); the planted counts are computed from the generator's commit plan and checked against the generated git log.
 
 ## Acceptance evidence
-Pending.
+Run on the SkyPilot pod on 2026-10-21, 14 tests of examples/training-repository/generator.test.ts passing, bun run check exit 0.
+The generated repository (73 commits, 114 files, 6186 lines without the lock files): gofmt -l empty; go vet and go test exit 0 in orders and promotions (CGO disabled); tsc --noEmit exit 0 and jest passing in payments (18 passed, 1 skipped) and checkout (4 passed); every one of the 73 commit states passes gofmt syntax, go vet and tsc --noEmit.
+The Docker images, the compose file and the Kubernetes manifest were not built or run. A walk of the pages against the key is not part of this change.
 
 ## DONE WHEN
 The generator produces SPEC.md's repository deterministically, every SPEC item has an answer-key entry whose location resolves at its snapshot, today's key items are kept and remapped, the planted counts match git, and the key and SPEC.md never land in the output.

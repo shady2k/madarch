@@ -66,17 +66,17 @@ async function main(): Promise<void> {
   });
 // @@ end
 
-// @@ until persist-pay
+// @@ until factory
   createApp({ service, jwtSecret: config.jwtSecret }).listen(HTTP_PORT, () => {
     logger.info({ port: HTTP_PORT }, 'payments http listening');
   });
 // @@ end
-// @@ since persist-pay until factory
-  createApp({ service, prisma, jwtSecret: config.jwtSecret }).listen(HTTP_PORT, () => {
-    logger.info({ port: HTTP_PORT }, 'payments http listening');
+// @@ since factory until persist-pay
+  createApp({ service, jwtSecret: config.jwtSecret }).listen(HTTP_PORT, () => {
+    logger.info({ port: HTTP_PORT, provider: config.paymentProvider }, 'payments http listening');
   });
 // @@ end
-// @@ since factory until retries
+// @@ since persist-pay until retries
   createApp({ service, prisma, jwtSecret: config.jwtSecret }).listen(HTTP_PORT, () => {
     logger.info({ port: HTTP_PORT, provider: config.paymentProvider }, 'payments http listening');
   });

@@ -1,7 +1,60 @@
 # Training repository generator
 
-Run `node examples/training-repository/generate.mjs <destination>` from the Madarch checkout. The destination must be outside the checkout. The generator creates a deterministic, scripted Git repository with orders, payments, promotions and checkout services, contracts, operating files, and a six-month history.
+`node examples/training-repository/generate.mjs <destination>` writes a git repository
+of a small online shop's ordering and payments back end: four services (orders and
+promotions in Go, payments and checkout in TypeScript), contracts, documents,
+migrations, lock files, Dockerfiles, a compose file, Kubernetes manifest, CI and a
+six-month history. The wiki is judged against it. The destination must be outside the
+Madarch checkout. Two runs give identical commit ids.
 
-`answer-key.json` stays beside the generator and is never copied into the generated repository. It contains atomic wiki assertions, named snapshots and planted history counts. Each assertion points to evidence at a snapshot and states what the wiki should show, its viewpoint, whether it is needed now, and how to judge it.
+## What is here
 
-The generator regression is run with `madarch-sky-test <worktree> examples/training-repository/generator.test.ts`; it checks determinism, key locations, history counts and excluded files.
+- `template/` is the final state of the generated repository as real files (Go,
+  TypeScript, SQL, Prisma, proto, YAML, Markdown, Dockerfiles, lock files). One file
+  name differs: `_env.example` is written as `.env.example` (the test pods do not
+  receive files named `.env*`).
+- `history.mjs` is the plan: about seventy commits by three authors with fixed dates,
+  task keys and messages, which files each commit adds, moves or removes, and which of
+  the three counted files (the hotspot `order_service.go`, `pricing.go`, `tax.go`) it
+  touches.
+- `generate.mjs` replays the plan. Earlier states are read from the same template files:
+  a line that is only a comment carrying `@@` is a directive and is never written.
+  `@@ since <id> [until <id>]` opens a block that exists while commit `<id>` is in the
+  history of the commit being built (and the other is not); `@@ end` closes it; blocks
+  may nest. The generator fails, naming file and line, when a directive is malformed,
+  names an unknown commit, a commit changes no file, a moved file changes, or a commit
+  touches other counted files than it declares.
+- Git is run with fixed `GIT_AUTHOR_*`/`GIT_COMMITTER_*`, `TZ=UTC`, `LC_ALL=C`, no
+  system or global config and `-c` overrides, so the machine's settings do not matter.
+- `answer-key.json` says, item by item, what the wiki must show. It is not part of the
+  output, nor are `SPEC.md`, the plan or the template. Its shape is in `SPEC.md`. Items
+  carry one location (or several) as `{snapshot, path, symbol, anchor}` that is found
+  verbatim in the file at that snapshot; some carry `checks` (a path absent at a
+  snapshot, a file that differs from the final one, a text that must or must not occur).
+- `SPEC.md` is the agreed specification.
+
+## Counting rules and planted numbers
+
+Written in the key (`plantedCounts`, `countingRules`) and recomputed by the test from
+`git log` and from the plan's own declarations: commits (73), first-parent commits (71),
+the merge (1), commits that change `order_service.go` (28), commits that change
+`pricing.go` and `tax.go` together (5), `pricing.go` only (1), `tax.go` only (1), the lines
+of `legacy-report.ts` (796), and the dependency counts of the two lock files. Merge
+commits are never counted; the feature branch's commits are.
+
+## Dependencies and lock files
+
+`package-lock.json` (lockfile v3) and `go.sum` were produced by `npm install` and
+`go mod tidy` on 2026-10-21 against the public registries, so they are real and
+resolvable; they are committed by the history's `Commit the lock files` step, after
+the last dependency was added. The generated repository's Docker images and compose
+file were not built or run when the fixture was made; the Go and TypeScript code was
+vetted, type-checked and tested (see the change record).
+
+## Tests
+
+`madarch-sky-test <worktree> examples/training-repository/generator.test.ts` checks
+determinism, the excluded files, the history (authors, merge, rename, date anomaly,
+provider authorship), the snapshots, the planted counts against git and the plan, every
+key location at its snapshot, and that the generated TypeScript, JSON and `go.sum`
+are well formed. The mutation of the generator is not part of this fixture's checks.
