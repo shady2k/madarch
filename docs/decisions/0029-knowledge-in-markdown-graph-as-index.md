@@ -32,6 +32,14 @@ The owner's description of what madarch is for, 2026-10-22, in his words:
 - «Граф не должен быть связан с шаблоном… шаблон — это способ отображения данных из графа.»
 - On keeping the graph: «Ты сначала позиционировал граф как кэш. Получается он нифига не кеш.»
   He agreed («Да») to the split below.
+- On templates: «Какие там у нас шаблонизаторы?… хотят люди, чтобы на каждой странице отрисовывался
+  граф связей… добавить в шаблон, он показывается… Medarch — это просто движок… вики не содержит в
+  себе никакой информации о продукте».
+- On products: «…не репозиторий должен быть, а продукт. Выбор продукта… несколько продуктов… в
+  одной вики. И связи между продуктами… экосистема… вики должна быть федеративная… локальную часть…
+  потом… серверной… по аналогии с git… добавить ремоут».
+- On edits: «Может быть, нам не надо давать… редактировать текст, нужно давать редактировать
+  исходную сущность и потом агент перепишет текст.»
 
 ## Decision
 
@@ -72,6 +80,24 @@ the text. A statement with nothing behind it is not shown as fact.
 - Upper-level pages (product, domains, scenarios) are mostly the product's Markdown. Lower-level
   pages (component, file, function, table) are templates over graph facts, with no file behind
   them.
+- A template is Markdown with attribute substitution (`{{name}}`) and engine blocks written as
+  Markdown directives (`:::graph{depth=1}`, `:::related`, `:::callers`, `:::source`,
+  `:::sequence{scenario=…}`, `:::er`). This is the established pattern of Markdown directives, MDX
+  components and Obsidian Dataview. The engine ships the block library. A template only arranges
+  blocks and text; it holds no program logic.
+
+**People edit source entities, not generated text.** Requirements, user stories, use cases,
+decisions, answers and the product's own documents are edited by people. The agent rewrites the
+text from them, so every sentence stays grounded by construction. A person who finds a sentence
+wrong does not edit it. They record a correction ("wrong, because …"). The correction is an entity
+of its own, and the agent takes it into account on its next pass. No hand edit of agent text can be
+lost or contradict its grounding.
+
+**Products, not repositories.** The wiki shows several products. The product is chosen at the top
+left. A product can use another product, and the link opens that product's wiki, so together they
+form an ecosystem. Today's work is the local part on an engineer's machine. A server comes later.
+It synchronises with the local stores the way git does with a remote: the local store works alone,
+and a remote can be added.
 
 ## Consequences
 
@@ -88,6 +114,4 @@ the text. A statement with nothing behind it is not shown as fact.
 
 ## Open
 
-- The template language.
-- How a person's edit to an agent-written statement is kept across the agent's next run (merge,
-  or agent never overwrites a human-edited statement).
+- The template blocks' exact parameters, settled on the first real pages.
