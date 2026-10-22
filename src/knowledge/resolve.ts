@@ -4,7 +4,7 @@
  * `doc:<path>#<anchor>` for a section of a document. A target that does not
  * resolve is shown as broken with the reason, never dropped and never linked.
  */
-import { SLUGGER_REGEX } from '../wiki/github-slugger-regex.js';
+import { findAnchor } from './anchors.js';
 import type { GraphEntity, GraphReader } from './graph-read.js';
 import type { CodeLocation } from './model.js';
 import type { MarkdownEntity } from './markdown.js';
@@ -25,31 +25,7 @@ export function sourceAddress(repo: string | null, path: string, line?: number):
   return `/k/src?${query.toString()}`;
 }
 
-/** The slug GitHub gives a heading. */
-export function slugOf(heading: string): string {
-  return heading.trim().toLowerCase().replace(SLUGGER_REGEX, '').replace(/ /g, '-');
-}
-
-/**
- * The line a document's section is on: a heading whose slug is the anchor, an
- * explicit `{#anchor}` on a heading, or a line that opens with the anchor as
- * its label (`- **UC-2 Pay.**`, `UC-2:`), compared without case.
- */
-export function findAnchor(text: string, anchor: string): number | null {
-  const wanted = anchor.toLowerCase();
-  const lines = text.split('\n');
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index]!;
-    const heading = /^#{1,6}\s+(.*?)\s*(?:\{#([\w-]+)\})?\s*#*\s*$/.exec(line);
-    if (heading !== null) {
-      if (heading[2]?.toLowerCase() === wanted) return index + 1;
-      if (slugOf(heading[1]!.replace(/[*_`]/g, '')) === wanted) return index + 1;
-    }
-    const label = /^\s*(?:[-*+]|\d+[.)])?\s*(?:\*\*|__)?\s*([A-Za-z][\w-]*)(?=[\s.:*_)-]|$)/.exec(line);
-    if (label !== null && label[1]!.toLowerCase() === wanted && /[\w-]+\d|[A-Z]{2,}-/.test(label[1]!)) return index + 1;
-  }
-  return null;
-}
+export { findAnchor, slugOf } from './anchors.js';
 
 /** What is said of a key that names nothing. */
 export const noEntityMessage = (key: string): string => `no entity "${key}" in the graph or among the product's Markdown pages`;
