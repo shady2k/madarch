@@ -13,7 +13,7 @@
  */
 import { execFile } from 'node:child_process';
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { createPGliteDatabaseOwner, type DatabaseOwner } from '../adapters/database-owner.js';
@@ -26,7 +26,10 @@ import { insideFolder, homeKind, readKinds, type Finding, type KindsManifest } f
 import { locationOf, type RenderContext } from './blocks.js';
 import { GraphReader } from './graph-read.js';
 import { readMarkdownEntities, type MarkdownEntity } from './markdown.js';
-import type { FillState, WikiStatus } from './model.js';
+import type { AgentOffer, FillState, WikiStatus, WriterState, WriterUnit } from './model.js';
+import { adapterOf, installAdapter, makeUnitAgent, offers, WRITER_BOUNDS } from './agents.js';
+import { fsSink, productSlug, runWriter, PRODUCT_PATH, type UnitAgent } from '../writer/index.js';
+import type { DraftEnv } from '../product/home.js';
 import { kindSummaries, renderPage, listEntities, type PageResult } from './render.js';
 import { Resolver } from './resolve.js';
 
@@ -46,12 +49,19 @@ interface RepositoryPin {
   filledCommits: number;
 }
 
+/** Starts the agent that writes the pages; the error names why it cannot. */
+export type AgentFactory = (agentId: string) => (UnitAgent & { close(): Promise<void> }) | { error: string };
+
 export interface KnowledgeProductOptions {
   productFolder: string;
   /** The folder the product's store lives under: `<root>/<product id>/graph`. */
   storeRoot: string;
   /** A fill that is told to stop and the clock for it; tests inject. */
   now?: () => Date;
+  /** The environment the agents' adapters are found and installed by (HOME, PATH). */
+  env?: DraftEnv;
+  /** Starts the chosen agent for the writer; the production one starts the agent's ACP adapter. Tests inject a scripted agent. */
+  agentFactory?: AgentFactory;
 }
 
 /** Runs git in a code repository for one blob; the file is `undefined` when git has none there. */
@@ -76,6 +86,11 @@ export class KnowledgeProduct {
   private readonly pins = new Map<string, RepositoryPin>();
   private identity: ProductIdentity | undefined;
   private revision = 0;
+  private writer: WriterState = { state: 'idle', agent: null, units: [] };
+  private writerAgent: { close(): Promise<void> } | undefined;
+  private installing: Promise<unknown> | undefined;
+  private choosing: Promise<unknown> = Promise.resolve();
+  private choiceWrites = 0;
 
   constructor(private readonly options: KnowledgeProductOptions) {}
 
@@ -179,7 +194,7 @@ export class KnowledgeProduct {
   // ---- the fill --------------------------------------------------------------------------
 
   /** Starts the fill if none is running; the answer says whether it started and why not. */
-  async startFill(): Promise<{ started: true; fill: FillState } | { started: false; message: string; fill: FillState }> {
+  async startFill(options: { expectAgent?: string | null } = {}): Promise<{ started: true; fill: FillState } | { started: false; message: string; fill: FillState }> {
     if (this.running !== undefined) return { started: false, message: 'a fill of this product is already running', fill: this.fill };
     const product = this.product();
     if ('message' in product) return { started: false, message: product.message, fill: this.fill };
@@ -194,9 +209,18 @@ export class KnowledgeProduct {
       return { started: false, message: `the repositories ${missing.map((repo) => repo.name).join(', ')} are not checked out under repos/: run "madarch bootstrap" first`, fill: this.fill };
     }
     if (this.closed) return { started: false, message: 'the wiki is shutting down', fill: this.fill };
+    // The press consented to one agent: a choice saved meanwhile from another tab is not the one this press was for.
+    if (options.expectAgent !== undefined) {
+      const saved = this.chosenAgent()?.id ?? null;
+      if (saved !== options.expectAgent) {
+        return { started: false, message: `the agent saved for this product is ${saved === null ? 'none' : saved}, not ${options.expectAgent === null ? 'none' : options.expectAgent} which this press was made for: read the choice again and press once more`, fill: this.fill };
+      }
+    }
     // The slot is claimed before anything is awaited, so two asks in the store's opening are not two fills.
     this.stopping = false;
     this.fill = { state: 'running', startedAt: (this.options.now?.() ?? new Date()).toISOString(), commit: 0, commits: 0, gaps: 0 };
+    const chosen = this.chosenAgent();
+    this.writer = chosen === null ? { state: 'idle', agent: null, units: [] } : { state: 'waiting', agent: chosen, units: [] };
     this.notify();
     this.running = (async () => {
       try {
@@ -207,10 +231,169 @@ export class KnowledgeProduct {
         return;
       }
       await this.runFill(repositories);
+      if (this.fill.state === 'done') await this.runWriterStage(repositories);
     })().finally(() => {
+      // A fill that did not reach its end leaves the agent stage unstarted, not waiting for ever.
+      if (this.writer.state === 'waiting') this.writer = { ...this.writer, state: 'idle' };
       this.running = undefined;
     });
     return { started: true, fill: this.fill };
+  }
+
+  // ---- the agent stage ---------------------------------------------------------------------
+
+  private get env(): DraftEnv {
+    return this.options.env ?? process.env;
+  }
+
+  private choiceFile(): string {
+    const product = this.product();
+    if ('message' in product) throw new Error(product.message);
+    return join(this.options.storeRoot, product.id, 'writer.json');
+  }
+
+  /** The agent the reader chose for this product, or null; a file that names an agent madarch does not offer is an error naming it. */
+  chosenAgent(): { id: string; label: string } | null {
+    const file = this.choiceFile();
+    let text: string;
+    try {
+      text = readFileSync(file, 'utf8');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+      throw new Error(`${file}: the chosen agent cannot be read: ${(error as Error).message}`);
+    }
+    let id: unknown;
+    try {
+      id = (JSON.parse(text) as { agent?: unknown }).agent;
+    } catch (error) {
+      throw new Error(`${file}:1: the chosen agent is not JSON: ${(error as Error).message}; delete the file to choose again`);
+    }
+    const entry = typeof id === 'string' ? adapterOf(id) : undefined;
+    if (entry === undefined) throw new Error(`${file}:1: ${JSON.stringify(id)} is not an agent madarch offers; delete the file to choose again`);
+    return { id: entry.id, label: entry.label };
+  }
+
+  agentOffers(): AgentOffer[] {
+    return offers(this.env);
+  }
+
+  /**
+   * The reader's choice of the agent that writes the pages. `install` is the reader's yes to fetching the agent's
+   * adapter when it is not here; without it an agent that is not installed is refused, in words. Nothing runs.
+   */
+  chooseAgent(id: string | null, install: boolean): Promise<{ ok: true; agent: { id: string; label: string } | null } | { ok: false; status: number; message: string }> {
+    // One change of the choice at a time: two asks never write the one file together.
+    const turn = this.choosing.then(() => this.chooseOne(id, install), () => this.chooseOne(id, install));
+    this.choosing = turn;
+    return turn;
+  }
+
+  private async chooseOne(id: string | null, install: boolean): Promise<{ ok: true; agent: { id: string; label: string } | null } | { ok: false; status: number; message: string }> {
+    if (this.running !== undefined && (this.writer.state === 'running' || this.writer.state === 'waiting')) return { ok: false, status: 409, message: 'a fill with an agent is running; the choice changes after it ends' };
+    if (id === null) {
+      await rm(this.choiceFile(), { force: true });
+      this.notify();
+      return { ok: true, agent: null };
+    }
+    const entry = adapterOf(id);
+    if (entry === undefined) return { ok: false, status: 400, message: `"agent" is ${JSON.stringify(id)}: madarch offers claude-code and codex` };
+    const offer = this.agentOffers().find((candidate) => candidate.id === id)!;
+    if (!offer.installed) {
+      if (!install) return { ok: false, status: 409, message: `the ${entry.label} adapter is not installed: say yes to install it into ${offer.install?.folder ?? 'madarch\'s agents folder'}` };
+      if (this.installing !== undefined) return { ok: false, status: 409, message: 'an adapter is being installed; wait for it to end' };
+      const work = installAdapter(id, this.env);
+      this.installing = work;
+      let result: Awaited<typeof work>;
+      try {
+        result = await work;
+      } finally {
+        this.installing = undefined;
+      }
+      if (!result.ok) return { ok: false, status: 502, message: result.message };
+    }
+    const file = this.choiceFile();
+    await mkdir(dirname(file), { recursive: true });
+    const temporary = `${file}.${process.pid}.${(this.choiceWrites += 1)}.tmp`;
+    await writeFile(temporary, `${JSON.stringify({ agent: id })}\n`, 'utf8');
+    await rename(temporary, file);
+    this.notify();
+    return { ok: true, agent: { id: entry.id, label: entry.label } };
+  }
+
+  /** The writer, one unit after another, inside this server on this product's own open store. */
+  private async runWriterStage(repositories: readonly { name: string; path: string }[]): Promise<void> {
+    const chosen = this.writer.agent;
+    if (chosen === null) return;
+    const startedAt = (this.options.now?.() ?? new Date()).toISOString();
+    const fail = (message: string): void => {
+      this.writer = { ...this.writer, state: 'failed', current: undefined, message, finishedAt: (this.options.now?.() ?? new Date()).toISOString() };
+      this.notify();
+    };
+    const product = this.product();
+    if ('message' in product) return fail(product.message);
+    if (repositories.length !== 1) {
+      return fail(`the writer reads one code repository and the product declares ${repositories.length} (${repositories.map((repo) => repo.name).join(', ')}): nothing was written, so no page is a smaller picture of the product`);
+    }
+    const built = this.options.agentFactory === undefined ? makeUnitAgent(chosen.id, this.env) : this.options.agentFactory(chosen.id);
+    if ('error' in built) return fail(built.error);
+    // A unit never starts once the wiki is shutting down, even if the agent was closed before its connection opened.
+    const made: UnitAgent & { close(): Promise<void> } = {
+      run: async (request) => {
+        if (this.stopping) throw new Error('the wiki is shutting down; this unit did not start');
+        await built.run(request);
+      },
+      close: () => built.close(),
+    };
+    this.writerAgent = made;
+    let slug: string;
+    try {
+      slug = productSlug(product.name);
+    } catch (error) {
+      await made.close();
+      this.writerAgent = undefined;
+      return fail(error instanceof Error ? error.message : String(error));
+    }
+    const units: WriterUnit[] = [{ unit: `product:${slug}`, path: PRODUCT_PATH, state: 'waiting' }];
+    this.writer = { state: 'running', agent: chosen, units, startedAt };
+    this.notify();
+    const setUnit = (unit: string, change: Partial<WriterUnit>): void => {
+      this.writer = { ...this.writer, units: this.writer.units.map((held) => (held.unit === unit ? { ...held, ...change } : held)) };
+    };
+    const files = fsSink(product.folder);
+    // A page is on disk, and the open pages told to read it, the moment its unit writes it: not when the unit ends.
+    const sink = { read: files.read, write: async (relative: string, content: string): Promise<void> => { await files.write(relative, content); this.notify(); } };
+    try {
+      const { owner, store } = await this.open();
+      const report = await runWriter({
+        owner, store, repository: repositories[0]!.path, ...(this.pins.get(repositories[0]!.name)?.head === undefined ? {} : { ref: this.pins.get(repositories[0]!.name)!.head }), output: product.folder, productName: product.name, agent: made, sink,
+        onUnitStart: (start) => {
+          setUnit(start.unit, { state: 'writing' });
+          this.writer = { ...this.writer, current: start.unit };
+          this.notify();
+        },
+        onUnit: (outcome) => {
+          setUnit(outcome.unit, { state: outcome.status === 'written' ? 'written' : outcome.status === 'failed' ? 'failed' : 'not-written', writeAttempts: outcome.writeAttempts, calls: outcome.calls, refusals: outcome.refusals.map((r) => ({ line: r.line, rule: r.rule, message: r.message })) });
+          if (outcome.status === 'written' && outcome.unit.startsWith('product:')) {
+            this.writer = { ...this.writer, units: [...this.writer.units, ...outcome.domains.map((domain): WriterUnit => ({ unit: `domain:${domain.slug}`, path: `docs/domains/${domain.slug}.md`, state: 'waiting' }))] };
+          }
+          this.notify();
+        },
+      });
+      const left = report.content.skipped;
+      const skipped = left.length === 0 ? '' : ` ${left.length} file${left.length === 1 ? ' was' : 's were'} not stored for the agent to read: ${left.slice(0, 3).map((entry) => `${entry.path === '' ? '(no path)' : entry.path} (${entry.reason})`).join('; ')}${left.length > 3 ? '; …' : ''}.`;
+      const stale = report.stale.length === 0 ? '' : ` Pages from an earlier run that this run did not write were left alone: ${report.stale.join(', ')}.`;
+      this.writer = { ...this.writer, state: report.ok ? 'done' : 'failed', current: undefined, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), ...(report.ok ? (`${stale}${skipped}` === '' ? {} : { message: `${stale}${skipped}`.trim() }) : { message: `some pages were not written; each unit above says why.${stale}${skipped}` }) };
+    } catch (error) {
+      this.writer = { ...this.writer, state: 'failed', current: undefined, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), message: `the writer stopped: ${error instanceof Error ? error.message : String(error)}` };
+    } finally {
+      await made.close().catch(() => undefined);
+      this.writerAgent = undefined;
+    }
+    this.notify();
+  }
+
+  writerState(): WriterState {
+    return this.writer;
   }
 
   /** Resolves when the running fill has ended; for tests and for a clean stop. */
@@ -324,7 +507,7 @@ export class KnowledgeProduct {
     const declared = this.repositories();
     const context = await this.context();
     if ('absent' in context) {
-      return { ...common, manifest: 'no-manifest', manifestFile: context.file, findings: [], kinds: [], repositories: declared.map((repo) => ({ name: repo.name, filled: false })), filled: false, incomplete: false, fill: this.fill, home: null };
+      return { ...common, manifest: 'no-manifest', manifestFile: context.file, findings: [], kinds: [], repositories: declared.map((repo) => ({ name: repo.name, filled: false })), filled: false, incomplete: false, fill: this.fill, writer: this.writer, bounds: WRITER_BOUNDS, chosenAgent: this.chosenAgent(), home: null };
     }
     const home = homeKind(context.manifest);
     const homeEntity = home === undefined ? undefined : [...context.ctx.markdown.values()].find((entity) => entity.kind === home.name);
@@ -340,6 +523,9 @@ export class KnowledgeProduct {
       filled: this.pins.size > 0,
       incomplete,
       fill: this.fill.state === 'idle' && this.pins.size > 0 && !incomplete ? { state: 'done' } : this.fill,
+      writer: this.writer,
+      bounds: WRITER_BOUNDS,
+      chosenAgent: this.chosenAgent(),
       home: homeEntity?.id ?? null,
     };
   }
@@ -369,6 +555,7 @@ export class KnowledgeProduct {
   async close(): Promise<void> {
     this.closed = true;
     this.stopping = true;
+    await this.writerAgent?.close().catch(() => undefined);
     try {
       await this.running;
     } catch {
@@ -387,13 +574,13 @@ export class KnowledgeProduct {
 export class KnowledgeHost {
   private readonly products = new Map<string, KnowledgeProduct>();
 
-  constructor(private readonly storeRoot: string, private readonly now?: () => Date) {}
+  constructor(private readonly storeRoot: string, private readonly now?: () => Date, private readonly extra: Pick<KnowledgeProductOptions, 'env' | 'agentFactory'> = {}) {}
 
   of(productFolder: string): KnowledgeProduct {
     const key = resolve(productFolder);
     let held = this.products.get(key);
     if (held === undefined) {
-      held = new KnowledgeProduct({ productFolder: key, storeRoot: this.storeRoot, ...(this.now === undefined ? {} : { now: this.now }) });
+      held = new KnowledgeProduct({ productFolder: key, storeRoot: this.storeRoot, ...(this.now === undefined ? {} : { now: this.now }), ...this.extra });
       this.products.set(key, held);
     }
     return held;

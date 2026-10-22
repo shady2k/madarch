@@ -61,6 +61,8 @@ export interface WriterOptions {
   readonly sink?: PageSink;
   /** Called with each unit's outcome as it ends. */
   readonly onUnit?: (outcome: UnitOutcome) => void;
+  /** Called with a unit's id and page as the unit starts, so a reader can see which unit is writing now. */
+  readonly onUnitStart?: (unit: { readonly unit: string; readonly path: string }) => void;
 }
 
 export interface WriterReport {
@@ -140,6 +142,7 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
   const sink = options.sink ?? fsSink(options.output);
   const slug = productSlug(options.productName);
   const productUnit: UnitSpec = { kind: 'product', id: `product:${slug}`, path: PRODUCT_PATH, name: options.productName };
+  options.onUnitStart?.({ unit: productUnit.id, path: productUnit.path });
   const productTools = new UnitTools(view, productUnit, sink, [], bounds);
   const product = await runUnit(options.agent, productTools, await productPrompt(view, productUnit));
   options.onUnit?.(product);
@@ -153,6 +156,7 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
     }
     for (const declaration of product.domains) {
       const spec: UnitSpec = { kind: 'domain', id: `domain:${declaration.slug}`, path: `${DOMAINS_FOLDER}/${declaration.slug}.md`, domain: declaration, productId: productUnit.id };
+      options.onUnitStart?.({ unit: spec.id, path: spec.path });
       const tools = new UnitTools(view, spec, sink, product.domains, bounds);
       const outcome = await runUnit(options.agent, tools, await domainPrompt(view, spec, productPage, product.domains));
       options.onUnit?.(outcome);

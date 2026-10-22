@@ -54,7 +54,8 @@
  *                 answer streamed as a JSON message chunk, the server started on the
  *                 first such step), `{"answer":{…}}` (the object, as a message chunk,
  *                 then `end_turn` with a usage report), `{"end":{"stopReason":…,
- *                 "usage":…}}` and `{"wait":true}` (nothing further until
+ *                 "usage":…}}`, `{"sleep":<milliseconds>}` (nothing for that long, so a walk can see a
+ *                 unit in progress) and `{"wait":true}` (nothing further until
  *                 `session/cancel`, which the agent answers as a cancelled turn)
  */
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
@@ -71,6 +72,7 @@ const scriptPath = option('script');
 
 /** One step of a `script` scenario's steps, as the file spells them (`--script <file>`). */
 interface ScriptStep {
+  sleep?: number;
   say?: string;
   thought?: string;
   usage?: { used?: number; size?: number };
@@ -297,6 +299,7 @@ async function runScript(id: number | string, sessionId: string, text: string): 
       notify('session/update', { sessionId, update: { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: step.thought } } });
       continue;
     }
+    if (step.sleep !== undefined) { await new Promise((resolve) => setTimeout(resolve, Number(step.sleep))); continue; }
     if (step.say !== undefined) { chunk(sessionId, step.say); continue; }
     if (step.usage !== undefined) {
       notify('session/update', { sessionId, update: { sessionUpdate: 'usage_update', ...(step.usage.used === undefined ? {} : { used: step.usage.used }), ...(step.usage.size === undefined ? {} : { size: step.usage.size }) } });

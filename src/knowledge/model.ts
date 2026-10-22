@@ -100,6 +100,57 @@ export interface FillState {
   gaps?: number;
 }
 
+/** One agent unit of the writer, as the wiki shows it. */
+export interface WriterUnit {
+  /** The unit's id: `product:<slug>` or `domain:<slug>`. */
+  unit: string;
+  /** The page it writes, relative to the product repository. */
+  path: string;
+  state: 'waiting' | 'writing' | 'written' | 'failed' | 'not-written';
+  writeAttempts?: number;
+  calls?: number;
+  /** Why the unit's last write was refused, or why the agent failed: the file's line and rule, in words. */
+  refusals?: { line: number; rule: string; message: string }[];
+}
+
+/** The agent stage that continues the fill: the chosen agent, the units and where they stand. */
+export interface WriterState {
+  /** `idle` before any run, `waiting` while the code fill runs ahead of it. */
+  state: 'idle' | 'waiting' | 'running' | 'done' | 'failed';
+  agent: { id: string; label: string } | null;
+  units: WriterUnit[];
+  /** The unit writing now. */
+  current?: string;
+  startedAt?: string;
+  finishedAt?: string;
+  message?: string;
+}
+
+/** What one agent costs to use and what the stage is bound by, stated for the reader before the press. */
+export interface WriterBounds {
+  /** Agent turns one unit may take. */
+  turns: number;
+  /** Minutes one unit may run. */
+  minutes: number;
+  /** Tool calls one unit may make. */
+  toolCalls: number;
+  /** Refused writes one unit may make before it fails. */
+  writeAttempts: number;
+  /** The most domains the product page may declare (the units after the product's). */
+  maxDomains: number;
+}
+
+export interface AgentOffer {
+  id: string;
+  label: string;
+  installed: boolean;
+  /** `signed-in`, `not-signed-in` or `unknown`: the agent's own sign-in on this machine. */
+  login: 'signed-in' | 'not-signed-in' | 'unknown';
+  loginDetail: string;
+  /** What installing the adapter fetches, when it is not installed. */
+  install: { package: string; version: string; size: string; folder: string } | null;
+}
+
 export interface WikiStatus {
   product: { name: string; id: string };
   /** `no-manifest` when `madarch/kinds.yaml` is absent. */
@@ -113,6 +164,11 @@ export interface WikiStatus {
   /** A repository's fill stopped before its last commit: the graph holds part of it. */
   incomplete: boolean;
   fill: FillState;
+  /** The agent stage after the code fill. */
+  writer: WriterState;
+  bounds: WriterBounds;
+  /** The agent chosen for this product, when one was. */
+  chosenAgent: { id: string; label: string } | null;
   /** The entity the home page shows, when the manifest names one and its file exists. */
   home: string | null;
 }

@@ -8,7 +8,7 @@
  * mention of an entity that has a page is a link to the page; a reference that
  * does not resolve is shown as broken, with its reason.
  */
-import { useState, type MouseEvent, type ReactElement, type ReactNode } from 'react';
+import { useContext, useState, type MouseEvent, type ReactElement, type ReactNode } from 'react';
 import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useTranslation } from 'react-i18next';
@@ -21,6 +21,7 @@ import { Badge } from '@/components/ui/badge.js';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.js';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.js';
 import { highlight } from './highlight.js';
+import { PendingPages } from './pending.js';
 import { kindWord } from './routes.js';
 import type { Block, CallRow, CodeLocation, EntityRef, RelatedGroup, Resolution } from './types.js';
 
@@ -67,11 +68,15 @@ const keepUrl = (url: string): string => (url.startsWith('madarch:') ? url : def
 /** The Markdown of a page: text, `madarch:` links resolved against the page's resolutions, footnote grounds listed at the end. */
 export function KMarkdown({ text, resolutions }: { text: string; resolutions: Readonly<Record<string, Resolution>> }): ReactElement {
   const { t } = useTranslation();
+  const pending = useContext(PendingPages);
   const components: Components = {
     a: ({ href, children }) => {
       if (href === undefined) return <span>{children}</span>;
       if (href.startsWith('madarch:')) {
         const resolution = resolutions[href];
+        if (resolution?.state === 'broken' && pending.has(href.slice('madarch:'.length))) {
+          return <span className="ref-pending" data-testid="ref-pending" title={t('knowledge.writer.pendingTitle')}>{children}<span className="ref-broken-mark">{t('knowledge.writer.pending')}</span></span>;
+        }
         if (resolution === undefined || resolution.state === 'broken') {
           return <span className="ref-broken" data-testid="ref-broken" title={resolution?.state === 'broken' ? resolution.reason : t('knowledge.unresolved')}>{children}<span className="ref-broken-mark">{t('knowledge.broken')}</span></span>;
         }

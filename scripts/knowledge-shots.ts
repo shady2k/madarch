@@ -15,10 +15,11 @@
  * Usage: bun scripts/knowledge-shots.ts [--out <folder>] [--work <folder>]
  * The pictures are written to --out (shots/ by default) and listed on standard output.
  */
-import { mkdirSync, rmSync } from 'node:fs';
+import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import puppeteer, { type Page } from 'puppeteer';
 import { resolveBrowserExecutable } from './chromium.js';
+import { agentScript } from '../test/knowledge-agent-script.js';
 import { FACTORY, PAY, PAYMENTS_SERVICE, generateTrainingRepository, makeProduct, recordKey, writeSamplePages } from '../test/knowledge-fixture.js';
 import { existsSync } from 'node:fs';
 
@@ -41,11 +42,23 @@ makeProduct(home, 'fresh', repository);
 const shop = existsSync(join(home, 'shop')) ? join(home, 'shop') : makeProduct(home, 'shop', repository);
 writeSamplePages(shop);
 
+// Named like the pages the scripted agent writes: a page's id is its product's name.
+rmSync(join(home, 'training-shop'), { recursive: true, force: true });
+makeProduct(home, 'training-shop', repository);
+// The agent of the agent stage is the fake ACP agent behind an adapter executable found by its name on the PATH, the way a
+// real adapter is found. Its units take their time (the product page, then ordering, then payments), so a picture can
+// show a unit in progress; no model runs.
+const bin = join(work, 'bin');
+mkdirSync(bin, { recursive: true });
+writeFileSync(join(work, 'agent-script.json'), JSON.stringify(agentScript({ product: 6_000, ordering: 60_000, payments: 1_500 })));
+writeFileSync(join(bin, 'claude-agent-acp'), `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(resolve(import.meta.dir, '..', 'test', 'fixtures', 'acp-fake-agent', 'acp-fake-agent.ts'))} --scenario script --script ${JSON.stringify(join(work, 'agent-script.json'))}\n`);
+chmodSync(join(bin, 'claude-agent-acp'), 0o755);
+
 // The server is a process of its own, the products home's background server (`madarch daemon-serve`): a fill keeps its
 // process busy between commits, and a walk that served in its own process would stop answering the browser with it.
 const port = Number(argument('port', '4291'));
 const child = Bun.spawn(['bun', resolve(import.meta.dir, 'madarch.ts'), 'daemon-serve', '--home', home, '--port', String(port)], {
-  env: { ...process.env, MADARCH_APP_DIST: resolve(import.meta.dir, '..', 'wiki', 'app', 'dist') },
+  env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}`, MADARCH_APP_DIST: resolve(import.meta.dir, '..', 'wiki', 'app', 'dist') },
   stdout: 'ignore',
   stderr: 'inherit',
 });
@@ -151,6 +164,26 @@ if (only === '' || only === 'fresh') {
   await page.goto(`${server.url}/products/fresh/k/kind/code.file`, { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('[data-testid=kind-page]');
   await shoot(page, '03-filling-files');
+  await page.close();
+}
+
+// ---- the agent stage: the choice, a unit in progress, the home page after the write ----------
+if (only === '' || only === 'agent') {
+  const page = await open('/products/training-shop/', 1440, 1300);
+  await waited(page, 'the agent choice', () => page.waitForSelector('[data-testid=agent-claude-code]', { timeout: 60_000 }));
+  await page.click('[data-testid=agent-claude-code] input');
+  await shoot(page, '30-agent-choice');
+  await page.click('[data-testid=fill-start]');
+  await waited(page, 'the domain unit writing', () => page.waitForSelector('[data-testid=writer-unit][data-unit="domain:ordering"][data-state=writing]', { timeout: 1_500_000 }));
+  await page.goto(`${server.url}/products/training-shop/k`, { waitUntil: 'domcontentloaded' });
+  await waited(page, 'the home page while a unit writes', () => page.waitForSelector('[data-testid=entity-page]', { timeout: 60_000 }));
+  await page.waitForSelector('[data-testid=writer-unit][data-state=writing]', { timeout: 60_000 });
+  await shoot(page, '31-unit-in-progress');
+  await waited(page, 'the pages written', () => page.waitForSelector('[data-testid=writer-card][data-state=done]', { timeout: 300_000 }));
+  await shoot(page, '32-home-after-write');
+  await page.goto(`${server.url}/products/training-shop/k/e/${encodeURIComponent('domain:payments')}`, { waitUntil: 'domcontentloaded' });
+  await waited(page, 'the payments domain page', () => page.waitForSelector('[data-testid=entity-page]', { timeout: 60_000 }));
+  await shoot(page, '33-domain-payments');
   await page.close();
 }
 
