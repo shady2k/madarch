@@ -137,7 +137,7 @@ describe('the ACP probe reports what this machine can connect', () => {
     expect(found.detail).toContain('nothing named claude-agent-acp is executable on PATH');
     // The install is madarch's own prefix, never a global one and never root.
     expect(found.install?.command).toBe(`npm install --prefix ${folder} @agentclientprotocol/claude-agent-acp@0.93.0`);
-    expect(found.install?.command).not.toContain('-g');
+    expect(found.install?.command.split(' ')).not.toContain('-g'); // an argument, not a substring: the random scratch folder's name may hold "-g"
     expect(found.install).toMatchObject({ kind: 'npm', package: '@agentclientprotocol/claude-agent-acp', version: '0.93.0', folder, byMadarch: true });
     // The package alone is 1.9 MiB; the install with its dependencies is 299 MiB,
     // and the person deciding on the install is told the second figure.
