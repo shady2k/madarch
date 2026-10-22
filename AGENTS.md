@@ -92,3 +92,8 @@ Artifacts (documents, tasks, commit messages, code comments) are written in Engl
   own cluster name and staged folder, and it retries every 30 s and starts the
   moment a slot frees (measured 2026-10-20: fifteen wrapper attempts over
   40 minutes all refused, the queued launch held the queue and started).
+- The knowledge wiki (decision 0029) is accepted by `bun scripts/knowledge-shots.ts
+  --out shots` on the pod (`madarch-sky-test --avx2 --cmd`, after `bun run build` in
+  `wiki/app`, then `--fetch` the folder): it serves the generated training repository
+  as two products, walks the empty one into its fill and the filled one from the home
+  page to a function.

@@ -87,6 +87,19 @@ export interface FillOptions {
   readonly snapshots?: Readonly<Record<string, string>>;
   /** The clock the lease's end is read from; the real clock by default. */
   readonly now?: () => Date;
+  /**
+   * Told once the walk is read and the repository node exists, before the
+   * first commit is filled: the repository node and how many commits the walk
+   * holds. A caller that shows the fill as it goes (the wiki) learns from it
+   * which node is this repository.
+   */
+  readonly onStart?: (start: { readonly repositoryNode: GraphId; readonly commits: number; readonly head: string }) => void | Promise<void>;
+  /**
+   * Told after each commit's extractions are published, with the commit's
+   * place in the walk. The caller may throw to stop the fill at a commit
+   * boundary: what is published stays published, and a refill resumes.
+   */
+  readonly onCommit?: (done: CommitFill, place: { readonly index: number; readonly commits: number }) => void | Promise<void>;
 }
 
 /** One commit's fill: what it cost and what it published. */
@@ -208,6 +221,7 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
   const knownKinds = new Set<string>((await query<{ key: string }>(owner, `SELECT key FROM node_kind`)).map((row) => row.key));
   const knownRelations = new Set<string>((await query<{ key: string }>(owner, `SELECT key FROM relation_type`)).map((row) => row.key));
   const repositoryNode = await findOrCreateRepositoryNode(owner, store, repository, walk[0]!.effectiveTime);
+  await options.onStart?.({ repositoryNode, commits: walk.length, head: last.hash });
   const keysOf = new Map<string, ProducerKeys>();
   const keys = async (producer: string): Promise<ProducerKeys> => {
     let held = keysOf.get(producer);
@@ -456,7 +470,9 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
       if (published) publications += 1;
       gapCount += extraction.gaps.length;
     }
-    commits.push({ hash: commit.hash, generation: commit.generation, effectiveTime: commit.effectiveTime, durationMs: Date.now() - commitStarted, publications, gaps: gapCount });
+    const done: CommitFill = { hash: commit.hash, generation: commit.generation, effectiveTime: commit.effectiveTime, durationMs: Date.now() - commitStarted, publications, gaps: gapCount };
+    commits.push(done);
+    await options.onCommit?.(done, { index: commits.length, commits: walk.length });
   }
 
   if (options.history !== undefined) {

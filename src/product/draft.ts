@@ -15,10 +15,11 @@
  */
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { runGit, type GitEnv } from './git.js';
 import { MANIFEST_FILE, yamlWord } from './manifest.js';
 import { productsHome, type DraftEnv } from './home.js';
+import { STARTER_FILES } from '../knowledge/seed.js';
 export type { DraftEnv };
 
 
@@ -30,8 +31,10 @@ export type { DraftEnv };
  */
 const FOLDERS = ['docs', 'model', 'skills', 'prototypes', 'repos'];
 const TRACKED_FOLDERS = ['docs', 'model', 'skills', 'prototypes'];
+/** The wiki's starter set (decision 0029): the kinds manifest and the page templates, the product's own files from the first commit. */
+const STARTER_PATHS = STARTER_FILES.map((file) => file.path);
 const COMMITTED_FILES = ['AGENTS.md', 'CLAUDE.md', `${MANIFEST_FILE}`, '.gitignore',
-  'docs/.gitkeep', 'model/.gitkeep', 'skills/.gitkeep', 'prototypes/.gitkeep'];
+  'docs/.gitkeep', 'model/.gitkeep', 'skills/.gitkeep', 'prototypes/.gitkeep', ...STARTER_PATHS];
 
 /** The markers around the part of `AGENTS.md` madarch's commands maintain. */
 export const MAINTAINED_OPEN = '<!-- product:maintained -->';
@@ -244,6 +247,10 @@ export function createDraft(options: DraftOptions = {}): DraftResult {
     writeFileSync(join(folder, MANIFEST_FILE), manifestText(id, name));
     writeFileSync(join(folder, '.gitignore'), 'repos/\n');
     for (const folderName of TRACKED_FOLDERS) writeFileSync(join(folder, folderName, '.gitkeep'), '');
+    for (const starter of STARTER_FILES) {
+      mkdirSync(dirname(join(folder, starter.path)), { recursive: true });
+      writeFileSync(join(folder, starter.path), starter.content);
+    }
 
     const init = runGit(folder, ['init', '--quiet', '--initial-branch=main'], options.gitEnv);
     if (!init.ok) throw new Error(`git init failed in ${folder}: ${init.output}`);

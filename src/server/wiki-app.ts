@@ -51,6 +51,19 @@ const WATCH_FALLBACK_MS = 300;
 const eventBytes = new TextEncoder();
 
 /**
+ * Changes that do not come from the product's working tree and still change what
+ * a page shows: the knowledge wiki's fill reads a commit into the graph
+ * (decision 0029). They ride the wiki's one change stream: the revision the
+ * stream compares carries `revision()`, and a notice from `subscribe` asks the
+ * stream at once, so an open page reads again after every commit and no second
+ * channel is needed.
+ */
+export interface OutsideChanges {
+  revision(): string;
+  subscribe(listener: () => void): () => void;
+}
+
+/**
  * One long-lived Server-Sent Events stream of the wiki's changes: an initial
  * `retry:` line, then one `change` event each time the product's working
  * tree revision differs from the one the stream last sent — a burst of tree
@@ -61,9 +74,10 @@ const eventBytes = new TextEncoder();
  * same digest every answer carries — so a stream never invents a change.
  * The stream ends when the asking side hangs up (`request.signal`); the
  * watcher and its timers end with it, so nothing keeps running past an
- * answered stream.
+ * answered stream. Changes from outside the tree (`outside`) move the revision
+ * and wake the stream the same way.
  */
-export function streamingEvents(wiki: ProductWiki, request: Request): Handled {
+export function streamingEvents(wiki: ProductWiki, request: Request, outside?: OutsideChanges): Handled {
   const stream = new ReadableStream({
     start: (into): void => {
       const write = (line: string): void => {
@@ -94,9 +108,13 @@ export function streamingEvents(wiki: ProductWiki, request: Request): Handled {
       };
       const ask = (): void => {
         const asked = wiki.pages();
-        if (!asked.ok || asked.revision === lastRevision) return;
-        lastRevision = asked.revision;
-        write(`event: change\ndata: ${JSON.stringify({ revision: asked.revision })}\n\n`);
+        if (!asked.ok) return;
+        // A product whose outside source has not moved answers the tree's revision alone, as it always did.
+        const extra = outside?.revision() ?? '';
+        const revision = extra === '' ? asked.revision : `${asked.revision}+${extra}`;
+        if (revision === lastRevision) return;
+        lastRevision = revision;
+        write(`event: change\ndata: ${JSON.stringify({ revision })}\n\n`);
       };
       const debounced = (): void => {
         if (debounce !== undefined) clearTimeout(debounce);
@@ -109,6 +127,17 @@ export function streamingEvents(wiki: ProductWiki, request: Request): Handled {
         }, CHANGE_DEBOUNCE_MS);
       };
       write(`retry: 3000\n\n`);
+      // A notice from outside is already one per commit, so it asks at once: through the debounce a loop kept busy by a fill
+      // lets the fallback timer reset the delay at every turn, and the notice would wait for the fill's end.
+      if (outside !== undefined) {
+        closeHandlers.push(outside.subscribe(() => {
+          try {
+            ask();
+          } catch {
+            // A tree unread at this instant is not an event: the next notice or the fallback asks again.
+          }
+        }));
+      }
       // A quiet product still needs the server to say something: an SSE
       // comment every 30 s keeps proxies and the server's own idle timer
       // from closing a stream nothing changed on. A comment is no event.
@@ -230,7 +259,7 @@ export function createWikiPart(
   refused: ReplyMaker['refused'],
   wiki: ProductWiki,
   appFolder: string | undefined,
-  options: { env?: Readonly<Record<string, string | undefined>> } = {},
+  options: { env?: Readonly<Record<string, string | undefined>>; outside?: OutsideChanges } = {},
 ): WikiPart {
   const env = options.env ?? process.env;
   /**
@@ -614,7 +643,7 @@ export function createWikiPart(
       }
       });
     },
-    events: (request) => streamingEvents(wiki, request),
+    events: (request) => streamingEvents(wiki, request, options.outside),
     repos: (): Handled => {
       const asked = readProductRepos(wiki.product);
       return { response: json(200, { repos: asked.repos }) };
@@ -644,8 +673,10 @@ export function createWikiPart(
 export function serveAppAssets(appFolder: string, pathname: string): Response | undefined {
   let wanted: string | undefined;
   try { wanted = normalize(decodeURIComponent(pathname)).replace(/^\/+/, ''); } catch { return undefined; }
-  if (wanted === undefined || !wanted.startsWith('assets/') || wanted.split('/').includes('..')) return undefined;
-  const rest = wanted.slice('assets/'.length).split('/');
+  // The built stylesheet names its fonts at the root (`/fonts/…`): a products home answers them too, or the app's own faces never load under a product's prefix.
+  const folder = wanted?.startsWith('fonts/') === true ? 'fonts/' : 'assets/';
+  if (wanted === undefined || !wanted.startsWith(folder) || wanted.split('/').includes('..')) return undefined;
+  const rest = wanted.slice(folder.length).split('/');
   if (rest.some((part) => part === '')) return undefined;
   const full = joinPath(resolve(appFolder), ...wanted.split('/'));
   try {
@@ -750,12 +781,12 @@ function wizardPayload(report: { at: string; path: string; agentsFolder: string;
  * carries), the questions view, a stage's route and the home page; `/r` stands among
  * them only where repositories are declared.
  */
-const APP_ROUTE_PREFIXES = ['/p/', '/questions', '/r', '/s/', '/'];
+const APP_ROUTE_PREFIXES = ['/p/', '/k', '/questions', '/r', '/s/', '/'];
 
 /** Whether the fallback to index.html may answer this path: only the app's own routes, `/r` only where the manifest declares repositories. */
 function isAppRoute(pathname: string, reposDeclared: boolean): boolean {
   return pathname === '/' || pathname === '/questions' || pathname.startsWith('/questions/')
-    || pathname.startsWith('/p/') || pathname.startsWith('/s/')
+    || pathname.startsWith('/p/') || pathname.startsWith('/s/') || pathname === '/k' || pathname.startsWith('/k/')
     || (reposDeclared && pathname === '/r');
 }
 

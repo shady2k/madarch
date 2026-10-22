@@ -163,7 +163,7 @@ export function graphStoreTests(label: string, getOwner: () => DatabaseOwner): v
       expect(exclusion.map((c) => c.conrelid.replace(/^.*\./, ''))).toEqual(['edge_version', 'node_version', 'node_version', 'node_version', 'node_version']);
       const indexes = await env.query<{ indexname: string; indexdef: string }>(`SELECT indexname, indexdef FROM pg_indexes WHERE schemaname = current_schema()`);
       const current = indexes.filter((i) => /WHERE \(?recorded_to = 'infinity'/.test(i.indexdef)).map((i) => i.indexname).sort();
-      expect(current).toEqual(['edge_version_current_dst', 'edge_version_current_edge', 'edge_version_current_src', 'node_version_current', 'node_version_current_kind']);
+      expect(current).toEqual(['edge_version_current_dst', 'edge_version_current_edge', 'edge_version_current_src', 'node_version_current', 'node_version_current_kind', 'node_version_record_key']);
       const historical = indexes.filter((i) => /USING gist/.test(i.indexdef) && /states/.test(i.indexdef) && !/EXCLUDE/.test(i.indexdef)).map((i) => i.indexname).sort();
       expect(historical).toEqual(['edge_version_history_dst', 'edge_version_history_src', 'node_version_history', 'edge_version_no_overlap', 'node_version_no_overlap'].sort());
       const types = await env.query<{ column_name: string; data_type: string }>(

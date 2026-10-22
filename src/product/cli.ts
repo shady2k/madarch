@@ -777,6 +777,7 @@ function nextSteps(folder: string, init: boolean): void {
   console.log('');
   console.log('Next:');
   console.log(`  • Product documents are Markdown files in ${shown}/docs/. Write them by hand or with any agent; or let an agent set them up with the shady2k-skills set.`);
+  console.log('  • The wiki opens on its own pages and starts empty: connect a code repository (madarch repo add <name> <url>), then press "Start the fill" on its first page and watch the pages appear.');
   console.log('  • The wiki keeps running in the background: open the address again any time; madarch stop ends it.');
   if (init) console.log('  • Your code stays where it is.');
 }

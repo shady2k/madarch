@@ -116,9 +116,15 @@ describe('createDraft', () => {
       'AGENTS.md',
       'CLAUDE.md',
       'docs/.gitkeep',
+      'madarch/kinds.yaml',
       'model/.gitkeep',
       'prototypes/.gitkeep',
       'skills/.gitkeep',
+      'templates/domain.md',
+      'templates/file.md',
+      'templates/product.md',
+      'templates/service.md',
+      'templates/symbol.md',
       'workspace.yaml',
     ]);
     for (const file of listed) expect(readFileSync(join(folder, file), 'utf8')).toBeDefined();
