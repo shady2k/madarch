@@ -1,0 +1,413 @@
+/**
+ * The knowledge Markdown an agent writes (decision 0029; the vertical's shared
+ * formats, section 1): one file per entity, a YAML front matter, a body whose
+ * every statement sentence ends in footnote references, and footnotes whose
+ * grounds are `madarch:` links to graph keys or document sections.
+ *
+ * `checkPage` is the writer's whole check: it parses a page, refuses what does
+ * not follow the format (each refusal names the line and the rule), asks the
+ * resolver whether every ground and every link exists, and returns the page in
+ * its canonical form. Nothing here knows a product: the kinds, ids and domains
+ * a page may name come from the caller.
+ */
+import { parse as parseYaml } from 'yaml';
+import { byCodePoint } from '../model/order.js';
+
+/** One reason a page is refused: the line (1-based, in the whole file), the rule and a message the agent can act on. */
+export interface Refusal {
+  readonly line: number;
+  readonly rule: string;
+  readonly message: string;
+}
+
+/** Whether a ground or a link exists; the graph's implementation is in `grounds.ts`. */
+export interface GroundResolver {
+  /** A graph logical key exists in the graph at the fill's last commit. */
+  graphKey(key: string): Promise<boolean>;
+  /** The document at `path` has a section `anchor` (lower case). */
+  docSection(path: string, anchor: string): Promise<boolean>;
+  /** A `sources` entry: a document path of the graph, or an id or anchor found in a document. */
+  sourceName(name: string): Promise<boolean>;
+}
+
+/** What the caller knows about the page being checked. */
+export interface PageExpectation {
+  readonly id: string;
+  readonly kind: 'product' | 'domain';
+  /** The domains the product page declared; `madarch:domain:<slug>` links may name only these. */
+  readonly domains: readonly string[];
+  /** For a product page: every declared domain must be linked from it. */
+  readonly mustLinkDomains: boolean;
+  /** For a domain page: the product page it may link. */
+  readonly productId?: string;
+}
+
+export interface FrontMatter {
+  readonly id: string;
+  readonly kind: string;
+  readonly title: string;
+  readonly relates: readonly string[];
+  readonly producer: 'agent';
+  readonly sources: readonly string[];
+}
+
+/** A page that passed, in canonical form (what is written to disk). */
+export interface CheckedPage {
+  readonly frontMatter: FrontMatter;
+  readonly markdown: string;
+  /** Every ground of every footnote, in order of appearance. */
+  readonly grounds: readonly string[];
+  /** Every entity link in the text, in order of appearance. */
+  readonly links: readonly string[];
+}
+
+export type PageCheck = { readonly ok: true; readonly page: CheckedPage } | { readonly ok: false; readonly refusals: readonly Refusal[] };
+
+export const SLUG = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
+export const MAX_SLUG_LENGTH = 40;
+
+const FRONT_KEYS = ['id', 'kind', 'title', 'relates', 'producer', 'sources'] as const;
+const LINK = /\[([^\]\n]*)\]\(((?:[^()\s]|\([^()\s]*\))*)\)/g;
+const FOOTNOTE_DEFINITION = /^\[\^([A-Za-z0-9_-]+)\]:[ \t]*(.*)$/;
+const FOOTNOTE_REFERENCE = /\[\^([A-Za-z0-9_-]+)\]/g;
+const ABBREVIATION = /\b(?:[Ee]\.g|[Ii]\.e)\.|\b(?:etc|vs|cf|approx)\.(?=\s+[a-z0-9(,;])/g;
+/** A character that stands for a masked dot; the page may not hold it (checked on entry). */
+const DOT = '\u0001';
+/** The most words a "See also" line may carry beside its links before it is read as a statement. */
+const SEE_ALSO_WORDS = 4;
+/** The most words a heading may have; a longer one reads as a statement. */
+const HEADING_WORDS = 10;
+
+type Split = { front: string; body: string; bodyStart: number };
+
+/** Splits a file into its front matter text and body, with the 1-based line the body starts at. */
+function splitFrontMatter(markdown: string): Split | Refusal {
+  const lines = markdown.split('\n');
+  if (lines[0] !== '---') return { line: 1, rule: 'front-matter', message: 'a page starts with a line of three dashes that opens its YAML front matter (id, kind, title, relates, producer, sources)' };
+  const end = lines.indexOf('---', 1);
+  if (end < 0) return { line: 1, rule: 'front-matter', message: 'the front matter opened on line 1 is never closed by a line of three dashes' };
+  return { front: lines.slice(1, end).join('\n'), body: lines.slice(end + 1).join('\n'), bodyStart: end + 2 };
+}
+
+function frontMatterOf(text: string, expected: PageExpectation): { front?: FrontMatter; refusals: Refusal[] } {
+  const refusals: Refusal[] = [];
+  const refuse = (message: string): void => { refusals.push({ line: 2, rule: 'front-matter', message }); };
+  let raw: unknown;
+  try {
+    raw = parseYaml(text);
+  } catch (error) {
+    return { refusals: [{ line: 2, rule: 'front-matter', message: `the front matter is no YAML: ${(error as Error).message.split('\n')[0]}` }] };
+  }
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return { refusals: [{ line: 2, rule: 'front-matter', message: 'the front matter is a YAML mapping with the keys id, kind, title, relates, producer, sources' }] };
+  const record = raw as Record<string, unknown>;
+  for (const key of Object.keys(record)) if (!(FRONT_KEYS as readonly string[]).includes(key)) refuse(`the front matter key "${key}" is not part of the format; the keys are ${FRONT_KEYS.join(', ')}`);
+  for (const key of FRONT_KEYS) if (!(key in record)) refuse(`the front matter lacks "${key}"`);
+  if (record['id'] !== expected.id) refuse(`id is ${JSON.stringify(record['id'])} but this page's id is "${expected.id}"`);
+  if (record['kind'] !== expected.kind) refuse(`kind is ${JSON.stringify(record['kind'])} but this page's kind is "${expected.kind}"`);
+  if (typeof record['title'] !== 'string' || record['title'].trim() === '') refuse('title is a non-empty text');
+  if (record['producer'] !== 'agent') refuse(`producer is ${JSON.stringify(record['producer'])}: a page an agent writes names producer "agent"`);
+  const list = (key: 'relates' | 'sources'): string[] => {
+    const value = record[key];
+    if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string' || entry.trim() === '')) {
+      if (key in record) refuse(`${key} is a list of non-empty texts`);
+      return [];
+    }
+    return value as string[];
+  };
+  const relates = list('relates');
+  const sources = list('sources');
+  if (refusals.length > 0) return { refusals };
+  return {
+    refusals,
+    front: {
+      id: expected.id,
+      kind: expected.kind,
+      title: (record['title'] as string).trim(),
+      relates: [...new Set(relates)].sort(byCodePoint),
+      producer: 'agent',
+      sources: [...new Set(sources)].sort(byCodePoint),
+    },
+  };
+}
+
+/** The target of a `madarch:` link, classified. */
+export type MadarchTarget =
+  | { readonly type: 'doc'; readonly path: string; readonly anchor: string }
+  | { readonly type: 'page'; readonly id: string }
+  | { readonly type: 'graph'; readonly key: string };
+
+/** Reads the target after the `madarch:` scheme; `undefined` when it has no usable shape. */
+export function parseTarget(target: string): MadarchTarget | undefined {
+  if (target === '') return undefined;
+  if (target.startsWith('doc:')) {
+    const rest = target.slice(4);
+    const hash = rest.indexOf('#');
+    if (hash <= 0 || hash === rest.length - 1) return undefined;
+    return { type: 'doc', path: rest.slice(0, hash), anchor: rest.slice(hash + 1).toLowerCase() };
+  }
+  if (target.startsWith('domain:') || target.startsWith('product:')) return { type: 'page', id: target };
+  if (!/^[a-z][a-z0-9.-]*:.+/.test(target)) return undefined;
+  return { type: 'graph', key: target };
+}
+
+/** The words of a unit: link targets and footnote references removed, markup dropped. */
+function plainWords(text: string): string[] {
+  const stripped = text
+    .replace(LINK, (_whole, label: string) => label)
+    .replace(FOOTNOTE_REFERENCE, '')
+    .replace(/[`*_]/g, '');
+  return stripped.match(/[\p{L}\p{N}][\p{L}\p{N}'-]*/gu) ?? [];
+}
+
+interface Sentence {
+  readonly text: string;
+  readonly terminated: boolean;
+}
+
+/** Splits masked text into sentences; footnote references right after the terminal punctuation belong to the sentence. */
+function sentencesOf(masked: string): Sentence[] {
+  const out: Sentence[] = [];
+  const pattern = /([^]*?[.!?\u2026][)"'\u201d\u2019\u00bb]*(?:\[\^[A-Za-z0-9_-]+\])*)(?=\s|$)/y;
+  const text = masked.trim();
+  let at = 0;
+  while (at < text.length) {
+    pattern.lastIndex = at;
+    const found = pattern.exec(text);
+    if (found === null) break;
+    out.push({ text: found[1]!.trim(), terminated: true });
+    at = pattern.lastIndex;
+    while (at < text.length && /\s/.test(text[at]!)) at += 1;
+  }
+  const rest = text.slice(at).trim();
+  if (rest !== '') out.push({ text: rest, terminated: false });
+  return out;
+}
+
+/** Masks code spans, link targets and common abbreviations, whose dots are not sentence ends. */
+function maskInline(text: string): string {
+  return text
+    .replace(/`[^`\n]*`/g, (span) => span.replace(/[.!?\u2026]/g, DOT))
+    .replace(LINK, (_whole, label: string, target: string) => `[${label}](${target.replace(/[.!?]/g, DOT)})`)
+    .replace(ABBREVIATION, (whole) => whole.replace(/\./g, DOT));
+}
+
+interface TextUnit {
+  readonly line: number;
+  readonly text: string;
+}
+
+function textUnits(body: string, bodyStart: number, refusals: Refusal[]): { units: TextUnit[]; definitions: { label: string; line: number; text: string }[]; headings: TextUnit[] } {
+  const units: TextUnit[] = [];
+  const headings: TextUnit[] = [];
+  const definitions: { label: string; line: number; text: string }[] = [];
+  let paragraph: { line: number; parts: string[] } | undefined;
+  const flush = (): void => {
+    if (paragraph !== undefined) units.push({ line: paragraph.line, text: paragraph.parts.join(' ') });
+    paragraph = undefined;
+  };
+  for (const [index, raw] of body.split('\n').entries()) {
+    const line = bodyStart + index;
+    if (raw.includes(DOT)) refusals.push({ line, rule: 'characters', message: 'the page holds a control character (U+0001), which the format does not allow' });
+    const trimmed = raw.trim();
+    if (trimmed === '') { flush(); continue; }
+    if (/^(```|~~~)/.test(trimmed)) {
+      flush();
+      refusals.push({ line, rule: 'fenced-code', message: 'a fenced block is not part of the format: madarch draws diagrams and shows code from the graph, so state each fact as a sentence with grounds' });
+      continue;
+    }
+    if (trimmed.startsWith('|')) {
+      flush();
+      refusals.push({ line, rule: 'table', message: 'a table is not part of the format: state each fact as a sentence with its own footnote' });
+      continue;
+    }
+    const definition = FOOTNOTE_DEFINITION.exec(trimmed);
+    if (definition !== null) { flush(); definitions.push({ label: definition[1]!, line, text: definition[2]! }); continue; }
+    if (/^<[A-Za-z!/]/.test(trimmed)) {
+      flush();
+      refusals.push({ line, rule: 'html', message: 'raw HTML is not part of the format' });
+      continue;
+    }
+    const heading = /^#{1,6}\s+(.*)$/.exec(trimmed);
+    if (heading !== null) { flush(); headings.push({ line, text: heading[1]! }); continue; }
+    const item = /^(?:[-*+]|\d+[.)])\s+(.*)$/.exec(trimmed);
+    if (item !== null) { flush(); units.push({ line, text: item[1]! }); continue; }
+    const quote = /^>\s?(.*)$/.exec(trimmed);
+    const content = quote !== null ? quote[1]! : trimmed;
+    if (paragraph === undefined) paragraph = { line, parts: [content] };
+    else paragraph.parts.push(content);
+  }
+  flush();
+  return { units, definitions, headings };
+}
+
+/** The most words a link-only line may carry in its labels before it is read as a statement. */
+const LINK_ONLY_WORDS = 5;
+
+/**
+ * A unit that only connects: a one-sentence "See also" line, or nothing but
+ * links and punctuation. The words in link labels count: a statement does not
+ * hide in a label or behind "See also".
+ */
+function connecting(text: string): boolean {
+  const plain = text.replace(FOOTNOTE_REFERENCE, '').trim();
+  const labelWords = plainWords([...plain.matchAll(LINK)].map((m) => m[1]!).join(' ')).length;
+  if (/^see also\b/i.test(plain)) {
+    const outside = plainWords(plain.replace(/^see also\b/i, '').replace(LINK, '')).length;
+    return sentencesOf(maskInline(plain)).length <= 1 && outside <= SEE_ALSO_WORDS && labelWords <= 2 * SEE_ALSO_WORDS;
+  }
+  const rest = plain.replace(LINK, '').replace(/[\s,;:.\u2013\u2014-]+/g, '');
+  return rest === '' && plain.includes('](') && labelWords <= LINK_ONLY_WORDS;
+}
+
+/** Parses the grounds of a footnote definition: links separated by commas and nothing else. */
+function groundsOf(text: string): { links: { label: string; target: string }[]; leftover: string } {
+  const links: { label: string; target: string }[] = [];
+  const leftover = text.replace(LINK, (_whole, label: string, target: string) => { links.push({ label, target }); return ''; }).replace(/[\s,]+/g, '');
+  return { links, leftover };
+}
+
+/**
+ * Checks one page. Every rule that fails is reported at once, so an agent
+ * fixes a page in one round rather than one rule at a time.
+ */
+export async function checkPage(markdown: string, expected: PageExpectation, resolver: GroundResolver): Promise<PageCheck> {
+  const split = splitFrontMatter(markdown.replace(/\r\n/g, '\n'));
+  if ('rule' in split) return { ok: false, refusals: [split] };
+  const refusals: Refusal[] = [];
+  const front = frontMatterOf(split.front, expected);
+  refusals.push(...front.refusals);
+  const { units, definitions, headings } = textUnits(split.body, split.bodyStart, refusals);
+
+  const known = new Map<string, boolean>();
+  const resolves = async (target: MadarchTarget): Promise<boolean> => {
+    const id = target.type === 'doc' ? `doc:${target.path}#${target.anchor}` : target.type === 'graph' ? target.key : target.id;
+    const held = known.get(id);
+    if (held !== undefined) return held;
+    const found = target.type === 'doc' ? await resolver.docSection(target.path, target.anchor) : target.type === 'graph' ? await resolver.graphKey(target.key) : true;
+    known.set(id, found);
+    return found;
+  };
+
+  if (front.front !== undefined) {
+    for (const key of front.front.relates) {
+      const parsed = parseTarget(key);
+      if (parsed === undefined || parsed.type !== 'graph') refusals.push({ line: 2, rule: 'unresolved-relation', message: `relates entry "${key}" is no graph logical key` });
+      else if (!(await resolves(parsed))) refusals.push({ line: 2, rule: 'unresolved-relation', message: `relates entry "${key}" is no key of the graph at the last filled commit` });
+    }
+    for (const name of front.front.sources) {
+      if (!(await resolver.sourceName(name))) refusals.push({ line: 2, rule: 'unresolved-source', message: `sources entry "${name}" is neither a document path of the graph nor an id found in a document` });
+    }
+  }
+
+  const defined = new Map<string, { line: number; grounds: { label: string; target: string }[] }>();
+  const allGrounds: string[] = [];
+  for (const definition of definitions) {
+    if (defined.has(definition.label)) { refusals.push({ line: definition.line, rule: 'footnote', message: `the footnote [^${definition.label}] is defined twice` }); continue; }
+    const { links, leftover } = groundsOf(definition.text);
+    if (links.length === 0) refusals.push({ line: definition.line, rule: 'ungrounded-footnote', message: `the footnote [^${definition.label}] lists no ground: it is one or more madarch: links separated by commas` });
+    if (leftover !== '') refusals.push({ line: definition.line, rule: 'footnote', message: `the footnote [^${definition.label}] holds text that is no ground (${JSON.stringify(leftover.slice(0, 40))}): only madarch: links separated by commas` });
+    for (const ground of links) {
+      if (!ground.target.startsWith('madarch:')) { refusals.push({ line: definition.line, rule: 'ground-scheme', message: `the ground "${ground.label}" links ${JSON.stringify(ground.target)}: a ground is a madarch: link to a graph key or to doc:<path>#<anchor>` }); continue; }
+      const parsed = parseTarget(ground.target.slice('madarch:'.length));
+      if (parsed === undefined) { refusals.push({ line: definition.line, rule: 'ground-shape', message: `the ground target ${JSON.stringify(ground.target)} is no graph key (kind:path) and no doc:<path>#<anchor>` }); continue; }
+      if (parsed.type === 'page') { refusals.push({ line: definition.line, rule: 'ground-shape', message: `the ground target ${JSON.stringify(ground.target)} is a page, not evidence: a ground is a graph key or a document section` }); continue; }
+      if (!(await resolves(parsed))) {
+        refusals.push({
+          line: definition.line,
+          rule: 'unresolved-ground',
+          message: parsed.type === 'doc'
+            ? `the ground ${ground.target} does not resolve: the document ${parsed.path} has no section "${parsed.anchor}" at the last filled commit`
+            : `the ground ${ground.target} does not resolve: the graph has no key ${parsed.key} at the last filled commit`,
+        });
+      }
+      allGrounds.push(ground.target.slice('madarch:'.length));
+    }
+    defined.set(definition.label, { line: definition.line, grounds: links });
+  }
+
+  const links: string[] = [];
+  const checkLinks = async (unit: TextUnit): Promise<void> => {
+    for (const match of unit.text.matchAll(LINK)) {
+      const target = match[2]!;
+      if (!target.startsWith('madarch:')) { refusals.push({ line: unit.line, rule: 'link-scheme', message: `the link ${JSON.stringify(target)} is no madarch: link: mention an entity as [name](madarch:<graph key>)` }); continue; }
+      const parsed = parseTarget(target.slice('madarch:'.length));
+      if (parsed === undefined) { refusals.push({ line: unit.line, rule: 'link-shape', message: `the link target ${JSON.stringify(target)} is no graph key (kind:path), doc:<path>#<anchor> or domain:<slug>` }); continue; }
+      links.push(target.slice('madarch:'.length));
+      if (parsed.type === 'page') {
+        const slug = parsed.id.startsWith('domain:') ? parsed.id.slice('domain:'.length) : undefined;
+        const own = parsed.id === expected.id || parsed.id === expected.productId;
+        if (!own && !(slug !== undefined && expected.domains.includes(slug))) {
+          refusals.push({ line: unit.line, rule: 'link-outside-graph', message: `the link ${target} names a page that does not exist: the pages are this one (${expected.id}) and the declared domains (${expected.domains.map((d) => `domain:${d}`).join(', ') || 'none declared'})` });
+        }
+      } else if (!(await resolves(parsed))) {
+        refusals.push({ line: unit.line, rule: 'link-outside-graph', message: parsed.type === 'doc' ? `the link ${target} is outside the graph: the document ${parsed.path} has no section "${parsed.anchor}"` : `the link ${target} is outside the graph: no node has the key ${parsed.key} at the last filled commit` });
+      }
+    }
+  };
+  for (const heading of headings) {
+    await checkLinks(heading);
+    if (FOOTNOTE_REFERENCE.test(heading.text)) refusals.push({ line: heading.line, rule: 'heading-footnote', message: 'a heading is connecting text and carries no footnote: put the statement in a sentence below it' });
+    FOOTNOTE_REFERENCE.lastIndex = 0;
+    const headingWords = plainWords(heading.text).length;
+    if (headingWords > HEADING_WORDS) refusals.push({ line: heading.line, rule: 'heading-statement', message: `this heading has ${headingWords} words; a heading is at most ${HEADING_WORDS}, so a statement belongs in a sentence with grounds below it` });
+  }
+  const used: string[] = [];
+  for (const unit of units) {
+    await checkLinks(unit);
+    for (const match of unit.text.matchAll(FOOTNOTE_REFERENCE)) {
+      if (!defined.has(match[1]!)) refusals.push({ line: unit.line, rule: 'undefined-footnote', message: `[^${match[1]}] is used but never defined: add a line "[^${match[1]}]: [name](madarch:<key>)" at the end` });
+      used.push(match[1]!);
+    }
+    if (connecting(unit.text)) continue;
+    for (const sentence of sentencesOf(maskInline(unit.text))) {
+      const shown = sentence.text.replaceAll(DOT, '.');
+      const hasLink = shown.includes('](madarch:');
+      if (plainWords(shown).length < 2 && !hasLink) continue;
+      const grounded = sentence.terminated ? /[.!?\u2026][)"'\u201d\u2019\u00bb]*(?:\[\^[A-Za-z0-9_-]+\])+$/.test(sentence.text) : /(?:\[\^[A-Za-z0-9_-]+\])+$/.test(sentence.text);
+      if (!grounded) {
+        const quoted = shown.replace(LINK, (_w, label: string) => label);
+        refusals.push({ line: unit.line, rule: 'ungrounded-statement', message: `this sentence states something and has no footnote at its end: ${JSON.stringify(quoted.length > 90 ? `${quoted.slice(0, 87)}...` : quoted)}. End it with a footnote reference that lists its grounds, or, if it only connects text, make it a heading or a "See also" line` });
+      }
+    }
+  }
+  for (const [label, entry] of defined) if (!used.includes(label)) refusals.push({ line: entry.line, rule: 'unused-footnote', message: `the footnote [^${label}] is never used in the text` });
+  if (expected.mustLinkDomains) {
+    for (const slug of expected.domains) if (!links.includes(`domain:${slug}`)) refusals.push({ line: split.bodyStart, rule: 'domain-not-linked', message: `the declared domain "${slug}" is not linked from the page: mention it as [name](madarch:domain:${slug})` });
+  }
+  if (units.length === 0) refusals.push({ line: split.bodyStart, rule: 'empty', message: 'the page states nothing: it has no sentence with grounds' });
+  if (refusals.length > 0 || front.front === undefined) return { ok: false, refusals: refusals.sort((a, b) => a.line - b.line || byCodePoint(a.rule, b.rule)) };
+  return { ok: true, page: canonical(front.front, split.body, defined, links, allGrounds) };
+}
+
+/**
+ * The canonical form: front matter in the format's key order, the body with
+ * its blank lines collapsed, footnotes numbered in order of first use and
+ * listed after the body. The same checked page always gives the same bytes.
+ */
+function canonical(front: FrontMatter, body: string, defined: Map<string, { line: number; grounds: { label: string; target: string }[] }>, links: string[], grounds: string[]): CheckedPage {
+  const order: string[] = [];
+  const lines: string[] = [];
+  for (const raw of body.split('\n')) {
+    if (FOOTNOTE_DEFINITION.test(raw.trim())) continue;
+    lines.push(raw.replace(/[ \t]+$/, ''));
+  }
+  const text = lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  const renumbered = text.replace(FOOTNOTE_REFERENCE, (_whole, label: string) => {
+    let at = order.indexOf(label);
+    if (at < 0) { order.push(label); at = order.length - 1; }
+    return `[^${at + 1}]`;
+  });
+  const notes = order.map((label, at) => `[^${at + 1}]: ${defined.get(label)!.grounds.map((ground) => `[${ground.label}](${ground.target})`).join(', ')}`);
+  const yamlList = (name: string, list: readonly string[]): string => (list.length === 0 ? `${name}: []` : `${name}:\n${list.map((entry) => `  - ${JSON.stringify(entry)}`).join('\n')}`);
+  const header = [
+    '---',
+    `id: ${front.id}`,
+    `kind: ${front.kind}`,
+    `title: ${JSON.stringify(front.title)}`,
+    yamlList('relates', front.relates),
+    'producer: agent',
+    yamlList('sources', front.sources),
+    '---',
+  ].join('\n');
+  return { frontMatter: front, markdown: `${header}\n\n${renumbered}\n\n${notes.join('\n')}\n`, grounds, links };
+}
