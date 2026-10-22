@@ -63,8 +63,26 @@ those commits as chosen points; the "fill time per commit" measure reports the l
 points.
 
 ## Acceptance evidence
-Recorded on the task in the tracker: the pod's measured numbers (training repository, 3 000-commit
-synthetic repository, second fill) and the review receipt.
+Measured on the SkyPilot pod (2 CPU, `madarch-sky-test`, 2026-10-23):
+- training repository (70 first-parent commits): the last commit's code read and published in 17.2 s
+  (one tree; before: about 6 minutes for 70); the history over all 70 commits 4.6 s; the answer key's
+  hotspot (28), change coupling (6), provider authorship, rename, effective dates and merge hold in the
+  graph (`test/extract-driver-suite.ts`);
+- 3 000-commit synthetic repository (`test/extract-driver-tip.test.ts`): code 1.7 s, history 50.9 s,
+  total 52.7 s;
+- a second fill after one new commit: `newCommits` 1, one tree parsed, the tip's file version moves
+  (old ends, new opens at the new commit's effective time); 17.9 s, of which 17.5 s is the history
+  extractor re-reading the log and re-checking its records (limit below);
+- a chosen point costs about one tree (3-20 s on the training repository, growing with the tree).
+
+Review: read-only Codex review found two defects, both fixed with tests: (1) the driver's "commit
+read" record ignored which extractors took part, so a fill with a new extractor skipped the commit (now
+keyed by the extractor set); (2) a point lost a file's identity across a rename between two points
+when the file was gone at the tip (keys are now carried forward through the later renames on both
+sides).
+
+Limit: the history extractor reads the whole log and re-checks its records on every fill that moves
+the tip; it is seconds per thousand commits, not incremental.
 
 ## DONE WHEN
 - the training repository's code pages are complete within 90 s of the start, measured on the pod;
