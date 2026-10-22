@@ -45,5 +45,11 @@ Decision 0029 (the pages are Markdown in the product repository, the graph index
 - A page is written in canonical form (front matter in the format's key order, sorted and de-duplicated relations and sources, footnotes numbered by first use), so determinism does not depend on the agent's numbering.
 - File content reaches an agent only from `engine:content` nodes, which the writer stores (one publication, producer `writer.content`) for the text files of the last filled commit; a file it cannot store is named with its reason.
 
+Known limits:
+- The client offers an agent no file system or terminal and runs it in an empty scratch folder, but an adapter's own built-in tools (a shell in a read-only sandbox, say) are not switched off by this client; the real run must be watched for tool calls other than this session's six.
+- The view reads every repository filed in the store; a store shared by several repositories is not yet scoped.
+- `sources` must resolve in the graph but is not compared with the files the unit actually read.
+- Keys that hold a space cannot be written as link targets and so cannot be grounds.
+
 ## Acceptance evidence
 To be filled with the test runs on the pod.

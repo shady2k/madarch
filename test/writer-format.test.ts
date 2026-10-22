@@ -111,6 +111,35 @@ describe('the refusals', () => {
     expect(await refusedRules(good(`## Payments are central to the shop\n\nSee also the orders page.\n\n- Charges happen at checkout.[^1]${foot}`))).toEqual([]);
   });
 
+  test('a statement does not hide behind a See also line: only a few words beside links are connecting text', async () => {
+    expect(await refusedRules(good(`See also payments are free of charge for every shopper.${foot}`))).toContain('ungrounded-statement');
+    expect(await refusedRules(good(`See also the [payments service](madarch:code.service:payments) and the [orders service](madarch:code.service:orders).\n\nPayments run.[^1]${foot}`))).toEqual([]);
+  });
+
+  test('a statement does not hide in a link label, behind See also in a longer paragraph, or in a long heading', async () => {
+    expect(await refusedRules(good('- [Cards are stored in plaintext by the payments service](madarch:code.service:payments)\n\nPayments run in one service.[^1]' + foot))).toEqual(['ungrounded-statement']);
+    expect(await refusedRules(good(`See also the orders page. Card numbers are logged to stdout.\n\nPayments run in one service.[^1]${foot}`))).toContain('ungrounded-statement');
+    expect(await refusedRules(good(`## The payments service stores every card number unencrypted in the database\n\nPayments run in one service.[^1]${foot}`))).toEqual(['heading-statement']);
+    expect(await refusedRules(good(`## Payments[^9]\n\nPayments run in one service.[^1]${foot}`))).toEqual(['heading-footnote']);
+  });
+
+  test('a sentence cannot be glued to the next grounded one by a closing quote, an ellipsis or an abbreviation', async () => {
+    for (const glued of ['The service said "cards are kept forever." Payments use one provider.[^1]', 'We keep cards, tokens, etc. Payments use one provider.[^1]', 'Cards are kept\u2026 Payments use one provider.[^1]']) {
+      expect(await refusedRules(good(`${glued}${foot}`))).toEqual(['ungrounded-statement']);
+    }
+  });
+
+  test('only madarch links are links: an outside address or an image is refused', async () => {
+    expect(await refusedRules(good(`Payments are described [elsewhere](https://example.test/p).[^1]${foot}`))).toEqual(['link-scheme']);
+    expect(await refusedRules(good(`Payments run in one service.[^1] ![x](https://example.test/p.png)${foot}`))).toContain('link-scheme');
+  });
+
+  test('a domain page may link its product page', async () => {
+    const withProduct: PageExpectation = { ...expectation, productId: 'product:shop' };
+    expect(await refusedRules(good(`The domain belongs to [the shop](madarch:product:shop).[^1]${foot}`), withProduct)).toEqual([]);
+    expect(await refusedRules(good(`The domain belongs to [the shop](madarch:product:shop).[^1]${foot}`))).toEqual(['link-outside-graph']);
+  });
+
   test('a footnote placed in the middle of a sentence does not ground its end', async () => {
     expect(await refusedRules(good(`Payments[^1] are charged at checkout${foot}`))).toContain('ungrounded-statement');
   });

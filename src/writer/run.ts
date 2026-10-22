@@ -81,6 +81,8 @@ export function productSlug(name: string): string {
 }
 
 /** Writes pages under a folder; a page lands whole or not at all. */
+let counter = 0;
+
 export function fsSink(root: string): PageSink {
   return {
     async write(relativePath: string, content: string): Promise<void> {
@@ -89,7 +91,7 @@ export function fsSink(root: string): PageSink {
         throw new Error(`src/writer/run.ts: ${JSON.stringify(relativePath)} is not a page the writer may write`);
       }
       await mkdir(path.dirname(target), { recursive: true });
-      const temporary = `${target}.writing`;
+      const temporary = `${target}.${process.pid}.${(counter += 1)}.writing`;
       await writeFile(temporary, content, 'utf8');
       await rename(temporary, target);
     },
@@ -150,7 +152,7 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
       throw new Error(`src/writer/run.ts: the product page ${PRODUCT_PATH} was written but cannot be read back for the domain units: ${(error as Error).message}`);
     }
     for (const declaration of product.domains) {
-      const spec: UnitSpec = { kind: 'domain', id: `domain:${declaration.slug}`, path: `${DOMAINS_FOLDER}/${declaration.slug}.md`, domain: declaration };
+      const spec: UnitSpec = { kind: 'domain', id: `domain:${declaration.slug}`, path: `${DOMAINS_FOLDER}/${declaration.slug}.md`, domain: declaration, productId: productUnit.id };
       const tools = new UnitTools(view, spec, sink, product.domains, bounds);
       const outcome = await runUnit(options.agent, tools, await domainPrompt(view, spec, productPage, product.domains));
       options.onUnit?.(outcome);

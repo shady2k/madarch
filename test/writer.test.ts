@@ -475,6 +475,19 @@ describe('the unit tools', () => {
     expect(tools.outcome()).toMatchObject({ status: 'failed', writeAttempts: 2 });
   });
 
+  test('two writes at once cannot both be accepted', async () => {
+    const { tools, sink } = session();
+    const page = { markdown: `${header('payments')}${grounded}` };
+    const [a, b] = await Promise.all([tools.call('write_page', page), tools.call('write_page', page)]);
+    expect([a.isError, b.isError].sort()).toEqual([false, true]);
+    expect(sink.pages.size).toBe(1);
+    expect(tools.outcome().writeAttempts).toBe(1);
+  });
+
+  test('a unit reads documents only as Markdown: another file\'s comment lines are no section', async () => {
+    expect(await view.docSection('Makefile', 'test')).toBe(false);
+  });
+
   test('the number of tool calls is bounded too', async () => {
     const { tools } = session(domainSpec('payments'), { maxWriteAttempts: 5, maxCalls: 3 });
     for (let i = 0; i < 3; i += 1) expect((await tools.call('overview', {})).isError).toBe(false);

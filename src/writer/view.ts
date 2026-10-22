@@ -99,7 +99,13 @@ export class GraphView implements GroundResolver {
 
   /** Opens the view at the last commit the fill listed files for; refuses an empty graph with the way out. */
   static async open(owner: DatabaseOwner, store: GraphStore): Promise<GraphView> {
-    const rows = (await owner.run((tx) => tx.query<Raw>(`SELECT ${TEXT_INSTANT.replace('%s', 'max(valid_from)')} AS at FROM node_version WHERE producer = $1 AND recorded_to = 'infinity'`, [FILES_PRODUCER]))).rows;
+    // The last commit's instant: the newest start of a file version, or the newest end a sweep set (a last commit that only deletes files).
+    const rows = (await owner.run((tx) => tx.query<Raw>(
+      `SELECT ${TEXT_INSTANT.replace('%s', 'max(t)')} AS at FROM (
+         SELECT valid_from AS t FROM node_version WHERE producer = $1 AND recorded_to = 'infinity'
+         UNION ALL SELECT valid_to FROM node_version WHERE producer = $1 AND recorded_to = 'infinity' AND valid_to <> 'infinity') x`,
+      [FILES_PRODUCER],
+    ))).rows;
     const at = rows[0]?.['at'];
     if (typeof at !== 'string') throw new Error(`src/writer/view.ts: the graph holds no file listing of producer "${FILES_PRODUCER}": fill the graph with the extract driver before the writer runs`);
     return new GraphView(owner, store, at);
@@ -153,6 +159,7 @@ export class GraphView implements GroundResolver {
 
   /** The anchors of one document, or null when the graph holds no such document text. */
   async anchorsOf(path: string): Promise<Set<string> | null> {
+    if (!DOCUMENT_EXTENSIONS.test(path)) return null;
     if (this.anchorCache.has(path)) return this.anchorCache.get(path)!;
     const text = await this.fileText(path);
     const anchors = text === null ? null : new Set(documentAnchors(text));

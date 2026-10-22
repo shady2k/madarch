@@ -80,8 +80,16 @@ export function acpUnitAgent(options: AcpAgentOptions): UnitAgent & { close(): P
   const connect = async (): Promise<AcpConnection> => {
     if (connection !== undefined) return connection;
     scratch = await mkdtemp(path.join(tmpdir(), 'madarch-writer-'));
-    const started = await connectAcpAgent(options.spec, { cwd: scratch, ...(options.env === undefined ? {} : { env: options.env }) });
-    await started.initialize();
+    let started: AcpConnection | undefined;
+    try {
+      started = await connectAcpAgent(options.spec, { cwd: scratch, ...(options.env === undefined ? {} : { env: options.env }) });
+      await started.initialize();
+    } catch (error) {
+      await started?.close().catch(() => undefined);
+      await rm(scratch, { recursive: true, force: true });
+      scratch = undefined;
+      throw error;
+    }
     connection = started;
     return started;
   };

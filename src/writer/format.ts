@@ -38,6 +38,8 @@ export interface PageExpectation {
   readonly domains: readonly string[];
   /** For a product page: every declared domain must be linked from it. */
   readonly mustLinkDomains: boolean;
+  /** For a domain page: the product page it may link. */
+  readonly productId?: string;
 }
 
 export interface FrontMatter {
@@ -68,9 +70,13 @@ const FRONT_KEYS = ['id', 'kind', 'title', 'relates', 'producer', 'sources'] as 
 const LINK = /\[([^\]\n]*)\]\(((?:[^()\s]|\([^()\s]*\))*)\)/g;
 const FOOTNOTE_DEFINITION = /^\[\^([A-Za-z0-9_-]+)\]:[ \t]*(.*)$/;
 const FOOTNOTE_REFERENCE = /\[\^([A-Za-z0-9_-]+)\]/g;
-const ABBREVIATION = /\b(e\.g|i\.e|etc|vs|cf|approx)\./gi;
+const ABBREVIATION = /\b(?:[Ee]\.g|[Ii]\.e)\.|\b(?:etc|vs|cf|approx)\.(?=\s+[a-z0-9(,;])/g;
 /** A character that stands for a masked dot; the page may not hold it (checked on entry). */
 const DOT = '\u0001';
+/** The most words a "See also" line may carry beside its links before it is read as a statement. */
+const SEE_ALSO_WORDS = 4;
+/** The most words a heading may have; a longer one reads as a statement. */
+const HEADING_WORDS = 10;
 
 type Split = { front: string; body: string; bodyStart: number };
 
@@ -161,7 +167,7 @@ interface Sentence {
 /** Splits masked text into sentences; footnote references right after the terminal punctuation belong to the sentence. */
 function sentencesOf(masked: string): Sentence[] {
   const out: Sentence[] = [];
-  const pattern = /([^]*?[.!?](?:\[\^[A-Za-z0-9_-]+\])*)(?=\s|$)/y;
+  const pattern = /([^]*?[.!?\u2026][)"'\u201d\u2019\u00bb]*(?:\[\^[A-Za-z0-9_-]+\])*)(?=\s|$)/y;
   const text = masked.trim();
   let at = 0;
   while (at < text.length) {
@@ -180,7 +186,7 @@ function sentencesOf(masked: string): Sentence[] {
 /** Masks code spans, link targets and common abbreviations, whose dots are not sentence ends. */
 function maskInline(text: string): string {
   return text
-    .replace(/`[^`\n]*`/g, (span) => span.replace(/[.!?]/g, DOT))
+    .replace(/`[^`\n]*`/g, (span) => span.replace(/[.!?\u2026]/g, DOT))
     .replace(LINK, (_whole, label: string, target: string) => `[${label}](${target.replace(/[.!?]/g, DOT)})`)
     .replace(ABBREVIATION, (whole) => whole.replace(/\./g, DOT));
 }
@@ -234,12 +240,23 @@ function textUnits(body: string, bodyStart: number, refusals: Refusal[]): { unit
   return { units, definitions, headings };
 }
 
-/** A unit that only connects: a "See also" line, or nothing but links and punctuation. */
+/** The most words a link-only line may carry in its labels before it is read as a statement. */
+const LINK_ONLY_WORDS = 5;
+
+/**
+ * A unit that only connects: a one-sentence "See also" line, or nothing but
+ * links and punctuation. The words in link labels count: a statement does not
+ * hide in a label or behind "See also".
+ */
 function connecting(text: string): boolean {
   const plain = text.replace(FOOTNOTE_REFERENCE, '').trim();
-  if (/^see also\b/i.test(plain)) return true;
-  const rest = plain.replace(LINK, '').replace(/[\s,;:.–—-]+/g, '');
-  return rest === '' && plain.includes('](');
+  const labelWords = plainWords([...plain.matchAll(LINK)].map((m) => m[1]!).join(' ')).length;
+  if (/^see also\b/i.test(plain)) {
+    const outside = plainWords(plain.replace(/^see also\b/i, '').replace(LINK, '')).length;
+    return sentencesOf(maskInline(plain)).length <= 1 && outside <= SEE_ALSO_WORDS && labelWords <= 2 * SEE_ALSO_WORDS;
+  }
+  const rest = plain.replace(LINK, '').replace(/[\s,;:.\u2013\u2014-]+/g, '');
+  return rest === '' && plain.includes('](') && labelWords <= LINK_ONLY_WORDS;
 }
 
 /** Parses the grounds of a footnote definition: links separated by commas and nothing else. */
@@ -312,14 +329,13 @@ export async function checkPage(markdown: string, expected: PageExpectation, res
   const checkLinks = async (unit: TextUnit): Promise<void> => {
     for (const match of unit.text.matchAll(LINK)) {
       const target = match[2]!;
-      if (/^https?:\/\//.test(target)) continue;
-      if (!target.startsWith('madarch:')) { refusals.push({ line: unit.line, rule: 'link-scheme', message: `the link ${JSON.stringify(target)} is neither a madarch: link nor an http(s) address: mention an entity as [name](madarch:<graph key>)` }); continue; }
+      if (!target.startsWith('madarch:')) { refusals.push({ line: unit.line, rule: 'link-scheme', message: `the link ${JSON.stringify(target)} is no madarch: link: mention an entity as [name](madarch:<graph key>)` }); continue; }
       const parsed = parseTarget(target.slice('madarch:'.length));
       if (parsed === undefined) { refusals.push({ line: unit.line, rule: 'link-shape', message: `the link target ${JSON.stringify(target)} is no graph key (kind:path), doc:<path>#<anchor> or domain:<slug>` }); continue; }
       links.push(target.slice('madarch:'.length));
       if (parsed.type === 'page') {
         const slug = parsed.id.startsWith('domain:') ? parsed.id.slice('domain:'.length) : undefined;
-        const own = parsed.id === expected.id;
+        const own = parsed.id === expected.id || parsed.id === expected.productId;
         if (!own && !(slug !== undefined && expected.domains.includes(slug))) {
           refusals.push({ line: unit.line, rule: 'link-outside-graph', message: `the link ${target} names a page that does not exist: the pages are this one (${expected.id}) and the declared domains (${expected.domains.map((d) => `domain:${d}`).join(', ') || 'none declared'})` });
         }
@@ -328,7 +344,13 @@ export async function checkPage(markdown: string, expected: PageExpectation, res
       }
     }
   };
-  for (const heading of headings) await checkLinks(heading);
+  for (const heading of headings) {
+    await checkLinks(heading);
+    if (FOOTNOTE_REFERENCE.test(heading.text)) refusals.push({ line: heading.line, rule: 'heading-footnote', message: 'a heading is connecting text and carries no footnote: put the statement in a sentence below it' });
+    FOOTNOTE_REFERENCE.lastIndex = 0;
+    const headingWords = plainWords(heading.text).length;
+    if (headingWords > HEADING_WORDS) refusals.push({ line: heading.line, rule: 'heading-statement', message: `this heading has ${headingWords} words; a heading is at most ${HEADING_WORDS}, so a statement belongs in a sentence with grounds below it` });
+  }
   const used: string[] = [];
   for (const unit of units) {
     await checkLinks(unit);
@@ -341,7 +363,7 @@ export async function checkPage(markdown: string, expected: PageExpectation, res
       const shown = sentence.text.replaceAll(DOT, '.');
       const hasLink = shown.includes('](madarch:');
       if (plainWords(shown).length < 2 && !hasLink) continue;
-      const grounded = sentence.terminated ? /[.!?](?:\[\^[A-Za-z0-9_-]+\])+$/.test(sentence.text) : /(?:\[\^[A-Za-z0-9_-]+\])+$/.test(sentence.text);
+      const grounded = sentence.terminated ? /[.!?\u2026][)"'\u201d\u2019\u00bb]*(?:\[\^[A-Za-z0-9_-]+\])+$/.test(sentence.text) : /(?:\[\^[A-Za-z0-9_-]+\])+$/.test(sentence.text);
       if (!grounded) {
         const quoted = shown.replace(LINK, (_w, label: string) => label);
         refusals.push({ line: unit.line, rule: 'ungrounded-statement', message: `this sentence states something and has no footnote at its end: ${JSON.stringify(quoted.length > 90 ? `${quoted.slice(0, 87)}...` : quoted)}. End it with a footnote reference that lists its grounds, or, if it only connects text, make it a heading or a "See also" line` });

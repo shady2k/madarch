@@ -30,7 +30,7 @@ export interface DomainDeclaration {
 
 export type UnitSpec =
   | { readonly kind: 'product'; readonly id: string; readonly path: string; readonly name: string }
-  | { readonly kind: 'domain'; readonly id: string; readonly path: string; readonly domain: DomainDeclaration };
+  | { readonly kind: 'domain'; readonly id: string; readonly path: string; readonly domain: DomainDeclaration; readonly productId?: string };
 
 /** Where checked pages go; the filesystem's is in `run.ts`. */
 export interface PageSink {
@@ -167,6 +167,7 @@ function shortProperties(properties: Record<string, unknown>): unknown {
 /** One unit's tool session: counts what it does and enforces its bounds. */
 export class UnitTools {
   private calls = 0;
+  private writing = false;
   private writeAttempts = 0;
   private status: UnitOutcome['status'] = 'not-written';
   private refusals: readonly Refusal[] = [];
@@ -329,6 +330,16 @@ export class UnitTools {
   }
 
   private async writePage(args: Record<string, unknown>): Promise<ToolAnswer> {
+    if (this.writing) return fail('busy', 'another write_page of this unit is still being checked; call write_page one at a time');
+    this.writing = true;
+    try {
+      return await this.writePageNow(args);
+    } finally {
+      this.writing = false;
+    }
+  }
+
+  private async writePageNow(args: Record<string, unknown>): Promise<ToolAnswer> {
     if (this.status === 'written') return fail('already-written', `this unit already wrote ${this.unit.path}`);
     if (this.writeAttempts >= this.bounds.maxWriteAttempts) return fail('no-attempts', `this unit made ${this.bounds.maxWriteAttempts} refused writes and has failed; nothing more is accepted`);
     this.writeAttempts += 1;
@@ -340,7 +351,7 @@ export class UnitTools {
       if ('problems' in checked) return this.refuse(checked.problems);
       domains = checked.domains;
     }
-    const verdict = await checkPage(markdown, { id: this.unit.id, kind: this.unit.kind, domains: domains.map((d) => d.slug), mustLinkDomains: this.unit.kind === 'product' }, this.view);
+    const verdict = await checkPage(markdown, { id: this.unit.id, kind: this.unit.kind, domains: domains.map((d) => d.slug), mustLinkDomains: this.unit.kind === 'product', ...(this.unit.kind === 'domain' && this.unit.productId !== undefined ? { productId: this.unit.productId } : {}) }, this.view);
     if (!verdict.ok) return this.refuse(verdict.refusals);
     await this.sink.write(this.unit.path, verdict.page.markdown);
     this.status = 'written';
