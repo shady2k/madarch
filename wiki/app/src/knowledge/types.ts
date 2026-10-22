@@ -68,6 +68,36 @@ export type FillState = {
   gaps?: number;
 };
 
+export type WriterUnit = {
+  unit: string;
+  path: string;
+  state: 'waiting' | 'writing' | 'written' | 'failed' | 'not-written';
+  writeAttempts?: number;
+  calls?: number;
+  refusals?: { line: number; rule: string; message: string }[];
+};
+
+export type WriterState = {
+  state: 'idle' | 'waiting' | 'running' | 'done' | 'failed';
+  agent: { id: string; label: string } | null;
+  units: WriterUnit[];
+  current?: string;
+  startedAt?: string;
+  finishedAt?: string;
+  message?: string;
+};
+
+export type WriterBounds = { turns: number; minutes: number; toolCalls: number; writeAttempts: number; maxDomains: number };
+
+export type AgentOffer = {
+  id: string;
+  label: string;
+  installed: boolean;
+  login: 'signed-in' | 'not-signed-in' | 'unknown';
+  loginDetail: string;
+  install: { package: string; version: string; size: string; folder: string } | null;
+};
+
 export type WikiStatus = {
   product: { name: string; id: string };
   manifest: 'ok' | 'no-manifest';
@@ -78,6 +108,9 @@ export type WikiStatus = {
   filled: boolean;
   incomplete: boolean;
   fill: FillState;
+  writer: WriterState;
+  bounds: WriterBounds;
+  chosenAgent: { id: string; label: string } | null;
   home: string | null;
 };
 

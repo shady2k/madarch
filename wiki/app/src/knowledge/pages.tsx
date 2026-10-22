@@ -14,6 +14,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input.js';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.js';
 import { getEntities, getPage, getSource, startFill } from './api.js';
+import { AgentChoice, WriterCard, useAgentChoice } from './writer.js';
 import { BlockView, CodeLines, CodePlace, EntityName, Findings, KLink } from './blocks.js';
 import { addressOfKind, kindPlural, kindWord } from './routes.js';
 import type { EntityListing, EntityRef, PageModel, SourceFile, WikiStatus } from './types.js';
@@ -211,14 +212,26 @@ export function SourcePage({ repo, path, line }: { repo: string | null; path: st
 
 /** The fill's card: what to do on an empty product, the progress of a running fill, a failed fill's reason. */
 export function FillCard({ status, refresh }: { status: WikiStatus; refresh: () => void }): ReactElement | null {
+  return (
+    <>
+      <FillPart status={status} refresh={refresh} />
+      <WriterCard status={status} refresh={refresh} />
+    </>
+  );
+}
+
+function FillPart({ status, refresh }: { status: WikiStatus; refresh: () => void }): ReactElement | null {
   const { t } = useTranslation();
   const [refused, setRefused] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
+  const choice = useAgentChoice(status);
   const fill = status.fill;
+  const agentLabel = choice.agents?.find((agent) => agent.id === choice.pick)?.label ?? status.chosenAgent?.label;
+  // One press is the whole consent: the pick is saved (its adapter installed on this yes), then the fill starts and flows into the agent.
   const start = (): void => {
     setStarting(true);
     setRefused(null);
-    startFill().then(
+    choice.commit().then(() => startFill(choice.pick)).then(
       () => {
         setStarting(false);
         refresh();
@@ -254,6 +267,7 @@ export function FillCard({ status, refresh }: { status: WikiStatus; refresh: () 
         <AlertDescription>
           <p>{fill.message}</p>
           <p className="mt-2"><Button variant="default" size="default" onClick={start} disabled={starting}>{t('knowledge.fillRetry')}</Button></p>
+          {refused !== null && <p className="mb-0 mt-3 text-small" role="alert" data-testid="fill-refused">{refused}</p>}
         </AlertDescription>
       </Alert>
     );
@@ -272,7 +286,25 @@ export function FillCard({ status, refresh }: { status: WikiStatus; refresh: () 
       </Card>
     );
   }
-  if (status.filled) return null;
+  if (status.filled) {
+    // The code is read. With no pages yet and no agent stage under way, the agent is offered: the same single press, the fill resuming as a no-op.
+    const offered = (status.home === null || (status.kinds.find((kind) => kind.kind === 'domain')?.count ?? 0) === 0) && status.writer.state === 'idle';
+    if (!offered) return null;
+    return (
+      <Card className="mb-8" data-testid="fill-card" data-state="offer">
+        <CardHeader>
+          <CardTitle>{t('knowledge.writer.offerTitle')}</CardTitle>
+          <CardDescription>{t('knowledge.writer.offerDescription')}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <AgentChoice status={status} choice={choice} />
+          <Button variant="default" size="default" onClick={start} disabled={starting || choice.pick === null} data-testid="fill-start">{agentLabel === undefined ? t('knowledge.writer.offerButton', { agent: '…' }) : t('knowledge.writer.offerButton', { agent: agentLabel })}</Button>
+          {choice.pick === null && <p className="mb-0 mt-3 text-small text-muted">{t('knowledge.writer.offerNeedsAgent')}</p>}
+          {refused !== null && <p className="mb-0 mt-3 text-small" role="alert" data-testid="fill-refused">{refused}</p>}
+        </CardContent>
+      </Card>
+    );
+  }
   const connected = status.repositories.length > 0;
   return (
     <Card className="mb-8" data-testid="fill-card" data-state="empty">
@@ -282,7 +314,10 @@ export function FillCard({ status, refresh }: { status: WikiStatus; refresh: () 
       </CardHeader>
       <CardContent>
         {connected ? (
-          <Button variant="default" size="default" onClick={start} disabled={starting} data-testid="fill-start">{t('knowledge.fillStart')}</Button>
+          <>
+            <AgentChoice status={status} choice={choice} />
+            <Button variant="default" size="default" onClick={start} disabled={starting} data-testid="fill-start">{choice.pick === null ? t('knowledge.fillStart') : t('knowledge.writer.startWith', { agent: agentLabel ?? '…' })}</Button>
+          </>
         ) : (
           <pre className="!my-0" data-testid="fill-hint"><code>madarch repo add &lt;name&gt; &lt;url&gt;</code></pre>
         )}

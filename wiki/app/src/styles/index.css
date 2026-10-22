@@ -1670,6 +1670,10 @@ a.graph-diagram-element-label:hover {
   color: var(--text-secondary);
 }
 
+.ref-pending {
+  color: var(--text-secondary);
+}
+
 .ref-broken-mark {
   display: inline-block;
   margin-inline-start: 0.35em;

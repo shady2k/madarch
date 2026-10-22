@@ -1,7 +1,9 @@
 /**
  * The files PGlite's own build reads from the folder it runs in: its data
- * archive and its two WebAssembly modules (`pglite.data`, `pglite.wasm`,
- * `initdb.wasm`).
+ * archive, its two WebAssembly modules (`pglite.data`, `pglite.wasm`,
+ * `initdb.wasm`) and the archive of the extension madarch loads
+ * (`btree_gist`, for the graph's no-overlap constraints); a binary
+ * without `btree_gist` cannot open a product's graph store (madarch-m38l.3).
  *
  * `madarch` opens the process's one database as PGlite when no PostgreSQL server
  * is configured (decision 0027, "Storage ownership"), so a release binary that
@@ -23,10 +25,10 @@ import { fileURLToPath } from 'node:url';
 /** The repo's own checkout root, beside which the installed packages stand. */
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-/** The three files, in the order they are embedded; throws, naming each missing one, when the install is short. */
+/** The files, in the order they are embedded; throws, naming each missing one, when the install is short. */
 export function pgliteAssetFiles(): string[] {
   const dist = join(REPO_ROOT, 'node_modules', '@electric-sql', 'pglite', 'dist');
-  const files = ['pglite.data', 'pglite.wasm', 'initdb.wasm'].map((name) => join(dist, name));
+  const files = ['pglite.data', 'pglite.wasm', 'initdb.wasm', 'btree_gist.tar.gz'].map((name) => join(dist, name));
   const missing = files.filter((file) => !existsSync(file));
   if (missing.length > 0) {
     throw new Error(`the PGlite build files the binary must carry are not installed: ${missing.join(', ')} (run "bun install --frozen-lockfile")`);

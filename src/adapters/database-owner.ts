@@ -26,6 +26,10 @@
  * database's admission gate expects.
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { PGlite } from '@electric-sql/pglite';
 import { btree_gist } from '@electric-sql/pglite/contrib/btree_gist';
 import { vector } from '@electric-sql/pglite-pgvector';
@@ -34,6 +38,29 @@ import type { OuterTransaction } from '../history/types.js';
 import type { SqlExecutor, SqlQueryDriver, SqlTransactionKind } from '../query/sql-driver.js';
 
 export type { OuterTransaction };
+
+/**
+ * `btree_gist` for a compiled binary. The extension module names its archive one folder above itself, which inside
+ * `bun build --compile` is above the root the `--asset` files are laid in, so the archive is not found there; the
+ * release build embeds `btree_gist.tar.gz` beside the other PGlite files and this reads it from the binary's own root.
+ */
+let extractedArchive: URL | undefined;
+/** PGlite reads an extension archive with a file stream, which an embedded file does not serve: the bytes go to a real file once. */
+async function extractedBtreeGist(): Promise<URL> {
+  if (extractedArchive === undefined) {
+    const embedded = join(dirname(Bun.main), 'btree_gist.tar.gz');
+    const bytes = await Bun.file(embedded).bytes();
+    const folder = mkdtempSync(join(tmpdir(), 'madarch-pglite-'));
+    const file = join(folder, 'btree_gist.tar.gz');
+    writeFileSync(file, bytes);
+    extractedArchive = pathToFileURL(file);
+  }
+  return extractedArchive;
+}
+
+const btreeGistExtension: typeof btree_gist = import.meta.url.includes('/$bunfs/')
+  ? { ...btree_gist, setup: async () => ({ bundlePath: await extractedBtreeGist() }) }
+  : btree_gist;
 
 /** The engine behind an owner, in the vocabulary a database-adapting library uses for it. */
 export type DatabaseBackend = 'pglite' | 'postgres';
@@ -169,7 +196,7 @@ class PGliteOwner implements DatabaseOwner {
     this.hasVector = options.vector === true;
     const loaded = {
       ...(options.vector === true ? { vector } : {}),
-      ...(options.btreeGist === true ? { btree_gist } : {}),
+      ...(options.btreeGist === true ? { btree_gist: btreeGistExtension } : {}),
     };
     const extensions = Object.keys(loaded).length > 0 ? { extensions: loaded } : {};
     this.database = options.path === undefined ? new PGlite(extensions) : new PGlite(options.path, extensions);

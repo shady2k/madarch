@@ -254,7 +254,7 @@ export class GraphView implements GroundResolver {
   async fileNodes(): Promise<{ id: GraphId; path: string; sha256: string }[]> {
     const rows = await this.query<{ node_id: string; path: string; sha: string }>(
       `SELECT v.node_id::text AS node_id, v.properties->>'path' AS path, v.properties->>'sha256' AS sha FROM node_version v JOIN node_kind k ON k.id = v.kind_id
-       WHERE k.key = 'code.file' AND ${GraphView.SEEN} ORDER BY (v.properties->>'path') COLLATE "C"`,
+       WHERE k.key = 'code.file' AND v.properties->>'path' IS NOT NULL AND ${GraphView.SEEN} ORDER BY (v.properties->>'path') COLLATE "C"`,
       [this.at],
     );
     return rows.map((r) => ({ id: r.node_id, path: r.path, sha256: r.sha }));

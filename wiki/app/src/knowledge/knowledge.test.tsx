@@ -223,17 +223,27 @@ describe('the blocks', () => {
   });
 });
 
+const OFFERS = [
+  { id: 'claude-code', label: 'Claude Code', installed: false, login: 'signed-in', loginDetail: '', install: { package: '@agentclientprotocol/claude-agent-acp', version: '0.93.0', size: '314 MB', folder: '/opt/madarch/agents/claude' } },
+  { id: 'codex', label: 'Codex', installed: true, login: 'not-signed-in', loginDetail: '', install: null },
+];
+/** A fetch that answers the agents' list and records every request; `others` answers the rest. */
+function stubFetch(calls: string[], others: (url: string, init?: RequestInit) => Response = () => new Response(JSON.stringify({ fill: { state: 'running' } }), { status: 202 })): void {
+  (globalThis as { fetch?: unknown }).fetch = async (url: string, init?: RequestInit) => {
+    calls.push(`${init?.method ?? 'GET'} ${url}${init?.body === undefined ? '' : ` ${String(init.body)}`}`);
+    if (url.endsWith('/api/k/agents')) return new Response(JSON.stringify({ agents: OFFERS, chosen: null }));
+    return others(url, init);
+  };
+}
+
 describe('the fill card', () => {
   const status = (over: Partial<WikiStatus> = {}): WikiStatus => ({
-    product: { name: 'shop', id: 'x' }, manifest: 'ok', manifestFile: 'madarch/kinds.yaml', findings: [], kinds: [], repositories: [{ name: 'training', filled: false }], filled: false, incomplete: false, fill: { state: 'idle' }, home: null, ...over,
+    product: { name: 'shop', id: 'x' }, manifest: 'ok', manifestFile: 'madarch/kinds.yaml', findings: [], kinds: [], repositories: [{ name: 'training', filled: false }], filled: false, incomplete: false, fill: { state: 'idle' }, writer: { state: 'idle', agent: null, units: [] }, bounds: { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12 }, chosenAgent: null, home: null, ...over,
   });
 
   test('an empty product with a repository says what to do and starts the fill on the press of one button', async () => {
     const calls: string[] = [];
-    (globalThis as { fetch?: unknown }).fetch = async (url: string, init?: RequestInit) => {
-      calls.push(`${init?.method ?? 'GET'} ${url}`);
-      return new Response(JSON.stringify({ fill: { state: 'running' } }), { status: 202 });
-    };
+    stubFetch(calls);
     let refreshed = 0;
     const container = into(createElement(FillCard, { status: status(), refresh: () => { refreshed += 1; } }));
     await until(() => container.querySelector('[data-testid=fill-start]') !== null, 'the start button');
@@ -241,11 +251,11 @@ describe('the fill card', () => {
     expect(container.textContent).toContain('(training)');
     (container.querySelector('[data-testid=fill-start]') as HTMLButtonElement).click();
     await until(() => refreshed === 1, 'the refresh');
-    expect(calls).toEqual(['POST /api/k/fill']);
+    expect(calls).toEqual(['GET /api/k/agents', 'POST /api/k/fill {"agent":null}']);
   });
 
   test('a refusal of the server is shown in its own words', async () => {
-    (globalThis as { fetch?: unknown }).fetch = async () => new Response(JSON.stringify({ message: 'the repositories training are not checked out under repos/: run "madarch bootstrap" first' }), { status: 409 });
+    stubFetch([], () => new Response(JSON.stringify({ message: 'the repositories training are not checked out under repos/: run "madarch bootstrap" first' }), { status: 409 }));
     const container = into(createElement(FillCard, { status: status(), refresh: () => undefined }));
     await until(() => container.querySelector('[data-testid=fill-start]') !== null, 'the start button');
     (container.querySelector('[data-testid=fill-start]') as HTMLButtonElement).click();
@@ -281,10 +291,83 @@ describe('the fill card', () => {
     expect(container.querySelector('[data-testid=fill-start]')!.textContent).toBe('Continue the fill');
   });
 
-  test('a filled product shows no card', async () => {
-    const container = into(createElement(FillCard, { status: status({ filled: true, fill: { state: 'done' } }), refresh: () => undefined }));
+  test('a filled product with its home page shows no card', async () => {
+    const container = into(createElement(FillCard, { status: status({ filled: true, fill: { state: 'done' }, home: 'product:shop', kinds: [{ kind: 'domain', source: 'markdown', count: 2, single: false }] }), refresh: () => undefined }));
     await new Promise((rest) => setTimeout(rest, 20));
     expect(container.querySelector('[data-testid=fill-card]')).toBeNull();
+  });
+});
+
+describe('the agent stage', () => {
+  const status = (over: Partial<WikiStatus> = {}): WikiStatus => ({
+    product: { name: 'shop', id: 'x' }, manifest: 'ok', manifestFile: 'madarch/kinds.yaml', findings: [], kinds: [], repositories: [{ name: 'training', filled: false }], filled: false, incomplete: false, fill: { state: 'idle' }, writer: { state: 'idle', agent: null, units: [] }, bounds: { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12 }, chosenAgent: null, home: null, ...over,
+  });
+
+  test('the empty wiki offers the agents with their state, states the bound in plain words, and one press installs the adapter, saves the choice and starts the fill', async () => {
+    const calls: string[] = [];
+    stubFetch(calls);
+    let refreshed = 0;
+    const container = into(createElement(FillCard, { status: status(), refresh: () => { refreshed += 1; } }));
+    await until(() => container.querySelector('[data-testid=agent-claude-code]') !== null, 'the agents');
+    const claude = container.querySelector('[data-testid=agent-claude-code]')!;
+    expect(claude.textContent).toContain('pressing the button below installs @agentclientprotocol/claude-agent-acp 0.93.0 (about 314 MB) into /opt/madarch/agents/claude');
+    expect(container.querySelector('[data-testid=agent-codex]')!.textContent).toContain('Codex has no sign-in here');
+    const bound = container.querySelector('[data-testid=agent-bound]')!.textContent!;
+    expect(bound).toContain('30 turns, 10 minutes, 80 tool calls and 5 refused writes');
+    expect(bound).toContain('Nothing runs an agent until you press the button.');
+    // With no pick the button is the plain fill; picking an agent makes the same button the whole consent.
+    expect(container.querySelector('[data-testid=fill-start]')!.textContent).toBe('Start the fill');
+    ((claude.querySelector('input')) as HTMLInputElement).click();
+    await until(() => container.querySelector('[data-testid=fill-start]')!.textContent === 'Start the fill and let Claude Code write the pages', 'the button');
+    (container.querySelector('[data-testid=fill-start]') as HTMLButtonElement).click();
+    await until(() => refreshed === 1, 'the refresh');
+    expect(calls).toEqual(['GET /api/k/agents', 'POST /api/k/agent {"agent":"claude-code","install":true}', 'POST /api/k/fill {"agent":"claude-code"}']);
+  });
+
+  test('a filled product with no pages offers the agent on a card whose button needs a chosen agent', async () => {
+    const calls: string[] = [];
+    stubFetch(calls);
+    const container = into(createElement(FillCard, { status: status({ filled: true, fill: { state: 'done' } }), refresh: () => undefined }));
+    await until(() => container.querySelector('[data-state=offer]') !== null, 'the offer');
+    expect(container.textContent).toContain('Let an agent write the product pages');
+    expect((container.querySelector('[data-testid=fill-start]') as HTMLButtonElement).disabled).toBe(true);
+    expect(container.textContent).toContain('Choose Claude Code or Codex to let an agent write.');
+    expect(calls).toEqual(['GET /api/k/agents']);
+  });
+
+  test('a stage under way lists each unit with its state, marks the one writing now and shows the refusals of a unit that failed', async () => {
+    const writer: WikiStatus['writer'] = {
+      state: 'running', agent: { id: 'claude-code', label: 'Claude Code' }, current: 'domain:ordering',
+      units: [
+        { unit: 'product:shop', path: 'docs/product.md', state: 'written', calls: 6, writeAttempts: 1 },
+        { unit: 'domain:ordering', path: 'docs/domains/ordering.md', state: 'writing' },
+        { unit: 'domain:payments', path: 'docs/domains/payments.md', state: 'failed', calls: 9, writeAttempts: 5, refusals: [{ line: 12, rule: 'ungrounded-statement', message: 'the sentence has no footnote' }] },
+      ],
+    };
+    stubFetch([]);
+    const container = into(createElement(FillCard, { status: status({ filled: true, fill: { state: 'done' }, home: 'product:shop', writer }), refresh: () => undefined }));
+    await until(() => container.querySelector('[data-testid=writer-card]') !== null, 'the writer card');
+    expect(container.querySelector('[data-testid=writer-card]')!.textContent).toContain('Claude Code is writing the pages');
+    const units = [...container.querySelectorAll('[data-testid=writer-unit]')];
+    expect(units.map((unit) => [unit.getAttribute('data-unit'), unit.getAttribute('data-state'), unit.getAttribute('aria-current')])).toEqual([
+      ['product:shop', 'written', null], ['domain:ordering', 'writing', 'step'], ['domain:payments', 'failed', null],
+    ]);
+    expect(container.querySelector('[data-testid=writer-card]')!.textContent).toContain('Writing now: domain:ordering');
+    expect(container.querySelector('[data-testid=writer-refusals]')!.textContent).toBe('Line 12, ungrounded-statement: the sentence has no footnote');
+  });
+
+  test('a stage that ended with a failure says so and offers to try again', async () => {
+    const calls: string[] = [];
+    stubFetch(calls);
+    let refreshed = 0;
+    const writer: WikiStatus['writer'] = { state: 'failed', agent: { id: 'codex', label: 'Codex' }, units: [{ unit: 'product:shop', path: 'docs/product.md', state: 'failed' }], message: 'some pages were not written; each unit above says why.' };
+    const container = into(createElement(FillCard, { status: status({ filled: true, fill: { state: 'done' }, writer }), refresh: () => { refreshed += 1; } }));
+    await until(() => container.querySelector('[data-testid=writer-retry]') !== null, 'the retry');
+    expect(container.querySelector('[data-testid=writer-card]')!.textContent).toContain('Codex did not finish the pages');
+    expect(container.querySelector('[data-testid=writer-message]')!.textContent).toContain('some pages were not written');
+    (container.querySelector('[data-testid=writer-retry]') as HTMLButtonElement).click();
+    await until(() => refreshed === 1, 'the refresh');
+    expect(calls.at(-1)).toBe('POST /api/k/fill {"agent":"codex"}');
   });
 });
 
@@ -309,8 +392,9 @@ describe('the product selector', () => {
 describe('which app opens', () => {
   const answer = (manifest: 'ok' | 'no-manifest') => async (url: string): Promise<Response> => {
     if (url.endsWith('/api/k/status')) {
-      return new Response(JSON.stringify({ product: { name: 'shop', id: 'x' }, manifest, manifestFile: 'madarch/kinds.yaml', findings: [], kinds: [], repositories: [], filled: false, incomplete: false, fill: { state: 'idle' }, home: null }));
+      return new Response(JSON.stringify({ product: { name: 'shop', id: 'x' }, manifest, manifestFile: 'madarch/kinds.yaml', findings: [], kinds: [], repositories: [], filled: false, incomplete: false, fill: { state: 'idle' }, writer: { state: 'idle', agent: null, units: [] }, bounds: { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12 }, chosenAgent: null, home: null }));
     }
+    if (url.endsWith('/api/k/agents')) return new Response(JSON.stringify({ agents: [], chosen: null }));
     // What the documents app asks first; every other read of it is optional and may fail.
     if (url.endsWith('/api/pages')) return new Response(JSON.stringify({ pages: [] }));
     if (url.endsWith('/api/product')) return new Response(JSON.stringify({ name: 'shop' }));

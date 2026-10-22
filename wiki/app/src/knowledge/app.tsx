@@ -23,6 +23,7 @@ import { EntityPage, EmptyHome, FillCard, KindPage, SourcePage, Overview } from 
 import { addressOfKind, K_HOME, kindPlural, kRouteOf, type KRoute } from './routes.js';
 import type { ProductChoice, WikiStatus } from './types.js';
 import { useWikiStatus } from './live.js';
+import { PendingPages } from './pending.js';
 
 /** The mockup's drawn lowercase m mark and dot, kept as one crisp vector glyph. */
 function BrandMark(): ReactElement {
@@ -225,6 +226,7 @@ export function KnowledgeApp(): ReactElement {
   if (status === null) {
     return <div className="grid h-dvh place-items-center bg-page text-muted [font-family:var(--font-sans)]" data-testid="wiki-loading">{t('knowledge.loading')}</div>;
   }
+  const pending = new Set(status.writer.units.filter((unit) => unit.state === 'waiting' || unit.state === 'writing').map((unit) => unit.unit));
   const nav = (onNavigate?: () => void): ReactElement => <NavPanel status={status} products={products} route={route} onNavigate={onNavigate} />;
   const menu = (
     <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
@@ -258,7 +260,7 @@ export function KnowledgeApp(): ReactElement {
                   {status.manifest === 'no-manifest' ? <EmptyHome status={status} refresh={refresh} /> : (
                     <>
                       {!(route.name === 'home' && status.home === null) && <FillCard status={status} refresh={refresh} />}
-                      {view}
+                      <PendingPages.Provider value={pending}>{view}</PendingPages.Provider>
                     </>
                   )}
                 </main>

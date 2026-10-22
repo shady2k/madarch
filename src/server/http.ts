@@ -49,7 +49,7 @@ import { UNIT_TOOL_PATH, type UnitToolAnswer, type UnitToolCall } from '../fill/
 import type { FillProgressAnswer, FillRunControlAnswer } from '../fill/orchestrator-host.js';
 import { readChosenModel, saveChosenAgent } from '../product/fill-wizard.js';
 import { homeFromEnv, productsHome } from '../product/home.js';
-import { KnowledgeHost } from '../knowledge/product.js';
+import { KnowledgeHost, type AgentFactory } from '../knowledge/product.js';
 import { createKnowledgePart, type KnowledgePart } from './knowledge.js';
 
 /** The largest body the server reads: 50 MB, far past any compiled model sent so far. */
@@ -112,6 +112,11 @@ export interface ServerOptions {
    * left out. A store is opened when its product's wiki is first asked for.
    */
   knowledgeRoot?: string;
+  /**
+   * Starts the agent that writes a product's pages when its fill runs with an agent chosen
+   * (madarch-m38l.3). Left out, the chosen agent's ACP adapter is started; tests give a scripted one.
+   */
+  knowledgeAgentFactory?: AgentFactory;
   /** The address to listen on; `127.0.0.1` unless said otherwise (decision 0012). */
   host?: string;
   /** The port to listen on; 4180 by default, 0 for a free port. */
@@ -332,7 +337,7 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
    */
   const env = options.env ?? process.env;
   // Each product's knowledge wiki (decision 0029): its own graph store, opened on its first ask and closed with the server.
-  const knowledgeHost = new KnowledgeHost(options.knowledgeRoot ?? joinPath(options.productHome ?? productsHome(env as Record<string, string | undefined>), '.madarch', 'knowledge'));
+  const knowledgeHost = new KnowledgeHost(options.knowledgeRoot ?? joinPath(options.productHome ?? productsHome(env as Record<string, string | undefined>), '.madarch', 'knowledge'), undefined, { env, ...(options.knowledgeAgentFactory === undefined ? {} : { agentFactory: options.knowledgeAgentFactory }) });
   let productNames: () => { name: string; folder: string }[] = () => (productWiki === undefined ? [] : [{ name: productWiki.product.name, folder: basename(productWiki.product.folder) }]);
   const knowledgeOf = (productFolder: string): KnowledgePart =>
     createKnowledgePart({ json: makeJson, refused: wikiRefused, errorLog }, knowledgeHost.of(productFolder), () => productNames());
@@ -653,6 +658,8 @@ export function createHandler(dependencies: {
         { method: 'GET', path: '/api/k/source', handle: (request: Request) => dependencies.knowledge!.source(request) },
         { method: 'GET', path: '/api/k/products', handle: (request: Request) => dependencies.knowledge!.products(request) },
         { method: 'POST', path: '/api/k/fill', handle: (request: Request) => dependencies.knowledge!.fill(request) },
+        { method: 'GET', path: '/api/k/agents', handle: (request: Request) => dependencies.knowledge!.agents(request) },
+        { method: 'POST', path: '/api/k/agent', handle: (request: Request) => dependencies.knowledge!.chooseAgent(request) },
       ] as Route[])),
       { method: 'GET', path: '/api/fill', handle: async (): Promise<Handled> => {
         // Which run the panel shows: the landed fill's while it runs (the person started it from the wizard and is

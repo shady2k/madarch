@@ -1,6 +1,6 @@
 import { appPath } from '../app-base.js';
 import { readJson, RequestError } from '../api.js';
-import type { EntityListing, PageModel, ProductChoice, SourceFile, WikiStatus } from './types.js';
+import type { AgentOffer, EntityListing, PageModel, ProductChoice, SourceFile, WikiStatus } from './types.js';
 
 /** The wiki's status: manifest, kinds, repositories, fill. */
 export const getStatus = (signal?: AbortSignal): Promise<WikiStatus> => readJson<WikiStatus>('read the wiki', '/api/k/status', signal);
@@ -37,11 +37,34 @@ export async function getProducts(signal?: AbortSignal): Promise<ProductChoice[]
   return (await readJson<{ products: ProductChoice[] }>('list the products', '/api/k/products', signal)).products;
 }
 
-/** Starts the fill; the answer is the server's refusal in words when it cannot start. */
-export async function startFill(): Promise<void> {
+/** The agents the reader can let write the pages, and the one chosen for this product. */
+export const getAgents = (signal?: AbortSignal): Promise<{ agents: AgentOffer[]; chosen: { id: string; label: string } | null }> => readJson('read the agents', '/api/k/agents', signal);
+
+/** The reader's choice of the agent that writes the pages; `install` is the yes to fetching its adapter. `null` is no agent. */
+export async function chooseAgent(agent: string | null, install: boolean): Promise<void> {
   let response: Response;
   try {
-    response = await fetch(appPath('/api/k/fill'), { method: 'POST' });
+    response = await fetch(appPath('/api/k/agent'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ agent, install }) });
+  } catch (error) {
+    throw new RequestError('choose the agent', `the request failed (${error instanceof Error ? error.message : String(error)})`);
+  }
+  if (response.ok) return;
+  let reason = `the server answered ${response.status}`;
+  try {
+    const body = (await response.json()) as { message?: unknown };
+    if (typeof body.message === 'string') reason = body.message;
+  } catch {
+    // the status stands
+  }
+  throw new RequestError('choose the agent', reason, response.status);
+}
+
+/** Starts the fill; the answer is the server's refusal in words when it cannot start. */
+export async function startFill(agent?: string | null): Promise<void> {
+  let response: Response;
+  try {
+    // The press names the agent it was made for; the server refuses it when another tab saved a different choice meanwhile.
+    response = await fetch(appPath('/api/k/fill'), agent === undefined ? { method: 'POST' } : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ agent }) });
   } catch (error) {
     throw new RequestError('start the fill', `the request failed (${error instanceof Error ? error.message : String(error)})`);
   }

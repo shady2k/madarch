@@ -19,11 +19,24 @@ export interface KnowledgePart {
   entities: (request: Request) => Promise<Handled>;
   source: (request: Request) => Promise<Handled>;
   fill: (request: Request) => Promise<Handled>;
+  agents: (request: Request) => Promise<Handled>;
+  chooseAgent: (request: Request) => Promise<Handled>;
   products: (request: Request) => Promise<Handled>;
 }
 
 /** The largest file the source view shows whole. */
 export const SOURCE_VIEW_BYTES = 2 * 1024 * 1024;
+
+/**
+ * A request another site's page made through the reader's browser: the browser says so in `Sec-Fetch-Site`, and what
+ * starts an agent or installs an adapter is the reader's press in this wiki alone. A client that is no browser sends none.
+ */
+function foreign(request: Request): string | undefined {
+  const site = request.headers.get('sec-fetch-site');
+  return site === null || site === 'same-origin' || site === 'none'
+    ? undefined
+    : `this request was made from another site (Sec-Fetch-Site: ${site}); a fill, an agent choice or an adapter install is started only from this wiki's own page`;
+}
 
 export function createKnowledgePart(
   makers: Pick<ReplyMaker, 'json' | 'refused'> & { errorLog: (line: string) => void },
@@ -73,10 +86,33 @@ export function createKnowledgePart(
       if (Buffer.byteLength(read.text) > SOURCE_VIEW_BYTES) return refused(413, { field: 'path', message: `the file ${path} is ${Buffer.byteLength(read.text)} bytes, past the ${SOURCE_VIEW_BYTES} the source view shows` });
       return { response: json(200, { repo: repo === '' ? null : repo, path, language: languageOf(path), commit: read.commit, text: read.text }) };
     }),
-    fill: guarded('start the fill', async () => {
-      const started = await product.startFill();
+    fill: guarded('start the fill', async (request) => {
+      const crossSite = foreign(request);
+      if (crossSite !== undefined) return refused(403, { message: crossSite });
+      // The press names the agent it was made for, so a choice saved from another tab meanwhile is not run under this press's consent.
+      let expectAgent: string | null | undefined;
+      if (request.headers.get('content-type')?.includes('application/json')) {
+        let body: unknown;
+        try { body = await request.json(); } catch (error) { return refused(400, { message: `the request body is not JSON: ${(error as Error).message}` }); }
+        const asked = (body as { agent?: unknown } | null)?.agent;
+        if (asked !== undefined && asked !== null && typeof asked !== 'string') return refused(400, { field: 'agent', message: '"agent" is the id of the agent the press was made for, or null for none' });
+        expectAgent = asked as string | null | undefined;
+      }
+      const started = await product.startFill(expectAgent === undefined ? {} : { expectAgent });
       if (!started.started) return refused(409, { message: started.message });
       return { response: json(202, { fill: started.fill }) };
+    }),
+    agents: guarded('list the agents', async () => ({ response: json(200, { agents: product.agentOffers(), chosen: product.chosenAgent() }) })),
+    chooseAgent: guarded('choose the agent', async (request) => {
+      const crossSite = foreign(request);
+      if (crossSite !== undefined) return refused(403, { message: crossSite });
+      let body: unknown;
+      try { body = await request.json(); } catch (error) { return refused(400, { message: `the request body is not JSON: ${(error as Error).message}` }); }
+      const asked = body as { agent?: unknown; install?: unknown };
+      if (typeof asked !== 'object' || asked === null || (asked.agent !== null && typeof asked.agent !== 'string')) return refused(400, { field: 'agent', message: '"agent" is required: claude-code, codex, or null for no agent' });
+      const chosen = await product.chooseAgent(asked.agent, asked.install === true);
+      if (!chosen.ok) return refused(chosen.status, { field: 'agent', message: chosen.message });
+      return { response: json(200, { chosen: chosen.agent }) };
     }),
     products: guarded('list the products', async () => ({ response: json(200, { current: product.folder, products: siblings() }) })),
   };

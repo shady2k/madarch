@@ -10,6 +10,7 @@
  * `refused` and `failed` carry the message, printed whole on standard error.
  * Facts go to standard output, one per line.
  */
+import { DEFAULT_STAGE_LIMITS } from '../fill/stage.js';
 import { mkdir } from 'node:fs/promises';
 import { createInterface } from 'node:readline/promises';
 import { basename, dirname, join, resolve } from 'node:path';
@@ -776,10 +777,17 @@ function nextSteps(folder: string, init: boolean): void {
   const shown = displayPath(folder);
   console.log('');
   console.log('Next:');
-  console.log(`  • Product documents are Markdown files in ${shown}/docs/. Write them by hand or with any agent; or let an agent set them up with the shady2k-skills set.`);
-  console.log('  • The wiki opens on its own pages and starts empty: connect a code repository (madarch repo add <name> <url>), then press "Start the fill" on its first page and watch the pages appear.');
+  if (init) {
+    console.log('  1. Open the wiki address above. The wiki is empty and says so.');
+    console.log('  2. Choose the agent that writes the pages (Claude Code or Codex; madarch installs its adapter if you say yes), then press "Start the fill".');
+    console.log('     The fill reads your repository, then the agent writes the product page and one page per domain; each page appears in the wiki as it is written.');
+    console.log(`     No agent runs until you press, and each agent unit is bound by ${DEFAULT_STAGE_LIMITS.maxTurns} turns and ${Math.round(DEFAULT_STAGE_LIMITS.maxDurationMs / 60_000)} minutes.`);
+    console.log(`  3. The pages are Markdown files in ${shown}/docs/, and they are yours to commit. Your code stays where it is.`);
+  } else {
+    console.log(`  • Product documents are Markdown files in ${shown}/docs/. Write them by hand or with any agent; or let an agent set them up with the shady2k-skills set.`);
+    console.log('  • The wiki opens on its own pages and starts empty: connect a code repository (madarch repo add <name> <url>), then choose an agent, press "Start the fill" on its first page and watch the pages appear.');
+  }
   console.log('  • The wiki keeps running in the background: open the address again any time; madarch stop ends it.');
-  if (init) console.log('  • Your code stays where it is.');
 }
 
 /**

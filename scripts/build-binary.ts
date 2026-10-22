@@ -5,10 +5,11 @@
  * build reads (the process's database, decision 0027) are laid the way the
  * compiled binary reads them (`Bun.main`'s directory), then `bun build
  * --compile` embeds and bundles the entry. The wiki app's
- * dist must be built first (`bun install --frozen-lockfile && bun run build`
- * in `wiki/app`); the release workflow and a local run both call this
- * script, so the layout the binary reads is checked here and not in the
- * workflow's steps.
+ * dist is built here when it is missing or older than its sources
+ * (`src/product-wiki/app.ts` ensureBuilt: the same build the checkout's own
+ * `madarch` runs), so a fresh binary always carries the current app; the
+ * release workflow and a local run both call this script, so the layout
+ * the binary reads is checked here and not in the workflow's steps.
  *
  *   bun scripts/build-binary.ts --version 1.2.3 [--os linux|darwin|windows] [--arch x64] [--out dist]
  *
@@ -33,6 +34,7 @@ import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { pgliteAssetFiles } from './pglite-assets.js';
+import { ensureBuilt } from '../src/product-wiki/app.js';
 
 const USAGE = 'usage: bun scripts/build-binary.ts --version <x.y.z> [--os linux|darwin|windows] [--arch x64|arm64] [--out <folder>]';
 
@@ -106,9 +108,16 @@ function parseArgs(argv: readonly string[]): BuildOptions | number {
 
 /** Lays the embed tree the binary reads: `wiki-app` (the dist, its stamp out) and `version` (the text). */
 function stageAssets(stage: string, options: BuildOptions): { ok: true } | { ok: false; message: string } {
-  const sourceDist = join(REPO_ROOT, 'wiki', 'app', 'dist');
+  // The embedded app is the current one: a dist that is missing, or older than the sources
+  // its stamp records, is built here, so no one runs a separate build before the binary.
+  const appFolder = join(REPO_ROOT, 'wiki', 'app');
+  // A dist with no stamp was built by hand and cannot say which sources it holds: the binary never embeds one, it is built again.
+  if (existsSync(join(appFolder, 'dist', 'index.html')) && !existsSync(join(appFolder, 'dist', '.sources-hash'))) rmSync(join(appFolder, 'dist'), { recursive: true, force: true });
+  const built = ensureBuilt({ appFolder, env: process.env }, (line) => console.log(line));
+  if (!built.ok) return { ok: false, message: built.message };
+  const sourceDist = join(appFolder, 'dist');
   if (!existsSync(join(sourceDist, 'index.html'))) {
-    return { ok: false, message: `the wiki app's built files are not at ${join(sourceDist, 'index.html')}: build the wiki app first ("bun install --frozen-lockfile && bun run build" in wiki/app)` };
+    return { ok: false, message: `the wiki app's built files are not at ${join(sourceDist, 'index.html')} after the build in ${appFolder}` };
   }
   const wikiApp = join(stage, 'wiki-app');
   cpSync(sourceDist, join(wikiApp, 'dist'), { recursive: true });
@@ -240,7 +249,14 @@ async function createsAndServes(outfile: string, products: string, port: number,
   while (Date.now() < deadline) {
     try {
       const answer = await fetch(`${facts.url}api/product`);
-      if (answer.ok && (await answer.text()).includes('"id"')) return undefined;
+      if (answer.ok && (await answer.text()).includes('"id"')) {
+        // The wiki the binary carries is the knowledge wiki: its status answers for the draft, and the app's entry page loads.
+        const knowledge = await fetch(`${facts.url}api/k/status`);
+        if (!knowledge.ok) return `the built binary's knowledge wiki did not answer ${facts.url}api/k/status (HTTP ${knowledge.status}): ${(await knowledge.text()).slice(0, 400)}${daemonLog(products)}`;
+        const page = await fetch(facts.url);
+        if (!page.ok || !(await page.text()).includes('<div id="root"')) return `the built binary did not serve the embedded wiki app's entry page at ${facts.url} (HTTP ${page.status})`;
+        return undefined;
+      }
     } catch { /* the product's API is still coming up */ }
     await new Promise((done) => setTimeout(done, 100));
   }
