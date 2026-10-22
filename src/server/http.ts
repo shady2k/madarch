@@ -48,7 +48,9 @@ import type { StartFillOptions, StartFillResult } from '../product/fill.js';
 import { UNIT_TOOL_PATH, type UnitToolAnswer, type UnitToolCall } from '../fill/unit-tools.js';
 import type { FillProgressAnswer, FillRunControlAnswer } from '../fill/orchestrator-host.js';
 import { readChosenModel, saveChosenAgent } from '../product/fill-wizard.js';
-import { homeFromEnv } from '../product/home.js';
+import { homeFromEnv, productsHome } from '../product/home.js';
+import { KnowledgeHost } from '../knowledge/product.js';
+import { createKnowledgePart, type KnowledgePart } from './knowledge.js';
 
 /** The largest body the server reads: 50 MB, far past any compiled model sent so far. */
 const MAX_BODY_BYTES = 50 * 1024 * 1024;
@@ -104,6 +106,12 @@ export interface ServerOptions {
    * when it is left out.
    */
   env?: Readonly<Record<string, string | undefined>>;
+  /**
+   * The folder the knowledge wikis' graph stores live under, one folder per
+   * product id (decision 0029): `<products home>/.madarch/knowledge` when it is
+   * left out. A store is opened when its product's wiki is first asked for.
+   */
+  knowledgeRoot?: string;
   /** The address to listen on; `127.0.0.1` unless said otherwise (decision 0012). */
   host?: string;
   /** The port to listen on; 4180 by default, 0 for a free port. */
@@ -323,6 +331,11 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
    * generated documents carry in their own links.
    */
   const env = options.env ?? process.env;
+  // Each product's knowledge wiki (decision 0029): its own graph store, opened on its first ask and closed with the server.
+  const knowledgeHost = new KnowledgeHost(options.knowledgeRoot ?? joinPath(options.productHome ?? productsHome(env as Record<string, string | undefined>), '.madarch', 'knowledge'));
+  let productNames: () => { name: string; folder: string }[] = () => (productWiki === undefined ? [] : [{ name: productWiki.product.name, folder: basename(productWiki.product.folder) }]);
+  const knowledgeOf = (productFolder: string): KnowledgePart =>
+    createKnowledgePart({ json: makeJson, refused: wikiRefused, errorLog }, knowledgeHost.of(productFolder), () => productNames());
   const graphDiagramsOf = (productFolder: string, product: string): GraphDiagramsPart =>
     createGraphDiagramsPart({ json: makeJson, refused: wikiRefused, errorLog }, options.graphPages?.(productFolder) ?? emptyGraphPagesSource(product), { env });
   const handle = createHandler({
@@ -331,7 +344,7 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
     graphs,
     log,
     errorLog,
-    wiki: productWiki === undefined ? undefined : createWikiPart(makeJson, wikiRefused, productWiki, appFolder, { env }),
+    wiki: productWiki === undefined ? undefined : createWikiPart(makeJson, wikiRefused, productWiki, appFolder, { env, outside: knowledgeHost.of(productWiki.product.folder).changes }),
     appFolder,
     startFill: options.startFill,
     productFolder: options.productFolder,
@@ -340,6 +353,7 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
     fillControl: options.orchestrator?.control,
     graphPages: productWiki === undefined ? undefined : graphPagesOf(productWiki.product.folder, productWiki.product.name),
     graphDiagrams: productWiki === undefined ? undefined : graphDiagramsOf(productWiki.product.folder, productWiki.product.name),
+    knowledge: productWiki === undefined ? undefined : knowledgeOf(productWiki.product.folder),
   });
   // The products home is served by one server: the home page lists the
   // products, and each product's wiki answers under `/products/<folder>/`.
@@ -359,6 +373,7 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
   const productEntries = new Map<string, ProductEntry>();
   let homeStamp = -1;
   let lastRefresh = 0;
+  if (productHome !== undefined) productNames = () => { refreshProducts(); return [...productEntries.entries()].map(([folder, entry]) => ({ name: entry.wiki.product.name, folder })).sort((a, b) => byCodePoint(a.folder, b.folder)); };
   const refreshProducts = (): void => {
     if (productHome === undefined) return;
     let stamp = -1;
@@ -394,7 +409,7 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
       next.set(name, {
         wiki: opened.wiki,
         manifest,
-        handler: createHandler({ env, sources, graphs, log, errorLog, wiki: createWikiPart(makeJson, wikiRefused, opened.wiki, appFolder, { env }), appFolder, startFill: options.startFill, productFolder: item.folder, unitTool: options.orchestrator?.unitTool, fillProgress: options.orchestrator?.progress, fillControl: options.orchestrator?.control, graphPages: graphPagesOf(item.folder, opened.wiki.product.name), graphDiagrams: graphDiagramsOf(item.folder, opened.wiki.product.name) }),
+        handler: createHandler({ env, sources, graphs, log, errorLog, wiki: createWikiPart(makeJson, wikiRefused, opened.wiki, appFolder, { env, outside: knowledgeHost.of(item.folder).changes }), appFolder, startFill: options.startFill, productFolder: item.folder, unitTool: options.orchestrator?.unitTool, fillProgress: options.orchestrator?.progress, fillControl: options.orchestrator?.control, graphPages: graphPagesOf(item.folder, opened.wiki.product.name), graphDiagrams: graphDiagramsOf(item.folder, opened.wiki.product.name), knowledge: knowledgeOf(item.folder) }),
       });
     }
     productEntries.clear();
@@ -472,7 +487,9 @@ const notServed = (message: string): Response => Response.json({ message }, { st
   const handleProductsHome = async (request: Request): Promise<Response> => {
     const url = new URL(request.url);
     if (url.pathname === '/' || url.pathname === '') return productsHomePage();
-    if (url.pathname === '/assets' || url.pathname.startsWith('/assets/')) return serveHomeAssets(url.pathname);
+    if (url.pathname === '/assets' || url.pathname.startsWith('/assets/') || url.pathname.startsWith('/fonts/')) return serveHomeAssets(url.pathname);
+    // The products the wiki's selector offers (decision 0029: the product is chosen at the top left): one answer for the whole home.
+    if (url.pathname === '/api/products' && request.method === 'GET') return Response.json({ products: productNames() });
     // The fill's unit tools answer for the process, not for one served product: a unit's own MCP server
     // posts to the root path whether the server serves a home of products or one product (madarch-tzte.22.2).
     if (url.pathname === UNIT_TOOL_PATH) return handle(request);
@@ -516,6 +533,7 @@ const notServed = (message: string): Response => Response.json({ message }, { st
       try { await queryDatabase?.close(); } catch (error) { failure ??= error; }
       try { await sources?.close(); } catch (error) { failure ??= error; }
       try { await options.orchestrator?.stop(); } catch (error) { failure ??= error; }
+      try { await knowledgeHost.close(); } catch (error) { failure ??= error; }
       if (failure !== undefined) throw failure;
     },
   };
@@ -544,6 +562,8 @@ export function createHandler(dependencies: {
   graphPages?: GraphPagesPart;
   /** The graph's diagrams and their generated documents (madarch-tzte.23.4). */
   graphDiagrams?: GraphDiagramsPart;
+  /** The product's knowledge wiki (decision 0029): its status, pages, entities, source, fill and live stream. */
+  knowledge?: KnowledgePart;
   /** The orchestrator's own answer for `GET /api/fill` (madarch-tzte.26.2), when this process owns a fill service. */
   fillProgress?: (productFolder: string) => Promise<FillProgressAnswer | null>;
   /** The orchestrator's own answer for `POST /api/fill/control` (madarch-tzte.26.2); `null` for a run it does not hold. */
@@ -625,6 +645,14 @@ export function createHandler(dependencies: {
         { method: 'GET', path: '/api/graph/likec4.js', handle: (request: Request) => dependencies.graphDiagrams!.likec4(request) },
         { method: 'GET', path: '/api/graph/likec4.html', handle: (request: Request) => dependencies.graphDiagrams!.likec4Page(request) },
         { method: 'GET', path: '/api/graph/archify', handle: (request: Request) => dependencies.graphDiagrams!.archify(request) },
+      ] as Route[])),
+      ...(dependencies.knowledge === undefined ? [] : ([
+        { method: 'GET', path: '/api/k/status', handle: (request: Request) => dependencies.knowledge!.status(request) },
+        { method: 'GET', path: '/api/k/page', handle: (request: Request) => dependencies.knowledge!.page(request) },
+        { method: 'GET', path: '/api/k/entities', handle: (request: Request) => dependencies.knowledge!.entities(request) },
+        { method: 'GET', path: '/api/k/source', handle: (request: Request) => dependencies.knowledge!.source(request) },
+        { method: 'GET', path: '/api/k/products', handle: (request: Request) => dependencies.knowledge!.products(request) },
+        { method: 'POST', path: '/api/k/fill', handle: (request: Request) => dependencies.knowledge!.fill(request) },
       ] as Route[])),
       { method: 'GET', path: '/api/fill', handle: async (): Promise<Handled> => {
         // Which run the panel shows: the landed fill's while it runs (the person started it from the wizard and is

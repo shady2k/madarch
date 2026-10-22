@@ -1657,3 +1657,113 @@ a.graph-diagram-element-label:hover {
 .graph-decision-error {
   color: var(--danger, inherit);
 }
+
+/* The knowledge wiki (decision 0029). Everything here rides the tokens: code
+   kinds differ by weight and posture on the one graphite pair, a reference that
+   does not resolve by a dashed rule and its word. */
+
+/* A reference that resolves to nothing: shown, never linked, never dropped. */
+.ref-broken {
+  text-decoration: line-through;
+  text-decoration-style: dashed;
+  text-decoration-color: var(--text-muted);
+  color: var(--text-secondary);
+}
+
+.ref-broken-mark {
+  display: inline-block;
+  margin-inline-start: 0.35em;
+  padding: 0 0.35em;
+  border: 1px dashed var(--text-muted);
+  border-radius: var(--radius-row);
+  font-size: var(--fs-small);
+  line-height: 1.3;
+  text-decoration: none;
+  color: var(--text-muted);
+}
+
+/* The grounds of a statement: footnote references and the list they point to. */
+.reading sup a,
+.reading a[data-footnote-ref] {
+  text-decoration: none;
+  font-size: 0.8em;
+  padding-inline: 0.15em;
+}
+
+.reading section[data-footnotes] {
+  margin-block-start: 2em;
+  padding-block-start: 0.75em;
+  border-block-start: 1px solid var(--border);
+  font-size: var(--fs-small);
+  color: var(--text-secondary);
+}
+
+.reading section[data-footnotes] > h2 {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* Source: line numbers in a gutter, the declaration's lines in the code ground. */
+.source-code {
+  margin: 0;
+  padding: 0.75em 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: var(--surface-code);
+  font-size: 0.875em;
+  line-height: 1.6;
+  overflow: auto;
+  tab-size: 4;
+}
+
+.source-code code {
+  display: block;
+  inline-size: max-content;
+  min-inline-size: 100%;
+}
+
+.source-line {
+  display: flex;
+  padding-inline-end: 1.25em;
+}
+
+.source-number {
+  flex: 0 0 4ch;
+  box-sizing: content-box;
+  padding-inline: 1em 1em;
+  text-align: end;
+  color: var(--text-muted);
+  user-select: none;
+}
+
+.source-text {
+  white-space: pre;
+}
+
+.source-line-focus {
+  background: var(--surface-active);
+  box-shadow: inset 3px 0 0 var(--text);
+}
+
+.tok-keyword {
+  font-weight: 700;
+}
+
+.tok-string {
+  color: var(--text-secondary);
+}
+
+.tok-comment {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.tok-number {
+  text-decoration: underline dotted var(--text-muted);
+  text-underline-offset: 0.2em;
+}

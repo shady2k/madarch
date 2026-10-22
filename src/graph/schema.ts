@@ -138,6 +138,8 @@ const SCHEMA: readonly string[] = [
   `CREATE INDEX IF NOT EXISTS node_version_current_kind ON node_version (kind_id) WHERE recorded_to = 'infinity'`,
   `CREATE INDEX IF NOT EXISTS node_version_content ON node_version (content_sha256) WHERE content_sha256 IS NOT NULL`,
   `CREATE INDEX IF NOT EXISTS node_version_claim ON node_version (claim_digest) WHERE claim_digest IS NOT NULL`,
+  // The wiki finds an entity by its logical key (the extract driver's \`recordKey\` property) on every page it draws.
+  `CREATE INDEX IF NOT EXISTS node_version_record_key ON node_version ((properties->>'recordKey')) WHERE recorded_to = 'infinity'`,
   `CREATE INDEX IF NOT EXISTS edge_version_current_src ON edge_version (src_id, relation_type_id) WHERE recorded_to = 'infinity'`,
   `CREATE INDEX IF NOT EXISTS edge_version_current_dst ON edge_version (dst_id, relation_type_id) WHERE recorded_to = 'infinity'`,
   `CREATE INDEX IF NOT EXISTS edge_version_current_edge ON edge_version (edge_id) WHERE recorded_to = 'infinity'`,

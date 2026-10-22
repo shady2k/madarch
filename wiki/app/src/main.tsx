@@ -5,12 +5,12 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import './styles/index.css';
-import { App } from './app.js';
+import { Root } from './knowledge/root.js';
 
 const root = document.getElementById('root');
 if (root === null) throw new Error('index.html holds no root element');
 createRoot(root).render(
   <StrictMode>
-    <App />
+    <Root />
   </StrictMode>,
 );
