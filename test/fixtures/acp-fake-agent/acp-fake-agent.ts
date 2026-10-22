@@ -136,7 +136,7 @@ function ask(method: string, params: unknown): Promise<Message> {
 }
 
 /** One stdio MCP server a session was given (`mcpServers` of `session/new`), as this agent starts and speaks to it. */
-interface McpServerSpec { name?: string; command?: string; args?: string[]; env?: { name: string; value: string }[]; url?: string }
+interface McpServerSpec { name?: string; command?: string; args?: string[]; env?: { name: string; value: string }[]; url?: string; headers?: { name: string; value: string }[] }
 
 /** One answer a tool call came back with, as this agent reads the protocol's result. */
 interface McpToolAnswer { text: string; isError: boolean }
@@ -148,6 +148,42 @@ interface McpClient {
 }
 
 /**
+ * An HTTP MCP server (the streamable transport, one JSON answer per POST) spoken to with the headers the session
+ * handed over: `initialize`, the `notifications/initialized` notification, then `tools/list`.
+ */
+async function startHttpMcp(server: McpServerSpec): Promise<McpClient> {
+  const headers: Record<string, string> = { 'content-type': 'application/json', accept: 'application/json', ...Object.fromEntries((server.headers ?? []).map((each) => [each.name, each.value])) };
+  let nextId = 1;
+  const post = async (body: unknown): Promise<Message | undefined> => {
+    const response = await fetch(String(server.url), { method: 'POST', headers, body: JSON.stringify(body) });
+    if (response.status === 202) return undefined;
+    if (!response.ok) throw new Error(`the MCP server answered HTTP ${response.status}`);
+    return await response.json() as Message;
+  };
+  const ask = async (method: string, params: unknown): Promise<Message> => {
+    const answered = await post({ jsonrpc: '2.0', id: nextId++, method, params });
+    if (answered === undefined) throw new Error(`the MCP server answered ${method} with nothing`);
+    return answered;
+  };
+  const initialized = await ask('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'fake-agent', version: '1.0.0' } });
+  if (initialized.error !== undefined) throw new Error(`the MCP server refused initialize: ${JSON.stringify(initialized.error)}`);
+  await post({ jsonrpc: '2.0', method: 'notifications/initialized' });
+  const listed = await ask('tools/list', {});
+  if (listed.error !== undefined) throw new Error(`the MCP server refused tools/list: ${JSON.stringify(listed.error)}`);
+  const tools = ((listed.result as { tools?: { name?: string }[] } | undefined)?.tools ?? []).map((tool) => String(tool.name));
+  return {
+    tools,
+    async call(tool: string, argumentsValue: unknown): Promise<McpToolAnswer> {
+      const answered = await ask('tools/call', { name: tool, arguments: argumentsValue });
+      if (answered.error !== undefined) throw new Error(`the MCP server refused tools/call ${tool}: ${JSON.stringify(answered.error)}`);
+      const result = answered.result as { content?: { type?: string; text?: string }[]; isError?: boolean } | undefined;
+      return { text: (result?.content ?? []).map((block) => String(block.text ?? '')).join(''), isError: result?.isError === true };
+    },
+    stop: () => undefined,
+  };
+}
+
+/**
  * A stdio MCP server spoken to the way the specification says (newline-delimited
  * JSON-RPC 2.0): `initialize`, the required `notifications/initialized`, then
  * `tools/list`. Hand-written, like this whole agent, so the server is proved to
@@ -155,6 +191,8 @@ interface McpClient {
  */
 async function startMcp(servers: readonly McpServerSpec[]): Promise<McpClient> {
   const server = servers.find((each) => typeof each.command === 'string');
+  const remote = servers.find((each) => typeof each.url === 'string');
+  if (server === undefined && remote !== undefined) return await startHttpMcp(remote);
   if (server === undefined || server.command === undefined) throw new Error(`the session was given no stdio MCP server: ${JSON.stringify(servers)}`);
   const env = Object.fromEntries((server.env ?? []).map((each) => [each.name, each.value]));
   const child = Bun.spawn([server.command, ...(server.args ?? [])], { cwd: process.cwd(), env: { ...process.env, ...env }, stdin: 'pipe', stdout: 'pipe', stderr: 'inherit' });
