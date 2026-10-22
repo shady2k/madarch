@@ -252,7 +252,7 @@ async function createsAndServes(outfile: string, products: string, port: number,
       if (answer.ok && (await answer.text()).includes('"id"')) {
         // The wiki the binary carries is the knowledge wiki: its status answers for the draft, and the app's entry page loads.
         const knowledge = await fetch(`${facts.url}api/k/status`);
-        if (!knowledge.ok) return `the built binary's knowledge wiki did not answer ${facts.url}api/k/status (HTTP ${knowledge.status}): ${(await knowledge.text()).slice(0, 400)}`;
+        if (!knowledge.ok) return `the built binary's knowledge wiki did not answer ${facts.url}api/k/status (HTTP ${knowledge.status}): ${(await knowledge.text()).slice(0, 400)}${daemonLog(products)}`;
         const page = await fetch(facts.url);
         if (!page.ok || !(await page.text()).includes('<div id="root"')) return `the built binary did not serve the embedded wiki app's entry page at ${facts.url} (HTTP ${page.status})`;
         return undefined;
