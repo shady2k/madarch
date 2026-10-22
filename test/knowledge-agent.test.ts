@@ -120,7 +120,7 @@ afterAll(async () => {
 });
 
 describe('the choice of the agent', () => {
-  test('the wiki offers Claude Code and Codex with their state, states the bound in numbers, and has chosen none', async () => {
+  test('the wiki offers Claude Code, Codex, OpenCode and omp (not Pi) with their state, states the bound in numbers, and has chosen none', async () => {
     const status = await get('/api/k/status');
     expect(status.body.chosenAgent).toBeNull();
     expect(status.body.bounds).toEqual({ turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12 });
@@ -130,6 +130,8 @@ describe('the choice of the agent', () => {
     expect(agents.body.agents.map((offer: { id: string; installed: boolean; install: { package: string; folder: string } | null }) => [offer.id, offer.installed, offer.install?.package])).toEqual([
       ['claude-code', false, '@agentclientprotocol/claude-agent-acp'],
       ['codex', false, '@agentclientprotocol/codex-acp'],
+      ['opencode', false, 'opencode-ai'],
+      ['omp', false, '@oh-my-pi/pi-coding-agent'],
     ]);
     expect(agents.body.agents[0].install.folder).toBe(agentFolder('claude-code'));
   });
@@ -143,7 +145,7 @@ describe('the choice of the agent', () => {
     expect(failed.status).toBeGreaterThanOrEqual(400);
     expect(failed.body.message).toContain('npm');
     expect((await get('/api/k/agents')).body.chosen).toBeNull();
-    expect((await post('/api/k/agent', { agent: 'omp', install: true })).status).toBe(400);
+    expect((await post('/api/k/agent', { agent: 'pi', install: true })).status).toBe(400);
     expect((await post('/api/k/agent', {})).status).toBe(400);
   });
 

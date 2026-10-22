@@ -246,7 +246,7 @@ describe('where madarch installs its agents', () => {
     const claude = ACP_ADAPTERS.find((adapter) => adapter.id === 'claude-code')!;
     expect(adapterInstallCommand(claude, '/opt/madarch/agents/claude-code')).toBe('npm install --prefix /opt/madarch/agents/claude-code @agentclientprotocol/claude-agent-acp@0.93.0');
     const omp = ACP_ADAPTERS.find((adapter) => adapter.id === 'omp')!;
-    expect(adapterInstallCommand(omp, '/opt/madarch/agents/omp')).toBe('install omp from its own project — it carries ACP itself, with no adapter package');
+    expect(adapterInstallCommand(omp, '/opt/madarch/agents/omp')).toBe('npm install --prefix /opt/madarch/agents/omp @oh-my-pi/pi-coding-agent@18.12.6');
   });
 
   test('a folder the environment gave a space is quoted, so the shell hands npm one --prefix', () => {
@@ -303,7 +303,7 @@ describe('`madarch fill --probe-acp`', () => {
 
 describe('the catalogue names the documented adapters', () => {
   test('every agent the fill considers is listed once, with its launch command, its install and its sign-in', () => {
-    expect(ACP_ADAPTERS.map((adapter) => adapter.id)).toEqual(['claude-code', 'codex', 'omp', 'pi']);
+    expect(ACP_ADAPTERS.map((adapter) => adapter.id)).toEqual(['claude-code', 'codex', 'omp', 'opencode', 'pi']);
     const byId = new Map(ACP_ADAPTERS.map((adapter) => [adapter.id, adapter]));
     expect(byId.get('claude-code')?.install).toMatchObject({ kind: 'npm', package: '@agentclientprotocol/claude-agent-acp', version: '0.93.0', unpackedBytes: 1_956_577, installedBytes: 313_672_155 });
     expect(byId.get('claude-code')?.launches.map((launch) => launch.binary)).toEqual(['claude-agent-acp', 'claude-code-acp']);
@@ -315,7 +315,9 @@ describe('the catalogue names the documented adapters', () => {
     expect(byId.get('codex')?.login).toMatchObject({ kind: 'files', paths: ['.codex/auth.json'] });
     expect(byId.get('codex')?.apiKeyEnv).toBe('OPENAI_API_KEY');
     expect(byId.get('omp')?.launches).toEqual([{ binary: 'omp', args: ['acp'] }]);
-    expect(byId.get('omp')?.install).toMatchObject({ kind: 'bundled' });
+    expect(byId.get('omp')?.install).toMatchObject({ kind: 'npm', package: '@oh-my-pi/pi-coding-agent', version: '18.12.6' });
+    expect(byId.get('opencode')?.launches).toEqual([{ binary: 'opencode', args: ['acp'] }]);
+    expect(byId.get('opencode')?.install).toMatchObject({ kind: 'npm', package: 'opencode-ai', version: '1.19.4' });
     expect(byId.get('pi')?.install).toMatchObject({ kind: 'npm', package: 'pi-acp', version: '0.0.34' });
     // pi is not a fill agent yet, so the wizard offers no choice for it.
     expect(byId.get('pi')?.fillAgent).toBeUndefined();

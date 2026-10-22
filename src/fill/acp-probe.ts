@@ -124,12 +124,34 @@ export const ACP_ADAPTERS: readonly AcpAdapterCatalogueEntry[] = [
     label: 'omp',
     fillAgent: 'omp',
     launches: [{ binary: 'omp', args: ['acp'] }],
-    install: { kind: 'bundled', program: 'omp', note: 'install omp from its own project — it carries ACP itself, with no adapter package' },
+    install: {
+      kind: 'npm',
+      package: '@oh-my-pi/pi-coding-agent',
+      version: '18.12.6',
+      unpackedBytes: 49_180_942,
+      installedBytes: 1_040_656_290,
+      sizeEvidence: 'measured with du -sb on the installed tree on the SkyPilot pod on 2026-10-23 (madarch-m38l.4): 1 040 656 290 B; the registry reports 49 180 942 B unpacked for the package alone. The program starts with #!/usr/bin/env bun, so the machine needs bun on PATH',
+    },
     login: {
       kind: 'none',
-      detail: 'omp keeps no sign-in of its own that madarch knows: it takes the model from this machine\'s setting (the wizard, or MADARCH_FILL_MODEL) and reads the gateway extension from MADARCH_OMP_EXTENSION.',
+      detail: 'omp keeps no sign-in of its own that madarch knows: it takes the model from this machine\'s setting (the wizard, or MADARCH_FILL_MODEL) and reads the gateway extension from MADARCH_OMP_EXTENSION; it authenticates with the provider keys under ~/.omp.',
     },
-    evidence: 'Measured on this machine: `omp --help` names `acp  Run omp as an ACP (Agent Client Protocol) server over stdio`, and omp 18.10.4 answers an initialize handshake with protocolVersion 1. omp is not in the ACP registry.',
+    evidence: 'Measured on the pod: omp 18.12.6 installed from npm answers an initialize handshake with protocolVersion 1 and mcpCapabilities http and sse true (omp 18.10.4 on the owner\'s machine the same); `omp --help` names `acp  Run omp as an ACP (Agent Client Protocol) server over stdio`. omp is not in the ACP registry.',
+  },
+  {
+    id: 'opencode',
+    label: 'OpenCode',
+    launches: [{ binary: 'opencode', args: ['acp'] }],
+    install: {
+      kind: 'npm',
+      package: 'opencode-ai',
+      version: '1.19.4',
+      unpackedBytes: 7_852,
+      installedBytes: 429_053_735,
+      sizeEvidence: 'measured with du -sb on the installed tree on the SkyPilot pod on 2026-10-23 (madarch-m38l.4): 429 053 735 B; the wrapper package is 7 852 B unpacked and pulls the platform binary packages (the plain and the baseline build)',
+    },
+    login: { kind: 'files', paths: ['.local/share/opencode/auth.json'], detail: 'OpenCode signs itself in through opencode auth login and keeps that sign-in in .local/share/opencode/auth.json under the person\'s home; madarch checks only that the file is there, never what it holds.' },
+    evidence: 'Measured: `opencode acp` ("start ACP (Agent Client Protocol) server") installed from opencode-ai 1.19.4 answers an initialize handshake with protocolVersion 1, agentInfo OpenCode 1.19.4, mcpCapabilities http and sse true, and the auth method opencode-login (read 2026-10-23, madarch-m38l.4). OpenCode is in the ACP registry.',
   },
   {
     id: 'pi',
@@ -143,7 +165,7 @@ export const ACP_ADAPTERS: readonly AcpAdapterCatalogueEntry[] = [
       sizeEvidence: 'the registry\'s dist.unpackedSize for pi-acp 0.0.34 (read 2026-10-18); its install with dependencies was never measured, so no installed figure is shown',
     },
     login: { kind: 'none', detail: 'madarch does not know where pi keeps its sign-in, so the wizard cannot say whether it is signed in.' },
-    evidence: 'The ACP registry lists pi ACP as pi-acp 0.0.34; its README says it bridges ACP to `pi --mode rpc` and needs pi 0.81.0 or newer on PATH (read 2026-10-18). pi has no ACP mode of its own.',
+    evidence: 'The ACP registry lists pi ACP as pi-acp 0.0.34; its README says it bridges ACP to `pi --mode rpc` and needs pi 0.81.0 or newer on PATH (read 2026-10-18). pi has no ACP mode of its own. Its initialize answer states mcpCapabilities http false and sse false and its README says MCP servers are "accepted in ACP params and stored in session state, but not wired through to pi" (pi-acp 0.0.34 dist/index.js and README, read 2026-10-23, madarch-m38l.4): the writer hands its tools to an agent as an HTTP MCP server, so pi cannot write pages and the wiki does not offer it.',
   },
 ];
 

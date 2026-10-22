@@ -204,7 +204,7 @@ function agentsFolder(): string {
     // in madarch's own folder before anything the machine's PATH may hold.
     const installed: string[] = [];
     try {
-      for (const [id, binary] of [['claude', 'claude-agent-acp'], ['codex', 'codex-acp'], ['omp', 'omp'], ['pi', 'pi-acp']] as const) {
+      for (const [id, binary] of [['claude', 'claude-agent-acp'], ['codex', 'codex-acp'], ['omp', 'omp'], ['opencode', 'opencode'], ['pi', 'pi-acp']] as const) {
         writeProgram(join(agentsFolder(), id, 'node_modules', '.bin'), binary, FAKE_ACP_ADAPTER);
         installed.push(join(agentsFolder(), id));
       }
@@ -213,10 +213,10 @@ function agentsFolder(): string {
       expect(answer.status).toBe(200);
       const wizard = await answer.json() as { acp: { agentsFolder: string; findings: Array<{ id: string; status: string; foundIn?: string; fillAgent?: string; login: { state: string; detail: string }; install?: { installedSize?: string; version?: string } }> } };
       expect(wizard.acp.agentsFolder).toBe(agentsFolder());
-      expect(wizard.acp.findings.map((finding) => finding.id)).toEqual(['claude-code', 'codex', 'omp', 'pi']);
+      expect(wizard.acp.findings.map((finding) => finding.id)).toEqual(['claude-code', 'codex', 'omp', 'opencode', 'pi']);
       expect(wizard.acp.findings.every((finding) => finding.status === 'connected')).toBe(true);
       expect(wizard.acp.findings.every((finding) => finding.foundIn === 'madarch')).toBe(true);
-      expect(wizard.acp.findings.map((finding) => finding.fillAgent)).toEqual(['claude', 'codex', 'omp', undefined]);
+      expect(wizard.acp.findings.map((finding) => finding.fillAgent)).toEqual(['claude', 'codex', 'omp', undefined, undefined]);
       // Nobody signed in on this run's home: the probe says so, by the path it looked at.
       const claude = wizard.acp.findings[0]!;
       expect(claude.login.state).toBe('not-signed-in');
@@ -226,7 +226,7 @@ function agentsFolder(): string {
     }
   });
 
-  test('a machine with no adapter and no npm anywhere is read as four agents with none, each naming its install', async () => {
+  test('a machine with no adapter and no npm anywhere is read as five agents with none, each naming its install', async () => {
     draft(); builtApp();
     const init = spawnSync('git', ['init', '--quiet', '--initial-branch=main'], { cwd: folder!, env: gitEnv(), encoding: 'utf8' });
     expect(init.status).toBe(0);
@@ -252,7 +252,7 @@ function agentsFolder(): string {
     expect(claude.install?.command).toBe(`npm install --prefix ${join(home, 'madarch', 'agents', 'claude')} @agentclientprotocol/claude-agent-acp@0.93.0`);
     expect(claude.detail).toContain('nothing named claude-agent-acp or claude-code-acp is executable on PATH');
     const omp = wizard.acp.findings.find((finding) => finding.id === 'omp')!;
-    expect(omp.install?.byMadarch).toBe(false);
+    expect(omp.install?.byMadarch).toBe(true);
   });
 
   test('a yes installs the adapter into madarch\'s own folder with the machine\'s npm, and the probe then finds it there', async () => {
@@ -315,17 +315,14 @@ process.stdout.write('added 133 packages in 1m\\n');
         const connected = done.acp.findings.filter((finding) => finding.status === 'connected');
         expect(connected.map((finding) => finding.id)).toEqual(['claude-code']);
         expect(connected[0]?.foundIn).toBe('madarch');
-        expect(done.acp.findings.filter((finding) => finding.status === 'not-installed').map((finding) => finding.id)).toEqual(['codex', 'omp', 'pi']);
+        expect(done.acp.findings.filter((finding) => finding.status === 'not-installed').map((finding) => finding.id)).toEqual(['codex', 'omp', 'opencode', 'pi']);
       } finally {
         rmSync(installedFolder, { recursive: true, force: true });
       }
-      // An agent madarch knows nothing about, and one that carries ACP itself.
+      // An agent madarch knows nothing about.
       const unknown = await fetch(`${url}/api/fill/agent-install`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ agent: 'not-an-agent' }) });
       expect(unknown.status).toBe(400);
       expect((await unknown.json() as { message: string }).message).toContain('madarch has no ACP adapter named "not-an-agent"');
-      const bundled = await fetch(`${url}/api/fill/agent-install`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ agent: 'omp' }) });
-      expect(bundled.status).toBe(409);
-      expect((await bundled.json() as { message: string }).message).toContain('madarch has no package to install for omp');
     } finally {
       rmSync(machine, { recursive: true, force: true });
     }
