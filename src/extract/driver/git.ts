@@ -67,19 +67,22 @@ export function canonicalInstant(text: string, where: string): string {
 
 /**
  * The default branch's first-parent history, oldest first, with each
- * commit's effective time. The walk is a pure reading of the repository: the
- * same history gives the same facts in every run, and a generation number is
- * a commit's place on the line, so a refill plans the same generations.
+ * commit's effective time. One `git log` answers the whole line, its renames
+ * included (`-M --name-status -z`, a merge shown against its first parent), so
+ * thousands of commits cost one process, not one per commit. The walk is a
+ * pure reading of the repository: the same history gives the same facts in
+ * every run, and a generation number is a commit's place on the line, so a
+ * refill plans the same generations.
  */
 export function walkDefaultBranch(repository: string, ref = 'HEAD'): CommitFact[] {
-  const out = runGitText(repository, ['log', ref, '--first-parent', '--reverse', '--format=%H%x00%P%x00%T%x00%cI%x00%aI%x00%an%x00%s']);
+  const out = runGit(repository, ['log', ref, '--first-parent', '--reverse', '-M', '--name-status', '-z', '--format=%x1e%H%x1f%P%x1f%T%x1f%cI%x1f%aI%x1f%an%x1f%s%x1f']).toString('utf8');
   const commits: CommitFact[] = [];
   let previousEffective: string | undefined;
-  for (const [index, line] of out.split('\n').entries()) {
-    if (line === '') continue;
-    const parts = line.split('\0');
-    if (parts.length !== 7) throw new Error(`extract driver: ${repository}: git log line ${index + 1} has ${parts.length} fields, expected 7: ${JSON.stringify(line)}`);
-    const [hash, parents, tree, committer, author, authorName, subject] = parts as [string, string, string, string, string, string, string];
+  for (const [index, record] of out.split('\x1e').entries()) {
+    if (record === '') continue;
+    const parts = record.split('\x1f');
+    if (parts.length !== 8) throw new Error(`extract driver: ${repository}: git log record ${index} has ${parts.length} fields, expected 8: ${JSON.stringify(record.slice(0, 200))}`);
+    const [hash, parents, tree, committer, author, authorName, subject, changes] = parts as [string, string, string, string, string, string, string, string];
     const raw = canonicalInstant(committer, `commit ${hash} of ${repository}`);
     const firstParent = parents.split(' ')[0] ?? '';
     const effective = previousEffective === undefined || previousEffective < raw ? raw : plusMicrosecond(previousEffective);
@@ -93,7 +96,7 @@ export function walkDefaultBranch(repository: string, ref = 'HEAD'): CommitFact[
       subject,
       effectiveTime: effective,
       generation: commits.length + 1,
-      renames: firstParent === '' ? [] : renamesOf(repository, firstParent, hash),
+      renames: firstParent === '' ? [] : renamesOf(changes, repository, hash),
     });
     previousEffective = effective;
   }
@@ -101,16 +104,47 @@ export function walkDefaultBranch(repository: string, ref = 'HEAD'): CommitFact[
   return commits;
 }
 
-/** The renames git detects between a commit and its first parent, `-M`, any score. */
-function renamesOf(repository: string, parent: string, commit: string): { from: string; to: string }[] {
-  const out = runGitText(repository, ['diff-tree', '-M', '-r', '--no-commit-id', '--name-status', parent, commit]);
+/** The renames in one commit's `--name-status -z` entries: a status token, then one path (two for a rename or copy), each ended by a NUL. */
+function renamesOf(entries: string, repository: string, commit: string): { from: string; to: string }[] {
+  const tokens = entries.split('\0');
   const renames: { from: string; to: string }[] = [];
-  for (const line of out.split('\n')) {
-    if (line === '') continue;
-    const fields = line.split('\t');
-    if (fields.length === 3 && fields[0]!.startsWith('R')) renames.push({ from: fields[1]!, to: fields[2]! });
+  for (let at = 0; at < tokens.length; ) {
+    const status = tokens[at]!.replace(/^\n/, '');
+    if (status === '') {
+      at += 1;
+      continue;
+    }
+    const paths = status.startsWith('R') || status.startsWith('C') ? 2 : 1;
+    if (at + paths >= tokens.length) throw new Error(`extract driver: ${repository}: git log of commit ${commit} ends inside the entry ${JSON.stringify(status)}`);
+    if (status.startsWith('R')) renames.push({ from: tokens[at + 1]!, to: tokens[at + 2]! });
+    at += 1 + paths;
   }
   return renames;
+}
+
+/** A point the caller chose: a revision (a tag, a commit, a branch) or the latest commit at or before a date. */
+export type FillPoint = string | { readonly date: string };
+
+/**
+ * The commit of the first-parent walk a chosen point names. A revision must
+ * resolve in the repository and stand on the walk's first-parent line; a date
+ * is read as an instant and names the last commit whose effective time is not
+ * later. A point that names no commit is an error naming the repository and
+ * the point, never a smaller fill.
+ */
+export function resolvePoint(repository: string, walk: readonly CommitFact[], point: FillPoint): CommitFact {
+  if (typeof point !== 'string') {
+    const instant = canonicalInstant(point.date, `the point ${JSON.stringify(point)} of ${repository}`);
+    let found: CommitFact | undefined;
+    for (const commit of walk) if (commit.effectiveTime <= instant) found = commit;
+    if (found === undefined) throw new Error(`extract driver: ${repository}: the point date ${point.date} is before the first commit (${walk[0]!.effectiveTime}), so no snapshot can be read at it`);
+    return found;
+  }
+  if (point === '' || point.startsWith('-') || /\s/.test(point)) throw new Error(`extract driver: ${repository}: ${JSON.stringify(point)} is no revision to read a snapshot at`);
+  const hash = runGitText(repository, ['rev-parse', '--verify', `${point}^{commit}`]).trim();
+  const found = walk.find((commit) => commit.hash === hash);
+  if (found === undefined) throw new Error(`extract driver: ${repository}: the point ${JSON.stringify(point)} is commit ${hash}, which does not stand on the first-parent line of the walk, so it has no effective time to read a snapshot at`);
+  return found;
 }
 
 /** One tree of a commit as a `TreeReader`: paths in code point order, bytes on demand, no checkout. */

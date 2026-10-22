@@ -1,55 +1,70 @@
 /**
- * The extract driver of decision 0028: it walks the default branch's
- * first-parent history of one repository path, runs every deterministic
- * extractor (src/extract/*) over each commit's tree, and publishes each
- * extractor's `Extraction` into the graph store (src/graph) as one complete
- * publication — producer the extraction's own producer, scope the repository
- * node, generation the commit's place on the first-parent line, valid from
- * the commit's effective time (0028: `max(raw, parent effective + 1 µs)`,
- * strictly increasing along the first parent). Records the tree no longer
- * holds are ended by the publication's `complete` sweep at that same
- * instant; unchanged records write nothing, and a tree identical to the last
- * one published publishes nothing at all.
+ * The extract driver of decisions 0028 and 0030: it reads the default
+ * branch's first-parent history of one repository path, parses the code of
+ * the last commit only, reads the history facts from `git log`, and parses
+ * the code of earlier commits only at the points the caller chose. Every
+ * extractor's `Extraction` is published into the graph store (src/graph) as
+ * one complete publication — producer the extraction's own producer, scope
+ * the repository node.
+ *
+ * What is read when (0030).
+ * - The tip: the trees extractors run over the last commit once. Their
+ *   records are valid from that commit's effective time (0028: `max(raw,
+ *   parent effective + 1 µs)`, strictly increasing along the first parent)
+ *   and stay open-ended until a later fill moves the tip: the next fill ends
+ *   what the new tip does not repeat at the new tip's effective time. When
+ *   the new tip is more than one commit after the old one, the old tip's
+ *   records first end at the effective time of the commit that followed it,
+ *   so the graph never claims the old state for commits nobody read.
+ * - The history: the history extractor reads every first-parent commit from
+ *   `git log` without parsing code, and publishes once at the tip's time
+ *   under its own producer. Per-commit times are the commit records' own
+ *   `committedAt` and `effectiveAt` properties.
+ * - Chosen points (`points`): the trees extractors also run over each chosen
+ *   commit, and publish records valid exactly from that commit's effective
+ *   time to the effective time of the next first-parent commit (the tree is
+ *   that commit's, until the next one). A point inside a range other records
+ *   of the producer already cover is refused, naming both.
+ *
+ * Generations. A tree publication of the commit at place `n` on the line is
+ * generation `2n`; the publication that ends a tip's records early is
+ * generation `2n + 1`. A generation already published with the same input
+ * digest is skipped whole, which is what makes a second fill write no row; an
+ * unpublished one is re-leased and published (a fill that was interrupted
+ * resumes). A generation published with another input digest means the
+ * history changed under a fixed generation number, and the fill refuses
+ * rather than rewrite what the store already believes.
  *
  * A file's logical key is its path, so a rename is a new key. The driver
  * keeps one identity across git's rename detection (`-M`, R100 here) by
  * remapping the new key onto the old node's identity, as 0028's identity
- * section says; the store's rename succession then keeps the old belief up
- * to the rename and opens the new one from it.
+ * section says; a later fill applies the renames of every commit between the
+ * old tip and the new one, and a chosen point finds the identity of a record
+ * by following the renames after it forward.
  *
- * Refill. Every node version carries its record's logical key as the
- * `recordKey` property, so a refill recovers the key-to-identity map from the
- * store instead of minting second identities for the same records. A
- * generation already published with the same input digest is skipped whole,
- * which is what makes a second fill write no row; an unpublished one is
- * re-leased and published (a fill that was interrupted resumes). A
- * generation published with another input digest means the history changed
- * under a fixed generation number, and the fill refuses rather than rewrite
- * what the store already believes.
+ * Every node version carries its record's logical key as the `recordKey`
+ * property, so a refill recovers the key-to-identity map from the store
+ * instead of minting second identities for the same records.
  *
  * Extractor-schema keys (under `code.`) are registered through
- * `registerCodeSchema` as they first appear in the walk. A relation type the
- * driver registers is declared discriminated, because the driver cannot see
- * whether a later commit emits parallel relations of it and an encoding is
- * never redeclared; `code.occurrence` keeps the store's own positioned
- * declaration, and every other record carries its reading site as the `span`
- * property rather than a position (0028: occurrences are positioned edges,
- * semantic edges aggregate their sites).
+ * `registerCodeSchema` as they first appear. A relation type the driver
+ * registers is declared discriminated, because the driver cannot see whether
+ * a later commit emits parallel relations of it and an encoding is never
+ * redeclared; `code.occurrence` keeps the store's own positioned declaration,
+ * and every other record carries its reading site as the `span` property
+ * rather than a position (0028: occurrences are positioned edges, semantic
+ * edges aggregate their sites).
  *
- * The history extractor reads the repository rather than a tree
- * (src/extract/history); the driver hands it the repository's path and the
- * caller's pinned snapshots and publishes its records at the last commit,
- * under their own producer, as one generation per walk length. The extractors
- * this driver runs are wired in `extractors.ts`.
+ * The extractors this driver runs are wired in `extractors.ts`.
  */
 import type { DatabaseOwner } from '../../adapters/database-owner.js';
 import type { GraphId, GraphStore } from '../../graph/index.js';
 import { sha256Hex } from '../../graph/index.js';
 import type { GraphRegistry } from '../../graph/vocabulary.js';
 import type { Extraction, SourceSpan, TreeReader } from '../records.js';
-import { commitTree, walkDefaultBranch, type CommitFact } from './git.js';
+import { commitTree, resolvePoint, walkDefaultBranch, type CommitFact, type FillPoint } from './git.js';
 
-export type { CommitFact } from './git.js';
+export type { CommitFact, FillPoint } from './git.js';
 
 /** The producer of the driver's own record: the repository node. */
 export const DRIVER_PRODUCER = 'code.extract.driver';
@@ -85,21 +100,38 @@ export interface FillOptions {
   readonly history?: HistoryExtractor;
   /** The snapshots the caller pins, each name to the revision it pins; handed to the history extractor. */
   readonly snapshots?: Readonly<Record<string, string>>;
+  /**
+   * The points whose code structure is read besides the last commit's (0030):
+   * release tags or dates. Each is a revision on the first-parent line or a
+   * `{ date }`; a point equal to the last commit adds nothing. Filled after the
+   * tip and the history, in the order of their place on the line.
+   */
+  readonly points?: readonly FillPoint[];
   /** The clock the lease's end is read from; the real clock by default. */
   readonly now?: () => Date;
   /**
    * Told once the walk is read and the repository node exists, before the
-   * first commit is filled: the repository node and how many commits the walk
-   * holds. A caller that shows the fill as it goes (the wiki) learns from it
-   * which node is this repository.
+   * code is read: the repository node and how many commits the walk holds. A
+   * caller that shows the fill as it goes (the wiki) learns from it which node
+   * is this repository.
    */
   readonly onStart?: (start: { readonly repositoryNode: GraphId; readonly commits: number; readonly head: string }) => void | Promise<void>;
   /**
-   * Told after each commit's extractions are published, with the commit's
-   * place in the walk. The caller may throw to stop the fill at a commit
-   * boundary: what is published stays published, and a refill resumes.
+   * Told when a phase begins (added by 0030, so nothing renames): `code` reads
+   * the last commit's code, `history` reads the git log of every first-parent
+   * commit (`commits` of them; `newCommits` since the last filled tip) and
+   * `points` reads the chosen points' code.
+   */
+  readonly onPhase?: (phase: { readonly phase: 'code' | 'history' | 'points'; readonly commits: number; readonly newCommits: number }) => void | Promise<void>;
+  /**
+   * Told once the last commit's code is published, with its place in the walk
+   * (`index` is the walk's length: the last commit is the one whose code is
+   * read). The caller may throw to stop the fill here: what is published
+   * stays published, and a refill resumes.
    */
   readonly onCommit?: (done: CommitFill, place: { readonly index: number; readonly commits: number }) => void | Promise<void>;
+  /** Told after each chosen point's code is published, with the point's place on the line. */
+  readonly onPoint?: (done: CommitFill, place: { readonly index: number; readonly commits: number }) => void | Promise<void>;
 }
 
 /** One commit's fill: what it cost and what it published. */
@@ -114,7 +146,16 @@ export interface CommitFill {
 
 export interface FillReport {
   readonly repositoryNode: GraphId;
+  /** The commits whose code this fill read: the last commit, which a fill that finds it already filled leaves with no publication. */
   readonly commits: readonly CommitFill[];
+  /** The chosen points whose code this fill read, in their order on the line. */
+  readonly points: readonly CommitFill[];
+  /** First-parent commits after the last tip an earlier fill published (all of them on the first fill). */
+  readonly newCommits: number;
+  /** First-parent commits the history reading covered. */
+  readonly historyCommits: number;
+  /** Where the time went, by phase. */
+  readonly phases: { readonly codeMs: number; readonly historyMs: number; readonly pointsMs: number };
   readonly totalMs: number;
   /** Every extraction's own gaps, per producer: what could not be read, said rather than left silent. */
   readonly gaps: readonly { readonly producer: string; readonly path: string; readonly reason: string }[];
@@ -189,6 +230,11 @@ function applyRenames(map: Map<string, GraphId>, renames: readonly { readonly fr
   }
 }
 
+/** How an extraction is published: as the tip (open-ended, sweeping what it does not repeat) or as a chosen point (bounded to the next commit). */
+type PublishMode =
+  | { readonly kind: 'tip'; readonly closeGap: boolean; readonly renames: boolean; readonly verifyPrior: boolean }
+  | { readonly kind: 'point'; readonly bound: string };
+
 /** One query through the owner, for what the store's own interface does not expose. */
 async function query<Row extends object = Record<string, unknown>>(owner: DatabaseOwner, sql: string, values?: readonly unknown[]): Promise<Row[]> {
   return (await owner.run((tx) => tx.query<Row>(sql, values))).rows;
@@ -221,17 +267,46 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
   const knownKinds = new Set<string>((await query<{ key: string }>(owner, `SELECT key FROM node_kind`)).map((row) => row.key));
   const knownRelations = new Set<string>((await query<{ key: string }>(owner, `SELECT key FROM relation_type`)).map((row) => row.key));
   const repositoryNode = await findOrCreateRepositoryNode(owner, store, repository, walk[0]!.effectiveTime);
+  // The chosen points, resolved before anything is read so a point that names no commit stops the fill at once.
+  const chosen = [...new Map((options.points ?? []).map((point) => resolvePoint(repository, walk, point)).filter((commit) => commit.hash !== last.hash).map((commit) => [commit.hash, commit])).values()].sort((a, b) => a.generation - b.generation);
+  const filledPlaces = await query<{ place: string | null }>(owner, `SELECT max(generation)::text AS place FROM work_item WHERE scope_id = $1::bigint AND published_at IS NOT NULL AND generation % 2 = 0`, [repositoryNode]);
+  const filledPlace = filledPlaces[0]?.place == null ? 0 : Number(filledPlaces[0].place) / 2;
+  if (filledPlace > walk.length) throw new Error(`extract driver: ${repository}: the store holds a fill of the commit at place ${filledPlace} of the first-parent line, but the walk now holds ${walk.length} commits: the history changed under a fixed generation number, and what the store already believes is not rewritten`);
+  /** First-parent commits after the last tip an earlier fill published. */
+  const newCommits = walk.length - filledPlace;
   await options.onStart?.({ repositoryNode, commits: walk.length, head: last.hash });
   const keysOf = new Map<string, ProducerKeys>();
+  /** A tree publication of the commit at place `n` is generation `2n`; the one that ends a tip early is `2n + 1` (module comment). */
+  const storeGeneration = (place: number): number => 2 * place;
+  /** The latest tip a producer published before a generation: its place on the line and the input digest it was published with. */
+  const priorTipOf = async (producer: string, below: number): Promise<{ place: number; inputDigest: string } | undefined> => {
+    const rows = await query<{ generation: string; input_digest: string }>(
+      owner,
+      `SELECT generation::text AS generation, input_digest FROM work_item
+       WHERE producer = $1 AND scope_id = $2::bigint AND published_at IS NOT NULL AND generation % 2 = 0 AND generation < $3::bigint
+       ORDER BY generation DESC LIMIT 1`,
+      [producer, repositoryNode, String(below)],
+    );
+    const row = rows[0];
+    if (row === undefined) return undefined;
+    const place = Number(row.generation) / 2;
+    if (place > walk.length) {
+      throw new Error(`extract driver: ${repository}: producer "${producer}" published the commit at place ${place} of the first-parent line, but the walk now holds ${walk.length} commits: the history changed under a fixed generation number, and what the store already believes is not rewritten`);
+    }
+    return { place, inputDigest: row.input_digest };
+  };
   const keys = async (producer: string): Promise<ProducerKeys> => {
     let held = keysOf.get(producer);
     if (held === undefined) {
       held = new ProducerKeys(async () => {
+        // The state of the producer's latest tip: the versions that hold at the tip's effective time, whether they are still open or a later fill ended them.
+        const prior = await priorTipOf(producer, Number.MAX_SAFE_INTEGER);
+        if (prior === undefined) return new Map();
         const rows = await query<{ id: string; key: string }>(
           owner,
           `SELECT v.node_id::text AS id, v.properties->>'recordKey' AS key FROM node_version v
-           WHERE v.producer = $1 AND v.scope_id = $2::bigint AND v.recorded_to = 'infinity' AND v.valid_to = 'infinity' AND v.properties ? 'recordKey'`,
-          [producer, repositoryNode],
+           WHERE v.producer = $1 AND v.scope_id = $2::bigint AND v.recorded_to = 'infinity' AND v.valid_from <= $3::timestamptz AND v.valid_to > $3::timestamptz AND v.properties ? 'recordKey'`,
+          [producer, repositoryNode, walk[prior.place - 1]!.effectiveTime],
         );
         return new Map(rows.map((row) => [row.key, row.id]));
       });
@@ -239,6 +314,32 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
     }
     return held;
   };
+  /** The identities of a chosen point's records: the stored node whose key the point's key becomes after the renames that follow it, else one that already holds the key itself. */
+  const pointIds = async (producer: string, wanted: readonly string[], place: number): Promise<Map<string, GraphId>> => {
+    const later = walk.slice(place).filter((commit) => commit.renames.length > 0);
+    const forward = (key: string): string => {
+      let text = key;
+      for (const commit of later) for (const { from, to } of commit.renames) text = remapKey(text, from, to) ?? text;
+      return text;
+    };
+    const candidates = [...new Set(wanted.flatMap((key) => [key, forward(key)]))];
+    if (candidates.length === 0) return new Map();
+    const rows = await query<{ id: string; key: string }>(
+      owner,
+      `SELECT DISTINCT ON (v.properties->>'recordKey') v.node_id::text AS id, v.properties->>'recordKey' AS key FROM node_version v
+       WHERE v.producer = $1 AND v.scope_id = $2::bigint AND v.recorded_to = 'infinity' AND v.properties->>'recordKey' IN (SELECT jsonb_array_elements_text($3::jsonb))
+       ORDER BY v.properties->>'recordKey', v.valid_from DESC`,
+      [producer, repositoryNode, JSON.stringify(candidates)],
+    );
+    const stored = new Map(rows.map((row) => [row.key, row.id]));
+    const found = new Map<string, GraphId>();
+    for (const key of wanted) {
+      const id = stored.get(forward(key)) ?? stored.get(key);
+      if (id !== undefined) found.set(key, id);
+    }
+    return found;
+  };
+  let pointMaps = new Map<string, Map<string, GraphId>>();
 
   /** Registers the kinds and relation types an extraction newly emits, and the kinds of the ends it opens for another producer's keys. */
   const registerSchema = async (extraction: Extraction, extraKinds: readonly string[] = []): Promise<void> => {
@@ -268,8 +369,41 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
     return extractions;
   };
 
+  /**
+   * Ends a producer's tip at the effective time of the commit that followed it,
+   * as generation `2n + 1` of the tip's place `n`: a later fill that skips
+   * commits must not leave the old tip's records standing over commits nobody
+   * read. Published once; a fill that was interrupted here resumes.
+   */
+  const closeTip = async (producer: string, place: number): Promise<void> => {
+    const old = walk[place - 1]!;
+    const next = walk[place]!;
+    const generation = 2 * place + 1;
+    const inputDigest = sha256Hex(new TextEncoder().encode(`end\n${old.hash}\n${next.hash}`));
+    const where = `ending the tip at ${old.hash} ("${old.subject}", generation ${old.generation}) of ${repository} at commit ${next.hash}`;
+    const found = await query<{ input_digest: string; published: boolean }>(
+      owner,
+      `SELECT input_digest, published_at IS NOT NULL AS published FROM work_item WHERE producer = $1 AND scope_id = $2::bigint AND generation = $3::bigint`,
+      [producer, repositoryNode, String(generation)],
+    );
+    const existing = found[0];
+    if (existing?.published === true) {
+      if (existing.input_digest !== inputDigest) throw new Error(`extract driver: ${repository}: ${where} was published for producer "${producer}" with input digest ${existing.input_digest}, but the walk now reads ${inputDigest}: the history changed under a fixed generation number, and what the store already believes is not rewritten`);
+      return;
+    }
+    try {
+      if (existing === undefined) await store.openWorkItem({ producer, scope: repositoryNode, generation, inputDigest, leaseToken, leaseUntil });
+      else await store.leaseWorkItem({ producer, scope: repositoryNode, generation, leaseToken, leaseUntil, inputDigest });
+      await store.publish({ producer, scope: repositoryNode, generation, leaseToken, inputDigest, nodes: [], edges: [], complete: { validTo: next.effectiveTime } });
+    } catch (error) {
+      throw new Error(`extract driver: ${where} failed for producer "${producer}": ${error instanceof Error ? error.message : String(error)}`, { cause: error });
+    }
+  };
+
   /** Publishes one extraction as one complete publication of its producer at one instant. */
-  const publishExtraction = async (extraction: Extraction, present: ReadonlyMap<string, Extraction>, generation: number, effectiveTime: string, renames: readonly { from: string; to: string }[], inputDigest: string, where: string): Promise<boolean> => {
+  const publishExtraction = async (extraction: Extraction, present: ReadonlyMap<string, Extraction>, place: number, effectiveTime: string, inputDigest: string, mode: PublishMode, where: string): Promise<boolean> => {
+    const generation = storeGeneration(place);
+    const bound = mode.kind === 'point' ? mode.bound : undefined;
     const through = async <T>(step: string, work: () => Promise<T>): Promise<T> => {
       try {
         return await work();
@@ -328,7 +462,9 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
     const foreignKinds = [...new Set(effective.edges.flatMap((edge) => [edge.from, edge.to]).filter((key) => !effective.nodes.some((node) => node.key === key)).map((key) => key.slice(0, key.indexOf(':'))))].filter((kind) => kind.startsWith('code.'));
     await through('registering the extractor schema', () => registerSchema(effective, foreignKinds));
     for (const gap of extraction.gaps) gaps.push({ producer: extraction.producer, path: gap.path, reason: gap.reason });
-    const map = await (await keys(extraction.producer)).current();
+    const wantedKeys = [...new Set([...effective.nodes.map((node) => node.key), ...effective.edges.flatMap((edge) => [edge.from, edge.to])])];
+    const map = mode.kind === 'tip' ? await (await keys(extraction.producer)).current() : new Map(await pointIds(extraction.producer, wantedKeys, place));
+    if (mode.kind === 'point') pointMaps.set(extraction.producer, map);
     const found = await query<{ input_digest: string; published: boolean }>(
       owner,
       `SELECT input_digest, published_at IS NOT NULL AS published FROM work_item WHERE producer = $1 AND scope_id = $2::bigint AND generation = $3::bigint`,
@@ -342,8 +478,30 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
       }
       return false; // already published, exactly this input: a refill writes nothing, and the map the store recovered already knows every published rename
     }
-    // The renames are applied only for a generation this fill publishes: a skipped generation's renames are already in the map the store recovered.
-    applyRenames(map, renames, where);
+    if (mode.kind === 'point') {
+      // A point's records stand between two commits; refuse rather than overlap what the producer already believes there.
+      const clash = await query<{ valid_from: string; valid_to: string }>(
+        owner,
+        `SELECT to_char(v.valid_from AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS valid_from, to_char(v.valid_to AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS valid_to FROM node_version v
+         WHERE v.producer = $1 AND v.scope_id = $2::bigint AND v.recorded_to = 'infinity' AND v.valid_from < $4::timestamptz AND v.valid_to > $3::timestamptz LIMIT 1`,
+        [extraction.producer, repositoryNode, effectiveTime, mode.bound],
+      );
+      if (clash[0] !== undefined) {
+        throw new Error(`extract driver: ${where}: the point stands between ${effectiveTime} and ${mode.bound}, but producer "${extraction.producer}" already holds a version valid from ${clash[0].valid_from} to ${clash[0].valid_to} inside it; a snapshot never overlaps what is already believed`);
+      }
+    } else {
+      const prior = await priorTipOf(extraction.producer, generation);
+      if (prior !== undefined && mode.verifyPrior) {
+        const old = walk[prior.place - 1]!;
+        const expected = sha256Hex(new TextEncoder().encode(`${old.hash}\n${old.tree}`));
+        if (prior.inputDigest !== expected) {
+          throw new Error(`extract driver: ${repository}: place ${prior.place} of the first-parent line was published by producer "${extraction.producer}" with input digest ${prior.inputDigest}, but the walk now reads ${expected} there: the history changed under a fixed generation number, and what the store already believes is not rewritten`);
+        }
+      }
+      if (prior !== undefined && mode.closeGap && prior.place < place - 1) await closeTip(extraction.producer, prior.place);
+      // The renames of every commit after the prior tip, up to this one, are applied only for a generation this fill publishes: a skipped generation's renames are already in the map the store recovered.
+      if (prior !== undefined && mode.renames) for (const commit of walk.slice(prior.place, place)) applyRenames(map, commit.renames, where);
+    }
     if (existing === undefined) {
       await through('opening the work item', () => store.openWorkItem({ producer: extraction.producer, scope: repositoryNode, generation, inputDigest, leaseToken, leaseUntil }));
     } else {
@@ -357,7 +515,7 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
     // then exist under two producers, which the per-producer rule above
     // already allows.
     const ownerKeyMaps = new Map<string, Map<string, GraphId>>();
-    for (const owner of new Set(Object.values(owners))) if (owner !== extraction.producer && present.has(owner)) ownerKeyMaps.set(owner, await (await keys(owner)).current());
+    for (const owner of new Set(Object.values(owners))) if (owner !== extraction.producer && present.has(owner)) ownerKeyMaps.set(owner, mode.kind === 'tip' ? await (await keys(owner)).current() : (pointMaps.get(owner) ?? new Map()));
     const declared = new Set(effective.nodes.map((node) => node.key));
     const ownedIds = new Map<string, GraphId>();
     const foreignEnds = [...new Set(effective.edges.flatMap((edge) => [edge.from, edge.to]))]
@@ -387,6 +545,7 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
         label: node.label,
         properties: { ...node.properties, ...(node.span === undefined ? {} : { span: spanProperty(node.span) }), recordKey: node.key },
         validFrom: effectiveTime,
+        ...(bound === undefined ? {} : { validTo: bound }),
       })),
       ...foreignEnds.map((key) => {
         const stub = stubOf(key);
@@ -397,6 +556,7 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
           label: stub.label,
           properties: { recordKey: key },
           validFrom: effectiveTime,
+          ...(bound === undefined ? {} : { validTo: bound }),
         };
       }),
     ];
@@ -429,6 +589,7 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
         ...(edge.type === OCCURRENCE ? { position: { start: edge.span!.byteStart, end: edge.span!.byteEnd } } : {}),
         properties: { ...edge.properties, ...(edge.span === undefined || edge.type === OCCURRENCE ? {} : { span: spanProperty(edge.span) }) },
         validFrom: effectiveTime,
+        ...(bound === undefined ? {} : { validTo: bound }),
       };
     });
     const result = await through('publishing', () => store.publish({
@@ -439,43 +600,61 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
       inputDigest,
       nodes,
       edges: publishedEdges,
-      complete: { validTo: effectiveTime },
+      ...(mode.kind === 'tip' ? { complete: { validTo: effectiveTime } } : {}),
     }));
     if (!result.unchangedInput) {
       for (const [key, id] of Object.entries(result.refs)) map.set(key, id);
-      const held = new Set(nodes.map((node) => node.ref));
-      for (const key of [...map.keys()]) if (!held.has(key)) map.delete(key);
+      if (mode.kind === 'tip') {
+        const held = new Set(nodes.map((node) => node.ref));
+        for (const key of [...map.keys()]) if (!held.has(key)) map.delete(key);
+      }
     }
     return true;
   };
 
-  const commits: CommitFill[] = [];
-  let lastPresent: ReadonlyMap<string, Extraction> = new Map();
-  for (const commit of walk) {
+  /** Owners publish first, in the order the owners list holds them, so an edge of a later producer can end at an owner's node of the same commit. */
+  const rank = (producer: string): number => {
+    const at = [...new Set(Object.values(options.owners ?? {}))].indexOf(producer);
+    return at < 0 ? Number.MAX_SAFE_INTEGER : at;
+  };
+  const digestOf = (commit: CommitFact): string => sha256Hex(new TextEncoder().encode(`${commit.hash}\n${commit.tree}`));
+  const whereOf = (commit: CommitFact): string => `commit ${commit.hash} ("${commit.subject}", generation ${commit.generation}) of ${repository}`;
+
+  /** Reads one commit's code and publishes every extraction of it in the given mode. */
+  const fillCode = async (commit: CommitFact, modeOf: (commit: CommitFact) => PublishMode): Promise<{ done: CommitFill; present: ReadonlyMap<string, Extraction> }> => {
     const commitStarted = Date.now();
-    const tree = commitTree(repository, commit.hash);
-    const extractions = await runExtractors(commit, tree);
+    const extractions = await runExtractors(commit, commitTree(repository, commit.hash));
+    const present = new Map(extractions.map((extraction) => [extraction.producer as string, extraction]));
+    pointMaps = new Map();
     let publications = 0;
     let gapCount = 0;
-    // Owners publish first, in the order the owners list holds them, so an edge of a later producer can end at an owner's node of the same commit.
-    const rank = (producer: string): number => {
-      const at = [...new Set(Object.values(options.owners ?? {}))].indexOf(producer);
-      return at < 0 ? Number.MAX_SAFE_INTEGER : at;
-    };
-    const present = new Map(extractions.map((extraction) => [extraction.producer as string, extraction]));
-    lastPresent = present;
     for (const extraction of [...extractions].sort((a, b) => rank(a.producer) - rank(b.producer))) {
-      const inputDigest = sha256Hex(new TextEncoder().encode(`${commit.hash}\n${commit.tree}`));
-      const published = await publishExtraction(extraction, present, commit.generation, commit.effectiveTime, commit.renames, inputDigest, `commit ${commit.hash} ("${commit.subject}", generation ${commit.generation}) of ${repository}`);
-      if (published) publications += 1;
+      if (await publishExtraction(extraction, present, commit.generation, commit.effectiveTime, digestOf(commit), modeOf(commit), whereOf(commit))) publications += 1;
       gapCount += extraction.gaps.length;
     }
-    const done: CommitFill = { hash: commit.hash, generation: commit.generation, effectiveTime: commit.effectiveTime, durationMs: Date.now() - commitStarted, publications, gaps: gapCount };
-    commits.push(done);
-    await options.onCommit?.(done, { index: commits.length, commits: walk.length });
-  }
+    return { done: { hash: commit.hash, generation: commit.generation, effectiveTime: commit.effectiveTime, durationMs: Date.now() - commitStarted, publications, gaps: gapCount }, present };
+  };
 
+  const phases = { codeMs: 0, historyMs: 0, pointsMs: 0 };
+  const commits: CommitFill[] = [];
+  const points: CommitFill[] = [];
+  let lastPresent: ReadonlyMap<string, Extraction> = new Map();
+
+  // 1. The code of the last commit, once.
+  let phaseStarted = Date.now();
+  await options.onPhase?.({ phase: 'code', commits: walk.length, newCommits });
+  if (options.extractors.length > 0) {
+    const tip = await fillCode(last, () => ({ kind: 'tip', closeGap: true, renames: true, verifyPrior: true }));
+    lastPresent = tip.present;
+    commits.push(tip.done);
+  }
+  phases.codeMs = Date.now() - phaseStarted;
+  if (commits[0] !== undefined) await options.onCommit?.(commits[0], { index: walk.length, commits: walk.length });
+
+  // 2. The history: one git log over every first-parent commit, no code parsed.
   if (options.history !== undefined) {
+    phaseStarted = Date.now();
+    await options.onPhase?.({ phase: 'history', commits: walk.length, newCommits });
     let extraction: Extraction;
     try {
       extraction = await options.history({ path: repository, snapshots: options.snapshots ?? {} });
@@ -483,10 +662,24 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
       throw new Error(`extract driver: the history extractor failed over ${repository} (${walk.length} first-parent commits): ${error instanceof Error ? error.message : String(error)}`, { cause: error });
     }
     const inputDigest = sha256Hex(new TextEncoder().encode(walk.map((commit) => `${commit.hash} ${commit.committerTime} ${commit.effectiveTime}`).join('\n')));
-    await publishExtraction(extraction, lastPresent, walk.length, last.effectiveTime, [], inputDigest, `the history of ${repository} (${walk.length} first-parent commits)`);
+    await publishExtraction(extraction, lastPresent, walk.length, last.effectiveTime, inputDigest, { kind: 'tip', closeGap: false, renames: false, verifyPrior: false }, `the history of ${repository} (${walk.length} first-parent commits)`);
+    phases.historyMs = Date.now() - phaseStarted;
   }
 
-  return { repositoryNode, commits, totalMs: Date.now() - started, gaps };
+  // 3. The chosen points' code, in their order on the line.
+  if (chosen.length > 0) {
+    phaseStarted = Date.now();
+    await options.onPhase?.({ phase: 'points', commits: chosen.length, newCommits: chosen.length });
+    for (const commit of chosen) {
+      const bound = walk[commit.generation]!.effectiveTime; // a point is never the last commit, so a next commit stands
+      const read = await fillCode(commit, () => ({ kind: 'point', bound }));
+      points.push(read.done);
+      await options.onPoint?.(read.done, { index: commit.generation, commits: walk.length });
+    }
+    phases.pointsMs = Date.now() - phaseStarted;
+  }
+
+  return { repositoryNode, commits, points, newCommits, historyCommits: options.history === undefined ? 0 : walk.length, phases, totalMs: Date.now() - started, gaps };
 }
 
 /** The repository node of one repository path: found by its `path` property, or made once. */
@@ -516,4 +709,13 @@ async function findOrCreateRepositoryNode(owner: DatabaseOwner, store: GraphStor
     throw new Error(`extract driver: making the repository node of ${repository} failed: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
   }
   return opened.nodeId;
+}
+
+/**
+ * Fills the code structure at one chosen point, a revision or a date (0030):
+ * the same fill with one point. The last commit and the history are brought
+ * current first, which writes nothing when they already are.
+ */
+export function fillSnapshot(options: Omit<FillOptions, 'points'>, point: FillPoint): Promise<FillReport> {
+  return fillGraph({ ...options, points: [point] });
 }
