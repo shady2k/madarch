@@ -314,27 +314,45 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
     }
     return held;
   };
-  /** The identities of a chosen point's records: the stored node whose key the point's key becomes after the renames that follow it, else one that already holds the key itself. */
+  /**
+   * The identities of a chosen point's records. Every key, stored or wanted, is
+   * carried forward through the renames git detected after its place on the
+   * line to the key it ends with; two keys that end alike are one thing, so a
+   * file moved after the point, or moved between two points and deleted since,
+   * keeps one node. A stored key stands at the place its version began.
+   */
   const pointIds = async (producer: string, wanted: readonly string[], place: number): Promise<Map<string, GraphId>> => {
-    const later = walk.slice(place).filter((commit) => commit.renames.length > 0);
-    const forward = (key: string): string => {
+    if (wanted.length === 0) return new Map();
+    const renameCommits = walk.filter((commit) => commit.renames.length > 0);
+    const forward = (key: string, at: number): string => {
       let text = key;
-      for (const commit of later) for (const { from, to } of commit.renames) text = remapKey(text, from, to) ?? text;
+      for (const commit of renameCommits) {
+        if (commit.generation <= at) continue;
+        for (const { from, to } of commit.renames) text = remapKey(text, from, to) ?? text;
+      }
       return text;
     };
-    const candidates = [...new Set(wanted.flatMap((key) => [key, forward(key)]))];
-    if (candidates.length === 0) return new Map();
-    const rows = await query<{ id: string; key: string }>(
+    const placeAt = (instant: string): number => {
+      let low = 0;
+      let high = walk.length;
+      while (low < high) {
+        const middle = (low + high) >> 1;
+        if (walk[middle]!.effectiveTime <= instant) low = middle + 1;
+        else high = middle;
+      }
+      return Math.max(low, 1);
+    };
+    const rows = await query<{ id: string; key: string; valid_from: string }>(
       owner,
-      `SELECT DISTINCT ON (v.properties->>'recordKey') v.node_id::text AS id, v.properties->>'recordKey' AS key FROM node_version v
-       WHERE v.producer = $1 AND v.scope_id = $2::bigint AND v.recorded_to = 'infinity' AND v.properties->>'recordKey' IN (SELECT jsonb_array_elements_text($3::jsonb))
-       ORDER BY v.properties->>'recordKey', v.valid_from DESC`,
-      [producer, repositoryNode, JSON.stringify(candidates)],
+      `SELECT v.node_id::text AS id, v.properties->>'recordKey' AS key, to_char(v.valid_from AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS valid_from FROM node_version v
+       WHERE v.producer = $1 AND v.scope_id = $2::bigint AND v.recorded_to = 'infinity' AND v.properties ? 'recordKey' ORDER BY v.valid_from`,
+      [producer, repositoryNode],
     );
-    const stored = new Map(rows.map((row) => [row.key, row.id]));
+    const ending = new Map<string, GraphId>(); // later versions overwrite earlier ones
+    for (const row of rows) ending.set(forward(row.key, placeAt(row.valid_from)), row.id);
     const found = new Map<string, GraphId>();
     for (const key of wanted) {
-      const id = stored.get(forward(key)) ?? stored.get(key);
+      const id = ending.get(forward(key, place));
       if (id !== undefined) found.set(key, id);
     }
     return found;
@@ -620,6 +638,13 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
   const digestOf = (commit: CommitFact): string => sha256Hex(new TextEncoder().encode(`${commit.hash}\n${commit.tree}`));
   const whereOf = (commit: CommitFact): string => `commit ${commit.hash} ("${commit.subject}", generation ${commit.generation}) of ${repository}`;
 
+  /**
+   * The driver's own record of a commit it has read is kept under a producer
+   * named by the extractors that took part: a fill with another set of
+   * extractors (or none, for the history alone) is a different reading and
+   * runs again, publishing only what the first did not.
+   */
+  const readProducer = `${DRIVER_PRODUCER}/${sha256Hex(new TextEncoder().encode(`${options.extractors.map((extractor) => extractor.name).join('\n')}\n${options.history === undefined ? '' : options.history.name}`)).slice(0, 12)}`;
   /** Whether the work item of a producer at a place was published, and with which input digest. */
   const publishedAt = async (producer: string, generation: number): Promise<string | undefined> => {
     const rows = await query<{ input_digest: string }>(
@@ -635,7 +660,7 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
    * each commit it has read, so a repeated fill does not parse the tree again.
    */
   const alreadyRead = async (commit: CommitFact): Promise<boolean> => {
-    const held = await publishedAt(DRIVER_PRODUCER, storeGeneration(commit.generation));
+    const held = await publishedAt(readProducer, storeGeneration(commit.generation));
     if (held === undefined) return false;
     if (held !== digestOf(commit)) {
       throw new Error(`extract driver: ${repository}: ${whereOf(commit)} was read with input digest ${held}, but the walk now reads ${digestOf(commit)}: the history changed under a fixed generation number, and what the store already believes is not rewritten`);
@@ -643,11 +668,11 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
     return true;
   };
   const markRead = async (commit: CommitFact, generation = storeGeneration(commit.generation), inputDigest = digestOf(commit), what = whereOf(commit)): Promise<void> => {
-    const found = await query<{ id: string }>(owner, `SELECT id::text AS id FROM work_item WHERE producer = $1 AND scope_id = $2::bigint AND generation = $3::bigint`, [DRIVER_PRODUCER, repositoryNode, String(generation)]);
+    const found = await query<{ id: string }>(owner, `SELECT id::text AS id FROM work_item WHERE producer = $1 AND scope_id = $2::bigint AND generation = $3::bigint`, [readProducer, repositoryNode, String(generation)]);
     try {
-      if (found.length === 0) await store.openWorkItem({ producer: DRIVER_PRODUCER, scope: repositoryNode, generation, inputDigest, leaseToken, leaseUntil });
-      else await store.leaseWorkItem({ producer: DRIVER_PRODUCER, scope: repositoryNode, generation, leaseToken, leaseUntil, inputDigest });
-      await store.publish({ producer: DRIVER_PRODUCER, scope: repositoryNode, generation, leaseToken, inputDigest });
+      if (found.length === 0) await store.openWorkItem({ producer: readProducer, scope: repositoryNode, generation, inputDigest, leaseToken, leaseUntil });
+      else await store.leaseWorkItem({ producer: readProducer, scope: repositoryNode, generation, leaseToken, leaseUntil, inputDigest });
+      await store.publish({ producer: readProducer, scope: repositoryNode, generation, leaseToken, inputDigest });
     } catch (error) {
       throw new Error(`extract driver: recording that ${what} was read failed: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
     }
@@ -668,7 +693,7 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
       if (await publishExtraction(extraction, present, commit.generation, commit.effectiveTime, digestOf(commit), modeOf(commit), whereOf(commit))) publications += 1;
       gapCount += extraction.gaps.length;
     }
-    if (await publishedAt(DRIVER_PRODUCER, storeGeneration(commit.generation)) === undefined) await markRead(commit);
+    if (await publishedAt(readProducer, storeGeneration(commit.generation)) === undefined) await markRead(commit);
     return { done: { hash: commit.hash, generation: commit.generation, effectiveTime: commit.effectiveTime, durationMs: Date.now() - commitStarted, publications, gaps: gapCount }, present };
   };
 
@@ -681,7 +706,7 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
   let lastPresent: ReadonlyMap<string, Extraction> = new Map();
 
   // The tree is parsed again only when the history still has to be published (it needs the tree's records to tell the owners' nodes).
-  const historyPublished = options.history === undefined || await publishedAt(DRIVER_PRODUCER, historyGeneration) === historyInputDigest;
+  const historyPublished = options.history === undefined || await publishedAt(readProducer, historyGeneration) === historyInputDigest;
   // 1. The code of the last commit, once.
   let phaseStarted = Date.now();
   await options.onPhase?.({ phase: 'code', commits: walk.length, newCommits });
@@ -705,7 +730,7 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
     }
     const historyWhere = `the history of ${repository} (${walk.length} first-parent commits)`;
     await publishExtraction(extraction, lastPresent, walk.length, last.effectiveTime, historyInputDigest, { kind: 'tip', closeGap: false, renames: false, verifyPrior: false }, historyWhere);
-    if (await publishedAt(DRIVER_PRODUCER, historyGeneration) === undefined) await markRead(last, historyGeneration, historyInputDigest, historyWhere);
+    if (await publishedAt(readProducer, historyGeneration) === undefined) await markRead(last, historyGeneration, historyInputDigest, historyWhere);
     phases.historyMs = Date.now() - phaseStarted;
   }
 

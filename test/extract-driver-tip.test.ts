@@ -17,6 +17,8 @@ import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { fillGraph, fillSnapshot } from '../src/extract/driver/index.js';
+import { extractFiles } from '../src/extract/driver/files.js';
+import type { Extraction } from '../src/extract/records.js';
 import type { FillOptions, TreeExtractor } from '../src/extract/driver/index.js';
 import { HISTORY_EXTRACTOR, OWNERS, TREE_EXTRACTORS } from '../src/extract/driver/extractors.js';
 import { createGraphStore, type GraphStore } from '../src/graph/index.js';
@@ -34,7 +36,7 @@ const git = (repository: string, ...args: string[]): string =>
   execFileSync('git', args, { cwd: repository, encoding: 'utf8', env: { ...process.env, TZ: 'UTC', LC_ALL: 'C' } });
 
 /** One commit of the fast-import stream: files to write (path to content), renames and the author. */
-interface Step { message: string; writes: Record<string, string>; renames?: [string, string][]; author: string }
+interface Step { message: string; writes: Record<string, string>; renames?: [string, string][]; deletes?: string[]; author: string }
 
 function stream(steps: readonly Step[], firstMark: number, firstTime: number, startFrom?: string): string {
   const lines: string[] = [];
@@ -44,6 +46,7 @@ function stream(steps: readonly Step[], firstMark: number, firstTime: number, st
     if (at > 0) lines.push(`from :${firstMark + at - 1}`);
     else if (startFrom !== undefined) lines.push(`from ${startFrom}`);
     for (const [from, to] of step.renames ?? []) lines.push(`R ${from} ${to}`);
+    for (const gone of step.deletes ?? []) lines.push(`D ${gone}`);
     for (const [file, content] of Object.entries(step.writes)) lines.push(`M 100644 inline ${file}`, `data ${Buffer.byteLength(content)}`, content);
     lines.push('');
   });
@@ -97,7 +100,7 @@ const options = (): FillOptions => ({ owner, store, repository, extractors: coun
 const query = async <Row extends object>(sql: string, values?: readonly unknown[]): Promise<Row[]> => (await owner.run((tx) => tx.query<Row>(sql, values))).rows;
 
 /** The versions of one file's node under the lister, oldest first: their digest, start and end. */
-const fileVersions = (filePath: string) => query<{ id: string; sha256: string; valid_from: string; valid_to: string }>(
+const fileVersions = (filePath: string) => query<{ id: string; sha256: string; valid_from: string; valid_to: string | null }>(
   `SELECT v.node_id::text AS id, v.properties->>'sha256' AS sha256,
           to_char(v.valid_from AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS valid_from,
           to_char(v.valid_to AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS valid_to
@@ -157,7 +160,7 @@ describe('a fill of a repository of thousands of commits (decision 0030)', () =>
     const versions = await fileVersions(file);
     expect(versions).toHaveLength(1);
     expect(versions[0]!.valid_from).toBe(effectiveOf(COMMITS));
-    expect(versions[0]!.valid_to).toBe('infinity');
+    expect(versions[0]!.valid_to).toBeNull();
     expect(versions[0]!.sha256).toBe(sha(git(repository, 'show', `HEAD:${file}`)));
   }, 60_000);
 
@@ -187,7 +190,7 @@ describe('a fill of a repository of thousands of commits (decision 0030)', () =>
     expect(versions).toHaveLength(2);
     expect(versions[0]!.valid_to).toBe(effectiveOf(next)); // the old tip ends where the new one starts
     expect(versions[1]!.valid_from).toBe(effectiveOf(next));
-    expect(versions[1]!.valid_to).toBe('infinity');
+    expect(versions[1]!.valid_to).toBeNull();
     expect(versions[1]!.sha256).toBe(sha(moduleSource(0, 0, next)));
     expect(versions[0]!.id).toBe(versions[1]!.id);
     // An unchanged file keeps its one open-ended version.
@@ -221,7 +224,7 @@ describe('a fill of a repository of thousands of commits (decision 0030)', () =>
     expect(stayAfter).toHaveLength(2);
     expect(stayAfter[0]!.valid_to).toBe(effectiveOf(before + 1));
     expect(stayAfter[1]!.valid_from).toBe(effectiveOf(before + 3));
-    expect(staysBefore[0]!.valid_to).toBe('infinity'); // it was open before this fill
+    expect(staysBefore[0]!.valid_to).toBeNull(); // it was open before this fill
     // The moved file is one node under its new path, the renames of the skipped commits applied.
     const relocated = await fileVersions('src/moved/relocated.ts');
     expect(relocated.map((v) => v.id)).toEqual([idBefore]);
@@ -253,5 +256,50 @@ describe('a fill of a repository of thousands of commits (decision 0030)', () =>
   test('a point names its repository and the point when it names no commit on the first-parent line', async () => {
     await expect(fillSnapshot(options(), 'no-such-tag')).rejects.toThrow(/extract driver: .*repo/);
     await expect(fillSnapshot(options(), { date: '2000-01-01T00:00:00Z' })).rejects.toThrow(/before the first commit/);
+  }, 120_000);
+});
+
+describe('small repositories (review findings of decision 0030)', () => {
+  const small = (name: string, built: Step[]): string => {
+    const folder = path.join(workspace, name);
+    execFileSync('git', ['init', '-q', '-b', 'main', folder]);
+    importStream(folder, stream(built, 1, EPOCH));
+    return folder;
+  };
+
+  test('a fill with another set of extractors reads the commit again and publishes only what the first did not', async () => {
+    const folder = small('two-fills', [
+      { message: 'First', writes: { 'a.txt': 'one\n' }, author: AUTHORS[0]! },
+      { message: 'Second', writes: { 'a.txt': 'two\n' }, author: AUTHORS[0]! },
+    ]);
+    const extra = (): Extraction => ({ producer: 'code.extract.extra', nodes: [{ key: 'code.thing:extra', kind: 'code.thing', label: 'extra', properties: {} }], edges: [], gaps: [] });
+    const base = { owner, store, repository: folder, owners: OWNERS };
+    const first = await fillGraph({ ...base, extractors: [extractFiles] });
+    expect(first.commits[0]!.publications).toBe(1);
+    const second = await fillGraph({ ...base, extractors: [extractFiles, extra] });
+    expect(second.commits[0]!.publications).toBe(1); // the new producer's, not the lister's again
+    const extras = await query<{ n: string }>(`SELECT count(*)::text AS n FROM node_version v WHERE v.producer = 'code.extract.extra' AND v.recorded_to = 'infinity'`);
+    expect(extras[0]!.n).toBe('1');
+    const third = await fillGraph({ ...base, extractors: [extractFiles, extra] });
+    expect(third.commits[0]!.publications).toBe(0); // now everything was read
+  }, 120_000);
+
+  test('a point keeps a file\'s identity across a rename between two points even when the file is gone at the tip', async () => {
+    const folder = small('gone-at-tip', [
+      { message: 'Add', writes: { 'a.ts': 'export const a = 1;\n', 'keep.ts': 'export const k = 1;\n' }, author: AUTHORS[0]! },
+      { message: 'Rename', writes: {}, renames: [['a.ts', 'b.ts']], author: AUTHORS[1]! },
+      { message: 'Delete', writes: {}, deletes: ['b.ts'], author: AUTHORS[2]! },
+      { message: 'Touch', writes: { 'keep.ts': 'export const k = 2;\n' }, author: AUTHORS[3]! },
+    ]);
+    const hashes = git(folder, 'rev-list', '--first-parent', '--reverse', 'HEAD').trim().split('\n');
+    await fillGraph({ owner, store, repository: folder, extractors: [extractFiles], owners: OWNERS, points: [hashes[0]!, hashes[1]!] });
+    const ids = async (key: string) => (await query<{ id: string }>(
+      `SELECT DISTINCT v.node_id::text AS id FROM node_version v WHERE v.producer = 'code.extract.files' AND v.properties->>'recordKey' = $1 AND v.recorded_to = 'infinity'`,
+      [FILE + key],
+    )).map((row) => row.id);
+    const a = await ids('a.ts');
+    const b = await ids('b.ts');
+    expect(a).toHaveLength(1);
+    expect(b).toEqual(a);
   }, 120_000);
 });

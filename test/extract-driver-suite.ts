@@ -77,7 +77,13 @@ function chosenPoints(repository: string): string[] {
     if (at < 0) throw new Error(`the generated repository has no first-parent commit "${subject}"`);
     return [line[at - 1]![0], line[at]![0], line[at + 1]![0]];
   };
-  return [...Object.values(KEY.snapshots), ...around('Move the order aggregate under internal/domain'), ...around('Merge feature/checkout-observability'), ...around('Pin the Go toolchain in the Dockerfiles')];
+  // The branch's own commits are older than some commits of the line: the tree a read at the branch's date finds is the last line commit at or before it.
+  const merge = line.find(([, text]) => text.includes('Merge feature/checkout-observability'))![0];
+  const branchTip = git(repository, 'log', '-1', '--format=%P', merge).trim().split(' ')[1]!;
+  const branchTime = git(repository, 'log', '-1', '--format=%cI', branchTip).trim();
+  const timed = git(repository, 'log', '--first-parent', '--reverse', '--format=%H%x00%cI').trim().split('\n').map((row) => row.split('\0') as [string, string]);
+  const beforeBranch = timed.filter(([, committer]) => new Date(committer).getTime() <= new Date(branchTime).getTime()).at(-1)![0];
+  return [...Object.values(KEY.snapshots), beforeBranch, ...around('Move the order aggregate under internal/domain'), ...around('Merge feature/checkout-observability'), ...around('Pin the Go toolchain in the Dockerfiles')];
 }
 
 // The rename remap's own contract (reviewed): a whole path part matches, a path inside another
@@ -234,7 +240,8 @@ export function extractDriverTests(label: string, make: () => { owner: DatabaseO
       expect(branchTime < mergeTime).toBe(true); // the branch's own date reads the pre-branch content on main
       // The branch changed services/checkout/src/api/routes.ts; before the merge the tree still holds the old content.
       const filePath = 'services/checkout/src/api/routes.ts';
-      const oldDigest = sha(blobAt(env.repository, merge.parent!, filePath));
+      const lastBeforeBranch = git(env.repository, 'log', '--first-parent', '--format=%H %cI', merge.hash).trim().split('\n').map((row) => row.split(' ') as [string, string]).find(([, committer]) => new Date(committer).getTime() <= new Date(branchTime).getTime())![0];
+      const oldDigest = sha(blobAt(env.repository, lastBeforeBranch, filePath)); // the branch's date reads the last line commit at or before it
       const newDigest = sha(blobAt(env.repository, merge.hash, filePath));
       expect(oldDigest).not.toBe(newDigest);
       const filesNode = async (at: string) => (await env.query<{ sha256: string; id: string }>(
@@ -375,8 +382,8 @@ export function extractDriverTests(label: string, make: () => { owner: DatabaseO
     test('rename.identity (key item): the history records the move as one rename of similarity 1, and the file keeps its history', async () => {
       const from = 'services/orders/src/order.go';
       const to = 'services/orders/internal/domain/order.go';
-      const renamed = await env.query<{ similarity: string }>(
-        `SELECT e.properties->>'similarity' AS similarity FROM edge_version e JOIN relation_type r ON r.id = e.relation_type_id
+      const renamed = await env.query<{ edge: string; similarity: string }>(
+        `SELECT DISTINCT e.edge_id::text AS edge, e.properties->>'similarity' AS similarity FROM edge_version e JOIN relation_type r ON r.id = e.relation_type_id
          JOIN node_version s ON s.node_id = e.src_id AND s.recorded_to = 'infinity' JOIN node_version d ON d.node_id = e.dst_id AND d.recorded_to = 'infinity'
          WHERE r.key = 'code.renamed-to' AND e.recorded_to = 'infinity' AND e.valid_to = 'infinity' AND s.properties->>'recordKey' = $1 AND d.properties->>'recordKey' = $2`,
         [FILE + from, FILE + to],
