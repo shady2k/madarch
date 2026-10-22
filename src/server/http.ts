@@ -23,7 +23,7 @@
  * default (128 MB) are never reached by honest clients; a client that
  * lies by omission costs one read, then is refused.
  */
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { dirname, join as joinPath, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Value } from 'typebox/value';
@@ -37,7 +37,7 @@ import type { Graphs } from './graphs.js';
 import { createGraphs } from './graphs.js';
 import type { SourceStoreResult, SourceStores } from './sources.js';
 import { createSourceStores, sourceNameProblem } from './sources.js';
-import { createWikiPart, fillAuth, serveAppAssets, type WikiPart } from './wiki-app.js';
+import { createWikiPart, fillAuth, type WikiPart } from './wiki-app.js';
 import { MANIFEST_FILE } from '../product/manifest.js';
 import { createGraphPagesPart, emptyGraphPagesSource, type GraphPagesPart, type GraphPagesSource } from './graph-pages.js';
 import { createGraphDiagramsPart, type GraphDiagramsPart } from './graph-diagrams.js';
@@ -421,64 +421,34 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
     for (const [name, entry] of next) productEntries.set(name, entry);
   };
   /**
- * One product card's one-line description: the problem the product itself
- * declares in its registry, folded to the first line, and nothing where the
- * product declares none — the card never invents words for it.
- */
-  const cardDescription = (entry: ProductEntry): string => {
-    try {
-      const problem = entry.wiki.overview()?.problem;
-      if (problem === undefined) return '';
-      return problem.trim().split(/\s*\n\s*/)[0] ?? '';
-    } catch { return ''; }
-  };
-
-  /** The built wiki app's stylesheet href (its design tokens and fonts), read from the app folder's index.html; undefined when none answers. */
-  const appStylesheetHref = (distFolder: string | undefined): string | undefined => {
-    if (distFolder === undefined) return undefined;
-    let html: string;
-    try { html = readFileSync(joinPath(distFolder, 'index.html'), 'utf8'); } catch { return undefined; }
-    const link = /<link\b[^>]*\brel="stylesheet"[^>]*\bhref="([^"]+)"[^>]*>/.exec(html) ?? /<link\b[^>]*\bhref="([^"]+)"[^>]*\brel="stylesheet"[^>]*>/.exec(html);
-    const href = link?.[1];
-    return href !== undefined && href.startsWith('/assets/') ? href : undefined;
-  };
-
-  /**
-   * The products home in the wiki app's own look: the same built stylesheet —
-   * the tokens and fonts the app's shell reads — the shell's brand, toolbar
-   * and reading area, one card per product with its name and the one-line
-   * description the product itself declares, and the wiki's language switch,
-   * which writes the same storage key the app reads
-   * (`madarch-wiki-language`, en/ru). Without the built app's stylesheet the
-   * plain page answers, so a home without a built app still reads.
+   * The root opens a product's wiki; the product is chosen only in the wiki's own selector at the top
+   * left (decision 0029; madarch-m38l.4). One product: it is opened. Several: the one this browser
+   * opened last (the `madarch-last-product` cookie the product's pages set), else the one whose
+   * manifest changed most recently, ties broken by code point. A home with no product answers a plain
+   * page that says what to do.
    */
-  const productsHomePage = (): Response => {
+  const LAST_PRODUCT_COOKIE = 'madarch-last-product';
+  const productToOpen = (request: Request): string | undefined => {
     refreshProducts();
     const names = [...productEntries.keys()].sort(byCodePoint);
-    const stylesheet = appStylesheetHref(appFolder);
-    if (stylesheet === undefined) {
-      const items = names.map((name) => `<li><a href="/products/${encodeURIComponent(name)}/">${escapeHtml(productEntries.get(name)!.wiki.product.name)}</a></li>`).join('');
-      const empty = names.length === 0 ? '<p>No products yet: run madarch new.</p>' : '';
-      return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Madarch products</title></head><body><h1>Products</h1><ul>${items}</ul>${empty}</body></html>`, { headers: { 'content-type': 'text/html; charset=utf-8' } });
+    if (names.length === 0) return undefined;
+    if (names.length === 1) return names[0];
+    for (const part of (request.headers.get('cookie') ?? '').split(';')) {
+      const [key, ...value] = part.trim().split('=');
+      if (key !== LAST_PRODUCT_COOKIE) continue;
+      try {
+        const last = decodeURIComponent(value.join('='));
+        if (productEntries.has(last)) return last;
+      } catch { /* a cookie that is not a product folder opens the most recently changed one */ }
     }
-    const cards = names.map((name) => {
-      const entry = productEntries.get(name)!;
-      const shown = escapeHtml(entry.wiki.product.name);
-      const description = cardDescription(entry);
-      return `<li><a class="home-row home-repository-row" href="/products/${encodeURIComponent(name)}/" data-testid="product-card"><strong class="home-repository-name">${shown}</strong>${description === '' ? '' : `<span class="home-repository-part">${escapeHtml(description)}</span>`}</a></li>`;
-    }).join('');
-    const empty = names.length === 0 ? '<p class="home-products-empty" data-testid="home-empty">No products yet: run madarch new.</p>' : '';
-    const globe = '<svg aria-hidden="true" class="size-[21px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>';
-    const brand = '<svg aria-hidden="true" class="size-[40px] shrink-0 text-ink" viewBox="0 0 50 32"><text x="0" y="25" fill="currentColor" font-family="Inter, sans-serif" font-size="31" font-weight="750" letter-spacing="-4">m<tspan fill="var(--text)">·</tspan></text></svg>';
-    return new Response(`<!doctype html><html lang="en" id="products-home"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Madarch products</title><link rel="stylesheet" crossorigin href="${escapeHtml(stylesheet)}"></head><body><div class="flex h-dvh bg-page text-ink [font-family:var(--font-sans)] text-body"><aside class="hidden w-[240px] wide:w-[260px] shrink-0 flex-col border-r border-line bg-chrome px-[14px] wide:px-[18px] md:flex" aria-label="madarch"><a href="/" class="nav-brand flex items-center gap-2.5 px-2 py-[14px] text-ink no-underline hover:text-ink" data-testid="nav-brand">${brand}<strong class="text-[23px] font-[650] leading-none tracking-[-0.8px]">madarch</strong><small class="ml-auto rounded-[var(--radius-row)] border border-line px-[5px] py-0.5 text-[11px] leading-4 text-muted" data-testid="brand-concept">wiki</small></a></aside><div class="flex min-w-0 flex-1 flex-col"><header class="shell-toolbar flex min-h-[58px] items-center justify-between gap-3 border-b border-line px-4 wide:px-[35px]"><span class="shell-breadcrumb min-w-0 truncate text-small text-secondary"><span class="text-ink" data-testid="home-title">Products</span></span><span class="flex shrink-0 items-center gap-1"><button type="button" class="shell-language size-9" aria-label="Language" title="Language" data-testid="language-toggle">${globe}</button></span></header><div class="shell-document"><main><h1 data-testid="home-heading">Products</h1><section class="home-group" data-testid="home-products" aria-label="Products"><ul class="home-rows">${cards}</ul></section>${empty}</main></div></div></div><script>(function(){var TT={en:{title:"Products",concept:"wiki",empty:"No products yet: run madarch new.",label:"Language",ru:"Russian",en:"English"},ru:{title:"Продукты",concept:"вики",empty:"Продуктов пока нет: запустите madarch new.",label:"Язык",ru:"Русский",en:"Английский"}};var KEY="madarch-wiki-language";function pick(){try{var k=localStorage.getItem(KEY);if(k)return k.indexOf("ru")===0?"ru":"en";}catch(e){}try{var l=(navigator.languages&&navigator.languages[0])||navigator.language;return (l||"en").toLowerCase().indexOf("ru")===0?"ru":"en";}catch(e){return "en";}}var lang=pick();function say(sel,v){var el=document.querySelector(sel);if(el)el.textContent=v;}function render(){var t=TT[lang];say("[data-testid=home-title]",t.title);say("[data-testid=home-heading]",t.title);say("[data-testid=brand-concept]",t.concept);say("[data-testid=home-empty]",t.empty);say("#products-lang-label",t.label);say("#products-lang-ru span",t.ru);say("#products-lang-en span",t.en);document.documentElement.lang=lang;var b=document.querySelector("[data-testid=language-toggle]");if(b){b.setAttribute("aria-label",t.label);b.setAttribute("title",t.label);}}window.__setHomeLanguage=function(next){lang=next;try{localStorage.setItem(KEY,next);}catch(e){}render();var m=document.getElementById("products-language-menu");if(m)m.remove();};render();var b=document.querySelector("[data-testid=language-toggle]");if(b){b.addEventListener("click",function(){var m=document.getElementById("products-language-menu");if(m){m.remove();return;}m=document.createElement("div");m.id="products-language-menu";m.className="language-menu";m.setAttribute("data-state","open");m.style.position="fixed";var r=b.getBoundingClientRect();m.style.top=(r.bottom+7)+"px";m.style.right=(window.innerWidth-r.right)+"px";m.innerHTML='<div class="language-menu-label" id="products-lang-label"></div><div class="language-menu-separator"></div><button type="button" class="language-menu-item" id="products-lang-ru" data-lang="ru"><span class="language-menu-check">'+(lang==="ru"?"✓":"")+'</span><span></span></button><button type="button" class="language-menu-item" id="products-lang-en" data-lang="en"><span class="language-menu-check">'+(lang==="en"?"✓":"")+'</span><span></span></button>';m.querySelector("#products-lang-ru span:last-child").textContent=TT[lang].ru;m.querySelector("#products-lang-en span:last-child").textContent=TT[lang].en;m.querySelector("#products-lang-ru").addEventListener("click",function(){window.__setHomeLanguage("ru");});m.querySelector("#products-lang-en").addEventListener("click",function(){window.__setHomeLanguage("en");});document.body.appendChild(m);}});})();</script></body></html>`, { headers: { 'content-type': 'text/html; charset=utf-8' } });
+    return names.reduce((best, name) => (productEntries.get(name)!.manifest > productEntries.get(best)!.manifest ? name : best), names[0]!);
   };
-  /** One built app file at the home's own /assets: the styles and fonts the home reads ship with the app's own build; anything else is a named 404, never an app shell. */
-  /** One built app file at the home's own /assets: the styles and fonts the home reads ship with the app's own build; anything else is a named 404, never an app shell. */
-  const serveHomeAssets = (pathname: string): Response => {
-    const answered = appFolder === undefined ? undefined : serveAppAssets(appFolder, pathname);
-    if (answered !== undefined) return answered;
-    if (appFolder === undefined) return notServed(`this server serves a products home: the products are listed at /, and each product's wiki answers under /products/<folder>/`);
-    return notServed(`no built app file answers "${pathname}" under the app folder ${JSON.stringify(appFolder)}: the home reads the styles and fonts the app's own build ships`);
+  const rootPage = (request: Request): Response => {
+    const name = productToOpen(request);
+    if (name === undefined) {
+      return new Response('<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Madarch</title></head><body><p>No product is served yet: run <code>madarch init</code> in a code repository, or <code>madarch new</code> for an empty product.</p></body></html>', { headers: { 'content-type': 'text/html; charset=utf-8' } });
+    }
+    return new Response(null, { status: 302, headers: { location: `/products/${encodeURIComponent(name)}/`, 'cache-control': 'no-store' } });
   };
 const notServed = (message: string): Response => Response.json({ message }, { status: 404 });
   /** The app shell's absolute asset references must answer under the product's own prefix. */
@@ -491,8 +461,7 @@ const notServed = (message: string): Response => Response.json({ message }, { st
   };
   const handleProductsHome = async (request: Request): Promise<Response> => {
     const url = new URL(request.url);
-    if (url.pathname === '/' || url.pathname === '') return productsHomePage();
-    if (url.pathname === '/assets' || url.pathname.startsWith('/assets/') || url.pathname.startsWith('/fonts/')) return serveHomeAssets(url.pathname);
+    if (url.pathname === '/' || url.pathname === '') return rootPage(request);
     // The products the wiki's selector offers (decision 0029: the product is chosen at the top left): one answer for the whole home.
     if (url.pathname === '/api/products' && request.method === 'GET') return Response.json({ products: productNames() });
     // The fill's unit tools answer for the process, not for one served product: a unit's own MCP server
@@ -507,7 +476,10 @@ const notServed = (message: string): Response => Response.json({ message }, { st
     if (entry === undefined) return notServed(`no product ${JSON.stringify(name)} is served: the products are listed at ${new URL('/', url).href}`);
     const rest = match[2] === undefined ? '/' : `/${match[2]}`;
     const forwarded = new Request(new URL(rest + url.search, url), request);
-    return withProductPrefix(await entry.handler(forwarded), `/products/${encodeURIComponent(name)}`);
+    const answered = await withProductPrefix(await entry.handler(forwarded), `/products/${encodeURIComponent(name)}`);
+    // The page a reader opens is the product this browser opens at the root next time.
+    if ((answered.headers.get('content-type') ?? '').includes('text/html') && answered.status === 200) answered.headers.append('set-cookie', `${LAST_PRODUCT_COOKIE}=${encodeURIComponent(name)}; Path=/; Max-Age=31536000; SameSite=Lax`);
+    return answered;
   };
   let server: ReturnType<typeof Bun.serve>;
   try {
@@ -1446,4 +1418,3 @@ function valueAtPointer(root: unknown, pointer: string): unknown {
   return current;
 }
 
-function escapeHtml(text: string): string { return text.replace(/[&<>"\']/g, (char) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;", "\'":"&#39;"}[char]!)); }
