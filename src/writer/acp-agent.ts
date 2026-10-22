@@ -1,0 +1,137 @@
+/**
+ * The real writer agent: a coding agent driven over ACP (decision 0026).
+ *
+ * One agent process serves the whole run; every unit gets a session of its
+ * own whose only tools are this unit's, served by a local HTTP MCP endpoint
+ * bound to one token (the unit's `UnitTools` session). The agent's own file
+ * tools stay off (`connectAcpAgent` refuses `fs/*` and every permission), the
+ * session's working folder is an empty scratch folder, and the unit's limits
+ * are decision 0026's: a 272K window with a wrap-up at 70% and a stop at 80%,
+ * about 30 turns, ten minutes, 16K output.
+ *
+ * The cost of a run is one session per unit: a product unit, then one unit
+ * per declared domain.
+ */
+import { randomBytes } from 'node:crypto';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { connectAcpAgent, type AcpConnection, type AcpAgentSpec, type AcpUpdate } from '../fill/acp.js';
+import { answerUnitMcpMessage } from '../fill/unit-mcp.js';
+import { DEFAULT_STAGE_LIMITS, type StageLimits } from '../fill/stage.js';
+import { createUnitLimitGuard, PROCESS_TIMERS, watchUnitTimeLimit, type UnitLimitCause, type UnitTimers } from '../fill/unit-limits.js';
+import type { ToolClient, UnitAgent, UnitRequest } from './run.js';
+
+export interface AcpAgentOptions {
+  readonly spec: AcpAgentSpec;
+  readonly limits?: StageLimits;
+  /** Environment for the agent process (its PATH must reach the adapter's binary). */
+  readonly env?: Readonly<Record<string, string>>;
+  readonly timers?: UnitTimers;
+  readonly progress?: (line: string) => void;
+}
+
+const CHARACTERS_PER_TOKEN = 4;
+
+/** A local MCP endpoint (streamable HTTP, one JSON answer per POST) for one unit's tools. */
+export async function serveTools(client: ToolClient, token: string): Promise<{ url: string; close(): Promise<void> }> {
+  const server: Server = createServer((request, response) => {
+    const send = (status: number, body?: unknown): void => {
+      response.writeHead(status, body === undefined ? {} : { 'content-type': 'application/json' });
+      response.end(body === undefined ? undefined : JSON.stringify(body));
+    };
+    if (request.method !== 'POST') { send(405, { error: 'the unit endpoint answers POST only' }); return; }
+    if (request.headers['authorization'] !== `Bearer ${token}`) { send(401, { error: 'unknown unit token' }); return; }
+    const chunks: Buffer[] = [];
+    request.on('data', (chunk: Buffer) => chunks.push(chunk));
+    request.on('end', () => {
+      void (async () => {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        } catch {
+          send(400, { jsonrpc: '2.0', id: null, error: { code: -32700, message: 'the body is no JSON' } });
+          return;
+        }
+        const options = { tools: client.definitions, call: (tool: string, args: unknown) => client.call(tool, args), info: { name: 'madarch-writer', version: '1' } };
+        if (Array.isArray(parsed)) {
+          const answers = (await Promise.all(parsed.map((message) => answerUnitMcpMessage(message, options)))).filter((a) => a !== null);
+          send(answers.length === 0 ? 202 : 200, answers.length === 0 ? undefined : answers);
+          return;
+        }
+        const answer = await answerUnitMcpMessage(parsed, options);
+        send(answer === null ? 202 : 200, answer ?? undefined);
+      })();
+    });
+  });
+  await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
+  const { port } = server.address() as AddressInfo;
+  return { url: `http://127.0.0.1:${port}/mcp`, close: () => new Promise<void>((resolve) => { server.close(() => resolve()); server.closeAllConnections(); }) };
+}
+
+export function acpUnitAgent(options: AcpAgentOptions): UnitAgent & { close(): Promise<void> } {
+  const limits = options.limits ?? DEFAULT_STAGE_LIMITS;
+  const timers = options.timers ?? PROCESS_TIMERS;
+  let connection: AcpConnection | undefined;
+  let scratch: string | undefined;
+
+  const connect = async (): Promise<AcpConnection> => {
+    if (connection !== undefined) return connection;
+    scratch = await mkdtemp(path.join(tmpdir(), 'madarch-writer-'));
+    const started = await connectAcpAgent(options.spec, { cwd: scratch, ...(options.env === undefined ? {} : { env: options.env }) });
+    await started.initialize();
+    connection = started;
+    return started;
+  };
+
+  return {
+    async run(request: UnitRequest): Promise<void> {
+      const acp = await connect();
+      const token = randomBytes(24).toString('hex');
+      const endpoint = await serveTools(request.tools, token);
+      const guard = createUnitLimitGuard({ limits, clock: () => Date.now() });
+      let stop: UnitLimitCause | undefined;
+      let wrapPending = false;
+      try {
+        const session = await acp.newSession({ cwd: scratch!, mcpServers: [{ name: 'madarch-writer', type: 'http', url: endpoint.url, headers: { Authorization: `Bearer ${token}` } }] });
+        let prompt = request.prompt;
+        for (let turns = 1; turns <= limits.maxTurns && stop === undefined; turns += 1) {
+          guard.sent(Math.ceil([...prompt].length / CHARACTERS_PER_TOKEN));
+          const turn = new AbortController();
+          const watch = watchUnitTimeLimit({ guard, timers, onStop: (cause) => { stop ??= cause; turn.abort(); }, onWrap: () => { wrapPending = true; } });
+          try {
+            await session.prompt(prompt, {
+              signal: turn.signal,
+              onUpdate: (update: AcpUpdate) => {
+                if (update.kind !== 'usage') return;
+                const judged = guard.observe({ ...(update.contextUsed === undefined ? {} : { contextUsed: update.contextUsed }), ...(update.contextSize === undefined ? {} : { contextSize: update.contextSize }) });
+                if (judged.kind === 'wrap') wrapPending = true;
+                if (judged.kind === 'stop' && stop === undefined) { stop = judged.cause; turn.abort(); }
+              },
+            });
+          } finally {
+            watch.disarm();
+          }
+          if (request.tools.finished() || stop !== undefined) break;
+          const judged = guard.observe({ turns });
+          if (judged.kind === 'stop') { stop = judged.cause; break; }
+          prompt = wrapPending || judged.kind === 'wrap'
+            ? guard.wrapUpMessage()
+            : 'The page is not written yet. Call write_page with the whole page now; if it was refused, fix every listed problem first.';
+          wrapPending = false;
+        }
+        if (stop !== undefined) options.progress?.(`${request.id} stopped: ${guard.describe({ kind: 'stop', cause: stop, state: guard.state() })}`);
+      } finally {
+        await endpoint.close();
+      }
+    },
+    async close(): Promise<void> {
+      await connection?.close();
+      connection = undefined;
+      if (scratch !== undefined) await rm(scratch, { recursive: true, force: true });
+      scratch = undefined;
+    },
+  };
+}

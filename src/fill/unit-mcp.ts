@@ -37,7 +37,7 @@
  * line there is a protocol error the agent reports as madarch's fault.
  */
 import { runningVersion } from '../product/version.js';
-import { UNIT_TOOL_NAMES, UNIT_TOOLS, type UnitToolAnswer, type UnitToolDefinition } from './unit-tools.js';
+import { UNIT_TOOL_NAMES, UNIT_TOOLS, type UnitToolAnswer } from './unit-tools.js';
 
 /** The protocol revisions this server knows, newest first. */
 export const MCP_PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'] as const;
@@ -57,10 +57,17 @@ export const UNIT_MCP_INFO: McpServerInfo = { name: 'madarch-unit', version: run
 /** What a message answers a tool call with: the host this server proxies to (`createUnitToolsHost`). */
 export type UnitToolCallForwarder = (tool: string, argumentsValue: unknown) => Promise<UnitToolAnswer>;
 
+/** A tool as `tools/list` answers it; the fill's unit tools are these, and so are another stage's own (the knowledge writer's). */
+export interface McpToolDefinition {
+  readonly name: string;
+  readonly description: string;
+  readonly inputSchema: Record<string, unknown>;
+}
+
 /** What this server serves and how one call is answered. */
 export interface UnitMcpOptions {
   /** The tools `tools/list` answers; the unit's catalogue unless a caller names its own. */
-  readonly tools?: readonly UnitToolDefinition[];
+  readonly tools?: readonly McpToolDefinition[];
   /** Where a tool call goes: the host that owns the database. */
   readonly call: UnitToolCallForwarder;
   /** What this server is called and which version it is; `madarch-unit` and this build's version by default. */
@@ -100,7 +107,7 @@ export function answeredVersion(requested: unknown): string {
 }
 
 /** The tools `tools/list` answers, in the catalogue's own order, each with its own schema. */
-function listed(tools: readonly UnitToolDefinition[]): readonly Record<string, unknown>[] {
+function listed(tools: readonly McpToolDefinition[]): readonly Record<string, unknown>[] {
   return tools.map((tool) => ({ name: tool.name, description: tool.description, inputSchema: tool.inputSchema }));
 }
 
