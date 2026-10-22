@@ -620,9 +620,45 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
   const digestOf = (commit: CommitFact): string => sha256Hex(new TextEncoder().encode(`${commit.hash}\n${commit.tree}`));
   const whereOf = (commit: CommitFact): string => `commit ${commit.hash} ("${commit.subject}", generation ${commit.generation}) of ${repository}`;
 
-  /** Reads one commit's code and publishes every extraction of it in the given mode. */
-  const fillCode = async (commit: CommitFact, modeOf: (commit: CommitFact) => PublishMode): Promise<{ done: CommitFill; present: ReadonlyMap<string, Extraction> }> => {
+  /** Whether the work item of a producer at a place was published, and with which input digest. */
+  const publishedAt = async (producer: string, generation: number): Promise<string | undefined> => {
+    const rows = await query<{ input_digest: string }>(
+      owner,
+      `SELECT input_digest FROM work_item WHERE producer = $1 AND scope_id = $2::bigint AND generation = $3::bigint AND published_at IS NOT NULL`,
+      [producer, repositoryNode, String(generation)],
+    );
+    return rows[0]?.input_digest;
+  };
+  /**
+   * Whether every extraction of a commit was published by an earlier fill: the
+   * driver publishes an empty record of its own, after the last extraction, for
+   * each commit it has read, so a repeated fill does not parse the tree again.
+   */
+  const alreadyRead = async (commit: CommitFact): Promise<boolean> => {
+    const held = await publishedAt(DRIVER_PRODUCER, storeGeneration(commit.generation));
+    if (held === undefined) return false;
+    if (held !== digestOf(commit)) {
+      throw new Error(`extract driver: ${repository}: ${whereOf(commit)} was read with input digest ${held}, but the walk now reads ${digestOf(commit)}: the history changed under a fixed generation number, and what the store already believes is not rewritten`);
+    }
+    return true;
+  };
+  const markRead = async (commit: CommitFact, generation = storeGeneration(commit.generation), inputDigest = digestOf(commit), what = whereOf(commit)): Promise<void> => {
+    const found = await query<{ id: string }>(owner, `SELECT id::text AS id FROM work_item WHERE producer = $1 AND scope_id = $2::bigint AND generation = $3::bigint`, [DRIVER_PRODUCER, repositoryNode, String(generation)]);
+    try {
+      if (found.length === 0) await store.openWorkItem({ producer: DRIVER_PRODUCER, scope: repositoryNode, generation, inputDigest, leaseToken, leaseUntil });
+      else await store.leaseWorkItem({ producer: DRIVER_PRODUCER, scope: repositoryNode, generation, leaseToken, leaseUntil, inputDigest });
+      await store.publish({ producer: DRIVER_PRODUCER, scope: repositoryNode, generation, leaseToken, inputDigest });
+    } catch (error) {
+      throw new Error(`extract driver: recording that ${what} was read failed: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
+    }
+  };
+
+  /** Reads one commit's code and publishes every extraction of it in the given mode; a commit an earlier fill read is not read again when `skipRead` allows. */
+  const fillCode = async (commit: CommitFact, modeOf: (commit: CommitFact) => PublishMode, skipRead: boolean): Promise<{ done: CommitFill; present: ReadonlyMap<string, Extraction> }> => {
     const commitStarted = Date.now();
+    if (skipRead && await alreadyRead(commit)) {
+      return { done: { hash: commit.hash, generation: commit.generation, effectiveTime: commit.effectiveTime, durationMs: Date.now() - commitStarted, publications: 0, gaps: 0 }, present: new Map() };
+    }
     const extractions = await runExtractors(commit, commitTree(repository, commit.hash));
     const present = new Map(extractions.map((extraction) => [extraction.producer as string, extraction]));
     pointMaps = new Map();
@@ -632,19 +668,25 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
       if (await publishExtraction(extraction, present, commit.generation, commit.effectiveTime, digestOf(commit), modeOf(commit), whereOf(commit))) publications += 1;
       gapCount += extraction.gaps.length;
     }
+    if (await publishedAt(DRIVER_PRODUCER, storeGeneration(commit.generation)) === undefined) await markRead(commit);
     return { done: { hash: commit.hash, generation: commit.generation, effectiveTime: commit.effectiveTime, durationMs: Date.now() - commitStarted, publications, gaps: gapCount }, present };
   };
 
+  /** The history publication of a walk of `n` commits is recorded as generation `2n + 1` of the driver's own producer. */
+  const historyGeneration = storeGeneration(walk.length) + 1;
+  const historyInputDigest = sha256Hex(new TextEncoder().encode(walk.map((commit) => `${commit.hash} ${commit.committerTime} ${commit.effectiveTime}`).join('\n')));
   const phases = { codeMs: 0, historyMs: 0, pointsMs: 0 };
   const commits: CommitFill[] = [];
   const points: CommitFill[] = [];
   let lastPresent: ReadonlyMap<string, Extraction> = new Map();
 
+  // The tree is parsed again only when the history still has to be published (it needs the tree's records to tell the owners' nodes).
+  const historyPublished = options.history === undefined || await publishedAt(DRIVER_PRODUCER, historyGeneration) === historyInputDigest;
   // 1. The code of the last commit, once.
   let phaseStarted = Date.now();
   await options.onPhase?.({ phase: 'code', commits: walk.length, newCommits });
   if (options.extractors.length > 0) {
-    const tip = await fillCode(last, () => ({ kind: 'tip', closeGap: true, renames: true, verifyPrior: true }));
+    const tip = await fillCode(last, () => ({ kind: 'tip', closeGap: true, renames: true, verifyPrior: true }), historyPublished);
     lastPresent = tip.present;
     commits.push(tip.done);
   }
@@ -652,7 +694,7 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
   if (commits[0] !== undefined) await options.onCommit?.(commits[0], { index: walk.length, commits: walk.length });
 
   // 2. The history: one git log over every first-parent commit, no code parsed.
-  if (options.history !== undefined) {
+  if (options.history !== undefined && !historyPublished) {
     phaseStarted = Date.now();
     await options.onPhase?.({ phase: 'history', commits: walk.length, newCommits });
     let extraction: Extraction;
@@ -661,8 +703,9 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
     } catch (error) {
       throw new Error(`extract driver: the history extractor failed over ${repository} (${walk.length} first-parent commits): ${error instanceof Error ? error.message : String(error)}`, { cause: error });
     }
-    const inputDigest = sha256Hex(new TextEncoder().encode(walk.map((commit) => `${commit.hash} ${commit.committerTime} ${commit.effectiveTime}`).join('\n')));
-    await publishExtraction(extraction, lastPresent, walk.length, last.effectiveTime, inputDigest, { kind: 'tip', closeGap: false, renames: false, verifyPrior: false }, `the history of ${repository} (${walk.length} first-parent commits)`);
+    const historyWhere = `the history of ${repository} (${walk.length} first-parent commits)`;
+    await publishExtraction(extraction, lastPresent, walk.length, last.effectiveTime, historyInputDigest, { kind: 'tip', closeGap: false, renames: false, verifyPrior: false }, historyWhere);
+    if (await publishedAt(DRIVER_PRODUCER, historyGeneration) === undefined) await markRead(last, historyGeneration, historyInputDigest, historyWhere);
     phases.historyMs = Date.now() - phaseStarted;
   }
 
@@ -672,7 +715,7 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
     await options.onPhase?.({ phase: 'points', commits: chosen.length, newCommits: chosen.length });
     for (const commit of chosen) {
       const bound = walk[commit.generation]!.effectiveTime; // a point is never the last commit, so a next commit stands
-      const read = await fillCode(commit, () => ({ kind: 'point', bound }));
+      const read = await fillCode(commit, () => ({ kind: 'point', bound }), true);
       points.push(read.done);
       await options.onPoint?.(read.done, { index: commit.generation, commits: walk.length });
     }
