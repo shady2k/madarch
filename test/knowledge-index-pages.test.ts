@@ -7,7 +7,9 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, test } from 'bun:test';
-import { indexProductMarkdown, readKnowledgePages } from '../src/knowledge/index/index.js';
+import { createPGliteDatabaseOwner } from '../src/adapters/database-owner.js';
+import { createGraphStore } from '../src/graph/index.js';
+import { indexCounts, indexProductMarkdown, readKnowledgePages } from '../src/knowledge/index/index.js';
 import { PageReadError, readIndexedPage } from '../src/knowledge/index/page.js';
 import { documentSections } from '../src/knowledge/index/sections.js';
 import { documentAnchors } from '../src/writer/view.js';
@@ -171,7 +173,7 @@ describe('documentSections', () => {
   });
 });
 
-describe('readKnowledgePages and indexProductMarkdown refuse a product they cannot read whole', () => {
+describe('readKnowledgePages and indexProductMarkdown never refuse a whole product for a finding scoped to one kind or page', () => {
   const folder = (): string => mkdtempSync(path.join(tmpdir(), 'madarch-index-product-'));
   const write = (root: string, file: string, text: string): void => {
     mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
@@ -194,25 +196,74 @@ describe('readKnowledgePages and indexProductMarkdown refuse a product they cann
     }
   });
 
-  test('a manifest finding (a template that is not there) stops the index: the pages it would have dropped are not published as the whole', async () => {
+  test('a manifest that cannot be read at all publishes nothing, and says why with each finding\'s file and line', async () => {
     const root = folder();
     try {
-      write(root, 'madarch/kinds.yaml', KINDS);
+      write(root, 'madarch/kinds.yaml', 'kinds:\n  domain: [unclosed\n');
       write(root, 'docs/domains/payments.md', PAGE_TEXT);
-      const read = readKnowledgePages(root);
-      expect(read.findings.length).toBeGreaterThan(0);
       let message = '';
       try {
         await indexProductMarkdown({ owner: undefined as never, store: undefined as never, productFolder: root, productId: 'shop', at: '2020-01-01T00:00:00.000000Z', repositories: () => undefined });
       } catch (error) {
         message = (error as Error).message;
       }
-      expect(message).toContain('cannot be indexed whole');
+      expect(message).toContain('cannot be read, so no kind is known and nothing was published');
       expect(message).toContain('kinds.yaml:');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  test('a readable manifest whose only kind has a finding (its template is not there) is a finding of that kind, not of the manifest', () => {
+    const root = folder();
+    try {
+      write(root, 'madarch/kinds.yaml', KINDS);
+      write(root, 'docs/domains/payments.md', PAGE_TEXT);
+      const read = readKnowledgePages(root);
+      expect(read.pages).toEqual([]);
+      expect(read.findings.map((finding) => finding.message)).toEqual(['kind "domain": the template "templates/domain.md" does not exist in the product repository']);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('a finding scoped to one kind leaves only that kind out: the other pages are read, and the finding is answered for the Problems page', () => {
+    const root = folder();
+    try {
+      write(root, 'madarch/kinds.yaml', `${KINDS}  topic: { template: templates/missing.md, source: markdown, folder: docs/topics }\n`);
+      write(root, 'templates/domain.md', ':::body\n');
+      write(root, 'docs/domains/payments.md', PAGE_TEXT);
+      write(root, 'docs/topics/one.md', '---\nid: topic:one\nkind: topic\ntitle: One\n---\nText.\n');
+      const read = readKnowledgePages(root);
+      expect(read.pages.map((page) => page.id)).toEqual(['domain:payments']);
+      expect(read.findings.map((finding) => `${finding.file.split('/').slice(-2).join('/')}: ${finding.message}`)).toEqual(['madarch/kinds.yaml: kind "topic": the template "templates/missing.md" does not exist in the product repository']);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('indexProductMarkdown publishes the pages of the kinds that stand, and a page that cannot be read is the only one left out', async () => {
+    const root = folder();
+    const owner = createPGliteDatabaseOwner({ btreeGist: true, path: path.join(root, 'graph') });
+    try {
+      const store = createGraphStore(owner);
+      await owner.ready;
+      await store.createSchema();
+      write(root, 'madarch/kinds.yaml', `${KINDS}  topic: { template: templates/missing.md, source: markdown, folder: docs/topics }\n`);
+      write(root, 'templates/domain.md', ':::body\n');
+      write(root, 'docs/domains/payments.md', PAGE_TEXT);
+      write(root, 'docs/domains/broken.md', '---\nid: domain:broken\nkind: domain\nwritten-at: nonsense\n---\nbody\n');
+      write(root, 'docs/topics/one.md', '---\nid: topic:one\nkind: topic\ntitle: One\n---\nText.\n');
+      const report = await indexProductMarkdown({ owner, store, productFolder: root, productId: 'shop', at: '2020-01-01T00:00:00.000000Z', repositories: () => undefined });
+      expect(report.pages).toBe(1);
+      expect(report.findings.map((finding) => finding.file).sort()).toEqual([path.join(root, 'madarch/kinds.yaml'), 'docs/domains/broken.md'].sort());
+      expect(report.findings.find((finding) => finding.file === 'docs/domains/broken.md')!.line).toBe(2);
+      expect((await indexCounts(owner)).map((count) => `${count.kind}:${count.pages}`)).toEqual(['domain:1']);
+    } finally {
+      await owner.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 60_000);
 
   test('a page that cannot be read names its file and line', async () => {
     const root = folder();

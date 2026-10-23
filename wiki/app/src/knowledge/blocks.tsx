@@ -28,7 +28,7 @@ import { NeighborhoodGraph } from './diagrams/neighborhood.js';
 import { SequenceView } from './diagrams/chain.js';
 import { TreemapView } from './diagrams/treemap.js';
 import { useKindName } from './kind-names.js';
-import { addressOfDocument, addressOfStatement } from './routes.js';
+import { addressOfDocument, addressOfStatement, K_PROBLEMS } from './routes.js';
 import { linkHandlers, openInNewTab, syncFrontTabAddress } from './tabs.js';
 import { remarkStatements, type MNode } from './statements.js';
 import { setShowGrounds, useShowGrounds } from './preferences.js';
@@ -561,36 +561,6 @@ function Problem({ block }: { block: Extract<Block, { type: 'problem' }> }): Rea
   );
 }
 
-/** A repository history summary: the row facts and bounded cut are written in the reader language. */
-function History({ block }: { block: Extract<Block, { type: 'history' }> }): ReactElement {
-  const { t } = useTranslation();
-  /** One figure in the reader's language: `+42`, `−7`, `3 symbols`, `module: services/orders`. */
-  const figureText = (figure: { kind: string; value: string }): string => {
-    if (figure.kind === 'added') return `+${figure.value}`;
-    if (figure.kind === 'removed') return `−${figure.value}`;
-    if (figure.kind === 'module') return `${t('knowledge.historyFigure.module')}: ${figure.value}`;
-    return `${figure.value} ${t(`knowledge.historyFigure.${figure.kind}`)}`;
-  };
-  const figure = (kind: string, value: string): string => t(`knowledge.history${kind[0]!.toUpperCase()}${kind.slice(1)}`, { value });
-  return (
-    <section data-block="history" aria-label={block.title}>
-      {block.title !== '' && <h2>{block.title}</h2>}
-      {block.rows.length === 0 && <p className="text-small text-muted">{t('knowledge.historyUnavailable')}</p>}
-      {block.rows.length > 0 && <ul className="space-y-2" data-testid="history-rows">
-        {block.rows.map((row, index) => <li key={`${row.entity?.id ?? row.text}:${index}`} className="rounded-md border p-3">
-          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-            {row.when !== undefined && <time className="text-small text-muted">{row.when}</time>}
-            {row.who !== undefined && <span className="text-small text-muted">{row.who}</span>}
-            {row.entity?.href !== null && row.entity?.href !== undefined ? <KLink href={row.entity.href}>{row.text}</KLink> : <span>{row.text}</span>}
-          </div>
-          {row.figures.length > 0 && <p className="mb-0 mt-1 text-small text-muted">{row.figures.map((item) => figure(item.kind, item.value)).join(' · ')}</p>}
-        </li>)}
-      </ul>}
-      {block.total > block.shown && <p className="mt-2 text-small text-muted">{t('knowledge.showing', { shown: block.shown, total: block.total })}</p>}
-      {block.notes.map((note, index) => <p key={index} className="mt-2 text-small text-muted">{note}</p>)}
-    </section>
-  );
-}
 
 /** One block of a page. */
 export function BlockView({ block, resolutions, pageId }: { block: Block; resolutions: Readonly<Record<string, Resolution>>; pageId?: string }): ReactElement | null {
@@ -612,7 +582,6 @@ export function BlockView({ block, resolutions, pageId }: { block: Block; resolu
     case 'modules': return <ModulesView block={block} />;
     case 'treemap': return <TreemapView block={block} />;
     case 'history': return <History block={block} />;
-    case 'history': return <History block={block} />;
     case 'er': return <Diagram title={block.title} mermaid={block.mermaid} empty={t('knowledge.noTables')} caption={block.tables > block.shownTables ? t('knowledge.showing', { shown: block.shownTables, total: block.tables }) : null} links={block.links} />;
     case 'deferred': return <Deferred block={block} resolutions={resolutions} {...(pageId === undefined ? {} : { pageId })} />;
     case 'problem': return <Problem block={block} />;
@@ -623,21 +592,31 @@ export function BlockView({ block, resolutions, pageId }: { block: Block; resolu
  * The findings a page carries. A reader is told in plain words what a finding means and who puts it right; the file and
  * line of each, which an engineer needs, are behind "Details" so the page reads first.
  */
-export function Findings({ findings }: { findings: readonly { file: string; line: number; message: string }[] }): ReactElement | null {
+export function Findings({ findings, scope = 'page' }: { findings: readonly { file: string; line: number; message: string }[]; scope?: 'page' | 'manifest' }): ReactElement | null {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
-  if (findings.length === 0) return null;
+  const visible = scope === 'manifest' ? [...new Map(findings.map((finding) => [`${finding.file}:${finding.line}:${finding.message}`, finding])).values()] : findings;
+  const words = (message: string): string => {
+    const missingGroup = /^kind "([^"]+)": "group" names a group of "groups" (?:\([^)]*\)|.*?), got "([^"]+)"$/.exec(message);
+    if (missingGroup !== null) {
+      const kind = t(`knowledge.manifestKinds.${missingGroup[1]}`, { defaultValue: missingGroup[1] });
+      return t('knowledge.manifestMissingGroup', { kind, group: missingGroup[2] });
+    }
+    return message;
+  };
+  if (visible.length === 0) return null;
   return (
-    <Alert variant="problem" className="mt-8" data-testid="findings">
-      <AlertTitle>{t('knowledge.findings', { count: findings.length })}</AlertTitle>
+    <Alert variant="problem" className={scope === 'manifest' ? 'mb-8' : 'mt-8'} data-testid={scope === 'manifest' ? 'manifest-findings' : 'findings'}>
+      <AlertTitle>{t('knowledge.findings', { count: visible.length })}</AlertTitle>
       <AlertDescription>
-        <p data-testid="findings-help">{t('knowledge.findingsHelp')}</p>
+        <p data-testid="findings-help">{scope === 'manifest' ? t('knowledge.manifestFindingsHelp') : t('knowledge.findingsHelp')}</p>
+        {scope === 'manifest' && <p className="mt-1"><KLink href={K_PROBLEMS}>{t('errors.problems')}</KLink></p>}
         <button type="button" className="cursor-pointer bg-transparent p-0 text-left text-secondary underline" aria-expanded={open} onClick={() => setOpen(!open)} data-testid="findings-details">
           {open ? t('knowledge.findingsHide') : t('knowledge.findingsDetails')}
         </button>
         {open && (
           <ul className="!my-2">
-            {findings.map((finding, index) => <li key={index}><span className="font-mono text-[0.875em]">{finding.file}:{finding.line}</span> {finding.message}</li>)}
+            {visible.map((finding, index) => <li key={`${finding.file}:${finding.line}:${index}`}><span className="font-mono text-[0.875em]">{finding.file}:{finding.line}</span> {scope === 'manifest' ? words(finding.message) : finding.message}</li>)}
           </ul>
         )}
       </AlertDescription>

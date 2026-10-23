@@ -126,6 +126,8 @@ export interface KindsManifest {
   /** Markdown documents the wiki does not list as documents (harness files, say), as path patterns. */
   excludeDocuments: readonly string[];
   findings: readonly Finding[];
+  /** The manifest could not be read as a whole (not YAML, not a mapping, no `kinds` mapping): no kind is known, which is not the same as every kind having a finding. */
+  unreadable?: true;
 }
 
 export type KindsRead =
@@ -142,7 +144,7 @@ export function insideFolder(folder: string, path: string): boolean {
 }
 
 function nothing(file: string, findings: Finding[]): KindsManifest {
-  return { file, roles: new Map(), kinds: new Map(), groups: new Map(), excludeDocuments: [], findings };
+  return { file, roles: new Map(), kinds: new Map(), groups: new Map(), excludeDocuments: [], findings, unreadable: true };
 }
 
 /** Reads `madarch/kinds.yaml` of a product folder; absent when the product holds none. */

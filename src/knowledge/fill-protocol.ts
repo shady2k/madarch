@@ -81,7 +81,8 @@ export type FromWorker =
   | { type: 'snapshot'; seq: number; pins: RepositoryPin[] }
   | { type: 'fill'; state: 'done'; gaps: number }
   | { type: 'fill'; state: 'stopped' }
-  | { type: 'fill'; state: 'failed'; message: string }
+  /** `code` names the kind of failure for the app to word in the reader's language; `message` is the engineer's detail. */
+  | { type: 'fill'; state: 'failed'; message: string; code?: string }
   /** Which pages the refresh will touch and why, told before the agent is asked for its first unit. */
   | { type: 'plan'; plan: RefreshPlan }
   | { type: 'agent-wanted' }
@@ -91,7 +92,7 @@ export type FromWorker =
   | { type: 'unit-outcome'; outcome: UnitSummary }
   | { type: 'page'; path: string }
   | { type: 'writer'; state: 'done'; message?: string; asked?: number }
-  | { type: 'writer'; state: 'failed'; message: string; asked?: number }
+  | { type: 'writer'; state: 'failed'; message: string; asked?: number; code?: string }
   | { type: 'log'; line: string };
 
 /** Reads a line as a message; the error names the line it could not read. */

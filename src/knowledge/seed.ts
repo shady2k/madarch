@@ -173,7 +173,7 @@ ${SECTION.pagesAbout('this author', 'этом авторе')}
 `;
 
 /** The shape each template file has; the kinds name the file. */
-const TEMPLATES: Readonly<Record<string, string>> = {
+export const TEMPLATES: Readonly<Record<string, string>> = {
   'product.md': PRODUCT,
   'domain.md': DOMAIN,
   'service.md': SERVICE,
@@ -184,7 +184,6 @@ const TEMPLATES: Readonly<Record<string, string>> = {
   'route.md': ROUTE,
   'item.md': ITEM,
   'item-plain.md': ITEM_PLAIN,
-  'history.md': `${SECTION.details}\n${G('Around this','Вокруг этого')}\n${block('history', 'History', 'История', 'limit=100')}\n${SECTION.relations}\n`,
   'task.md': TASK,
   'commit.md': COMMIT,
   'author.md': AUTHOR,
@@ -196,7 +195,7 @@ const TEMPLATES: Readonly<Record<string, string>> = {
   'correction.md': ':::body\n',
 };
 
-interface StarterKind {
+export interface StarterKind {
   name: string;
   template: keyof typeof TEMPLATES;
   source: 'markdown' | 'graph' | 'document';
@@ -210,7 +209,7 @@ interface StarterKind {
   extra?: string[];
 }
 
-const GROUPS: readonly { name: string; en: string; ru: string }[] = [
+export const GROUPS: readonly { name: string; en: string; ru: string }[] = [
   { name: 'product', en: 'Product knowledge', ru: 'Знания о продукте' },
   { name: 'code', en: 'Code', ru: 'Код' },
   { name: 'contracts', en: 'Contracts', ru: 'Контракты' },
@@ -221,7 +220,7 @@ const GROUPS: readonly { name: string; en: string; ru: string }[] = [
 ];
 
 /** What each role opens on a page and puts first in the navigation (decision 0031); the product edits them. */
-const ROLES: readonly { name: string; lead: string[]; open: string[] }[] = [
+export const ROLES: readonly { name: string; lead: string[]; open: string[] }[] = [
   { name: 'product', lead: ['product', 'tests'], open: ['stated', 'implementedby', 'linkedfrom', 'related', 'properties'] },
   { name: 'analyst', lead: ['product', 'data', 'contracts'], open: ['stated', 'implementedby', 'linkedfrom', 'related', 'properties', 'er', 'sequence', 'children'] },
   { name: 'architect', lead: ['product', 'code', 'contracts', 'data'], open: ['graph', 'related', 'sequence', 'er', 'stated', 'implementedby', 'linkedfrom', 'properties', 'children'] },
@@ -230,7 +229,7 @@ const ROLES: readonly { name: string; lead: string[]; open: string[] }[] = [
   { name: 'tester', lead: ['tests', 'product'], open: ['stated', 'implementedby', 'linkedfrom', 'related', 'properties', 'callers', 'children'] },
 ];
 
-const STARTER_KINDS: readonly StarterKind[] = [
+export const STARTER_KINDS: readonly StarterKind[] = [
   { name: 'product', template: 'product.md', source: 'markdown', group: 'product', en: ['Product', 'Products'], ru: ['Продукт', 'Продукты'], describe: ['What the product is, for whom, and its architecture: the home page the agent writes.', 'Что это за продукт, для кого и как устроен: главная страница, которую пишет агент.'], extra: ['file: docs/product.md'] },
   { name: 'domain', template: 'domain.md', source: 'markdown', group: 'product', en: ['Domain', 'Domains'], ru: ['Домен', 'Домены'], describe: ['A part of the business the product serves, such as payment or ordering: how it works and what implements it.', 'Часть бизнеса, которую обслуживает продукт, например оплата или заказы: как она работает и что её реализует.'], extra: ['folder: docs/domains'] },
   { name: 'question', template: 'question.md', source: 'markdown', group: 'product', origin: 'agent', en: ['Question', 'Questions'], ru: ['Вопрос', 'Вопросы'], describe: ['Something the agent could not settle from the code and the documents; a person answers it.', 'То, что агент не смог решить по коду и документам; отвечает человек.'], extra: ['folder: docs/questions'] },
@@ -288,7 +287,16 @@ const STARTER_KINDS: readonly StarterKind[] = [
   { name: 'code.task', template: 'task.md', source: 'graph', group: 'history', origin: 'history', en: ['Task', 'Tasks'], ru: ['Задача', 'Задачи'], describe: ['A tracker task that commit messages name.', 'Задача трекера, которую называют сообщения коммитов.'] },
 ];
 
-const yamlText = (text: string): string => JSON.stringify(text);
+export const yamlText = (text: string): string => JSON.stringify(text);
+
+/** The exclusion list of the manifest's `documents` section. */
+export const DOCUMENT_EXCLUDES: readonly string[] = ['AGENTS.md', 'CLAUDE.md', 'GEMINI.md', '**/AGENTS.md', '**/CLAUDE.md', '**/GEMINI.md'];
+
+/** The starter manifest's text, with the product's page language when it has one. */
+export function starterManifest(language?: string): string {
+  const text = kindsManifest();
+  return language === undefined ? text : `${text}language: ${language}\n`;
+}
 
 function kindsManifest(): string {
   const lines: string[] = [
@@ -320,13 +328,14 @@ function kindsManifest(): string {
   return `${lines.join('\n')}\n`;
 }
 
-function kindLines(kind: StarterKind): string[] {
+/** The declaration of one starter kind, as lines of the manifest; `group: false` leaves the group out (a manifest that declares none). */
+export function kindLines(kind: StarterKind, options: { group?: boolean } = {}): string[] {
   const lines: string[] = [];
   {
     lines.push(`  ${kind.name}:`);
     lines.push(`    template: templates/${kind.template}`);
     lines.push(`    source: ${kind.source}`);
-    lines.push(`    group: ${kind.group}`);
+    if (options.group !== false) lines.push(`    group: ${kind.group}`);
     if (kind.origin !== undefined) lines.push(`    origin: ${kind.origin}`);
     for (const extra of kind.extra ?? []) lines.push(`    ${extra}`);
     lines.push('    labels:');
@@ -394,7 +403,8 @@ export function ensureLoopKinds(productFolder: string): string[] {
   let changed = false;
   for (const kind of wanted) {
     if (document.hasIn(['kinds', kind.name])) continue;
-    const parsed = parseDocument(`kinds:\n${kindLines(kind).join('\n')}\n`).getIn(['kinds', kind.name]) as { toJSON(): unknown };
+    // A group the manifest does not declare would make the kind a finding: the kind is then declared without one.
+    const parsed = parseDocument(`kinds:\n${kindLines(kind, { group: document.hasIn(['groups', kind.group]) }).join('\n')}\n`).getIn(['kinds', kind.name]) as { toJSON(): unknown };
     document.setIn(['kinds', kind.name], document.createNode(parsed.toJSON()));
     changed = true;
   }
