@@ -231,7 +231,7 @@ export function QuestionPage({ slug, version, refresh }: { slug: string; version
 function ProblemItem({ problem }: { problem: Problem }): ReactElement {
   const { t } = useTranslation();
   const where = problem.page === null ? null : <KLink href={addressOfEntity(problem.page)}>{problem.pageTitle ?? shortId(problem.page)}</KLink>;
-  const missingGroup = /^kind "([^"]+)": "group" names a group of "groups" .*?, got "([^"]+)"$/.exec(problem.reason);
+  const missingGroup = /^kind "([^"]+)": "group" names a group of "groups" \([^)]*\), got "([^"]+)"$/.exec(problem.reason);
   const readerReason = missingGroup === null ? problem.reason : t('knowledge.manifestMissingGroup', {
     kind: t(`knowledge.manifestKinds.${missingGroup[1]}`, { defaultValue: missingGroup[1] }), group: missingGroup[2],
   });
@@ -292,7 +292,6 @@ export function StarterOffers({ offers, refresh }: { offers: readonly StarterOff
   return (
     <section className="mb-8" data-testid="problems-starter">
       <h2>{t('loop.starter.summary', { count: offers.length })}</h2>
-      <p className="text-secondary" data-testid="starter-summary">{t('loop.starter.summary', { count: offers.length })}</p>
       <p className="mb-3 flex flex-wrap items-center gap-3">
         <Button variant="default" size="default" disabled={working !== null} onClick={() => add(offers.map((offer) => offer.id), '*')} data-testid="starter-add-all">{t('loop.starter.addAll')}</Button>
         <button type="button" className="cursor-pointer bg-transparent p-0 text-left text-secondary underline" aria-expanded={expanded} onClick={() => setExpanded(!expanded)} data-testid="starter-toggle">{expanded ? t('loop.starter.hideItems') : t('loop.starter.showItems')}</button>
