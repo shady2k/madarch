@@ -136,7 +136,10 @@ export async function archifyFrame(view: GraphView, env: Readonly<Record<string,
   const output = join(scratch.folder, 'rendered.html');
   writeFileSync(input, JSON.stringify(document));
   const rendered = await renderArchifyPage(document, input, output);
-  if (rendered.status !== 0 || !existsSync(output)) return { ok: false, message: `the archify page of the ${view.spec.type} view could not be rendered:\n${rendered.output.trim() || 'it printed nothing'}` };
+  if (rendered.status !== 0 || !existsSync(output)) {
+    // The renderer's own words, and the two paths it was given: a refusal nobody can locate is a refusal nobody can act on.
+    return { ok: false, message: `${input}:1: the archify page of the ${view.spec.type} view could not be rendered into ${output} (renderer exit ${String(rendered.status)}):\n${rendered.output.trim() || 'it printed nothing'}` };
+  }
   const links: Record<string, string> = {};
   for (const element of view.elements) {
     const component = held.componentIds.get(element.id);

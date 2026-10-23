@@ -156,7 +156,10 @@ async function walkViews(page: Page, entry: { name: string }, tag: string): Prom
         await block.$eval(`[data-testid=renderer-${renderer}]`, (node) => (node as HTMLElement).click());
         let drawn = true;
         try {
+          // The Mermaid tab draws in the page itself, the LikeC4 tab draws its laid-out model in the page, and the
+          // archify tab is the server's page in a frame: each one is waited for where it really appears.
           if (renderer === 'mermaid') await block.waitForSelector('[data-testid=view-picture] svg', { timeout: 60_000 });
+          else if (renderer === 'likec4') await block.waitForSelector('[data-testid=view-frame-likec4] .react-flow__node, [data-testid=view-frame-likec4] .likec4-element-node, [data-testid=view-frame-likec4] [data-node-id]', { timeout: 60_000 });
           else await block.waitForSelector(`iframe[data-renderer=${renderer}]`, { timeout: 30_000 });
         } catch { drawn = false; }
         await new Promise((rest) => setTimeout(rest, renderer === 'mermaid' ? 600 : 9000));
@@ -164,7 +167,11 @@ async function walkViews(page: Page, entry: { name: string }, tag: string): Prom
         await block.screenshot({ path: join(out, `${label}.png`) });
         const measures: Record<string, unknown>[] = [];
         if (renderer === 'mermaid') measures.push((await page.evaluate(`(() => { const root = document.querySelectorAll('[data-diagram=views]')[${blockAt}].querySelector('[data-testid=view-picture]'); const texts = [...root.querySelectorAll('svg text, svg foreignObject *')].filter((n) => (n.textContent||'').trim() !== '' && n.children.length === 0); const boxes = texts.map((n) => ({ t: n.textContent.trim(), r: n.getBoundingClientRect(), s: parseFloat(getComputedStyle(n).fontSize) * (n.getScreenCTM() ? n.getScreenCTM().a : 1) })).filter((b) => b.r.width > 0); const over = []; for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) { const a = boxes[i].r, b = boxes[j].r; const w = Math.min(a.right, b.right) - Math.max(a.left, b.left), h = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top); if (w > 1.5 && h > 1.5) over.push(boxes[i].t + ' / ' + boxes[j].t); } return { texts: boxes.length, minFontPx: boxes.length ? Math.round(Math.min(...boxes.map((b) => b.s)) * 10) / 10 : null, overlaps: over.slice(0, 8), overlapCount: over.length }; })()`)) as Record<string, unknown>);
-        else {
+        else if (renderer === 'likec4') {
+          // LikeC4 draws into the page's own tree, so its labels are read inside the block that holds it.
+          const inBlock = MEASURE_LABELS.replace('walk(document);', `walk(document.querySelectorAll('[data-diagram=views]')[${blockAt}]);`);
+          measures.push((await page.evaluate(inBlock)) as Record<string, unknown>);
+        } else {
           const handle = await block.$(`iframe[data-renderer=${renderer}]`);
           const frame = await handle?.contentFrame();
           if (frame !== null && frame !== undefined) measures.push((await frame.evaluate(MEASURE_LABELS)) as Record<string, unknown>);

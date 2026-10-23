@@ -298,7 +298,7 @@ describe('the function page', () => {
     expect(chain!.mermaidSource).toContain('sequenceDiagram');
   });
 
-  test('a function no route reaches starts its own chain and says so; a function with no calls draws no steps', async () => {
+  test('a function no route reaches starts its own chain and says so, and its calls are the steps drawn', async () => {
     const [chain] = (await page(HANDLE)).blocks.flatMap((entry) => (entry.type === 'diagrams' ? entry.views : []));
     expect(chain!.notes[0]).toContain('no route of the graph reaches this function');
     const [none] = (await page(AUDIT)).blocks.flatMap((entry) => (entry.type === 'diagrams' ? entry.views : []));

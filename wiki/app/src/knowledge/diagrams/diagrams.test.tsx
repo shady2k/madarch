@@ -203,12 +203,18 @@ const viewsBlock = (...views: DiagramView[]): Block => ({ type: 'diagrams', titl
 
 describe('the drawn views', () => {
   test('the first tab is the setting, every renderer of the type is a tab, and the other tabs are one click away', async () => {
+    const asked: string[] = [];
+    (globalThis as { fetch?: unknown }).fetch = async (url: string) => {
+      asked.push(String(url));
+      return new Response(JSON.stringify({ message: 'no drawing in this test' }), { status: 500 });
+    };
     const container = into(createElement(BlockView, { block: viewsBlock(CONTAINER), resolutions: {} }));
     await until(() => container.querySelector('[data-testid=view]') !== null, 'the view');
     expect([...container.querySelectorAll('[role=tab]')].map((tab) => tab.textContent)).toEqual(['LikeC4', 'Mermaid', 'archify']);
     expect(container.querySelector('[data-testid=view]')!.getAttribute('data-renderer')).toBe('likec4');
-    const frame = container.querySelector('iframe')!;
-    expect(frame.getAttribute('src')).toBe('/api/k/view-frame?type=c4-container&subject=&renderer=likec4&lang=en');
+    // The LikeC4 tab draws inside the page and reads its laid-out model from the server's own frame answer; the
+    // archify tab frames the page the server renders.
+    await until(() => asked.some((url) => url.includes('/api/k/view-frame?type=c4-container&subject=&renderer=likec4&lang=en')), 'the LikeC4 model read');
     (container.querySelector('[data-testid=renderer-archify]') as HTMLElement).click();
     await until(() => container.querySelector('iframe')?.getAttribute('src')?.includes('renderer=archify') === true, 'the archify frame');
     expect(container.querySelector('[data-testid=view]')!.getAttribute('data-renderer')).toBe('archify');

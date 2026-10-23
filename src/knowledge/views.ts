@@ -186,13 +186,16 @@ const WORDS = {
     unorderedWhy: 'the graph holds no order for this step', nameMatchWhy: 'matched by name only', portMatchWhy: 'matched by name and port only',
     caller: 'Caller', foreignKey: 'foreign key', routesTo: 'routes to', builds: 'builds', dependsOn: 'depends on', builtBy: 'built by', replicas: (n: number) => `${n} replica${n === 1 ? '' : 's'}`,
     folded: (n: number, g: string) => `${n} in ${g}`, truncated: (shown: number, total: number) => `Showing ${shown} of ${total}.`,
+    columnsTruncated: (list: string) => `Some columns are not drawn: ${list}.`,
     noServices: 'The graph holds no service yet.', noModules: (root: string) => `The graph holds no module under ${root}.`, noTables: 'The graph holds no table here.',
     noMachines: 'No transition table was found in the code of this page.', noDeploy: 'The graph holds no compose service, Kubernetes deployment or Dockerfile.',
     noEntry: 'No route or function of the graph starts a chain here.', outside: (n: number) => `${n} links to elements outside this folder are not drawn.`,
     folding: (shown: number, total: number) => `${total} elements fold into ${shown} folders; open a folder to see its members.`,
     stepsFolded: (n: number) => `${n} further steps are not drawn.`,
+    entriesFolded: (shown: number, total: number) => `${total} entry points start a chain here; the ${shown} first are drawn, and each one opens on its own page.`,
+    filesNotSearched: (n: number) => `${n} further files of this page were not searched for a transition table.`,
     domain: 'Domain', domains: 'Domains', neighbours: 'neighbouring domain', implementedBy: 'implemented by', implementedWhy: 'which service implements a domain is the agent\'s reading of the code, not a fact the graph holds',
-    mentions: 'mentions', mentionsWhy: 'the text names the domain; nothing in the graph links them', neighbourWhy: 'which domain the service belongs to is the agent\'s reading', uses2: 'uses', noDomains: 'No page relates to a service of the graph, so there is no map of domains to draw.',
+    mentions: 'mentions', mentioned: (shown: number, total: number) => `Showing ${shown} of ${total} pages whose text names the domain.`, mentionsWhy: 'the text names the domain; nothing in the graph links them', neighbourWhy: 'which domain the service belongs to is the agent\'s reading', uses2: 'uses', noDomains: 'No page relates to a service of the graph, so there is no map of domains to draw.',
     domainOf: (title: string) => `Domain: ${title}`, event: (name: string) => `event ${name}`, nothingNearby: 'Nothing else the graph knows is attached to this domain.',
   },
   ru: {
@@ -201,13 +204,16 @@ const WORDS = {
     unorderedWhy: 'граф не знает порядка этого шага', nameMatchWhy: 'сопоставлено только по имени', portMatchWhy: 'сопоставлено только по имени и порту',
     caller: 'Вызывающий', foreignKey: 'внешний ключ', routesTo: 'направляет на', builds: 'собирает', dependsOn: 'зависит от', builtBy: 'собран из', replicas: (n: number) => `реплик: ${n}`,
     folded: (n: number, g: string) => `${n} в ${g}`, truncated: (shown: number, total: number) => `Показано ${shown} из ${total}.`,
+    columnsTruncated: (list: string) => `Часть столбцов не нарисована: ${list}.`,
     noServices: 'В графе пока нет ни одного сервиса.', noModules: (root: string) => `В графе нет модулей в ${root}.`, noTables: 'В графе здесь нет таблиц.',
     noMachines: 'В коде этой страницы не найдено таблицы переходов.', noDeploy: 'В графе нет ни сервисов compose, ни развёртываний Kubernetes, ни Dockerfile.',
     noEntry: 'Ни один маршрут или функция графа не начинает здесь цепочку.', outside: (n: number) => `Связи с элементами за пределами этой папки (${n}) не нарисованы.`,
     folding: (shown: number, total: number) => `${total} элементов свёрнуты в ${shown} папок; откройте папку, чтобы увидеть её содержимое.`,
     stepsFolded: (n: number) => `Ещё ${n} шагов не нарисованы.`,
+    entriesFolded: (shown: number, total: number) => `Здесь ${total} точек входа начинают цепочку; нарисованы первые ${shown}, каждая открывается на своей странице.`,
+    filesNotSearched: (n: number) => `Ещё ${n} файлов этой страницы не проверялись на таблицу переходов.`,
     domain: 'Домен', domains: 'Домены', neighbours: 'соседний домен', implementedBy: 'реализует', implementedWhy: 'какой сервис реализует домен, решил агент по коду; граф такого факта не хранит',
-    mentions: 'упоминает', mentionsWhy: 'текст называет домен; в графе между ними связи нет', neighbourWhy: 'к какому домену относится сервис, решил агент', uses2: 'использует', noDomains: 'Ни одна страница не связана с сервисом графа, поэтому карту доменов рисовать не из чего.',
+    mentions: 'упоминает', mentioned: (shown: number, total: number) => `Показано ${shown} из ${total} страниц, в тексте которых назван домен.`, mentionsWhy: 'текст называет домен; в графе между ними связи нет', neighbourWhy: 'к какому домену относится сервис, решил агент', uses2: 'использует', noDomains: 'Ни одна страница не связана с сервисом графа, поэтому карту доменов рисовать не из чего.',
     domainOf: (title: string) => `Домен: ${title}`, event: (name: string) => `событие ${name}`, nothingNearby: 'К этому домену не привязано ничего из того, что знает граф.',
   },
 };
@@ -421,6 +427,9 @@ async function componentView(ctx: RenderContext, spec: ViewSpec, w: Words): Prom
 // ---- ER ----------------------------------------------------------------------------------------------
 
 const erName = (label: string): string => label.replace(/[^A-Za-z0-9_]/g, '_');
+
+/** The name a reader reads on an ER box: the table's own name, escaped for Mermaid's quoted alias. */
+const erAlias = (label: string): string => label.replace(/["%\\\r\n]/g, ' ');
 const erType = (type: unknown): string => {
   const word = String(type ?? 'text').trim().replace(/\s+/g, '_').replace(/[^A-Za-z0-9_(),-]/g, '');
   return word === '' ? 'text' : word;
@@ -491,21 +500,30 @@ async function erView(ctx: RenderContext, spec: ViewSpec, w: Words, limit: numbe
 // ---- state -------------------------------------------------------------------------------------------
 
 /** The files whose text a subject's state machines are read from. */
-async function filesOfSubject(ctx: RenderContext, subject: GraphEntity): Promise<{ repo: string | null; path: string; scope: string }[]> {
+interface SubjectFiles {
+  files: { repo: string | null; path: string; scope: string }[];
+  /** How many files of the subject the read did not reach, so a view says what it did not search. */
+  dropped: number;
+}
+
+async function filesOfSubject(ctx: RenderContext, subject: GraphEntity): Promise<SubjectFiles> {
   const repo = ctx.repoOfScope(subject.scope) ?? null;
   const own = typeof subject.properties['path'] === 'string' ? subject.properties['path'] : subject.span?.path;
-  if (subject.kind === 'code.file' || subject.kind === 'code.symbol') return own === undefined ? [] : [{ repo, path: own, scope: subject.scope }];
+  if (subject.kind === 'code.file' || subject.kind === 'code.symbol') return { files: own === undefined ? [] : [{ repo, path: own, scope: subject.scope }], dropped: 0 };
   if (subject.kind === 'code.module' || subject.kind === 'code.package' || subject.kind === 'code.service') {
     const root = subject.kind === 'code.service' ? dirname(subject.span?.path ?? '.') : keyTail(subject.key);
     const found = await ctx.graph.byPrefix('code.file', root === '.' ? 'code.file:' : `code.file:${root}/`, 400);
-    return found.rows.map((file) => ({ repo: ctx.repoOfScope(file.scope) ?? null, path: String(file.properties['path'] ?? keyTail(file.key)), scope: file.scope })).filter((file) => /\.(go|ts|tsx|js|mjs)$/.test(file.path) && !/(^|\/)(tests?|__tests__)\/|\.(test|spec)\.[a-z]+$|_test\.go$/.test(file.path));
+    return {
+      files: found.rows.map((file) => ({ repo: ctx.repoOfScope(file.scope) ?? null, path: String(file.properties['path'] ?? keyTail(file.key)), scope: file.scope })).filter((file) => /\.(go|ts|tsx|js|mjs)$/.test(file.path) && !/(^|\/)(tests?|__tests__)\/|\.(test|spec)\.[a-z]+$|_test\.go$/.test(file.path)),
+      dropped: Math.max(0, found.total - found.rows.length),
+    };
   }
-  return [];
+  return { files: [], dropped: 0 };
 }
 
 /** Every state view the subject's files hold, one per transition table. */
 export async function stateViews(ctx: RenderContext, subject: GraphEntity, w: Words): Promise<GraphView[]> {
-  const files = await filesOfSubject(ctx, subject);
+  const { files, dropped } = await filesOfSubject(ctx, subject);
   const views: GraphView[] = [];
   const queue = [...files];
   const results = new Map<string, Awaited<ReturnType<typeof stateMachinesOf>>>();
@@ -516,6 +534,7 @@ export async function stateViews(ctx: RenderContext, subject: GraphEntity, w: Wo
     }
   };
   await Promise.all(Array.from({ length: 8 }, read));
+  const notSearched = dropped === 0 ? [] : [w.filesNotSearched(dropped)];
   for (const file of files) {
     for (const machine of results.get(`${file.repo ?? ''}|${file.path}`) ?? []) {
       const spec: ViewSpec = { type: 'state', subject: subject.key, entry: `${file.path}#${machine.name}` };
@@ -527,7 +546,7 @@ export async function stateViews(ctx: RenderContext, subject: GraphEntity, w: Wo
       // Mermaid's own state syntax: every transition here is a fact, and the syntax draws no dashed arrow.
       const stateIds = new Map(machine.states.map((state, at) => [state.name, `s${at}`]));
       const mermaid = ['stateDiagram-v2', ...machine.states.map((state) => `  state "${state.label.replace(/"/g, "'")}" as ${stateIds.get(state.name)!}`), ...machine.transitions.map((transition) => `  ${stateIds.get(transition.from)!} --> ${stateIds.get(transition.to)!}${transition.event === null ? '' : ` : ${transition.event.replace(/[:\n]/g, ' ')}`}`)].join('\n');
-      views.push({ spec, title: `${w.state}: ${label}`, label: label, elements, edges, notes: [`${file.path}:${machine.lineStart}-${machine.lineEnd}`], empty: null, marker: null, mermaid });
+      views.push({ spec, title: `${w.state}: ${label}`, label: label, elements, edges, notes: [`${file.path}:${machine.lineStart}-${machine.lineEnd}`, ...notSearched], empty: null, marker: null, mermaid });
     }
   }
   return views;
@@ -569,8 +588,12 @@ async function sequenceViews(ctx: RenderContext, spec: ViewSpec, subject: Subjec
     entries.push(...(await entriesOf(ctx, { source: 'graph', entity })));
   } else if (subject !== undefined) entries.push(...(await entriesOf(ctx, subject)));
   if (entries.length === 0) return [empty(spec, title, w.sequence, w.noEntry)];
+  const drawn = entries.slice(0, 3);
+  // A page with more entry points than the three drawn says so on every chain, rather than showing three as if the
+  // page held no others.
+  const foldedEntries = entries.length > drawn.length ? [w.entriesFolded(drawn.length, entries.length)] : [];
   const views: GraphView[] = [];
-  for (const entry of entries.slice(0, 3)) {
+  for (const entry of drawn) {
     const chain = await chainFrom(ctx, entry, { limit: 100, depth: 6 });
     const participants = await participantsOf(ctx, chain);
     const laneGroup = new Map(chain.lanes.map((lane) => [lane.id, lane.group]));
@@ -589,7 +612,7 @@ async function sequenceViews(ctx: RenderContext, spec: ViewSpec, subject: Subjec
       href: step.href,
       ...(step.site === undefined ? {} : { location: step.site }),
     }));
-    const notes = [...chain.notes];
+    const notes = [...foldedEntries, ...chain.notes];
     if (chain.steps.length > steps.length) notes.push(w.stepsFolded(chain.steps.length - steps.length));
     const entrySpec: ViewSpec = { type: 'sequence', subject: spec.subject, entry: entry.entity.key };
     views.push({ spec: entrySpec, title: `${w.sequence}: ${chain.title}`, label: chain.title, elements, edges, notes, empty: edges.length === 0 ? w.noEntry : null, marker: null });
@@ -792,13 +815,16 @@ async function domainView(ctx: RenderContext, spec: ViewSpec, w: Words): Promise
   }
   // Use cases and rules the text of the documents ties to the domain by name.
   const needle = page.title.toLowerCase();
-  const mentioned = [...ctx.docEntities.values()].filter((doc) => doc.title.toLowerCase().includes(needle) || doc.text.toLowerCase().includes(needle)).sort((a, b) => byCodePoint(a.id, b.id)).slice(0, 12);
+  const naming = [...ctx.docEntities.values()].filter((doc) => doc.title.toLowerCase().includes(needle) || doc.text.toLowerCase().includes(needle)).sort((a, b) => byCodePoint(a.id, b.id));
+  const mentioned = naming.slice(0, 12);
+  const notes: string[] = [];
+  if (naming.length > mentioned.length) notes.push(w.mentioned(mentioned.length, naming.length));
   for (const doc of mentioned) {
     elements.push({ id: doc.id, label: doc.title, kind: 'component', detail: doc.kind, href: refOfMarkdown(ctx, doc).href, dashed: true });
     edges.push({ from: page.id, to: doc.id, label: w.mentions, dashed: true, why: w.mentionsWhy });
   }
   if (elements.length === 1) return empty(spec, title, w.domain, w.nothingNearby, up);
-  return { spec, title, label: w.domain, elements, edges, notes: [], empty: null, up, marker: null };
+  return { spec, title, label: w.domain, elements, edges, notes, empty: null, up, marker: null };
 }
 
 // ---- the entry points --------------------------------------------------------------------------------

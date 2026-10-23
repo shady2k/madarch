@@ -2058,4 +2058,5 @@ a.graph-diagram-element-label:hover {
 .dg-zoombox { position: relative; overflow: auto; }
 .dg-zoombox-full { max-height: calc(100vh - 190px); }
 .dg-zoom-buttons { position: sticky; top: 0; z-index: 3; display: flex; gap: 4px; justify-content: flex-end; padding: 4px; }
-.dg-zoom-content { min-width: 100%; }
+/* The content keeps the width it is given: zooming out shrinks it, and centring is the margin's job. */
+.dg-zoom-content { min-width: 0; margin-inline: auto; }
