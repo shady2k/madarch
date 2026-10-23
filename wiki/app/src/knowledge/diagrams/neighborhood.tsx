@@ -85,6 +85,7 @@ export function NeighborhoodGraph({ block }: { block: GraphBlock }): ReactElemen
           height={layout.height}
           focus={{ x: layout.center.x + NODE_W / 2, y: layout.center.y + NODE_H / 2 }}
           label={block.title}
+          floor={0.9}
           testId="neighborhood"
           toolbar={(
             <>
@@ -142,7 +143,7 @@ export function NeighborhoodGraph({ block }: { block: GraphBlock }): ReactElemen
                 <>
                   <rect className={center ? 'dg-node dg-center' : node.href === null ? 'dg-node dg-plain' : 'dg-node'} width={NODE_W} height={NODE_H} rx="8" />
                   <text className="dg-label" x="10" y="15">{fit(node.label, NODE_W - 20)}</text>
-                  <text className="dg-kind" x="10" y="28">{fit(kindName(node.kind, 'one'), NODE_W - 20, 10)}</text>
+                  <text className="dg-kind" x="10" y="28">{fit(kindName(node.kind, 'one'), NODE_W - 20, 11)}</text>
                   <title>{`${node.label} (${kindName(node.kind, 'one')})${node.href === null ? ` — ${t('knowledge.diagram.noPage')}` : ''}`}</title>
                 </>
               );

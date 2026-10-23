@@ -1907,7 +1907,7 @@ a.graph-diagram-element-label:hover {
 .dg-plain { stroke-dasharray: 4 3; fill: var(--surface-soft); }
 .dg-label { font-size: 12.5px; font-weight: 600; }
 .dg-kind, .dg-sub, .dg-head, .dg-groupname { fill: var(--text-secondary) !important; font-size: 11px; }
-.dg-kind { font-size: 10px; }
+.dg-kind { font-size: 11px; }
 .dg-head { font-size: 11px; letter-spacing: 0.01em; }
 .dg-edge { fill: none; stroke: var(--dg-node-line); stroke-width: 1.4; }
 .dg-headpath { fill: var(--dg-node-line); stroke: none; }
@@ -1968,11 +1968,11 @@ a.graph-diagram-element-label:hover {
 /* the treemap */
 .dg-treemap { width: 100%; border: 1px solid var(--border); border-radius: var(--radius-card); overflow: hidden; background: var(--surface-page); }
 .dg-tdir { fill: none; stroke: var(--dg-node-line); stroke-width: 1; }
-.dg-tdirname { font-size: 10px; font-weight: 600; fill: var(--text-secondary) !important; }
+.dg-tdirname { font-size: 10.5px; font-weight: 600; fill: var(--text-secondary) !important; }
 .dg-tfile { fill: color-mix(in srgb, var(--dg-hot) calc(var(--heat, 0) * 100%), var(--dg-cold)); stroke: var(--surface-page); stroke-width: 1; }
 .dg-svg a:hover .dg-tfile, .dg-svg a:focus-visible .dg-tfile { stroke: var(--text); stroke-width: 1.6; }
-.dg-tname { font-size: 10px; font-weight: 600; pointer-events: none; }
-.dg-tsub { font-size: 9.5px; fill: var(--text-secondary) !important; pointer-events: none; }
+.dg-tname { font-size: 10.5px; font-weight: 600; pointer-events: none; }
+.dg-tsub { font-size: 10px; fill: var(--text-secondary) !important; pointer-events: none; }
 .dg-ramp { display: inline-block; width: 70px; height: 10px; border-radius: 3px; border: 1px solid var(--border); background: linear-gradient(to right, var(--dg-cold), var(--dg-hot)); }
 
 @media (max-width: 700px) {

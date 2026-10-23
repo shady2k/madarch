@@ -44,7 +44,8 @@ export function PanZoom({ width, height, focus, floor = 0.85, label, children, t
   const fit = useCallback((w: number): View => {
     const scale = Math.min(1, Math.max(floor, Math.min((w - 16) / Math.max(1, width), (frameHeight - 16) / Math.max(1, height))));
     const spare = w - width * scale;
-    const x = spare >= 0 ? spare / 2 : Math.min(8, Math.max(spare - 8, w / 2 - (focus?.x ?? width / 2) * scale - ((focus === undefined ? 0 : 98) * scale)));
+    // Wider than the frame: the first view starts at the left edge (where the reading starts), or centred on the focus.
+    const x = spare >= 0 ? spare / 2 : focus === undefined ? 8 : Math.min(8, Math.max(spare - 8, w / 2 - focus.x * scale));
     const spareY = frameHeight - height * scale;
     const y = spareY >= 0 ? spareY / 2 : Math.min(8, Math.max(spareY - 8, frameHeight / 2 - (focus?.y ?? height / 2) * scale));
     return { scale, x, y };

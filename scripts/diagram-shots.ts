@@ -8,10 +8,12 @@
  * Usage: bun scripts/diagram-shots.ts [--out <folder>] [--work <folder>] [--port <n>] [--binary <compiled madarch>]
  * With --binary the server is the compiled binary (its embedded app), not this checkout.
  */
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { basename, join, resolve } from 'node:path';
 import puppeteer, { type Page } from 'puppeteer';
 import { resolveBrowserExecutable } from './chromium.js';
+import { manifestWithRepo } from '../src/product/manifest.js';
 import { generateTrainingRepository, makeProduct, writeSamplePages } from '../test/knowledge-fixture.js';
 
 function argument(name: string, fallback: string): string {
@@ -26,29 +28,44 @@ mkdirSync(work, { recursive: true });
 
 const repository = generateTrainingRepository(join(work, 'repo'));
 const home = join(work, 'home');
+rmSync(home, { recursive: true, force: true });
 mkdirSync(home, { recursive: true });
-const shop = makeProduct(home, 'shop', repository);
-writeSamplePages(shop);
-
+let name = 'shop';
+let base = `http://127.0.0.1:${port}`;
+let stop = async (): Promise<void> => undefined;
 const binary = argument('binary', '');
-const command = binary === '' ? ['bun', resolve(import.meta.dir, 'madarch.ts')] : [resolve(binary)];
-const child = Bun.spawn([...command, 'daemon-serve', '--home', home, '--port', String(port)], {
-  env: binary === '' ? { ...process.env, MADARCH_APP_DIST: resolve(import.meta.dir, '..', 'wiki', 'app', 'dist') } : { ...process.env },
-  stdout: 'ignore',
-  stderr: 'inherit',
-});
-const base = `http://127.0.0.1:${port}`;
+if (binary === '') {
+  const shop = makeProduct(home, name, repository);
+  writeSamplePages(shop);
+  const child = Bun.spawn(['bun', resolve(import.meta.dir, 'madarch.ts'), 'daemon-serve', '--home', home, '--port', String(port)], {
+    env: { ...process.env, MADARCH_APP_DIST: resolve(import.meta.dir, '..', 'wiki', 'app', 'dist') },
+    stdout: 'ignore',
+    stderr: 'inherit',
+  });
+  stop = async () => { child.kill('SIGTERM'); await child.exited; };
+} else {
+  // The compiled binary makes the product itself, with its own embedded starter set, and serves it with its embedded app.
+  const created = spawnSync(resolve(binary), ['new', '--home', home, '--port', String(port), '--json', '--no-open'], { encoding: 'utf8', timeout: 120_000, cwd: work, env: { ...process.env, GIT_AUTHOR_NAME: 'Diagram Shots', GIT_AUTHOR_EMAIL: 'shots@example.invalid', GIT_COMMITTER_NAME: 'Diagram Shots', GIT_COMMITTER_EMAIL: 'shots@example.invalid' } });
+  if (created.status !== 0) throw new Error(`the binary could not make the product: ${created.stderr}${created.stdout}`);
+  const facts = JSON.parse(created.stdout.trim().split('\n').filter((line) => line.startsWith('{')).pop()!) as { folder: string; url: string };
+  name = basename(facts.folder);
+  base = new URL(facts.url).origin;
+  const manifest = join(facts.folder, 'workspace.yaml');
+  writeFileSync(manifest, manifestWithRepo(readFileSync(manifest, 'utf8'), { name: 'training', linked: true }));
+  symlinkSync(repository, join(facts.folder, 'repos', 'training'));
+  writeSamplePages(facts.folder);
+  stop = async () => { spawnSync(resolve(binary), ['stop', '--home', home], { encoding: 'utf8', cwd: work }); };
+}
 for (let tries = 0; ; tries += 1) {
   try { if ((await fetch(`${base}/`)).ok) break; } catch { /* not listening yet */ }
-  if (tries > 120) throw new Error(`the server did not answer on port ${port}`);
+  if (tries > 120) throw new Error(`the server did not answer on ${base}`);
   await new Promise((rest) => setTimeout(rest, 500));
 }
-const stop = async (): Promise<void> => { child.kill('SIGTERM'); await child.exited; };
 
-const started = await fetch(`${base}/products/shop/api/k/fill`, { method: 'POST' });
+const started = await fetch(`${base}/products/${name}/api/k/fill`, { method: 'POST' });
 if (!started.ok) throw new Error(`the fill did not start: ${started.status} ${await started.text()}`);
 for (const until = Date.now() + 900_000; ; ) {
-  const status = (await (await fetch(`${base}/products/shop/api/k/status`)).json()) as { fill: { state: string; message?: string } };
+  const status = (await (await fetch(`${base}/products/${name}/api/k/status`)).json()) as { fill: { state: string; message?: string } };
   if (status.fill.state === 'done') break;
   if (status.fill.state === 'failed') throw new Error(`the fill failed: ${status.fill.message}`);
   if (Date.now() > until) throw new Error('the fill did not finish in 15 minutes');
@@ -56,10 +73,10 @@ for (const until = Date.now() + 900_000; ; ) {
 }
 
 const encode = encodeURIComponent;
-const at = (id: string): string => `/products/shop/k/e/${encode(id)}`;
+const at = (id: string): string => `/products/${name}/k/e/${encode(id)}`;
 const key = (kind: string, rest: string): string => `${kind}:${rest}`;
 const pages: { name: string; url: string; wait: string }[] = [
-  { name: 'home', url: '/products/shop/k', wait: '[data-diagram=system] [data-testid=system-node]' },
+  { name: 'home', url: `/products/${name}/k`, wait: '[data-diagram=system] [data-testid=system-node]' },
   { name: 'domain-payment', url: at('domain:payment'), wait: '[data-diagram=sequence] [data-testid=chain-step]' },
   { name: 'route-post-orders', url: at(key('code.route', 'services/orders/internal/api/router.go#POST:/orders')), wait: '[data-diagram=sequence] [data-testid=chain-step]' },
   { name: 'route-post-checkout', url: at(key('code.route', 'services/checkout/src/api/routes.ts#POST:/checkout')), wait: '[data-diagram=sequence] [data-testid=chain-step]' },

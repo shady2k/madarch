@@ -54,11 +54,11 @@ export function TreemapView({ block }: { block: TreemapBlock }): ReactElement {
                   return (
                     <g key={`dir:${cell.path}`} data-testid="treemap-dir">
                       <rect className="dg-tdir" x={cell.x} y={cell.y} width={cell.w} height={cell.h} />
-                      {cell.h > 23 && cell.w > 40 && <text className="dg-tdirname" x={cell.x + 5} y={cell.y + 11}>{fit(cell.name, cell.w - 10, 10)}</text>}
+                      {cell.h > 23 && cell.w > 40 && <text className="dg-tdirname" x={cell.x + 5} y={cell.y + 11}>{fit(cell.name, cell.w - 10, 10.5)}</text>}
                     </g>
                   );
                 }
-                const label = cell.w > 46 && cell.h > 16 ? fit(cell.name, cell.w - 8, 10) : '';
+                const label = cell.w > 46 && cell.h > 16 ? fit(cell.name, cell.w - 8, 10.5) : '';
                 const body = (
                   <>
                     <rect className="dg-tfile" x={cell.x} y={cell.y} width={Math.max(0, cell.w - 1)} height={Math.max(0, cell.h - 1)} style={{ ['--heat' as string]: String(heat(file).toFixed(3)) }} />
