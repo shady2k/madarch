@@ -19,7 +19,8 @@ import { createPGliteDatabaseOwner, type DatabaseOwner } from '../adapters/datab
 import { fillGraph } from '../extract/driver/index.js';
 import { HISTORY_EXTRACTOR, OWNERS, TREE_EXTRACTORS } from '../extract/driver/extractors.js';
 import { createGraphStore } from '../graph/index.js';
-import { fsSink, runWriter, type ToolClient, type UnitAgent } from '../writer/index.js';
+import { indexWorkerProduct } from './index/run.js';
+import { fsSink, productSlug, runWriter, type ToolClient, type UnitAgent } from '../writer/index.js';
 import { parseMessage, type FromWorker, type RepositoryPin, type ToWorker, type WorkerStart } from './fill-protocol.js';
 
 const execFileAsync = promisify(execFile);
@@ -192,6 +193,25 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
       return 0;
     }
 
+    // ---- the index of the Markdown the product already holds ----------------------------------
+    // Only one code repository's pages can be tied to a written-at commit and a graph; with several the index of the
+    // writer's pages is made by the writer stage's own rule, which refuses them.
+    const indexNow = async (): Promise<{ error?: string; unresolved?: string }> => {
+      if (repositories.length !== 1) return {};
+      const repo = repositories[0]!;
+      try {
+        const report = await indexWorkerProduct({ owner, store, productFolder, productId: productSlug(start.productName), repository: repo, ...(pins.get(repo.name)?.head === undefined ? {} : { ref: pins.get(repo.name)!.head }) });
+        return report.unresolved.length === 0 ? {} : { unresolved: `${report.unresolved.length} grounds or links of the pages name nothing in the graph: ${report.unresolved.slice(0, 3).map((miss) => `${miss.file}:${miss.line} ${miss.target}`).join('; ')}${report.unresolved.length > 3 ? '; …' : ''}` };
+      } catch (error) {
+        return { error: `the Markdown could not be indexed: ${error instanceof Error ? error.message : String(error)}` };
+      }
+    };
+    const first = await indexNow();
+    const firstNote = first.error ?? first.unresolved;
+    if (firstNote !== undefined) process.stderr.write(`knowledge index: ${firstNote}\n`);
+    // The reader sees the index only in a snapshot made after it: without an agent stage no later snapshot would carry it.
+    await snapshot(true).catch(() => undefined);
+
     // ---- the agent stage --------------------------------------------------------------------
     if (!start.writer) return 0;
     if (repositories.length !== 1) {
@@ -218,7 +238,9 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
       const repo = repositories[0]!;
       const report = await runWriter({
         owner, store, repository: repo.path, ...(pins.get(repo.name)?.head === undefined ? {} : { ref: pins.get(repo.name)!.head }), output: productFolder, productName: start.productName, agent: remote, sink,
-        language: start.language, languageChanged: start.languageChanged,
+        language: start.language, languageChanged: start.languageChanged, repositoryName: repo.name,
+        // Every page written is in the graph's index at once; a failure is told, never hidden.
+        afterWrite: async () => { const result = await indexNow(); if (result.error !== undefined) throw new Error(result.error); },
         onUnitStart: (began) => send({ type: 'unit-start', unit: began.unit, path: began.path }),
         onUnit: (outcome) => send({ type: 'unit-outcome', outcome: { unit: outcome.unit, status: outcome.status, writeAttempts: outcome.writeAttempts, calls: outcome.calls, refusals: outcome.refusals.map((r) => ({ line: r.line, rule: r.rule, message: r.message })), domains: [...outcome.domains] } }),
       });
@@ -226,11 +248,12 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
       const skipped = left.length === 0 ? '' : ` ${left.length} file${left.length === 1 ? ' was' : 's were'} not stored for the agent to read: ${left.slice(0, 3).map((entry) => `${entry.path === '' ? '(no path)' : entry.path} (${entry.reason})`).join('; ')}${left.length > 3 ? '; …' : ''}.`;
       const stale = report.stale.length === 0 ? '' : ` Pages from an earlier run that this run did not write were left alone: ${report.stale.join(', ')}.`;
       await snapshot(true).catch(() => undefined);
+      const indexed = report.indexErrors.length === 0 ? '' : ` The graph index of the written pages failed: ${report.indexErrors.join('; ')}.`;
       if (report.ok) {
         const message = `${stale}${skipped}`.trim();
         send({ type: 'writer', state: 'done', ...(message === '' ? {} : { message }) });
       } else {
-        send({ type: 'writer', state: 'failed', message: `some pages were not written; each unit above says why.${stale}${skipped}` });
+        send({ type: 'writer', state: 'failed', message: `some pages were not written; each unit above says why.${stale}${skipped}${indexed}` });
       }
     } catch (error) {
       await snapshot(true).catch(() => undefined);

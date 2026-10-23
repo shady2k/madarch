@@ -199,42 +199,64 @@ export interface BodyReading {
   statements: number;
 }
 
-/** The plain text of a node, with `\u0001` standing for a footnote reference so sentences can be told grounded. */
+/**
+ * The plain text of a node, with a footnote reference standing as `\u0001<label>\u0002` so sentences can be told grounded
+ * and the notes that ground each can be named.
+ */
 function flatten(node: Node, out: string[]): void {
   // A `[^n]` the parser left as text names a note that is not defined: it grounds nothing and is not part of the statement.
   if (node.type === 'text') out.push((node.value ?? '').replace(/\[\^[^\]\s]+\]/g, ''));
   else if (node.type === 'inlineCode') out.push(node.value ?? '');
-  else if (node.type === 'footnoteReference') out.push('\u0001');
+  else if (node.type === 'footnoteReference') out.push(`\u0001${node.identifier ?? node.label ?? ''}\u0002`);
   else if (node.type === 'break') out.push(' ');
   else for (const child of node.children ?? []) flatten(child, out);
 }
 
-/** Statements of a paragraph: sentences ending in . ! ? (the footnote reference after the full stop belongs to the sentence). */
-function sentencesOf(paragraph: Node): { text: string; grounded: boolean }[] {
-  const parts: string[] = [];
-  flatten(paragraph, parts);
-  const flat = parts.join('');
-  const sentences: { text: string; grounded: boolean }[] = [];
+/** A sentence of a paragraph and the labels of the footnotes that end it. */
+interface Sentence {
+  text: string;
+  grounded: boolean;
+  notes: string[];
+}
+
+/**
+ * Statements of a paragraph: sentences ending in . ! ? followed by a blank (the footnote reference after the full stop
+ * belongs to the sentence). A formatted run (bold, a link, code) is one piece: a sentence is cut only at a blank in the
+ * paragraph's own text, so the app, which cuts the same tree, finds the same sentences (`statements.ts` in the app).
+ */
+function sentencesOf(paragraph: Node): Sentence[] {
+  const sentences: Sentence[] = [];
   let current = '';
   let terminated = false;
   const close = (): void => {
-    const text = current.replace(/\u0001/g, '').trim();
-    if (text !== '') sentences.push({ text, grounded: current.includes('\u0001') });
+    const notes = [...current.matchAll(/\u0001([^\u0002]*)\u0002/g)].map((match) => match[1]!);
+    const text = current.replace(/\u0001[^\u0002]*\u0002/g, '').trim();
+    if (text !== '') sentences.push({ text, grounded: notes.length > 0, notes });
     current = '';
     terminated = false;
   };
-  for (const char of flat) {
-    if (char === '\u0001') {
-      current += char;
-      continue;
+  for (const child of paragraph.children ?? []) {
+    const parts: string[] = [];
+    flatten(child, parts);
+    const flat = parts.join('');
+    // The footnote references inside the piece stay in the sentence and say nothing of where it ends.
+    for (const piece of flat.split(/(\u0001[^\u0002]*\u0002)/)) {
+      if (piece.startsWith('\u0001')) {
+        current += piece;
+        continue;
+      }
+      for (const char of piece) {
+        if (terminated && /\s/.test(char)) {
+          // Only the paragraph's own text ends a sentence at a blank; inside a formatted run the blank is part of it.
+          if (child.type === 'text') close();
+          else current += char;
+          continue;
+        }
+        if (terminated && !/[.!?)"'\u201d]/.test(char)) terminated = false;
+        current += char;
+        if (/[.!?]/.test(char)) terminated = true;
+      }
     }
-    if (terminated && /\s/.test(char)) {
-      close();
-      continue;
-    }
-    if (terminated && !/[.!?)"'\u201d]/.test(char)) terminated = false;
-    current += char;
-    if (/[.!?]/.test(char)) terminated = true;
   }
   close();
   return sentences;
@@ -314,3 +336,55 @@ export function parseTarget(url: string): { kind: 'key'; key: string } | { kind:
   return { kind: 'key', key: target };
 }
 
+
+// ---- statements -------------------------------------------------------------------------------
+
+/** One statement of a body: its sentence, the paragraph it stands in, and the notes that ground it. */
+export interface Statement {
+  text: string;
+  /** The file's line the paragraph starts at. */
+  line: number;
+  /** The paragraph as written in the body, footnote references removed. */
+  paragraph: string;
+  /** The labels of the footnotes that end the sentence; empty when it is ungrounded. */
+  notes: string[];
+}
+
+export interface StatementReading {
+  statements: Statement[];
+  /** The `madarch:` destinations each footnote lists, by its label, in the order written. */
+  definitions: Map<string, string[]>;
+}
+
+/** Reads a body's statements with their paragraphs and its footnotes' grounds (the sentences `readBody` counts). */
+export function readStatements(body: string, bodyLine: number): StatementReading {
+  const tree = parser.parse(body) as unknown as Node;
+  const statements: Statement[] = [];
+  const definitions = new Map<string, string[]>();
+  const lineOf = (node: Node): number => (node.position?.start.line ?? 1) - 1 + bodyLine;
+  const urlsIn = (node: Node, out: string[]): void => {
+    if ((node.type === 'link' || node.type === 'definition') && typeof node.url === 'string' && node.url.startsWith(SCHEME)) out.push(node.url);
+    for (const child of node.children ?? []) urlsIn(child, out);
+  };
+  const walk = (node: Node): void => {
+    if (node.type === 'footnoteDefinition') {
+      const urls: string[] = [];
+      urlsIn(node, urls);
+      definitions.set(node.identifier ?? node.label ?? '', urls);
+      return;
+    }
+    if (node.type === 'paragraph') {
+      const start = node.position?.start.offset;
+      const end = node.position?.end.offset;
+      const paragraph = start === undefined || end === undefined ? '' : body.slice(start, end).replace(/\[\^[^\]\s]+\]/g, '').replace(/[ \t]+\n/g, '\n').replace(/ {2,}/g, ' ').trim();
+      for (const sentence of sentencesOf(node)) {
+        if (isConnecting(node, sentence.text)) continue;
+        statements.push({ text: sentence.text, line: lineOf(node), paragraph, notes: sentence.notes });
+      }
+      return;
+    }
+    for (const child of node.children ?? []) walk(child);
+  };
+  walk(tree);
+  return { statements, definitions };
+}

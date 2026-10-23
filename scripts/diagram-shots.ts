@@ -11,7 +11,6 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import puppeteer, { type Page } from 'puppeteer';
 import { resolveBrowserExecutable } from './chromium.js';
-import { addDiagramKinds } from '../test/diagram-fixture.js';
 import { generateTrainingRepository, makeProduct, writeSamplePages } from '../test/knowledge-fixture.js';
 
 function argument(name: string, fallback: string): string {
@@ -29,7 +28,6 @@ const home = join(work, 'home');
 mkdirSync(home, { recursive: true });
 const shop = makeProduct(home, 'shop', repository);
 writeSamplePages(shop);
-addDiagramKinds(shop);
 
 const child = Bun.spawn(['bun', resolve(import.meta.dir, 'madarch.ts'), 'daemon-serve', '--home', home, '--port', String(port)], {
   env: { ...process.env, MADARCH_APP_DIST: resolve(import.meta.dir, '..', 'wiki', 'app', 'dist') },

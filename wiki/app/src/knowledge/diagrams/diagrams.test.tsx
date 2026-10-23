@@ -11,6 +11,7 @@ import { setWikiLanguage } from '../../i18n.js';
 import { BlockView } from '../blocks.js';
 import { DiagramOpenProvider } from './open.js';
 import { layoutChain } from './chain.js';
+import { frontTab, resetTabs } from '../tabs.js';
 import type { Block, Chain, Neighborhood } from '../types.js';
 
 beforeAll(async () => {
@@ -81,14 +82,25 @@ describe('the neighbourhood', () => {
     expect(table.querySelector('title')!.textContent).toContain('this kind has no page');
   });
 
-  test('a click goes through onOpen with the node\'s address, and a click with a modifier is left to the browser', async () => {
+  test('a click goes through onOpen with the node\'s address, and a click with shift is left to the browser', async () => {
     const opened: string[] = [];
     const container = into(createElement(DiagramOpenProvider, { onOpen: (href: string) => { opened.push(href); }, children: createElement(BlockView, { block: graphBlock(), resolutions: {} }) }));
     await until(() => container.querySelector('[data-testid=hood-node] a') !== null, 'the links');
     const link = [...container.querySelectorAll('[data-testid=hood-node] a')].find((a) => a.getAttribute('href') === '/k/e/routes')! as unknown as HTMLElement;
     link.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
-    link.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0, ctrlKey: true }));
+    link.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0, shiftKey: true }));
     expect(opened).toEqual(['/k/e/routes']);
+  });
+
+  test('with no host hook a click opens the node\'s page in a new tab of the wiki, and the same page again switches to its tab', async () => {
+    resetTabs();
+    const container = into(createElement(BlockView, { block: graphBlock(), resolutions: {} }));
+    await until(() => container.querySelector('[data-testid=hood-node] a') !== null, 'the links');
+    const link = [...container.querySelectorAll('[data-testid=hood-node] a')].find((a) => a.getAttribute('href') === '/k/e/routes')! as unknown as HTMLElement;
+    link.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
+    expect(frontTab().address).toBe('/k/e/routes');
+    link.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
+    resetTabs();
   });
 
   test('the plus of a node opens its neighbours through the neighbourhood route and draws them', async () => {

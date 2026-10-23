@@ -5,13 +5,14 @@
  * page of its own: an empty product says what to do, and a fill that runs while
  * the page is open is read again as each commit lands.
  */
-import { useEffect, useState, type ReactElement, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactElement, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu';
-import { CheckIcon, ChevronDownIcon, FolderGit2Icon, GlobeIcon, HomeIcon, MenuIcon, RotateCcwIcon } from 'lucide-react';
+import { CheckIcon, ChevronDownIcon, ChevronRightIcon, FolderGit2Icon, GlobeIcon, HomeIcon, LayoutGridIcon, MenuIcon, RotateCcwIcon, XIcon } from 'lucide-react';
 import { appPath } from '../app-base.js';
 import { setWikiLanguage, type WikiLanguage } from '../i18n.js';
 import { navigateTo } from '../hold.js';
+import { activateTab, closeTab, linkHandlers, useTabs } from './tabs.js';
 import { Button } from '@/components/ui/button.js';
 import { Badge } from '@/components/ui/badge.js';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet.js';
@@ -20,13 +21,13 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog.js';
 import { getProducts, getResetPlan, resetProduct, startFill, type ResetPlan } from './api.js';
 import { KLink } from './blocks.js';
-import { DocumentPage, DocumentsPage, EntityPage, EmptyHome, FillCard, KindPage, SourcePage, Overview } from './pages.js';
-import { addressOfKind, K_DOCS, K_HOME, kRouteOf, type KRoute } from './routes.js';
+import { CataloguePage, DocumentPage, DocumentsPage, EntityPage, EmptyHome, FillCard, KindPage, SourcePage, StatementPage, Overview } from './pages.js';
+import { addressOfKind, K_CATALOGUE, K_DOCS, K_HOME, kRouteOf, type KRoute } from './routes.js';
 import { KindLabels, useKindName } from './kind-names.js';
 import { PageSkeleton } from './skeleton.js';
 import { fillWords } from './fill-words.js';
 import { Skeleton } from '@/components/ui/skeleton.js';
-import type { ProductChoice, WikiStatus } from './types.js';
+import type { KindSummary, ProductChoice, WikiStatus } from './types.js';
 import { useWikiStatus } from './live.js';
 import { PendingPages } from './pending.js';
 import { UNIT_STATE_KEY } from './writer.js';
@@ -149,49 +150,88 @@ function StartOver({ open, onOpenChange, name, refresh }: { open: boolean; onOpe
   );
 }
 
+/** The kinds of the manifest as the navigation shows them: by group, in the manifest's order, the groups with the entities they hold. */
+export function navGroups(status: WikiStatus, pending: (kind: string) => number): { group: string | null; labels: Record<string, string> | null; total: number; kinds: KindSummary[] }[] {
+  // A group counts every entity of its kinds, the home page included, so the navigation and the catalogue say the same number.
+  const counted = status.kinds;
+  const shown = status.kinds.filter((kind) => !kind.single && (kind.count > 0 || pending(kind.kind) > 0));
+  const declared = status.groups.map((group) => ({ group: group.group as string | null, labels: group.labels as Record<string, string> | null }));
+  const known = new Set(status.groups.map((group) => group.group));
+  const loose = shown.filter((kind) => kind.group === undefined || !known.has(kind.group));
+  const all = loose.length > 0 ? [...declared, { group: null, labels: null }] : declared;
+  return all
+    .map((entry) => {
+      const belongs = (kind: KindSummary): boolean => (entry.group === null ? kind.group === undefined || !known.has(kind.group) : kind.group === entry.group);
+      const kinds = shown.filter(belongs);
+      return { ...entry, kinds, total: counted.filter(belongs).reduce((sum, kind) => sum + kind.count, 0) };
+    })
+    .filter((entry) => entry.kinds.length > 0);
+}
+
 function NavPanel({ status, products, route, onNavigate, onStartOver }: { status: WikiStatus; products: readonly ProductChoice[]; route: KRoute; onNavigate?: () => void; onStartOver: () => void }): ReactElement {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const kindName = useKindName();
+  const language = (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en';
   const folder = decodeURIComponent((/^\/products\/([^/]+)/.exec(window.location.pathname)?.[1] ?? ''));
-  const kinds = status.kinds.filter((kind) => !kind.single);
   /** The pages of a kind the agent has yet to write: its units that wait or are writing (a unit is named `<kind>:<slug>`). */
   const pendingOf = (kind: string): number => status.writer.units.filter((unit) => unit.unit.startsWith(`${kind}:`) && (unit.state === 'waiting' || unit.state === 'writing')).length;
-  const pick = (address: string) => (event: React.MouseEvent<HTMLAnchorElement>): void => {
-    if (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey || event.button !== 0) return;
-    event.preventDefault();
-    onNavigate?.();
-    navigateTo(appPath(address));
-  };
+  const groups = navGroups(status, pendingOf);
+  const [opened, setOpened] = useState<Record<string, boolean>>({});
+  const pick = (address: string) => linkHandlers(address, onNavigate);
   const link = (active: boolean): string =>
     'nav-link my-px flex items-center gap-2.5 rounded-[var(--radius-row)] px-[10px] py-[9px] text-small no-underline transition-colors duration-150 motion-reduce:transition-none ' +
     (active ? 'nav-current bg-[var(--surface-active)] font-[550] text-ink' : 'text-secondary hover:bg-[var(--surface-hover)] hover:text-ink');
   return (
     <>
-      <a href={appPath(K_HOME)} data-testid="nav-brand" className="nav-brand flex items-center gap-2.5 px-2 py-[14px] text-ink no-underline hover:text-ink focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2" onClick={pick(K_HOME)}>
+      <a href={appPath(K_HOME)} data-testid="nav-brand" className="nav-brand flex items-center gap-2.5 px-2 py-[14px] text-ink no-underline hover:text-ink focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2" {...pick(K_HOME)}>
         <BrandMark />
         <strong className="text-[23px] font-[650] leading-none tracking-[-0.8px]">madarch</strong>
         <small className="nav-concept ml-auto rounded-[var(--radius-row)] border border-line px-[5px] py-0.5 text-[11px] leading-4 text-muted">{t('brand.concept')}</small>
       </a>
       <ProductSelector name={status.product.name} products={products} current={folder === '' ? products[0]?.folder ?? null : folder} onStartOver={onStartOver} />
       <nav aria-label={t('navigation.pages')} className="min-h-0 flex-1 overflow-y-auto pb-4">
-        <a href={appPath(K_HOME)} className={link(route.name === 'home')} aria-current={route.name === 'home' ? 'page' : undefined} data-testid="nav-home" onClick={pick(K_HOME)}>
+        <a href={appPath(K_HOME)} className={link(route.name === 'home')} aria-current={route.name === 'home' ? 'page' : undefined} data-testid="nav-home" {...pick(K_HOME)}>
           <HomeIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
           <span className="min-w-0 flex-1">{t('knowledge.home')}</span>
         </a>
-        {kinds.length > 0 && <h2 className="mb-1.5 mt-4 px-2 text-[12px] uppercase tracking-[0.08em] text-muted">{t('knowledge.kinds')}</h2>}
-        {kinds.map((kind) => {
-          const active = route.name === 'kind' && route.kind === kind.kind;
+        <a href={appPath(K_CATALOGUE)} className={link(route.name === 'catalogue')} aria-current={route.name === 'catalogue' ? 'page' : undefined} data-testid="nav-catalogue" {...pick(K_CATALOGUE)}>
+          <LayoutGridIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
+          <span className="min-w-0 flex-1">{t('knowledge.catalogue')}</span>
+        </a>
+        {groups.length > 0 && <h2 className="mb-1.5 mt-4 px-2 text-[12px] uppercase tracking-[0.08em] text-muted">{t('knowledge.kinds')}</h2>}
+        {groups.map((entry) => {
+          const key = entry.group ?? '\0other';
+          const holdsActive = route.name === 'kind' && entry.kinds.some((kind) => kind.kind === route.kind);
+          const open = opened[key] ?? (holdsActive || entry.group === 'product');
           return (
-            <a key={kind.kind} href={appPath(addressOfKind(kind.kind))} className={link(active)} aria-current={active ? 'page' : undefined} data-nav-kind={kind.kind} onClick={pick(addressOfKind(kind.kind))}>
-              <span className="min-w-0 flex-1 truncate">{kindName(kind.kind, 'many')}</span>
-              <span className="text-small text-muted" data-testid="nav-count">
-                {kind.count}
-                {pendingOf(kind.kind) > 0 && <span className="ml-1" title={t('knowledge.pendingCount', { count: pendingOf(kind.kind) })} data-testid="nav-pending">+{pendingOf(kind.kind)}</span>}
-              </span>
-            </a>
+            <div key={key} data-nav-group={entry.group ?? ''} className="mb-0.5">
+              <button
+                type="button"
+                className="nav-group flex w-full cursor-pointer items-center gap-1.5 rounded-[var(--radius-row)] px-[6px] py-[7px] text-left text-small font-[550] text-ink hover:bg-[var(--surface-hover)]"
+                aria-expanded={open}
+                onClick={() => setOpened({ ...opened, [key]: !open })}
+                data-testid="nav-group"
+              >
+                <ChevronRightIcon aria-hidden="true" className={'size-4 shrink-0 text-muted transition-transform motion-reduce:transition-none ' + (open ? 'rotate-90' : '')} />
+                <span className="min-w-0 flex-1 truncate">{entry.labels === null ? t('knowledge.groupOther') : entry.labels[language] ?? entry.labels['en'] ?? entry.group}</span>
+                <span className="text-small font-normal text-muted" data-testid="nav-group-count">{entry.total}</span>
+              </button>
+              {open && entry.kinds.map((kind) => {
+                const active = route.name === 'kind' && route.kind === kind.kind;
+                return (
+                  <a key={kind.kind} href={appPath(addressOfKind(kind.kind))} className={link(active) + ' !py-[7px] !pl-[30px]'} aria-current={active ? 'page' : undefined} data-nav-kind={kind.kind} {...pick(addressOfKind(kind.kind))}>
+                    <span className="min-w-0 flex-1 truncate">{kindName(kind.kind, 'many')}</span>
+                    <span className="text-small text-muted" data-testid="nav-count">
+                      {kind.count}
+                      {pendingOf(kind.kind) > 0 && <span className="ml-1" title={t('knowledge.pendingCount', { count: pendingOf(kind.kind) })} data-testid="nav-pending">+{pendingOf(kind.kind)}</span>}
+                    </span>
+                  </a>
+                );
+              })}
+            </div>
           );
         })}
-        <a href={appPath(K_DOCS)} className={link(route.name === 'docs' || route.name === 'doc') + ' mt-4'} aria-current={route.name === 'docs' || route.name === 'doc' ? 'page' : undefined} data-testid="nav-documents" onClick={pick(K_DOCS)}>
+        <a href={appPath(K_DOCS)} className={link(route.name === 'docs' || route.name === 'doc') + ' mt-4'} aria-current={route.name === 'docs' || route.name === 'doc' ? 'page' : undefined} data-testid="nav-documents" {...pick(K_DOCS)}>
           <FolderGit2Icon aria-hidden="true" className="size-4 shrink-0 text-muted" />
           <span className="min-w-0 flex-1">{t('knowledge.documents')}</span>
         </a>
@@ -315,7 +355,7 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
 function Toolbar({ status, route, menu, refresh }: { status: WikiStatus; route: KRoute; menu: ReactNode; refresh: () => void }): ReactElement {
   const { t } = useTranslation();
   const kindName = useKindName();
-  const where = route.name === 'kind' ? kindName(route.kind, 'many') : route.name === 'source' ? t('knowledge.source') : route.name === 'docs' || route.name === 'doc' ? t('knowledge.documents') : route.name === 'entity' ? null : t('knowledge.home');
+  const where = route.name === 'kind' ? kindName(route.kind, 'many') : route.name === 'source' ? t('knowledge.source') : route.name === 'docs' || route.name === 'doc' ? t('knowledge.documents') : route.name === 'catalogue' ? t('knowledge.catalogue') : route.name === 'statement' ? t('knowledge.statement') : route.name === 'entity' ? null : t('knowledge.home');
   return (
     <header className="shell-toolbar sticky top-0 z-30 flex min-h-[58px] items-center justify-between gap-3 border-b border-line bg-page px-4 wide:px-[35px]">
       <span className="shell-breadcrumb min-w-0 truncate text-small text-secondary">
@@ -331,19 +371,68 @@ function Toolbar({ status, route, menu, refresh }: { status: WikiStatus; route: 
   );
 }
 
+/** The route an in-wiki address is; the home page for one the wiki does not know. */
+export function routeOfAddress(address: string): KRoute {
+  const url = new URL(address, 'http://wiki.invalid');
+  return kRouteOf(url.pathname, url.search) ?? { name: 'home' };
+}
+
+/** The tabs of the wiki (the first version had them): every opened page is one; the one in front is the page the address names. */
+export function TabBar(): ReactElement {
+  const { t } = useTranslation();
+  const { tabs, active } = useTabs();
+  return (
+    <div role="tablist" aria-label={t('knowledge.tabs')} className="tab-bar flex min-h-[38px] items-end gap-1 overflow-x-auto border-b border-line bg-chrome px-3 pt-1.5 wide:px-[27px]" data-testid="tab-bar">
+      {tabs.map((tab) => {
+        const here = tab.key === active;
+        const title = tab.title ?? t('knowledge.loading');
+        return (
+          <div
+            key={tab.key}
+            data-testid="tab"
+            data-active={here ? 'true' : 'false'}
+            className={'tab group flex max-w-[16rem] min-w-[7rem] items-center rounded-t-[var(--radius-row)] border border-b-0 ' + (here ? 'border-line bg-page text-ink' : 'border-transparent text-secondary hover:bg-[var(--surface-hover)]')}
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={here}
+              title={title}
+              className="min-w-0 flex-1 cursor-pointer truncate bg-transparent px-3 py-1.5 text-left text-small text-inherit focus-visible:ring-2 focus-visible:ring-ink"
+              onClick={() => activateTab(tab.key)}
+              onAuxClick={(event) => { if (event.button === 1) { event.preventDefault(); closeTab(tab.key); } }}
+            >
+              {title}
+            </button>
+            {tabs.length > 1 && (
+              <button
+                type="button"
+                aria-label={t('knowledge.closeTab', { title })}
+                title={t('knowledge.closeTabShort')}
+                data-testid="tab-close"
+                className="mr-1 grid size-5 shrink-0 cursor-pointer place-items-center rounded-[var(--radius-row)] bg-transparent text-muted hover:bg-[var(--surface-active)] hover:text-ink focus-visible:ring-2 focus-visible:ring-ink"
+                onClick={() => closeTab(tab.key)}
+              >
+                <XIcon aria-hidden="true" className="size-3.5" />
+              </button>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function KnowledgeApp(): ReactElement {
   const { t } = useTranslation();
-  const [route, setRoute] = useState<KRoute>(() => kRouteOf(window.location.pathname, window.location.search) ?? { name: 'home' });
+  const tabs = useTabs();
+  const frontAddress = tabs.tabs.find((tab) => tab.key === tabs.active)?.address ?? K_HOME;
+  const route = useMemo<KRoute>(() => routeOfAddress(frontAddress), [frontAddress]);
   const [products, setProducts] = useState<ProductChoice[]>([]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [startOver, setStartOver] = useState(false);
   const { status, error, version, refresh } = useWikiStatus();
 
-  useEffect(() => {
-    const onPop = (): void => setRoute(kRouteOf(window.location.pathname, window.location.search) ?? { name: 'home' });
-    window.addEventListener('popstate', onPop);
-    return () => window.removeEventListener('popstate', onPop);
-  }, []);
   useEffect(() => {
     const controller = new AbortController();
     getProducts(controller.signal).then(setProducts, () => undefined);
@@ -395,6 +484,8 @@ export function KnowledgeApp(): ReactElement {
   else if (route.name === 'kind') view = <KindPage key={route.kind} kind={route.kind} version={version} />;
   else if (route.name === 'docs') view = <DocumentsPage version={version} />;
   else if (route.name === 'doc') view = <DocumentPage key={`${route.repo ?? ''}:${route.path}`} repo={route.repo} path={route.path} version={version} />;
+  else if (route.name === 'catalogue') view = <CataloguePage status={status} />;
+  else if (route.name === 'statement') view = <StatementPage key={`${route.id}\0${route.sentence}\0${route.turn}`} id={route.id} sentence={route.sentence} turn={route.turn} version={version} />;
   else view = <SourcePage key={`${route.repo ?? ''}:${route.path}`} repo={route.repo} path={route.path} line={route.line} />;
   return (
     <TooltipProvider delayDuration={200} skipDelayDuration={100}>
@@ -406,6 +497,7 @@ export function KnowledgeApp(): ReactElement {
         </aside>
         <div className="shell-main flex min-w-0 flex-1 flex-col">
           <Toolbar status={status} route={route} menu={menu} refresh={refresh} />
+          <TabBar />
           <div className="shell-row flex flex-1">
             <div className="shell-scroll min-w-0 flex-1">
               <div className="shell-document w-full">

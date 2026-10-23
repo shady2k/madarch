@@ -651,6 +651,7 @@ async function entriesOf(ctx: RenderContext, subject: Subject): Promise<Entry[]>
     if (isEntrySymbolKind(subject.entity)) return [await entryOfSymbol(ctx, subject.entity)];
     return [];
   }
+  if (subject.source !== 'markdown') return [];
   const entries = new Map<string, Entry>();
   for (const key of subject.entity.relates) {
     const [entity] = await ctx.graph.find(key);

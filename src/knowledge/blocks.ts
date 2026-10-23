@@ -13,6 +13,8 @@
  */
 import { CALLS } from '../graph/vocabulary.js';
 import { byCodePoint } from '../model/order.js';
+import type { DocEntity, DocumentSource } from './doc-entities.js';
+import type { KindCount, RelyingStatement } from './index/queries.js';
 import type { GraphEntity, GraphReader, SourceSpan } from './graph-read.js';
 import type { KindsManifest } from './kinds.js';
 import type { MarkdownEntity } from './markdown.js';
@@ -20,13 +22,28 @@ import { readBody } from './markdown.js';
 import type { Block, CallRow, CodeLocation, EntityRef, RelatedGroup } from './model.js';
 import { entityAddress, noEntityMessage, sourceAddress, type Resolver } from './resolve.js';
 
-export type Subject = { source: 'graph'; entity: GraphEntity } | { source: 'markdown'; entity: MarkdownEntity };
+export type Subject = { source: 'graph'; entity: GraphEntity } | { source: 'markdown'; entity: MarkdownEntity } | { source: 'document'; entity: DocEntity };
 
 export interface RenderContext {
   productFolder: string;
   manifest: KindsManifest;
   graph: GraphReader;
   markdown: ReadonlyMap<string, MarkdownEntity>;
+  /** The entities of the manifest's document kinds, by id. */
+  docEntities: ReadonlyMap<string, DocEntity>;
+  /** The Markdown documents the entities were read from (the product repository's and the code repositories'). */
+  documents: readonly DocumentSource[];
+  /** The names of the code repositories, in the order documents are searched. */
+  repositories: readonly string[];
+  /** The same place on the repository's web page (GitHub, GitLab, ...), when the repository's address is known. */
+  webOf?: (repo: string | null, path: string, lineStart: number, lineEnd: number) => { host: string; url: string } | undefined;
+  /** What the index of the Markdown (madarch-m38l.8) knows: the statements that rely on a key, and the counts per page kind. */
+  index?: {
+    relyingOn: (key: string) => Promise<RelyingStatement[]>;
+    counts: () => Promise<KindCount[]>;
+  };
+  /** The commit a code repository was filled from, by name. */
+  commitOf: (repo: string) => string | null;
   resolver: Resolver;
   /** The code repository a scope node is, by name. */
   repoOfScope: (scope: string) => string | undefined;
@@ -50,9 +67,10 @@ export function languageOf(path: string): string {
 }
 
 /** Where a span of a graph entity is: its repository by scope, the path and the lines. */
-export function locationOf(ctx: Pick<RenderContext, 'repoOfScope'>, scope: string, span: SourceSpan): CodeLocation {
+export function locationOf(ctx: Pick<RenderContext, 'repoOfScope' | 'webOf'>, scope: string, span: SourceSpan): CodeLocation {
   const repo = ctx.repoOfScope(scope) ?? null;
-  return { repo, path: span.path, lineStart: span.lineStart, lineEnd: span.lineEnd, href: sourceAddress(repo, span.path, span.lineStart) };
+  const web = ctx.webOf?.(repo, span.path, span.lineStart, span.lineEnd);
+  return { repo, path: span.path, lineStart: span.lineStart, lineEnd: span.lineEnd, href: sourceAddress(repo, span.path, span.lineStart), ...(web === undefined ? {} : { web }) };
 }
 
 export function refOfGraph(ctx: RenderContext, entity: GraphEntity, span?: SourceSpan): EntityRef {
@@ -68,7 +86,7 @@ export function refOfGraph(ctx: RenderContext, entity: GraphEntity, span?: Sourc
   };
 }
 
-export function refOfMarkdown(ctx: RenderContext, entity: MarkdownEntity): EntityRef {
+export function refOfMarkdown(ctx: RenderContext, entity: MarkdownEntity | DocEntity): EntityRef {
   return { id: entity.id, kind: entity.kind, label: entity.title, href: ctx.manifest.kinds.has(entity.kind) ? entityAddress(entity.id) : null };
 }
 
@@ -133,10 +151,24 @@ export function attributeOf(subject: Subject, name: string): string | undefined 
     const entity = subject.entity;
     if (name === 'label') return entity.label;
     if (name === 'key' || name === 'id') return entity.key;
+    // The key after its kind and colon: the part a child's key repeats (a table's key minus its kind, for its columns).
+    if (name === 'keyrest') return entity.key.slice(entity.key.indexOf(':') + 1);
     if (name === 'kind') return entity.kind;
     const whole = entity.properties[name];
     if (whole !== undefined) return stringify(whole);
     return stringify(dig(entity.properties, name));
+  }
+  if (subject.source === 'document') {
+    const doc = subject.entity;
+    if (name === 'title' || name === 'label') return doc.title;
+    if (name === 'id' || name === 'key') return doc.id;
+    if (name === 'kind') return doc.kind;
+    if (name === 'identifier') return doc.identifier ?? undefined;
+    if (name === 'path' || name === 'file') return doc.path;
+    if (name === 'repo') return doc.repo ?? undefined;
+    if (name === 'anchor') return doc.anchor;
+    if (name === 'line') return String(doc.line);
+    return undefined;
   }
   const entity = subject.entity;
   if (name === 'title' || name === 'label') return entity.title;
@@ -151,6 +183,8 @@ export function attributeOf(subject: Subject, name: string): string | undefined 
 // ---- body -------------------------------------------------------------------------------------
 
 export function bodyBlock(subject: Subject, block: string, file: string, line: number): Block {
+  // A document entity's text is the section of the document that names it.
+  if (subject.source === 'document') return { type: 'body', markdown: subject.entity.text, file: subject.entity.path, statements: 0, ungrounded: [] };
   if (subject.source !== 'markdown') {
     return { type: 'problem', block, file, line, message: 'the body block shows the Markdown of a page; the entities of this kind come from the graph and have none' };
   }
@@ -162,6 +196,7 @@ export function bodyBlock(subject: Subject, block: string, file: string, line: n
 
 /** Markdown pages that name the key in `relates`, and the pages a Markdown page relates to. */
 export async function relatesGroups(ctx: RenderContext, subject: Subject): Promise<RelatedGroup[]> {
+  if (subject.source === 'document') return [];
   if (subject.source === 'graph') {
     const rows = [...ctx.markdown.values()].filter((page) => page.relates.includes(subject.entity.key)).map((page) => ({ entity: refOfMarkdown(ctx, page), count: 1 }));
     return rows.length === 0 ? [] : [{ relation: 'relates', direction: 'in', total: rows.length, rows }];
@@ -276,7 +311,7 @@ export async function sourceBlock(ctx: RenderContext, subject: Subject, params: 
   return {
     type: 'source',
     title: params['title'] ?? 'Source',
-    location: { repo, path: span.path, lineStart: span.lineStart, lineEnd: end, href: sourceAddress(repo, span.path, span.lineStart) },
+    location: { repo, path: span.path, lineStart: span.lineStart, lineEnd: end, href: sourceAddress(repo, span.path, span.lineStart), ...(ctx.webOf?.(repo, span.path, span.lineStart, end) === undefined ? {} : { web: ctx.webOf(repo, span.path, span.lineStart, end)! }) },
     language: languageOf(span.path),
     text: lines.slice(span.lineStart - 1, stop).join('\n'),
     truncated: stop < end,
@@ -331,4 +366,48 @@ export async function erBlock(ctx: RenderContext, subject: Subject, params: Read
   }
   out.push(...[...edges].sort(byCodePoint));
   return { type: 'er', title, mermaid: out.join('\n'), tables: total, shownTables: tables.length, links: tables.map((table) => refOfGraph(ctx, table)) };
+}
+
+// ---- properties -------------------------------------------------------------------------------
+
+/** A property's value as one line a reader reads: lists joined, objects as compact JSON, cut at 240 characters. */
+function propertyText(value: unknown): string {
+  const text = typeof value === 'string' ? value
+    : typeof value === 'number' || typeof value === 'boolean' ? String(value)
+      : Array.isArray(value) ? value.map((entry) => (typeof entry === 'string' ? entry : JSON.stringify(entry))).join(', ')
+        : JSON.stringify(value);
+  return text.length > 240 ? `${text.slice(0, 239)}…` : text;
+}
+
+/** The properties of a graph entity as a table, in name order: what the extractor read, with no span (the source block shows it). */
+export function propertiesBlock(subject: Subject, params: Readonly<Record<string, string>>, file: string, line: number): Block {
+  const title = params['title'] ?? 'Details';
+  if (subject.source === 'document') {
+    const doc = subject.entity;
+    return { type: 'properties', title, rows: [['identifier', doc.identifier ?? ''], ['document', doc.path], ['line', String(doc.line)]].filter(([, value]) => value !== '').map(([name, value]) => ({ name: name!, value: value! })) };
+  }
+  if (subject.source !== 'graph') return { type: 'problem', block: 'properties', file, line, message: 'the properties block lists what the extractors read; the entities of this kind are Markdown pages (their front matter is theirs)' };
+  const skipped = new Set(['recordKey', 'span', ...(list(params['skip']) ?? [])]);
+  const rows = Object.entries(subject.entity.properties)
+    .filter(([name, value]) => !skipped.has(name) && value !== null && value !== undefined && value !== '' && !(Array.isArray(value) && value.length === 0))
+    .sort(([a], [b]) => byCodePoint(a, b))
+    .map(([name, value]) => ({ name, value: propertyText(value) }));
+  return { type: 'properties', title, rows };
+}
+
+// ---- children ---------------------------------------------------------------------------------
+
+/**
+ * The entities of a kind whose key starts with a prefix: the tables of a database, the columns of a table. The keys the
+ * extractors give a child repeat its parent's, so the parent needs no edge for it.
+ */
+export async function childrenBlock(ctx: RenderContext, subject: Subject, params: Readonly<Record<string, string>>, file: string, line: number): Promise<Block> {
+  const kind = params['kind'];
+  const prefix = params['prefix'];
+  if (kind === undefined || prefix === undefined || prefix === '') return { type: 'problem', block: 'children', file, line, message: 'the children block names the kind and the key prefix of the entities it lists: kind="code.column" prefix="..."' };
+  if (subject.source !== 'graph') return { type: 'problem', block: 'children', file, line, message: 'the children block lists entities of the graph by their keys; this entity is not one' };
+  const found = await ctx.graph.byPrefix(kind, prefix, toInt(params['limit'], 100, 1, 500));
+  const title = params['title'] ?? 'Contains';
+  if (found.total === 0) return { type: 'related', title, groups: [] };
+  return { type: 'related', title, groups: [{ relation: params['relation'] ?? 'code.contains', direction: 'out', total: found.total, rows: found.rows.map((entity) => ({ entity: refOfGraph(ctx, entity), count: 1 })) }] };
 }

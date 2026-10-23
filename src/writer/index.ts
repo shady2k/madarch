@@ -3,3 +3,4 @@ export { GraphView, ingestContent, documentAnchors, slugOf, CONTENT_PRODUCER, ty
 export { UnitTools, WRITER_TOOLS, DEFAULT_UNIT_BOUNDS, type DomainDeclaration, type PageSink, type ToolAnswer, type UnitBounds, type UnitOutcome, type UnitSpec } from './tools.js';
 export { runWriter, fsSink, memorySink, productSlug, PRODUCT_PATH, DOMAINS_FOLDER, type ToolClient, type UnitAgent, type UnitRequest, type WriterOptions, type WriterReport } from './run.js';
 export { acpUnitAgent, type AcpAgentOptions } from './acp-agent.js';
+export { writtenAtOf, withoutCredentials } from './basis.js';

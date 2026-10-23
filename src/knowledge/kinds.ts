@@ -50,11 +50,34 @@ export interface DeclaredRelation {
   line: number;
 }
 
+/** How a kind's entities came to be: written by the agent, written by a person, read from the code, read from the history. */
+export type Origin = 'agent' | 'person' | 'code' | 'history';
+export const ORIGINS: readonly Origin[] = ['agent', 'person', 'code', 'history'];
+
+/** A group of kinds in the navigation and the catalogue (`groups:` in the manifest). */
+export interface GroupDecl {
+  name: string;
+  /** The group's name per interface language. */
+  labels: Readonly<Record<string, string>>;
+  line: number;
+}
+
 export interface KindDecl {
   name: string;
   /** The template's path in the product repository, `/`-separated. */
   template: string;
-  source: 'graph' | 'markdown';
+  /** `document`: the entities are identified sections of Markdown documents (use cases, rules, decisions, terms). */
+  source: 'graph' | 'markdown' | 'document';
+  /** The group the navigation and the catalogue put the kind in. */
+  group?: string;
+  /** How the kind's entities came to be, when it is not told by the entities themselves. */
+  origin?: Origin;
+  /** What the kind is, in plain words, per interface language. */
+  descriptions?: Readonly<Record<string, string>>;
+  /** Document kinds: the identifier prefixes (`UC` for `UC-2`) whose sections are entities of the kind; `*` is any other prefix. */
+  identifier?: readonly string[];
+  /** Document kinds: the documents (path patterns, `*` within a folder and `**` across folders) whose leading bold terms are entities of the kind. */
+  terms?: readonly string[];
   /** Markdown kinds: the folder (many entities) or the file (one entity) the Markdown lives in. */
   folder?: string;
   file?: string;
@@ -81,6 +104,10 @@ export interface KindsManifest {
   /** The language the product's pages are written in (`language:` at the top of the manifest); absent means English. */
   language?: string;
   kinds: ReadonlyMap<string, KindDecl>;
+  /** The groups of kinds, in the manifest's order. */
+  groups: ReadonlyMap<string, GroupDecl>;
+  /** Markdown documents the wiki does not list as documents (harness files, say), as path patterns. */
+  excludeDocuments: readonly string[];
   findings: readonly Finding[];
 }
 
@@ -88,13 +115,17 @@ export type KindsRead =
   | { present: false; file: string }
   | { present: true; manifest: KindsManifest };
 
-const KIND_KEYS = new Set(['template', 'source', 'folder', 'file', 'title', 'attributes', 'relations', 'labels']);
+const KIND_KEYS = new Set(['template', 'source', 'folder', 'file', 'title', 'attributes', 'relations', 'labels', 'group', 'origin', 'description', 'identifier', 'terms']);
 
 /** Whether a repository-relative path stays inside the folder: no climbing, not absolute. */
 export function insideFolder(folder: string, path: string): boolean {
   if (path === '' || isAbsolute(path) || path.includes('\0')) return false;
   const from = relative(resolve(folder), resolve(folder, path));
   return from !== '' && !from.startsWith('..') && !isAbsolute(from);
+}
+
+function nothing(file: string, findings: Finding[]): KindsManifest {
+  return { file, kinds: new Map(), groups: new Map(), excludeDocuments: [], findings };
 }
 
 /** Reads `madarch/kinds.yaml` of a product folder; absent when the product holds none. */
@@ -105,7 +136,7 @@ export function readKinds(productFolder: string): KindsRead {
     text = readFileSync(file, 'utf8');
   } catch (error) {
     if ((error as { code?: string }).code === 'ENOENT') return { present: false, file };
-    return { present: true, manifest: { file, kinds: new Map(), findings: [{ file, line: 1, message: `the file cannot be read: ${(error as Error).message}` }] } };
+    return { present: true, manifest: nothing(file, [{ file, line: 1, message: `the file cannot be read: ${(error as Error).message}` }]) };
   }
   return { present: true, manifest: parseKinds(text, file, productFolder) };
 }
@@ -117,10 +148,10 @@ export function parseKinds(text: string, file: string, productFolder: string): K
   const doc = parseDocument(text, { lineCounter: lines, uniqueKeys: true });
   const at = (path: (string | number)[]): number => lineForPath(doc, lines, path);
   for (const problem of doc.errors) findings.push({ file, line: problem.linePos?.[0].line ?? 1, message: problem.message.split('\n')[0] ?? problem.message });
-  if (doc.errors.length > 0) return { file, kinds: new Map(), findings };
+  if (doc.errors.length > 0) return nothing(file, findings);
   const root: unknown = doc.toJS();
   if (root === null || typeof root !== 'object' || Array.isArray(root)) {
-    return { file, kinds: new Map(), findings: [{ file, line: 1, message: 'the manifest is a mapping with a "kinds" mapping in it' }] };
+    return nothing(file, [{ file, line: 1, message: 'the manifest is a mapping with a "kinds" mapping in it' }]);
   }
   const top = root as Record<string, unknown>;
   let language: string | undefined;
@@ -129,12 +160,49 @@ export function parseKinds(text: string, file: string, productFolder: string): K
       const value = top['language'];
       if (typeof value !== 'string' || !LABEL_LANGUAGES.includes(value)) findings.push({ file, line: at(['language']), message: `"language" is ${JSON.stringify(value)}: the pages are written in ${LABEL_LANGUAGES.join(' or ')}` });
       else language = value;
-    } else if (key !== 'kinds') findings.push({ file, line: at([key]), message: `"${key}" is not a field of the manifest: the manifest holds "kinds" and "language"` });
+    } else if (key !== 'kinds' && key !== 'groups' && key !== 'documents') findings.push({ file, line: at([key]), message: `"${key}" is not a field of the manifest: the manifest holds "kinds", "groups", "documents" and "language"` });
+  }
+  const groups = new Map<string, GroupDecl>();
+  const rawGroups = top['groups'];
+  if (rawGroups !== undefined) {
+    if (rawGroups === null || typeof rawGroups !== 'object' || Array.isArray(rawGroups)) findings.push({ file, line: at(['groups']), message: '"groups" maps a group name to its name in each language (en, ru)' });
+    else {
+      for (const [name, entry] of Object.entries(rawGroups as Record<string, unknown>)) {
+        const body = entry as Record<string, unknown> | null;
+        const line = at(['groups', name]);
+        if (body === null || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).length === 0) {
+          findings.push({ file, line, message: `group "${name}": the group is { en: <its name>, ru: <its name> }` });
+          continue;
+        }
+        const labels: Record<string, string> = {};
+        let bad = false;
+        for (const [language, label] of Object.entries(body)) {
+          if (!LABEL_LANGUAGES.includes(language)) { findings.push({ file, line: at(['groups', name, language]), message: `group "${name}": "${language}" is not a language of the wiki: the languages are ${LABEL_LANGUAGES.join(', ')}` }); bad = true; }
+          else if (typeof label !== 'string' || label.trim() === '') { findings.push({ file, line: at(['groups', name, language]), message: `group "${name}": the name in "${language}" is a text` }); bad = true; }
+          else labels[language] = label;
+        }
+        if (!bad) groups.set(name, { name, labels, line });
+      }
+    }
+  }
+  const excludeDocuments: string[] = [];
+  const rawDocuments = top['documents'];
+  if (rawDocuments !== undefined) {
+    const body = rawDocuments as Record<string, unknown> | null;
+    if (body === null || typeof body !== 'object' || Array.isArray(body)) findings.push({ file, line: at(['documents']), message: '"documents" is { exclude: [<path pattern>, ...] }' });
+    else {
+      for (const key of Object.keys(body)) if (key !== 'exclude') findings.push({ file, line: at(['documents', key]), message: `"${key}" is not a field of "documents": the field is "exclude"` });
+      const exclude = body['exclude'];
+      if (exclude !== undefined) {
+        if (!Array.isArray(exclude) || exclude.some((entry) => typeof entry !== 'string' || entry.trim() === '')) findings.push({ file, line: at(['documents', 'exclude']), message: '"exclude" is a list of path patterns of documents the wiki does not list, such as "AGENTS.md" or "**/CHANGELOG.md"' });
+        else excludeDocuments.push(...(exclude as string[]));
+      }
+    }
   }
   const declared = top['kinds'];
   if (declared === null || typeof declared !== 'object' || Array.isArray(declared)) {
     findings.push({ file, line: at(['kinds']), message: '"kinds" is a mapping of kind names to their declarations' });
-    return { file, kinds: new Map(), findings };
+    return { ...nothing(file, findings), groups, excludeDocuments };
   }
   const kinds = new Map<string, KindDecl>();
   for (const [name, value] of Object.entries(declared as Record<string, unknown>)) {
@@ -152,7 +220,7 @@ export function parseKinds(text: string, file: string, productFolder: string): K
     const before = findings.length;
     for (const key of Object.keys(decl)) if (!KIND_KEYS.has(key)) problem([key], `"${key}" is not a field of a kind: the fields are ${[...KIND_KEYS].join(', ')}`);
     const source = decl['source'];
-    if (source !== 'graph' && source !== 'markdown') problem(['source'], `"source" is "graph" or "markdown", got ${JSON.stringify(source)}`);
+    if (source !== 'graph' && source !== 'markdown' && source !== 'document') problem(['source'], `"source" is "graph", "markdown" or "document", got ${JSON.stringify(source)}`);
     const template = decl['template'];
     if (typeof template !== 'string' || template.trim() === '') problem(['template'], '"template" names the template file in the product repository');
     else if (!insideFolder(productFolder, template)) problem(['template'], `the template "${template}" is not a path inside the product repository`);
@@ -164,8 +232,32 @@ export function parseKinds(text: string, file: string, productFolder: string): K
       for (const [field, path] of [['folder', folder], ['file', single]] as const) {
         if (path !== undefined && (typeof path !== 'string' || !insideFolder(productFolder, path))) problem([field], `"${field}" is a path inside the product repository`);
       }
-    } else if (source === 'graph' && (folder !== undefined || single !== undefined)) {
-      problem([folder !== undefined ? 'folder' : 'file'], 'a graph kind has no "folder" or "file": its entities come from the graph');
+    } else if ((source === 'graph' || source === 'document') && (folder !== undefined || single !== undefined)) {
+      problem([folder !== undefined ? 'folder' : 'file'], `a ${source} kind has no "folder" or "file": its entities come from the ${source === 'graph' ? 'graph' : 'documents'}`);
+    }
+    const identifier = decl['identifier'];
+    const terms = decl['terms'];
+    const names = (value: unknown): value is string[] => Array.isArray(value) && value.length > 0 && value.every((entry) => typeof entry === 'string' && entry.trim() !== '');
+    const identifiers = typeof identifier === 'string' ? [identifier] : identifier;
+    if (identifier !== undefined && (!names(identifiers) || !identifiers.every((entry) => entry === '*' || /^[A-Za-z]+$/.test(entry)))) problem(['identifier'], '"identifier" is the letters an identifier opens with ("UC" for UC-2), a list of them, or "*" for any other');
+    if (terms !== undefined && !names(terms)) problem(['terms'], '"terms" is a list of path patterns of the documents whose leading bold terms are entities, such as "**/glossary.md"');
+    if (source === 'document' && identifier === undefined && terms === undefined) problem([], 'a document kind names "identifier" (the sections that open with an identifier) or "terms" (the documents whose bold terms are entities)');
+    if (source !== 'document' && (identifier !== undefined || terms !== undefined)) problem([identifier !== undefined ? 'identifier' : 'terms'], `"${identifier !== undefined ? 'identifier' : 'terms'}" belongs to a document kind`);
+    const group = decl['group'];
+    if (group !== undefined && (typeof group !== 'string' || !groups.has(group))) problem(['group'], `"group" names a group of "groups" (${[...groups.keys()].join(', ') || 'none is declared'}), got ${JSON.stringify(group)}`);
+    const origin = decl['origin'];
+    if (origin !== undefined && !ORIGINS.includes(origin as Origin)) problem(['origin'], `"origin" is ${ORIGINS.join(', ')}; got ${JSON.stringify(origin)}`);
+    const descriptions: Record<string, string> = {};
+    const rawDescription = decl['description'];
+    if (rawDescription !== undefined) {
+      if (rawDescription === null || typeof rawDescription !== 'object' || Array.isArray(rawDescription)) problem(['description'], `"description" maps a language (${LABEL_LANGUAGES.join(', ')}) to a sentence saying what the kind is`);
+      else {
+        for (const [language, text] of Object.entries(rawDescription as Record<string, unknown>)) {
+          if (!LABEL_LANGUAGES.includes(language)) problem(['description', language], `"${language}" is not a language of the wiki: the languages are ${LABEL_LANGUAGES.join(', ')}`);
+          else if (typeof text !== 'string' || text.trim() === '') problem(['description', language], 'a description is a sentence');
+          else descriptions[language] = text;
+        }
+      }
     }
     const title = decl['title'];
     if (title !== undefined && (typeof title !== 'string' || !/^[A-Za-z_][\w.-]*$/.test(title))) problem(['title'], '"title" names an attribute');
@@ -206,7 +298,12 @@ export function parseKinds(text: string, file: string, productFolder: string): K
     kinds.set(name, {
       name,
       template: template as string,
-      source: source as 'graph' | 'markdown',
+      source: source as 'graph' | 'markdown' | 'document',
+      ...(typeof group === 'string' ? { group } : {}),
+      ...(typeof origin === 'string' ? { origin: origin as Origin } : {}),
+      ...(Object.keys(descriptions).length > 0 ? { descriptions } : {}),
+      ...(identifiers !== undefined && names(identifiers) ? { identifier: identifiers } : {}),
+      ...(Array.isArray(terms) ? { terms: terms as string[] } : {}),
       ...(typeof folder === 'string' ? { folder } : {}),
       ...(typeof single === 'string' ? { file: single } : {}),
       title: typeof title === 'string' ? title : 'label',
@@ -216,7 +313,7 @@ export function parseKinds(text: string, file: string, productFolder: string): K
       line,
     });
   }
-  return { file, kinds, findings, ...(language === undefined ? {} : { language }) };
+  return { file, kinds, groups, excludeDocuments, findings, ...(language === undefined ? {} : { language }) };
 }
 
 /**
@@ -247,4 +344,25 @@ export function setKindsLanguage(productFolder: string, language: string): strin
 export function homeKind(manifest: KindsManifest): KindDecl | undefined {
   for (const decl of manifest.kinds.values()) if (decl.source === 'markdown' && decl.file !== undefined) return decl;
   return undefined;
+}
+
+/** A path pattern as a regular expression: `*` stays within a folder, `**` crosses folders, `?` is one character. */
+export function globToRegExp(pattern: string): RegExp {
+  let out = '';
+  for (let at = 0; at < pattern.length; at += 1) {
+    const char = pattern[at]!;
+    if (char === '*') {
+      if (pattern[at + 1] === '*') {
+        at += 1;
+        if (pattern[at + 1] === '/') { at += 1; out += '(?:.*/)?'; } else out += '.*';
+      } else out += '[^/]*';
+    } else if (char === '?') out += '[^/]';
+    else out += char.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+  }
+  return new RegExp(`^${out}$`);
+}
+
+/** Whether a document path (`/`-separated) matches one of the patterns. */
+export function matchesAny(patterns: readonly string[], path: string): boolean {
+  return patterns.some((pattern) => globToRegExp(pattern).test(path));
 }

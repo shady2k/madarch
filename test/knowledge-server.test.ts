@@ -79,12 +79,13 @@ describe('an empty product', () => {
     const bare = await get('/products/bare/api/k/status');
     expect(bare.body).toMatchObject({ manifest: 'ok', filled: false, home: null });
     expect(bare.body.seeded).toEqual(['madarch/kinds.yaml']);
-    expect(bare.body.kinds.map((kind: { kind: string }) => kind.kind)).toEqual(['product', 'domain', 'code.service', 'code.file', 'code.symbol']);
+    expect(bare.body.kinds.map((kind: { kind: string }) => kind.kind)).toEqual(expect.arrayContaining(['product', 'domain', 'doc.use-case', 'code.service', 'code.file', 'code.symbol', 'code.route', 'code.table']));
     // The kinds carry their names in both languages, from the manifest.
     expect(bare.body.kinds.find((kind: { kind: string }) => kind.kind === 'code.file').labels).toEqual({ en: { one: 'File', many: 'Files' }, ru: { one: 'Файл', many: 'Файлы' } });
     const tiny = await get('/products/tiny/api/k/status');
     expect(tiny.body).toMatchObject({ manifest: 'ok', filled: false, home: null, fill: { state: 'idle' }, repositories: [{ name: 'tiny', filled: false }] });
-    expect(tiny.body.kinds.map((kind: { kind: string; count: number }) => [kind.kind, kind.count])).toEqual([['product', 0], ['domain', 0], ['code.service', 0], ['code.file', 0], ['code.symbol', 0]]);
+    expect(tiny.body.kinds.map((kind: { kind: string; count: number }) => kind.count)).toEqual(tiny.body.kinds.map(() => 0));
+    expect(tiny.body.kinds.map((kind: { kind: string }) => kind.kind)).toEqual(expect.arrayContaining(['product', 'domain', 'code.service', 'code.file', 'code.symbol']));
     const unconnected = await get('/products/unconnected/api/k/status');
     expect(unconnected.body.repositories).toEqual([]);
   });

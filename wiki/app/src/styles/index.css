@@ -1753,6 +1753,58 @@ a.graph-diagram-element-label:hover {
   box-shadow: inset 3px 0 0 var(--text);
 }
 
+/* The lines a ground cites in the statement view: marked in the margin, the context above and below left plain. */
+.source-line-marked {
+  background: var(--surface-active);
+  box-shadow: inset 3px 0 0 var(--text);
+}
+
+/* A sentence of an agent's page (madarch-m38l.6): plain text that opens its statement on a click. A sentence with no
+   ground is marked by a dotted rule and a quiet word, so it is never mistaken for a fact. */
+.statement {
+  cursor: pointer;
+  border-radius: var(--radius-row);
+  transition: background-color 120ms ease;
+}
+
+.statement:hover,
+.statement:focus-visible {
+  background: var(--surface-hover);
+  outline: none;
+}
+
+.statement-ungrounded {
+  text-decoration: underline dotted;
+  text-decoration-color: var(--text-muted);
+  text-underline-offset: 0.25em;
+}
+
+.statement-mark {
+  display: inline-block;
+  margin-inline: 0.35em 0.15em;
+  padding: 0 0.35em;
+  border: 1px dashed var(--text-muted);
+  border-radius: var(--radius-row);
+  font-size: var(--fs-small);
+  line-height: 1.3;
+  color: var(--text-muted);
+  text-decoration: none;
+  user-select: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .statement {
+    transition: none;
+  }
+}
+
+/* The statement view's sentence: the page's own text, larger, with the grounds under it. */
+.statement-sentence {
+  font-size: 1.35em;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+}
+
 .tok-keyword {
   font-weight: 700;
 }
