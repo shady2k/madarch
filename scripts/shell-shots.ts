@@ -170,8 +170,23 @@ try {
         // A ground that is a service is a card; a ground that is a function keeps its code.
         const card = await open(statementUrl('product:shop', SHOP_SENTENCE), lang, scheme, width, height);
         await card.waitForSelector('[data-excerpt=entity]', { timeout: 120_000 });
-        const text = await card.evaluate(() => document.querySelector('[data-testid=statement-grounds]')!.textContent ?? '');
-        if (text.includes('package.json')) fail(`${tag}: the service ground shows package.json: ${text}`);
+        // The ground is the service's card, not the manifest file it was read from: no code excerpt stands in it.
+        const shown = await card.evaluate(() => {
+          const grounds = document.querySelector('[data-testid=statement-grounds]')!;
+          const entity = grounds.querySelector('[data-excerpt=entity]')!;
+          return {
+            code: grounds.querySelector('[data-excerpt=code]') !== null,
+            kind: entity.querySelector('[data-testid=card-kind]')?.textContent ?? '',
+            page: entity.querySelector('[data-testid=card-page] a')?.getAttribute('href') ?? '',
+            facts: entity.querySelector('[data-testid=card-facts]')?.textContent ?? '',
+            related: entity.querySelector('[data-testid=card-related]')?.textContent ?? '',
+          };
+        });
+        if (shown.code) fail(`${tag}: the service ground also draws the manifest as code`);
+        const kindWord = lang === 'ru' ? 'Сервис' : 'Service';
+        if (!shown.kind.includes(kindWord)) fail(`${tag}: the service card does not name its kind «${kindWord}»: ${JSON.stringify(shown)}`);
+        if (shown.page !== '/k/e/code.service%3Apayments') fail(`${tag}: the service card links ${shown.page}, not its page`);
+        if (!shown.facts.includes('language') || !shown.related.includes('payments')) fail(`${tag}: the service card does not show what the code says of it and what it is connected to: ${JSON.stringify(shown)}`);
         await noLoading(card, `${tag} card`);
         await shoot(card, `${tag}-02-service-ground-card`);
         await card.close();

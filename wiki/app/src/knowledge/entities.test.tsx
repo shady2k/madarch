@@ -178,7 +178,8 @@ describe('Markdown read as statements', () => {
     expect(frontTab().address).toBe('/k');
     (container.querySelector('[data-testid=statement]') as HTMLElement).click();
     const sentence = 'Checkout asks payments to authorize the card for the order now.';
-    expect(frontTab().address).toBe(addressOfStatement('domain:payment', sentence));
+    // The opening waits one click interval, so that a double click can select first.
+    await until(() => frontTab().address === addressOfStatement('domain:payment', sentence), 'the statement tab');
     expect(kRouteOf('/k/statement', `?id=domain%3Apayment&sentence=${encodeURIComponent(sentence)}`)).toEqual({ name: 'statement', id: 'domain:payment', sentence, turn: 0 });
     expect(kRouteOf('/k/statement', `?id=domain%3Apayment&sentence=x&n=2`)).toEqual({ name: 'statement', id: 'domain:payment', sentence: 'x', turn: 2 });
     expect(window.location.pathname + window.location.search).toBe(addressOfStatement('domain:payment', sentence));
