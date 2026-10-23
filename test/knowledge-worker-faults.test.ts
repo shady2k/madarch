@@ -10,7 +10,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { KnowledgeProduct, type FillWorkerHandle } from '../src/knowledge/product.js';
 import { RemoteOwner, type ReadWorkerProcess } from '../src/knowledge/remote-owner.js';
-import { createGraphStore } from '../src/graph/index.js';
 import { createPGliteDatabaseOwner } from '../src/adapters/database-owner.js';
 import { runReadWorker } from '../src/knowledge/read-worker.js';
 import { encodeWire, decodeWire } from '../src/knowledge/wire.js';
@@ -157,13 +156,12 @@ describe('a read worker that ends', () => {
     expect(code).toBe(0);
   }, 60_000);
 
-  test('a store with the graph tables but no fill table (the one `new` made) is read with the fill table made on open', async () => {
+  test('an existing store with no tables at all (the folder the home made) is read with the graph and fill tables made on open', async () => {
     root = mkdtempSync(join(tmpdir(), 'madarch-read-nofill-'));
     const path = join(root, 'read', '1');
     mkdirSync(join(root, 'read'), { recursive: true });
     const maker = createPGliteDatabaseOwner({ path, btreeGist: true });
     await maker.ready;
-    await createGraphStore(maker).createSchema();
     await maker.close();
     const input = channel();
     const said: string[] = [];
@@ -172,7 +170,7 @@ describe('a read worker that ends', () => {
     const has = (type: string): boolean => said.some((line) => decodeWire<{ type: string }>(line).type === type);
     for (let tries = 0; tries < 300 && !has('ready') && !has('failed'); tries += 1) await new Promise((rest) => setTimeout(rest, 100));
     expect(has('ready')).toBe(true);
-    input.push(encodeWire({ type: 'query', id: 7, sql: 'SELECT count(*)::int AS n FROM knowledge_fill' }));
+    input.push(encodeWire({ type: 'query', id: 7, sql: 'SELECT (SELECT count(*) FROM knowledge_fill) + (SELECT count(*) FROM node_version) AS n' }));
     for (let tries = 0; tries < 100 && !has('rows') && !has('error'); tries += 1) await new Promise((rest) => setTimeout(rest, 50));
     expect(said.map((line) => decodeWire<{ type: string }>(line).type)).not.toContain('error');
     expect(has('rows')).toBe(true);
