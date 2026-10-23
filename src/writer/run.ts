@@ -17,6 +17,7 @@ import type { DatabaseOwner } from '../adapters/database-owner.js';
 import type { GraphStore } from '../graph/index.js';
 import { byCodePoint } from '../model/order.js';
 import type { McpToolDefinition } from '../fill/unit-mcp.js';
+import { writtenAtOf } from './basis.js';
 import { MAX_SLUG_LENGTH, SLUG } from './format.js';
 import { domainPrompt, productPrompt } from './prompts.js';
 import { DEFAULT_UNIT_BOUNDS, UnitTools, type DomainDeclaration, type PageSink, type ToolAnswer, type UnitBounds, type UnitOutcome, type UnitSpec } from './tools.js';
@@ -61,6 +62,10 @@ export interface WriterOptions {
   readonly sink?: PageSink;
   /** Called with each unit's outcome as it ends. */
   readonly onUnit?: (outcome: UnitOutcome) => void;
+  /** The repository's name as the product declares it, recorded in each page's `written-at`; the folder's name by default. */
+  readonly repositoryName?: string;
+  /** Called after each page is written to the sink, with its path: the graph index is published here. A failure is reported in `indexErrors`, never hidden. */
+  readonly afterWrite?: (written: { readonly path: string }) => Promise<void>;
   /** Called with a unit's id and page as the unit starts, so a reader can see which unit is writing now. */
   readonly onUnitStart?: (unit: { readonly unit: string; readonly path: string }) => void;
 }
@@ -74,6 +79,8 @@ export interface WriterReport {
   readonly ok: boolean;
   /** Domain pages already in the output that this run did not write: left alone, named here. */
   readonly stale: readonly string[];
+  /** What `afterWrite` raised, with the page it was told about; the run is not `ok` while this is not empty. */
+  readonly indexErrors: readonly string[];
 }
 
 export function productSlug(name: string): string {
@@ -139,11 +146,24 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
   const bounds = options.bounds ?? DEFAULT_UNIT_BOUNDS;
   const view = await GraphView.open(options.owner, options.store);
   const content = await ingestContent(options.owner, options.store, view, options.repository, options.ref);
-  const sink = options.sink ?? fsSink(options.output);
+  const inner = options.sink ?? fsSink(options.output);
+  const indexErrors: string[] = [];
+  const sink: PageSink = options.afterWrite === undefined ? inner : {
+    read: inner.read,
+    write: async (relativePath, content) => {
+      await inner.write(relativePath, content);
+      try {
+        await options.afterWrite!({ path: relativePath });
+      } catch (error) {
+        indexErrors.push(`${relativePath}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    },
+  };
+  const basis = [await writtenAtOf(options.repository, options.ref ?? 'HEAD', options.repositoryName)];
   const slug = productSlug(options.productName);
   const productUnit: UnitSpec = { kind: 'product', id: `product:${slug}`, path: PRODUCT_PATH, name: options.productName };
   options.onUnitStart?.({ unit: productUnit.id, path: productUnit.path });
-  const productTools = new UnitTools(view, productUnit, sink, [], bounds);
+  const productTools = new UnitTools(view, productUnit, sink, [], bounds, basis);
   const product = await runUnit(options.agent, productTools, await productPrompt(view, productUnit));
   options.onUnit?.(product);
   const domains: UnitOutcome[] = [];
@@ -157,14 +177,14 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
     for (const declaration of product.domains) {
       const spec: UnitSpec = { kind: 'domain', id: `domain:${declaration.slug}`, path: `${DOMAINS_FOLDER}/${declaration.slug}.md`, domain: declaration, productId: productUnit.id };
       options.onUnitStart?.({ unit: spec.id, path: spec.path });
-      const tools = new UnitTools(view, spec, sink, product.domains, bounds);
+      const tools = new UnitTools(view, spec, sink, product.domains, bounds, basis);
       const outcome = await runUnit(options.agent, tools, await domainPrompt(view, spec, productPage, product.domains));
       options.onUnit?.(outcome);
       domains.push(outcome);
     }
   }
   const stale = (await existingDomainPages(options.output)).filter((page) => !domains.some((d) => d.path === page));
-  return { content, product, domains, units: 1 + domains.length, ok: product.status === 'written' && domains.every((d) => d.status === 'written'), stale };
+  return { content, product, domains, units: 1 + domains.length, ok: product.status === 'written' && domains.every((d) => d.status === 'written') && indexErrors.length === 0, stale, indexErrors };
 }
 
 export type { DomainDeclaration };

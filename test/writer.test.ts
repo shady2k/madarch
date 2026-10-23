@@ -23,9 +23,11 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { parse as parseYaml } from 'yaml';
 import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
+import { documentSections } from '../src/knowledge/index/sections.js';
 import { fillGraph } from '../src/extract/driver/index.js';
 import { HISTORY_EXTRACTOR, OWNERS, TREE_EXTRACTORS } from '../src/extract/driver/extractors.js';
 import { createGraphStore, type GraphStore } from '../src/graph/index.js';
+import { changedGrounds, gitReader, indexKnowledge, readIndexedPage, statementsRelyingOn } from '../src/knowledge/index/index.js';
 import {
   DEFAULT_UNIT_BOUNDS, GraphView, UnitTools, WRITER_TOOLS, memorySink, runWriter, slugOf,
   type DomainDeclaration, type ToolAnswer, type UnitAgent, type UnitRequest, type UnitSpec, type WriterReport,
@@ -274,20 +276,25 @@ describe('the writer over the training repository', () => {
       const match = /^---\n([^]*?)\n---\n\n([^]*)$/.exec(markdown);
       expect(match).not.toBeNull();
       const front = parseYaml(match![1]!) as Record<string, unknown>;
-      expect(Object.keys(front)).toEqual(['id', 'kind', 'title', 'relates', 'producer', 'sources']);
+      expect(Object.keys(front)).toEqual(['id', 'kind', 'title', 'relates', 'producer', 'sources', 'written-at']);
+      // the page records what it was written from: the training repository's commit and branch (the fixture has no origin)
+      expect(front['written-at']).toEqual([{ repository: 'repository', commit: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repository, encoding: 'utf8' }).trim(), branch: execFileSync('git', ['branch', '--show-current'], { cwd: repository, encoding: 'utf8' }).trim() }]);
       expect(front['producer']).toBe('agent');
       const isProduct = file === 'docs/product.md';
       expect(front['kind']).toBe(isProduct ? 'product' : 'domain');
       expect(front['id']).toBe(isProduct ? 'product:training-shop' : `domain:${path.basename(file, '.md')}`);
       expect(markdown.endsWith('\n')).toBe(true);
       const lines = match![2]!.split('\n');
-      const definitions = lines.filter((l) => /^\[\^\d+\]: /.test(l));
-      expect(definitions.map((l) => l.slice(0, l.indexOf(']:') + 1))).toEqual(definitions.map((_, i) => `[^${i + 1}]`));
-      const text = lines.filter((l) => l.trim() !== '' && !/^\[\^\d+\]: /.test(l) && !l.startsWith('#') && !/^(- )?See also/.test(l) && !/^- \[[^\]]+\]\(madarch:[^)]+\)$/.test(l));
+      const definitions = lines.filter((l) => /^\[\^[a-z0-9-]+\]: /.test(l));
+      // one footnote per statement, each named (not numbered) and unique on the page
+      const names = definitions.map((l) => l.slice(2, l.indexOf(']:')));
+      expect(new Set(names).size).toBe(names.length);
+      for (const name of names) expect(name).toMatch(/^[a-z][a-z0-9]*(-[a-z0-9]+)*$/);
+      const text = lines.filter((l) => l.trim() !== '' && !/^\[\^[a-z0-9-]+\]: /.test(l) && !l.startsWith('#') && !/^(- )?See also/.test(l) && !/^- \[[^\]]+\]\(madarch:[^)]+\)$/.test(l));
       expect(text.length).toBeGreaterThan(0);
       for (const line of text) {
         // Every statement line ends each of its sentences in footnote references.
-        for (const sentence of line.replace(/^- /, '').split(/(?<=\])\s+(?=[A-Z])/)) expect(sentence).toMatch(/[.!?](\[\^\d+\])+$/);
+        for (const sentence of line.replace(/^- /, '').split(/(?<=\])\s+(?=[A-Z])/)) expect(sentence).toMatch(/[.!?](\[\^[a-z0-9-]+\])+$/);
       }
     }
   });
@@ -550,4 +557,96 @@ describe('a run whose product unit fails', () => {
     expect(report.stale).toEqual(['docs/domains/shipping.md']);
     expect(readFileSync(path.join(output, 'docs/domains/shipping.md'), 'utf8')).toBe('an earlier page\n');
   });
+});
+
+// ---------------------------------------------------------------------------------------------
+// The graph indexes what the writer wrote (madarch-m38l.8)
+// ---------------------------------------------------------------------------------------------
+
+describe('the graph index of the written pages', () => {
+  const sha = (text: string): string => `${text.length}`;
+  const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'f@example.test', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'f@example.test' } }).trim();
+  const repositories = (name: string) => (name === 'repository' ? gitReader(repository) : undefined);
+  const pagesOf = () => [...first.pages].map(([file, markdown]) => readIndexedPage(file, markdown, sha));
+  const dump = async (db: DatabaseOwner): Promise<string[]> => {
+    const nodes = (await db.run((tx) => tx.query<{ line: string }>(
+      `SELECT k.key || ' ' || (v.properties->>'key') AS line FROM node_version v JOIN node_kind k ON k.id = v.kind_id
+       WHERE v.producer = 'knowledge.index' AND v.valid_to = 'infinity' AND v.recorded_to = 'infinity'`,
+    ))).rows.map((r) => `node ${r.line}`);
+    const edges = (await db.run((tx) => tx.query<{ line: string }>(
+      `SELECT r.key || ' ' || (s.properties->>'key') || ' -> ' || coalesce(d.properties->>'key', d.properties->>'recordKey') AS line
+       FROM edge_version e JOIN relation_type r ON r.id = e.relation_type_id
+       JOIN node_version s ON s.node_id = e.src_id AND s.valid_to = 'infinity' AND s.recorded_to = 'infinity'
+       JOIN node_version d ON d.node_id = e.dst_id AND d.valid_to = 'infinity' AND d.recorded_to = 'infinity'
+       WHERE e.producer = 'knowledge.index' AND e.valid_to = 'infinity' AND e.recorded_to = 'infinity'`,
+    ))).rows.map((r) => `edge ${r.line}`);
+    return [...nodes, ...edges].sort();
+  };
+
+  test('every sentence of every page is a statement node of its page, with its grounds as edges; a function\'s page lists the statements that rely on it', async () => {
+    const pages = pagesOf();
+    const report = await indexKnowledge(owner, store, { productId: 'training-shop', at: view.at, pages, head: { commit: git(repository, 'rev-parse', 'HEAD'), git: gitReader(repository) }, repositories });
+    expect(report.unresolved).toEqual([]);
+    // The expected count comes from the page text: after the canonical form every statement sentence ends in exactly one footnote.
+    const expected = [...first.pages.values()].map((markdown) => markdown.split('\n').filter((l) => !/^\[\^/.test(l)).join('\n').match(/\[\^[a-z0-9-]+\]/g)!.length);
+    expect(report.statements).toBe(expected.reduce((a, b) => a + b, 0));
+    expect(report.pages).toBe(3);
+    const lines = await dump(owner);
+    for (const page of pages) {
+      for (const statement of page.statements) {
+        const key = `statement:${page.id}#${statement.id}`;
+        expect(lines).toContain(`node knowledge:statement ${key}`);
+        expect(lines).toContain(`edge knowledge:statement-of ${key} -> page:${page.id}`);
+        for (const ground of statement.grounds) {
+          const end = ground.startsWith('doc:') ? `section:${ground.slice(4)}` : ground;
+          expect(lines).toContain(`edge knowledge:grounded-by ${key} -> ${end}`);
+        }
+      }
+    }
+    // A function a page grounds a statement on lists that statement.
+    const symbol = pages.flatMap((page) => page.statements.flatMap((statement) => statement.grounds.map((ground) => ({ page, statement, ground })))).find((entry) => entry.ground.startsWith('code.symbol:'));
+    expect(symbol).toBeDefined();
+    const relying = await statementsRelyingOn(owner, symbol!.ground);
+    expect(relying.map((r) => `${r.page}#${r.statement}`)).toContain(`${symbol!.page.id}#${symbol!.statement.id}`);
+    expect(relying.find((r) => r.statement === symbol!.statement.id)!.text).toBe(symbol!.statement.text);
+  });
+
+  test('changing the text of a document section marks the statements grounded on it as changed, and only those', async () => {
+    const clone = path.join(scratch, 'changed-clone');
+    execFileSync('git', ['clone', '--quiet', '--local', repository, clone]);
+    const requirements = readFileSync(path.join(clone, 'docs/requirements.md'), 'utf8');
+    const anchored = pagesOf().flatMap((page) => page.statements.flatMap((statement) => statement.grounds.filter((g) => g.startsWith('doc:docs/requirements.md#')).map((ground) => ({ statement, ground }))));
+    expect(anchored.length).toBeGreaterThan(0);
+    const target = anchored[0]!.ground;
+    const section = documentSections(requirements).find((s) => s.anchor === target.slice(target.indexOf('#') + 1))!;
+    writeFileSync(path.join(clone, 'docs/requirements.md'), requirements.replace(section.text, `${section.text}\nA new sentence that changes this section.`));
+    git(clone, 'commit', '-q', '-am', 'change a requirement');
+    const now = { commit: git(clone, 'rev-parse', 'HEAD'), git: gitReader(clone) };
+    const changes = await changedGrounds(owner, now);
+    const changedGround = new Set(changes.filter((c) => c.status === 'changed').map((c) => c.ground));
+    // Sections nest (a heading's section holds its children), so every ground whose own text changed is a section of that document.
+    expect(changedGround.has(target)).toBe(true);
+    for (const ground of changedGround) expect(ground.startsWith('doc:docs/requirements.md#')).toBe(true);
+    // A ground with no digest to compare is unknown, never changed; everything else outside the document stands.
+    for (const change of changes) if (!change.ground.startsWith('doc:docs/requirements.md#')) expect(['unchanged', 'unknown']).toContain(change.status);
+    // And the same ground at the commit the pages were written at: nothing changed.
+    expect((await changedGrounds(owner, { commit: git(repository, 'rev-parse', 'HEAD'), git: gitReader(repository) })).filter((c) => c.status === 'changed' || c.status === 'removed')).toEqual([]);
+  });
+
+  test('deleting the graph and refilling restores the same nodes from the Markdown', async () => {
+    const before = await dump(owner);
+    expect(before.length).toBeGreaterThan(30);
+    const rebuilt = createPGliteDatabaseOwner({ btreeGist: true, path: path.join(scratch, 'store-rebuilt') });
+    const rebuiltStore = createGraphStore(rebuilt);
+    await rebuilt.ready;
+    await rebuiltStore.createSchema();
+    try {
+      await fillGraph({ owner: rebuilt, store: rebuiltStore, repository, extractors: TREE_EXTRACTORS, owners: OWNERS, history: HISTORY_EXTRACTOR, snapshots: KEY.snapshots });
+      const rebuiltView = await GraphView.open(rebuilt, rebuiltStore);
+      await indexKnowledge(rebuilt, rebuiltStore, { productId: 'training-shop', at: rebuiltView.at, pages: pagesOf(), head: { commit: git(repository, 'rev-parse', 'HEAD'), git: gitReader(repository) }, repositories });
+      expect(await dump(rebuilt)).toEqual(before);
+    } finally {
+      await rebuilt.close();
+    }
+  }, 1_800_000);
 });

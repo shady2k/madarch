@@ -12,6 +12,9 @@
  */
 import { parse as parseYaml } from 'yaml';
 import { byCodePoint } from '../model/order.js';
+import type { WrittenAt } from '../knowledge/index/page.js';
+import { nameStatements, sentenceKey } from './names.js';
+import { plainSentence, REFERENCE_RUN, statementsOf } from './sentences.js';
 
 /** One reason a page is refused: the line (1-based, in the whole file), the rule and a message the agent can act on. */
 export interface Refusal {
@@ -40,6 +43,10 @@ export interface PageExpectation {
   readonly mustLinkDomains: boolean;
   /** For a domain page: the product page it may link. */
   readonly productId?: string;
+  /** The repositories the page is written from, recorded in its front matter as `written-at`; the agent does not write them. */
+  readonly writtenAt?: readonly WrittenAt[];
+  /** The page this one replaces, as written: a sentence it kept keeps its footnote name. */
+  readonly previous?: string;
 }
 
 export interface FrontMatter {
@@ -49,6 +56,7 @@ export interface FrontMatter {
   readonly relates: readonly string[];
   readonly producer: 'agent';
   readonly sources: readonly string[];
+  readonly writtenAt: readonly WrittenAt[];
 }
 
 /** A page that passed, in canonical form (what is written to disk). */
@@ -67,6 +75,8 @@ export const SLUG = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
 export const MAX_SLUG_LENGTH = 40;
 
 const FRONT_KEYS = ['id', 'kind', 'title', 'relates', 'producer', 'sources'] as const;
+/** Keys the writer fills in; an agent may leave them out, and what it writes is replaced. */
+const WRITER_KEYS = ['written-at'] as const;
 const LINK = /\[([^\]\n]*)\]\(((?:[^()\s]|\([^()\s]*\))*)\)/g;
 const FOOTNOTE_DEFINITION = /^\[\^([A-Za-z0-9_-]+)\]:[ \t]*(.*)$/;
 const FOOTNOTE_REFERENCE = /\[\^([A-Za-z0-9_-]+)\]/g;
@@ -100,7 +110,7 @@ function frontMatterOf(text: string, expected: PageExpectation): { front?: Front
   }
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return { refusals: [{ line: 2, rule: 'front-matter', message: 'the front matter is a YAML mapping with the keys id, kind, title, relates, producer, sources' }] };
   const record = raw as Record<string, unknown>;
-  for (const key of Object.keys(record)) if (!(FRONT_KEYS as readonly string[]).includes(key)) refuse(`the front matter key "${key}" is not part of the format; the keys are ${FRONT_KEYS.join(', ')}`);
+  for (const key of Object.keys(record)) if (!(FRONT_KEYS as readonly string[]).includes(key) && !(WRITER_KEYS as readonly string[]).includes(key)) refuse(`the front matter key "${key}" is not part of the format; the keys are ${FRONT_KEYS.join(', ')}`);
   for (const key of FRONT_KEYS) if (!(key in record)) refuse(`the front matter lacks "${key}"`);
   if (record['id'] !== expected.id) refuse(`id is ${JSON.stringify(record['id'])} but this page's id is "${expected.id}"`);
   if (record['kind'] !== expected.kind) refuse(`kind is ${JSON.stringify(record['kind'])} but this page's kind is "${expected.kind}"`);
@@ -126,6 +136,7 @@ function frontMatterOf(text: string, expected: PageExpectation): { front?: Front
       relates: [...new Set(relates)].sort(byCodePoint),
       producer: 'agent',
       sources: [...new Set(sources)].sort(byCodePoint),
+      writtenAt: expected.writtenAt ?? [],
     },
   };
 }
@@ -376,29 +387,66 @@ export async function checkPage(markdown: string, expected: PageExpectation, res
   }
   if (units.length === 0) refusals.push({ line: split.bodyStart, rule: 'empty', message: 'the page states nothing: it has no sentence with grounds' });
   if (refusals.length > 0 || front.front === undefined) return { ok: false, refusals: refusals.sort((a, b) => a.line - b.line || byCodePoint(a.rule, b.rule)) };
-  return { ok: true, page: canonical(front.front, split.body, defined, links, allGrounds) };
+  return { ok: true, page: canonical(front.front, split.body, defined, links, allGrounds, expected.previous) };
+}
+
+/** The names the replaced page gave its sentences, by sentence. */
+function previousNames(previous: string | undefined): Map<string, string> {
+  const names = new Map<string, string>();
+  if (previous === undefined) return names;
+  const lines = previous.replace(/\r\n/g, '\n').split('\n');
+  const end = lines[0] === '---' ? lines.indexOf('---', 1) : -1;
+  if (end < 0) return names;
+  for (const statement of statementsOf(lines.slice(end + 1).join('\n'), end + 2)) if (!names.has(sentenceKey(statement.text))) names.set(sentenceKey(statement.text), statement.labels[0]!);
+  return names;
+}
+
+/** The sentence a run of footnote references ends: the text since the previous run, a blank line or a new list item, cut at its last sentence start. */
+function sentenceBefore(text: string, from: number, to: number): string {
+  let start = from;
+  const blank = text.lastIndexOf('\n\n', to);
+  if (blank >= start) start = blank + 2;
+  const item = /\n(?=\s*(?:[-*+]|\d+[.)])\s|#{1,6}\s|>)/g;
+  const slice = text.slice(start, to);
+  let last = 0;
+  for (const match of slice.matchAll(item)) last = match.index + 1;
+  start += last;
+  const chunk = text.slice(start, to).replace(/^\s*(?:[-*+]|\d+[.)]|>)\s*/, '');
+  const sentences = sentencesOf(maskInline(chunk));
+  return plainSentence(sentences.length === 0 ? chunk : sentences[sentences.length - 1]!.text);
 }
 
 /**
  * The canonical form: front matter in the format's key order, the body with
- * its blank lines collapsed, footnotes numbered in order of first use and
- * listed after the body. The same checked page always gives the same bytes.
+ * its blank lines collapsed, and one footnote per statement, named for it
+ * (`[^refund-window]`; see `names.ts`) and listed after the body in order of
+ * first use. A sentence that ends in several footnotes gets one, listing all
+ * their grounds; a name several sentences shared is made unique. The same
+ * checked page, with the same replaced page, always gives the same bytes.
  */
-function canonical(front: FrontMatter, body: string, defined: Map<string, { line: number; grounds: { label: string; target: string }[] }>, links: string[], grounds: string[]): CheckedPage {
-  const order: string[] = [];
+function canonical(front: FrontMatter, body: string, defined: Map<string, { line: number; grounds: { label: string; target: string }[] }>, links: string[], grounds: string[], previous: string | undefined): CheckedPage {
   const lines: string[] = [];
   for (const raw of body.split('\n')) {
     if (FOOTNOTE_DEFINITION.test(raw.trim())) continue;
     lines.push(raw.replace(/[ \t]+$/, ''));
   }
   const text = lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
-  const renumbered = text.replace(FOOTNOTE_REFERENCE, (_whole, label: string) => {
-    let at = order.indexOf(label);
-    if (at < 0) { order.push(label); at = order.length - 1; }
-    return `[^${at + 1}]`;
+  const runs = [...text.matchAll(REFERENCE_RUN)].map((match) => ({ at: match.index, length: match[0].length, labels: [...new Set([...match[0].matchAll(FOOTNOTE_REFERENCE)].map((m) => m[1]!))] }));
+  const items = runs.map((run, index) => {
+    const own = [...new Map(run.labels.flatMap((label) => defined.get(label)?.grounds ?? []).map((ground) => [ground.target, ground])).values()];
+    return { run, own, sentence: sentenceBefore(text, index === 0 ? 0 : runs[index - 1]!.at + runs[index - 1]!.length, run.at), labels: run.labels, hint: own[0]?.label ?? '' };
   });
-  const notes = order.map((label, at) => `[^${at + 1}]: ${defined.get(label)!.grounds.map((ground) => `[${ground.label}](${ground.target})`).join(', ')}`);
+  const names = nameStatements(items, previousNames(previous));
+  let renamed = '';
+  let cursor = 0;
+  items.forEach((item, index) => {
+    renamed += `${text.slice(cursor, item.run.at)}[^${names[index]}]`;
+    cursor = item.run.at + item.run.length;
+  });
+  renamed += text.slice(cursor);
+  const notes = items.map((item, index) => `[^${names[index]}]: ${item.own.map((ground) => `[${ground.label}](${ground.target})`).join(', ')}`);
   const yamlList = (name: string, list: readonly string[]): string => (list.length === 0 ? `${name}: []` : `${name}:\n${list.map((entry) => `  - ${JSON.stringify(entry)}`).join('\n')}`);
+  const writtenAt = front.writtenAt.length === 0 ? [] : [`written-at:\n${front.writtenAt.map((entry) => [`  - repository: ${JSON.stringify(entry.repository)}`, `    commit: ${entry.commit}`, ...(entry.branch === undefined ? [] : [`    branch: ${JSON.stringify(entry.branch)}`]), ...(entry.origin === undefined ? [] : [`    origin: ${JSON.stringify(entry.origin)}`])].join('\n')).join('\n')}`];
   const header = [
     '---',
     `id: ${front.id}`,
@@ -407,7 +455,8 @@ function canonical(front: FrontMatter, body: string, defined: Map<string, { line
     yamlList('relates', front.relates),
     'producer: agent',
     yamlList('sources', front.sources),
+    ...writtenAt,
     '---',
   ].join('\n');
-  return { frontMatter: front, markdown: `${header}\n\n${renumbered}\n\n${notes.join('\n')}\n`, grounds, links };
+  return { frontMatter: front, markdown: `${header}\n\n${renamed}\n\n${notes.join('\n')}\n`, grounds, links };
 }
