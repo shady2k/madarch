@@ -3,13 +3,13 @@
 Change: madarch-m38l.13
 Base: 05af1efa4ccd3b72531c9f0c93fea0dd8d260982
 Tasks: madarch-m38l.13
-Kind: no-behavior
+Kind: behavior
 
 ## Intent
 The owner's walk of 0.2.2 on 2026-10-23 found that nobody could tell what the writer's agent had done (no record of its calls on the core's side), and that its pages had defects the prompts alone did not prevent: 21 questions of which 11 were distinct, a contradiction moved off the page into a question (the Ordering page lost the 90-day/6-hour retention and the 8% tax), ground labels the agent invented («Ожидание» for `withTimeout`), a service named by a link and grounded only on that link, routes and operations written as code spans, question headings in English in a Russian wiki, and an asymmetry the run missed (a refund with no timeout or retry beside a pay call that has both). This change makes the core journal every call and shows it per page, and moves what is deterministic out of the prompt and into code.
 
 ## Rationale
-The writer's format, checks and prompts are specified by decision 0029 and its design records, not by a capability file, so no capability text changes; the journal route adds an address and keeps the existing ones. See "Design and decisions".
+The change adds externally visible behavior to the knowledge wiki and writer, so it is a behavior change. The complete proposed capability text is in `capabilities/product-wiki.md`; it extends the existing wiki-serving and ACP-agent requirements with the journal, and records deterministic writer behavior and its scenarios. The baseline is the unchanged `product-wiki` capability at `05af1efa4ccd3b72531c9f0c93fea0dd8d260982` (also the current `origin/main` baseline).
 
 ## Out of scope
 - Real agent runs; every behavior is proven with the scripted ACP test agent the writer tests use.
@@ -18,12 +18,17 @@ The writer's format, checks and prompts are specified by decision 0029 and its d
 - The reader-shell files of madarch-m38l.12, except the one link on an agent-written page.
 
 ## Changes to requirements
-None.
+- product-wiki/acp-agent (changed): every answered writer tool call and every refusal is recorded in a core-side per-run machine-local journal, with full call context, response/truncation and timing data; the progress count equals answered-call records. Scenarios: `writer-call-journal`, `writer-refusals-are-journaled`.
+- product-wiki/writer-quality (new): questions are deduplicated by type and entities, contradictions retain both grounded sides, ground labels come from names, links cannot serve as their own grounds, route/operation code spans become links, question headings follow the wiki language, and neighboring operations are compared for resilience. Scenarios: `question-deduplication`, `contradiction-keeps-both-sides`, `ground-labels-are-derived`, `link-is-not-a-ground`, `routes-and-operations-link`, `question-headings-follow-wiki-language`, `neighboring-operations-resilience`.
+
+Complete proposed capability text: `capabilities/product-wiki.md`. It is based on the `product-wiki` capability at `Base:`; the proposal is the complete capability, not a hand-written delta.
 
 ## Preserved contracts
 - product-wiki/serve: the routes keep their addresses; one route is added.
 
 ## Coverage
+- product-wiki/acp-agent: test
+- product-wiki/writer-quality: test
 - product-wiki/serve: test
 
 ## Where it is seen
