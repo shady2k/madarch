@@ -124,6 +124,8 @@ export interface AcpSession {
   readonly sessionId: string;
   /** The mode state `session/new` returned, when it returned one. */
   readonly modes: unknown;
+  /** The model the agent says the session runs on (`models.currentModelId` of `session/new`), or null when it says none. */
+  readonly model: string | null;
   /**
    * Send one prompt turn and wait for its stop reason; `onUpdate` sees each update as it arrives. An aborted
    * `signal` ends the turn as cancelled: madarch sends `session/cancel` and stops waiting for the agent, so a turn
@@ -168,6 +170,17 @@ export type AcpMcpServer =
   | { name: string; command: string; args?: readonly string[]; env?: Readonly<Record<string, string>> }
   | { name: string; url: string; type?: 'http' | 'sse'; headers?: Readonly<Record<string, string>> };
 
+/** A request the agent made of the client that madarch refuses (decision 0026: the agent's own tools are off). */
+export interface AcpRefusal {
+  /** The protocol method, like `fs/read_text_file`. */
+  method: string;
+  sessionId: string | null;
+  /** The request's parameters as received. */
+  params: unknown;
+  /** What the agent is answered, in words. */
+  message: string;
+}
+
 /** Options for connecting to one agent. */
 export interface ConnectAcpOptions {
   /** The folder the agent runs in; made absolute before it is sent. */
@@ -180,6 +193,8 @@ export interface ConnectAcpOptions {
   sessionTimeoutMs?: number;
   /** Receives every update of every session, for progress; a session's own handler runs as well. */
   onUpdate?: (update: AcpUpdate) => void;
+  /** Told of every request of the agent that madarch refuses: a file or terminal request, a permission request. */
+  onRefused?: (refusal: AcpRefusal) => void;
 }
 
 /** A failure of this module; its message names what failed and where. */
@@ -393,6 +408,16 @@ export async function connectAcpAgent(spec: AcpAgentSpec, options: ConnectAcpOpt
   let settleClosed: () => void = () => undefined;
   const closedPromise = new Promise<void>((settle) => { settleClosed = settle; });
 
+  const refused = (method: string, params: unknown, message: string): void => {
+    const sessionId = typeof params === 'object' && params !== null && typeof (params as { sessionId?: unknown }).sessionId === 'string' ? (params as { sessionId: string }).sessionId : null;
+    options.onRefused?.({ method, sessionId, params, message });
+  };
+  const refuseTerminal = (method: string, params: unknown): never => {
+    const message = `the agent called ${method}, which madarch does not offer: the client has no terminal`;
+    refused(method, params, message);
+    throw new Error(message);
+  };
+
   const app = acp.client({ name: 'madarch' })
     .onNotification(acp.methods.client.session.update, (context) => {
       const notification = context.params;
@@ -407,15 +432,27 @@ export async function connectAcpAgent(spec: AcpAgentSpec, options: ConnectAcpOpt
       options.onUpdate?.(update);
     })
     // An agent's own file tools are off (decision 0026): it reads and writes
-    // only through the unit's MCP server, so a permission request and a raw
-    // file call are both refused here.
-    .onRequest(acp.methods.client.session.requestPermission, () => ({ outcome: { outcome: 'cancelled' as const } }))
-    .onRequest(acp.methods.client.fs.readTextFile, () => {
-      throw new Error('the agent called fs/read_text_file, which madarch does not offer: code is read through the session\'s MCP server');
+    // only through the unit's MCP server, so a permission request, a raw
+    // file call and a terminal call are all refused here, and told to the caller.
+    .onRequest(acp.methods.client.session.requestPermission, (context) => {
+      refused('session/request_permission', context.params, 'every permission request is answered cancelled: the agent works only through the session\'s MCP server');
+      return { outcome: { outcome: 'cancelled' as const } };
     })
-    .onRequest(acp.methods.client.fs.writeTextFile, () => {
-      throw new Error('the agent called fs/write_text_file, which madarch does not offer: writes go through the session\'s MCP server');
-    });
+    .onRequest(acp.methods.client.fs.readTextFile, (context) => {
+      const message = 'the agent called fs/read_text_file, which madarch does not offer: code is read through the session\'s MCP server';
+      refused('fs/read_text_file', context.params, message);
+      throw new Error(message);
+    })
+    .onRequest(acp.methods.client.fs.writeTextFile, (context) => {
+      const message = 'the agent called fs/write_text_file, which madarch does not offer: writes go through the session\'s MCP server';
+      refused('fs/write_text_file', context.params, message);
+      throw new Error(message);
+    })
+    .onRequest(acp.methods.client.terminal.create, (context) => refuseTerminal('terminal/create', context.params))
+    .onRequest(acp.methods.client.terminal.output, (context) => refuseTerminal('terminal/output', context.params))
+    .onRequest(acp.methods.client.terminal.release, (context) => refuseTerminal('terminal/release', context.params))
+    .onRequest(acp.methods.client.terminal.waitForExit, (context) => refuseTerminal('terminal/wait_for_exit', context.params))
+    .onRequest(acp.methods.client.terminal.kill, (context) => refuseTerminal('terminal/kill', context.params));
 
   const stream = acp.ndJsonStream(
     Writable.toWeb(child.stdin) as unknown as WritableStream<Uint8Array>,
@@ -548,6 +585,7 @@ export async function connectAcpAgent(spec: AcpAgentSpec, options: ConnectAcpOpt
       const session: AcpSession = {
         sessionId,
         modes: answer.modes,
+        model: ((answer as { models?: { currentModelId?: unknown } }).models?.currentModelId as string | undefined) ?? null,
         running: () => inFlight,
         usage() {
           return { ...(last ?? {}), reported: reports > 0, turns, reports, ...(state.context === undefined ? {} : { context: state.context }) };

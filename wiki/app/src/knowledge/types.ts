@@ -288,3 +288,28 @@ export type RefreshPlan = { languageChanged: boolean; pages: PlannedPage[]; unch
 export type RefreshPreview =
   | { available: true; plan: RefreshPlan; language: { from: string | null; to: string; changed: boolean }; commitsNotRead: number | null }
   | { available: false; reason: string };
+
+// ---- the agent's journal (madarch-m38l.13) ----------------------------------------------------
+
+export type JournalOutcome = 'ok' | 'refused' | 'failed' | 'rejected';
+
+export type JournalRecord = {
+  time: string;
+  durationMs: number;
+  run: string;
+  unit: string;
+  agent: string;
+  model: string | null;
+  session: string | null;
+  kind: 'tool-call' | 'refusal';
+  tool: string;
+  arguments: unknown;
+  response: string | null;
+  responseBytes: number;
+  truncated: boolean;
+  isError: boolean;
+  outcome: JournalOutcome;
+  reason: string | null;
+};
+
+export type PageJournal = { run: string | null; runs: string[]; records: JournalRecord[]; problems: string[] };

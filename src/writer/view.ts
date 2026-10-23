@@ -16,8 +16,8 @@ import { DRIVER_PRODUCER } from '../extract/driver/index.js';
 import type { GraphId, GraphStore } from '../graph/index.js';
 import { sha256Hex } from '../graph/digest.js';
 import { byCodePoint } from '../model/order.js';
-import { documentAnchors, slugOf } from '../knowledge/anchors.js';
-import type { GroundResolver } from './format.js';
+import { anchorLines, documentAnchors, slugOf } from '../knowledge/anchors.js';
+import type { GroundResolver, MadarchTarget } from './format.js';
 
 type Raw = Record<string, unknown>;
 
@@ -124,6 +124,48 @@ export class GraphView implements GroundResolver {
 
   async docSection(path: string, anchor: string): Promise<boolean> {
     return ((await this.anchorsOf(path))?.has(anchor.toLowerCase())) === true;
+  }
+
+  /** The name a ground is shown by: a node's label, or the heading of a document's section (an identifier such as UC-2 as written). */
+  async nameOf(target: MadarchTarget): Promise<string | undefined> {
+    if (target.type === 'graph') {
+      const node = await this.node(target.key);
+      return node === null || node.label.trim() === '' ? undefined : node.label.trim();
+    }
+    if (target.type !== 'doc') return undefined;
+    if (/^[a-z]+-\d+$/.test(target.anchor)) return target.anchor.toUpperCase();
+    const text = await this.fileText(target.path);
+    if (text === null) return undefined;
+    const line = anchorLines(text).get(target.anchor);
+    if (line === undefined) return undefined;
+    const raw = text.split('\n')[line - 1] ?? '';
+    const heading = /^#{1,6}\s+(.*?)\s*(?:\{#[\w-]+\})?\s*#*\s*$/.exec(raw);
+    const phrase = (heading?.[1] ?? raw.replace(/^\s*(?:[-*+]|\d+[.)])\s+/, '').replace(/^(?:\*\*|__)(.*?)(?:\*\*|__).*$/, '$1')).replace(/[`*_~]/g, '').trim();
+    if (phrase === '') return undefined;
+    return phrase.length > 60 ? `${phrase.slice(0, 57).replace(/\s+\S*$/, '')}...` : phrase;
+  }
+
+  /** The key of the only node of this kind whose key ends as asked and whose label is `label` (when given); undefined when none or several. */
+  private async only(kind: string, text: string, accept: (node: NodeInfo) => boolean): Promise<string | undefined> {
+    const found: string[] = [];
+    let after: string | undefined;
+    for (let pages = 0; pages < 3; pages += 1) {
+      const page = await this.find({ kind, text, ...(after === undefined ? {} : { after }), limit: 40 });
+      for (const node of page.nodes) if (accept(node) && !found.includes(node.key)) found.push(node.key);
+      if (found.length > 1) return undefined;
+      if (page.next === null) return found[0];
+      after = page.next;
+    }
+    // Three pages of candidates and no end: the name is too common to say which is meant.
+    return undefined;
+  }
+
+  async uniqueRoute(method: string, routePath: string): Promise<string | undefined> {
+    return this.only('code.route', `#${method}:${routePath}`, (node) => node.key.endsWith(`#${method}:${routePath}`));
+  }
+
+  async uniqueSymbol(name: string): Promise<string | undefined> {
+    return this.only('code.symbol', name, (node) => node.label === name);
   }
 
   async sourceName(name: string): Promise<boolean> {

@@ -83,6 +83,8 @@ interface ScriptStep {
   answerMembers?: { summary?: string };
   end?: { stopReason?: string; usage?: unknown };
   wait?: boolean;
+  /** Asks the client for something it refuses, and says what came back: a file read or write, a permission, a terminal. */
+  refused?: 'fs-read' | 'fs-write' | 'permission' | 'terminal';
   /** Ends the agent process with this exit code, without answering: a unit whose session fails mid-turn. */
   exit?: number;
 }
@@ -308,8 +310,27 @@ async function runScript(id: number | string, sessionId: string, text: string): 
     if (step.call !== undefined) {
       const client = await mcpFor(sessionId);
       if (client === undefined) { chunk(sessionId, JSON.stringify({ error: 'the session was given no stdio MCP server' })); continue; }
-      const answered = await client.call(String(step.call.tool), step.call.arguments ?? {});
-      chunk(sessionId, JSON.stringify({ tool: step.call.tool, isError: answered.isError, text: answered.text }));
+      try {
+        const answered = await client.call(String(step.call.tool), step.call.arguments ?? {});
+        chunk(sessionId, JSON.stringify({ tool: step.call.tool, isError: answered.isError, text: answered.text }));
+      } catch (error) {
+        // A call the server refuses as a protocol error (no such tool) is the agent's to read, not the end of its turn.
+        chunk(sessionId, JSON.stringify({ tool: step.call.tool, protocolError: (error as Error).message }));
+      }
+      continue;
+    }
+    if (step.refused !== undefined) {
+      let answer: string;
+      try {
+        const reply = step.refused === 'fs-read' ? await ask('fs/read_text_file', { sessionId, path: '/etc/hostname' })
+          : step.refused === 'fs-write' ? await ask('fs/write_text_file', { sessionId, path: '/tmp/fake-agent-write', content: 'x' })
+          : step.refused === 'terminal' ? await ask('terminal/create', { sessionId, command: 'ls' })
+          : await ask('session/request_permission', { sessionId, toolCall: { toolCallId: 'call-1', title: 'Write a file', kind: 'edit', status: 'pending' }, options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }] });
+        answer = JSON.stringify(reply.error ?? reply.result ?? null);
+      } catch (error) {
+        answer = `refused: ${(error as Error).message}`;
+      }
+      chunk(sessionId, answer);
       continue;
     }
     if (step.answerMembers !== undefined) {
@@ -523,7 +544,7 @@ lines.on('line', (line: string) => {
         const servers = heldServers;
         void startMcp(servers).then((client) => {
           mcp = client;
-          respond(message.id, { sessionId: `fake-session-${sessionNumber}`, modes: { currentModeId: 'ask' } });
+          respond(message.id, { sessionId: `fake-session-${sessionNumber}`, modes: { currentModeId: 'ask' }, models: { currentModelId: 'fake-model-1', availableModels: [] } });
         }).catch((error: Error) => {
           send({ jsonrpc: '2.0', id: message.id, error: { code: -32603, message: `the MCP server would not start: ${error.message}` } });
         });
@@ -532,7 +553,7 @@ lines.on('line', (line: string) => {
       // A `script` scenario records the session's servers and starts them at its first call step, so a script that
       // never calls a tool starts no server at all.
       serversBySession.set(`fake-session-${sessionNumber}`, heldServers);
-      respond(message.id, { sessionId: `fake-session-${sessionNumber}`, modes: { currentModeId: 'ask' } });
+      respond(message.id, { sessionId: `fake-session-${sessionNumber}`, modes: { currentModeId: 'ask' }, models: { currentModelId: 'fake-model-1', availableModels: [] } });
       // `deaf` stops reading here, in the same turn as the answer, so the client's next message meets a full pipe.
       if (scenario === 'deaf') lines.pause();
       return;

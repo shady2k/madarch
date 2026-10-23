@@ -18,7 +18,7 @@ import { byCodePoint } from '../model/order.js';
 import type { McpToolDefinition } from '../fill/unit-mcp.js';
 import { checkPage, MAX_SLUG_LENGTH, parseTarget, SLUG, type Refusal } from './format.js';
 import type { WrittenAt } from '../knowledge/index/page.js';
-import { MAX_ABOUT, MAX_SIDES, MAX_TEXT, MAX_TITLE, QUESTION_TYPES, parseStatementRef, questionPath, renderQuestion, type QuestionType } from '../loop/entities.js';
+import { MAX_ABOUT, MAX_SIDES, MAX_TEXT, MAX_TITLE, QUESTION_HEADINGS, QUESTION_TYPES, parseStatementRef, questionPath, renderQuestion, type Question, type QuestionLanguage, type QuestionType } from '../loop/entities.js';
 import { slugOf } from './names.js';
 import { statementsOf } from './sentences.js';
 import { splitFrontMatter } from '../knowledge/markdown.js';
@@ -42,6 +42,47 @@ export interface PageSink {
   write(relativePath: string, content: string): Promise<void>;
   /** The page as written, for the units that follow. */
   read(relativePath: string): Promise<string>;
+  /** The files under a folder of the product (`docs/questions`), by repository path; absent when the sink cannot list. */
+  list?(folder: string): Promise<string[]>;
+}
+
+/**
+ * Whether two questions are about the same subject is decided on the entities they name (madarch-m38l.13): the graph
+ * keys and document sections of their `about` and of their sides' grounds, without the containers that hold everything
+ * (services, modules) and the pages.
+ */
+const BROAD_ENTITY = /^(code\.(service|module):|domain:|product:|question:|correction:)/;
+
+/** How much of its entities a question must share with an earlier one to be the same question: the Jaccard index, at least this. */
+export const SAME_SUBJECT = 0.5;
+
+/** The share two subjects have in common, from 0 to 1. */
+export function overlap(a: ReadonlySet<string>, b: ReadonlySet<string>): number {
+  if (a.size === 0 || b.size === 0) return 0;
+  let shared = 0;
+  for (const entity of a) if (b.has(entity)) shared += 1;
+  return shared / (a.size + b.size - shared);
+}
+
+/** The entities a question is about: the graph keys and document sections of its `about` and of its sides' grounds, without the broad containers. */
+export function subjectOf(about: readonly string[], sides: readonly { readonly grounds: readonly string[] }[]): Set<string> {
+  const out = new Set<string>();
+  for (const entry of [...about, ...sides.flatMap((side) => side.grounds)]) {
+    const target = entry.startsWith('madarch:') ? entry.slice('madarch:'.length) : entry;
+    if (BROAD_ENTITY.test(target) || parseStatementRef(target) !== undefined) continue;
+    const parsed = parseTarget(target);
+    if (parsed === undefined || parsed.type === 'page') continue;
+    out.add(target);
+  }
+  return out;
+}
+
+/** The file a ground is in, so a ground on a function and on its file are the same place. */
+function placeOf(ground: string): string {
+  const target = ground.startsWith('madarch:') ? ground.slice('madarch:'.length) : ground;
+  const hash = target.indexOf('#');
+  const head = hash < 0 ? target : target.slice(0, hash);
+  return head.startsWith('doc:') ? head : head.replace(/^code\.[a-z-]+:/, '');
 }
 
 export interface UnitBounds {
@@ -61,6 +102,10 @@ export interface UnitExtras {
   /** The ids of the answered questions and the corrections a statement may stand on, read when a page is written. */
   readonly entityIds?: () => Promise<readonly string[]>;
   readonly clock?: () => Date;
+  /** The language the pages and the questions' headings are written in. */
+  readonly language?: string;
+  /** The questions asked so far in the product (earlier runs and earlier units), read fresh at each ask: a question about a subject already asked adds its page to the one that exists. */
+  readonly questions?: () => Promise<readonly Question[]>;
 }
 
 export const MAX_DOMAINS = 12;
@@ -92,6 +137,8 @@ export interface UnitOutcome {
   readonly filesRead: readonly string[];
   /** The ids of the questions the unit asked, in order. */
   readonly questions: readonly string[];
+  /** The ids of the existing questions this unit's questions were added to instead of being asked again (madarch-m38l.13). */
+  readonly merged?: readonly string[];
 }
 
 const object = (properties: Record<string, unknown>, required: string[] = []): Record<string, unknown> => ({ type: 'object', additionalProperties: false, required, properties });
@@ -156,7 +203,7 @@ export const WRITER_TOOLS: readonly McpToolDefinition[] = [
   },
   {
     name: 'ask_question',
-    description: `Asks the people a question you could not settle from the graph and the documents, and keeps going. Ask when two sources disagree (a document says one thing, the code another: say what each says, with its ground), when a term is used two ways, or when the code does something no document describes. Do not guess and do not state either side as fact. The question is saved as a file in the product; a person answers it in the wiki and the next refresh gives you the answer. At most ${MAX_QUESTIONS_PER_UNIT} questions per unit; asking does not end your unit, you still write your page.`,
+    description: `Asks the people a question you could not settle from the graph and the documents, and keeps going. Ask when two sources disagree (a document says one thing, the code another: say what each says, with its ground), when a term is used two ways, or when the code does something no document describes. Do not guess and do not state either side as fact. The question is saved as a file in the product; a person answers it in the wiki and the next refresh gives you the answer. The same subject is asked once: a question of the same type about mostly the same entities (graph keys and document sections, in its about and its sides' grounds) as an earlier one is added to that question as one more page, not saved again. At most ${MAX_QUESTIONS_PER_UNIT} questions per unit; asking does not end your unit, you still write your page, and for a contradiction the page keeps both sides.`,
     inputSchema: object({
       type: { type: 'string', enum: [...QUESTION_TYPES], description: 'contradiction: sources disagree; ambiguous-term: a word means two things; undocumented: code behaviour no document describes; gap: something you could not ground.' },
       title: { type: 'string', description: `The question in one line (${MAX_TITLE} characters at most).` },
@@ -211,6 +258,9 @@ export class UnitTools {
   private written: { grounds: readonly string[]; links: readonly string[] } = { grounds: [], links: [] };
   private readonly read: string[] = [];
   private readonly asked: string[] = [];
+  private readonly merged: string[] = [];
+  /** The contradictions this unit raised, with what each side says: its page must keep both sides. */
+  private readonly contradictions: { id: string; sides: readonly { claim: string; grounds: readonly string[] }[] }[] = [];
 
   constructor(
     private readonly view: GraphView,
@@ -246,6 +296,7 @@ export class UnitTools {
       links: this.written.links,
       filesRead: this.read,
       questions: this.asked,
+      merged: this.merged,
     };
   }
 
@@ -431,17 +482,53 @@ export class UnitTools {
     const slug = title === '' ? '' : slugOf(title);
     if (title !== '' && slug === 'statement') bad('"title" has no word to name the question by: say what it is about in words');
     if (problems.length > 0) return fail('bad-question', `the question was not saved: ${problems.join('; ')}`, { problems });
+    // The same subject is asked once: a question of the same type whose entities are those of an earlier one (a Jaccard share of at least SAME_SUBJECT) adds this page to that one.
+    const subject = subjectOf([...about], sides);
+    const language = this.extras.language ?? 'en';
+    if (subject.size > 0 && this.extras.questions !== undefined) {
+      const same = (await this.extras.questions()).find((held) => held.type === type && overlap(subjectOf(held.about, held.sides), subject) >= SAME_SUBJECT);
+      if (same !== undefined) {
+        if (same.status === 'answered') {
+          this.merged.push(same.id);
+          return ok({ asked: false, answered: true, id: same.id, answer: same.answer?.text ?? null, note: `This subject was asked and answered (${same.id}). Do not ask it again; once the answer is used in a rewrite, ground the statement on ${same.id}.` });
+        }
+        const widened = [...new Set([...same.about, ...[...about].filter((entry) => parseTarget(entry)?.type === 'page' || parseStatementRef(entry) !== undefined || subject.has(entry))])].sort(byCodePoint);
+        const kept = widened.length > MAX_ABOUT ? [...new Set([...same.about, this.unit.id])].sort(byCodePoint) : widened;
+        if (kept.join('\n') !== [...same.about].join('\n')) await this.sink.write(questionPath(same.slug), renderQuestion({ ...same, about: kept }));
+        if (!this.merged.includes(same.id)) this.merged.push(same.id);
+        if (type === 'contradiction') this.contradictions.push({ id: same.id, sides });
+        return ok({ asked: false, merged: true, id: same.id, note: `The same subject is already asked as ${same.id} ("${same.title}"); your page ${this.unit.id} was added to it, so a person answers it once. Do not ask it again and do not state either side as fact; go on and write what the sources agree on.` });
+      }
+    }
     const path = questionPath(slug);
     const existing = await this.sink.read(path).then(() => true, () => false);
     if (existing) return fail('question-exists', `a question "${slug}" is already asked (${path}); if it is yours to ask again it is the same question, and if it is another, give it a title that names what is different`);
     const now = (this.extras.clock?.() ?? new Date()).toISOString();
     const markdown = renderQuestion({
+      language: language in QUESTION_HEADINGS ? language as QuestionLanguage : 'en',
       slug, title, type: type as QuestionType, status: 'open', about: [...about].sort(byCodePoint), askedIn: this.unit.id, askedAt: now,
       question, why, sides, answer: null, resolvedBy: [], resolvedAt: null, writtenAt: this.basis,
     });
     await this.sink.write(path, markdown);
     this.asked.push(`question:${slug}`);
-    return ok({ asked: true, id: `question:${slug}`, path, note: 'Saved for the people to answer. Do not state either side as fact on your page; go on and write what the sources agree on.' });
+    if (type === 'contradiction') this.contradictions.push({ id: `question:${slug}`, sides });
+    return ok({ asked: true, id: `question:${slug}`, path, note: 'Saved for the people to answer. Do not state either side as fact on your page; go on and write what the sources agree on. When the question is a contradiction, keep what the code does and what the document says on your page, each as its own grounded sentence, and point to the question.' });
+  }
+
+  /** The sides of this unit's contradictions that the checked page does not ground, one problem per question. */
+  private contradictionProblems(pageGrounds: readonly string[]): Refusal[] {
+    const places = new Set(pageGrounds.map(placeOf));
+    const problems: Refusal[] = [];
+    for (const contradiction of this.contradictions) {
+      const missing = contradiction.sides.filter((side) => !side.grounds.some((ground) => pageGrounds.includes(ground) || places.has(placeOf(ground))));
+      if (missing.length === 0) continue;
+      problems.push({
+        line: 0,
+        rule: 'contradiction-side-missing',
+        message: `you asked ${contradiction.id} as a contradiction, and a question does not replace what the page knows: the page must keep every side as its own grounded sentence ("the code does X, the document says Y; see the question"). Not on the page yet: ${missing.map((side) => `${JSON.stringify(side.claim)} (ground it on ${side.grounds.join(', ')})`).join('; ')}`,
+      });
+    }
+    return problems;
   }
 
   private refuse(refusals: readonly Refusal[]): ToolAnswer {
@@ -485,6 +572,8 @@ export class UnitTools {
     const entities = await this.extras.entityIds?.();
     const verdict = await checkPage(markdown, { ...(previous === undefined ? {} : { previous }), ...(entities === undefined ? {} : { entities }), ...(this.basis.length === 0 ? {} : { writtenAt: this.basis }), id: this.unit.id, kind: this.unit.kind, domains: domains.map((d) => d.slug), mustLinkDomains: this.unit.kind === 'product', ...(this.unit.kind === 'domain' && this.unit.productId !== undefined ? { productId: this.unit.productId } : {}) }, this.view);
     if (!verdict.ok) return this.refuse(verdict.refusals);
+    const lost = this.contradictionProblems(verdict.page.grounds);
+    if (lost.length > 0) return this.refuse(lost);
     await this.sink.write(this.unit.path, verdict.page.markdown);
     this.status = 'written';
     this.refusals = [];

@@ -162,7 +162,9 @@ describe('the loop, from the first question to a translation', () => {
         expect(asked.isError).toBe(false);
         expect(asked.answer).toMatchObject({ asked: true, id: `question:${QUESTION_SLUG}`, path: `docs/questions/${QUESTION_SLUG}.md` });
         const twice = await call(request, 'ask_question', { type: 'contradiction', title: QUESTION_TITLE, question: 'Again?', why: 'Why.', sides: [{ claim: 'A.', grounds: [discountKey] }, { claim: 'B.', grounds: ['doc:README.md#discounts'] }] });
-        expect(JSON.stringify(twice.answer)).toContain('is already asked');
+        // The same subject is asked once (madarch-m38l.13): this page is added to the question that exists.
+        expect(twice.isError).toBe(false);
+        expect(twice.answer).toMatchObject({ asked: false, merged: true, id: `question:${QUESTION_SLUG}` });
         const written = await call(request, 'write_page', {
           markdown: [
             '---', 'id: domain:pricing', 'kind: domain', 'title: Pricing', 'relates:', '  - code.file\u003asrc/pricing.ts', 'producer: agent', 'sources: [README.md]', '---', '',
