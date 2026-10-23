@@ -29,13 +29,14 @@ import { snapshotNumbers } from './fill-worker.js';
 import { locationOf, type RenderContext } from './blocks.js';
 import { GraphReader } from './graph-read.js';
 import { readMarkdownEntities, type MarkdownEntity } from './markdown.js';
-import type { AgentOffer, DocumentListing, DocumentPage, DocumentRef, FillState, WikiStatus, WriterState, WriterUnit } from './model.js';
+import type { AgentOffer, Block, DocumentListing, DocumentPage, DocumentRef, FillState, Neighborhood, WikiStatus, WriterState, WriterUnit } from './model.js';
+import { neighborhoodOf } from './diagrams.js';
 import { anchorLines } from './anchors.js';
 import { adapterOf, installAdapter, makeUnitAgent, offers, WRITER_BOUNDS } from './agents.js';
 import { productSlug, PRODUCT_PATH, type ToolAnswer, type ToolClient, type UnitAgent } from '../writer/index.js';
 import { CONTENT_LANGUAGES } from '../writer/prompts.js';
 import type { DraftEnv } from '../product/home.js';
-import { kindSummaries, renderPage, listEntities, type PageResult } from './render.js';
+import { findSubject, kindSummaries, renderPage, listEntities, type PageResult } from './render.js';
 import { buildStatement, type StatementResult } from './statement.js';
 import { Resolver, type Resolution } from './resolve.js';
 import { indexCounts, statementsRelyingOn } from './index/queries.js';
@@ -967,10 +968,18 @@ export class KnowledgeProduct {
     return { questionsOpen: questions.open, questionsAnswered: questions.answered, correctionsOpen: readCorrections(this.options.productFolder).items.filter((correction) => correction.status === 'open').length };
   }
 
-  async page(id: string, lang?: string): Promise<PageResult> {
+  async page(id: string, lang?: string, options: { defer?: boolean; only?: number } = {}): Promise<PageResult> {
     const context = await this.context();
     if ('absent' in context) return { ok: false, status: 404, message: `the product has no ${context.file}: the wiki shows the kinds that file declares` };
-    return await renderPage(context.ctx, id, lang);
+    return await renderPage(context.ctx, id, lang, options);
+  }
+
+  /** One block of a page, by the line of its template: what a deferred diagram reads to draw itself. */
+  async block(id: string, line: number, lang?: string): Promise<{ ok: true; block: Block } | { ok: false; status: 404; message: string }> {
+    const result = await this.page(id, lang, { only: line });
+    if (!result.ok) return { ok: false, status: 404, message: result.message };
+    const [block] = result.page.blocks;
+    return block === undefined ? { ok: false, status: 404, message: `the template of ${id} has no block at line ${line}` } : { ok: true, block };
   }
 
   /** The statement view of one sentence of an agent's page. */
@@ -978,6 +987,19 @@ export class KnowledgeProduct {
     const context = await this.context();
     if ('absent' in context) return { ok: false, status: 404, message: `the product has no ${context.file}: the wiki shows the kinds that file declares` };
     return await buildStatement(context.ctx, id, sentence, turn);
+  }
+
+  /**
+   * The neighbours of one entity, for a diagram that opens a node: one hop, optionally one relation and direction, the
+   * graph's own cut counted in `more`. A refusal names why (no entity, or no manifest).
+   */
+  async neighborhood(id: string, options: { relation?: string; direction?: 'out' | 'in'; limit: number }): Promise<{ ok: true; neighborhood: Neighborhood } | { ok: false; status: 404; message: string }> {
+    const context = await this.context();
+    if ('absent' in context) return { ok: false, status: 404, message: `the product has no ${context.file}: the wiki shows the kinds that file declares` };
+    const located = await findSubject(context.ctx, id);
+    if (located === undefined) return { ok: false, status: 404, message: `no entity "${id}" in the graph or among the product's Markdown pages` };
+    const { hood } = await neighborhoodOf(context.ctx, located.subject, { depth: 1, ...(options.relation === undefined ? {} : { relations: [options.relation] }), ...(options.direction === undefined ? {} : { direction: options.direction }), limit: options.limit, maxNodes: options.limit * 4 + 1 });
+    return { ok: true, neighborhood: hood };
   }
 
   async list(kind: string, options: { q?: string; after?: string; limit: number }) {
