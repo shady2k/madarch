@@ -14,7 +14,7 @@ const run = promisify(execFile);
 
 /** An origin URL without the user and password of its authority. */
 export function withoutCredentials(origin: string): string {
-  return origin.trim().replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/@\s]*@/i, '$1');
+  return origin.trim().replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/\s]*@/i, '$1');
 }
 
 async function git(repository: string, args: string[]): Promise<string | undefined> {

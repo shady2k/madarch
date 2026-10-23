@@ -168,9 +168,11 @@ describe('the index of the Markdown over a filled graph', () => {
     expect(lines.filter((l) => l.startsWith('node knowledge:section'))).toHaveLength(report.sections);
   });
 
-  test('a second index of the same Markdown writes nothing', async () => {
-    const report = await indexKnowledge(held.owner, held.store, { productId: 'shop', at, pages: pages(refundKey, captureKey), head: head(), repositories });
-    expect(report.unchanged).toBe(true);
+  test('a second and a third index of the same Markdown write nothing', async () => {
+    for (let round = 0; round < 2; round += 1) {
+      const report = await indexKnowledge(held.owner, held.store, { productId: 'shop', at, pages: pages(refundKey, captureKey), head: head(), repositories });
+      expect(report.unchanged).toBe(true);
+    }
   });
 
   test('the statements that rely on a function, a file and a document section', async () => {
@@ -200,9 +202,16 @@ describe('the index of the Markdown over a filled graph', () => {
       'docs/domains/broken.md:5 doc:docs/requirements.md#no-such-section',
     ]);
     expect((await dump(held.owner)).some((l) => l.startsWith('edge knowledge:grounded-by statement:domain:broken#broken '))).toBe(false);
+    const identityOf = async (key: string): Promise<string[]> => (await held.owner.run((tx) => tx.query<{ id: string }>(`SELECT DISTINCT node_id::text AS id FROM node_version WHERE properties->>'key' = $1 AND producer = 'knowledge.index'`, [key]))).rows.map((r) => r.id);
+    const brokenId = await identityOf('page:domain:broken');
+    expect(brokenId).toHaveLength(1);
     // back to the good set: the broken page's nodes end
     await indexKnowledge(held.owner, held.store, { productId: 'shop', at, pages: pages(refundKey, captureKey), head: head(), repositories });
     expect((await dump(held.owner)).some((l) => l.includes('domain:broken'))).toBe(false);
+    // and a page that comes back keeps its identity: one history, not two
+    await indexKnowledge(held.owner, held.store, { productId: 'shop', at, pages: [...pages(refundKey, captureKey), readIndexedPage('docs/domains/broken.md', text, sha)], head: head(), repositories });
+    expect(await identityOf('page:domain:broken')).toEqual(brokenId);
+    await indexKnowledge(held.owner, held.store, { productId: 'shop', at, pages: pages(refundKey, captureKey), head: head(), repositories });
   });
 
   describe('after the repository changes', () => {
@@ -232,6 +241,17 @@ describe('the index of the Markdown over a filled graph', () => {
       const changed = changes.filter((c) => c.status === 'changed' || c.status === 'removed').map((c) => c.statement);
       expect(new Set(changed)).toEqual(new Set(['refund-window', 'capture-on-ship', 'source-file']));
       expect(changes.find((c) => c.statement === 'refund-window')!.writtenCommit).toBe(commit1);
+    });
+
+    test('a ground the fill removed is reported as removed, not left out', async () => {
+      writeFileSync(path.join(repository, 'src/refund.ts'), SOURCE.replace(/\nexport function capture[^]*$/, '\n'));
+      dates.next = '2020-01-03T10:00:00Z';
+      git('add', '-A');
+      git('commit', '-q', '-m', 'third');
+      await fill(held);
+      const changes = await changedGrounds(held.owner, head());
+      expect(changes.find((c) => c.statement === 'capture-on-ship' && c.ground === captureKey)?.status).toBe('removed');
+      expect(changes.find((c) => c.statement === 'refund-decision' && c.ground === refundKey)?.status).toBe('unchanged');
     });
 
     test('a page of several repositories or none has no digest to compare and says so', async () => {

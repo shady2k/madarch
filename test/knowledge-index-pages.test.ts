@@ -3,7 +3,11 @@
  * statements, grounds and mentions; a document read into the sections a
  * ground may name. No graph, no git.
  */
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { describe, expect, test } from 'bun:test';
+import { indexProductMarkdown, readKnowledgePages } from '../src/knowledge/index/index.js';
 import { PageReadError, readIndexedPage } from '../src/knowledge/index/page.js';
 import { documentSections } from '../src/knowledge/index/sections.js';
 import { documentAnchors } from '../src/writer/view.js';
@@ -85,6 +89,15 @@ describe('readIndexedPage', () => {
   });
 });
 
+describe('readIndexedPage keeps the punctuation it masked to find sentence ends', () => {
+  test('a "!" or "?" in a code span or a link target is not turned into a dot', () => {
+    const page = readIndexedPage('docs/x.md', '---\nid: a:b\nkind: a\n---\nCall `run!` and `ask?` to start.[^calls] The [alias](madarch:code.symbol\u003asrc/x.ts#run!) is kept.[^alias]\n\n[^calls]: [x](madarch:code.service:a)\n[^alias]: [y](madarch:code.symbol\u003asrc/x.ts#run!)\n', sha);
+    expect(page.statements.map((s) => s.text)).toEqual(['Call run! and ask? to start.', 'The alias is kept.']);
+    expect(page.statements[1]!.mentions).toEqual(['code.symbol\u003asrc/x.ts#run!']);
+    expect(page.statements[1]!.grounds).toEqual(['code.symbol\u003asrc/x.ts#run!']);
+  });
+});
+
 describe('readIndexedPage refuses what it cannot read, naming file and line', () => {
   const cases: [string, string, string][] = [
     ['no front matter', 'just text\n', 'docs/x.md:1:'],
@@ -140,6 +153,14 @@ describe('documentSections', () => {
     expect(text('other-rule')).toBe('- **Other rule.** Something else.');
   });
 
+  test('a list item holds the items nested under it, so a change below it changes it', () => {
+    const nested = '- **Parent rule.** Parent text.\n  - **Child rule.** Child text.\n  - Plain child.\n- **Sibling rule.** Sibling.\n';
+    const sections = documentSections(nested);
+    expect(sections.find((s) => s.anchor === 'parent-rule')!.text).toBe('- **Parent rule.** Parent text.\n  - **Child rule.** Child text.\n  - Plain child.');
+    expect(sections.find((s) => s.anchor === 'child-rule')!.text).toBe('  - **Child rule.** Child text.');
+    expect(sections.find((s) => s.anchor === 'sibling-rule')!.text).toBe('- **Sibling rule.** Sibling.');
+  });
+
   test('a change inside one section changes that section only', () => {
     const changed = documentSections(DOC.replace('Charge the card.', 'Charge the card twice.'));
     const diff = (a: string): boolean => changed.find((s) => s.anchor === a)?.text !== text(a);
@@ -147,5 +168,62 @@ describe('documentSections', () => {
     expect(diff('uc-2')).toBe(true); // the parent contains it
     expect(diff('later')).toBe(false);
     expect(diff('refund-window')).toBe(false);
+  });
+});
+
+describe('readKnowledgePages and indexProductMarkdown refuse a product they cannot read whole', () => {
+  const folder = (): string => mkdtempSync(path.join(tmpdir(), 'madarch-index-product-'));
+  const write = (root: string, file: string, text: string): void => {
+    mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+    writeFileSync(path.join(root, file), text);
+  };
+  const KINDS = 'kinds:\n  domain: { template: templates/domain.md, source: markdown, folder: docs/domains }\n';
+  const PAGE_TEXT = '---\nid: domain:payments\nkind: domain\ntitle: Payments\n---\nPayments are charged here.[^charged-here]\n\n[^charged-here]: [x](madarch:code.service:payments)\n';
+
+  test('a product with its manifest and a page reads one page and no finding', () => {
+    const root = folder();
+    try {
+      write(root, 'madarch/kinds.yaml', KINDS);
+      write(root, 'templates/domain.md', ':::body\n');
+      write(root, 'docs/domains/payments.md', PAGE_TEXT);
+      const read = readKnowledgePages(root);
+      expect(read.findings).toEqual([]);
+      expect(read.pages.map((page) => page.id)).toEqual(['domain:payments']);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('a manifest finding (a template that is not there) stops the index: the pages it would have dropped are not published as the whole', async () => {
+    const root = folder();
+    try {
+      write(root, 'madarch/kinds.yaml', KINDS);
+      write(root, 'docs/domains/payments.md', PAGE_TEXT);
+      const read = readKnowledgePages(root);
+      expect(read.findings.length).toBeGreaterThan(0);
+      let message = '';
+      try {
+        await indexProductMarkdown({ owner: undefined as never, store: undefined as never, productFolder: root, productId: 'shop', at: '2020-01-01T00:00:00.000000Z', repositories: () => undefined });
+      } catch (error) {
+        message = (error as Error).message;
+      }
+      expect(message).toContain('cannot be indexed whole');
+      expect(message).toContain('kinds.yaml:');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('a page that cannot be read names its file and line', async () => {
+    const root = folder();
+    try {
+      write(root, 'madarch/kinds.yaml', KINDS);
+      write(root, 'templates/domain.md', ':::body\n');
+      write(root, 'docs/domains/payments.md', '---\nid: domain:payments\nkind: domain\nwritten-at: nonsense\n---\nbody\n');
+      const read = readKnowledgePages(root);
+      expect(read.findings.map((f) => `${f.file}:${f.line}`)).toEqual(['docs/domains/payments.md:2']);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

@@ -44,13 +44,15 @@ export function documentSections(text: string): Section[] {
     }
     const bold = /^(\s*)(?:[-*+]|\d+[.)])\s+\*\*([^*]+)\*\*/.exec(line);
     if (bold !== null) {
-      while (open.length > 0 && open[open.length - 1]!.kind === 'item') close(open.pop()!, index);
+      // An item that is indented deeper than the one above it is part of it: the parent's text holds its children.
+      while (open.length > 0 && open[open.length - 1]!.kind === 'item' && open[open.length - 1]!.indent >= bold[1]!.length) close(open.pop()!, index);
       const phrase = bold[2]!.replace(/[.:]\s*$/, '');
       open.push({ anchors: [slugOf(phrase), ...identifier(phrase)], start: index, level: 7, kind: 'item', indent: bold[1]!.length });
       continue;
     }
-    if (/^\s*(?:[-*+]|\d+[.)])\s+/.test(line)) {
-      while (open.length > 0 && open[open.length - 1]!.kind === 'item') close(open.pop()!, index);
+    const plain = /^(\s*)(?:[-*+]|\d+[.)])\s+/.exec(line);
+    if (plain !== null) {
+      while (open.length > 0 && open[open.length - 1]!.kind === 'item' && open[open.length - 1]!.indent >= plain[1]!.length) close(open.pop()!, index);
     }
   }
   while (open.length > 0) close(open.pop()!, lines.length);

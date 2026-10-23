@@ -288,16 +288,19 @@ export async function indexKnowledge(owner: DatabaseOwner, store: GraphStore, in
   }
 
   // Identities of the nodes this producer already holds, by key.
+  // A key that ended and comes back keeps its identity, so its history is one history.
   const held = new Map((await owner.run((tx) => tx.query<{ id: string; key: string }>(
-    `SELECT v.node_id::text AS id, v.properties->>'key' AS key FROM node_version v
-     WHERE v.producer = $1 AND v.scope_id = $2::bigint AND v.recorded_to = 'infinity' AND v.valid_to = 'infinity' AND v.properties ? 'key' ORDER BY v.node_id::bigint`,
+    `SELECT DISTINCT ON (v.properties->>'key') v.node_id::text AS id, v.properties->>'key' AS key FROM node_version v
+     WHERE v.producer = $1 AND v.scope_id = $2::bigint AND v.recorded_to = 'infinity' AND v.properties ? 'key'
+     ORDER BY v.properties->>'key', v.valid_to DESC, v.node_id::bigint`,
     [INDEX_PRODUCER, scope],
   ))).rows.map((row) => [row.key, row.id] as const));
   const items = nodeItems.map((node) => (held.has(node.ref!) ? { ...node, id: held.get(node.ref!)! } : node)).sort((a, b) => byCodePoint(a.ref!, b.ref!));
   const edges = [...edgeItems].sort((a, b) => byCodePoint(JSON.stringify([a.relation, a.src, a.dst]), JSON.stringify([b.relation, b.src, b.dst])));
   const report = (unchanged: boolean): IndexReport => ({ pages: pages.length, ...counts, sections: sections.size, unresolved, unchanged });
 
-  const inputDigest = canonicalJsonDigest({ at: input.at, nodes: items, edges });
+  // What the digest names is what the Markdown says, not the identities the store gave: the same input is the same input on every call.
+  const inputDigest = canonicalJsonDigest({ at: input.at, nodes: [...nodeItems].sort((a, b) => byCodePoint(a.ref!, b.ref!)), edges });
   const last = (await owner.run((tx) => tx.query<{ generation: string; input_digest: string }>(
     `SELECT generation::text AS generation, input_digest FROM work_item WHERE producer = $1 AND scope_id = $2::bigint AND published_at IS NOT NULL ORDER BY generation DESC LIMIT 1`,
     [INDEX_PRODUCER, scope],

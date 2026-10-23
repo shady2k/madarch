@@ -13,8 +13,8 @@
 import { parse as parseYaml } from 'yaml';
 import { byCodePoint } from '../model/order.js';
 import type { WrittenAt } from '../knowledge/index/page.js';
-import { nameStatements, sentenceKey } from './names.js';
-import { plainSentence, REFERENCE_RUN, statementsOf } from './sentences.js';
+import { isNumbered, nameStatements, sentenceKey } from './names.js';
+import { maskInline as maskSentenceText, plainSentence, REFERENCE_RUN, sentencesOf as splitSentences, statementsOf } from './sentences.js';
 
 /** One reason a page is refused: the line (1-based, in the whole file), the rule and a message the agent can act on. */
 export interface Refusal {
@@ -218,7 +218,7 @@ function textUnits(body: string, bodyStart: number, refusals: Refusal[]): { unit
   };
   for (const [index, raw] of body.split('\n').entries()) {
     const line = bodyStart + index;
-    if (raw.includes(DOT)) refusals.push({ line, rule: 'characters', message: 'the page holds a control character (U+0001), which the format does not allow' });
+    if (/[\u0001-\u0004]/.test(raw)) refusals.push({ line, rule: 'characters', message: 'the page holds a control character (U+0001 to U+0004), which the format does not allow' });
     const trimmed = raw.trim();
     if (trimmed === '') { flush(); continue; }
     if (/^(```|~~~)/.test(trimmed)) {
@@ -397,7 +397,8 @@ function previousNames(previous: string | undefined): Map<string, string> {
   const lines = previous.replace(/\r\n/g, '\n').split('\n');
   const end = lines[0] === '---' ? lines.indexOf('---', 1) : -1;
   if (end < 0) return names;
-  for (const statement of statementsOf(lines.slice(end + 1).join('\n'), end + 2)) if (!names.has(sentenceKey(statement.text))) names.set(sentenceKey(statement.text), statement.labels[0]!);
+  // A numbered label is no name: a page still numbered is renamed when it is written again.
+  for (const statement of statementsOf(lines.slice(end + 1).join('\n'), end + 2)) if (!isNumbered(statement.labels[0]!) && !names.has(sentenceKey(statement.text))) names.set(sentenceKey(statement.text), statement.labels[0]!);
   return names;
 }
 
@@ -412,7 +413,7 @@ function sentenceBefore(text: string, from: number, to: number): string {
   for (const match of slice.matchAll(item)) last = match.index + 1;
   start += last;
   const chunk = text.slice(start, to).replace(/^\s*(?:[-*+]|\d+[.)]|>)\s*/, '');
-  const sentences = sentencesOf(maskInline(chunk));
+  const sentences = splitSentences(maskSentenceText(chunk));
   return plainSentence(sentences.length === 0 ? chunk : sentences[sentences.length - 1]!.text);
 }
 

@@ -62,9 +62,8 @@ export interface IndexProductOptions {
  */
 export async function indexProductMarkdown(options: IndexProductOptions): Promise<IndexReport> {
   const { pages, findings } = readKnowledgePages(options.productFolder);
-  const pageFindings = findings.filter((finding) => !finding.file.endsWith('kinds.yaml'));
-  if (pageFindings.length > 0) {
-    throw new Error(`src/knowledge/index/index.ts: the Markdown of ${options.productFolder} cannot be indexed whole:\n${pageFindings.map((finding) => `  ${finding.file}:${finding.line}: ${finding.message}`).join('\n')}`);
+  if (findings.length > 0) {
+    throw new Error(`src/knowledge/index/index.ts: the Markdown of ${options.productFolder} cannot be indexed whole, so nothing was published:\n${findings.map((finding) => `  ${finding.file}:${finding.line}: ${finding.message}`).join('\n')}`);
   }
   return await indexKnowledge(options.owner, options.store, { productId: options.productId, at: options.at, pages, ...(options.head === undefined ? {} : { head: options.head }), repositories: options.repositories });
 }

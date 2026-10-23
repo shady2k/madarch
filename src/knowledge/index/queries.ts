@@ -116,12 +116,12 @@ export interface NowState {
  */
 export async function changedGrounds(owner: DatabaseOwner, now: NowState, options: { page?: string } = {}): Promise<GroundChange[]> {
   const rows = (await owner.run((tx) => tx.query<Raw>(
-    `SELECT s.properties AS statement, e.properties AS edge, d.properties AS dst, d.producer AS dst_producer
+    `SELECT s.properties AS statement, e.properties AS edge, d.properties AS dst, (d.valid_to <> 'infinity') AS gone
      FROM edge_version e
      JOIN relation_type r ON r.id = e.relation_type_id AND r.key = $1
      JOIN node_version s ON s.node_id = e.src_id AND s.producer = $2 AND s.properties ? 'statement' AND ${OPEN('s')}
-     JOIN node_version d ON d.node_id = e.dst_id AND ${OPEN('d')}
-     WHERE ${OPEN('e')} AND ($3::text IS NULL OR s.properties->>'page' = $3)`,
+     JOIN LATERAL (SELECT * FROM node_version x WHERE x.node_id = e.dst_id AND x.recorded_to = 'infinity' ORDER BY x.valid_to DESC, x.valid_from DESC LIMIT 1) d ON true
+     WHERE e.recorded_to = 'infinity' AND (e.valid_to = 'infinity' OR d.valid_to <> 'infinity') AND ($3::text IS NULL OR s.properties->>'page' = $3)`,
     [GROUNDED_BY, INDEX_PRODUCER, options.page ?? null],
   ))).rows;
   const out: GroundChange[] = [];
@@ -138,6 +138,8 @@ export async function changedGrounds(owner: DatabaseOwner, now: NowState, option
     const before = typeof edge['digest'] === 'string' ? edge['digest'] : null;
     const writtenCommit = typeof edge['commit'] === 'string' ? edge['commit'] : null;
     const base = { page: String(statement['page']), statement: String(statement['statement']), text: String(statement['text']), line: Number(statement['line']), ground: target, method, writtenCommit, before };
+    // A ground the fill removed ended its node, and the node's edges with it: the statement still stands on something that is gone.
+    if (row['gone'] === true && before !== null) { out.push({ ...base, status: 'removed', after: null }); continue; }
     if (method === 'none' || before === null) {
       out.push({ ...base, status: 'unknown', after: null, reason: writtenCommit === null ? 'the page names no single repository it was written from, so the ground has no digest to compare' : edge['absent'] === true ? 'the ground did not exist at the written-at commit' : 'the ground has no digest' });
       continue;

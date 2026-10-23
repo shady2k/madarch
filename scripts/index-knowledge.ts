@@ -45,8 +45,11 @@ try {
   });
   console.log(`Indexed ${report.pages} pages, ${report.statements} statements, ${report.grounds} grounds, ${report.mentions} mentions, ${report.relates} relations and ${report.sections} document sections${report.unchanged ? ' (the graph already held exactly this)' : ''}.`);
   for (const count of await indexCounts(owner)) console.log(`  ${count.kind}: ${count.pages} pages, ${count.statements} statements`);
-  const changed = (await changedGrounds(owner, { commit: head, git })).filter((change) => change.status === 'changed' || change.status === 'removed');
-  console.log(changed.length === 0 ? 'No ground has changed since its page was written.' : `${changed.length} grounds changed since their page was written:`);
+  const all = await changedGrounds(owner, { commit: head, git });
+  const changed = all.filter((change) => change.status === 'changed' || change.status === 'removed');
+  const unknown = all.filter((change) => change.status === 'unknown');
+  const unknownNote = unknown.length === 0 ? '' : ` ${unknown.length} grounds could not be compared (the page names no single repository it was written from, or the ground has no digest).`;
+  console.log(changed.length === 0 ? `No compared ground has changed since its page was written.${unknownNote}` : `${changed.length} grounds changed since their page was written.${unknownNote}`);
   for (const change of changed) console.log(`  ${change.page} ${change.statement} (${change.status}): ${change.ground}`);
   for (const miss of report.unresolved) console.error(`  ${miss.file}:${miss.line}: ${miss.reason}`);
   process.exitCode = report.unresolved.length === 0 ? 0 : 1;

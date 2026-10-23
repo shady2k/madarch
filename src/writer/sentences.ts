@@ -12,8 +12,12 @@ export const FOOTNOTE_REFERENCE = /\[\^([\p{L}\p{N}_-]+)\]/gu;
 /** A run of adjacent footnote references: the end of one sentence. */
 export const REFERENCE_RUN = /(?:\[\^[\p{L}\p{N}_-]+\])+/gu;
 const ABBREVIATION = /\b(?:[Ee]\.g|[Ii]\.e)\.|\b(?:etc|vs|cf|approx)\.(?=\s+[a-z0-9(,;])/g;
-/** A character that stands for a masked dot. */
-export const DOT = '\u0001';
+/** Characters that stand for a masked sentence end inside code spans, link targets and abbreviations; each remembers which one it hides. */
+const MASK: Record<string, string> = { '.': '\u0001', '!': '\u0002', '?': '\u0003', '\u2026': '\u0004' };
+const UNMASK: Record<string, string> = { '\u0001': '.', '\u0002': '!', '\u0003': '?', '\u0004': '\u2026' };
+const maskEnds = (text: string): string => text.replace(/[.!?\u2026]/g, (character) => MASK[character]!);
+/** The text with its masked sentence ends restored. */
+export const unmask = (text: string): string => text.replace(/[\u0001-\u0004]/g, (character) => UNMASK[character]!);
 
 export interface Sentence {
   readonly text: string;
@@ -23,9 +27,9 @@ export interface Sentence {
 /** Masks code spans, link targets and common abbreviations, whose dots are not sentence ends. */
 export function maskInline(text: string): string {
   return text
-    .replace(/`[^`\n]*`/g, (span) => span.replace(/[.!?…]/g, DOT))
-    .replace(LINK, (_whole, label: string, target: string) => `[${label}](${target.replace(/[.!?]/g, DOT)})`)
-    .replace(ABBREVIATION, (whole) => whole.replace(/\./g, DOT));
+    .replace(/`[^`\n]*`/g, maskEnds)
+    .replace(LINK, (_whole, label: string, target: string) => `[${label}](${maskEnds(target)})`)
+    .replace(ABBREVIATION, (whole) => whole.replace(/\./g, MASK['.']!));
 }
 
 /** Splits masked text into sentences; footnote references right after the terminal punctuation belong to the sentence. */
@@ -97,8 +101,7 @@ export function groundLinks(text: string): { label: string; target: string }[] {
 
 /** A sentence as a reader sees it: references removed, links as their labels, markup dropped, blanks collapsed. */
 export function plainSentence(text: string): string {
-  return text
-    .replaceAll(DOT, '.')
+  return unmask(text)
     .replace(LINK, (_whole, label: string) => label)
     .replace(REFERENCE_RUN, '')
     .replace(/[`*_]/g, '')
@@ -141,7 +144,7 @@ export function statementsOf(body: string, bodyStart: number): PageStatement[] {
       seen.set(labels[0]!, count);
       const text = plainSentence(sentence.text);
       const own = [...new Set(labels.flatMap((label) => grounds.get(label) ?? []))];
-      const mentions = [...sentence.text.matchAll(LINK)].map((match) => match[2]!.replaceAll(DOT, '.')).filter((target) => target.startsWith('madarch:')).map((target) => target.slice('madarch:'.length));
+      const mentions = [...sentence.text.matchAll(LINK)].map((match) => unmask(match[2]!)).filter((target) => target.startsWith('madarch:')).map((target) => target.slice('madarch:'.length));
       out.push({ id: count === 1 ? labels[0]! : `${labels[0]}~${count}`, labels, text, digest: sha256Hex(new TextEncoder().encode(text)), line: unit.line, mentions: [...new Set(mentions)], grounds: own });
     }
   }

@@ -118,6 +118,13 @@ describe('a page that follows the format', () => {
     expect(withPrevious.page.markdown).not.toContain('refund-checked-before-made');
   });
 
+  test('a page that was written with numbered footnotes is renamed when it is written again', async () => {
+    // the replaced page still has numbers: they are no names, so the new page gets readable ones
+    const oldNumbered = `${front()}\n\nPayments are charged through one of two providers chosen by configuration.[^7]\n\n[^7]: [UC-2](madarch:doc:docs/requirements.md#uc-2)\n`;
+    const again = await checkPage(good('Payments are charged through one of two providers chosen by configuration.[^1]\n\n[^1]: [UC-2](madarch:doc:docs/requirements.md#uc-2)'), { ...expectation, previous: oldNumbered }, resolver);
+    expect(again.ok && again.page.markdown.includes('configuration.[^payments-charged-through-two]')).toBe(true);
+  });
+
   test('the repositories a page was written from are recorded in its front matter, and what an agent writes there is replaced', async () => {
     const writtenAt = [{ repository: 'training', commit: '0123456789abcdef0123456789abcdef01234567', branch: 'main', origin: 'git@github.com:acme/shop.git' }];
     const withOwn = good(body).replace('sources: [docs/vision.md, UC-2]', 'sources: [docs/vision.md, UC-2]\nwritten-at: [{ repository: x, commit: abc1234 }]');

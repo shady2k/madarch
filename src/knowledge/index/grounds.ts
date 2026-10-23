@@ -44,7 +44,9 @@ export function gitReader(repository: string): GitReader {
       return (await run('git', args, { cwd: repository, maxBuffer: 64 * 1024 * 1024, encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' } })).stdout;
     } catch (error) {
       const stderr = String((error as { stderr?: unknown }).stderr ?? '');
-      if (/exists on disk, but not in|does not exist|bad object|unknown revision|invalid object name|Needed a single revision|not a tree object/i.test(stderr)) return null;
+      // `rev-parse --verify --quiet` exits 1 with nothing on stderr for a path that is not there.
+      if (stderr.trim() === '' && (error as { code?: unknown }).code === 1) return null;
+      if (/exists on disk, but not in|does not exist|bad object|unknown revision|invalid object name|not a valid object name|Needed a single revision|not a tree object/i.test(stderr)) return null;
       throw new Error(`src/knowledge/index/grounds.ts: git ${args.join(' ')} failed in ${repository}: ${stderr.split('\n')[0] || (error as Error).message}`, { cause: error });
     }
   };
