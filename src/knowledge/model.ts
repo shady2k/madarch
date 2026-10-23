@@ -77,6 +77,8 @@ export interface KindSummary {
   count: number;
   /** The kind is one page (it names a `file`): the home page is the first such kind. */
   single: boolean;
+  /** The kind's name per interface language, from the manifest; absent when the manifest gives none. */
+  labels?: Record<string, { one: string; many: string }>;
 }
 
 export interface EntityListing {
@@ -93,6 +95,10 @@ export interface FillState {
   /** Commits read of the commits to read, in the repository being read. */
   commit?: number;
   commits?: number;
+  /** The phase being read: the last commit's code first, then the history of every commit. */
+  phase?: 'code' | 'history' | 'points';
+  /** Commits the history covers, and how many of them are new since the last fill. */
+  newCommits?: number;
   startedAt?: string;
   finishedAt?: string;
   /** Why the fill failed or could not start. */
@@ -156,6 +162,12 @@ export interface WikiStatus {
   /** `no-manifest` when `madarch/kinds.yaml` is absent. */
   manifest: 'ok' | 'no-manifest';
   manifestFile: string;
+  /** The language the product's pages are written in; English when the manifest names none. */
+  language: string;
+  /** The starter files this server wrote into the product when it had no kinds manifest. */
+  seeded: string[];
+  /** Why the starter set could not be written into a product that has no manifest. */
+  seedError?: string;
   findings: Finding[];
   kinds: KindSummary[];
   repositories: { name: string; filled: boolean }[];
@@ -171,4 +183,29 @@ export interface WikiStatus {
   chosenAgent: { id: string; label: string } | null;
   /** The entity the home page shows, when the manifest names one and its file exists. */
   home: string | null;
+}
+
+/** A Markdown document the wiki shows as a page: of the product repository (`repo` null) or of a connected code repository. */
+export interface DocumentRef {
+  repo: string | null;
+  path: string;
+}
+
+export interface DocumentListing {
+  documents: DocumentRef[];
+  /** A repository that holds more documents than are listed: its name, how many it holds and how many are listed. */
+  truncated: { repo: string | null; total: number; shown: number }[];
+}
+
+/** One document drawn as a page: its text, the resolution of every `madarch:` link in it, and where each section anchor is. */
+export interface DocumentPage {
+  repo: string | null;
+  path: string;
+  title: string;
+  markdown: string;
+  resolutions: Record<string, Resolution>;
+  /** Anchor (lower case) to the 1-based line that names it. */
+  anchors: Record<string, number>;
+  /** The commit the text was read at in a code repository; null for the product repository. */
+  commit: string | null;
 }

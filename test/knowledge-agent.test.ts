@@ -33,6 +33,13 @@ const PRODUCT_PAGE = [
   `- [Numbers](madarch:domain:numbers) are computed in the [source file](madarch:${FILE}).[^2]`, '',
   `[^1]: [a.ts](madarch:${FILE})`, `[^2]: [a.ts](madarch:${FILE})`,
 ].join('\n');
+const DOMAIN_PAGE_RU = [
+  '---', 'id: domain:numbers', 'kind: domain', 'title: Числа', 'relates:', `  - ${FILE}`, 'producer: agent', 'sources: []', '---', '',
+  '## Как считаются числа', '',
+  'Корневая функция прибавляет единицу к значению, которое возвращает листовая функция, т.е. считает на единицу больше.[^1]', '',
+  'См. также [исходный файл](madarch:' + FILE + ').', '',
+  `[^1]: [a.ts](madarch:${FILE})`,
+].join('\n');
 const DOMAIN_PAGE = [
   '---', 'id: domain:numbers', 'kind: domain', 'title: Numbers', 'relates:', `  - ${FILE}`, 'producer: agent', 'sources: []', '---', '',
   '## How numbers are computed', '',
@@ -47,6 +54,8 @@ let release!: () => void;
 const gate = new Promise<void>((resolve) => { release = resolve; });
 const seen: string[] = [];
 let spoilDomain = false;
+/** The prompts the agent was handed, in order: the language the pages are asked in is told to it. */
+const prompts: string[] = [];
 let serverEnv: Record<string, string | undefined>;
 const agentFolder = (id: string): string => acpAgentFolder(ACP_ADAPTERS.find((entry) => entry.id === id)!, serverEnv);
 
@@ -54,6 +63,7 @@ const agentFolder = (id: string): string => acpAgentFolder(ACP_ADAPTERS.find((en
 const agent: UnitAgent & { close(): Promise<void> } = {
   async run(request: UnitRequest): Promise<void> {
     seen.push(request.id);
+    prompts.push(request.prompt);
     if (request.id === 'product:tiny') {
       const written = await request.tools.call('write_page', {
         markdown: PRODUCT_PAGE,
@@ -63,7 +73,8 @@ const agent: UnitAgent & { close(): Promise<void> } = {
       return;
     }
     await gate;
-    const markdown = spoilDomain ? `${DOMAIN_PAGE}\n\nThe domain is very fast.` : DOMAIN_PAGE;
+    const russian = request.prompt.includes('in Russian');
+    const markdown = spoilDomain ? `${russian ? DOMAIN_PAGE_RU : DOMAIN_PAGE}\n\nThe domain is very fast.` : russian ? DOMAIN_PAGE_RU : DOMAIN_PAGE;
     await request.tools.call('write_page', { markdown });
   },
   async close(): Promise<void> {},
@@ -111,6 +122,8 @@ beforeAll(async () => {
     env: serverEnv,
     knowledgeAgentFactory: () => agent,
   });
+  // The first page of a product waits for its reader to start (a process of its own): the suite's first test does not.
+  await fetch(`${server.url}/products/tiny/api/k/status`);
 }, 60_000);
 
 afterAll(async () => {
@@ -247,10 +260,32 @@ describe('one press with an agent chosen', () => {
     await reading;
   }, 120_000);
 
-  test('a second press refills nothing new, runs the units again and shows a unit the writer refused with its line and rule', async () => {
-    spoilDomain = true;
+  test('a second press with the pages in place runs no unit', async () => {
+    // Every page is there and in the language asked: the fill reads the code again and the agent is not asked for anything.
     seen.length = 0;
     expect((await post('/api/k/fill')).status).toBe(202);
+    await until('the refresh', async () => (await get('/api/k/status')).body, (value) => value.fill.state === 'done' && value.writer.state !== 'running' && value.writer.state !== 'waiting');
+    expect(seen).toEqual([]);
+  }, 120_000);
+
+  test('a press that changes the language of the pages tells the agent, writes every page again, and a Russian page is accepted', async () => {
+    seen.length = 0;
+    prompts.length = 0;
+    expect((await post('/api/k/fill', { agent: 'claude-code', language: 'ru' })).status).toBe(202);
+    // The manifest holds the language now, and every unit's prompt tells the agent to write in it.
+    expect(readFileSync(join(home, 'tiny', 'madarch', 'kinds.yaml'), 'utf8')).toContain('language: ru');
+    const done = await until('the Russian run', async () => (await get('/api/k/status')).body, (value) => value.language === 'ru' && value.writer.state === 'done' && value.fill.state === 'done');
+    expect(done.writer.units.map((unit: { state: string }) => unit.state)).toEqual(['written', 'written']);
+    expect(seen).toEqual(['product:tiny', 'domain:numbers']);
+    expect(prompts.length).toBe(2);
+    expect(prompts.every((prompt) => prompt.includes('Write every sentence and every heading of the page, and its title, in Russian'))).toBe(true);
+    expect(readFileSync(join(home, 'tiny', 'docs', 'domains', 'numbers.md'), 'utf8')).toContain('Как считаются числа');
+  }, 120_000);
+
+  test('a unit the writer refused is shown with its line and rule', async () => {
+    spoilDomain = true;
+    seen.length = 0;
+    expect((await post('/api/k/fill', { agent: 'claude-code', language: 'en' })).status).toBe(202);
     const done = await until('the second stage', async () => (await get('/api/k/status')).body, (value) => value.writer.state === 'failed');
     const domain = done.writer.units.find((unit: { unit: string }) => unit.unit === 'domain:numbers');
     expect(domain.state).toBe('failed');

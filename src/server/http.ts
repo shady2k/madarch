@@ -37,17 +37,12 @@ import type { Graphs } from './graphs.js';
 import { createGraphs } from './graphs.js';
 import type { SourceStoreResult, SourceStores } from './sources.js';
 import { createSourceStores, sourceNameProblem } from './sources.js';
-import { createWikiPart, fillAuth, type WikiPart } from './wiki-app.js';
+import { createWikiPart, serveAppAssets, type WikiPart } from './wiki-app.js';
 import { MANIFEST_FILE } from '../product/manifest.js';
-import { createGraphPagesPart, emptyGraphPagesSource, type GraphPagesPart, type GraphPagesSource } from './graph-pages.js';
-import { createGraphDiagramsPart, type GraphDiagramsPart } from './graph-diagrams.js';
 import { openProductWiki, type ProductWiki } from '../product-wiki/pages.js';
 import { listProducts } from '../product/list.js';
 import { basename } from 'node:path';
-import type { StartFillOptions, StartFillResult } from '../product/fill.js';
 import { UNIT_TOOL_PATH, type UnitToolAnswer, type UnitToolCall } from '../fill/unit-tools.js';
-import type { FillProgressAnswer, FillRunControlAnswer } from '../fill/orchestrator-host.js';
-import { readChosenModel, saveChosenAgent } from '../product/fill-wizard.js';
 import { homeFromEnv, productsHome } from '../product/home.js';
 import { KnowledgeHost, type AgentFactory } from '../knowledge/product.js';
 import { createKnowledgePart, type KnowledgePart } from './knowledge.js';
@@ -80,25 +75,12 @@ export interface ServerOptions {
   queryDatabase?: AsyncQueryDatabase;
   /** The product folder served as its wiki: read once, then read fresh at every ask — never written, never asked a git question. */
   productFolder?: string;
-  /** Shared fill entry point injected by the product host. */
-  startFill?: (productFolder: string, options: StartFillOptions) => Promise<StartFillResult>;
   /** Products home for a single server with per-product URL prefixes. */
   productHome?: string;
   /** Serving-only opt-in for an existing directory with no manifest; defaults to strict product recognition. */
   allowNoManifest?: boolean;
   /** The folder the app's built files served from (stage 2's build); without it only the API answers. */
   appFolder?: string;
-  /**
-   * One product's graph pages (madarch-tzte.23.1; decision 0026, "Pages"), read
-   * from the fill's fact store: the page set, a page's model and the change every
-   * publication pushes. The background server passes the fill service's own source
-   * (`src/product/daemon.ts`); a server that holds no fill's graph passes none, and
-   * the routes answer the empty page set that says where the pages are served.
-   *
-   * The factory is asked once per served product, so a products home serves each
-   * product's own pages, never one product's under another's address.
-   */
-  graphPages?: (productFolder: string) => GraphPagesSource | undefined;
   /**
    * The environment the wiki's own settings are read from — the diagram tab shown
    * first (`MADARCH_WIKI_DIAGRAM`, madarch-tzte.23.4) and the cache root the
@@ -124,10 +106,9 @@ export interface ServerOptions {
   /** Supplies recorded time; tests inject a fake clock. */
   clock?: Clock;
   /**
-   * The fill's orchestrator, when this process owns one (decision 0027): the
+   * The CLI fill's orchestrator, when this process owns one (decision 0027): the
    * background server creates it, holds it for the life of the process and
-   * stops it here, so the fill runs beside the wikis it fills rather than in a
-   * command of its own.
+   * stops it here.
    *
    * Its `unitTool` answers the calls a unit's own MCP server forwards
    * (madarch-tzte.22.2): the background server owns the database and is its only
@@ -137,22 +118,6 @@ export interface ServerOptions {
   orchestrator?: {
     stop(): Promise<void>;
     unitTool?(request: UnitToolCall): Promise<UnitToolAnswer | null>;
-    /**
-     * One product's newest fill run, its units and its progress events
-     * (madarch-tzte.26.2): what `GET /api/fill` answers while this process owns
-     * the fill's orchestrator, so a person watches a run the orchestrator keeps —
-     * the update the background server started by itself included — with the same
-     * panel that shows a run written to `.madarch/fill`. A product that never ran
-     * a fill answers null, and the route falls back to the state file.
-     */
-    progress?(productFolder: string): Promise<FillProgressAnswer | null>;
-    /**
-     * The person's pause or stop of one of this process's runs (madarch-tzte.26.2):
-     * `POST /api/fill/control` asks here first, and the state file's own control
-     * answers where this process holds no such run. An update the server started by
-     * itself is paused and stopped where a person's own run is.
-     */
-    control?(request: { readonly productFolder: string; readonly runId: string; readonly action: 'pause' | 'stop' }): Promise<FillRunControlAnswer | null>;
   };
   /** Where request lines go; standard output by default. */
   log?: (line: string) => void;
@@ -320,29 +285,14 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
   const graphs = sources === undefined || queryDatabase === undefined
     ? undefined
     : createGraphs({ historyOf: (source) => sources.historyOf(source), database: queryDatabase });
-  /**
-   * One product's graph pages, over the source this server was given for it: the
-   * fill service's own in the background server, and — for a server that holds no
-   * fill's graph — the empty source that answers a page set with the message saying
-   * where the pages are served (0026: an empty graph answers a message, never an
-   * error).
-   */
-  const graphPagesOf = (productFolder: string, product: string): GraphPagesPart =>
-    createGraphPagesPart({ json: makeJson, refused: wikiRefused, errorLog }, options.graphPages?.(productFolder) ?? emptyGraphPagesSource(product));
-  /**
-   * One product's graph diagrams, over the same source its pages are read from: the
-   * page's own diagrams, and the two documents the LikeC4 and archify tabs draw
-   * (madarch-tzte.23.4). `mount` is the prefix the app is served under, which the
-   * generated documents carry in their own links.
-   */
   const env = options.env ?? process.env;
   // Each product's knowledge wiki (decision 0029): its own graph store, opened on its first ask and closed with the server.
-  const knowledgeHost = new KnowledgeHost(options.knowledgeRoot ?? joinPath(options.productHome ?? productsHome(env as Record<string, string | undefined>), '.madarch', 'knowledge'), undefined, { env, ...(options.knowledgeAgentFactory === undefined ? {} : { agentFactory: options.knowledgeAgentFactory }) });
+  const knowledgeHost = new KnowledgeHost(options.knowledgeRoot ?? joinPath(options.productHome ?? productsHome(env as Record<string, string | undefined>), '.madarch', 'knowledge'), undefined, { env, errorLog, ...(process.env.MADARCH_SNAPSHOT_MS === undefined ? {} : { snapshotMs: Number(process.env.MADARCH_SNAPSHOT_MS) }), ...(options.knowledgeAgentFactory === undefined ? {} : { agentFactory: options.knowledgeAgentFactory }) });
+  /** A browser opening a page of a wiki starts that product's reader at once, so the page's own requests find it started; a probe or a script does not. */
+  const opensPage = (request: Request): boolean => request.method === 'GET' && (request.headers.get('accept') ?? '').includes('text/html');
   let productNames: () => { name: string; folder: string }[] = () => (productWiki === undefined ? [] : [{ name: productWiki.product.name, folder: basename(productWiki.product.folder) }]);
   const knowledgeOf = (productFolder: string): KnowledgePart =>
     createKnowledgePart({ json: makeJson, refused: wikiRefused, errorLog }, knowledgeHost.of(productFolder), () => productNames());
-  const graphDiagramsOf = (productFolder: string, product: string): GraphDiagramsPart =>
-    createGraphDiagramsPart({ json: makeJson, refused: wikiRefused, errorLog }, options.graphPages?.(productFolder) ?? emptyGraphPagesSource(product), { env });
   const handle = createHandler({
     env,
     sources,
@@ -351,14 +301,9 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
     errorLog,
     wiki: productWiki === undefined ? undefined : createWikiPart(makeJson, wikiRefused, productWiki, appFolder, { env, outside: knowledgeHost.of(productWiki.product.folder).changes }),
     appFolder,
-    startFill: options.startFill,
-    productFolder: options.productFolder,
     unitTool: options.orchestrator?.unitTool,
-    fillProgress: options.orchestrator?.progress,
-    fillControl: options.orchestrator?.control,
-    graphPages: productWiki === undefined ? undefined : graphPagesOf(productWiki.product.folder, productWiki.product.name),
-    graphDiagrams: productWiki === undefined ? undefined : graphDiagramsOf(productWiki.product.folder, productWiki.product.name),
     knowledge: productWiki === undefined ? undefined : knowledgeOf(productWiki.product.folder),
+    opened: productWiki === undefined ? undefined : (request) => { if (opensPage(request)) knowledgeHost.of(productWiki.product.folder).warm(); },
   });
   // The products home is served by one server: the home page lists the
   // products, and each product's wiki answers under `/products/<folder>/`.
@@ -414,7 +359,7 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
       next.set(name, {
         wiki: opened.wiki,
         manifest,
-        handler: createHandler({ env, sources, graphs, log, errorLog, wiki: createWikiPart(makeJson, wikiRefused, opened.wiki, appFolder, { env, outside: knowledgeHost.of(item.folder).changes }), appFolder, startFill: options.startFill, productFolder: item.folder, unitTool: options.orchestrator?.unitTool, fillProgress: options.orchestrator?.progress, fillControl: options.orchestrator?.control, graphPages: graphPagesOf(item.folder, opened.wiki.product.name), graphDiagrams: graphDiagramsOf(item.folder, opened.wiki.product.name), knowledge: knowledgeOf(item.folder) }),
+        handler: createHandler({ env, sources, graphs, log, errorLog, wiki: createWikiPart(makeJson, wikiRefused, opened.wiki, appFolder, { env, outside: knowledgeHost.of(item.folder).changes }), appFolder, unitTool: options.orchestrator?.unitTool, knowledge: knowledgeOf(item.folder) }),
       });
     }
     productEntries.clear();
@@ -448,7 +393,15 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
     if (name === undefined) {
       return new Response('<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Madarch</title></head><body><p>No product is served yet: run <code>madarch init</code> in a code repository, or <code>madarch new</code> for an empty product.</p></body></html>', { headers: { 'content-type': 'text/html; charset=utf-8' } });
     }
+    if (opensPage(request)) knowledgeHost.of(productEntries.get(name)!.wiki.product.folder).warm();
     return new Response(null, { status: 302, headers: { location: `/products/${encodeURIComponent(name)}/`, 'cache-control': 'no-store' } });
+  };
+  /** One built app file at the home's own /assets and /fonts: the stylesheet of a product's wiki names its fonts by absolute path; anything else is a named 404, never an app shell. */
+  const serveHomeAssets = (pathname: string): Response => {
+    const answered = appFolder === undefined ? undefined : serveAppAssets(appFolder, pathname);
+    if (answered !== undefined) return answered;
+    if (appFolder === undefined) return notServed(`this server serves a products home: each product's wiki answers under /products/<folder>/`);
+    return notServed(`no built app file answers "${pathname}" under the app folder ${JSON.stringify(appFolder)}: the wiki reads the styles and fonts the app's own build ships`);
   };
 const notServed = (message: string): Response => Response.json({ message }, { status: 404 });
   /** The app shell's absolute asset references must answer under the product's own prefix. */
@@ -462,6 +415,7 @@ const notServed = (message: string): Response => Response.json({ message }, { st
   const handleProductsHome = async (request: Request): Promise<Response> => {
     const url = new URL(request.url);
     if (url.pathname === '/' || url.pathname === '') return rootPage(request);
+    if (url.pathname === '/assets' || url.pathname.startsWith('/assets/') || url.pathname.startsWith('/fonts/')) return serveHomeAssets(url.pathname);
     // The products the wiki's selector offers (decision 0029: the product is chosen at the top left): one answer for the whole home.
     if (url.pathname === '/api/products' && request.method === 'GET') return Response.json({ products: productNames() });
     // The fill's unit tools answer for the process, not for one served product: a unit's own MCP server
@@ -474,6 +428,7 @@ const notServed = (message: string): Response => Response.json({ message }, { st
     refreshProducts();
     const entry = productEntries.get(name);
     if (entry === undefined) return notServed(`no product ${JSON.stringify(name)} is served: the products are listed at ${new URL('/', url).href}`);
+    if (opensPage(request)) knowledgeHost.of(entry.wiki.product.folder).warm();
     const rest = match[2] === undefined ? '/' : `/${match[2]}`;
     const forwarded = new Request(new URL(rest + url.search, url), request);
     const answered = await withProductPrefix(await entry.handler(forwarded), `/products/${encodeURIComponent(name)}`);
@@ -493,6 +448,7 @@ const notServed = (message: string): Response => Response.json({ message }, { st
       idleTimeout: 255,
     });
   } catch (error) {
+    await knowledgeHost.close().catch(() => {});
     await graphs?.close().catch(() => {});
     await queryDatabase?.close().catch(() => {});
     await sources?.close().catch(() => {});
@@ -531,25 +487,16 @@ export function createHandler(dependencies: {
   /** The product's wiki routes and app files, when a product folder was given. */
   wiki?: WikiPart;
   appFolder?: string;
-  startFill?: ServerOptions['startFill'];
-  productFolder?: string;
   /** The fill's unit tools, when this process serves them (`POST /api/fill/unit/tool`). */
   unitTool?: (request: UnitToolCall) => Promise<UnitToolAnswer | null>;
-  /** One product's graph pages (madarch-tzte.23.1): its page set, a node's page and the live channel of their changes. */
-  graphPages?: GraphPagesPart;
-  /** The graph's diagrams and their generated documents (madarch-tzte.23.4). */
-  graphDiagrams?: GraphDiagramsPart;
   /** The product's knowledge wiki (decision 0029): its status, pages, entities, source, fill and live stream. */
   knowledge?: KnowledgePart;
-  /** The orchestrator's own answer for `GET /api/fill` (madarch-tzte.26.2), when this process owns a fill service. */
-  fillProgress?: (productFolder: string) => Promise<FillProgressAnswer | null>;
-  /** The orchestrator's own answer for `POST /api/fill/control` (madarch-tzte.26.2); `null` for a run it does not hold. */
-  fillControl?: (request: { readonly productFolder: string; readonly runId: string; readonly action: 'pause' | 'stop' }) => Promise<FillRunControlAnswer | null>;
+  /** Told of each request, so the wiki can prepare for a page a browser is opening. */
+  opened?: (request: Request) => void;
   /** The environment the handler judges a request against; the process's own when it is left out (the fill's sign-in choice reads it). */
   env?: ServerOptions['env'];
 }): ServerHandler {
   const { log, errorLog, wiki } = dependencies;
-  const handlerEnv = dependencies.env ?? process.env;
   // The model routes are put in the table only when a data folder was
   // given, so their handlers below can never be entered without the
   // sources and the graphs: the types stay asserted, the guard is the
@@ -583,8 +530,6 @@ export function createHandler(dependencies: {
 
   // The model routes are the server's own; the wiki's answer beside them,
   // both kept apart by what the server was given.
-  const startFill = dependencies.startFill;
-  const fillProductFolder = dependencies.productFolder;
   const routes: Route[] = [
     // A unit's own MCP server forwards its tool calls here (madarch-tzte.22.2): the background server owns
     // the database and is its only writer, and the route stands only when this process serves the fill.
@@ -598,32 +543,9 @@ export function createHandler(dependencies: {
         ] as Route[])
       : []),
     ...(wiki !== undefined ? ([
-      { method: 'GET', path: '/api/product', handle: () => wiki.product() },
-      { method: 'GET', path: '/api/questions', handle: () => wiki.questions() },
-      { method: 'GET', path: '/api/pages', handle: () => wiki.pages() },
-      { method: 'GET', path: '/api/page', handle: wiki.page },
-      { method: 'GET', path: '/api/discussions', handle: wiki.discussions },
-      { method: 'POST', path: '/api/discussions', handle: (request) => serializeState(() => wiki.discussion(request)) },
-      { method: 'POST', path: '/api/questions/answer', handle: (request) => serializeState(() => wiki.answerQuestion(request)) },
-      { method: 'GET', path: '/api/stages', handle: () => wiki.stages() },
-      { method: 'GET', path: '/api/registry', handle: () => wiki.registry() },
       { method: 'GET', path: '/api/events', handle: wiki.events },
-      ...(dependencies.graphPages === undefined ? [] : ([
-        { method: 'GET', path: '/api/graph/pages', handle: (request: Request) => dependencies.graphPages!.pages(request) },
-        { method: 'GET', path: '/api/graph/page', handle: (request: Request) => dependencies.graphPages!.page(request) },
-        { method: 'GET', path: '/api/graph/events', handle: (request: Request) => dependencies.graphPages!.events(request) },
-        // A person's own words (the self-filling charter's outcome 5): the answer to one open question and the
-        // acceptance or rejection of one page, written as Markdown in the product's git and read back into the graph.
-        { method: 'POST', path: '/api/graph/answer', handle: (request: Request) => dependencies.graphPages!.answer(request) },
-        { method: 'POST', path: '/api/graph/decide', handle: (request: Request) => dependencies.graphPages!.decide(request) },
-      ] as Route[])),
-      ...(dependencies.graphDiagrams === undefined ? [] : ([
-        { method: 'GET', path: '/api/graph/diagrams', handle: (request: Request) => dependencies.graphDiagrams!.diagrams(request) },
-        { method: 'GET', path: '/api/graph/likec4.js', handle: (request: Request) => dependencies.graphDiagrams!.likec4(request) },
-        { method: 'GET', path: '/api/graph/likec4.html', handle: (request: Request) => dependencies.graphDiagrams!.likec4Page(request) },
-        { method: 'GET', path: '/api/graph/archify', handle: (request: Request) => dependencies.graphDiagrams!.archify(request) },
-      ] as Route[])),
       ...(dependencies.knowledge === undefined ? [] : ([
+        { method: 'GET', path: '/api/k/product', handle: (request: Request) => dependencies.knowledge!.identity(request) },
         { method: 'GET', path: '/api/k/status', handle: (request: Request) => dependencies.knowledge!.status(request) },
         { method: 'GET', path: '/api/k/page', handle: (request: Request) => dependencies.knowledge!.page(request) },
         { method: 'GET', path: '/api/k/entities', handle: (request: Request) => dependencies.knowledge!.entities(request) },
@@ -632,112 +554,11 @@ export function createHandler(dependencies: {
         { method: 'POST', path: '/api/k/fill', handle: (request: Request) => dependencies.knowledge!.fill(request) },
         { method: 'GET', path: '/api/k/agents', handle: (request: Request) => dependencies.knowledge!.agents(request) },
         { method: 'POST', path: '/api/k/agent', handle: (request: Request) => dependencies.knowledge!.chooseAgent(request) },
+        { method: 'GET', path: '/api/k/documents', handle: (request: Request) => dependencies.knowledge!.documents(request) },
+        { method: 'GET', path: '/api/k/document', handle: (request: Request) => dependencies.knowledge!.document(request) },
+        { method: 'GET', path: '/api/k/reset', handle: (request: Request) => dependencies.knowledge!.reset(request) },
+        { method: 'POST', path: '/api/k/reset', handle: (request: Request) => dependencies.knowledge!.reset(request) },
       ] as Route[])),
-      { method: 'GET', path: '/api/fill', handle: async (): Promise<Handled> => {
-        // Which run the panel shows: the landed fill's while it runs (the person started it from the wizard and is
-        // watching it), else the newest run the orchestrator keeps in this process's database — the update the
-        // background server started after a commit included — and the landed fill's own record where it never ran
-        // one of the orchestrator's (madarch-tzte.26.2).
-        const landed = wiki.fill();
-        if (landed.response.ok) {
-          try {
-            const body = await landed.response.clone().json() as { run?: { status?: unknown } };
-            if (body.run?.status === 'running' || body.run?.status === 'paused') return landed;
-          } catch {
-            // A body that does not read is not a run to prefer: the orchestrator's answer is asked below.
-          }
-        }
-        const progress = dependencies.fillProgress;
-        if (progress !== undefined && fillProductFolder !== undefined) {
-          try {
-            const answer = await progress(fillProductFolder);
-            if (answer !== null) return { response: json(200, answer) };
-          } catch (error) {
-            return refused(500, { message: `the fill's progress could not be read from this process's own runs: ${(error as Error).message}` });
-          }
-        }
-        return landed;
-      } },
-      { method: 'POST', path: '/api/fill/start', handle: async (request) => {
-        if (!startFill || fillProductFolder === undefined) return refused(503, { message: 'The fill entry point is not configured for this server' });
-        const { body, bad } = await jsonBody(request); if (bad) return bad;
-        if (body === null || typeof body !== 'object' || Array.isArray(body)) return refused(400, { message: 'body must be an object with agent and maxUnits' });
-        const asked = body as Record<string, unknown>;
-        if (asked.agent !== 'claude' && asked.agent !== 'codex' && asked.agent !== 'omp') return refused(400, { message: 'agent must be claude, codex, or omp' });
-        if (asked.maxUnits !== undefined && (!Number.isInteger(asked.maxUnits) || (asked.maxUnits as number) < 1 || (asked.maxUnits as number) > 10000)) return refused(400, { message: 'maxUnits must be a whole number from 1 through 10000' });
-        if (asked.model !== undefined && typeof asked.model !== 'string') return refused(400, { message: 'model must be a string' });
-        // The wizard's field is always sent for omp, an empty string
-        // included: it means the reader left the field to the machine's
-        // setting, so it must not become the choice yet not defeat the
-        // environment the refusal message and both hints advertise.
-        const askedModel = typeof asked.model === 'string' && asked.model !== '' ? asked.model : undefined;
-        // How the fill pays is judged before anything is saved, and an
-        // API-key fill of an agent whose variable is unset is refused by the
-        // variable's name (fillAuth): madarch never asks for the key itself.
-        const auth = fillAuth(asked.agent, asked.auth, handlerEnv);
-        if ('refusal' in auth) return refused(400, { message: auth.refusal });
-        // The omp adapter needs an explicit model and a gateway extension. The
-        // model is the per-machine setting (the wizard's field, or the
-        // environment the CLI reads); the extension stays environment-only.
-        try {
-          const settingsHome = homeFromEnv(handlerEnv);
-          const candidateModel = askedModel ?? ((await readChosenModel(settingsHome)) || handlerEnv.MADARCH_FILL_MODEL);
-          if (asked.agent === 'omp') {
-            if (!candidateModel) return refused(400, { message: 'omp needs a model: set it in the wizard or through MADARCH_FILL_MODEL' });
-            if (!handlerEnv.MADARCH_OMP_EXTENSION) return refused(400, { message: 'omp needs the gateway extension path: set MADARCH_OMP_EXTENSION' });
-          }
-          await saveChosenAgent(asked.agent, { ...(asked.auth === undefined ? {} : { auth: auth.auth }), ...(askedModel === undefined ? {} : { model: askedModel }) }, settingsHome);
-          const chosenModel = (await readChosenModel(settingsHome)) || handlerEnv.MADARCH_FILL_MODEL;
-          // The fill itself runs in this process's own environment (it is
-          // spawned by src/product/fill-agents.ts), which is what the wizard's
-          // `env` stands for when the server was given one.
-          // An update of this product may be filling now (madarch-tzte.26.2): a landed fill started over it would be
-          // two fills of one product at once, and the panel would hide the update behind the newcomer.
-          const progress = dependencies.fillProgress;
-          if (progress !== undefined) {
-            const current = await progress(fillProductFolder!);
-            if (current !== null && ['created', 'planning', 'running', 'pausing'].includes(current.run.status)) {
-              return refused(409, { message: `an update of this product is filling now (run ${current.run.id}, ${current.run.status}): wait for it to end, or stop it in the fill progress, before starting another fill` });
-            }
-          }
-          const ompOptions = { model: chosenModel, ompExecutable: handlerEnv.MADARCH_OMP_EXECUTABLE, ompExtension: handlerEnv.MADARCH_OMP_EXTENSION };
-          void startFill(fillProductFolder!, { agent: asked.agent, ...(asked.maxUnits === undefined ? {} : { maxUnits: asked.maxUnits as number }), ...(asked.agent === 'omp' ? ompOptions : {}) }).catch((error) => errorLog(`fill start failed: ${(error as Error).message}`));
-          return { response: json(202, { accepted: true, status: 'starting' }) };
-        }
-        catch (error) { return refused(409, { message: (error as Error).message }); }
-      } },
-      { method: 'GET', path: '/api/fill/wizard', handle: (request) => wiki.fillWizard(request) },
-      { method: 'POST', path: '/api/fill/agent-install', handle: (request) => wiki.fillAgentInstall(request) },
-      { method: 'GET', path: '/api/fill/inventory', handle: () => wiki.fillInventory() },
-      { method: 'POST', path: '/api/fill/test', handle: (request) => wiki.fillAgentTest(request) },
-      { method: 'POST', path: '/api/fill/control', handle: async (request) => {
-        const url = new URL(request.url);
-        const action = url.searchParams.get('action');
-        if (action !== 'pause' && action !== 'stop') return refused(400, { message: 'fill action must be exactly pause or stop' });
-        const runId = url.searchParams.get('runId') ?? '';
-        // The orchestrator's own runs come first (madarch-tzte.26.2): the update the background server started by
-        // itself is paused and stopped by its own state machine. A run it does not hold falls through to the state
-        // file's control, which answers for the landed fill.
-        const control = dependencies.fillControl;
-        if (control !== undefined && fillProductFolder !== undefined) {
-          try {
-            const answer = await control({ productFolder: fillProductFolder, runId, action });
-            if (answer !== null) {
-              if (answer.ok) return { response: json(202, { runId: answer.runId, state: answer.state }) };
-              // A step a run's machine refused is the request's own fault (409); a service that cannot take any
-              // control at all is not ready to (503). Nothing here answers 404: a run this process does not hold
-              // answered `null` above, and the landed fill's own control answered for it.
-              return refused(answer.code === 'fill-orchestrator/control-refused' ? 409 : 503, { message: answer.reason });
-            }
-          } catch (error) {
-            return refused(500, { message: `the fill's control could not be taken by this process's own runs: ${(error as Error).message}` });
-          }
-        }
-        return serializeState(() => wiki.fillControl(request, runId, action));
-      } },
-      { method: 'GET', path: '/api/architecture', handle: () => wiki.architecture() },
-      { method: 'GET', path: '/api/architecture/likec4.js', handle: () => wiki.likec4Script() },
-      ...(wiki.reposDeclared ? ([{ method: 'GET', path: '/api/repos', handle: () => wiki.repos() }] as Route[]) : []),
     ] as Route[]) : []),
   ];
 
@@ -1253,6 +1074,7 @@ export function createHandler(dependencies: {
   const handle = async (request: Request): Promise<Response> => {
     const started = performance.now();
     const pathname = new URL(request.url).pathname;
+    dependencies.opened?.(request);
     let handled: Handled;
     try {
       const onPath = routes.filter((each) => each.path === pathname);

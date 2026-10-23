@@ -14,8 +14,12 @@ import { BlockView, Findings, KMarkdown } from './blocks.js';
 import { highlight } from './highlight.js';
 import { Root as AppRoot } from './root.js';
 import { FillCard } from './pages.js';
-import { ProductSelector, productChoices } from './app.js';
-import { kRouteOf, kindPlural, kindWord } from './routes.js';
+import { WriterCard } from './writer.js';
+import { FillMenu, ProductSelector, productChoices } from './app.js';
+import { addressOfDocument, kRouteOf, kindPlural, kindWord } from './routes.js';
+import { kindNameOf } from './kind-names.js';
+import { PageSkeleton } from './skeleton.js';
+import { relativeDocument } from './blocks.js';
 import type { Block, Resolution, WikiStatus } from './types.js';
 
 beforeAll(async () => {
@@ -238,7 +242,7 @@ function stubFetch(calls: string[], others: (url: string, init?: RequestInit) =>
 
 describe('the fill card', () => {
   const status = (over: Partial<WikiStatus> = {}): WikiStatus => ({
-    product: { name: 'shop', id: 'x' }, manifest: 'ok', manifestFile: 'madarch/kinds.yaml', findings: [], kinds: [], repositories: [{ name: 'training', filled: false }], filled: false, incomplete: false, fill: { state: 'idle' }, writer: { state: 'idle', agent: null, units: [] }, bounds: { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12 }, chosenAgent: null, home: null, ...over,
+    product: { name: 'shop', id: 'x' }, manifest: 'ok', manifestFile: 'madarch/kinds.yaml', language: 'en', seeded: [], findings: [], kinds: [], repositories: [{ name: 'training', filled: false }], filled: false, incomplete: false, fill: { state: 'idle' }, writer: { state: 'idle', agent: null, units: [] }, bounds: { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12 }, chosenAgent: null, home: null, ...over,
   });
 
   test('an empty product with a repository says what to do and starts the fill on the press of one button', async () => {
@@ -270,12 +274,23 @@ describe('the fill card', () => {
     expect(container.querySelector('[data-testid=fill-start]')).toBeNull();
   });
 
-  test('a running fill shows its place in the commits as a progress bar, and a failed one its reason with a way to try again', async () => {
-    const running = into(createElement(FillCard, { status: status({ fill: { state: 'running', repository: 'training', commit: 12, commits: 70 } }), refresh: () => undefined }));
+  test('a running fill says which phase it reads and shows a bar; a failed one shows its reason with a way to try again', async () => {
+    const running = into(createElement(FillCard, { status: status({ fill: { state: 'running', repository: 'training', phase: 'code', commits: 70 } }), refresh: () => undefined }));
     await until(() => running.querySelector('[role=progressbar]') !== null, 'the bar');
     const bar = running.querySelector('[role=progressbar]')!;
-    expect([bar.getAttribute('aria-valuenow'), bar.getAttribute('aria-valuemax')]).toEqual(['12', '70']);
-    expect(running.textContent).toContain('Repository training: commit 12 of 70.');
+    expect(bar.getAttribute('aria-valuenow')).toBe('30');
+    expect(running.textContent).toContain("Repository training: Reading the last commit's code.");
+    rendered?.unmount();
+    document.body.innerHTML = '';
+    const history = into(createElement(FillCard, { status: status({ fill: { state: 'running', repository: 'training', phase: 'history', commits: 70, newCommits: 70 } }), refresh: () => undefined }));
+    await until(() => history.querySelector('[role=progressbar]') !== null, 'the bar');
+    expect(history.querySelector('[role=progressbar]')!.getAttribute('aria-valuenow')).toBe('75');
+    expect(history.textContent).toContain('Reading the history: 70 commits');
+    rendered?.unmount();
+    document.body.innerHTML = '';
+    const older = into(createElement(FillCard, { status: status({ fill: { state: 'running', repository: 'training', commit: 12, commits: 70 } }), refresh: () => undefined }));
+    await until(() => older.querySelector('[role=progressbar]') !== null, 'the bar');
+    expect(older.textContent).toContain('Repository training: Reading commit 12 of 70.');
     rendered?.unmount();
     document.body.innerHTML = '';
     const failed = into(createElement(FillCard, { status: status({ fill: { state: 'failed', message: 'git failed in the repository' } }), refresh: () => undefined }));
@@ -300,7 +315,7 @@ describe('the fill card', () => {
 
 describe('the agent stage', () => {
   const status = (over: Partial<WikiStatus> = {}): WikiStatus => ({
-    product: { name: 'shop', id: 'x' }, manifest: 'ok', manifestFile: 'madarch/kinds.yaml', findings: [], kinds: [], repositories: [{ name: 'training', filled: false }], filled: false, incomplete: false, fill: { state: 'idle' }, writer: { state: 'idle', agent: null, units: [] }, bounds: { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12 }, chosenAgent: null, home: null, ...over,
+    product: { name: 'shop', id: 'x' }, manifest: 'ok', manifestFile: 'madarch/kinds.yaml', language: 'en', seeded: [], findings: [], kinds: [], repositories: [{ name: 'training', filled: false }], filled: false, incomplete: false, fill: { state: 'idle' }, writer: { state: 'idle', agent: null, units: [] }, bounds: { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12 }, chosenAgent: null, home: null, ...over,
   });
 
   test('the empty wiki offers the agents with their state, states the bound in plain words, and one press installs the adapter, saves the choice and starts the fill', async () => {
@@ -321,7 +336,7 @@ describe('the agent stage', () => {
     await until(() => container.querySelector('[data-testid=fill-start]')!.textContent === 'Start the fill and let Claude Code write the pages', 'the button');
     (container.querySelector('[data-testid=fill-start]') as HTMLButtonElement).click();
     await until(() => refreshed === 1, 'the refresh');
-    expect(calls).toEqual(['GET /api/k/agents', 'POST /api/k/agent {"agent":"claude-code","install":true}', 'POST /api/k/fill {"agent":"claude-code"}']);
+    expect(calls).toEqual(['GET /api/k/agents', 'POST /api/k/agent {"agent":"claude-code","install":true}', 'POST /api/k/fill {"agent":"claude-code","language":"en"}']);
   });
 
   test('a filled product with no pages offers the agent on a card whose button needs a chosen agent', async () => {
@@ -371,9 +386,42 @@ describe('the agent stage', () => {
   });
 });
 
+describe('after the run', () => {
+  const status = (over: Partial<WikiStatus> = {}): WikiStatus => ({
+    product: { name: 'shop', id: 'x' }, manifest: 'ok', manifestFile: 'madarch/kinds.yaml', language: 'ru', seeded: [], findings: [], kinds: [{ kind: 'domain', source: 'markdown', count: 4, single: false }, { kind: 'product', source: 'markdown', count: 1, single: true }], repositories: [{ name: 'training', filled: true }], filled: true, incomplete: false, fill: { state: 'done', finishedAt: '2026-10-23T12:00:00.000Z' }, writer: { state: 'done', agent: { id: 'claude-code', label: 'Claude Code' }, units: [{ unit: 'product:shop', path: 'docs/product.md', state: 'written' }] }, bounds: { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12 }, chosenAgent: { id: 'claude-code', label: 'Claude Code' }, home: 'product:shop', ...over,
+  });
+
+  test('the card of a finished run is gone: its outcome is a quiet status in the top bar that counts the pages', async () => {
+    stubFetch([]);
+    const card = into(createElement(WriterCard, { status: status(), refresh: () => undefined }));
+    await new Promise((rest) => setTimeout(rest, 20));
+    expect(card.querySelector('[data-testid=writer-card]')).toBeNull();
+    rendered?.unmount();
+    document.body.innerHTML = '';
+    const bar = into(createElement(FillMenu, { status: status(), refresh: () => undefined }));
+    await until(() => bar.querySelector('[data-testid=fill-chip]') !== null, 'the status');
+    expect(bar.querySelector('[data-testid=fill-chip]')!.textContent).toBe('Filled Oct 23, 5 pages');
+  });
+
+  test('a failed run stays on the page until the reader dismisses it', async () => {
+    stubFetch([]);
+    const failed = status({ writer: { state: 'failed', agent: { id: 'codex', label: 'Codex' }, units: [], message: 'x', finishedAt: '2026-10-23T12:00:00.000Z' } });
+    const container = into(createElement(WriterCard, { status: failed, refresh: () => undefined }));
+    await until(() => container.querySelector('[data-testid=writer-dismiss]') !== null, 'the dismissal');
+    (container.querySelector('[data-testid=writer-dismiss]') as HTMLButtonElement).click();
+    await until(() => container.querySelector('[data-testid=writer-card]') === null, 'the card gone');
+  });
+
+  test('while the fill runs the status says how far it is, and the code is the first thing read', async () => {
+    const bar = into(createElement(FillMenu, { status: status({ fill: { state: 'running', commit: 19, commits: 70 } }), refresh: () => undefined }));
+    await until(() => bar.querySelector('[data-testid=fill-chip]') !== null, 'the status');
+    expect(bar.querySelector('[data-testid=fill-chip]')!.textContent).toBe('Reading commit 19 of 70');
+  });
+});
+
 describe('the product selector', () => {
   test('the product is at the top left as a control that names it and opens a menu', async () => {
-    const container = into(createElement(ProductSelector, { name: 'shop', products: [{ name: 'Shop', folder: 'shop' }, { name: 'Other', folder: 'other' }], current: 'shop' }));
+    const container = into(createElement(ProductSelector, { name: 'shop', products: [{ name: 'Shop', folder: 'shop' }, { name: 'Other', folder: 'other' }], current: 'shop', onStartOver: () => undefined }));
     await until(() => container.querySelector('[data-testid=product-selector]') !== null, 'the selector');
     const trigger = container.querySelector('[data-testid=product-selector]') as HTMLElement;
     expect(trigger.textContent).toContain('shop');
@@ -424,5 +472,42 @@ describe('which app opens', () => {
     await new Promise((rest) => setTimeout(rest, 50));
     expect(again.querySelector('[data-testid=knowledge-app]')).toBeNull();
     expect(window.location.pathname).toBe('/');
+  });
+});
+
+describe('kind names in the reader\'s language', () => {
+  const kinds = [{ kind: 'code.file', source: 'graph' as const, count: 70, single: false, labels: { en: { one: 'File', many: 'Files' }, ru: { one: 'Файл', many: 'Файлы' } } }, { kind: 'code.flow', source: 'graph' as const, count: 1, single: false }];
+  test('the manifest\'s label of the language is used, its English one for a language it does not name, and the key made readable where it gives none', () => {
+    expect(kindNameOf(kinds, 'code.file', 'many', 'ru')).toBe('Файлы');
+    expect(kindNameOf(kinds, 'code.file', 'one', 'ru-RU')).toBe('Файл');
+    expect(kindNameOf(kinds, 'code.file', 'many', 'en')).toBe('Files');
+    expect(kindNameOf(kinds, 'code.flow', 'many', 'ru')).toBe('Flows');
+    expect(kindNameOf(kinds, 'code.flow', 'one', 'en')).toBe('Flow');
+  });
+});
+
+describe('what a reader sees while a page loads', () => {
+  test('a skeleton of the page stands where it will be: bars, never a bare line of text', async () => {
+    const container = into(createElement(PageSkeleton, { testId: 'page-loading' }));
+    await until(() => container.querySelector('[data-testid=page-loading]') !== null, 'the skeleton');
+    const region = container.querySelector('[data-testid=page-loading]')!;
+    expect(region.getAttribute('aria-busy')).toBe('true');
+    expect(region.querySelectorAll('.ui-skeleton').length).toBeGreaterThan(4);
+    expect(region.textContent).toBe('');
+  });
+});
+
+describe('document links', () => {
+  test('a relative link to another Markdown document resolves against the document it is in, and keeps its section', () => {
+    expect(relativeDocument({ repo: 'shop', path: 'docs/a/b.md' }, '../c.md#intro')).toEqual({ path: 'docs/c.md', anchor: 'intro' });
+    expect(relativeDocument({ repo: null, path: 'README.md' }, 'docs/guide.md')).toEqual({ path: 'docs/guide.md' });
+    expect(relativeDocument({ repo: null, path: 'docs/a.md' }, '../../outside.md')).toBeNull();
+    expect(relativeDocument({ repo: null, path: 'docs/a.md' }, 'https://example.test/x.md')).toBeNull();
+    expect(relativeDocument({ repo: null, path: 'docs/a.md' }, 'image.png')).toBeNull();
+  });
+  test('the routes of the documents list and of one document', () => {
+    expect(kRouteOf('/k/docs')).toEqual({ name: 'docs' });
+    expect(kRouteOf('/k/doc', '?repo=training&path=docs%2Fa.md')).toEqual({ name: 'doc', repo: 'training', path: 'docs/a.md' });
+    expect(addressOfDocument('training', 'docs/a.md', 'uc-2')).toBe('/k/doc?repo=training&path=docs%2Fa.md#uc-2');
   });
 });

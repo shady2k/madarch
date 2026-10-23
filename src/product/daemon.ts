@@ -18,7 +18,6 @@ import { join, resolve } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { productsHome, type DraftEnv } from './draft.js';
 import { listProducts } from './list.js';
-import { startFill } from './fill.js';
 import { ensureBuilt } from '../product-wiki/app.js';
 import type { ServeEnv } from '../product-wiki/serve.js';
 import { startServer } from '../server/http.js';
@@ -29,8 +28,9 @@ import { createUpdateWatch, type UpdateWatch } from './fill-updates.js';
 import { UNIT_TOOL_PATH } from '../fill/unit-tools.js';
 import { selfCommand } from './self-command.js';
 import { StageRegistry } from '../fill/registry.js';
+import { runningVersion } from './version.js';
 
-interface DaemonState { pid: number; port: number; startedAt: number; home: string; token: string; }
+interface DaemonState { pid: number; port: number; startedAt: number; home: string; token: string; /** The madarch version the server runs; a record written before versions were kept names none. */ version?: string; }
 const STATE_FILE = '.madarch-daemon.json';
 const LOG_FILE = '.madarch-daemon.log';
 const LOCK_FILE = '.madarch-daemon.lock';
@@ -397,17 +397,29 @@ export async function ensureDaemon(options: { home?: string; port?: number; appF
  */
 async function ensureDaemonUnderLock(home: string, port: number, asked: number | undefined, appDist: string, reads: ChildReadings): Promise<DaemonStart> {
   const existing = readState(home);
-  if (existing !== undefined && daemonIsAlive(existing, reads)) {
-    const elsewhere = asked !== undefined && asked !== 0 && existing.port !== asked;
+  // A server of another version keeps running the code it started with, so a binary of this version ends it and starts its own.
+  let replaced: string | undefined;
+  if (existing !== undefined && daemonIsAlive(existing, reads) && existing.version !== runningVersion()) {
+    const was = existing.version === undefined ? 'an older madarch' : `madarch ${existing.version}`;
+    if (!(await stopProcess(existing, reads))) {
+      return { ok: false, message: `the background server at http://127.0.0.1:${existing.port} (pid ${existing.pid}) is ${was} and could not be stopped; end it by hand and start again` };
+    }
+    clearState(home);
+    port = asked === undefined || asked === 0 ? existing.port : asked;
+    replaced = `stopped the background server of ${was} (pid ${existing.pid}); starting the one of madarch ${runningVersion()}`;
+  }
+  const running = replaced === undefined && existing !== undefined && daemonIsAlive(existing, reads) ? existing : undefined;
+  if (running !== undefined) {
+    const elsewhere = asked !== undefined && asked !== 0 && running.port !== asked;
     return {
       ok: true,
-      url: `http://127.0.0.1:${existing.port}`,
-      pid: existing.pid,
-      port: existing.port,
+      url: `http://127.0.0.1:${running.port}`,
+      pid: running.pid,
+      port: running.port,
       reused: true,
       ...(asked === undefined ? {} : { requestedPort: asked }),
       ...(elsewhere
-        ? { note: `the running server keeps port ${existing.port}, so --port ${asked} does not apply: stop it (madarch stop --home ${home}) and start it again (madarch start --home ${home} --port ${asked})` }
+        ? { note: `the running server keeps port ${running.port}, so --port ${asked} does not apply: stop it (madarch stop --home ${home}) and start it again (madarch start --home ${home} --port ${asked})` }
         : {}),
     };
   }
@@ -426,7 +438,7 @@ async function ensureDaemonUnderLock(home: string, port: number, asked: number |
   // not an uncaught error on a process the state file already names.
   const childFault: { message?: string } = {};
   proc.once('error', (error) => { childFault.message = (error as Error).message; });
-  const state: DaemonState = { pid: proc.pid!, port, startedAt: Date.now(), home, token };
+  const state: DaemonState = { pid: proc.pid!, port, startedAt: Date.now(), home, token, version: runningVersion() };
   try { saveState(home, state); } catch (error) {
     await stopProcess(state, reads);
     clearState(home);
@@ -458,7 +470,7 @@ async function ensureDaemonUnderLock(home: string, port: number, asked: number |
   if (ready && answered && daemonIsAlive(state, reads)) {
     // The facts name the port the caller asked for (0 meaning a free one)
     // beside the one the server took, the way the reused path does.
-    return { ok: true, url: `http://127.0.0.1:${port}`, pid: state.pid, port, reused: false, ...(asked === undefined ? {} : { requestedPort: asked }) };
+    return { ok: true, url: `http://127.0.0.1:${port}`, pid: state.pid, port, reused: false, ...(asked === undefined ? {} : { requestedPort: asked }), ...(replaced === undefined ? {} : { note: replaced }) };
   }
   await stopProcess(state, reads);
   const current = readState(home);
@@ -479,6 +491,18 @@ export async function startDaemon(options: { home?: string; port?: number }): Pr
   console.log(started.reused ? `already running: ${started.url} (pid ${started.pid})` : `started: ${started.url} (pid ${started.pid})`);
   if (started.note !== undefined) console.log(started.note);
   return 0;
+}
+
+/** The address of the home's running background server, or undefined when none runs. */
+export function daemonUrl(options: { home?: string } = {}): string | undefined {
+  const state = readState(homePath(options.home));
+  return state !== undefined && daemonIsAlive(state) ? `http://127.0.0.1:${state.port}` : undefined;
+}
+
+/** Whether the home's background server is running now. */
+export function daemonIsRunning(options: { home?: string } = {}): boolean {
+  const state = readState(homePath(options.home));
+  return state !== undefined && daemonIsAlive(state);
 }
 
 export function stopDaemon(options: { home?: string }): number {
@@ -650,23 +674,15 @@ export async function serveDaemon(options: { home?: string; port: number }): Pro
   let address: string | undefined;
   const orchestrator = daemonFillOrchestrator(home, { toolUrl: () => (address === undefined ? undefined : `${address}${UNIT_TOOL_PATH}`) });
   try {
-    // Each product's graph pages are read from this process's own fact store (madarch-tzte.23.1, decision
-    // 0026's "Pages"), which the fill service owns: the page set, a node's page and the change a publication
-    // pushes all answer from the database the fill writes, and a product whose fill never ran answers the
-    // empty page set with the message saying which fill writes it.
     const server = await startServer({
       productHome: home,
       appFolder: process.env.MADARCH_APP_DIST,
       port: options.port,
       host: '127.0.0.1',
-      startFill,
       orchestrator: {
         stop: () => orchestrator.stop(),
         unitTool: (call) => orchestrator.unitTool(call),
-        progress: (folder) => orchestrator.progress(folder),
-        control: (request) => orchestrator.control(request),
       },
-      graphPages: (productFolder) => orchestrator.pages(productFolder),
     });
     address = server.url;
     // The update after commits to a default branch (madarch-tzte.26.2) runs beside the wikis: its first pass reads

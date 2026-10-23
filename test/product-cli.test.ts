@@ -310,7 +310,7 @@ describe('madarch new', () => {
       expect('portNote' in facts).toBe(false);
       expect(facts.url).toBe(`http://127.0.0.1:${facts.port}/products/idea-${todayName()}/`);
       expect(facts.pid).toBeGreaterThan(0);
-      const answer = await fetch(`${facts.url}api/product`);
+      const answer = await fetch(`${facts.url}api/k/product`);
       expect((await answer.json() as { id: string }).id).toBe(facts.id);
     } finally { stopDaemon({ home: join(home, 'products') }); }
   });
@@ -340,7 +340,7 @@ describe('madarch new', () => {
       expect(second.stdout).toContain(`madarch stop --home ${products}`);
       expect(second.stdout).toContain(`madarch start --home ${products} --port ${otherPort}`);
       expect(second.stdout).not.toContain('was ignored');
-      const served = await fetch(`http://127.0.0.1:${firstPort}/products/idea-${todayName()}-2/api/product`);
+      const served = await fetch(`http://127.0.0.1:${firstPort}/products/idea-${todayName()}-2/api/k/product`);
       expect(served.ok).toBeTrue();
     } finally { expect(stopDaemon({ home: products })).toBe(0); }
   });

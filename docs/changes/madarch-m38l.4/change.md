@@ -14,15 +14,15 @@ The owner walks the vertical (decision 0029) on madarch 0.2.0 and reports what i
 - The CLI's and the fill's own needs: what they still read of the old app's engine stays.
 
 ## Rationale
-The remarks come from one walk; their causes are separate, so each has its own commit and its own evidence (see the task's comments). The fill's move off the request path is the one structural change; its design is in the commit that makes it.
+The remarks come from one walk; their causes are separate, so each has its own commit where the code allows it, and its own evidence (see the task's comments and the acceptance evidence below). The structural change is the fill's: PGlite runs a statement on the thread that owns it and a commit of the fill is seconds of statements (measured on the pod: 89 % of the fill's 471 s was the graph's publication, and the event loop was blocked for 466 s of it), so a fill in the server's process starves every request. The fill is now a process of its own (`madarch knowledge-fill-worker`) that owns the primary store and makes a snapshot of it between commits; the server reads a snapshot through a read process of its own (`madarch knowledge-read-worker`), started for each new snapshot, so neither the fill nor the opening of a snapshot holds up the server's thread. The agent still runs in the server: the worker asks it for each unit and answers the unit's tool calls over the pipe.
 
-## Changes to requirements
-- product-wiki/one-app (absent on the target): add. One app; the root opens a product; the starter manifest or a findings page stands in for the old app. Complete proposed text in `capabilities/product-wiki.md`.
-- product-wiki/documents (absent): add. Documents are pages of the knowledge wiki.
-- product-wiki/responsive-during-fill (absent): add. 300 ms during a fill; localized kind names.
-- product-wiki/content-language (absent): add. The product's content language is a manifest setting, set on the agent card, told to the writer; a page in another language is not refused.
-- product-wiki/agent-stage (absent on the target): add, with OpenCode, Pi and omp beside Claude Code and Codex.
-- product-wiki/pages, overview, shell, front-matter, architecture, repositories, stages, questions-and-overview, empty-home-guidance, discussions: removed with the old app; the knowledge wiki's pages and the documents requirement replace what a reader used.
+Remarks 7 to 12, made on the same walk after the approval and covered by the approved requirements `responsive-during-fill`, `documents`, `content-language` and `one-app`:
+- 7: the "pages written" card goes when the run is done; its outcome is a quiet status in the top bar that opens the units of the last run. A failure stays until it is dismissed.
+- 8: the top bar's status opens "Refresh": the code is read again from the new commits and the pages' links are checked again. The agent writes only the pages that do not exist yet, or every page when the language of the pages is changed in the same menu. The incremental update of the agent's pages (edit only the pages whose grounds changed) is madarch-m38l.7; the seam is `unitsNeeded` in `src/writer/run.ts`.
+- 9: the code is colored with Shiki (a light and a dark theme, TypeScript, JavaScript, Go, SQL, proto, YAML, JSON, Markdown, Dockerfile and more), loaded when a page first shows code.
+- 10: while a page's data loads, a skeleton of the page stands where it will be.
+- 11: the problems box says in plain words what a finding means and who puts it right; the file and line are behind "Details for an engineer". The cause of the finding the owner saw is fixed in the writer and the wiki (one reading of a document's sections).
+- 12: the product menu offers "Start over...", with the same words as `madarch reset <product>`; `madarch upgrade` and a binary of another version starting end the running background server of the old version and start their own, saying so.
 
 ### Inventory of the old app
 

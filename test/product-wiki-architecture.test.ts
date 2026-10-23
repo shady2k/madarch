@@ -3,7 +3,7 @@
  * the merged model (product `model/` + each declared repository's
  * `madarch/` under `repos/`), the bundle (views with their Mermaid sources
  * and tables, elements with their relations and the pages naming them),
- * and the server's two routes. Everything reads fresh; compile errors are
+ * Everything reads fresh; compile errors are
  * values inside the answer, each naming file, line and path.
  */
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -14,10 +14,8 @@ import { readProduct } from '../src/product/manifest.js';
 import { openProductWiki } from '../src/product-wiki/pages.js';
 import { readProductModel } from '../src/product-wiki/model.js';
 import { architectureBundle, pagesNamingElement, textNamesElement } from '../src/product-wiki/architecture.js';
-import { startServer, type StartedServer } from '../src/index.js';
 
 let folder: string | undefined;
-let server: StartedServer | undefined;
 
 function product(): string {
   folder = mkdtempSync(join(tmpdir(), 'madarch-arch-'));
@@ -67,8 +65,6 @@ relations:
 `;
 
 afterEach(async () => {
-  await server?.stop();
-  server = undefined;
   if (folder !== undefined) rmSync(folder, { recursive: true, force: true });
   folder = undefined;
 });
@@ -378,31 +374,4 @@ describe('the model rides the wiki revision', () => {
     if (!first.ok || !second.ok) throw new Error('pages failed');
     expect(second.revision).toBe(first.revision);
   });
-});
-
-describe('the server routes', () => {
-  test('/api/architecture answers the bundle; /api/architecture/likec4.js answers the webcomponent or its named refusal', async () => {
-    product();
-    write('model/system.yaml', DRILL_DOWN);
-    server = await startServer({ productFolder: folder!, port: 0, appFolder: join(folder!, 'app'), log: () => {}, errorLog: () => {} });
-    mkdirSync(join(folder!, 'app'), { recursive: true });
-    writeFileSync(join(folder!, 'app', 'index.html'), '<!doctype html><title>t</title>');
-    const bundle = (await (await fetch(`${server.url}/api/architecture`)).json()) as {
-      errors: { file: string; line: number; path: string; message: string }[];
-      model: { elements: { id: string }[] };
-      workspace: string;
-    };
-    expect(bundle.errors).toEqual([]);
-    expect(bundle.model.elements.length).toBe(3);
-    expect(bundle.workspace).toContain('view shop');
-    const script = await fetch(`${server.url}/api/architecture/likec4.js`);
-    const body = await script.text();
-    if (script.status === 200) {
-      expect(body.length).toBeGreaterThan(1_000_000);
-      expect(body).toContain('customElements.define');
-    } else {
-      // The pinned likec4 is absent (no bun install): the refusal names it.
-      expect(body).toContain('likec4');
-    }
-  }, 15_000);
 });

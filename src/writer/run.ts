@@ -59,6 +59,16 @@ export interface WriterOptions {
   readonly bounds?: UnitBounds;
   /** Replaces the filesystem writes; tests read the pages from memory with it. */
   readonly sink?: PageSink;
+  /** The language the pages are written in (`en` or `ru`); `en` when absent. The agent is told, and a page in another language is not refused. */
+  readonly language?: string;
+  /** The content language was changed by this run: every page is written again. */
+  readonly languageChanged?: boolean;
+  /**
+   * Which pages need an agent unit. The seam of the incremental update (madarch-m38l.7): given the pages already
+   * written, it answers what to write. The default is `unitsNeeded`: a page that is missing, and every page when the
+   * language changed. The incremental update will replace it with a decision on the pages whose grounds changed.
+   */
+  readonly needed?: (input: UnitsInput) => UnitsNeeded;
   /** Called with each unit's outcome as it ends. */
   readonly onUnit?: (outcome: UnitOutcome) => void;
   /** Called with a unit's id and page as the unit starts, so a reader can see which unit is writing now. */
@@ -67,6 +77,7 @@ export interface WriterOptions {
 
 export interface WriterReport {
   readonly content: ContentReport;
+  /** The product unit's outcome; when every page was there and no unit ran, the page as kept: written, with no attempt and no call. */
   readonly product: UnitOutcome;
   readonly domains: readonly UnitOutcome[];
   /** The number of agent units that ran. */
@@ -74,6 +85,34 @@ export interface WriterReport {
   readonly ok: boolean;
   /** Domain pages already in the output that this run did not write: left alone, named here. */
   readonly stale: readonly string[];
+}
+
+/** What the seam is given: the pages that exist and whether the content language was changed by this run. */
+export interface UnitsInput {
+  /** `docs/product.md`'s text, or null when there is none. */
+  readonly productPage: string | null;
+  /** The domain pages that exist, by path. */
+  readonly domainPages: readonly string[];
+  readonly languageChanged: boolean;
+}
+
+export interface UnitsNeeded {
+  /** The product unit runs: it also declares the domains, so it runs whenever any page is needed. */
+  readonly product: boolean;
+  /** A domain page is written when this says so for its path. */
+  readonly domain: (path: string) => boolean;
+}
+
+/**
+ * Today's decision: the pages that are missing, or every page when the language changed. A product page that exists
+ * but links a domain whose page is missing needs the product unit again, because only that unit declares the
+ * domains' summaries and evidence.
+ */
+export function unitsNeeded(input: UnitsInput): UnitsNeeded {
+  if (input.languageChanged || input.productPage === null) return { product: true, domain: () => true };
+  const linked = [...input.productPage.matchAll(/\(madarch:domain:([a-z][a-z0-9-]*)\)/g)].map((match) => `${DOMAINS_FOLDER}/${match[1]}.md`);
+  const missing = linked.some((path) => !input.domainPages.includes(path));
+  return { product: missing, domain: (path) => !input.domainPages.includes(path) };
 }
 
 export function productSlug(name: string): string {
@@ -142,9 +181,18 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
   const sink = options.sink ?? fsSink(options.output);
   const slug = productSlug(options.productName);
   const productUnit: UnitSpec = { kind: 'product', id: `product:${slug}`, path: PRODUCT_PATH, name: options.productName };
+  const language = options.language ?? 'en';
+  let existingProduct: string | null = null;
+  try { existingProduct = await sink.read(PRODUCT_PATH); } catch { existingProduct = null; }
+  const need = (options.needed ?? unitsNeeded)({ productPage: existingProduct, domainPages: await existingDomainPages(options.output), languageChanged: options.languageChanged === true });
+  if (!need.product) {
+    // Every page is there and in the language asked: nothing to write, and the pages' grounds are re-checked by the wiki.
+    const kept: UnitOutcome = { unit: productUnit.id, status: 'written', path: PRODUCT_PATH, writeAttempts: 0, calls: 0, refusals: [], domains: [], grounds: [], links: [], filesRead: [] };
+    return { content, product: kept, domains: [], units: 0, ok: true, stale: [] };
+  }
   options.onUnitStart?.({ unit: productUnit.id, path: productUnit.path });
   const productTools = new UnitTools(view, productUnit, sink, [], bounds);
-  const product = await runUnit(options.agent, productTools, await productPrompt(view, productUnit));
+  const product = await runUnit(options.agent, productTools, await productPrompt(view, productUnit, language));
   options.onUnit?.(product);
   const domains: UnitOutcome[] = [];
   if (product.status === 'written') {
@@ -155,10 +203,17 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
       throw new Error(`src/writer/run.ts: the product page ${PRODUCT_PATH} was written but cannot be read back for the domain units: ${(error as Error).message}`);
     }
     for (const declaration of product.domains) {
+      if (!need.domain(`${DOMAINS_FOLDER}/${declaration.slug}.md`)) {
+        // The page is there and stays: the unit does not run, and it is told as a kept page.
+        const kept: UnitOutcome = { unit: `domain:${declaration.slug}`, status: 'written', path: `${DOMAINS_FOLDER}/${declaration.slug}.md`, writeAttempts: 0, calls: 0, refusals: [], domains: [], grounds: [], links: [], filesRead: [] };
+        options.onUnit?.(kept);
+        domains.push(kept);
+        continue;
+      }
       const spec: UnitSpec = { kind: 'domain', id: `domain:${declaration.slug}`, path: `${DOMAINS_FOLDER}/${declaration.slug}.md`, domain: declaration, productId: productUnit.id };
       options.onUnitStart?.({ unit: spec.id, path: spec.path });
       const tools = new UnitTools(view, spec, sink, product.domains, bounds);
-      const outcome = await runUnit(options.agent, tools, await domainPrompt(view, spec, productPage, product.domains));
+      const outcome = await runUnit(options.agent, tools, await domainPrompt(view, spec, productPage, product.domains, language));
       options.onUnit?.(outcome);
       domains.push(outcome);
     }

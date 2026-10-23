@@ -49,10 +49,9 @@
 
   body {
     margin: 0;
-    /* The shell fills the window: the page never scrolls itself, the only
-     * scrolling lives in the document's own column. */
-    height: 100%;
-    overflow: hidden;
+    /* The page scrolls as one document: the sidebar and the toolbar stand still beside it, and a window of any
+     * height, or a picture of the whole page, shows all of it. */
+    min-height: 100%;
     font-family: var(--font-sans);
     font-size: var(--fs-body);
     line-height: var(--leading);
@@ -1770,4 +1769,15 @@ a.graph-diagram-element-label:hover {
 .tok-number {
   text-decoration: underline dotted var(--text-muted);
   text-underline-offset: 0.2em;
+}
+
+/* Colored code (Shiki): each token carries a light and a dark color; the pair that follows the system is drawn. */
+.shiki-token {
+  color: var(--shiki-light);
+}
+
+@media (prefers-color-scheme: dark) {
+  .shiki-token {
+    color: var(--shiki-dark);
+  }
 }

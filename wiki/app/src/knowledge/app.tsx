@@ -5,10 +5,10 @@
  * page of its own: an empty product says what to do, and a fill that runs while
  * the page is open is read again as each commit lands.
  */
-import { useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
+import { useEffect, useState, type ReactElement, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu';
-import { CheckIcon, ChevronDownIcon, FolderGit2Icon, GlobeIcon, HomeIcon, MenuIcon } from 'lucide-react';
+import { CheckIcon, ChevronDownIcon, FolderGit2Icon, GlobeIcon, HomeIcon, MenuIcon, RotateCcwIcon } from 'lucide-react';
 import { appPath } from '../app-base.js';
 import { setWikiLanguage, type WikiLanguage } from '../i18n.js';
 import { navigateTo } from '../hold.js';
@@ -16,14 +16,20 @@ import { Button } from '@/components/ui/button.js';
 import { Badge } from '@/components/ui/badge.js';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet.js';
 import { TooltipProvider } from '@/components/ui/tooltip.js';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from '@/components/ui/dropdown-menu.js';
-import { getProducts } from './api.js';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu.js';
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog.js';
+import { getProducts, getResetPlan, resetProduct, startFill, type ResetPlan } from './api.js';
 import { KLink } from './blocks.js';
-import { EntityPage, EmptyHome, FillCard, KindPage, SourcePage, Overview } from './pages.js';
-import { addressOfKind, K_HOME, kindPlural, kRouteOf, type KRoute } from './routes.js';
+import { DocumentPage, DocumentsPage, EntityPage, EmptyHome, FillCard, KindPage, SourcePage, Overview } from './pages.js';
+import { addressOfKind, K_DOCS, K_HOME, kRouteOf, type KRoute } from './routes.js';
+import { KindLabels, useKindName } from './kind-names.js';
+import { PageSkeleton } from './skeleton.js';
+import { fillWords } from './fill-words.js';
+import { Skeleton } from '@/components/ui/skeleton.js';
 import type { ProductChoice, WikiStatus } from './types.js';
 import { useWikiStatus } from './live.js';
 import { PendingPages } from './pending.js';
+import { UNIT_STATE_KEY } from './writer.js';
 
 /** The mockup's drawn lowercase m mark and dot, kept as one crisp vector glyph. */
 function BrandMark(): ReactElement {
@@ -40,7 +46,7 @@ export function productChoices(products: readonly ProductChoice[], current: stri
 }
 
 /** The product at the top left: its name, and the other products of this server to choose from. */
-export function ProductSelector({ name, products, current }: { name: string; products: readonly ProductChoice[]; current: string | null }): ReactElement {
+export function ProductSelector({ name, products, current, onStartOver }: { name: string; products: readonly ProductChoice[]; current: string | null; onStartOver: () => void }): ReactElement {
   const { t } = useTranslation();
   return (
     <DropdownMenu>
@@ -87,15 +93,69 @@ export function ProductSelector({ name, products, current }: { name: string; pro
           );
         })}
         {products.length === 0 && <DropdownMenuItem disabled>{name}</DropdownMenuItem>}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem data-testid="start-over" onSelect={() => onStartOver()}>
+          <RotateCcwIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
+          {t('knowledge.reset.menu')}
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
 }
 
-function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus; products: readonly ProductChoice[]; route: KRoute; onNavigate?: () => void }): ReactElement {
+/** The confirmation of starting a product over: what goes and what stays, in plain words; then it happens and the empty page shows. */
+function StartOver({ open, onOpenChange, name, refresh }: { open: boolean; onOpenChange: (open: boolean) => void; name: string; refresh: () => void }): ReactElement {
   const { t } = useTranslation();
+  const [plan, setPlan] = useState<ResetPlan | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [working, setWorking] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    setPlan(null);
+    setError(null);
+    const controller = new AbortController();
+    getResetPlan(controller.signal).then(setPlan, (failure: unknown) => { if (!controller.signal.aborted) setError(failure instanceof Error ? failure.message : String(failure)); });
+    return () => controller.abort();
+  }, [open]);
+  const confirm = (): void => {
+    setWorking(true);
+    resetProduct().then(
+      () => { setWorking(false); onOpenChange(false); navigateTo(appPath(K_HOME)); refresh(); },
+      (failure: unknown) => { setWorking(false); setError(failure instanceof Error ? failure.message : String(failure)); },
+    );
+  };
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent data-testid="start-over-dialog">
+        <DialogTitle>{t('knowledge.reset.title', { product: name })}</DialogTitle>
+        <DialogDescription asChild>
+          <div className="grid gap-2 text-small text-secondary">
+            <p className="m-0">{t('knowledge.reset.removes')}</p>
+            <ul className="m-0 ps-5">
+              <li>{t('knowledge.reset.store')}</li>
+              <li data-testid="start-over-pages">{plan === null ? '…' : plan.agentPages.length === 0 ? t('knowledge.reset.noPages') : t('knowledge.reset.pages', { count: plan.agentPages.length, list: plan.agentPages.join(', ') })}</li>
+            </ul>
+            <p className="m-0">{t('knowledge.reset.keeps')}</p>
+            {plan !== null && plan.keptPages.length > 0 && <p className="m-0">{t('knowledge.reset.keptPages', { list: plan.keptPages.join(', ') })}</p>}
+          </div>
+        </DialogDescription>
+        {error !== null && <p className="m-0 text-small" role="alert" data-testid="start-over-error">{error}</p>}
+        <div className="flex justify-end gap-2">
+          <DialogClose asChild><Button variant="default" size="default">{t('knowledge.reset.cancel')}</Button></DialogClose>
+          <Button variant="default" size="default" className="!border-ink !bg-ink !text-page" onClick={confirm} disabled={working || plan === null} data-testid="start-over-confirm">{t('knowledge.reset.confirm')}</Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function NavPanel({ status, products, route, onNavigate, onStartOver }: { status: WikiStatus; products: readonly ProductChoice[]; route: KRoute; onNavigate?: () => void; onStartOver: () => void }): ReactElement {
+  const { t } = useTranslation();
+  const kindName = useKindName();
   const folder = decodeURIComponent((/^\/products\/([^/]+)/.exec(window.location.pathname)?.[1] ?? ''));
   const kinds = status.kinds.filter((kind) => !kind.single);
+  /** The pages of a kind the agent has yet to write: its units that wait or are writing (a unit is named `<kind>:<slug>`). */
+  const pendingOf = (kind: string): number => status.writer.units.filter((unit) => unit.unit.startsWith(`${kind}:`) && (unit.state === 'waiting' || unit.state === 'writing')).length;
   const pick = (address: string) => (event: React.MouseEvent<HTMLAnchorElement>): void => {
     if (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey || event.button !== 0) return;
     event.preventDefault();
@@ -112,7 +172,7 @@ function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus;
         <strong className="text-[23px] font-[650] leading-none tracking-[-0.8px]">madarch</strong>
         <small className="nav-concept ml-auto rounded-[var(--radius-row)] border border-line px-[5px] py-0.5 text-[11px] leading-4 text-muted">{t('brand.concept')}</small>
       </a>
-      <ProductSelector name={status.product.name} products={products} current={folder === '' ? products[0]?.folder ?? null : folder} />
+      <ProductSelector name={status.product.name} products={products} current={folder === '' ? products[0]?.folder ?? null : folder} onStartOver={onStartOver} />
       <nav aria-label={t('navigation.pages')} className="min-h-0 flex-1 overflow-y-auto pb-4">
         <a href={appPath(K_HOME)} className={link(route.name === 'home')} aria-current={route.name === 'home' ? 'page' : undefined} data-testid="nav-home" onClick={pick(K_HOME)}>
           <HomeIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
@@ -123,12 +183,15 @@ function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus;
           const active = route.name === 'kind' && route.kind === kind.kind;
           return (
             <a key={kind.kind} href={appPath(addressOfKind(kind.kind))} className={link(active)} aria-current={active ? 'page' : undefined} data-nav-kind={kind.kind} onClick={pick(addressOfKind(kind.kind))}>
-              <span className="min-w-0 flex-1 truncate">{kindPlural(kind.kind)}</span>
-              <span className="text-small text-muted">{kind.count}</span>
+              <span className="min-w-0 flex-1 truncate">{kindName(kind.kind, 'many')}</span>
+              <span className="text-small text-muted" data-testid="nav-count">
+                {kind.count}
+                {pendingOf(kind.kind) > 0 && <span className="ml-1" title={t('knowledge.pendingCount', { count: pendingOf(kind.kind) })} data-testid="nav-pending">+{pendingOf(kind.kind)}</span>}
+              </span>
             </a>
           );
         })}
-        <a href={appPath('/') + '?documents'} className={link(false) + ' mt-4'} data-testid="nav-documents">
+        <a href={appPath(K_DOCS)} className={link(route.name === 'docs' || route.name === 'doc') + ' mt-4'} aria-current={route.name === 'docs' || route.name === 'doc' ? 'page' : undefined} data-testid="nav-documents" onClick={pick(K_DOCS)}>
           <FolderGit2Icon aria-hidden="true" className="size-4 shrink-0 text-muted" />
           <span className="min-w-0 flex-1">{t('knowledge.documents')}</span>
         </a>
@@ -165,29 +228,103 @@ function LanguageMenu(): ReactElement {
   );
 }
 
-/** The fill's state in the toolbar: a reader sees the wiki filling without opening anything. */
-function FillChip({ status }: { status: WikiStatus }): ReactElement | null {
-  const { t } = useTranslation();
-  const fill = status.fill;
-  if (fill.state === 'running') {
-    return <Badge variant="solid" data-testid="fill-chip">{t('knowledge.fillRunning', { commit: fill.commit ?? 0, commits: fill.commits ?? 0 })}</Badge>;
-  }
-  if (fill.state === 'failed') return <Badge data-testid="fill-chip">{t('knowledge.fillFailed')}</Badge>;
-  return null;
+/** The pages the product holds, for the status line: the Markdown kinds' entities. */
+function pagesOf(status: WikiStatus): number {
+  return status.kinds.filter((kind) => kind.source === 'markdown').reduce((sum, kind) => sum + kind.count, 0);
 }
 
-function Toolbar({ status, route, menu }: { status: WikiStatus; route: KRoute; menu: ReactNode }): ReactElement {
-  const { t } = useTranslation();
-  const where = route.name === 'kind' ? kindPlural(route.kind) : route.name === 'source' ? t('knowledge.source') : route.name === 'entity' ? null : t('knowledge.home');
+/**
+ * The fill's state in the toolbar: while it runs, how far it is; after it, a quiet line saying when it ended and how many
+ * pages the wiki holds. Opening it shows the units of the last run and the one action to refresh (madarch-m38l.4): the
+ * code is read again from the new commits and the pages' links are checked again; the agent writes only the pages
+ * that do not exist yet, or all of them when the language of the pages was changed.
+ */
+export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () => void }): ReactElement | null {
+  const { t, i18n } = useTranslation();
+  const [starting, setStarting] = useState(false);
+  const [refused, setRefused] = useState<string | null>(null);
+  const [pagesLanguage, setPagesLanguage] = useState<string | null>(null);
+  const fill = status.fill;
+  const writer = status.writer;
+  const language = (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en';
+  const pages = pagesOf(status);
+  if (status.manifest !== 'ok') return null;
+  let label: string;
+  let solid = false;
+  if (fill.state === 'running') { label = fillWords(fill, t); solid = true; }
+  else if (fill.state === 'failed') label = t('knowledge.fillFailed');
+  else if (writer.state === 'running' || writer.state === 'waiting') { label = t('knowledge.fillWriting'); solid = true; }
+  else if (status.filled) {
+    const when = fill.finishedAt === undefined ? null : new Date(fill.finishedAt).toLocaleDateString(language, { day: 'numeric', month: 'short', timeZone: 'UTC' });
+    label = when === null ? t('knowledge.fillDoneNoDate', { count: pages }) : t('knowledge.fillDone', { date: when, count: pages });
+  } else return null;
+  const busy = fill.state === 'running' || writer.state === 'running' || writer.state === 'waiting' || starting;
+  const press = (): void => {
+    setStarting(true);
+    setRefused(null);
+    const chosenLanguage = pagesLanguage ?? status.language;
+    startFill(status.chosenAgent?.id ?? null, chosenLanguage !== status.language ? chosenLanguage : undefined).then(
+      () => { setStarting(false); refresh(); },
+      (failure: unknown) => { setStarting(false); setRefused(failure instanceof Error ? failure.message : String(failure)); },
+    );
+  };
   return (
-    <header className="shell-toolbar flex min-h-[58px] items-center justify-between gap-3 border-b border-line px-4 wide:px-[35px]">
+    <DropdownMenuPrimitive.Root>
+      <DropdownMenuPrimitive.Trigger asChild>
+        <button type="button" className="fill-chip rounded-[var(--radius-row)] focus-visible:ring-2 focus-visible:ring-ink" data-testid="fill-chip" title={t('knowledge.fillMenuTitle')}>
+          <Badge variant={solid ? 'solid' : 'outline'}>{label}</Badge>
+        </button>
+      </DropdownMenuPrimitive.Trigger>
+      <DropdownMenuPrimitive.Portal>
+        <DropdownMenuPrimitive.Content align="end" sideOffset={7} className="language-menu fill-menu" data-testid="fill-menu">
+          <DropdownMenuPrimitive.Label className="language-menu-label">{t('knowledge.fillMenuTitle')}</DropdownMenuPrimitive.Label>
+          <DropdownMenuPrimitive.Separator className="language-menu-separator" />
+          {writer.units.length > 0 && (
+            <ul className="m-0 list-none px-2 pb-2 text-small" data-testid="fill-menu-units">
+              {writer.units.map((unit) => (
+                <li key={unit.unit} className="flex items-center justify-between gap-3 py-0.5"><code>{unit.path}</code><span className="text-muted">{t(UNIT_STATE_KEY[unit.state])}</span></li>
+              ))}
+            </ul>
+          )}
+          {writer.message !== undefined && <p className="m-0 px-2 pb-2 text-small" data-testid="fill-menu-message">{writer.message}</p>}
+          {fill.message !== undefined && fill.state === 'failed' && <p className="m-0 px-2 pb-2 text-small">{fill.message}</p>}
+          <div className="px-2 pb-2">
+            {status.chosenAgent !== null && (
+              <div className="mb-3" role="radiogroup" aria-label={t('knowledge.writer.languageTitle')} data-testid="menu-language">
+                <div className="mb-1 text-small font-medium text-ink">{t('knowledge.writer.languageTitle')}</div>
+                <div className="flex flex-wrap gap-2">
+                  {(['ru', 'en'] as const).map((code) => (
+                    <label key={code} className="flex cursor-pointer items-center gap-2 rounded-[var(--radius-card)] border border-line px-2.5 py-1 text-small has-[:checked]:border-ink">
+                      <input type="radio" name="menu-content-language" checked={(pagesLanguage ?? status.language) === code} onChange={() => setPagesLanguage(code)} onClick={(event) => event.stopPropagation()} />
+                      <span>{t(code === 'ru' ? 'navigation.russian' : 'navigation.english')}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+            <p className="mb-2 mt-0 text-small text-muted" data-testid="refresh-note">{t('knowledge.refreshNote', { turns: status.bounds.turns, minutes: status.bounds.minutes })}</p>
+            <Button variant="default" size="default" disabled={busy} onClick={press} data-testid="refresh">{t('knowledge.refresh')}</Button>
+            {refused !== null && <p className="mb-0 mt-2 text-small" role="alert" data-testid="refresh-refused">{refused}</p>}
+          </div>
+        </DropdownMenuPrimitive.Content>
+      </DropdownMenuPrimitive.Portal>
+    </DropdownMenuPrimitive.Root>
+  );
+}
+
+function Toolbar({ status, route, menu, refresh }: { status: WikiStatus; route: KRoute; menu: ReactNode; refresh: () => void }): ReactElement {
+  const { t } = useTranslation();
+  const kindName = useKindName();
+  const where = route.name === 'kind' ? kindName(route.kind, 'many') : route.name === 'source' ? t('knowledge.source') : route.name === 'docs' || route.name === 'doc' ? t('knowledge.documents') : route.name === 'entity' ? null : t('knowledge.home');
+  return (
+    <header className="shell-toolbar sticky top-0 z-30 flex min-h-[58px] items-center justify-between gap-3 border-b border-line bg-page px-4 wide:px-[35px]">
       <span className="shell-breadcrumb min-w-0 truncate text-small text-secondary">
         <KLink href={K_HOME} className="text-muted no-underline hover:text-ink">{status.product.name}</KLink>
         {where !== null && <><span aria-hidden="true" className="px-2 text-muted">/</span><span className="text-ink">{where}</span></>}
       </span>
       <span className="flex shrink-0 items-center gap-1">
         {menu}
-        <FillChip status={status} />
+        <FillMenu status={status} refresh={refresh} />
         <LanguageMenu />
       </span>
     </header>
@@ -199,8 +336,8 @@ export function KnowledgeApp(): ReactElement {
   const [route, setRoute] = useState<KRoute>(() => kRouteOf(window.location.pathname, window.location.search) ?? { name: 'home' });
   const [products, setProducts] = useState<ProductChoice[]>([]);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [startOver, setStartOver] = useState(false);
   const { status, error, version, refresh } = useWikiStatus();
-  const scroller = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const onPop = (): void => setRoute(kRouteOf(window.location.pathname, window.location.search) ?? { name: 'home' });
@@ -217,17 +354,29 @@ export function KnowledgeApp(): ReactElement {
   }, [status?.product.name, t]);
   // A page opened by a link starts at its top; a source page scrolls to its line itself.
   useEffect(() => {
-    if (route.name !== 'source') scroller.current?.scrollTo?.(0, 0);
+    if (route.name !== 'source' && route.name !== 'doc') window.scrollTo?.(0, 0);
   }, [route]);
 
   if (error !== null && status === null) {
-    return <div className="grid h-dvh place-items-center bg-page p-6 text-ink [font-family:var(--font-sans)]"><p role="alert" data-testid="wiki-error">{error}</p></div>;
+    return <div className="grid min-h-dvh place-items-center bg-page p-6 text-ink [font-family:var(--font-sans)]"><p role="alert" data-testid="wiki-error">{error}</p></div>;
   }
   if (status === null) {
-    return <div className="grid h-dvh place-items-center bg-page text-muted [font-family:var(--font-sans)]" data-testid="wiki-loading">{t('knowledge.loading')}</div>;
+    return (
+      <div className="shell flex min-h-dvh bg-page text-ink [font-family:var(--font-sans)] text-body" data-testid="wiki-loading">
+        <aside className="app-nav hidden w-[240px] wide:w-[260px] shrink-0 flex-col gap-3 border-r border-line bg-chrome px-[14px] py-[18px] wide:px-[18px] md:flex" aria-hidden="true">
+          <Skeleton className="h-7 w-32" />
+          <Skeleton className="h-9 w-full" />
+          {[70, 55, 62, 48].map((width, index) => <Skeleton key={index} className="h-5" style={{ width: `${width}%` }} />)}
+        </aside>
+        <div className="shell-main flex min-w-0 flex-1 flex-col">
+          <header className="shell-toolbar min-h-[58px] border-b border-line" />
+          <div className="shell-scroll min-w-0 flex-1"><div className="shell-document w-full"><main><PageSkeleton testId="page-loading" /></main></div></div>
+        </div>
+      </div>
+    );
   }
   const pending = new Set(status.writer.units.filter((unit) => unit.state === 'waiting' || unit.state === 'writing').map((unit) => unit.unit));
-  const nav = (onNavigate?: () => void): ReactElement => <NavPanel status={status} products={products} route={route} onNavigate={onNavigate} />;
+  const nav = (onNavigate?: () => void): ReactElement => <NavPanel status={status} products={products} route={route} onNavigate={onNavigate} onStartOver={() => { onNavigate?.(); setStartOver(true); }} />;
   const menu = (
     <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
       <SheetTrigger asChild>
@@ -244,17 +393,21 @@ export function KnowledgeApp(): ReactElement {
   if (route.name === 'home') view = status.home !== null ? <EntityPage key={status.home} id={status.home} version={version} /> : <Overview status={status} refresh={refresh} />;
   else if (route.name === 'entity') view = <EntityPage key={route.id} id={route.id} version={version} />;
   else if (route.name === 'kind') view = <KindPage key={route.kind} kind={route.kind} version={version} />;
+  else if (route.name === 'docs') view = <DocumentsPage version={version} />;
+  else if (route.name === 'doc') view = <DocumentPage key={`${route.repo ?? ''}:${route.path}`} repo={route.repo} path={route.path} version={version} />;
   else view = <SourcePage key={`${route.repo ?? ''}:${route.path}`} repo={route.repo} path={route.path} line={route.line} />;
   return (
     <TooltipProvider delayDuration={200} skipDelayDuration={100}>
-      <div className="shell flex h-dvh bg-page text-ink [font-family:var(--font-sans)] text-body" data-testid="knowledge-app">
-        <aside id="app-nav" className="app-nav hidden w-[240px] wide:w-[260px] shrink-0 flex-col border-r border-line bg-chrome px-[14px] wide:px-[18px] md:flex" aria-label={t('navigation.aria')}>
+      <KindLabels.Provider value={status.kinds}>
+      <StartOver open={startOver} onOpenChange={setStartOver} name={status.product.name} refresh={refresh} />
+      <div className="shell flex min-h-dvh bg-page text-ink [font-family:var(--font-sans)] text-body" data-testid="knowledge-app">
+        <aside id="app-nav" className="app-nav sticky top-0 hidden h-dvh w-[240px] wide:w-[260px] shrink-0 flex-col border-r border-line bg-chrome px-[14px] wide:px-[18px] md:flex" aria-label={t('navigation.aria')}>
           {nav()}
         </aside>
         <div className="shell-main flex min-w-0 flex-1 flex-col">
-          <Toolbar status={status} route={route} menu={menu} />
-          <div className="shell-row flex min-h-0 flex-1 overflow-hidden">
-            <div className="shell-scroll min-w-0 flex-1 overflow-y-auto" ref={scroller}>
+          <Toolbar status={status} route={route} menu={menu} refresh={refresh} />
+          <div className="shell-row flex flex-1">
+            <div className="shell-scroll min-w-0 flex-1">
               <div className="shell-document w-full">
                 <main data-testid="knowledge-main">
                   {status.manifest === 'no-manifest' ? <EmptyHome status={status} refresh={refresh} /> : (
@@ -269,6 +422,7 @@ export function KnowledgeApp(): ReactElement {
           </div>
         </div>
       </div>
+      </KindLabels.Provider>
     </TooltipProvider>
   );
 }

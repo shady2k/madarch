@@ -15,6 +15,9 @@
  *     source: graph
  *     title: label                 # the attribute that names a page; `label` by default
  *     attributes: [language]       # optional: the attributes a template may name
+ *     labels:                      # optional: the kind's name per interface language
+ *       en: { one: Service, many: Services }
+ *       ru: { one: Сервис, many: Сервисы }
  *     relations:                   # optional: edges the product declares between kinds
  *       - { type: code.contains, to: "code.package:services/{label}" }
  * ```
@@ -23,7 +26,7 @@
  * problem is left out and the others still stand, so one bad line never blanks
  * the wiki and never passes unseen.
  */
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { LineCounter, parseDocument } from 'yaml';
 import { lineForPath } from '../model/yaml-position.js';
@@ -59,11 +62,24 @@ export interface KindDecl {
   title: string;
   attributes?: readonly string[];
   relations: readonly DeclaredRelation[];
+  /** The kind's name in each interface language: `one` for a badge, `many` for the navigation. */
+  labels?: Readonly<Record<string, KindLabel>>;
   line: number;
 }
 
+/** A kind's name in one language, as a reader says it of one entity and of several. */
+export interface KindLabel {
+  one: string;
+  many: string;
+}
+
+/** The languages the wiki's interface speaks; a label in another language is a finding. */
+export const LABEL_LANGUAGES: readonly string[] = ['en', 'ru'];
+
 export interface KindsManifest {
   file: string;
+  /** The language the product's pages are written in (`language:` at the top of the manifest); absent means English. */
+  language?: string;
   kinds: ReadonlyMap<string, KindDecl>;
   findings: readonly Finding[];
 }
@@ -72,7 +88,7 @@ export type KindsRead =
   | { present: false; file: string }
   | { present: true; manifest: KindsManifest };
 
-const KIND_KEYS = new Set(['template', 'source', 'folder', 'file', 'title', 'attributes', 'relations']);
+const KIND_KEYS = new Set(['template', 'source', 'folder', 'file', 'title', 'attributes', 'relations', 'labels']);
 
 /** Whether a repository-relative path stays inside the folder: no climbing, not absolute. */
 export function insideFolder(folder: string, path: string): boolean {
@@ -107,8 +123,13 @@ export function parseKinds(text: string, file: string, productFolder: string): K
     return { file, kinds: new Map(), findings: [{ file, line: 1, message: 'the manifest is a mapping with a "kinds" mapping in it' }] };
   }
   const top = root as Record<string, unknown>;
+  let language: string | undefined;
   for (const key of Object.keys(top)) {
-    if (key !== 'kinds') findings.push({ file, line: at([key]), message: `"${key}" is not a field of the manifest: the manifest holds "kinds"` });
+    if (key === 'language') {
+      const value = top['language'];
+      if (typeof value !== 'string' || !LABEL_LANGUAGES.includes(value)) findings.push({ file, line: at(['language']), message: `"language" is ${JSON.stringify(value)}: the pages are written in ${LABEL_LANGUAGES.join(' or ')}` });
+      else language = value;
+    } else if (key !== 'kinds') findings.push({ file, line: at([key]), message: `"${key}" is not a field of the manifest: the manifest holds "kinds" and "language"` });
   }
   const declared = top['kinds'];
   if (declared === null || typeof declared !== 'object' || Array.isArray(declared)) {
@@ -167,6 +188,20 @@ export function parseKinds(text: string, file: string, productFolder: string): K
         });
       }
     }
+    const labels: Record<string, KindLabel> = {};
+    const rawLabels = decl['labels'];
+    if (rawLabels !== undefined) {
+      if (rawLabels === null || typeof rawLabels !== 'object' || Array.isArray(rawLabels)) problem(['labels'], `"labels" maps a language (${LABEL_LANGUAGES.join(', ')}) to { one, many }`);
+      else {
+        for (const [language, entry] of Object.entries(rawLabels as Record<string, unknown>)) {
+          const body = entry as Record<string, unknown> | null;
+          if (!LABEL_LANGUAGES.includes(language)) problem(['labels', language], `"${language}" is not a language of the wiki: the languages are ${LABEL_LANGUAGES.join(', ')}`);
+          else if (body === null || typeof body !== 'object' || Array.isArray(body) || typeof body['one'] !== 'string' || typeof body['many'] !== 'string' || body['one'].trim() === '' || body['many'].trim() === '' || Object.keys(body).some((key) => key !== 'one' && key !== 'many')) {
+            problem(['labels', language], 'a label is { one: <the name of one>, many: <the name of several> }');
+          } else labels[language] = { one: body['one'], many: body['many'] };
+        }
+      }
+    }
     if (findings.length > before) continue;
     kinds.set(name, {
       name,
@@ -177,10 +212,29 @@ export function parseKinds(text: string, file: string, productFolder: string): K
       title: typeof title === 'string' ? title : 'label',
       ...(Array.isArray(attributes) ? { attributes: attributes as string[] } : {}),
       relations,
+      ...(Object.keys(labels).length > 0 ? { labels } : {}),
       line,
     });
   }
-  return { file, kinds, findings };
+  return { file, kinds, findings, ...(language === undefined ? {} : { language }) };
+}
+
+/**
+ * Writes `language:` into the manifest of a product, keeping the rest of the file (comments included) as it is.
+ * Answers a sentence naming the file when it cannot; nothing when it is done.
+ */
+export function setKindsLanguage(productFolder: string, language: string): string | undefined {
+  const file = join(productFolder, KINDS_FILE);
+  if (!LABEL_LANGUAGES.includes(language)) return `${file}: "${language}" is not a language of the wiki; the languages are ${LABEL_LANGUAGES.join(', ')}`;
+  try {
+    const document = parseDocument(readFileSync(file, 'utf8'));
+    if (document.errors.length > 0) return `${file}: the manifest cannot be read, so the language is not written into it: ${document.errors[0]!.message.split('\n')[0]}`;
+    document.set('language', language);
+    writeFileSync(file, document.toString(), 'utf8');
+    return undefined;
+  } catch (error) {
+    return `${file}: the language could not be written: ${(error as Error).message}`;
+  }
 }
 
 /** The kind whose single file is the product's home: the first kind with a `file`, in the manifest's order. */

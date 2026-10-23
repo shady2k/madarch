@@ -9,7 +9,13 @@ import type { DomainDeclaration, UnitSpec } from './tools.js';
 import { FILE_LINES, FIND_LIMIT } from './tools.js';
 import type { GraphView } from './view.js';
 
-export const PROMPT_VERSION = 'writer@1';
+export const PROMPT_VERSION = 'writer@2';
+
+/** The languages a product's pages are written in, with the name the agent is told. */
+export const CONTENT_LANGUAGES: Readonly<Record<string, { name: string; seeAlso: string }>> = {
+  en: { name: 'English', seeAlso: 'See also' },
+  ru: { name: 'Russian', seeAlso: 'См. также' },
+};
 
 /** The page bound a unit is told: a page is read by a person from the general to the particular. */
 export const PRODUCT_PAGE_WORDS = 600;
@@ -40,7 +46,19 @@ const EXAMPLE = [
   '[^2]: [BR-4](madarch:doc:docs/requirements.md#br-4)',
 ].join('\n');
 
-export function fixedPart(): string {
+/** The part of the fixed prompt that tells the agent which language to write in. */
+export function languagePart(language: string): string[] {
+  const known = CONTENT_LANGUAGES[language];
+  if (known === undefined) throw new Error(`src/writer/prompts.ts: ${JSON.stringify(language)} is not a language the writer knows; the languages are ${Object.keys(CONTENT_LANGUAGES).join(', ')}`);
+  return [
+    '## The language of the page',
+    `- Write every sentence and every heading of the page, and its title, in ${known.name}. Graph keys, file paths, identifiers, link targets, footnote labels and the front matter keys stay exactly as they are, in the language they were found in.`,
+    `- A line that only connects pages starts with "${known.seeAlso}" and holds a few words and links.`,
+    '',
+  ];
+}
+
+export function fixedPart(language = 'en'): string {
   return [
     'You are one unit of madarch\'s knowledge writer. You write ONE Markdown page about a product, from what the product\'s graph and documents say, and nothing else.',
     '',
@@ -58,6 +76,7 @@ export function fixedPart(): string {
     '- Mention an entity in the text as a link: `[payments](madarch:code.service:payments)`. A link whose target is not in the graph is refused. Keys that contain a space cannot be linked; ground on a neighbouring key instead.',
     '- Only headings (at most ten words, no footnote) and one-sentence "See also" lines of a few words and links may have no footnote. Do not state anything you did not read in the graph or a document: if you are not sure, leave it out.',
     '',
+    ...languagePart(language),
     '## Example of a page',
     '',
     EXAMPLE,
@@ -88,9 +107,9 @@ async function overviewText(view: GraphView): Promise<string> {
   ].join('\n');
 }
 
-export async function productPrompt(view: GraphView, unit: Extract<UnitSpec, { kind: 'product' }>): Promise<string> {
+export async function productPrompt(view: GraphView, unit: Extract<UnitSpec, { kind: 'product' }>, language = 'en'): Promise<string> {
   return [
-    fixedPart(),
+    fixedPart(language),
     '',
     '## Your unit',
     `You write the product page ${unit.path}: what the product is, for whom, its domains and its architecture. Its id is \`${unit.id}\`, its kind is \`product\`, and its title is the product's name (${unit.name}).`,
@@ -107,10 +126,10 @@ function domainText(d: DomainDeclaration): string {
   return `- ${d.slug}: ${d.title}. ${d.summary} Evidence: ${d.evidence.join(', ')}.`;
 }
 
-export async function domainPrompt(view: GraphView, unit: Extract<UnitSpec, { kind: 'domain' }>, productPage: string, domains: readonly DomainDeclaration[]): Promise<string> {
+export async function domainPrompt(view: GraphView, unit: Extract<UnitSpec, { kind: 'domain' }>, productPage: string, domains: readonly DomainDeclaration[], language = 'en'): Promise<string> {
   const excerpt = productPage.length > PRODUCT_EXCERPT_CHARACTERS ? `${productPage.slice(0, PRODUCT_EXCERPT_CHARACTERS)}\n[product page cut at ${PRODUCT_EXCERPT_CHARACTERS} characters]` : productPage;
   return [
-    fixedPart(),
+    fixedPart(language),
     '',
     '## Your unit',
     `You write the domain page ${unit.path} for the domain "${unit.domain.title}". Its id is \`${unit.id}\`, its kind is \`domain\`.`,

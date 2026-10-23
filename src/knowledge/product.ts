@@ -11,43 +11,88 @@
  * kept in the store (`knowledge_fill`), so a source view shows the bytes the
  * graph's spans were read from, and a restarted server still knows.
  */
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync } from 'node:fs';
 import { execFile } from 'node:child_process';
-import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
-import { createPGliteDatabaseOwner, type DatabaseOwner } from '../adapters/database-owner.js';
-import { fillGraph } from '../extract/driver/index.js';
-import { HISTORY_EXTRACTOR, OWNERS, TREE_EXTRACTORS } from '../extract/driver/extractors.js';
-import { createGraphStore, type GraphStore } from '../graph/index.js';
+import type { DatabaseOwner } from '../adapters/database-owner.js';
+import { RemoteOwner } from './remote-owner.js';
 import { byCodePoint } from '../model/order.js';
 import { readProduct, type ProductIdentity } from '../product/manifest.js';
-import { insideFolder, homeKind, readKinds, type Finding, type KindsManifest } from './kinds.js';
+import { selfCommand } from '../product/self-command.js';
+import { insideFolder, homeKind, readKinds, setKindsLanguage, type Finding, type KindsManifest } from './kinds.js';
+import { linesOf } from './lines.js';
+import { applyReset, planReset, type ResetPlan } from './reset.js';
+import { parseMessage, type FromWorker, type RepositoryPin, type ToWorker, type WorkerStart } from './fill-protocol.js';
+import { snapshotNumbers } from './fill-worker.js';
 import { locationOf, type RenderContext } from './blocks.js';
 import { GraphReader } from './graph-read.js';
 import { readMarkdownEntities, type MarkdownEntity } from './markdown.js';
-import type { AgentOffer, FillState, WikiStatus, WriterState, WriterUnit } from './model.js';
+import type { AgentOffer, DocumentListing, DocumentPage, DocumentRef, FillState, WikiStatus, WriterState, WriterUnit } from './model.js';
+import { anchorLines } from './anchors.js';
 import { adapterOf, installAdapter, makeUnitAgent, offers, WRITER_BOUNDS } from './agents.js';
-import { fsSink, productSlug, runWriter, PRODUCT_PATH, type UnitAgent } from '../writer/index.js';
+import { productSlug, PRODUCT_PATH, type ToolAnswer, type ToolClient, type UnitAgent } from '../writer/index.js';
+import { CONTENT_LANGUAGES } from '../writer/prompts.js';
 import type { DraftEnv } from '../product/home.js';
 import { kindSummaries, renderPage, listEntities, type PageResult } from './render.js';
-import { Resolver } from './resolve.js';
+import { Resolver, type Resolution } from './resolve.js';
+import { seedStarterSet } from './seed.js';
 
 const execFileAsync = promisify(execFile);
 
-/** The fill was asked to stop at a commit boundary. */
-class FillStopped extends Error {}
+/** A Markdown document: by its name. */
+const DOCUMENT_PATH = /\.(md|markdown)$/i;
+/** The most documents listed of one code repository; a repository with more says how many it has. */
+const DOCUMENT_LIMIT = 2000;
 
-interface RepositoryPin {
-  name: string;
-  scope: string;
-  head: string;
-  /** The commit the graph holds for the repository, and the effective time it was read at. */
-  commit: string;
-  effectiveTime: string;
-  commits: number;
-  filledCommits: number;
+/** A read the wiki cannot make and can say why: its message is for the reader, who sees it in place of the page. */
+export class WikiReadError extends Error {}
+
+/** A fill worker as the server holds it: what it is told, what it says, and how it ends. */
+export interface FillWorkerHandle {
+  send(message: ToWorker): void;
+  readonly lines: AsyncIterable<string>;
+  /** Resolves with the exit code once the worker has ended and its output is read. */
+  readonly exited: Promise<number>;
+  /** The end of what the worker wrote on its standard error. */
+  stderr(): string;
+  kill(): void;
 }
+
+/** Starts the fill worker; the production one starts `madarch knowledge-fill-worker`, a process of its own. */
+export type FillWorkerFactory = () => FillWorkerHandle;
+
+/** The worker as a child process of this program (a checkout's script, or the release binary itself). */
+export function spawnFillWorker(): FillWorkerHandle {
+  const { command, args } = selfCommand(['knowledge-fill-worker']);
+  const child = Bun.spawn([command, ...args], { stdin: 'pipe', stdout: 'pipe', stderr: 'pipe', env: process.env });
+  let tail = '';
+  void (async () => {
+    for await (const chunk of child.stderr as unknown as AsyncIterable<Uint8Array>) tail = (tail + new TextDecoder().decode(chunk)).slice(-4000);
+  })();
+  return {
+    send: (message) => {
+      try {
+        child.stdin.write(`${JSON.stringify(message)}\n`);
+        void child.stdin.flush();
+      } catch {
+        // the worker is gone; its exit says so
+      }
+    },
+    lines: linesOf(child.stdout as unknown as AsyncIterable<Uint8Array>),
+    exited: child.exited,
+    stderr: () => tail,
+    kill: () => { try { child.kill(); } catch { /* already gone */ } },
+  };
+}
+
+/** How long a worker may take to end after it was told to stop, in milliseconds, before it is killed. */
+const STOP_GRACE_MS = 20_000;
+/** How long the server keeps the previous snapshot open after a newer one is read, so a request in flight on it ends. */
+const SNAPSHOT_KEEP_MS = 3_000;
+/** A reader nobody has asked for this long is closed, and its memory (a PGlite is about a gigabyte) given back; the next page opens it again. */
+const READER_IDLE_MS = 10 * 60_000;
 
 /** Starts the agent that writes the pages; the error names why it cannot. */
 export type AgentFactory = (agentId: string) => (UnitAgent & { close(): Promise<void> }) | { error: string };
@@ -62,6 +107,12 @@ export interface KnowledgeProductOptions {
   env?: DraftEnv;
   /** Starts the chosen agent for the writer; the production one starts the agent's ACP adapter. Tests inject a scripted agent. */
   agentFactory?: AgentFactory;
+  /** Where the knowledge wiki says what it could not do; the host's error log. */
+  errorLog?: (line: string) => void;
+  /** Starts the fill worker; tests inject one. */
+  workerFactory?: FillWorkerFactory;
+  /** The least time between two snapshots of the store the fill writes, in milliseconds (default 8000). */
+  snapshotMs?: number;
 }
 
 /** Runs git in a code repository for one blob; the file is `undefined` when git has none there. */
@@ -75,11 +126,12 @@ async function gitBlob(repository: string, commit: string, path: string): Promis
 }
 
 export class KnowledgeProduct {
-  private owner: DatabaseOwner | undefined;
-  private store: GraphStore | undefined;
+  /** The store the reads are made on: a snapshot of the primary store, or an empty one before any fill (see `fill-protocol.ts`). */
+  private reader: { owner: DatabaseOwner; seq: number; path: string } | undefined;
   private opening: Promise<void> | undefined;
   private fill: FillState = { state: 'idle' };
   private running: Promise<void> | undefined;
+  private worker: FillWorkerHandle | undefined;
   private stopping = false;
   private closed = false;
   private readonly listeners = new Set<() => void>();
@@ -91,6 +143,9 @@ export class KnowledgeProduct {
   private installing: Promise<unknown> | undefined;
   private choosing: Promise<unknown> = Promise.resolve();
   private choiceWrites = 0;
+  private swapping: Promise<void> = Promise.resolve();
+  private lastUse = Date.now();
+  private idleTimer: ReturnType<typeof setInterval> | undefined;
 
   constructor(private readonly options: KnowledgeProductOptions) {}
 
@@ -106,36 +161,53 @@ export class KnowledgeProduct {
     return read.product;
   }
 
-  private storePath(): string {
+  private storeFolder(): string {
     const product = this.product();
-    if ('message' in product) throw new Error(product.message);
-    return join(this.options.storeRoot, product.id, 'graph');
+    if ('message' in product) throw new WikiReadError(product.message);
+    return join(this.options.storeRoot, product.id);
   }
 
-  /** Opens the store once: the database, the graph's tables and the fill record. */
-  private async open(): Promise<{ owner: DatabaseOwner; store: GraphStore }> {
+  /** The primary store: the fill worker's alone while it runs. */
+  private graphPath(): string {
+    return join(this.storeFolder(), 'graph');
+  }
+
+  /** The folder the snapshots of the primary store are made in, one numbered folder each. */
+  private readRoot(): string {
+    return join(this.storeFolder(), 'read');
+  }
+
+  /**
+   * Opens the reader once. The newest snapshot is read as it is; with none, a store written by an earlier madarch (no
+   * worker holds it) is copied, and with no store at all an empty one with the graph's tables is made, so a product
+   * before its first fill reads as empty rather than failing.
+   */
+  private async open(): Promise<DatabaseOwner> {
     if (this.closed) throw new Error('the wiki is shutting down');
+    this.lastUse = Date.now();
+    this.idleTimer ??= setInterval(() => { void this.closeIfIdle(); }, 60_000).unref();
     this.opening ??= (async () => {
-      const path = this.storePath();
-      await mkdir(dirname(path), { recursive: true });
-      const owner = createPGliteDatabaseOwner({ path, btreeGist: true });
+      const root = this.readRoot();
+      mkdirSync(root, { recursive: true });
+      let seq = snapshotNumbers(root).pop();
+      let created = false;
+      if (seq === undefined && this.worker === undefined && existsSync(this.graphPath())) {
+        const temporary = join(root, '1.tmp');
+        rmSync(temporary, { recursive: true, force: true });
+        cpSync(this.graphPath(), temporary, { recursive: true });
+        await rename(temporary, join(root, '1'));
+        seq = 1;
+      }
+      if (seq === undefined) {
+        seq = 0;
+        created = true;
+      }
+      const path = join(root, String(seq));
+      // The snapshot is read by a process of its own, so that opening it never holds up this server's thread.
+      const owner = new RemoteOwner(path, { create: created });
       await owner.ready;
-      const store = createGraphStore(owner, this.options.now === undefined ? {} : { now: this.options.now });
-      await store.createSchema();
-      await owner.transaction('write', async (tx) => {
-        await tx.query(`CREATE TABLE IF NOT EXISTS knowledge_fill (
-          repo text PRIMARY KEY, scope text NOT NULL, head text NOT NULL, commit_hash text NOT NULL, effective_time text NOT NULL,
-          commits int NOT NULL, filled_commits int NOT NULL)`);
-        const rows = await tx.query<Record<string, unknown>>('SELECT repo, scope, head, commit_hash, effective_time, commits, filled_commits FROM knowledge_fill');
-        for (const row of rows.rows) {
-          this.pins.set(String(row['repo']), {
-            name: String(row['repo']), scope: String(row['scope']), head: String(row['head']), commit: String(row['commit_hash']),
-            effectiveTime: String(row['effective_time']), commits: Number(row['commits']), filledCommits: Number(row['filled_commits']),
-          });
-        }
-      });
-      this.owner = owner;
-      this.store = store;
+      if (this.pins.size === 0) await this.loadPins(owner);
+      this.reader = { owner, seq, path };
     })();
     try {
       await this.opening;
@@ -143,7 +215,87 @@ export class KnowledgeProduct {
       this.opening = undefined;
       throw error;
     }
-    return { owner: this.owner!, store: this.store! };
+    return this.reader!.owner;
+  }
+
+  /** The starter set written into this product by this server, for the page to say so once. */
+  private seeded: string[] = [];
+  /** Why the starter set could not be written, when it could not. */
+  private seedError: string | undefined;
+
+  /**
+   * The product's kinds manifest. A product without one is given the starter set (`madarch new` and `madarch init` seed
+   * the same files): the wiki has one app, and an empty folder opens on the pages the starter templates draw.
+   */
+  private kinds(folder: string): ReturnType<typeof readKinds> {
+    const read = readKinds(folder);
+    if (read.present) return read;
+    try {
+      const written = seedStarterSet(folder);
+      this.seeded = [...this.seeded, ...written];
+      if (written.length > 0) this.options.errorLog?.(`the knowledge wiki gave ${folder} its starter set: ${written.join(', ')}`);
+    } catch (error) {
+      this.seedError = error instanceof Error ? error.message : String(error);
+      this.options.errorLog?.(this.seedError);
+      return read;
+    }
+    return readKinds(folder);
+  }
+
+  /** Starts the reader in the background, so the first page a person opens does not wait for it to start. */
+  warm(): void {
+    if (this.closed || this.opening !== undefined) return;
+    const product = this.product();
+    if ('message' in product || !this.kinds(product.folder).present) return;
+    this.open().catch(() => undefined);
+  }
+
+  /** Gives back the reader of a product nobody is reading, unless a fill is under way. */
+  private async closeIfIdle(): Promise<void> {
+    if (this.closed || this.running !== undefined || this.reader === undefined || Date.now() - this.lastUse < READER_IDLE_MS) return;
+    const held = this.reader;
+    await this.swapping.catch(() => undefined);
+    if (this.reader !== held) return;
+    this.reader = undefined;
+    this.opening = undefined;
+    await held.owner.close().catch(() => undefined);
+  }
+
+  private async loadPins(owner: DatabaseOwner): Promise<void> {
+    await owner.transaction('snapshot', async (tx) => {
+      const rows = await tx.query<Record<string, unknown>>('SELECT repo, scope, head, commit_hash, effective_time, commits, filled_commits FROM knowledge_fill');
+      for (const row of rows.rows) {
+        this.pins.set(String(row['repo']), {
+          name: String(row['repo']), scope: String(row['scope']), head: String(row['head']), commit: String(row['commit_hash']),
+          effectiveTime: String(row['effective_time']), commits: Number(row['commits']), filledCommits: Number(row['filled_commits']),
+        });
+      }
+    });
+  }
+
+  /**
+   * Reads a newer snapshot: opens it beside the one in use, switches the reads to it and, after the requests in flight
+   * have ended, closes and removes the old one. A request is never held up by this: the open runs while the old
+   * snapshot answers.
+   */
+  private swapReader(seq: number): Promise<void> {
+    const work = this.swapping.then(async () => {
+      if (this.closed) return;
+      await this.open();
+      const held = this.reader!;
+      if (held.seq >= seq) return;
+      const path = join(this.readRoot(), String(seq));
+      const owner = new RemoteOwner(path, { create: false });
+      await owner.ready;
+      // The new process answers its first statements slowly; it is warmed with what the old one answered, then the reads move.
+      if (held.owner instanceof RemoteOwner) await owner.warm(held.owner.recent());
+      this.reader = { owner, seq, path };
+      setTimeout(() => {
+        void held.owner.close().catch(() => undefined).finally(() => rmSync(held.path, { recursive: true, force: true }));
+      }, SNAPSHOT_KEEP_MS).unref();
+    });
+    this.swapping = work.catch(() => undefined);
+    return work;
   }
 
   /** The valid time reads are made at: now, or the last commit read when a repository's dates stand after the clock. */
@@ -194,11 +346,17 @@ export class KnowledgeProduct {
   // ---- the fill --------------------------------------------------------------------------
 
   /** Starts the fill if none is running; the answer says whether it started and why not. */
-  async startFill(options: { expectAgent?: string | null } = {}): Promise<{ started: true; fill: FillState } | { started: false; message: string; fill: FillState }> {
-    if (this.running !== undefined) return { started: false, message: 'a fill of this product is already running', fill: this.fill };
+  async startFill(options: { expectAgent?: string | null; language?: string } = {}): Promise<{ started: true; fill: FillState } | { started: false; message: string; fill: FillState }> {
+    if (this.running !== undefined) {
+      const busy = this.fill.state === 'running' || this.writer.state === 'running' || this.writer.state === 'waiting';
+      if (busy) return { started: false, message: 'a fill of this product is already running', fill: this.fill };
+      // The fill and the agent stage are over; the worker is closing its store and ending. A press now waits for that.
+      await Promise.race([this.running, new Promise<void>((resolve) => setTimeout(resolve, 10_000))]);
+      if (this.running !== undefined) return { started: false, message: 'the previous fill of this product is still closing its store; press again in a moment', fill: this.fill };
+    }
     const product = this.product();
     if ('message' in product) return { started: false, message: product.message, fill: this.fill };
-    const read = readKinds(product.folder);
+    const read = this.kinds(product.folder);
     if (!read.present) return { started: false, message: `the product has no ${read.file}: the wiki shows the kinds that file declares`, fill: this.fill };
     const repositories = this.repositories();
     if (repositories.length === 0) {
@@ -216,28 +374,220 @@ export class KnowledgeProduct {
         return { started: false, message: `the agent saved for this product is ${saved === null ? 'none' : saved}, not ${options.expectAgent === null ? 'none' : options.expectAgent} which this press was made for: read the choice again and press once more`, fill: this.fill };
       }
     }
+    // The content language: the manifest's, changed by this press when it names another (the pages are then written again).
+    const current = read.manifest.language ?? 'en';
+    const wanted = options.language ?? current;
+    if (!Object.keys(CONTENT_LANGUAGES).includes(wanted)) {
+      return { started: false, message: `"language" is ${JSON.stringify(wanted)}: the pages are written in ${Object.keys(CONTENT_LANGUAGES).join(' or ')}`, fill: this.fill };
+    }
+    const languageChanged = options.language !== undefined && options.language !== current;
+    if (options.language !== undefined && options.language !== read.manifest.language) {
+      const set = setKindsLanguage(product.folder, options.language);
+      if (set !== undefined) return { started: false, message: set, fill: this.fill };
+      this.notify();
+    }
     // The slot is claimed before anything is awaited, so two asks in the store's opening are not two fills.
     this.stopping = false;
     this.fill = { state: 'running', startedAt: (this.options.now?.() ?? new Date()).toISOString(), commit: 0, commits: 0, gaps: 0 };
     const chosen = this.chosenAgent();
     this.writer = chosen === null ? { state: 'idle', agent: null, units: [] } : { state: 'waiting', agent: chosen, units: [] };
     this.notify();
-    this.running = (async () => {
-      try {
-        await this.open();
-      } catch (error) {
-        this.fill = { state: 'failed', message: `the product's graph store could not be opened: ${error instanceof Error ? error.message : String(error)}` };
-        this.notify();
-        return;
-      }
-      await this.runFill(repositories);
-      if (this.fill.state === 'done') await this.runWriterStage(repositories);
-    })().finally(() => {
+    this.running = this.runJob(product, repositories, { language: wanted, languageChanged }).finally(() => {
       // A fill that did not reach its end leaves the agent stage unstarted, not waiting for ever.
       if (this.writer.state === 'waiting') this.writer = { ...this.writer, state: 'idle' };
       this.running = undefined;
+      this.worker = undefined;
     });
     return { started: true, fill: this.fill };
+  }
+
+  /**
+   * One fill: a worker process reads the repositories into the primary store and, when an agent is chosen, runs the
+   * writer's work; this method hears the worker and keeps the fill's and the writer's state, the pins and the reader.
+   */
+  private async runJob(product: ProductIdentity, repositories: readonly { name: string; path: string }[], run: { language: string; languageChanged: boolean }): Promise<void> {
+    const failFill = (message: string): void => {
+      this.fill = { state: 'failed', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), message };
+      this.notify();
+    };
+    try {
+      await this.open();
+    } catch (error) {
+      failFill(`the product's graph store could not be opened: ${error instanceof Error ? error.message : String(error)}`);
+      return;
+    }
+    let worker: FillWorkerHandle;
+    try {
+      worker = (this.options.workerFactory ?? spawnFillWorker)();
+    } catch (error) {
+      failFill(`the fill worker could not be started: ${error instanceof Error ? error.message : String(error)}`);
+      return;
+    }
+    this.worker = worker;
+    const start: WorkerStart = {
+      type: 'start',
+      productFolder: product.folder,
+      productName: product.name,
+      graphPath: this.graphPath(),
+      readRoot: this.readRoot(),
+      repositories: repositories.map((repo) => ({ name: repo.name, path: repo.path })),
+      writer: this.writer.agent !== null,
+      language: run.language,
+      languageChanged: run.languageChanged,
+      snapshotMs: this.options.snapshotMs ?? 8_000,
+    };
+    worker.send(start);
+    const calls = new Map<number, (value: { answer: ToolAnswer; finished: boolean }) => void>();
+    let callIds = 0;
+    const finishedUnits = new Map<string, boolean>();
+    const unitsRunning: Promise<void>[] = [];
+    let agent: (UnitAgent & { close(): Promise<void> }) | undefined;
+    const setUnit = (unit: string, change: Partial<WriterUnit>): void => {
+      this.writer = { ...this.writer, units: this.writer.units.map((held) => (held.unit === unit ? { ...held, ...change } : held)) };
+    };
+    const now = (): string => (this.options.now?.() ?? new Date()).toISOString();
+    const heard = async (message: FromWorker): Promise<void> => {
+      switch (message.type) {
+        case 'pins':
+          for (const pin of message.pins) this.pins.set(pin.name, pin);
+          return;
+        case 'pin':
+          this.pins.set(message.pin.name, message.pin);
+          return;
+        case 'progress':
+          this.fill = { ...this.fill, repository: message.repository, commit: message.commit, commits: message.commits };
+          this.notify();
+          return;
+        case 'phase':
+          this.fill = { ...this.fill, repository: message.repository, phase: message.phase, commits: message.commits, newCommits: message.newCommits };
+          this.notify();
+          return;
+        case 'snapshot':
+          // Not waited for: the worker's tool calls go on while the snapshot is opened beside the one in use.
+          this.swapReader(message.seq).catch((error: unknown) => {
+            // The reads stay on the snapshot they had; the next snapshot tries again.
+            this.options.errorLog?.(`the knowledge wiki could not read the snapshot ${message.seq} of ${this.readRoot()}: ${error instanceof Error ? error.message : String(error)}`);
+          }).finally(() => this.notify());
+          return;
+        case 'fill':
+          // The end of the fill is shown once the last snapshot is being read: a page opened at "done" shows everything.
+          await this.swapping.catch(() => undefined);
+          if (message.state === 'done') this.fill = { state: 'done', startedAt: this.fill.startedAt, finishedAt: now(), gaps: message.gaps };
+          else if (message.state === 'stopped') this.fill = { state: 'idle', message: 'the fill was stopped; it resumes where it stopped' };
+          else this.fill = { state: 'failed', startedAt: this.fill.startedAt, finishedAt: now(), message: message.message };
+          this.notify();
+          return;
+        case 'agent-wanted': {
+          const chosen = this.writer.agent;
+          if (chosen === null) { worker.send({ type: 'agent-failed', message: 'no agent was chosen for this press' }); return; }
+          const built = this.options.agentFactory === undefined ? makeUnitAgent(chosen.id, this.env) : this.options.agentFactory(chosen.id);
+          if ('error' in built) { worker.send({ type: 'agent-failed', message: built.error }); return; }
+          // A unit never starts once the wiki is shutting down, even if the agent was closed before its connection opened.
+          const made: UnitAgent & { close(): Promise<void> } = {
+            run: async (request) => {
+              if (this.stopping) throw new Error('the wiki is shutting down; this unit did not start');
+              await built.run(request);
+            },
+            close: () => built.close(),
+          };
+          this.writerAgent = made;
+          agent = made;
+          let slug: string;
+          try {
+            slug = productSlug(product.name);
+          } catch (error) {
+            await made.close();
+            this.writerAgent = undefined;
+            worker.send({ type: 'agent-failed', message: error instanceof Error ? error.message : String(error) });
+            return;
+          }
+          this.writer = { state: 'running', agent: chosen, units: [{ unit: `product:${slug}`, path: PRODUCT_PATH, state: 'waiting' }], startedAt: now() };
+          this.notify();
+          worker.send({ type: 'agent-ready' });
+          return;
+        }
+        case 'unit-start':
+          setUnit(message.unit, { state: 'writing' });
+          this.writer = { ...this.writer, current: message.unit };
+          this.notify();
+          return;
+        case 'unit': {
+          // The agent runs here, in the server; each tool call of the unit is answered by the worker, which holds the graph.
+          const tools: ToolClient = {
+            definitions: message.definitions,
+            call: (name, args) => new Promise((resolve) => {
+              const callId = (callIds += 1);
+              calls.set(callId, (value) => { finishedUnits.set(message.id, value.finished); resolve(value.answer as never); });
+              worker.send({ type: 'tool', callId, unit: message.id, name, args });
+            }),
+            finished: () => finishedUnits.get(message.id) === true,
+          };
+          const running = (agent ?? (() => { throw new Error('src/knowledge/product.ts: a unit was asked before the agent was ready'); })()).run({ id: message.id, prompt: message.prompt, tools }).then(
+            () => worker.send({ type: 'unit-end', id: message.id }),
+            (error: unknown) => worker.send({ type: 'unit-end', id: message.id, error: error instanceof Error ? error.message : String(error) }),
+          );
+          unitsRunning.push(running);
+          return;
+        }
+        case 'tool-result':
+          calls.get(message.callId)?.({ answer: message.answer as ToolAnswer, finished: message.finished });
+          calls.delete(message.callId);
+          return;
+        case 'unit-outcome': {
+          const outcome = message.outcome;
+          setUnit(outcome.unit, { state: outcome.status === 'written' ? 'written' : outcome.status === 'failed' ? 'failed' : 'not-written', writeAttempts: outcome.writeAttempts, calls: outcome.calls, refusals: outcome.refusals });
+          if (outcome.status === 'written' && outcome.unit.startsWith('product:') && outcome.domains.length > 0) {
+            this.writer = { ...this.writer, units: [...this.writer.units, ...outcome.domains.map((domain): WriterUnit => ({ unit: `domain:${domain.slug}`, path: `docs/domains/${domain.slug}.md`, state: 'waiting' }))] };
+          }
+          this.notify();
+          return;
+        }
+        case 'page':
+          this.notify();
+          return;
+        case 'writer':
+          await this.swapping.catch(() => undefined);
+          this.writer = message.state === 'done'
+            ? { ...this.writer, state: 'done', current: undefined, finishedAt: now(), ...(message.message === undefined ? {} : { message: message.message }) }
+            : { ...this.writer, state: 'failed', current: undefined, finishedAt: now(), message: message.message };
+          this.notify();
+          return;
+        case 'log':
+          return;
+      }
+    };
+    try {
+      for await (const line of worker.lines) {
+        let message: FromWorker;
+        try {
+          message = parseMessage<FromWorker>(line, 'the fill worker');
+        } catch (error) {
+          this.options.errorLog?.(error instanceof Error ? error.message : String(error));
+          continue;
+        }
+        await heard(message);
+      }
+    } catch (error) {
+      this.options.errorLog?.(`the knowledge wiki lost the fill worker's output: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    const code = await worker.exited;
+    await Promise.allSettled(unitsRunning);
+    await this.writerAgent?.close().catch(() => undefined);
+    this.writerAgent = undefined;
+    if (this.fill.state === 'done') {
+      try {
+        await writeFile(join(this.storeFolder(), 'last-fill.json'), `${JSON.stringify({ finishedAt: this.fill.finishedAt ?? now() })}\n`, 'utf8');
+      } catch (error) {
+        this.options.errorLog?.(`the knowledge wiki could not record when the fill ended in ${this.storeFolder()}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    if (this.fill.state === 'running') {
+      failFill(`the fill worker ended with exit code ${code} before the fill was done: ${worker.stderr().trim().split('\n').slice(-6).join(' | ') || 'it said nothing on standard error'}`);
+    }
+    if (this.writer.state === 'running') {
+      this.writer = { ...this.writer, state: 'failed', current: undefined, finishedAt: now(), message: `the fill worker ended with exit code ${code} while the agent was writing: ${worker.stderr().trim().split('\n').slice(-6).join(' | ') || 'it said nothing on standard error'}` };
+      this.notify();
+    }
   }
 
   // ---- the agent stage ---------------------------------------------------------------------
@@ -248,7 +598,7 @@ export class KnowledgeProduct {
 
   private choiceFile(): string {
     const product = this.product();
-    if ('message' in product) throw new Error(product.message);
+    if ('message' in product) throw new WikiReadError(product.message);
     return join(this.options.storeRoot, product.id, 'writer.json');
   }
 
@@ -320,80 +670,37 @@ export class KnowledgeProduct {
     return { ok: true, agent: { id: entry.id, label: entry.label } };
   }
 
-  /** The writer, one unit after another, inside this server on this product's own open store. */
-  private async runWriterStage(repositories: readonly { name: string; path: string }[]): Promise<void> {
-    const chosen = this.writer.agent;
-    if (chosen === null) return;
-    const startedAt = (this.options.now?.() ?? new Date()).toISOString();
-    const fail = (message: string): void => {
-      this.writer = { ...this.writer, state: 'failed', current: undefined, message, finishedAt: (this.options.now?.() ?? new Date()).toISOString() };
-      this.notify();
-    };
-    const product = this.product();
-    if ('message' in product) return fail(product.message);
-    if (repositories.length !== 1) {
-      return fail(`the writer reads one code repository and the product declares ${repositories.length} (${repositories.map((repo) => repo.name).join(', ')}): nothing was written, so no page is a smaller picture of the product`);
-    }
-    const built = this.options.agentFactory === undefined ? makeUnitAgent(chosen.id, this.env) : this.options.agentFactory(chosen.id);
-    if ('error' in built) return fail(built.error);
-    // A unit never starts once the wiki is shutting down, even if the agent was closed before its connection opened.
-    const made: UnitAgent & { close(): Promise<void> } = {
-      run: async (request) => {
-        if (this.stopping) throw new Error('the wiki is shutting down; this unit did not start');
-        await built.run(request);
-      },
-      close: () => built.close(),
-    };
-    this.writerAgent = made;
-    let slug: string;
-    try {
-      slug = productSlug(product.name);
-    } catch (error) {
-      await made.close();
-      this.writerAgent = undefined;
-      return fail(error instanceof Error ? error.message : String(error));
-    }
-    const units: WriterUnit[] = [{ unit: `product:${slug}`, path: PRODUCT_PATH, state: 'waiting' }];
-    this.writer = { state: 'running', agent: chosen, units, startedAt };
-    this.notify();
-    const setUnit = (unit: string, change: Partial<WriterUnit>): void => {
-      this.writer = { ...this.writer, units: this.writer.units.map((held) => (held.unit === unit ? { ...held, ...change } : held)) };
-    };
-    const files = fsSink(product.folder);
-    // A page is on disk, and the open pages told to read it, the moment its unit writes it: not when the unit ends.
-    const sink = { read: files.read, write: async (relative: string, content: string): Promise<void> => { await files.write(relative, content); this.notify(); } };
-    try {
-      const { owner, store } = await this.open();
-      const report = await runWriter({
-        owner, store, repository: repositories[0]!.path, ...(this.pins.get(repositories[0]!.name)?.head === undefined ? {} : { ref: this.pins.get(repositories[0]!.name)!.head }), output: product.folder, productName: product.name, agent: made, sink,
-        onUnitStart: (start) => {
-          setUnit(start.unit, { state: 'writing' });
-          this.writer = { ...this.writer, current: start.unit };
-          this.notify();
-        },
-        onUnit: (outcome) => {
-          setUnit(outcome.unit, { state: outcome.status === 'written' ? 'written' : outcome.status === 'failed' ? 'failed' : 'not-written', writeAttempts: outcome.writeAttempts, calls: outcome.calls, refusals: outcome.refusals.map((r) => ({ line: r.line, rule: r.rule, message: r.message })) });
-          if (outcome.status === 'written' && outcome.unit.startsWith('product:')) {
-            this.writer = { ...this.writer, units: [...this.writer.units, ...outcome.domains.map((domain): WriterUnit => ({ unit: `domain:${domain.slug}`, path: `docs/domains/${domain.slug}.md`, state: 'waiting' }))] };
-          }
-          this.notify();
-        },
-      });
-      const left = report.content.skipped;
-      const skipped = left.length === 0 ? '' : ` ${left.length} file${left.length === 1 ? ' was' : 's were'} not stored for the agent to read: ${left.slice(0, 3).map((entry) => `${entry.path === '' ? '(no path)' : entry.path} (${entry.reason})`).join('; ')}${left.length > 3 ? '; …' : ''}.`;
-      const stale = report.stale.length === 0 ? '' : ` Pages from an earlier run that this run did not write were left alone: ${report.stale.join(', ')}.`;
-      this.writer = { ...this.writer, state: report.ok ? 'done' : 'failed', current: undefined, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), ...(report.ok ? (`${stale}${skipped}` === '' ? {} : { message: `${stale}${skipped}`.trim() }) : { message: `some pages were not written; each unit above says why.${stale}${skipped}` }) };
-    } catch (error) {
-      this.writer = { ...this.writer, state: 'failed', current: undefined, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), message: `the writer stopped: ${error instanceof Error ? error.message : String(error)}` };
-    } finally {
-      await made.close().catch(() => undefined);
-      this.writerAgent = undefined;
-    }
-    this.notify();
-  }
-
   writerState(): WriterState {
     return this.writer;
+  }
+
+  /** What a reset would remove and keep, for the confirmation; nothing is changed. */
+  resetPlan(): ResetPlan {
+    const product = this.product();
+    if ('message' in product) throw new WikiReadError(product.message);
+    return planReset(product.folder, this.storeFolder());
+  }
+
+  /**
+   * Starts the product's knowledge over: the reader and the graph store go, and the pages the writer produced (see
+   * `reset.ts`). Refused while a fill runs. The wiki then reads as an empty product.
+   */
+  async reset(): Promise<{ ok: true; plan: ResetPlan } | { ok: false; message: string }> {
+    if (this.running !== undefined) return { ok: false, message: 'a fill of this product is running; start over after it ends' };
+    const product = this.product();
+    if ('message' in product) return { ok: false, message: product.message };
+    const plan = planReset(product.folder, this.storeFolder());
+    await this.swapping.catch(() => undefined);
+    await this.opening?.catch(() => undefined);
+    if (this.reader !== undefined) await this.reader.owner.close().catch(() => undefined);
+    this.reader = undefined;
+    this.opening = undefined;
+    this.pins.clear();
+    this.fill = { state: 'idle' };
+    this.writer = { state: 'idle', agent: null, units: [] };
+    applyReset(product.folder, plan);
+    this.notify();
+    return { ok: true, plan };
   }
 
   /** Resolves when the running fill has ended; for tests and for a clean stop. */
@@ -401,69 +708,15 @@ export class KnowledgeProduct {
     await this.running;
   }
 
-  private async runFill(repositories: readonly { name: string; path: string }[]): Promise<void> {
-    const { owner, store } = await this.open();
-    let gaps = 0;
-    try {
-      for (const repo of repositories) {
-        this.fill = { ...this.fill, repository: repo.name, commit: 0, commits: 0 };
-        this.notify();
-        const head = (await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repo.path, encoding: 'utf8' })).stdout.trim();
-        // A refill walks the history from its first commit again: the source pin only moves forward, past what was already read.
-        const base = this.pins.get(repo.name)?.filledCommits ?? 0;
-        const report = await fillGraph({
-          owner,
-          store,
-          repository: repo.path,
-          ref: head,
-          extractors: TREE_EXTRACTORS,
-          owners: OWNERS,
-          history: HISTORY_EXTRACTOR,
-          snapshots: {},
-          onStart: async (start) => {
-            await this.pin(owner, { name: repo.name, scope: start.repositoryNode, head: start.head, commit: this.pins.get(repo.name)?.commit ?? '', effectiveTime: this.pins.get(repo.name)?.effectiveTime ?? '', commits: start.commits, filledCommits: base });
-            this.fill = { ...this.fill, commits: start.commits };
-          },
-          onCommit: async (done, place) => {
-            const held = this.pins.get(repo.name)!;
-            if (place.index > base) await this.pin(owner, { ...held, commit: done.hash, effectiveTime: done.effectiveTime, filledCommits: place.index });
-            this.fill = { ...this.fill, commit: place.index, commits: place.commits };
-            this.notify();
-            // The extractors and the store answer in microtasks, so a fill runs as one unbroken turn of the event loop and the
-            // server would not answer a request until it ended: a macrotask turn after each commit lets the open pages read.
-            await new Promise<void>((resolve) => setTimeout(resolve, 0));
-            if (this.stopping) throw new FillStopped('the fill was stopped');
-          },
-        });
-        gaps += report.gaps.length;
-      }
-      this.fill = { state: 'done', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), gaps };
-    } catch (error) {
-      this.fill = error instanceof FillStopped
-        ? { state: 'idle', message: 'the fill was stopped; it resumes where it stopped' }
-        : { state: 'failed', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), message: error instanceof Error ? error.message : String(error) };
-    }
-    this.notify();
-  }
-
-  private async pin(owner: DatabaseOwner, pin: RepositoryPin): Promise<void> {
-    this.pins.set(pin.name, pin);
-    await owner.run((tx) => tx.query(
-      `INSERT INTO knowledge_fill (repo, scope, head, commit_hash, effective_time, commits, filled_commits) VALUES ($1, $2, $3, $4, $5, $6::int, $7::int)
-       ON CONFLICT (repo) DO UPDATE SET scope = $2, head = $3, commit_hash = $4, effective_time = $5, commits = $6::int, filled_commits = $7::int`,
-      [pin.name, pin.scope, pin.head, pin.commit, pin.effectiveTime, String(pin.commits), String(pin.filledCommits)],
-    ));
-  }
-
   // ---- reads -----------------------------------------------------------------------------
 
   /** The inputs of one page: the manifest and Markdown as they stand now, and the graph. */
   async context(): Promise<{ ctx: RenderContext; manifest: KindsManifest; findings: Finding[] } | { absent: true; file: string }> {
     const product = this.product();
-    if ('message' in product) throw new Error(product.message);
-    const read = readKinds(product.folder);
+    if ('message' in product) throw new WikiReadError(product.message);
+    const read = this.kinds(product.folder);
     if (!read.present) return { absent: true, file: read.file };
-    const { owner } = await this.open();
+    const owner = await this.open();
     const graph = new GraphReader(owner, this.validAt);
     const markdownRead = readMarkdownEntities(product.folder, read.manifest);
     const markdown = new Map<string, MarkdownEntity>(markdownRead.entities.map((entity) => [entity.id, entity]));
@@ -500,14 +753,24 @@ export class KnowledgeProduct {
     };
   }
 
+  /** When the last fill of this product ended, as kept beside its store; absent when none was recorded. */
+  private lastFillAt(): string | undefined {
+    try {
+      const finished = (JSON.parse(readFileSync(join(this.storeFolder(), 'last-fill.json'), 'utf8')) as { finishedAt?: unknown }).finishedAt;
+      return typeof finished === 'string' ? finished : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
   async status(): Promise<WikiStatus> {
     const product = this.product();
-    if ('message' in product) throw new Error(product.message);
+    if ('message' in product) throw new WikiReadError(product.message);
     const common = { product: { name: product.name, id: product.id } };
     const declared = this.repositories();
     const context = await this.context();
     if ('absent' in context) {
-      return { ...common, manifest: 'no-manifest', manifestFile: context.file, findings: [], kinds: [], repositories: declared.map((repo) => ({ name: repo.name, filled: false })), filled: false, incomplete: false, fill: this.fill, writer: this.writer, bounds: WRITER_BOUNDS, chosenAgent: this.chosenAgent(), home: null };
+      return { ...common, manifest: 'no-manifest', manifestFile: context.file, language: 'en', seeded: [], ...(this.seedError === undefined ? {} : { seedError: this.seedError }), findings: [], kinds: [], repositories: declared.map((repo) => ({ name: repo.name, filled: false })), filled: false, incomplete: false, fill: this.fill, writer: this.writer, bounds: WRITER_BOUNDS, chosenAgent: this.chosenAgent(), home: null };
     }
     const home = homeKind(context.manifest);
     const homeEntity = home === undefined ? undefined : [...context.ctx.markdown.values()].find((entity) => entity.kind === home.name);
@@ -517,12 +780,14 @@ export class KnowledgeProduct {
       ...common,
       manifest: 'ok',
       manifestFile: context.manifest.file,
+      language: context.manifest.language ?? 'en',
+      seeded: this.seeded,
       findings: context.findings,
       kinds,
       repositories: declared.map((repo) => ({ name: repo.name, filled: (this.pins.get(repo.name)?.filledCommits ?? 0) > 0 })),
       filled: this.pins.size > 0,
       incomplete,
-      fill: this.fill.state === 'idle' && this.pins.size > 0 && !incomplete ? { state: 'done' } : this.fill,
+      fill: this.fill.state === 'idle' && this.pins.size > 0 && !incomplete ? { state: 'done', ...(this.lastFillAt() === undefined ? {} : { finishedAt: this.lastFillAt()! }) } : this.fill,
       writer: this.writer,
       bounds: WRITER_BOUNDS,
       chosenAgent: this.chosenAgent(),
@@ -542,6 +807,73 @@ export class KnowledgeProduct {
     return await listEntities(context.ctx, kind, options);
   }
 
+  /**
+   * The Markdown documents the wiki shows as pages: the product repository's own (its README and everything under docs/,
+   * as the working tree holds them) and each connected repository's, as it was at the commit the graph was filled from.
+   */
+  async documents(): Promise<DocumentListing> {
+    const product = this.product();
+    if ('message' in product) throw new WikiReadError(product.message);
+    const documents: DocumentRef[] = [];
+    const truncated: DocumentListing['truncated'] = [];
+    const walk = (folder: string, relativeFolder: string): void => {
+      for (const entry of readdirSync(folder, { withFileTypes: true }).sort((a, b) => byCodePoint(a.name, b.name))) {
+        if (entry.name.startsWith('.')) continue;
+        const relative = relativeFolder === '' ? entry.name : `${relativeFolder}/${entry.name}`;
+        if (entry.isDirectory()) walk(join(folder, entry.name), relative);
+        else if (entry.isFile() && DOCUMENT_PATH.test(entry.name)) documents.push({ repo: null, path: relative });
+      }
+    };
+    for (const entry of readdirSync(product.folder, { withFileTypes: true }).sort((a, b) => byCodePoint(a.name, b.name))) {
+      if (entry.isFile() && DOCUMENT_PATH.test(entry.name) && !entry.name.startsWith('.')) documents.push({ repo: null, path: entry.name });
+    }
+    if (existsSync(join(product.folder, 'docs'))) walk(join(product.folder, 'docs'), 'docs');
+    for (const repo of this.repositories().filter((candidate) => candidate.present)) {
+      const commit = this.pins.get(repo.name)?.commit;
+      let names: string[];
+      try {
+        const { stdout } = await execFileAsync('git', ['ls-tree', '-r', '--name-only', commit === undefined || commit === '' ? 'HEAD' : commit], { cwd: repo.path, maxBuffer: 1 << 28, encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' } });
+        names = stdout.split('\n').filter((name) => name !== '' && DOCUMENT_PATH.test(name) && !name.split('/').some((part) => part === 'node_modules' || part.startsWith('.')));
+      } catch (error) {
+        throw new Error(`src/knowledge/product.ts: the documents of the repository ${repo.name} cannot be listed with git in ${repo.path}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      names.sort(byCodePoint);
+      if (names.length > DOCUMENT_LIMIT) truncated.push({ repo: repo.name, total: names.length, shown: DOCUMENT_LIMIT });
+      for (const name of names.slice(0, DOCUMENT_LIMIT)) documents.push({ repo: repo.name, path: name });
+    }
+    return { documents, truncated };
+  }
+
+  /** One document as a page; `undefined` when the repository has no such document. */
+  async document(repo: string | null, path: string): Promise<DocumentPage | undefined> {
+    if (!DOCUMENT_PATH.test(path)) return undefined;
+    const context = await this.context();
+    if ('absent' in context) return undefined;
+    // A document of a code repository is read at the commit the graph was filled from, and at the checkout's HEAD where
+    // the repository was never filled: a reader may open its documents before the first fill.
+    const markdown = repo === null
+      ? await context.ctx.readSource(null, path)
+      : (this.repositories().some((candidate) => candidate.name === repo && candidate.present)
+        ? await gitBlob(join(this.options.productFolder, 'repos', repo), this.pins.get(repo)?.commit || 'HEAD', path)
+        : undefined);
+    if (markdown === undefined) return undefined;
+    const resolutions: Record<string, Resolution> = {};
+    for (const match of markdown.matchAll(/madarch:[^\s)\]>"']+/g)) {
+      const target = match[0].replace(/[.,;:]+$/, '');
+      if (!(target in resolutions)) resolutions[target] = await context.ctx.resolver.resolve(target);
+    }
+    const heading = /^#\s+(.+?)\s*#*\s*$/m.exec(markdown);
+    return {
+      repo,
+      path,
+      title: heading === null ? path.split('/').pop()!.replace(/\.(md|markdown)$/i, '') : heading[1]!.replace(/[*_`]/g, ''),
+      markdown,
+      resolutions,
+      anchors: Object.fromEntries(anchorLines(markdown)),
+      commit: repo === null ? null : this.pins.get(repo)?.commit ?? null,
+    };
+  }
+
   /** A file of a repository as the graph was filled from it, for the source view. */
   async source(repo: string | null, path: string): Promise<{ text: string; commit: string | null } | undefined> {
     const context = await this.context();
@@ -555,26 +887,41 @@ export class KnowledgeProduct {
   async close(): Promise<void> {
     this.closed = true;
     this.stopping = true;
+    if (this.idleTimer !== undefined) clearInterval(this.idleTimer);
     await this.writerAgent?.close().catch(() => undefined);
-    try {
-      await this.running;
-    } catch {
-      // a failed fill has already said so
+    const worker = this.worker;
+    if (worker !== undefined) {
+      worker.send({ type: 'stop' });
+      const killer = setTimeout(() => worker.kill(), STOP_GRACE_MS);
+      try {
+        await this.running;
+      } catch {
+        // a failed fill has already said so
+      } finally {
+        clearTimeout(killer);
+      }
+    } else {
+      await this.running?.catch(() => undefined);
     }
     await this.opening?.catch(() => undefined);
+    await this.swapping.catch(() => undefined);
     this.listeners.clear();
-    if (this.owner !== undefined) await this.owner.close();
-    this.owner = undefined;
-    this.store = undefined;
+    if (this.reader !== undefined) await this.reader.owner.close().catch(() => undefined);
+    this.reader = undefined;
     this.opening = undefined;
   }
+}
+
+/** The folder a products home keeps its knowledge stores in. */
+export function defaultKnowledgeRoot(home: string): string {
+  return join(home, '.madarch', 'knowledge');
 }
 
 /** The products home's knowledge wikis: one per product folder, created when first asked for. */
 export class KnowledgeHost {
   private readonly products = new Map<string, KnowledgeProduct>();
 
-  constructor(private readonly storeRoot: string, private readonly now?: () => Date, private readonly extra: Pick<KnowledgeProductOptions, 'env' | 'agentFactory'> = {}) {}
+  constructor(private readonly storeRoot: string, private readonly now?: () => Date, private readonly extra: Pick<KnowledgeProductOptions, 'env' | 'agentFactory' | 'errorLog' | 'workerFactory' | 'snapshotMs'> = {}) {}
 
   of(productFolder: string): KnowledgeProduct {
     const key = resolve(productFolder);

@@ -27,6 +27,16 @@ export function sourceAddress(repo: string | null, path: string, line?: number):
 
 export { findAnchor, slugOf } from './anchors.js';
 
+/** Where a Markdown document stands in the app: a page of its own, at the section an anchor names. */
+export function documentAddress(repo: string | null, path: string, anchor?: string | null): string {
+  const query = new URLSearchParams();
+  if (repo !== null) query.set('repo', repo);
+  query.set('path', path);
+  return `/k/doc?${query.toString()}${anchor === undefined || anchor === null || anchor === '' ? '' : `#${encodeURIComponent(anchor)}`}`;
+}
+
+const isMarkdownPath = (path: string): boolean => /\.(md|markdown)$/i.test(path);
+
 /** What is said of a key that names nothing. */
 export const noEntityMessage = (key: string): string => `no entity "${key}" in the graph or among the product's Markdown pages`;
 
@@ -79,9 +89,10 @@ export class Resolver {
       const text = await this.deps.readDocument(root, path);
       if (text === undefined) continue;
       seen.push(root ?? 'the product repository');
-      if (anchor === null || anchor === '') return { state: 'ok', target: url, kind: 'document', label: path, href: sourceAddress(root, path) };
+      // A Markdown document opens as a page of the wiki at its section; any other file opens in the source view.
+      if (anchor === null || anchor === '') return { state: 'ok', target: url, kind: 'document', label: path, href: isMarkdownPath(path) ? documentAddress(root, path) : sourceAddress(root, path) };
       const line = findAnchor(text, anchor);
-      if (line !== null) return { state: 'ok', target: url, kind: 'document', label: `${path}#${anchor}`, href: sourceAddress(root, path, line) };
+      if (line !== null) return { state: 'ok', target: url, kind: 'document', label: `${path}#${anchor}`, href: isMarkdownPath(path) ? documentAddress(root, path, anchor) : sourceAddress(root, path, line) };
     }
     if (seen.length === 0) return { state: 'broken', target: url, reason: `no document "${path}" in the product repository or its code repositories` };
     return { state: 'broken', target: url, reason: `the document "${path}" (in ${seen.join(', ')}) has no section "${anchor}"` };

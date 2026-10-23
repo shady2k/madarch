@@ -10,10 +10,12 @@
  * connection.
  */
 import { languageOf } from '../knowledge/blocks.js';
-import type { KnowledgeProduct } from '../knowledge/product.js';
+import { WikiReadError, type KnowledgeProduct } from '../knowledge/product.js';
 import type { Handled, ReplyMaker } from './http.js';
 
 export interface KnowledgePart {
+  /** Who the product is, read from its manifest alone: it answers before the graph store is open. */
+  identity: (request: Request) => Promise<Handled>;
   status: (request: Request) => Promise<Handled>;
   page: (request: Request) => Promise<Handled>;
   entities: (request: Request) => Promise<Handled>;
@@ -22,6 +24,9 @@ export interface KnowledgePart {
   agents: (request: Request) => Promise<Handled>;
   chooseAgent: (request: Request) => Promise<Handled>;
   products: (request: Request) => Promise<Handled>;
+  reset: (request: Request) => Promise<Handled>;
+  documents: (request: Request) => Promise<Handled>;
+  document: (request: Request) => Promise<Handled>;
 }
 
 /** The largest file the source view shows whole. */
@@ -49,11 +54,20 @@ export function createKnowledgePart(
     try {
       return await work(request);
     } catch (error) {
+      if (error instanceof WikiReadError) {
+        errorLog(`the knowledge wiki could not ${what}: ${error.message}`);
+        return refused(500, { message: error.message });
+      }
       errorLog(`the knowledge wiki could not ${what}: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`);
       return refused(500, { message: `the wiki could not ${what}; the cause is in the server's log` });
     }
   };
   return {
+    identity: guarded('read the product', async () => {
+      const identity = product.product();
+      if ('message' in identity) throw new WikiReadError(identity.message);
+      return { response: json(200, { id: identity.id, name: identity.name }) };
+    }),
     status: guarded('read the product', async () => ({ response: json(200, await product.status()) })),
     page: guarded('draw the page', async (request) => {
       const id = new URL(request.url).searchParams.get('id');
@@ -91,14 +105,18 @@ export function createKnowledgePart(
       if (crossSite !== undefined) return refused(403, { message: crossSite });
       // The press names the agent it was made for, so a choice saved from another tab meanwhile is not run under this press's consent.
       let expectAgent: string | null | undefined;
+      let language: string | undefined;
       if (request.headers.get('content-type')?.includes('application/json')) {
         let body: unknown;
         try { body = await request.json(); } catch (error) { return refused(400, { message: `the request body is not JSON: ${(error as Error).message}` }); }
         const asked = (body as { agent?: unknown } | null)?.agent;
         if (asked !== undefined && asked !== null && typeof asked !== 'string') return refused(400, { field: 'agent', message: '"agent" is the id of the agent the press was made for, or null for none' });
         expectAgent = asked as string | null | undefined;
+        const chosenLanguage = (body as { language?: unknown } | null)?.language;
+        if (chosenLanguage !== undefined && typeof chosenLanguage !== 'string') return refused(400, { field: 'language', message: '"language" is the language the pages are written in: en or ru' });
+        language = chosenLanguage as string | undefined;
       }
-      const started = await product.startFill(expectAgent === undefined ? {} : { expectAgent });
+      const started = await product.startFill({ ...(expectAgent === undefined ? {} : { expectAgent }), ...(language === undefined ? {} : { language }) });
       if (!started.started) return refused(409, { message: started.message });
       return { response: json(202, { fill: started.fill }) };
     }),
@@ -113,6 +131,26 @@ export function createKnowledgePart(
       const chosen = await product.chooseAgent(asked.agent, asked.install === true);
       if (!chosen.ok) return refused(chosen.status, { field: 'agent', message: chosen.message });
       return { response: json(200, { chosen: chosen.agent }) };
+    }),
+    documents: guarded('list the documents', async () => ({ response: json(200, await product.documents()) })),
+    document: guarded('read the document', async (request) => {
+      const query = new URL(request.url).searchParams;
+      const path = query.get('path');
+      const repo = query.get('repo');
+      if (path === null || path === '') return refused(400, { field: 'path', message: '"path" is required: the Markdown document, relative to its repository' });
+      if (path.startsWith('/') || path.includes('\0') || path.split('/').includes('..')) return refused(400, { field: 'path', message: `"${path}" is not a path inside a repository` });
+      const page = await product.document(repo === null || repo === '' ? null : repo, path);
+      if (page === undefined) return refused(404, { field: 'path', message: `the Markdown document ${path} is not in ${repo === null || repo === '' ? 'the product repository' : `the repository ${repo}`} at the commit the graph was filled from` });
+      return { response: json(200, page) };
+    }),
+    reset: guarded('start over', async (request) => {
+      const crossSite = foreign(request);
+      if (crossSite !== undefined) return refused(403, { message: crossSite });
+      // A GET asks what a reset would remove and keep; a POST does it.
+      if (request.method === 'GET') return { response: json(200, product.resetPlan()) };
+      const done = await product.reset();
+      if (!done.ok) return refused(409, { message: done.message });
+      return { response: json(200, done.plan) };
     }),
     products: guarded('list the products', async () => ({ response: json(200, { current: product.folder, products: siblings() }) })),
   };
