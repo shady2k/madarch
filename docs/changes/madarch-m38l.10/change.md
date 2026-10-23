@@ -34,7 +34,7 @@ See "Design and decisions".
 
 Kind: screen
 Place: the wiki on a clean machine, then any product's wiki
-Mockup: docs/prototypes/madarch-m38l.10/first-run.html
+Mockup: docs/prototypes/madarch-m38l.10/first-run-en.png
 
 1. A person starts madarch with an empty products home and opens the address it prints; madarch's own wiki opens with a card that asks which role they read as.
 2. They choose a role or skip it; the home page says what madarch is in two words and goes down from there; they open the glossary and a term in a page's text is a link to its entry.

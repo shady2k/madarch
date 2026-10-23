@@ -156,7 +156,7 @@ export function TermBlockView({ block, pageId, resolutions }: { block: { definit
       <KMarkdown text={upperFirst(block.definition)} resolutions={resolutions} exceptTerm={pageId} />
       <Names term={term as unknown as GlossaryTerm} />
       <Ambiguity term={term} pageId={pageId} resolutions={resolutions} />
-      {block.usedIn !== null && <div className="mb-2 text-small"><span className="text-muted">{t('knowledge.glossary.usedIn')} </span><KMarkdown text={block.usedIn} resolutions={resolutions} /></div>}
+      {block.usedIn !== null && <div className="mb-2 flex flex-wrap items-baseline gap-2 text-small"><span className="text-muted">{t('knowledge.glossary.usedIn')}</span><KMarkdown text={block.usedIn} resolutions={resolutions} /></div>}
     </section>
   );
 }
@@ -197,7 +197,7 @@ export function GlossaryPage({ version }: { version: number }): ReactElement {
             <KMarkdown text={upperFirst(term.definition)} resolutions={glossary.resolutions} exceptTerm={term.id} />
             <Names term={term} />
             <Ambiguity term={term} pageId={term.id} resolutions={glossary.resolutions} />
-            {term.usedIn !== null && <div className="mb-2 text-small"><span className="text-muted">{t('knowledge.glossary.usedIn')} </span><KMarkdown text={term.usedIn} resolutions={glossary.resolutions} /></div>}
+            {term.usedIn !== null && <div className="mb-2 flex flex-wrap items-baseline gap-2 text-small"><span className="text-muted">{t('knowledge.glossary.usedIn')}</span><KMarkdown text={term.usedIn} resolutions={glossary.resolutions} /></div>}
             <p className="m-0 text-small text-muted" data-testid="term-ground">
               {t('knowledge.glossary.statedAt')}{' '}
               <KLink href={addressOfDocument(term.repo, term.path, term.anchor)} className="font-mono">{term.repo === null ? term.path : `${term.repo}/${term.path}`}:{term.line}</KLink>
