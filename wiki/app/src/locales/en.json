@@ -327,6 +327,30 @@
     "help": {
       "label": "madarch documentation",
       "title": "madarch documentation"
+    },
+    "manifestFindingsHelp": "Some kinds or lines of the manifest could not be read. The pages of the other kinds are shown and indexed; the lines are listed under Details.",
+    "manifestMissingGroup": "Kind \"{{kind}}\" refers to group \"{{group}}\", which is not in the manifest.",
+    "manifestKinds": {
+      "question": "Question",
+      "correction": "Correction",
+      "product": "Product",
+      "domain": "Domain",
+      "use-case": "Use case",
+      "rule": "Rule",
+      "decision": "Decision",
+      "term": "Term",
+      "service": "Service",
+      "database": "Database",
+      "topic": "Topic",
+      "external": "External",
+      "file": "File",
+      "symbol": "Symbol",
+      "route": "Route",
+      "contract": "Contract",
+      "operation": "Operation",
+      "table": "Table",
+      "column": "Column",
+      "test-case": "Test case"
     }
   },
   "loop": {
@@ -444,7 +468,35 @@
     "plannedChange": "Planned change",
     "basisWillChange": "This ground is planned to change",
     "refreshNow": "Fix pages now",
-    "laterAnswers": "Later, with other answers"
+    "laterAnswers": "Later, with other answers",
+"starter": {
+      "title_one": "The starter set has {{count}} thing this product lacks",
+      "title_other": "The starter set has {{count}} things this product lacks",
+      "intro": "A person edited this product's manifest, so madarch does not rewrite it. This is what the current starter set holds and the manifest lacks. Adding writes it into madarch/kinds.yaml and keeps your comments and everything else.",
+      "add": "Add",
+      "addAll": "Add all",
+      "kind": "Kind: {{name}} ({{key}})",
+      "fields": "Fill in the kind {{name}} ({{key}}): {{fields}}",
+      "group": "Group: {{name}}",
+      "roles": "The roles: what each role opens and leads with",
+      "role": "Role: {{name}}",
+      "documents": "The list of files that are not documents (AGENTS.md and the like)",
+      "title_few": "The starter set has {{count}} things this product lacks",
+      "title_many": "The starter set has {{count}} things this product lacks",
+      "summary": "The starter set has {{count}} kinds and groups this manifest lacks.",
+      "showItems": "Show the items",
+      "hideItems": "Hide the items",
+      "groupHeading": "{{group}}",
+      "groups": {
+        "code": "Code",
+        "contracts": "Contracts",
+        "data": "Data",
+        "operations": "Operations",
+        "tests": "Tests",
+        "history": "History",
+        "product": "Product knowledge"
+      }
+    }
   },
   "journal": {
     "title": "How the agent wrote this page",
@@ -482,5 +534,100 @@
     },
     "unreadable": "Lines of the journal that could not be read",
     "otherRuns": "Other runs that wrote this page"
+  },
+  "settings": {
+    "nav": "Product settings",
+    "title": "Product settings",
+    "intro": "How {{product}} is set up on this machine: who writes its pages, in which language, and the actions that start the pages or the graph over.",
+    "missing": "The settings could not be read",
+    "busy": "A fill is running. Changes wait until it ends.",
+    "agent": {
+      "title": "Agent",
+      "intro": "The coding agent that writes the product pages. madarch runs it through its ACP adapter, only when a fill or a refresh starts; your subscription terms apply.",
+      "chosen": "Chosen",
+      "choose": "Choose",
+      "installAndChoose": "Install the adapter and choose",
+      "none": "Use no agent"
+    },
+    "model": {
+      "title": "Model and reasoning level",
+      "intro": "madarch holds no list of models. The agent tells madarch which ones it offers, and only those can be chosen. The choice is kept on this machine, next to the agent's.",
+      "noAgent": "Choose an agent first: the models are the agent's to name.",
+      "asking": "Asking {{agent}} which models it offers…",
+      "reportsNone": "{{agent}} does not report a model or a reasoning level to choose, so it uses its own.",
+      "model": "Model",
+      "reasoning": "Reasoning level",
+      "agentsOwn": "The agent's own choice",
+      "agentsOwnNamed": "The agent's own choice ({{name}})",
+      "failed": "The agent did not say which models it offers",
+      "retry": "Ask again",
+      "note": "A model the agent stops offering is skipped at the next fill, and the agent's own is used."
+    },
+    "language": {
+      "title": "Language of the pages",
+      "intro": "The language the agent writes the product pages in.",
+      "note": "Changing it rewrites nothing now: the next Refresh writes all the pages again in the new language."
+    },
+    "bounds": {
+      "title": "Writer bounds",
+      "intro": "What the agent may spend on one page. madarch fixes them.",
+      "turns": "Turns of the agent per page",
+      "minutes": "Minutes per page",
+      "calls": "Tool calls per page",
+      "attempts": "Write attempts per page",
+      "domains": "Domain pages at most"
+    },
+    "places": {
+      "title": "Where this lives",
+      "intro": "Everything here is on this machine.",
+      "folder": "Product checkout (the pages are files here)",
+      "store": "Graph store (derived; a fill builds it again)",
+      "noPush": "The wiki, the fill, the agent and the actions on this page run no git push and send nothing to a remote repository."
+    },
+    "danger": {
+      "title": "Dangerous actions",
+      "intro": "Both actions are local to this machine and change only this copy of the product.",
+      "local": "Local: only the product checkout at {{folder}} on this machine changes.",
+      "willDo": "What happens:",
+      "keeps": "Everything else stays: documents and pages people wrote, the code repositories under repos/ and the choice of the agent.",
+      "nothingSent": "Nothing is committed or sent anywhere. A copy of the product on another machine, and its remote repository, are not touched.",
+      "rewrite": {
+        "title": "Rewrite the pages",
+        "what": "Removes the pages the agent wrote and asks the agent to write them again from the code the graph already holds. The graph is kept.",
+        "fill": "then a refresh starts and the agent writes the pages again.",
+        "confirm": "Remove and rewrite",
+        "needsAgent": "Choose an agent first: nothing else can write the pages."
+      },
+      "fresh": {
+        "title": "Start from scratch",
+        "what": "Removes the agent's pages and the graph, puts the manifest and the templates at the current starter set and starts a fresh fill.",
+        "graph": "the graph store on this machine: {{store}};",
+        "starter": "the {{files}} starter files (the manifest madarch/kinds.yaml and the templates) are put at the current starter set;",
+        "edited": "These starter files were edited by a person and the edit is replaced (it stays in git history only if it was committed): {{list}}.",
+        "fill": "then a fresh fill reads the code and the agent writes the pages.",
+        "confirm": "Remove and start from scratch",
+        "fillRefused": "The pages and the graph were removed, but the fill did not start: {{reason}} Put that right, then press Refresh in the top bar."
+      },
+      "agentEdits": "A page the agent wrote and you edited in place is removed with the others, because its front matter still says the agent wrote it. To keep such a page, change `producer: agent` to `producer: person` there first."
+    }
+  },
+  "errors": {
+    "problems": "Open the Problems page",
+    "fill": {
+      "store": "The product's index could not be opened on this machine.",
+      "worker-start": "The reader of the code could not be started.",
+      "worker-exit": "The reader of the code stopped before it finished.",
+      "fill": "The code could not be read to the end."
+    },
+    "writer": {
+      "units": "Some pages were not written. The list says why for each page.",
+      "index": "The pages were written, but they could not be added to the index.",
+      "stopped": "The writer stopped.",
+      "plan": "madarch could not tell which pages need the agent, so it wrote nothing.",
+      "agent": "The agent could not be started.",
+      "worker-exit": "The reader stopped while the agent was writing.",
+      "repositories": "The writer reads one code repository and this product has a different number of them.",
+      "note": "The run left notes."
+    }
   }
 }

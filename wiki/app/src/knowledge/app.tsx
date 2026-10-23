@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useState, type ReactElement, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu';
-import { AlertTriangleIcon, BookOpenIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, FolderGit2Icon, GlobeIcon, HelpCircleIcon, HomeIcon, LayoutGridIcon, MenuIcon, RotateCcwIcon, XIcon } from 'lucide-react';
+import { AlertTriangleIcon, BookOpenIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, FolderGit2Icon, GlobeIcon, HelpCircleIcon, HomeIcon, LayoutGridIcon, MenuIcon, SettingsIcon, XIcon } from 'lucide-react';
 import { appPath } from '../app-base.js';
 import { setWikiLanguage, type WikiLanguage } from '../i18n.js';
 import { navigateTo } from '../hold.js';
@@ -18,23 +18,24 @@ import { Badge } from '@/components/ui/badge.js';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet.js';
 import { TooltipProvider } from '@/components/ui/tooltip.js';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu.js';
-import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog.js';
-import { getProducts, getResetPlan, resetProduct, startFill, type ResetPlan } from './api.js';
+import { getProducts, startFill } from './api.js';
 import { KLink } from './blocks.js';
 import { CataloguePage, DocumentPage, DocumentsPage, EntityPage, EmptyHome, FillCard, KindPage, SourcePage, StatementPage, Overview } from './pages.js';
 import { GlossaryContext, GlossaryPage, useGlossary, useGlossaryValue, useTerms } from './glossary.js';
 import { HelpLink, RoleCard, RoleMenu } from './role-ui.js';
 import { RoleContext, leadGroups, loadSettings, useRole, useSettings } from './roles.js';
-import { addressOfKind, K_CATALOGUE, K_DOCS, K_GLOSSARY, K_HOME, K_PROBLEMS, K_QUESTIONS, K_TASKS, kRouteOf, type KRoute } from './routes.js';
+import { addressOfKind, K_CATALOGUE, K_DOCS, K_GLOSSARY, K_HOME, K_PROBLEMS, K_QUESTIONS, K_TASKS, K_SETTINGS, kRouteOf, type KRoute } from './routes.js';
 import { ProblemsPage, QuestionPage, QuestionsPage, TasksPage, RefreshPreviewView } from './loop.js';
 import { JournalPage } from './journal.js';
 import { KindLabels, useKindName } from './kind-names.js';
 import { PageSkeleton } from './skeleton.js';
 import { fillWords } from './fill-words.js';
+import { FailureNote } from './errors.js';
 import { Skeleton } from '@/components/ui/skeleton.js';
 import type { KindSummary, ProductChoice, WikiStatus } from './types.js';
 import { useWikiStatus } from './live.js';
 import { PendingPages } from './pending.js';
+import { SettingsPage } from './settings.js';
 import { UNIT_STATE_KEY } from './writer.js';
 
 /** The mockup's drawn lowercase m mark and dot, kept as one crisp vector glyph. */
@@ -46,6 +47,16 @@ function BrandMark(): ReactElement {
   );
 }
 
+/**
+ * Where the fill's card sits: the product's own page and the pages of its entities. The catalogue, a statement, a source,
+ * the loop's pages and the settings are other places, so a fill that runs, fails or waits for a press is not drawn above
+ * them (the top bar's chip says the same everywhere). The overview, which has no home page, draws the card itself.
+ */
+export function showsProgress(route: KRoute, status: WikiStatus): boolean {
+  if (route.name === 'home') return status.home !== null;
+  return route.name === 'entity';
+}
+
 /** The two kinds of the loop have their own places («Вопросы», «Проблемы»), not a kind page of their own. */
 const LOOP_KINDS: ReadonlySet<string> = new Set(['question', 'correction']);
 
@@ -55,7 +66,7 @@ export function productChoices(products: readonly ProductChoice[], current: stri
 }
 
 /** The product at the top left: its name, and the other products of this server to choose from. */
-export function ProductSelector({ name, products, current, onStartOver, own = false }: { name: string; products: readonly ProductChoice[]; current: string | null; onStartOver: () => void; own?: boolean }): ReactElement {
+export function ProductSelector({ name, products, current }: { name: string; products: readonly ProductChoice[]; current: string | null; own?: boolean }): ReactElement {
   const { t } = useTranslation();
   return (
     <DropdownMenu>
@@ -102,61 +113,8 @@ export function ProductSelector({ name, products, current, onStartOver, own = fa
           );
         })}
         {products.length === 0 && <DropdownMenuItem disabled>{name}</DropdownMenuItem>}
-        {!own && <DropdownMenuSeparator />}
-        {!own && (
-          <DropdownMenuItem data-testid="start-over" onSelect={() => onStartOver()}>
-            <RotateCcwIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
-            {t('knowledge.reset.menu')}
-          </DropdownMenuItem>
-        )}
       </DropdownMenuContent>
     </DropdownMenu>
-  );
-}
-
-/** The confirmation of starting a product over: what goes and what stays, in plain words; then it happens and the empty page shows. */
-function StartOver({ open, onOpenChange, name, refresh }: { open: boolean; onOpenChange: (open: boolean) => void; name: string; refresh: () => void }): ReactElement {
-  const { t } = useTranslation();
-  const [plan, setPlan] = useState<ResetPlan | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [working, setWorking] = useState(false);
-  useEffect(() => {
-    if (!open) return;
-    setPlan(null);
-    setError(null);
-    const controller = new AbortController();
-    getResetPlan(controller.signal).then(setPlan, (failure: unknown) => { if (!controller.signal.aborted) setError(failure instanceof Error ? failure.message : String(failure)); });
-    return () => controller.abort();
-  }, [open]);
-  const confirm = (): void => {
-    setWorking(true);
-    resetProduct().then(
-      () => { setWorking(false); onOpenChange(false); navigateTo(appPath(K_HOME)); refresh(); },
-      (failure: unknown) => { setWorking(false); setError(failure instanceof Error ? failure.message : String(failure)); },
-    );
-  };
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent data-testid="start-over-dialog">
-        <DialogTitle>{t('knowledge.reset.title', { product: name })}</DialogTitle>
-        <DialogDescription asChild>
-          <div className="grid gap-2 text-small text-secondary">
-            <p className="m-0">{t('knowledge.reset.removes')}</p>
-            <ul className="m-0 list-disc ps-5">
-              <li>{t('knowledge.reset.store')}</li>
-              <li data-testid="start-over-pages">{plan === null ? '…' : plan.agentPages.length === 0 ? t('knowledge.reset.noPages') : t('knowledge.reset.pages', { count: plan.agentPages.length, list: plan.agentPages.join(', ') })}</li>
-            </ul>
-            <p className="m-0">{t('knowledge.reset.keeps')}</p>
-            {plan !== null && plan.keptPages.length > 0 && <p className="m-0">{t('knowledge.reset.keptPages', { list: plan.keptPages.join(', ') })}</p>}
-          </div>
-        </DialogDescription>
-        {error !== null && <p className="m-0 text-small" role="alert" data-testid="start-over-error">{error}</p>}
-        <div className="flex justify-end gap-2">
-          <DialogClose asChild><Button variant="default" size="default">{t('knowledge.reset.cancel')}</Button></DialogClose>
-          <Button variant="default" size="default" className="!border-ink !bg-ink !text-page" onClick={confirm} disabled={working || plan === null} data-testid="start-over-confirm">{t('knowledge.reset.confirm')}</Button>
-        </div>
-      </DialogContent>
-    </Dialog>
   );
 }
 
@@ -178,7 +136,7 @@ export function navGroups(status: WikiStatus, pending: (kind: string) => number)
     .filter((entry) => entry.kinds.length > 0);
 }
 
-function NavPanel({ status, products, route, onNavigate, onStartOver }: { status: WikiStatus; products: readonly ProductChoice[]; route: KRoute; onNavigate?: () => void; onStartOver: () => void }): ReactElement {
+function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus; products: readonly ProductChoice[]; route: KRoute; onNavigate?: () => void }): ReactElement {
   const { t, i18n } = useTranslation();
   const kindName = useKindName();
   const language = (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en';
@@ -201,7 +159,7 @@ function NavPanel({ status, products, route, onNavigate, onStartOver }: { status
         <strong className="text-[23px] font-[650] leading-none tracking-[-0.8px]">madarch</strong>
         <small className="nav-concept ml-auto rounded-[var(--radius-row)] border border-line px-[5px] py-0.5 text-[11px] leading-4 text-muted">{t('brand.concept')}</small>
       </a>
-      <ProductSelector name={status.product.name} products={products} current={folder === '' ? products[0]?.folder ?? null : folder} onStartOver={onStartOver} own={status.own === true} />
+      <ProductSelector name={status.product.name} products={products} current={folder === '' ? products[0]?.folder ?? null : folder} own={status.own === true} />
       <nav aria-label={t('navigation.pages')} className="min-h-0 flex-1 overflow-y-auto pb-4">
         <a href={appPath(K_HOME)} className={link(route.name === 'home')} aria-current={route.name === 'home' ? 'page' : undefined} data-testid="nav-home" {...pick(K_HOME)}>
           <HomeIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
@@ -260,13 +218,21 @@ function NavPanel({ status, products, route, onNavigate, onStartOver }: { status
         <a href={appPath(K_PROBLEMS)} className={link(route.name === 'problems')} aria-current={route.name === 'problems' ? 'page' : undefined} data-testid="nav-problems" {...pick(K_PROBLEMS)}>
           <AlertTriangleIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
           <span className="min-w-0 flex-1">{t('loop.problemsTitle')}</span>
-          {(status.loop?.correctionsOpen ?? 0) > 0 && <span className="text-small text-muted" data-testid="nav-problems-count">{status.loop?.correctionsOpen}</span>}
+          {(status.loop?.correctionsOpen ?? 0) > 0 && <span className="text-small text-muted" data-testid="nav-problems-count">{status.loop?.correctionsOpen ?? 0}</span>}
         </a>
         <a href={appPath(K_DOCS)} className={link(route.name === 'docs' || route.name === 'doc')} aria-current={route.name === 'docs' || route.name === 'doc' ? 'page' : undefined} data-testid="nav-documents" {...pick(K_DOCS)}>
           <FolderGit2Icon aria-hidden="true" className="size-4 shrink-0 text-muted" />
           <span className="min-w-0 flex-1">{t('knowledge.documents')}</span>
         </a>
       </nav>
+      {status.own !== true && (
+        <div className="border-t border-line py-2">
+          <a href={appPath(K_SETTINGS)} className={link(route.name === 'settings')} aria-current={route.name === 'settings' ? 'page' : undefined} data-testid="nav-settings" {...pick(K_SETTINGS)}>
+            <SettingsIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
+            <span className="min-w-0 flex-1">{t('settings.nav')}</span>
+          </a>
+        </div>
+      )}
     </>
   );
 }
@@ -358,8 +324,8 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
             </ul>
           )}
           {writer.asked !== undefined && writer.asked > 0 && <p className="m-0 px-2 pb-2 text-small" data-testid="fill-menu-asked">{t('loop.agentAsked', { count: writer.asked })}</p>}
-          {writer.message !== undefined && <p className="m-0 px-2 pb-2 text-small" data-testid="fill-menu-message">{writer.message}</p>}
-          {fill.message !== undefined && fill.state === 'failed' && <p className="m-0 px-2 pb-2 text-small">{fill.message}</p>}
+          {writer.message !== undefined && <div className="m-0 px-2 pb-2 text-small" data-testid="fill-menu-message"><FailureNote scope="writer" code={writer.code ?? (writer.state === 'done' ? 'note' : undefined)} message={writer.message} /></div>}
+          {fill.message !== undefined && fill.state === 'failed' && <div className="m-0 px-2 pb-2 text-small"><FailureNote scope="fill" code={fill.code} message={fill.message} /></div>}
           <div className="px-2 pb-2">
             {status.chosenAgent !== null && (
               <div className="mb-3" role="radiogroup" aria-label={t('knowledge.writer.languageTitle')} data-testid="menu-language">
@@ -388,7 +354,7 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
 function Toolbar({ status, route, menu, refresh, products, current }: { status: WikiStatus; route: KRoute; menu: ReactNode; refresh: () => void; products: readonly ProductChoice[]; current: string | null }): ReactElement {
   const { t } = useTranslation();
   const kindName = useKindName();
-  const where = route.name === 'questions' || route.name === 'question' ? t('loop.questionsTitle') : route.name === 'problems' ? t('loop.problemsTitle') : route.name === 'tasks' ? t('loop.tasksTitle') : route.name === 'journal' ? t('journal.title') : route.name === 'kind' ? kindName(route.kind, 'many') : route.name === 'source' ? t('knowledge.source') : route.name === 'docs' || route.name === 'doc' ? t('knowledge.documents') : route.name === 'catalogue' ? t('knowledge.catalogue') : route.name === 'glossary' ? t('knowledge.glossary.title') : route.name === 'statement' ? t('knowledge.statement') : route.name === 'entity' ? null : t('knowledge.home');
+  const where = route.name === 'questions' || route.name === 'question' ? t('loop.questionsTitle') : route.name === 'problems' ? t('loop.problemsTitle') : route.name === 'tasks' ? t('loop.tasksTitle') : route.name === 'settings' ? t('settings.title') : route.name === 'journal' ? t('journal.title') : route.name === 'kind' ? kindName(route.kind, 'many') : route.name === 'source' ? t('knowledge.source') : route.name === 'docs' || route.name === 'doc' ? t('knowledge.documents') : route.name === 'catalogue' ? t('knowledge.catalogue') : route.name === 'glossary' ? t('knowledge.glossary.title') : route.name === 'statement' ? t('knowledge.statement') : route.name === 'entity' ? null : t('knowledge.home');
   return (
     <header className="shell-toolbar sticky top-0 z-30 flex min-h-[58px] items-center justify-between gap-3 border-b border-line bg-page px-4 wide:px-[35px]">
       <span className="shell-breadcrumb min-w-0 truncate text-small text-secondary">
@@ -465,7 +431,6 @@ export function KnowledgeApp(): ReactElement {
   const route = useMemo<KRoute>(() => routeOfAddress(frontAddress), [frontAddress]);
   const [products, setProducts] = useState<ProductChoice[]>([]);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [startOver, setStartOver] = useState(false);
   const { status, error, version, refresh } = useWikiStatus();
   const settings = useSettings();
   const { glossary } = useGlossary(version);
@@ -509,7 +474,7 @@ export function KnowledgeApp(): ReactElement {
   }
   const currentFolder = decodeURIComponent((/^\/products\/([^/]+)/.exec(window.location.pathname)?.[1] ?? '')) || (products[0]?.folder ?? null);
   const pending = new Set(status.writer.units.filter((unit) => unit.state === 'waiting' || unit.state === 'writing').map((unit) => unit.unit));
-  const nav = (onNavigate?: () => void): ReactElement => <NavPanel status={status} products={products} route={route} onNavigate={onNavigate} onStartOver={() => { onNavigate?.(); setStartOver(true); }} />;
+  const nav = (onNavigate?: () => void): ReactElement => <NavPanel status={status} products={products} route={route} onNavigate={onNavigate} />;
   const menu = (
     <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
       <SheetTrigger asChild>
@@ -528,7 +493,8 @@ export function KnowledgeApp(): ReactElement {
   else if (route.name === 'kind') view = <KindPage key={route.kind} kind={route.kind} version={version} />;
   else if (route.name === 'questions') view = <QuestionsPage version={version} />;
   else if (route.name === 'question') view = <QuestionPage key={route.slug} slug={route.slug} version={version} refresh={refresh} />;
-  else if (route.name === 'problems') view = <ProblemsPage version={version} />;
+  else if (route.name === 'problems') view = <ProblemsPage version={version} refresh={refresh} />;
+  else if (route.name === 'settings') view = <SettingsPage version={version} status={status} refresh={refresh} />;
   else if (route.name === 'journal') view = <JournalPage key={`${route.id}\0${route.run ?? ''}`} id={route.id} run={route.run} version={version} />;
   else if (route.name === 'tasks') view = <TasksPage version={version} />;
   else if (route.name === 'docs') view = <DocumentsPage version={version} />;
@@ -543,7 +509,6 @@ export function KnowledgeApp(): ReactElement {
       <RoleContext.Provider value={{ role: settings.role, roles: status.roles ?? {} }}>
       <GlossaryContext.Provider value={glossaryValue}>
       <RoleCard />
-      <StartOver open={startOver} onOpenChange={setStartOver} name={status.product.name} refresh={refresh} />
       <div className="shell flex min-h-dvh bg-page text-ink [font-family:var(--font-sans)] text-body" data-testid="knowledge-app">
         <aside id="app-nav" className="app-nav sticky top-0 hidden h-dvh w-[240px] wide:w-[260px] shrink-0 flex-col border-r border-line bg-chrome px-[14px] wide:px-[18px] md:flex" aria-label={t('navigation.aria')}>
           {nav()}
@@ -557,7 +522,7 @@ export function KnowledgeApp(): ReactElement {
                 <main data-testid="knowledge-main">
                   {status.manifest === 'no-manifest' ? <EmptyHome status={status} refresh={refresh} /> : (
                     <>
-                      {status.own !== true && !(route.name === 'home' && status.home === null) && <FillCard status={status} refresh={refresh} />}
+                      {status.own !== true && showsProgress(route, status) && <FillCard status={status} refresh={refresh} />}
                       <PendingPages.Provider value={pending}>{view}</PendingPages.Provider>
                     </>
                   )}

@@ -52,6 +52,7 @@ try {
   console.log(changed.length === 0 ? `No compared ground has changed since its page was written.${unknownNote}` : `${changed.length} grounds changed since their page was written.${unknownNote}`);
   for (const change of changed) console.log(`  ${change.page} ${change.statement} (${change.status}): ${change.ground}`);
   for (const miss of report.unresolved) console.error(`  ${miss.file}:${miss.line}: ${miss.reason}`);
+  for (const finding of report.findings) console.error(`  left out: ${finding.file}:${finding.line}: ${finding.message}`);
   process.exitCode = report.unresolved.length === 0 ? 0 : 1;
 } finally {
   await owner.close();

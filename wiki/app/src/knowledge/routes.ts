@@ -13,6 +13,7 @@ export type KRoute =
   | { name: 'questions' }
   | { name: 'question'; slug: string }
   | { name: 'problems' }
+  | { name: 'settings' }
   | { name: 'journal'; id: string; run: string | null }
   | { name: 'tasks' }
   | { name: 'statement'; id: string; sentence: string; turn: number };
@@ -23,6 +24,7 @@ export const K_CATALOGUE = '/k/catalogue';
 export const K_GLOSSARY = '/k/glossary';
 export const K_QUESTIONS = '/k/questions';
 export const K_PROBLEMS = '/k/problems';
+export const K_SETTINGS = '/k/settings';
 /** Where the journal of the agent's work on a page stands (madarch-m38l.13). */
 export function addressOfJournal(id: string, run?: string): string {
   return `/k/journal?${new URLSearchParams({ id, ...(run === undefined ? {} : { run }) }).toString()}`;
@@ -56,6 +58,7 @@ export function kRouteOf(pathname: string, search = ''): KRoute | null {
     }
   }
   if (path === '/k/problems' || path === '/k/problems/') return { name: 'problems' };
+  if (path === '/k/settings' || path === '/k/settings/') return { name: 'settings' };
   if (path === '/k/journal') {
     const query = new URLSearchParams(search);
     const id = query.get('id');
