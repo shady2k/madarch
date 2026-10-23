@@ -118,52 +118,6 @@ export function ProductSelector({ name, products, current }: { name: string; pro
   );
 }
 
-/** The confirmation of starting a product over: what goes and what stays, in plain words; then it happens and the empty page shows. */
-function StartOver({ open, onOpenChange, name, refresh }: { open: boolean; onOpenChange: (open: boolean) => void; name: string; refresh: () => void }): ReactElement {
-  const { t } = useTranslation();
-  const [plan, setPlan] = useState<ResetPlan | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [working, setWorking] = useState(false);
-  useEffect(() => {
-    if (!open) return;
-    setPlan(null);
-    setError(null);
-    const controller = new AbortController();
-    getResetPlan(controller.signal).then(setPlan, (failure: unknown) => { if (!controller.signal.aborted) setError(failure instanceof Error ? failure.message : String(failure)); });
-    return () => controller.abort();
-  }, [open]);
-  const confirm = (): void => {
-    setWorking(true);
-    resetProduct().then(
-      () => { setWorking(false); onOpenChange(false); navigateTo(appPath(K_HOME)); refresh(); },
-      (failure: unknown) => { setWorking(false); setError(failure instanceof Error ? failure.message : String(failure)); },
-    );
-  };
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent data-testid="start-over-dialog">
-        <DialogTitle>{t('knowledge.reset.title', { product: name })}</DialogTitle>
-        <DialogDescription asChild>
-          <div className="grid gap-2 text-small text-secondary">
-            <p className="m-0">{t('knowledge.reset.removes')}</p>
-            <ul className="m-0 list-disc ps-5">
-              <li>{t('knowledge.reset.store')}</li>
-              <li data-testid="start-over-pages">{plan === null ? '…' : plan.agentPages.length === 0 ? t('knowledge.reset.noPages') : t('knowledge.reset.pages', { count: plan.agentPages.length, list: plan.agentPages.join(', ') })}</li>
-            </ul>
-            <p className="m-0">{t('knowledge.reset.keeps')}</p>
-            {plan !== null && plan.keptPages.length > 0 && <p className="m-0">{t('knowledge.reset.keptPages', { list: plan.keptPages.join(', ') })}</p>}
-          </div>
-        </DialogDescription>
-        {error !== null && <p className="m-0 text-small" role="alert" data-testid="start-over-error">{error}</p>}
-        <div className="flex justify-end gap-2">
-          <DialogClose asChild><Button variant="default" size="default">{t('knowledge.reset.cancel')}</Button></DialogClose>
-          <Button variant="default" size="default" className="!border-ink !bg-ink !text-page" onClick={confirm} disabled={working || plan === null} data-testid="start-over-confirm">{t('knowledge.reset.confirm')}</Button>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 /** The kinds that have a top-level page of their own in the navigation (the glossary is the page of the glossary terms): "Pages by kind" does not list them again. Their pages stay reachable from that page and from links. */
 const KINDS_WITH_OWN_PAGE: ReadonlySet<string> = new Set(['doc.term']);
 
@@ -208,7 +162,7 @@ function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus;
         <strong className="text-[23px] font-[650] leading-none tracking-[-0.8px]">madarch</strong>
         <small className="nav-concept ml-auto rounded-[var(--radius-row)] border border-line px-[5px] py-0.5 text-[11px] leading-4 text-muted">{t('brand.concept')}</small>
       </a>
-      <ProductSelector name={status.product.name} products={products} current={folder === '' ? products[0]?.folder ?? null : folder} onStartOver={onStartOver} own={status.own === true} />
+      <ProductSelector name={status.product.name} products={products} current={folder === '' ? products[0]?.folder ?? null : folder} own={status.own === true} />
       <nav aria-label={t('navigation.pages')} className="min-h-0 flex-1 overflow-y-auto pb-4 pr-2 [scrollbar-gutter:stable]" data-testid="nav-scroll">
         <a href={appPath(K_HOME)} className={link(route.name === 'home')} aria-current={route.name === 'home' ? 'page' : undefined} data-testid="nav-home" {...pick(K_HOME)}>
           <HomeIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
