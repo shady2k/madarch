@@ -22,6 +22,7 @@ import { connectAcpAgent, type AcpConnection, type AcpAgentSpec, type AcpRefusal
 import { answerUnitMcpMessage } from '../fill/unit-mcp.js';
 import { DEFAULT_STAGE_LIMITS, type StageLimits } from '../fill/stage.js';
 import { createUnitLimitGuard, PROCESS_TIMERS, watchUnitTimeLimit, type UnitLimitCause, type UnitTimers } from '../fill/unit-limits.js';
+import { applyPreferences, choicesOf, type AgentPreferences } from '../fill/acp-choices.js';
 import type { Journal, JournalContext, JournalEntry } from './journal.js';
 import type { ToolClient, UnitAgent, UnitRequest } from './run.js';
 import type { ToolAnswer } from './tools.js';
@@ -33,6 +34,8 @@ export interface AcpAgentOptions {
   readonly env?: Readonly<Record<string, string>>;
   readonly timers?: UnitTimers;
   readonly progress?: (line: string) => void;
+  /** The model and reasoning level the reader chose for this agent (madarch-m38l.11); set on each session when the agent still offers them. */
+  readonly preferences?: AgentPreferences;
   /** Where every call the agent makes, and every request madarch refuses, is recorded (madarch-m38l.13). */
   readonly journal?: Journal;
 }
@@ -196,8 +199,9 @@ export function acpUnitAgent(options: AcpAgentOptions): UnitAgent & { close(): P
       let wrapPending = false;
       try {
         const session = await acp.newSession({ cwd: scratch!, mcpServers: [{ name: 'madarch-writer', type: 'http', url: endpoint.url, headers: { Authorization: `Bearer ${token}` } }] });
+        if (options.preferences !== undefined) await applyPreferences(session, options.preferences, options.progress);
         if (journal !== undefined) {
-          context = { run: journal.run, unit: request.id, agent: options.spec.id, model: session.model, session: session.sessionId };
+          context = { run: journal.run, unit: request.id, agent: options.spec.id, model: choicesOf(session).model?.current ?? session.model, session: session.sessionId };
           contexts.set(session.sessionId, context);
           latest = context;
         }

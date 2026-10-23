@@ -321,18 +321,16 @@ if (only === 'remarks') {
     await shoot(found, `${lang}-r11-findings`);
     await found.close();
   }
-  // Remark 12: the product menu offers to start over, and says what goes and what stays before anything is removed.
+  // Remark 12 (moved by madarch-m38l.11 from the product menu to the settings page): the settings say what goes and what stays before anything is removed.
   {
-    const menu = await open(`${product}/`, 1440, 900);
-    await waited(menu, 'the product selector', () => menu.waitForSelector('[data-testid=product-selector]', { timeout: 60_000 }));
-    await menu.click('[data-testid=product-selector]');
-    await menu.waitForSelector('[data-testid=start-over]');
-    await menu.click('[data-testid=start-over]');
-    await waited(menu, 'the confirmation', () => menu.waitForSelector('[data-testid=start-over-dialog] [data-testid=start-over-pages]', { timeout: 30_000 }));
+    const menu = await open(`${product}/k/settings`, 1440, 900);
+    await waited(menu, 'the danger block', () => menu.waitForSelector('[data-testid=danger-fresh-open]', { timeout: 60_000 }));
+    await menu.click('[data-testid=danger-fresh-open]');
+    await waited(menu, 'the confirmation', () => menu.waitForSelector('[data-testid=danger-dialog] [data-testid=danger-pages]', { timeout: 30_000 }));
     await new Promise((rest) => setTimeout(rest, 500));
     await shoot(menu, `${lang}-r12-start-over-asks`);
-    await menu.click('[data-testid=start-over-confirm]');
-    await waited(menu, 'the empty page after starting over', () => menu.waitForSelector('[data-testid=fill-card][data-state=empty]', { timeout: 60_000 }));
+    await menu.click('[data-testid=danger-confirm]');
+    await waited(menu, 'the fresh fill after starting from scratch', () => menu.waitForSelector('[data-testid=fill-card]', { timeout: 60_000 }));
     await shoot(menu, `${lang}-r12-after-starting-over`);
     await menu.close();
   }

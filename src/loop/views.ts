@@ -12,6 +12,7 @@ import type { Resolution } from '../knowledge/resolve.js';
 import { DOMAINS_FOLDER, PRODUCT_PATH } from '../writer/run.js';
 import { parseStatementRef, readCorrections, readQuestions, type Author, type Correction, type Question } from './entities.js';
 import type { Unplaced } from './plan.js';
+import type { StarterOffer } from '../knowledge/starter-upgrade.js';
 
 export type QuestionState = 'open' | 'answered' | 'closed';
 
@@ -116,6 +117,8 @@ export interface ProblemListing {
   readonly closed: number;
   /** Why a check could not be made (no single repository, say): said, never skipped silently. */
   readonly notes: readonly string[];
+  /** What the current starter set holds and this product's edited manifest lacks; each can be added (madarch-m38l.11). */
+  readonly starter: readonly StarterOffer[];
 }
 
 export interface ProblemInput {
@@ -127,6 +130,7 @@ export interface ProblemInput {
   /** Findings of the manifest and of the product's Markdown, already read. */
   readonly findings: readonly { readonly file: string; readonly line: number; readonly message: string }[];
   readonly unplaced?: readonly Unplaced[];
+  readonly starter?: readonly StarterOffer[];
 }
 
 const isPage = (page: IndexedPage): boolean => page.file === PRODUCT_PATH || page.file.startsWith(`${DOMAINS_FOLDER}/`);
@@ -142,7 +146,12 @@ export async function listProblems(input: ProblemInput): Promise<ProblemListing>
   for (const correction of corrections.items) out.push(correctionProblem(correction, byId));
   for (const problem of corrections.problems) out.push({ ...none, kind: 'unreadable-file', fixer: 'person', reason: problem.message.slice(problem.file.length + String(problem.line).length + 2), file: problem.file, line: problem.line });
   for (const problem of readQuestions(input.productFolder).problems) out.push({ ...none, kind: 'unreadable-file', fixer: 'person', reason: problem.message.slice(problem.file.length + String(problem.line).length + 2), file: problem.file, line: problem.line });
-  for (const finding of [...input.findings, ...read.findings]) out.push({ ...none, kind: 'unreadable-file', fixer: 'person', reason: finding.message, file: finding.file, line: finding.line });
+  const findingsByLocation = new Map<string, Problem>();
+  for (const finding of [...input.findings, ...read.findings]) {
+    const key = `${finding.file}:${finding.line}`;
+    if (!findingsByLocation.has(key)) findingsByLocation.set(key, { ...none, kind: 'unreadable-file', fixer: 'person', reason: finding.message, file: finding.file, line: finding.line });
+  }
+  out.push(...findingsByLocation.values());
   for (const miss of input.unplaced ?? []) out.push({ ...none, kind: 'unplaced', fixer: 'person', target: miss.slug, reason: miss.reason, file: miss.kind === 'question' ? `docs/questions/${miss.slug}.md` : `docs/corrections/${miss.slug}.md` });
   // Grounds and links that name nothing.
   const seen = new Set<string>();
@@ -176,7 +185,7 @@ export async function listProblems(input: ProblemInput): Promise<ProblemListing>
   }
   const order: Record<ProblemKind, number> = { correction: 0, 'ground-removed': 1, 'broken-link': 2, unplaced: 3, 'unreadable-file': 4 };
   out.sort((a, b) => Number(a.closed) - Number(b.closed) || order[a.kind] - order[b.kind] || byCodePoint(a.file, b.file) || (a.line ?? 0) - (b.line ?? 0) || byCodePoint(a.target ?? '', b.target ?? ''));
-  return { problems: out, open: out.filter((p) => !p.closed).length, closed: out.filter((p) => p.closed).length, notes };
+  return { problems: out, open: out.filter((p) => !p.closed).length, closed: out.filter((p) => p.closed).length, notes, starter: input.starter ?? [] };
 }
 
 function correctionProblem(correction: Correction, pages: ReadonlyMap<string, IndexedPage>): Problem {

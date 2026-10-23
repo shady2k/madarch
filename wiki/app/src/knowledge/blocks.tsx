@@ -28,7 +28,7 @@ import { NeighborhoodGraph } from './diagrams/neighborhood.js';
 import { SequenceView } from './diagrams/chain.js';
 import { TreemapView } from './diagrams/treemap.js';
 import { useKindName } from './kind-names.js';
-import { addressOfDocument, addressOfStatement } from './routes.js';
+import { addressOfDocument, addressOfStatement, K_PROBLEMS } from './routes.js';
 import { linkHandlers, openInNewTab, syncFrontTabAddress } from './tabs.js';
 import { remarkStatements, type MNode } from './statements.js';
 import { setShowGrounds, useShowGrounds } from './preferences.js';
@@ -571,21 +571,31 @@ export function BlockView({ block, resolutions, pageId }: { block: Block; resolu
  * The findings a page carries. A reader is told in plain words what a finding means and who puts it right; the file and
  * line of each, which an engineer needs, are behind "Details" so the page reads first.
  */
-export function Findings({ findings }: { findings: readonly { file: string; line: number; message: string }[] }): ReactElement | null {
+export function Findings({ findings, scope = 'page' }: { findings: readonly { file: string; line: number; message: string }[]; scope?: 'page' | 'manifest' }): ReactElement | null {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
-  if (findings.length === 0) return null;
+  const visible = scope === 'manifest' ? [...new Map(findings.map((finding) => [`${finding.file}:${finding.line}:${finding.message}`, finding])).values()] : findings;
+  const words = (message: string): string => {
+    const missingGroup = /^kind "([^"]+)": "group" names a group of "groups" (?:\([^)]*\)|.*?), got "([^"]+)"$/.exec(message);
+    if (missingGroup !== null) {
+      const kind = t(`knowledge.manifestKinds.${missingGroup[1]}`, { defaultValue: missingGroup[1] });
+      return t('knowledge.manifestMissingGroup', { kind, group: missingGroup[2] });
+    }
+    return message;
+  };
+  if (visible.length === 0) return null;
   return (
-    <Alert variant="problem" className="mt-8" data-testid="findings">
-      <AlertTitle>{t('knowledge.findings', { count: findings.length })}</AlertTitle>
+    <Alert variant="problem" className={scope === 'manifest' ? 'mb-8' : 'mt-8'} data-testid={scope === 'manifest' ? 'manifest-findings' : 'findings'}>
+      <AlertTitle>{t('knowledge.findings', { count: visible.length })}</AlertTitle>
       <AlertDescription>
-        <p data-testid="findings-help">{t('knowledge.findingsHelp')}</p>
+        <p data-testid="findings-help">{scope === 'manifest' ? t('knowledge.manifestFindingsHelp') : t('knowledge.findingsHelp')}</p>
+        {scope === 'manifest' && <p className="mt-1"><KLink href={K_PROBLEMS}>{t('errors.problems')}</KLink></p>}
         <button type="button" className="cursor-pointer bg-transparent p-0 text-left text-secondary underline" aria-expanded={open} onClick={() => setOpen(!open)} data-testid="findings-details">
           {open ? t('knowledge.findingsHide') : t('knowledge.findingsDetails')}
         </button>
         {open && (
           <ul className="!my-2">
-            {findings.map((finding, index) => <li key={index}><span className="font-mono text-[0.875em]">{finding.file}:{finding.line}</span> {finding.message}</li>)}
+            {visible.map((finding, index) => <li key={`${finding.file}:${finding.line}:${index}`}><span className="font-mono text-[0.875em]">{finding.file}:{finding.line}</span> {scope === 'manifest' ? words(finding.message) : finding.message}</li>)}
           </ul>
         )}
       </AlertDescription>

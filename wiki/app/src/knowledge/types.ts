@@ -121,6 +121,8 @@ export type FillState = {
   startedAt?: string;
   finishedAt?: string;
   message?: string;
+  /** What kind of failure it was; the app words it in the reader's language and keeps `message` as the detail. */
+  code?: string;
   gaps?: number;
 };
 
@@ -141,6 +143,7 @@ export type WriterState = {
   startedAt?: string;
   finishedAt?: string;
   message?: string;
+  code?: string;
   asked?: number;
   /** Which pages this run touches and why; known once the code is read, before the agent starts. */
   plan?: RefreshPlan;
@@ -173,12 +176,14 @@ export type WikiStatus = {
   fill: FillState;
   writer: WriterState;
   bounds: WriterBounds;
-  chosenAgent: { id: string; label: string } | null;
+  chosenAgent: { id: string; label: string; model?: string; reasoning?: string } | null;
   home: string | null;
   roles?: Record<string, { open?: string[]; lead: string[] }>;
   own?: boolean;
   /** Questions and corrections waiting, counted from their files. */
   loop?: { questionsOpen: number; questionsAnswered: number; correctionsOpen: number };
+  /** What the current starter set holds that this product's edited manifest lacks (the Problems page offers it). */
+  starterOffers?: number;
 };
 
 export type SourceFile = { repo: string | null; path: string; language: string; commit: string | null; text: string };
@@ -270,7 +275,42 @@ export type Problem = {
   at: string | null;
 };
 
-export type ProblemListing = { problems: Problem[]; open: number; closed: number; notes: string[] };
+/** One thing the starter set holds and the product's manifest lacks. */
+export type StarterOffer = {
+  id: string;
+  type: 'group' | 'roles' | 'role' | 'documents' | 'kind' | 'fields';
+  name: string;
+  labels?: { en: string; ru: string };
+  description?: { en: string; ru: string };
+  group?: string;
+  fields?: string[];
+};
+
+export type ProblemListing = { problems: Problem[]; open: number; closed: number; notes: string[]; starter?: StarterOffer[] };
+
+/** A value an agent offers for the model or the reasoning level. */
+export type ChoiceValue = { value: string; name: string; description?: string };
+export type Choice = { configId: string | null; name: string; current: string | null; values: ChoiceValue[] };
+export type AgentChoices = { agent: { id: string; label: string }; choices: { model: Choice | null; reasoning: Choice | null } };
+
+export type DangerPlan = {
+  rewrite: { agentPages: string[]; keptPages: string[] };
+  fresh: { store: string[]; agentPages: string[]; keptPages: string[]; editedStarterFiles: string[]; replacedStarterFiles: string[] };
+};
+
+/** The product settings page (madarch-m38l.11): what is set for this product on this machine. */
+export type ProductSettings = {
+  product: { name: string; id: string };
+  folder: string;
+  store: string;
+  language: string;
+  chosenAgent: { id: string; label: string; model?: string; reasoning?: string } | null;
+  bounds: WriterBounds;
+  danger: DangerPlan;
+  dangerError?: string;
+  busy: boolean;
+  own?: boolean;
+};
 
 export type PlanReason =
   | { kind: 'missing' }

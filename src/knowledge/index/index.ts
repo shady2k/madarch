@@ -62,16 +62,25 @@ export interface IndexProductOptions {
   readonly repositories: (name: string) => GitReader | undefined;
 }
 
+/** What the index published and what it left out, each with its file and line. */
+export type ProductIndexReport = IndexReport & {
+  /** Findings that kept a kind or a page out of the index, each scoped to it; the Problems page lists them. */
+  readonly findings: readonly Finding[];
+};
+
 /**
- * Publishes the product's Markdown to the graph. Refuses (throws, naming each
- * finding with its file and line) when a page cannot be read: an index that
- * dropped a page would be a smaller picture of the product.
+ * Publishes the product's Markdown to the graph. A finding scoped to one kind (its declaration in the manifest) or one
+ * page (its file) leaves only that kind or page out, and is answered in `findings` for the Problems page: the other
+ * pages are published (madarch-m38l.11). Only a manifest that cannot be read at all publishes nothing, because an index
+ * made from no kinds would unpublish every page the graph holds; that refuses, naming each finding with its file and line.
  */
-export async function indexProductMarkdown(options: IndexProductOptions): Promise<IndexReport> {
-  const { pages, findings } = readKnowledgePages(options.productFolder);
-  if (findings.length > 0) {
-    throw new Error(`src/knowledge/index/index.ts: the Markdown of ${options.productFolder} cannot be indexed whole, so nothing was published:\n${findings.map((finding) => `  ${finding.file}:${finding.line}: ${finding.message}`).join('\n')}`);
+export async function indexProductMarkdown(options: IndexProductOptions): Promise<ProductIndexReport> {
+  const kinds = readKinds(options.productFolder);
+  if (kinds.present && kinds.manifest.unreadable === true) {
+    throw new Error(`src/knowledge/index/index.ts: the manifest of ${options.productFolder} cannot be read, so no kind is known and nothing was published (publishing no pages would unpublish every page):\n${kinds.manifest.findings.map((finding) => `  ${finding.file}:${finding.line}: ${finding.message}`).join('\n')}`);
   }
-  return await indexKnowledge(options.owner, options.store, { productId: options.productId, at: options.at, pages, ...(options.head === undefined ? {} : { head: options.head }), repositories: options.repositories });
+  const { pages, findings } = readKnowledgePages(options.productFolder);
+  const report = await indexKnowledge(options.owner, options.store, { productId: options.productId, at: options.at, pages, ...(options.head === undefined ? {} : { head: options.head }), repositories: options.repositories });
+  return { ...report, findings };
 }
 export { indexWorkerProduct, type WorkerIndexOptions } from './run.js';
