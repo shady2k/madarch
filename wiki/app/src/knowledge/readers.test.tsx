@@ -287,7 +287,7 @@ describe('the role of the reader', () => {
   });
 
   test('a refusal of the server is shown in the card with its reason, and the role stays unchosen', async () => {
-    (globalThis as { fetch?: unknown }).fetch = async (_url: string, init?: RequestInit) => (init?.method === 'POST' ? Response.json({ message: '/home/x/madarch/settings.json: the settings could not be written' }, { status: 500 }) : Response.json(settings('everything', false)));
+    (globalThis as { fetch?: unknown }).fetch = async (_url: string, init?: RequestInit) => (init?.method === 'POST' ? Response.json({ message: 'settings.json in the madarch home: the settings could not be written' }, { status: 500 }) : Response.json(settings('everything', false)));
     into(createElement(RoleCard));
     await loadSettings();
     await until(() => document.querySelector('[data-testid=role-skip]') !== null, 'the card');
