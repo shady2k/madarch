@@ -229,8 +229,8 @@ describe('the starter set on the Problems page', () => {
     };
     const page = into(createElement(ProblemsPage, { version: 0 }));
     await until(() => page.querySelector('[data-testid=problems-starter]') !== null, 'the offers');
-    expect(page.querySelector('[data-testid=problems-starter] h2')!.textContent).toBe('The starter set has 4 things this product lacks');
-    expect(page.querySelector('[data-testid=starter-summary]')!.textContent).toBe('The starter set has 4 kinds and groups this manifest lacks.');
+    expect(page.querySelector('[data-testid=problems-starter] h2')!.textContent).toBe('The starter set has 4 kinds and groups this manifest lacks.');
+    expect(page.querySelector('[data-testid=starter-summary]')).toBeNull();
     expect(page.querySelectorAll('[data-testid=starter-offer]')).toHaveLength(0);
     expect(page.querySelector('[data-testid=starter-add-all]')!.textContent).toBe('Add all');
     (page.querySelector('[data-testid=starter-toggle]') as HTMLElement).click();
@@ -253,12 +253,12 @@ describe('the starter set on the Problems page', () => {
     (globalThis as { fetch?: unknown }).fetch = async () => json({ problems: [], open: 0, closed: 0, notes: [], starter: OFFERS });
     const page = into(createElement(ProblemsPage, { version: 0 }));
     await until(() => page.querySelector('[data-testid=problems-starter]') !== null, 'the offers');
-    expect(page.querySelector('[data-testid=starter-summary]')!.textContent).toBe('В стартовом наборе есть 4 видов и групп, которых нет в вашем манифесте.');
+    expect(page.querySelector('[data-testid=starter-summary]')).toBeNull();
     (page.querySelector('[data-testid=starter-toggle]') as HTMLElement).click();
     await until(() => page.querySelectorAll('[data-testid=starter-offer]').length === 4, 'the expanded Russian offers');
     expect(page.querySelector('[data-offer="kind:code.route"]')!.textContent).toContain('Вид: HTTP-маршрут (code.route)');
     expect(page.querySelector('[data-offer="kind:code.route"] [data-testid=starter-add]')!.textContent).toBe('Добавить');
-    expect(page.querySelector('[data-testid=problems-starter] h2')!.textContent).toBe('В стартовом наборе есть 4 вещи, которых нет в этом продукте');
+    expect(page.querySelector('[data-testid=problems-starter] h2')!.textContent).toBe('В стартовом наборе есть 4 видов и групп, которых нет в вашем манифесте.');
   });
 });
 
