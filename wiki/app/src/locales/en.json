@@ -36,6 +36,7 @@
     "language": "Choose language"
   },
   "knowledge": {
+    "localizedSource": "In the source",
     "title": "{{product}} — knowledge wiki",
     "loading": "Loading…",
     "broken": "broken",

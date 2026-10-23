@@ -51,7 +51,11 @@ None.
 - Missing or invalid localized content is an explicit error naming its file and line; do not display another entity's content or silently substitute a smaller result.
 
 ## Acceptance evidence
-Pending implementation and acceptance.
+
+- `bun run check`: passed on the SkyPilot AVX2 pod.
+- Focused engine checks: `test/knowledge-localized-sources.test.ts`, `test/knowledge-doc-entities.test.ts`, `test/knowledge-render.test.ts`, `test/writer.test.ts`, `test/knowledge-server.test.ts`, and `test/knowledge-agent.test.ts` passed (94 tests on the recorded run).
+- Wiki UI check: `bun test src/knowledge/readers.test.tsx` passed in `wiki/app` after `bun install --frozen-lockfile` (24 tests).
+- Full suite, mutation sample, visual rendering walk, required independent review, CI and PR are pending.
 
 ## DONE WHEN
 A Russian wiki over English source documents displays every extracted glossary term, use case, rule, decision and requirement with a grounded Russian statement and its original source available collapsed with its location; names and ids remain unchanged, same-language content is not duplicated, language changes refresh the statements on the next fill, and scripted-agent tests cover these behaviors.

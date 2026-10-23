@@ -38,6 +38,8 @@ export function isKindPage(manifest: KindsManifest, path: string): boolean {
 /** Whether the wiki lists a document of the product repository (`repo` null) or of a code repository: not a page of a kind, not excluded. */
 export function listedDocument(manifest: KindsManifest, repo: string | null, path: string): boolean {
   if (repo === null && isKindPage(manifest, path)) return false;
+  // Machine-generated entity translations are data for entity pages, not new source documents.
+  if (repo === null && /^docs\/sources\/[A-Za-z0-9._-]+\/[A-Za-z0-9_-]+\.md$/.test(path)) return false;
   return !matchesAny(manifest.excludeDocuments, path);
 }
 

@@ -14,6 +14,7 @@ import { refOfGraph, refOfMarkdown, type RenderContext, type Subject } from './b
 import type { DocEntity } from './doc-entities.js';
 import type { GraphEntity } from './graph-read.js';
 import { parseTermText } from './glossary.js';
+import { detectDocumentLanguage } from '../writer/localized-source.js';
 import { readStatements } from './markdown.js';
 import type { Block, EntityRef, RefRow } from './model.js';
 import { documentAddress, entityAddress } from './resolve.js';
@@ -199,7 +200,14 @@ export async function linkedFromBlock(ctx: RenderContext, subject: Subject, para
 }
 
 /** The glossary term a document entity is: its definition, synonyms, code names, places of use and ambiguity (decision 0031). */
-export function termBlock(subject: Subject, params: Readonly<Record<string, string>>, file: string, line: number): Block {
+export function termBlock(ctx: RenderContext, subject: Subject, params: Readonly<Record<string, string>>, file: string, line: number): Block {
   if (subject.source !== 'document') return { type: 'problem', block: 'term', file, line, message: 'the term block shows a glossary term; the entities of this kind are not terms of a document' };
-  return { type: 'term', title: params['title'] ?? 'Term', ...parseTermText(subject.entity.text) };
+  const source = subject.entity.repo === null ? ctx.localizedSources.get(subject.entity.id) : undefined;
+  const detected = source === undefined ? undefined : source.sourceLanguage;
+  const localized = source !== undefined && detected !== ctx.language;
+  const originalFields = parseTermText(subject.entity.text);
+  const localizedFields = localized ? parseTermText(source.statement) : originalFields;
+  const needsLocalization = subject.entity.repo === null && detectDocumentLanguage(subject.entity.text) !== ctx.language;
+  const fields = localized ? { ...originalFields, definition: localizedFields.definition || source.statement } : originalFields;
+  return { type: 'term', title: params['title'] ?? 'Term', ...fields, ...(localized ? { localized: { statement: source.statement, original: source.original, sourceDocument: source.sourceDocument, sourceLine: source.sourceLine, sourceEndLine: source.sourceEndLine } } : {}), ...(needsLocalization && source === undefined ? { definition: '' } : {}) };
 }

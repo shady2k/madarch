@@ -12,6 +12,7 @@
  * graph's spans were read from, and a restarted server still knows.
  */
 import { glossaryTerms, termLinks, type GlossaryTerm } from './glossary.js';
+import { detectDocumentLanguage, localizedSourcePath, parseLocalizedSource, type LocalizedDocumentSource } from '../writer/localized-source.js';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync } from 'node:fs';
 import { execFile, execFileSync } from 'node:child_process';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
@@ -559,7 +560,8 @@ export class KnowledgeProduct {
           this.notify();
           return;
         case 'unit-start':
-          setUnit(message.unit, { state: 'writing' });
+          if (!this.writer.units.some((unit) => unit.unit === message.unit)) this.writer = { ...this.writer, units: [...this.writer.units, { unit: message.unit, path: message.path, state: 'writing' }] };
+          else setUnit(message.unit, { state: 'writing' });
           this.writer = { ...this.writer, current: message.unit };
           this.notify();
           return;
@@ -813,6 +815,34 @@ export class KnowledgeProduct {
     const markdown = new Map<string, MarkdownEntity>(markdownRead.entities.map((entity) => [entity.id, entity]));
     const reading = await this.documentEntities(product.folder, read.manifest);
     const docEntities = new Map<string, DocEntity>(reading.entities.map((entity) => [entity.id, entity]));
+    const language = read.manifest.language ?? 'en';
+    const localizedSources = new Map<string, LocalizedDocumentSource>();
+    const localizedFindings: Finding[] = [];
+    for (const entity of reading.entities) {
+      if (entity.repo !== null) continue;
+      const sourceLanguage = detectDocumentLanguage(entity.text);
+      if (sourceLanguage === language) continue;
+      const file = localizedSourcePath(entity);
+      if (sourceLanguage === undefined) {
+        localizedFindings.push({ file, line: entity.line, message: `the source language cannot be identified confidently as English or Russian; no localized statement is shown` });
+        continue;
+      }
+      const text = readProductDocument(product.folder, file);
+      if (text === undefined) {
+        localizedFindings.push({ file, line: 1, message: `no localized source exists for ${entity.id}; fill the wiki in ${language} to write it` });
+        continue;
+      }
+      const parsed = parseLocalizedSource(file, text, entity, language);
+      if (!parsed.ok) {
+        localizedFindings.push({ file, line: parsed.line, message: `${parsed.message}; no localized statement is shown` });
+        continue;
+      }
+      if (parsed.source.sourceLanguage !== sourceLanguage) {
+        localizedFindings.push({ file, line: 2, message: `source-language is ${parsed.source.sourceLanguage}, but the current document is detected as ${sourceLanguage}` });
+        continue;
+      }
+      localizedSources.set(entity.id, parsed.source);
+    }
     const entityAtLine = new Map<string, DocEntity>(reading.entities.map((entity) => [`${entity.repo ?? ''}\0${entity.path}\0${entity.line}`, entity]));
     const repoOfScope = (scope: string): string | undefined => [...this.pins.values()].find((pin) => pin.scope === scope)?.name;
     const readSource = async (repo: string | null, path: string): Promise<string | undefined> => {
@@ -849,9 +879,9 @@ export class KnowledgeProduct {
       documentEntity: (repo, path, line) => entityAtLine.get(`${repo ?? ''}\0${path}\0${line}`),
     });
     return {
-      ctx: { productFolder: product.folder, manifest: read.manifest, graph, markdown, docEntities, documents: reading.sources, repositories: [...this.pins.keys()].sort(byCodePoint), webOf, index: { relyingOn: (key) => statementsRelyingOn(owner, key), counts: () => indexCounts(owner) }, commitOf: (repo) => this.pins.get(repo)?.commit ?? null, resolver, repoOfScope, readSource },
+      ctx: { productFolder: product.folder, manifest: read.manifest, graph, markdown, docEntities, localizedSources, language, documents: reading.sources, repositories: [...this.pins.keys()].sort(byCodePoint), webOf, index: { relyingOn: (key) => statementsRelyingOn(owner, key), counts: () => indexCounts(owner) }, commitOf: (repo) => this.pins.get(repo)?.commit ?? null, resolver, repoOfScope, readSource },
       manifest: read.manifest,
-      findings: [...read.manifest.findings, ...markdownRead.findings, ...reading.findings],
+      findings: [...read.manifest.findings, ...markdownRead.findings, ...reading.findings, ...localizedFindings],
     };
   }
 
@@ -1012,7 +1042,7 @@ export class KnowledgeProduct {
   async glossary(): Promise<{ terms: GlossaryTerm[]; resolutions: Record<string, Resolution>; findings: Finding[] }> {
     const context = await this.context();
     if ('absent' in context) return { terms: [], resolutions: {}, findings: [] };
-    const terms = glossaryTerms(context.manifest, context.ctx.docEntities.values());
+    const terms = glossaryTerms(context.manifest, context.ctx.docEntities.values(), context.ctx.localizedSources, context.ctx.language);
     // The links the terms' texts hold are resolved here once, so the page draws them as it draws any other (broken ones marked).
     const resolutions: Record<string, Resolution> = {};
     for (const url of [...new Set(terms.flatMap(termLinks))].sort(byCodePoint)) resolutions[url] = await context.ctx.resolver.resolve(url);

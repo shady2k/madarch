@@ -24,6 +24,9 @@ import { markResolved } from '../loop/answer.js';
 import { briefsFor, neededFrom, planRefresh } from '../loop/plan.js';
 import { fsSink, productSlug, runWriter, type ToolClient, type UnitAgent } from '../writer/index.js';
 import { parseMessage, type FromWorker, type RepositoryPin, type ToWorker, type WorkerStart } from './fill-protocol.js';
+import { readKinds } from './kinds.js';
+import { productDocumentPaths, readProductDocument, listedDocument } from './doc-sources.js';
+import { readDocEntities } from './doc-entities.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -251,9 +254,15 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
     const sink = { read: files.read, write: async (relative: string, content: string): Promise<void> => { await files.write(relative, content); send({ type: 'page', path: relative }); } };
     try {
       const repo = repositories[0]!;
+      const kinds = readKinds(productFolder);
+      const documentSources = kinds.present ? productDocumentPaths(productFolder).filter((path) => listedDocument(kinds.manifest, null, path)).flatMap((path) => {
+        const text = readProductDocument(productFolder, path);
+        return text === undefined ? [] : [{ repo: null, path, text }];
+      }) : [];
+      const documentEntities = kinds.present ? readDocEntities(documentSources, kinds.manifest).entities : [];
       const report = await runWriter({
         owner, store, repository: repo.path, ...(pins.get(repo.name)?.head === undefined ? {} : { ref: pins.get(repo.name)!.head }), output: productFolder, productName: start.productName, agent: remote, sink,
-        language: start.language, languageChanged: start.languageChanged, repositoryName: repo.name,
+        language: start.language, languageChanged: start.languageChanged, documentEntities, repositoryName: repo.name,
         needed: neededFrom(planned, briefs),
         resolved: async (used) => { await markResolved(productFolder, used); },
         // Every page written is in the graph's index at once; a failure is told, never hidden.

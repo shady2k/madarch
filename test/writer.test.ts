@@ -16,20 +16,22 @@
  * its filled store between runs while developing; CI fills fresh each time.
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { parse as parseYaml } from 'yaml';
 import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { documentSections } from '../src/knowledge/index/sections.js';
+import { localizedSourcePath } from '../src/writer/localized-source.js';
 import { fillGraph } from '../src/extract/driver/index.js';
 import { HISTORY_EXTRACTOR, OWNERS, TREE_EXTRACTORS } from '../src/extract/driver/extractors.js';
 import { createGraphStore, type GraphStore } from '../src/graph/index.js';
 import { changedGrounds, gitReader, indexKnowledge, readIndexedPage, statementsRelyingOn } from '../src/knowledge/index/index.js';
 import {
-  DEFAULT_UNIT_BOUNDS, GraphView, UnitTools, WRITER_TOOLS, memorySink, runWriter, slugOf,
+  DEFAULT_UNIT_BOUNDS, GraphView, UnitTools, WRITER_TOOLS, fsSink, memorySink, runWriter, slugOf,
   type DomainDeclaration, type ToolAnswer, type UnitAgent, type UnitRequest, type UnitSpec, type WriterReport,
 } from '../src/writer/index.js';
 
@@ -221,6 +223,41 @@ let first: Run;
 let second: Run;
 
 describe('the writer over the training repository', () => {
+
+  test('the filesystem sink refuses path traversal and a symlinked source directory', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'madarch-localized-sink-'));
+    const outside = mkdtempSync(join(tmpdir(), 'madarch-localized-outside-'));
+    try {
+      await expect(fsSink(root).write('docs/sources/../escape.md', 'not allowed')).rejects.toThrow();
+      mkdirSync(join(root, 'docs'), { recursive: true });
+      symlinkSync(outside, join(root, 'docs', 'sources'));
+      await expect(fsSink(root).write('docs/sources/doc.term/abc.md', 'not allowed')).rejects.toThrow();
+      expect(existsSync(join(outside, 'doc.term', 'abc.md'))).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  test('a localized-source unit writes the statement with fixed source identity and provenance', async () => {
+    const sourceText = readFileSync(path.join(ROOT, 'examples/training-repository/template/docs/requirements.md'), 'utf8');
+    const sourceLine = sourceText.split('\n').find((line) => line.includes('order'))!;
+    const entity = { id: 'doc:docs/requirements.md#localized-test', kind: 'doc.requirement', title: 'Order requirement', identifier: 'UC-1', repo: null, path: 'docs/requirements.md', anchor: 'localized-test', line: 1, endLine: 1, text: sourceLine };
+    expect(entity.text).not.toBe('');
+    const sink = memorySink();
+    const sourcePath = localizedSourcePath(entity);
+    const tools = new UnitTools(view, { kind: 'localized-source', id: entity.id, path: sourcePath, entity, sourceLanguage: 'en', language: 'ru' }, sink);
+    const malformed = await tools.call('write_localized_source', { statement: '## In the source\nforged source text' });
+    expect(malformed.isError).toBe(true);
+    const answer = await tools.call('write_localized_source', { statement: 'Токен подтверждения после успешной оплаты.' });
+    expect(answer.isError).toBe(false);
+    expect(tools.outcome().status).toBe('written');
+    const markdown = sink.pages.get(sourcePath)!;
+    expect(markdown).toContain(`entity: ${entity.id}`);
+    expect(markdown).toContain('source-document: docs/requirements.md');
+    expect(markdown).toContain(entity.text);
+    expect(markdown).toContain('Токен подтверждения');
+  });
   beforeAll(async () => {
     first = await run({ spoilProduct: true, spoilDomains: true });
     second = await run();

@@ -11,7 +11,7 @@
  * code-point order, and a checked page is written in canonical form, so the
  * same graph, prompts and answers give the same files.
  */
-import { mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import type { GraphStore } from '../graph/index.js';
@@ -21,6 +21,8 @@ import { parse as parseYaml } from 'yaml';
 import { splitFrontMatter } from '../knowledge/markdown.js';
 import { parseQuestion, QUESTIONS_FOLDER, readCorrections, readQuestions, type Correction, type Question } from '../loop/entities.js';
 import { writtenAtOf } from './basis.js';
+import type { DocEntity } from '../knowledge/doc-entities.js';
+import { detectDocumentLanguage, localizedSourcePath, localizedSourcePrompt, parseLocalizedSource, renderLocalizedSource, LOCALIZED_SOURCE_SCHEMA } from './localized-source.js';
 import { includedNotes, type EditBrief } from './edit.js';
 import { statementsOf } from './sentences.js';
 import { MAX_SLUG_LENGTH, SLUG } from './format.js';
@@ -69,6 +71,8 @@ export interface WriterOptions {
   readonly language?: string;
   /** The content language was changed by this run: every page is written again. */
   readonly languageChanged?: boolean;
+  /** Extracted product-repository document entities to localize with scripted ACP units. */
+  readonly documentEntities?: readonly DocEntity[];
   /**
    * Which pages need an agent unit. The seam of the incremental update (madarch-m38l.7): given the pages already
    * written, it answers what to write. The default is `unitsNeeded`: a page that is missing, and every page when the
@@ -94,6 +98,8 @@ export interface WriterReport {
   /** The product unit's outcome; when every page was there and no unit ran, the page as kept: written, with no attempt and no call. */
   readonly product: UnitOutcome;
   readonly domains: readonly UnitOutcome[];
+  /** Localized source statements written for document entities. */
+  readonly localizedSources: readonly UnitOutcome[];
   /** The number of agent units that ran. */
   readonly units: number;
   readonly ok: boolean;
@@ -157,10 +163,24 @@ export function fsSink(root: string): PageSink {
   return {
     async write(relativePath: string, content: string): Promise<void> {
       const target = path.resolve(root, relativePath);
-      if (!target.startsWith(`${path.resolve(root)}${path.sep}`) || !/^docs\/(product\.md|domains\/[a-z][a-z0-9-]*\.md|questions\/[a-z][a-z0-9-]*\.md)$/.test(relativePath)) {
+      if (!target.startsWith(`${path.resolve(root)}${path.sep}`) || relativePath.split(/[\\/]/).some((part) => part === '.' || part === '..') || !/^docs\/(product\.md|domains\/[a-z][a-z0-9-]*\.md|questions\/[a-z][a-z0-9-]*\.md|sources\/[A-Za-z0-9._-]+\/[A-Za-z0-9_-]+\.md)$/.test(relativePath)) {
         throw new Error(`src/writer/run.ts: ${JSON.stringify(relativePath)} is not a page the writer may write`);
       }
-      await mkdir(path.dirname(target), { recursive: true });
+      const absoluteRoot = path.resolve(root);
+      const rootStat = await lstat(absoluteRoot);
+      if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) throw new Error(`src/writer/run.ts: ${JSON.stringify(root)} is not a real product directory`);
+      const relativeParent = path.relative(absoluteRoot, path.dirname(target));
+      let cursor = absoluteRoot;
+      for (const part of relativeParent.split(path.sep).filter(Boolean)) {
+        cursor = path.join(cursor, part);
+        try {
+          const stat = await lstat(cursor);
+          if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error(`src/writer/run.ts: ${JSON.stringify(cursor)} is not a real directory`);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+          await mkdir(cursor);
+        }
+      }
       const temporary = `${target}.${process.pid}.${(counter += 1)}.writing`;
       await writeFile(temporary, content, 'utf8');
       await rename(temporary, target);
@@ -285,10 +305,6 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
   const askedIds: string[] = [];
   const keptOutcome = (unit: string, path: string): UnitOutcome => ({ unit, status: 'written', path, writeAttempts: 0, calls: 0, refusals: [], domains: [], grounds: [], links: [], filesRead: [], questions: [], merged: [] });
   const neededDomains = domainPages.filter((page) => need.domain(page));
-  if (!need.product && neededDomains.length === 0) {
-    // Every page is there and in the language asked: nothing to write, and the pages' grounds are re-checked by the wiki.
-    return { content, product: keptOutcome(productUnit.id, PRODUCT_PATH), domains: [], units: 0, ok: true, stale: [], indexErrors: [], loopProblems, questions: [] };
-  }
   // The answers and corrections each page's unit is told, so a rewrite that used them can close them.
   const expected = new Map<string, Set<string>>();
   const done = new Map<string, Set<string>>();
@@ -364,6 +380,41 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
       domains.push(outcome);
     }
   }
+  const localizedSources: UnitOutcome[] = [];
+  const localizedEntities = [...(options.documentEntities ?? [])].filter((entity) => entity.repo === null).sort((a, b) => byCodePoint(a.id, b.id));
+  for (const entity of localizedEntities) {
+    const sourceLanguage = detectDocumentLanguage(entity.text);
+    if (sourceLanguage === undefined) {
+      const id = `localized-source:${entity.id}`;
+      const file = localizedSourcePath(entity);
+      const refusal = { line: entity.line, rule: 'source-language', message: 'the source language cannot be identified confidently as English or Russian; no smaller localized statement was written' };
+      const outcome: UnitOutcome = { ...keptOutcome(id, file), status: 'not-written', refusals: [refusal] };
+      options.onUnitStart?.({ unit: id, path: file });
+      options.onUnit?.(outcome);
+      localizedSources.push(outcome);
+      continue;
+    }
+    if (sourceLanguage === language) {
+      localizedSources.push(keptOutcome(`localized-source:${entity.id}`, localizedSourcePath(entity)));
+      continue;
+    }
+    const unitPath = localizedSourcePath(entity);
+    let existing: string | undefined;
+    try { existing = await sink.read(unitPath); } catch { existing = undefined; }
+    if (existing !== undefined) {
+      const validated = parseLocalizedSource(unitPath, existing, entity, language);
+      if (validated.ok && validated.source.sourceLanguage === sourceLanguage) {
+        localizedSources.push(keptOutcome(`localized-source:${entity.id}`, unitPath));
+        continue;
+      }
+    }
+    const spec: UnitSpec = { kind: 'localized-source', id: `localized-source:${entity.id}`, path: unitPath, entity, sourceLanguage, language: language === 'ru' ? 'ru' : 'en' };
+    options.onUnitStart?.({ unit: spec.id, path: spec.path });
+    const tools = new UnitTools(view, spec, sink, [], bounds, basis, extras);
+    const outcome = await runUnit(options.agent, tools, localizedSourcePrompt({ entity, language: spec.language, sourceLanguage, file: entity.path }));
+    options.onUnit?.(outcome);
+    localizedSources.push(outcome);
+  }
   if (options.resolved !== undefined) {
     for (const [key, units] of [...expected].sort(([a], [b]) => byCodePoint(a, b))) {
       const written = done.get(key);
@@ -377,7 +428,7 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
     }
   }
   const stale = (await existingDomainPages(options.output)).filter((page) => !domains.some((d) => d.path === page));
-  return { content, product, domains, units: (need.product ? 1 : 0) + domains.filter((d) => d.writeAttempts > 0 || d.calls > 0 || d.status !== 'written').length, ok: product.status === 'written' && domains.every((d) => d.status === 'written') && indexErrors.length === 0, stale, indexErrors, loopProblems, questions: askedIds };
+  return { content, product, domains, localizedSources, units: (need.product ? 1 : 0) + domains.filter((d) => d.writeAttempts > 0 || d.calls > 0 || d.status !== 'written').length + localizedSources.filter((d) => d.calls > 0 || d.status === 'failed').length, ok: product.status === 'written' && domains.every((d) => d.status === 'written') && localizedSources.every((outcome) => { if (outcome.status === 'failed') return false; const entity = localizedEntities.find((candidate) => `localized-source:${candidate.id}` === outcome.unit); const sourceLanguage = entity === undefined ? undefined : detectDocumentLanguage(entity.text); return sourceLanguage === undefined || sourceLanguage === language || outcome.status === 'written'; }) && indexErrors.length === 0 && loopProblems.length === 0, stale, indexErrors, loopProblems, questions: askedIds };
 }
 
 export type { DomainDeclaration };
