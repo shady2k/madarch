@@ -262,3 +262,37 @@ describe('writeProductDiscussion', () => {
   });
 
 });
+
+describe('the writer asks who the user is (decision 0031)', () => {
+  test('a comment records its author, how the author was verified and a trailer in the commit; an answer carries the trailer too', async () => {
+    const { product, input } = fixture();
+    const written = writeProductDiscussion(product, input, new Date('2026-10-15T12:00:00.000Z'));
+    expect(written.ok).toBe(true);
+    if (!written.ok) return;
+    const message = readFileSync(join(product, 'comments', written.thread, `${written.message}.md`), 'utf8');
+    expect(message).toContain('author: "Fixture Author"');
+    expect(message).toContain('verified: local-git');
+    expect(git(product, ['log', '-1', '--format=%B'])).toContain('Written-by: Fixture Author <fixture@example.test> (local, not verified)');
+    const question = join(product, 'docs', 'question.md');
+    writeFileSync(question, '# Q-001 — What now?\n\n## Question\nWhat?\n\n## Answer\n\n');
+    git(product, ['add', '--', 'docs/question.md']); git(product, ['commit', '--quiet', '-m', 'question']); git(product, ['push', '--quiet', 'origin', 'HEAD']);
+    expect(await answerProductQuestion(product, { document: 'docs/question.md', answer: 'Yes.', answerSection: 'Answer' })).toMatchObject({ ok: true });
+    expect(git(product, ['log', '-1', '--format=%an <%ae>%n%B'])).toContain('Fixture Author <fixture@example.test>');
+    expect(git(product, ['log', '-1', '--format=%B'])).toContain('(local, not verified)');
+  });
+
+  test('a git without a user name refuses every write, naming the product and the command, and writes nothing', () => {
+    const { product, input } = fixture();
+    git(product, ['config', '--unset', 'user.name']);
+    const before = git(product, ['rev-parse', 'HEAD']);
+    const refused = writeProductDiscussion(product, input, new Date('2026-10-15T12:00:00.000Z'));
+    expect(refused).toMatchObject({ ok: false, status: 409 });
+    if (!refused.ok) {
+      expect(refused.message).toContain(product);
+      expect(refused.message).toContain('user.name');
+    }
+    expect(git(product, ['rev-parse', 'HEAD'])).toBe(before);
+    expect(git(product, ['status', '--porcelain', '--untracked-files=all'])).toBe('');
+    expect(writeProductPageDiscussion(product, { document: 'docs/guide.md', body: 'A note.' })).toMatchObject({ ok: false, status: 409 });
+  });
+});

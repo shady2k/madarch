@@ -77,6 +77,11 @@ export interface ServerOptions {
   productFolder?: string;
   /** Products home for a single server with per-product URL prefixes. */
   productHome?: string;
+  /**
+   * madarch's own wiki (decision 0031): a product repository outside the products home, served under its folder's name
+   * beside the products of the home, always in the selector, and what the root opens while the home holds no product.
+   */
+  ownWiki?: { folder: string };
   /** Serving-only opt-in for an existing directory with no manifest; defaults to strict product recognition. */
   allowNoManifest?: boolean;
   /** The folder the app's built files served from (stage 2's build); without it only the API answers. */
@@ -290,9 +295,9 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
   const knowledgeHost = new KnowledgeHost(options.knowledgeRoot ?? joinPath(options.productHome ?? productsHome(env as Record<string, string | undefined>), '.madarch', 'knowledge'), undefined, { env, errorLog, ...(process.env.MADARCH_SNAPSHOT_MS === undefined ? {} : { snapshotMs: Number(process.env.MADARCH_SNAPSHOT_MS) }), ...(options.knowledgeAgentFactory === undefined ? {} : { agentFactory: options.knowledgeAgentFactory }) });
   /** A browser opening a page of a wiki starts that product's reader at once, so the page's own requests find it started; a probe or a script does not. */
   const opensPage = (request: Request): boolean => request.method === 'GET' && (request.headers.get('accept') ?? '').includes('text/html');
-  let productNames: () => { name: string; folder: string }[] = () => (productWiki === undefined ? [] : [{ name: productWiki.product.name, folder: basename(productWiki.product.folder) }]);
-  const knowledgeOf = (productFolder: string): KnowledgePart =>
-    createKnowledgePart({ json: makeJson, refused: wikiRefused, errorLog }, knowledgeHost.of(productFolder), () => productNames());
+  let productNames: () => { name: string; folder: string; own?: true }[] = () => (productWiki === undefined ? [] : [{ name: productWiki.product.name, folder: basename(productWiki.product.folder) }]);
+  const knowledgeOf = (productFolder: string, own = false): KnowledgePart =>
+    createKnowledgePart({ json: makeJson, refused: wikiRefused, errorLog }, knowledgeHost.of(productFolder), () => productNames(), env as Record<string, string | undefined>, own);
   const handle = createHandler({
     env,
     sources,
@@ -318,12 +323,12 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
    * built (the Architecture bundle, the page set's bodies) — while its pages are still read fresh at
    * every ask (madarch-tzte.23.8).
    */
-  interface ProductEntry { wiki: ProductWiki; handler: ServerHandler; manifest: number }
+  interface ProductEntry { wiki: ProductWiki; handler: ServerHandler; manifest: number; own?: boolean }
   const productHome = options.productHome;
   const productEntries = new Map<string, ProductEntry>();
   let homeStamp = -1;
   let lastRefresh = 0;
-  if (productHome !== undefined) productNames = () => { refreshProducts(); return [...productEntries.entries()].map(([folder, entry]) => ({ name: entry.wiki.product.name, folder })).sort((a, b) => byCodePoint(a.folder, b.folder)); };
+  if (productHome !== undefined) productNames = () => { refreshProducts(); return [...productEntries.entries()].map(([folder, entry]) => ({ name: entry.wiki.product.name, folder, ...(entry.own ? { own: true as const } : {}) })).sort((a, b) => byCodePoint(a.folder, b.folder)); };
   const refreshProducts = (): void => {
     if (productHome === undefined) return;
     let stamp = -1;
@@ -337,7 +342,14 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
       return;
     }
     const next = new Map<string, ProductEntry>();
-    for (const item of listed.products) {
+    const toServe = listed.products.map((item) => ({ folder: item.folder, own: false }));
+    if (options.ownWiki !== undefined) {
+      const ownName = basename(options.ownWiki.folder);
+      const clash = toServe.find((item) => basename(item.folder) === ownName);
+      if (clash !== undefined) errorLog(`madarch's own wiki (${options.ownWiki.folder}) is not served: the products home holds a product folder of the same name, ${clash.folder}`);
+      else toServe.push({ folder: options.ownWiki.folder, own: true });
+    }
+    for (const item of toServe) {
       const name = basename(item.folder);
       const manifest = manifestStampOf(item.folder);
       const held = productEntries.get(name);
@@ -357,9 +369,10 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
         continue;
       }
       next.set(name, {
+        own: item.own,
         wiki: opened.wiki,
         manifest,
-        handler: createHandler({ env, sources, graphs, log, errorLog, wiki: createWikiPart(makeJson, wikiRefused, opened.wiki, appFolder, { env, outside: knowledgeHost.of(item.folder).changes }), appFolder, unitTool: options.orchestrator?.unitTool, knowledge: knowledgeOf(item.folder) }),
+        handler: createHandler({ env, sources, graphs, log, errorLog, wiki: createWikiPart(makeJson, wikiRefused, opened.wiki, appFolder, { env, outside: knowledgeHost.of(item.folder).changes }), appFolder, unitTool: options.orchestrator?.unitTool, knowledge: knowledgeOf(item.folder, item.own) }),
       });
     }
     productEntries.clear();
@@ -373,19 +386,27 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
    * page that says what to do.
    */
   const LAST_PRODUCT_COOKIE = 'madarch-last-product';
-  const productToOpen = (request: Request): string | undefined => {
-    refreshProducts();
-    const names = [...productEntries.keys()].sort(byCodePoint);
-    if (names.length === 0) return undefined;
-    if (names.length === 1) return names[0];
+  const lastProductCookie = (request: Request): string | undefined => {
     for (const part of (request.headers.get('cookie') ?? '').split(';')) {
       const [key, ...value] = part.trim().split('=');
       if (key !== LAST_PRODUCT_COOKIE) continue;
       try {
         const last = decodeURIComponent(value.join('='));
-        if (productEntries.has(last)) return last;
+        if (productEntries.has(last) && !productEntries.get(last)!.own) return last;
       } catch { /* a cookie that is not a product folder opens the most recently changed one */ }
     }
+    return undefined;
+  };
+  const productToOpen = (request: Request): string | undefined => {
+    refreshProducts();
+    const all = [...productEntries.keys()].sort(byCodePoint);
+    if (all.length === 0) return undefined;
+    // madarch's own wiki opens at the root only while it is all there is, or when this browser last read it.
+    const names = all.filter((name) => !productEntries.get(name)!.own);
+    if (names.length === 0) return all[0];
+    if (names.length === 1) return names[0];
+    const last = lastProductCookie(request);
+    if (last !== undefined) return last;
     return names.reduce((best, name) => (productEntries.get(name)!.manifest > productEntries.get(best)!.manifest ? name : best), names[0]!);
   };
   const rootPage = (request: Request): Response => {
@@ -409,7 +430,8 @@ const notServed = (message: string): Response => Response.json({ message }, { st
     if (!(response.headers.get('content-type') ?? '').includes('text/html')) return response;
     const headers = new Headers(response.headers);
     headers.delete('content-length');
-    const html = (await response.text()).replaceAll('="/', `="${prefix}/`);
+    // The faces are served at the home's root, where the stylesheet names them: the preload names the same address, or the font is fetched twice.
+    const html = (await response.text()).replaceAll('="/', `="${prefix}/`).replaceAll(`href="${prefix}/fonts/`, 'href="/fonts/');
     return new Response(html, { status: response.status, headers });
   };
   const handleProductsHome = async (request: Request): Promise<Response> => {
@@ -433,7 +455,7 @@ const notServed = (message: string): Response => Response.json({ message }, { st
     const forwarded = new Request(new URL(rest + url.search, url), request);
     const answered = await withProductPrefix(await entry.handler(forwarded), `/products/${encodeURIComponent(name)}`);
     // The page a reader opens is the product this browser opens at the root next time.
-    if ((answered.headers.get('content-type') ?? '').includes('text/html') && answered.status === 200) answered.headers.append('set-cookie', `${LAST_PRODUCT_COOKIE}=${encodeURIComponent(name)}; Path=/; Max-Age=31536000; SameSite=Lax`);
+    if ((answered.headers.get('content-type') ?? '').includes('text/html') && answered.status === 200 && !entry.own) answered.headers.append('set-cookie', `${LAST_PRODUCT_COOKIE}=${encodeURIComponent(name)}; Path=/; Max-Age=31536000; SameSite=Lax`);
     return answered;
   };
   let server: ReturnType<typeof Bun.serve>;
@@ -559,6 +581,9 @@ export function createHandler(dependencies: {
         { method: 'POST', path: '/api/k/agent', handle: (request: Request) => dependencies.knowledge!.chooseAgent(request) },
         { method: 'GET', path: '/api/k/documents', handle: (request: Request) => dependencies.knowledge!.documents(request) },
         { method: 'GET', path: '/api/k/document', handle: (request: Request) => dependencies.knowledge!.document(request) },
+        { method: 'GET', path: '/api/k/glossary', handle: (request: Request) => dependencies.knowledge!.glossary(request) },
+        { method: 'GET', path: '/api/k/settings', handle: (request: Request) => dependencies.knowledge!.settings(request) },
+        { method: 'POST', path: '/api/k/settings', handle: (request: Request) => dependencies.knowledge!.settings(request) },
         { method: 'GET', path: '/api/k/questions', handle: (request: Request) => dependencies.knowledge!.questions(request) },
         { method: 'GET', path: '/api/k/question', handle: (request: Request) => dependencies.knowledge!.question(request) },
         { method: 'POST', path: '/api/k/answer', handle: (request: Request) => dependencies.knowledge!.answer(request) },

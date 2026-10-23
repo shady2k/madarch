@@ -267,13 +267,13 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
       await snapshot(true).catch(() => undefined);
       const indexed = report.indexErrors.length === 0 ? '' : ` The graph index of the written pages failed: ${report.indexErrors.join('; ')}.`;
       const loop = report.loopProblems.length === 0 ? '' : ` Questions and corrections with a problem: ${report.loopProblems.join('; ')}.`;
-      const asked = report.questions.length === 0 ? '' : ` The agent asked ${report.questions.length} question${report.questions.length === 1 ? '' : 's'}: they are on the Questions page.`;
+      const asked = report.questions.length;
       const nothing = report.units === 0 ? ' Nothing needed the agent: no ground changed, no answer or correction was waiting, and the language is the same.' : '';
       if (report.ok) {
-        const message = `${nothing}${asked}${loop}${stale}${skipped}`.trim();
-        send({ type: 'writer', state: 'done', ...(message === '' ? {} : { message }) });
+        const message = `${nothing}${loop}${stale}${skipped}`.trim();
+        send({ type: 'writer', state: 'done', ...(message === '' ? {} : { message }), ...(asked === 0 ? {} : { asked }) });
       } else {
-        send({ type: 'writer', state: 'failed', message: `some pages were not written; each unit above says why.${asked}${loop}${stale}${skipped}${indexed}` });
+        send({ type: 'writer', state: 'failed', message: `some pages were not written; each unit above says why.${loop}${stale}${skipped}${indexed}`, ...(asked === 0 ? {} : { asked }) });
       }
     } catch (error) {
       await snapshot(true).catch(() => undefined);

@@ -17,6 +17,7 @@ import { answerQuestion, getProblems, getQuestion, getQuestions, getRefreshPlan 
 import { CodePlace, KLink, brokenWords } from './blocks.js';
 import { addressOfEntity, addressOfQuestion, K_QUESTIONS } from './routes.js';
 import { useRead } from './live.js';
+import { useTabTitle } from './tabs.js';
 import { PageSkeleton } from './skeleton.js';
 import type { Author, Problem, QuestionDetail, QuestionRow, QuestionState, RefreshPlan, RefreshPreview, Resolution } from './types.js';
 
@@ -83,6 +84,7 @@ function QuestionItem({ row }: { row: QuestionRow }): ReactElement {
 export function QuestionsPage({ version }: { version: number }): ReactElement {
   const { t } = useTranslation();
   const { data, error } = useRead('questions', version, (signal) => getQuestions(signal));
+  useTabTitle(t('loop.questionsTitle'));
   if (data === null && error === null) return <PageSkeleton testId="questions-loading" rows />;
   if (data === null) {
     return <Alert variant="problem" data-testid="questions-error"><AlertTitle>{t('loop.questionsMissing')}</AlertTitle><AlertDescription><p>{error}</p></AlertDescription></Alert>;
@@ -161,6 +163,7 @@ export function QuestionPage({ slug, version, refresh }: { slug: string; version
   const [commitNote, setCommitNote] = useState<string | null>(null);
   const language = useLanguage();
   const { data: question, error } = useRead<QuestionDetail>(`question:${slug}`, version, (signal) => getQuestion(slug, signal));
+  useTabTitle(question?.title ?? null);
   if (question === null && error === null) return <PageSkeleton testId="question-loading" />;
   if (question === null) {
     return <Alert variant="problem" data-testid="question-error"><AlertTitle>{t('loop.noSuchQuestion')}</AlertTitle><AlertDescription><p>{error}</p></AlertDescription></Alert>;
@@ -173,7 +176,6 @@ export function QuestionPage({ slug, version, refresh }: { slug: string; version
         <div className="mb-2 flex items-center gap-2">
           <Badge>{t(`loop.type.${question.type}`)}</Badge>
           <Badge variant={question.state === 'open' ? 'solid' : 'outline'} data-testid="question-state">{t(STATE_KEY[question.state])}</Badge>
-          <code className="min-w-0 truncate text-small text-muted" title={question.id}>{question.id}</code>
         </div>
         <h1 data-testid="question-title">{question.title}</h1>
         {question.askedIn !== null && <p className="m-0 text-small text-muted">{t('loop.askedBy', { when: whenWords(question.askedAt, language) })} <KLink href={addressOfEntity(question.askedIn)}>{shortId(question.askedIn)}</KLink></p>}
@@ -252,6 +254,7 @@ function ProblemItem({ problem }: { problem: Problem }): ReactElement {
 export function ProblemsPage({ version }: { version: number }): ReactElement {
   const { t } = useTranslation();
   const { data, error } = useRead('problems', version, (signal) => getProblems(signal));
+  useTabTitle(t('loop.problemsTitle'));
   if (data === null && error === null) return <PageSkeleton testId="problems-loading" rows />;
   if (data === null) {
     return <Alert variant="problem" data-testid="problems-error"><AlertTitle>{t('loop.problemsMissing')}</AlertTitle><AlertDescription><p>{error}</p></AlertDescription></Alert>;

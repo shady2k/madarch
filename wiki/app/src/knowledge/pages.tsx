@@ -21,6 +21,7 @@ import { addressOfDocument, addressOfKind, addressOfStatement } from './routes.j
 import { useKindName } from './kind-names.js';
 import { fillShare, fillWords } from './fill-words.js';
 import { useRead } from './live.js';
+import { blockOpen, useRole } from './roles.js';
 import { PageSkeleton } from './skeleton.js';
 import { Textarea } from '@/components/ui/textarea.js';
 import type { CorrectionResult, DocumentListing, DocumentPageModel, EntityListing, EntityRef, Excerpt, GroundView, Origin, PageModel, SourceFile, StatementModel, WikiStatus } from './types.js';
@@ -50,6 +51,7 @@ export function EntityPage({ id, version }: { id: string; version: number }): Re
   const kindName = useKindName();
   const language = (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en';
   const { data: page, error } = useRead<PageModel>(`${id}\0${language}`, version, (signal) => getPage(id, language, signal));
+  const { role, roles } = useRole();
   useTabTitle(page?.title ?? null);
   if (page === null && error === null) return <PageSkeleton testId="page-loading" />;
   if (page === null) {
@@ -66,12 +68,17 @@ export function EntityPage({ id, version }: { id: string; version: number }): Re
         <Trail trail={page.trail} />
         <div className="mb-2 flex items-center gap-2">
           <Badge data-testid="page-kind">{kindName(page.kind, 'one')}</Badge>
-          <code className="min-w-0 truncate text-small text-muted" title={page.id}>{page.id}</code>
         </div>
         <h1 data-testid="page-title">{page.title}</h1>
         {page.notes.map((note) => <p key={note} className="text-small text-muted" data-testid="page-note">{note}</p>)}
       </header>
-      {page.blocks.map((block, index) => <BlockView key={index} block={block} resolutions={page.resolutions} pageId={page.id} />)}
+      {page.blocks.map((block, index) => {
+        const view = <BlockView key={index} block={block} resolutions={page.resolutions} pageId={page.id} />;
+        if (blockOpen(block, role, roles)) return view;
+        // The role does not open this block: it stays on the page, collapsed under its title.
+        const title = 'title' in block ? block.title : block.type;
+        return <details key={index} className="role-collapsed mb-4" data-testid="block-collapsed" data-block-type={block.type}><summary className="cursor-pointer text-secondary">{title}</summary>{view}</details>;
+      })}
       <Findings findings={page.findings} />
     </article>
   );

@@ -4,6 +4,7 @@ import { dirname, join, relative, resolve, sep } from 'node:path';
 import { parseDiscussionMessage, scanDiscussionMarkers } from './discussion-contract.js';
 import { mapParagraphSelection, renderedMarkdownParagraphs } from './discussion-selection.js';
 import { runGit } from './git.js';
+import { commitArguments, whoIsTheUser, type Identity } from '../identity/identity.js';
 import { parseDocument } from 'yaml';
 import { fillStatePaths, persistFillUnit, type FillUnit } from './fill-runtime.js';
 
@@ -147,8 +148,8 @@ export function writeProductDiscussion(product: string, input: DiscussionWriteIn
     message = newDiscussionUlid(now.valueOf());
     const source = runGit(root, ['rev-parse', 'HEAD']);
     if (!source.ok || !/^[0-9a-f]{40}$/.test(source.output)) return { ok: false, status: 409, message: `the product repository has no readable HEAD: ${source.output}` };
-    const author = runGit(root, ['config', '--get', 'user.name']);
-    if (!author.ok || author.output.trim() === '') return { ok: false, status: 409, message: 'the product git author name is not configured; configure user.name and retry the draft' };
+    const who = whoIsTheUser(root);
+    if (!who.ok) return { ok: false, status: 409, message: who.message };
     const at = now.toISOString();
     const content = `${pageBefore.slice(0, input.range.start)}<!--c:${thread}-->${pageBefore.slice(input.range.start, input.range.end)}<!--/c:${thread}-->${pageBefore.slice(input.range.end)}`;
     editedMarkdown = content;
@@ -156,7 +157,7 @@ export function writeProductDiscussion(product: string, input: DiscussionWriteIn
     const markerErrors = scanDiscussionMarkers(input.document, content).errors;
     if (markerErrors.length) return { ok: false, status: 400, message: markerErrors.map((error) => `${error.file}:${error.line}: ${error.message}`).join('; ') };
     const messagePath = `comments/${thread}/${message}.md`;
-    const messageText = ['---', 'contract: 1', `author: ${yaml(inputAuthor(author.output))}`, `time: ${at}`, `thread: ${thread}`, 'anchor:', '  kind: selection', `  quote: ${yaml(input.range.quote)}`, `  before: ${yaml(input.range.before)}`, `  after: ${yaml(input.range.after)}`, `document: ${yaml(input.document)}`, `sourceCommit: ${source.output}`, 'status: open', '---', '', input.body, ''].join('\n');
+    const messageText = ['---', 'contract: 1', `author: ${yaml(inputAuthor(who.identity.name))}`, verifiedLine(who.identity), `time: ${at}`, `thread: ${thread}`, 'anchor:', '  kind: selection', `  quote: ${yaml(input.range.quote)}`, `  before: ${yaml(input.range.before)}`, `  after: ${yaml(input.range.after)}`, `document: ${yaml(input.document)}`, `sourceCommit: ${source.output}`, 'status: open', '---', '', input.body, ''].join('\n');
     const parsed = parseDiscussionMessage(messagePath, messageText);
     if (!parsed.ok) return { ok: false, status: 400, message: parsed.errors.map((error) => `${error.file}:${error.line}: ${error.message}`).join('; ') };
     const absMessage = resolve(root, ...messagePath.split('/'));
@@ -180,7 +181,7 @@ export function writeProductDiscussion(product: string, input: DiscussionWriteIn
     const cached = runGit(root, ['diff', '--cached', '--name-only', '--no-renames']);
     if (!cached.ok || cached.output.split('\n').filter(Boolean).sort().join('\n') !== [input.document, messagePath].sort().join('\n')) throw new Error(`the staged paths are not exactly the discussion document and message: ${cached.output}`);
     parent = source.output;
-    const commitResult = runGit(root, ['commit', '--quiet', '-m', 'Add product discussion comment']);
+    const commitResult = runGit(root, commitArgs('Add product discussion comment', who.identity));
     if (!commitResult.ok) throw new Error(`git commit refused the discussion: ${commitResult.output}`);
     committed = true;
     const head = runGit(root, ['rev-parse', 'HEAD']);
@@ -261,13 +262,14 @@ export function writeProductDiscussionAction(product: string, input: DiscussionA
     if (thread === undefined) return { ok: false, status: 404, message: `discussion thread does not exist: ${input.thread}` };
     if (input.action === 'reply' && thread.status === 'resolved') return { ok: false, status: 409, message: 'a resolved discussion cannot receive replies' };
     const head = runGit(root, ['rev-parse', 'HEAD']);
-    const author = runGit(root, ['config', '--get', 'user.name']);
-    if (!head.ok || !/^[0-9a-f]{40}$/.test(head.output) || !author.ok || author.output.trim() === '') return { ok: false, status: 409, message: 'the product git HEAD or author is not configured' };
+    const who = whoIsTheUser(root);
+    if (!head.ok || !/^[0-9a-f]{40}$/.test(head.output)) return { ok: false, status: 409, message: `the product repository ${root} has no readable HEAD: ${head.output}` };
+    if (!who.ok) return { ok: false, status: 409, message: who.message };
     parent = head.output;
     const lastTime = Math.max(...(thread.messages ?? []).map((item) => Date.parse(item.time)).filter(Number.isFinite), 0);
     const actionTime = new Date(Math.max(now.valueOf(), lastTime + 1));
     const message = newDiscussionUlid(actionTime.valueOf());
-    const text = ['---', 'contract: 1', `author: ${yaml(inputAuthor(author.output))}`, `time: ${actionTime.toISOString()}`, `thread: ${input.thread}`, 'anchor:', ...anchorLines(thread.anchor), `document: ${yaml(input.document)}`, `sourceCommit: ${head.output}`, `status: ${input.action === 'resolve' ? 'resolved' : thread.status}`, '---', '', input.action === 'reply' ? input.body! : ''].join('\n') + '\n';
+    const text = ['---', 'contract: 1', `author: ${yaml(inputAuthor(who.identity.name))}`, verifiedLine(who.identity), `time: ${actionTime.toISOString()}`, `thread: ${input.thread}`, 'anchor:', ...anchorLines(thread.anchor), `document: ${yaml(input.document)}`, `sourceCommit: ${head.output}`, `status: ${input.action === 'resolve' ? 'resolved' : thread.status}`, '---', '', input.action === 'reply' ? input.body! : ''].join('\n') + '\n';
     const messagePath = `comments/${input.thread}/${message}.md`;
     const parsed = parseDiscussionMessage(messagePath, text);
     if (!parsed.ok) return { ok: false, status: 400, message: parsed.errors.map((error) => `${error.file}:${error.line}: ${error.message}`).join('; ') };
@@ -279,7 +281,7 @@ export function writeProductDiscussionAction(product: string, input: DiscussionA
     const add = runGit(root, ['add', '--', messagePath]);
     const staged = runGit(root, ['diff', '--cached', '--name-only', '--no-renames']);
     if (!add.ok || !staged.ok || staged.output.trim() !== messagePath) throw new Error(`could not stage exactly ${messagePath}: ${staged.output}`);
-    const commit = runGit(root, ['commit', '--quiet', '-m', input.action === 'resolve' ? 'Resolve product discussion' : 'Reply to product discussion']);
+    const commit = runGit(root, commitArgs(input.action === 'resolve' ? 'Resolve product discussion' : 'Reply to product discussion', who.identity));
     if (!commit.ok) throw new Error(`git commit failed: ${commit.output}`);
     const newHead = runGit(root, ['rev-parse', 'HEAD']); if (!newHead.ok) throw new Error('cannot read discussion action commit');
     committed = true; commitHash = newHead.output;
@@ -330,7 +332,8 @@ export function restoreProductDiscussionAnchor(product: string, input: Discussio
     const names = runGit(root, ['diff', '--cached', '--name-only', '--no-renames']);
     if (!staged.ok || !names.ok || names.output.trim() !== input.document) throw new Error(`could not stage only ${input.document}`);
     parent = currentHead.output;
-    const result = runGit(root, ['commit', '--quiet', '-m', 'Restore product discussion anchor']);
+    const restoring = whoIsTheUser(root); if (!restoring.ok) throw new Error(restoring.message);
+    const result = runGit(root, commitArgs('Restore product discussion anchor', restoring.identity));
     if (!result.ok) throw new Error(`git commit failed: ${result.output}`);
     committed = true; const newHead = runGit(root, ['rev-parse', 'HEAD']); if (!newHead.ok) throw new Error('cannot read anchor recovery commit'); commit = newHead.output;
     const pushed = runGit(root, ['push', 'origin', 'HEAD']); if (!pushed.ok) throw new Error(`push failed: ${pushed.output}`);
@@ -373,15 +376,16 @@ export async function answerProductQuestion(product: string, input: QuestionAnsw
     edited = lines.join('\n');
     if (readFileSync(absolute, 'utf8') !== original) return { ok: false, status: 409, message: 'the question changed while the answer was prepared; reload and retry' };
     parent = runGit(root, ['rev-parse', 'HEAD']).output;
-    const author = runGit(root, ['config', '--get', 'user.name']);
-    if (!/^[0-9a-f]{40}$/.test(parent) || !author.ok || author.output.trim() === '') return { ok: false, status: 409, message: 'the product git HEAD or author is not configured' };
+    const who = whoIsTheUser(root);
+    if (!/^[0-9a-f]{40}$/.test(parent)) return { ok: false, status: 409, message: `the product repository ${root} has no readable HEAD` };
+    if (!who.ok) return { ok: false, status: 409, message: who.message };
     const temporary = `${absolute}.madarch-${newDiscussionUlid()}.tmp`;
     writeFileSync(temporary, edited, { flag: 'wx', mode: 0o600 }); renameSync(temporary, absolute);
     file = input.document;
     const added = runGit(root, ['add', '--', file]); const staged = runGit(root, ['diff', '--cached', '--name-only', '--no-renames']);
     if (!added.ok || !staged.ok || staged.output.trim() !== file) throw new Error(`could not stage exactly ${file}: ${staged.output}`);
     await invalidateDependentFillUnits(root, input.document);
-    const result = runGit(root, ['commit', '--quiet', '-m', 'Answer product question']); if (!result.ok) throw new Error(result.output);
+    const result = runGit(root, commitArgs('Answer product question', who.identity)); if (!result.ok) throw new Error(result.output);
     const head = runGit(root, ['rev-parse', 'HEAD']); if (!head.ok) throw new Error('cannot read answer commit');
     committed = true; commitHash = head.output;
     const pushed = runGit(root, ['push', 'origin', 'HEAD']); if (!pushed.ok) throw new Error(`push failed: ${pushed.output}`);
@@ -482,19 +486,20 @@ export function writeProductPageDiscussion(product: string, input: DiscussionPag
     if (!ownRepo(root)) return { ok: false, status: 409, message: `the selected product is not its own git repository: ${JSON.stringify(root)}` };
     const clean = cleanTree(root); if (!clean.ok) return { ok: false, status: 409, message: clean.message };
     const held = resolveSafePage(root, input.document); if (typeof held !== 'string') return { ok: false, status: 404, message: held.message };
-    const head = runGit(root, ['rev-parse', 'HEAD']); const author = runGit(root, ['config', '--get', 'user.name']);
-    if (!head.ok || !author.ok || author.output.trim() === '') return { ok: false, status: 409, message: 'the product git HEAD or author is not configured' };
+    const head = runGit(root, ['rev-parse', 'HEAD']); const who = whoIsTheUser(root);
+    if (!head.ok) return { ok: false, status: 409, message: `the product repository ${root} has no readable HEAD: ${head.output}` };
+    if (!who.ok) return { ok: false, status: 409, message: who.message };
     const thread = newDiscussionUlid(now.valueOf()); const message = newDiscussionUlid(now.valueOf());
     parent = head.output;
     const messagePath = `comments/${thread}/${message}.md`;
-    const text = ['---', 'contract: 1', `author: ${yaml(inputAuthor(author.output))}`, `time: ${now.toISOString()}`, `thread: ${thread}`, 'anchor:', '  kind: page', `document: ${yaml(input.document)}`, `sourceCommit: ${head.output}`, 'status: open', '---', '', input.body, ''].join('\n');
+    const text = ['---', 'contract: 1', `author: ${yaml(inputAuthor(who.identity.name))}`, verifiedLine(who.identity), `time: ${now.toISOString()}`, `thread: ${thread}`, 'anchor:', '  kind: page', `document: ${yaml(input.document)}`, `sourceCommit: ${head.output}`, 'status: open', '---', '', input.body, ''].join('\n');
     const parsed = parseDiscussionMessage(messagePath, text); if (!parsed.ok) return { ok: false, status: 400, message: parsed.errors.map((e) => `${e.file}:${e.line}: ${e.message}`).join('; ') };
     const absolute = resolve(root, ...messagePath.split('/')); const dirs = ensureSafeDirectory(root, dirname(absolute));
     try {
       writeFileSync(absolute, text, { flag: 'wx', mode: 0o600 }); path = absolute;
       const added = runGit(root, ['add', '--', messagePath]); const staged = runGit(root, ['diff', '--cached', '--name-only', '--no-renames']);
       if (!added.ok || !staged.ok || staged.output.trim() !== messagePath) throw new Error(`could not stage exactly ${messagePath}`);
-      const commitResult = runGit(root, ['commit', '--quiet', '-m', 'Add page discussion']); if (!commitResult.ok) throw new Error(commitResult.output);
+      const commitResult = runGit(root, commitArgs('Add page discussion', who.identity)); if (!commitResult.ok) throw new Error(commitResult.output);
       const newHead = runGit(root, ['rev-parse', 'HEAD']); if (!newHead.ok) throw new Error('cannot read page discussion commit'); committed = true; commitHash = newHead.output;
       const pushed = runGit(root, ['push', 'origin', 'HEAD']); if (!pushed.ok) throw new Error(pushed.output);
       return { ok: true, thread, message, document: input.document, markdown: text };
@@ -553,3 +558,7 @@ function ensureSafeDirectory(root: string, directory: string): string[] {
 }
 function yaml(value: string): string { return JSON.stringify(value); }
 function inputAuthor(value: string): string { return value.trim(); }
+/** The front-matter line that says how the author was verified (decision 0031): git's own configuration proves nothing. */
+function verifiedLine(identity: Identity): string { return `verified: ${identity.verification}`; }
+/** A commit by the user: the subject, and a trailer saying who wrote it and that this was not verified. */
+function commitArgs(subject: string, identity: Identity): string[] { return commitArguments(subject, identity); }

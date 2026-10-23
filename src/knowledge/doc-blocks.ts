@@ -13,6 +13,7 @@ import { byCodePoint } from '../model/order.js';
 import { refOfGraph, refOfMarkdown, type RenderContext, type Subject } from './blocks.js';
 import type { DocEntity } from './doc-entities.js';
 import type { GraphEntity } from './graph-read.js';
+import { parseTermText } from './glossary.js';
 import { readStatements } from './markdown.js';
 import type { Block, EntityRef, RefRow } from './model.js';
 import { documentAddress, entityAddress } from './resolve.js';
@@ -195,4 +196,10 @@ export async function linkedFromBlock(ctx: RenderContext, subject: Subject, para
   }
   const ordered = [...rows.values()].sort((a, b) => byCodePoint(a.entity.id, b.entity.id));
   return { type: 'refs', title, total: ordered.length, rows: ordered.slice(0, REFS_LIMIT) };
+}
+
+/** The glossary term a document entity is: its definition, synonyms, code names, places of use and ambiguity (decision 0031). */
+export function termBlock(subject: Subject, params: Readonly<Record<string, string>>, file: string, line: number): Block {
+  if (subject.source !== 'document') return { type: 'problem', block: 'term', file, line, message: 'the term block shows a glossary term; the entities of this kind are not terms of a document' };
+  return { type: 'term', title: params['title'] ?? 'Term', ...parseTermText(subject.entity.text) };
 }

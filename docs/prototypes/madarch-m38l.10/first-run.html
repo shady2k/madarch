@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>First run: madarch's own wiki and the role card</title>
+<style>
+  :root { color-scheme: light dark; --page: #fff; --chrome: #f6f6f4; --line: #dcdcd6; --ink: #1d1d1b; --muted: #6b6b66; }
+  @media (prefers-color-scheme: dark) { :root { --page: #1a1a19; --chrome: #222221; --line: #3a3a37; --ink: #eeeeea; --muted: #a2a29b; } }
+  body { margin: 0; font: 15px/1.5 system-ui, sans-serif; background: var(--page); color: var(--ink); display: flex; min-height: 100vh; }
+  aside { width: 240px; background: var(--chrome); border-right: 1px solid var(--line); padding: 18px 14px; }
+  aside b { display: block; margin: 0 0 12px; font-size: 22px; }
+  .product { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin-bottom: 14px; }
+  aside p { margin: 6px 4px; color: var(--muted); }
+  main { flex: 1; }
+  header { height: 58px; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: flex-end; gap: 14px; padding: 0 28px; color: var(--muted); }
+  article { padding: 28px; max-width: 46rem; opacity: .45; }
+  .card { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(34rem, 92vw); background: var(--page); border: 1px solid var(--line); border-radius: 12px; padding: 20px; box-shadow: 0 12px 40px rgb(0 0 0 / .25); }
+  .card h2 { margin: 0 0 6px; font-size: 18px; }
+  .opt { border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; margin: 6px 0; }
+  .opt.on { border-color: var(--ink); }
+  .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+  button { font: inherit; padding: 6px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--chrome); color: var(--ink); }
+  button.primary { background: var(--ink); color: var(--page); }
+</style>
+</head>
+<body>
+<aside><b>madarch</b><div class="product">madarch<br><small>documentation</small></div><p>Home</p><p>Catalogue</p><p>Glossary · 19</p><p>Product knowledge</p></aside>
+<main>
+  <header><span>Everything</span><span>?</span><span>Language</span></header>
+  <article><h1>madarch</h1><p>madarch collects what is known about a product in a wiki: what it is, how it is built, and where each statement comes from.</p></article>
+</main>
+<div class="card" role="dialog" aria-label="Which role do you read as?">
+  <h2>Which role do you read as?</h2>
+  <p>The wiki keeps one page for everyone. Your role chooses which parts of a page are open and which groups come first.</p>
+  <div class="opt">Product</div><div class="opt">Analyst</div><div class="opt">Architect</div><div class="opt">Developer</div><div class="opt">Operations</div><div class="opt">Tester</div><div class="opt on">Everything</div>
+  <div class="actions"><button>Skip</button><button class="primary">Continue</button></div>
+</div>
+</body>
+</html>

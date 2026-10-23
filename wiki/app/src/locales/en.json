@@ -281,6 +281,52 @@
       "foldedSteps": "{{count}} steps inside one lane or one file are folded.",
       "showAll": "Show all {{count}} steps",
       "fitChain": "Fit to the page"
+    },
+    "glossary": {
+      "title": "Glossary",
+      "lead_one": "{{count}} term, each with the place it is stated.",
+      "lead_other": "{{count}} terms, each with the place it is stated.",
+      "empty": "This product has no glossary yet. A glossary is a document whose list items start with a bold term; the manifest names it under terms.",
+      "alsoCalled": "Also called",
+      "inCode": "In code",
+      "usedIn": "Used in",
+      "ambiguous": "Ambiguous.",
+      "ambiguousNoNote": "The documents use this word for more than one thing.",
+      "ambiguousBadge": "Ambiguous",
+      "statedAt": "Stated at",
+      "lead_few": "{{count}} terms, each with the place it is stated.",
+      "lead_many": "{{count}} terms, each with the place it is stated."
+    },
+    "roles": {
+      "cardTitle": "Which role do you read as?",
+      "cardLead": "The wiki keeps one page for everyone. Your role chooses which parts of a page are open and which groups come first; the rest stays one click away.",
+      "cardNote": "Kept on this machine, for every product. You can switch it at the top at any time. Skipping reads everything.",
+      "skip": "Skip",
+      "continue": "Continue",
+      "menu": "Reading as",
+      "menuTitle": "Choose the role you read as",
+      "names": {
+        "product": "Product",
+        "analyst": "Analyst",
+        "architect": "Architect",
+        "developer": "Developer",
+        "operations": "Operations",
+        "tester": "Tester",
+        "everything": "Everything"
+      },
+      "about": {
+        "product": "What the product is, for whom, and what it does.",
+        "analyst": "Requirements, use cases, rules and how they connect.",
+        "architect": "Services, modules, contracts and how they depend on one another.",
+        "developer": "Code: files, functions, callers and tests.",
+        "operations": "How it runs: configuration, images, deployment and pipelines.",
+        "tester": "What to check: use cases, rules, tests and known failures.",
+        "everything": "Every part of every page open, in the product's own order."
+      }
+    },
+    "help": {
+      "label": "madarch documentation",
+      "title": "madarch documentation"
     }
   },
   "loop": {
@@ -381,6 +427,10 @@
       "newService": "new in the code and named by no page: {{services}}",
       "missingDomain": "the product page links the domain \"{{domain}}\" and its page is missing"
     },
-    "fixedNote": "Fixed: a refresh edited this page using the reason above."
+    "fixedNote": "Fixed: a refresh edited this page using the reason above.",
+    "agentAsked_one": "The agent asked {{count}} question: it is on the Questions page.",
+    "agentAsked_other": "The agent asked {{count}} questions: they are on the Questions page.",
+    "agentAsked_few": "The agent asked {{count}} questions: they are on the Questions page.",
+    "agentAsked_many": "The agent asked {{count}} questions: they are on the Questions page."
   }
 }

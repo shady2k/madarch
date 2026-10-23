@@ -89,7 +89,7 @@ describe('the agent asks, a person answers, the refresh edits one page', () => {
     expect(status.writer.state).toBe('done');
     // Before the agent started, the wiki was told which pages the run touches: the product page did not exist yet.
     expect(status.writer.plan.pages.map((p: { path: string; reasons: { kind: string }[] }) => [p.path, p.reasons.map((r) => r.kind)])).toEqual([['docs/product.md', ['missing']]]);
-    expect(status.writer.message).toContain(`The agent asked ${LOOP_QUESTIONS.length} questions`);
+    expect(status.writer.asked).toBe(LOOP_QUESTIONS.length);
     expect(status.loop).toEqual({ questionsOpen: LOOP_QUESTIONS.length, questionsAnswered: 0, correctionsOpen: 0 });
     expect(readdirSync(join(product, 'docs/questions')).sort()).toEqual(LOOP_QUESTIONS.map((q) => `${questionSlug(q, 'en')}.md`).sort());
     for (const page of ['docs/product.md', 'docs/domains/ordering.md', 'docs/domains/payments.md']) expect(existsSync(join(product, page))).toBe(true);

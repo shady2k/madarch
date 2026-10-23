@@ -29,6 +29,7 @@ import { UNIT_TOOL_PATH } from '../fill/unit-tools.js';
 import { selfCommand } from './self-command.js';
 import { StageRegistry } from '../fill/registry.js';
 import { runningVersion } from './version.js';
+import { installOwnWiki, ownWikiOff, refreshOwnWiki } from './own-wiki.js';
 
 interface DaemonState { pid: number; port: number; startedAt: number; home: string; token: string; /** The madarch version the server runs; a record written before versions were kept names none. */ version?: string; }
 const STATE_FILE = '.madarch-daemon.json';
@@ -673,9 +674,14 @@ export async function serveDaemon(options: { home?: string; port: number }): Pro
   // address only once it listens.
   let address: string | undefined;
   const orchestrator = daemonFillOrchestrator(home, { toolUrl: () => (address === undefined ? undefined : `${address}${UNIT_TOOL_PATH}`) });
+  // madarch's own wiki (decision 0031): installed from the copy the program carries, so a clean machine opens it with no
+  // network; a failure is told and the server runs without it.
+  const ownInstall = ownWikiOff() ? undefined : installOwnWiki({ env: process.env });
+  if (ownInstall !== undefined && !ownInstall.ok) console.error(ownInstall.message);
   try {
     const server = await startServer({
       productHome: home,
+      ...(ownInstall?.ok ? { ownWiki: { folder: ownInstall.folder } } : {}),
       appFolder: process.env.MADARCH_APP_DIST,
       port: options.port,
       host: '127.0.0.1',
@@ -685,6 +691,7 @@ export async function serveDaemon(options: { home?: string; port: number }): Pro
       },
     });
     address = server.url;
+    if (ownInstall?.ok) void refreshOwnWiki({ env: process.env }).then((line) => console.log(line), (error: unknown) => console.error(`madarch's own wiki at ${ownInstall.folder} was not refreshed: ${(error as Error).message}`));
     // The update after commits to a default branch (madarch-tzte.26.2) runs beside the wikis: its first pass reads
     // each repository's head as the baseline, and a commit after it starts one debounced run of that product. The
     // pass is not awaited here — a head that moved while the server was stopped starts a whole run in it, and a

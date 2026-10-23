@@ -13,6 +13,8 @@ import { languageOf } from '../knowledge/blocks.js';
 import { LoopRefusal } from '../loop/answer.js';
 import { WikiReadError, type KnowledgeProduct } from '../knowledge/product.js';
 import type { Handled, ReplyMaker } from './http.js';
+import { CHOOSABLE_ROLES, readSettings, writeRole } from '../knowledge/settings.js';
+import type { DraftEnv } from '../product/home.js';
 
 export interface KnowledgePart {
   /** Who the product is, read from its manifest alone: it answers before the graph store is open. */
@@ -31,6 +33,8 @@ export interface KnowledgePart {
   reset: (request: Request) => Promise<Handled>;
   documents: (request: Request) => Promise<Handled>;
   document: (request: Request) => Promise<Handled>;
+  glossary: (request: Request) => Promise<Handled>;
+  settings: (request: Request) => Promise<Handled>;
   questions: (request: Request) => Promise<Handled>;
   question: (request: Request) => Promise<Handled>;
   answer: (request: Request) => Promise<Handled>;
@@ -63,6 +67,10 @@ export function createKnowledgePart(
   product: KnowledgeProduct,
   /** The names of the products this server serves, for the selector; the one product alone when it serves one. */
   siblings: () => { name: string; folder: string }[],
+  /** The environment the user's settings are found by (the madarch home); the process's own when left out. */
+  env: DraftEnv = process.env,
+  /** madarch's own wiki (decision 0031): it is documentation, so its status says so and the app offers no fill. */
+  own = false,
 ): KnowledgePart {
   const { json, refused, errorLog } = makers;
   const guarded = (what: string, work: (request: Request) => Promise<Handled>) => async (request: Request): Promise<Handled> => {
@@ -84,7 +92,7 @@ export function createKnowledgePart(
       if ('message' in identity) throw new WikiReadError(identity.message);
       return { response: json(200, { id: identity.id, name: identity.name }) };
     }),
-    status: guarded('read the product', async () => ({ response: json(200, await product.status()) })),
+    status: guarded('read the product', async () => ({ response: json(200, own ? { ...(await product.status()), own: true } : await product.status()) })),
     page: guarded('draw the page', async (request) => {
       const id = new URL(request.url).searchParams.get('id');
       if (id === null || id.trim() === '') return refused(400, { field: 'id', message: '"id" is required: the key or id of the entity whose page is asked for' });
@@ -159,6 +167,7 @@ export function createKnowledgePart(
     fill: guarded('start the fill', async (request) => {
       const crossSite = foreign(request);
       if (crossSite !== undefined) return refused(403, { message: crossSite });
+      if (own) return refused(409, { message: "madarch's own wiki is documentation: it has no code to read and no pages for an agent to write" });
       // The press names the agent it was made for, so a choice saved from another tab meanwhile is not run under this press's consent.
       let expectAgent: string | null | undefined;
       let language: string | undefined;
@@ -199,9 +208,23 @@ export function createKnowledgePart(
       if (page === undefined) return refused(404, { field: 'path', message: `the Markdown document ${path} is not in ${repo === null || repo === '' ? 'the product repository' : `the repository ${repo}`} at the commit the graph was filled from` });
       return { response: json(200, page) };
     }),
+    glossary: guarded('read the glossary', async () => ({ response: json(200, await product.glossary()) })),
+    settings: guarded('read the settings', async (request) => {
+      // The settings file is the user's, outside any product: a failure on it is told whole, with its path.
+      const settled = <T>(work: () => T): T => { try { return work(); } catch (error) { throw new WikiReadError((error as Error).message); } };
+      if (request.method === 'GET') return { response: json(200, { ...settled(() => readSettings(env)), roles: CHOOSABLE_ROLES }) };
+      const crossSite = foreign(request);
+      if (crossSite !== undefined) return refused(403, { message: crossSite });
+      let body: unknown;
+      try { body = await request.json(); } catch (error) { return refused(400, { message: `the request body is not JSON: ${(error as Error).message}` }); }
+      const role = (body as { role?: unknown } | null)?.role;
+      if (typeof role !== 'string' || !CHOOSABLE_ROLES.includes(role)) return refused(400, { field: 'role', accepted: CHOOSABLE_ROLES.join(', '), message: `"role" is ${JSON.stringify(role)}: the roles are ${CHOOSABLE_ROLES.join(', ')}` });
+      return { response: json(200, { ...settled(() => writeRole(env, role)), roles: CHOOSABLE_ROLES }) };
+    }),
     reset: guarded('start over', async (request) => {
       const crossSite = foreign(request);
       if (crossSite !== undefined) return refused(403, { message: crossSite });
+      if (own) return refused(403, { message: "madarch's own wiki is documentation, not a product to start over: its pages are not rewritten here" });
       // A GET asks what a reset would remove and keep; a POST does it.
       if (request.method === 'GET') return { response: json(200, product.resetPlan()) };
       const done = await product.reset();

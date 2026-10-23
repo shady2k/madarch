@@ -26,6 +26,11 @@
       "format": "date-time",
       "description": "The message creation time in ISO 8601 date-time form with an explicit UTC offset."
     },
+    "verified": {
+      "type": "string",
+      "const": "local-git",
+      "description": "How the author was verified: local-git is git's own user.name and user.email, which proves nothing (decision 0031)."
+    },
     "thread": {
       "type": "string",
       "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",

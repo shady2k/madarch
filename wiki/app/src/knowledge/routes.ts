@@ -9,6 +9,7 @@ export type KRoute =
   | { name: 'docs' }
   | { name: 'doc'; repo: string | null; path: string }
   | { name: 'catalogue' }
+  | { name: 'glossary' }
   | { name: 'questions' }
   | { name: 'question'; slug: string }
   | { name: 'problems' }
@@ -17,6 +18,7 @@ export type KRoute =
 export const K_HOME = '/k';
 export const K_DOCS = '/k/docs';
 export const K_CATALOGUE = '/k/catalogue';
+export const K_GLOSSARY = '/k/glossary';
 export const K_QUESTIONS = '/k/questions';
 export const K_PROBLEMS = '/k/problems';
 export const addressOfQuestion = (slug: string): string => `/k/questions/${encodeURIComponent(slug)}`;
@@ -67,6 +69,7 @@ export function kRouteOf(pathname: string, search = ''): KRoute | null {
   }
   if (path === '/k/docs') return { name: 'docs' };
   if (path === '/k/catalogue') return { name: 'catalogue' };
+  if (path === '/k/glossary') return { name: 'glossary' };
   if (path === '/k/statement') {
     const query = new URLSearchParams(search);
     const id = query.get('id');
