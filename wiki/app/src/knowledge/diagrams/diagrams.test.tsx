@@ -173,7 +173,7 @@ const COMPONENTS: DiagramView = {
   spec: { type: 'c4-component', subject: 'code.service:payments' },
   title: 'Components: payments',
   label: 'Components',
-  elements: [{ id: 'code.module:services/payments/src/domain', label: 'src/domain', kind: 'component', detail: '4 files', href: '/k/e/m', dashed: false }],
+  elements: [{ id: 'code.module:domain', label: 'src/domain', kind: 'component', detail: '4 files', href: '/k/e/m', dashed: false }],
   edges: [],
   notes: [],
   empty: null,

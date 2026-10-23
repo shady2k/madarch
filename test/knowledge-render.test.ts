@@ -340,7 +340,9 @@ describe('files, imports and the database', () => {
     expect(er!.mermaidSource).toContain('uuid customer_id');
     expect(er!.mermaidSource).toContain('table1 }o--|| table0 : "foreign key"');
     expect(er!.elements.map((element) => element.label).sort()).toEqual(['customers', 'invoices']);
-    expect(er!.elements.every((element) => element.href !== null)).toBe(true);
+    // The fixture's manifest names no page for a table, so the list draws each one plain: an element links only
+    // where the product gives it a page, and the picture is the graph's either way.
+    expect(er!.elements.map((element) => element.href)).toEqual([null, null]);
   });
 });
 
