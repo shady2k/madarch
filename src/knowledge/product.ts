@@ -43,7 +43,11 @@ import { indexCounts, statementsRelyingOn } from './index/queries.js';
 import { webLink } from './index/web-link.js';
 import { readDocEntities, type DocEntity, type DocumentSource } from './doc-entities.js';
 import { DOCUMENT_LIMIT, DOCUMENT_PATH, docsLinkedOutside, listedDocument, productDocumentPaths, readProductDocument, readRepoDocuments, repoDocumentPaths } from './doc-sources.js';
-import { seedStarterSet } from './seed.js';
+import { ensureLoopKinds, seedStarterSet } from './seed.js';
+import { readCorrections } from '../loop/entities.js';
+import { answerQuestion, recordCorrection, type Answered, type Corrected } from '../loop/answer.js';
+import { planRefresh, type RefreshPlan } from '../loop/plan.js';
+import { listProblems, listQuestions, questionDetail, type ProblemListing, type QuestionDetail, type QuestionListing } from '../loop/views.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -388,6 +392,12 @@ export class KnowledgeProduct {
       return { started: false, message: `the repositories ${missing.map((repo) => repo.name).join(', ')} are not checked out under repos/: run "madarch bootstrap" first`, fill: this.fill };
     }
     if (this.closed) return { started: false, message: 'the wiki is shutting down', fill: this.fill };
+    // A product made before the loop of questions and corrections gets its two kinds and their templates now.
+    try {
+      if (ensureLoopKinds(product.folder).length > 0) this.notify();
+    } catch (error) {
+      return { started: false, message: error instanceof Error ? error.message : String(error), fill: this.fill };
+    }
     if (this.resetting) return { started: false, message: 'this product is being started over: press again when it is done', fill: this.fill };
     // The press consented to one agent: a choice saved meanwhile from another tab is not the one this press was for.
     if (options.expectAgent !== undefined) {
@@ -417,7 +427,7 @@ export class KnowledgeProduct {
     const chosen = this.chosenAgent();
     this.writer = chosen === null ? { state: 'idle', agent: null, units: [] } : { state: 'waiting', agent: chosen, units: [] };
     this.notify();
-    this.running = this.runJob(product, repositories, { language: wanted, languageChanged }).finally(() => {
+    this.running = this.runJob(product, repositories, { language: wanted, languageChanged, languageFrom: written ?? current }).finally(() => {
       // A fill that did not reach its end leaves the agent stage unstarted, not waiting for ever.
       if (this.writer.state === 'waiting') this.writer = { ...this.writer, state: 'idle' };
       this.running = undefined;
@@ -430,7 +440,7 @@ export class KnowledgeProduct {
    * One fill: a worker process reads the repositories into the primary store and, when an agent is chosen, runs the
    * writer's work; this method hears the worker and keeps the fill's and the writer's state, the pins and the reader.
    */
-  private async runJob(product: ProductIdentity, repositories: readonly { name: string; path: string }[], run: { language: string; languageChanged: boolean }): Promise<void> {
+  private async runJob(product: ProductIdentity, repositories: readonly { name: string; path: string }[], run: { language: string; languageChanged: boolean; languageFrom: string }): Promise<void> {
     const failFill = (message: string): void => {
       this.fill = { state: 'failed', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), message };
       this.notify();
@@ -465,6 +475,7 @@ export class KnowledgeProduct {
       writer: this.writer.agent !== null,
       language: run.language,
       languageChanged: run.languageChanged,
+      languageFrom: run.languageFrom,
       snapshotMs: this.options.snapshotMs ?? 8_000,
     };
     worker.send(start);
@@ -527,11 +538,16 @@ export class KnowledgeProduct {
             worker.send({ type: 'agent-failed', message: error instanceof Error ? error.message : String(error) });
             return;
           }
-          this.writer = { state: 'running', agent: chosen, units: [{ unit: `product:${slug}`, path: PRODUCT_PATH, state: 'waiting' }], startedAt: now() };
+          this.writer = { state: 'running', agent: chosen, units: [{ unit: `product:${slug}`, path: PRODUCT_PATH, state: 'waiting' }], startedAt: now(), ...(this.writer.plan === undefined ? {} : { plan: this.writer.plan }) };
           this.notify();
           worker.send({ type: 'agent-ready' });
           return;
         }
+        case 'plan':
+          // Which pages the refresh touches and why, shown before the agent starts.
+          this.writer = { ...this.writer, plan: message.plan };
+          this.notify();
+          return;
         case 'unit-start':
           setUnit(message.unit, { state: 'writing' });
           this.writer = { ...this.writer, current: message.unit };
@@ -919,7 +935,7 @@ export class KnowledgeProduct {
     const declared = this.repositories();
     const context = await this.context();
     if ('absent' in context) {
-      return { ...common, manifest: 'no-manifest', manifestFile: context.file, language: 'en', seeded: [], ...(this.seedError === undefined ? {} : { seedError: this.seedError }), findings: [], kinds: [], groups: [], repositories: declared.map((repo) => ({ name: repo.name, filled: false })), filled: false, incomplete: false, fill: this.fill, writer: this.writer, bounds: WRITER_BOUNDS, chosenAgent: this.chosenAgent(), home: null };
+      return { ...common, manifest: 'no-manifest', manifestFile: context.file, language: 'en', seeded: [], ...(this.seedError === undefined ? {} : { seedError: this.seedError }), findings: [], kinds: [], groups: [], repositories: declared.map((repo) => ({ name: repo.name, filled: false })), filled: false, incomplete: false, fill: this.fill, writer: this.writer, bounds: WRITER_BOUNDS, chosenAgent: this.chosenAgent(), home: null, loop: this.loopCounts() };
     }
     const home = homeKind(context.manifest);
     const homeEntity = home === undefined ? undefined : [...context.ctx.markdown.values()].find((entity) => entity.kind === home.name);
@@ -942,7 +958,14 @@ export class KnowledgeProduct {
       bounds: WRITER_BOUNDS,
       chosenAgent: this.chosenAgent(),
       home: homeEntity?.id ?? null,
+      loop: this.loopCounts(),
     };
+  }
+
+  /** How many questions wait for an answer or for a refresh, and how many corrections wait for one, from their files. */
+  private loopCounts(): WikiStatus['loop'] {
+    const questions = listQuestions(this.options.productFolder);
+    return { questionsOpen: questions.open, questionsAnswered: questions.answered, correctionsOpen: readCorrections(this.options.productFolder).items.filter((correction) => correction.status === 'open').length };
   }
 
   async page(id: string, lang?: string): Promise<PageResult> {
@@ -1036,6 +1059,81 @@ export class KnowledgeProduct {
     const text = await context.ctx.readSource(repo, path);
     if (text === undefined) return undefined;
     return { text, commit: repo === null ? null : this.pins.get(repo)?.commit ?? null };
+  }
+
+  // ---- the loop of questions and corrections (madarch-m38l.7) ---------------------------------
+
+  /** The questions of the product, from their files; they need no graph and no fill. */
+  questions(): QuestionListing {
+    return listQuestions(this.options.productFolder);
+  }
+
+  async question(slug: string): Promise<QuestionDetail | undefined> {
+    const context = await this.context();
+    const resolve = 'absent' in context
+      ? async (url: string) => ({ state: 'broken' as const, target: url, reason: `the product has no ${context.file}` })
+      : (url: string) => context.ctx.resolver.resolve(url);
+    return await questionDetail(this.options.productFolder, slug, resolve);
+  }
+
+  /** A person's answer: written into the question's file and committed with the person as author. */
+  async answer(slug: string, text: string): Promise<Answered> {
+    const done = await answerQuestion({ productFolder: this.options.productFolder, slug, text, ...(this.options.now === undefined ? {} : { now: this.options.now }), env: { ...process.env, ...(this.options.env ?? {}) } as NodeJS.ProcessEnv });
+    this.notify();
+    return done;
+  }
+
+  /** A person's correction of a statement: a new file, committed with the person as author. */
+  async correct(statement: string, reason: string): Promise<Corrected> {
+    const done = await recordCorrection({ productFolder: this.options.productFolder, statement, reason, ...(this.options.now === undefined ? {} : { now: this.options.now }), env: { ...process.env, ...(this.options.env ?? {}) } as NodeJS.ProcessEnv });
+    this.notify();
+    return done;
+  }
+
+  /** The single code repository the pages are written from, and the commit the graph describes of it; absent otherwise. */
+  private singleRepository(): { name: string; path: string; commit: string } | undefined {
+    const repositories = this.repositories().filter((repo) => repo.present);
+    if (repositories.length !== 1) return undefined;
+    const pin = this.pins.get(repositories[0]!.name);
+    return pin === undefined || pin.head === '' ? undefined : { name: repositories[0]!.name, path: repositories[0]!.path, commit: pin.head };
+  }
+
+  /** The corrections people made and what the engine found itself, each with who fixes it. */
+  async problems(): Promise<ProblemListing> {
+    const context = await this.context();
+    if ('absent' in context) throw new WikiReadError(`the product has no ${context.file}: the wiki shows the kinds that file declares`);
+    const owner = await this.open();
+    const repository = this.singleRepository();
+    return await listProblems({
+      productFolder: this.options.productFolder, owner, ...(repository === undefined ? {} : { repository }),
+      resolve: (url) => context.ctx.resolver.resolve(url), findings: context.findings,
+      ...(this.writer.plan === undefined ? {} : { unplaced: this.writer.plan.unplaced }),
+    });
+  }
+
+  /**
+   * Which pages a refresh would touch and why, computed from what the wiki holds now and shown before the press. The
+   * commits the fill has not read yet are counted but cannot be judged until they are read.
+   */
+  async refreshPlan(language?: string): Promise<{ available: true; plan: RefreshPlan; language: { from: string | null; to: string; changed: boolean }; commitsNotRead: number | null } | { available: false; reason: string }> {
+    const context = await this.context();
+    if ('absent' in context) return { available: false, reason: `the product has no ${context.file}` };
+    const repository = this.singleRepository();
+    if (repository === undefined) return { available: false, reason: this.pins.size === 0 ? 'nothing has been read from the code yet: start the fill once to read it' : 'the pages are written from one code repository and this product declares more or fewer' };
+    const current = context.manifest.language ?? 'en';
+    const wanted = language ?? current;
+    const written = this.pagesLanguage();
+    const changed = written !== undefined ? written !== wanted : language !== undefined && language !== current;
+    const owner = await this.open();
+    const planned = await planRefresh({ owner, productFolder: this.options.productFolder, repository, commit: repository.commit, language: { from: written ?? current, to: wanted, changed } });
+    let commitsNotRead: number | null = null;
+    try {
+      const { stdout } = await execFileAsync('git', ['rev-list', '--count', `${repository.commit}..HEAD`], { cwd: repository.path, encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' } });
+      commitsNotRead = Number(stdout.trim());
+    } catch {
+      commitsNotRead = null;
+    }
+    return { available: true, plan: planned.plan, language: { from: written ?? current, to: wanted, changed }, commitsNotRead: Number.isInteger(commitsNotRead) ? commitsNotRead : null };
   }
 
   /** Stops a running fill at its next commit and closes the store. */

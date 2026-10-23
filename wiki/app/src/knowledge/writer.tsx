@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button.js';
 import { Badge } from '@/components/ui/badge.js';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.js';
 import { chooseAgent, getAgents, startFill } from './api.js';
+import { PlanList } from './loop.js';
 import type { AgentOffer, WikiStatus, WriterUnit } from './types.js';
 
 /** The reader's pick: an agent's id, or `null` for no agent. `undefined` until the reader touches it. */
@@ -122,7 +123,7 @@ function UnitRow({ unit, current }: { unit: WriterUnit; current: boolean }): Rea
     <li className="border-b border-line py-2 last:border-b-0" data-testid="writer-unit" data-unit={unit.unit} data-state={unit.state} aria-current={current ? 'step' : undefined}>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <code className="text-small">{unit.path}</code>
-        <Badge variant={unit.state === 'writing' ? 'solid' : 'outline'}>{t(UNIT_STATE_KEY[unit.state])}</Badge>
+        <Badge variant={unit.state === 'writing' ? 'solid' : 'outline'}>{unit.state === 'written' && unit.writeAttempts === 0 ? t('knowledge.writer.unitKept') : t(UNIT_STATE_KEY[unit.state])}</Badge>
         {unit.calls !== undefined && <span className="text-small text-muted">{t('knowledge.writer.unitCalls', { calls: unit.calls, attempts: unit.writeAttempts ?? 0 })}</span>}
       </div>
       {unit.refusals !== undefined && unit.refusals.length > 0 && (
@@ -155,12 +156,14 @@ export function WriterCard({ status, refresh }: { status: WikiStatus; refresh: (
           <CardTitle>{t('knowledge.writer.waitingTitle', { agent })}</CardTitle>
           <CardDescription>{t('knowledge.writer.waiting')}</CardDescription>
         </CardHeader>
+        {writer.plan !== undefined && <CardContent data-testid="writer-plan"><p className="mb-2 mt-0 text-small font-medium text-ink">{t('loop.plan.title')}</p><PlanList plan={writer.plan} /></CardContent>}
       </Card>
     );
   }
   const title = writer.state === 'running' ? t('knowledge.writer.runningTitle', { agent }) : t('knowledge.writer.failedTitle', { agent });
   const body = (
     <>
+      {writer.plan !== undefined && <div className="mb-4" data-testid="writer-plan"><p className="mb-2 mt-0 text-small font-medium text-ink">{t('loop.plan.title')}</p><PlanList plan={writer.plan} /></div>}
       <ol className="m-0 list-none p-0" data-testid="writer-units">
         {writer.units.map((unit) => <UnitRow key={unit.unit} unit={unit} current={writer.current === unit.unit} />)}
       </ol>

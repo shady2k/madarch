@@ -381,6 +381,7 @@ describe('the reasons a row stands in a list', () => {
 describe('the statement view', () => {
   const statement: StatementModel = {
     page: { id: 'domain:payment', kind: 'domain', label: 'Payment', href: '/k/e/domain%3Apayment' },
+    name: 'checkout-asks-payments-authorize',
     sentence: 'Checkout asks payments to authorize the card for the order total.',
     paragraph: 'Checkout asks payments to authorize the card for the order total.',
     file: 'docs/domains/payment.md',
@@ -390,7 +391,7 @@ describe('the statement view', () => {
     grounds: [
       { url: 'madarch:doc:docs/requirements.md#uc-2', resolution: { state: 'ok', target: 'madarch:doc:docs/requirements.md#uc-2', kind: 'doc.use-case', label: 'UC-2 Pay', href: '/k/e/doc%3Adocs%2Frequirements.md%23uc-2', entity: 'doc:docs/requirements.md#uc-2' }, excerpt: { type: 'text', markdown: '**UC-2 Pay**\n\nCheckout asks payments to authorize the card.', place: { repo: null, path: 'docs/requirements.md', lineStart: 9, lineEnd: 12, href: '/k/doc?path=docs%2Frequirements.md#uc-2' } } },
       { url: 'madarch:code.symbol:a.ts#pay', resolution: { state: 'ok', target: 'x', kind: 'code.symbol', label: 'PaymentService.pay', href: '/k/e/code.symbol%3Aa.ts%23pay' }, excerpt: { type: 'code', location: { repo: 'shop', path: 'a.ts', lineStart: 4, lineEnd: 6, href: '/k/src?repo=shop&path=a.ts&line=4' }, language: 'typescript', firstLine: 2, text: 'const a = 1;\n\nasync pay() {\n  return 1;\n}\n\nconst b = 2;', marked: { start: 4, end: 6 }, truncated: false } },
-      { url: 'madarch:code.symbol:a.ts#gone', resolution: { state: 'broken', target: 'x', reason: 'no entity "code.symbol:a.ts#gone" in the graph' }, excerpt: null },
+      { url: 'madarch:code.symbol:a.ts#gone', resolution: { state: 'broken', target: 'x', reason: 'no entity "code.symbol:a.ts#gone" in the graph', why: { code: 'no-entity', key: 'code.symbol:a.ts#gone' } }, excerpt: null },
     ],
     resolutions: {},
   };
@@ -414,7 +415,9 @@ describe('the statement view', () => {
     expect(code.querySelectorAll('.source-line').length).toBe(7);
     expect(code.textContent).toContain('cited lines 4–6');
     expect(grounds[2]!.getAttribute('data-state')).toBe('broken');
-    expect(grounds[2]!.textContent).toContain('no entity "code.symbol:a.ts#gone" in the graph');
+    // The reason is said in the reader's words, not the engineer's message.
+    expect(grounds[2]!.textContent).toContain('Nothing in the graph or among the product pages is called "code.symbol:a.ts#gone".');
+    expect(grounds[2]!.textContent).not.toContain('no entity');
   });
 
   test('a code place that has a web address offers it, named by the host; one without offers none', async () => {
@@ -443,15 +446,37 @@ describe('the statement view', () => {
     expect(row.querySelectorAll('a')[1]!.getAttribute('href')).toContain('/k/statement?id=product%3Ashop');
   });
 
-  test('the place for a correction is shown and cannot be used yet, and nothing is sent', async () => {
-    answer(statement);
+  test('a person says why the statement is wrong: the reason is posted against the statement\'s name, and the answer says where it was saved', async () => {
+    const posts: string[] = [];
+    (globalThis as { fetch?: unknown }).fetch = async (url: string, init?: RequestInit) => {
+      if (url.includes('/api/k/correction')) {
+        posts.push(String(init?.body));
+        return new Response(JSON.stringify({ correction: 'c', id: 'correction:c', file: 'docs/corrections/c.md', committed: true, by: { name: 'Ada', email: 'ada@example.test', verified: 'local, not verified' }, at: '2026-10-23T11:00:00.000Z' }), { status: 201 });
+      }
+      return url.includes('/api/k/statement') ? new Response(JSON.stringify(statement)) : new Response('{}', { status: 404 });
+    };
+    const container = into(createElement(StatementPage, { id: 'domain:payment', sentence: statement.sentence, version: 0 }));
+    await until(() => container.querySelector('[data-testid=statement-correction]') !== null, 'the correction place');
+    const place = container.querySelector('[data-testid=statement-correction]')!;
+    const send = place.querySelector('[data-testid=correction-send]') as HTMLButtonElement;
+    expect(send.disabled).toBe(true);
+    const text = place.querySelector('textarea') as HTMLTextAreaElement;
+    const key = Object.keys(text).find((name) => name.startsWith('__reactProps$'))!;
+    (text as unknown as Record<string, { onChange: (event: { target: { value: string } }) => void }>)[key]!.onChange({ target: { value: 'A declined payment also cancels the order.' } });
+    await until(() => !(place.querySelector('[data-testid=correction-send]') as HTMLButtonElement).disabled, 'the enabled button');
+    (place.querySelector('[data-testid=correction-send]') as HTMLButtonElement).click();
+    await until(() => place.querySelector('[data-testid=correction-done]') !== null, 'the saved note');
+    expect(posts).toEqual(['{"statement":"domain:payment#checkout-asks-payments-authorize","reason":"A declined payment also cancels the order."}']);
+    expect(place.querySelector('[data-testid=correction-done]')!.textContent).toContain('docs/corrections/c.md');
+  });
+
+  test('a sentence with no name on its page cannot be corrected yet, and says why', async () => {
+    answer({ ...statement, name: null });
     const container = into(createElement(StatementPage, { id: 'domain:payment', sentence: statement.sentence, version: 0 }));
     await until(() => container.querySelector('[data-testid=statement-correction]') !== null, 'the correction place');
     const place = container.querySelector('[data-testid=statement-correction]')!;
     expect((place.querySelector('textarea') as HTMLTextAreaElement).disabled).toBe(true);
-    expect((place.querySelector('button') as HTMLButtonElement).disabled).toBe(true);
-    expect(place.textContent).toContain('not available yet');
-    expect(place.querySelector('textarea')!.getAttribute('placeholder')).toBe('This is wrong, because…');
+    expect(place.textContent).toContain('has no name on its page yet');
   });
 
   test('a sentence with no ground says the wiki does not show it as a fact, and a sentence the page lost is refused in the server\'s words', async () => {

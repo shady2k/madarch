@@ -5,11 +5,13 @@
  * pasted: the agent reads files through `read_file`. The same graph and the
  * same declarations always give the same prompt, byte for byte.
  */
+import type { Question } from '../loop/entities.js';
+import { editPart, type EditBrief } from './edit.js';
 import type { DomainDeclaration, UnitSpec } from './tools.js';
 import { FILE_LINES, FIND_LIMIT } from './tools.js';
 import type { GraphView } from './view.js';
 
-export const PROMPT_VERSION = 'writer@2';
+export const PROMPT_VERSION = 'writer@3';
 
 /** The languages a product's pages are written in, with the name the agent is told. */
 export const CONTENT_LANGUAGES: Readonly<Record<string, { name: string; seeAlso: string }>> = {
@@ -63,9 +65,13 @@ export function fixedPart(language = 'en'): string {
     'You are one unit of madarch\'s knowledge writer. You write ONE Markdown page about a product, from what the product\'s graph and documents say, and nothing else.',
     '',
     '## How you work',
-    `- You have no access to the repository, the disk or the web. You read only through this session's tools: overview, find_nodes, get_node, neighbors, read_file (${FILE_LINES} lines per call). Every answer is bounded; a page of ${FIND_LIMIT} says "next" when more follow.`,
+    `- You have no access to the repository, the disk or the web. You read only through this session's tools: overview, find_nodes, get_node, neighbors, read_file (${FILE_LINES} lines per call). Every answer is bounded; a page of ${FIND_LIMIT} says "next" when more follow. Another tool, ask_question, asks the people (see below).`,
     '- You write only through write_page. It checks the whole page and writes it, or writes nothing and lists every problem with its line. Fix the problems and call it again; your attempts are bounded.',
     '- Stop when write_page answers written: true. Do not write anything else.',
+    '',
+    '## Look for disagreement, and ask',
+    '- Read the root README.md and the README of each service you describe (read_file) besides the requirements and architecture documents, before you write. Look for places where what a document says and what the code does disagree (a number, a rule, a promised behaviour, a timing), for a term the documents use for two things, and for behaviour the code has that no document describes.',
+    '- When you find one, call ask_question with what each source says and the grounds that show it, and go on. Never state either side as fact and never pick one yourself: write what the sources agree on. A question already asked (listed in your unit) is not asked again.',
     '',
     '## The page format',
     '- A file starts with YAML front matter: id, kind, title, relates (graph keys this page is about), producer (always agent), sources (document paths you read, or ids such as UC-2 found in them).',
@@ -108,7 +114,22 @@ async function overviewText(view: GraphView): Promise<string> {
   ].join('\n');
 }
 
-export async function productPrompt(view: GraphView, unit: Extract<UnitSpec, { kind: 'product' }>, language = 'en'): Promise<string> {
+/** What a unit is told beside the graph: the edit it is asked to make, and the questions asked about its page. */
+export interface UnitContext {
+  readonly brief?: EditBrief;
+  readonly questions?: readonly Question[];
+  /** The domains as the product page declares them now (product unit editing a page that exists). */
+  readonly declared?: readonly DomainDeclaration[];
+}
+
+/** The questions asked about a page, so a unit does not ask them again and knows which are answered. */
+export function questionsPart(pageId: string, questions: readonly Question[] | undefined): string[] {
+  const about = (questions ?? []).filter((question) => question.askedIn === pageId || question.about.some((entry) => entry === pageId || entry.startsWith(`${pageId}#`)));
+  if (about.length === 0) return [];
+  return ['## Questions already asked about this page', ...about.map((question) => `- question:${question.slug} (${question.status}${question.resolvedBy.length > 0 ? ', used by a rewrite' : ''}): ${question.title}`), ''];
+}
+
+export async function productPrompt(view: GraphView, unit: Extract<UnitSpec, { kind: 'product' }>, language = 'en', context: UnitContext = {}): Promise<string> {
   return [
     fixedPart(language),
     '',
@@ -117,7 +138,10 @@ export async function productPrompt(view: GraphView, unit: Extract<UnitSpec, { k
     `Read the product's documents first (vision, requirements, architecture), then the graph, and keep the page under ${PRODUCT_PAGE_WORDS} words.`,
     '',
     'Find the product\'s domains: the bounded areas of what the product does, named for the reader (such as payments or ordering), not for a folder. Each domain you declare in write_page\'s "domains" needs a slug, a title, a one-sentence summary and evidence that resolves in the graph (service keys, symbols, document sections). Every declared domain must be linked from the page as `[name](madarch:domain:<slug>)` and described by at least one grounded sentence. Another unit will write each domain\'s page.',
+    ...(context.declared === undefined || context.declared.length === 0 ? [] : ['', 'The domains the page declares now (pass them again in "domains", keep their slugs, and add a domain only for what the graph now shows is new):', ...context.declared.map(domainText)]),
     '',
+    ...questionsPart(unit.id, context.questions),
+    ...(context.brief === undefined ? [] : editPart(context.brief, CONTENT_LANGUAGES[language]?.name ?? language)),
     '## What the graph holds',
     await overviewText(view),
   ].join('\n');
@@ -127,7 +151,7 @@ function domainText(d: DomainDeclaration): string {
   return `- ${d.slug}: ${d.title}. ${d.summary} Evidence: ${d.evidence.join(', ')}.`;
 }
 
-export async function domainPrompt(view: GraphView, unit: Extract<UnitSpec, { kind: 'domain' }>, productPage: string, domains: readonly DomainDeclaration[], language = 'en'): Promise<string> {
+export async function domainPrompt(view: GraphView, unit: Extract<UnitSpec, { kind: 'domain' }>, productPage: string, domains: readonly DomainDeclaration[], language = 'en', context: UnitContext = {}): Promise<string> {
   const excerpt = productPage.length > PRODUCT_EXCERPT_CHARACTERS ? `${productPage.slice(0, PRODUCT_EXCERPT_CHARACTERS)}\n[product page cut at ${PRODUCT_EXCERPT_CHARACTERS} characters]` : productPage;
   return [
     fixedPart(language),
@@ -142,6 +166,8 @@ export async function domainPrompt(view: GraphView, unit: Extract<UnitSpec, { ki
     'All domains of the product (you may link them as `[name](madarch:domain:<slug>)`):',
     ...domains.map(domainText),
     '',
+    ...questionsPart(unit.id, context.questions),
+    ...(context.brief === undefined ? [] : editPart(context.brief, CONTENT_LANGUAGES[language]?.name ?? language)),
     '## The product page, for context',
     excerpt,
     '',

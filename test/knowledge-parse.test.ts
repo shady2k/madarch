@@ -217,7 +217,7 @@ describe('the starter set madarch new seeds', () => {
     const home = scratch();
     const draft = createDraft({ home, name: 'seeded', gitEnv: gitEnv({ GIT_AUTHOR_NAME: 'a', GIT_AUTHOR_EMAIL: 'a@example.test', GIT_COMMITTER_NAME: 'a', GIT_COMMITTER_EMAIL: 'a@example.test' }) });
     if (draft.outcome !== 'created') throw new Error(JSON.stringify(draft));
-    expect(STARTER_FILES.map((file) => file.path)).toEqual(['madarch/kinds.yaml', ...['product', 'domain', 'service', 'package', 'module', 'file', 'symbol', 'route', 'item', 'item-plain', 'database', 'table', 'entity-text', 'term'].map((name) => `templates/${name}.md`)]);
+    expect(STARTER_FILES.map((file) => file.path)).toEqual(['madarch/kinds.yaml', ...['product', 'domain', 'service', 'package', 'module', 'file', 'symbol', 'route', 'item', 'item-plain', 'database', 'table', 'entity-text', 'term', 'question', 'correction'].map((name) => `templates/${name}.md`)]);
     for (const file of STARTER_FILES) expect(readFileSync(join(draft.folder, file.path), 'utf8')).toBe(file.content);
     const read = readKinds(draft.folder);
     if (!read.present) throw new Error('the seeded manifest is absent');
