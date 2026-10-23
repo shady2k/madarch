@@ -561,7 +561,7 @@ function Definition({ block }: { block: Extract<Block, { type: 'definition' }> }
       <h2>{block.title}</h2>
       <p className="m-0 flex flex-wrap items-center gap-2">
         <Badge data-testid="definition-format">{formatName}</Badge>
-        <KLink href={block.location?.href ?? ''} className="font-mono text-[0.875em] text-secondary">{block.contract}</KLink>
+        {block.location === undefined ? <span className="font-mono text-[0.875em]">{block.contract}</span> : <KLink href={block.location.href} className="font-mono text-[0.875em] text-secondary">{block.contract}</KLink>}
       </p>
       {block.members.length === 0 ? <p className="mt-2 text-small text-muted" data-testid="definition-empty">{t('knowledge.definitionEmpty')}</p> : (
         <Table className="mt-3">
