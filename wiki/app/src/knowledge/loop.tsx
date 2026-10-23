@@ -231,7 +231,7 @@ export function QuestionPage({ slug, version, refresh }: { slug: string; version
 function ProblemItem({ problem }: { problem: Problem }): ReactElement {
   const { t } = useTranslation();
   const where = problem.page === null ? null : <KLink href={addressOfEntity(problem.page)}>{problem.pageTitle ?? shortId(problem.page)}</KLink>;
-  const missingGroup = /^kind "([^"]+)": "group" names a group of "groups" \([^)]*\), got "([^"]+)"$/.exec(problem.reason);
+  const missingGroup = /^kind "([^"]+)": "group" names a group of "groups" (?:\([^)]*\)|.*?), got "([^"]+)"$/.exec(problem.reason);
   const readerReason = missingGroup === null ? problem.reason : t('knowledge.manifestMissingGroup', {
     kind: t(`knowledge.manifestKinds.${missingGroup[1]}`, { defaultValue: missingGroup[1] }), group: missingGroup[2],
   });

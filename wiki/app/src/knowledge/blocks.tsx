@@ -532,7 +532,7 @@ export function Findings({ findings, scope = 'page' }: { findings: readonly { fi
   const [open, setOpen] = useState(false);
   const visible = scope === 'manifest' ? [...new Map(findings.map((finding) => [`${finding.file}:${finding.line}:${finding.message}`, finding])).values()] : findings;
   const words = (message: string): string => {
-    const missingGroup = /^kind "([^"]+)": "group" names a group of "groups" \([^)]*\), got "([^"]+)"$/.exec(message);
+    const missingGroup = /^kind "([^"]+)": "group" names a group of "groups" (?:\([^)]*\)|.*?), got "([^"]+)"$/.exec(message);
     if (missingGroup !== null) {
       const kind = t(`knowledge.manifestKinds.${missingGroup[1]}`, { defaultValue: missingGroup[1] });
       return t('knowledge.manifestMissingGroup', { kind, group: missingGroup[2] });
