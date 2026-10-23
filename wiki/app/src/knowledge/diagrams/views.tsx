@@ -88,7 +88,17 @@ function Frame({ view, renderer, lang, onOpen }: { view: DiagramView; renderer: 
     let alive = true;
     setLoaded(false);
     setFailure(null);
-    fetch(viewFrameAddress(view.query, renderer, lang)).then(async (response) => {
+    // A read that cannot start at all (a document without `fetch`, a page offline) says why beside the diagram: an
+    // error thrown out of an effect takes the whole page down, and the tabs and the list stay readable without a picture.
+    let asked: Promise<Response>;
+    try {
+      asked = fetch(viewFrameAddress(view.query, renderer, lang));
+    } catch (error) {
+      setFailure(error instanceof Error ? error.message : String(error));
+      setLoaded(true);
+      return () => { alive = false; };
+    }
+    asked.then(async (response) => {
       if (!response.ok) throw new Error((await response.json() as { message?: string }).message ?? `HTTP ${response.status}`);
       return await response.json() as { ok: true; model: unknown; elementLinks: Record<string, string> };
     }).then((answer) => { if (alive) { setLayout({ model: answer.model, elementLinks: answer.elementLinks }); setLoaded(true); } }).catch((error: unknown) => { if (alive) { setFailure(error instanceof Error ? error.message : String(error)); setLoaded(true); } });

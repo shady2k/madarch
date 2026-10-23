@@ -249,7 +249,8 @@ describe('the drawn views', () => {
     expect(rows[2]!.getAttribute('data-dashed')).toBe('true');
     (container.querySelector('[data-testid=view-drill]') as HTMLElement).click();
     await until(() => container.querySelector('[data-testid=view-title]')?.textContent === 'Components: payments', 'the components view');
-    expect(asked).toEqual(['/api/k/view?type=c4-component&subject=code.service%3Apayments&lang=en']);
+    // The drill-down asks the server for the view; the LikeC4 tab reads its own model frame beside it.
+    expect(asked.filter((url) => url.startsWith('/api/k/view?'))).toEqual(['/api/k/view?type=c4-component&subject=code.service%3Apayments&lang=en']);
     (container.querySelector('[data-testid=view-up]') as HTMLElement).click();
     await until(() => container.querySelector('[data-testid=view-title]')?.textContent === 'Containers', 'the way back up');
   });
