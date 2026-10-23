@@ -77,6 +77,8 @@ const at = (id: string): string => `/products/${name}/k/e/${encode(id)}`;
 const key = (kind: string, rest: string): string => `${kind}:${rest}`;
 const pages: { name: string; url: string; wait: string }[] = [
   { name: 'home', url: `/products/${name}/k`, wait: '[data-diagram=views] [data-testid=view]' },
+  // The domain list: the map of the domains with the services behind them (the owner's first ask).
+  { name: 'domain-list', url: `/products/${name}/k/kind/domain`, wait: '[data-diagram=views] [data-testid=view]' },
   { name: 'domain-payment', url: at('domain:payment'), wait: '[data-diagram=views] [data-testid=view]' },
   { name: 'route-post-orders', url: at(key('code.route', 'services/orders/internal/api/router.go#POST:/orders')), wait: '[data-diagram=views] [data-testid=view]' },
   { name: 'route-post-checkout', url: at(key('code.route', 'services/checkout/src/api/routes.ts#POST:/checkout')), wait: '[data-diagram=views] [data-testid=view]' },
