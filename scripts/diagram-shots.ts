@@ -76,15 +76,16 @@ const encode = encodeURIComponent;
 const at = (id: string): string => `/products/${name}/k/e/${encode(id)}`;
 const key = (kind: string, rest: string): string => `${kind}:${rest}`;
 const pages: { name: string; url: string; wait: string }[] = [
-  { name: 'home', url: `/products/${name}/k`, wait: '[data-diagram=system] [data-testid=system-node]' },
-  { name: 'domain-payment', url: at('domain:payment'), wait: '[data-diagram=sequence] [data-testid=chain-step]' },
-  { name: 'route-post-orders', url: at(key('code.route', 'services/orders/internal/api/router.go#POST:/orders')), wait: '[data-diagram=sequence] [data-testid=chain-step]' },
-  { name: 'route-post-checkout', url: at(key('code.route', 'services/checkout/src/api/routes.ts#POST:/checkout')), wait: '[data-diagram=sequence] [data-testid=chain-step]' },
-  { name: 'service-payments', url: at('code.service:payments'), wait: '[data-diagram=modules] [data-testid=module-node]' },
+  { name: 'home', url: `/products/${name}/k`, wait: '[data-diagram=views] [data-testid=view]' },
+  { name: 'domain-payment', url: at('domain:payment'), wait: '[data-diagram=views] [data-testid=view]' },
+  { name: 'route-post-orders', url: at(key('code.route', 'services/orders/internal/api/router.go#POST:/orders')), wait: '[data-diagram=views] [data-testid=view]' },
+  { name: 'route-post-checkout', url: at(key('code.route', 'services/checkout/src/api/routes.ts#POST:/checkout')), wait: '[data-diagram=views] [data-testid=view]' },
+  { name: 'service-payments', url: at('code.service:payments'), wait: '[data-diagram=views] [data-testid=view]' },
   { name: 'service-orders', url: at('code.service:orders'), wait: '[data-diagram=treemap] [data-testid=treemap-file]' },
+  { name: 'file-order-go', url: at(key('code.file', 'services/orders/internal/domain/order.go')), wait: '[data-diagram=views] [data-testid=view]' },
   { name: 'function-pay', url: at(key('code.symbol', 'services/payments/src/domain/payment-service.ts#PaymentService.pay')), wait: '[data-diagram=neighborhood] [data-testid=hood-node]' },
   { name: 'table-orders', url: at(key('code.table', 'orders/public.orders')), wait: '[data-diagram=neighborhood] [data-testid=hood-node]' },
-  { name: 'database-orders', url: at(key('code.database', 'orders')), wait: '[data-testid=diagram-links]' },
+  { name: 'database-orders', url: at(key('code.database', 'orders')), wait: '[data-diagram=views] [data-testid=view]' },
 ];
 const views = [{ tag: '1150-light', width: 1150, scheme: 'light' as const }, { tag: '1150-dark', width: 1150, scheme: 'dark' as const }, { tag: '390-light', width: 390, scheme: 'light' as const }, { tag: '390-dark', width: 390, scheme: 'dark' as const }];
 
@@ -109,23 +110,69 @@ async function measure(page: Page): Promise<unknown> {
       const clipped = frame === undefined ? [] : boxes.filter((box) => box.rect.width > 0 && (box.rect.right > frame.right + 1 && !diagram.querySelector('.dg-scroll'))).map((box) => box.node.textContent ?? '');
       result[name] = { texts: boxes.length, minFontPx: Math.round(Math.min(...boxes.map((box) => box.size)) * 10) / 10, overlaps: overlaps.slice(0, 8), clipped: clipped.slice(0, 5) };
     });
-    // The chain's own checks: every lane box and every row's label and arrow stands inside the visible part of its frame,
-    // and at phone width every step is a list item with its text (the diagram is not shown there).
-    const chains: Record<string, unknown>[] = [];
-    document.querySelectorAll('[data-testid=chain]').forEach((chain) => {
-      const scroll = chain.querySelector('[data-testid=chain-scroll]') as HTMLElement;
-      const frame = scroll.getBoundingClientRect();
-      const shown = frame.width > 0;
-      const outside = (rect: DOMRect): boolean => rect.right > frame.right + 1 || rect.left < frame.left - 1;
-      const lanes = [...chain.querySelectorAll('[data-testid=chain-lane] rect')].map((node) => node.getBoundingClientRect());
-      const rows = [...chain.querySelectorAll('[data-testid=chain-step]')];
-      const rowsOutside = rows.filter((row) => outside((row.querySelector('text.dg-step') as SVGTextElement).getBoundingClientRect()) || outside((row.querySelector('line, path.dg-arrow') as SVGGraphicsElement).getBoundingClientRect())).length;
-      const items = [...chain.querySelectorAll('[data-testid=chain-list] li')];
-      chains.push({ shown, scrolls: scroll.scrollWidth > scroll.clientWidth + 1, lanes: lanes.length, lanesClipped: shown ? lanes.filter(outside).length : 0, rows: rows.length, rowsOutside: shown ? rowsOutside : 0, listItems: items.length, emptyListItems: items.filter((item) => (item.textContent ?? '').trim() === '').length, listShown: (chain.querySelector('[data-testid=chain-list]') as HTMLElement).getBoundingClientRect().width > 0 });
-    });
-    if (chains.length > 0) (result as Record<string, unknown>)['chains'] = chains;
     return result;
   });
+}
+
+/** Label sizes and overlaps of everything a renderer drew inside a root (the page, or a frame), through shadow roots. */
+const MEASURE_LABELS = `(() => {
+  const found = [];
+  const walk = (root) => {
+    root.querySelectorAll('*').forEach((node) => {
+      if (node.shadowRoot) walk(node.shadowRoot);
+      const own = [...node.childNodes].filter((child) => child.nodeType === 3 && (child.textContent || '').trim() !== '').map((child) => child.textContent.trim()).join(' ');
+      if (own === '') return;
+      if (node.closest && node.closest('button, script, style, [data-testid=view-legend]')) return;
+      const rect = node.getBoundingClientRect();
+      if (rect.width < 1 || rect.height < 1) return;
+      const style = getComputedStyle(node);
+      if (style.visibility === 'hidden' || style.display === 'none') return;
+      const scale = node instanceof SVGElement ? (node.getScreenCTM() ? node.getScreenCTM().a : 1) : (node.offsetHeight > 0 ? rect.height / node.offsetHeight : 1);
+      found.push({ text: own, rect, size: parseFloat(style.fontSize) * scale });
+    });
+  };
+  walk(document);
+  const overlaps = [];
+  for (let i = 0; i < found.length; i += 1) for (let j = i + 1; j < found.length; j += 1) {
+    const a = found[i].rect; const b = found[j].rect;
+    const w = Math.min(a.right, b.right) - Math.max(a.left, b.left); const h = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+    if (w > 1.5 && h > 1.5) overlaps.push(found[i].text + ' / ' + found[j].text);
+  }
+  return { texts: found.length, minFontPx: found.length === 0 ? null : Math.round(Math.min(...found.map((entry) => entry.size)) * 10) / 10, overlaps: overlaps.slice(0, 8), overlapCount: overlaps.length };
+})()`;
+
+/** Walks every views block of a page: each view tab under each renderer tab, a picture and its measures. */
+async function walkViews(page: Page, entry: { name: string }, tag: string): Promise<void> {
+  const blocks = await page.$$('[data-diagram=views]');
+  for (let blockAt = 0; blockAt < blocks.length; blockAt += 1) {
+    const views = await blocks[blockAt]!.$$('[data-testid=view-tab]');
+    const viewCount = Math.max(1, views.length);
+    for (let viewAt = 0; viewAt < viewCount; viewAt += 1) {
+      const block = (await page.$$('[data-diagram=views]'))[blockAt]!;
+      if (views.length > 0) { await (await block.$$('[data-testid=view-tab]'))[viewAt]!.click(); await new Promise((rest) => setTimeout(rest, 400)); }
+      const type = await block.$eval('[data-testid=view]', (node) => node.getAttribute('data-view'));
+      const renderers = await block.$$eval('[data-testid^=renderer-]', (nodes) => nodes.map((node) => node.getAttribute('data-testid')!.slice('renderer-'.length)));
+      for (const renderer of renderers) {
+        await block.$eval(`[data-testid=renderer-${renderer}]`, (node) => (node as HTMLElement).click());
+        let drawn = true;
+        try {
+          if (renderer === 'mermaid') await block.waitForSelector('[data-testid=view-picture] svg', { timeout: 60_000 });
+          else await block.waitForSelector(`iframe[data-renderer=${renderer}]`, { timeout: 30_000 });
+        } catch { drawn = false; }
+        await new Promise((rest) => setTimeout(rest, renderer === 'mermaid' ? 600 : 9000));
+        const label = `${entry.name}-${type}-${renderer}-${tag}`;
+        await block.screenshot({ path: join(out, `${label}.png`) });
+        const measures: Record<string, unknown>[] = [];
+        if (renderer === 'mermaid') measures.push((await page.evaluate(`(() => { const root = document.querySelectorAll('[data-diagram=views]')[${blockAt}].querySelector('[data-testid=view-picture]'); const texts = [...root.querySelectorAll('svg text, svg foreignObject *')].filter((n) => (n.textContent||'').trim() !== '' && n.children.length === 0); const boxes = texts.map((n) => ({ t: n.textContent.trim(), r: n.getBoundingClientRect(), s: parseFloat(getComputedStyle(n).fontSize) * (n.getScreenCTM() ? n.getScreenCTM().a : 1) })).filter((b) => b.r.width > 0); const over = []; for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) { const a = boxes[i].r, b = boxes[j].r; const w = Math.min(a.right, b.right) - Math.max(a.left, b.left), h = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top); if (w > 1.5 && h > 1.5) over.push(boxes[i].t + ' / ' + boxes[j].t); } return { texts: boxes.length, minFontPx: boxes.length ? Math.round(Math.min(...boxes.map((b) => b.s)) * 10) / 10 : null, overlaps: over.slice(0, 8), overlapCount: over.length }; })()`)) as Record<string, unknown>);
+        else {
+          const handle = await block.$(`iframe[data-renderer=${renderer}]`);
+          const frame = await handle?.contentFrame();
+          if (frame !== null && frame !== undefined) measures.push((await frame.evaluate(MEASURE_LABELS)) as Record<string, unknown>);
+        }
+        report[label] = { drawn, ...(measures[0] ?? {}) };
+      }
+    }
+  }
 }
 
 for (const view of views) {
@@ -148,6 +195,7 @@ for (const view of views) {
     await new Promise((rest) => setTimeout(rest, 800));
     await page.screenshot({ path: join(out, `${entry.name}-${view.tag}.png`) });
     report[`${entry.name}-${view.tag}`] = await measure(page);
+    await walkViews(page, entry, view.tag);
     await page.close();
   }
 }

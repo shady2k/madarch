@@ -25,6 +25,8 @@ export interface KnowledgePart {
   statement: (request: Request) => Promise<Handled>;
   entities: (request: Request) => Promise<Handled>;
   neighborhood: (request: Request) => Promise<Handled>;
+  view: (request: Request) => Promise<Handled>;
+  viewFrame: (request: Request) => Promise<Handled>;
   source: (request: Request) => Promise<Handled>;
   fill: (request: Request) => Promise<Handled>;
   agents: (request: Request) => Promise<Handled>;
@@ -151,6 +153,23 @@ export function createKnowledgePart(
       const result = await product.neighborhood(id, { ...(query.get('relation') === null ? {} : { relation: query.get('relation')! }), ...(direction === null ? {} : { direction }), limit });
       if (!result.ok) return refused(result.status, { field: 'id', message: result.message });
       return { response: json(200, result.neighborhood) };
+    }),
+    view: guarded('draw the view', async (request) => {
+      const query = new URL(request.url).searchParams;
+      const asked = query.get('lang');
+      const result = await product.view(query, asked === 'ru' || asked === 'en' ? asked : undefined);
+      if (!result.ok) return refused(result.status, { field: 'type', message: result.message });
+      return { response: json(200, { renderer: result.renderer, views: result.views }) };
+    }),
+    viewFrame: guarded('draw the view frame', async (request) => {
+      const query = new URL(request.url).searchParams;
+      const renderer = query.get('renderer');
+      if (renderer === null) return refused(400, { field: 'renderer', accepted: 'likec4 or archify', message: '"renderer" is required: likec4 or archify' });
+      const asked = query.get('lang');
+      const result = await product.viewFrame(query, renderer, asked === 'ru' || asked === 'en' ? asked : undefined);
+      if (!result.ok) return refused(result.status, { field: 'renderer', message: result.message });
+      const contentType = result.type === 'html' ? 'text/html; charset=utf-8' : result.type === 'json' ? 'application/json; charset=utf-8' : 'text/javascript; charset=utf-8';
+      return { response: new Response(result.body, { status: 200, headers: { 'content-type': contentType, 'cache-control': 'private, max-age=300' } }) };
     }),
     source: guarded('read the source', async (request) => {
       const query = new URL(request.url).searchParams;

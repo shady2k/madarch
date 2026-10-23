@@ -9,10 +9,11 @@ import { join } from 'node:path';
 import { CONTAINS } from '../graph/vocabulary.js';
 import { byCodePoint } from '../model/order.js';
 import {
-  attributeOf, bodyBlock, callBlock, childrenBlock, erBlock, idOf, kindOf, propertiesBlock, refOfGraph, refOfMarkdown, relatedBlock, sourceBlock,
+  attributeOf, bodyBlock, callBlock, childrenBlock, idOf, kindOf, propertiesBlock, refOfGraph, refOfMarkdown, relatedBlock, sourceBlock,
   type RenderContext, type Subject,
 } from './blocks.js';
-import { graphBlock, modulesBlock, sequenceBlock, systemBlock, treemapBlock } from './diagrams.js';
+import { graphBlock, treemapBlock } from './diagrams.js';
+import { diagramsBlock } from './views.js';
 import type { GraphEntity } from './graph-read.js';
 import { implementedByBlock, linkedFromBlock, statedBlock, termBlock } from './doc-blocks.js';
 import { homeKind, type Finding, type Origin } from './kinds.js';
@@ -42,7 +43,7 @@ export async function findSubject(ctx: RenderContext, id: string): Promise<{ sub
  * `title-<lang>` (for example `title-ru="Файлы"`) names the block in that language where the template gives one.
  */
 /** The blocks that read the graph at length: drawn by a read of their own when the page is asked for with `defer`. */
-const DEFERRED_BLOCKS: ReadonlySet<string> = new Set(['graph', 'sequence', 'system', 'modules', 'treemap']);
+const DEFERRED_BLOCKS: ReadonlySet<string> = new Set(['graph', 'sequence', 'system', 'modules', 'er', 'treemap']);
 
 export async function renderPage(ctx: RenderContext, id: string, lang?: string, options: { defer?: boolean; only?: number } = {}): Promise<PageResult> {
   const located = await findSubject(ctx, id);
@@ -90,7 +91,7 @@ export async function renderPage(ctx: RenderContext, id: string, lang?: string, 
       blocks.push({ type: 'deferred', block: part.name, title: params['title'] ?? '', line: part.line });
       continue;
     }
-    const block = await renderBlock(ctx, subject, part.name, params, decl.template, part.line);
+    const block = await renderBlock(ctx, subject, part.name, params, decl.template, part.line, lang);
     if (block.type === 'problem') findings.push({ file: block.file, line: block.line, message: `:::${block.block}: ${block.message}` });
     blocks.push({ ...block, name: part.name });
   }
@@ -140,19 +141,26 @@ function titleOf(subject: Subject, attribute: string): string {
   return attributeOf(subject, attribute) ?? (subject.source === 'graph' ? subject.entity.label : subject.entity.title);
 }
 
-async function renderBlock(ctx: RenderContext, subject: Subject, name: string, params: Readonly<Record<string, string>>, file: string, line: number): Promise<Block> {
+/** The product's name for the context diagram: the title of its home page, else a plain word. */
+export function productTitleOf(ctx: RenderContext): string {
+  const home = homeKind(ctx.manifest);
+  const page = home === undefined ? undefined : [...ctx.markdown.values()].find((entity) => entity.kind === home.name);
+  return page?.title ?? 'Product';
+}
+
+async function renderBlock(ctx: RenderContext, subject: Subject, name: string, params: Readonly<Record<string, string>>, file: string, line: number, lang: string | undefined): Promise<Block> {
   switch (name) {
     case 'body': return bodyBlock(subject, name, file, line);
     case 'graph': return await graphBlock(ctx, subject, params);
-    case 'system': return await systemBlock(ctx, params);
-    case 'modules': return await modulesBlock(ctx, subject, params, file, line);
     case 'treemap': return await treemapBlock(ctx, subject, params);
     case 'related': return await relatedBlock(ctx, subject, params, file, line);
     case 'callers': return await callBlock(ctx, subject, 'in', params, file, line);
     case 'callees': return await callBlock(ctx, subject, 'out', params, file, line);
     case 'source': return await sourceBlock(ctx, subject, params, file, line);
-    case 'er': return await erBlock(ctx, subject, params, file, line);
-    case 'sequence': return await sequenceBlock(ctx, subject, params, file, line);
+    case 'system':
+    case 'modules':
+    case 'er':
+    case 'sequence': return await diagramsBlock({ ctx, lang, productTitle: productTitleOf(ctx) }, subject, name, params, { product: ctx.manifest.diagram, env: process.env }, { file, line });
     case 'children': return await childrenBlock(ctx, subject, params, file, line);
     case 'properties': return propertiesBlock(subject, params, file, line);
     case 'term': return termBlock(subject, params, file, line);

@@ -327,6 +327,24 @@
     "help": {
       "label": "Документация madarch",
       "title": "Документация madarch"
+    },
+    "views": {
+      "views": "Виды",
+      "renderers": "Отрисовка",
+      "fact": "факт (прочитан из графа)",
+      "assumed": "предположение",
+      "assumption": "предположение",
+      "unordered": "порядок неизвестен",
+      "loadingLikec4": "Рисуем диаграмму LikeC4…",
+      "loadingArchify": "Рисуем диаграмму archify…",
+      "drillLabel": "Открыть «{{view}}» для {{name}}",
+      "nothing": "Сервер не вернул вид.",
+      "kindMap": "Сервисы за доменами",
+      "fullscreen": "На весь экран",
+      "exitFullscreen": "Закрыть полный экран",
+      "zoomIn": "Увеличить",
+      "zoomOut": "Уменьшить",
+      "zoomFit": "Вписать"
     }
   },
   "loop": {

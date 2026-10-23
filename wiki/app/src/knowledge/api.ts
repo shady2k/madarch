@@ -1,6 +1,7 @@
 import { appPath } from '../app-base.js';
 import { readJson, RequestError } from '../api.js';
 import type { AgentOffer, AnswerResult, CorrectionResult, DocumentListing, Glossary, UserSettings, DocumentPageModel, Block, EntityListing, Neighborhood, PageModel, ProblemListing, PageJournal, ProductChoice, QuestionDetail, QuestionListing, RefreshPreview, SourceFile, StatementModel, WikiStatus } from './types.js';
+import type { AgentOffer, AnswerResult, CorrectionResult, DocumentListing, Glossary, UserSettings, DocumentPageModel, Block, DiagramRenderer, DiagramView, EntityListing, Neighborhood, PageModel, ProblemListing, ProductChoice, QuestionDetail, QuestionListing, RefreshPreview, SourceFile, StatementModel, WikiStatus } from './types.js';
 
 /** The wiki's status: manifest, kinds, repositories, fill. */
 export const getStatus = (signal?: AbortSignal): Promise<WikiStatus> => readJson<WikiStatus>('read the wiki', '/api/k/status', signal);
@@ -193,3 +194,8 @@ export const getBlock = (id: string, line: number, lang: string, signal?: AbortS
 
 /** What the agent did to write one page: the records of the newest run that wrote it, or of the run asked for. */
 export const getJournal = (id: string, run: string | null, signal?: AbortSignal): Promise<PageJournal> => readJson<PageJournal>(`read the journal of ${id}`, `/api/k/journal?id=${encodeURIComponent(id)}${run === null ? '' : `&run=${encodeURIComponent(run)}`}`, signal);
+/** The views a specification asks for (a drill-down or a way up replaces a diagram in place). */
+export const getViews = (query: string, lang: string, signal?: AbortSignal): Promise<{ renderer: DiagramRenderer; views: DiagramView[] }> => readJson<{ renderer: DiagramRenderer; views: DiagramView[] }>('read the diagram view', `/api/k/view?${query}&lang=${lang === 'ru' ? 'ru' : 'en'}`, signal);
+
+/** Where the frame of a view in the LikeC4 or archify renderer is served (the app's base is added). */
+export const viewFrameAddress = (query: string, renderer: 'likec4' | 'archify', lang: string): string => appPath(`/api/k/view-frame?${query}&renderer=${renderer}&lang=${lang === 'ru' ? 'ru' : 'en'}`);

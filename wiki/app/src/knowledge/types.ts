@@ -48,20 +48,50 @@ export type ModuleNode = { id: string; label: string; files: number; href: strin
 export type ModuleEdge = { from: string; to: string; cycle: boolean };
 export type TreemapFile = { id: string; path: string; href: string | null; lines: number; churn: number };
 
+export type DiagramRenderer = 'likec4' | 'mermaid' | 'archify';
+export type ViewType = 'c4-context' | 'c4-container' | 'c4-component' | 'sequence' | 'er' | 'state' | 'deployment';
+export type ViewSpec = { type: ViewType; subject: string; scope?: string; entry?: string };
+export type ViewElement = {
+  id: string;
+  label: string;
+  kind: string;
+  detail?: string;
+  href: string | null;
+  location?: CodeLocation;
+  dashed: boolean;
+  parent?: string;
+  drill?: { spec: ViewSpec; title: string };
+  columns?: { name: string; type?: string; key?: boolean }[];
+  standsFor?: number;
+};
+export type ViewEdge = { from: string; to: string; label: string; dashed: boolean; why?: string; step?: number; kind?: string; note?: string; href?: string | null; location?: CodeLocation };
+/** One view of a diagrams block: the model, the renderers that draw it (the chosen one first) and the query that asks the server for it again. */
+export type DiagramView = {
+  spec: ViewSpec;
+  title: string;
+  label: string;
+  elements: ViewElement[];
+  edges: ViewEdge[];
+  notes: string[];
+  empty: string | null;
+  up?: { spec: ViewSpec; title: string };
+  marker: string | null;
+  renderers: DiagramRenderer[];
+  mermaidSource: string;
+  query: string;
+};
+
 type BlockShape =
   | { type: 'markdown'; markdown: string }
   | { type: 'term'; title: string; definition: string; synonyms: string[]; code: string[]; usedIn: string | null; ambiguous: string | null }
   | { type: 'body'; markdown: string; file: string; statements: number; ungrounded: { text: string; line: number }[] }
   | { type: 'graph'; title: string; neighborhood: Neighborhood; depth: number; shown: number; total: number }
-  | { type: 'system'; title: string; nodes: SystemNode[]; edges: SystemEdge[]; notes: string[] }
-  | { type: 'modules'; title: string; service: string; nodes: ModuleNode[]; edges: ModuleEdge[]; cycles: string[][]; notes: string[] }
+  | { type: 'diagrams'; title: string; renderer: DiagramRenderer; views: DiagramView[] }
   | { type: 'treemap'; title: string; scope: string; files: TreemapFile[]; maxChurn: number; total: number; notes: string[] }
   | { type: 'related'; title: string; groups: RelatedGroup[] }
   | { type: 'callers'; title: string; total: number; rows: CallRow[] }
   | { type: 'callees'; title: string; total: number; rows: CallRow[] }
   | { type: 'source'; title: string; location: CodeLocation; language: string; text: string; truncated: boolean }
-  | { type: 'er'; title: string; mermaid: string; tables: number; shownTables: number; links: EntityRef[] }
-  | { type: 'sequence'; title: string; scenario: string; chains: Chain[]; entries: number; notes: string[] }
   | { type: 'refs'; title: string; total: number; rows: RefRow[] }
   | { type: 'properties'; title: string; rows: { name: string; value: string }[] }
   | { type: 'stated'; title: string; place: { repo: string | null; path: string; lineStart: number; lineEnd: number; href: string; commit: string | null } }

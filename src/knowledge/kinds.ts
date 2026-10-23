@@ -97,6 +97,9 @@ export interface KindLabel {
   many: string;
 }
 
+/** The renderers a diagram can open on (`diagram:` of the manifest). */
+export const DIAGRAM_RENDERER_NAMES: readonly string[] = ['likec4', 'mermaid', 'archify'];
+
 /** The languages the wiki's interface speaks; a label in another language is a finding. */
 export const LABEL_LANGUAGES: readonly string[] = ['en', 'ru'];
 
@@ -120,6 +123,8 @@ export interface KindsManifest {
   roles: ReadonlyMap<RoleName, RoleDecl>;
   /** The language the product's pages are written in (`language:` at the top of the manifest); absent means English. */
   language?: string;
+  /** The renderer the diagrams open on (`diagram:` at the top of the manifest: likec4, mermaid or archify); absent means the environment's, else LikeC4. */
+  diagram?: string;
   kinds: ReadonlyMap<string, KindDecl>;
   /** The groups of kinds, in the manifest's order. */
   groups: ReadonlyMap<string, GroupDecl>;
@@ -172,12 +177,17 @@ export function parseKinds(text: string, file: string, productFolder: string): K
   }
   const top = root as Record<string, unknown>;
   let language: string | undefined;
+  let diagram: string | undefined;
   for (const key of Object.keys(top)) {
     if (key === 'language') {
       const value = top['language'];
       if (typeof value !== 'string' || !LABEL_LANGUAGES.includes(value)) findings.push({ file, line: at(['language']), message: `"language" is ${JSON.stringify(value)}: the pages are written in ${LABEL_LANGUAGES.join(' or ')}` });
       else language = value;
-    } else if (key !== 'kinds' && key !== 'groups' && key !== 'documents' && key !== 'roles') findings.push({ file, line: at([key]), message: `"${key}" is not a field of the manifest: the manifest holds "kinds", "groups", "documents", "roles" and "language"` });
+    } else if (key === 'diagram') {
+      const value = top['diagram'];
+      if (typeof value !== 'string' || !DIAGRAM_RENDERER_NAMES.includes(value)) findings.push({ file, line: at(['diagram']), message: `"diagram" is ${JSON.stringify(value)}: the diagrams open on ${DIAGRAM_RENDERER_NAMES.join(', ')}` });
+      else diagram = value;
+    } else if (key !== 'kinds' && key !== 'groups' && key !== 'documents' && key !== 'roles') findings.push({ file, line: at([key]), message: `"${key}" is not a field of the manifest: the manifest holds "kinds", "groups", "documents", "roles", "language" and "diagram"` });
   }
   const groups = new Map<string, GroupDecl>();
   const rawGroups = top['groups'];
@@ -356,7 +366,7 @@ export function parseKinds(text: string, file: string, productFolder: string): K
       line,
     });
   }
-  return { file, roles, kinds, groups, excludeDocuments, findings, ...(language === undefined ? {} : { language }) };
+  return { file, roles, kinds, groups, excludeDocuments, findings, ...(language === undefined ? {} : { language }), ...(diagram === undefined ? {} : { diagram }) };
 }
 
 /**

@@ -327,6 +327,24 @@
     "help": {
       "label": "madarch documentation",
       "title": "madarch documentation"
+    },
+    "views": {
+      "views": "Views",
+      "renderers": "Renderer",
+      "fact": "fact (read from the graph)",
+      "assumed": "assumption",
+      "assumption": "assumption",
+      "unordered": "order unknown",
+      "loadingLikec4": "Drawing the LikeC4 diagram…",
+      "loadingArchify": "Drawing the archify diagram…",
+      "drillLabel": "Open {{view}} of {{name}}",
+      "nothing": "The server answered no view.",
+      "kindMap": "Services behind the domains",
+      "fullscreen": "Full screen",
+      "exitFullscreen": "Close full screen",
+      "zoomIn": "Zoom in",
+      "zoomOut": "Zoom out",
+      "zoomFit": "Fit"
     }
   },
   "loop": {

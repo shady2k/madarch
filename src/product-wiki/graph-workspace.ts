@@ -27,13 +27,22 @@
  */
 import { createHash } from 'node:crypto';
 import { byCodePoint } from '../model/order.js';
-import type { DiagramElement, DiagramModel } from '../fill/diagrams.js';
+import { componentId } from '../wiki/archify.js';
+import type { ShapeDiagram as DiagramModel, ShapeElement as DiagramElement } from './diagram-shape.js';
 
 /** Every element's LikeC4 id is `n` and its position in the model, which no name of the kind can collide with. */
 const ID_PREFIX = 'n';
 
 /** The one view a diagram's workspace holds: the diagram itself. */
 const VIEW_ID = 'index';
+
+/** The look LikeC4 gives the kinds the knowledge wiki's views use, as the lines of their `style` block. */
+const SHAPE_OF_KIND: Readonly<Record<string, readonly string[]>> = {
+  person: ['shape person'],
+  database: ['shape storage'],
+  channel: ['shape queue'],
+  external: ['color muted', 'border dashed'],
+};
 
 /** One diagram's workspace, and what a reader of the generated webcomponent needs of it. */
 export interface DiagramWorkspace {
@@ -71,21 +80,43 @@ export function webcomponentPrefix(workspace: string): string {
  */
 export function diagramWorkspace(model: DiagramModel, options: { readonly pageAddress: (id: string) => string }): DiagramWorkspace {
   const elements = model.elements.map((element, at) => ({ element, id: `${ID_PREFIX}${String(at)}` }));
-  const ids = new Map(elements.map((held) => [held.element.id, held.id]));
-  const componentIds = new Map(elements.map((held) => [held.element.id, `c${held.id}`]));
+  // The id LikeC4 knows an element by is its dotted path through the elements that hold it.
+  const localIds = new Map(elements.map((held) => [held.element.id, held.id]));
+  const fullId = (elementId: string): string => {
+    const element = model.elements.find((candidate) => candidate.id === elementId)!;
+    return element.parent === undefined ? localIds.get(elementId)! : `${fullId(element.parent)}.${localIds.get(elementId)!}`;
+  };
+  const ids = new Map(elements.map((held) => [held.element.id, fullId(held.element.id)]));
+  const componentIds = new Map([...ids].map(([elementId, fqn]) => [elementId, componentId(fqn)]));
   const kinds = [...new Set(model.elements.map((element) => element.kind ?? 'unresolved'))].sort(byCodePoint);
   const lines = [
     `// Rendered by madarch from the graph; the diagram is madarch's own model, not a file of a checkout.`,
     '',
     'specification {',
-    ...kinds.map((kind) => `  element ${kind}`),
+    ...kinds.flatMap((kind) => {
+      const shape = SHAPE_OF_KIND[kind];
+      return shape === undefined ? [`  element ${kind}`] : [`  element ${kind} {`, '    style {', ...shape.map((line) => `      ${line}`), '    }', '  }'];
+    }),
     '}',
     '',
     'model {',
   ];
-  for (const held of elements) {
-    lines.push(...elementLines(held.element, held.id, options));
-  }
+  // An element that holds others nests them: LikeC4 draws it as a frame, and archify as a region around its members.
+  const holders = new Set(model.elements.map((element) => element.parent).filter((parent): parent is string => parent !== undefined));
+  const nest = (parent: string | undefined, indent: string): void => {
+    for (const held of elements.filter((candidate) => candidate.element.parent === parent)) {
+      const own = elementLines(held.element, held.id, options).map((line) => `${indent}${line}`);
+      if (!holders.has(held.element.id)) {
+        lines.push(...own);
+        continue;
+      }
+      const opened = own.length === 1 ? [`${own[0]!} {`] : own.slice(0, -1);
+      lines.push(...opened);
+      nest(held.element.id, `${indent}  `);
+      lines.push(`${indent}}`);
+    }
+  };
+  nest(undefined, '');
   if (model.edges.length > 0) lines.push('');
   for (const edge of model.edges) {
     const from = ids.get(edge.from);
@@ -98,7 +129,7 @@ export function diagramWorkspace(model: DiagramModel, options: { readonly pageAd
     if (edge.dashed) lines.push(`${line} {`, '    style {', '      line dashed', '    }', '  }');
     else lines.push(line);
   }
-  lines.push('}', '', 'views {', `  view ${VIEW_ID} {`, `    title ${text(model.title)}`, '    include *', '  }', '}', '');
+  lines.push('}', '', 'views {', `  view ${VIEW_ID} {`, `    title ${text(model.title)}`, ...(holders.size > 0 ? ['    include *', '    include **'] : ['    include *']), '  }', '}', '');
   return { workspace: lines.join('\n'), viewId: VIEW_ID, elementIds: ids, componentIds };
 }
 
@@ -108,7 +139,7 @@ function elementLines(element: DiagramElement, id: string, options: { readonly p
   const head = `  ${id} = ${kind} ${text(element.label)}`;
   const body: string[] = [];
   // LikeC4 draws one spare line under a name, so a table's columns ride beside its place and not instead of it.
-  const parts = [element.place === undefined ? undefined : placeText(element), (element.columns ?? []).length === 0 ? undefined : columnsText(element)].filter((part): part is string => part !== undefined);
+  const parts = [element.detail, element.place === undefined ? undefined : placeText(element), (element.columns ?? []).length === 0 ? undefined : columnsText(element)].filter((part): part is string => part !== undefined);
   if (parts.length > 0) body.push(`    technology ${text(parts.join(' · '))}`);
   // A page's address is the app's own, root-relative: a products home prefixes it when it answers the document.
   if (element.page !== undefined) body.push(`    link ${options.pageAddress(element.page.id)}`);

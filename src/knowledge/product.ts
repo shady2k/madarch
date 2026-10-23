@@ -38,9 +38,11 @@ import { fileJournal, journalFolder, journalOfUnit, newRunId, type Journal, type
 import { productSlug, PRODUCT_PATH, type ToolAnswer, type ToolClient, type UnitAgent } from '../writer/index.js';
 import { CONTENT_LANGUAGES } from '../writer/prompts.js';
 import type { DraftEnv } from '../product/home.js';
-import { findSubject, kindSummaries, renderPage, listEntities, type PageResult } from './render.js';
+import { findSubject, kindSummaries, productTitleOf, renderPage, listEntities, type PageResult } from './render.js';
+import { archifyFrame, likec4Model } from './view-frames.js';
+import { buildViews, chosenRenderer, parseSpec, payloadOf, RENDERERS_OF, ViewRefusal, type GraphView, type ViewPayload } from './views.js';
 import { buildStatement, type StatementResult } from './statement.js';
-import { Resolver, type Resolution } from './resolve.js';
+import { noEntityMessage, Resolver, type Resolution } from './resolve.js';
 import { indexCounts, statementsRelyingOn } from './index/queries.js';
 import { webLink } from './index/web-link.js';
 import { readDocEntities, type DocEntity, type DocumentSource } from './doc-entities.js';
@@ -1030,6 +1032,55 @@ export class KnowledgeProduct {
     if (located === undefined) return { ok: false, status: 404, message: `no entity "${id}" in the graph or among the product's Markdown pages` };
     const { hood } = await neighborhoodOf(context.ctx, located.subject, { depth: 1, ...(options.relation === undefined ? {} : { relations: [options.relation] }), ...(options.direction === undefined ? {} : { direction: options.direction }), limit: options.limit, maxNodes: options.limit * 4 + 1 });
     return { ok: true, neighborhood: hood };
+  }
+
+  /**
+   * The view a specification asks for (decision 0026: a page chooses what to show and madarch checks it against the
+   * graph): the views as the page receives them, so a drill-down replaces a diagram in place. A refusal names why.
+   */
+  async view(query: URLSearchParams, lang?: string): Promise<{ ok: true; renderer: string; views: ViewPayload[] } | { ok: false; status: 400 | 404; message: string }> {
+    const built = await this.buildView(query, lang);
+    if (!built.ok) return built;
+    const chosen = chosenRenderer(built.ctx.manifest.diagram, process.env);
+    if (!chosen.ok) return { ok: false, status: 400, message: chosen.message };
+    return { ok: true, renderer: chosen.renderer, views: built.views.map((view) => payloadOf(view, chosen.renderer)) };
+  }
+
+  /** The LikeC4 page or the archify page of a view, or the bundle the LikeC4 page defines its element from. */
+  async viewFrame(query: URLSearchParams, renderer: string, lang?: string): Promise<{ ok: true; body: string; type: 'html' | 'json' } | { ok: false; status: 400 | 404 | 500; message: string }> {
+    const built = await this.buildView(query, lang);
+    if (!built.ok) return built;
+    const [view] = built.views;
+    if (view === undefined || view.empty !== null) return { ok: false, status: 404, message: view?.empty ?? 'the specification names no view' };
+    if (!(RENDERERS_OF[view.spec.type] as readonly string[]).includes(renderer)) return { ok: false, status: 400, message: `the ${view.spec.type} view is not drawn by ${renderer}: it is drawn by ${RENDERERS_OF[view.spec.type].join(', ')}` };
+    const env = { ...process.env, ...(this.options.env ?? {}) } as Record<string, string | undefined>;
+    if (renderer === 'likec4') {
+      const model = await likec4Model(view);
+      return model.ok ? { ok: true, body: JSON.stringify(model), type: 'json' } : { ok: false, status: 500, message: model.message };
+    }
+    if (renderer === 'archify') {
+      const frame = await archifyFrame(view, env);
+      return frame.ok ? { ok: true, body: frame.html, type: 'html' } : { ok: false, status: 500, message: frame.message };
+    }
+    return { ok: false, status: 400, message: `"renderer" is ${JSON.stringify(renderer)}: the renderers with a frame are likec4 and archify` };
+  }
+
+  private async buildView(query: URLSearchParams, lang?: string): Promise<{ ok: true; views: GraphView[]; ctx: RenderContext } | { ok: false; status: 400 | 404; message: string }> {
+    const context = await this.context();
+    if ('absent' in context) return { ok: false, status: 404, message: `the product has no ${context.file}: the wiki shows the kinds that file declares` };
+    try {
+      const spec = parseSpec(query);
+      // A domain map is scoped by the manifest kind name, not by an entity id. All other non-empty subjects
+      // must resolve to a page or graph entity before the view builder can read them.
+      const kindScope = spec.type === 'domain-map';
+      const located = spec.subject === '' || kindScope ? undefined : await findSubject(context.ctx, spec.subject);
+      if (spec.subject !== '' && !kindScope && located === undefined) return { ok: false, status: 404, message: noEntityMessage(spec.subject) };
+      const views = await buildViews({ ctx: context.ctx, lang, productTitle: productTitleOf(context.ctx) }, spec, located?.subject);
+      return { ok: true, views, ctx: context.ctx };
+    } catch (error) {
+      if (error instanceof ViewRefusal) return { ok: false, status: error.status, message: error.message };
+      throw error;
+    }
   }
 
   async list(kind: string, options: { q?: string; after?: string; limit: number }) {

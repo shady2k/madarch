@@ -11,9 +11,10 @@
  * comes back to the caller as bytes.
  */
 import { spawnSync } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { embeddedWikiApp } from '../product-wiki/release-assets.js';
 import type { ArchifyDocument, ArchifyLayoutedView, LayoutPoint } from './archify.js';
 
 /** The madarch checkout the renderer is vendored in. */
@@ -79,23 +80,44 @@ const ARCHIFY_RENDER_TIMEOUT_MS = 120_000;
  * renderer that could not be run at all names why — a refusal that says nothing is
  * a refusal nobody can act on.
  */
-export function renderArchifyPage(document: ArchifyDocument, input: string, output: string): { status: number | null; output: string } {
+export async function renderArchifyPage(document: ArchifyDocument, input: string, output: string): Promise<{ status: number | null; output: string }> {
   writeFileSync(input, JSON.stringify(document));
+  const app = embeddedWikiApp();
+  const bundled = app === undefined ? undefined : join(app, 'dist', 'archify', 'vendor', 'archify', 'renderers', 'architecture', 'render-architecture.mjs');
+  if (bundled !== undefined) {
+    if (!existsSync(bundled)) return { status: 1, output: `${bundled}:1: the compiled binary has no bundled archify renderer` };
+    const argv = process.argv;
+    const priorExit = process.exitCode;
+    process.argv = [process.execPath, bundled, input, output];
+    process.exitCode = 0;
+    try {
+      const url = `${pathToFileURL(bundled).href}?render=${encodeURIComponent(input)}`;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const timeout = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(`the bundled archify renderer did not finish within ${ARCHIFY_RENDER_TIMEOUT_MS / 1000} s`)), ARCHIFY_RENDER_TIMEOUT_MS); });
+      try {
+        await Promise.race([import(url), timeout]);
+      } finally {
+        if (timer !== undefined) clearTimeout(timer);
+      }
+      const renderedStatus = typeof process.exitCode === 'number' ? process.exitCode : 0;
+      if (renderedStatus !== 0) return { status: renderedStatus, output: `the bundled archify renderer ended with ${renderedStatus}` };
+      if (!existsSync(output)) return { status: 1, output: `the bundled archify renderer completed without writing ${output}` };
+      // The renderer is a one-shot CLI bundle. Importing it runs the vendored renderer against these arguments inside
+      // Bun's embedded runtime, without Node.js or a checkout beside the installed binary.
+      return { status: 0, output: '' };
+    } catch (error) {
+      return { status: 1, output: `the bundled archify renderer failed: ${error instanceof Error ? error.message : String(error)}` };
+    } finally {
+      process.argv = argv;
+      process.exitCode = priorExit;
+    }
+  }
   const run = spawnSync('node', [ARCHIFY_RENDERER, input, output], { encoding: 'utf8', timeout: ARCHIFY_RENDER_TIMEOUT_MS, killSignal: 'SIGKILL' });
   if (run.error !== undefined) {
-    // A renderer that could not be started is a missing toolchain; one that was killed at the bound said nothing and
-    // is reported as what it is.
     const timedOut = (run.error as NodeJS.ErrnoException).code === 'ETIMEDOUT' || run.signal === 'SIGKILL';
-    return {
-      status: run.status,
-      output: timedOut
-        ? `the archify renderer was killed after ${String(ARCHIFY_RENDER_TIMEOUT_MS / 1000)} s without writing a page`
-        : `the archify renderer at ${ARCHIFY_RENDERER} could not be run: ${run.error.message} (it is run with node; install Node.js, https://nodejs.org/)`,
-    };
+    return { status: run.status, output: timedOut ? `the archify renderer was killed after ${String(ARCHIFY_RENDER_TIMEOUT_MS / 1000)} s without writing a page` : `the archify renderer at ${ARCHIFY_RENDERER} could not be run: ${run.error.message} (it is run with node; install Node.js, https://nodejs.org/)` };
   }
   const said = `${run.stdout ?? ''}${run.stderr ?? ''}`.trim();
-  if (run.status !== 0 && said === '') {
-    return { status: run.status, output: `the archify renderer said nothing and was ended with ${run.signal === null ? `status ${String(run.status)}` : `signal ${run.signal}`} after at most ${String(ARCHIFY_RENDER_TIMEOUT_MS / 1000)} s` };
-  }
+  if (run.status !== 0 && said === '') return { status: run.status, output: `the archify renderer said nothing and was ended with ${run.signal === null ? `status ${String(run.status)}` : `signal ${run.signal}`} after at most ${String(ARCHIFY_RENDER_TIMEOUT_MS / 1000)} s` };
   return { status: run.status, output: said };
 }

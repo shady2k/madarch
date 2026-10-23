@@ -40,7 +40,8 @@ export function useColorScheme(): 'light' | 'dark' {
 }
 
 /** Renders one Mermaid source into the box; a failed draw is the named failure. */
-export function MermaidDiagram({ source, title }: { source: string; title?: string }): ReactElement {
+/** `bind` runs on the drawn svg (it makes its nodes links) and may return what undoes it. */
+export function MermaidDiagram({ source, title, bind }: { source: string; title?: string; bind?: (root: HTMLElement) => void | (() => void) }): ReactElement {
   const { t } = useTranslation();
   const [failed, setFailed] = useState<string | null>(null);
   const [svg, setSvg] = useState<string | null>(null);
@@ -73,6 +74,10 @@ export function MermaidDiagram({ source, title }: { source: string; title?: stri
       alive = false;
     };
   }, [source, scheme]);
+  useEffect(() => {
+    if (svg === null || holder.current === null || bind === undefined) return;
+    return bind(holder.current) ?? undefined;
+  }, [svg, bind]);
   if (failed !== null) {
     return (
       <p className="diagram-error" data-testid="mermaid-error">
