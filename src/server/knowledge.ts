@@ -46,6 +46,7 @@ export interface KnowledgePart {
   starter: (request: Request) => Promise<Handled>;
   rewritePages: (request: Request) => Promise<Handled>;
   startFresh: (request: Request) => Promise<Handled>;
+  journal: (request: Request) => Promise<Handled>;
 }
 
 /** The largest file the source view shows whole. */
@@ -339,6 +340,19 @@ export function createKnowledgePart(
       const done = await product.startFresh();
       if (!done.ok) return refused(409, { message: done.message });
       return { response: json(202, done) };
+    }),
+    journal: guarded('read the agent journal', async (request) => {
+      const query = new URL(request.url).searchParams;
+      const id = query.get('id');
+      if (id === null || id.trim() === '') return refused(400, { field: 'id', message: '"id" is required: the id of the page an agent wrote (product:<slug> or domain:<slug>)' });
+      const run = query.get('run');
+      if (run !== null && !/^run-[A-Za-z0-9-]+$/.test(run)) return refused(400, { field: 'run', message: `"run" is a run id like run-20261023T120000000Z-ab12, got ${JSON.stringify(run)}` });
+      try {
+        return { response: json(200, product.journalOf(id, run ?? undefined)) };
+      } catch (error) {
+        if (error instanceof WikiReadError) return refused(400, { field: 'id', message: error.message });
+        throw error;
+      }
     }),
     products: guarded('list the products', async () => ({ response: json(200, { current: product.folder, products: siblings() }) })),
   };

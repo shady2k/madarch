@@ -141,10 +141,16 @@
     "refresh": "Refresh",
     "refreshNote": "“Refresh” reads the code again from the new commits and checks the links of the pages. The agent then edits only the pages that need it (listed above), keeping every sentence whose grounds did not change; with a new language it translates all pages. Each unit is bound by {{turns}} turns and {{minutes}} minutes.",
     "reset": {
+      "menu": "Start over…",
+      "title": "Start {{product}} over?",
+      "removes": "This removes:",
+      "store": "the product's graph store, which the next fill builds again from the code;",
       "pages": "the {{count}} pages the agent wrote: {{list}}.",
       "noPages": "no page: the agent has written none.",
+      "keeps": "It keeps every other file of the product, the code repositories under repos/ and the choice of the agent. The wiki then shows the empty page.",
       "keptPages": "Pages in those places that a person wrote stay: {{list}}.",
-      "cancel": "Cancel"
+      "cancel": "Cancel",
+      "confirm": "Remove and start over"
     },
     "documentsMissing": "The documents could not be listed",
     "noDocuments": "No Markdown document matches.",
@@ -478,6 +484,43 @@
         "product": "Product knowledge"
       }
     }
+  },
+  "journal": {
+    "title": "How the agent wrote this page",
+    "back": "Back to the page",
+    "intro": "Every call the agent made while it wrote this page, and every request the core refused, as the core recorded them. The journal is kept on this machine, not in the product repository.",
+    "none": "No journal for this page. It was written before the core kept one, or no agent has written it on this machine.",
+    "failed": "The journal could not be read",
+    "run": "Run",
+    "agent": "Agent",
+    "model": "Model",
+    "session": "Session",
+    "notReported": "not reported",
+    "calls": "Tool calls",
+    "refusals": "Refusals",
+    "time": "Time in calls",
+    "onlyRefused": "Show only refusals",
+    "records": "Records",
+    "arguments": "Arguments",
+    "response": "Response",
+    "reason": "Why it was refused",
+    "noResponse": "No response",
+    "cut": "The response was cut: {{size}} bytes in all, the first part is kept.",
+    "size": "{{size}} bytes",
+    "ms": "{{ms}} ms",
+    "tool": "Request",
+    "outcome": {
+      "ok": "answered",
+      "refused": "refused",
+      "failed": "failed",
+      "rejected": "not served"
+    },
+    "kind": {
+      "tool-call": "tool call",
+      "refusal": "refused request"
+    },
+    "unreadable": "Lines of the journal that could not be read",
+    "otherRuns": "Other runs that wrote this page"
   },
   "settings": {
     "nav": "Product settings",

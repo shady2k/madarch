@@ -128,6 +128,8 @@ export interface AcpSession {
   readonly configOptions: readonly AcpConfigOption[];
   /** The model list some agents report beside the options (`models` of `session/new`, the protocol's earlier form); null when it reports none. */
   readonly models: { readonly current: string | null; readonly available: readonly { id: string; name: string; description?: string }[] } | null;
+  /** The model reported by ACP's earlier `models.currentModelId` form. */
+  readonly model: string | null;
   /** Sets one of the session's options to one of the values the agent offered (`session/set_config_option`); the agent's refusal is raised with its words. */
   setConfigOption(configId: string, value: string): Promise<void>;
   /** Sets the session's model by the earlier form (`session/set_model`). */
@@ -217,6 +219,17 @@ export type AcpMcpServer =
   | { name: string; command: string; args?: readonly string[]; env?: Readonly<Record<string, string>> }
   | { name: string; url: string; type?: 'http' | 'sse'; headers?: Readonly<Record<string, string>> };
 
+/** A request the agent made of the client that madarch refuses (decision 0026: the agent's own tools are off). */
+export interface AcpRefusal {
+  /** The protocol method, like `fs/read_text_file`. */
+  method: string;
+  sessionId: string | null;
+  /** The request's parameters as received. */
+  params: unknown;
+  /** What the agent is answered, in words. */
+  message: string;
+}
+
 /** Options for connecting to one agent. */
 export interface ConnectAcpOptions {
   /** The folder the agent runs in; made absolute before it is sent. */
@@ -229,6 +242,8 @@ export interface ConnectAcpOptions {
   sessionTimeoutMs?: number;
   /** Receives every update of every session, for progress; a session's own handler runs as well. */
   onUpdate?: (update: AcpUpdate) => void;
+  /** Told of every request of the agent that madarch refuses: a file or terminal request, a permission request. */
+  onRefused?: (refusal: AcpRefusal) => void;
 }
 
 /** A failure of this module; its message names what failed and where. */
@@ -442,6 +457,16 @@ export async function connectAcpAgent(spec: AcpAgentSpec, options: ConnectAcpOpt
   let settleClosed: () => void = () => undefined;
   const closedPromise = new Promise<void>((settle) => { settleClosed = settle; });
 
+  const refused = (method: string, params: unknown, message: string): void => {
+    const sessionId = typeof params === 'object' && params !== null && typeof (params as { sessionId?: unknown }).sessionId === 'string' ? (params as { sessionId: string }).sessionId : null;
+    options.onRefused?.({ method, sessionId, params, message });
+  };
+  const refuseTerminal = (method: string, params: unknown): never => {
+    const message = `the agent called ${method}, which madarch does not offer: the client has no terminal`;
+    refused(method, params, message);
+    throw new Error(message);
+  };
+
   const app = acp.client({ name: 'madarch' })
     .onNotification(acp.methods.client.session.update, (context) => {
       const notification = context.params;
@@ -456,15 +481,27 @@ export async function connectAcpAgent(spec: AcpAgentSpec, options: ConnectAcpOpt
       options.onUpdate?.(update);
     })
     // An agent's own file tools are off (decision 0026): it reads and writes
-    // only through the unit's MCP server, so a permission request and a raw
-    // file call are both refused here.
-    .onRequest(acp.methods.client.session.requestPermission, () => ({ outcome: { outcome: 'cancelled' as const } }))
-    .onRequest(acp.methods.client.fs.readTextFile, () => {
-      throw new Error('the agent called fs/read_text_file, which madarch does not offer: code is read through the session\'s MCP server');
+    // only through the unit's MCP server, so a permission request, a raw
+    // file call and a terminal call are all refused here, and told to the caller.
+    .onRequest(acp.methods.client.session.requestPermission, (context) => {
+      refused('session/request_permission', context.params, 'every permission request is answered cancelled: the agent works only through the session\'s MCP server');
+      return { outcome: { outcome: 'cancelled' as const } };
     })
-    .onRequest(acp.methods.client.fs.writeTextFile, () => {
-      throw new Error('the agent called fs/write_text_file, which madarch does not offer: writes go through the session\'s MCP server');
-    });
+    .onRequest(acp.methods.client.fs.readTextFile, (context) => {
+      const message = 'the agent called fs/read_text_file, which madarch does not offer: code is read through the session\'s MCP server';
+      refused('fs/read_text_file', context.params, message);
+      throw new Error(message);
+    })
+    .onRequest(acp.methods.client.fs.writeTextFile, (context) => {
+      const message = 'the agent called fs/write_text_file, which madarch does not offer: writes go through the session\'s MCP server';
+      refused('fs/write_text_file', context.params, message);
+      throw new Error(message);
+    })
+    .onRequest(acp.methods.client.terminal.create, (context) => refuseTerminal('terminal/create', context.params))
+    .onRequest(acp.methods.client.terminal.output, (context) => refuseTerminal('terminal/output', context.params))
+    .onRequest(acp.methods.client.terminal.release, (context) => refuseTerminal('terminal/release', context.params))
+    .onRequest(acp.methods.client.terminal.waitForExit, (context) => refuseTerminal('terminal/wait_for_exit', context.params))
+    .onRequest(acp.methods.client.terminal.kill, (context) => refuseTerminal('terminal/kill', context.params));
 
   const stream = acp.ndJsonStream(
     Writable.toWeb(child.stdin) as unknown as WritableStream<Uint8Array>,
@@ -592,6 +629,7 @@ export async function connectAcpAgent(spec: AcpAgentSpec, options: ConnectAcpOpt
       sessions.set(sessionId, state);
       let options = readConfigOptions(answer.configOptions);
       let models = readModels((answer as { models?: unknown }).models);
+      let reportedModel = (answer as { models?: { currentModelId?: unknown } }).models?.currentModelId;
       let turns = 0;
       let reports = 0;
       let last: AcpUsageReport | undefined;
@@ -601,6 +639,7 @@ export async function connectAcpAgent(spec: AcpAgentSpec, options: ConnectAcpOpt
         modes: answer.modes,
         get configOptions() { return options; },
         get models() { return models; },
+        get model() { return typeof reportedModel === 'string' ? reportedModel : models?.current ?? null; },
         async setConfigOption(configId, value) {
           let response: { configOptions?: unknown } | undefined;
           try {
@@ -620,6 +659,7 @@ export async function connectAcpAgent(spec: AcpAgentSpec, options: ConnectAcpOpt
             throw await wrapped(error, 'session/set_model');
           }
           if (models !== null) models = { ...models, current: modelId };
+          reportedModel = modelId;
         },
         running: () => inFlight,
         usage() {

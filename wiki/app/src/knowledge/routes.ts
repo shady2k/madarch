@@ -14,6 +14,7 @@ export type KRoute =
   | { name: 'question'; slug: string }
   | { name: 'problems' }
   | { name: 'settings' }
+  | { name: 'journal'; id: string; run: string | null }
   | { name: 'statement'; id: string; sentence: string; turn: number };
 
 export const K_HOME = '/k';
@@ -23,6 +24,10 @@ export const K_GLOSSARY = '/k/glossary';
 export const K_QUESTIONS = '/k/questions';
 export const K_PROBLEMS = '/k/problems';
 export const K_SETTINGS = '/k/settings';
+/** Where the journal of the agent's work on a page stands (madarch-m38l.13). */
+export function addressOfJournal(id: string, run?: string): string {
+  return `/k/journal?${new URLSearchParams({ id, ...(run === undefined ? {} : { run }) }).toString()}`;
+}
 export const addressOfQuestion = (slug: string): string => `/k/questions/${encodeURIComponent(slug)}`;
 /** Where the statement view of a sentence of a page stands. */
 export function addressOfStatement(id: string, sentence: string, turn = 0): string {
@@ -52,6 +57,11 @@ export function kRouteOf(pathname: string, search = ''): KRoute | null {
   }
   if (path === '/k/problems' || path === '/k/problems/') return { name: 'problems' };
   if (path === '/k/settings' || path === '/k/settings/') return { name: 'settings' };
+  if (path === '/k/journal') {
+    const query = new URLSearchParams(search);
+    const id = query.get('id');
+    return id === null || id === '' ? { name: 'home' } : { name: 'journal', id, run: query.get('run') };
+  }
   if (path.startsWith('/k/e/')) {
     try {
       const id = decodeURIComponent(path.slice('/k/e/'.length));

@@ -591,6 +591,7 @@ export function createHandler(dependencies: {
         { method: 'POST', path: '/api/k/answer', handle: (request: Request) => dependencies.knowledge!.answer(request) },
         { method: 'POST', path: '/api/k/correction', handle: (request: Request) => dependencies.knowledge!.correction(request) },
         { method: 'GET', path: '/api/k/problems', handle: (request: Request) => dependencies.knowledge!.problems(request) },
+        { method: 'GET', path: '/api/k/journal', handle: (request: Request) => dependencies.knowledge!.journal(request) },
         { method: 'GET', path: '/api/k/refresh-plan', handle: (request: Request) => dependencies.knowledge!.refreshPlan(request) },
         { method: 'GET', path: '/api/k/reset', handle: (request: Request) => dependencies.knowledge!.reset(request) },
         { method: 'POST', path: '/api/k/reset', handle: (request: Request) => dependencies.knowledge!.reset(request) },
