@@ -411,7 +411,10 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
     const spec: UnitSpec = { kind: 'localized-source', id: `localized-source:${entity.id}`, path: unitPath, entity, sourceLanguage, language: language === 'ru' ? 'ru' : 'en' };
     options.onUnitStart?.({ unit: spec.id, path: spec.path });
     const tools = new UnitTools(view, spec, sink, [], bounds, basis, extras);
-    const outcome = await runUnit(options.agent, tools, localizedSourcePrompt({ entity, language: spec.language, sourceLanguage, file: entity.path }));
+    const result = await runUnit(options.agent, tools, localizedSourcePrompt({ entity, language: spec.language, sourceLanguage, file: entity.path }));
+    const outcome: UnitOutcome = result.status === 'not-written'
+      ? { ...result, status: 'failed', refusals: [{ line: entity.line, rule: 'localized-source-missing', message: `${unitPath}:1: the writer ended without a valid localized statement` }] }
+      : result;
     options.onUnit?.(outcome);
     localizedSources.push(outcome);
   }
