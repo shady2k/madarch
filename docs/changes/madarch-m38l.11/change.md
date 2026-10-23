@@ -61,3 +61,6 @@ None.
 
 ## DONE WHEN
 A fixture product holding the manifest and templates madarch 0.2.0 wrote, served by the current madarch, shows the full grouping, the roles, use cases as entities and the contract and route pages; the same product with an edited manifest is left byte for byte and its Problems page offers «Добавить»; a product with a broken kind still publishes its other pages; the settings page is judged in the shots in Russian and English; «Начать с нуля» leaves no pages, no graph and a current manifest, then fills again.
+
+
+- Follow-up polish on `feature/madarch-problems-polish`: the Problems navigation count reads the open Problems listing count, not starter-offer count; the offer card has one heading sentence; malformed manifest group findings are translated for readers with the raw diagnostic behind engineer details. Coverage: product status exposes `problemsOpen`; the wiki asserts that starter offers do not inflate the count of actual problems and tests the localized finding and collapsed diagnostic.

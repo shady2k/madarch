@@ -235,7 +235,7 @@ describe('the problems page', () => {
   test('words manifest findings in Russian and keeps raw diagnostics behind engineer details', async () => {
     await setWikiLanguage('ru');
     (globalThis as { fetch?: unknown }).fetch = async () => json(listing([
-      problem('unreadable-file', { page: null, pageTitle: null, statement: null, sentence: null, reason: 'kind "question": "group" names a group of "groups" but has the wrong shape, got "product"', file: 'madarch/kinds.yaml', line: 8 }),
+      problem('unreadable-file', { page: null, pageTitle: null, statement: null, sentence: null, reason: 'kind "question": "group" names a group of "groups" (none is declared), got "product"', file: 'madarch/kinds.yaml', line: 8 }),
     ]));
     const page = into(createElement(ProblemsPage, { version: 0 }));
     await until(() => page.querySelector('[data-testid=problems-page]') !== null, 'the problems');

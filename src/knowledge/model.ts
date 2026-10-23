@@ -345,6 +345,8 @@ export interface WikiStatus {
   own?: boolean;
   /** The loop of questions and corrections (madarch-m38l.7), counted from their files. */
   loop: { questionsOpen: number; questionsAnswered: number; correctionsOpen: number };
+  /** Open Problems-page items, including findings, excluding starter offers. */
+  problemsOpen: number;
   /** How many things the current starter set holds that this product's edited manifest lacks (the Problems page offers them). */
   starterOffers: number;
 }
