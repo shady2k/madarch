@@ -227,6 +227,31 @@ describe('the whole upgrade run, on a local release', () => {
     expect(asked[0]).toContain('[y/N]');
   });
 
+  test('after the replace the new binary replaces a running background server, and the upgrade says what it did', async () => {
+    const target = scratchBinary();
+    const r = fakeRelease('v1.3.0', 'the replacement binary bytes');
+    const started: string[] = [];
+    const result = await upgrade({
+      fetch: r.fetch, releasesUrl: 'releases', answer: () => 'y', targetPath: target, currentVersion: '1.2.3',
+      restartServer: (replaced) => { started.push(replaced); return ['stopped the background server of madarch 1.2.3 (pid 7); starting the one of madarch 1.3.0', 'started: http://127.0.0.1:4180 (pid 9)']; },
+    });
+    expect(result.exit).toBe(0);
+    // The new binary is the one started, from the place it was laid.
+    expect(started).toEqual([target]);
+    expect(result.prints).toEqual([
+      expect.stringContaining('upgraded to v1.3.0'),
+      'stopped the background server of madarch 1.2.3 (pid 7); starting the one of madarch 1.3.0',
+      'started: http://127.0.0.1:4180 (pid 9)',
+    ]);
+  });
+
+  test('with no background server running the upgrade says nothing of one', async () => {
+    const target = scratchBinary();
+    const r = fakeRelease('v1.3.0', 'the replacement binary bytes');
+    const result = await upgrade({ fetch: r.fetch, releasesUrl: 'releases', answer: () => 'y', targetPath: target, currentVersion: '1.2.3', restartServer: () => null });
+    expect(result.prints).toHaveLength(1);
+  });
+
   test('without an injected prompt reader the question goes on standard error', async () => {
     const target = scratchBinary();
     const r = fakeRelease('v1.3.0', 'the replacement binary bytes');

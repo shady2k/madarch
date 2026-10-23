@@ -90,6 +90,8 @@ async function shoot(page: Page, name: string, settle?: () => Promise<unknown>):
 
 async function open(url: string, width: number, height: number, scheme: 'light' | 'dark' = 'light'): Promise<Page> {
   const page = await browser.newPage();
+  // The interface speaks the language of the walk (the wiki reads its choice from this storage key).
+  await page.evaluateOnNewDocument((language) => { try { window.localStorage.setItem('madarch-wiki-language', language); } catch { /* the walk goes on in the browser's own language */ } }, lang);
   await page.setViewport({ width, height });
   await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: scheme }]);
   page.on('pageerror', (error) => console.error(`page error at ${url}: ${error.message}`));
@@ -121,6 +123,7 @@ const diagrams = (count: number) => async (page: Page): Promise<void> => {
 };
 
 const only = argument('only', '');
+const lang = argument('lang', 'en');
 
 /** Waits for a state of a page; a wait that fails says what the page and the server said, and keeps a picture. */
 async function waited(page: Page, what: string, work: () => Promise<unknown>): Promise<void> {
@@ -188,7 +191,7 @@ if (only === '' || only === 'agent') {
 }
 
 // ---- the filled product ---------------------------------------------------------------------
-if (only === '' || only === 'shop') {
+if (only === '' || only === 'shop' || only === 'remarks') {
   const probe = await open('/products/shop/', 1440, 900);
   await probe.waitForSelector('[data-testid=fill-start], [data-testid=entity-page]', { timeout: 60_000 });
   if ((await probe.$('[data-testid=fill-start]')) !== null) {
@@ -223,6 +226,113 @@ if (only === '' || only === 'shop') {
   await page.waitForSelector('[data-testid=product-choice]');
   await shoot(page, '20-product-selector');
   await page.close();
+}
+
+// ---- the owner's remarks of the walk on 0.2.0 (madarch-m38l.4): one walk in the language of --lang -------------------
+if (only === 'remarks') {
+  const product = '/products/training-shop';
+  const api = (path: string): string => `${server.url}${product}${path}`;
+  const timed = async (path: string): Promise<number> => {
+    const started = performance.now();
+    const response = await fetch(api(path));
+    await response.text();
+    return Math.round(performance.now() - started);
+  };
+  // Start from an empty product: the same "start over" the wiki offers.
+  await fetch(api('/api/k/reset'), { method: 'POST' });
+  // Remark 1: the root opens a product's wiki; no list of products stands in front of it.
+  {
+    const page = await open('/', 1440, 900);
+    await waited(page, 'the root opening a product', () => page.waitForSelector('[data-testid=knowledge-app]', { timeout: 60_000 }));
+    console.log(`the root opened ${new URL(page.url()).pathname}`);
+    await shoot(page, `${lang}-r1-root-opens-a-product`);
+    await page.close();
+  }
+  // Remarks 2 and 5: the agents offered (five with "no agent", OpenCode, omp), and the language of the pages on the card.
+  const page = await open(`${product}/`, 1440, 1500);
+  await waited(page, 'the agent choice', () => page.waitForSelector('[data-testid=agent-claude-code]', { timeout: 60_000 }));
+  await page.click('[data-testid=agent-claude-code] input');
+  await page.waitForSelector('[data-testid=content-language]');
+  await shoot(page, `${lang}-r2-r5-agent-choice-and-language`);
+  await page.click('[data-testid=fill-start]');
+  // Remark 3: pages answer while the fill runs: every page is read in the browser and by the clock.
+  await waited(page, 'the fill running', () => page.waitForFunction(() => { const bar = document.querySelector('[data-testid=fill-card] [role=progressbar]'); return Number(bar?.getAttribute('aria-valuenow') ?? 0) >= 10; }, { timeout: 600_000, polling: 1000 }));
+  const samples: number[] = [];
+  for (let round = 0; round < 12; round += 1) {
+    for (const path of ['/api/k/status', '/api/k/entities?kind=code.file&limit=100', '/api/k/entities?kind=code.symbol&limit=100', `/api/k/page?id=${encodeURIComponent(PAY)}`]) samples.push(await timed(path));
+    await new Promise((rest) => setTimeout(rest, 150));
+  }
+  console.log(`${lang}: ${samples.length} answers during the fill, slowest ${Math.max(...samples)} ms, median ${[...samples].sort((a, b) => a - b)[Math.floor(samples.length / 2)]} ms`);
+  const filling = await open(`${product}/k/kind/code.file`, 1440, 900);
+  const loadStarted = performance.now();
+  await waited(filling, 'the Files list during the fill', () => filling.waitForSelector('[data-testid=kind-page] table tbody tr', { timeout: 30_000 }));
+  console.log(`${lang}: the Files list showed rows ${Math.round(performance.now() - loadStarted)} ms after the page opened`);
+  await shoot(filling, `${lang}-r3-files-during-the-fill`);
+  await filling.close();
+  // The agent writes the pages; the card goes when it is done, and the outcome is a quiet status in the top bar (remark 7).
+  await waited(page, 'the pages written', () => page.waitForFunction(() => document.querySelector('[data-testid=fill-chip]')?.textContent?.match(/\d/) !== null && document.querySelector('[data-testid=writer-card]') === null && document.querySelector('[data-testid=fill-card]') === null, { timeout: 1_500_000, polling: 2000 }));
+  await page.goto(`${server.url}${product}/`, { waitUntil: 'domcontentloaded' });
+  await waited(page, 'the home page after the write', () => page.waitForSelector('[data-testid=entity-page]', { timeout: 60_000 }));
+  await shoot(page, `${lang}-r7-done-no-card`);
+  await page.click('[data-testid=fill-chip]');
+  await page.waitForSelector('[data-testid=fill-menu]');
+  await shoot(page, `${lang}-r8-refresh-menu`);
+  await page.keyboard.press('Escape');
+  // Remark 4: the documents are pages of the wiki, and a document ground opens its page at its section.
+  await page.goto(`${server.url}${product}/k/docs`, { waitUntil: 'domcontentloaded' });
+  await waited(page, 'the documents', () => page.waitForSelector('[data-testid=documents-group]', { timeout: 60_000 }));
+  await shoot(page, `${lang}-r4-documents`);
+  await page.goto(`${server.url}${product}/k/e/${encodeURIComponent('domain:ordering')}`, { waitUntil: 'domcontentloaded' });
+  await waited(page, 'the ordering domain page', () => page.waitForSelector('[data-testid=entity-page]', { timeout: 60_000 }));
+  const ground = await page.$('a[href*="/k/doc?"]');
+  if (ground === null) throw new Error('the ordering page holds no ground that opens a document');
+  await ground.click();
+  await waited(page, 'the document at its section', () => page.waitForSelector('[data-testid=document-page] .anchor-hit', { timeout: 30_000 }));
+  await shoot(page, `${lang}-r4-ground-opens-its-section`);
+  // Remark 6: a tall window uses all of its height.
+  await page.setViewport({ width: 1400, height: 2000 });
+  await page.goto(`${server.url}${product}/k/kind/code.symbol`, { waitUntil: 'domcontentloaded' });
+  await waited(page, 'the symbols', () => page.waitForSelector('[data-testid=kind-page] table tbody tr', { timeout: 60_000 }));
+  await shoot(page, `${lang}-r6-tall-window`);
+  await page.setViewport({ width: 1440, height: 900 });
+  // Remark 9: the code is colored, light and dark.
+  for (const scheme of ['light', 'dark'] as const) {
+    await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: scheme }]);
+    await page.goto(`${server.url}${product}/k/src?repo=training&path=services%2Fpayments%2Fsrc%2Fdomain%2Fpayment-service.ts&line=46`, { waitUntil: 'domcontentloaded' });
+    await waited(page, 'the colored source', () => page.waitForSelector('[data-testid=source-code][data-colored=true]', { timeout: 60_000 }));
+    await shoot(page, `${lang}-r9-source-${scheme}`);
+  }
+  await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
+  // Remark 10: while a page loads, the skeleton of a page stands where it will be.
+  await page.setRequestInterception(true);
+  page.on('request', (request) => { if (request.url().includes('/api/k/page')) setTimeout(() => request.continue().catch(() => undefined), 4_000); else request.continue().catch(() => undefined); });
+  await page.goto(`${server.url}${product}/k/e/${encodeURIComponent('domain:payments')}`, { waitUntil: 'domcontentloaded' });
+  await waited(page, 'the skeleton', () => page.waitForSelector('[data-testid=page-loading]', { timeout: 30_000 }));
+  await shoot(page, `${lang}-r10-skeleton`);
+  await page.close();
+  // Remark 11: the problems box says in plain words what it means and who puts it right.
+  {
+    const found = await open('/products/shop/k/e/domain%3Apayment', 1440, 1500);
+    await waited(found, 'the findings box', () => found.waitForSelector('[data-testid=findings]', { timeout: 60_000 }));
+    await found.evaluate(() => document.querySelector('[data-testid=findings]')?.scrollIntoView({ block: 'center' }));
+    await shoot(found, `${lang}-r11-findings`);
+    await found.close();
+  }
+  // Remark 12: the product menu offers to start over, and says what goes and what stays before anything is removed.
+  {
+    const menu = await open(`${product}/`, 1440, 900);
+    await waited(menu, 'the product selector', () => menu.waitForSelector('[data-testid=product-selector]', { timeout: 60_000 }));
+    await menu.click('[data-testid=product-selector]');
+    await menu.waitForSelector('[data-testid=start-over]');
+    await menu.click('[data-testid=start-over]');
+    await waited(menu, 'the confirmation', () => menu.waitForSelector('[data-testid=start-over-dialog] [data-testid=start-over-pages]', { timeout: 30_000 }));
+    await new Promise((rest) => setTimeout(rest, 500));
+    await shoot(menu, `${lang}-r12-start-over-asks`);
+    await menu.click('[data-testid=start-over-confirm]');
+    await waited(menu, 'the empty page after starting over', () => menu.waitForSelector('[data-testid=fill-card][data-state=empty]', { timeout: 60_000 }));
+    await shoot(menu, `${lang}-r12-after-starting-over`);
+    await menu.close();
+  }
 }
 
 await browser.close();

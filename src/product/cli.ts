@@ -18,7 +18,9 @@ import { createDraft } from './draft.js';
 import { prepareDemo, type DemoOptions } from './demo.js';
 import { listProducts, type ProductList } from './list.js';
 import { runningVersion } from './version.js';
-import { startDaemon, stopDaemon, daemonStatus, serveDaemon, ensureDaemon } from './daemon.js';
+import { startDaemon, stopDaemon, daemonStatus, serveDaemon, ensureDaemon, daemonUrl } from './daemon.js';
+import { applyReset, planReset, type ResetPlan } from '../knowledge/reset.js';
+import { defaultKnowledgeRoot, storeFolderOf } from '../knowledge/product.js';
 import { upgrade, type UpgradeOptions } from './upgrade.js';
 import { serveWiki, machineOpener, type Opener, type ServeEnv, type ServeOptions } from '../product-wiki/serve.js';
 import {
@@ -71,6 +73,7 @@ export const SHORT_HELP = [
   'Other:',
   '  version   Show the version',
   '  upgrade   Upgrade madarch',
+  '  reset     Start a product\'s knowledge over',
   '',
   'Run madarch <command> --help for details.',
 ].join('\n');
@@ -252,6 +255,8 @@ export const COMMANDS: Record<string, CommandSpec> = {
   // person's command. It takes no argument at all — the session's token and the host's address come from
   // the environment the ACP session passed it — so it is listed here for the parser and in no help text.
   'mcp-unit': { positionals: [], flags: { home: false, product: false, port: false, open: false, branch: false, yes: false } },
+  'knowledge-read-worker': { positionals: [], flags: { home: false, product: false, port: false, open: false, branch: false, yes: false } },
+  'knowledge-fill-worker': { positionals: [], flags: { home: false, product: false, port: false, open: false, branch: false, yes: false } },
   // The deterministic fill (decision 0026's stages 0 to 7, started by madarch-tzte.21.8): it runs
   // the eight stages over one product and prints what the graph holds afterwards. It serves nothing
   // and takes no agent, so it carries no port and no open.
@@ -268,6 +273,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
   clone: { positionals: ['url'], flags: { home: true, product: false, port: false, open: false, branch: false, yes: false } },
   version: { positionals: [], flags: { home: false, product: false, port: false, open: false, branch: false, yes: false } },
   upgrade: { positionals: [], flags: { home: false, product: false, port: false, open: false, branch: false, yes: true } },
+  reset: { positionals: ['product'], flags: { home: true, product: false, port: false, open: false, branch: false, yes: true } },
 };
 
 /** One subcommand's parsed words and options. */
@@ -602,6 +608,23 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
     const { serveUnitMcpServer } = await import('../fill/unit-mcp-server.js');
     return await serveUnitMcpServer();
   }
+  if (command === 'knowledge-read-worker') {
+    const { runReadWorker } = await import('../knowledge/read-worker.js');
+    const { standardInputLines } = await import('../knowledge/lines.js');
+    const code = await runReadWorker({ lines: standardInputLines(), send: (line) => { process.stdout.write(`${line}\n`); } });
+    // The pipe from the server is still open for reading; the worker is over.
+    await new Promise<void>((done) => { process.stdout.write('', () => done()); });
+    process.exit(code);
+  }
+  if (command === 'knowledge-fill-worker') {
+    // The knowledge wiki's fill, in a process of its own (madarch-m38l.4): messages are lines on standard input and output.
+    const { runFillWorker } = await import('../knowledge/fill-worker.js');
+    const { standardInputLines } = await import('../knowledge/lines.js');
+    const code = await runFillWorker({ lines: standardInputLines(), send: (message) => { process.stdout.write(`${JSON.stringify(message)}\n`); } });
+    // The pipe from the server is still open for reading; the worker is over.
+    await new Promise<void>((done) => { process.stdout.write('', () => done()); });
+    process.exit(code);
+  }
   if (command === 'fill-stages') return await fillStagesCommand(parsed, home);
   if (command === 'init') {
     const result = initLife({ cwd: process.cwd(), home });
@@ -616,6 +639,7 @@ export async function main(args: readonly string[], deps: CliDeps = {}): Promise
     }
     return await serveShared(parsed, deps, folder, true, parsed.json ? { folder, ...facts } : undefined);
   }
+  if (command === 'reset') return await resetCommand(parsed.words[0], home, parsed.yes);
   if (command === 'version') return versionCommand();
   if (command === 'upgrade') {
     const result = await upgrade({ ...(deps.upgrade ?? {}), skipPrompt: parsed.yes });
@@ -879,4 +903,71 @@ function lifecycleRepo(parsed: Parsed, mode: RepoConnectMode | undefined = parse
     cwd: process.cwd(),
   });
   return outcome;
+}
+
+/** What a reset removes and keeps, in the words both the command and the wiki's confirmation use. */
+export function describeReset(name: string, plan: ResetPlan): string[] {
+  return [
+    `Starting ${name} over removes:`,
+    `  - the product's graph store, which the next fill builds again from the code${plan.store.length === 0 ? ' (there is none now)' : ''}`,
+    ...(plan.agentPages.length === 0 ? ['  - no page: the agent has written none'] : [`  - the ${plan.agentPages.length} page${plan.agentPages.length === 1 ? '' : 's'} the agent wrote: ${plan.agentPages.join(', ')}`]),
+    'It keeps every other file of the product, the code repositories under repos/, and the choice of the agent.',
+    ...(plan.keptPages.length === 0 ? [] : [`Pages in those places that a person wrote stay: ${plan.keptPages.join(', ')}.`]),
+  ];
+}
+
+/** `madarch reset <product>`: starts the product's knowledge over, asking first unless `--yes` is given. */
+async function resetCommand(name: string | undefined, homeOption: string | undefined, yes: boolean): Promise<number> {
+  const root = productsHome(process.env as DraftEnv, homeOption);
+  const listed = listProducts({ home: root });
+  const names = listed.outcome === 'listed' ? listed.products.map((entry) => basename(entry.folder)) : [];
+  if (name === undefined || !names.includes(name)) {
+    console.error(`madarch reset <product>: ${name === undefined ? 'name the product' : `no product "${name}" in ${root}`}; the products are ${names.length === 0 ? '(none)' : names.join(', ')}`);
+    return 2;
+  }
+  const folder = join(root, name);
+  const read = readProduct(folder);
+  if (!read.ok) {
+    console.error(`${read.file}:${read.line}: ${read.message}`);
+    return 1;
+  }
+  const server = daemonUrl({ home: root });
+  const asServer = server === undefined ? undefined : `${server}/products/${encodeURIComponent(name)}/api/k/reset`;
+  let plan: ResetPlan;
+  try {
+    if (asServer !== undefined) {
+      const answer = await fetch(asServer);
+      if (!answer.ok) throw new Error(`the background server at ${server} answered ${answer.status}: ${await answer.text()}`);
+      plan = (await answer.json()) as ResetPlan;
+    } else {
+      const knowledge = defaultKnowledgeRoot(root);
+      plan = planReset(folder, storeFolderOf(knowledge, read.product.id, join(folder, 'workspace.yaml')), knowledge);
+    }
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    return 1;
+  }
+  for (const line of describeReset(name, plan)) console.log(line);
+  if (!yes) {
+    process.stderr.write('proceed? [y/N] ');
+    const { answeredFromStdin } = await import('./upgrade.js');
+    const answer = answeredFromStdin()();
+    if (!/^(y|yes)$/i.test(answer.trim())) {
+      console.error(`nothing was removed: the answer was ${JSON.stringify(answer)}, yes is y or yes`);
+      return 2;
+    }
+  }
+  try {
+    if (asServer !== undefined) {
+      const done = await fetch(asServer, { method: 'POST' });
+      if (!done.ok) throw new Error(`the background server at ${server} refused: ${await done.text()}`);
+    } else {
+      applyReset(folder, plan);
+    }
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    return 1;
+  }
+  console.log(`Done. ${name} reads as an empty product: open its wiki and press the button to fill it again.`);
+  return 0;
 }

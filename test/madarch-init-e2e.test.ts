@@ -26,7 +26,10 @@ let env: Record<string, string>;
 let url = '';
 let initOutput = '';
 
-const madarch = (args: string[], cwd: string) => spawnSync(process.execPath, [join(ROOT, 'scripts', 'madarch.ts'), ...args], { cwd, env, encoding: 'utf8', timeout: 120_000 });
+// MADARCH_E2E_BINARY runs the same walk with a built release binary instead of the checkout's entry.
+const madarch = (args: string[], cwd: string) => process.env['MADARCH_E2E_BINARY'] !== undefined
+  ? spawnSync(process.env['MADARCH_E2E_BINARY'], args, { cwd, env, encoding: 'utf8', timeout: 120_000 })
+  : spawnSync(process.execPath, [join(ROOT, 'scripts', 'madarch.ts'), ...args], { cwd, env, encoding: 'utf8', timeout: 120_000 });
 const get = async (path: string): Promise<{ status: number; body: any }> => {
   const response = await fetch(`${url}${path}`);
   return { status: response.status, body: await response.json() };
@@ -91,7 +94,7 @@ describe('madarch init', () => {
     const status = await get('api/k/status');
     expect(status.body).toMatchObject({ manifest: 'ok', filled: false, home: null, chosenAgent: null, writer: { state: 'idle' }, repositories: [{ name: 'training-shop', filled: false }] });
     const agents = await get('api/k/agents');
-    expect(agents.body.agents.map((offer: { id: string; installed: boolean }) => [offer.id, offer.installed])).toEqual([['claude-code', true], ['codex', false]]);
+    expect(agents.body.agents.map((offer: { id: string; installed: boolean }) => [offer.id, offer.installed])).toEqual([['claude-code', true], ['codex', false], ['opencode', false], ['omp', false]]);
   });
 });
 
@@ -127,5 +130,30 @@ describe('the one press', () => {
     // The pages are Markdown files of the product repository, and the repository's own history is the reader's to commit.
     for (const page of ['docs/product.md', 'docs/domains/ordering.md', 'docs/domains/payments.md']) expect(existsSync(join(home, 'training-shop', page))).toBe(true);
     expect(readFileSync(join(home, 'training-shop', 'docs', 'domains', 'payments.md'), 'utf8')).toContain('producer: agent');
+
+    // The documents are pages of the same wiki: the written pages and the repository's own, and a ground opens the document at its section.
+    const documents = (await get('api/k/documents')).body as { documents: { repo: string | null; path: string }[] };
+    expect(documents.documents).toContainEqual({ repo: null, path: 'docs/product.md' });
+    expect(documents.documents).toContainEqual({ repo: 'training-shop', path: 'docs/requirements.md' });
+    const requirements = await get('api/k/document?repo=training-shop&path=docs/requirements.md');
+    expect(requirements.status).toBe(200);
+    expect(requirements.body.anchors['uc-2']).toBeGreaterThan(0);
+    const ground = (homePage.body.resolutions as Record<string, { state: string; href: string | null }>)['madarch:doc:docs/requirements.md#uc-2'];
+    expect(ground?.href).toBe('/k/doc?repo=training-shop&path=docs%2Frequirements.md#uc-2');
+
+    // The same press with the language of the pages changed asks the agent in Russian and writes every page again.
+    const russian = await post('api/k/fill', { agent: 'claude-code', language: 'ru' });
+    expect(russian.status).toBe(202);
+    let after: any = (await get('api/k/status')).body;
+    for (let tries = 0; tries < 1800 && !(after.language === 'ru' && after.fill.state === 'done' && after.writer.state === 'done'); tries += 1) {
+      await new Promise((rest) => setTimeout(rest, 500));
+      after = (await get('api/k/status')).body;
+    }
+    expect(after.writer, JSON.stringify(after.writer)).toMatchObject({ state: 'done' });
+    const paymentsRu = await pageOf('domain:payments');
+    const paymentsRuBody = paymentsRu.body.blocks.find((block: { type: string }) => block.type === 'body');
+    expect(paymentsRuBody.markdown).toContain('Платёж проходит через одного из двух провайдеров');
+    expect(paymentsRuBody.ungrounded).toEqual([]);
+    expect(paymentsRu.body.findings).toEqual([]);
   }, 1_800_000);
 });

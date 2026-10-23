@@ -16,6 +16,7 @@ import { DRIVER_PRODUCER } from '../extract/driver/index.js';
 import type { GraphId, GraphStore } from '../graph/index.js';
 import { sha256Hex } from '../graph/digest.js';
 import { byCodePoint } from '../model/order.js';
+import { documentAnchors, slugOf } from '../knowledge/anchors.js';
 import type { GroundResolver } from './format.js';
 
 type Raw = Record<string, unknown>;
@@ -42,53 +43,7 @@ const TEXT_INSTANT = `to_char(%s AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US
 export const MAX_CONTENT_BYTES = 512 * 1024;
 const DOCUMENT_EXTENSIONS = /\.(md|markdown)$/i;
 
-/** GitHub-style heading slug: lower case, punctuation dropped, spaces to hyphens. */
-export function slugOf(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[`*_~]/g, '')
-    .replace(/[^\p{L}\p{N}\s-]/gu, '')
-    .trim()
-    .replace(/\s+/g, '-');
-}
-
-/**
- * The sections of a Markdown document that a ground can name: every heading's
- * slug (repeated ones suffixed -1, -2 as GitHub does), the slug of a list
- * item's leading bold phrase (`- **Place an order** ...`), and the identifier
- * such a phrase or heading starts with (`UC-1`, `BR-3`, `ADR-0001`) in lower
- * case. Code-point sorted.
- */
-export function documentAnchors(text: string): string[] {
-  const anchors = new Set<string>();
-  const seen = new Map<string, number>();
-  let fenced = false;
-  for (const line of text.split('\n')) {
-    if (/^\s*(```|~~~)/.test(line)) { fenced = !fenced; continue; }
-    if (fenced) continue;
-    const identifier = (phrase: string): void => {
-      const lead = /^([A-Za-z]+-\d+)\b/.exec(phrase.trim());
-      if (lead !== null) anchors.add(lead[1]!.toLowerCase());
-    };
-    const heading = /^#{1,6}\s+(.*?)\s*#*\s*$/.exec(line);
-    if (heading !== null) {
-      const slug = slugOf(heading[1]!);
-      const count = seen.get(slug) ?? 0;
-      seen.set(slug, count + 1);
-      anchors.add(count === 0 ? slug : `${slug}-${count}`);
-      identifier(heading[1]!);
-      continue;
-    }
-    const bold = /^\s*(?:[-*+]|\d+[.)])\s+\*\*([^*]+)\*\*/.exec(line);
-    if (bold !== null) {
-      const phrase = bold[1]!.replace(/[.:]\s*$/, '');
-      anchors.add(slugOf(phrase));
-      identifier(phrase);
-    }
-  }
-  anchors.delete('');
-  return [...anchors].sort(byCodePoint);
-}
+export { documentAnchors, slugOf };
 
 export class GraphView implements GroundResolver {
   private readonly keyCache = new Map<string, NodeInfo | null>();

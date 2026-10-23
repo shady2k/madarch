@@ -5,7 +5,8 @@
  * `src/fill/acp-install.ts`), and the production factory that starts the
  * chosen agent as an ACP unit agent.
  *
- * Two agents are offered, Claude Code and Codex, the two the owner's
+ * Four agents are offered: Claude Code, Codex, OpenCode and omp (Pi is not: see
+ * its catalogue entry). The first two are the ones the owner's
  * subscription terms allow through ACP adapters. Nothing here runs an agent:
  * `makeUnitAgent` is called only when a fill with an agent chosen has read the
  * code.
@@ -22,7 +23,7 @@ import type { UnitAgent } from '../writer/run.js';
 import type { AgentOffer, WriterBounds } from './model.js';
 
 /** The ids of the agents the wiki offers. */
-export const WRITER_AGENTS: readonly string[] = ['claude-code', 'codex'];
+export const WRITER_AGENTS: readonly string[] = ['claude-code', 'codex', 'opencode', 'omp'];
 
 /** The bound stated to the reader in plain words, from the numbers the writer enforces. */
 export const WRITER_BOUNDS: WriterBounds = {

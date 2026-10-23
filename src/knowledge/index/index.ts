@@ -67,3 +67,4 @@ export async function indexProductMarkdown(options: IndexProductOptions): Promis
   }
   return await indexKnowledge(options.owner, options.store, { productId: options.productId, at: options.at, pages, ...(options.head === undefined ? {} : { head: options.head }), repositories: options.repositories });
 }
+export { indexWorkerProduct, type WorkerIndexOptions } from './run.js';

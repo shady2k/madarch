@@ -60,7 +60,31 @@ const fillOf = (owner: DatabaseOwner, store: GraphStore, repository: string): Fi
   owners: OWNERS,
   history: HISTORY_EXTRACTOR,
   snapshots: KEY.snapshots,
+  points: chosenPoints(repository),
 });
+
+/**
+ * The commits whose code structure the checks below read (decision 0030: earlier
+ * structure only at chosen points): the answer key's four snapshots, and the
+ * commits around the three dated facts it names — the move of the order aggregate,
+ * the feature branch's merge and the date anomaly — each with its parent and the
+ * commit after it, so a read at any instant of those intervals finds a tree.
+ */
+function chosenPoints(repository: string): string[] {
+  const line = git(repository, 'log', '--first-parent', '--reverse', '--format=%H%x00%s').trim().split('\n').map((row) => row.split('\0') as [string, string]);
+  const around = (subject: string): string[] => {
+    const at = line.findIndex(([, text]) => text.includes(subject));
+    if (at < 0) throw new Error(`the generated repository has no first-parent commit "${subject}"`);
+    return [line[at - 1]![0], line[at]![0], line[at + 1]![0]];
+  };
+  // The branch's own commits are older than some commits of the line: the tree a read at the branch's date finds is the last line commit at or before it.
+  const merge = line.find(([, text]) => text.includes('Merge feature/checkout-observability'))![0];
+  const branchTip = git(repository, 'log', '-1', '--format=%P', merge).trim().split(' ')[1]!;
+  const branchTime = git(repository, 'log', '-1', '--format=%cI', branchTip).trim();
+  const timed = git(repository, 'log', '--first-parent', '--reverse', '--format=%H%x00%cI').trim().split('\n').map((row) => row.split('\0') as [string, string]);
+  const beforeBranch = timed.filter(([, committer]) => new Date(committer).getTime() <= new Date(branchTime).getTime()).at(-1)![0];
+  return [...Object.values(KEY.snapshots), beforeBranch, ...around('Move the order aggregate under internal/domain'), ...around('Merge feature/checkout-observability'), ...around('Pin the Go toolchain in the Dockerfiles')];
+}
 
 // The rename remap's own contract (reviewed): a whole path part matches, a path inside another
 // path does not, and a chain git detects in one commit lands on the final path once.
@@ -184,18 +208,17 @@ export function extractDriverTests(label: string, make: () => { owner: DatabaseO
       // The key: "moved, content kept, one identity, history continues after the move"; the move commit is "Move the order aggregate under internal/domain".
       const move = firstParent.find((c) => c.subject.includes('Move the order aggregate under internal/domain'))!;
       const after = firstParent[firstParent.indexOf(move) + 1]!.hash;
-      const dayAt = (iso: string, offset = 'T12:00:00Z'): string => `${iso.slice(0, 10)}${offset}`;
-      const before = dayAt(committerOf(move.parent)); // noon of the day before the move's own time
+      const before = committerOf(move.parent); // the parent's own instant: its tree stands until the move
       // Before the move only the old path exists; after it only the new one; and both are the same node id.
       const filesAt = async (when: string, filePath: string) => (await nodesOfKind(env, 'code.file', when, 'code.extract.files')).filter((n) => n.properties['recordKey'] === `code.file:${filePath}`);
       const oldBefore = await filesAt(before, 'services/orders/src/order.go');
       const newBefore = await filesAt(before, 'services/orders/internal/domain/order.go');
       expect(oldBefore).toHaveLength(1);
       expect(newBefore).toHaveLength(0);
-      const movedAt = dayAt(move.committer, 'T23:59:59Z'); // after the move's own time, before any later commit touches the file
+      const movedAt = move.committer; // the move's own instant: its tree stands until the next commit
       const newAfter = await filesAt(movedAt, 'services/orders/internal/domain/order.go');
       const oldAfter = await filesAt(movedAt, 'services/orders/src/order.go');
-      const laterStill = await filesAt(dayAt(committerOf(after)), 'services/orders/internal/domain/order.go');
+      const laterStill = await filesAt(committerOf(after), 'services/orders/internal/domain/order.go');
       expect(newAfter).toHaveLength(1);
       expect(oldAfter).toHaveLength(0);
       expect(laterStill).toHaveLength(1); // the history continues after the move, as the key's mustShow says
@@ -217,7 +240,8 @@ export function extractDriverTests(label: string, make: () => { owner: DatabaseO
       expect(branchTime < mergeTime).toBe(true); // the branch's own date reads the pre-branch content on main
       // The branch changed services/checkout/src/api/routes.ts; before the merge the tree still holds the old content.
       const filePath = 'services/checkout/src/api/routes.ts';
-      const oldDigest = sha(blobAt(env.repository, merge.parent!, filePath));
+      const lastBeforeBranch = git(env.repository, 'log', '--first-parent', '--format=%H %cI', merge.hash).trim().split('\n').map((row) => row.split(' ') as [string, string]).find(([, committer]) => new Date(committer).getTime() <= new Date(branchTime).getTime())![0];
+      const oldDigest = sha(blobAt(env.repository, lastBeforeBranch, filePath)); // the branch's date reads the last line commit at or before it
       const newDigest = sha(blobAt(env.repository, merge.hash, filePath));
       expect(oldDigest).not.toBe(newDigest);
       const filesNode = async (at: string) => (await env.query<{ sha256: string; id: string }>(
@@ -306,11 +330,103 @@ export function extractDriverTests(label: string, make: () => { owner: DatabaseO
       }
     }, 120_000);
 
-    test('measure: fill time per commit and in total, and the store\'s size per table', async () => {
-      const perCommit = env.report.commits.map((c) => `${c.generation}:${c.durationMs}ms`).join(' ');
-      console.log(`[measure] total ${env.report.totalMs} ms over ${env.report.commits.length} commits; per commit ${perCommit}`);
-      expect(env.report.totalMs).toBeGreaterThan(0);
-      expect(env.report.commits.length).toBe(firstParent.length);
+    // The history facts of the answer key (decision 0030: read from git over every first-parent commit, no code parsed).
+    /** The history producer's facet of one file: its churn count and authors, current at the last commit. */
+    const historyOf = async (filePath: string) => (await env.query<{ properties: { commitCount: number; authors: string[] } }>(
+      `SELECT v.properties FROM node_version v JOIN node_kind k ON k.id = v.kind_id
+       WHERE k.key = 'code.facet' AND v.producer = 'code.extract.history' AND v.properties->>'ownerKey' = $1 AND v.recorded_to = 'infinity' AND v.valid_to = 'infinity'`,
+      [FILE + filePath],
+    ))[0]?.properties;
+
+    test('hotspot (key item hotspot): order_service.go is the most changed file, with 28 of the 71 non-merge commits', async () => {
+      const hot = 'services/orders/internal/application/order_service.go';
+      expect((await historyOf(hot))?.commitCount).toBe(28);
+      const top = await env.query<{ key: string; count: string }>(
+        `SELECT v.properties->>'ownerKey' AS key, (v.properties->>'commitCount') AS count FROM node_version v JOIN node_kind k ON k.id = v.kind_id
+         WHERE k.key = 'code.facet' AND v.producer = 'code.extract.history' AND v.recorded_to = 'infinity' AND v.valid_to = 'infinity' AND v.properties ? 'commitCount'
+         ORDER BY (v.properties->>'commitCount')::int DESC, 1 LIMIT 2`,
+      );
+      expect(top[0]!.key).toBe(FILE + hot);
+      expect(Number(top[1]!.count)).toBeLessThan(28);
+      // The expected count is git's own: the non-merge commits that changed the file.
+      expect(git(env.repository, 'log', '--no-merges', '--format=%H', '--', hot).trim().split('\n')).toHaveLength(28);
+    }, 60_000);
+
+    test('change-coupling (key item change-coupling): pricing.go and tax.go change together in all 6 commits that touch either', async () => {
+      const pricing = 'services/orders/internal/pricing/pricing.go';
+      const tax = 'services/orders/internal/pricing/tax.go';
+      expect((await historyOf(pricing))?.commitCount).toBe(6);
+      expect((await historyOf(tax))?.commitCount).toBe(6);
+      const coupling = await env.query<{ support: string }>(
+        `SELECT e.properties->>'support' AS support FROM edge_version e JOIN relation_type r ON r.id = e.relation_type_id
+         JOIN node_version s ON s.node_id = e.src_id AND s.recorded_to = 'infinity' AND s.valid_to = 'infinity'
+         JOIN node_version d ON d.node_id = e.dst_id AND d.recorded_to = 'infinity' AND d.valid_to = 'infinity'
+         WHERE r.key = 'code.changed-with' AND e.recorded_to = 'infinity' AND e.valid_to = 'infinity' AND s.properties->>'recordKey' = $1 AND d.properties->>'recordKey' = $2`,
+        [FILE + pricing, FILE + tax],
+      );
+      expect(coupling.map((row) => row.support)).toEqual(['6']);
+    }, 60_000);
+
+    test('provider-authorship (key item provider-authorship): every file under the providers has Rin Tanaka as its only author', async () => {
+      const providers = await env.query<{ key: string; authors: string[] }>(
+        `SELECT v.properties->>'ownerKey' AS key, v.properties->'authors' AS authors FROM node_version v JOIN node_kind k ON k.id = v.kind_id
+         WHERE k.key = 'code.facet' AND v.producer = 'code.extract.history' AND v.recorded_to = 'infinity' AND v.valid_to = 'infinity'
+           AND v.properties->>'ownerKey' LIKE $1 ORDER BY 1`,
+        [`${FILE}services/payments/src/providers/%`],
+      );
+      expect(providers.length).toBeGreaterThan(0);
+      for (const row of providers) expect(row.authors, row.key).toEqual(['Rin Tanaka']);
+      expect(git(env.repository, 'log', '--format=%an', '--', 'services/payments/src/providers').trim().split('\n').every((name) => name === 'Rin Tanaka')).toBe(true);
+    }, 60_000);
+
+    test('rename.identity (key item): the history records the move as one rename of similarity 1, and the file keeps its history', async () => {
+      const from = 'services/orders/src/order.go';
+      const to = 'services/orders/internal/domain/order.go';
+      const renamed = await env.query<{ edge: string; similarity: string }>(
+        `SELECT DISTINCT e.edge_id::text AS edge, e.properties->>'similarity' AS similarity FROM edge_version e JOIN relation_type r ON r.id = e.relation_type_id
+         JOIN node_version s ON s.node_id = e.src_id AND s.recorded_to = 'infinity' JOIN node_version d ON d.node_id = e.dst_id AND d.recorded_to = 'infinity'
+         WHERE r.key = 'code.renamed-to' AND e.recorded_to = 'infinity' AND e.valid_to = 'infinity' AND s.properties->>'recordKey' = $1 AND d.properties->>'recordKey' = $2`,
+        [FILE + from, FILE + to],
+      );
+      expect(renamed.map((row) => row.similarity)).toEqual(['1']);
+      // One file, one history: the commits of both paths count once each on the path it holds now.
+      const commitsOfBoth = git(env.repository, 'log', '--no-merges', '--format=%H', '--follow', '--', to).trim().split('\n').length;
+      expect((await historyOf(to))?.commitCount).toBe(commitsOfBoth);
+    }, 60_000);
+
+    test('history.size and the merge (key items history.size, history.feature-branch): 72 commits by three authors, the branch\'s commits valid at the merge', async () => {
+      const commits = await env.query<{ key: string; merge: boolean; first: boolean; effective: string; branch: string | null }>(
+        `SELECT v.properties->>'recordKey' AS key, (v.properties->>'merge')::boolean AS merge, (v.properties->>'onFirstParent')::boolean AS first,
+                v.properties->>'effectiveAt' AS effective, v.properties->>'mergedBranch' AS branch
+         FROM node_version v JOIN node_kind k ON k.id = v.kind_id
+         WHERE k.key = 'code.commit' AND v.producer = 'code.extract.history' AND v.recorded_to = 'infinity' AND v.valid_to = 'infinity'`,
+      );
+      expect(commits).toHaveLength(72);
+      expect(commits.filter((c) => c.first)).toHaveLength(70);
+      expect(commits.filter((c) => c.merge)).toHaveLength(1);
+      const authors = await env.query<{ label: string }>(
+        `SELECT v.label FROM node_version v JOIN node_kind k ON k.id = v.kind_id WHERE k.key = 'code.author' AND v.producer = 'code.extract.history' AND v.recorded_to = 'infinity' AND v.valid_to = 'infinity' ORDER BY 1`,
+      );
+      expect(authors.map((a) => a.label)).toEqual(['Avery Quinn', 'Rin Tanaka', 'Sam Okafor']);
+      const merge = commits.find((c) => c.merge)!;
+      expect(merge.branch).toBe('feature/checkout-observability');
+      // The effective times along the first-parent line are strictly increasing; the branch's two commits carry the merge's.
+      const effectiveOfLine = firstParent.map((c) => commits.find((row) => row.key === `code.commit:${c.hash}`)!.effective);
+      for (let at = 1; at < effectiveOfLine.length; at += 1) expect(effectiveOfLine[at]! > effectiveOfLine[at - 1]!, `effective time of line commit ${at + 1}`).toBe(true);
+      expect(commits.filter((c) => !c.first).map((c) => c.effective)).toEqual([merge.effective, merge.effective]);
+    }, 60_000);
+
+    test('measure: the code of the last commit is read once, within 90 s, and the report says where the time went', async () => {
+      const { report } = env;
+      const head = firstParent[firstParent.length - 1]!;
+      console.log(`[measure] total ${report.totalMs} ms: code ${report.phases.codeMs} ms (1 tree), history ${report.phases.historyMs} ms over ${report.historyCommits} commits, ${report.points.length} points ${report.phases.pointsMs} ms; points ${report.points.map((c) => `${c.generation}:${c.durationMs}ms`).join(' ')}`);
+      expect(report.totalMs).toBeGreaterThan(0);
+      expect(report.commits.map((c) => c.hash)).toEqual([head.hash]); // the code of the last commit, once
+      expect(report.commits[0]!.generation).toBe(firstParent.length);
+      expect(report.newCommits).toBe(firstParent.length); // a first fill finds every commit new
+      expect(report.historyCommits).toBe(firstParent.length);
+      expect(report.phases.codeMs).toBeLessThan(90_000); // the acceptance: code pages complete within 90 s of the start
+      expect(report.points.map((c) => c.hash)).toEqual(chosenPoints(env.repository).filter((hash, at, all) => all.indexOf(hash) === at && hash !== head.hash).sort((a, b) => firstParent.findIndex((c) => c.hash === a) - firstParent.findIndex((c) => c.hash === b)));
       const sizes = await env.query<{ table_name: string; bytes: string }>(
         `SELECT c.relname AS table_name, pg_total_relation_size(c.oid)::text AS bytes FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
          WHERE n.nspname = current_schema() AND c.relkind = 'r' ORDER BY pg_total_relation_size(c.oid) DESC`,

@@ -13,8 +13,17 @@ const MAX_LENGTH = 40;
 /** A footnote label that is only digits is a number, not a name. */
 export const isNumbered = (label: string): boolean => /^\d+$/.test(label);
 
+const CYRILLIC: Record<string, string> = {
+  а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'e', ж: 'zh', з: 'z', и: 'i', й: 'y', к: 'k', л: 'l', м: 'm', н: 'n', о: 'o', п: 'p', р: 'r', с: 's', т: 't', у: 'u',
+  ф: 'f', х: 'kh', ц: 'ts', ч: 'ch', ш: 'sh', щ: 'shch', ъ: '', ы: 'y', ь: '', э: 'e', ю: 'yu', я: 'ya',
+};
+const RUSSIAN_STOP_WORDS = new Set(['and', 'ili', 'dlya', 'pri', 'kak', 'chto', 'eto', 'ot', 'po', 'na', 'iz', 'za', 'ne', 'no', 'li', 'zhe', 'ego', 'ee', 'ikh']);
+
+/** Cyrillic letters in Latin letters, so a Russian sentence still gives a readable ASCII name. */
+const transliterate = (text: string): string => text.toLowerCase().replace(/[\u0400-\u04ff]/g, (letter) => CYRILLIC[letter] ?? '');
+
 function words(text: string): string[] {
-  return text
+  return transliterate(text)
     .normalize('NFKD')
     .replace(/[̀-ͯ]/g, '')
     .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
@@ -25,7 +34,7 @@ function words(text: string): string[] {
 /** A readable name from a sentence; falls back to the words of a ground's label, then to "statement". Never purely digits. */
 export function slugOf(sentence: string, hint = ''): string {
   for (const source of [sentence, hint]) {
-    const chosen = words(source).filter((word) => !STOP_WORDS.has(word) && word.length > 1);
+    const chosen = words(source).filter((word) => !STOP_WORDS.has(word) && !RUSSIAN_STOP_WORDS.has(word) && word.length > 1);
     if (chosen.length === 0) continue;
     let slug = '';
     for (const word of chosen.slice(0, MAX_WORDS)) {

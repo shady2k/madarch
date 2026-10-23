@@ -1,6 +1,6 @@
 import { appPath } from '../app-base.js';
 import { readJson, RequestError } from '../api.js';
-import type { AgentOffer, EntityListing, PageModel, ProductChoice, SourceFile, WikiStatus } from './types.js';
+import type { AgentOffer, DocumentListing, DocumentPageModel, EntityListing, PageModel, ProductChoice, SourceFile, WikiStatus } from './types.js';
 
 /** The wiki's status: manifest, kinds, repositories, fill. */
 export const getStatus = (signal?: AbortSignal): Promise<WikiStatus> => readJson<WikiStatus>('read the wiki', '/api/k/status', signal);
@@ -60,11 +60,11 @@ export async function chooseAgent(agent: string | null, install: boolean): Promi
 }
 
 /** Starts the fill; the answer is the server's refusal in words when it cannot start. */
-export async function startFill(agent?: string | null): Promise<void> {
+export async function startFill(agent?: string | null, language?: string): Promise<void> {
   let response: Response;
   try {
     // The press names the agent it was made for; the server refuses it when another tab saved a different choice meanwhile.
-    response = await fetch(appPath('/api/k/fill'), agent === undefined ? { method: 'POST' } : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ agent }) });
+    response = await fetch(appPath('/api/k/fill'), agent === undefined ? { method: 'POST' } : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ agent, ...(language === undefined ? {} : { language }) }) });
   } catch (error) {
     throw new RequestError('start the fill', `the request failed (${error instanceof Error ? error.message : String(error)})`);
   }
@@ -81,3 +81,37 @@ export async function startFill(agent?: string | null): Promise<void> {
 
 /** The wiki's one change stream: the server says `change` when a file of the product or a commit of the fill changes what a page shows. */
 export const eventsAddress = (): string => appPath('/api/events');
+
+/** What starting the product over would remove and keep. */
+export type ResetPlan = { store: string[]; agentPages: string[]; keptPages: string[] };
+
+export const getResetPlan = (signal?: AbortSignal): Promise<ResetPlan> => readJson<ResetPlan>('read what starting over removes', '/api/k/reset', signal);
+
+/** Starts the product over; the answer is the server's refusal in words when it cannot. */
+export async function resetProduct(): Promise<void> {
+  let response: Response;
+  try {
+    response = await fetch(appPath('/api/k/reset'), { method: 'POST' });
+  } catch (error) {
+    throw new RequestError('start over', `the request failed (${error instanceof Error ? error.message : String(error)})`);
+  }
+  if (response.ok) return;
+  let reason = `the server answered ${response.status}`;
+  try {
+    const body = (await response.json()) as { message?: unknown };
+    if (typeof body.message === 'string') reason = body.message;
+  } catch {
+    // the status stands
+  }
+  throw new RequestError('start over', reason, response.status);
+}
+
+/** The Markdown documents of the product and of its connected repositories. */
+export const getDocuments = (signal?: AbortSignal): Promise<DocumentListing> => readJson<DocumentListing>('list the documents', '/api/k/documents', signal);
+
+/** One Markdown document as a page. */
+export function getDocument(repo: string | null, path: string, signal?: AbortSignal): Promise<DocumentPageModel> {
+  const query = new URLSearchParams({ path });
+  if (repo !== null) query.set('repo', repo);
+  return readJson<DocumentPageModel>(`read the document ${path}`, `/api/k/document?${query.toString()}`, signal);
+}

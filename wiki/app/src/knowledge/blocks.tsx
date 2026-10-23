@@ -8,7 +8,7 @@
  * mention of an entity that has a page is a link to the page; a reference that
  * does not resolve is shown as broken, with its reason.
  */
-import { useContext, useState, type MouseEvent, type ReactElement, type ReactNode } from 'react';
+import { createElement, useContext, useEffect, useState, type MouseEvent, type ReactElement, type ReactNode } from 'react';
 import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useTranslation } from 'react-i18next';
@@ -21,8 +21,10 @@ import { Badge } from '@/components/ui/badge.js';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.js';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.js';
 import { highlight } from './highlight.js';
+import { colorize, type ColoredToken } from './shiki.js';
 import { PendingPages } from './pending.js';
-import { kindWord } from './routes.js';
+import { useKindName } from './kind-names.js';
+import { addressOfDocument } from './routes.js';
 import type { Block, CallRow, CodeLocation, EntityRef, RelatedGroup, Resolution } from './types.js';
 
 /** Follows an address on the client side, unless the click asks for a new tab. */
@@ -65,9 +67,36 @@ export function EntityName({ entity }: { entity: EntityRef }): ReactElement {
 /** Passes `madarch:` links to the renderer, which drops every protocol it does not know. */
 const keepUrl = (url: string): string => (url.startsWith('madarch:') ? url : defaultUrlTransform(url));
 
+/** A relative link inside a document to another Markdown document of the same repository: its path and section. */
+export function relativeDocument(from: { repo: string | null; path: string }, href: string): { path: string; anchor?: string } | null {
+  const hash = href.indexOf('#');
+  const file = hash < 0 ? href : href.slice(0, hash);
+  if (file === '' || !/\.(md|markdown)$/i.test(file) || /^[a-z][a-z0-9+.-]*:/i.test(file)) return null;
+  const parts = file.startsWith('/') ? [] : from.path.split('/').slice(0, -1);
+  for (const part of file.split('/')) {
+    if (part === '' || part === '.') continue;
+    if (part === '..') { if (parts.length === 0) return null; parts.pop(); } else parts.push(decodeURIComponent(part));
+  }
+  return { path: parts.join('/'), ...(hash < 0 ? {} : { anchor: decodeURIComponent(href.slice(hash + 1)) }) };
+}
+
+/** Scrolls the page to the element a section anchor names: the one that opens at the line the server found the anchor on. */
+export function scrollToAnchor(anchor: string, lines?: Readonly<Record<string, number>>): boolean {
+  const line = lines?.[anchor.toLowerCase()];
+  const candidates = [...document.querySelectorAll<HTMLElement>('[data-line]')];
+  const target = line === undefined
+    ? document.getElementById(anchor)
+    : candidates.filter((element) => Number(element.dataset['line']) <= line).sort((a, b) => Number(b.dataset['line']) - Number(a.dataset['line']))[0] ?? null;
+  if (target === null) return false;
+  target.scrollIntoView?.({ block: 'start' });
+  target.classList.add('anchor-hit');
+  return true;
+}
+
 /** The Markdown of a page: text, `madarch:` links resolved against the page's resolutions, footnote grounds listed at the end. */
-export function KMarkdown({ text, resolutions }: { text: string; resolutions: Readonly<Record<string, Resolution>> }): ReactElement {
+export function KMarkdown({ text, resolutions, inDocument }: { text: string; resolutions: Readonly<Record<string, Resolution>>; inDocument?: { repo: string | null; path: string; anchors?: Readonly<Record<string, number>> } }): ReactElement {
   const { t } = useTranslation();
+  const kindName = useKindName();
   const pending = useContext(PendingPages);
   const components: Components = {
     a: ({ href, children }) => {
@@ -82,12 +111,25 @@ export function KMarkdown({ text, resolutions }: { text: string; resolutions: Re
         }
         // A reference to code also opens the source at its line: the page link and the place stand together.
         const place = resolution.location === undefined ? null : <span className="ground-place ml-1.5"><CodePlace location={resolution.location} /></span>;
-        if (resolution.href === null) return <><span data-testid="ref-unpaged" title={resolution.note ?? t('knowledge.noPage', { kind: kindWord(resolution.kind) })}>{children}</span>{place}</>;
+        if (resolution.href === null) return <><span data-testid="ref-unpaged" title={resolution.note ?? t('knowledge.noPage', { kind: kindName(resolution.kind, 'one') })}>{children}</span>{place}</>;
         return <><KLink href={resolution.href} title={resolution.note}>{children}</KLink>{place}</>;
       }
       if (href.startsWith('/k/') || href === '/k') return <KLink href={href}>{children}</KLink>;
+      if (inDocument !== undefined) {
+        // In a document: a link to another Markdown document of the same repository is a page of the wiki, a link to a
+        // section of this one scrolls to it, and a link to another site opens it in a tab of its own.
+        if (/^https?:\/\//i.test(href)) return <a href={href} target="_blank" rel="noreferrer noopener">{children}</a>;
+        if (href.startsWith('#')) {
+          let anchor = href.slice(1);
+          try { anchor = decodeURIComponent(anchor); } catch { /* the text as written names the section */ }
+          return <a href={href} onClick={(event) => { event.preventDefault(); window.history.replaceState({}, '', `${window.location.pathname}${window.location.search}${href}`); scrollToAnchor(anchor, inDocument.anchors); }}>{children}</a>;
+        }
+        const target = relativeDocument(inDocument, href);
+        if (target !== null) return <KLink href={addressOfDocument(inDocument.repo, target.path, target.anchor)}>{children}</KLink>;
+      }
       return <span className="plain-link">{children}</span>;
     },
+    ...(inDocument === undefined ? {} : (Object.fromEntries((['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'li', 'blockquote', 'pre'] as const).map((tag) => [tag, ({ node, children }: { node?: { position?: { start: { line: number } } }; children?: ReactNode }) => createElement(tag, { 'data-line': node?.position?.start.line }, children)])) as Components)),
     table: ({ children }) => <div className="table-wrap"><table>{children}</table></div>,
   };
   return (
@@ -129,6 +171,7 @@ function groupLabel(group: RelatedGroup, t: (key: string, options?: Record<strin
 
 function Related({ block }: { block: Extract<Block, { type: 'related' }> }): ReactElement | null {
   const { t } = useTranslation();
+  const kindName = useKindName();
   if (block.groups.length === 0) {
     return (
       <section data-block="related" aria-label={block.title}>
@@ -159,7 +202,7 @@ function Related({ block }: { block: Extract<Block, { type: 'related' }> }): Rea
                 {group.rows.map((row) => (
                   <TableRow key={row.entity.id} data-entity={row.entity.id}>
                     <TableCell className="max-w-[28rem] break-words"><EntityName entity={row.entity} />{row.count > 1 && <span className="ml-1.5 text-muted">×{row.count}</span>}</TableCell>
-                    <TableCell><Badge>{kindWord(row.entity.kind)}</Badge></TableCell>
+                    <TableCell><Badge>{kindName(row.entity.kind, 'one')}</Badge></TableCell>
                     <TableCell className="max-w-[24rem]">{row.entity.location !== undefined ? <CodePlace location={row.entity.location} /> : <span className="text-muted">–</span>}</TableCell>
                   </TableRow>
                 ))}
@@ -217,8 +260,17 @@ function Calls({ block }: { block: Extract<Block, { type: 'callers' | 'callees' 
 /** Highlighted lines with their numbers; `focus` marks the line the reader was sent to. */
 export function CodeLines({ text, language, firstLine, focus }: { text: string; language: string; firstLine: number; focus?: number | null }): ReactElement {
   const lines = highlight(text, language);
+  // The plain scanner draws at once; the colors of Shiki replace it when they arrive.
+  const [colored, setColored] = useState<{ key: string; lines: ColoredToken[][] } | null>(null);
+  const key = `${language}\0${text.length}\0${text.slice(0, 64)}`;
+  useEffect(() => {
+    let alive = true;
+    colorize(text, language).then((result) => { if (alive && result !== null) setColored({ key, lines: result }); });
+    return () => { alive = false; };
+  }, [key, text, language]);
+  const shown = colored !== null && colored.key === key && colored.lines.length === lines.length ? colored.lines : null;
   return (
-    <pre className="source-code" data-testid="source-code" data-language={language}>
+    <pre className="source-code" data-testid="source-code" data-language={language} data-colored={shown !== null ? 'true' : 'false'}>
       <code>
         {lines.map((tokens, index) => {
           const number = firstLine + index;
@@ -226,7 +278,9 @@ export function CodeLines({ text, language, firstLine, focus }: { text: string; 
             <span key={number} id={`L${number}`} className={'source-line' + (focus === number ? ' source-line-focus' : '')} data-line={number}>
               <span className="source-number" aria-hidden="true">{number}</span>
               <span className="source-text">
-                {tokens.map((token, position) => <span key={position} className={token.kind === 'plain' ? undefined : `tok-${token.kind}`}>{token.text}</span>)}
+                {shown !== null
+                  ? shown[index]!.map((token, position) => <span key={position} className="shiki-token" style={{ ...token.style, ...(token.fontStyle & 1 ? { fontStyle: 'italic' } : {}), ...(token.fontStyle & 2 ? { fontWeight: 600 } : {}) }}>{token.text}</span>)
+                  : tokens.map((token, position) => <span key={position} className={token.kind === 'plain' ? undefined : `tok-${token.kind}`}>{token.text}</span>)}
                 {'\n'}
               </span>
             </span>
@@ -314,25 +368,28 @@ export function BlockView({ block, resolutions }: { block: Block; resolutions: R
   }
 }
 
-/** The findings a page carries, listed with their file and line; collapsed so a page reads first. */
+/**
+ * The findings a page carries. A reader is told in plain words what a finding means and who puts it right; the file and
+ * line of each, which an engineer needs, are behind "Details" so the page reads first.
+ */
 export function Findings({ findings }: { findings: readonly { file: string; line: number; message: string }[] }): ReactElement | null {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   if (findings.length === 0) return null;
   return (
     <Alert variant="problem" className="mt-8" data-testid="findings">
-      <AlertTitle>
-        <button type="button" className="cursor-pointer bg-transparent p-0 text-left font-[600] text-ink" aria-expanded={open} onClick={() => setOpen(!open)}>
-          {t('knowledge.findings', { count: findings.length })}
+      <AlertTitle>{t('knowledge.findings', { count: findings.length })}</AlertTitle>
+      <AlertDescription>
+        <p data-testid="findings-help">{t('knowledge.findingsHelp')}</p>
+        <button type="button" className="cursor-pointer bg-transparent p-0 text-left text-secondary underline" aria-expanded={open} onClick={() => setOpen(!open)} data-testid="findings-details">
+          {open ? t('knowledge.findingsHide') : t('knowledge.findingsDetails')}
         </button>
-      </AlertTitle>
-      {open && (
-        <AlertDescription>
-          <ul className="!my-1">
+        {open && (
+          <ul className="!my-2">
             {findings.map((finding, index) => <li key={index}><span className="font-mono text-[0.875em]">{finding.file}:{finding.line}</span> {finding.message}</li>)}
           </ul>
-        </AlertDescription>
-      )}
+        )}
+      </AlertDescription>
     </Alert>
   );
 }

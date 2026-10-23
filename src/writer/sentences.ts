@@ -11,7 +11,7 @@ export const FOOTNOTE_DEFINITION = /^\[\^([\p{L}\p{N}_-]+)\]:[ \t]*(.*)$/u;
 export const FOOTNOTE_REFERENCE = /\[\^([\p{L}\p{N}_-]+)\]/gu;
 /** A run of adjacent footnote references: the end of one sentence. */
 export const REFERENCE_RUN = /(?:\[\^[\p{L}\p{N}_-]+\])+/gu;
-const ABBREVIATION = /\b(?:[Ee]\.g|[Ii]\.e)\.|\b(?:etc|vs|cf|approx)\.(?=\s+[a-z0-9(,;])/g;
+const ABBREVIATION = /\b(?:[Ee]\.g|[Ii]\.e)\.|\b(?:etc|vs|cf|approx)\.(?=\s+[a-z0-9(,;])|(?<![\p{L}\p{N}])(?:[Тт]\.\s?[еквдпн]|и\s+т\.\s?[дп]|напр|[Сс]м|ср|рис|табл|стр|гг|руб|тыс|млн|млрд)\.(?=\s+[\p{Ll}\p{N}(,;])/gu;
 /** Characters that stand for a masked sentence end inside code spans, link targets and abbreviations; each remembers which one it hides. */
 const MASK: Record<string, string> = { '.': '\u0001', '!': '\u0002', '?': '\u0003', '\u2026': '\u0004' };
 const UNMASK: Record<string, string> = { '\u0001': '.', '\u0002': '!', '\u0003': '?', '\u0004': '\u2026' };

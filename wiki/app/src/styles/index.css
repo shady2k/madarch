@@ -49,10 +49,9 @@
 
   body {
     margin: 0;
-    /* The shell fills the window: the page never scrolls itself, the only
-     * scrolling lives in the document's own column. */
-    height: 100%;
-    overflow: hidden;
+    /* The page scrolls as one document: the sidebar and the toolbar stand still beside it, and a window of any
+     * height, or a picture of the whole page, shows all of it. */
+    min-height: 100%;
     font-family: var(--font-sans);
     font-size: var(--fs-body);
     line-height: var(--leading);
@@ -1770,4 +1769,43 @@ a.graph-diagram-element-label:hover {
 .tok-number {
   text-decoration: underline dotted var(--text-muted);
   text-underline-offset: 0.2em;
+}
+
+/* Colored code (Shiki): each token carries a light and a dark color; the pair that follows the system is drawn. */
+.shiki-token {
+  color: var(--shiki-light);
+}
+
+@media (prefers-color-scheme: dark) {
+  .shiki-token {
+    color: var(--shiki-dark);
+  }
+}
+
+/* A section a link opened: it stands out for a moment, below the toolbar that sticks to the top. */
+[data-line] {
+  scroll-margin-top: 80px;
+}
+
+.anchor-hit {
+  border-radius: var(--radius-row);
+  animation: anchor-hit 2.4s ease-out;
+}
+
+@keyframes anchor-hit {
+  from {
+    background: var(--surface-active);
+    box-shadow: 0 0 0 6px var(--surface-active);
+  }
+  to {
+    background: transparent;
+    box-shadow: 0 0 0 6px transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .anchor-hit {
+    animation: none;
+    background: var(--surface-active);
+  }
 }

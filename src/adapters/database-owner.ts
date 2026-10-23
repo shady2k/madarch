@@ -150,6 +150,12 @@ export interface PGliteDatabaseOwnerOptions {
    * with `=` beside its ranges. A server loads it with `CREATE EXTENSION`.
    */
   btreeGist?: boolean;
+  /**
+   * Lets PGlite flush its files to disk after a batch of statements instead of after each one. A crash can lose the
+   * last statements, which a derived index (decision 0023) rebuilds; a fill that writes a commit as thousands of
+   * statements waits on far fewer flushes.
+   */
+  relaxedDurability?: boolean;
 }
 
 /**
@@ -198,7 +204,10 @@ class PGliteOwner implements DatabaseOwner {
       ...(options.vector === true ? { vector } : {}),
       ...(options.btreeGist === true ? { btree_gist: btreeGistExtension } : {}),
     };
-    const extensions = Object.keys(loaded).length > 0 ? { extensions: loaded } : {};
+    const extensions = {
+      ...(Object.keys(loaded).length > 0 ? { extensions: loaded } : {}),
+      ...(options.relaxedDurability === true ? { relaxedDurability: true } : {}),
+    };
     this.database = options.path === undefined ? new PGlite(extensions) : new PGlite(options.path, extensions);
     this.ready = this.database.waitReady;
     // A caller observes a failed open on its own first use of the owner; a

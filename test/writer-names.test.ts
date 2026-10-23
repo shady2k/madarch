@@ -7,12 +7,13 @@ describe('slugOf', () => {
     expect(slugOf('A refund is allowed within 14 days.')).toBe('refund-allowed-within-days');
     expect(slugOf('Payments are charged through one of two providers chosen by configuration.')).toBe('payments-charged-through-two');
   });
-  test('accents fold, camel case splits, non-Latin text falls back to the ground', () => {
+  test('accents fold, camel case splits, Cyrillic is transliterated, other scripts fall back to the ground', () => {
     expect(slugOf('Crème brûlée is served.')).toBe('creme-brulee-served');
-    expect(slugOf('Платёж проходит через сервис.', 'PaymentClientFactory')).toBe('payment-client-factory');
+    expect(slugOf('Платёж проходит через сервис.', 'PaymentClientFactory')).toBe('platezh-prokhodit-cherez-servis');
+    expect(slugOf('日本語の文。', 'PaymentClientFactory')).toBe('payment-client-factory');
   });
   test('nothing usable gives "statement", and a name is never only digits', () => {
-    expect(slugOf('Платёж.', '')).toBe('statement');
+    expect(slugOf('日本語。', '')).toBe('statement');
     expect(slugOf('12 34.', '')).toBe('statement');
   });
   test('a long slug stops at a word boundary under the bound', () => {
