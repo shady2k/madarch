@@ -8,14 +8,13 @@
  * mention of an entity that has a page is a link to the page; a reference that
  * does not resolve is shown as broken, with its reason.
  */
-import { createElement, useContext, useEffect, useState, type MouseEvent, type ReactElement, type ReactNode } from 'react';
+import { createElement, useContext, useEffect, useState, type ReactElement, type ReactNode } from 'react';
 import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useTranslation } from 'react-i18next';
-import { FileCode2Icon } from 'lucide-react';
+import { ExternalLinkIcon, FileCode2Icon } from 'lucide-react';
 import { appPath } from '../app-base.js';
 import { MermaidDiagram } from '../diagram.js';
-import { navigateTo } from '../hold.js';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert.js';
 import { Badge } from '@/components/ui/badge.js';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.js';
@@ -24,31 +23,40 @@ import { highlight } from './highlight.js';
 import { colorize, type ColoredToken } from './shiki.js';
 import { PendingPages } from './pending.js';
 import { useKindName } from './kind-names.js';
-import { addressOfDocument } from './routes.js';
-import type { Block, CallRow, CodeLocation, EntityRef, RelatedGroup, Resolution } from './types.js';
+import { addressOfDocument, addressOfStatement } from './routes.js';
+import { linkHandlers, openInNewTab, syncFrontTabAddress } from './tabs.js';
+import { remarkStatements, type MNode } from './statements.js';
+import { setShowGrounds, useShowGrounds } from './preferences.js';
+import type { Block, BrokenWhy, CallRow, CodeLocation, EntityRef, RelatedGroup, Resolution } from './types.js';
 
-/** Follows an address on the client side, unless the click asks for a new tab. */
-function follow(address: string): (event: MouseEvent<HTMLAnchorElement>) => void {
-  return (event) => {
-    if (event.shiftKey || event.ctrlKey || event.metaKey || event.altKey || event.button !== 0) return;
-    event.preventDefault();
-    navigateTo(appPath(address));
-  };
-}
-
-/** A link inside the wiki, opened without a reload. */
+/** A link inside the wiki, opened without a reload: in the tab in front, or in a new tab on a middle or control click. */
 export function KLink({ href, children, className, title }: { href: string; children: ReactNode; className?: string; title?: string }): ReactElement {
-  return <a href={appPath(href)} className={className} title={title} onClick={follow(href)}>{children}</a>;
+  return <a href={appPath(href)} className={className} title={title} {...linkHandlers(href)}>{children}</a>;
 }
 
 /** `path:line` as a link that opens the source at that line. */
 export function CodePlace({ location }: { location: CodeLocation }): ReactElement {
   const lines = location.lineEnd > location.lineStart ? `${location.lineStart}–${location.lineEnd}` : String(location.lineStart);
   return (
-    <KLink href={location.href} className="inline-flex min-w-0 max-w-full items-center gap-1 font-mono text-[0.875em] text-secondary" title={`${location.repo === null ? '' : `${location.repo}: `}${location.path}`}>
-      <FileCode2Icon aria-hidden="true" className="size-3.5 shrink-0 text-muted" />
-      <span className="truncate" data-testid="code-place">{location.path}:{lines}</span>
-    </KLink>
+    <>
+      <KLink href={location.href} className="inline-flex min-w-0 max-w-full items-center gap-1 font-mono text-[0.875em] text-secondary" title={`${location.repo === null ? '' : `${location.repo}: `}${location.path}`}>
+        <FileCode2Icon aria-hidden="true" className="size-3.5 shrink-0 text-muted" />
+        <span className="truncate" data-testid="code-place">{location.path}:{lines}</span>
+      </KLink>
+      <WebPlace location={location} />
+    </>
+  );
+}
+
+/** "Open on the repository's web page" for a place in code, when the repository's address is known. */
+export function WebPlace({ location }: { location: CodeLocation }): ReactElement | null {
+  const { t } = useTranslation();
+  if (location.web === undefined) return null;
+  return (
+    <a href={location.web.url} target="_blank" rel="noreferrer noopener" className="ml-2 inline-flex items-center gap-1 text-[0.875em] text-secondary" data-testid="web-place">
+      <ExternalLinkIcon aria-hidden="true" className="size-3.5 shrink-0 text-muted" />
+      {t('knowledge.openOnHost', { host: location.web.host })}
+    </a>
   );
 }
 
@@ -94,7 +102,13 @@ export function scrollToAnchor(anchor: string, lines?: Readonly<Record<string, n
 }
 
 /** The Markdown of a page: text, `madarch:` links resolved against the page's resolutions, footnote grounds listed at the end. */
-export function KMarkdown({ text, resolutions, inDocument }: { text: string; resolutions: Readonly<Record<string, Resolution>>; inDocument?: { repo: string | null; path: string; anchors?: Readonly<Record<string, number>> } }): ReactElement {
+/** The statements of an agent's page: which page they stand on, and whether their grounds are shown in the text. */
+export interface StatementView {
+  pageId: string;
+  showGrounds: boolean;
+}
+
+export function KMarkdown({ text, resolutions, inDocument, statements }: { text: string; resolutions: Readonly<Record<string, Resolution>>; inDocument?: { repo: string | null; path: string; anchors?: Readonly<Record<string, number>> }; statements?: StatementView }): ReactElement {
   const { t } = useTranslation();
   const kindName = useKindName();
   const pending = useContext(PendingPages);
@@ -107,10 +121,10 @@ export function KMarkdown({ text, resolutions, inDocument }: { text: string; res
           return <span className="ref-pending" data-testid="ref-pending" title={t('knowledge.writer.pendingTitle')}>{children}<span className="ref-broken-mark">{t('knowledge.writer.pending')}</span></span>;
         }
         if (resolution === undefined || resolution.state === 'broken') {
-          return <span className="ref-broken" data-testid="ref-broken" title={resolution?.state === 'broken' ? resolution.reason : t('knowledge.unresolved')}>{children}<span className="ref-broken-mark">{t('knowledge.broken')}</span></span>;
+          return <span className="ref-broken" data-testid="ref-broken" title={resolution?.state === 'broken' ? brokenWords(resolution, t) : t('knowledge.unresolved')}>{children}<span className="ref-broken-mark">{t('knowledge.broken')}</span></span>;
         }
-        // A reference to code also opens the source at its line: the page link and the place stand together.
-        const place = resolution.location === undefined ? null : <span className="ground-place ml-1.5"><CodePlace location={resolution.location} /></span>;
+        // A reference to code also opens the source at its line: the page link and the place stand together; a statement read plainly names the entity and nothing else.
+        const place = resolution.location === undefined || (statements !== undefined && !statements.showGrounds) ? null : <span className="ground-place ml-1.5"><CodePlace location={resolution.location} /></span>;
         if (resolution.href === null) return <><span data-testid="ref-unpaged" title={resolution.note ?? t('knowledge.noPage', { kind: kindName(resolution.kind, 'one') })}>{children}</span>{place}</>;
         return <><KLink href={resolution.href} title={resolution.note}>{children}</KLink>{place}</>;
       }
@@ -122,7 +136,7 @@ export function KMarkdown({ text, resolutions, inDocument }: { text: string; res
         if (href.startsWith('#')) {
           let anchor = href.slice(1);
           try { anchor = decodeURIComponent(anchor); } catch { /* the text as written names the section */ }
-          return <a href={href} onClick={(event) => { event.preventDefault(); window.history.replaceState({}, '', `${window.location.pathname}${window.location.search}${href}`); scrollToAnchor(anchor, inDocument.anchors); }}>{children}</a>;
+          return <a href={href} onClick={(event) => { event.preventDefault(); window.history.replaceState({}, '', `${window.location.pathname}${window.location.search}${href}`); syncFrontTabAddress(); scrollToAnchor(anchor, inDocument.anchors); }}>{children}</a>;
         }
         const target = relativeDocument(inDocument, href);
         if (target !== null) return <KLink href={addressOfDocument(inDocument.repo, target.path, target.anchor)}>{children}</KLink>;
@@ -131,18 +145,52 @@ export function KMarkdown({ text, resolutions, inDocument }: { text: string; res
     },
     ...(inDocument === undefined ? {} : (Object.fromEntries((['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'li', 'blockquote', 'pre'] as const).map((tag) => [tag, ({ node, children }: { node?: { position?: { start: { line: number } } }; children?: ReactNode }) => createElement(tag, { 'data-line': node?.position?.start.line }, children)])) as Components)),
     table: ({ children }) => <div className="table-wrap"><table>{children}</table></div>,
+    ...(statements === undefined ? {} : {
+      span: ({ node: _node, className, children, ...rest }) => {
+        const sentence = (rest as Record<string, unknown>)['data-statement'];
+        if (typeof sentence !== 'string' || !String(className ?? '').split(' ').includes('statement')) return <span className={className}>{children}</span>;
+        const grounded = (rest as Record<string, unknown>)['data-grounded'] === 'true';
+        const turn = Number((rest as Record<string, unknown>)['data-turn'] ?? 0);
+        const open = (): void => openInNewTab(addressOfStatement(statements.pageId, sentence, Number.isInteger(turn) ? turn : 0));
+        return (
+          <span
+            className={className}
+            role="button"
+            tabIndex={0}
+            data-testid="statement"
+            data-grounded={grounded ? 'true' : 'false'}
+            title={grounded ? t('knowledge.statementOpen') : t('knowledge.statementUngroundedTitle')}
+            onClick={(event) => { if ((event.target as HTMLElement).closest('a') === null) open(); }}
+            onKeyDown={(event) => { if (event.key === 'Enter' && (event.target as HTMLElement).closest('a') === null) open(); }}
+          >
+            {children}
+            {!grounded && <span className="statement-mark" data-testid="statement-ungrounded">{t('knowledge.statementUngrounded')}</span>}
+          </span>
+        );
+      },
+    } satisfies Components),
   };
+  const plugins = statements === undefined ? [remarkGfm] : [remarkGfm, () => remarkStatements({ showGrounds: statements.showGrounds }) as unknown as (tree: unknown) => void];
   return (
     <div className="reading">
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components} urlTransform={keepUrl}>{text}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={plugins as never} components={components} urlTransform={keepUrl}>{text}</ReactMarkdown>
     </div>
   );
 }
 
-function Body({ block, resolutions }: { block: Extract<Block, { type: 'body' }>; resolutions: Readonly<Record<string, Resolution>> }): ReactElement {
+function Body({ block, resolutions, pageId }: { block: Extract<Block, { type: 'body' }>; resolutions: Readonly<Record<string, Resolution>>; pageId?: string }): ReactElement {
   const { t } = useTranslation();
+  const showGrounds = useShowGrounds();
+  // Statements are the agent's sentences with their grounds: a page of the product has them, a document entity's text has none.
+  const read = pageId !== undefined && block.statements > 0;
   return (
     <section data-block="body">
+      {read && (
+        <label className="mb-3 flex w-fit cursor-pointer items-center gap-2 text-small text-secondary" data-testid="grounds-switch">
+          <input type="checkbox" role="switch" checked={showGrounds} onChange={(event) => setShowGrounds(event.target.checked)} />
+          {t('knowledge.showGrounds')}
+        </label>
+      )}
       {block.ungrounded.length > 0 && (
         <Alert variant="problem" className="mb-4" data-testid="ungrounded">
           <AlertTitle>{t('knowledge.ungrounded', { count: block.ungrounded.length, total: block.statements })}</AlertTitle>
@@ -157,7 +205,7 @@ function Body({ block, resolutions }: { block: Extract<Block, { type: 'body' }>;
           </AlertDescription>
         </Alert>
       )}
-      <KMarkdown text={block.markdown} resolutions={resolutions} />
+      <KMarkdown text={block.markdown} resolutions={resolutions} {...(read ? { statements: { pageId: pageId!, showGrounds } } : {})} />
     </section>
   );
 }
@@ -258,7 +306,7 @@ function Calls({ block }: { block: Extract<Block, { type: 'callers' | 'callees' 
 // ---- source -------------------------------------------------------------------------------------
 
 /** Highlighted lines with their numbers; `focus` marks the line the reader was sent to. */
-export function CodeLines({ text, language, firstLine, focus }: { text: string; language: string; firstLine: number; focus?: number | null }): ReactElement {
+export function CodeLines({ text, language, firstLine, focus, marked }: { text: string; language: string; firstLine: number; focus?: number | null; marked?: { start: number; end: number } }): ReactElement {
   const lines = highlight(text, language);
   // The plain scanner draws at once; the colors of Shiki replace it when they arrive.
   const [colored, setColored] = useState<{ key: string; lines: ColoredToken[][] } | null>(null);
@@ -275,7 +323,7 @@ export function CodeLines({ text, language, firstLine, focus }: { text: string; 
         {lines.map((tokens, index) => {
           const number = firstLine + index;
           return (
-            <span key={number} id={`L${number}`} className={'source-line' + (focus === number ? ' source-line-focus' : '')} data-line={number}>
+            <span key={number} id={`L${number}`} className={'source-line' + (focus === number ? ' source-line-focus' : '') + (marked !== undefined && marked.start > 0 && number >= marked.start && number <= marked.end ? ' source-line-marked' : '')} data-line={number}>
               <span className="source-number" aria-hidden="true">{number}</span>
               <span className="source-text">
                 {shown !== null
@@ -338,6 +386,72 @@ function Diagram({ title, mermaid, caption, empty }: { title: string; mermaid: s
   );
 }
 
+function Properties({ block }: { block: Extract<Block, { type: 'properties' }> }): ReactElement | null {
+  const { t } = useTranslation();
+  if (block.rows.length === 0) return null;
+  return (
+    <section data-block="properties" aria-label={block.title}>
+      <h2>{block.title}</h2>
+      <Table>
+        <TableHeader>
+          <TableRow><TableHead>{t('knowledge.colProperty')}</TableHead><TableHead>{t('knowledge.colValue')}</TableHead></TableRow>
+        </TableHeader>
+        <TableBody>
+          {block.rows.map((row) => (
+            <TableRow key={row.name}>
+              <TableCell className="whitespace-nowrap align-top font-mono text-[0.875em] text-secondary">{row.name}</TableCell>
+              <TableCell className="max-w-[40rem] break-words">{row.value}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </section>
+  );
+}
+
+function Refs({ block }: { block: Extract<Block, { type: 'refs' }> }): ReactElement {
+  const { t } = useTranslation();
+  const kindName = useKindName();
+  return (
+    <section data-block="refs" aria-label={block.title}>
+      <h2>{block.title}</h2>
+      {block.rows.length === 0 ? <p className="text-small text-muted" data-testid="refs-empty">{t('knowledge.none')}</p> : (
+        <Table>
+          <TableHeader>
+            <TableRow><TableHead>{t('knowledge.colName')}</TableHead><TableHead>{t('knowledge.colKind')}</TableHead><TableHead>{t('knowledge.colPlace')}</TableHead></TableRow>
+          </TableHeader>
+          <TableBody>
+            {block.rows.map((row) => (
+              <TableRow key={row.entity.id} data-entity={row.entity.id}>
+                <TableCell className="max-w-[26rem] break-words"><EntityName entity={row.entity} />{row.note !== undefined && <span className="mt-0.5 block text-small text-muted" data-testid="ref-note">{row.noteKey === undefined ? row.note : t(`knowledge.refNote.${row.noteKey}`, { ...row.noteArgs, defaultValue: row.note })}</span>}</TableCell>
+                <TableCell><Badge>{row.entity.kind === 'document' ? t('knowledge.documentBadge') : kindName(row.entity.kind, 'one')}</Badge></TableCell>
+                <TableCell className="max-w-[24rem]">{row.entity.location !== undefined ? <CodePlace location={row.entity.location} /> : <span className="text-muted">–</span>}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      )}
+      {block.total > block.rows.length && <p className="mt-1.5 text-small text-muted" data-testid="refs-cut">{t('knowledge.showing', { shown: block.rows.length, total: block.total })}</p>}
+    </section>
+  );
+}
+
+function Stated({ block }: { block: Extract<Block, { type: 'stated' }> }): ReactElement {
+  const { t } = useTranslation();
+  const place = block.place;
+  const lines = place.lineEnd > place.lineStart ? `${place.lineStart}–${place.lineEnd}` : String(place.lineStart);
+  return (
+    <section data-block="stated" aria-label={block.title}>
+      <h2>{block.title}</h2>
+      <p className="m-0 flex flex-wrap items-center gap-2">
+        <Badge>{place.repo ?? t('knowledge.productRepository')}</Badge>
+        <KLink href={place.href} className="font-mono text-[0.875em]"><span data-testid="stated-place">{place.path}:{lines}</span></KLink>
+        {place.commit !== null && <Badge title={place.commit}>{place.commit.slice(0, 10)}</Badge>}
+      </p>
+    </section>
+  );
+}
+
 function Problem({ block }: { block: Extract<Block, { type: 'problem' }> }): ReactElement {
   const { t } = useTranslation();
   return (
@@ -352,11 +466,14 @@ function Problem({ block }: { block: Extract<Block, { type: 'problem' }> }): Rea
 }
 
 /** One block of a page. */
-export function BlockView({ block, resolutions }: { block: Block; resolutions: Readonly<Record<string, Resolution>> }): ReactElement | null {
+export function BlockView({ block, resolutions, pageId }: { block: Block; resolutions: Readonly<Record<string, Resolution>>; pageId?: string }): ReactElement | null {
   const { t } = useTranslation();
   switch (block.type) {
     case 'markdown': return <KMarkdown text={block.markdown} resolutions={resolutions} />;
-    case 'body': return <Body block={block} resolutions={resolutions} />;
+    case 'body': return <Body block={block} resolutions={resolutions} {...(pageId === undefined ? {} : { pageId })} />;
+    case 'refs': return <Refs block={block} />;
+    case 'properties': return <Properties block={block} />;
+    case 'stated': return <Stated block={block} />;
     case 'related': return <Related block={block} />;
     case 'callers':
     case 'callees': return <Calls block={block} />;
@@ -392,4 +509,17 @@ export function Findings({ findings }: { findings: readonly { file: string; line
       </AlertDescription>
     </Alert>
   );
+}
+
+/** Why a link is broken, in the reader's language; the engineer's English message only where the server gave no reason as data. */
+export function brokenWords(resolution: { reason: string; why?: BrokenWhy }, t: (key: string, options?: Record<string, unknown>) => string): string {
+  const why = resolution.why;
+  if (why === undefined) return resolution.reason;
+  switch (why.code) {
+    case 'empty': return t('knowledge.brokenWhy.empty');
+    case 'no-entity': return t('knowledge.brokenWhy.noEntity', { key: why.key });
+    case 'no-path': return t('knowledge.brokenWhy.noPath');
+    case 'no-document': return t('knowledge.brokenWhy.noDocument', { path: why.path });
+    case 'no-section': return t('knowledge.brokenWhy.noSection', { path: why.path, anchor: why.anchor, repos: why.repos });
+  }
 }

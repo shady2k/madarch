@@ -12,7 +12,7 @@
  * graph's spans were read from, and a restarted server still knows.
  */
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync } from 'node:fs';
-import { execFile } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
@@ -36,7 +36,12 @@ import { productSlug, PRODUCT_PATH, type ToolAnswer, type ToolClient, type UnitA
 import { CONTENT_LANGUAGES } from '../writer/prompts.js';
 import type { DraftEnv } from '../product/home.js';
 import { kindSummaries, renderPage, listEntities, type PageResult } from './render.js';
+import { buildStatement, type StatementResult } from './statement.js';
 import { Resolver, type Resolution } from './resolve.js';
+import { indexCounts, statementsRelyingOn } from './index/queries.js';
+import { webLink } from './index/web-link.js';
+import { readDocEntities, type DocEntity, type DocumentSource } from './doc-entities.js';
+import { DOCUMENT_LIMIT, DOCUMENT_PATH, docsLinkedOutside, listedDocument, productDocumentPaths, readProductDocument, readRepoDocuments, repoDocumentPaths } from './doc-sources.js';
 import { ensureLoopKinds, seedStarterSet } from './seed.js';
 import { readCorrections } from '../loop/entities.js';
 import { answerQuestion, recordCorrection, type Answered, type Corrected } from '../loop/answer.js';
@@ -45,10 +50,6 @@ import { listProblems, listQuestions, questionDetail, type ProblemListing, type 
 
 const execFileAsync = promisify(execFile);
 
-/** A Markdown document: by its name. */
-const DOCUMENT_PATH = /\.(md|markdown)$/i;
-/** The most documents listed of one code repository; a repository with more says how many it has. */
-const DOCUMENT_LIMIT = 2000;
 
 /** A read the wiki cannot make and can say why: its message is for the reader, who sees it in place of the page. */
 export class WikiReadError extends Error {}
@@ -791,6 +792,9 @@ export class KnowledgeProduct {
     const graph = new GraphReader(owner, this.validAt);
     const markdownRead = readMarkdownEntities(product.folder, read.manifest);
     const markdown = new Map<string, MarkdownEntity>(markdownRead.entities.map((entity) => [entity.id, entity]));
+    const reading = await this.documentEntities(product.folder, read.manifest);
+    const docEntities = new Map<string, DocEntity>(reading.entities.map((entity) => [entity.id, entity]));
+    const entityAtLine = new Map<string, DocEntity>(reading.entities.map((entity) => [`${entity.repo ?? ''}\0${entity.path}\0${entity.line}`, entity]));
     const repoOfScope = (scope: string): string | undefined => [...this.pins.values()].find((pin) => pin.scope === scope)?.name;
     const readSource = async (repo: string | null, path: string): Promise<string | undefined> => {
       if (repo === null) {
@@ -809,19 +813,98 @@ export class KnowledgeProduct {
       if (pin === undefined || pin.commit === '') return undefined;
       return await gitBlob(join(product.folder, 'repos', repo), pin.commit, path);
     };
+    const webOf = (repo: string | null, path: string, lineStart: number, lineEnd: number): { host: string; url: string } | undefined => {
+      if (repo === null) return undefined;
+      const origin = this.originOf(join(product.folder, 'repos', repo));
+      const commit = this.pins.get(repo)?.commit;
+      if (origin === undefined || commit === undefined || commit === '') return undefined;
+      return webLink({ origin, commit, path, lineStart, lineEnd });
+    };
     const resolver = new Resolver({
       graph,
       markdown,
       declared: (kind) => read.manifest.kinds.has(kind),
       readDocument: readSource,
       repositories: () => [...this.pins.keys()].sort(byCodePoint),
-      locate: (entity) => (entity.span === undefined ? undefined : locationOf({ repoOfScope }, entity.scope, entity.span)),
+      locate: (entity) => (entity.span === undefined ? undefined : locationOf({ repoOfScope, webOf }, entity.scope, entity.span)),
+      documentEntity: (repo, path, line) => entityAtLine.get(`${repo ?? ''}\0${path}\0${line}`),
     });
     return {
-      ctx: { productFolder: product.folder, manifest: read.manifest, graph, markdown, resolver, repoOfScope, readSource },
+      ctx: { productFolder: product.folder, manifest: read.manifest, graph, markdown, docEntities, documents: reading.sources, repositories: [...this.pins.keys()].sort(byCodePoint), webOf, index: { relyingOn: (key) => statementsRelyingOn(owner, key), counts: () => indexCounts(owner) }, commitOf: (repo) => this.pins.get(repo)?.commit ?? null, resolver, repoOfScope, readSource },
       manifest: read.manifest,
-      findings: [...read.manifest.findings, ...markdownRead.findings],
+      findings: [...read.manifest.findings, ...markdownRead.findings, ...reading.findings],
     };
+  }
+
+  /** The memo of the document entities: they are read again only when a document, a commit or a document kind changed. */
+  private docMemo: { key: string; sources: DocumentSource[]; entities: DocEntity[]; findings: Finding[] } | undefined;
+  private readonly repoDocs = new Map<string, DocumentSource[]>();
+
+  /**
+   * The Markdown documents the wiki lists (the product repository's as the working tree holds them, each code repository's
+   * at the commit the graph was filled from) and the entities of the manifest's document kinds in them. A repository with
+   * more documents than the listing's limit is read up to it, and a finding says so.
+   */
+  private async documentEntities(productFolder: string, manifest: KindsManifest): Promise<{ sources: DocumentSource[]; entities: DocEntity[]; findings: Finding[] }> {
+    if (![...manifest.kinds.values()].some((kind) => kind.source === 'document')) return { sources: [], entities: [], findings: [] };
+    const findings: Finding[] = [];
+    const sources: DocumentSource[] = [];
+    const stamps: string[] = [];
+    const outside = docsLinkedOutside(productFolder);
+    if (outside !== undefined) findings.push({ file: 'docs', line: 1, message: `docs is a link to ${outside}, outside the product repository ${productFolder}: its documents are not read for entities` });
+    for (const path of productDocumentPaths(productFolder).filter((candidate) => listedDocument(manifest, null, candidate))) {
+      const text = readProductDocument(productFolder, path);
+      if (text === undefined) { findings.push({ file: path, line: 1, message: 'the document is too large or cannot be read, so no entity is read from it' }); continue; }
+      sources.push({ repo: null, path, text });
+      stamps.push(`${path}\0${text.length}\0${Bun.hash(text)}`);
+    }
+    for (const repo of this.repositories().filter((candidate) => candidate.present)) {
+      const commit = this.pins.get(repo.name)?.commit;
+      const at = commit === undefined || commit === '' ? 'HEAD' : commit;
+      const key = `${repo.name}@${at}@${manifest.excludeDocuments.join(',')}`;
+      let held = this.repoDocs.get(key);
+      if (held === undefined) {
+        const all = (await repoDocumentPaths(repo.name, repo.path, commit)).filter((candidate) => listedDocument(manifest, repo.name, candidate));
+        const paths = all.slice(0, DOCUMENT_LIMIT);
+        const texts = await readRepoDocuments(repo.name, repo.path, at, paths);
+        held = [];
+        const cut: Finding[] = [];
+        for (const path of paths) {
+          const text = texts.get(path);
+          if (text === undefined) continue;
+          if (text === null) { cut.push({ file: `repos/${repo.name}/${path}`, line: 1, message: 'the document is too large, comes past the budget of bytes read from this repository, or its name holds a line break, so no entity is read from it' }); continue; }
+          held.push({ repo: repo.name, path, text });
+        }
+        if (all.length > DOCUMENT_LIMIT) cut.push({ file: `repos/${repo.name}`, line: 1, message: `the repository holds ${all.length} Markdown documents and the wiki reads the first ${DOCUMENT_LIMIT} of them for entities` });
+        this.repoDocs.set(key, held);
+        this.repoDocFindings.set(key, cut);
+      }
+      sources.push(...held);
+      findings.push(...(this.repoDocFindings.get(key) ?? []));
+      stamps.push(key);
+    }
+    const signature = JSON.stringify([...manifest.kinds.values()].filter((kind) => kind.source === 'document').map((kind) => [kind.name, kind.identifier, kind.terms]));
+    const memoKey = `${signature}\0${stamps.join('\n')}`;
+    if (this.docMemo?.key !== memoKey) {
+      const read = readDocEntities(sources, manifest);
+      this.docMemo = { key: memoKey, sources, entities: read.entities, findings: read.findings };
+    }
+    return { sources, entities: this.docMemo.entities, findings: [...findings, ...this.docMemo.findings] };
+  }
+  private readonly repoDocFindings = new Map<string, Finding[]>();
+
+  private readonly origins = new Map<string, string | null>();
+
+  /** The origin URL of a code repository's checkout (`git remote get-url origin`), read once; undefined when it has none. */
+  private originOf(checkout: string): string | undefined {
+    if (!this.origins.has(checkout)) {
+      try {
+        this.origins.set(checkout, execFileSync('git', ['remote', 'get-url', 'origin'], { cwd: checkout, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() || null);
+      } catch {
+        this.origins.set(checkout, null);
+      }
+    }
+    return this.origins.get(checkout) ?? undefined;
   }
 
   /** The language the writer last wrote the pages in whole, as kept beside the store; absent when none was recorded. */
@@ -851,7 +934,7 @@ export class KnowledgeProduct {
     const declared = this.repositories();
     const context = await this.context();
     if ('absent' in context) {
-      return { ...common, manifest: 'no-manifest', manifestFile: context.file, language: 'en', seeded: [], ...(this.seedError === undefined ? {} : { seedError: this.seedError }), findings: [], kinds: [], repositories: declared.map((repo) => ({ name: repo.name, filled: false })), filled: false, incomplete: false, fill: this.fill, writer: this.writer, bounds: WRITER_BOUNDS, chosenAgent: this.chosenAgent(), home: null, loop: this.loopCounts() };
+      return { ...common, manifest: 'no-manifest', manifestFile: context.file, language: 'en', seeded: [], ...(this.seedError === undefined ? {} : { seedError: this.seedError }), findings: [], kinds: [], groups: [], repositories: declared.map((repo) => ({ name: repo.name, filled: false })), filled: false, incomplete: false, fill: this.fill, writer: this.writer, bounds: WRITER_BOUNDS, chosenAgent: this.chosenAgent(), home: null, loop: this.loopCounts() };
     }
     const home = homeKind(context.manifest);
     const homeEntity = home === undefined ? undefined : [...context.ctx.markdown.values()].find((entity) => entity.kind === home.name);
@@ -865,6 +948,7 @@ export class KnowledgeProduct {
       seeded: this.seeded,
       findings: context.findings,
       kinds,
+      groups: [...context.manifest.groups.values()].map((group) => ({ group: group.name, labels: { ...group.labels } })),
       repositories: declared.map((repo) => ({ name: repo.name, filled: (this.pins.get(repo.name)?.filledCommits ?? 0) > 0 })),
       filled: this.pins.size > 0,
       incomplete,
@@ -883,10 +967,17 @@ export class KnowledgeProduct {
     return { questionsOpen: questions.open, questionsAnswered: questions.answered, correctionsOpen: readCorrections(this.options.productFolder).items.filter((correction) => correction.status === 'open').length };
   }
 
-  async page(id: string): Promise<PageResult> {
+  async page(id: string, lang?: string): Promise<PageResult> {
     const context = await this.context();
     if ('absent' in context) return { ok: false, status: 404, message: `the product has no ${context.file}: the wiki shows the kinds that file declares` };
-    return await renderPage(context.ctx, id);
+    return await renderPage(context.ctx, id, lang);
+  }
+
+  /** The statement view of one sentence of an agent's page. */
+  async statement(id: string, sentence: string, turn = 0): Promise<StatementResult> {
+    const context = await this.context();
+    if ('absent' in context) return { ok: false, status: 404, message: `the product has no ${context.file}: the wiki shows the kinds that file declares` };
+    return await buildStatement(context.ctx, id, sentence, turn);
   }
 
   async list(kind: string, options: { q?: string; after?: string; limit: number }) {
@@ -902,30 +993,15 @@ export class KnowledgeProduct {
   async documents(): Promise<DocumentListing> {
     const product = this.product();
     if ('message' in product) throw new WikiReadError(product.message);
+    // Listing the documents writes nothing: a product with no manifest has no pages of kinds and no excluded files.
+    const read = readKinds(product.folder);
+    const manifest: KindsManifest = read.present ? read.manifest : { file: read.file, kinds: new Map(), groups: new Map(), excludeDocuments: [], findings: [] };
     const documents: DocumentRef[] = [];
     const truncated: DocumentListing['truncated'] = [];
-    const walk = (folder: string, relativeFolder: string): void => {
-      for (const entry of readdirSync(folder, { withFileTypes: true }).sort((a, b) => byCodePoint(a.name, b.name))) {
-        if (entry.name.startsWith('.')) continue;
-        const relative = relativeFolder === '' ? entry.name : `${relativeFolder}/${entry.name}`;
-        if (entry.isDirectory()) walk(join(folder, entry.name), relative);
-        else if (entry.isFile() && DOCUMENT_PATH.test(entry.name)) documents.push({ repo: null, path: relative });
-      }
-    };
-    for (const entry of readdirSync(product.folder, { withFileTypes: true }).sort((a, b) => byCodePoint(a.name, b.name))) {
-      if (entry.isFile() && DOCUMENT_PATH.test(entry.name) && !entry.name.startsWith('.')) documents.push({ repo: null, path: entry.name });
-    }
-    if (existsSync(join(product.folder, 'docs'))) walk(join(product.folder, 'docs'), 'docs');
+    // The product's own pages (the files of its Markdown kinds) are entity pages, and the manifest names the harness files that are no product document.
+    for (const path of productDocumentPaths(product.folder)) if (listedDocument(manifest, null, path)) documents.push({ repo: null, path });
     for (const repo of this.repositories().filter((candidate) => candidate.present)) {
-      const commit = this.pins.get(repo.name)?.commit;
-      let names: string[];
-      try {
-        const { stdout } = await execFileAsync('git', ['ls-tree', '-r', '--name-only', commit === undefined || commit === '' ? 'HEAD' : commit], { cwd: repo.path, maxBuffer: 1 << 28, encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' } });
-        names = stdout.split('\n').filter((name) => name !== '' && DOCUMENT_PATH.test(name) && !name.split('/').some((part) => part === 'node_modules' || part.startsWith('.')));
-      } catch (error) {
-        throw new Error(`src/knowledge/product.ts: the documents of the repository ${repo.name} cannot be listed with git in ${repo.path}: ${error instanceof Error ? error.message : String(error)}`);
-      }
-      names.sort(byCodePoint);
+      const names = (await repoDocumentPaths(repo.name, repo.path, this.pins.get(repo.name)?.commit)).filter((name) => listedDocument(manifest, repo.name, name));
       if (names.length > DOCUMENT_LIMIT) truncated.push({ repo: repo.name, total: names.length, shown: DOCUMENT_LIMIT });
       for (const name of names.slice(0, DOCUMENT_LIMIT)) documents.push({ repo: repo.name, path: name });
     }

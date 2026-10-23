@@ -6,7 +6,7 @@
 
 export type Finding = { file: string; line: number; message: string };
 
-export type CodeLocation = { repo: string | null; path: string; lineStart: number; lineEnd: number; href: string };
+export type CodeLocation = { repo: string | null; path: string; lineStart: number; lineEnd: number; href: string; web?: { host: string; url: string } };
 
 export type EntityRef = {
   id: string;
@@ -16,6 +16,8 @@ export type EntityRef = {
   location?: CodeLocation;
   broken?: string;
 };
+
+export type RefRow = { entity: EntityRef; note?: string; noteKey?: 'named' | 'groundedWith' | 'statements' | 'links'; noteArgs?: Record<string, string | number> };
 
 export type RelatedGroup = {
   relation: string;
@@ -36,11 +38,21 @@ export type Block =
   | { type: 'source'; title: string; location: CodeLocation; language: string; text: string; truncated: boolean }
   | { type: 'er'; title: string; mermaid: string; tables: number; shownTables: number }
   | { type: 'sequence'; title: string; mermaid: string; shown: number; total: number }
+  | { type: 'refs'; title: string; total: number; rows: RefRow[] }
+  | { type: 'properties'; title: string; rows: { name: string; value: string }[] }
+  | { type: 'stated'; title: string; place: { repo: string | null; path: string; lineStart: number; lineEnd: number; href: string; commit: string | null } }
   | { type: 'problem'; block: string; message: string; file: string; line: number };
 
 export type Resolution =
-  | { state: 'ok'; target: string; kind: string; label: string; href: string | null; note?: string; location?: CodeLocation }
-  | { state: 'broken'; target: string; reason: string };
+  | { state: 'ok'; target: string; kind: string; label: string; href: string | null; note?: string; location?: CodeLocation; entity?: string }
+  | { state: 'broken'; target: string; reason: string; why?: BrokenWhy };
+
+export type BrokenWhy =
+  | { code: 'empty' }
+  | { code: 'no-entity'; key: string }
+  | { code: 'no-path' }
+  | { code: 'no-document'; path: string }
+  | { code: 'no-section'; path: string; anchor: string; repos: string };
 
 export type PageModel = {
   id: string;
@@ -53,7 +65,21 @@ export type PageModel = {
   notes: string[];
 };
 
-export type KindSummary = { kind: string; source: 'graph' | 'markdown'; count: number; single: boolean; labels?: Record<string, { one: string; many: string }> };
+export type Origin = 'agent' | 'person' | 'code' | 'history';
+
+export type KindSummary = {
+  kind: string;
+  source: 'graph' | 'markdown' | 'document';
+  count: number;
+  statements?: number;
+  single: boolean;
+  group?: string;
+  origins: Origin[];
+  descriptions?: Record<string, string>;
+  labels?: Record<string, { one: string; many: string }>;
+};
+
+export type GroupSummary = { group: string; labels: Record<string, string> };
 
 export type EntityListing = { kind: string; total: number; rows: EntityRef[]; next: string | null };
 
@@ -111,6 +137,7 @@ export type WikiStatus = {
   seedError?: string;
   findings: Finding[];
   kinds: KindSummary[];
+  groups: GroupSummary[];
   repositories: { name: string; filled: boolean }[];
   filled: boolean;
   incomplete: boolean;
@@ -130,6 +157,28 @@ export type ProductChoice = { name: string; folder: string };
 export type DocumentRef = { repo: string | null; path: string };
 export type DocumentListing = { documents: DocumentRef[]; truncated: { repo: string | null; total: number; shown: number }[] };
 export type DocumentPageModel = { repo: string | null; path: string; title: string; markdown: string; resolutions: Record<string, Resolution>; anchors: Record<string, number>; commit: string | null };
+
+export type Excerpt =
+  | { type: 'code'; location: CodeLocation; language: string; firstLine: number; text: string; marked: { start: number; end: number }; truncated: boolean }
+  | { type: 'text'; markdown: string; place: { repo: string | null; path: string; lineStart: number; lineEnd: number; href: string } };
+
+export type GroundView = { url: string; resolution: Resolution; excerpt: Excerpt | null };
+
+export type RelyingRef = { page: string; pageTitle: string; text: string; line: number; file: string; how: 'grounds' | 'mentions'; ground: string; sentence?: string; turn?: number };
+
+export type StatementModel = {
+  page: EntityRef;
+  /** The statement's name on its page: what a correction names it by. */
+  name: string | null;
+  sentence: string;
+  paragraph: string;
+  file: string;
+  line: number;
+  grounded: boolean;
+  grounds: GroundView[];
+  relying: RelyingRef[];
+  resolutions: Record<string, Resolution>;
+};
 
 // ---- the loop of questions and corrections (madarch-m38l.7) ----------------------------------
 

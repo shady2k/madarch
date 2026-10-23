@@ -13,15 +13,17 @@ import { Button } from '@/components/ui/button.js';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.js';
 import { Input } from '@/components/ui/input.js';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.js';
-import { getDocument, getDocuments, getEntities, getPage, getSource, startFill } from './api.js';
+import { getDocument, getDocuments, getEntities, getPage, getSource, getStatement, correctStatement, startFill } from './api.js';
+import { useTabTitle } from './tabs.js';
 import { AgentChoice, WriterCard, useAgentChoice } from './writer.js';
-import { BlockView, CodeLines, CodePlace, EntityName, Findings, KLink, KMarkdown, scrollToAnchor } from './blocks.js';
-import { addressOfDocument, addressOfKind } from './routes.js';
+import { BlockView, CodeLines, CodePlace, EntityName, Findings, KLink, KMarkdown, brokenWords, scrollToAnchor } from './blocks.js';
+import { addressOfDocument, addressOfKind, addressOfStatement } from './routes.js';
 import { useKindName } from './kind-names.js';
 import { fillShare, fillWords } from './fill-words.js';
 import { useRead } from './live.js';
 import { PageSkeleton } from './skeleton.js';
-import type { DocumentListing, DocumentPageModel, EntityListing, EntityRef, PageModel, SourceFile, WikiStatus } from './types.js';
+import { Textarea } from '@/components/ui/textarea.js';
+import type { CorrectionResult, DocumentListing, DocumentPageModel, EntityListing, EntityRef, Excerpt, GroundView, Origin, PageModel, SourceFile, StatementModel, WikiStatus } from './types.js';
 
 function message(failure: unknown): string {
   return failure instanceof Error ? failure.message : String(failure);
@@ -44,9 +46,11 @@ function Trail({ trail }: { trail: readonly EntityRef[] }): ReactElement | null 
 
 /** One entity's page. A page read again after a commit keeps showing the old one until the new one arrives. */
 export function EntityPage({ id, version }: { id: string; version: number }): ReactElement {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const kindName = useKindName();
-  const { data: page, error } = useRead<PageModel>(id, version, (signal) => getPage(id, signal));
+  const language = (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en';
+  const { data: page, error } = useRead<PageModel>(`${id}\0${language}`, version, (signal) => getPage(id, language, signal));
+  useTabTitle(page?.title ?? null);
   if (page === null && error === null) return <PageSkeleton testId="page-loading" />;
   if (page === null) {
     return (
@@ -67,7 +71,7 @@ export function EntityPage({ id, version }: { id: string; version: number }): Re
         <h1 data-testid="page-title">{page.title}</h1>
         {page.notes.map((note) => <p key={note} className="text-small text-muted" data-testid="page-note">{note}</p>)}
       </header>
-      {page.blocks.map((block, index) => <BlockView key={index} block={block} resolutions={page.resolutions} />)}
+      {page.blocks.map((block, index) => <BlockView key={index} block={block} resolutions={page.resolutions} pageId={page.id} />)}
       <Findings findings={page.findings} />
     </article>
   );
@@ -86,6 +90,7 @@ export function KindPage({ kind, version }: { kind: string; version: number }): 
     const wait = setTimeout(() => setAsked(query), query === '' ? 0 : 200);
     return () => clearTimeout(wait);
   }, [query]);
+  useTabTitle(kindName(kind, 'many'));
   const read = useRead<EntityListing>(`${kind}\0${asked}`, version, (signal) => getEntities(kind, { q: asked }, signal));
   const listing = read.data;
   // A fresh listing starts the rows over: what "load more" appended belonged to the one before.
@@ -148,6 +153,7 @@ export function SourcePage({ repo, path, line }: { repo: string | null; path: st
   const [file, setFile] = useState<SourceFile | null>(null);
   const [error, setError] = useState<string | null>(null);
   const box = useRef<HTMLDivElement | null>(null);
+  useTabTitle(path.slice(path.lastIndexOf('/') + 1));
   useEffect(() => {
     const controller = new AbortController();
     getSource(repo, path, controller.signal).then(
@@ -313,6 +319,7 @@ function FillPart({ status, refresh }: { status: WikiStatus; refresh: () => void
 export function Overview({ status, refresh }: { status: WikiStatus; refresh: () => void }): ReactElement {
   const { t } = useTranslation();
   const kindName = useKindName();
+  useTabTitle(status.product.name);
   return (
     <section data-testid="overview">
       <header className="mb-6">
@@ -383,6 +390,7 @@ export function EmptyHome({ status }: { status: WikiStatus; refresh: () => void 
 export function DocumentsPage({ version }: { version: number }): ReactElement {
   const { t } = useTranslation();
   const [query, setQuery] = useState('');
+  useTabTitle(t('knowledge.documents'));
   const { data: listing, error } = useRead<DocumentListing>('documents', version, (signal) => getDocuments(signal));
   if (listing === null && error === null) return <PageSkeleton testId="documents-loading" rows />;
   if (listing === null) {
@@ -429,6 +437,7 @@ export function DocumentsPage({ version }: { version: number }): ReactElement {
 export function DocumentPage({ repo, path, version }: { repo: string | null; path: string; version: number }): ReactElement {
   const { t } = useTranslation();
   const { data: page, error } = useRead<DocumentPageModel>(`${repo ?? ''}\0${path}`, version, (signal) => getDocument(repo, path, signal));
+  useTabTitle(page?.title ?? null);
   // The section the address names: it changes with a link to another section of the same document too.
   const [hash, setHash] = useState(() => window.location.hash);
   useEffect(() => {
@@ -466,6 +475,206 @@ export function DocumentPage({ repo, path, version }: { repo: string | null; pat
         </div>
       </header>
       <KMarkdown text={page.markdown} resolutions={page.resolutions} inDocument={{ repo: page.repo, path: page.path, anchors: page.anchors }} />
+    </article>
+  );
+}
+
+/** The origins a kind's entities have, as a reader says them. */
+function OriginBadges({ origins }: { origins: readonly Origin[] }): ReactElement {
+  const { t } = useTranslation();
+  if (origins.length === 0) return <span className="text-muted">–</span>;
+  return <span className="flex flex-wrap gap-1">{origins.map((origin) => <Badge key={origin} data-origin={origin}>{t(`knowledge.origin.${origin}`)}</Badge>)}</span>;
+}
+
+/**
+ * The catalogue of the entity kinds the product's wiki works with, read from its manifest: by group, each kind with what
+ * it is, how many entities the graph and the Markdown hold of it, how they got here, and a link to its list.
+ */
+export function CataloguePage({ status }: { status: WikiStatus }): ReactElement {
+  const { t, i18n } = useTranslation();
+  const kindName = useKindName();
+  const language = (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en';
+  useTabTitle(t('knowledge.catalogue'));
+  const kinds = status.kinds.filter((kind) => !kind.single || kind.count > 0);
+  const known = new Set(status.groups.map((group) => group.group));
+  const sections = [
+    ...status.groups.map((group) => ({ key: group.group, name: group.labels[language] ?? group.labels['en'] ?? group.group, kinds: kinds.filter((kind) => kind.group === group.group) })),
+    { key: '\0other', name: t('knowledge.groupOther'), kinds: kinds.filter((kind) => kind.group === undefined || !known.has(kind.group)) },
+  ].filter((section) => section.kinds.length > 0);
+  const entities = kinds.reduce((sum, kind) => sum + kind.count, 0);
+  return (
+    <section data-testid="catalogue-page">
+      <header className="mb-6">
+        <h1>{t('knowledge.catalogue')}</h1>
+        <p className="mb-1">{t('knowledge.catalogueIntro')}</p>
+        <p className="mt-0 text-small text-muted" data-testid="catalogue-total">{t('knowledge.catalogueTotal', { entities, kinds: kinds.length })}</p>
+      </header>
+      {sections.map((section) => (
+        <section key={section.key} className="mb-8" data-testid="catalogue-group" data-group={section.key}>
+          <h2 className="flex items-baseline gap-3">{section.name}<span className="text-small font-normal text-muted">{section.kinds.reduce((sum, kind) => sum + kind.count, 0)}</span></h2>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t('knowledge.catalogueColKind')}</TableHead>
+                <TableHead>{t('knowledge.catalogueColAbout')}</TableHead>
+                <TableHead>{t('knowledge.catalogueColCount')}</TableHead>
+                <TableHead>{t('knowledge.catalogueColOrigin')}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {section.kinds.map((kind) => (
+                <TableRow key={kind.kind} data-kind={kind.kind}>
+                  <TableCell className="whitespace-nowrap align-top"><KLink href={addressOfKind(kind.kind)}>{kindName(kind.kind, 'many')}</KLink></TableCell>
+                  <TableCell className="max-w-[32rem] align-top">{kind.descriptions?.[language] ?? kind.descriptions?.['en'] ?? <span className="text-muted">–</span>}</TableCell>
+                  <TableCell className="align-top" data-testid="catalogue-count">{kind.count}{kind.statements !== undefined && <span className="block text-small text-muted" data-testid="catalogue-statements">{t('knowledge.catalogueStatements', { count: kind.statements })}</span>}</TableCell>
+                  <TableCell className="align-top"><OriginBadges origins={kind.origins} /></TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </section>
+      ))}
+    </section>
+  );
+}
+
+function ExcerptView({ excerpt }: { excerpt: Excerpt }): ReactElement {
+  const { t } = useTranslation();
+  if (excerpt.type === 'text') {
+    const place = excerpt.place;
+    return (
+      <div data-testid="excerpt" data-excerpt="text">
+        <blockquote className="!my-0"><KMarkdown text={excerpt.markdown} resolutions={{}} /></blockquote>
+        <p className="mb-0 mt-2 text-small text-muted"><KLink href={place.href}>{place.path}:{place.lineStart}{place.lineEnd > place.lineStart ? `–${place.lineEnd}` : ''}</KLink></p>
+      </div>
+    );
+  }
+  return (
+    <div data-testid="excerpt" data-excerpt="code">
+      <div className="source-view overflow-hidden rounded-[var(--radius-card)] border border-line">
+        <CodeLines text={excerpt.text} language={excerpt.language} firstLine={excerpt.firstLine} marked={excerpt.marked} />
+      </div>
+      <p className="mb-0 mt-2 flex flex-wrap items-center gap-x-3 text-small text-muted">
+        <CodePlace location={excerpt.location} />
+        {excerpt.marked.start > 0 && <span>{t('knowledge.citedLines', { start: excerpt.marked.start, end: excerpt.marked.end })}</span>}
+        {excerpt.truncated && <span>{t('knowledge.cutShown')}</span>}
+      </p>
+    </div>
+  );
+}
+
+function GroundCard({ ground, index }: { ground: GroundView; index: number }): ReactElement {
+  const { t } = useTranslation();
+  const kindName = useKindName();
+  const resolution = ground.resolution;
+  return (
+    <Card data-testid="ground" data-state={resolution.state} data-ground={ground.url}>
+      <CardHeader className="flex-row items-center gap-3 pb-3">
+        <span className="text-small text-muted" aria-hidden="true">{index + 1}</span>
+        {resolution.state === 'broken' ? (
+          <CardTitle className="min-w-0 flex-1 text-small"><span className="ref-broken" data-testid="ref-broken" title={brokenWords(resolution, t)}>{ground.url.replace(/^madarch:/, '')}<span className="ref-broken-mark">{t('knowledge.broken')}</span></span></CardTitle>
+        ) : (
+          <>
+            <CardTitle className="min-w-0 flex-1 text-small">{resolution.href === null ? resolution.label : <KLink href={resolution.href}>{resolution.label}</KLink>}</CardTitle>
+            <Badge>{resolution.kind === 'document' ? t('knowledge.documentBadge') : kindName(resolution.kind, 'one')}</Badge>
+          </>
+        )}
+      </CardHeader>
+      <CardContent>
+        {resolution.state === 'broken' && <p className="m-0 text-small" role="note">{brokenWords(resolution, t)}</p>}
+        {resolution.state === 'ok' && ground.excerpt !== null && <ExcerptView excerpt={ground.excerpt} />}
+        {resolution.state === 'ok' && ground.excerpt === null && <p className="m-0 text-small text-muted">{t('knowledge.statementNoExcerpt')}</p>}
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Where a person says the statement is wrong and why: a correction file in the product repository, committed under the person's git name. */
+function CorrectionBox({ page, name }: { page: string; name: string | null }): ReactElement {
+  const { t } = useTranslation();
+  const [reason, setReason] = useState('');
+  const [sending, setSending] = useState(false);
+  const [refused, setRefused] = useState<string | null>(null);
+  const [done, setDone] = useState<CorrectionResult | null>(null);
+  const send = (): void => {
+    if (name === null) return;
+    setSending(true);
+    setRefused(null);
+    correctStatement(`${page}#${name}`, reason).then(
+      (result) => { setSending(false); setDone(result); setReason(''); },
+      (failure: unknown) => { setSending(false); setRefused(message(failure)); },
+    );
+  };
+  return (
+    <section data-testid="statement-correction">
+      <h2>{t('knowledge.statementCorrection')}</h2>
+      <p className="text-small text-muted">{name === null ? t('knowledge.statementCorrectionUnnamed') : t('knowledge.statementCorrectionNote')}</p>
+      <Textarea value={reason} onChange={(event) => setReason(event.target.value)} disabled={name === null || sending} placeholder={t('knowledge.statementCorrectionPlaceholder')} aria-label={t('knowledge.statementCorrection')} className="mb-3 max-w-xl" data-testid="correction-text" />
+      <div><Button variant="default" size="default" disabled={name === null || sending || reason.trim() === ''} onClick={send} data-testid="correction-send">{t('knowledge.statementCorrectionSend')}</Button></div>
+      {refused !== null && <p className="mb-0 mt-3 text-small" role="alert" data-testid="correction-refused">{refused}</p>}
+      {done !== null && (
+        <p className="mb-0 mt-3 text-small" role="status" data-testid="correction-done">
+          {t('knowledge.statementCorrectionDone', { file: done.file })} {done.committed ? '' : (done.note ?? '')} <KLink href="/k/problems">{t('loop.problemsTitle')}</KLink>
+        </p>
+      )}
+    </section>
+  );
+}
+
+/** One sentence of an agent's page with its paragraph, each ground with its excerpt, and the place for a correction. */
+export function StatementPage({ id, sentence, turn = 0, version }: { id: string; sentence: string; turn?: number; version: number }): ReactElement {
+  const { t } = useTranslation();
+  const { data: statement, error } = useRead<StatementModel>(`${id}\0${sentence}\0${turn}`, version, (signal) => getStatement(id, sentence, turn, signal));
+  useTabTitle(sentence.length > 40 ? `${sentence.slice(0, 39)}…` : sentence);
+  if (statement === null && error === null) return <PageSkeleton testId="statement-loading" />;
+  if (statement === null) {
+    return (
+      <Alert variant="problem" data-testid="statement-error">
+        <AlertTitle>{t('knowledge.statementMissing')}</AlertTitle>
+        <AlertDescription><p>{error}</p></AlertDescription>
+      </Alert>
+    );
+  }
+  return (
+    <article data-testid="statement-page">
+      <header className="mb-6">
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          <Badge>{t('knowledge.statementTitle')}</Badge>
+          <span className="text-small text-muted">{t('knowledge.statementOnPage')}: <EntityName entity={statement.page} /></span>
+        </div>
+        <p className="statement-sentence m-0" data-testid="statement-sentence">{statement.sentence}</p>
+      </header>
+      <section className="mb-8" data-testid="statement-paragraph">
+        <h2>{t('knowledge.statementParagraph')}</h2>
+        <blockquote className="!my-0"><KMarkdown text={statement.paragraph} resolutions={statement.resolutions} /></blockquote>
+        <p className="mb-0 mt-2 text-small text-muted">{t('knowledge.statementWhere', { file: statement.file, line: statement.line })}</p>
+      </section>
+      <section className="mb-8" data-testid="statement-grounds">
+        <h2>{t('knowledge.statementGrounds')}</h2>
+        {statement.grounds.length === 0 ? (
+          <Alert variant="problem" data-testid="statement-no-grounds"><AlertDescription><p>{t('knowledge.statementNoGrounds')}</p></AlertDescription></Alert>
+        ) : (
+          <div className="flex flex-col gap-4">{statement.grounds.map((ground, index) => <GroundCard key={ground.url} ground={ground} index={index} />)}</div>
+        )}
+      </section>
+      {statement.relying.length > 0 && (
+        <section className="mb-8" data-testid="statement-relying">
+          <h2>{t('knowledge.statementRelying')}</h2>
+          <Table>
+            <TableHeader><TableRow><TableHead>{t('knowledge.statementOnPage')}</TableHead><TableHead>{t('knowledge.statementTitle')}</TableHead><TableHead>{t('knowledge.statementSharedGround')}</TableHead></TableRow></TableHeader>
+            <TableBody>
+              {statement.relying.map((other) => (
+                <TableRow key={`${other.page}:${other.line}:${other.text}`}>
+                  <TableCell className="align-top"><KLink href={`/k/e/${encodeURIComponent(other.page)}`}>{other.pageTitle}</KLink></TableCell>
+                  <TableCell className="max-w-[30rem] align-top">{other.sentence === undefined ? other.text : <KLink href={addressOfStatement(other.page, other.sentence, other.turn ?? 0)}>{other.text}</KLink>}</TableCell>
+                  <TableCell className="align-top">{other.ground}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </section>
+      )}
+      <CorrectionBox page={statement.page.id} name={statement.name} />
     </article>
   );
 }

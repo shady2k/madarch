@@ -14,7 +14,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert.js';
 import { Badge } from '@/components/ui/badge.js';
 import { Button } from '@/components/ui/button.js';
 import { answerQuestion, getProblems, getQuestion, getQuestions, getRefreshPlan } from './api.js';
-import { CodePlace, KLink } from './blocks.js';
+import { CodePlace, KLink, brokenWords } from './blocks.js';
 import { addressOfEntity, addressOfQuestion, K_QUESTIONS } from './routes.js';
 import { useRead } from './live.js';
 import { PageSkeleton } from './skeleton.js';
@@ -41,7 +41,7 @@ function Target({ target, resolutions }: { target: string; resolutions: Record<s
   const { t } = useTranslation();
   const resolution = resolutions[target];
   if (resolution === undefined) return <code className="text-small">{target}</code>;
-  if (resolution.state === 'broken') return <span className="ref-broken" title={resolution.reason} data-testid="ref-broken">{target}<span className="ref-broken-mark">{t('knowledge.broken')}</span></span>;
+  if (resolution.state === 'broken') return <span className="ref-broken" title={brokenWords(resolution, t)} data-testid="ref-broken">{target}<span className="ref-broken-mark">{t('knowledge.broken')}</span></span>;
   if (resolution.location !== undefined) return <CodePlace location={resolution.location} />;
   if (resolution.href !== null) return <KLink href={resolution.href}>{resolution.label}</KLink>;
   return <span>{resolution.label}</span>;

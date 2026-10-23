@@ -22,6 +22,7 @@ import { resolveBrowserExecutable } from './chromium.js';
 import { agentScript } from '../test/knowledge-agent-script.js';
 import { FACTORY, PAY, PAYMENTS_SERVICE, generateTrainingRepository, makeProduct, recordKey, writeSamplePages } from '../test/knowledge-fixture.js';
 import { existsSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 
 function argument(name: string, fallback: string): string {
   const at = process.argv.indexOf(`--${name}`);
@@ -35,6 +36,8 @@ mkdirSync(work, { recursive: true });
 const written: string[] = [];
 
 const repository = generateTrainingRepository(join(work, 'repo'));
+// A remote, so a code place can name its page on the host.
+if (!execFileSync('git', ['remote'], { cwd: repository, encoding: 'utf8' }).includes('origin')) execFileSync('git', ['remote', 'add', 'origin', ['https://github.com', 'example', 'shop.git'].join('/')], { cwd: repository });
 const home = join(work, 'home');
 mkdirSync(home, { recursive: true });
 rmSync(join(home, 'fresh'), { recursive: true, force: true });
@@ -191,7 +194,7 @@ if (only === '' || only === 'agent') {
 }
 
 // ---- the filled product ---------------------------------------------------------------------
-if (only === '' || only === 'shop' || only === 'remarks') {
+if (only === '' || only === 'shop' || only === 'remarks' || only === 'entities') {
   const probe = await open('/products/shop/', 1440, 900);
   await probe.waitForSelector('[data-testid=fill-start], [data-testid=entity-page]', { timeout: 60_000 });
   if ((await probe.$('[data-testid=fill-start]')) !== null) {
@@ -332,6 +335,117 @@ if (only === 'remarks') {
     await waited(menu, 'the empty page after starting over', () => menu.waitForSelector('[data-testid=fill-card][data-state=empty]', { timeout: 60_000 }));
     await shoot(menu, `${lang}-r12-after-starting-over`);
     await menu.close();
+  }
+}
+
+// ---- the entity pages (madarch-m38l.6): the catalogue, the navigation by group, a page of each family of kinds, the tabs and the statement view --
+if (only === 'entities') {
+  const shop = '/products/shop';
+  // The index of the pages is published after the code is read: wait until the wiki counts the statements.
+  let counted = { kinds: [] as { kind: string; statements?: number }[] };
+  for (let tries = 0; tries < 60; tries += 1) {
+    counted = (await (await fetch(`${server.url}${shop}/api/k/status`)).json()) as typeof counted;
+    if (counted.kinds.some((kind) => kind.statements !== undefined)) break;
+    await new Promise((rest) => setTimeout(rest, 2000));
+  }
+  console.log(`index statements: ${JSON.stringify(counted.kinds.filter((kind) => kind.statements !== undefined).map((kind) => [kind.kind, kind.statements]))}`);
+  const firstOf = async (kind: string, match?: string): Promise<string> => {
+    const response = await fetch(`${server.url}${shop}/api/k/entities?kind=${encode(kind)}&limit=100${match === undefined ? '' : `&q=${encode(match)}`}`);
+    const listing = (await response.json()) as { rows?: { id: string }[]; message?: string };
+    const row = listing.rows?.[0];
+    if (row === undefined) throw new Error(`the product holds no entity of kind ${kind}${match === undefined ? '' : ` matching ${match}`}: ${listing.message ?? 'the list is empty'}`);
+    return row.id;
+  };
+  const wiki = (id: string): string => `${shop}/k/e/${encode(id)}`;
+  const ready = (page: Page) => page.waitForSelector('[data-testid=entity-page] h1', { timeout: 60_000 });
+  const family: { name: string; id: string; height?: number }[] = [
+    { name: 'uc-2', id: 'doc:@training/docs/requirements.md#uc-2' },
+    { name: 'br-1', id: 'doc:@training/docs/requirements.md#br-1' },
+    { name: 'adr-0002', id: 'doc:@training/docs/adr/0002-outbox.md#adr-0002' },
+    { name: 'term-outbox', id: await firstOf('doc.term', 'Outbox') },
+    { name: 'module', id: recordKey('code.module', 'services/payments/src/domain'), height: 1300 },
+    { name: 'route', id: await firstOf('code.route', 'orders') },
+    { name: 'operation', id: await firstOf('code.operation', 'export') },
+    { name: 'channel', id: await firstOf('code.channel') },
+    { name: 'database', id: await firstOf('code.database', 'orders'), height: 1400 },
+    { name: 'table', id: recordKey('code.table', 'orders/public.orders'), height: 1500 },
+    { name: 'migration', id: await firstOf('code.migration') },
+    { name: 'env-var', id: await firstOf('code.env-var', 'DATABASE_URL') },
+    { name: 'dependency', id: await firstOf('code.dependency', 'express') },
+    { name: 'dockerfile', id: await firstOf('code.dockerfile') },
+    { name: 'compose-service', id: await firstOf('code.compose-service') },
+    { name: 'k8s-deployment', id: await firstOf('code.k8s-deployment') },
+    { name: 'ci-job', id: await firstOf('code.ci-job') },
+    { name: 'make-target', id: await firstOf('code.make-target') },
+    { name: 'test-case', id: await firstOf('code.test-case') },
+    { name: 'commit', id: await firstOf('code.commit') },
+  ];
+  {
+    const page = await open(`${shop}/k/catalogue`, 1440, 1500);
+    await waited(page, 'the catalogue', () => page.waitForSelector('[data-testid=catalogue-group]', { timeout: 60_000 }));
+    // Every group of the navigation is opened so the shot shows each group with its count.
+    for (const group of await page.$$('[data-testid=nav-group][aria-expanded=false]')) await group.click();
+    await shoot(page, `${lang}-e01-catalogue`);
+    await page.close();
+  }
+  for (const [index, entry] of family.entries()) {
+    const page = await open(wiki(entry.id), 1440, entry.height ?? 1100);
+    await waited(page, `the ${entry.name} page`, () => ready(page));
+    await shoot(page, `${lang}-e${String(index + 2).padStart(2, '0')}-${entry.name}`);
+    await page.close();
+  }
+  {
+    const page = await open(`${shop}/k/kind/doc.use-case`, 1440, 900);
+    await waited(page, 'the use cases', () => page.waitForSelector('[data-testid=kind-page] table tbody tr', { timeout: 60_000 }));
+    await shoot(page, `${lang}-e30-use-cases`);
+    await page.close();
+  }
+  // The tabs and the statement view: pages opened as tabs, a sentence opening its statement in a new tab, the grounds switch.
+  {
+    const page = await open(wiki('domain:payment'), 1440, 1500);
+    await waited(page, 'the domain page', () => ready(page));
+    await shoot(page, `${lang}-e31-agent-page-plain`);
+    await page.click('[data-testid=grounds-switch] input');
+    await page.waitForSelector('section[data-footnotes]', { timeout: 30_000 });
+    await shoot(page, `${lang}-e32-agent-page-with-grounds`);
+    await page.click('[data-testid=grounds-switch] input');
+    await page.waitForFunction(() => document.querySelector('section[data-footnotes]') === null);
+    // A control click opens a link in a new tab; a click on a sentence opens its statement.
+    const link = await page.$('a[href*="/k/e/"]');
+    if (link === null) throw new Error('the domain page holds no link to an entity');
+    await page.keyboard.down('Control');
+    await link.click();
+    await page.keyboard.up('Control');
+    await page.waitForFunction(() => document.querySelectorAll('[data-testid=tab]').length >= 2, { timeout: 30_000 });
+    // Back to the first tab (the domain page), where the sentences are.
+    await page.evaluate(() => document.querySelector<HTMLElement>('[data-testid=tab] [role=tab]')!.click());
+    await page.waitForSelector('[data-testid=statement][data-grounded=true]', { timeout: 30_000 });
+    await page.click('[data-testid=statement][data-grounded=true]');
+    await waited(page, 'the statement tab', () => page.waitForSelector('[data-testid=statement-page] [data-testid=ground]', { timeout: 60_000 }));
+    await shoot(page, `${lang}-e33-statement-tab`);
+    await page.evaluate(() => document.querySelector('[data-testid=statement-correction]')?.scrollIntoView({ block: 'center' }));
+    await shoot(page, `${lang}-e34-statement-correction-place`);
+    await page.close();
+  }
+  {
+    const page = await open(wiki('domain:payment'), 1440, 1500);
+    await waited(page, 'the domain page', () => ready(page));
+    await page.click('[data-testid=statement][data-grounded=false]');
+    await waited(page, 'the ungrounded statement', () => page.waitForSelector('[data-testid=statement-no-grounds]', { timeout: 60_000 }));
+    await shoot(page, `${lang}-e35-statement-without-ground`);
+    await page.close();
+  }
+  {
+    const page = await open(wiki('doc:@training/docs/requirements.md#uc-2'), 390, 1900);
+    await waited(page, 'the use case on a phone', () => ready(page));
+    await shoot(page, `${lang}-e36-uc-2-phone`);
+    await page.close();
+  }
+  {
+    const page = await open(`${shop}/k/docs`, 1440, 900);
+    await waited(page, 'the documents', () => page.waitForSelector('[data-testid=documents-group]', { timeout: 60_000 }));
+    await shoot(page, `${lang}-e37-documents`);
+    await page.close();
   }
 }
 

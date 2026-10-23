@@ -8,15 +8,22 @@ export type KRoute =
   | { name: 'source'; repo: string | null; path: string; line: number | null }
   | { name: 'docs' }
   | { name: 'doc'; repo: string | null; path: string }
+  | { name: 'catalogue' }
   | { name: 'questions' }
   | { name: 'question'; slug: string }
-  | { name: 'problems' };
+  | { name: 'problems' }
+  | { name: 'statement'; id: string; sentence: string; turn: number };
 
 export const K_HOME = '/k';
 export const K_DOCS = '/k/docs';
+export const K_CATALOGUE = '/k/catalogue';
 export const K_QUESTIONS = '/k/questions';
 export const K_PROBLEMS = '/k/problems';
 export const addressOfQuestion = (slug: string): string => `/k/questions/${encodeURIComponent(slug)}`;
+/** Where the statement view of a sentence of a page stands. */
+export function addressOfStatement(id: string, sentence: string, turn = 0): string {
+  return `/k/statement?${new URLSearchParams({ id, sentence, ...(turn > 0 ? { n: String(turn) } : {}) }).toString()}`;
+}
 /** Where a Markdown document stands, at a section when an anchor is given. */
 export function addressOfDocument(repo: string | null, path: string, anchor?: string): string {
   const query = new URLSearchParams();
@@ -59,6 +66,15 @@ export function kRouteOf(pathname: string, search = ''): KRoute | null {
     }
   }
   if (path === '/k/docs') return { name: 'docs' };
+  if (path === '/k/catalogue') return { name: 'catalogue' };
+  if (path === '/k/statement') {
+    const query = new URLSearchParams(search);
+    const id = query.get('id');
+    const sentence = query.get('sentence');
+    if (id === null || id === '' || sentence === null || sentence === '') return { name: 'home' };
+    const turn = Number(query.get('n') ?? 0);
+    return { name: 'statement', id, sentence, turn: Number.isInteger(turn) && turn > 0 ? turn : 0 };
+  }
   if (path === '/k/doc') {
     const query = new URLSearchParams(search);
     const file = query.get('path');
