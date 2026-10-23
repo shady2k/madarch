@@ -85,6 +85,7 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
   const openApiOperations: {method: string; routePath: string; key: string}[] = [];
   const channels: string[] = [];
   const protoRpcs: {protoPath: string; service: string; rpc: string; key: string}[] = [];
+  const declarations: {contract: string; member: string; relation: `code.${string}`}[] = [];
 
   for (const p of reader.paths) {
     const format = CONTRACT_FOLDERS.find(([_, applies]) => applies(p))?.[0];
@@ -107,6 +108,7 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
       const {contract, gaps: fileGaps} = readOpenApi(p, text);
       gaps.push(...fileGaps);
       nodes.push(...openApiNodes(contract));
+      for (const op of contract.operations) declarations.push({contract: `code.contract:${p}`, member: `code.operation:${p}#${op.method}:${op.path}`, relation: 'code.declares'});
       for (const op of contract.operations) {
         openApiOperations.push({method: op.method, routePath: op.path, key: `code.operation:${p}#${op.method}:${op.path}`});
       }
@@ -114,11 +116,20 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
       const {contract, gaps: fileGaps} = readAsyncApi(p, text);
       gaps.push(...fileGaps);
       nodes.push(...asyncApiNodes(contract));
-      for (const channel of contract.channels) channels.push(channel.name);
+      for (const channel of contract.channels) {
+        channels.push(channel.name);
+        declarations.push({contract: `code.contract:${p}`, member: channelKey(channel.name), relation: 'code.declares'});
+        for (const message of channel.messages) {
+          const messageId = `code.message:${p}#${message.name}`;
+          declarations.push({contract: `code.contract:${p}`, member: messageId, relation: 'code.declares'});
+          edges.push({type: 'code.carries', from: channelKey(channel.name), to: messageId, discriminator: '', properties: {channel: channel.name}});
+        }
+      }
     } else {
       const {contract, gaps: fileGaps} = readProto(p, text);
       gaps.push(...fileGaps);
       nodes.push(...protoNodes(contract));
+      for (const service of contract.services) for (const rpc of service.rpcs) declarations.push({contract: `code.contract:${p}`, member: `code.operation:${p}#${contract.package ?? ''}.${service.name}/${rpc.rpc}`, relation: 'code.declares'});
       for (const service of contract.services) {
         for (const rpc of service.rpcs) {
           protoRpcs.push({protoPath: p, service: service.name, rpc: rpc.rpc, key: `code.operation:${p}#${contract.package ?? ''}.${service.name}/${rpc.rpc}`});
@@ -126,6 +137,8 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
       }
     }
   }
+
+  for (const declaration of declarations) edges.push({type: declaration.relation, from: declaration.contract, to: declaration.member, discriminator: '', properties: {}});
 
   // ---- the code, one walk per file ------------------------------------------
   const goFiles: GoFacts[] = [];
@@ -253,12 +266,20 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
     if (file.go.entryPoint) {
       const packageFiles = goFiles.filter((held) => folderOf(held.path) === folderOf(file.path));
       const started = resolveGoStarts(packageFiles, file.path);
+      const entryKey = entryPointKey(file.path, 'main');
+      const entrySpan = {path: file.path, byteStart: 0, byteEnd: reader.read(file.path).length, lineStart: 1, lineEnd: Math.max(1, textOf(reader, file.path)?.split('\n').length ?? 1)};
       nodes.push({
-        key: entryPointKey(file.path, 'main'),
+        key: entryKey,
         kind: KIND_ENTRY_POINT,
-        label: 'main',
-        properties: {language: 'go', symbol: 'main', starts: started},
+        label: `${service ?? 'service'} · ${file.path}`,
+        properties: {language: 'go', symbol: 'main', service: service ?? '', file: file.path, starts: started},
+        span: entrySpan,
       });
+      edges.push({type: 'code.starts', from: entryKey, to: fileKey(file.path), discriminator: '', properties: {kind: 'entry-file'}, span: entrySpan});
+      for (const unit of started) {
+        const target = unit.path !== undefined ? fileKey(unit.path) : undefined;
+        if (target !== undefined) edges.push({type: 'code.starts', from: entryKey, to: target, discriminator: `${unit.kind}:${unit.symbol}`, properties: {kind: unit.kind, symbol: unit.symbol, ...(unit.port !== undefined ? {port: unit.port} : {})}, span: entrySpan});
+      }
     }
 
     for (const site of file.go.kafkaSites) {
@@ -342,16 +363,24 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
     }
 
     if (ts.entry !== undefined) {
+      const entryKey = entryPointKey(file.path, ts.entry.symbol);
+      const entrySpan = {path: file.path, byteStart: 0, byteEnd: reader.read(file.path).length, lineStart: 1, lineEnd: Math.max(1, textOf(reader, file.path)?.split('\n').length ?? 1)};
       nodes.push({
-        key: entryPointKey(file.path, ts.entry.symbol),
+        key: entryKey,
         kind: KIND_ENTRY_POINT,
-        label: ts.entry.symbol,
+        label: `${service ?? 'service'} · ${file.path} · ${ts.entry.symbol}`,
         properties: {
-          language: 'typescript',
+          language: 'typescript', service: service ?? '', file: file.path,
           symbol: ts.entry.symbol,
           starts: ts.started.map((unit) => ({kind: unit.kind, symbol: unit.symbol, ...(unit.path !== undefined ? {path: unit.path} : {}), ...(unit.port !== undefined ? {port: unit.port} : {})})),
         },
+        span: entrySpan,
       });
+      edges.push({type: 'code.starts', from: entryKey, to: fileKey(file.path), discriminator: '', properties: {kind: 'entry-file'}, span: entrySpan});
+      for (const unit of ts.started) {
+        const target = unit.path !== undefined ? fileKey(unit.path) : undefined;
+        edges.push({type: 'code.starts', from: entryKey, to: target, discriminator: `${unit.kind}:${unit.symbol}`, properties: {kind: unit.kind, symbol: unit.symbol, ...(unit.port !== undefined ? {port: unit.port} : {})}, span: entrySpan});
+      }
     }
 
     // The proto this file loads, when it does.
@@ -426,6 +455,12 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
   // A contract operation is served by the one route of the tree that matches its
   // method and path template. Where several match (/healthz of four services,
   // say), the link is not claimed: ambiguity is said, not resolved.
+  for (const endpoint of nodes.filter((node) => node.kind === 'code.health-endpoint' || node.kind === 'code.metrics-endpoint')) {
+    const endpointPath = String(endpoint.properties['path'] ?? '');
+    const endpointFile = endpoint.span?.path;
+    const routes = nodes.filter((node) => node.kind === KIND_ROUTE && node.properties['path'] === endpointPath && node.span?.path === endpointFile);
+    for (const route of routes) edges.push({type: 'code.served-by', from: endpoint.key, to: route.key, discriminator: '', properties: {}, ...(endpoint.span === undefined ? {} : {span: endpoint.span})});
+  }
   for (const operation of openApiOperations) {
     const matching = allRouteKeys().filter((route) => route.method === operation.method && pathMatches(route.path, operation.routePath));
     if (matching.length !== 1) continue;

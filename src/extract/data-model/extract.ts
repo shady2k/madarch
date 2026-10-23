@@ -510,7 +510,42 @@ export async function extractDataModel(tree: TreeReader): Promise<Extraction> {
     }
   }
 
-  const edges: ExtractedEdge[] = [...foreignEdges, ...logicalEdges, ...edgeDrafts.map(toEdge)].sort(edgeOrder);
+  const structuralEdges: ExtractedEdge[] = [];
+  const edge = (type: string, from: string, to: string, span?: SourceSpan, properties: ExtractedEdge['properties'] = {}): void => {
+    structuralEdges.push({ type: type as ExtractedEdge['type'], from, to, discriminator: '', properties, ...(span === undefined ? {} : {span}) });
+  };
+  for (const database of databases.values()) {
+    const dbKey = databaseKey(database.name);
+    structuralEdges.push({type: 'code.uses-database', from: `code.service:${database.name}`, to: dbKey, discriminator: '', properties: {via: 'schema'}});
+    for (const migration of database.migrations) {
+      const migrationId = migrationKey(database.name, migration.name);
+      edge('code.contains', dbKey, migrationId);
+      const read = readUtf8(tree, migration.path);
+      if (!read.ok) continue;
+      for (const statement of parseSqlScript(migration.path, read.text).statements) {
+        if (statement.kind === 'create-table') {
+          const tableId = tableKey(database.name, statement.table.name, statement.table.schema);
+          edge('code.creates', migrationId, tableId, statement.table.span);
+          for (const column of statement.table.columns) edge('code.creates', migrationId, columnKey(database.name, statement.table.name, column.name, statement.table.schema), column.span);
+        } else if (statement.kind === 'alter-table-add-column') {
+          edge('code.alters', migrationId, columnKey(database.name, statement.table, statement.column.name, statement.schema), statement.column.span);
+        } else if (statement.kind === 'create-index') {
+          edge('code.creates', migrationId, indexKey(database.name, statement.table, statement.index.name, statement.schema), statement.index.span);
+        }
+      }
+    }
+    for (const table of database.tables.values()) {
+      const tableId = tableKey(database.name, table.name, table.schema);
+      edge('code.holds', dbKey, tableId, table.span);
+      for (const column of table.columns.values()) edge('code.contains', tableId, columnKey(database.name, table.name, column.name, table.schema), column.span);
+      for (const index of table.indexes.values()) {
+        const indexId = indexKey(database.name, table.name, index.name, table.schema);
+        edge('code.contains', tableId, indexId, index.span);
+        for (const name of index.columns) edge('code.covers', indexId, columnKey(database.name, table.name, name, table.schema), index.span);
+      }
+    }
+  }
+  const edges: ExtractedEdge[] = [...structuralEdges, ...foreignEdges, ...logicalEdges, ...edgeDrafts.map(toEdge)].sort(edgeOrder);
   return {
     producer: DATA_MODEL_PRODUCER,
     nodes: [...nodes].sort((left, right) => byCodePoint(left.key, right.key)),

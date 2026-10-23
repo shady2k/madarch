@@ -35,6 +35,7 @@ export function extractNewcomer(t: TreeText, records: Records, targets: Readonly
       properties: { tools } satisfies { [key: string]: PropertyValue },
       span: t.spanOfLine(readmePath, prerequisitesAt + 1),
     });
+    records.edge('code.references', `code.newcomer-prerequisites:${readmePath}`, records.file(readmePath), {}, t.spanOfLine(readmePath, prerequisitesAt + 1));
   }
 
   // The numbered steps of the run-it section: order, folder, command, purpose.

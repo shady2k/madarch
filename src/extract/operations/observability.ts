@@ -33,6 +33,7 @@ function loggers(t: TreeText, records: Records): void {
         properties: { service, library: 'slog', json: true } satisfies { [key: string]: PropertyValue },
         span: t.spanOfLine(path, at + 1),
       });
+      records.edge('code.uses-logger', `code.logger:${path}#New`, records.file(path), {}, t.spanOfLine(path, at + 1));
     }
     if (path.endsWith('.ts') && /\bpino\(/.test(text)) {
       const at = lines.findIndex((line) => /export\s+const\s+([A-Za-z0-9_]+)\s*=\s*pino\(/.test(line));
@@ -45,6 +46,7 @@ function loggers(t: TreeText, records: Records): void {
         properties: { service, library: 'pino', json: true } satisfies { [key: string]: PropertyValue },
         span: t.spanOfLine(path, at + 1),
       });
+      records.edge('code.uses-logger', `code.logger:${path}#${symbol}`, records.file(path), {}, t.spanOfLine(path, at + 1));
     }
   }
 }
@@ -141,6 +143,7 @@ function healthEndpoints(t: TreeText, records: Records): void {
         properties: { path: endpoint.path, method: endpoint.method, statusOk: endpoint.statusOk } satisfies { [key: string]: PropertyValue },
         span: t.spanOfLine(path, endpoint.line),
       });
+      records.edge('code.served-by', `code.health-endpoint:${path}#${endpoint.symbol}`, records.file(path), {service: serviceOf(path) ?? ''}, t.spanOfLine(path, endpoint.line));
     }
   }
 }
@@ -174,6 +177,7 @@ function metricsEndpoints(t: TreeText, records: Records): void {
       properties: { path: '/metrics', format: 'prometheus-text', counters: distinct } satisfies { [key: string]: PropertyValue },
       span: t.spanOfFile(path),
     });
+    records.edge('code.served-by', `code.metrics-endpoint:${path}#${receiver}`, records.file(path), {service}, t.spanOfFile(path));
   }
 }
 

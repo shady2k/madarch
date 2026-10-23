@@ -152,6 +152,15 @@ describe('data-model extractor (training repository, answer key)', () => {
     expect(gapPaths).toEqual([...gapPaths].sort(byCodePoint));
   });
 
+  test('the database model is connected through migration, table, column and index relations', () => {
+    const has = (type: string, from: string, to: string): boolean => extraction.edges.some((edge) => edge.type === type && edge.from === from && edge.to === to);
+    expect(has('code.holds', 'code.database:orders', tableKey('orders', 'orders'))).toBe(true);
+    expect(has('code.contains', tableKey('orders', 'orders'), columnKey('orders', 'orders', 'id'))).toBe(true);
+    expect(has('code.contains', tableKey('orders', 'order_items'), indexKey('orders', 'order_items', 'order_items_order_idx'))).toBe(true);
+    expect(has('code.covers', indexKey('orders', 'order_items', 'order_items_order_idx'), columnKey('orders', 'order_items', 'order_id'))).toBe(true);
+    expect(extraction.edges.some((edge) => edge.type === 'code.creates' && edge.from.startsWith('code.migration:orders/') && edge.to === tableKey('orders', 'orders'))).toBe(true);
+  });
+
   test('two extractions of the same tree give the same records', async () => {
     const read = await treeReaderOf(repoFolder);
     const again = await extractDataModel(read.tree);

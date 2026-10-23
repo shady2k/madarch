@@ -195,6 +195,43 @@ export function extractDriverTests(label: string, make: () => { owner: DatabaseO
 
     }, 600_000);
 
+    test('generated-repository graph audit: every node has a location, a unique label, and a connected graph edge', async () => {
+      const at = env.report.commits.at(-1)?.effectiveTime;
+      if (at === undefined) throw new Error('the generated graph has no tip valid time');
+      const nodes = await env.query<{key: string; kind: string; label: string; span: unknown; node: string}>(
+        `SELECT v.properties->>'recordKey' AS key, k.key AS kind, v.label, v.properties->'span' AS span, v.node_id::text AS node
+         FROM node_version v JOIN node_kind k ON k.id=v.kind_id
+         WHERE v.recorded_to='infinity' AND v.valid_from <= $1::timestamptz AND v.valid_to > $1::timestamptz
+           AND v.properties ? 'recordKey' AND v.scope_id=$2::bigint ORDER BY k.key COLLATE "C", v.properties->>'recordKey' COLLATE "C"`,
+        [at, env.report.repositoryNode],
+      );
+      const edges = await env.query<{src: string; dst: string}>(
+        `SELECT DISTINCT e.src_id::text AS src, e.dst_id::text AS dst FROM edge_version e
+         WHERE e.recorded_to='infinity' AND e.valid_from <= $1::timestamptz AND e.valid_to > $1::timestamptz`, [at],
+      );
+      const incident = new Set(edges.flatMap((edge) => [edge.src, edge.dst]));
+      const totals = new Map<string, {total: number; isolated: string[]; duplicates: Map<string, string[]>}>();
+      const labels = new Map<string, Map<string, string[]>>();
+      for (const node of nodes) {
+        const byKind = totals.get(node.kind) ?? {total: 0, isolated: [], duplicates: new Map<string, string[]>()};
+        byKind.total += 1;
+        if (!incident.has(node.node)) byKind.isolated.push(node.key);
+        if (node.kind.startsWith('code.') && (node.span === null || typeof node.span !== 'object' || typeof (node.span as Record<string, unknown>)['path'] !== 'string' || typeof (node.span as Record<string, unknown>)['lineStart'] !== 'number')) {
+          throw new Error(`code node has no source location: ${node.kind} ${node.key}`);
+        }
+        const kinds = labels.get(node.kind) ?? new Map<string, string[]>();
+        kinds.set(node.label, [...(kinds.get(node.label) ?? []), node.key]);
+        labels.set(node.kind, kinds);
+        totals.set(node.kind, byKind);
+      }
+      const report = [...totals].map(([kind, value]) => ({kind, ...value, isolated: value.isolated.length}));
+      console.log(`GRAPH_AUDIT ${JSON.stringify(report)}`);
+      const duplicateLabels = [...labels].flatMap(([kind, values]) => [...values].filter(([, keys]) => keys.length > 1).map(([label, keys]) => `${kind} ${JSON.stringify(label)}: ${keys.join(', ')}`));
+      expect(duplicateLabels, `duplicate labels: ${duplicateLabels.join('; ')}`).toEqual([]);
+      const isolated = [...totals].flatMap(([kind, value]) => value.isolated.map((key) => `${kind} ${key}`));
+      expect(isolated, `isolated graph nodes: ${isolated.join('; ')}`).toEqual([]);
+    }, 120_000);
+
     test('idempotent-refill (0028): a second fill of the unchanged repository writes no row in any table', async () => {
       const before = await digestAll(env);
       const second = await fillGraph(fill);

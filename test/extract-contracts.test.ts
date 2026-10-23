@@ -158,6 +158,17 @@ function startsOf(file: string, symbol: string): readonly {kind: string; symbol:
 }
 
 describe('extract contracts (training repository)', () => {
+  test('each contract declares its operations and events', () => {
+    const declarations = extraction.edges.filter((edge) => edge.type === 'code.declares');
+    expect(declarations.length).toBeGreaterThan(0);
+    for (const edge of declarations) {
+      expect(edge.from).toMatch(/^code\.contract:/);
+      expect(['code.operation', 'code.channel', 'code.message']).toContain(edge.to.slice(0, edge.to.indexOf(':')));
+      expect(extraction.nodes.some((node) => node.key === edge.from)).toBe(true);
+      expect(extraction.nodes.some((node) => node.key === edge.to)).toBe(true);
+    }
+  });
+
   test('every answer-key item of the contracts areas is carried', () => {
     const mine = key.items.filter((i) => /^(contract|entrypoints|interaction|security)\./.test(i.id));
     expect(mine.length).toBe(19);

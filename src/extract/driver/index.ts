@@ -475,7 +475,14 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
     const effective: Extraction = {
       ...extraction,
       nodes: [...ownKept, ...facets.map((facet) => facet.node)],
-      edges: [...extraction.edges, ...facets.map((facet) => ({ type: 'code.facet-of' as const, from: facet.node.key, to: String(facet.node.properties['ownerKey']), discriminator: '', properties: {} }))],
+      edges: [...extraction.edges, ...facets.flatMap((facet) => {
+        const ownerKey = String(facet.node.properties['ownerKey']);
+        const path = facet.node.span?.path ?? (ownerKey.startsWith('code.file:') ? ownerKey.slice('code.file:'.length) : undefined);
+        return [
+          { type: 'code.facet-of' as const, from: facet.node.key, to: ownerKey, discriminator: '', properties: {} },
+          ...(path === undefined ? [] : [{type: 'code.describes-file' as const, from: facet.node.key, to: `code.file:${path}`, discriminator: '', properties: {}}]),
+        ];
+      })],
     };
     const foreignKinds = [...new Set(effective.edges.flatMap((edge) => [edge.from, edge.to]).filter((key) => !effective.nodes.some((node) => node.key === key)).map((key) => key.slice(0, key.indexOf(':'))))].filter((kind) => kind.startsWith('code.'));
     await through('registering the extractor schema', () => registerSchema(effective, foreignKinds));
