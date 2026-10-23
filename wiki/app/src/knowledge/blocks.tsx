@@ -117,13 +117,12 @@ export interface StatementView {
 /** How long an opening waits after its click: a second press within this window is a double click, which selects. */
 const CLICK_INTERVAL = 400;
 
-/** The opening a sentence's click asked for: whether the press that ended a selection was seen, and the wait it started. */
+/** The openings the sentences of one text asked for, and whether the press that ended a selection was seen. */
 interface PendingOpen {
-  /** The sentence whose click asked for this opening. */
-  sentence: string | null;
   /** The press found a selection: the click that follows only dismisses it and opens nothing. */
   pressed: boolean;
-  timer: ReturnType<typeof setTimeout> | null;
+  /** A wait per sentence: two sentences clicked one after the other each open, and a second press drops its own wait alone. */
+  timers: Map<string, ReturnType<typeof setTimeout>>;
 }
 
 export function KMarkdown({ text, resolutions, inDocument, statements, exceptTerm }: { text: string; resolutions: Readonly<Record<string, Resolution>>; inDocument?: { repo: string | null; path: string; anchors?: Readonly<Record<string, number>> }; statements?: StatementView; /** The id of the glossary entry this text is, which it does not link to. */ exceptTerm?: string }): ReactElement {
@@ -132,10 +131,13 @@ export function KMarkdown({ text, resolutions, inDocument, statements, exceptTer
   const kindName = useKindName();
   const pending = useContext(PendingPages);
   // An opening belongs to the page its click was made on: the wait is this text's own, and leaving the page drops it.
-  const pendingOpen = useRef<PendingOpen>({ sentence: null, pressed: false, timer: null });
-  useEffect(() => () => {
-    if (pendingOpen.current.timer !== null) clearTimeout(pendingOpen.current.timer);
-    pendingOpen.current.timer = null;
+  const pendingOpen = useRef<PendingOpen>({ pressed: false, timers: new Map() });
+  useEffect(() => {
+    const wait = pendingOpen.current;
+    return () => {
+      for (const timer of wait.timers.values()) clearTimeout(timer);
+      wait.timers.clear();
+    };
   }, []);
   const components: Components = {
     a: ({ href, children, className, title }) => {
@@ -194,11 +196,11 @@ export function KMarkdown({ text, resolutions, inDocument, statements, exceptTer
             onMouseDown={() => {
               const wait = pendingOpen.current;
               wait.pressed = selecting();
-              if (wait.timer !== null && wait.sentence === sentence) {
+              const waiting = wait.timers.get(sentence);
+              if (waiting !== undefined) {
                 // The second press on this sentence: its pending opening is dropped, and the press selects.
-                clearTimeout(wait.timer);
-                wait.timer = null;
-                wait.sentence = null;
+                clearTimeout(waiting);
+                wait.timers.delete(sentence);
                 wait.pressed = true;
               }
             }}
@@ -209,13 +211,12 @@ export function KMarkdown({ text, resolutions, inDocument, statements, exceptTer
               if ((event.target as HTMLElement).closest('a') !== null || dismissed || selecting()) return;
               // Wait one click interval: a native double click selects a word after its
               // first click, and a slow one arrives well inside this window.
-              if (wait.timer !== null && wait.sentence === sentence) clearTimeout(wait.timer);
-              wait.sentence = sentence;
-              wait.timer = setTimeout(() => {
-                wait.timer = null;
-                wait.sentence = null;
+              const waiting = wait.timers.get(sentence);
+              if (waiting !== undefined) clearTimeout(waiting);
+              wait.timers.set(sentence, setTimeout(() => {
+                wait.timers.delete(sentence);
                 if (!selecting()) open();
-              }, CLICK_INTERVAL);
+              }, CLICK_INTERVAL));
             }}
             onKeyDown={(event) => { if (event.key === 'Enter' && (event.target as HTMLElement).closest('a') === null) open(); }}
           >
