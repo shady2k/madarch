@@ -120,14 +120,18 @@ jobs:
             if ($url -notlike "http://127.0.0.1:$port/products/*") { throw "madarch new printed no product address on port ${port}: $url" }
             $served = $false
             for ($i = 0; $i -lt 300; $i++) {
-              try { $status = Invoke-RestMethod "${url}api/k/status"; if ($status.manifest -eq 'ok') { $served = $true; break } } catch {}
+              try { $status = Invoke-RestMethod -TimeoutSec 10 "${url}api/k/status"; if ($status.manifest -eq 'ok') { $served = $true; break } } catch {}
               Start-Sleep -Milliseconds 100
             }
             if (-not $served) { throw "the product's api/k/status never answered a manifest that is ok at $url" }
-            $root = Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:$port/"
+            $root = Invoke-WebRequest -TimeoutSec 30 -UseBasicParsing "http://127.0.0.1:$port/"
             if ($root.StatusCode -ne 200) { throw "the root answered $($root.StatusCode)" }
-            $page = Invoke-WebRequest -UseBasicParsing $url
+            $page = Invoke-WebRequest -TimeoutSec 30 -UseBasicParsing $url
             if ($page.Content -notmatch '<div id="root"') { throw "the product page at $url is not the wiki app's HTML" }
+          } catch {
+            Write-Host "FAILED: $_"
+            Get-ChildItem $products -Filter '*.log' -Recurse -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "--- $($_.FullName)"; Get-Content $_.FullName -Tail 40 }
+            throw
           } finally {
             # The daemon holds the step's handles: it is ended by the pid `new` printed, so the step can return.
             if ($facts.pid) { taskkill /T /F /PID $facts.pid | Out-Host }
