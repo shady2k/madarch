@@ -42,7 +42,25 @@ Reason: the wiki that draws backlinks and changed grounds is another task's; tod
 None.
 
 ## Design and decisions
-Decision 0029 and the vertical's shared formats. Choices inside them are recorded as the work proceeds.
+Decision 0029 and the vertical's shared formats. Choices inside them:
+- The index is one producer, `knowledge.index`, in one scope node per product, with product-namespace kinds `knowledge:page`, `knowledge:statement`, `knowledge:section` and relation types `knowledge:statement-of`, `knowledge:grounded-by`, `knowledge:mentions`, `knowledge:relates`. Its nodes carry a `key` property, not `recordKey`, so the writer's view, its prompts and the wiki's entity lists do not see them.
+- Each publication is complete (a statement the page no longer holds ends) at the valid time of the fill's last commit, and is skipped when its input is exactly what the graph already holds. A ground that resolves to nothing makes no edge and is returned in the report with its file and line.
+- A statement is a sentence that ends in footnote references. A sentence with several references is one statement named by the first, grounded by all. Older pages whose footnote is shared by several sentences index as `name`, `name~2`, and so on.
+- The digest on a `grounded-by` edge is a function of git at the page's written-at commit: a document section is the SHA-256 of its text; a symbol is the SHA-256 of the lines of its declaration span when the graph's span describes that commit, so an edit elsewhere in its file does not change it; anything else is git's object id of the path (a blob for a file, a tree for a folder). A span digest cannot be recomputed after the graph moves on, so a later index keeps the one it already holds for the same ground and commit; a rebuild into an empty graph falls back to the object id. A page that names no single repository has no digest, and the changed-grounds query says `unknown`, never `unchanged`.
+- The writer, not the agent, writes `written-at` (`repository`, `commit`, `branch` when a branch is checked out, `origin` when the repository has an `origin` remote, credentials of an origin URL removed).
+- Local `main` was behind `origin/main` by decision 0031's two commits at the start; Base is `origin/main` at the start, as the coordinator directed once local `main` was advanced.
+
+### The vertical's format, section 1, as changed (the file outside the repository is the coordinator's)
+- Front matter gains an optional `written-at`, written by the writer, never by the agent:
+  ```yaml
+  written-at:
+    - repository: services          # the repository's name in the product
+      commit: 3f9c2a1...             # the commit the writer read, in full
+      branch: main                   # when a branch is checked out
+      origin: git@github.com:acme/shop.git   # the origin remote, without credentials
+  ```
+  The engine turns origin, commit, path and lines into the web address on GitHub, GitLab, Bitbucket and Gitea/Forgejo (https and ssh remotes); a host it does not know gets no link.
+- A footnote belongs to one statement and is named for it, in lower-case words joined by hyphens: `Refunds are allowed within 14 days.[^refund-window]` with `[^refund-window]: [BR-4](madarch:doc:docs/requirements.md#br-4)`. The name is the statement's stable id in the graph. The writer renames a numbered footnote from the sentence, splits a footnote that several sentences share, keeps the name of a sentence that stands unchanged in the page it replaces, and lists the footnotes after the body in order of first use. Pages with numbered footnotes stay readable.
 
 ## Acceptance evidence
 To be filled with the test runs on the pod.
