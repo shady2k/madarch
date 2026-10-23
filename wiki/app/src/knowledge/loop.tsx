@@ -13,7 +13,7 @@ import { useTranslation } from 'react-i18next';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert.js';
 import { Badge } from '@/components/ui/badge.js';
 import { Button } from '@/components/ui/button.js';
-import { answerQuestion, getProblems, getQuestion, getQuestions, getRefreshPlan } from './api.js';
+import { answerQuestion, createTask, getTaskImpact, getTasks, getProblems, getQuestion, getQuestions, getRefreshPlan } from './api.js';
 import { CodePlace, KLink, brokenWords } from './blocks.js';
 import { addressOfEntity, addressOfQuestion, K_QUESTIONS } from './routes.js';
 import { useRead } from './live.js';
@@ -126,6 +126,13 @@ function AnswerForm({ question, onSaved }: { question: QuestionDetail; onSaved: 
   const [text, setText] = useState('');
   const [saving, setSaving] = useState(false);
   const [refused, setRefused] = useState<string | null>(null);
+  const [choice, setChoice] = useState('other');
+  const [impact, setImpact] = useState<Awaited<ReturnType<typeof getTaskImpact>> | null>(null);
+  const [taskTitle, setTaskTitle] = useState('');
+  const [confirming, setConfirming] = useState(false);
+  const grounds = [...new Set(question.sides.flatMap(side => side.grounds))];
+  const propose = (): void => { const fromDocs = choice === 'code'; setTaskTitle(fromDocs ? 'Update README retention sections to match code' : 'Update code to match retention documentation'); getTaskImpact(grounds).then(setImpact, e => setRefused(message(e))); };
+  const confirmTask = (): void => { if (!impact) return; setConfirming(true); createTask({question:question.slug,title:taskTitle,grounds,scope:[{type:'section',path:'README.md',anchor:'what-it-does'},{type:'section',path:'services/orders/README.md',anchor:'orders-service'}]}).then(()=>{setConfirming(false);setRefused(null);},e=>{setConfirming(false);setRefused(message(e));}); };
   const save = (): void => {
     setSaving(true);
     setRefused(null);
@@ -148,9 +155,9 @@ function AnswerForm({ question, onSaved }: { question: QuestionDetail; onSaved: 
         />
       </label>
       <p className="m-0 text-small text-muted" data-testid="answer-where">{t('loop.answerWhere', { file: question.file })}</p>
-      <div>
-        <Button variant="default" size="default" type="submit" disabled={saving || text.trim() === ''} data-testid="answer-save">{t('loop.saveAnswer')}</Button>
-      </div>
+      <label className="grid gap-1.5 text-small"><span>{t('loop.taskChoice')}</span><select value={choice} onChange={event=>setChoice(event.target.value)} data-testid="answer-task-choice"><option value="other">{t('loop.taskOther')}</option><option value="code">{t('loop.taskDocsWrong')}</option><option value="docs">{t('loop.taskCodeWrong')}</option></select></label>
+      <div className="flex flex-wrap gap-2"><Button variant="default" size="default" type="submit" disabled={saving || text.trim() === ''} data-testid="answer-save">{t('loop.saveAnswer')}</Button>{choice !== 'other' && <Button type="button" onClick={propose} data-testid="task-propose">{t('loop.taskPropose')}</Button>}</div>
+      {impact && <section data-testid="task-impact"><label className="grid gap-1"><span>{t('loop.taskTitle')}</span><input value={taskTitle} onChange={e=>setTaskTitle(e.target.value)} /></label><p>{t('loop.taskImpactSummary',{pages:impact.pages.length,statements:impact.statements.length})}</p><ul>{impact.pages.map(page=><li key={page.id}>{page.file}</li>)}</ul><Button type="button" disabled={confirming} onClick={confirmTask} data-testid="task-confirm">{t('loop.taskConfirm')}</Button></section>}
       {refused !== null && <p className="m-0 text-small" role="alert" data-testid="answer-refused">{refused}</p>}
     </form>
   );
@@ -346,4 +353,11 @@ export function RefreshPreviewView({ language, refreshKey }: { language: string;
       {preview.commitsNotRead !== null && preview.commitsNotRead > 0 && <p className="mb-0 mt-2 text-small text-muted" data-testid="plan-commits">{t('loop.plan.commits', { count: preview.commitsNotRead })}</p>}
     </div>
   );
+}
+
+export function TasksPage({version}:{version:number}):ReactElement {
+ const {t}=useTranslation(); const {data,error}=useRead('tasks',version,s=>getTasks(s)); useTabTitle(t('loop.tasksTitle'));
+ if(data===null&&error===null)return <PageSkeleton testId="tasks-loading" rows/>;
+ if(data===null)return <Alert variant="problem"><AlertTitle>{t('loop.tasksTitle')}</AlertTitle><AlertDescription>{error}</AlertDescription></Alert>;
+ return <section data-testid="tasks-page"><h1>{t('loop.tasksTitle')}</h1>{data.problems.map(p=><p role="alert" key={p}>{p}</p>)}{data.tasks.map(task=><article key={task.id} data-testid="task-row" data-state={task.status}><h2>{task.title}</h2><p>{task.scope.map(scope=>scope.type==='section'?`${scope.path}#${scope.anchor}`:scope.type==='lines'?`${scope.path}:${scope.start}-${scope.end}`:scope.key).join(', ')}</p></article>)}</section>;
 }

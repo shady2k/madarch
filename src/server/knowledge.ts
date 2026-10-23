@@ -42,6 +42,9 @@ export interface KnowledgePart {
   problems: (request: Request) => Promise<Handled>;
   refreshPlan: (request: Request) => Promise<Handled>;
   journal: (request: Request) => Promise<Handled>;
+  tasks: (request: Request) => Promise<Handled>;
+  taskImpact: (request: Request) => Promise<Handled>;
+  createTask: (request: Request) => Promise<Handled>;
 }
 
 /** The largest file the source view shows whole. */
@@ -284,6 +287,21 @@ export function createKnowledgePart(
         if (error instanceof WikiReadError) return refused(400, { field: 'id', message: error.message });
         throw error;
       }
+    }),
+    tasks: guarded('list the tasks', async () => ({ response: json(200, product.tasks()) })),
+    taskImpact: guarded('compute task impact', async (request) => {
+      const body = await request.json() as { grounds?: unknown };
+      if (!Array.isArray(body?.grounds) || body.grounds.some((ground) => typeof ground !== 'string' || ground.trim() === '')) return refused(400, { field: 'grounds', message: '"grounds" is a list of non-empty graph keys' });
+      return { response: json(200, await product.taskImpact(body.grounds as string[])) };
+    }),
+    createTask: guarded('create a task', async (request) => {
+      const crossSite = foreign(request); if (crossSite !== undefined) return refused(403, { message: crossSite });
+      const plain = notJson(request); if (plain !== undefined) return refused(415, { message: plain });
+      let body: unknown; try { body = await request.json(); } catch (error) { return refused(400, { message: `the request body is not JSON: ${(error as Error).message}` }); }
+      const value = body as { question?: unknown; title?: unknown; grounds?: unknown; scope?: unknown } | null;
+      if (typeof value?.question !== 'string' || typeof value.title !== 'string' || !Array.isArray(value.grounds) || !Array.isArray(value.scope)) return refused(400, { message: 'question, title, grounds and scope are required to confirm a task' });
+      const result = await product.createTask({ question: value.question, title: value.title, grounds: value.grounds as string[], scope: value.scope as import('../loop/tasks.js').TaskScope[] });
+      return { response: json(201, result) };
     }),
     products: guarded('list the products', async () => ({ response: json(200, { current: product.folder, products: siblings() }) })),
   };

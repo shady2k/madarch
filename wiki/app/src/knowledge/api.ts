@@ -193,3 +193,10 @@ export const getBlock = (id: string, line: number, lang: string, signal?: AbortS
 
 /** What the agent did to write one page: the records of the newest run that wrote it, or of the run asked for. */
 export const getJournal = (id: string, run: string | null, signal?: AbortSignal): Promise<PageJournal> => readJson<PageJournal>(`read the journal of ${id}`, `/api/k/journal?id=${encodeURIComponent(id)}${run === null ? '' : `&run=${encodeURIComponent(run)}`}`, signal);
+export const getTasks = (signal?: AbortSignal): Promise<import('./types.js').TaskListing> => readJson('list the tasks', '/api/k/tasks', signal);
+export const getTaskImpact = async (grounds: string[]): Promise<import('./types.js').TaskImpact> => {
+  const response = await fetch(appPath('/api/k/task-impact'), { method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({grounds}) });
+  if (!response.ok) throw new RequestError('compute task impact', `the server answered ${response.status}`);
+  return await response.json() as import('./types.js').TaskImpact;
+};
+export const createTask = (input: {question:string;title:string;grounds:string[];scope: import('./types.js').PlannedTask['scope']}) => post<{task:import('./types.js').PlannedTask;committed:boolean;note?:string}>('confirm the task','/api/k/task',input);

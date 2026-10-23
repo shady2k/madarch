@@ -468,6 +468,19 @@
       "refusal": "refused request"
     },
     "unreadable": "Lines of the journal that could not be read",
-    "otherRuns": "Other runs that wrote this page"
-  }
+    "otherRuns": "Other runs that wrote this page",
+    "agentAsked_many": "The agent asked {{count}} questions: they are on the Questions page.",
+    "tasksTitle": "Tasks",
+    "taskChoice": "What needs to change?",
+    "taskOther": "Other",
+    "taskDocsWrong": "Code is right; the document is out of date",
+    "taskCodeWrong": "The document is right; code needs to change",
+    "taskPropose": "Propose a task",
+    "taskTitle": "Task title",
+    "taskImpactSummary": "Will affect {{pages}} pages and {{statements}} statements.",
+    "taskConfirm": "Confirm task",
+    "plannedChange": "Planned change",
+    "basisWillChange": "This ground is planned to change",
+    "refreshNow": "Fix pages now",
+    "laterAnswers": "Later, with other answers"  }
 }

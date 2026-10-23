@@ -14,6 +14,7 @@ export type KRoute =
   | { name: 'question'; slug: string }
   | { name: 'problems' }
   | { name: 'journal'; id: string; run: string | null }
+  | { name: 'tasks' }
   | { name: 'statement'; id: string; sentence: string; turn: number };
 
 export const K_HOME = '/k';
@@ -26,6 +27,7 @@ export const K_PROBLEMS = '/k/problems';
 export function addressOfJournal(id: string, run?: string): string {
   return `/k/journal?${new URLSearchParams({ id, ...(run === undefined ? {} : { run }) }).toString()}`;
 }
+export const K_TASKS = '/k/tasks';
 export const addressOfQuestion = (slug: string): string => `/k/questions/${encodeURIComponent(slug)}`;
 /** Where the statement view of a sentence of a page stands. */
 export function addressOfStatement(id: string, sentence: string, turn = 0): string {
@@ -59,6 +61,7 @@ export function kRouteOf(pathname: string, search = ''): KRoute | null {
     const id = query.get('id');
     return id === null || id === '' ? { name: 'home' } : { name: 'journal', id, run: query.get('run') };
   }
+  if (path === '/k/tasks' || path === '/k/tasks/') return { name: 'tasks' };
   if (path.startsWith('/k/e/')) {
     try {
       const id = decodeURIComponent(path.slice('/k/e/'.length));

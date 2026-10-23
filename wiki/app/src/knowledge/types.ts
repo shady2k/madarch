@@ -313,3 +313,6 @@ export type JournalRecord = {
 };
 
 export type PageJournal = { run: string | null; runs: string[]; records: JournalRecord[]; problems: string[] };
+export type PlannedTask = { slug: string; id: string; file: string; title: string; status: 'open'|'closed'; question: string; answer: string; grounds: string[]; scope: ({type:'section';path:string;anchor:string}|{type:'lines';path:string;start:number;end:number}|{type:'symbol'|'statement';key:string})[]; by: Author; at: string };
+export type TaskListing = { tasks: PlannedTask[]; problems: string[] };
+export type TaskImpact = { pages: {id:string;title:string;file:string}[]; statements: {page:string;statement:string;file:string;line:number;text:string;ground:string}[] };

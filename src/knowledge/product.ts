@@ -41,13 +41,16 @@ import type { DraftEnv } from '../product/home.js';
 import { findSubject, kindSummaries, renderPage, listEntities, type PageResult } from './render.js';
 import { buildStatement, type StatementResult } from './statement.js';
 import { Resolver, type Resolution } from './resolve.js';
-import { indexCounts, statementsRelyingOn } from './index/queries.js';
+import { indexCounts } from './index/queries.js';
 import { webLink } from './index/web-link.js';
 import { readDocEntities, type DocEntity, type DocumentSource } from './doc-entities.js';
 import { DOCUMENT_LIMIT, DOCUMENT_PATH, docsLinkedOutside, listedDocument, productDocumentPaths, readProductDocument, readRepoDocuments, repoDocumentPaths } from './doc-sources.js';
 import { ensureLoopKinds, seedStarterSet } from './seed.js';
 import { readCorrections } from '../loop/entities.js';
-import { answerQuestion, recordCorrection, type Answered, type Corrected } from '../loop/answer.js';
+import { answerQuestion, commitFiles, localIdentity, recordCorrection, type Answered, type Corrected } from '../loop/answer.js';
+import { readTasks, renderTask, taskSlug, type PlannedTask, type TaskScope } from '../loop/tasks.js';
+import { statementsRelyingOn } from './index/queries.js';
+import { readKnowledgePages } from './index/index.js';
 import { planRefresh, type RefreshPlan } from '../loop/plan.js';
 import { listProblems, listQuestions, questionDetail, type ProblemListing, type QuestionDetail, type QuestionListing } from '../loop/views.js';
 
@@ -1119,6 +1122,53 @@ export class KnowledgeProduct {
     const done = await answerQuestion({ productFolder: this.options.productFolder, slug, text, ...(this.options.now === undefined ? {} : { now: this.options.now }), env: { ...process.env, ...(this.options.env ?? {}) } as NodeJS.ProcessEnv });
     this.notify();
     return done;
+  }
+
+  /** Create a task only after the reader confirms its proposed scope. */
+  async createTask(input: { question: string; title: string; grounds: string[]; scope: TaskScope[] }): Promise<{ task: PlannedTask; committed: boolean; note?: string; commit?: string }> {
+    const question = this.questions().rows.find((row) => row.slug === input.question);
+    if (question === undefined || question.state === 'open') throw new WikiReadError(`docs/questions/${input.question}.md:1: a task needs a saved answer to an existing question`);
+    const detail = await this.question(input.question);
+    if (detail?.answer === null || detail?.answer === undefined) throw new WikiReadError(`docs/questions/${input.question}.md:1: the saved answer cannot be read`);
+    if (input.title.trim() === '' || input.scope.length === 0 || input.grounds.length === 0) throw new WikiReadError('docs/tasks:1: a confirmed task needs a title, grounds and explicit scope');
+    const by = await localIdentity(this.options.productFolder, { ...process.env, ...(this.options.env ?? {}) } as NodeJS.ProcessEnv);
+    const slug = taskSlug(input.title, input.question);
+    const file = `docs/tasks/${slug}.md`;
+    const existing = readTasks(this.options.productFolder);
+    if (existing.findings.length) throw new WikiReadError(`docs/tasks:1: cannot safely check existing tasks: ${existing.findings.map(f => `${f.file}:${f.line}: ${f.message}`).join('; ')}`);
+    if (existing.tasks.some(task => task.slug === slug)) throw new WikiReadError(`${file}:1: a task with this id already exists`);
+    const task = { slug, title: input.title.trim(), status: 'open' as const, question: `question:${input.question}`, answer: `answer:${input.question}`, grounds: [...new Set(input.grounds)].sort(byCodePoint), scope: input.scope, by, at: (this.options.now?.() ?? new Date()).toISOString() };
+    const { mkdir: mkdirAsync, writeFile: writeAsync } = await import('node:fs/promises');
+    await mkdirAsync(join(this.options.productFolder, 'docs/tasks'), { recursive: true });
+    await writeAsync(join(this.options.productFolder, file), renderTask(task), { flag: 'wx' });
+    const committed = await commitFiles(this.options.productFolder, [file], `Create task ${slug}`, by, { ...process.env, ...(this.options.env ?? {}) } as NodeJS.ProcessEnv);
+    this.notify();
+    return { task: { ...task, id: `task:${slug}`, file }, ...committed };
+  }
+
+  /** Compute all relying statements through the graph. An index failure is never a smaller impact list. */
+  async taskImpact(grounds: readonly string[]): Promise<{ pages: { id: string; title: string; file: string }[]; statements: { page: string; statement: string; file: string; line: number; text: string; ground: string }[] }> {
+    const owner = await this.open();
+    const statements = new Map<string, { page: string; statement: string; file: string; line: number; text: string; ground: string }>();
+    for (const ground of [...new Set(grounds)].sort(byCodePoint)) {
+      for (const row of await statementsRelyingOn(owner, ground)) statements.set(`${row.page}#${row.statement}`, { page: row.page, statement: row.statement, file: row.file, line: row.line, text: row.text, ground });
+    }
+    const read = readKnowledgePages(this.options.productFolder);
+    if (read.findings.length) throw new WikiReadError(`task impact cannot read the product index: ${read.findings.map(f => `${f.file}:${f.line}: ${f.message}`).join('; ')}`);
+    const pageMap = new Map(read.pages.map(page => [page.id, page]));
+    const refs = new Set(statements.keys());
+    const related = new Set([...statements.values()].map(statement => statement.page));
+    for (const page of read.pages) {
+      const mentions = [...page.mentions, ...page.statements.flatMap(statement => statement.mentions)];
+      if (mentions.some(target => refs.has(target) || refs.has(target.split('#')[0] ?? '') || grounds.includes(target))) related.add(page.id);
+    }
+    const resultStatements = [...statements.values()].sort((a,b)=>byCodePoint(a.page,b.page)||a.line-b.line||byCodePoint(a.statement,b.statement));
+    return { pages: [...related].sort(byCodePoint).map(id=>{const page=pageMap.get(id);return {id,title:page?.title??id,file:page?.file??id};}), statements: resultStatements };
+  }
+
+  tasks(): { tasks: PlannedTask[]; problems: string[] } {
+    const read = readTasks(this.options.productFolder);
+    return { tasks: read.tasks, problems: read.findings.map(f => `${f.file}:${f.line}: ${f.message}`) };
   }
 
   /** A person's correction of a statement: a new file, committed with the person as author. */
