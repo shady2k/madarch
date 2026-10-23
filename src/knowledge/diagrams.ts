@@ -38,7 +38,7 @@ export const QUIET_RELATIONS: ReadonlySet<string> = new Set([
 
 const dirname = (path: string): string => (path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '.');
 const basename = (path: string): string => path.slice(path.lastIndexOf('/') + 1);
-/** The repository path inside a record key (`code.file:a/b.ts`, `code.symbol:a/b.ts#f`, `code.route:a/b.ts#GET:/x`). */
+/** The repository path inside a record key: what follows the kind and its colon, up to the `#` that names a part of the file. */
 const pathOfKey = (key: string): string => {
   const rest = key.slice(key.indexOf(':') + 1);
   return rest.includes('#') ? rest.slice(0, rest.indexOf('#')) : rest;

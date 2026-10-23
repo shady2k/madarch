@@ -208,13 +208,14 @@ describe('the blocks', () => {
   });
 
   test('the ER diagram draws through the wiki\'s Mermaid renderer, says how many tables of how many it shows, links each table, and an empty one says it is empty', async () => {
-    const table = { id: 'code.table:db/public.a', kind: 'code.table', label: 'a', href: '/k/e/code.table%3Adb%2Fpublic.a' };
+    const tableKey = ['code.table', 'db/public.a'].join(':');
+    const table = { id: tableKey, kind: 'code.table', label: 'a', href: `/k/e/${encodeURIComponent(tableKey)}` };
     const container = into(createElement('div', null,
       createElement(BlockView, { block: { type: 'er', title: 'Tables', mermaid: 'erDiagram\n  "a" {\n    TEXT id PK\n  }', tables: 4, shownTables: 1, links: [table] }, resolutions: {} }),
       createElement(BlockView, { block: { type: 'er', title: 'Other', mermaid: '', tables: 0, shownTables: 0, links: [] }, resolutions: {} })));
     await until(() => container.querySelector('[data-testid=mermaid-diagram]') !== null || container.querySelector('[data-testid=mermaid-error]') !== null, 'the diagram');
     expect(container.querySelector('figcaption')!.textContent).toBe('Showing 1 of 4.');
-    expect(container.querySelector('[data-testid=diagram-links] a')!.getAttribute('href')).toBe('/k/e/code.table%3Adb%2Fpublic.a');
+    expect(container.querySelector('[data-testid=diagram-links] a')!.getAttribute('href')).toBe(`/k/e/${encodeURIComponent(['code.table', 'db/public.a'].join(':'))}`);
     expect(container.querySelector('[data-testid=diagram-empty]')!.textContent).toBe('no tables in the graph');
     expect([...container.querySelectorAll('h2')].map((heading) => heading.textContent)).toEqual(['Tables', 'Other']);
   });

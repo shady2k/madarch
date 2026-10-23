@@ -64,6 +64,7 @@ export type Block =
   | { type: 'refs'; title: string; total: number; rows: RefRow[] }
   | { type: 'properties'; title: string; rows: { name: string; value: string }[] }
   | { type: 'stated'; title: string; place: { repo: string | null; path: string; lineStart: number; lineEnd: number; href: string; commit: string | null } }
+  | { type: 'deferred'; block: string; title: string; line: number }
   | { type: 'problem'; block: string; message: string; file: string; line: number };
 
 export type Resolution =

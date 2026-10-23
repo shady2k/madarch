@@ -1,6 +1,6 @@
 import { appPath } from '../app-base.js';
 import { readJson, RequestError } from '../api.js';
-import type { AgentOffer, AnswerResult, CorrectionResult, DocumentListing, DocumentPageModel, EntityListing, Neighborhood, PageModel, ProblemListing, ProductChoice, QuestionDetail, QuestionListing, RefreshPreview, SourceFile, StatementModel, WikiStatus } from './types.js';
+import type { AgentOffer, AnswerResult, CorrectionResult, DocumentListing, DocumentPageModel, Block, EntityListing, Neighborhood, PageModel, ProblemListing, ProductChoice, QuestionDetail, QuestionListing, RefreshPreview, SourceFile, StatementModel, WikiStatus } from './types.js';
 
 /** The wiki's status: manifest, kinds, repositories, fill. */
 export const getStatus = (signal?: AbortSignal): Promise<WikiStatus> => readJson<WikiStatus>('read the wiki', '/api/k/status', signal);
@@ -162,3 +162,6 @@ export const answerQuestion = (question: string, text: string): Promise<AnswerRe
 
 /** A person's correction of a statement (`<page id>#<statement name>`): "wrong, because ...". */
 export const correctStatement = (statement: string, reason: string): Promise<CorrectionResult> => post<CorrectionResult>('save the correction', '/api/k/correction', { statement, reason });
+
+/** One block of a page, by the line of its template: what a deferred diagram reads to draw itself. */
+export const getBlock = (id: string, line: number, lang: string, signal?: AbortSignal): Promise<Block> => readJson<Block>(`read the block at line ${line} of the page of ${id}`, `/api/k/block?id=${encodeURIComponent(id)}&line=${line}&lang=${lang === 'ru' ? 'ru' : 'en'}`, signal);

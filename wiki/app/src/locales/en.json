@@ -273,7 +273,8 @@
       "linesN": "{{count}} lines",
       "commitsN": "{{count}} commits",
       "areaIsLines": "Area is the lines of the file.",
-      "heatIsChurn": "Warmer is more often changed (up to {{max}} commits)."
+      "heatIsChurn": "Warmer is more often changed (up to {{max}} commits).",
+      "drawing": "Drawing…"
     }
   },
   "loop": {

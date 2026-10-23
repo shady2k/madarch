@@ -19,6 +19,7 @@ export interface KnowledgePart {
   identity: (request: Request) => Promise<Handled>;
   status: (request: Request) => Promise<Handled>;
   page: (request: Request) => Promise<Handled>;
+  block: (request: Request) => Promise<Handled>;
   statement: (request: Request) => Promise<Handled>;
   entities: (request: Request) => Promise<Handled>;
   neighborhood: (request: Request) => Promise<Handled>;
@@ -88,9 +89,22 @@ export function createKnowledgePart(
       const id = new URL(request.url).searchParams.get('id');
       if (id === null || id.trim() === '') return refused(400, { field: 'id', message: '"id" is required: the key or id of the entity whose page is asked for' });
       const asked = new URL(request.url).searchParams.get('lang');
-      const result = await product.page(id, asked === 'ru' || asked === 'en' ? asked : undefined);
+      // The diagrams read the graph at length: the page answers at once with a place for each (`deferred`), and the app asks
+      // for each by its line (`/api/k/block`). `full=1` asks for the whole page in one answer.
+      const result = await product.page(id, asked === 'ru' || asked === 'en' ? asked : undefined, { defer: new URL(request.url).searchParams.get('full') !== '1' });
       if (!result.ok) return refused(result.status, { field: 'id', message: result.message });
       return { response: json(200, result.page) };
+    }),
+    block: guarded('draw the block', async (request) => {
+      const query = new URL(request.url).searchParams;
+      const id = query.get('id');
+      if (id === null || id.trim() === '') return refused(400, { field: 'id', message: '"id" is required: the key or id of the entity whose page holds the block' });
+      const line = Number(query.get('line'));
+      if (!Number.isInteger(line) || line < 1) return refused(400, { field: 'line', message: `"line" is ${JSON.stringify(query.get('line'))}: the line of the block in the page's template, a whole number from 1` });
+      const asked = query.get('lang');
+      const result = await product.block(id, line, asked === 'ru' || asked === 'en' ? asked : undefined);
+      if (!result.ok) return refused(result.status, { field: 'id', message: result.message });
+      return { response: json(200, result.block) };
     }),
     statement: guarded('draw the statement', async (request) => {
       const query = new URL(request.url).searchParams;

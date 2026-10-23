@@ -19,6 +19,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert.js';
 import { Badge } from '@/components/ui/badge.js';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.js';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.js';
+import { getBlock } from './api.js';
 import { highlight } from './highlight.js';
 import { colorize, type ColoredToken } from './shiki.js';
 import { PendingPages } from './pending.js';
@@ -457,6 +458,30 @@ function Stated({ block }: { block: Extract<Block, { type: 'stated' }> }): React
   );
 }
 
+/** A diagram the page left to be read on its own: drawn when its read comes, a failure said with its reason. */
+function Deferred({ block, pageId, resolutions }: { block: Extract<Block, { type: 'deferred' }>; pageId?: string; resolutions: Readonly<Record<string, Resolution>> }): ReactElement {
+  const { t, i18n } = useTranslation();
+  const [drawn, setDrawn] = useState<Block | null>(null);
+  const [failure, setFailure] = useState<string | null>(null);
+  useEffect(() => {
+    if (pageId === undefined) return;
+    const stop = new AbortController();
+    setDrawn(null);
+    setFailure(null);
+    getBlock(pageId, block.line, i18n.resolvedLanguage ?? 'en', stop.signal).then(setDrawn, (error: unknown) => {
+      if (!(error instanceof DOMException && error.name === 'AbortError')) setFailure(error instanceof Error ? error.message : String(error));
+    });
+    return () => stop.abort();
+  }, [pageId, block.line, block.block, i18n.resolvedLanguage]);
+  if (drawn !== null) return <BlockView block={drawn} resolutions={resolutions} {...(pageId === undefined ? {} : { pageId })} />;
+  return (
+    <section data-block="diagram" data-diagram="deferred" aria-label={block.title}>
+      {block.title !== '' && <h2>{block.title}</h2>}
+      {failure === null ? <p className="text-small text-muted" data-testid="diagram-loading">{t('knowledge.diagram.drawing')}</p> : <p className="ref-broken" data-testid="diagram-failure">{failure}</p>}
+    </section>
+  );
+}
+
 function Problem({ block }: { block: Extract<Block, { type: 'problem' }> }): ReactElement {
   const { t } = useTranslation();
   return (
@@ -489,6 +514,7 @@ export function BlockView({ block, resolutions, pageId }: { block: Block; resolu
     case 'modules': return <ModulesView block={block} />;
     case 'treemap': return <TreemapView block={block} />;
     case 'er': return <Diagram title={block.title} mermaid={block.mermaid} empty={t('knowledge.noTables')} caption={block.tables > block.shownTables ? t('knowledge.showing', { shown: block.shownTables, total: block.tables }) : null} links={block.links} />;
+    case 'deferred': return <Deferred block={block} resolutions={resolutions} {...(pageId === undefined ? {} : { pageId })} />;
     case 'problem': return <Problem block={block} />;
   }
 }

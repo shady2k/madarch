@@ -168,6 +168,26 @@ const CHAIN: Chain = {
   total: 4,
 };
 
+describe('a deferred diagram', () => {
+  test('is a place with its title until its block is read, then the diagram; a failed read says why', async () => {
+    const asked: string[] = [];
+    (globalThis as { fetch?: unknown }).fetch = async (url: string) => {
+      asked.push(String(url));
+      return new Response(JSON.stringify(graphBlock()), { status: 200 });
+    };
+    const block: Block = { type: 'deferred', block: 'graph', title: 'Around this function', line: 7 };
+    const container = into(createElement(BlockView, { block, resolutions: {}, pageId: 'code.symbol:x' }));
+    await until(() => container.querySelector('[data-testid=hood-node]') !== null, 'the diagram');
+    expect(asked).toEqual(['/api/k/block?id=code.symbol%3Ax&line=7&lang=en']);
+    rendered?.unmount();
+    document.body.innerHTML = '';
+    (globalThis as { fetch?: unknown }).fetch = async () => new Response(JSON.stringify({ message: 'no block at line 7' }), { status: 404 });
+    const failed = into(createElement(BlockView, { block, resolutions: {}, pageId: 'code.symbol:x' }));
+    await until(() => failed.querySelector('[data-testid=diagram-failure]') !== null, 'the failure');
+    expect(failed.querySelector('[data-testid=diagram-failure]')!.textContent).toContain('no block at line 7');
+  });
+});
+
 describe('the chain', () => {
   test('every step is a link, a step with a site links its number to the code, and what the graph does not order is drawn below a dashed line that says so', async () => {
     const block: Block = { type: 'sequence', title: 'End-to-end chain', scenario: 'Payment', chains: [CHAIN], entries: 1, notes: [] };

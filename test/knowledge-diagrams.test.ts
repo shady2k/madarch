@@ -124,6 +124,21 @@ describe('the end-to-end chains match the answer key\'s flows', () => {
   });
 });
 
+describe('the diagrams a page leaves to be read on their own', () => {
+  test('a page asked for with defer answers a place for each diagram, and the block route draws one by its template line, so the page answers at once', async () => {
+    const pay = recordKey('code.symbol', 'services/payments/src/domain/payment-service.ts#PaymentService.pay');
+    const answered = await product.page(pay, 'en', { defer: true });
+    if (!answered.ok) throw new Error(answered.message);
+    const deferred = answered.page.blocks.filter((entry) => entry.type === 'deferred');
+    expect(deferred.map((entry) => entry.block)).toEqual(['graph', 'sequence']);
+    expect(answered.page.blocks.some((entry) => entry.type === 'sequence' || entry.type === 'graph')).toBe(false);
+    const drawn = await product.block(pay, deferred[1]!.line, 'en');
+    if (!drawn.ok) throw new Error(drawn.message);
+    expect(drawn.block).toMatchObject({ type: 'sequence' });
+    expect(await product.block(pay, 9999, 'en')).toMatchObject({ ok: false, status: 404 });
+  });
+});
+
 describe('the neighbourhood', () => {
   test('a function shows its callers and callees as edges in and out with the relation filter, every node linked to its page', async () => {
     const pay = recordKey('code.symbol', 'services/payments/src/domain/payment-service.ts#PaymentService.pay');
