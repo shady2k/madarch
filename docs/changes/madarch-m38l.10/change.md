@@ -44,7 +44,9 @@ Mockup: docs/prototypes/madarch-m38l.10/first-run-en.png
 None.
 
 ## Design and decisions
-(Filled as the work lands.)
+- The engine holds no product content (owner's rule, 2026-10-13). madarch's own product is the repository shady2k/madarch-product, brought to the current format on a branch there with a pull request in that repository.
+- The binary build (`scripts/build-binary.ts`) fetches a pinned revision of that repository, recorded in a lock line in this repository, and embeds it as an asset. The first start installs it at `<madarchHome>/madarch-wiki` as a git checkout and serves it as the always-present `madarch` entry; online, the checkout is fetched and fast-forwarded when untouched.
+- The glossary, the roles (manifest section plus `<madarchHome>/settings.json` through a server API) and the identity seam (through the discussion writer, with a commit trailer and an additive `verified` field) are built as planned.
 
 ## Acceptance evidence
 (Filled at the end.)

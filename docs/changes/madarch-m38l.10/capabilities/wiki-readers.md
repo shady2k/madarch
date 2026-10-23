@@ -16,11 +16,16 @@ the same engine, whose pages are written for a reader who has never heard the
 word "manifest". madarch's own wiki shall be in the product selector of every
 product, always, and the top bar of every page shall carry a help icon beside the
 language menu that opens madarch's documentation. A page shall carry no
-documentation link of its own. madarch shall ship the wiki's content inside the
-program so that a first run needs no network, and shall refresh it from the
-madarch product repository only when that repository carries a newer version of
-it than the program does; a refresh that fails shall leave the wiki as it stood
-and be named, with the repository and the folder, in the server's log.
+documentation link of its own. madarch holds no product content of its own: its wiki is the madarch product
+repository, and the program carries a pinned revision of that repository,
+recorded in a lock line of this repository and fetched when the program is
+built, so that a first run needs no network. The pinned revision shall be
+installed as a git checkout of the repository in the madarch home and served as
+an always-present entry. When the machine is online the wiki shall be refreshed
+by fetching the repository and fast-forwarding the checkout, only when the
+checkout has no change of its own; a refresh that fails or is skipped shall
+leave the wiki as it stood and be named, with the repository and the folder, in
+the server's log.
 
 ### Scenario: clean-home-opens-own-wiki
 - Given: a products home with no product
@@ -35,12 +40,12 @@ and be named, with the repository and the folder, in the server's log.
 ### Scenario: offline-first-run
 - Given: a machine with no network and no madarch's own wiki folder yet
 - When: the server starts
-- Then: the bundled content is installed as a product repository of its own and served, and nothing waits for the network
+- Then: the pinned revision is installed as a git checkout of its own and served, and nothing waits for the network
 
-### Scenario: refresh-needs-a-newer-version
-- Given: a repository holding the own wiki at an older version than the bundled one, and one holding it at a newer version
-- When: the refresh runs against each
-- Then: the older one is ignored and says so in the log, the newer one replaces an untouched wiki folder, and a folder with a commit of its own is never replaced
+### Scenario: refresh-fast-forwards-an-untouched-checkout
+- Given: an installed checkout of the pinned revision, and a repository that has moved on from it
+- When: the refresh runs online
+- Then: the checkout is fast-forwarded to the repository's head; a checkout with a commit or an uncommitted change of its own is left as it is and the log names its folder
 
 ## Requirement: glossary — Every product has a glossary whose terms link from the text
 A product's glossary shall be the terms of the documents its manifest names as
