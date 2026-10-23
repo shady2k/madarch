@@ -129,7 +129,7 @@ describe('the loop, from the first question to a translation', () => {
   const seen: string[] = [];
 
   test('the agent asks a question where the README and the code disagree, and still writes its pages', async () => {
-    discountKey = await keyOf('code.symbol:src/pricing.ts#discountFor');
+    discountKey = await keyOf('code.symbol\u003asrc/pricing.ts#discountFor');
     const agent: UnitAgent = {
       run: async (request) => {
         seen.push(request.id);
@@ -137,13 +137,13 @@ describe('the loop, from the first question to a translation', () => {
         if (request.id.startsWith('product:')) {
           const written = await call(request, 'write_page', {
             markdown: [
-              '---', 'id: product:loop-shop', 'kind: product', 'title: Loop shop', 'relates:', '  - code.file:src/pricing.ts', 'producer: agent', 'sources: [README.md]', '---', '',
+              '---', 'id: product:loop-shop', 'kind: product', 'title: Loop shop', 'relates:', '  - code.file\u003asrc/pricing.ts', 'producer: agent', 'sources: [README.md]', '---', '',
               '## What it is', '', 'The shop prices and ships orders.[^shop-prices-ships-orders]', '',
               '## Domains', '', '- [Pricing](madarch:domain:pricing) covers discounts and tax.[^pricing-covers-discounts-tax]', '',
               '[^shop-prices-ships-orders]: [README](madarch:doc:README.md#overview)',
-              '[^pricing-covers-discounts-tax]: [pricing](madarch:code.file:src/pricing.ts)',
+              '[^pricing-covers-discounts-tax]: [pricing](madarch:code.file\u003asrc/pricing.ts)',
             ].join('\n'),
-            domains: [{ slug: 'pricing', title: 'Pricing', summary: 'How an order is priced.', evidence: ['code.file:src/pricing.ts'] }],
+            domains: [{ slug: 'pricing', title: 'Pricing', summary: 'How an order is priced.', evidence: ['code.file\u003asrc/pricing.ts'] }],
           });
           expect(written.isError).toBe(false);
           return;
@@ -165,10 +165,10 @@ describe('the loop, from the first question to a translation', () => {
         expect(JSON.stringify(twice.answer)).toContain('is already asked');
         const written = await call(request, 'write_page', {
           markdown: [
-            '---', 'id: domain:pricing', 'kind: domain', 'title: Pricing', 'relates:', '  - code.file:src/pricing.ts', 'producer: agent', 'sources: [README.md]', '---', '',
+            '---', 'id: domain:pricing', 'kind: domain', 'title: Pricing', 'relates:', '  - code.file\u003asrc/pricing.ts', 'producer: agent', 'sources: [README.md]', '---', '',
             '## How pricing works', '', 'Tax is a flat five percent.[^flat-five-percent-tax]', '', 'Pricing lives in one file.[^pricing-lives-one-file]', '',
             '[^flat-five-percent-tax]: [README](madarch:doc:README.md#tax)',
-            '[^pricing-lives-one-file]: [pricing](madarch:code.file:src/pricing.ts)',
+            '[^pricing-lives-one-file]: [pricing](madarch:code.file\u003asrc/pricing.ts)',
           ].join('\n'),
         });
         expect(written.isError).toBe(false);
@@ -217,11 +217,11 @@ describe('the loop, from the first question to a translation', () => {
         seen.push(request.id);
         prompts.set(`answer:${request.id}`, request.prompt);
         const markdown = [
-          '---', 'id: domain:pricing', 'kind: domain', 'title: Pricing', 'relates:', '  - code.file:src/pricing.ts', 'producer: agent', 'sources: [README.md]', '---', '',
+          '---', 'id: domain:pricing', 'kind: domain', 'title: Pricing', 'relates:', '  - code.file\u003asrc/pricing.ts', 'producer: agent', 'sources: [README.md]', '---', '',
           '## How pricing works', '', 'Tax is a flat five percent.[^flat-five-percent-tax]', '', 'Pricing lives in one file.[^pricing-lives-one-file]', '',
           `Every order gets ten percent, as a person decided.[^order-gets-ten-percent]`, '',
           '[^flat-five-percent-tax]: [README](madarch:doc:README.md#tax)',
-          '[^pricing-lives-one-file]: [pricing](madarch:code.file:src/pricing.ts)',
+          '[^pricing-lives-one-file]: [pricing](madarch:code.file\u003asrc/pricing.ts)',
           `[^order-gets-ten-percent]: [the answer](madarch:question:${QUESTION_SLUG}), [README](madarch:doc:README.md#discounts)`,
         ].join('\n');
         // A question that is not answered, or not asked, is no ground.
@@ -282,11 +282,11 @@ describe('the loop, from the first question to a translation', () => {
         prompts.set(`ground:${request.id}`, request.prompt);
         const written = await call(request, 'write_page', {
           markdown: [
-            '---', 'id: domain:pricing', 'kind: domain', 'title: Pricing', 'relates:', '  - code.file:src/pricing.ts', 'producer: agent', 'sources: [README.md]', '---', '',
+            '---', 'id: domain:pricing', 'kind: domain', 'title: Pricing', 'relates:', '  - code.file\u003asrc/pricing.ts', 'producer: agent', 'sources: [README.md]', '---', '',
             '## How pricing works', '', 'Tax is a flat eight percent.[^flat-five-percent-tax]', '', 'Pricing lives in one file.[^pricing-lives-one-file]', '',
             `Every order gets ten percent, as a person decided.[^order-gets-ten-percent]`, '',
             '[^flat-five-percent-tax]: [README](madarch:doc:README.md#tax)',
-            '[^pricing-lives-one-file]: [pricing](madarch:code.file:src/pricing.ts)',
+            '[^pricing-lives-one-file]: [pricing](madarch:code.file\u003asrc/pricing.ts)',
             `[^order-gets-ten-percent]: [the answer](madarch:question:${QUESTION_SLUG}), [README](madarch:doc:README.md#discounts)`,
           ].join('\n'),
         });
@@ -331,17 +331,17 @@ describe('the loop, from the first question to a translation', () => {
     seen.length = 0;
     const russian: Record<string, string> = {
       'product:loop-shop': [
-        '---', 'id: product:loop-shop', 'kind: product', 'title: Магазин', 'relates:', '  - code.file:src/pricing.ts', 'producer: agent', 'sources: [README.md]', '---', '',
+        '---', 'id: product:loop-shop', 'kind: product', 'title: Магазин', 'relates:', '  - code.file\u003asrc/pricing.ts', 'producer: agent', 'sources: [README.md]', '---', '',
         '## Что это', '', 'Магазин считает цены и отправляет заказы.[^shop-prices-ships-orders]', '',
         '## Домены', '', '- [Цены](madarch:domain:pricing) отвечают за скидки и налог.[^pricing-covers-discounts-tax]', '',
         '[^shop-prices-ships-orders]: [README](madarch:doc:README.md#overview)',
-        '[^pricing-covers-discounts-tax]: [pricing](madarch:code.file:src/pricing.ts)',
+        '[^pricing-covers-discounts-tax]: [pricing](madarch:code.file\u003asrc/pricing.ts)',
       ].join('\n'),
       'domain:pricing': [
-        '---', 'id: domain:pricing', 'kind: domain', 'title: Цены', 'relates:', '  - code.file:src/pricing.ts', 'producer: agent', 'sources: [README.md]', '---', '',
+        '---', 'id: domain:pricing', 'kind: domain', 'title: Цены', 'relates:', '  - code.file\u003asrc/pricing.ts', 'producer: agent', 'sources: [README.md]', '---', '',
         '## Как считаются цены', '', 'Налог плоский, восемь процентов.[^flat-five-percent-tax]', '', 'Цены живут в одном файле.[^pricing-lives-one-file]', '',
         '[^flat-five-percent-tax]: [README](madarch:doc:README.md#overview)',
-        '[^pricing-lives-one-file]: [pricing](madarch:code.file:src/pricing.ts)',
+        '[^pricing-lives-one-file]: [pricing](madarch:code.file\u003asrc/pricing.ts)',
       ].join('\n'),
     };
     const agent: UnitAgent = {
@@ -349,7 +349,7 @@ describe('the loop, from the first question to a translation', () => {
         seen.push(request.id);
         prompts.set(`ru:${request.id}`, request.prompt);
         const written = await call(request, 'write_page', request.id.startsWith('product:')
-          ? { markdown: russian[request.id], domains: [{ slug: 'pricing', title: 'Цены', summary: 'Как считается цена заказа.', evidence: ['code.file:src/pricing.ts'] }] }
+          ? { markdown: russian[request.id], domains: [{ slug: 'pricing', title: 'Цены', summary: 'Как считается цена заказа.', evidence: ['code.file\u003asrc/pricing.ts'] }] }
           : { markdown: russian[request.id] });
         expect(JSON.stringify(written.answer)).not.toContain('refused');
         expect(written.isError).toBe(false);
@@ -375,7 +375,7 @@ describe('the question tool is bounded and checks what it is given', () => {
   async function session(): Promise<{ tools: UnitTools; sink: ReturnType<typeof memorySink> }> {
     const view = await GraphView.open(owner, store);
     const sink = memorySink();
-    const tools = new UnitTools(view, { kind: 'domain', id: 'domain:pricing', path: 'docs/domains/pricing.md', domain: { slug: 'pricing', title: 'Pricing', summary: 'Pricing.', evidence: ['code.file:src/pricing.ts'] }, productId: 'product:loop-shop' }, sink, [{ slug: 'pricing', title: 'Pricing', summary: 'Pricing.', evidence: ['code.file:src/pricing.ts'] }], DEFAULT_UNIT_BOUNDS, []);
+    const tools = new UnitTools(view, { kind: 'domain', id: 'domain:pricing', path: 'docs/domains/pricing.md', domain: { slug: 'pricing', title: 'Pricing', summary: 'Pricing.', evidence: ['code.file\u003asrc/pricing.ts'] }, productId: 'product:loop-shop' }, sink, [{ slug: 'pricing', title: 'Pricing', summary: 'Pricing.', evidence: ['code.file\u003asrc/pricing.ts'] }], DEFAULT_UNIT_BOUNDS, []);
     return { tools, sink };
   }
   const good = (title: string, extra: Record<string, unknown> = {}): Record<string, unknown> => ({
@@ -396,8 +396,8 @@ describe('the question tool is bounded and checks what it is given', () => {
   test('every problem is listed at once, with what is wrong', async () => {
     const { tools, sink } = await session();
     const refused = await tools.call('ask_question', {
-      type: 'riddle', title: '   ', question: 'x'.repeat(2000), why: '', sides: [{ claim: 'Has [a link](madarch:code.file:src/pricing.ts) in it.', grounds: ['code.file:src/pricing.ts'] }, { claim: 'Fine.', grounds: [] }],
-      about: ['domain:shipping', 'domain:pricing#no-such-statement', 'code.file:src/nothing.ts', 'question:other', 'domain:product-not-a-page'],
+      type: 'riddle', title: '   ', question: 'x'.repeat(2000), why: '', sides: [{ claim: 'Has [a link](madarch:code.file\u003asrc/pricing.ts) in it.', grounds: ['code.file\u003asrc/pricing.ts'] }, { claim: 'Fine.', grounds: [] }],
+      about: ['domain:shipping', 'domain:pricing#no-such-statement', 'code.file\u003asrc/nothing.ts', 'question:other', 'domain:product-not-a-page'],
     });
     expect(refused.isError).toBe(true);
     const text = problemsOf(refused.answer);
@@ -405,7 +405,7 @@ describe('the question tool is bounded and checks what it is given', () => {
       '"type" is one of contradiction, ambiguous-term, undocumented, gap', '"title" is a non-empty text', '"question" is 2000 characters; at most 1200', '"why" is a non-empty text',
       'sides[0].claim is one plain sentence: no line breaks, no links and no footnote marks', 'sides[1].grounds is a non-empty list',
       'about "domain:shipping" names a page that does not exist', 'about "domain:pricing#no-such-statement": your page domain:pricing has no statement no-such-statement',
-      'about "code.file:src/nothing.ts" does not resolve in the graph',
+      'about "code.file\u003asrc/nothing.ts" does not resolve in the graph',
     ]) expect(text).toContain(part);
     expect(sink.pages.size).toBe(0);
     expect(tools.outcome().questions).toEqual([]);

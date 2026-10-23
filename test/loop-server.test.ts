@@ -42,7 +42,7 @@ const QUESTION: Omit<Question, 'file' | 'id'> = {
   slug: 'discount-percentage', title: 'Is the discount ten percent or what the caller passes?', type: 'contradiction', status: 'open',
   about: ['domain:orders'], askedIn: 'domain:orders', askedAt: '2026-10-23T10:00:00.000Z',
   question: 'Which discount does an order get?', why: 'A shopper is told one number and charged another.',
-  sides: [{ claim: 'The README says every order gets ten percent.', grounds: ['doc:README.md#discounts'] }, { claim: 'The code applies the percentage its caller passes.', grounds: ['code.file:src/a.ts'] }],
+  sides: [{ claim: 'The README says every order gets ten percent.', grounds: ['doc:README.md#discounts'] }, { claim: 'The code applies the percentage its caller passes.', grounds: ['code.file\u003asrc/a.ts'] }],
   answer: null, resolvedBy: [], resolvedAt: null, writtenAt: [],
 };
 
@@ -102,7 +102,7 @@ describe('the questions', () => {
     expect(detail.body).toMatchObject({ slug: 'discount-percentage', state: 'open', file: 'docs/questions/discount-percentage.md', question: 'Which discount does an order get?', why: 'A shopper is told one number and charged another.', answer: null });
     expect(detail.body.sides.map((side: { claim: string }) => side.claim)).toEqual(['The README says every order gets ten percent.', 'The code applies the percentage its caller passes.']);
     // Nothing is filled yet: the graph key does not resolve, and the answer says why in words; the page it is about does.
-    expect(detail.body.resolutions['code.file:src/a.ts']).toMatchObject({ state: 'broken' });
+    expect(detail.body.resolutions['code.file\u003asrc/a.ts']).toMatchObject({ state: 'broken' });
     expect(detail.body.resolutions['domain:orders']).toMatchObject({ state: 'ok', kind: 'domain', href: '/k/e/domain%3Aorders' });
   });
 

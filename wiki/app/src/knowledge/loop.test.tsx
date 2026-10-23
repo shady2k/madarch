@@ -62,13 +62,13 @@ const detail = (state: QuestionRow['state'], extra: Partial<QuestionDetail> = {}
   file: 'docs/questions/discount-percentage.md',
   question: 'Which discount does an order get?',
   why: 'A shopper is told one number and charged another.',
-  sides: [{ claim: 'The README says every order gets ten percent.', grounds: ['doc:README.md#discounts'] }, { claim: 'The code applies the percentage its caller passes.', grounds: ['code.symbol:src/pricing.ts#discountFor', 'code.file:src/gone.ts'] }],
+  sides: [{ claim: 'The README says every order gets ten percent.', grounds: ['doc:README.md#discounts'] }, { claim: 'The code applies the percentage its caller passes.', grounds: ['code.symbol\u003asrc/pricing.ts#discountFor', 'code.file\u003asrc/gone.ts'] }],
   answer: state === 'open' ? null : { text: 'Ten percent for every order.', by: ADA, at: '2026-10-23T11:00:00.000Z' },
   resolvedAt: state === 'closed' ? '2026-10-23T12:00:00.000Z' : null,
   resolutions: {
     'doc:README.md#discounts': { state: 'ok', target: 'madarch:doc:README.md#discounts', kind: 'document', label: 'README.md#discounts', href: '/k/doc?path=README.md#discounts' },
-    'code.symbol:src/pricing.ts#discountFor': { state: 'ok', target: 'x', kind: 'code.symbol', label: 'discountFor', href: null, location: { repo: 'shop', path: 'src/pricing.ts', lineStart: 1, lineEnd: 3, href: '/k/src?repo=shop&path=src%2Fpricing.ts&line=1' } },
-    'code.file:src/gone.ts': { state: 'broken', target: 'x', reason: 'no entity "code.file:src/gone.ts" in the graph' },
+    'code.symbol\u003asrc/pricing.ts#discountFor': { state: 'ok', target: 'x', kind: 'code.symbol', label: 'discountFor', href: null, location: { repo: 'shop', path: 'src/pricing.ts', lineStart: 1, lineEnd: 3, href: '/k/src?repo=shop&path=src%2Fpricing.ts&line=1' } },
+    'code.file\u003asrc/gone.ts': { state: 'broken', target: 'x', reason: 'no entity "code.file\u003asrc/gone.ts" in the graph' },
     'domain:orders': { state: 'ok', target: 'x', kind: 'domain', label: 'Orders', href: '/k/e/domain%3Aorders' },
   },
   ...extra,
@@ -127,7 +127,7 @@ describe('a question\'s page', () => {
     expect(sides.map((side) => side.querySelector('p')!.textContent)).toEqual(['The README says every order gets ten percent.', 'The code applies the percentage its caller passes.']);
     expect(sides[0]!.querySelector('a')!.getAttribute('href')).toBe('/k/doc?path=README.md#discounts');
     expect(sides[1]!.querySelector('[data-testid=code-place]')!.textContent).toBe('src/pricing.ts:1–3');
-    expect(sides[1]!.querySelector('[data-testid=ref-broken]')!.getAttribute('title')).toBe('no entity "code.file:src/gone.ts" in the graph');
+    expect(sides[1]!.querySelector('[data-testid=ref-broken]')!.getAttribute('title')).toBe('no entity "code.file\u003asrc/gone.ts" in the graph');
     expect(page.querySelector('[data-testid=question-affects]')!.textContent).toContain('Orders'.toLowerCase());
     expect(page.querySelector('[data-testid=answer-where]')!.textContent).toBe('The answer is saved in docs/questions/discount-percentage.md in the product repository and committed under your git name and email. It is marked local, not verified.');
     expect((page.querySelector('[data-testid=answer-save]') as HTMLButtonElement).disabled).toBe(true);
@@ -206,7 +206,7 @@ describe('the problems page', () => {
     (globalThis as { fetch?: unknown }).fetch = async () => json(listing([
       problem('correction', { reason: 'The discount is whatever the caller passes.', by: ADA, at: '2026-10-23T11:45:00.000Z', file: 'docs/corrections/c.md', line: null, target: 'c' }),
       problem('ground-removed', { target: 'doc:README.md#tax', reason: 'doc:README.md#tax is no longer in shop at the commit the graph describes' }),
-      problem('broken-link', { target: 'code.file:src/gone.ts', reason: 'no entity "code.file:src/gone.ts" in the graph or among the product\'s Markdown pages' }),
+      problem('broken-link', { target: 'code.file\u003asrc/gone.ts', reason: 'no entity "code.file\u003asrc/gone.ts" in the graph or among the product\'s Markdown pages' }),
       problem('unreadable-file', { page: null, pageTitle: null, statement: null, sentence: null, reason: 'the file has no front matter', file: 'docs/questions/broken.md', line: 1 }),
       problem('correction', { closed: true, reason: 'Old.', file: 'docs/corrections/old.md', line: null, by: ADA, at: '2026-10-22T11:45:00.000Z' }),
     ], ['the pages name no single code repository']));

@@ -64,7 +64,7 @@ const QUESTION: Omit<Question, 'file' | 'id'> = {
   slug: 'discount-percentage', title: 'Is the discount ten percent or what the caller passes?', type: 'contradiction', status: 'open',
   about: ['domain:orders', 'domain:orders#ten-percent-discount'], askedIn: 'domain:orders', askedAt: '2026-10-23T10:00:00.000Z',
   question: 'Which discount does an order get?', why: 'A shopper is told one number and charged another.',
-  sides: [{ claim: 'The README says every order gets ten percent.', grounds: ['doc:README.md#discounts'] }, { claim: 'The code applies the percentage its caller passes.', grounds: ['code.symbol:src/pricing.ts#discountFor'] }],
+  sides: [{ claim: 'The README says every order gets ten percent.', grounds: ['doc:README.md#discounts'] }, { claim: 'The code applies the percentage its caller passes.', grounds: ['code.symbol\u003asrc/pricing.ts#discountFor'] }],
   answer: null, resolvedBy: [], resolvedAt: null, writtenAt: [{ repository: 'shop', commit: 'a'.repeat(40), branch: 'main' }],
 };
 
@@ -332,7 +332,7 @@ describe('the refresh decides which pages need an agent unit', () => {
   const pages = [
     page('product:shop', 'docs/product.md', [{ id: 'takes-orders', grounds: ['code.service:orders'] }], ['code.service:orders', 'code.service:payments']),
     page('domain:orders', 'docs/domains/orders.md', [{ id: 'ten-percent-discount', grounds: ['doc:README.md#discounts'] }, { id: 'tax-at-checkout', grounds: ['doc:README.md#tax'] }], ['code.service:orders']),
-    page('domain:payments', 'docs/domains/payments.md', [{ id: 'two-providers', grounds: ['code.symbol:src/pay.ts#Factory'] }], ['code.service:payments']),
+    page('domain:payments', 'docs/domains/payments.md', [{ id: 'two-providers', grounds: ['code.symbol\u003asrc/pay.ts#Factory'] }], ['code.service:payments']),
   ];
   const ground = (pageId: string, statement: string, target: string, status: 'changed' | 'unchanged' | 'removed' | 'unknown') => ({ page: pageId, statement, text: 'x', line: 11, ground: target, status, method: 'section' as const, writtenCommit: 'a'.repeat(40), before: 'b', after: 'c' });
   const by = { name: 'Ada', email: 'ada@example.test', verified: 'local, not verified' };
@@ -348,7 +348,7 @@ describe('the refresh decides which pages need an agent unit', () => {
   test('a changed or removed ground touches the page of its statement and no other; unknown and unchanged touch nothing', () => {
     const plan = decide({ ...base, grounds: [
       ground('domain:orders', 'tax-at-checkout', 'doc:README.md#tax', 'changed'),
-      ground('domain:payments', 'two-providers', 'code.symbol:src/pay.ts#Factory', 'unchanged'),
+      ground('domain:payments', 'two-providers', 'code.symbol\u003asrc/pay.ts#Factory', 'unchanged'),
       ground('product:shop', 'takes-orders', 'code.service:orders', 'unknown'),
       ground('domain:orders', 'ten-percent-discount', 'doc:README.md#discounts', 'removed'),
     ] });
@@ -359,7 +359,7 @@ describe('the refresh decides which pages need an agent unit', () => {
   test('an answered question touches the pages it is about, the page that asked and the pages that stand on what it names; an open or closed one touches none', () => {
     const plan = decide({ ...base, questions: [
       answered({ slug: 'q1', about: ['domain:orders#ten-percent-discount'], askedIn: null }),
-      answered({ slug: 'q2', about: ['code.symbol:src/pay.ts#Factory'], askedIn: 'product:shop' }),
+      answered({ slug: 'q2', about: ['code.symbol\u003asrc/pay.ts#Factory'], askedIn: 'product:shop' }),
       answered({ slug: 'q3', status: 'open', answer: null, about: ['domain:orders'] }),
       answered({ slug: 'q4', about: ['domain:orders'], resolvedBy: ['domain:orders'] }),
     ] });

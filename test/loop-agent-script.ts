@@ -29,7 +29,7 @@ export const LOOP_QUESTIONS: readonly LoopQuestion[] = [
       en: { title: 'Is the discount ten percent or what the caller passes?', question: 'The README says every order gets a ten percent discount; the requirements and the code say the caller of the orders service chooses the percentage. Which does the shop mean?', why: 'A shopper reading the README expects one number and may be charged another.', claims: ['The README says the service applies a ten percent discount to every order.', 'The requirements and the code apply the percentage the caller passes, and choose none.'] },
       ru: { title: 'Скидка десять процентов или та, что передал вызывающий?', question: 'В README сказано, что каждый заказ получает скидку десять процентов, а в требованиях и в коде процент выбирает вызывающий сервис заказов. Что имеет в виду магазин?', why: 'Покупатель, прочитавший README, ждёт одну цифру, а может получить другую.', claims: ['README говорит, что сервис применяет к каждому заказу скидку десять процентов.', 'Требования и код применяют процент, который передал вызывающий, и сами никакой не выбирают.'] },
     },
-    sides: [['doc:README.md#what-it-does'], ['doc:docs/requirements.md#br-1', 'code.file:services/orders/internal/pricing/pricing.go', 'code.file:services/checkout/src/pricing.ts']],
+    sides: [['doc:README.md#what-it-does'], ['doc:docs/requirements.md#br-1', 'code.file\u003aservices/orders/internal/pricing/pricing.go', 'code.file\u003aservices/checkout/src/pricing.ts']],
   },
   {
     item: 'contradiction.tax', unit: 'ordering', type: 'contradiction',
@@ -37,7 +37,7 @@ export const LOOP_QUESTIONS: readonly LoopQuestion[] = [
       en: { title: 'Is tax a flat five percent or eight?', question: 'The README says tax is a flat five percent; the requirements and the code use eight percent per line after its discount. Which rate is true?', why: 'The total a shopper sees depends on it.', claims: ['The README says tax is calculated at a flat five percent.', 'The requirements and the code use eight percent of each line after its discount.'] },
       ru: { title: 'Налог плоские пять процентов или восемь?', question: 'В README налог плоские пять процентов, а в требованиях и в коде восемь процентов с каждой строки после скидки. Какая ставка верна?', why: 'От этого зависит итог, который видит покупатель.', claims: ['README говорит, что налог считается по плоской ставке пять процентов.', 'Требования и код берут восемь процентов с каждой строки после скидки.'] },
     },
-    sides: [['doc:README.md#what-it-does'], ['doc:docs/requirements.md#br-2', 'code.file:services/orders/internal/pricing/tax.go', 'code.file:services/checkout/src/pricing.ts']],
+    sides: [['doc:README.md#what-it-does'], ['doc:docs/requirements.md#br-2', 'code.file\u003aservices/orders/internal/pricing/tax.go', 'code.file\u003aservices/checkout/src/pricing.ts']],
   },
   {
     item: 'contradiction.retention', unit: 'ordering', type: 'contradiction',
@@ -45,7 +45,7 @@ export const LOOP_QUESTIONS: readonly LoopQuestion[] = [
       en: { title: 'Are orders kept forever or removed after ninety days?', question: 'Both READMEs say orders are kept indefinitely; the orders service has a job that removes orders that were not shipped after ninety days. Which one is true?', why: 'Support promises customers their orders stay available.', claims: ['The root README and the orders README say orders are retained indefinitely.', 'The orders service runs a retention job that removes unshipped orders after ninety days.'] },
       ru: { title: 'Заказы хранятся вечно или удаляются через девяносто дней?', question: 'В обоих README заказы хранятся бессрочно, а в сервисе заказов есть задача, которая удаляет неотправленные заказы через девяносто дней. Что верно?', why: 'Поддержка обещает клиентам, что заказы останутся доступны.', claims: ['Корневой README и README сервиса заказов говорят, что заказы хранятся бессрочно.', 'Сервис заказов запускает задачу, которая удаляет неотправленные заказы через девяносто дней.'] },
     },
-    sides: [['doc:README.md#what-it-does', 'doc:services/orders/README.md#orders-service'], ['code.file:services/orders/internal/application/order_service.go']],
+    sides: [['doc:README.md#what-it-does', 'doc:services/orders/README.md#orders-service'], ['code.file\u003aservices/orders/internal/application/order_service.go']],
   },
   {
     item: 'behavior.retention-undocumented', unit: 'ordering', type: 'undocumented',
@@ -53,7 +53,7 @@ export const LOOP_QUESTIONS: readonly LoopQuestion[] = [
       en: { title: 'Is the retention job meant to run every six hours?', question: 'The retention job wakes every six hours and no document describes it. Is that the intended schedule?', why: 'Operations cannot plan around a job nobody has described.', claims: ['The code starts the ninety-day expiry job and repeats it every six hours; no requirement, decision record or README mentions it.'] },
       ru: { title: 'Задача хранения должна запускаться каждые шесть часов?', question: 'Задача очистки просыпается каждые шесть часов, и ни один документ её не описывает. Таково задуманное расписание?', why: 'Эксплуатация не может планировать вокруг задачи, которую никто не описал.', claims: ['Код запускает задачу удаления через девяносто дней и повторяет её каждые шесть часов; ни требования, ни записи решений, ни README её не упоминают.'] },
     },
-    sides: [['code.file:services/orders/cmd/orders/retention.go']],
+    sides: [['code.file\u003aservices/orders/cmd/orders/retention.go']],
   },
   {
     item: 'contradiction.outbox-timing', unit: 'ordering', type: 'contradiction',
@@ -61,7 +61,7 @@ export const LOOP_QUESTIONS: readonly LoopQuestion[] = [
       en: { title: 'Do events reach Kafka at the commit or a second later?', question: 'The requirements say every change of an order reaches Kafka exactly when it is committed; the decision record and the code publish it a second or so later through a relay.', why: 'Consumers that rely on the first reading are surprised by the delay.', claims: ['The requirements say a change reaches Kafka exactly when the change is committed.', 'The decision record and the code write the message at the commit and publish it later, polling every second.'] },
       ru: { title: 'События попадают в Kafka в момент коммита или через секунду?', question: 'В требованиях каждое изменение заказа попадает в Kafka ровно в момент коммита, а запись решения и код публикуют его через секунду-другую через ретранслятор.', why: 'Потребители, рассчитывающие на первое чтение, удивляются задержке.', claims: ['Требования говорят, что изменение попадает в Kafka ровно в момент коммита.', 'Запись решения и код пишут сообщение при коммите и публикуют позже, опрашивая раз в секунду.'] },
     },
-    sides: [['doc:docs/requirements.md#qualities'], ['doc:docs/adr/0002-outbox.md#adr-0002', 'code.file:services/orders/cmd/orders/main.go']],
+    sides: [['doc:docs/requirements.md#qualities'], ['doc:docs/adr/0002-outbox.md#adr-0002', 'code.file\u003aservices/orders/cmd/orders/main.go']],
   },
   {
     item: 'term.payment-token', unit: 'payments', type: 'ambiguous-term',
@@ -69,7 +69,7 @@ export const LOOP_QUESTIONS: readonly LoopQuestion[] = [
       en: { title: 'Which token does "payment token" mean?', question: 'The architecture document passes a "payment token" from checkout to payments. The code has two tokens: CardToken, a vault reference to a card, and PaymentToken, the proof a provider returns when it captured money. Which one does the document mean?', why: 'The two are not interchangeable, and the glossary defines both.', claims: ['The architecture document says checkout sends the payment token with the amount to payments.', 'The glossary and the code distinguish CardToken from PaymentToken.'] },
       ru: { title: 'Какой токен имеется в виду под «платёжным токеном»?', question: 'В архитектуре «платёжный токен» уходит из checkout в payments. В коде два токена: CardToken, ссылка на карту в хранилище, и PaymentToken, подтверждение провайдера о списании. Какой из них имеется в виду?', why: 'Они не взаимозаменяемы, а глоссарий определяет оба.', claims: ['Документ по архитектуре говорит, что checkout отправляет платёжный токен вместе с суммой в payments.', 'Глоссарий и код различают CardToken и PaymentToken.'] },
     },
-    sides: [['doc:docs/architecture.md#payment-flow'], ['doc:docs/glossary.md#cardtoken', 'doc:docs/glossary.md#paymenttoken', 'code.file:services/payments/src/domain/payment.ts']],
+    sides: [['doc:docs/architecture.md#payment-flow'], ['doc:docs/glossary.md#cardtoken', 'doc:docs/glossary.md#paymenttoken', 'code.file\u003aservices/payments/src/domain/payment.ts']],
   },
   {
     item: 'payments.refund-no-resilience', unit: 'payments', type: 'gap',
@@ -77,7 +77,7 @@ export const LOOP_QUESTIONS: readonly LoopQuestion[] = [
       en: { title: 'Is it intended that refunds have no timeout or retry?', question: 'A charge is protected by a timeout and a retry; a refund calls the provider directly. Is the asymmetry intended?', why: 'A slow provider can hold a refund request open and a transient failure is not retried.', claims: ['The payment service wraps the charge call in a timeout and a retry, and calls the provider directly for a refund.'] },
       ru: { title: 'Так задумано, что у возврата нет таймаута и повтора?', question: 'Списание защищено таймаутом и повтором, а возврат вызывает провайдера напрямую. Эта асимметрия задумана?', why: 'Медленный провайдер может держать запрос на возврат открытым, а временный сбой не повторяется.', claims: ['Сервис платежей оборачивает вызов списания в таймаут и повтор, а возврат вызывает провайдера напрямую.'] },
     },
-    sides: [['code.file:services/payments/src/domain/payment-service.ts']],
+    sides: [['code.file\u003aservices/payments/src/domain/payment-service.ts']],
   },
 ];
 

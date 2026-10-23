@@ -113,7 +113,7 @@ export const correctionPath = (slug: string): string => `${CORRECTIONS_FOLDER}/$
 /**
  * Where a statement is: the page id and the statement's name (a footnote name, possibly `name~2`). Only the pages the
  * writer writes have statements a person can correct (`product:` and `domain:`); a graph key such as
- * `code.symbol:src/pay.ts#Factory` also has a hash and is not one.
+ * `code.symbol\u003asrc/pay.ts#Factory` also has a hash and is not one.
  */
 export function parseStatementRef(ref: string): { page: string; statement: string } | undefined {
   const hash = ref.indexOf('#');
