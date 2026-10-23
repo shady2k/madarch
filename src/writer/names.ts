@@ -23,11 +23,9 @@ const RUSSIAN_STOP_WORDS = new Set(['and', 'ili', 'dlya', 'pri', 'kak', 'chto', 
 const transliterate = (text: string): string => text.toLowerCase().replace(/[\u0400-\u04ff]/g, (letter) => CYRILLIC[letter] ?? '');
 
 function words(text: string): string[] {
-  return transliterate(text)
+  return transliterate(text.replace(/([a-z0-9])([A-Z])/g, '$1 $2'))
     .normalize('NFKD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-    .toLowerCase()
+    .replace(/[\u0300-\u036f]/g, '')
     .match(/[a-z][a-z0-9]*/g) ?? [];
 }
 
