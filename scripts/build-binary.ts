@@ -27,7 +27,7 @@
  * the input (the wiki app's dist) cannot be used; every refusal names what
  * is wrong.
  */
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, statSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, statSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { createServer as netServer } from 'node:net';
 import { dirname, join, resolve } from 'node:path';
@@ -129,6 +129,37 @@ function stageAssets(stage: string, options: BuildOptions): { ok: true } | { ok:
   if (existsSync(stamp)) rmSync(stamp);
   rmSync(join(wikiApp, 'dist', 'node_modules'), { recursive: true, force: true });
   writeFileSync(join(stage, 'version'), `${options.version}\n`);
+  return { ok: true };
+}
+
+/**
+ * Lays `own-wiki`: a git bundle of madarch's own wiki (the madarch product repository, decision 0031) at the revision
+ * `own-wiki.lock` names, and the revision beside it, so a first run needs no network. madarch holds no product content
+ * itself: the lock line is the only thing this repository says about it. `MADARCH_OWN_WIKI_REPOSITORY` names another
+ * repository to fetch from (a mirror, a test).
+ */
+function stageOwnWiki(stage: string): { ok: true } | { ok: false; message: string } {
+  const lock = join(REPO_ROOT, 'own-wiki.lock');
+  let revision: string;
+  try {
+    revision = readFileSync(lock, 'utf8').trim();
+  } catch (error) {
+    return { ok: false, message: `${lock}: the pinned revision of madarch's own wiki cannot be read: ${(error as Error).message}` };
+  }
+  if (!/^[0-9a-f]{40}$/.test(revision)) return { ok: false, message: `${lock}:1: "${revision}" is no revision: the file holds the 40 hexadecimal digits of a commit of the madarch product repository` };
+  const repository = process.env.MADARCH_OWN_WIKI_REPOSITORY?.trim() || 'https://github.com/shady2k/madarch-product.git';
+  const work = mkdtempSync(join(stage, 'own-wiki-src-'));
+  const git = (args: string[], cwd = work) => spawnSync('git', args, { cwd, encoding: 'utf8' });
+  const steps: string[][] = [['init', '--quiet', '--initial-branch=main'], ['fetch', '--quiet', repository, revision], ['checkout', '--quiet', '-B', 'main', 'FETCH_HEAD']];
+  for (const args of steps) {
+    const done = git(args);
+    if (done.status !== 0) return { ok: false, message: `madarch's own wiki cannot be embedded: git ${args[0]} of ${repository} at ${revision} (named in ${lock}) failed: ${`${done.stderr ?? ''}${done.stdout ?? ''}`.trim()}` };
+  }
+  const folder = join(stage, 'own-wiki');
+  mkdirSync(folder, { recursive: true });
+  const bundle = git(['bundle', 'create', join(folder, 'madarch-product.bundle'), 'main']);
+  if (bundle.status !== 0) return { ok: false, message: `madarch's own wiki cannot be embedded: git bundle at ${revision} failed: ${`${bundle.stderr ?? ''}${bundle.stdout ?? ''}`.trim()}` };
+  writeFileSync(join(folder, 'REVISION'), `${revision}\n`);
   return { ok: true };
 }
 
@@ -298,6 +329,11 @@ async function main(argv: readonly string[]): Promise<number> {
       console.error(staged.message);
       return 2;
     }
+    const own = stageOwnWiki(stage);
+    if (!own.ok) {
+      console.error(own.message);
+      return 2;
+    }
     let databaseFiles: string[];
     try {
       databaseFiles = pgliteAssetFiles();
@@ -310,7 +346,7 @@ async function main(argv: readonly string[]): Promise<number> {
     const target = options.os === 'darwin' ? `bun-darwin-${options.arch}` : options.os === 'windows' ? `bun-windows-${options.arch}` : `bun-linux-${options.arch}`;
     const run = spawnSync('bun', [
       'build', '--compile', join(REPO_ROOT, 'scripts', 'madarch.ts'),
-      '--asset', join(stage, 'wiki-app'), '--asset', join(stage, 'version'),
+      '--asset', join(stage, 'wiki-app'), '--asset', join(stage, 'version'), '--asset', join(stage, 'own-wiki'),
       ...databaseFiles.flatMap((file) => ['--asset', file]),
       '--target', target, '--outfile', outfile,
     ], { encoding: 'utf8' });

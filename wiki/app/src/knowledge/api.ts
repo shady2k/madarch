@@ -1,6 +1,6 @@
 import { appPath } from '../app-base.js';
 import { readJson, RequestError } from '../api.js';
-import type { AgentOffer, DocumentListing, DocumentPageModel, EntityListing, PageModel, ProductChoice, SourceFile, StatementModel, WikiStatus } from './types.js';
+import type { AgentOffer, DocumentListing, Glossary, UserSettings, DocumentPageModel, EntityListing, PageModel, ProductChoice, SourceFile, StatementModel, WikiStatus } from './types.js';
 
 /** The wiki's status: manifest, kinds, repositories, fill. */
 export const getStatus = (signal?: AbortSignal): Promise<WikiStatus> => readJson<WikiStatus>('read the wiki', '/api/k/status', signal);
@@ -117,4 +117,29 @@ export function getDocument(repo: string | null, path: string, signal?: AbortSig
   const query = new URLSearchParams({ path });
   if (repo !== null) query.set('repo', repo);
   return readJson<DocumentPageModel>(`read the document ${path}`, `/api/k/document?${query.toString()}`, signal);
+}
+
+/** The terms of the product's glossaries. */
+export const getGlossary = (signal?: AbortSignal): Promise<Glossary> => readJson<Glossary>('read the glossary', '/api/k/glossary', signal);
+
+/** The reader's settings on this machine: the role, and whether they were asked. */
+export const getSettings = (signal?: AbortSignal): Promise<UserSettings> => readJson<UserSettings>('read the settings', '/api/k/settings', signal);
+
+/** Keeps the role the reader chose (a skip is "everything"). */
+export async function setRole(role: string): Promise<UserSettings> {
+  let response: Response;
+  try {
+    response = await fetch(appPath('/api/k/settings'), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ role }) });
+  } catch (error) {
+    throw new RequestError('keep the role', `the request failed (${error instanceof Error ? error.message : String(error)})`);
+  }
+  if (response.ok) return (await response.json()) as UserSettings;
+  let reason = `the server answered ${response.status}`;
+  try {
+    const body = (await response.json()) as { message?: unknown };
+    if (typeof body.message === 'string') reason = body.message;
+  } catch {
+    // the status stands
+  }
+  throw new RequestError('keep the role', reason, response.status);
 }

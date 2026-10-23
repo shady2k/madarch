@@ -30,6 +30,7 @@ export type CallRow = { entity: EntityRef; sites: number; site?: CodeLocation };
 
 export type Block =
   | { type: 'markdown'; markdown: string }
+  | { type: 'term'; title: string; definition: string; synonyms: string[]; code: string[]; usedIn: string | null; ambiguous: string | null }
   | { type: 'body'; markdown: string; file: string; statements: number; ungrounded: { text: string; line: number }[] }
   | { type: 'graph'; title: string; mermaid: string; shown: number; total: number }
   | { type: 'related'; title: string; groups: RelatedGroup[] }
@@ -137,11 +138,17 @@ export type WikiStatus = {
   bounds: WriterBounds;
   chosenAgent: { id: string; label: string } | null;
   home: string | null;
+  roles?: Record<string, { open?: string[]; lead: string[] }>;
+  own?: boolean;
 };
 
 export type SourceFile = { repo: string | null; path: string; language: string; commit: string | null; text: string };
 
-export type ProductChoice = { name: string; folder: string };
+export type ProductChoice = { name: string; folder: string; own?: boolean };
+
+export type GlossaryTerm = { id: string; title: string; definition: string; synonyms: string[]; code: string[]; usedIn: string | null; ambiguous: string | null; repo: string | null; path: string; line: number; endLine: number; anchor: string; href: string };
+export type Glossary = { terms: GlossaryTerm[]; resolutions: Record<string, Resolution>; findings: Finding[] };
+export type UserSettings = { role: string; asked: boolean; roles: string[] };
 
 export type DocumentRef = { repo: string | null; path: string };
 export type DocumentListing = { documents: DocumentRef[]; truncated: { repo: string | null; total: number; shown: number }[] };

@@ -9,11 +9,13 @@ export type KRoute =
   | { name: 'docs' }
   | { name: 'doc'; repo: string | null; path: string }
   | { name: 'catalogue' }
+  | { name: 'glossary' }
   | { name: 'statement'; id: string; sentence: string; turn: number };
 
 export const K_HOME = '/k';
 export const K_DOCS = '/k/docs';
 export const K_CATALOGUE = '/k/catalogue';
+export const K_GLOSSARY = '/k/glossary';
 /** Where the statement view of a sentence of a page stands. */
 export function addressOfStatement(id: string, sentence: string, turn = 0): string {
   return `/k/statement?${new URLSearchParams({ id, sentence, ...(turn > 0 ? { n: String(turn) } : {}) }).toString()}`;
@@ -48,6 +50,7 @@ export function kRouteOf(pathname: string, search = ''): KRoute | null {
   }
   if (path === '/k/docs') return { name: 'docs' };
   if (path === '/k/catalogue') return { name: 'catalogue' };
+  if (path === '/k/glossary') return { name: 'glossary' };
   if (path === '/k/statement') {
     const query = new URLSearchParams(search);
     const id = query.get('id');

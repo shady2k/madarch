@@ -27,6 +27,7 @@ import { addressOfDocument, addressOfStatement } from './routes.js';
 import { linkHandlers, openInNewTab, syncFrontTabAddress } from './tabs.js';
 import { remarkStatements, type MNode } from './statements.js';
 import { setShowGrounds, useShowGrounds } from './preferences.js';
+import { TermBlockView, remarkTerms, useTerms } from './glossary.js';
 import type { Block, CallRow, CodeLocation, EntityRef, RelatedGroup, Resolution } from './types.js';
 
 /** A link inside the wiki, opened without a reload: in the tab in front, or in a new tab on a middle or control click. */
@@ -108,12 +109,13 @@ export interface StatementView {
   showGrounds: boolean;
 }
 
-export function KMarkdown({ text, resolutions, inDocument, statements }: { text: string; resolutions: Readonly<Record<string, Resolution>>; inDocument?: { repo: string | null; path: string; anchors?: Readonly<Record<string, number>> }; statements?: StatementView }): ReactElement {
+export function KMarkdown({ text, resolutions, inDocument, statements, exceptTerm }: { text: string; resolutions: Readonly<Record<string, Resolution>>; inDocument?: { repo: string | null; path: string; anchors?: Readonly<Record<string, number>> }; statements?: StatementView; /** The id of the glossary entry this text is, which it does not link to. */ exceptTerm?: string }): ReactElement {
   const { t } = useTranslation();
+  const { index } = useTerms();
   const kindName = useKindName();
   const pending = useContext(PendingPages);
   const components: Components = {
-    a: ({ href, children }) => {
+    a: ({ href, children, className, title }) => {
       if (href === undefined) return <span>{children}</span>;
       if (href.startsWith('madarch:')) {
         const resolution = resolutions[href];
@@ -128,7 +130,7 @@ export function KMarkdown({ text, resolutions, inDocument, statements }: { text:
         if (resolution.href === null) return <><span data-testid="ref-unpaged" title={resolution.note ?? t('knowledge.noPage', { kind: kindName(resolution.kind, 'one') })}>{children}</span>{place}</>;
         return <><KLink href={resolution.href} title={resolution.note}>{children}</KLink>{place}</>;
       }
-      if (href.startsWith('/k/') || href === '/k') return <KLink href={href}>{children}</KLink>;
+      if (href.startsWith('/k/') || href === '/k') return <KLink href={href} {...(className === undefined ? {} : { className })} {...(title === undefined ? {} : { title })}>{children}</KLink>;
       if (inDocument !== undefined) {
         // In a document: a link to another Markdown document of the same repository is a page of the wiki, a link to a
         // section of this one scrolls to it, and a link to another site opens it in a tab of its own.
@@ -170,7 +172,8 @@ export function KMarkdown({ text, resolutions, inDocument, statements }: { text:
       },
     } satisfies Components),
   };
-  const plugins = statements === undefined ? [remarkGfm] : [remarkGfm, () => remarkStatements({ showGrounds: statements.showGrounds }) as unknown as (tree: unknown) => void];
+  const terms = inDocument === undefined && index.pattern !== null ? [remarkTerms(index, exceptTerm) as unknown as (tree: unknown) => void] : [];
+  const plugins = statements === undefined ? [remarkGfm, ...terms] : [remarkGfm, ...terms, () => remarkStatements({ showGrounds: statements.showGrounds }) as unknown as (tree: unknown) => void];
   return (
     <div className="reading">
       <ReactMarkdown remarkPlugins={plugins as never} components={components} urlTransform={keepUrl}>{text}</ReactMarkdown>
@@ -470,6 +473,7 @@ export function BlockView({ block, resolutions, pageId }: { block: Block; resolu
   const { t } = useTranslation();
   switch (block.type) {
     case 'markdown': return <KMarkdown text={block.markdown} resolutions={resolutions} />;
+    case 'term': return <TermBlockView block={block} pageId={pageId ?? ''} resolutions={resolutions} />;
     case 'body': return <Body block={block} resolutions={resolutions} {...(pageId === undefined ? {} : { pageId })} />;
     case 'refs': return <Refs block={block} />;
     case 'properties': return <Properties block={block} />;

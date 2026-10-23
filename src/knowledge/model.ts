@@ -58,6 +58,7 @@ export interface CallRow {
 
 export type Block =
   | { type: 'markdown'; markdown: string }
+  | { type: 'term'; title: string; definition: string; synonyms: string[]; code: string[]; usedIn: string | null; ambiguous: string | null }
   | { type: 'body'; markdown: string; file: string; statements: number; ungrounded: { text: string; line: number }[] }
   | { type: 'graph'; title: string; mermaid: string; shown: number; total: number }
   | { type: 'related'; title: string; groups: RelatedGroup[] }
@@ -208,6 +209,10 @@ export interface WikiStatus {
   chosenAgent: { id: string; label: string } | null;
   /** The entity the home page shows, when the manifest names one and its file exists. */
   home: string | null;
+  /** What each role the manifest declares changes (decision 0031); a role it does not declare reads everything open. */
+  roles: Record<string, { open?: string[]; lead: string[] }>;
+  /** This is madarch's own wiki (documentation): no fill is offered. Set by the server, not by the product. */
+  own?: boolean;
 }
 
 /** A Markdown document the wiki shows as a page: of the product repository (`repo` null) or of a connected code repository. */

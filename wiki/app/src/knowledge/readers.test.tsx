@@ -1,0 +1,312 @@
+/**
+ * Who the wiki is for, in the app (decision 0031), tested without a server: what
+ * a role opens on a page and puts first in the navigation, the exact-match links
+ * from the text to the glossary, the glossary page and a term's block, the card
+ * that asks the role once (and its skip), the role in the top bar and the «?»
+ * that opens madarch's own documentation. Every request is answered by a stub
+ * giving the server's own shapes.
+ */
+import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test';
+import { GlobalRegistrator } from '@happy-dom/global-registrator';
+import { createElement } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { setWikiLanguage } from '../i18n.js';
+import { KMarkdown } from './blocks.js';
+import { GlossaryContext, GlossaryPage, TermBlockView, termIndex } from './glossary.js';
+import { EntityPage } from './pages.js';
+import { HelpLink, RoleCard, RoleMenu } from './role-ui.js';
+import { RoleContext, blockOpen, chooseRole, leadGroups, loadSettings, resetSettings } from './roles.js';
+import type { Glossary, GlossaryTerm, PageModel } from './types.js';
+
+beforeAll(async () => {
+  GlobalRegistrator.register({ url: 'http://localhost/' });
+  await setWikiLanguage('en');
+});
+afterAll(async () => {
+  await new Promise((rest) => setTimeout(rest, 50));
+  GlobalRegistrator.unregister();
+});
+
+let rendered: Root | undefined;
+function into(element: ReturnType<typeof createElement>): HTMLElement {
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  rendered = createRoot(container);
+  rendered.render(element);
+  return container;
+}
+async function until(holds: () => boolean | undefined, what: string): Promise<void> {
+  for (let attempt = 0; attempt < 300; attempt++) {
+    if (holds()) return;
+    await new Promise((step) => setTimeout(step, 10));
+  }
+  throw new Error(`never came to ${what}; the tree holds: ${document.body.innerHTML.slice(0, 2000)}`);
+}
+afterEach(() => {
+  rendered?.unmount();
+  rendered = undefined;
+  document.body.innerHTML = '';
+  delete (globalThis as { fetch?: unknown }).fetch;
+  resetSettings();
+});
+
+const term = (title: string, extra: Partial<GlossaryTerm> = {}): GlossaryTerm => ({
+  id: `doc:docs/glossary.md#${title.toLowerCase().replace(/\s+/g, '-')}`, title, definition: `${title} means a thing.`, synonyms: [], code: [], usedIn: null, ambiguous: null,
+  repo: null, path: 'docs/glossary.md', line: 3, endLine: 4, anchor: title.toLowerCase().replace(/\s+/g, '-'), href: `/k/e/doc%3Adocs%2Fglossary.md%23${title.toLowerCase().replace(/\s+/g, '-')}`, ...extra,
+});
+
+describe('what a role opens', () => {
+  const roles = { developer: { open: ['source', 'callers'], lead: ['code', 'tests'] }, product: { lead: ['product'] } };
+
+  test('a role with a list opens those blocks and the page\'s own text; the others stay, collapsed; "everything" and a role with no list open all', () => {
+    expect(blockOpen('source', 'developer', roles)).toBe(true);
+    expect(blockOpen('related', 'developer', roles)).toBe(false);
+    expect(blockOpen('body', 'developer', roles)).toBe(true);
+    expect(blockOpen('markdown', 'developer', roles)).toBe(true);
+    expect(blockOpen('term', 'developer', roles)).toBe(true);
+    expect(blockOpen('related', 'everything', roles)).toBe(true);
+    expect(blockOpen('related', 'product', roles)).toBe(true);
+    expect(blockOpen('related', 'tester', roles)).toBe(true);
+  });
+
+  test('the groups the role leads come first in its order and the rest keep the manifest\'s order; no role changes nothing', () => {
+    const groups = [{ group: 'product' }, { group: 'code' }, { group: 'data' }, { group: 'tests' }, { group: null }];
+    expect(leadGroups(groups, 'developer', roles).map((entry) => entry.group)).toEqual(['code', 'tests', 'product', 'data', null]);
+    expect(leadGroups(groups, 'everything', roles).map((entry) => entry.group)).toEqual(['product', 'code', 'data', 'tests', null]);
+    expect(leadGroups(groups, 'tester', roles).map((entry) => entry.group)).toEqual(['product', 'code', 'data', 'tests', null]);
+  });
+
+  test('one page under two roles holds the same blocks: the source is open for the developer and collapsed under its title for the product role', async () => {
+    const page: PageModel = {
+      id: 'code.symbol:a.ts#f', kind: 'code.symbol', title: 'f', trail: [], resolutions: {}, findings: [], notes: [],
+      blocks: [
+        { type: 'markdown', markdown: 'A function.' },
+        { type: 'source', title: 'Source', location: { repo: 'shop', path: 'a.ts', lineStart: 1, lineEnd: 2, href: '/k/src?path=a.ts' }, language: 'typescript', text: 'export function f() {}', truncated: false },
+        { type: 'related', title: 'Relations', groups: [] },
+      ],
+    };
+    (globalThis as { fetch?: unknown }).fetch = async () => Response.json(page);
+    const opened = (role: string): { blocks: string[]; collapsed: string[] } => ({
+      blocks: [...document.querySelectorAll('[data-block-type], section, [data-testid=source-code]')].map((node) => node.getAttribute('data-block-type') ?? node.getAttribute('data-testid') ?? 'section'),
+      collapsed: [...document.querySelectorAll('[data-testid=block-collapsed]')].map((node) => `${node.getAttribute('data-block-type')}:${node.querySelector('summary')!.textContent}`),
+    });
+    const declared = { developer: { open: ['source'], lead: [] }, product: { open: ['related'], lead: [] } };
+    let container = into(createElement(RoleContext.Provider, { value: { role: 'developer', roles: declared } }, createElement(EntityPage, { id: page.id, version: 1 })));
+    await until(() => container.querySelector('[data-testid=entity-page]') !== null, 'the page as a developer');
+    expect(container.querySelector('[data-testid=source-code]')).not.toBeNull();
+    expect(container.querySelector('details[data-block-type=source]')).toBeNull();
+    expect(opened('developer').collapsed).toEqual(['related:Relations']);
+    rendered?.unmount();
+    document.body.innerHTML = '';
+    container = into(createElement(RoleContext.Provider, { value: { role: 'product', roles: declared } }, createElement(EntityPage, { id: page.id, version: 1 })));
+    await until(() => container.querySelector('[data-testid=entity-page]') !== null, 'the page as the product role');
+    // The same blocks are on the page; the source is under its title, collapsed, and one click opens it.
+    const source = container.querySelector('details[data-block-type=source]') as HTMLDetailsElement;
+    expect(source.querySelector('summary')!.textContent).toBe('Source');
+    expect(source.open).toBe(false);
+    expect(source.querySelector('[data-testid=source-code]')).not.toBeNull();
+    expect(container.querySelector('details[data-block-type=related]')).toBeNull();
+  });
+});
+
+describe('the links from the text to the glossary', () => {
+  const terms = [term('Manifest', { synonyms: ['manifests', 'kinds file'] }), term('Capture'), term('Payment token'), term('Card token')];
+  const wrap = (text: string) => createElement(GlossaryContext.Provider, { value: { index: termIndex(terms), terms } }, createElement(KMarkdown, { text, resolutions: {} }));
+  const linked = (container: HTMLElement): string[] => [...container.querySelectorAll('a.term-link')].map((anchor) => `${anchor.textContent}>${anchor.getAttribute('href')}`);
+
+  test('a term, whole and in the same case, is a link to its entry; a word that only resembles one is not', async () => {
+    const container = into(wrap('The Manifest names kinds. A manifestation is not one. Capture happens later.'));
+    await until(() => container.querySelector('a.term-link') !== null, 'the term links');
+    expect(linked(container)).toEqual([`Manifest>${terms[0]!.href}`, `Capture>${terms[1]!.href}`]);
+  });
+
+  test('a synonym links to the same entry, once per paragraph with its term', async () => {
+    const container = into(wrap('The manifests of a product are read.\n\nThe Manifest and the kinds file are one thing, the manifests too.'));
+    await until(() => container.querySelector('a.term-link') !== null, 'the term links');
+    expect(linked(container)).toEqual([`manifests>${terms[0]!.href}`, `Manifest>${terms[0]!.href}`]);
+  });
+
+  test('only the first use of a term in a paragraph is linked, and code, links and headings are left alone', async () => {
+    const container = into(wrap('# Manifest\n\nThe Manifest and the Manifest again; `Manifest` in code and [Manifest](https://example.test) as a link.\n\nA second paragraph: Manifest.'));
+    await until(() => container.querySelector('a.term-link') !== null, 'the term links');
+    expect(linked(container)).toEqual([`Manifest>${terms[0]!.href}`, `Manifest>${terms[0]!.href}`]);
+    expect(container.querySelector('h1 a')).toBeNull();
+  });
+
+  test('the case must be the same: "capture" is not "Capture"', async () => {
+    const container = into(wrap('We capture the payment. Then Capture is done.'));
+    await until(() => container.querySelector('a.term-link') !== null, 'the term links');
+    expect(linked(container)).toEqual([`Capture>${terms[1]!.href}`]);
+  });
+
+  test('a name two terms both claim is linked to neither, and a term never links to its own entry', async () => {
+    const twins = [term('One', { synonyms: ['thing'] }), term('Two', { synonyms: ['thing'] })];
+    const container = into(createElement(GlossaryContext.Provider, { value: { index: termIndex(twins), terms: twins } }, createElement(KMarkdown, { text: 'The thing is One and Two.', resolutions: {}, exceptTerm: twins[0]!.id })));
+    await until(() => container.querySelector('.reading') !== null, 'the text');
+    expect(linked(container)).toEqual([`Two>${twins[1]!.href}`]);
+  });
+
+  test('words of other scripts are matched whole too', async () => {
+    const russian = [term('Манифест', { synonyms: ['манифеста'] })];
+    const container = into(createElement(GlossaryContext.Provider, { value: { index: termIndex(russian), terms: russian } }, createElement(KMarkdown, { text: 'Файл манифеста лежит рядом; манифестация — другое слово.', resolutions: {} })));
+    await until(() => container.querySelector('a.term-link') !== null, 'the term link');
+    expect(linked(container)).toEqual([`манифеста>${russian[0]!.href}`]);
+  });
+});
+
+describe('the glossary page and a term\'s block', () => {
+  const glossary: Glossary = {
+    terms: [
+      term('Manifest', { definition: 'The file that lists the kinds.', synonyms: ['manifests'], code: ['madarch/kinds.yaml'], usedIn: '[the reference](madarch:doc:docs/reference.md#manifest)' }),
+      term('Payment token', { definition: 'The proof a provider returns.', ambiguous: 'also the vault reference; see [the question](madarch:doc:docs/reference.md#question)', line: 7 }),
+    ],
+    resolutions: {
+      'madarch:doc:docs/reference.md#manifest': { state: 'ok', target: 'madarch:doc:docs/reference.md#manifest', kind: 'document', label: 'docs/reference.md#manifest', href: '/k/doc?path=docs%2Freference.md#manifest' },
+      'madarch:doc:docs/reference.md#question': { state: 'ok', target: 'madarch:doc:docs/reference.md#question', kind: 'document', label: 'docs/reference.md#question', href: '/k/doc?path=docs%2Freference.md#question' },
+    },
+    findings: [],
+  };
+
+  test('every term is listed with its definition, names, the document and line it is stated at; the ambiguous one is marked and links to its question', async () => {
+    (globalThis as { fetch?: unknown }).fetch = async () => Response.json(glossary);
+    const container = into(createElement(GlossaryPage, { version: 1 }));
+    await until(() => container.querySelector('[data-testid=glossary-term]') !== null, 'the terms');
+    const items = [...container.querySelectorAll('[data-testid=glossary-term]')];
+    expect(items.map((item) => item.getAttribute('data-term'))).toEqual(['Manifest', 'Payment token']);
+    expect(items[0]!.textContent).toContain('The file that lists the kinds.');
+    expect(items[0]!.querySelector('[data-testid=term-names]')!.textContent).toContain('madarch/kinds.yaml');
+    expect(items[0]!.querySelector('[data-testid=term-ground]')!.textContent).toContain('docs/glossary.md:3');
+    expect(items[0]!.getAttribute('data-ambiguous')).toBe('false');
+    expect(items[0]!.querySelector('[data-testid=term-ambiguous-badge]')).toBeNull();
+    expect(items[1]!.getAttribute('data-ambiguous')).toBe('true');
+    expect(items[1]!.querySelector('[data-testid=term-ambiguous-badge]')!.textContent).toBe('Ambiguous');
+    expect(items[1]!.querySelector('[data-testid=term-ambiguous] a')!.getAttribute('href')).toBe('/k/doc?path=docs%2Freference.md#question');
+    expect(items[1]!.querySelector('[data-testid=term-ground]')!.textContent).toContain('docs/glossary.md:7');
+  });
+
+  test('the filter narrows by a name, a synonym or a code name', async () => {
+    (globalThis as { fetch?: unknown }).fetch = async () => Response.json(glossary);
+    const container = into(createElement(GlossaryPage, { version: 1 }));
+    await until(() => container.querySelector('[data-testid=glossary-term]') !== null, 'the terms');
+    const filter = container.querySelector('[data-testid=glossary-filter]') as HTMLInputElement;
+    const set = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(filter), 'value')!.set!;
+    set.call(filter, 'kinds.yaml');
+    filter.dispatchEvent(new Event('input', { bubbles: true }));
+    await until(() => container.querySelectorAll('[data-testid=glossary-term]').length === 1, 'the filtered list');
+    expect(container.querySelector('[data-testid=glossary-term]')!.getAttribute('data-term')).toBe('Manifest');
+  });
+
+  test('a product with no glossary says what a glossary is; a read that fails shows its reason', async () => {
+    (globalThis as { fetch?: unknown }).fetch = async () => Response.json({ terms: [], resolutions: {}, findings: [] });
+    let container = into(createElement(GlossaryPage, { version: 1 }));
+    await until(() => container.querySelector('[data-testid=glossary-empty]') !== null, 'the empty note');
+    rendered?.unmount();
+    document.body.innerHTML = '';
+    (globalThis as { fetch?: unknown }).fetch = async () => Response.json({ message: 'the glossary is broken at docs/glossary.md:3' }, { status: 500 });
+    container = into(createElement(GlossaryPage, { version: 2 }));
+    await until(() => container.querySelector('[data-testid=glossary-error]') !== null, 'the error');
+    expect(container.querySelector('[data-testid=glossary-error]')!.textContent).toContain('docs/glossary.md:3');
+  });
+
+  test('a term\'s block shows the definition, the names, the ambiguity and where it is used', async () => {
+    const container = into(createElement(TermBlockView, { pageId: 'doc:docs/glossary.md#payment-token', resolutions: glossary.resolutions, block: { definition: 'The proof a provider returns.', synonyms: ['proof'], code: ['PaymentToken'], usedIn: '[the reference](madarch:doc:docs/reference.md#manifest)', ambiguous: 'also the vault reference' } }));
+    await until(() => container.querySelector('[data-block=term]') !== null, 'the block');
+    expect(container.textContent).toContain('The proof a provider returns.');
+    expect(container.querySelector('[data-testid=term-names]')!.textContent).toContain('PaymentToken');
+    expect(container.querySelector('[data-testid=term-ambiguous]')!.textContent).toContain('also the vault reference');
+    expect(container.querySelector('a[href="/k/doc?path=docs%2Freference.md#manifest"]')).not.toBeNull();
+  });
+});
+
+describe('the role of the reader', () => {
+  const settings = (role: string, asked: boolean) => ({ role, asked, roles: ['product', 'analyst', 'architect', 'developer', 'operations', 'tester', 'everything'] });
+
+  test('the first open asks once: the card lists the roles with "everything" chosen; choosing one keeps it on the machine and the card goes', async () => {
+    const posts: unknown[] = [];
+    (globalThis as { fetch?: unknown }).fetch = async (_url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') { const body = JSON.parse(String(init.body)) as { role: string }; posts.push(body); return Response.json(settings(body.role, true)); }
+      return Response.json(settings('everything', false));
+    };
+    const container = into(createElement(RoleCard));
+    await loadSettings();
+    await until(() => document.querySelector('[data-testid=role-card]') !== null, 'the card');
+    const options = [...document.querySelectorAll('[data-testid=role-option]')];
+    expect(options.map((option) => option.getAttribute('data-role'))).toEqual(['product', 'analyst', 'architect', 'developer', 'operations', 'tester', 'everything']);
+    expect((options[6]!.querySelector('input') as HTMLInputElement).checked).toBe(true);
+    (options[3]!.querySelector('input') as HTMLInputElement).click();
+    await until(() => (document.querySelectorAll('[data-testid=role-option] input')[3] as HTMLInputElement).checked, 'the developer picked');
+    (document.querySelector('[data-testid=role-continue]') as HTMLButtonElement).click();
+    await until(() => document.querySelector('[data-testid=role-card]') === null, 'the card gone');
+    expect(posts).toEqual([{ role: 'developer' }]);
+    expect(container).toBeDefined();
+  });
+
+  test('skipping the card means everything and it is not asked again', async () => {
+    const posts: unknown[] = [];
+    (globalThis as { fetch?: unknown }).fetch = async (_url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') { const body = JSON.parse(String(init.body)) as { role: string }; posts.push(body); return Response.json(settings(body.role, true)); }
+      return Response.json(settings('everything', false));
+    };
+    into(createElement(RoleCard));
+    await loadSettings();
+    await until(() => document.querySelector('[data-testid=role-skip]') !== null, 'the card');
+    (document.querySelector('[data-testid=role-skip]') as HTMLButtonElement).click();
+    await until(() => document.querySelector('[data-testid=role-card]') === null, 'the card gone');
+    expect(posts).toEqual([{ role: 'everything' }]);
+  });
+
+  test('a reader who was asked before sees no card', async () => {
+    (globalThis as { fetch?: unknown }).fetch = async () => Response.json(settings('architect', true));
+    into(createElement(RoleCard));
+    await loadSettings();
+    await new Promise((rest) => setTimeout(rest, 50));
+    expect(document.querySelector('[data-testid=role-card]')).toBeNull();
+  });
+
+  test('a refusal of the server is shown in the card with its reason, and the role stays unchosen', async () => {
+    (globalThis as { fetch?: unknown }).fetch = async (_url: string, init?: RequestInit) => (init?.method === 'POST' ? Response.json({ message: '/home/x/madarch/settings.json: the settings could not be written' }, { status: 500 }) : Response.json(settings('everything', false)));
+    into(createElement(RoleCard));
+    await loadSettings();
+    await until(() => document.querySelector('[data-testid=role-skip]') !== null, 'the card');
+    (document.querySelector('[data-testid=role-skip]') as HTMLButtonElement).click();
+    await until(() => document.querySelector('[data-testid=role-error]') !== null, 'the error');
+    expect(document.querySelector('[data-testid=role-error]')!.textContent).toContain('settings.json');
+    expect(document.querySelector('[data-testid=role-card]')).not.toBeNull();
+  });
+
+  test('the top bar names the role and switches it', async () => {
+    const posts: unknown[] = [];
+    (globalThis as { fetch?: unknown }).fetch = async (_url: string, init?: RequestInit) => {
+      if (init?.method === 'POST') { const body = JSON.parse(String(init.body)) as { role: string }; posts.push(body); return Response.json(settings(body.role, true)); }
+      return Response.json(settings('architect', true));
+    };
+    into(createElement(RoleMenu));
+    await loadSettings();
+    await until(() => document.querySelector('[data-testid=role-current]')?.textContent === 'Architect', 'the role in the bar');
+    await chooseRole('tester');
+    await until(() => document.querySelector('[data-testid=role-current]')?.textContent === 'Tester', 'the new role');
+    expect(posts).toEqual([{ role: 'tester' }]);
+  });
+});
+
+describe('the «?» in the top bar', () => {
+  const products = [{ name: 'madarch', folder: 'madarch-wiki', own: true }, { name: 'Shop', folder: 'shop' }];
+
+  test('from any product it opens madarch\'s documentation, beside the language menu', async () => {
+    const container = into(createElement(HelpLink, { products, current: 'shop' }));
+    await until(() => container.querySelector('[data-testid=help-link]') !== null, 'the icon');
+    const link = container.querySelector('[data-testid=help-link]')!;
+    expect(link.getAttribute('href')).toBe('/products/madarch-wiki/k');
+    expect(link.getAttribute('aria-label')).toBe('madarch documentation');
+  });
+
+  test('inside the documentation itself, and where no documentation is served, there is no icon', async () => {
+    const inside = into(createElement(HelpLink, { products, current: 'madarch-wiki' }));
+    await new Promise((rest) => setTimeout(rest, 20));
+    expect(inside.querySelector('[data-testid=help-link]')).toBeNull();
+    rendered?.unmount();
+    const alone = into(createElement(HelpLink, { products: [{ name: 'Shop', folder: 'shop' }], current: 'shop' }));
+    await new Promise((rest) => setTimeout(rest, 20));
+    expect(alone.querySelector('[data-testid=help-link]')).toBeNull();
+  });
+});

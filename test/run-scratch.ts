@@ -125,6 +125,8 @@ function createRunScratch(): RunScratch {
   process.env.MADARCH_HOME = madarchHome;
   process.env.TMPDIR = temporary;
   process.env.MADARCH_WIKI_CACHE = cache;
+  // A test run never fetches madarch's own wiki from the network (decision 0031); the tests of that wiki switch it on themselves.
+  process.env.MADARCH_OWN_WIKI = 'off';
   process.env[RUN_SCRATCH_VARIABLE] = folder;
   process.env[REAL_TEMP_VARIABLE] = realTemporaryFolder;
   // Puppeteer's downloaded browser lives in the account's cache and is only

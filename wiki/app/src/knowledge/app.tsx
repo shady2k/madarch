@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useState, type ReactElement, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu';
-import { CheckIcon, ChevronDownIcon, ChevronRightIcon, FolderGit2Icon, GlobeIcon, HomeIcon, LayoutGridIcon, MenuIcon, RotateCcwIcon, XIcon } from 'lucide-react';
+import { BookOpenIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, FolderGit2Icon, GlobeIcon, HomeIcon, LayoutGridIcon, MenuIcon, RotateCcwIcon, XIcon } from 'lucide-react';
 import { appPath } from '../app-base.js';
 import { setWikiLanguage, type WikiLanguage } from '../i18n.js';
 import { navigateTo } from '../hold.js';
@@ -22,7 +22,10 @@ import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } fr
 import { getProducts, getResetPlan, resetProduct, startFill, type ResetPlan } from './api.js';
 import { KLink } from './blocks.js';
 import { CataloguePage, DocumentPage, DocumentsPage, EntityPage, EmptyHome, FillCard, KindPage, SourcePage, StatementPage, Overview } from './pages.js';
-import { addressOfKind, K_CATALOGUE, K_DOCS, K_HOME, kRouteOf, type KRoute } from './routes.js';
+import { addressOfKind, K_CATALOGUE, K_DOCS, K_GLOSSARY, K_HOME, kRouteOf, type KRoute } from './routes.js';
+import { GlossaryContext, GlossaryPage, useGlossary, useGlossaryValue, useTerms } from './glossary.js';
+import { HelpLink, RoleCard, RoleMenu } from './role-ui.js';
+import { RoleContext, leadGroups, loadSettings, useRole, useSettings } from './roles.js';
 import { KindLabels, useKindName } from './kind-names.js';
 import { PageSkeleton } from './skeleton.js';
 import { fillWords } from './fill-words.js';
@@ -47,7 +50,7 @@ export function productChoices(products: readonly ProductChoice[], current: stri
 }
 
 /** The product at the top left: its name, and the other products of this server to choose from. */
-export function ProductSelector({ name, products, current, onStartOver }: { name: string; products: readonly ProductChoice[]; current: string | null; onStartOver: () => void }): ReactElement {
+export function ProductSelector({ name, products, current, onStartOver, own = false }: { name: string; products: readonly ProductChoice[]; current: string | null; onStartOver: () => void; own?: boolean }): ReactElement {
   const { t } = useTranslation();
   return (
     <DropdownMenu>
@@ -94,11 +97,13 @@ export function ProductSelector({ name, products, current, onStartOver }: { name
           );
         })}
         {products.length === 0 && <DropdownMenuItem disabled>{name}</DropdownMenuItem>}
-        <DropdownMenuSeparator />
-        <DropdownMenuItem data-testid="start-over" onSelect={() => onStartOver()}>
-          <RotateCcwIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
-          {t('knowledge.reset.menu')}
-        </DropdownMenuItem>
+        {!own && <DropdownMenuSeparator />}
+        {!own && (
+          <DropdownMenuItem data-testid="start-over" onSelect={() => onStartOver()}>
+            <RotateCcwIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
+            {t('knowledge.reset.menu')}
+          </DropdownMenuItem>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -175,7 +180,9 @@ function NavPanel({ status, products, route, onNavigate, onStartOver }: { status
   const folder = decodeURIComponent((/^\/products\/([^/]+)/.exec(window.location.pathname)?.[1] ?? ''));
   /** The pages of a kind the agent has yet to write: its units that wait or are writing (a unit is named `<kind>:<slug>`). */
   const pendingOf = (kind: string): number => status.writer.units.filter((unit) => unit.unit.startsWith(`${kind}:`) && (unit.state === 'waiting' || unit.state === 'writing')).length;
-  const groups = navGroups(status, pendingOf);
+  const { role, roles } = useRole();
+  const { terms } = useTerms();
+  const groups = leadGroups(navGroups(status, pendingOf), role, roles);
   const [opened, setOpened] = useState<Record<string, boolean>>({});
   const pick = (address: string) => linkHandlers(address, onNavigate);
   const link = (active: boolean): string =>
@@ -188,7 +195,7 @@ function NavPanel({ status, products, route, onNavigate, onStartOver }: { status
         <strong className="text-[23px] font-[650] leading-none tracking-[-0.8px]">madarch</strong>
         <small className="nav-concept ml-auto rounded-[var(--radius-row)] border border-line px-[5px] py-0.5 text-[11px] leading-4 text-muted">{t('brand.concept')}</small>
       </a>
-      <ProductSelector name={status.product.name} products={products} current={folder === '' ? products[0]?.folder ?? null : folder} onStartOver={onStartOver} />
+      <ProductSelector name={status.product.name} products={products} current={folder === '' ? products[0]?.folder ?? null : folder} onStartOver={onStartOver} own={status.own === true} />
       <nav aria-label={t('navigation.pages')} className="min-h-0 flex-1 overflow-y-auto pb-4">
         <a href={appPath(K_HOME)} className={link(route.name === 'home')} aria-current={route.name === 'home' ? 'page' : undefined} data-testid="nav-home" {...pick(K_HOME)}>
           <HomeIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
@@ -198,6 +205,13 @@ function NavPanel({ status, products, route, onNavigate, onStartOver }: { status
           <LayoutGridIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
           <span className="min-w-0 flex-1">{t('knowledge.catalogue')}</span>
         </a>
+        {terms.length > 0 && (
+          <a href={appPath(K_GLOSSARY)} className={link(route.name === 'glossary')} aria-current={route.name === 'glossary' ? 'page' : undefined} data-testid="nav-glossary" {...pick(K_GLOSSARY)}>
+            <BookOpenIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
+            <span className="min-w-0 flex-1">{t('knowledge.glossary.title')}</span>
+            <span className="text-small text-muted">{terms.length}</span>
+          </a>
+        )}
         {groups.length > 0 && <h2 className="mb-1.5 mt-4 px-2 text-[12px] uppercase tracking-[0.08em] text-muted">{t('knowledge.kinds')}</h2>}
         {groups.map((entry) => {
           const key = entry.group ?? '\0other';
@@ -352,10 +366,10 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
   );
 }
 
-function Toolbar({ status, route, menu, refresh }: { status: WikiStatus; route: KRoute; menu: ReactNode; refresh: () => void }): ReactElement {
+function Toolbar({ status, route, menu, refresh, products, current }: { status: WikiStatus; route: KRoute; menu: ReactNode; refresh: () => void; products: readonly ProductChoice[]; current: string | null }): ReactElement {
   const { t } = useTranslation();
   const kindName = useKindName();
-  const where = route.name === 'kind' ? kindName(route.kind, 'many') : route.name === 'source' ? t('knowledge.source') : route.name === 'docs' || route.name === 'doc' ? t('knowledge.documents') : route.name === 'catalogue' ? t('knowledge.catalogue') : route.name === 'statement' ? t('knowledge.statement') : route.name === 'entity' ? null : t('knowledge.home');
+  const where = route.name === 'kind' ? kindName(route.kind, 'many') : route.name === 'source' ? t('knowledge.source') : route.name === 'docs' || route.name === 'doc' ? t('knowledge.documents') : route.name === 'catalogue' ? t('knowledge.catalogue') : route.name === 'glossary' ? t('knowledge.glossary.title') : route.name === 'statement' ? t('knowledge.statement') : route.name === 'entity' ? null : t('knowledge.home');
   return (
     <header className="shell-toolbar sticky top-0 z-30 flex min-h-[58px] items-center justify-between gap-3 border-b border-line bg-page px-4 wide:px-[35px]">
       <span className="shell-breadcrumb min-w-0 truncate text-small text-secondary">
@@ -364,7 +378,9 @@ function Toolbar({ status, route, menu, refresh }: { status: WikiStatus; route: 
       </span>
       <span className="flex shrink-0 items-center gap-1">
         {menu}
-        <FillMenu status={status} refresh={refresh} />
+        {status.own !== true && <FillMenu status={status} refresh={refresh} />}
+        <RoleMenu />
+        <HelpLink products={products} current={current} />
         <LanguageMenu />
       </span>
     </header>
@@ -432,6 +448,14 @@ export function KnowledgeApp(): ReactElement {
   const [menuOpen, setMenuOpen] = useState(false);
   const [startOver, setStartOver] = useState(false);
   const { status, error, version, refresh } = useWikiStatus();
+  const settings = useSettings();
+  const { glossary } = useGlossary(version);
+  const glossaryValue = useGlossaryValue(glossary);
+  useEffect(() => {
+    const controller = new AbortController();
+    void loadSettings(controller.signal);
+    return () => controller.abort();
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -464,6 +488,7 @@ export function KnowledgeApp(): ReactElement {
       </div>
     );
   }
+  const currentFolder = decodeURIComponent((/^\/products\/([^/]+)/.exec(window.location.pathname)?.[1] ?? '')) || (products[0]?.folder ?? null);
   const pending = new Set(status.writer.units.filter((unit) => unit.state === 'waiting' || unit.state === 'writing').map((unit) => unit.unit));
   const nav = (onNavigate?: () => void): ReactElement => <NavPanel status={status} products={products} route={route} onNavigate={onNavigate} onStartOver={() => { onNavigate?.(); setStartOver(true); }} />;
   const menu = (
@@ -485,18 +510,22 @@ export function KnowledgeApp(): ReactElement {
   else if (route.name === 'docs') view = <DocumentsPage version={version} />;
   else if (route.name === 'doc') view = <DocumentPage key={`${route.repo ?? ''}:${route.path}`} repo={route.repo} path={route.path} version={version} />;
   else if (route.name === 'catalogue') view = <CataloguePage status={status} />;
+  else if (route.name === 'glossary') view = <GlossaryPage version={version} />;
   else if (route.name === 'statement') view = <StatementPage key={`${route.id}\0${route.sentence}\0${route.turn}`} id={route.id} sentence={route.sentence} turn={route.turn} version={version} />;
   else view = <SourcePage key={`${route.repo ?? ''}:${route.path}`} repo={route.repo} path={route.path} line={route.line} />;
   return (
     <TooltipProvider delayDuration={200} skipDelayDuration={100}>
       <KindLabels.Provider value={status.kinds}>
+      <RoleContext.Provider value={{ role: settings.role, roles: status.roles ?? {} }}>
+      <GlossaryContext.Provider value={glossaryValue}>
+      <RoleCard />
       <StartOver open={startOver} onOpenChange={setStartOver} name={status.product.name} refresh={refresh} />
       <div className="shell flex min-h-dvh bg-page text-ink [font-family:var(--font-sans)] text-body" data-testid="knowledge-app">
         <aside id="app-nav" className="app-nav sticky top-0 hidden h-dvh w-[240px] wide:w-[260px] shrink-0 flex-col border-r border-line bg-chrome px-[14px] wide:px-[18px] md:flex" aria-label={t('navigation.aria')}>
           {nav()}
         </aside>
         <div className="shell-main flex min-w-0 flex-1 flex-col">
-          <Toolbar status={status} route={route} menu={menu} refresh={refresh} />
+          <Toolbar status={status} route={route} menu={menu} refresh={refresh} products={products} current={currentFolder} />
           <TabBar />
           <div className="shell-row flex flex-1">
             <div className="shell-scroll min-w-0 flex-1">
@@ -504,7 +533,7 @@ export function KnowledgeApp(): ReactElement {
                 <main data-testid="knowledge-main">
                   {status.manifest === 'no-manifest' ? <EmptyHome status={status} refresh={refresh} /> : (
                     <>
-                      {!(route.name === 'home' && status.home === null) && <FillCard status={status} refresh={refresh} />}
+                      {status.own !== true && !(route.name === 'home' && status.home === null) && <FillCard status={status} refresh={refresh} />}
                       <PendingPages.Provider value={pending}>{view}</PendingPages.Provider>
                     </>
                   )}
@@ -514,6 +543,8 @@ export function KnowledgeApp(): ReactElement {
           </div>
         </div>
       </div>
+      </GlossaryContext.Provider>
+      </RoleContext.Provider>
       </KindLabels.Provider>
     </TooltipProvider>
   );

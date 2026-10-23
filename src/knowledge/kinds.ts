@@ -30,6 +30,7 @@ import { existsSync, lstatSync, readFileSync, realpathSync, statSync, writeFileS
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { LineCounter, parseDocument } from 'yaml';
 import { lineForPath } from '../model/yaml-position.js';
+import { BLOCK_NAMES } from './template.js';
 
 /** The manifest's place in the product repository. */
 export const KINDS_FILE = 'madarch/kinds.yaml';
@@ -99,8 +100,24 @@ export interface KindLabel {
 /** The languages the wiki's interface speaks; a label in another language is a finding. */
 export const LABEL_LANGUAGES: readonly string[] = ['en', 'ru'];
 
+/** The roles a reader can read as (decision 0031); "everything" is every role at once and needs no declaration. */
+export const ROLE_NAMES = ['product', 'analyst', 'architect', 'developer', 'operations', 'tester'] as const;
+export type RoleName = (typeof ROLE_NAMES)[number];
+
+/** What a role changes on a page and in the navigation, as the manifest declares it (`roles:`). */
+export interface RoleDecl {
+  name: RoleName;
+  /** The blocks of a template that stand open for the role (block names); the others stay on the page, collapsed. Absent: every block is open. */
+  open?: readonly string[];
+  /** The groups the navigation lists first for the role, in this order. */
+  lead: readonly string[];
+  line: number;
+}
+
 export interface KindsManifest {
   file: string;
+  /** What each role changes; a role the manifest does not declare reads everything open in the manifest's order. */
+  roles: ReadonlyMap<RoleName, RoleDecl>;
   /** The language the product's pages are written in (`language:` at the top of the manifest); absent means English. */
   language?: string;
   kinds: ReadonlyMap<string, KindDecl>;
@@ -125,7 +142,7 @@ export function insideFolder(folder: string, path: string): boolean {
 }
 
 function nothing(file: string, findings: Finding[]): KindsManifest {
-  return { file, kinds: new Map(), groups: new Map(), excludeDocuments: [], findings };
+  return { file, roles: new Map(), kinds: new Map(), groups: new Map(), excludeDocuments: [], findings };
 }
 
 /** Reads `madarch/kinds.yaml` of a product folder; absent when the product holds none. */
@@ -160,7 +177,7 @@ export function parseKinds(text: string, file: string, productFolder: string): K
       const value = top['language'];
       if (typeof value !== 'string' || !LABEL_LANGUAGES.includes(value)) findings.push({ file, line: at(['language']), message: `"language" is ${JSON.stringify(value)}: the pages are written in ${LABEL_LANGUAGES.join(' or ')}` });
       else language = value;
-    } else if (key !== 'kinds' && key !== 'groups' && key !== 'documents') findings.push({ file, line: at([key]), message: `"${key}" is not a field of the manifest: the manifest holds "kinds", "groups", "documents" and "language"` });
+    } else if (key !== 'kinds' && key !== 'groups' && key !== 'documents' && key !== 'roles') findings.push({ file, line: at([key]), message: `"${key}" is not a field of the manifest: the manifest holds "kinds", "groups", "documents", "roles" and "language"` });
   }
   const groups = new Map<string, GroupDecl>();
   const rawGroups = top['groups'];
@@ -185,6 +202,32 @@ export function parseKinds(text: string, file: string, productFolder: string): K
       }
     }
   }
+  const roles = new Map<RoleName, RoleDecl>();
+  const rawRoles = top['roles'];
+  if (rawRoles !== undefined) {
+    if (rawRoles === null || typeof rawRoles !== 'object' || Array.isArray(rawRoles)) findings.push({ file, line: at(['roles']), message: `"roles" maps a role (${ROLE_NAMES.join(', ')}) to { open: [<block>, ...], lead: [<group>, ...] }` });
+    else {
+      for (const [name, entry] of Object.entries(rawRoles as Record<string, unknown>)) {
+        const line = at(['roles', name]);
+        if (!(ROLE_NAMES as readonly string[]).includes(name)) { findings.push({ file, line, message: `role "${name}": the roles are ${ROLE_NAMES.join(', ')}; "everything" is every role at once and is not declared` }); continue; }
+        const body = entry as Record<string, unknown> | null;
+        if (body === null || typeof body !== 'object' || Array.isArray(body)) { findings.push({ file, line, message: `role "${name}": the declaration is { open: [<block>, ...], lead: [<group>, ...] }` }); continue; }
+        const before = findings.length;
+        for (const key of Object.keys(body)) if (key !== 'open' && key !== 'lead') findings.push({ file, line: at(['roles', name, key]), message: `role "${name}": "${key}" is not a field of a role: the fields are "open" and "lead"` });
+        const list = (field: 'open' | 'lead'): string[] | undefined => {
+          const value = body[field];
+          if (value === undefined) return undefined;
+          if (!Array.isArray(value) || value.some((item) => typeof item !== 'string' || item.trim() === '')) { findings.push({ file, line: at(['roles', name, field]), message: `role "${name}": "${field}" is a list of ${field === 'open' ? 'blocks of the library' : 'groups of "groups"'}` }); return undefined; }
+          return value as string[];
+        };
+        const open = list('open');
+        const lead = list('lead');
+        for (const block of open ?? []) if (!(BLOCK_NAMES as readonly string[]).includes(block)) findings.push({ file, line: at(['roles', name, 'open']), message: `role "${name}": "${block}" is not a block of the library (${BLOCK_NAMES.join(', ')})` });
+        for (const group of lead ?? []) if (!groups.has(group)) findings.push({ file, line: at(['roles', name, 'lead']), message: `role "${name}": "${group}" is not a group of "groups" (${[...groups.keys()].join(', ') || 'none is declared'})` });
+        if (findings.length === before) roles.set(name as RoleName, { name: name as RoleName, ...(open === undefined ? {} : { open }), lead: lead ?? [], line });
+      }
+    }
+  }
   const excludeDocuments: string[] = [];
   const rawDocuments = top['documents'];
   if (rawDocuments !== undefined) {
@@ -202,7 +245,7 @@ export function parseKinds(text: string, file: string, productFolder: string): K
   const declared = top['kinds'];
   if (declared === null || typeof declared !== 'object' || Array.isArray(declared)) {
     findings.push({ file, line: at(['kinds']), message: '"kinds" is a mapping of kind names to their declarations' });
-    return { ...nothing(file, findings), groups, excludeDocuments };
+    return { ...nothing(file, findings), groups, roles, excludeDocuments };
   }
   const kinds = new Map<string, KindDecl>();
   for (const [name, value] of Object.entries(declared as Record<string, unknown>)) {
@@ -313,7 +356,7 @@ export function parseKinds(text: string, file: string, productFolder: string): K
       line,
     });
   }
-  return { file, kinds, groups, excludeDocuments, findings, ...(language === undefined ? {} : { language }) };
+  return { file, roles, kinds, groups, excludeDocuments, findings, ...(language === undefined ? {} : { language }) };
 }
 
 /**

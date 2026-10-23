@@ -115,7 +115,7 @@ ${block('implementedby', 'Implemented by', 'Чем реализовано')}
 ${block('linkedfrom', 'Linked from', 'Ссылаются на него')}
 `;
 
-const TERM = `:::body
+const TERM = `${block('term', 'Definition', 'Определение')}
 ${block('stated', 'Stated in', 'Где описано')}
 ${block('linkedfrom', 'Linked from', 'Ссылаются на него')}
 `;
@@ -159,6 +159,16 @@ const GROUPS: readonly { name: string; en: string; ru: string }[] = [
   { name: 'operations', en: 'Operations', ru: 'Эксплуатация' },
   { name: 'tests', en: 'Tests', ru: 'Тесты' },
   { name: 'history', en: 'History', ru: 'История' },
+];
+
+/** What each role opens on a page and puts first in the navigation (decision 0031); the product edits them. */
+const ROLES: readonly { name: string; lead: string[]; open: string[] }[] = [
+  { name: 'product', lead: ['product', 'tests'], open: ['stated', 'implementedby', 'linkedfrom', 'related', 'properties'] },
+  { name: 'analyst', lead: ['product', 'data', 'contracts'], open: ['stated', 'implementedby', 'linkedfrom', 'related', 'properties', 'er', 'sequence', 'children'] },
+  { name: 'architect', lead: ['product', 'code', 'contracts', 'data'], open: ['graph', 'related', 'sequence', 'er', 'stated', 'implementedby', 'linkedfrom', 'properties', 'children'] },
+  { name: 'developer', lead: ['code', 'contracts', 'data', 'tests'], open: ['source', 'callers', 'callees', 'sequence', 'graph', 'related', 'properties', 'children', 'er', 'stated'] },
+  { name: 'operations', lead: ['operations', 'data', 'contracts'], open: ['properties', 'related', 'children', 'source', 'er', 'stated'] },
+  { name: 'tester', lead: ['tests', 'product'], open: ['stated', 'implementedby', 'linkedfrom', 'related', 'properties', 'callers', 'children'] },
 ];
 
 const STARTER_KINDS: readonly StarterKind[] = [
@@ -232,10 +242,17 @@ function kindsManifest(): string {
     "# the kind in each interface language (en, ru); `origin` says how its entities came to be (agent, person, code, history).",
     "# `relations` declares an edge between kinds: {attribute|dirname} puts a part of the entity into the other end's key.",
     "# `documents.exclude` lists Markdown files that are not product documents (the files that steer a coding agent).",
+    "# `roles` says, per role a reader can read as (product, analyst, architect, developer, operations, tester), which blocks of a",
+    "# template stand open on a page and which groups lead the navigation. A block a role does not open stays on the page, collapsed:",
+    "# one page serves every role. A role left out, and the role \"everything\", open every block in the order above.",
+    "# A glossary is a document named by a kind's `terms`: each list item starts with a bold term, and may list under it",
+    "# \"Also called\", \"In code\", \"Used in\" and \"Ambiguous\" (decision 0031).",
     "groups:",
     ...GROUPS.map((group) => `  ${group.name}: { en: ${yamlText(group.en)}, ru: ${yamlText(group.ru)} }`),
     "documents:",
     "  exclude: [AGENTS.md, CLAUDE.md, GEMINI.md, \"**/AGENTS.md\", \"**/CLAUDE.md\", \"**/GEMINI.md\"]",
+    "roles:",
+    ...ROLES.map((role) => `  ${role.name}: { lead: [${role.lead.join(', ')}], open: [${role.open.join(', ')}] }`),
     "kinds:",
   ];
   for (const kind of STARTER_KINDS) {

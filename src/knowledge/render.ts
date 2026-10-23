@@ -13,7 +13,7 @@ import {
   type RenderContext, type Subject,
 } from './blocks.js';
 import type { GraphEntity } from './graph-read.js';
-import { implementedByBlock, linkedFromBlock, statedBlock } from './doc-blocks.js';
+import { implementedByBlock, linkedFromBlock, statedBlock, termBlock } from './doc-blocks.js';
 import { homeKind, type Finding, type Origin } from './kinds.js';
 import { readBody } from './markdown.js';
 import type { DocEntity } from './doc-entities.js';
@@ -21,6 +21,7 @@ import type { MarkdownEntity } from './markdown.js';
 import type { Block, EntityListing, EntityRef, KindSummary, PageModel } from './model.js';
 import { documentAddress, type Resolution } from './resolve.js';
 import { parseTemplate, substitute } from './template.js';
+import { termLinks } from './glossary.js';
 
 export type PageResult = { ok: true; page: PageModel } | { ok: false; status: 404 | 500; message: string };
 
@@ -88,6 +89,7 @@ export async function renderPage(ctx: RenderContext, id: string, lang?: string):
   for (const block of blocks) {
     if (block.type === 'markdown') for (const link of readBody(block.markdown, decl.template, 1).links) urls.add(link.url);
   }
+  for (const block of blocks) if (block.type === 'term') for (const link of termLinks({ definition: block.definition, synonyms: block.synonyms, code: block.code, usedIn: block.usedIn, ambiguous: block.ambiguous })) urls.add(link);
   if (subject.source === 'markdown' && blocks.some((block) => block.type === 'body')) {
     const reading = readBody(subject.entity.body, subject.entity.file, subject.entity.bodyLine);
     findings.push(...reading.findings);
@@ -139,6 +141,7 @@ async function renderBlock(ctx: RenderContext, subject: Subject, name: string, p
     case 'sequence': return await sequenceBlock(ctx, subject, params, file, line);
     case 'children': return await childrenBlock(ctx, subject, params, file, line);
     case 'properties': return propertiesBlock(subject, params, file, line);
+    case 'term': return termBlock(subject, params, file, line);
     case 'stated': return statedBlock(ctx, subject, params, file, line);
     case 'implementedby': return await implementedByBlock(ctx, subject, params, file, line);
     case 'linkedfrom': return await linkedFromBlock(ctx, subject, params, file, line);
