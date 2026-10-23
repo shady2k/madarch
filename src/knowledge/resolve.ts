@@ -11,7 +11,7 @@ import type { MarkdownEntity } from './markdown.js';
 import { parseTarget } from './markdown.js';
 
 export type Resolution =
-  | { state: 'ok'; target: string; kind: string; label: string; href: string | null; note?: string; location?: CodeLocation }
+  | { state: 'ok'; target: string; kind: string; label: string; href: string | null; note?: string; location?: CodeLocation; /** The id or key of the entity the target is, when it is one. */ entity?: string }
   | { state: 'broken'; target: string; reason: string };
 
 /** Where an entity page and a source view stand in the app. */
@@ -52,6 +52,8 @@ export interface ResolverDeps {
   repositories: () => readonly string[];
   /** Where an entity is declared, for a reference to code to open the source at its line. */
   locate: (entity: GraphEntity) => CodeLocation | undefined;
+  /** The entity of a document that starts at a line of the document, when the manifest's document kinds make one of it. */
+  documentEntity?: (repo: string | null, path: string, line: number) => { id: string; kind: string; title: string } | undefined;
 }
 
 export class Resolver {
@@ -73,7 +75,7 @@ export class Resolver {
     const key = target.key;
     if (key === '') return { state: 'broken', target: url, reason: 'the link names nothing after "madarch:"' };
     const markdown = this.deps.markdown.get(key);
-    if (markdown !== undefined) return { state: 'ok', target: url, kind: markdown.kind, label: markdown.title, href: this.deps.declared(markdown.kind) ? entityAddress(key) : null };
+    if (markdown !== undefined) return { state: 'ok', target: url, kind: markdown.kind, label: markdown.title, href: this.deps.declared(markdown.kind) ? entityAddress(key) : null, entity: key };
     const found = await this.deps.graph.find(key);
     if (found.length === 0) {
       return { state: 'broken', target: url, reason: noEntityMessage(key) };
@@ -92,6 +94,9 @@ export class Resolver {
       // A Markdown document opens as a page of the wiki at its section; any other file opens in the source view.
       if (anchor === null || anchor === '') return { state: 'ok', target: url, kind: 'document', label: path, href: isMarkdownPath(path) ? documentAddress(root, path) : sourceAddress(root, path) };
       const line = findAnchor(text, anchor);
+      // A section the manifest makes an entity opens the entity's page, not the document at a line.
+      const entity = line === null ? undefined : this.deps.documentEntity?.(root, path, line);
+      if (entity !== undefined && this.deps.declared(entity.kind)) return { state: 'ok', target: url, kind: entity.kind, label: entity.title, href: entityAddress(entity.id), entity: entity.id };
       if (line !== null) return { state: 'ok', target: url, kind: 'document', label: `${path}#${anchor}`, href: isMarkdownPath(path) ? documentAddress(root, path, anchor) : sourceAddress(root, path, line) };
     }
     if (seen.length === 0) return { state: 'broken', target: url, reason: `no document "${path}" in the product repository or its code repositories` };
@@ -107,6 +112,7 @@ export function resolutionOfEntity(url: string, entity: GraphEntity, hasPage: bo
     kind: entity.kind,
     label: entity.label,
     href: hasPage ? entityAddress(entity.key) : null,
+    entity: entity.key,
     ...(note === undefined ? {} : { note }),
     ...(location === undefined ? {} : { location }),
   };

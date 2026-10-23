@@ -18,6 +18,7 @@ export interface KnowledgePart {
   identity: (request: Request) => Promise<Handled>;
   status: (request: Request) => Promise<Handled>;
   page: (request: Request) => Promise<Handled>;
+  statement: (request: Request) => Promise<Handled>;
   entities: (request: Request) => Promise<Handled>;
   source: (request: Request) => Promise<Handled>;
   fill: (request: Request) => Promise<Handled>;
@@ -72,9 +73,23 @@ export function createKnowledgePart(
     page: guarded('draw the page', async (request) => {
       const id = new URL(request.url).searchParams.get('id');
       if (id === null || id.trim() === '') return refused(400, { field: 'id', message: '"id" is required: the key or id of the entity whose page is asked for' });
-      const result = await product.page(id);
+      const asked = new URL(request.url).searchParams.get('lang');
+      const result = await product.page(id, asked === 'ru' || asked === 'en' ? asked : undefined);
       if (!result.ok) return refused(result.status, { field: 'id', message: result.message });
       return { response: json(200, result.page) };
+    }),
+    statement: guarded('draw the statement', async (request) => {
+      const query = new URL(request.url).searchParams;
+      const id = query.get('id');
+      const sentence = query.get('sentence');
+      if (id === null || id.trim() === '') return refused(400, { field: 'id', message: '"id" is required: the id of the page the sentence stands on' });
+      if (sentence === null || sentence.trim() === '') return refused(400, { field: 'sentence', message: '"sentence" is required: the text of the sentence' });
+      const asked = query.get('n');
+      const turn = asked === null ? 0 : Number(asked);
+      if (!Number.isInteger(turn) || turn < 0) return refused(400, { field: 'n', message: `"n" is ${JSON.stringify(asked)}: the turn of the sentence among the sentences of the same text on the page, from 0` });
+      const result = await product.statement(id, sentence, turn);
+      if (!result.ok) return refused(result.status, { field: 'sentence', message: result.message });
+      return { response: json(200, result.statement) };
     }),
     entities: guarded('list the entities', async (request) => {
       const query = new URL(request.url).searchParams;

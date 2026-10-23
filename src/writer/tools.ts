@@ -17,6 +17,7 @@
 import { byCodePoint } from '../model/order.js';
 import type { McpToolDefinition } from '../fill/unit-mcp.js';
 import { checkPage, MAX_SLUG_LENGTH, parseTarget, SLUG, type Refusal } from './format.js';
+import type { WrittenAt } from '../knowledge/index/page.js';
 import type { GraphView } from './view.js';
 
 /** A domain the product page declares. */
@@ -182,6 +183,8 @@ export class UnitTools {
     /** For a domain unit: the domains the product page declared. */
     private readonly knownDomains: readonly DomainDeclaration[] = [],
     private readonly bounds: UnitBounds = DEFAULT_UNIT_BOUNDS,
+    /** The repositories the page is written from; recorded in its front matter. */
+    private readonly basis: readonly WrittenAt[] = [],
   ) {}
 
   get tools(): readonly McpToolDefinition[] {
@@ -351,7 +354,9 @@ export class UnitTools {
       if ('problems' in checked) return this.refuse(checked.problems);
       domains = checked.domains;
     }
-    const verdict = await checkPage(markdown, { id: this.unit.id, kind: this.unit.kind, domains: domains.map((d) => d.slug), mustLinkDomains: this.unit.kind === 'product', ...(this.unit.kind === 'domain' && this.unit.productId !== undefined ? { productId: this.unit.productId } : {}) }, this.view);
+    // The page this one replaces, when there is one: a sentence that stands keeps its footnote name.
+    const previous = await this.sink.read(this.unit.path).catch(() => undefined);
+    const verdict = await checkPage(markdown, { ...(previous === undefined ? {} : { previous }), ...(this.basis.length === 0 ? {} : { writtenAt: this.basis }), id: this.unit.id, kind: this.unit.kind, domains: domains.map((d) => d.slug), mustLinkDomains: this.unit.kind === 'product', ...(this.unit.kind === 'domain' && this.unit.productId !== undefined ? { productId: this.unit.productId } : {}) }, this.view);
     if (!verdict.ok) return this.refuse(verdict.refusals);
     await this.sink.write(this.unit.path, verdict.page.markdown);
     this.status = 'written';

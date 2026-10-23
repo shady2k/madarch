@@ -1,12 +1,15 @@
 import { appPath } from '../app-base.js';
 import { readJson, RequestError } from '../api.js';
-import type { AgentOffer, DocumentListing, DocumentPageModel, EntityListing, PageModel, ProductChoice, SourceFile, WikiStatus } from './types.js';
+import type { AgentOffer, DocumentListing, DocumentPageModel, EntityListing, PageModel, ProductChoice, SourceFile, StatementModel, WikiStatus } from './types.js';
 
 /** The wiki's status: manifest, kinds, repositories, fill. */
 export const getStatus = (signal?: AbortSignal): Promise<WikiStatus> => readJson<WikiStatus>('read the wiki', '/api/k/status', signal);
 
 /** One entity's page. */
-export const getPage = (id: string, signal?: AbortSignal): Promise<PageModel> => readJson<PageModel>(`read the page of ${id}`, `/api/k/page?id=${encodeURIComponent(id)}`, signal);
+export const getPage = (id: string, lang: string, signal?: AbortSignal): Promise<PageModel> => readJson<PageModel>(`read the page of ${id}`, `/api/k/page?id=${encodeURIComponent(id)}&lang=${lang === 'ru' ? 'ru' : 'en'}`, signal);
+
+/** The statement view of one sentence of a page. */
+export const getStatement = (id: string, sentence: string, turn: number, signal?: AbortSignal): Promise<StatementModel> => readJson<StatementModel>('read the statement', `/api/k/statement?id=${encodeURIComponent(id)}&sentence=${encodeURIComponent(sentence)}${turn > 0 ? `&n=${turn}` : ''}`, signal);
 
 /** One page of a kind's entities. */
 export function getEntities(kind: string, options: { q?: string; after?: string } = {}, signal?: AbortSignal): Promise<EntityListing> {

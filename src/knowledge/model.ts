@@ -15,6 +15,8 @@ export interface CodeLocation {
   lineEnd: number;
   /** The address of the source view at the first line. */
   href: string;
+  /** The same place on the repository's web page (GitHub, GitLab, ...), when the repository's address is known; the host's name is the label. */
+  web?: { host: string; url: string };
 }
 
 /** A reference to an entity: a link when the manifest gives its kind a page. */
@@ -27,6 +29,16 @@ export interface EntityRef {
   location?: CodeLocation;
   /** A broken reference (a `relates` key that resolves to nothing) carries its reason. */
   broken?: string;
+}
+
+/** A row of a list of references: an entity and, when the list says why it is there, the reason in words. */
+export interface RefRow {
+  entity: EntityRef;
+  /** Why the row is in the list, in English words. */
+  note?: string;
+  /** The same reason as a key and its values, so the app says it in the reader's language; a row whose note is a quotation has none. */
+  noteKey?: 'named' | 'groundedWith' | 'statements' | 'links';
+  noteArgs?: Record<string, string | number>;
 }
 
 export interface RelatedGroup {
@@ -54,6 +66,9 @@ export type Block =
   | { type: 'source'; title: string; location: CodeLocation; language: string; text: string; truncated: boolean }
   | { type: 'er'; title: string; mermaid: string; tables: number; shownTables: number }
   | { type: 'sequence'; title: string; mermaid: string; shown: number; total: number }
+  | { type: 'refs'; title: string; total: number; rows: RefRow[] }
+  | { type: 'properties'; title: string; rows: { name: string; value: string }[] }
+  | { type: 'stated'; title: string; place: { repo: string | null; path: string; lineStart: number; lineEnd: number; href: string; commit: string | null } }
   | { type: 'problem'; block: string; message: string; file: string; line: number };
 
 export interface PageModel {
@@ -73,8 +88,16 @@ export interface PageModel {
 
 export interface KindSummary {
   kind: string;
-  source: 'graph' | 'markdown';
+  source: 'graph' | 'markdown' | 'document';
   count: number;
+  /** The statements the pages of this kind make, from the index of the Markdown; absent when the index holds none. */
+  statements?: number;
+  /** The group the navigation and the catalogue put the kind in, when the manifest names one. */
+  group?: string;
+  /** How the kind's entities came to be: the manifest's word, else read off the entities (agent or person for Markdown pages). */
+  origins: ('agent' | 'person' | 'code' | 'history')[];
+  /** What the kind is, per interface language, from the manifest. */
+  descriptions?: Record<string, string>;
   /** The kind is one page (it names a `file`): the home page is the first such kind. */
   single: boolean;
   /** The kind's name per interface language, from the manifest; absent when the manifest gives none. */
@@ -170,6 +193,8 @@ export interface WikiStatus {
   seedError?: string;
   findings: Finding[];
   kinds: KindSummary[];
+  /** The groups of kinds, in the manifest's order. */
+  groups: { group: string; labels: Record<string, string> }[];
   repositories: { name: string; filled: boolean }[];
   /** The graph holds facts. */
   filled: boolean;
@@ -208,4 +233,48 @@ export interface DocumentPage {
   anchors: Record<string, number>;
   /** The commit the text was read at in a code repository; null for the product repository. */
   commit: string | null;
+}
+
+/** What a ground shows of what it points at: the lines of code with the cited ones marked, or the text of the section. */
+export type Excerpt =
+  | { type: 'code'; location: CodeLocation; language: string; firstLine: number; text: string; marked: { start: number; end: number }; truncated: boolean }
+  | { type: 'text'; markdown: string; place: { repo: string | null; path: string; lineStart: number; lineEnd: number; href: string } };
+
+/** One ground of a statement with its excerpt. */
+export interface GroundView {
+  url: string;
+  resolution: Resolution;
+  excerpt: Excerpt | null;
+}
+
+/** A statement of a page that relies on the same ground, from the index of the Markdown. */
+export interface RelyingRef {
+  page: string;
+  pageTitle: string;
+  text: string;
+  line: number;
+  file: string;
+  how: 'grounds' | 'mentions';
+  /** The ground it shares. */
+  ground: string;
+  /** The sentence as the statement view finds it and its turn among equal sentences of the page; absent when the page no longer holds it. */
+  sentence?: string;
+  turn?: number;
+}
+
+/** A statement of an agent's page: the sentence, its paragraph and each ground with its excerpt (the statement view). */
+export interface StatementModel {
+  page: EntityRef;
+  sentence: string;
+  /** The paragraph the sentence stands in, as Markdown with its footnote references removed. */
+  paragraph: string;
+  /** Where the paragraph is in the file. */
+  file: string;
+  line: number;
+  grounded: boolean;
+  grounds: GroundView[];
+  /** Other statements that rely on the same grounds. */
+  relying: RelyingRef[];
+  /** The resolution of every `madarch:` link of the paragraph. */
+  resolutions: Record<string, Resolution>;
 }

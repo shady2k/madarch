@@ -17,7 +17,7 @@
 import type { Finding } from './kinds.js';
 
 /** The blocks the engine ships. */
-export const BLOCK_NAMES = ['body', 'graph', 'related', 'callers', 'callees', 'source', 'er', 'sequence'] as const;
+export const BLOCK_NAMES = ['body', 'graph', 'related', 'callers', 'callees', 'source', 'er', 'sequence', 'stated', 'implementedby', 'linkedfrom', 'properties', 'children'] as const;
 export type BlockName = (typeof BLOCK_NAMES)[number];
 
 export type TemplatePart =

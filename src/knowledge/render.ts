@@ -9,14 +9,17 @@ import { join } from 'node:path';
 import { CONTAINS } from '../graph/vocabulary.js';
 import { byCodePoint } from '../model/order.js';
 import {
-  attributeOf, bodyBlock, callBlock, erBlock, graphBlock, idOf, kindOf, refOfGraph, refOfMarkdown, relatedBlock, sequenceBlock, sourceBlock,
+  attributeOf, bodyBlock, callBlock, childrenBlock, erBlock, graphBlock, idOf, kindOf, propertiesBlock, refOfGraph, refOfMarkdown, relatedBlock, sequenceBlock, sourceBlock,
   type RenderContext, type Subject,
 } from './blocks.js';
 import type { GraphEntity } from './graph-read.js';
-import { homeKind, type Finding } from './kinds.js';
+import { implementedByBlock, linkedFromBlock, statedBlock } from './doc-blocks.js';
+import { homeKind, type Finding, type Origin } from './kinds.js';
 import { readBody } from './markdown.js';
+import type { DocEntity } from './doc-entities.js';
+import type { MarkdownEntity } from './markdown.js';
 import type { Block, EntityListing, EntityRef, KindSummary, PageModel } from './model.js';
-import type { Resolution } from './resolve.js';
+import { documentAddress, type Resolution } from './resolve.js';
 import { parseTemplate, substitute } from './template.js';
 
 export type PageResult = { ok: true; page: PageModel } | { ok: false; status: 404 | 500; message: string };
@@ -25,12 +28,18 @@ export type PageResult = { ok: true; page: PageModel } | { ok: false; status: 40
 export async function findSubject(ctx: RenderContext, id: string): Promise<{ subject: Subject; others: number } | undefined> {
   const markdown = ctx.markdown.get(id);
   if (markdown !== undefined) return { subject: { source: 'markdown', entity: markdown }, others: 0 };
+  const document = ctx.docEntities.get(id);
+  if (document !== undefined) return { subject: { source: 'document', entity: document }, others: 0 };
   const found = await ctx.graph.find(id);
   if (found.length === 0) return undefined;
   return { subject: { source: 'graph', entity: found[0]! }, others: found.length - 1 };
 }
 
-export async function renderPage(ctx: RenderContext, id: string): Promise<PageResult> {
+/**
+ * Renders the page of an entity. `lang` is the interface language the reader reads in: a block parameter
+ * `title-<lang>` (for example `title-ru="Файлы"`) names the block in that language where the template gives one.
+ */
+export async function renderPage(ctx: RenderContext, id: string, lang?: string): Promise<PageResult> {
   const located = await findSubject(ctx, id);
   if (located === undefined) return { ok: false, status: 404, message: `no entity "${id}" in the graph or among the product's Markdown pages` };
   const { subject } = located;
@@ -48,7 +57,7 @@ export async function renderPage(ctx: RenderContext, id: string): Promise<PageRe
   const blocks: Block[] = [];
   const declared = decl.attributes === undefined ? undefined : new Set(decl.attributes);
   const value = (name: string): string | undefined => {
-    if (declared !== undefined && !declared.has(name) && !['label', 'title', 'key', 'id', 'kind', 'slug'].includes(name)) return undefined;
+    if (declared !== undefined && !declared.has(name) && !['label', 'title', 'key', 'keyrest', 'id', 'kind', 'slug'].includes(name)) return undefined;
     return attributeOf(subject, name);
   };
   for (const part of parseTemplate(templateText)) {
@@ -64,6 +73,11 @@ export async function renderPage(ctx: RenderContext, id: string): Promise<PageRe
     }
     const params: Record<string, string> = {};
     for (const [name, raw] of Object.entries(part.params)) params[name] = substitute(raw, part.line, decl.template, value, findings, { escape: false });
+    for (const name of Object.keys(params)) {
+      if (!name.startsWith('title-')) continue;
+      if (lang !== undefined && name === `title-${lang}`) params['title'] = params[name]!;
+      delete params[name];
+    }
     const block = await renderBlock(ctx, subject, part.name, params, decl.template, part.line);
     if (block.type === 'problem') findings.push({ file: block.file, line: block.line, message: `:::${block.block}: ${block.message}` });
     blocks.push(block);
@@ -82,6 +96,8 @@ export async function renderPage(ctx: RenderContext, id: string): Promise<PageRe
       bodyLinks.push(link);
     }
   }
+  // A document entity's text may link to the graph too; its links are shown as they resolve (a link of a document is no finding of the product's pages).
+  if (subject.source === 'document' && blocks.some((block) => block.type === 'body')) for (const link of readBody(subject.entity.text, subject.entity.path, subject.entity.line).links) urls.add(link.url);
   const resolutions: Record<string, Resolution> = {};
   for (const url of [...urls].sort(byCodePoint)) resolutions[url] = await ctx.resolver.resolve(url);
   if (subject.source === 'markdown') {
@@ -121,6 +137,11 @@ async function renderBlock(ctx: RenderContext, subject: Subject, name: string, p
     case 'source': return await sourceBlock(ctx, subject, params, file, line);
     case 'er': return await erBlock(ctx, subject, params, file, line);
     case 'sequence': return await sequenceBlock(ctx, subject, params, file, line);
+    case 'children': return await childrenBlock(ctx, subject, params, file, line);
+    case 'properties': return propertiesBlock(subject, params, file, line);
+    case 'stated': return statedBlock(ctx, subject, params, file, line);
+    case 'implementedby': return await implementedByBlock(ctx, subject, params, file, line);
+    case 'linkedfrom': return await linkedFromBlock(ctx, subject, params, file, line);
     default: return { type: 'problem', block: name, file, line, message: `"${name}" is not a block of the library` };
   }
 }
@@ -131,6 +152,10 @@ async function trailOf(ctx: RenderContext, subject: Subject): Promise<EntityRef[
     const up = await ctx.graph.containers(subject.entity, CONTAINS);
     return up.reverse().map((entity) => refOfGraph(ctx, entity));
   }
+  if (subject.source === 'document') {
+    const doc = subject.entity;
+    return [{ id: `doc:${doc.repo === null ? '' : `@${doc.repo}/`}${doc.path}`, kind: 'document', label: doc.repo === null ? doc.path : `${doc.repo}: ${doc.path}`, href: documentAddress(doc.repo, doc.path) }];
+  }
   const home = homeKind(ctx.manifest);
   const page = home === undefined ? undefined : [...ctx.markdown.values()].find((entity) => entity.kind === home.name && entity.id !== subject.entity.id);
   return page === undefined ? [] : [refOfMarkdown(ctx, page)];
@@ -138,23 +163,43 @@ async function trailOf(ctx: RenderContext, subject: Subject): Promise<EntityRef[
 
 // ---- listings ---------------------------------------------------------------------------------
 
+/** The origins of a kind's entities: the manifest's word, else what the kind's source tells. */
+function originsOf(ctx: RenderContext, decl: { name: string; source: 'graph' | 'markdown' | 'document'; origin?: Origin }): Origin[] {
+  if (decl.origin !== undefined) return [decl.origin];
+  if (decl.source === 'graph') return ['code'];
+  if (decl.source === 'document') return ['person'];
+  // A page the agent wrote says so in its front matter; a page with no producer was written by a person.
+  const producers = new Set([...ctx.markdown.values()].filter((entity) => entity.kind === decl.name).map((entity) => (entity.producer === 'agent' ? 'agent' : 'person') as Origin));
+  return [...producers].sort(byCodePoint);
+}
+
 export async function kindSummaries(ctx: RenderContext): Promise<KindSummary[]> {
   const counts = new Map((await ctx.graph.kindCounts()).map((entry) => [entry.kind, entry.count]));
+  const statements = new Map((await ctx.index?.counts() ?? []).map((entry) => [entry.kind, entry.statements]));
   return [...ctx.manifest.kinds.values()].map((decl) => ({
     kind: decl.name,
     source: decl.source,
     single: decl.file !== undefined,
+    ...(decl.group === undefined ? {} : { group: decl.group }),
+    origins: originsOf(ctx, decl),
+    ...(decl.descriptions === undefined ? {} : { descriptions: { ...decl.descriptions } }),
     ...(decl.labels === undefined ? {} : { labels: { ...decl.labels } }),
-    count: decl.source === 'markdown' ? [...ctx.markdown.values()].filter((entity) => entity.kind === decl.name).length : counts.get(decl.name) ?? 0,
+    ...(statements.has(decl.name) ? { statements: statements.get(decl.name)! } : {}),
+    count: decl.source === 'markdown'
+      ? [...ctx.markdown.values()].filter((entity) => entity.kind === decl.name).length
+      : decl.source === 'document'
+        ? [...ctx.docEntities.values()].filter((entity) => entity.kind === decl.name).length
+        : counts.get(decl.name) ?? 0,
   }));
 }
 
 export async function listEntities(ctx: RenderContext, kind: string, options: { q?: string; after?: string; limit: number }): Promise<EntityListing | undefined> {
   const decl = ctx.manifest.kinds.get(kind);
   if (decl === undefined) return undefined;
-  if (decl.source === 'markdown') {
+  if (decl.source === 'markdown' || decl.source === 'document') {
     const text = options.q?.trim().toLowerCase() ?? '';
-    const all = [...ctx.markdown.values()].filter((entity) => entity.kind === kind && (text === '' || entity.title.toLowerCase().includes(text) || entity.id.toLowerCase().includes(text))).sort((a, b) => byCodePoint(a.id, b.id));
+    const pool: (MarkdownEntity | DocEntity)[] = decl.source === 'markdown' ? [...ctx.markdown.values()] : [...ctx.docEntities.values()];
+    const all = pool.filter((entity) => entity.kind === kind && (text === '' || entity.title.toLowerCase().includes(text) || entity.id.toLowerCase().includes(text))).sort((a, b) => byCodePoint(a.id, b.id));
     const from = options.after === undefined ? 0 : all.findIndex((entity) => byCodePoint(entity.id, options.after!) > 0);
     const rows = from < 0 ? [] : all.slice(from, from + options.limit);
     const last = rows[rows.length - 1];
