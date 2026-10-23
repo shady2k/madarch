@@ -119,7 +119,8 @@ jobs:
             Write-Host "madarch new served $url (pid $($facts.pid))"
             if ($url -notlike "http://127.0.0.1:$port/products/*") { throw "madarch new printed no product address on port ${port}: $url" }
             $served = $false
-            for ($i = 0; $i -lt 300; $i++) {
+            $until = (Get-Date).AddSeconds(60)
+            while ((Get-Date) -lt $until) {
               try { $status = Invoke-RestMethod -TimeoutSec 10 "${url}api/k/status"; if ($status.manifest -eq 'ok') { $served = $true; break } } catch {}
               Start-Sleep -Milliseconds 100
             }
