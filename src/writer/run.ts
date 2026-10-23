@@ -19,7 +19,7 @@ import { byCodePoint } from '../model/order.js';
 import type { McpToolDefinition } from '../fill/unit-mcp.js';
 import { parse as parseYaml } from 'yaml';
 import { splitFrontMatter } from '../knowledge/markdown.js';
-import { readCorrections, readQuestions, type Correction, type Question } from '../loop/entities.js';
+import { parseQuestion, QUESTIONS_FOLDER, readCorrections, readQuestions, type Correction, type Question } from '../loop/entities.js';
 import { writtenAtOf } from './basis.js';
 import { includedNotes, type EditBrief } from './edit.js';
 import { statementsOf } from './sentences.js';
@@ -166,6 +166,14 @@ export function fsSink(root: string): PageSink {
       await rename(temporary, target);
     },
     read: (relativePath) => readFile(path.resolve(root, relativePath), 'utf8'),
+    list: async (folder) => {
+      try {
+        return (await readdir(path.resolve(root, folder))).filter((name) => name.endsWith('.md')).map((name) => `${folder}/${name}`).sort(byCodePoint);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+        throw error;
+      }
+    },
   };
 }
 
@@ -180,6 +188,7 @@ export function memorySink(): PageSink & { readonly pages: Map<string, string> }
       if (page === undefined) throw new Error(`the sink holds no ${relativePath}`);
       return page;
     },
+    list: async (folder) => [...pages.keys()].filter((key) => key.startsWith(`${folder}/`)).sort(byCodePoint),
   };
 }
 
@@ -232,6 +241,7 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
   const loopProblems: string[] = [];
   const sink: PageSink = options.afterWrite === undefined ? inner : {
     read: inner.read,
+    ...(inner.list === undefined ? {} : { list: inner.list }),
     write: async (relativePath, content) => {
       await inner.write(relativePath, content);
       try {
@@ -252,13 +262,28 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
   const questions: readonly Question[] = readQ.items;
   const corrections: readonly Correction[] = readC.items;
   const entityIds = [...questions.filter((question) => question.status === 'answered').map((question) => question.id), ...corrections.map((correction) => correction.id)].sort(byCodePoint);
-  const extras = { entityIds: async () => entityIds, ...(options.clock === undefined ? {} : { clock: options.clock }) };
+  // The questions asked so far, read fresh at each ask (a unit's question is seen by the next), so one subject is asked once.
+  const unreadable = new Set<string>();
+  const liveQuestions = async (): Promise<readonly Question[]> => {
+    if (sink.list === undefined) return readQuestions(options.output).items;
+    const found: Question[] = [];
+    for (const file of await sink.list(QUESTIONS_FOLDER)) {
+      try {
+        found.push(parseQuestion(file, await sink.read(file)));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (!unreadable.has(message)) { unreadable.add(message); loopProblems.push(message); }
+      }
+    }
+    return found;
+  };
+  const extras = { entityIds: async () => entityIds, language, questions: liveQuestions, ...(options.clock === undefined ? {} : { clock: options.clock }) };
   let existingProduct: string | null = null;
   try { existingProduct = await sink.read(PRODUCT_PATH); } catch { existingProduct = null; }
   const domainPages = await existingDomainPages(options.output);
   const need = (options.needed ?? unitsNeeded)({ productPage: existingProduct, domainPages, languageChanged: options.languageChanged === true });
   const askedIds: string[] = [];
-  const keptOutcome = (unit: string, path: string): UnitOutcome => ({ unit, status: 'written', path, writeAttempts: 0, calls: 0, refusals: [], domains: [], grounds: [], links: [], filesRead: [], questions: [] });
+  const keptOutcome = (unit: string, path: string): UnitOutcome => ({ unit, status: 'written', path, writeAttempts: 0, calls: 0, refusals: [], domains: [], grounds: [], links: [], filesRead: [], questions: [], merged: [] });
   const neededDomains = domainPages.filter((page) => need.domain(page));
   if (!need.product && neededDomains.length === 0) {
     // Every page is there and in the language asked: nothing to write, and the pages' grounds are re-checked by the wiki.

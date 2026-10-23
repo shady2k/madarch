@@ -2003,3 +2003,19 @@ a.graph-diagram-element-label:hover {
 .dg-lane-folded { stroke-dasharray: 5 3; fill: var(--surface-soft); }
 .dg-scroll { position: relative; background: linear-gradient(to right, var(--surface-page) 30%, transparent), linear-gradient(to left, var(--surface-page) 30%, transparent) 100% 0, radial-gradient(farthest-side at 0 50%, rgba(0,0,0,.28), transparent) 0 0, radial-gradient(farthest-side at 100% 50%, rgba(0,0,0,.28), transparent) 100% 0; background-repeat: no-repeat; background-size: 40px 100%, 40px 100%, 14px 100%, 14px 100%; background-attachment: local, local, scroll, scroll; background-color: var(--surface-page); }
 .dg-scrolls { border-right-width: 3px; border-right-color: var(--text-muted); }
+
+/* The agent's journal (madarch-m38l.13): arguments and responses as they were, wrapped and bounded. */
+.journal-pre {
+  margin: 4px 0 0;
+  padding: 8px 10px;
+  max-height: 24rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-row);
+}

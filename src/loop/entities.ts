@@ -67,7 +67,16 @@ export interface Side {
   readonly grounds: readonly string[];
 }
 
+/** The headings of a question file, in the language of the wiki it is written for (the files are read in either). */
+export const QUESTION_HEADINGS = {
+  en: { question: 'Question', why: 'Why it matters', sources: 'What the sources say', answer: 'Answer', answeredBy: 'Answered by' },
+  ru: { question: 'Вопрос', why: 'Почему это важно', sources: 'Что говорят источники', answer: 'Ответ', answeredBy: 'Ответил(а)' },
+} as const;
+export type QuestionLanguage = keyof typeof QUESTION_HEADINGS;
+
 export interface Question {
+  /** The language the file's headings are in; English when absent (files written before the headings were localized). */
+  readonly language?: QuestionLanguage;
   readonly slug: string;
   readonly id: string;
   /** Repository-relative path of the file. */
@@ -167,16 +176,17 @@ export function renderQuestion(question: Omit<Question, 'file' | 'id'>): string 
     ...(question.writtenAt.length === 0 ? {} : { 'written-at': question.writtenAt.map((entry) => ({ ...entry })) }),
   };
   const names = footnoteNames(question.sides);
+  const words = QUESTION_HEADINGS[question.language ?? 'en'];
   const lines = [
     '---', frontMatterText(front), '---', '',
-    '## Question', '', question.question.trim(), '',
-    '## Why it matters', '', question.why.trim(), '',
-    '## What the sources say', '',
+    `## ${words.question}`, '', question.question.trim(), '',
+    `## ${words.why}`, '', question.why.trim(), '',
+    `## ${words.sources}`, '',
     ...question.sides.map((side, index) => `- ${sentence(side.claim)}[^${names[index]}]`), '',
     ...question.sides.map((side, index) => `[^${names[index]}]: ${side.grounds.map((ground) => `[${ground.replace(/^.*[:#/]/, '') || ground}](madarch:${ground})`).join(', ')}`),
   ];
   if (question.answer !== null) {
-    lines.push('', '## Answer', '', quote(question.answer.text.trim()), '', `Answered by ${question.answer.by.name} <${question.answer.by.email}> at ${question.answer.at} (${question.answer.by.verified}).`);
+    lines.push('', `## ${words.answer}`, '', quote(question.answer.text.trim()), '', `${words.answeredBy} ${question.answer.by.name} <${question.answer.by.email}> at ${question.answer.at} (${question.answer.by.verified}).`);
   }
   return `${lines.join('\n')}\n`;
 }
@@ -276,12 +286,15 @@ export function parseQuestion(file: string, source: string): Question {
   const status = text(file, record, 'status', true)!;
   if (status !== 'open' && status !== 'answered') throw new LoopFileError(file, 2, `"status" is open or answered, got ${JSON.stringify(status)}`);
   const found = sections(body, bodyLine);
+  // The headings are in the wiki's language; a file is read in the language its headings are in.
+  const language: QuestionLanguage = found.has(QUESTION_HEADINGS.ru.sources) && !found.has(QUESTION_HEADINGS.en.sources) ? 'ru' : 'en';
+  const words = QUESTION_HEADINGS[language];
   const section = (name: string): { lines: string[]; line: number } => {
     const held = found.get(name);
     if (held === undefined) throw new LoopFileError(file, bodyLine, `the file has no "## ${name}" section`);
     return held;
   };
-  const sourceSection = section('What the sources say');
+  const sourceSection = section(words.sources);
   const footnotes = new Map<string, string[]>();
   for (const raw of body.split('\n')) {
     const definition = /^\[\^([\p{L}\p{N}_-]+)\]:[ \t]*(.*)$/u.exec(raw.trim());
@@ -294,19 +307,20 @@ export function parseQuestion(file: string, source: string): Question {
     if (bullet === null) continue;
     sides.push({ claim: bullet[1]!.trim(), grounds: footnotes.get(bullet[2]!) ?? [] });
   }
-  if (sides.length === 0) throw new LoopFileError(file, sourceSection.line, 'the section "What the sources say" holds no grounded statement: each side is a bullet, a sentence ending in a footnote that lists its grounds');
+  if (sides.length === 0) throw new LoopFileError(file, sourceSection.line, `the section "${words.sources}" holds no grounded statement: each side is a bullet, a sentence ending in a footnote that lists its grounds`);
   const answered = status === 'answered';
   let answer: Question['answer'] = null;
   if (answered) {
-    const part = found.get('Answer');
-    if (part === undefined) throw new LoopFileError(file, bodyLine, 'the status is answered but the file has no "## Answer" section');
+    const part = found.get(words.answer);
+    if (part === undefined) throw new LoopFileError(file, bodyLine, `the status is answered but the file has no "## ${words.answer}" section`);
     const quoted = unquote(part.lines.filter((line) => line.startsWith('>')));
-    if (quoted === '') throw new LoopFileError(file, part.line, 'the "## Answer" section holds no quoted answer');
+    if (quoted === '') throw new LoopFileError(file, part.line, `the "## ${words.answer}" section holds no quoted answer`);
     const at = text(file, record, 'answered-at', true)!;
     answer = { text: quoted, by: author(file, record, 'answered-by'), at };
-  } else if (found.has('Answer')) throw new LoopFileError(file, found.get('Answer')!.line, 'the file has an "## Answer" section but its status is open');
+  } else if (found.has(words.answer)) throw new LoopFileError(file, found.get(words.answer)!.line, `the file has an "## ${words.answer}" section but its status is open`);
   const resolvedBy = list(file, record, 'resolved-by');
   return {
+    language,
     slug,
     id,
     file,
@@ -316,8 +330,8 @@ export function parseQuestion(file: string, source: string): Question {
     about: list(file, record, 'about'),
     askedIn: text(file, record, 'asked-in', false),
     askedAt: text(file, record, 'asked-at', false),
-    question: paragraph(section('Question').lines),
-    why: paragraph(section('Why it matters').lines),
+    question: paragraph(section(words.question).lines),
+    why: paragraph(section(words.why).lines),
     sides,
     answer,
     resolvedBy,
