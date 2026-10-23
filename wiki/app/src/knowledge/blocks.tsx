@@ -485,6 +485,70 @@ function Deferred({ block, pageId, resolutions }: { block: Extract<Block, { type
   );
 }
 
+/**
+ * The history of a task, a commit or an author (madarch-m38l.16): the commits it names, the files it changed with the
+ * lines it added and removed, or the files its commits touched most. Each figure is a badge whose word comes from the
+ * reader's language, so a row reads "2026-01-02 · Ada · +42 −7".
+ */
+/** One figure of a history row in the reader's language: `+42`, `−7`, `3 symbols`, `module: services/orders`. */
+function figureText(figure: { kind: string; value: string }, t: (key: string, options?: Record<string, unknown>) => string): string {
+  if (figure.kind === 'added') return `+${figure.value}`;
+  if (figure.kind === 'removed') return `−${figure.value}`;
+  if (figure.kind === 'module') return `${t('knowledge.historyFigure.module')}: ${figure.value}`;
+  return `${figure.value} ${t(`knowledge.historyFigure.${figure.kind}`)}`;
+}
+
+function History({ block }: { block: Extract<Block, { type: 'history' }> }): ReactElement {
+  const { t } = useTranslation();
+  return (
+    <section data-block="history" aria-label={block.title}>
+      <h2>{block.title}</h2>
+      {block.sections.length === 0 ? <p className="text-small text-muted" data-testid="history-empty">{t('knowledge.none')}</p> : block.sections.map((section) => (
+        <div key={section.role} data-history-section={section.role} className="mb-4">
+          <h3 className="text-small text-muted">{t(`knowledge.historySection.${section.role}`)}</h3>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                {section.role === 'commits' && <TableHead>{t('knowledge.historyColWhen')}</TableHead>}
+                {section.role === 'commits' && <TableHead>{t('knowledge.historyColWho')}</TableHead>}
+                <TableHead>{section.role === 'commits' ? t('knowledge.historyColWhat') : t('knowledge.historyColFile')}</TableHead>
+                <TableHead>{t('knowledge.historyColFigures')}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {section.rows.map((row, index) => (
+                <TableRow key={row.entity?.id ?? `${section.role}-${String(index)}`} {...(row.entity === undefined ? {} : {'data-entity': row.entity.id})}>
+                  {section.role === 'commits' && <TableCell className="whitespace-nowrap">{row.when ?? <span className="text-muted">–</span>}</TableCell>}
+                  {section.role === 'commits' && <TableCell className="whitespace-nowrap">{row.who ?? <span className="text-muted">–</span>}</TableCell>}
+                  <TableCell className="max-w-[32rem] break-words">
+                    {row.entity === undefined ? row.text : <EntityName entity={row.entity} />}
+                  </TableCell>
+                  <TableCell>
+                    <span className="flex flex-wrap items-center gap-1">
+                      {row.figures.map((figure, at) => (
+                        <Badge key={`${figure.kind}-${String(at)}`} data-figure={figure.kind} title={t(`knowledge.historyFigure.${figure.kind}`)}>
+                          {figureText(figure, t)}
+                        </Badge>
+                      ))}
+                      {row.figures.length === 0 && <span className="text-muted">–</span>}
+                    </span>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+          {section.total > section.rows.length && <p className="mt-1.5 text-small text-muted" data-testid="history-cut">{t('knowledge.showing', { shown: section.rows.length, total: section.total })}</p>}
+        </div>
+      ))}
+      {block.notes.length > 0 && (
+        <ul className="mt-1.5 text-small text-muted" data-testid="history-notes">
+          {block.notes.map((note, index) => <li key={index}>{note}</li>)}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 function Problem({ block }: { block: Extract<Block, { type: 'problem' }> }): ReactElement {
   const { t } = useTranslation();
   return (
@@ -495,6 +559,30 @@ function Problem({ block }: { block: Extract<Block, { type: 'problem' }> }): Rea
         <p className="font-mono text-[0.875em] text-muted">{block.file}:{block.line}</p>
       </AlertDescription>
     </Alert>
+  );
+}
+
+/** A repository history summary: the row facts and bounded cut are written in the reader language. */
+function History({ block }: { block: Extract<Block, { type: 'history' }> }): ReactElement {
+  const { t } = useTranslation();
+  const figure = (kind: string, value: string): string => t(`knowledge.history${kind[0]!.toUpperCase()}${kind.slice(1)}`, { value });
+  return (
+    <section data-block="history" aria-label={block.title}>
+      {block.title !== '' && <h2>{block.title}</h2>}
+      {block.rows.length === 0 && <p className="text-small text-muted">{t('knowledge.historyUnavailable')}</p>}
+      {block.rows.length > 0 && <ul className="space-y-2" data-testid="history-rows">
+        {block.rows.map((row, index) => <li key={`${row.entity?.id ?? row.text}:${index}`} className="rounded-md border p-3">
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+            {row.when !== undefined && <time className="text-small text-muted">{row.when}</time>}
+            {row.who !== undefined && <span className="text-small text-muted">{row.who}</span>}
+            {row.entity?.href !== null && row.entity?.href !== undefined ? <KLink href={row.entity.href}>{row.text}</KLink> : <span>{row.text}</span>}
+          </div>
+          {row.figures.length > 0 && <p className="mb-0 mt-1 text-small text-muted">{row.figures.map((item) => figure(item.kind, item.value)).join(' · ')}</p>}
+        </li>)}
+      </ul>}
+      {block.total > block.shown && <p className="mt-2 text-small text-muted">{t('knowledge.showing', { shown: block.shown, total: block.total })}</p>}
+      {block.notes.map((note, index) => <p key={index} className="mt-2 text-small text-muted">{note}</p>)}
+    </section>
   );
 }
 
@@ -517,6 +605,8 @@ export function BlockView({ block, resolutions, pageId }: { block: Block; resolu
     case 'system': return <SystemView block={block} />;
     case 'modules': return <ModulesView block={block} />;
     case 'treemap': return <TreemapView block={block} />;
+    case 'history': return <History block={block} />;
+    case 'history': return <History block={block} />;
     case 'er': return <Diagram title={block.title} mermaid={block.mermaid} empty={t('knowledge.noTables')} caption={block.tables > block.shownTables ? t('knowledge.showing', { shown: block.shownTables, total: block.tables }) : null} links={block.links} />;
     case 'deferred': return <Deferred block={block} resolutions={resolutions} {...(pageId === undefined ? {} : { pageId })} />;
     case 'problem': return <Problem block={block} />;

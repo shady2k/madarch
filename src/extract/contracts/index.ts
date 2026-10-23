@@ -27,6 +27,9 @@ import {
   channelKey,
   CONTRACTS_PRODUCER,
   entryPointKey,
+  KIND_CHANNEL,
+  KIND_CONTRACT,
+  KIND_MESSAGE,
   messageKey,
   operationKey,
   fileKey,
@@ -78,6 +81,13 @@ interface TsFacts {
   ts: TsFileFacts;
 }
 
+
+/** The span of a whole file: its first line to its last, its first byte to its length. */
+function wholeFileSpan(path: string, text: string): SourceSpan {
+  const lines = text === '' ? 1 : text.split('\n').length;
+  return {path, byteStart: 0, byteEnd: Buffer.byteLength(text, 'utf8'), lineStart: 1, lineEnd: lines};
+}
+
 export async function extractContracts(reader: TreeReader): Promise<Extraction> {
   const nodes: ExtractedNode[] = [];
   const edges: ExtractedEdge[] = [];
@@ -88,6 +98,7 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
   const channels: string[] = [];
   const protoRpcs: {protoPath: string; service: string; rpc: string; key: string}[] = [];
   const declarations: {contract: string; member: string; relation: `code.${string}`}[] = [];
+  const contractSpans = new Map<string, SourceSpan>();
 
   for (const p of reader.paths) {
     const format = CONTRACT_FOLDERS.find(([_, applies]) => applies(p))?.[0];
@@ -106,6 +117,10 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
       gaps.push({path: p, reason: 'contracts: the bytes are not UTF-8 text'});
       continue;
     }
+    // Every node read from a contract file gets its place: the file, with the byte and line span of the whole
+    // document, and the file's path as a property. A contract is a file, and a channel or a message is declared in
+    // one; a page that names them says where (madarch-m38l.16).
+    contractSpans.set(p, wholeFileSpan(p, text));
     if (format === 'openapi') {
       const {contract, gaps: fileGaps} = readOpenApi(p, text);
       gaps.push(...fileGaps);
@@ -141,6 +156,22 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
   }
 
   for (const declaration of declarations) edges.push({type: declaration.relation, from: declaration.contract, to: declaration.member, discriminator: '', properties: {}});
+
+  // The place of every node a contract file declares: the file and the whole-document span, so a contract, a
+  // channel and a message carry the location the wiki shows (madarch-m38l.16).
+  const pathOf = (node: ExtractedNode): string | undefined => {
+    if (node.kind === KIND_CONTRACT) return node.key.slice('code.contract:'.length);
+    const held = node.properties['path'] ?? node.properties['contract'];
+    return typeof held === 'string' ? held : undefined;
+  };
+  for (const node of nodes) {
+    if (node.kind !== KIND_CONTRACT && node.kind !== KIND_CHANNEL && node.kind !== KIND_MESSAGE) continue;
+    const path = pathOf(node);
+    const span = path === undefined ? undefined : contractSpans.get(path);
+    if (path === undefined || span === undefined) continue;
+    node.properties = {...node.properties, path};
+    node.span = span;
+  }
 
   // ---- the code, one walk per file ------------------------------------------
   const goFiles: GoFacts[] = [];

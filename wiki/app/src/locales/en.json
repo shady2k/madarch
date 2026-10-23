@@ -60,6 +60,13 @@
     "noLinks": "no links in the graph",
     "noCalls": "no calls in the graph",
     "noTables": "no tables in the graph",
+    "historyAdded": "+{{value}} lines",
+    "historyRemoved": "−{{value}} lines",
+    "historySymbols": "{{value}} symbols",
+    "historyCommits": "{{value}} commits",
+    "historyFiles": "{{value}} files",
+    "historyModule": "module: {{value}}",
+    "historyUnavailable": "The history has no recorded values for this page.",
     "blockProblem": "The :::{{block}} block could not be drawn",
     "findings": "Problems found: {{count}}",
     "chooseProduct": "Choose a product",
@@ -327,6 +334,23 @@
     "help": {
       "label": "madarch documentation",
       "title": "madarch documentation"
+    },
+    "historyColWhen": "When",
+    "historyColWho": "Author",
+    "historyColWhat": "Commit",
+    "historyColFile": "File",
+    "historyColFigures": "What changed",
+    "historySection": {
+      "commits": "Commits",
+      "files": "Files touched most"
+    },
+    "historyFigure": {
+      "added": "added lines",
+      "removed": "removed lines",
+      "symbols": "symbols",
+      "commits": "commits",
+      "files": "files",
+      "module": "module"
     }
   },
   "loop": {

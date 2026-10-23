@@ -60,6 +60,13 @@
     "noLinks": "в графе нет связей",
     "noCalls": "в графе нет вызовов",
     "noTables": "в графе нет таблиц",
+    "historyAdded": "+{{value}} строк",
+    "historyRemoved": "−{{value}} строк",
+    "historySymbols": "{{value}} символов",
+    "historyCommits": "{{value}} коммитов",
+    "historyFiles": "{{value}} файлов",
+    "historyModule": "модуль: {{value}}",
+    "historyUnavailable": "Для этой страницы в истории нет записанных значений.",
     "blockProblem": "Блок :::{{block}} не удалось нарисовать",
     "findings": "Найдено проблем: {{count}}",
     "chooseProduct": "Выбрать продукт",
@@ -327,6 +334,23 @@
     "help": {
       "label": "Документация madarch",
       "title": "Документация madarch"
+    },
+    "historyColWhen": "Когда",
+    "historyColWho": "Автор",
+    "historyColWhat": "Коммит",
+    "historyColFile": "Файл",
+    "historyColFigures": "Что изменилось",
+    "historySection": {
+      "commits": "Коммиты",
+      "files": "Чаще всего менялись файлы"
+    },
+    "historyFigure": {
+      "added": "добавлено строк",
+      "removed": "удалено строк",
+      "symbols": "символов",
+      "commits": "коммитов",
+      "files": "файлов",
+      "module": "модуль"
     }
   },
   "loop": {

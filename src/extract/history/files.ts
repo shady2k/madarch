@@ -9,7 +9,7 @@
 import {byCodePoint} from '../../model/order.js';
 import type {ExtractedEdge, ExtractedNode, ExtractionGap} from '../records.js';
 import type {LogEntry, TreeEntry} from './git.js';
-import {listTree, readBlob, resolveCommit} from './git.js';
+import {listTree, readBlob, readNumstat, resolveCommit} from './git.js';
 import {commitKey, edgeOrder, type CommitRecord} from './commits.js';
 
 /** A file's node key: `code.file:<path>`. */
@@ -212,13 +212,18 @@ export function fileRecords(repository: string, branch: string, all: readonly Lo
     }
   }
 
-  // The touched edges and the renames.
+  // The touched edges and the renames. A touched edge carries what the commit did to the path: the lines it added and
+  // removed, as `git log --numstat` counts them (madarch-m38l.16, the commit page's "what it changed"). A path whose
+  // count the walk does not report (a binary file reports `-`) gets no counts, and the page says so.
+  const counts = readNumstat(what, repository, branch);
   for (const entry of all) {
     const record = commits.get(entry.commit);
     if (record === undefined) throw new Error(`${what}: the commit ${entry.commit} stands in no record`);
     if (record.merge) continue;
+    const ofCommit = counts.get(entry.commit);
     for (const path of new Set(touchedPaths(entry))) {
-      edges.push({type: 'code.touched', from: commitKey(entry.commit), to: fileKey(path), discriminator: '', properties: {}});
+      const lines = ofCommit?.get(path);
+      edges.push({type: 'code.touched', from: commitKey(entry.commit), to: fileKey(path), discriminator: '', properties: lines === undefined ? {} : {additions: lines.additions, deletions: lines.deletions}});
     }
   }
   for (const rename of renames) {

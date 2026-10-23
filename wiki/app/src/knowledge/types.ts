@@ -19,6 +19,18 @@ export type EntityRef = {
 
 export type RefRow = { entity: EntityRef; note?: string; noteKey?: 'named' | 'groundedWith' | 'statements' | 'links'; noteArgs?: Record<string, string | number> };
 
+/** One row of a history block (the engine's `HistoryRow`): when, who and what, with the figures its facts give. */
+export type HistoryRow = {
+  when?: string;
+  who?: string;
+  text: string;
+  entity?: EntityRef;
+  figures: { kind: 'added' | 'removed' | 'symbols' | 'commits' | 'files' | 'module'; value: string }[];
+};
+
+/** One list of a history block: the commits it shows, or the files they touched. */
+export type HistorySection = { role: 'commits' | 'files'; total: number; rows: HistoryRow[] };
+
 export type RelatedGroup = {
   relation: string;
   direction: 'out' | 'in';
@@ -47,6 +59,8 @@ export type SystemEdge = { from: string; to: string; via: 'http' | 'grpc' | 'sql
 export type ModuleNode = { id: string; label: string; files: number; href: string | null; cycle: boolean };
 export type ModuleEdge = { from: string; to: string; cycle: boolean };
 export type TreemapFile = { id: string; path: string; href: string | null; lines: number; churn: number };
+export type HistoryRow = { when?: string; who?: string; text: string; entity?: EntityRef; figures: { kind: 'added' | 'removed' | 'symbols' | 'commits' | 'files' | 'module'; value: string }[] };
+
 
 type BlockShape =
   | { type: 'markdown'; markdown: string }
@@ -56,6 +70,7 @@ type BlockShape =
   | { type: 'system'; title: string; nodes: SystemNode[]; edges: SystemEdge[]; notes: string[] }
   | { type: 'modules'; title: string; service: string; nodes: ModuleNode[]; edges: ModuleEdge[]; cycles: string[][]; notes: string[] }
   | { type: 'treemap'; title: string; scope: string; files: TreemapFile[]; maxChurn: number; total: number; notes: string[] }
+  | { type: 'history'; title: string; rows: HistoryRow[]; total: number; shown: number; notes: string[] }
   | { type: 'related'; title: string; groups: RelatedGroup[] }
   | { type: 'callers'; title: string; total: number; rows: CallRow[] }
   | { type: 'callees'; title: string; total: number; rows: CallRow[] }
@@ -65,6 +80,7 @@ type BlockShape =
   | { type: 'refs'; title: string; total: number; rows: RefRow[] }
   | { type: 'properties'; title: string; rows: { name: string; value: string }[] }
   | { type: 'stated'; title: string; place: { repo: string | null; path: string; lineStart: number; lineEnd: number; href: string; commit: string | null } }
+  | { type: 'history'; title: string; sections: HistorySection[]; notes: string[] }
   | { type: 'deferred'; block: string; title: string; line: number }
   | { type: 'problem'; block: string; message: string; file: string; line: number };
 

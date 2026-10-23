@@ -121,7 +121,7 @@ describe('the template', () => {
   test('an unknown block, a stray closing line and unreadable parameters are problems at their line', () => {
     const parts = parseTemplate([':::chart', ':::', ':::related{title}', ':::related{a=1 a=2}', ':::source'].join('\n'));
     expect(parts.map((part) => (part.type === 'problem' ? [part.line, part.message] : [part.type]))).toEqual([
-      [1, '"chart" is not a block of the library (body, graph, related, callers, callees, source, er, sequence, system, modules, treemap, stated, implementedby, linkedfrom, properties, children, term)'],
+      [1, '"chart" is not a block of the library (body, graph, related, callers, callees, source, er, sequence, system, modules, treemap, history, stated, implementedby, linkedfrom, properties, children, term)'],
       [2, 'a ":::" line closes nothing: a block is one line, ":::name{parameters}"'],
       [3, 'the parameters of :::related are unreadable: "title" is not name=value'],
       [4, 'the parameters of :::related are unreadable: "a" is given twice'],

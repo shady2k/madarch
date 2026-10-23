@@ -74,7 +74,8 @@ export async function collectNeighbors(ctx: RenderContext, subject: Subject, opt
       if (!wanted(group.relation) || !keep('out')) continue;
       for (const row of group.rows) rows.push({ direction: 'out', relation: group.relation, ref: row.entity, count: row.count });
     }
-    const groups = await ctx.graph.neighbors(subject.entity, { ...(options.relations === undefined ? {} : { relations: options.relations }), ...(options.direction === undefined ? {} : { direction: options.direction }), limit: options.limit });
+    const directions: ('out' | 'in')[] = options.direction === 'out' ? ['out'] : options.direction === 'in' ? ['in'] : ['in', 'out'];
+    const groups = (await Promise.all(directions.map((direction) => ctx.graph.neighbors(subject.entity, { ...(options.relations === undefined ? {} : { relations: options.relations }), direction, limit: options.limit })))).flat();
     for (const group of groups) {
       if (!wanted(group.relation)) continue;
       for (const row of group.rows) rows.push({ direction: group.direction, relation: group.relation, ref: refOfGraph(ctx, row.entity), count: row.edges });

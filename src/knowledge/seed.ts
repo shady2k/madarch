@@ -148,6 +148,30 @@ ${block('stated', 'Stated in', 'Где описано')}
 ${block('linkedfrom', 'Linked from', 'Ссылаются на него')}
 `;
 
+/** A task: the commits that name it, each with its day, its author and its message. */
+const TASK = `${SECTION.details}
+${block('history', 'Commits', 'Коммиты')}
+${G('Around this','Вокруг этого')}
+${SECTION.relations}
+${SECTION.pagesAbout('this task', 'этой задаче')}
+`;
+
+/** A commit: the files it changed, with the lines it added and removed and the symbols they declare. */
+const COMMIT = `${SECTION.details}
+${block('history', 'Files changed', 'Изменённые файлы')}
+${G('Around this commit','Вокруг этого коммита')}
+${SECTION.relations}
+${SECTION.pagesAbout('this commit', 'этом коммите')}
+`;
+
+/** An author: their commits, and the files and modules their work touches most. */
+const AUTHOR = `${SECTION.details}
+${block('history', 'Commits and files', 'Коммиты и файлы')}
+${G('Around this author','Вокруг этого автора')}
+${SECTION.relations}
+${SECTION.pagesAbout('this author', 'этом авторе')}
+`;
+
 /** The shape each template file has; the kinds name the file. */
 const TEMPLATES: Readonly<Record<string, string>> = {
   'product.md': PRODUCT,
@@ -160,6 +184,10 @@ const TEMPLATES: Readonly<Record<string, string>> = {
   'route.md': ROUTE,
   'item.md': ITEM,
   'item-plain.md': ITEM_PLAIN,
+  'history.md': `${SECTION.details}\n${G('Around this','Вокруг этого')}\n${block('history', 'History', 'История', 'limit=100')}\n${SECTION.relations}\n`,
+  'task.md': TASK,
+  'commit.md': COMMIT,
+  'author.md': AUTHOR,
   'database.md': DATABASE,
   'table.md': TABLE,
   'entity-text.md': ENTITY_TEXT,
@@ -255,9 +283,9 @@ const STARTER_KINDS: readonly StarterKind[] = [
   { name: 'code.newcomer-prerequisites', template: 'item.md', source: 'graph', group: 'operations', en: ['Prerequisites', 'Prerequisites'], ru: ['Что нужно установить', 'Что нужно установить'], describe: ['The tools the README says a newcomer needs.', 'Инструменты, которые по README нужны новичку.'] },
   { name: 'code.newcomer-failure', template: 'item.md', source: 'graph', group: 'operations', en: ['Known failure', 'Known failures'], ru: ['Известная ошибка', 'Известные ошибки'], describe: ['A failure the README names, with its fix.', 'Ошибка, которую называет README, и как её исправить.'] },
   { name: 'code.test-case', template: 'item.md', source: 'graph', group: 'tests', en: ['Test case', 'Test cases'], ru: ['Тест', 'Тесты'], describe: ['A test, and the code it exercises.', 'Тест и код, который он проверяет.'] },
-  { name: 'code.commit', template: 'item-plain.md', source: 'graph', group: 'history', origin: 'history', en: ['Commit', 'Commits'], ru: ['Коммит', 'Коммиты'], describe: ['A change in the repository\'s history, with its author and the files it touched.', 'Изменение в истории репозитория, его автор и затронутые файлы.'] },
-  { name: 'code.author', template: 'item-plain.md', source: 'graph', group: 'history', origin: 'history', en: ['Author', 'Authors'], ru: ['Автор', 'Авторы'], describe: ['A person who made commits.', 'Человек, который делал коммиты.'] },
-  { name: 'code.task', template: 'item-plain.md', source: 'graph', group: 'history', origin: 'history', en: ['Task', 'Tasks'], ru: ['Задача', 'Задачи'], describe: ['A tracker task that commit messages name.', 'Задача трекера, которую называют сообщения коммитов.'] },
+  { name: 'code.commit', template: 'commit.md', source: 'graph', group: 'history', origin: 'history', en: ['Commit', 'Commits'], ru: ['Коммит', 'Коммиты'], describe: ['A change in the repository\'s history, with its author and the files it touched.', 'Изменение в истории репозитория, его автор и затронутые файлы.'] },
+  { name: 'code.author', template: 'author.md', source: 'graph', group: 'history', origin: 'history', en: ['Author', 'Authors'], ru: ['Автор', 'Авторы'], describe: ['A person who made commits.', 'Человек, который делал коммиты.'] },
+  { name: 'code.task', template: 'task.md', source: 'graph', group: 'history', origin: 'history', en: ['Task', 'Tasks'], ru: ['Задача', 'Задачи'], describe: ['A tracker task that commit messages name.', 'Задача трекера, которую называют сообщения коммитов.'] },
 ];
 
 const yamlText = (text: string): string => JSON.stringify(text);

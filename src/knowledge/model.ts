@@ -189,7 +189,37 @@ type BlockShape =
   | { type: 'properties'; title: string; rows: { name: string; value: string }[] }
   | { type: 'stated'; title: string; place: { repo: string | null; path: string; lineStart: number; lineEnd: number; href: string; commit: string | null } }
   | { type: 'deferred'; block: string; title: string; line: number }
+  | { type: 'history'; title: string; sections: HistorySection[]; notes: string[] }
   | { type: 'problem'; block: string; message: string; file: string; line: number };
+
+/** One list of a history block: the commits it shows, or the files it shows, with the list's own columns. */
+export interface HistorySection {
+  /** What the rows are: the commits themselves, or the files they touched. */
+  role: 'commits' | 'files';
+  /** How many rows the list has in the graph; `rows` holds the first of them. */
+  total: number;
+  rows: HistoryRow[];
+}
+
+/** One row of a history block: when, who and what, with the figures the row's own facts give. */
+export interface HistoryRow {
+  /** The day it happened, `YYYY-MM-DD` in UTC, when the row is a commit. */
+  when?: string;
+  /** The name of the author, when the row is a commit. */
+  who?: string;
+  /** The row's words: a commit's message, or a file's path. */
+  text: string;
+  /** The entity the row is about, when the kind has a page. */
+  entity?: EntityRef;
+  /** The figures the app draws beside the row; each names its kind so the app writes it in the reader's language. */
+  figures: HistoryFigure[];
+}
+
+/** One figure of a history row: added or removed lines, symbols, commits, files, or the module a file belongs to. */
+export interface HistoryFigure {
+  kind: 'added' | 'removed' | 'symbols' | 'commits' | 'files' | 'module';
+  value: string;
+}
 
 /** One block of a page; `name` is the template's block it was made from (`implementedby` and `linkedfrom` both draw as `refs`), which the manifest's roles name. */
 export type Block = BlockShape & { name?: string };

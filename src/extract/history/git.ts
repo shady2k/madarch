@@ -240,6 +240,60 @@ function parseChanges(section: string, commit: string, where: string): LogChange
   return changes;
 }
 
+/** One path's line counts in one commit: what a `--numstat` walk reports. */
+export interface LineCounts {
+  readonly additions: number;
+  readonly deletions: number;
+}
+
+/**
+ * The line counts of every path of every commit of one walk: what a
+ * `--numstat -z` walk reports, keyed by commit and then by the path the commit
+ * left (a rename counts on the path it took). A binary path reports `-` for
+ * both counts and gets none: the walk counts lines, and a binary file has no
+ * lines to count.
+ */
+export function readNumstat(what: string, repository: string, revision: string): Map<string, Map<string, LineCounts>> {
+  const where = `${what}: the line counts of ${revision} in ${repository}`;
+  const args = ['--no-pager', 'log', '--no-color', '--no-show-signature', '--no-diff-merges', `--format=${LOG_RECORD}%H${LOG_FIELD}`, '--numstat', '-M', '-z', revisionOf(revision, `${where}: the revision`)];
+  const text = runGit(where, repository, args);
+  const counts = new Map<string, Map<string, LineCounts>>();
+  for (const record of text.split(LOG_RECORD)) {
+    if (record === '') continue;
+    const last = record.lastIndexOf(LOG_FIELD);
+    if (last < 0) throw new Error(`${where} holds a record with no field separator: ${JSON.stringify(record.slice(0, 120))}`);
+    const commit = commitId(record.slice(0, last), where);
+    const section = record.slice(last + 1);
+    if (section === '' || section === '\n') continue;
+    const rest = section.startsWith('\x00') ? section.slice(1) : undefined;
+    if (rest === undefined) throw new Error(`${where} holds the count list of ${commit} as ${JSON.stringify(section.slice(0, 120))}: a list opens with a NUL`);
+    const tokens = (rest.startsWith('\n') ? rest.slice(1) : rest).split('\x00');
+    const tail = tokens[tokens.length - 1];
+    if (tail !== '') throw new Error(`${where} holds the count list of ${commit} without its closing NUL: ${JSON.stringify(section.slice(0, 120))}`);
+    tokens.length -= 1;
+    const paths = new Map<string, LineCounts>();
+    for (let at = 0; at < tokens.length;) {
+      const field = tokens[at];
+      if (field === undefined) throw new Error(`${where} holds the count list of ${commit} cut short at its ${at + 1} field: ${JSON.stringify(section.slice(0, 120))}`);
+      const [added, deleted, path] = field.split('\t');
+      if (added === undefined || deleted === undefined) throw new Error(`${where} holds the counts of ${commit} as ${JSON.stringify(field.slice(0, 120))}: a count entry is its added and deleted lines in tabs`);
+      if (path === undefined || path === '') {
+        // A rename or copy counts the path it took: `\0old\0new\0`.
+        const from = tokens[at + 1];
+        const to = tokens[at + 2];
+        if (from === undefined || to === undefined) throw new Error(`${where} holds a renamed count of ${commit} without its two paths: ${JSON.stringify(section.slice(0, 120))}`);
+        if (/^\d+$/u.test(added) && /^\d+$/u.test(deleted)) paths.set(to, {additions: Number(added), deletions: Number(deleted)});
+        at += 3;
+        continue;
+      }
+      if (/^\d+$/u.test(added) && /^\d+$/u.test(deleted)) paths.set(path, {additions: Number(added), deletions: Number(deleted)});
+      at += 1;
+    }
+    counts.set(commit, paths);
+  }
+  return counts;
+}
+
 /** Every entry of one commit's tree with its repository path, in code point order of the paths. */
 export function listTree(what: string, repository: string, commit: string): readonly TreeEntry[] {
   const where = `${what}: the tree of ${revisionOf(commit, `${what}: the tree of`)}`;

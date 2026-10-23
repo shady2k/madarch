@@ -266,6 +266,33 @@ describe('the pages of the documents\' entities', () => {
   });
 });
 
+describe('repository history pages', () => {
+  test('task, commit and author pages draw graph-backed history summaries in English and Russian', async () => {
+    const tasks = await product.list('code.task', { limit: 20 });
+    const task = tasks!.rows[0];
+    if (task === undefined) throw new Error('the generated history has no task');
+    const taskPage = await page(task.id);
+    const taskHistory = block(taskPage, 'history');
+    expect(taskHistory.rows.length).toBeGreaterThan(0);
+    expect(taskHistory.rows[0]).toHaveProperty('text');
+    const taskRu = await product.page(task.id, 'ru');
+    if (!taskRu.ok) throw new Error(taskRu.message);
+    expect(taskRu.page.blocks.some((entry) => entry.type === 'deferred' && entry.block === 'history')).toBe(true);
+
+    const commits = await product.list('code.commit', { limit: 20 });
+    const commit = commits!.rows[0];
+    if (commit === undefined) throw new Error('the generated history has no commit');
+    const commitHistory = block(await page(commit.id), 'history');
+    expect(commitHistory.rows.length).toBeGreaterThan(0);
+    expect(commitHistory.rows.every((row) => row.figures.some((figure) => figure.kind === 'added' || figure.kind === 'removed'))).toBe(true);
+
+    const authors = await product.list('code.author', { limit: 20 });
+    const author = authors!.rows[0];
+    if (author === undefined) throw new Error('the generated history has no author');
+    expect(block(await page(author.id), 'history').rows.length).toBeGreaterThan(0);
+  });
+});
+
 describe('every kind the graph holds', () => {
   test('is declared by the starter manifest, grouped, counted as the graph counts it, and described in both languages', async () => {
     const context = await product.context();
