@@ -565,6 +565,14 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
         return false;
         return true;
       });
+    // Every node any extraction declared for a key, the first with a span winning: a reference node takes the place of
+    // the node that named it (madarch-m38l.16).
+    const declaredNodes = new Map<string, {label: string; span?: SourceSpan}>();
+    for (const node of extraction.nodes) {
+      const held = declaredNodes.get(node.key);
+      if (held !== undefined && held.span !== undefined) continue;
+      declaredNodes.set(node.key, {...(held ?? {label: node.label}), ...(node.span === undefined ? {} : {span: node.span})});
+    }
     const stubOf = (key: string) => {
       const kind = key.slice(0, key.indexOf(':'));
       if (!kind.startsWith('code.')) {
@@ -584,12 +592,15 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
       })),
       ...foreignEnds.map((key) => {
         const stub = stubOf(key);
+        // A reference node names a place when any extraction declared one for the key: a file a later commit renamed
+        // away has no owner node at this tip, and the history's own record of it says where it stood.
+        const declared = declaredNodes.get(key);
         return {
           ...(map.has(key) ? { id: map.get(key)! } : {}),
           ref: key,
           kind: stub.kind,
-          label: stub.label,
-          properties: { recordKey: key },
+          label: declared?.label ?? stub.label,
+          properties: { recordKey: key, ...(declared?.span === undefined ? {} : { span: spanProperty(declared.span) }) },
           validFrom: effectiveTime,
           ...(bound === undefined ? {} : { validTo: bound }),
         };

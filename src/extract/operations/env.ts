@@ -286,9 +286,7 @@ export function extractEnv(t: TreeText, records: Records): Map<string, EnvRead[]
     records.add({
       key: `code.env-var:${variable}`,
       kind: 'code.env-var',
-      // The same variable is set for several services (DATABASE_URL of orders, payments, promotions): its label names
-      // the service it belongs to, so a list of variables shows each once (madarch-m38l.16).
-      label: variable,
+      label: variable.slice(variable.indexOf('/') + 1),
       properties: { required, default: defaults[0] ?? null } satisfies { [key: string]: PropertyValue },
       span: t.spanOfLine(first.path, first.line),
     });

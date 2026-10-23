@@ -375,7 +375,16 @@
       "table": "Table",
       "column": "Column",
       "test-case": "Test case"
-    }
+    },
+    "definitionOpenApi": "OpenAPI",
+    "definitionAsyncApi": "AsyncAPI",
+    "definitionProto": "gRPC (protobuf)",
+    "definitionMember": "Operation",
+    "definitionProtocol": "Protocol",
+    "definitionDetail": "What it says",
+    "definitionEmpty": "This contract declares no operation, channel or rpc the reader could read.",
+    "definitionSource": "The contract itself",
+    "definitionCut": "Showing the first {{shown}} lines of {{total}}."
   },
   "loop": {
     "questionsTitle": "Questions",

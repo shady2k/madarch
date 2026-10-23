@@ -47,7 +47,7 @@ export function makeTargets(t: TreeText, records: Records, path: string): Map<st
       span: t.spanOfLines(path, index + 1, last + 1),
     });
     // The Makefile a target stands in is its place in the code, whatever its recipe calls (madarch-m38l.16).
-    records.edge('code.references', key, records.file(path), {}, t.spanOfLines(path, index + 1, last + 1));
+    records.edge('code.contains', records.file(path), key, {}, t.spanOfLines(path, index + 1, last + 1));
     for (const line1 of recipe) {
       for (const token of line1.split(/\s+/u)) {
         const candidate = token.replace(/^[^A-Za-z0-9_.]+|[^A-Za-z0-9_.]+$/g, '');

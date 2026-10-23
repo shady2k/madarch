@@ -548,6 +548,48 @@ function History({ block }: { block: Extract<Block, { type: 'history' }> }): Rea
   );
 }
 
+/**
+ * A contract's definition in its own format (madarch-m38l.16): the operations of an OpenAPI document, the channels and
+ * their messages of an AsyncAPI document, or the services and rpcs of a protobuf file, each at an anchor a link can open
+ * the page at, beside the contract's own text. The block arrives deferred, so a reader pays for it only when they open it.
+ */
+function Definition({ block }: { block: Extract<Block, { type: 'definition' }> }): ReactElement {
+  const { t } = useTranslation();
+  const formatName = block.format === 'openapi' ? t('knowledge.definitionOpenApi') : block.format === 'asyncapi' ? t('knowledge.definitionAsyncApi') : block.format === 'proto' ? t('knowledge.definitionProto') : block.format;
+  return (
+    <section data-block="definition" aria-label={block.title}>
+      <h2>{block.title}</h2>
+      <p className="m-0 flex flex-wrap items-center gap-2">
+        <Badge data-testid="definition-format">{formatName}</Badge>
+        <KLink href={block.location?.href ?? ''} className="font-mono text-[0.875em] text-secondary">{block.contract}</KLink>
+      </p>
+      {block.members.length === 0 ? <p className="mt-2 text-small text-muted" data-testid="definition-empty">{t('knowledge.definitionEmpty')}</p> : (
+        <Table className="mt-3">
+          <TableHeader>
+            <TableRow><TableHead>{t('knowledge.definitionMember')}</TableHead><TableHead>{t('knowledge.definitionProtocol')}</TableHead><TableHead>{t('knowledge.definitionDetail')}</TableHead></TableRow>
+          </TableHeader>
+          <TableBody>
+            {block.members.map((member) => (
+              <TableRow key={member.anchor} id={member.anchor} data-member={member.anchor}>
+                <TableCell className="max-w-[28rem] break-words">
+                  {member.href === null ? <span className="font-mono text-[0.875em]">{member.label}</span> : <KLink href={member.href} className="font-mono text-[0.875em]">{member.label}</KLink>}
+                </TableCell>
+                <TableCell>{member.badge === undefined ? <span className="text-muted">–</span> : <Badge>{member.badge}</Badge>}</TableCell>
+                <TableCell className="max-w-[32rem] break-words">{member.detail ?? <span className="text-muted">–</span>}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      )}
+      <details className="mt-5">
+        <summary className="cursor-pointer text-small text-muted">{t('knowledge.definitionSource')}</summary>
+        <pre className="mt-2 max-h-[32rem] overflow-auto rounded-md border p-3 text-small"><code>{block.spec.text}</code></pre>
+        {block.spec.lines > block.spec.text.split('\n').length && <p className="text-small text-muted">{t('knowledge.definitionCut', { shown: block.spec.text.split('\n').length, total: block.spec.lines })}</p>}
+      </details>
+    </section>
+  );
+}
+
 function Problem({ block }: { block: Extract<Block, { type: 'problem' }> }): ReactElement {
   const { t } = useTranslation();
   return (
@@ -582,6 +624,7 @@ export function BlockView({ block, resolutions, pageId }: { block: Block; resolu
     case 'modules': return <ModulesView block={block} />;
     case 'treemap': return <TreemapView block={block} />;
     case 'history': return <History block={block} />;
+    case 'definition': return <Definition block={block} />;
     case 'er': return <Diagram title={block.title} mermaid={block.mermaid} empty={t('knowledge.noTables')} caption={block.tables > block.shownTables ? t('knowledge.showing', { shown: block.shownTables, total: block.tables }) : null} links={block.links} />;
     case 'deferred': return <Deferred block={block} resolutions={resolutions} {...(pageId === undefined ? {} : { pageId })} />;
     case 'problem': return <Problem block={block} />;

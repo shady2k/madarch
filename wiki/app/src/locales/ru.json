@@ -375,7 +375,16 @@
       "table": "Таблица",
       "column": "Столбец",
       "test-case": "Тестовый сценарий"
-    }
+    },
+    "definitionOpenApi": "OpenAPI",
+    "definitionAsyncApi": "AsyncAPI",
+    "definitionProto": "gRPC (protobuf)",
+    "definitionMember": "Операция",
+    "definitionProtocol": "Протокол",
+    "definitionDetail": "Что сказано",
+    "definitionEmpty": "Этот контракт не объявляет ни операции, ни канала, ни rpc, которые читатель смог бы прочитать.",
+    "definitionSource": "Сам контракт",
+    "definitionCut": "Показаны первые {{shown}} строк из {{total}}."
   },
   "loop": {
     "questionsTitle": "Вопросы",

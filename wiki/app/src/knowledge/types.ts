@@ -31,6 +31,9 @@ export type HistoryRow = {
 /** One list of a history block: the commits it shows, or the files they touched. */
 export type HistorySection = { role: 'commits' | 'files'; total: number; rows: HistoryRow[] };
 
+/** One member of a contract's definition (the engine's `DefinitionMember`). */
+export type DefinitionMember = { anchor: string; label: string; detail?: string; href: string | null; badge?: string };
+
 export type RelatedGroup = {
   relation: string;
   direction: 'out' | 'in';
@@ -78,6 +81,7 @@ type BlockShape =
   | { type: 'refs'; title: string; total: number; rows: RefRow[] }
   | { type: 'properties'; title: string; rows: { name: string; value: string }[] }
   | { type: 'stated'; title: string; place: { repo: string | null; path: string; lineStart: number; lineEnd: number; href: string; commit: string | null } }
+  | { type: 'definition'; title: string; format: string; contract: string; location?: CodeLocation; members: DefinitionMember[]; spec: { text: string; lines: number } }
   | { type: 'history'; title: string; sections: HistorySection[]; notes: string[] }
   | { type: 'deferred'; block: string; title: string; line: number }
   | { type: 'problem'; block: string; message: string; file: string; line: number };

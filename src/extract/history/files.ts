@@ -199,6 +199,9 @@ export function fileRecords(repository: string, branch: string, all: readonly Lo
       kind: 'code.file',
       label: path,
       properties: {...(lines === undefined ? {} : {lines}), commitCount, authors},
+      // A path the tree no longer holds (a file a later commit renamed away) has no owner node at the tip: this node
+      // carries its place, and the driver's reference node for it inherits none, so the history speaks for it.
+      span: {path, byteStart: 0, byteEnd: 0, lineStart: 1, lineEnd: 1},
     });
   }
 

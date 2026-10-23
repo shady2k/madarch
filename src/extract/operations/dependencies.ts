@@ -49,7 +49,7 @@ function npmManifests(t: TreeText, records: Records): void {
           kind: 'code.dependency',
           // The same library is declared by several services (express by two, typescript by two): the label names the
           // manifest it stands in, so a list of dependencies shows each row once (madarch-m38l.16).
-          label: `${dependency} · ${path}`,
+          label: dependency,
           properties: { name: dependency, version, scope, exact: EXACT_VERSION.test(version) } satisfies { [key: string]: PropertyValue },
           span: t.spanOfLine(path, read.value.lineAt([scope === 'direct' ? 'dependencies' : 'devDependencies', dependency])),
         });

@@ -411,7 +411,7 @@ export async function extractDataModel(tree: TreeReader): Promise<Extraction> {
   for (const database of [...databases.values()].sort((left, right) => byCodePoint(left.name, right.name))) {
     // The database's place is the first file that declares it — its first migration, its schema, or the folder it
     // stands in — and every migration names its own file (madarch-m38l.16: a node says where it stands).
-    const declaredIn = database.migrations[0]?.path;
+    const declaredIn = database.migrations[0]?.path ?? firstTablePath(database);
     nodes.push({
       key: databaseKey(database.name),
       kind: 'code.database',
@@ -440,7 +440,7 @@ export async function extractDataModel(tree: TreeReader): Promise<Extraction> {
         nodes.push({
           key: columnKey(database.name, table.name, column.name, table.schema),
           kind: 'code.column',
-          label: `${table.name}.${column.name}`,
+          label: column.name,
           properties: {
             type: column.type,
             nullable: column.nullable,
@@ -456,7 +456,7 @@ export async function extractDataModel(tree: TreeReader): Promise<Extraction> {
         nodes.push({
           key: indexKey(database.name, table.name, index.name, table.schema),
           kind: 'code.index',
-          label: `${table.name}.${index.name}`,
+          label: index.name,
           properties: {
             columns: [...index.columns].sort(byCodePoint),
             unique: index.unique,
@@ -627,6 +627,12 @@ function tableOf(database: MergedDatabase, name: string, schema = 'public'): Mer
 }
 
 /** Reads a path's bytes as text; the reason is the gap when they cannot be read. */
+
+/** The file a database without a migration is declared in: the file of its first table, or none. */
+function firstTablePath(database: MergedDatabase): string | undefined {
+  for (const table of database.tables.values()) if (table.span !== undefined) return table.span.path;
+  return undefined;
+}
 
 /** The span of a whole file, or the first line where its bytes cannot be read: a database and a migration say where they stand. */
 function wholeFile(tree: TreeReader, path: string): SourceSpan {

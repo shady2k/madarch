@@ -214,7 +214,7 @@ describe('template text and the service page', () => {
     const model = await page(SERVICE);
     const problems = model.blocks.filter((entry) => entry.type === 'problem');
     expect(problems.map((entry) => entry.type === 'problem' ? [entry.file, entry.line] : [])).toEqual([['templates/service.md', 5], ['templates/service.md', 6]]);
-    expect(model.findings.map((entry) => entry.message)).toContain('"nonsense" is not a block of the library (body, graph, related, callers, callees, source, er, sequence, system, modules, treemap, history, stated, implementedby, linkedfrom, properties, children, term)');
+    expect(model.findings.map((entry) => entry.message)).toContain('"nonsense" is not a block of the library (body, graph, related, callers, callees, source, er, sequence, system, modules, treemap, history, definition, stated, implementedby, linkedfrom, properties, children, term)');
     expect(model.findings.some((entry) => entry.line === 6 && entry.message.includes('closes nothing'))).toBe(true);
   });
 

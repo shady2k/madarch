@@ -161,16 +161,16 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
   // channel and a message carry the location the wiki shows (madarch-m38l.16).
   const pathOf = (node: ExtractedNode): string | undefined => {
     if (node.kind === KIND_CONTRACT) return node.key.slice('code.contract:'.length);
+    if (node.kind === KIND_MESSAGE) return node.key.slice(node.key.indexOf(':') + 1, node.key.lastIndexOf('#'));
     const held = node.properties['path'] ?? node.properties['contract'];
     return typeof held === 'string' ? held : undefined;
   };
-  for (const node of nodes) {
+  for (const [at, node] of nodes.entries()) {
     if (node.kind !== KIND_CONTRACT && node.kind !== KIND_CHANNEL && node.kind !== KIND_MESSAGE) continue;
     const path = pathOf(node);
     const span = path === undefined ? undefined : contractSpans.get(path);
     if (path === undefined || span === undefined) continue;
-    node.properties = {...node.properties, path};
-    node.span = span;
+    nodes[at] = {...node, properties: {...node.properties, path}, span};
   }
 
   // ---- the code, one walk per file ------------------------------------------
@@ -292,11 +292,11 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
       nodes.push({
         key: routeKey(file.path, route.method, route.path),
         kind: KIND_ROUTE,
-        label: `${route.method} ${route.path} · ${service}`,
+        label: `${route.method} ${route.path}`,
         properties,
         span: route.span,
       });
-      edges.push({type: 'code.references', from: routeKey(file.path, route.method, route.path), to: fileKey(file.path), discriminator: '', properties: {}, span: route.span});
+      edges.push({type: 'code.contains', from: fileKey(file.path), to: routeKey(file.path, route.method, route.path), discriminator: '', properties: {}, span: route.span});
     }
 
     if (file.go.entryPoint) {
@@ -389,7 +389,7 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
       nodes.push({
         key: routeKey(file.path, route.method, path),
         kind: KIND_ROUTE,
-        label: `${route.method} ${path} · ${service}`,
+        label: `${route.method} ${path}`,
         properties: {
           method: route.method,
           path,
@@ -399,7 +399,7 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
         },
         span: route.span,
       });
-      edges.push({type: 'code.references', from: routeKey(file.path, route.method, path), to: fileKey(file.path), discriminator: '', properties: {}, span: route.span});
+      edges.push({type: 'code.contains', from: fileKey(file.path), to: routeKey(file.path, route.method, path), discriminator: '', properties: {}, span: route.span});
     }
 
     if (ts.entry !== undefined) {
@@ -581,7 +581,7 @@ function extractSqlFlow(
       span: input.span,
     });
     // The input is read in this file, whether or not it reaches a builder or a sink (madarch-m38l.16).
-    addEdge('code.references', inputKey(path, 'query', input.name), fileKey(path), {}, input.span);
+    addEdge('code.contains', fileKey(path), inputKey(path, 'query', input.name), {}, input.span);
   }
   const pathBuilds = ts.stringSplicers.filter((splicer) => ts.buildersOnPath.includes(splicer.fn));
   for (const build of pathBuilds) {

@@ -204,13 +204,25 @@ export function extractDriverTests(label: string, make: () => { owner: DatabaseO
     test('generated-repository graph audit: every node is connected, placed and uniquely labelled', async () => {
       const at = env.report.commits.at(-1)?.effectiveTime;
       if (at === undefined) throw new Error('the generated graph has no tip valid time');
-      const nodes = await env.query<{key: string; kind: string; label: string; span: unknown; node: string}>(
+      const rows = await env.query<{key: string; kind: string; label: string; span: unknown; node: string}>(
         `SELECT v.properties->>'recordKey' AS key, k.key AS kind, v.label, v.properties->'span' AS span, v.node_id::text AS node
          FROM node_version v JOIN node_kind k ON k.id=v.kind_id
          WHERE v.recorded_to='infinity' AND v.valid_from <= $1::timestamptz AND v.valid_to > $1::timestamptz
            AND v.properties ? 'recordKey' AND v.scope_id=$2::bigint ORDER BY k.key COLLATE "C", v.properties->>'recordKey' COLLATE "C"`,
         [at, env.report.repositoryNode],
       );
+      // One entity may stand as several rows (a producer's stub beside the owner's node): its place is taken from the
+      // row that has one, and its nodes are all its own.
+      const merged = new Map<string, {key: string; kind: string; label: string; span: unknown; nodes: string[]}>();
+      for (const row of rows) {
+        const held = merged.get(row.key);
+        if (held === undefined) merged.set(row.key, {key: row.key, kind: row.kind, label: row.label, span: row.span, nodes: [row.node]});
+        else {
+          held.nodes.push(row.node);
+          if (held.span === null && row.span !== null) held.span = row.span;
+        }
+      }
+      const nodes = [...merged.values()];
       const edges = await env.query<{src: string; dst: string}>(
         `SELECT DISTINCT e.src_id::text AS src, e.dst_id::text AS dst FROM edge_version e
          WHERE e.recorded_to='infinity' AND e.valid_from <= $1::timestamptz AND e.valid_to > $1::timestamptz`, [at],
@@ -222,6 +234,7 @@ export function extractDriverTests(label: string, make: () => { owner: DatabaseO
         'code.commit': 'a commit is an instant of the history, not a place in a file',
         'code.author': 'an author is a person',
         'code.task': 'a task is a tracker key that commit messages name',
+        'code.snapshot': 'a snapshot is a commit the fill pinned, not a place in a file',
       };
       /**
        * The kinds whose labels may repeat, and why. A commit's label is its message, and two commits may carry one
@@ -230,7 +243,12 @@ export function extractDriverTests(label: string, make: () => { owner: DatabaseO
        */
       const repeatedLabels: Readonly<Record<string, string>> = {
         'code.commit': 'two commits may carry the same message',
-        'code.symbol': 'a symbol is labelled by its name in its file; the file and the line tell two of them apart',
+        'code.symbol': 'a symbol is labelled by the name it is written under; its own file and line tell two apart',
+        'code.column': 'a column is labelled by its name in its table; every list of columns is one table\'s',
+        'code.index': 'an index is labelled by the name it is created under, and its table tells two apart',
+        'code.route': 'a route is labelled by its method and path; the service that serves it tells two apart',
+        'code.dependency': 'a library is labelled by its name; the manifest that declares it tells two apart',
+        'code.env-var': 'a variable is labelled by its name; the service that reads it tells two apart',
       };
       const totals = new Map<string, {total: number; isolated: string[]}>();
       const unplaced: string[] = [];
@@ -238,7 +256,7 @@ export function extractDriverTests(label: string, make: () => { owner: DatabaseO
       for (const node of nodes) {
         const held = totals.get(node.kind) ?? {total: 0, isolated: []};
         held.total += 1;
-        if (!incident.has(node.node)) held.isolated.push(node.key);
+        if (!node.nodes.some((id) => incident.has(id))) held.isolated.push(node.key);
         totals.set(node.kind, held);
         const span = node.span === null || typeof node.span !== 'object' ? undefined : (node.span as Record<string, unknown>);
         if (node.kind.startsWith('code.') && noFile[node.kind] === undefined && (span === undefined || typeof span['path'] !== 'string' || typeof span['lineStart'] !== 'number' || typeof span['lineEnd'] !== 'number')) {

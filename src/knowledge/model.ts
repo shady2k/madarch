@@ -189,8 +189,24 @@ type BlockShape =
   | { type: 'properties'; title: string; rows: { name: string; value: string }[] }
   | { type: 'stated'; title: string; place: { repo: string | null; path: string; lineStart: number; lineEnd: number; href: string; commit: string | null } }
   | { type: 'deferred'; block: string; title: string; line: number }
+  | { type: 'definition'; title: string; format: string; contract: string; location?: CodeLocation; members: DefinitionMember[]; spec: { text: string; lines: number } }
   | { type: 'history'; title: string; sections: HistorySection[]; notes: string[] }
   | { type: 'problem'; block: string; message: string; file: string; line: number };
+
+
+/** One member of a contract's definition: an operation, a channel, or an rpc, with the anchor the page opens at. */
+export interface DefinitionMember {
+  /** The anchor the member is addressable by: `op-<id>`, `channel-<name>`, `rpc-<service>/<rpc>`. */
+  anchor: string;
+  /** The member's own words: `GET /payments`, `orders.created`, `Payments.Authorize`. */
+  label: string;
+  /** What the contract says beside it: a summary, the message a channel carries, the request and response of an rpc. */
+  detail?: string;
+  /** The page of the member, when the graph holds one. */
+  href: string | null;
+  /** The badge of the member's protocol face: the HTTP method, `async`, `gRPC`. */
+  badge?: string;
+}
 
 /** One list of a history block: the commits it shows, or the files it shows, with the list's own columns. */
 export interface HistorySection {
