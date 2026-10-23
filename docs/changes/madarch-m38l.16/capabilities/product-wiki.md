@@ -797,3 +797,95 @@ shall be available in English and Russian.
 - When: it is rendered in English and Russian
 - Then: all app-owned labels and empty or unavailable states use the selected language
 
+## Requirement: graph-connectivity — Every graph kind has its meaning's relations
+The fill shall publish the relations implied by each graph kind so graph pages
+are reachable in both directions where a reader needs them: a contract
+declares its operations and messages; a database holds tables; a table has
+columns and indexes; an index covers columns; a migration creates or alters
+its tables, columns and indexes; a channel carries messages; an entry-point
+starts a process or file; a health or metrics endpoint is served by a service
+or route, and `GET /healthz` is also represented as a route so its operation
+finds it; a logger is used by a file or service; a commit touches files and is
+authored by an author; a task is named by a commit; and a facet describes a
+file. Existing extractor facts shall be joined by stable graph keys rather
+than leaving dangling endpoints. New starter relation blocks belong only in
+the `TEMPLATES` text in `src/knowledge/seed.ts`. Every node kind must either
+have the relations its meaning implies or be explicitly declared standalone
+in the starter template with a reason.
+
+The generated training repository shall have a committed audit test that
+reads every node's depth-one neighbourhood for every kind and fails on any
+unjustified isolated node. The audit shall report per-kind totals, isolated
+counts and standalone exceptions; it shall not sample or silently cap the
+result. The change record shall preserve the measured before and after counts.
+
+### Scenario: contract-data-and-operation-relations
+- Given: a contract that declares operations and messages, a database with tables, and tables with columns and indexes
+- When: graph pages and their neighbourhoods are read
+- Then: contract-declares-operation/message, database-holds-table, table-has-column/index and index-covers-column relations reach both endpoints
+
+### Scenario: migration-and-channel-relations
+- Given: migrations creating or altering schema objects and a channel carrying a message
+- When: their graph pages are read
+- Then: migration relations identify every created or altered table, column and index, and the channel is connected to its message
+
+### Scenario: process-endpoint-logger-relations
+- Given: entry points, health and metrics endpoints, routes, services, and loggers in the generated repository
+- When: their graph pages are read
+- Then: entry points start their process or file, endpoints are served by their service or route, `GET /healthz` is discoverable as a route and operation, and loggers are connected to their using file or service
+
+### Scenario: history-and-facet-relations
+- Given: commits, authors, tasks, facets and files in the generated repository
+- When: their graph pages are read
+- Then: commits touch files and are authored by authors, commits name tasks, and facets describe files
+
+### Scenario: exhaustive-isolation-audit
+- Given: the generated training repository and its declared standalone kinds with reasons
+- When: the committed audit enumerates every node at depth one
+- Then: it reports all per-kind counts, has no isolated nodes except the explicit standalone kinds, and fails rather than truncating or sampling
+
+## Requirement: contract-display — Operations and contracts use protocol-aware definitions
+The operations index shall group operations by their contract and show a
+protocol badge identifying OpenAPI, gRPC or AsyncAPI. Each operation row
+shall expose the operation, implemented-by, called-by and place columns, with
+links to graph pages where available. A contract page shall offer a lazily
+loaded, read-only Definition view using the standard renderer for its protocol:
+Redoc for OpenAPI, `@asyncapi/react-component` for AsyncAPI, and a gRPC
+service-documentation view showing each service, its methods, request and
+response messages, and message fields. An operation page shall show its own
+contract slice, deep-linking Redoc to the operation for OpenAPI, alongside
+madarch's links and call chain. Loading a definition shall not block the rest
+of the page; a load or parse failure shall be shown with the contract path and
+cause, not as an empty successful definition. All app-owned labels and errors
+shall be available in English and Russian.
+
+### Scenario: operations-grouped-by-contract
+- Given: contracts of OpenAPI, gRPC and AsyncAPI protocols with operations
+- When: the operations index is read
+- Then: operations are grouped by contract, each group has its protocol badge, and rows show operation, implemented by, called by and place
+
+### Scenario: openapi-definition-and-operation-slice
+- Given: an OpenAPI contract with multiple operations
+- When: its Definition view and one operation page are opened
+- Then: Redoc loads lazily and read-only, and the operation page deep-links Redoc to that operation while retaining madarch links and its call chain
+
+### Scenario: asyncapi-definition
+- Given: an AsyncAPI contract
+- When: its Definition view is opened
+- Then: `@asyncapi/react-component` loads lazily in read-only mode and displays the contract definition
+
+### Scenario: grpc-definition
+- Given: a gRPC contract with a service, methods, request and response messages with fields
+- When: its Definition view is opened
+- Then: the page documents the service, each method and its request and response message fields
+
+### Scenario: contract-definition-is-lazy-and-failure-visible
+- Given: a contract page whose Definition view is not opened, then a contract with an invalid or unavailable definition
+- When: the page is first read and the Definition view is opened
+- Then: no protocol renderer loads before the view is opened, and a failure names the contract path and cause without blanking the page
+
+### Scenario: protocol-rendering-localization
+- Given: a contract page rendered in English and Russian
+- When: its operations table and Definition view are read
+- Then: all madarch-owned headings, badges, loading and error text use the selected language
+
