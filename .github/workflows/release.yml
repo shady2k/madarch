@@ -107,8 +107,13 @@ jobs:
           $port = 18127
           try {
             # `new` returns at once; the products home's background server serves the draft.
-            $facts = (& $binary new --home $products --port "$port" --json --no-open | Select-Object -Last 1) | ConvertFrom-Json
-            if ($LASTEXITCODE -ne 0) { throw "madarch new exited $LASTEXITCODE" }
+            # The daemon the command starts inherits its output handles, so a pipe would never close: the output goes to files.
+            $out = Join-Path $env:RUNNER_TEMP 'madarch-new-out.txt'
+            $err = Join-Path $env:RUNNER_TEMP 'madarch-new-err.txt'
+            $created = Start-Process -FilePath $binary -ArgumentList @('new', '--home', $products, '--port', "$port", '--json', '--no-open') -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+            if (-not $created.WaitForExit(120000)) { throw 'madarch new did not return within 120 s' }
+            if ($created.ExitCode -ne 0) { throw "madarch new exited $($created.ExitCode): $(Get-Content $err -Raw)" }
+            $facts = (Get-Content $out | Select-Object -Last 1) | ConvertFrom-Json
             $url = $facts.url
             if ($url -notlike "http://127.0.0.1:$port/products/*") { throw "madarch new printed no product address on port ${port}: $url" }
             $served = $false
@@ -121,7 +126,7 @@ jobs:
             if ($root.StatusCode -ne 200) { throw "the root answered $($root.StatusCode)" }
             $page = Invoke-WebRequest -UseBasicParsing $url
             if ($page.Content -notmatch '<div id="root"') { throw "the product page at $url is not the wiki app's HTML" }
-          } finally { & $binary stop --home $products 2>&1 | Out-Host }
+          } finally { Start-Process -FilePath $binary -ArgumentList @('stop', '--home', $products) -NoNewWindow | Out-Null; Start-Sleep -Seconds 2 }
       - name: checksum
         shell: bash
         env:
