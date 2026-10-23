@@ -563,6 +563,7 @@ function Definition({ block }: { block: Extract<Block, { type: 'definition' }> }
         <Badge data-testid="definition-format">{formatName}</Badge>
         {block.location === undefined ? <span className="font-mono text-[0.875em]">{block.contract}</span> : <KLink href={block.location.href} className="font-mono text-[0.875em] text-secondary">{block.contract}</KLink>}
       </p>
+      {block.memberCuts.map((cut, index) => <p key={`${cut.channel}:${index}`} className="mt-2 text-small text-muted">{cut.channel === '' ? t('knowledge.definitionMembersCut', { shown: cut.shown, total: cut.total }) : t('knowledge.definitionChannelCut', { channel: cut.channel, shown: cut.shown, total: cut.total })}</p>)}
       {block.members.length === 0 ? <p className="mt-2 text-small text-muted" data-testid="definition-empty">{t('knowledge.definitionEmpty')}</p> : (
         <Table className="mt-3">
           <TableHeader>

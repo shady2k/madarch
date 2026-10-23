@@ -65,19 +65,22 @@ async function commitRows(ctx: RenderContext, commit: GraphEntity, limit: number
   const found = await ctx.graph.edgesOf(commit, 'code.touched', 'out', limit);
   const rows: HistoryRow[] = [];
   let uncounted = 0;
+  const notes: string[] = [];
   for (const edge of found.rows) {
     const file = edge.other;
     const churn = churnOf(edge.properties);
     if (churn.length === 0) uncounted += 1;
-    const symbols = await ctx.graph.neighbors(file, { relations: ['code.contains'], direction: 'out', limit: 500 });
-    const declared = symbols.find((group) => group.relation === 'code.contains');
+    const contained = await ctx.graph.neighbors(file, { relations: ['code.contains'], direction: 'out', limit: 500 });
+    const declared = contained.find((group) => group.relation === 'code.contains');
+    const symbols = declared?.rows.filter((row) => row.entity.kind === 'code.symbol') ?? [];
+    const symbolCount = symbols.length;
     rows.push({
       text: file.label,
       entity: refOfGraph(ctx, file),
-      figures: [...churn, ...(declared === undefined || declared.total === 0 ? [] : [{ kind: 'symbols' as const, value: String(declared.total) }])],
+      figures: [...churn, ...(symbolCount === 0 ? [] : [{ kind: 'symbols' as const, value: String(symbolCount) }])],
     });
+    if (declared !== undefined && declared.total > declared.rows.length) notes.push(`The file ${file.label} has more than ${String(declared.rows.length)} contained entities; its symbol count is incomplete.`);
   }
-  const notes: string[] = [];
   if (found.total > rows.length) notes.push(`The commit changed ${String(found.total)} files; this page shows the first ${String(rows.length)}.`);
   if (uncounted > 0) notes.push(`${String(uncounted)} of the files report no line counts: the history walk counts the lines of text, and a binary file has none.`);
   if (found.total === 0) notes.push('This commit changed no file of its own: it is a merge, and the changes came in with the branches it brought together.');

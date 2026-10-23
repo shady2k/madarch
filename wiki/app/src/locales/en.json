@@ -384,7 +384,9 @@
     "definitionDetail": "What it says",
     "definitionEmpty": "This contract declares no operation, channel or rpc the reader could read.",
     "definitionSource": "The contract itself",
-    "definitionCut": "Showing the first {{shown}} lines of {{total}}."
+    "definitionCut": "Showing the first {{shown}} lines of {{total}}.",
+    "definitionMembersCut": "Showing {{shown}} of {{total}} contract members.",
+    "definitionChannelCut": "Channel {{channel}}: showing {{shown}} of {{total}} messages."
   },
   "loop": {
     "questionsTitle": "Questions",

@@ -161,6 +161,13 @@ describe('data-model extractor (training repository, answer key)', () => {
     expect(extraction.edges.some((edge) => edge.type === 'code.creates' && edge.from.startsWith('code.migration:orders/') && edge.to === tableKey('orders', 'orders'))).toBe(true);
   });
 
+  test('each ALTER TABLE operation links its migration to the table once with a stable discriminator', () => {
+    const tableEdges = extraction.edges.filter((edge) => edge.type === 'code.alters' && edge.to.startsWith('code.table:'));
+    const identities = tableEdges.map((edge) => `${edge.from}|${edge.to}|${edge.discriminator}`);
+    expect(new Set(identities).size).toBe(identities.length);
+    expect(tableEdges.every((edge) => edge.properties['object'] === 'table')).toBe(true);
+  });
+
   test('two extractions of the same tree give the same records', async () => {
     const read = await treeReaderOf(repoFolder);
     const again = await extractDataModel(read.tree);

@@ -26,50 +26,55 @@ function anchorOf(prefix: string, rest: string): string {
 }
 
 /** The members one contract declares, in the order its format reads best: operations by path, channels by name. */
-async function membersOf(ctx: RenderContext, contract: GraphEntity): Promise<DefinitionMember[]> {
+async function membersOf(ctx: RenderContext, contract: GraphEntity): Promise<{ members: DefinitionMember[]; total: number; shown: number; cuts: { channel: string; total: number; shown: number }[] }> {
   const declared = await ctx.graph.neighbors(contract, { relations: ['code.declares'], direction: 'out', limit: 500 });
   const members: DefinitionMember[] = [];
-  for (const group of declared) {
-    for (const row of group.rows) {
-      const entity = row.entity;
-      const ref = refOfGraph(ctx, entity);
-      if (entity.kind === 'code.operation') {
-        const method = textOf(entity.properties['method']);
-        const rpc = textOf(entity.properties['rpc']);
-        const service = textOf(entity.properties['service']);
-        if (rpc !== undefined) {
-          const input = textOf(entity.properties['input']) ?? '?';
-          const output = textOf(entity.properties['output']) ?? '?';
-          const name = service === undefined ? rpc : `${service}.${rpc}`;
-          members.push({ anchor: anchorOf('rpc', name), label: name, detail: `${input} → ${output}`, href: ref.href, badge: 'gRPC' });
-          continue;
-        }
-        const path = textOf(entity.properties['path']) ?? entity.label;
-        const summary = textOf(entity.properties['summary']);
-        const operationId = textOf(entity.properties['operationId']);
-        members.push({
-          anchor: anchorOf('op', operationId ?? `${method ?? 'any'}:${path}`),
-          label: `${(method ?? 'any').toUpperCase()} ${path}`,
-          ...(summary === undefined ? {} : { detail: summary }),
-          href: ref.href,
-          badge: (method ?? 'any').toUpperCase(),
-        });
+  const total = declared.reduce((sum, group) => sum + group.total, 0);
+  const shown = declared.reduce((sum, group) => sum + group.rows.length, 0);
+  const cuts: {channel: string; total: number; shown: number}[] = [];
+  if (total > shown) cuts.push({channel: '', total, shown});
+  for (const group of declared) for (const row of group.rows) {
+    const entity = row.entity;
+    const ref = refOfGraph(ctx, entity);
+    if (entity.kind === 'code.operation') {
+      const method = textOf(entity.properties['method']);
+      const rpc = textOf(entity.properties['rpc']);
+      const service = textOf(entity.properties['service']);
+      if (rpc !== undefined) {
+        const input = textOf(entity.properties['input']) ?? '?';
+        const output = textOf(entity.properties['output']) ?? '?';
+        const name = service === undefined ? rpc : `${service}.${rpc}`;
+        members.push({anchor: anchorOf('rpc', name), label: name, detail: `${input} → ${output}`, href: ref.href, badge: 'gRPC'});
         continue;
       }
-      if (entity.kind === 'code.channel') {
-        const messages = await ctx.graph.neighbors(entity, { relations: ['code.carries'], direction: 'out', limit: 100 });
-        const carried = messages.flatMap((held) => held.rows.map((message) => message.entity.label)).sort(byCodePoint);
-        members.push({
-          anchor: anchorOf('channel', entity.label),
-          label: entity.label,
-          ...(carried.length === 0 ? {} : { detail: carried.join(', ') }),
-          href: ref.href,
-          badge: 'async',
-        });
-      }
+      const path = textOf(entity.properties['path']) ?? entity.label;
+      const summary = textOf(entity.properties['summary']);
+      const operationId = textOf(entity.properties['operationId']);
+      members.push({
+        anchor: anchorOf('op', operationId ?? `${method ?? 'any'}:${path}`),
+        label: `${(method ?? 'any').toUpperCase()} ${path}`,
+        ...(summary === undefined ? {} : {detail: summary}),
+        href: ref.href,
+        badge: (method ?? 'any').toUpperCase(),
+      });
+      continue;
+    }
+    if (entity.kind === 'code.channel') {
+      const messages = await ctx.graph.neighbors(entity, {relations: ['code.carries'], direction: 'out', limit: 100});
+      const messageGroup = messages.find((held) => held.relation === 'code.carries');
+      const carried = messageGroup?.rows.map((message) => message.entity.label).sort(byCodePoint) ?? [];
+      if (messageGroup !== undefined && messageGroup.total > messageGroup.rows.length) cuts.push({channel: entity.label, total: messageGroup.total, shown: messageGroup.rows.length});
+      members.push({
+        anchor: anchorOf('channel', entity.label),
+        label: entity.label,
+        ...(carried.length === 0 ? {} : {detail: carried.join(', ')}),
+        ...(messageGroup === undefined ? {} : {detailTotal: messageGroup.total}),
+        href: ref.href,
+        badge: 'async',
+      });
     }
   }
-  return members.sort((left, right) => byCodePoint(`${left.badge ?? ''}|${left.label}`, `${right.badge ?? ''}|${right.label}`));
+  return {members: members.sort((left, right) => byCodePoint(`${left.badge ?? ''}|${left.label}`, `${right.badge ?? ''}|${right.label}`)), total, shown, cuts};
 }
 
 /** The definition block: a contract's members and its own text, read from the graph and the repository. */
@@ -90,7 +95,7 @@ export async function definitionBlock(ctx: RenderContext, subject: Subject, para
   }
   const lines = text.split('\n');
   const shown = lines.slice(0, SPEC_LIMIT).join('\n');
-  const members = await membersOf(ctx, contract);
+  const {members, total, shown: membersShown, cuts: memberCuts} = await membersOf(ctx, contract);
   const location = refOfGraph(ctx, contract).location;
   return {
     type: 'definition',
@@ -99,6 +104,9 @@ export async function definitionBlock(ctx: RenderContext, subject: Subject, para
     contract: path,
     ...(location === undefined ? {} : { location }),
     members,
+    membersTotal: total,
+    membersShown,
+    memberCuts,
     spec: { text: shown, lines: lines.length },
   };
 }

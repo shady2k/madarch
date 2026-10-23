@@ -189,7 +189,7 @@ type BlockShape =
   | { type: 'properties'; title: string; rows: { name: string; value: string }[] }
   | { type: 'stated'; title: string; place: { repo: string | null; path: string; lineStart: number; lineEnd: number; href: string; commit: string | null } }
   | { type: 'deferred'; block: string; title: string; line: number }
-  | { type: 'definition'; title: string; format: string; contract: string; location?: CodeLocation; members: DefinitionMember[]; spec: { text: string; lines: number } }
+  | { type: 'definition'; title: string; format: string; contract: string; location?: CodeLocation; members: DefinitionMember[]; membersTotal: number; membersShown: number; memberCuts: { channel: string; total: number; shown: number }[]; spec: { text: string; lines: number } }
   | { type: 'history'; title: string; sections: HistorySection[]; notes: string[] }
   | { type: 'problem'; block: string; message: string; file: string; line: number };
 
@@ -206,6 +206,7 @@ export interface DefinitionMember {
   href: string | null;
   /** The badge of the member's protocol face: the HTTP method, `async`, `gRPC`. */
   badge?: string;
+  detailTotal?: number;
 }
 
 /** One list of a history block: the commits it shows, or the files it shows, with the list's own columns. */

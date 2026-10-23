@@ -384,7 +384,9 @@
     "definitionDetail": "Что сказано",
     "definitionEmpty": "Этот контракт не объявляет ни операции, ни канала, ни rpc, которые читатель смог бы прочитать.",
     "definitionSource": "Сам контракт",
-    "definitionCut": "Показаны первые {{shown}} строк из {{total}}."
+    "definitionCut": "Показаны первые {{shown}} строк из {{total}}.",
+    "definitionMembersCut": "Показано {{shown}} из {{total}} элементов контракта.",
+    "definitionChannelCut": "Канал {{channel}}: показано {{shown}} из {{total}} сообщений."
   },
   "loop": {
     "questionsTitle": "Вопросы",
