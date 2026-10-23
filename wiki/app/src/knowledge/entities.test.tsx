@@ -15,7 +15,7 @@ import { unified } from 'unified';
 import { setWikiLanguage } from '../i18n.js';
 import { BlockView, KMarkdown } from './blocks.js';
 import { navGroups, TabBar } from './app.js';
-import { CataloguePage, DocumentsPage, StatementPage, filterSources } from './pages.js';
+import { CataloguePage, DocumentsPage, EntityPage, StatementPage, filterSources } from './pages.js';
 import { resetPreferences } from './preferences.js';
 import { addressOfStatement, kRouteOf } from './routes.js';
 import { cutSentences, plainText, remarkStatements, type MNode } from './statements.js';
@@ -204,13 +204,14 @@ describe('Markdown read as statements', () => {
   test('a click whose sentence was asked for on a page the reader left opens nothing', async () => {
     const container = into(createElement('div', null, createElement(TabBar), createElement(KMarkdown, { text: 'Checkout asks payments to authorize the card now.[^1]\n\n[^1]: [f](madarch:code.symbol:a.ts#F)\n', resolutions, statements: { pageId: 'domain:payment', showGrounds: false } })));
     await until(() => container.querySelector('[data-testid=statement]') !== null && container.querySelector('[data-testid=tab]') !== null, 'the statement and the tab bar');
-    const before = container.querySelectorAll('[data-testid=tab]').length;
+    expect(container.querySelectorAll('[data-testid=tab]')).toHaveLength(1);
     (container.querySelector('[data-testid=statement]') as HTMLElement).click();
     // The reader follows a link before the click interval is over: the page that asked for the opening is gone.
     rendered?.unmount();
     rendered = undefined;
     await new Promise((resolve) => setTimeout(resolve, 600));
-    expect(JSON.parse(window.sessionStorage.getItem('madarch-tabs:/')!).tabs).toHaveLength(before);
+    expect(window.location.pathname).toBe('/k');
+    expect(frontTab().address).toBe('/k');
   });
 
   test('a double click on a sentence can select a word without opening its statement', async () => {
@@ -641,9 +642,14 @@ describe('the statement view', () => {
     const missing = into(createElement(StatementPage, { id: 'domain:payment', sentence: 'x', version: 0 }));
     await until(() => missing.querySelector('[data-testid=statement-error]') !== null, 'the refusal');
     expect(missing.textContent).toContain('holds no statement');
-    // A page that is not there names its tab as well: no tab is left titled as loading.
-    await until(() => frontTab().title !== null && frontTab().title !== '', 'the title of the refused page');
-    expect(frontTab().title).toBe('There is no such page');
+    // The refused statement's tab is named by the sentence that was asked for, never left as loading.
+    expect(frontTab().title).toBe('x');
+    // A page that is not there names its tab too.
+    rendered?.unmount();
+    document.body.innerHTML = '';
+    const noPage = into(createElement(EntityPage, { id: 'domain:none', version: 0 }));
+    await until(() => noPage.querySelector('[data-testid=page-error]') !== null, 'the page that is not there');
+    await until(() => frontTab().title === 'There is no such page', 'the title of the refused page');
   });
 });
 
