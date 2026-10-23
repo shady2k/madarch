@@ -1,6 +1,6 @@
 import { appPath } from '../app-base.js';
 import { readJson, RequestError } from '../api.js';
-import type { AgentOffer, AnswerResult, CorrectionResult, DocumentListing, Glossary, UserSettings, DocumentPageModel, Block, EntityListing, Neighborhood, PageModel, ProblemListing, ProductChoice, QuestionDetail, QuestionListing, RefreshPreview, SourceFile, StatementModel, WikiStatus } from './types.js';
+import type { AgentOffer, AnswerResult, CorrectionResult, DocumentListing, Glossary, UserSettings, DocumentPageModel, Block, EntityListing, Neighborhood, PageModel, ProblemListing, PageJournal, ProductChoice, QuestionDetail, QuestionListing, RefreshPreview, SourceFile, StatementModel, WikiStatus } from './types.js';
 
 /** The wiki's status: manifest, kinds, repositories, fill. */
 export const getStatus = (signal?: AbortSignal): Promise<WikiStatus> => readJson<WikiStatus>('read the wiki', '/api/k/status', signal);
@@ -190,3 +190,6 @@ export const correctStatement = (statement: string, reason: string): Promise<Cor
 
 /** One block of a page, by the line of its template: what a deferred diagram reads to draw itself. */
 export const getBlock = (id: string, line: number, lang: string, signal?: AbortSignal): Promise<Block> => readJson<Block>(`read the block at line ${line} of the page of ${id}`, `/api/k/block?id=${encodeURIComponent(id)}&line=${line}&lang=${lang === 'ru' ? 'ru' : 'en'}`, signal);
+
+/** What the agent did to write one page: the records of the newest run that wrote it, or of the run asked for. */
+export const getJournal = (id: string, run: string | null, signal?: AbortSignal): Promise<PageJournal> => readJson<PageJournal>(`read the journal of ${id}`, `/api/k/journal?id=${encodeURIComponent(id)}${run === null ? '' : `&run=${encodeURIComponent(run)}`}`, signal);

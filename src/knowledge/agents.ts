@@ -20,6 +20,7 @@ import { homeFromEnv, type DraftEnv } from '../product/home.js';
 import { DEFAULT_UNIT_BOUNDS, MAX_DOMAINS } from '../writer/tools.js';
 import { acpUnitAgent } from '../writer/acp-agent.js';
 import type { UnitAgent } from '../writer/run.js';
+import type { Journal } from '../writer/journal.js';
 import type { AgentOffer, WriterBounds } from './model.js';
 
 /** The ids of the agents the wiki offers. */
@@ -78,12 +79,12 @@ export async function installAdapter(id: string, env: DraftEnv): Promise<{ ok: t
 }
 
 /** Starts the chosen agent as an ACP unit agent; the error names the adapter and where it was looked for. */
-export function makeUnitAgent(id: string, env: DraftEnv, progress?: (line: string) => void): (UnitAgent & { close(): Promise<void> }) | { error: string } {
+export function makeUnitAgent(id: string, env: DraftEnv, progress?: (line: string) => void, journal?: Journal): (UnitAgent & { close(): Promise<void> }) | { error: string } {
   const entry = adapterOf(id);
   if (entry === undefined) return { error: `src/knowledge/agents.ts: madarch offers ${WRITER_AGENTS.join(' and ')}; ${JSON.stringify(id)} is none of them` };
   const launch = launchOf(entry, env);
   if (launch === undefined) {
     return { error: `the ${entry.label} adapter is not installed: none of ${entry.launches.map((l) => l.binary).join(', ')} is on the PATH or in ${acpAgentFolder(entry, env, homeFromEnv(env))}` };
   }
-  return acpUnitAgent({ spec: { id: entry.id, command: launch.binary, args: launch.args }, env: { PATH: searchPathOf(entry, env) }, ...(progress === undefined ? {} : { progress }) });
+  return acpUnitAgent({ spec: { id: entry.id, command: launch.binary, args: launch.args }, env: { PATH: searchPathOf(entry, env) }, ...(progress === undefined ? {} : { progress }), ...(journal === undefined ? {} : { journal }) });
 }
