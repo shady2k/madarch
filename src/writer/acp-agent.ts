@@ -22,6 +22,7 @@ import { connectAcpAgent, type AcpConnection, type AcpAgentSpec, type AcpUpdate 
 import { answerUnitMcpMessage } from '../fill/unit-mcp.js';
 import { DEFAULT_STAGE_LIMITS, type StageLimits } from '../fill/stage.js';
 import { createUnitLimitGuard, PROCESS_TIMERS, watchUnitTimeLimit, type UnitLimitCause, type UnitTimers } from '../fill/unit-limits.js';
+import { applyPreferences, type AgentPreferences } from '../fill/acp-choices.js';
 import type { ToolClient, UnitAgent, UnitRequest } from './run.js';
 
 export interface AcpAgentOptions {
@@ -31,6 +32,8 @@ export interface AcpAgentOptions {
   readonly env?: Readonly<Record<string, string>>;
   readonly timers?: UnitTimers;
   readonly progress?: (line: string) => void;
+  /** The model and reasoning level the reader chose for this agent (madarch-m38l.11); set on each session when the agent still offers them. */
+  readonly preferences?: AgentPreferences;
 }
 
 const CHARACTERS_PER_TOKEN = 4;
@@ -104,6 +107,7 @@ export function acpUnitAgent(options: AcpAgentOptions): UnitAgent & { close(): P
       let wrapPending = false;
       try {
         const session = await acp.newSession({ cwd: scratch!, mcpServers: [{ name: 'madarch-writer', type: 'http', url: endpoint.url, headers: { Authorization: `Bearer ${token}` } }] });
+        if (options.preferences !== undefined) await applyPreferences(session, options.preferences, options.progress);
         let prompt = request.prompt;
         for (let turns = 1; turns <= limits.maxTurns && stop === undefined; turns += 1) {
           guard.sent(Math.ceil([...prompt].length / CHARACTERS_PER_TOKEN));

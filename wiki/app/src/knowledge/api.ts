@@ -1,6 +1,6 @@
 import { appPath } from '../app-base.js';
 import { readJson, RequestError } from '../api.js';
-import type { AgentOffer, AnswerResult, CorrectionResult, DocumentListing, Glossary, UserSettings, DocumentPageModel, Block, EntityListing, Neighborhood, PageModel, ProblemListing, ProductChoice, QuestionDetail, QuestionListing, RefreshPreview, SourceFile, StatementModel, WikiStatus } from './types.js';
+import type { AgentChoices, AgentOffer, AnswerResult, ProductSettings, CorrectionResult, DocumentListing, Glossary, UserSettings, DocumentPageModel, Block, EntityListing, Neighborhood, PageModel, ProblemListing, ProductChoice, QuestionDetail, QuestionListing, RefreshPreview, SourceFile, StatementModel, WikiStatus } from './types.js';
 
 /** The wiki's status: manifest, kinds, repositories, fill. */
 export const getStatus = (signal?: AbortSignal): Promise<WikiStatus> => readJson<WikiStatus>('read the wiki', '/api/k/status', signal);
@@ -108,6 +108,25 @@ export async function resetProduct(): Promise<void> {
   }
   throw new RequestError('start over', reason, response.status);
 }
+
+// ---- the product settings page (madarch-m38l.11) -----------------------------------------------
+
+export const getProductSettings = (signal?: AbortSignal): Promise<ProductSettings> => readJson<ProductSettings>('read the product settings', '/api/k/product-settings', signal);
+
+/** What the chosen agent reports over ACP as its models and reasoning levels; `fresh` asks the agent again. */
+export const getAgentChoices = (fresh = false, signal?: AbortSignal): Promise<AgentChoices> => readJson<AgentChoices>('ask the agent for its models', `/api/k/agent-choices${fresh ? '?fresh=1' : ''}`, signal);
+
+/** Saves the page language, the model and the reasoning level (`null` is the agent's own). */
+export const saveProductSettings = (settings: { language?: string; model?: string | null; reasoning?: string | null }): Promise<ProductSettings> => post<ProductSettings>('save the settings', '/api/k/product-settings', settings);
+
+/** Adds items of the starter set to the product's manifest; answers the files written. */
+export const addStarter = (ids: string[]): Promise<{ written: string[] }> => post<{ written: string[] }>('add to the manifest', '/api/k/starter', { ids });
+
+/** «Rewrite the pages»: the agent's pages go, the graph stays, a fill writes them again. */
+export const rewritePages = (): Promise<unknown> => post<unknown>('rewrite the pages', '/api/k/rewrite-pages', {});
+
+/** «Start from scratch»: pages, graph, manifest and templates are put at the current set, and a fresh fill starts. */
+export const startFresh = (): Promise<{ fillRefused?: string }> => post<{ fillRefused?: string }>('start from scratch', '/api/k/start-fresh', {});
 
 /** The Markdown documents of the product and of its connected repositories. */
 export const getDocuments = (signal?: AbortSignal): Promise<DocumentListing> => readJson<DocumentListing>('list the documents', '/api/k/documents', signal);

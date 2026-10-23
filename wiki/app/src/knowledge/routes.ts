@@ -13,6 +13,7 @@ export type KRoute =
   | { name: 'questions' }
   | { name: 'question'; slug: string }
   | { name: 'problems' }
+  | { name: 'settings' }
   | { name: 'statement'; id: string; sentence: string; turn: number };
 
 export const K_HOME = '/k';
@@ -21,6 +22,7 @@ export const K_CATALOGUE = '/k/catalogue';
 export const K_GLOSSARY = '/k/glossary';
 export const K_QUESTIONS = '/k/questions';
 export const K_PROBLEMS = '/k/problems';
+export const K_SETTINGS = '/k/settings';
 export const addressOfQuestion = (slug: string): string => `/k/questions/${encodeURIComponent(slug)}`;
 /** Where the statement view of a sentence of a page stands. */
 export function addressOfStatement(id: string, sentence: string, turn = 0): string {
@@ -49,6 +51,7 @@ export function kRouteOf(pathname: string, search = ''): KRoute | null {
     }
   }
   if (path === '/k/problems' || path === '/k/problems/') return { name: 'problems' };
+  if (path === '/k/settings' || path === '/k/settings/') return { name: 'settings' };
   if (path.startsWith('/k/e/')) {
     try {
       const id = decodeURIComponent(path.slice('/k/e/'.length));

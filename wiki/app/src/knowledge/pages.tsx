@@ -16,6 +16,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { getDocument, getDocuments, getEntities, getPage, getSource, getStatement, correctStatement, startFill } from './api.js';
 import { useTabTitle } from './tabs.js';
 import { AgentChoice, WriterCard, useAgentChoice } from './writer.js';
+import { FailureNote } from './errors.js';
 import { BlockView, CodeLines, CodePlace, EntityName, Findings, KLink, KMarkdown, brokenWords, scrollToAnchor } from './blocks.js';
 import { addressOfDocument, addressOfKind, addressOfStatement } from './routes.js';
 import { useKindName } from './kind-names.js';
@@ -260,7 +261,7 @@ function FillPart({ status, refresh }: { status: WikiStatus; refresh: () => void
       <Alert variant="problem" className="mb-8" data-testid="fill-card" data-state="failed">
         <AlertTitle>{t('knowledge.fillFailedTitle')}</AlertTitle>
         <AlertDescription>
-          <p>{fill.message}</p>
+          <FailureNote scope="fill" code={fill.code} message={fill.message} />
           <p className="mt-2"><Button variant="default" size="default" onClick={start} disabled={starting}>{t('knowledge.fillRetry')}</Button></p>
           {refused !== null && <p className="mb-0 mt-3 text-small" role="alert" data-testid="fill-refused">{refused}</p>}
         </AlertDescription>
@@ -361,14 +362,7 @@ function ManifestFindings({ status }: { status: WikiStatus }): ReactElement | nu
     );
   }
   if (status.findings.length === 0) return null;
-  return (
-    <Alert variant="problem" className="mb-8" data-testid="manifest-findings">
-      <AlertTitle>{t('knowledge.findings', { count: status.findings.length })}</AlertTitle>
-      <AlertDescription>
-        <ul className="!my-1">{status.findings.map((finding, index) => <li key={index}><span className="font-mono text-[0.875em]">{finding.file}:{finding.line}</span> {finding.message}</li>)}</ul>
-      </AlertDescription>
-    </Alert>
-  );
+  return <Findings findings={status.findings} scope="manifest" />;
 }
 
 /** A product with no kinds manifest: what the file is and where it comes from. */

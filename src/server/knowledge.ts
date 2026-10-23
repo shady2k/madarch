@@ -41,6 +41,11 @@ export interface KnowledgePart {
   correction: (request: Request) => Promise<Handled>;
   problems: (request: Request) => Promise<Handled>;
   refreshPlan: (request: Request) => Promise<Handled>;
+  productSettings: (request: Request) => Promise<Handled>;
+  agentChoices: (request: Request) => Promise<Handled>;
+  starter: (request: Request) => Promise<Handled>;
+  rewritePages: (request: Request) => Promise<Handled>;
+  startFresh: (request: Request) => Promise<Handled>;
 }
 
 /** The largest file the source view shows whole. */
@@ -270,6 +275,70 @@ export function createKnowledgePart(
       const language = new URL(request.url).searchParams.get('language');
       if (language !== null && language !== 'en' && language !== 'ru') return refused(400, { field: 'language', message: `"language" is en or ru, got ${JSON.stringify(language)}` });
       return { response: json(200, await product.refreshPlan(language ?? undefined)) };
+    }),
+    productSettings: guarded('read the product settings', async (request) => {
+      if (request.method === 'GET') return { response: json(200, { ...product.settingsView(), ...(own ? { own: true } : {}) }) };
+      const crossSite = foreign(request);
+      if (crossSite !== undefined) return refused(403, { message: crossSite });
+      if (own) return refused(403, { message: "madarch's own wiki is documentation: it has no agent, no pages to write and no settings of a product" });
+      const plain = notJson(request);
+      if (plain !== undefined) return refused(415, { message: plain });
+      let body: unknown;
+      try { body = await request.json(); } catch (error) { return refused(400, { message: `the request body is not JSON: ${(error as Error).message}` }); }
+      const asked = body as { language?: unknown; model?: unknown; reasoning?: unknown } | null;
+      if (asked === null || typeof asked !== 'object') return refused(400, { message: 'the body is { language?, model?, reasoning? }' });
+      for (const field of ['model', 'reasoning'] as const) {
+        const value = asked[field];
+        if (value !== undefined && value !== null && typeof value !== 'string') return refused(400, { field, message: `"${field}" is a value the agent reports, or null for the agent's own` });
+      }
+      if (asked.language !== undefined) {
+        if (typeof asked.language !== 'string') return refused(400, { field: 'language', message: '"language" is the language the pages are written in: en or ru' });
+        const saved = product.setLanguage(asked.language);
+        if (!saved.ok) return refused(409, { field: 'language', message: saved.message });
+      }
+      if (asked.model !== undefined || asked.reasoning !== undefined) {
+        const chosen = await product.chooseModel(asked.model as string | null | undefined, asked.reasoning as string | null | undefined);
+        if (!chosen.ok) return refused(chosen.status, { message: chosen.message });
+      }
+      return { response: json(200, product.settingsView()) };
+    }),
+    agentChoices: guarded('ask the agent for its models', async (request) => {
+      // Asking starts the agent's adapter on this machine: only this wiki's own page may.
+      const crossSite = foreign(request);
+      if (crossSite !== undefined) return refused(403, { message: crossSite });
+      const answer = await product.agentChoices(new URL(request.url).searchParams.get('fresh') === '1');
+      if (!answer.ok) return refused(409, { message: answer.message });
+      return { response: json(200, answer) };
+    }),
+    starter: guarded('add to the manifest', async (request) => {
+      const crossSite = foreign(request);
+      if (crossSite !== undefined) return refused(403, { message: crossSite });
+      if (own) return refused(403, { message: "madarch's own wiki is documentation: its manifest is not changed here" });
+      const plain = notJson(request);
+      if (plain !== undefined) return refused(415, { message: plain });
+      let body: unknown;
+      try { body = await request.json(); } catch (error) { return refused(400, { message: `the request body is not JSON: ${(error as Error).message}` }); }
+      const ids = (body as { ids?: unknown } | null)?.ids;
+      if (!Array.isArray(ids) || ids.length === 0 || ids.some((id) => typeof id !== 'string')) return refused(400, { field: 'ids', message: '"ids" is the list of items of the starter set to add, as the Problems page names them' });
+      const done = product.addStarter(ids as string[]);
+      if (!done.ok) return refused(409, { field: 'ids', message: done.message });
+      return { response: json(200, { written: done.written }) };
+    }),
+    rewritePages: guarded('rewrite the pages', async (request) => {
+      const crossSite = foreign(request);
+      if (crossSite !== undefined) return refused(403, { message: crossSite });
+      if (own) return refused(403, { message: "madarch's own wiki is documentation, not a product to rewrite: its pages are not written here" });
+      const done = await product.rewritePages();
+      if (!done.ok) return refused(409, { message: done.message });
+      return { response: json(202, { plan: done.plan, fill: done.fill }) };
+    }),
+    startFresh: guarded('start from scratch', async (request) => {
+      const crossSite = foreign(request);
+      if (crossSite !== undefined) return refused(403, { message: crossSite });
+      if (own) return refused(403, { message: "madarch's own wiki is documentation, not a product to start from scratch: its pages are not rewritten here" });
+      const done = await product.startFresh();
+      if (!done.ok) return refused(409, { message: done.message });
+      return { response: json(202, done) };
     }),
     products: guarded('list the products', async () => ({ response: json(200, { current: product.folder, products: siblings() }) })),
   };

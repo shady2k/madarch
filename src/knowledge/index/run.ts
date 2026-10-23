@@ -9,8 +9,7 @@ import type { DatabaseOwner } from '../../adapters/database-owner.js';
 import type { GraphStore } from '../../graph/index.js';
 import { GraphView } from '../../writer/view.js';
 import { gitReader } from './grounds.js';
-import { indexProductMarkdown } from './index.js';
-import type { IndexReport } from './publish.js';
+import { indexProductMarkdown, type ProductIndexReport } from './index.js';
 
 export interface WorkerIndexOptions {
   readonly owner: DatabaseOwner;
@@ -23,8 +22,8 @@ export interface WorkerIndexOptions {
   readonly ref?: string;
 }
 
-/** Publishes the product's Markdown to the graph, or throws with every finding (file, line, reason). */
-export async function indexWorkerProduct(options: WorkerIndexOptions): Promise<IndexReport> {
+/** Publishes the product's Markdown to the graph; findings scoped to a kind or a page are answered, one that leaves nothing to publish throws. */
+export async function indexWorkerProduct(options: WorkerIndexOptions): Promise<ProductIndexReport> {
   const view = await GraphView.open(options.owner, options.store);
   const commit = execFileSync('git', ['rev-parse', '--verify', `${options.ref ?? 'HEAD'}^{commit}`], { cwd: options.repository.path, encoding: 'utf8' }).trim();
   const git = gitReader(options.repository.path);

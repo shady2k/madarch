@@ -191,7 +191,7 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
         return 0;
       }
       await snapshot(true).catch(() => undefined);
-      send({ type: 'fill', state: 'failed', message: error instanceof Error ? error.message : String(error) });
+      send({ type: 'fill', state: 'failed', code: 'fill', message: error instanceof Error ? error.message : String(error) });
       return 0;
     }
 
@@ -203,6 +203,8 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
       const repo = repositories[0]!;
       try {
         const report = await indexWorkerProduct({ owner, store, productFolder, productId: productSlug(start.productName), repository: repo, ...(pins.get(repo.name)?.head === undefined ? {} : { ref: pins.get(repo.name)!.head }) });
+        // A kind or a page left out of the index is for the Problems page to list, each with its file and line; it is told here once.
+        if (report.findings.length > 0) process.stderr.write(`knowledge index: ${report.findings.length} finding${report.findings.length === 1 ? '' : 's'} left a kind or a page out of the index (the Problems page lists them): ${report.findings.slice(0, 3).map((finding) => `${finding.file}:${finding.line}`).join('; ')}${report.findings.length > 3 ? '; …' : ''}\n`);
         return report.unresolved.length === 0 ? {} : { unresolved: `${report.unresolved.length} grounds or links of the pages name nothing in the graph: ${report.unresolved.slice(0, 3).map((miss) => `${miss.file}:${miss.line} ${miss.target}`).join('; ')}${report.unresolved.length > 3 ? '; …' : ''}` };
       } catch (error) {
         return { error: `the Markdown could not be indexed: ${error instanceof Error ? error.message : String(error)}` };
@@ -217,7 +219,7 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
     // ---- the agent stage --------------------------------------------------------------------
     if (!start.writer) return 0;
     if (repositories.length !== 1) {
-      send({ type: 'writer', state: 'failed', message: `the writer reads one code repository and the product declares ${repositories.length} (${repositories.map((repo) => repo.name).join(', ')}): nothing was written, so no page is a smaller picture of the product` });
+      send({ type: 'writer', state: 'failed', code: 'repositories', message: `the writer reads one code repository and the product declares ${repositories.length} (${repositories.map((repo) => repo.name).join(', ')}): nothing was written, so no page is a smaller picture of the product` });
       return 0;
     }
     // What the refresh will touch, and why, is decided from what exists and told before the agent is asked for anything.
@@ -230,7 +232,7 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
       briefs = await briefsFor(planned);
       send({ type: 'plan', plan: planned.plan });
     } catch (error) {
-      send({ type: 'writer', state: 'failed', message: `the refresh could not tell which pages need the agent, so it wrote nothing: ${error instanceof Error ? error.message : String(error)}` });
+      send({ type: 'writer', state: 'failed', code: 'plan', message: `the refresh could not tell which pages need the agent, so it wrote nothing: ${error instanceof Error ? error.message : String(error)}` });
       return 0;
     }
     const answered = new Promise<{ ok: true } | { ok: false; message: string }>((resolve) => { agentAnswer = resolve; });
@@ -238,7 +240,7 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
     const agentReady = await answered;
     agentAnswer = undefined;
     if (!agentReady.ok) {
-      send({ type: 'writer', state: 'failed', message: agentReady.message });
+      send({ type: 'writer', state: 'failed', code: 'agent', message: agentReady.message });
       return 0;
     }
     const remote: UnitAgent = {
@@ -273,11 +275,11 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
         const message = `${nothing}${loop}${stale}${skipped}`.trim();
         send({ type: 'writer', state: 'done', ...(message === '' ? {} : { message }), ...(asked === 0 ? {} : { asked }) });
       } else {
-        send({ type: 'writer', state: 'failed', message: `some pages were not written; each unit above says why.${loop}${stale}${skipped}${indexed}`, ...(asked === 0 ? {} : { asked }) });
+        send({ type: 'writer', state: 'failed', code: report.indexErrors.length > 0 ? 'index' : 'units', message: `some pages were not written; each unit above says why.${loop}${stale}${skipped}${indexed}`, ...(asked === 0 ? {} : { asked }) });
       }
     } catch (error) {
       await snapshot(true).catch(() => undefined);
-      send({ type: 'writer', state: 'failed', message: `the writer stopped: ${error instanceof Error ? error.message : String(error)}` });
+      send({ type: 'writer', state: 'failed', code: 'stopped', message: `the writer stopped: ${error instanceof Error ? error.message : String(error)}` });
     }
     return 0;
   } finally {

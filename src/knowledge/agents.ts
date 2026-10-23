@@ -19,6 +19,10 @@ import { DEFAULT_STAGE_LIMITS } from '../fill/stage.js';
 import { homeFromEnv, type DraftEnv } from '../product/home.js';
 import { DEFAULT_UNIT_BOUNDS, MAX_DOMAINS } from '../writer/tools.js';
 import { acpUnitAgent } from '../writer/acp-agent.js';
+import { connectAcpAgent } from '../fill/acp.js';
+import { choicesOf, type AgentChoices, type AgentPreferences } from '../fill/acp-choices.js';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import type { UnitAgent } from '../writer/run.js';
 import type { AgentOffer, WriterBounds } from './model.js';
 
@@ -78,12 +82,40 @@ export async function installAdapter(id: string, env: DraftEnv): Promise<{ ok: t
 }
 
 /** Starts the chosen agent as an ACP unit agent; the error names the adapter and where it was looked for. */
-export function makeUnitAgent(id: string, env: DraftEnv, progress?: (line: string) => void): (UnitAgent & { close(): Promise<void> }) | { error: string } {
+export function makeUnitAgent(id: string, env: DraftEnv, progress?: (line: string) => void, preferences?: AgentPreferences): (UnitAgent & { close(): Promise<void> }) | { error: string } {
   const entry = adapterOf(id);
   if (entry === undefined) return { error: `src/knowledge/agents.ts: madarch offers ${WRITER_AGENTS.join(' and ')}; ${JSON.stringify(id)} is none of them` };
   const launch = launchOf(entry, env);
   if (launch === undefined) {
     return { error: `the ${entry.label} adapter is not installed: none of ${entry.launches.map((l) => l.binary).join(', ')} is on the PATH or in ${acpAgentFolder(entry, env, homeFromEnv(env))}` };
   }
-  return acpUnitAgent({ spec: { id: entry.id, command: launch.binary, args: launch.args }, env: { PATH: searchPathOf(entry, env) }, ...(progress === undefined ? {} : { progress }) });
+  return acpUnitAgent({ spec: { id: entry.id, command: launch.binary, args: launch.args }, env: { PATH: searchPathOf(entry, env) }, ...(progress === undefined ? {} : { progress }), ...(preferences === undefined ? {} : { preferences }) });
+}
+
+/** How long an agent may take to start and open one session when it is asked what it offers. */
+const QUERY_TIMEOUT_MS = 60_000;
+
+/**
+ * Asks the agent, over ACP, which models and reasoning levels it offers: it starts, opens one session in an empty scratch
+ * folder with no tools and no prompt (nothing is sent to the model), reads what `session/new` reports and stops. The
+ * answer is the agent's, never a list madarch holds.
+ */
+export async function queryAgentChoices(id: string, env: DraftEnv): Promise<{ ok: true; choices: AgentChoices } | { ok: false; message: string }> {
+  const entry = adapterOf(id);
+  if (entry === undefined) return { ok: false, message: `src/knowledge/agents.ts: madarch offers ${WRITER_AGENTS.join(' and ')}; ${JSON.stringify(id)} is none of them` };
+  const launch = launchOf(entry, env);
+  if (launch === undefined) return { ok: false, message: `the ${entry.label} adapter is not installed: none of ${entry.launches.map((l) => l.binary).join(', ')} is on the PATH or in ${acpAgentFolder(entry, env, homeFromEnv(env))}` };
+  const scratch = await mkdtemp(path.join(tmpdir(), 'madarch-choices-'));
+  let connection: Awaited<ReturnType<typeof connectAcpAgent>> | undefined;
+  try {
+    connection = await connectAcpAgent({ id: entry.id, command: launch.binary, args: launch.args }, { cwd: scratch, env: { PATH: searchPathOf(entry, env) }, timeoutMs: QUERY_TIMEOUT_MS, sessionTimeoutMs: QUERY_TIMEOUT_MS });
+    await connection.initialize();
+    const session = await connection.newSession({ cwd: scratch });
+    return { ok: true, choices: choicesOf(session) };
+  } catch (error) {
+    return { ok: false, message: `${entry.label} could not tell its models: ${error instanceof Error ? error.message : String(error)}` };
+  } finally {
+    await connection?.close().catch(() => undefined);
+    await rm(scratch, { recursive: true, force: true });
+  }
 }

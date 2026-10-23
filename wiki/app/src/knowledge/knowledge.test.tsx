@@ -220,6 +220,22 @@ describe('the blocks', () => {
     expect([...container.querySelectorAll('h2')].map((heading) => heading.textContent)).toEqual(['Tables', 'Other']);
   });
 
+  test('manifest findings deduplicate by file and line, and translate the missing group while keeping raw details', async () => {
+    await setWikiLanguage('ru');
+    const finding = { file: '/tmp/shop/madarch/kinds.yaml', line: 14, message: 'kind "question": "group" names a group of "groups" (none is declared), got "product"' };
+    const samePlaceDifferentIssue = { file: finding.file, line: finding.line, message: 'kind "question": "source" is "graph", "markdown" or "document"' };
+    const container = into(createElement(Findings, { findings: [finding, finding, samePlaceDifferentIssue], scope: 'manifest' }));
+    await until(() => container.querySelector('[data-testid=manifest-findings]') !== null, 'the manifest findings');
+    expect(container.textContent).toContain('Найдено проблем: 2');
+    (container.querySelector('[data-testid=findings-details]') as HTMLButtonElement).click();
+    await until(() => container.querySelector('li') !== null, 'the translated finding');
+    expect(container.querySelectorAll('li')).toHaveLength(2);
+    expect(container.querySelector('li')!.textContent).toContain('Вид «Вопрос» ссылается на группу «product», которой нет в манифесте.');
+    expect(container.querySelector('li')!.textContent).not.toContain('names a group');
+    expect(container.querySelector('[data-testid=findings-details]')!.textContent).toBe('Скрыть подробности');
+    await setWikiLanguage('en');
+  });
+
   test('the findings of a page are counted and listed with their file and line when opened', async () => {
     const container = into(createElement(Findings, { findings: [{ file: 'templates/service.md', line: 1, message: '"{{owner}}" names no attribute of this entity' }] }));
     await until(() => container.querySelector('[data-testid=findings]') !== null, 'the findings');
@@ -424,7 +440,7 @@ describe('after the run', () => {
 
 describe('the product selector', () => {
   test('the product is at the top left as a control that names it and opens a menu', async () => {
-    const container = into(createElement(ProductSelector, { name: 'shop', products: [{ name: 'Shop', folder: 'shop' }, { name: 'Other', folder: 'other' }], current: 'shop', onStartOver: () => undefined }));
+    const container = into(createElement(ProductSelector, { name: 'shop', products: [{ name: 'Shop', folder: 'shop' }, { name: 'Other', folder: 'other' }], current: 'shop' }));
     await until(() => container.querySelector('[data-testid=product-selector]') !== null, 'the selector');
     const trigger = container.querySelector('[data-testid=product-selector]') as HTMLElement;
     expect(trigger.textContent).toContain('shop');
