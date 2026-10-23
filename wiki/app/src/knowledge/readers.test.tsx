@@ -264,6 +264,21 @@ describe('the role of the reader', () => {
     expect(container).toBeDefined();
   });
 
+  test('the card fits the window: its body scrolls and its buttons stand in a footer of their own', async () => {
+    (globalThis as { fetch?: unknown }).fetch = async () => Response.json(settings('everything', false));
+    into(createElement(RoleCard));
+    await loadSettings();
+    await until(() => document.querySelector('[data-testid=role-card]') !== null, 'the card');
+    const card = document.querySelector('[data-testid=role-card]')!;
+    expect(card.className).toContain('max-h-[calc(100dvh-2rem)]');
+    const body = card.querySelector('[data-testid=role-card-body]')!;
+    expect(body.className).toContain('overflow-y-auto');
+    const footer = card.querySelector('[data-testid=role-card-footer]')!;
+    expect(body.contains(footer)).toBe(false);
+    expect(footer.querySelector('[data-testid=role-skip]')).not.toBeNull();
+    expect(footer.querySelector('[data-testid=role-continue]')).not.toBeNull();
+  });
+
   test('skipping the card means everything and it is not asked again', async () => {
     const posts: unknown[] = [];
     (globalThis as { fetch?: unknown }).fetch = async (_url: string, init?: RequestInit) => {

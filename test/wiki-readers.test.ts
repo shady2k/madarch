@@ -179,7 +179,7 @@ describe('the products-home server with madarch\'s own wiki', () => {
     if (!installed.ok) throw new Error(installed.message);
     const app = join(work, 'app');
     mkdirSync(app);
-    writeFileSync(join(app, 'index.html'), '<!doctype html><title>app</title><div id="root"></div>');
+    writeFileSync(join(app, 'index.html'), '<!doctype html><link rel="preload" href="/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin><title>app</title><div id="root"></div><script src="/assets/index.js"></script>');
     emptyHome = join(work, 'empty-home');
     mkdirSync(emptyHome);
     busyHome = join(work, 'busy-home');
@@ -232,6 +232,12 @@ describe('the products-home server with madarch\'s own wiki', () => {
     expect(page.headers.get('set-cookie')).toBeNull();
     const mine = await fetch(`${busy.url}/products/my-product/`, { headers: { accept: 'text/html' } });
     expect(mine.headers.get('set-cookie')).toContain('madarch-last-product=my-product');
+  });
+
+  test('the page preloads the face the stylesheet names, at the address the stylesheet names it, while its scripts take the product\'s prefix', async () => {
+    const html = await (await fetch(`${busy.url}/products/my-product/`, { headers: { accept: 'text/html' } })).text();
+    expect(html).toContain('href="/fonts/InterVariable.woff2"');
+    expect(html).toContain('src="/products/my-product/assets/index.js"');
   });
 
   test('the own wiki is documentation: no fill, no start over', async () => {

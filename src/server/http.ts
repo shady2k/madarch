@@ -430,7 +430,8 @@ const notServed = (message: string): Response => Response.json({ message }, { st
     if (!(response.headers.get('content-type') ?? '').includes('text/html')) return response;
     const headers = new Headers(response.headers);
     headers.delete('content-length');
-    const html = (await response.text()).replaceAll('="/', `="${prefix}/`);
+    // The faces are served at the home's root, where the stylesheet names them: the preload names the same address, or the font is fetched twice.
+    const html = (await response.text()).replaceAll('="/', `="${prefix}/`).replaceAll(`href="${prefix}/fonts/`, 'href="/fonts/');
     return new Response(html, { status: response.status, headers });
   };
   const handleProductsHome = async (request: Request): Promise<Response> => {

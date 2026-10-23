@@ -92,6 +92,8 @@ async function open(base: string, url: string, width = 1440, height = 900): Prom
   return page;
 }
 async function shoot(page: Page, name: string): Promise<void> {
+  // A picture is taken once the fonts are in: the first paint must not be judged in the fallback.
+  await page.evaluate(() => document.fonts.ready.then(() => undefined));
   await new Promise((rest) => setTimeout(rest, 500));
   const file = join(out, `${lang}-${name}.png`);
   await page.screenshot({ path: file, fullPage: false });
@@ -105,6 +107,17 @@ try {
   const page = await open(clean.url, '/');
   await page.waitForSelector('[data-testid=role-card]', { timeout: 120_000 });
   await shoot(page, '01-first-run-role-card');
+  // The card must fit a phone as well: its buttons are in view at 390 px.
+  const phone = await open(clean.url, '/', 390, 700);
+  await phone.waitForSelector('[data-testid=role-card]', { timeout: 120_000 });
+  const inView = await phone.evaluate(() => { const box = document.querySelector('[data-testid=role-continue]')!.getBoundingClientRect(); return box.bottom <= window.innerHeight && box.top >= 0; });
+  if (!inView) throw new Error('the role card cuts off its buttons at 390 px');
+  await shoot(phone, '01b-role-card-phone');
+  await phone.close();
+  const fits = await page.evaluate(() => { const box = document.querySelector('[data-testid=role-continue]')!.getBoundingClientRect(); return box.bottom <= window.innerHeight; });
+  if (!fits) throw new Error('the role card cuts off its buttons at 1440x900');
+  const family = await page.evaluate(() => getComputedStyle(document.body).fontFamily + ' | ' + document.fonts.check('16px Inter'));
+  console.log(`first paint font: ${family}`);
   await page.click('[data-testid=role-skip]');
   await page.waitForFunction(() => document.querySelector('[data-testid=role-card]') === null);
   await page.waitForSelector('[data-testid=entity-page]', { timeout: 60_000 });

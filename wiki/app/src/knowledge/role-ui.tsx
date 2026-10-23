@@ -32,10 +32,10 @@ export function RoleCard(): ReactElement | null {
         aria-modal="true"
         aria-labelledby="role-card-title"
         data-testid="role-card"
-        className="grid max-h-[85dvh] w-[min(34rem,_92vw)] gap-3 overflow-y-auto rounded-[var(--radius-panel)] border border-line bg-[var(--surface-menu)] p-5 text-ink shadow-[var(--shadow-high)]"
+        className="flex max-h-[calc(100dvh-2rem)] w-[min(34rem,_100%)] flex-col overflow-hidden rounded-[var(--radius-panel)] border border-line bg-[var(--surface-menu)] text-ink shadow-[var(--shadow-high)]"
       >
-        <h2 id="role-card-title" className="m-0 text-h3 font-semibold text-ink">{t('knowledge.roles.cardTitle')}</h2>
-        <div className="grid gap-3 text-small text-secondary">
+        <h2 id="role-card-title" className="m-0 shrink-0 px-5 pb-2 pt-5 text-h3 font-semibold text-ink">{t('knowledge.roles.cardTitle')}</h2>
+        <div className="grid min-h-0 flex-1 gap-3 overflow-y-auto px-5 pb-3 text-small text-secondary" data-testid="role-card-body">
           <p className="m-0">{t('knowledge.roles.cardLead')}</p>
           <div role="radiogroup" aria-labelledby="role-card-title" className="grid gap-1.5">
             {ROLES.map((role) => (
@@ -46,9 +46,9 @@ export function RoleCard(): ReactElement | null {
             ))}
           </div>
           <p className="m-0 text-muted">{t('knowledge.roles.cardNote')}</p>
+          {error !== null && <p className="m-0 text-small" role="alert" data-testid="role-error">{error}</p>}
         </div>
-        {error !== null && <p className="m-0 text-small" role="alert" data-testid="role-error">{error}</p>}
-        <div className="flex justify-end gap-2">
+        <div className="flex shrink-0 justify-end gap-2 border-t border-line bg-[var(--surface-menu)] px-5 py-3" data-testid="role-card-footer">
           <Button variant="default" size="default" disabled={working} onClick={() => keep('everything')} data-testid="role-skip">{t('knowledge.roles.skip')}</Button>
           <Button variant="default" size="default" className="!border-ink !bg-ink !text-page" disabled={working} onClick={() => keep(picked)} data-testid="role-continue">{t('knowledge.roles.continue')}</Button>
         </div>
