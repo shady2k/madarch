@@ -231,7 +231,7 @@ export function acpUnitAgent(options: AcpAgentOptions): UnitAgent & { close(): P
             ? guard.wrapUpMessage()
             : writeTool === undefined
               ? 'The unit is not complete. Use the tools available to finish it.'
-              : `The unit is not complete. Call ${writeTool.name} with the required content now; if it was refused, fix every listed problem first.`;
+              : `The page is not written yet. Call ${writeTool.name} with the required content now; if it was refused, fix every listed problem first.`;
           wrapPending = false;
         }
         if (stop !== undefined) options.progress?.(`${request.id} stopped: ${guard.describe({ kind: 'stop', cause: stop, state: guard.state() })}`);
