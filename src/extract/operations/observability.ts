@@ -140,7 +140,7 @@ function healthEndpoints(t: TreeText, records: Records): void {
         key: `code.health-endpoint:${path}#${endpoint.symbol}`,
         kind: 'code.health-endpoint',
         label: `/healthz of ${serviceOf(path) ?? path}`,
-        properties: { path: endpoint.path, method: endpoint.method, statusOk: endpoint.statusOk } satisfies { [key: string]: PropertyValue },
+        properties: { path: endpoint.path, method: endpoint.method, statusOk: endpoint.statusOk, service: serviceOf(path) ?? '' } satisfies { [key: string]: PropertyValue },
         span: t.spanOfLine(path, endpoint.line),
       });
       records.edge('code.served-by', `code.health-endpoint:${path}#${endpoint.symbol}`, records.file(path), {service: serviceOf(path) ?? ''}, t.spanOfLine(path, endpoint.line));

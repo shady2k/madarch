@@ -528,7 +528,10 @@ export async function extractDataModel(tree: TreeReader): Promise<Extraction> {
           edge('code.creates', migrationId, tableId, statement.table.span);
           for (const column of statement.table.columns) edge('code.creates', migrationId, columnKey(database.name, statement.table.name, column.name, statement.table.schema), column.span);
         } else if (statement.kind === 'alter-table-add-column') {
+          edge('code.alters', migrationId, tableKey(database.name, statement.table, statement.schema), statement.column.span);
           edge('code.alters', migrationId, columnKey(database.name, statement.table, statement.column.name, statement.schema), statement.column.span);
+        } else if (statement.kind === 'alter-table-add-foreign-key') {
+          edge('code.alters', migrationId, tableKey(database.name, statement.table, statement.schema), statement.span);
         } else if (statement.kind === 'create-index') {
           edge('code.creates', migrationId, indexKey(database.name, statement.table, statement.index.name, statement.schema), statement.index.span);
         }

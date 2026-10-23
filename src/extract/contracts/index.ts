@@ -27,6 +27,8 @@ import {
   channelKey,
   CONTRACTS_PRODUCER,
   entryPointKey,
+  messageKey,
+  operationKey,
   fileKey,
   inputKey,
   KIND_ENTRY_POINT,
@@ -108,7 +110,7 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
       const {contract, gaps: fileGaps} = readOpenApi(p, text);
       gaps.push(...fileGaps);
       nodes.push(...openApiNodes(contract));
-      for (const op of contract.operations) declarations.push({contract: `code.contract:${p}`, member: `code.operation:${p}#${op.method}:${op.path}`, relation: 'code.declares'});
+      for (const op of contract.operations) declarations.push({contract: `code.contract:${p}`, member: operationKey(p, `${op.method}:${op.path}`), relation: 'code.declares'});
       for (const op of contract.operations) {
         openApiOperations.push({method: op.method, routePath: op.path, key: `code.operation:${p}#${op.method}:${op.path}`});
       }
@@ -120,7 +122,7 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
         channels.push(channel.name);
         declarations.push({contract: `code.contract:${p}`, member: channelKey(channel.name), relation: 'code.declares'});
         for (const message of channel.messages) {
-          const messageId = `code.message:${p}#${message.name}`;
+          const messageId = messageKey(p, message.name);
           declarations.push({contract: `code.contract:${p}`, member: messageId, relation: 'code.declares'});
           edges.push({type: 'code.carries', from: channelKey(channel.name), to: messageId, discriminator: '', properties: {channel: channel.name}});
         }
@@ -129,7 +131,7 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
       const {contract, gaps: fileGaps} = readProto(p, text);
       gaps.push(...fileGaps);
       nodes.push(...protoNodes(contract));
-      for (const service of contract.services) for (const rpc of service.rpcs) declarations.push({contract: `code.contract:${p}`, member: `code.operation:${p}#${contract.package ?? ''}.${service.name}/${rpc.rpc}`, relation: 'code.declares'});
+      for (const service of contract.services) for (const rpc of service.rpcs) declarations.push({contract: `code.contract:${p}`, member: operationKey(p, `${contract.package ?? ''}.${service.name}/${rpc.rpc}`), relation: 'code.declares'});
       for (const service of contract.services) {
         for (const rpc of service.rpcs) {
           protoRpcs.push({protoPath: p, service: service.name, rpc: rpc.rpc, key: `code.operation:${p}#${contract.package ?? ''}.${service.name}/${rpc.rpc}`});
@@ -379,7 +381,7 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
       edges.push({type: 'code.starts', from: entryKey, to: fileKey(file.path), discriminator: '', properties: {kind: 'entry-file'}, span: entrySpan});
       for (const unit of ts.started) {
         const target = unit.path !== undefined ? fileKey(unit.path) : undefined;
-        edges.push({type: 'code.starts', from: entryKey, to: target, discriminator: `${unit.kind}:${unit.symbol}`, properties: {kind: unit.kind, symbol: unit.symbol, ...(unit.port !== undefined ? {port: unit.port} : {})}, span: entrySpan});
+        if (target !== undefined) edges.push({type: 'code.starts', from: entryKey, to: target, discriminator: `${unit.kind}:${unit.symbol}`, properties: {kind: unit.kind, symbol: unit.symbol, ...(unit.port !== undefined ? {port: unit.port} : {})}, span: entrySpan});
       }
     }
 
@@ -456,6 +458,8 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
   // method and path template. Where several match (/healthz of four services,
   // say), the link is not claimed: ambiguity is said, not resolved.
   for (const endpoint of nodes.filter((node) => node.kind === 'code.health-endpoint' || node.kind === 'code.metrics-endpoint')) {
+    const service = String(endpoint.properties['service'] ?? '');
+    if (service !== '') edges.push({type: 'code.served-by', from: endpoint.key, to: `code.service:${service}`, discriminator: 'service', properties: {}});
     const endpointPath = String(endpoint.properties['path'] ?? '');
     const endpointFile = endpoint.span?.path;
     const routes = nodes.filter((node) => node.kind === KIND_ROUTE && node.properties['path'] === endpointPath && node.span?.path === endpointFile);
