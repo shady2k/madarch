@@ -5,7 +5,7 @@
  * opens its own neighbours into the picture; "+N more" opens the rest of a
  * group. Depth and the relations are switches over what the server sent.
  */
-import { useMemo, useRef, useState, type ReactElement } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { PlusIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Toggle } from '@/components/ui/toggle.js';
@@ -29,7 +29,16 @@ export function NeighborhoodGraph({ block }: { block: GraphBlock }): ReactElemen
   const [grown, setGrown] = useState<ReadonlySet<string>>(new Set());
   const [failure, setFailure] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const alive = useRef(true);
+  const version = useRef(0);
+  // A page that is read again brings a new neighbourhood: what the reader opened belongs to the old one and is dropped.
+  useEffect(() => {
+    version.current += 1;
+    setHood(block.neighborhood);
+    setDepth(block.depth);
+    setGrown(new Set());
+    setBusy(null);
+    setFailure(null);
+  }, [block.neighborhood, block.depth]);
   const maxDepth = useMemo(() => Math.max(1, ...hood.nodes.map((node) => node.hops ?? 0)), [hood]);
   const layout = useMemo(() => layoutNeighborhood(hood, { depth, off }, grown), [hood, depth, off, grown]);
   const empty = hood.nodes.length <= 1;
@@ -37,9 +46,10 @@ export function NeighborhoodGraph({ block }: { block: GraphBlock }): ReactElemen
   const open = async (node: string, relation: string | undefined, direction: 'out' | 'in' | undefined, limit: number): Promise<void> => {
     setBusy(node);
     setFailure(null);
+    const mine = version.current;
     try {
       const more = await getNeighborhood(node, { ...(relation === undefined ? {} : { relation }), ...(direction === undefined ? {} : { direction }), limit });
-      if (!alive.current) return;
+      if (mine !== version.current) return;
       setHood((held) => mergeHood(held, more, relation === undefined || direction === undefined ? undefined : { node, relation, direction }));
       setGrown((held) => new Set([...held, node]));
     } catch (error: unknown) {
@@ -47,6 +57,12 @@ export function NeighborhoodGraph({ block }: { block: GraphBlock }): ReactElemen
     } finally {
       setBusy(null);
     }
+  };
+
+  /** How many of a group to ask for: what is drawn of it and the next forty, so each press brings new neighbours. */
+  const wanted = (chip: { node: string; relation: string; direction: 'out' | 'in' }): number => {
+    const shown = hood.edges.filter((edge) => edge.relation === chip.relation && (chip.direction === 'out' ? edge.from === chip.node : edge.to === chip.node)).length;
+    return Math.min(100, shown + 40);
   };
 
   if (empty && hood.more.length === 0) {
@@ -113,8 +129,8 @@ export function NeighborhoodGraph({ block }: { block: GraphBlock }): ReactElemen
                 const chip = placed.more;
                 return (
                   <g key={node.id} className="dg-more" transform={`translate(${placed.x} ${placed.y})`} role="button" tabIndex={0} aria-label={footprint(placed)} data-testid="more-chip"
-                    onClick={() => void open(chip.node, chip.relation, chip.direction, 40)}
-                    onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); void open(chip.node, chip.relation, chip.direction, 40); } }}>
+                    onClick={() => void open(chip.node, chip.relation, chip.direction, wanted(chip))}
+                    onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); void open(chip.node, chip.relation, chip.direction, wanted(chip)); } }}>
                     <rect width={NODE_W} height={NODE_H} rx="8" />
                     <text x={NODE_W / 2} y={NODE_H / 2 + 4} textAnchor="middle">{fit(footprint(placed), NODE_W - 16)}</text>
                   </g>

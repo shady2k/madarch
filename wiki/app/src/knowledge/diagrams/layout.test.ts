@@ -51,6 +51,21 @@ describe('the neighbourhood layout', () => {
     expect(without.nodes.some((placed) => placed.node.id === 'callee1')).toBe(true);
   });
 
+  test('a node the reader opened shows its neighbours on both sides of it, and a switched-off relation takes its edges too', () => {
+    const hood: Neighborhood = {
+      center: 'c',
+      nodes: [node('c', 0), node('a'), node('b', 2)],
+      edges: [{ from: 'c', to: 'a', relation: 'code.calls', count: 1 }, { from: 'b', to: 'a', relation: 'code.calls', count: 1 }, { from: 'c', to: 'a', relation: 'code.contains', count: 1 }],
+      more: [],
+      relations: [],
+    };
+    expect(layoutNeighborhood(hood, { depth: 2, off: new Set() }).nodes.some((placed) => placed.node.id === 'b')).toBe(false);
+    const opened = layoutNeighborhood(hood, { depth: 2, off: new Set() }, new Set(['a']));
+    expect(opened.nodes.find((placed) => placed.node.id === 'b')!.column).toBe(1);
+    const off = layoutNeighborhood(hood, { depth: 1, off: new Set(['code.calls|out']) });
+    expect(off.edges.map((edge) => edge.relation)).toEqual(['code.contains']);
+  });
+
   test('merging what a click opens adds nodes at one hop more and replaces the answered more-chip', () => {
     const extra: Neighborhood = { center: 'callee1', nodes: [node('callee1', 0), node('deeper')], edges: [{ from: 'callee1', to: 'deeper', relation: 'code.calls', count: 1 }], more: [], relations: [] };
     const merged = mergeHood(HOOD, extra);

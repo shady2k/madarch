@@ -396,7 +396,14 @@ export class ChainBuilder {
         twin.props = { ...twin.props, viaInterface: name.slice(0, dot) };
       }
     }
-    return events.filter((event) => !dropped.has(event));
+    const kept = events.filter((event) => !dropped.has(event));
+    // Several functions called at one site (the implementations behind one call) are alternatives, not a sequence.
+    for (const event of kept) {
+      if (event.kind !== 'call' || event.span === undefined) continue;
+      const same = kept.filter((other) => other.kind === 'call' && other.span?.byteStart === event.span?.byteStart && other.span?.path === event.span?.path);
+      if (same.length > 1) event.props = { ...event.props, alternatives: same.length };
+    }
+    return kept;
   }
 
   /** Enters a function: its lane, and what it does in source order. */
@@ -424,7 +431,7 @@ export class ChainBuilder {
         const totalBefore = this.total;
         this.push({
           from: fromLane.id, to: toLane.id, label: symbolName(target), kind: same ? 'self' : 'call', href: refOfGraph(this.ctx, target).href, order,
-          ...this.site(symbol, event.span), ...(again ? { note: 'called again; its steps are shown above' } : typeof event.props['viaInterface'] === 'string' ? { note: `through ${event.props['viaInterface']}` } : {}),
+          ...this.site(symbol, event.span), ...(again ? { note: 'called again; its steps are shown above' } : typeof event.props['alternatives'] === 'number' ? { note: `one of ${event.props['alternatives']} functions called at this site; the graph holds no order between them` } : typeof event.props['viaInterface'] === 'string' ? { note: `through ${event.props['viaInterface']}` } : {}),
         });
         if (!again && depthLeft > 1) await this.visit(target, depthLeft - 1, undefined, unordered);
         else if (!again && depthLeft <= 1) this.cutAtDepth += 1;
@@ -708,10 +715,12 @@ export async function systemBlock(ctx: RenderContext, params: Readonly<Record<st
 
 /** The containers of the product and the links between them, read from the graph: services, their databases, the topics. */
 export async function systemModel(ctx: RenderContext): Promise<{ nodes: SystemNode[]; edges: SystemEdge[]; notes: string[] }> {
-  const services = (await ctx.graph.list('code.service', { limit: 200 })).rows
+  const servicesRead = await ctx.graph.list('code.service', { limit: 200 });
+  const services = servicesRead.rows
     .flatMap((service) => (service.span === undefined ? [] : [{ entity: service, root: dirname(service.span.path) }]))
     .sort((a, b) => b.root.length - a.root.length || byCodePoint(a.root, b.root));
   const notes: string[] = [];
+  if (servicesRead.total > servicesRead.rows.length) notes.push(`Showing ${servicesRead.rows.length} of ${servicesRead.total} services.`);
   const serviceOfPath = (path: string): string | undefined => services.find((service) => service.root === '.' || path === service.root || path.startsWith(`${service.root}/`))?.entity.key;
   const nodes = new Map<string, SystemNode>();
   for (const service of [...services].sort((a, b) => byCodePoint(a.entity.key, b.entity.key))) {
@@ -731,12 +740,17 @@ export async function systemModel(ctx: RenderContext): Promise<{ nodes: SystemNo
   };
   // Who serves an operation: the service of the route or the file that serves it.
   const server = new Map<string, string>();
+  const cut = (relation: string, read: { total: number; rows: unknown[] }): void => {
+    if (read.total > read.rows.length) notes.push(`Only ${read.rows.length} of ${read.total} ${relation} links were read; links and services shown may be missing.`);
+  };
   const serves = await ctx.graph.relationEdges('code.serves', 5000);
+  cut('code.serves', serves);
   for (const edge of serves.rows) {
     const owner = serviceOfPath(pathOfKey(edge.from.key));
     if (owner !== undefined) server.set(edge.to.key, owner);
   }
   const remote = await ctx.graph.relationEdges('code.calls-remote', 5000);
+  cut('code.calls-remote', remote);
   for (const edge of remote.rows) {
     const caller = serviceOfPath(pathOfKey(edge.from.key));
     if (caller === undefined) continue;
@@ -750,6 +764,7 @@ export async function systemModel(ctx: RenderContext): Promise<{ nodes: SystemNo
   }
   for (const [relation, word] of [['code.reads-table', 'reads'], ['code.writes-table', 'writes']] as const) {
     const found = await ctx.graph.relationEdges(relation, 5000);
+    cut(relation, found);
     for (const edge of found.rows) {
       const caller = serviceOfPath(pathOfKey(edge.from.key));
       if (caller === undefined) continue;
@@ -764,6 +779,7 @@ export async function systemModel(ctx: RenderContext): Promise<{ nodes: SystemNo
   }
   for (const [relation, via] of [['code.publishes', 'publishes'], ['code.consumes', 'consumes']] as const) {
     const found = await ctx.graph.relationEdges(relation, 5000);
+    cut(relation, found);
     for (const edge of found.rows) {
       if (edge.to.kind !== 'code.channel') continue;
       const owner = serviceOfPath(pathOfKey(edge.from.key));
@@ -798,6 +814,8 @@ export async function modulesBlock(ctx: RenderContext, subject: Subject, params:
   const keys = new Set(inside.map((module) => module.key));
   const dependsOn = await ctx.graph.relationEdges('code.depends-on', 20000);
   const cycleMembers = await ctx.graph.relationEdges('code.cycle-member', 20000);
+  if (dependsOn.total > dependsOn.rows.length) notes.push(`Only ${dependsOn.rows.length} of ${dependsOn.total} module dependencies were read.`);
+  if (cycleMembers.total > cycleMembers.rows.length) notes.push(`Only ${cycleMembers.rows.length} of ${cycleMembers.total} cycle memberships were read.`);
   const cycles = new Map<string, string[]>();
   for (const edge of cycleMembers.rows) {
     if (edge.from.kind === 'code.cycle' && edge.to.kind === 'code.module' && keys.has(edge.to.key)) cycles.set(edge.from.key, [...(cycles.get(edge.from.key) ?? []), edge.to.key]);

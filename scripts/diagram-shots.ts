@@ -5,7 +5,8 @@
  * prints the sizes of the labels (the font size as rendered, after the diagram's scale) and the overlaps found between
  * labels of one diagram, so the numbers go into the change record beside the pictures.
  *
- * Usage: bun scripts/diagram-shots.ts [--out <folder>] [--work <folder>] [--port <n>]
+ * Usage: bun scripts/diagram-shots.ts [--out <folder>] [--work <folder>] [--port <n>] [--binary <compiled madarch>]
+ * With --binary the server is the compiled binary (its embedded app), not this checkout.
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -29,8 +30,10 @@ mkdirSync(home, { recursive: true });
 const shop = makeProduct(home, 'shop', repository);
 writeSamplePages(shop);
 
-const child = Bun.spawn(['bun', resolve(import.meta.dir, 'madarch.ts'), 'daemon-serve', '--home', home, '--port', String(port)], {
-  env: { ...process.env, MADARCH_APP_DIST: resolve(import.meta.dir, '..', 'wiki', 'app', 'dist') },
+const binary = argument('binary', '');
+const command = binary === '' ? ['bun', resolve(import.meta.dir, 'madarch.ts')] : [resolve(binary)];
+const child = Bun.spawn([...command, 'daemon-serve', '--home', home, '--port', String(port)], {
+  env: binary === '' ? { ...process.env, MADARCH_APP_DIST: resolve(import.meta.dir, '..', 'wiki', 'app', 'dist') } : { ...process.env },
   stdout: 'ignore',
   stderr: 'inherit',
 });

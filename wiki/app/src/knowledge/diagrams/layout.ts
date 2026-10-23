@@ -131,10 +131,11 @@ export function layoutNeighborhood(hood: Neighborhood, state: HoodState, grown: 
       for (const direction of ['in', 'out'] as const) {
         const [near, far] = direction === 'out' ? [edge.from, edge.to] : [edge.to, edge.from];
         if (near !== current || column.has(far) || !byId.has(far) || !usable(edge, direction)) continue;
-        // Beyond the centre a node's neighbours continue on its own side.
-        if (col < 0 && direction === 'out') continue;
-        if (col > 0 && direction === 'in') continue;
-        column.set(far, col + (direction === 'out' ? 1 : -1));
+        // Beyond the centre a node's neighbours continue on its own side; a node the reader opened shows all of its own,
+        // those on the wrong side of it in its own column, the edge drawn as a loop beside it.
+        const wrongSide = (col < 0 && direction === 'out') || (col > 0 && direction === 'in');
+        if (wrongSide && !grown.has(current)) continue;
+        column.set(far, wrongSide ? col : col + (direction === 'out' ? 1 : -1));
         via.set(far, { relation: edge.relation, direction, parent: current });
         queue.push(far);
       }
@@ -207,7 +208,14 @@ export function layoutNeighborhood(hood: Neighborhood, state: HoodState, grown: 
     const out = from.x < to.x;
     const [sx, sy] = [out ? from.x + NODE_W : from.x, from.y + NODE_H / 2];
     const [tx, ty] = [out ? to.x : to.x + NODE_W, to.y + NODE_H / 2];
-    if (from.column === to.column) continue;
+    const side: 'out' | 'in' = Math.max(from.column, to.column) <= 0 ? 'in' : 'out';
+    if (state.off.has(slotOf(edge.relation, side))) continue;
+    if (from.column === to.column) {
+      const x = from.column <= 0 ? from.x : from.x + NODE_W;
+      const bow = from.column <= 0 ? -34 : 34;
+      edges.push({ from: edge.from, to: edge.to, relation: edge.relation, count: edge.count, d: `M${x},${from.y + NODE_H / 2} C${x + bow},${from.y + NODE_H / 2} ${x + bow},${to.y + NODE_H / 2} ${x},${to.y + NODE_H / 2}` });
+      continue;
+    }
     const bend = Math.max(24, Math.abs(tx - sx) / 2);
     edges.push({ from: edge.from, to: edge.to, relation: edge.relation, count: edge.count, d: `M${sx},${sy} C${sx + (out ? bend : -bend)},${sy} ${tx - (out ? bend : -bend)},${ty} ${tx},${ty}` });
   }
