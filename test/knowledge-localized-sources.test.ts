@@ -12,6 +12,8 @@ describe('localized document sources', () => {
     expect(detectDocumentLanguage('Hello мир, this is смешанный text.')).toBeUndefined();
     expect(detectDocumentLanguage('Токен оплаты.\nIn code: PaymentToken, CardToken')).toBe('ru');
     expect(detectDocumentLanguage('Токен оплаты.\n\nIn code: PaymentToken, CardToken')).toBe('ru');
+    expect(detectDocumentLanguage('Токен оплаты.\n- In code: PaymentToken, CardToken')).toBe('ru');
+    expect(detectDocumentLanguage('Токен оплаты.\n- Also called: PaymentToken')).toBe('ru');
   });
 
   test('uses a reversible, path-safe entity identity and round-trips fixed provenance', () => {
@@ -30,6 +32,14 @@ describe('localized document sources', () => {
     const rejected = parseLocalizedSource('entity.md', wrong, entity, 'ru');
     expect(rejected.ok).toBe(false);
     if (!rejected.ok) expect(rejected.message).toContain('does not appear to be in ru');
+    const mostlyWrong = renderLocalizedSource({ schema: LOCALIZED_SOURCE_SCHEMA, entity: entity.id, kind: entity.kind, wikiLanguage: 'ru', sourceLanguage: 'en', sourceDocument: entity.path, sourceLine: entity.line, sourceEndLine: entity.endLine, original: entity.text, statement: 'This paragraph is still mostly English. тест' });
+    const rejectedTail = parseLocalizedSource('entity.md', mostlyWrong, entity, 'ru');
+    expect(rejectedTail.ok).toBe(false);
+    if (!rejectedTail.ok) expect(rejectedTail.message).toContain('does not appear to be in ru');
+    const mostlyRussian = renderLocalizedSource({ schema: LOCALIZED_SOURCE_SCHEMA, entity: entity.id, kind: entity.kind, wikiLanguage: 'en', sourceLanguage: 'ru', sourceDocument: entity.path, sourceLine: entity.line, sourceEndLine: entity.endLine, original: entity.text, statement: 'Этот абзац по-прежнему в основном русском языке. token' });
+    const rejectedRussianTail = parseLocalizedSource('entity.md', mostlyRussian, entity, 'en');
+    expect(rejectedRussianTail.ok).toBe(false);
+    if (!rejectedRussianTail.ok) expect(rejectedRussianTail.message).toContain('does not appear to be in en');
   });
 
   test('refuses stale identity, locale and source wording with a source line', () => {

@@ -23,7 +23,7 @@ import { slugOf } from './names.js';
 import { statementsOf } from './sentences.js';
 import { splitFrontMatter } from '../knowledge/markdown.js';
 import type { GraphView } from './view.js';
-import { LOCALIZED_SOURCE_SCHEMA, parseLocalizedSource, renderLocalizedSource } from './localized-source.js';
+import { detectDocumentLanguage, LOCALIZED_SOURCE_SCHEMA, parseLocalizedSource, renderLocalizedSource } from './localized-source.js';
 
 /** A domain the product page declares. */
 export interface DomainDeclaration {
@@ -380,10 +380,7 @@ export class UnitTools {
       this.status = 'written';
       return ok({ written: true, unchanged: true, id: this.unit.entity.id, path: this.unit.path });
     }
-    const cyrillic = (statement.match(/\p{Script=Cyrillic}/gu) ?? []).length;
-    const latin = (statement.match(/\p{Script=Latin}/gu) ?? []).length;
-    if (language === 'ru' && cyrillic < 4) return reject('wrong-language', 'localized-language', 'the statement has too little Cyrillic text to be a Russian statement');
-    if (language === 'en' && latin < 4) return reject('wrong-language', 'localized-language', 'the statement has too little Latin text to be an English statement');
+    if (detectDocumentLanguage(statement) !== language) return reject('wrong-language', 'localized-language', `the statement does not appear to be in ${language}`);
     const content = renderLocalizedSource({ schema: LOCALIZED_SOURCE_SCHEMA, entity: this.unit.entity.id, kind: this.unit.entity.kind, wikiLanguage: language, sourceLanguage: this.unit.sourceLanguage, sourceDocument: this.unit.entity.repo === null ? this.unit.entity.path : `repos/${this.unit.entity.repo}/${this.unit.entity.path}`, sourceLine: this.unit.entity.line, sourceEndLine: this.unit.entity.endLine, original, statement: statement.trim() });
     const validated = parseLocalizedSource(this.unit.path, content, this.unit.entity, language);
     if (!validated.ok) return reject('invalid-localized-source', 'localized-format', `${this.unit.path}:${validated.line}: the generated artifact is invalid: ${validated.message}`);

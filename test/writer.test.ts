@@ -249,6 +249,9 @@ describe('the writer over the training repository', () => {
     const tools = new UnitTools(view, { kind: 'localized-source', id: entity.id, path: sourcePath, entity, sourceLanguage: 'en', language: 'ru' }, sink);
     const malformed = await tools.call('write_localized_source', { statement: '## In the source\nforged source text' });
     expect(malformed.isError).toBe(true);
+    const mostlyWrong = await tools.call('write_localized_source', { statement: 'This paragraph is still mostly English. тест' });
+    expect(mostlyWrong.isError).toBe(true);
+    expect((mostlyWrong.answer as { error: { code: string } }).error.code).toBe('wrong-language');
     const answer = await tools.call('write_localized_source', { statement: 'Токен подтверждения после успешной оплаты.' });
     expect(answer.isError).toBe(false);
     expect(tools.outcome().status).toBe('written');

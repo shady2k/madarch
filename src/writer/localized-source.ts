@@ -8,7 +8,7 @@ export const LOCALIZED_SOURCE_SCHEMA = 'madarch.localized-document-source@1';
 
 /** Identify the two supported source languages from prose, not code identifiers or known field labels. */
 export function detectDocumentLanguage(text: string): 'en' | 'ru' | undefined {
-  const prose = text.replace(/`[^`]*`/g, ' ').replace(/^\s*(?:In code|Code names|Also called|Synonyms|Used in|Ambiguous|в коде|также называют|синонимы|где используется|неоднозначно)\s*:\s*.*$/gim, ' ');
+  const prose = text.replace(/`[^`]*`/g, ' ').replace(/^\s*(?:[-*+]\s+|\d+[.)]\s+)?(?:In code|Code names|Also called|Synonyms|Used in|Ambiguous|в коде|также называют|синонимы|где используется|неоднозначно)\s*:\s*.*$/gim, ' ');
   const letters = [...prose.matchAll(/[\p{L}]/gu)].map((match) => match[0]!);
   if (letters.length < 8) return undefined;
   const cyrillic = letters.filter((letter) => /\p{Script=Cyrillic}/u.test(letter)).length;
@@ -75,10 +75,7 @@ export function parseLocalizedSource(path: string, text: string, entity: DocEnti
   const body = lines.slice(end + 1).join('\n');
   const match = /^## Localized statement\s*\n+([\s\S]*?)\n+## In the source\s*\n+([\s\S]*?)\s*$/.exec(body.trim());
   if (match === null || match[1]!.trim() === '' || match[2]!.trim() === '') return { ok: false, line: end + 2, message: 'localized source has non-empty Localized statement and In the source sections' };
-  const statementLetters = [...match[1]!.matchAll(/[\p{L}]/gu)].map((item) => item[0]!);
-  const cyrillic = statementLetters.filter((letter) => /\p{Script=Cyrillic}/u.test(letter)).length;
-  const latin = statementLetters.filter((letter) => /\p{Script=Latin}/u.test(letter)).length;
-  if (language === 'ru' && cyrillic < 4 || language === 'en' && latin < 4) return { ok: false, line: end + 2, message: `localized statement does not appear to be in ${language}` };
+  if (detectDocumentLanguage(match[1]!) !== language) return { ok: false, line: end + 2, message: `localized statement does not appear to be in ${language}` };
   if (match[2]!.trim() !== entity.text.trim()) return { ok: false, line: end + 2 + body.split('\n').findIndex((line) => line.trim() === '## In the source') + 1, message: 'In the source does not match the current extracted document section' };
   return { ok: true, source: {
     schema: LOCALIZED_SOURCE_SCHEMA, entity: entity.id, kind: entity.kind,

@@ -226,9 +226,12 @@ export function acpUnitAgent(options: AcpAgentOptions): UnitAgent & { close(): P
           if (request.tools.finished() || stop !== undefined) break;
           const judged = guard.observe({ turns });
           if (judged.kind === 'stop') { stop = judged.cause; break; }
+          const writeTool = request.tools.definitions.find((definition) => definition.name === 'write_page' || definition.name === 'write_localized_source');
           prompt = wrapPending || judged.kind === 'wrap'
             ? guard.wrapUpMessage()
-            : 'The page is not written yet. Call write_page with the whole page now; if it was refused, fix every listed problem first.';
+            : writeTool === undefined
+              ? 'The unit is not complete. Use the tools available to finish it.'
+              : `The unit is not complete. Call ${writeTool.name} with the required content now; if it was refused, fix every listed problem first.`;
           wrapPending = false;
         }
         if (stop !== undefined) options.progress?.(`${request.id} stopped: ${guard.describe({ kind: 'stop', cause: stop, state: guard.state() })}`);

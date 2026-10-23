@@ -37,7 +37,7 @@ function stub(): ToolClient & { readonly calls: { tool: string; args: unknown }[
     definitions: WRITER_TOOLS,
     call: async (tool, args) => {
       calls.push({ tool, args });
-      if (tool === 'write_page') wrote = true;
+      if (tool === 'write_page' || tool === 'write_localized_source') wrote = true;
       return { answer: { written: wrote, echo: tool }, isError: false };
     },
     finished: () => wrote,
@@ -109,6 +109,22 @@ describe('a unit driven over ACP', () => {
     expect(prompts[1]).toContain('The page is not written yet');
     expect(tools.calls).toEqual([]);
     expect(notes.join('\n')).toContain('turn limit');
+  });
+
+  test('an unfinished localized-source turn is prompted to retry its own write tool', async () => {
+    const folder = scratch();
+    const base = stub();
+    const tools: ToolClient & { readonly calls: { tool: string; args: unknown }[] } = {
+      ...base,
+      definitions: [{ name: 'write_localized_source', description: 'Write a localized source statement.', inputSchema: { type: 'object', properties: { statement: { type: 'string' } }, required: ['statement'] } }],
+    };
+    const { agent, messages } = agentOf(folder, { steps: [{ say: 'thinking' }, { end: { stopReason: 'end_turn' } }, { call: { tool: 'write_localized_source', arguments: { statement: 'The statement.' } } }, { end: { stopReason: 'end_turn' } }] }, { limits: { ...DEFAULT_STAGE_LIMITS, maxTurns: 3 } });
+    await agent.run({ id: 'localized-source:doc:test', prompt: 'WRITE', tools });
+    const prompts = messages().filter((m) => m.method === 'session/prompt').map((m) => JSON.stringify(m.params));
+    expect(prompts).toHaveLength(2);
+    expect(prompts[1]).toContain('write_localized_source');
+    expect(prompts[1]).not.toContain('write_page');
+    expect(tools.calls.map((call) => call.tool)).toEqual(['write_localized_source']);
   });
 
   test('a turn that crosses the context stop is cancelled and the unit ends there', async () => {
