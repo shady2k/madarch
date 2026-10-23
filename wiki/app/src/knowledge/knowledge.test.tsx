@@ -366,6 +366,7 @@ describe('the agent stage', () => {
     expect(container.textContent).toContain('Let an agent write the product pages');
     expect((container.querySelector('[data-testid=fill-start]') as HTMLButtonElement).disabled).toBe(true);
     expect(container.textContent).toContain('Choose Claude Code or Codex to let an agent write.');
+    await until(() => calls.includes('GET /api/k/agents'), 'the agent request');
     expect(calls).toEqual(['GET /api/k/agents']);
   });
 

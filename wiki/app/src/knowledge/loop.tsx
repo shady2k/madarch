@@ -231,6 +231,10 @@ export function QuestionPage({ slug, version, refresh }: { slug: string; version
 function ProblemItem({ problem }: { problem: Problem }): ReactElement {
   const { t } = useTranslation();
   const where = problem.page === null ? null : <KLink href={addressOfEntity(problem.page)}>{problem.pageTitle ?? shortId(problem.page)}</KLink>;
+  const missingGroup = /^kind "([^"]+)": "group" names a group of "groups" .*?, got "([^"]+)"$/.exec(problem.reason);
+  const readerReason = missingGroup === null ? problem.reason : t('knowledge.manifestMissingGroup', {
+    kind: t(`knowledge.manifestKinds.${missingGroup[1]}`, { defaultValue: missingGroup[1] }), group: missingGroup[2],
+  });
   return (
     <li className="border-b border-line py-3 last:border-b-0" data-testid="problem-row" data-kind={problem.kind} data-closed={problem.closed ? 'true' : 'false'}>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -239,7 +243,8 @@ function ProblemItem({ problem }: { problem: Problem }): ReactElement {
         {problem.closed && <Badge>{t('loop.stateClosed')}</Badge>}
       </div>
       {problem.sentence !== null && <p className="mb-0 mt-1.5 text-secondary" data-testid="problem-sentence">«{problem.sentence}»</p>}
-      <p className="mb-0 mt-1 text-small">{t(`loop.because.${problem.kind}`)} <span data-testid="problem-reason">{problem.reason}</span></p>
+      <p className="mb-0 mt-1 text-small">{t(`loop.because.${problem.kind}`)} <span data-testid="problem-reason">{readerReason}</span></p>
+      {missingGroup !== null && <details className="mt-1 text-small text-muted" data-testid="problem-details"><summary className="cursor-pointer underline">{t('knowledge.findingsDetails')}</summary><code>{problem.reason}</code></details>}
       <p className="mb-0 mt-1 text-small text-muted">
         {where !== null && <span>{t('loop.onPage')} {where} · </span>}
         <code>{problem.file}{problem.line === null ? '' : `:${problem.line}`}</code>
@@ -286,7 +291,7 @@ export function StarterOffers({ offers, refresh }: { offers: readonly StarterOff
   const groupLabel = (group: string): string => t(`loop.starter.groups.${group}`, { defaultValue: group });
   return (
     <section className="mb-8" data-testid="problems-starter">
-      <h2>{t('loop.starter.title', { count: offers.length })}</h2>
+      <h2>{t('loop.starter.summary', { count: offers.length })}</h2>
       <p className="text-secondary" data-testid="starter-summary">{t('loop.starter.summary', { count: offers.length })}</p>
       <p className="mb-3 flex flex-wrap items-center gap-3">
         <Button variant="default" size="default" disabled={working !== null} onClick={() => add(offers.map((offer) => offer.id), '*')} data-testid="starter-add-all">{t('loop.starter.addAll')}</Button>

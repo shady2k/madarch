@@ -232,6 +232,19 @@ describe('the problems page', () => {
     expect(open[3]!.querySelector('[data-testid=problem-who]')!.textContent).toContain('open the file at the line shown and correct it');
   });
 
+  test('words manifest findings in Russian and keeps raw diagnostics behind engineer details', async () => {
+    await setWikiLanguage('ru');
+    (globalThis as { fetch?: unknown }).fetch = async () => json(listing([
+      problem('unreadable-file', { page: null, pageTitle: null, statement: null, sentence: null, reason: 'kind "question": "group" names a group of "groups" but has the wrong shape, got "product"', file: 'madarch/kinds.yaml', line: 8 }),
+    ]));
+    const page = into(createElement(ProblemsPage, { version: 0 }));
+    await until(() => page.querySelector('[data-testid=problems-page]') !== null, 'the problems');
+    const row = page.querySelector('[data-testid=problem-row]')!;
+    expect(row.querySelector('[data-testid=problem-reason]')!.textContent).toBe('Вид «Вопрос» ссылается на группу «product», которой нет в манифесте.');
+    expect(row.querySelector('[data-testid=problem-details]')).not.toBeNull();
+    expect(row.querySelector('[data-testid=problem-details]')!.textContent).toContain('names a group of');
+  });
+
   test('a product with no problem says so', async () => {
     (globalThis as { fetch?: unknown }).fetch = async () => json(listing([]));
     const page = into(createElement(ProblemsPage, { version: 0 }));

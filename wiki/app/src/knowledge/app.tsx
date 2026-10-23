@@ -217,7 +217,7 @@ function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus;
         <a href={appPath(K_PROBLEMS)} className={link(route.name === 'problems')} aria-current={route.name === 'problems' ? 'page' : undefined} data-testid="nav-problems" {...pick(K_PROBLEMS)}>
           <AlertTriangleIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
           <span className="min-w-0 flex-1">{t('loop.problemsTitle')}</span>
-          {(status.loop?.correctionsOpen ?? 0) + (status.starterOffers ?? 0) > 0 && <span className="text-small text-muted" data-testid="nav-problems-count">{(status.loop?.correctionsOpen ?? 0) + (status.starterOffers ?? 0)}</span>}
+          {(status.loop?.correctionsOpen ?? 0) > 0 && <span className="text-small text-muted" data-testid="nav-problems-count">{status.loop?.correctionsOpen ?? 0}</span>}
         </a>
         <a href={appPath(K_DOCS)} className={link(route.name === 'docs' || route.name === 'doc')} aria-current={route.name === 'docs' || route.name === 'doc' ? 'page' : undefined} data-testid="nav-documents" {...pick(K_DOCS)}>
           <FolderGit2Icon aria-hidden="true" className="size-4 shrink-0 text-muted" />

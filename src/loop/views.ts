@@ -146,7 +146,12 @@ export async function listProblems(input: ProblemInput): Promise<ProblemListing>
   for (const correction of corrections.items) out.push(correctionProblem(correction, byId));
   for (const problem of corrections.problems) out.push({ ...none, kind: 'unreadable-file', fixer: 'person', reason: problem.message.slice(problem.file.length + String(problem.line).length + 2), file: problem.file, line: problem.line });
   for (const problem of readQuestions(input.productFolder).problems) out.push({ ...none, kind: 'unreadable-file', fixer: 'person', reason: problem.message.slice(problem.file.length + String(problem.line).length + 2), file: problem.file, line: problem.line });
-  for (const finding of [...input.findings, ...read.findings]) out.push({ ...none, kind: 'unreadable-file', fixer: 'person', reason: finding.message, file: finding.file, line: finding.line });
+  const findingsByLocation = new Map<string, Problem>();
+  for (const finding of [...input.findings, ...read.findings]) {
+    const key = `${finding.file}:${finding.line}`;
+    if (!findingsByLocation.has(key)) findingsByLocation.set(key, { ...none, kind: 'unreadable-file', fixer: 'person', reason: finding.message, file: finding.file, line: finding.line });
+  }
+  out.push(...findingsByLocation.values());
   for (const miss of input.unplaced ?? []) out.push({ ...none, kind: 'unplaced', fixer: 'person', target: miss.slug, reason: miss.reason, file: miss.kind === 'question' ? `docs/questions/${miss.slug}.md` : `docs/corrections/${miss.slug}.md` });
   // Grounds and links that name nothing.
   const seen = new Set<string>();

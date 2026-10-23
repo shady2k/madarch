@@ -51,8 +51,8 @@ const repository = generateTrainingRepository(join(work, 'repo'));
 const madarchHome = join(work, 'madarch');
 const products = join(work, 'products');
 mkdirSync(products, { recursive: true });
-const shop = oldProduct(products, 'shop', repository);
-const edited = oldProduct(products, 'shop-edited', repository);
+const shop = oldProduct(products, 'sample-product', repository);
+const edited = oldProduct(products, 'sample-product-edited', repository);
 writeFileSync(join(edited, 'madarch', 'kinds.yaml'), `# our own note: kinds are listed in the order we read them\n${readFileSync(join(edited, 'madarch', 'kinds.yaml'), 'utf8')}`);
 git(edited, 'add', '-A');
 git(edited, '-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'Note in the manifest');
@@ -127,53 +127,53 @@ const server = await serve(products, port);
 try {
   const base = server.url;
   // The reader's role is a machine setting shared by products. Answer the first-run prompt before any screenshot.
-  await post(base, '/products/shop/api/k/settings', { role: 'everything' });
+  await post(base, '/products/sample-product/api/k/settings', { role: 'everything' });
   // ---- the old product, read by the current madarch -----------------------------------------------
   const before = readFileSync(join(shop, 'madarch', 'kinds.yaml'), 'utf8');
   check(!before.includes('groups:'), 'the old manifest declares no groups (everything would fall into «Other»)');
-  const first = await json(base, '/products/shop/api/k/status');
+  const first = await json(base, '/products/sample-product/api/k/status');
   check(first.findings.length === 0, 'no finding is left on the upgraded manifest');
   check(first.groups.length === 7, 'the upgraded manifest has the seven groups');
   check(Object.keys(first.roles).length === 6, 'the six roles are declared');
   check(readFileSync(join(shop, 'madarch', 'kinds.yaml'), 'utf8') === starterManifest('ru'), 'the manifest is the current starter set, in the product\'s language');
-  await post(base, '/products/shop/api/k/fill', {});
-  await settled(base, 'shop');
-  const filled = await json(base, '/products/shop/api/k/status');
+  await post(base, '/products/sample-product/api/k/fill', {});
+  await settled(base, 'sample-product');
+  const filled = await json(base, '/products/sample-product/api/k/status');
   const count = (kind: string): number => filled.kinds.find((entry: { kind: string; count: number }) => entry.kind === kind)?.count ?? 0;
   check(count('doc.use-case') > 0, `use cases are entities (${count('doc.use-case')})`);
   check(count('code.route') > 0, `routes are entities (${count('code.route')})`);
   check(count('code.contract') > 0 || count('code.operation') > 0, `contracts are entities (contracts ${count('code.contract')}, operations ${count('code.operation')})`);
-  const route = (await json(base, '/products/shop/api/k/entities?kind=code.route&limit=1')).rows[0].id as string;
-  const useCase = (await json(base, '/products/shop/api/k/entities?kind=doc.use-case&limit=1')).rows[0].id as string;
-  const contract = (await json(base, `/products/shop/api/k/entities?kind=${count('code.contract') > 0 ? 'code.contract' : 'code.operation'}&limit=1`)).rows[0].id as string;
-  await both(base, '/products/shop/k/catalogue', 'upgraded-catalogue', '[data-testid=catalogue], [data-nav-group]');
-  await both(base, '/products/shop/k/kind/doc.use-case', 'upgraded-use-cases', '[data-testid=nav-group]');
-  await both(base, `/products/shop/k/e/${encodeURIComponent(useCase)}`, 'upgraded-use-case-entity', '[data-testid=entity-page]');
-  await both(base, `/products/shop/k/e/${encodeURIComponent(contract)}`, 'upgraded-contract-page', '[data-testid=entity-page]');
-  await both(base, `/products/shop/k/e/${encodeURIComponent(route)}`, 'upgraded-route-page', '[data-testid=entity-page]');
+  const route = (await json(base, '/products/sample-product/api/k/entities?kind=code.route&limit=1')).rows[0].id as string;
+  const useCase = (await json(base, '/products/sample-product/api/k/entities?kind=doc.use-case&limit=1')).rows[0].id as string;
+  const contract = (await json(base, `/products/sample-product/api/k/entities?kind=${count('code.contract') > 0 ? 'code.contract' : 'code.operation'}&limit=1`)).rows[0].id as string;
+  await both(base, '/products/sample-product/k/catalogue', 'upgraded-catalogue', '[data-testid=catalogue], [data-nav-group]');
+  await both(base, '/products/sample-product/k/kind/doc.use-case', 'upgraded-use-cases', '[data-testid=nav-group]');
+  await both(base, `/products/sample-product/k/e/${encodeURIComponent(useCase)}`, 'upgraded-use-case-entity', '[data-testid=entity-page]');
+  await both(base, `/products/sample-product/k/e/${encodeURIComponent(contract)}`, 'upgraded-contract-page', '[data-testid=entity-page]');
+  await both(base, `/products/sample-product/k/e/${encodeURIComponent(route)}`, 'upgraded-route-page', '[data-testid=entity-page]');
 
   // ---- the product a person edited: untouched, and the Problems page offers «Add» -------------------
-  const editedStatus = await json(base, '/products/shop-edited/api/k/status');
+  const editedStatus = await json(base, '/products/sample-product-edited/api/k/status');
   check(readFileSync(join(edited, 'madarch', 'kinds.yaml'), 'utf8') === editedBefore, 'the edited manifest is byte for byte as it was');
   check(editedStatus.starterOffers > 0, `the Problems page has ${editedStatus.starterOffers} things to add`);
-  await both(base, '/products/shop-edited/k/problems', 'edited-problems-offer-add', '[data-testid=problems-starter]', true);
-  const offers = (await json(base, '/products/shop-edited/api/k/problems')).starter.map((offer: { id: string }) => offer.id) as string[];
-  await post(base, '/products/shop-edited/api/k/starter', { ids: offers });
-  const addedStatus = await json(base, '/products/shop-edited/api/k/status');
+  await both(base, '/products/sample-product-edited/k/problems', 'edited-problems-offer-add', '[data-testid=problems-starter]', true);
+  const offers = (await json(base, '/products/sample-product-edited/api/k/problems')).starter.map((offer: { id: string }) => offer.id) as string[];
+  await post(base, '/products/sample-product-edited/api/k/starter', { ids: offers });
+  const addedStatus = await json(base, '/products/sample-product-edited/api/k/status');
   check(addedStatus.findings.length === 0 && addedStatus.starterOffers === 0, 'after «Add all» the edited manifest reads clean and offers nothing more');
   check(readFileSync(join(edited, 'madarch', 'kinds.yaml'), 'utf8').startsWith('# our own note'), 'the person\'s comment is still the first line');
 
   // ---- the settings page ---------------------------------------------------------------------------
-  await post(base, '/products/shop/api/k/agent', { agent: 'claude-code', install: false });
-  await both(base, '/products/shop/k/settings', 'settings', '[data-testid=settings-model-select]', true);
-  await post(base, '/products/shop/api/k/product-settings', { model: 'opus', reasoning: 'high' });
-  const afterPick = await json(base, '/products/shop/api/k/product-settings');
+  await post(base, '/products/sample-product/api/k/agent', { agent: 'claude-code', install: false });
+  await both(base, '/products/sample-product/k/settings', 'settings', '[data-testid=settings-model-select]', true);
+  await post(base, '/products/sample-product/api/k/product-settings', { model: 'opus', reasoning: 'high' });
+  const afterPick = await json(base, '/products/sample-product/api/k/product-settings');
   check(afterPick.chosenAgent.model === 'opus' && afterPick.chosenAgent.reasoning === 'high', 'the model and the reasoning level the adapter reported are saved beside the agent');
-  const refusedModel = await fetch(`${base}/products/shop/api/k/product-settings`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ model: 'gpt-nine' }) });
+  const refusedModel = await fetch(`${base}/products/sample-product/api/k/product-settings`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ model: 'gpt-nine' }) });
   check(refusedModel.status === 400, 'a model the adapter does not report is refused');
-  await both(base, '/products/shop/k/settings', 'settings-model-saved', '[data-testid=settings-model-select]', true);
+  await both(base, '/products/sample-product/k/settings', 'settings-model-saved', '[data-testid=settings-model-select]', true);
   for (const [width, height] of [[1150, 900], [390, 800]] as const) {
-    const page = await open(base, '/products/shop/k/settings', width, height);
+    const page = await open(base, '/products/sample-product/k/settings', width, height);
     await page.waitForSelector('[data-testid=danger-fresh-open]', { timeout: 120_000 });
     await page.click('[data-testid=danger-fresh-open]');
     await page.waitForSelector('[data-testid=danger-dialog] [data-testid=danger-pages]', { timeout: 60_000 });
@@ -182,10 +182,10 @@ try {
   }
 
   // ---- «Start from scratch» ------------------------------------------------------------------------
-  const id = (await json(base, '/products/shop/api/k/product')).id as string;
+  const id = (await json(base, '/products/sample-product/api/k/product')).id as string;
   const store = join(products, '.madarch', 'knowledge', id);
   writeFileSync(join(shop, 'templates', 'domain.md'), 'a template we edited\n');
-  const page = await open(base, '/products/shop/k/settings', 1150, 900);
+  const page = await open(base, '/products/sample-product/k/settings', 1150, 900);
   await page.waitForSelector('[data-testid=danger-fresh-open]', { timeout: 120_000 });
   await page.click('[data-testid=danger-fresh-open]');
   await page.waitForSelector('[data-testid=danger-confirm]', { timeout: 60_000 });
@@ -193,15 +193,15 @@ try {
   await page.waitForFunction(() => window.location.pathname.endsWith('/k'), { timeout: 120_000 });
   const files = (folder: string): string[] => (existsSync(folder) ? readdirSync(folder, { recursive: true }).map(String) : []);
   check(!existsSync(join(shop, 'docs', 'product.md')) && files(join(shop, 'docs', 'domains')).length === 0, 'no agent page is left');
-  check(!existsSync(join(store, 'graph')) || files(join(store, 'graph')).length === 0 || (await json(base, '/products/shop/api/k/status')).fill.state === 'running', 'the old graph is gone (a fresh fill is writing a new one)');
+  check(!existsSync(join(store, 'graph')) || files(join(store, 'graph')).length === 0 || (await json(base, '/products/sample-product/api/k/status')).fill.state === 'running', 'the old graph is gone (a fresh fill is writing a new one)');
   check(readFileSync(join(shop, 'madarch', 'kinds.yaml'), 'utf8') === starterManifest('ru'), 'the manifest is the current starter set');
   for (const starter of STARTER_FILES) check(readFileSync(join(shop, starter.path), 'utf8') === (starter.path === 'madarch/kinds.yaml' ? starterManifest('ru') : starter.content), `${starter.path} is the current starter file`);
   await shoot(page, 'after-start-from-scratch');
   await page.close();
-  await settled(base, 'shop');
-  const again = await json(base, '/products/shop/api/k/status');
+  await settled(base, 'sample-product');
+  const again = await json(base, '/products/sample-product/api/k/status');
   check(again.filled && again.kinds.find((entry: { kind: string; count: number }) => entry.kind === 'code.route')!.count > 0, 'the fill ran again: the graph holds the code once more');
-  await both(base, '/products/shop/k/catalogue', 'refilled-catalogue', '[data-nav-group], [data-testid=nav-group]');
+  await both(base, '/products/sample-product/k/catalogue', 'refilled-catalogue', '[data-nav-group], [data-testid=nav-group]');
 } finally {
   await server.stop();
   await browser.close();

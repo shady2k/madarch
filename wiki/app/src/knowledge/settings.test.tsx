@@ -56,7 +56,7 @@ const json = (body: unknown, status = 200): Response => new Response(JSON.string
 const BOUNDS = { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12 };
 
 const settings = (over: Partial<ProductSettings> = {}): ProductSettings => ({
-  product: { name: 'shop', id: 'p1' }, folder: '/home/me/products/shop', store: '/home/me/.madarch/knowledge/p1', language: 'ru',
+  product: { name: 'shop', id: 'p1' }, folder: '/products/sample-product', store: '/state/knowledge/p1', language: 'ru',
   chosenAgent: { id: 'claude-code', label: 'Claude Code' }, bounds: BOUNDS, busy: false,
   danger: {
     rewrite: { agentPages: ['docs/product.md', 'docs/domains/payments.md'], keptPages: ['docs/domains/mine.md'] },
@@ -114,7 +114,7 @@ describe('the product settings page', () => {
     expect([...reasoning.querySelectorAll('option')].map((option) => option.textContent)).toEqual(["The agent's own choice", 'Low', 'High']);
     expect((page.querySelector('[data-testid=settings-language-ru] input') as HTMLInputElement).checked).toBe(true);
     expect(page.querySelector('[data-testid=bound-turns]')!.textContent).toBe('30');
-    expect(page.querySelector('[data-testid=places-folder]')!.textContent).toBe('/home/me/products/shop');
+    expect(page.querySelector('[data-testid=places-folder]')!.textContent).toBe('/products/sample-product');
     expect(page.querySelector('[data-testid=places-push]')!.textContent).toContain('no git push');
   });
 
@@ -163,7 +163,7 @@ describe('the product settings page', () => {
     stub(calls);
     const page = into(createElement(SettingsPage, { version: 0, status: status(), refresh: () => undefined }));
     await until(() => page.querySelector('[data-testid=danger-fresh-open]') !== null, 'the dangerous actions');
-    expect(page.querySelector('[data-testid=settings-danger]')!.textContent).toContain('Local: only the product checkout at /home/me/products/shop on this machine changes.');
+    expect(page.querySelector('[data-testid=settings-danger]')!.textContent).toContain('Local: only the product checkout at /products/sample-product on this machine changes.');
     (page.querySelector('[data-testid=danger-fresh-open]') as HTMLElement).click();
     await until(() => page.querySelector('[data-testid=danger-dialog]') !== null, 'the confirmation');
     const dialog = page.querySelector('[data-testid=danger-dialog]')!;
@@ -216,7 +216,7 @@ describe('the product settings page', () => {
     expect(page.querySelector('h1')!.textContent).toBe('Настройки продукта');
     expect(page.querySelector('[data-testid=danger-fresh] h3')!.textContent).toBe('Начать с нуля');
     expect(page.querySelector('[data-testid=danger-rewrite] h3')!.textContent).toBe('Переписать страницы');
-    expect(page.querySelector('[data-testid=settings-danger]')!.textContent).toContain('Локально: меняется только копия продукта в /home/me/products/shop на этой машине.');
+    expect(page.querySelector('[data-testid=settings-danger]')!.textContent).toContain('Локально: меняется только копия продукта в /products/sample-product на этой машине.');
   });
 });
 
@@ -305,9 +305,9 @@ describe('where the settings are and where the progress is', () => {
     }
   });
 
-  test('the bottom of the sidebar links to the settings, and the product selector no longer offers «Start over»', async () => {
+  test('the bottom of the sidebar links to the settings, counts actual problems but not starter offers, and removes «Start over»', async () => {
     (globalThis as { fetch?: unknown }).fetch = async (url: string) => {
-      if (url.endsWith('/api/k/status')) return json(status());
+      if (url.endsWith('/api/k/status')) return json(status({ starterOffers: 56, loop: { questionsOpen: 0, questionsAnswered: 0, correctionsOpen: 4 } }));
       if (url.endsWith('/api/k/products')) return json({ products: [{ name: 'shop', folder: 'shop' }] });
       if (url.endsWith('/api/k/agents')) return json({ agents: [], chosen: null });
       if (url.endsWith('/api/k/settings')) return json({ role: 'everything', asked: true, roles: [] });
@@ -320,5 +320,6 @@ describe('where the settings are and where the progress is', () => {
     expect(app.querySelector('[data-testid=nav-settings]')!.getAttribute('href')).toBe('/k/settings');
     expect(app.querySelector('[data-testid=nav-settings]')!.textContent).toBe('Product settings');
     expect(app.querySelector('[data-testid=start-over]')).toBeNull();
+    expect(app.querySelector('[data-testid=nav-problems-count]')!.textContent).toBe('4');
   });
 });
