@@ -11,6 +11,7 @@ describe('localized document sources', () => {
     expect(detectDocumentLanguage('Short')).toBeUndefined();
     expect(detectDocumentLanguage('Hello мир, this is смешанный text.')).toBeUndefined();
     expect(detectDocumentLanguage('Токен оплаты.\nIn code: PaymentToken, CardToken')).toBe('ru');
+    expect(detectDocumentLanguage('Токен оплаты.\n\nIn code: PaymentToken, CardToken')).toBe('ru');
   });
 
   test('uses a reversible, path-safe entity identity and round-trips fixed provenance', () => {

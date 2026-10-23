@@ -8,7 +8,7 @@ export const LOCALIZED_SOURCE_SCHEMA = 'madarch.localized-document-source@1';
 
 /** Identify the two supported source languages from prose, not code identifiers or known field labels. */
 export function detectDocumentLanguage(text: string): 'en' | 'ru' | undefined {
-  const prose = text.replace(/`[^`]*`/g, ' ').replace(/\b(?:In code|Code names|Also called|Synonyms|Used in|Ambiguous)\s*:/gi, ' ').replace(/(?:в коде|также называют|синонимы|где используется|неоднозначно)\s*:/gi, ' ');
+  const prose = text.replace(/`[^`]*`/g, ' ').replace(/^\s*(?:In code|Code names|Also called|Synonyms|Used in|Ambiguous|в коде|также называют|синонимы|где используется|неоднозначно)\s*:\s*.*$/gim, ' ');
   const letters = [...prose.matchAll(/[\p{L}]/gu)].map((match) => match[0]!);
   if (letters.length < 8) return undefined;
   const cyrillic = letters.filter((letter) => /\p{Script=Cyrillic}/u.test(letter)).length;
