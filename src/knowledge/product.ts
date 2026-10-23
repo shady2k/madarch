@@ -12,7 +12,7 @@
  * graph's spans were read from, and a restarted server still knows.
  */
 import { glossaryTerms, termLinks, type GlossaryTerm } from './glossary.js';
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { execFile, execFileSync } from 'node:child_process';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
@@ -22,7 +22,7 @@ import { RemoteOwner } from './remote-owner.js';
 import { byCodePoint } from '../model/order.js';
 import { readProduct, type ProductIdentity } from '../product/manifest.js';
 import { selfCommand } from '../product/self-command.js';
-import { insideFolder, homeKind, readKinds, setKindsLanguage, type Finding, type KindsManifest } from './kinds.js';
+import { insideFolder, homeKind, KINDS_FILE, readKinds, setKindsLanguage, type Finding, type KindsManifest } from './kinds.js';
 import { linesOf } from './lines.js';
 import { applyReset, planReset, type ResetPlan } from './reset.js';
 import { parseMessage, type FromWorker, type RepositoryPin, type ToWorker, type WorkerStart } from './fill-protocol.js';
@@ -33,7 +33,9 @@ import { readMarkdownEntities, type MarkdownEntity } from './markdown.js';
 import type { AgentOffer, Block, DocumentListing, DocumentPage, DocumentRef, FillState, Neighborhood, WikiStatus, WriterState, WriterUnit } from './model.js';
 import { neighborhoodOf } from './diagrams.js';
 import { anchorLines } from './anchors.js';
-import { adapterOf, installAdapter, makeUnitAgent, offers, WRITER_BOUNDS } from './agents.js';
+import { adapterOf, installAdapter, makeUnitAgent, offers, queryAgentChoices, WRITER_BOUNDS } from './agents.js';
+import type { AgentChoices } from '../fill/acp-choices.js';
+import { addStarterItems, currentOffers, filesAPersonEdited, replaceWithStarterSet, upgradeStarterSet, type StarterOffer, type UpgradeReport, rememberChangedStarterFileIfOwned } from './starter-upgrade.js';
 import { fileJournal, journalFolder, journalOfUnit, newRunId, type Journal, type PageJournal } from '../writer/journal.js';
 import { productSlug, PRODUCT_PATH, type ToolAnswer, type ToolClient, type UnitAgent } from '../writer/index.js';
 import { CONTENT_LANGUAGES } from '../writer/prompts.js';
@@ -47,7 +49,7 @@ import { indexCounts, statementsRelyingOn } from './index/queries.js';
 import { webLink } from './index/web-link.js';
 import { readDocEntities, type DocEntity, type DocumentSource } from './doc-entities.js';
 import { DOCUMENT_LIMIT, DOCUMENT_PATH, docsLinkedOutside, listedDocument, productDocumentPaths, readProductDocument, readRepoDocuments, repoDocumentPaths } from './doc-sources.js';
-import { ensureLoopKinds, seedStarterSet } from './seed.js';
+import { ensureLoopKinds, seedStarterSet, TEMPLATES } from './seed.js';
 import { readCorrections } from '../loop/entities.js';
 import { answerQuestion, recordCorrection, type Answered, type Corrected } from '../loop/answer.js';
 import { planRefresh, type RefreshPlan } from '../loop/plan.js';
@@ -134,6 +136,8 @@ export interface KnowledgeProductOptions {
   workerFactory?: FillWorkerFactory;
   /** The least time between two snapshots of the store the fill writes, in milliseconds (default 8000). */
   snapshotMs?: number;
+  /** Asks an agent which models it offers; the production one starts its ACP adapter. Tests inject. */
+  choicesQuery?: (agentId: string, env: DraftEnv) => Promise<{ ok: true; choices: AgentChoices } | { ok: false; message: string }>;
 }
 
 /** Runs git in a code repository for one blob; the file is `undefined` when git has none there. */
@@ -247,6 +251,75 @@ export class KnowledgeProduct {
     return this.reader!.owner;
   }
 
+  /** Whether the starter set was checked for this product by this server (once: the files move on only with madarch). */
+  private upgraded = false;
+  /** What the check found: the files it brought up to date and what an edited manifest lacks. */
+  private upgradeReport: UpgradeReport | undefined;
+
+  /** Where this machine records what madarch wrote into the product's manifest and templates. */
+  private starterRecord(): string {
+    return join(dirname(this.choiceFile()), 'starter.json');
+  }
+
+  /**
+   * Brings the manifest and the templates madarch alone wrote to the current starter set (madarch-m38l.11). A file a
+   * person edited is never touched: what the set holds and it lacks is offered on the Problems page. A failure is
+   * logged with its path and leaves the product as it was.
+   */
+  private upgrade(folder: string): void {
+    this.upgraded = true;
+    try {
+      this.upgradeReport = upgradeStarterSet(folder, this.starterRecord());
+      const changed = [...this.upgradeReport.rewritten, ...this.upgradeReport.written];
+      if (changed.length > 0) {
+        this.options.errorLog?.(`the knowledge wiki brought ${folder} to the current starter set: ${changed.join(', ')}`);
+        this.notify();
+      }
+    } catch (error) {
+      this.options.errorLog?.(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  /** What the current starter set holds that this product's edited manifest lacks, each with the Problems page's «Add». */
+  starterOffers(): StarterOffer[] {
+    const product = this.product();
+    if ('message' in product) return [];
+    // Judging a manifest runs git; it is judged again only when the file changed.
+    let stamp: string;
+    try {
+      const stat = statSync(join(product.folder, KINDS_FILE));
+      stamp = `${stat.mtimeMs}:${stat.size}`;
+    } catch {
+      return [];
+    }
+    if (this.offered?.stamp === stamp) return this.offered.offers;
+    try {
+      const offers = currentOffers(product.folder, this.starterRecord());
+      this.offered = { stamp, offers };
+      return offers;
+    } catch {
+      return [];
+    }
+  }
+
+  private offered: { stamp: string; offers: StarterOffer[] } | undefined;
+
+  /** Adds items of the starter set to the product's manifest (and the templates they need), on the reader's press. */
+  addStarter(ids: readonly string[]): { ok: true; written: string[] } | { ok: false; message: string } {
+    const product = this.product();
+    if ('message' in product) return { ok: false, message: product.message };
+    const offered = new Set(this.starterOffers().map((offer) => offer.id));
+    const unknown = ids.filter((id) => !offered.has(id));
+    if (unknown.length > 0) return { ok: false, message: `${unknown.join(', ')} ${unknown.length === 1 ? 'is' : 'are'} not offered by the starter set for this product now (${[...offered].join(', ') || 'nothing is offered'}): read the Problems page again` };
+    try {
+      const written = addStarterItems(product.folder, ids, this.starterRecord());
+      this.notify();
+      return { ok: true, written };
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
   /** The starter set written into this product by this server, for the page to say so once. */
   private seeded: string[] = [];
   /** Why the starter set could not be written, when it could not. */
@@ -257,6 +330,8 @@ export class KnowledgeProduct {
    * the same files): the wiki has one app, and an empty folder opens on the pages the starter templates draw.
    */
   private kinds(folder: string): ReturnType<typeof readKinds> {
+    // A product made by an earlier madarch is brought to the current starter set once, before its manifest is read.
+    if (!this.upgraded && existsSync(join(folder, KINDS_FILE))) this.upgrade(folder);
     const read = readKinds(folder);
     if (read.present) return read;
     try {
@@ -451,14 +526,14 @@ export class KnowledgeProduct {
    * writer's work; this method hears the worker and keeps the fill's and the writer's state, the pins and the reader.
    */
   private async runJob(product: ProductIdentity, repositories: readonly { name: string; path: string }[], run: { language: string; languageChanged: boolean; languageFrom: string }): Promise<void> {
-    const failFill = (message: string): void => {
-      this.fill = { state: 'failed', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), message };
+    const failFill = (message: string, code: string): void => {
+      this.fill = { state: 'failed', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), message, code };
       this.notify();
     };
     try {
       await this.open();
     } catch (error) {
-      failFill(`the product's graph store could not be opened: ${error instanceof Error ? error.message : String(error)}`);
+      failFill(`the product's graph store could not be opened: ${error instanceof Error ? error.message : String(error)}`, 'store');
       return;
     }
     // A wiki that began shutting down while its store opened starts no worker.
@@ -471,7 +546,7 @@ export class KnowledgeProduct {
     try {
       worker = (this.options.workerFactory ?? spawnFillWorker)();
     } catch (error) {
-      failFill(`the fill worker could not be started: ${error instanceof Error ? error.message : String(error)}`);
+      failFill(`the fill worker could not be started: ${error instanceof Error ? error.message : String(error)}`, 'worker-start');
       return;
     }
     this.worker = worker;
@@ -521,15 +596,17 @@ export class KnowledgeProduct {
           await this.swapping.catch(() => undefined);
           if (message.state === 'done') this.fill = { state: 'done', startedAt: this.fill.startedAt, finishedAt: now(), gaps: message.gaps };
           else if (message.state === 'stopped') this.fill = { state: 'idle', message: 'the fill was stopped; it resumes where it stopped' };
-          else this.fill = { state: 'failed', startedAt: this.fill.startedAt, finishedAt: now(), message: message.message };
+          else this.fill = { state: 'failed', startedAt: this.fill.startedAt, finishedAt: now(), message: message.message, ...(message.code === undefined ? {} : { code: message.code }) };
           this.notify();
           return;
         case 'agent-wanted': {
           const chosen = this.writer.agent;
           if (chosen === null) { worker.send({ type: 'agent-failed', message: 'no agent was chosen for this press' }); return; }
-          // Every call this run's agent makes is journaled in the product's machine-local store (madarch-m38l.13).
+          const preferences = this.chosenAgent();
           const journal = fileJournal(journalFolder(this.storeFolder()), newRunId(this.options.now?.()));
-          const built = this.options.agentFactory === undefined ? makeUnitAgent(chosen.id, this.env, undefined, journal) : this.options.agentFactory(chosen.id, journal);
+          const built = this.options.agentFactory === undefined
+            ? makeUnitAgent(chosen.id, this.env, (line) => this.options.errorLog?.(`the agent ${chosen.id}: ${line}`), preferences === null ? undefined : { ...(preferences.model === undefined ? {} : { model: preferences.model }), ...(preferences.reasoning === undefined ? {} : { reasoning: preferences.reasoning }) }, journal)
+            : this.options.agentFactory(chosen.id, journal);
           if ('error' in built) { worker.send({ type: 'agent-failed', message: built.error }); return; }
           // A unit never starts once the wiki is shutting down, even if the agent was closed before its connection opened.
           const made: UnitAgent & { close(): Promise<void> } = {
@@ -611,7 +688,7 @@ export class KnowledgeProduct {
           }
           this.writer = message.state === 'done'
             ? { ...this.writer, state: 'done', current: undefined, finishedAt: now(), asked: message.asked, ...(message.message === undefined ? {} : { message: message.message }) }
-            : { ...this.writer, state: 'failed', current: undefined, finishedAt: now(), asked: message.asked, message: message.message };
+            : { ...this.writer, state: 'failed', current: undefined, finishedAt: now(), asked: message.asked, message: message.message, ...(message.code === undefined ? {} : { code: message.code }) };
           this.notify();
           return;
         case 'log':
@@ -651,10 +728,10 @@ export class KnowledgeProduct {
       }
     }
     if (this.fill.state === 'running') {
-      failFill(`the fill worker ended with exit code ${code} before the fill was done: ${worker.stderr().trim().split('\n').slice(-6).join(' | ') || 'it said nothing on standard error'}`);
+      failFill(`the fill worker ended with exit code ${code} before the fill was done: ${worker.stderr().trim().split('\n').slice(-6).join(' | ') || 'it said nothing on standard error'}`, 'worker-exit');
     }
     if (this.writer.state === 'running') {
-      this.writer = { ...this.writer, state: 'failed', current: undefined, finishedAt: now(), message: `the fill worker ended with exit code ${code} while the agent was writing: ${worker.stderr().trim().split('\n').slice(-6).join(' | ') || 'it said nothing on standard error'}` };
+      this.writer = { ...this.writer, state: 'failed', current: undefined, finishedAt: now(), code: 'worker-exit', message: `the fill worker ended with exit code ${code} while the agent was writing: ${worker.stderr().trim().split('\n').slice(-6).join(' | ') || 'it said nothing on standard error'}` };
       this.notify();
     }
   }
@@ -679,8 +756,8 @@ export class KnowledgeProduct {
     return join(this.options.storeRoot, product.id, 'writer.json');
   }
 
-  /** The agent the reader chose for this product, or null; a file that names an agent madarch does not offer is an error naming it. */
-  chosenAgent(): { id: string; label: string } | null {
+  /** What the choice file holds: the agent, and the model and reasoning level the reader chose for it. */
+  private choiceRecord(): { agent: string; model?: string; reasoning?: string } | null {
     const file = this.choiceFile();
     let text: string;
     try {
@@ -689,15 +766,84 @@ export class KnowledgeProduct {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
       throw new Error(`${file}: the chosen agent cannot be read: ${(error as Error).message}`);
     }
-    let id: unknown;
+    let body: { agent?: unknown; model?: unknown; reasoning?: unknown };
     try {
-      id = (JSON.parse(text) as { agent?: unknown }).agent;
+      body = JSON.parse(text) as typeof body;
     } catch (error) {
       throw new Error(`${file}:1: the chosen agent is not JSON: ${(error as Error).message}; delete the file to choose again`);
     }
-    const entry = typeof id === 'string' ? adapterOf(id) : undefined;
-    if (entry === undefined) throw new Error(`${file}:1: ${JSON.stringify(id)} is not an agent madarch offers; delete the file to choose again`);
-    return { id: entry.id, label: entry.label };
+    const entry = typeof body.agent === 'string' ? adapterOf(body.agent) : undefined;
+    if (entry === undefined) throw new Error(`${file}:1: ${JSON.stringify(body.agent)} is not an agent madarch offers; delete the file to choose again`);
+    return { agent: entry.id, ...(typeof body.model === 'string' ? { model: body.model } : {}), ...(typeof body.reasoning === 'string' ? { reasoning: body.reasoning } : {}) };
+  }
+
+  /** The agent the reader chose for this product, or null; a file that names an agent madarch does not offer is an error naming it. */
+  chosenAgent(): { id: string; label: string; model?: string; reasoning?: string } | null {
+    const record = this.choiceRecord();
+    if (record === null) return null;
+    const entry = adapterOf(record.agent)!;
+    return { id: entry.id, label: entry.label, ...(record.model === undefined ? {} : { model: record.model }), ...(record.reasoning === undefined ? {} : { reasoning: record.reasoning }) };
+  }
+
+  private readonly choices = new Map<string, { at: number; answer: { ok: true; choices: AgentChoices } | { ok: false; message: string } }>();
+  private readonly asking = new Map<string, Promise<{ ok: true; choices: AgentChoices } | { ok: false; message: string }>>();
+
+  /**
+   * The models and reasoning levels the chosen agent reports over ACP (never a list madarch holds). The agent is started
+   * once and its answer kept for five minutes; `fresh` asks again.
+   */
+  async agentChoices(fresh = false): Promise<{ ok: true; agent: { id: string; label: string }; choices: AgentChoices } | { ok: false; message: string }> {
+    const chosen = this.chosenAgent();
+    if (chosen === null) return { ok: false, message: 'no agent is chosen for this product: choose one to see the models it offers' };
+    const kept = this.choices.get(chosen.id);
+    let answer = kept !== undefined && !fresh && Date.now() - kept.at < 5 * 60_000 ? kept.answer : undefined;
+    if (answer === undefined) {
+      // One question at a time per agent: asks that arrive meanwhile share its answer, so a page opened twice starts one process.
+      let asking = this.asking.get(chosen.id);
+      if (asking === undefined) {
+        asking = (this.options.choicesQuery ?? queryAgentChoices)(chosen.id, this.env).finally(() => this.asking.delete(chosen.id));
+        this.asking.set(chosen.id, asking);
+      }
+      answer = await asking;
+      if (answer.ok) this.choices.set(chosen.id, { at: Date.now(), answer });
+    }
+    return answer.ok ? { ok: true, agent: { id: chosen.id, label: chosen.label }, choices: answer.choices } : { ok: false, message: answer.message };
+  }
+
+  /**
+   * Saves the model and reasoning level the reader chose, beside the agent. A value the agent does not report is refused:
+   * the agent's own list is asked now and is the only one there is. `null` returns to the agent's own.
+   */
+  async chooseModel(model: string | null | undefined, reasoning: string | null | undefined): Promise<{ ok: true; chosen: { id: string; label: string; model?: string; reasoning?: string } } | { ok: false; status: number; message: string }> {
+    const turn = this.choosing.then(() => this.chooseModelOne(model, reasoning), () => this.chooseModelOne(model, reasoning));
+    this.choosing = turn;
+    return turn;
+  }
+
+  private async chooseModelOne(model: string | null | undefined, reasoning: string | null | undefined): Promise<{ ok: true; chosen: { id: string; label: string; model?: string; reasoning?: string } } | { ok: false; status: number; message: string }> {
+    if (this.running !== undefined && (this.writer.state === 'running' || this.writer.state === 'waiting')) return { ok: false, status: 409, message: 'a fill with an agent is running; the choice changes after it ends' };
+    const record = this.choiceRecord();
+    if (record === null) return { ok: false, status: 409, message: 'no agent is chosen for this product: choose one first' };
+    let next: { agent: string; model?: string; reasoning?: string } = { agent: record.agent, ...(record.model === undefined ? {} : { model: record.model }), ...(record.reasoning === undefined ? {} : { reasoning: record.reasoning }) };
+    const asked = model !== undefined && model !== null || reasoning !== undefined && reasoning !== null;
+    const offered = asked ? await this.agentChoices(true) : undefined;
+    if (offered !== undefined && !offered.ok) return { ok: false, status: 502, message: offered.message };
+    // The query took time: a fill may have started meanwhile, and its agent must not meet a choice written under it.
+    if (this.running !== undefined && (this.writer.state === 'running' || this.writer.state === 'waiting')) return { ok: false, status: 409, message: 'a fill with an agent started while the agent was asked; the choice changes after it ends' };
+    for (const [field, value, choice] of [['model', model, offered?.ok ? offered.choices.model : null], ['reasoning', reasoning, offered?.ok ? offered.choices.reasoning : null]] as const) {
+      if (value === undefined) continue;
+      if (value === null) { const { [field]: _gone, ...rest } = next; next = rest as typeof next; continue; }
+      if (choice === null || choice === undefined) return { ok: false, status: 409, message: `the agent reports no ${field === 'model' ? 'model' : 'reasoning level'} to choose` };
+      if (!choice.values.some((entry) => entry.value === value)) return { ok: false, status: 400, message: `"${field}" is ${JSON.stringify(value)}, which the agent does not report; it reports ${choice.values.map((entry) => entry.value).join(', ')}` };
+      next = { ...next, [field]: value };
+    }
+    const file = this.choiceFile();
+    await mkdir(dirname(file), { recursive: true });
+    const temporary = `${file}.${process.pid}.${(this.choiceWrites += 1)}.tmp`;
+    await writeFile(temporary, `${JSON.stringify(next)}\n`, 'utf8');
+    await rename(temporary, file);
+    this.notify();
+    return { ok: true, chosen: this.chosenAgent()! };
   }
 
   agentOffers(): AgentOffer[] {
@@ -741,7 +887,9 @@ export class KnowledgeProduct {
     const file = this.choiceFile();
     await mkdir(dirname(file), { recursive: true });
     const temporary = `${file}.${process.pid}.${(this.choiceWrites += 1)}.tmp`;
-    await writeFile(temporary, `${JSON.stringify({ agent: id })}\n`, 'utf8');
+    // The model and the reasoning level belong to the agent they were chosen for: the same agent keeps them, another starts clean.
+    const before = this.choiceRecord();
+    await writeFile(temporary, `${JSON.stringify(before !== null && before.agent === id ? before : { agent: id })}\n`, 'utf8');
     await rename(temporary, file);
     this.notify();
     return { ok: true, agent: { id: entry.id, label: entry.label } };
@@ -794,6 +942,147 @@ export class KnowledgeProduct {
     } finally {
       this.resetting = false;
     }
+  }
+
+  /**
+   * What the two local resets of the settings page would do, for the confirmation: the pages the agent wrote, the pages
+   * kept because a person wrote them, the graph store, and the starter files a person edited that «from scratch» replaces.
+   */
+  dangerPlan(): { rewrite: { agentPages: string[]; keptPages: string[] }; fresh: ResetPlan & { editedStarterFiles: string[]; replacedStarterFiles: string[] } } {
+    const plan = this.resetPlan();
+    const record = this.starterRecord();
+    return {
+      rewrite: { agentPages: plan.agentPages, keptPages: plan.keptPages },
+      fresh: { ...plan, editedStarterFiles: filesAPersonEdited(this.options.productFolder, record), replacedStarterFiles: [KINDS_FILE, ...Object.keys(TEMPLATES).map((name) => `templates/${name}`)] },
+    };
+  }
+
+  /**
+   * «Rewrite the pages»: removes the pages the agent wrote and keeps the graph, then runs a fill so the agent writes them
+   * again. Nothing a person wrote is touched. Refused while a fill runs and when no agent is chosen (nothing could write them).
+   */
+  async rewritePages(): Promise<{ ok: true; plan: ResetPlan; fill: FillState } | { ok: false; message: string }> {
+    if (this.running !== undefined) return { ok: false, message: 'a fill of this product is running; rewrite the pages after it ends' };
+    if (this.resetting) return { ok: false, message: 'this product is being started over' };
+    const product = this.product();
+    if ('message' in product) return { ok: false, message: product.message };
+    const chosen = this.chosenAgent();
+    if (chosen === null) return { ok: false, message: 'no agent is chosen for this product, so nothing could write the pages again: choose an agent first, nothing was removed' };
+    let plan: ResetPlan;
+    try {
+      plan = planReset(product.folder, this.storeFolder(), this.options.storeRoot);
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : String(error) };
+    }
+    this.resetting = true;
+    try {
+      applyReset(product.folder, { store: [], agentPages: plan.agentPages, keptPages: plan.keptPages });
+      this.writer = { state: 'idle', agent: null, units: [] };
+      this.notify();
+    } finally {
+      this.resetting = false;
+    }
+    const started = await this.startFill({ expectAgent: chosen.id });
+    if (!started.started) return { ok: false, message: `the pages were removed (${plan.agentPages.join(', ') || 'there were none'}) but the fill did not start: ${started.message}` };
+    return { ok: true, plan: { ...plan, store: [] }, fill: started.fill };
+  }
+
+  /**
+   * «Start from scratch»: the pages the agent wrote, the graph and the reader go, the manifest and the templates are put
+   * at the current starter set, and a fresh fill starts. Everything is local to this machine and this checkout.
+   */
+  async startFresh(): Promise<{ ok: true; plan: ResetPlan; starter: string[]; fill: FillState; fillRefused?: string } | { ok: false; message: string }> {
+    const done = await this.reset();
+    if (!done.ok) return done;
+    const product = this.product();
+    if ('message' in product) return { ok: false, message: product.message };
+    let starter: string[];
+    try {
+      starter = replaceWithStarterSet(product.folder, this.starterRecord());
+    } catch (error) {
+      return { ok: false, message: `the pages and the graph were removed, but the manifest could not be put at the current starter set: ${error instanceof Error ? error.message : String(error)}` };
+    }
+    this.upgraded = true;
+    this.docMemo = undefined;
+    this.repoDocs.clear();
+    this.notify();
+    const chosen = this.chosenAgent();
+    const started = await this.startFill(chosen === null ? {} : { expectAgent: chosen.id });
+    return started.started ? { ok: true, plan: done.plan, starter, fill: started.fill } : { ok: true, plan: done.plan, starter, fill: this.fill, fillRefused: started.message };
+  }
+
+  /**
+   * What the product settings page shows: the agent and the model chosen for it, the page language, the writer's bounds,
+   * where the product's files and its derived store are on this machine, and what the two local resets would do.
+   */
+  settingsView(): {
+    product: { name: string; id: string };
+    folder: string;
+    store: string;
+    language: string;
+    chosenAgent: { id: string; label: string; model?: string; reasoning?: string } | null;
+    bounds: typeof WRITER_BOUNDS;
+    danger: ReturnType<KnowledgeProduct['dangerPlan']>;
+    /** Why the two resets cannot say what they would do (a `docs` folder that is a link out of the product, say); both are then refused. */
+    dangerError?: string;
+    busy: boolean;
+  } {
+    const product = this.product();
+    if ('message' in product) throw new WikiReadError(product.message);
+    const read = readKinds(product.folder);
+    let danger: ReturnType<KnowledgeProduct['dangerPlan']>;
+    let dangerError: string | undefined;
+    try {
+      danger = this.dangerPlan();
+    } catch (error) {
+      dangerError = error instanceof Error ? error.message : String(error);
+      danger = { rewrite: { agentPages: [], keptPages: [] }, fresh: { store: [], agentPages: [], keptPages: [], editedStarterFiles: [], replacedStarterFiles: [] } };
+    }
+    return {
+      product: { name: product.name, id: product.id },
+      folder: product.folder,
+      store: this.storeFolder(),
+      language: read.present ? read.manifest.language ?? 'en' : 'en',
+      chosenAgent: this.chosenAgent(),
+      bounds: WRITER_BOUNDS,
+      danger,
+      ...(dangerError === undefined ? {} : { dangerError }),
+      busy: this.running !== undefined,
+    };
+  }
+
+  /** Saves the language the pages are written in (the manifest's `language:`); the next refresh writes the pages again in it. */
+  setLanguage(language: string): { ok: true } | { ok: false; message: string } {
+    const product = this.product();
+    if ('message' in product) return { ok: false, message: product.message };
+    if (!Object.keys(CONTENT_LANGUAGES).includes(language)) return { ok: false, message: `"language" is ${JSON.stringify(language)}: the pages are written in ${Object.keys(CONTENT_LANGUAGES).join(' or ')}` };
+    // Pages written before the language of the pages was recorded are in the language the manifest names now: say so before
+    // it changes, or the next refresh compares the new language with itself and rewrites nothing.
+    const read = readKinds(product.folder);
+    const current = read.present ? read.manifest.language ?? 'en' : 'en';
+    if (current !== language && this.pagesLanguage() === undefined && existsSync(join(product.folder, PRODUCT_PATH))) {
+      const file = join(this.storeFolder(), 'pages-language.json');
+      try {
+        mkdirSync(dirname(file), { recursive: true });
+        writeFileSync(file, `${JSON.stringify({ language: current })}\n`, 'utf8');
+      } catch (error) {
+        return { ok: false, message: `${file}: the language the pages are in now could not be recorded, so the language was not changed: ${(error as Error).message}` };
+      }
+    }
+    const previousManifest = readFileSync(join(product.folder, KINDS_FILE), 'utf8');
+    const failure = setKindsLanguage(product.folder, language);
+    if (failure !== undefined) return { ok: false, message: failure };
+    try {
+      const manifest = readFileSync(join(product.folder, KINDS_FILE), 'utf8');
+      rememberChangedStarterFileIfOwned(product.folder, this.starterRecord(), KINDS_FILE, previousManifest, manifest);
+    } catch (error) {
+      const file = join(product.folder, KINDS_FILE);
+      try { writeFileSync(file, previousManifest, 'utf8'); }
+      catch (restoreError) { return { ok: false, message: `${file}: the language changed but its madarch provenance could not be recorded (${(error as Error).message}) and the previous manifest could not be restored (${(restoreError as Error).message})` }; }
+      return { ok: false, message: `${file}: the language was not changed because its madarch provenance could not be recorded: ${(error as Error).message}` };
+    }
+    this.notify();
+    return { ok: true };
   }
 
   /** Resolves when the running fill has ended; for tests and for a clean stop. */
@@ -955,7 +1244,7 @@ export class KnowledgeProduct {
     const declared = this.repositories();
     const context = await this.context();
     if ('absent' in context) {
-      return { ...common, manifest: 'no-manifest', manifestFile: context.file, language: 'en', seeded: [], ...(this.seedError === undefined ? {} : { seedError: this.seedError }), findings: [], kinds: [], groups: [], repositories: declared.map((repo) => ({ name: repo.name, filled: false })), filled: false, incomplete: false, fill: this.fill, writer: this.writer, bounds: WRITER_BOUNDS, chosenAgent: this.chosenAgent(), home: null, roles: {}, loop: this.loopCounts() };
+      return { ...common, manifest: 'no-manifest', manifestFile: context.file, language: 'en', seeded: [], ...(this.seedError === undefined ? {} : { seedError: this.seedError }), findings: [], kinds: [], groups: [], repositories: declared.map((repo) => ({ name: repo.name, filled: false })), filled: false, incomplete: false, fill: this.fill, writer: this.writer, bounds: WRITER_BOUNDS, chosenAgent: this.chosenAgent(), home: null, roles: {}, loop: this.loopCounts(), starterOffers: 0 };
     }
     const home = homeKind(context.manifest);
     const homeEntity = home === undefined ? undefined : [...context.ctx.markdown.values()].find((entity) => entity.kind === home.name);
@@ -980,6 +1269,7 @@ export class KnowledgeProduct {
       home: homeEntity?.id ?? null,
       roles: Object.fromEntries([...context.manifest.roles.values()].map((role) => [role.name, { ...(role.open === undefined ? {} : { open: [...role.open] }), lead: [...role.lead] }])),
       loop: this.loopCounts(),
+      starterOffers: this.starterOffers().length,
     };
   }
 
@@ -1197,6 +1487,7 @@ export class KnowledgeProduct {
       productFolder: this.options.productFolder, owner, ...(repository === undefined ? {} : { repository }),
       resolve: (url) => context.ctx.resolver.resolve(url), findings: context.findings,
       ...(this.writer.plan === undefined ? {} : { unplaced: this.writer.plan.unplaced }),
+      starter: this.starterOffers(),
     });
   }
 
@@ -1263,7 +1554,7 @@ export function defaultKnowledgeRoot(home: string): string {
 export class KnowledgeHost {
   private readonly products = new Map<string, KnowledgeProduct>();
 
-  constructor(private readonly storeRoot: string, private readonly now?: () => Date, private readonly extra: Pick<KnowledgeProductOptions, 'env' | 'agentFactory' | 'errorLog' | 'workerFactory' | 'snapshotMs'> = {}) {}
+  constructor(private readonly storeRoot: string, private readonly now?: () => Date, private readonly extra: Pick<KnowledgeProductOptions, 'env' | 'agentFactory' | 'errorLog' | 'workerFactory' | 'snapshotMs' | 'choicesQuery'> = {}) {}
 
   of(productFolder: string): KnowledgeProduct {
     const key = resolve(productFolder);

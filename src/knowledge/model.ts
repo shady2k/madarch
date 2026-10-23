@@ -245,8 +245,10 @@ export interface FillState {
   newCommits?: number;
   startedAt?: string;
   finishedAt?: string;
-  /** Why the fill failed or could not start. */
+  /** Why the fill failed or could not start: the engineer's detail, in English, shown once behind a link. */
   message?: string;
+  /** What kind of failure it was (`store`, `worker-start`, `worker-exit`, `fill`): the app words it in the reader's language. */
+  code?: string;
   gaps?: number;
 }
 
@@ -274,6 +276,8 @@ export interface WriterState {
   startedAt?: string;
   finishedAt?: string;
   message?: string;
+  /** What kind of failure it was (`units`, `index`, `stopped`, `plan`, `agent`, `worker-exit`, `repositories`): the app words it in the reader's language. */
+  code?: string;
   /** How many questions the agent asked in this run; the app says so in the reader's language. */
   asked?: number;
   /** Which pages this run touches and why; known once the code is read, before the agent starts. */
@@ -330,7 +334,7 @@ export interface WikiStatus {
   writer: WriterState;
   bounds: WriterBounds;
   /** The agent chosen for this product, when one was. */
-  chosenAgent: { id: string; label: string } | null;
+  chosenAgent: { id: string; label: string; model?: string; reasoning?: string } | null;
   /** The entity the home page shows, when the manifest names one and its file exists. */
   home: string | null;
   /** What each role the manifest declares changes (decision 0031); a role it does not declare reads everything open. */
@@ -339,6 +343,8 @@ export interface WikiStatus {
   own?: boolean;
   /** The loop of questions and corrections (madarch-m38l.7), counted from their files. */
   loop: { questionsOpen: number; questionsAnswered: number; correctionsOpen: number };
+  /** How many things the current starter set holds that this product's edited manifest lacks (the Problems page offers them). */
+  starterOffers: number;
 }
 
 /** A Markdown document the wiki shows as a page: of the product repository (`repo` null) or of a connected code repository. */

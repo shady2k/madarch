@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/badge.js';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.js';
 import { chooseAgent, getAgents, startFill } from './api.js';
 import { PlanList } from './loop.js';
+import { FailureNote } from './errors.js';
 import type { AgentOffer, WikiStatus, WriterUnit } from './types.js';
 
 /** The reader's pick: an agent's id, or `null` for no agent. `undefined` until the reader touches it. */
@@ -167,7 +168,7 @@ export function WriterCard({ status, refresh }: { status: WikiStatus; refresh: (
       <ol className="m-0 list-none p-0" data-testid="writer-units">
         {writer.units.map((unit) => <UnitRow key={unit.unit} unit={unit} current={writer.current === unit.unit} />)}
       </ol>
-      {writer.message !== undefined && <p className="mb-0 mt-3 text-small" data-testid="writer-message">{writer.message}</p>}
+      {writer.message !== undefined && <div className="mb-0 mt-3 text-small" data-testid="writer-message"><FailureNote scope="writer" code={writer.code} message={writer.message} /></div>}
       {writer.state === 'running' && <p className="mb-0 mt-3 text-small text-muted">{t('knowledge.writer.live')}</p>}
     </>
   );

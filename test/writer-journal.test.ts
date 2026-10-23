@@ -164,6 +164,19 @@ describe('the journal of a unit driven over ACP', () => {
     expect(calls[2]!.outcome).toBe('refused');
   });
 
+  test('the journal records the selected model after saved preferences are applied', async () => {
+    const folder = scratch();
+    const journal = memoryJournal('run-preference');
+    const { tools, client } = realTools();
+    const script = join(folder, 'script.json');
+    writeFileSync(script, JSON.stringify({ steps: [{ call: { tool: 'write_page', arguments: {} } }, { end: { stopReason: 'end_turn' } }] }));
+    const agent = acpUnitAgent({ spec: { id: 'fake', command: process.execPath, args: [FAKE_AGENT, '--models', '--scenario', 'script', '--script', script] }, limits: ONE_TURN, journal, preferences: { model: 'opus' } });
+    closers.push(() => agent.close());
+    await agent.run({ id: UNIT.id, prompt: 'WRITE', tools: client });
+    expect(journal.records[0]!.model).toBe('opus');
+    expect(journal.records[0]!.attributes['gen_ai.request.model']).toBe('opus');
+  }, 30_000);
+
   test('a unit with no journal runs as before', async () => {
     const folder = scratch();
     const { tools, client } = realTools();
