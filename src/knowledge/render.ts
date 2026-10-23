@@ -81,7 +81,7 @@ export async function renderPage(ctx: RenderContext, id: string, lang?: string):
     }
     const block = await renderBlock(ctx, subject, part.name, params, decl.template, part.line);
     if (block.type === 'problem') findings.push({ file: block.file, line: block.line, message: `:::${block.block}: ${block.message}` });
-    blocks.push(block);
+    blocks.push({ ...block, name: part.name });
   }
   // Every `madarch:` link the page's text holds is resolved here, once, and shown as broken when it does not.
   const urls = new Set<string>();

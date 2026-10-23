@@ -28,7 +28,7 @@ export type RelatedGroup = {
 
 export type CallRow = { entity: EntityRef; sites: number; site?: CodeLocation };
 
-export type Block =
+type BlockShape =
   | { type: 'markdown'; markdown: string }
   | { type: 'term'; title: string; definition: string; synonyms: string[]; code: string[]; usedIn: string | null; ambiguous: string | null }
   | { type: 'body'; markdown: string; file: string; statements: number; ungrounded: { text: string; line: number }[] }
@@ -43,6 +43,9 @@ export type Block =
   | { type: 'properties'; title: string; rows: { name: string; value: string }[] }
   | { type: 'stated'; title: string; place: { repo: string | null; path: string; lineStart: number; lineEnd: number; href: string; commit: string | null } }
   | { type: 'problem'; block: string; message: string; file: string; line: number };
+
+/** One block of a page; `name` is the template's block it was made from (`implementedby` and `linkedfrom` both draw as `refs`), which the manifest's roles name. */
+export type Block = BlockShape & { name?: string };
 
 export type Resolution =
   | { state: 'ok'; target: string; kind: string; label: string; href: string | null; note?: string; location?: CodeLocation; entity?: string }

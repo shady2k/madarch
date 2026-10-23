@@ -21,10 +21,11 @@ export const ROLES = ['product', 'analyst', 'architect', 'developer', 'operation
 const ALWAYS_OPEN = new Set<Block['type']>(['markdown', 'body', 'problem', 'term']);
 
 /** Whether a block stands open for a role: when the manifest gives the role a list of open blocks, only those (and the page's text). */
-export function blockOpen(type: Block['type'], role: string, roles: RoleDecls): boolean {
-  if (role === 'everything' || ALWAYS_OPEN.has(type)) return true;
+export function blockOpen(block: { type: Block['type']; name?: string }, role: string, roles: RoleDecls): boolean {
+  if (role === 'everything' || ALWAYS_OPEN.has(block.type)) return true;
   const open = roles[role]?.open;
-  return open === undefined || open.includes(type);
+  // The manifest names the template's block; a page from an older server names only the type.
+  return open === undefined || open.includes(block.name ?? block.type);
 }
 
 /** The navigation's groups with the role's leading groups first, in the order the role names them; the rest keep the manifest's order. */

@@ -74,7 +74,7 @@ export function EntityPage({ id, version }: { id: string; version: number }): Re
       </header>
       {page.blocks.map((block, index) => {
         const view = <BlockView key={index} block={block} resolutions={page.resolutions} pageId={page.id} />;
-        if (blockOpen(block.type, role, roles)) return view;
+        if (blockOpen(block, role, roles)) return view;
         // The role does not open this block: it stays on the page, collapsed under its title.
         const title = 'title' in block ? block.title : block.type;
         return <details key={index} className="role-collapsed mb-4" data-testid="block-collapsed" data-block-type={block.type}><summary className="cursor-pointer text-secondary">{title}</summary>{view}</details>;

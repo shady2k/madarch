@@ -6,7 +6,7 @@
  * wiki, the settings route). The own wiki is a fixture repository on disk.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseKinds } from '../src/knowledge/kinds.js';
@@ -80,6 +80,14 @@ describe('glossary terms', () => {
     expect(fields.ambiguous).toBe('-');
   });
 
+  test('a wrapped line belongs to the field above it: the question link of a long ambiguity is not lost', () => {
+    const fields = parseTermText('Plain words.\n  - Used in: [the reference](madarch:doc:docs/reference.md#manifest),\n    and the guide\n  - Ambiguous: the documents say it for two things;\n    see [the question](madarch:doc:docs/reference.md#question)\n  - Also called: one,\n    two');
+    expect(fields.usedIn).toBe('[the reference](madarch:doc:docs/reference.md#manifest), and the guide');
+    expect(fields.ambiguous).toBe('the documents say it for two things; see [the question](madarch:doc:docs/reference.md#question)');
+    expect(fields.synonyms).toEqual(['one', 'two']);
+    expect(madarchLinks(fields.ambiguous)).toEqual(['madarch:doc:docs/reference.md#question']);
+  });
+
   test('a term without labels has only its definition and is not ambiguous', () => {
     expect(parseTermText('Plain words.')).toEqual({ definition: 'Plain words.', synonyms: [], code: [], usedIn: null, ambiguous: null });
   });
@@ -113,6 +121,22 @@ describe('the user\'s settings on the machine', () => {
       expect(readSettings(env)).toEqual({ role: 'developer', asked: true });
       expect(JSON.parse(readFileSync(settingsPath(env), 'utf8'))).toEqual({ other: 1, role: 'developer', roleAsked: true });
       expect(() => writeRole(env, 'janitor')).toThrow('the roles are product, analyst, architect, developer, operations, tester, everything');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test('the temporary file is a new one: a link at a guessable name is not written through, and none is left behind', () => {
+    const home = mkdtempSync(join(tmpdir(), 'madarch-settings-'));
+    try {
+      const env = { MADARCH_HOME: home };
+      const outside = join(home, 'outside.txt');
+      writeFileSync(outside, 'untouched\n');
+      for (const name of [`settings.json.${process.pid}.tmp`, 'settings.json.tmp']) symlinkSync(outside, join(home, name));
+      writeRole(env, 'architect');
+      expect(readFileSync(outside, 'utf8')).toBe('untouched\n');
+      expect(readdirSync(home).filter((name) => name.endsWith('.tmp') && !lstatSync(join(home, name)).isSymbolicLink())).toEqual([]);
+      expect(readSettings(env).role).toBe('architect');
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
@@ -235,6 +259,9 @@ describe('the products-home server with madarch\'s own wiki', () => {
     const term = page.body.blocks.find((block: { type: string }) => block.type === 'term');
     expect(term).toMatchObject({ type: 'term', definition: 'The proof a provider returns when it captured money.' });
     expect(term.ambiguous).toContain('open question');
+    // Every block says which block of the template it is: the manifest's roles name that, not how it is drawn.
+    expect(page.body.blocks.filter((block: { type: string }) => block.type !== 'markdown').every((block: { name?: string }) => typeof block.name === 'string')).toBe(true);
+    expect(term.name).toBe('term');
     expect(page.body.resolutions['madarch:doc:docs/reference.md#question']).toMatchObject({ state: 'ok' });
   });
 

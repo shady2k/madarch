@@ -73,6 +73,11 @@ export function whoIsTheUser(folder: string, provider: IdentityProvider = localG
 export const authorOf = (identity: Identity): string => `${identity.name} <${identity.email}>`;
 
 /** The trailer lines a commit message ends with so the history says who wrote and how that was checked. */
+/** The arguments of `git commit` for a write by the user: the subject, the trailer, and `-S` when the user's own signing key is configured. */
+export function commitArguments(subject: string, identity: Identity): string[] {
+  return ['commit', '--quiet', ...(identity.signing ? ['-S'] : []), '-m', subject, '-m', identityTrailer(identity)];
+}
+
 export function identityTrailer(identity: Identity): string {
   return `Written-by: ${authorOf(identity)} (${identity.mark})`;
 }

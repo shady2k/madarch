@@ -172,7 +172,7 @@ export function KMarkdown({ text, resolutions, inDocument, statements, exceptTer
       },
     } satisfies Components),
   };
-  const terms = inDocument === undefined && index.pattern !== null ? [remarkTerms(index, exceptTerm) as unknown as (tree: unknown) => void] : [];
+  const terms = index.pattern !== null ? [remarkTerms(index, exceptTerm) as unknown as (tree: unknown) => void] : [];
   const plugins = statements === undefined ? [remarkGfm, ...terms] : [remarkGfm, ...terms, () => remarkStatements({ showGrounds: statements.showGrounds }) as unknown as (tree: unknown) => void];
   return (
     <div className="reading">

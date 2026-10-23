@@ -67,7 +67,10 @@ export async function commitFiles(productFolder: string, files: readonly string[
   if (top === undefined) return { committed: false, note: `${productFolder} is not a git repository, so the file was written but not committed` };
   try {
     await git(productFolder, ['add', '--', ...files], env);
-    await git(productFolder, ['-c', `user.name=${by.name}`, '-c', `user.email=${by.email}`, 'commit', '-q', '-m', message, `--author=${by.name} <${by.email}>`, '--', ...files], env);
+    // The user's own signing key, when git has one, signs the commit (decision 0031).
+    const who = whoIsTheUser(productFolder, undefined, env);
+    const signing = who.ok && who.identity.signing ? ['-S'] : [];
+    await git(productFolder, ['-c', `user.name=${by.name}`, '-c', `user.email=${by.email}`, 'commit', '-q', ...signing, '-m', message, `--author=${by.name} <${by.email}>`, '--', ...files], env);
     return { committed: true, commit: await git(productFolder, ['rev-parse', 'HEAD'], env) };
   } catch (error) {
     const stderr = String((error as { stderr?: unknown }).stderr ?? '').trim();

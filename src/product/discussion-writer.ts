@@ -4,7 +4,7 @@ import { dirname, join, relative, resolve, sep } from 'node:path';
 import { parseDiscussionMessage, scanDiscussionMarkers } from './discussion-contract.js';
 import { mapParagraphSelection, renderedMarkdownParagraphs } from './discussion-selection.js';
 import { runGit } from './git.js';
-import { identityTrailer, whoIsTheUser, type Identity } from '../identity/identity.js';
+import { commitArguments, whoIsTheUser, type Identity } from '../identity/identity.js';
 import { parseDocument } from 'yaml';
 import { fillStatePaths, persistFillUnit, type FillUnit } from './fill-runtime.js';
 
@@ -561,4 +561,4 @@ function inputAuthor(value: string): string { return value.trim(); }
 /** The front-matter line that says how the author was verified (decision 0031): git's own configuration proves nothing. */
 function verifiedLine(identity: Identity): string { return `verified: ${identity.verification}`; }
 /** A commit by the user: the subject, and a trailer saying who wrote it and that this was not verified. */
-function commitArgs(subject: string, identity: Identity): string[] { return ['commit', '--quiet', '-m', subject, '-m', identityTrailer(identity)]; }
+function commitArgs(subject: string, identity: Identity): string[] { return commitArguments(subject, identity); }

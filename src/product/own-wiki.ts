@@ -10,11 +10,11 @@
  * repository and the folder, and the server runs without the entry.
  */
 import { execFile } from 'node:child_process';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, renameSync, rmSync } from 'node:fs';
+import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, renameSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { embeddedOwnWiki } from '../product-wiki/release-assets.js';
 import { madarchHome, type DraftEnv } from './home.js';
-import { ownRepository, runGit } from './git.js';
+import { GIT_LEAKS, ownRepository, runGit } from './git.js';
 import { readProduct } from './manifest.js';
 
 /** The repository madarch's own wiki is. */
@@ -60,7 +60,17 @@ export function installOwnWiki(options: OwnWikiOptions = {}): OwnWikiInstall {
   }
   const embedded = options.bundle !== undefined ? { bundle: options.bundle } : embeddedOwnWiki();
   const staged = join(staging, 'wiki');
-  const from = embedded?.bundle ?? repository;
+  let from = repository;
+  if (embedded !== undefined) {
+    // The binary's embedded file lives in its own virtual file system, which a git process cannot read: the bytes go to a real file first.
+    from = join(staging, 'own-wiki.bundle');
+    try {
+      copyFileSync(embedded.bundle, from);
+    } catch (error) {
+      rmSync(staging, { recursive: true, force: true });
+      return { ok: false, folder, message: `madarch's own wiki cannot be installed at ${folder}: the embedded copy ${embedded.bundle} could not be read: ${(error as Error).message}` };
+    }
+  }
   const clone = runGit(staging, ['clone', '--quiet', '--branch', OWN_WIKI_BRANCH, from, staged]);
   if (!clone.ok) {
     rmSync(staging, { recursive: true, force: true });
@@ -98,7 +108,10 @@ function checkFolder(folder: string): string | undefined {
 
 function git(folder: string, args: string[], timeoutMs: number): Promise<{ ok: boolean; output: string }> {
   return new Promise((resolve) => {
-    execFile('git', args, { cwd: folder, timeout: timeoutMs, encoding: 'utf8', env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } }, (error, stdout, stderr) => {
+    // The variables that point git at another repository are not passed on: the refresh answers for the wiki's folder alone.
+    const env: Record<string, string | undefined> = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
+    for (const name of GIT_LEAKS) delete env[name];
+    execFile('git', args, { cwd: folder, timeout: timeoutMs, encoding: 'utf8', env }, (error, stdout, stderr) => {
       resolve({ ok: error === null, output: `${stderr}${stdout}`.trim() });
     });
   });

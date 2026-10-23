@@ -5,7 +5,8 @@
  * Today the file holds the role the reader reads as; the first open asks once
  * (`asked`), and a skip means "everything".
  */
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { madarchHome, type DraftEnv } from '../product/home.js';
 import { ROLE_NAMES } from './kinds.js';
@@ -56,11 +57,13 @@ export function writeRole(env: DraftEnv, role: string): Settings {
   raw['role'] = role;
   raw['roleAsked'] = true;
   mkdirSync(dirname(file), { recursive: true });
-  const temporary = `${file}.${process.pid}.tmp`;
+  // A file of its own that did not exist (exclusive), so a link left at a guessable name is never written through.
+  const temporary = `${file}.${randomBytes(6).toString('hex')}.tmp`;
   try {
-    writeFileSync(temporary, `${JSON.stringify(raw, null, 2)}\n`);
+    writeFileSync(temporary, `${JSON.stringify(raw, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
     renameSync(temporary, file);
   } catch (error) {
+    rmSync(temporary, { force: true });
     throw new Error(`${file}: the settings could not be written: ${(error as Error).message}`);
   }
   return { role, asked: true };

@@ -59,14 +59,18 @@ describe('what a role opens', () => {
   const roles = { developer: { open: ['source', 'callers'], lead: ['code', 'tests'] }, product: { lead: ['product'] } };
 
   test('a role with a list opens those blocks and the page\'s own text; the others stay, collapsed; "everything" and a role with no list open all', () => {
-    expect(blockOpen('source', 'developer', roles)).toBe(true);
-    expect(blockOpen('related', 'developer', roles)).toBe(false);
-    expect(blockOpen('body', 'developer', roles)).toBe(true);
-    expect(blockOpen('markdown', 'developer', roles)).toBe(true);
-    expect(blockOpen('term', 'developer', roles)).toBe(true);
-    expect(blockOpen('related', 'everything', roles)).toBe(true);
-    expect(blockOpen('related', 'product', roles)).toBe(true);
-    expect(blockOpen('related', 'tester', roles)).toBe(true);
+    expect(blockOpen({ type: 'source' }, 'developer', roles)).toBe(true);
+    expect(blockOpen({ type: 'related' }, 'developer', roles)).toBe(false);
+    expect(blockOpen({ type: 'body' }, 'developer', roles)).toBe(true);
+    expect(blockOpen({ type: 'markdown' }, 'developer', roles)).toBe(true);
+    expect(blockOpen({ type: 'term' }, 'developer', roles)).toBe(true);
+    expect(blockOpen({ type: 'related' }, 'everything', roles)).toBe(true);
+    expect(blockOpen({ type: 'related' }, 'product', roles)).toBe(true);
+    expect(blockOpen({ type: 'related' }, 'tester', roles)).toBe(true);
+    // The manifest names the template's block: two of them draw as refs, and each opens by its own name.
+    const refs = { developer: { open: ['implementedby'], lead: [] } };
+    expect(blockOpen({ type: 'refs', name: 'implementedby' }, 'developer', refs)).toBe(true);
+    expect(blockOpen({ type: 'refs', name: 'linkedfrom' }, 'developer', refs)).toBe(false);
   });
 
   test('the groups the role leads come first in its order and the rest keep the manifest\'s order; no role changes nothing', () => {
@@ -146,6 +150,20 @@ describe('the links from the text to the glossary', () => {
     expect(linked(container)).toEqual([`Two>${twins[1]!.href}`]);
   });
 
+  test('whole words are judged across formatting: a bold run inside a word is no match', async () => {
+    const container = into(wrap('pre**Manifest** and post**Capture**x but **Manifest** alone.'));
+    await until(() => container.querySelector('.reading') !== null, 'the text');
+    await new Promise((rest) => setTimeout(rest, 30));
+    expect(linked(container)).toEqual([`Manifest>${terms[0]!.href}`]);
+    expect(container.querySelector('a.term-link strong, strong a.term-link')?.textContent).toBe('Manifest');
+  });
+
+  test('a document read in the wiki links its terms too', async () => {
+    const container = into(createElement(GlossaryContext.Provider, { value: { index: termIndex(terms), terms } }, createElement(KMarkdown, { text: 'The Manifest is described here.', resolutions: {}, inDocument: { repo: null, path: 'docs/x.md' } })));
+    await until(() => container.querySelector('a.term-link') !== null, 'the term link');
+    expect(linked(container)).toEqual([`Manifest>${terms[0]!.href}`]);
+  });
+
   test('words of other scripts are matched whole too', async () => {
     const russian = [term('Манифест', { synonyms: ['манифеста'] })];
     const container = into(createElement(GlossaryContext.Provider, { value: { index: termIndex(russian), terms: russian } }, createElement(KMarkdown, { text: 'Файл манифеста лежит рядом; манифестация — другое слово.', resolutions: {} })));
@@ -190,6 +208,15 @@ describe('the glossary page and a term\'s block', () => {
     expect(filterTerms(glossary.terms, 'token').map((entry) => entry.title)).toEqual(['Payment token']);
     expect(filterTerms(glossary.terms, '  ').map((entry) => entry.title)).toEqual(['Manifest', 'Payment token']);
     expect(filterTerms(glossary.terms, 'nothing like it')).toEqual([]);
+  });
+
+  test('the findings that explain a missing term are on the page with their file and line', async () => {
+    (globalThis as { fetch?: unknown }).fetch = async () => Response.json({ ...glossary, findings: [{ file: 'docs/glossary.md', line: 12, message: 'Manifest opens a second section of this document' }] });
+    const container = into(createElement(GlossaryPage, { version: 1 }));
+    await until(() => container.querySelector('[data-testid=findings]') !== null, 'the findings');
+    container.querySelector<HTMLElement>('[data-testid=findings-details]')!.click();
+    await until(() => container.querySelector('[data-testid=findings] li') !== null, 'the details');
+    expect(container.querySelector('[data-testid=findings] li')!.textContent).toContain('docs/glossary.md:12');
   });
 
   test('a product with no glossary says what a glossary is; a read that fails shows its reason', async () => {

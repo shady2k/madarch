@@ -35,6 +35,7 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { pgliteAssetFiles } from './pglite-assets.js';
 import { ensureBuilt } from '../src/product-wiki/app.js';
+import { GIT_LEAKS } from '../src/product/git.js';
 
 const USAGE = 'usage: bun scripts/build-binary.ts --version <x.y.z> [--os linux|darwin|windows] [--arch x64|arm64] [--out <folder>]';
 
@@ -149,7 +150,10 @@ function stageOwnWiki(stage: string): { ok: true } | { ok: false; message: strin
   if (!/^[0-9a-f]{40}$/.test(revision)) return { ok: false, message: `${lock}:1: "${revision}" is no revision: the file holds the 40 hexadecimal digits of a commit of the madarch product repository` };
   const repository = process.env.MADARCH_OWN_WIKI_REPOSITORY?.trim() || 'https://github.com/shady2k/madarch-product.git';
   const work = mkdtempSync(join(stage, 'own-wiki-src-'));
-  const git = (args: string[], cwd = work) => spawnSync('git', args, { cwd, encoding: 'utf8' });
+  const gitEnvironment: Record<string, string> = {};
+  // The variables that point git at another repository (a hook's, a worktree's) are not passed on.
+  for (const [name, value] of Object.entries(process.env)) if (value !== undefined && !GIT_LEAKS.includes(name)) gitEnvironment[name] = value;
+  const git = (args: string[], cwd = work) => spawnSync('git', args, { cwd, encoding: 'utf8', env: gitEnvironment });
   const steps: string[][] = [['init', '--quiet', '--initial-branch=main'], ['fetch', '--quiet', repository, revision], ['checkout', '--quiet', '-B', 'main', 'FETCH_HEAD']];
   for (const args of steps) {
     const done = git(args);

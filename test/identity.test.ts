@@ -9,7 +9,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { LOCAL_MARK, authorEnv, authorOf, identityTrailer, localGitIdentity, whoIsTheUser, type IdentityProvider } from '../src/identity/identity.js';
+import { LOCAL_MARK, authorEnv, commitArguments, authorOf, identityTrailer, localGitIdentity, whoIsTheUser, type IdentityProvider } from '../src/identity/identity.js';
 import { gitEnv } from './git-env.js';
 
 let folder: string | undefined;
@@ -56,6 +56,24 @@ describe('the local identity', () => {
       expect(noEmail.message).toContain(folder!);
       expect(noEmail.message).toContain('git config --global user.email');
     }
+  });
+
+  test('a configured signing key signs the commits the wiki writes: the arguments ask for it, and only then', () => {
+    const keyed = localGitIdentity(repository({ 'user.name': 'A', 'user.email': 'a@example.test', 'user.signingkey': 'ABCDEF' }));
+    if (!keyed.ok) throw new Error(keyed.message);
+    expect(commitArguments('Answer', keyed.identity)).toEqual(['commit', '--quiet', '-S', '-m', 'Answer', '-m', 'Written-by: A <a@example.test> (local, not verified)']);
+    rmSync(folder!, { recursive: true, force: true });
+    const plain = localGitIdentity(repository({ 'user.name': 'A', 'user.email': 'a@example.test' }));
+    if (!plain.ok) throw new Error(plain.message);
+    expect(commitArguments('Answer', plain.identity)).not.toContain('-S');
+  });
+
+  test('git\'s author variables come before the configuration, and a missing email is told even when the name is given', () => {
+    const answer = localGitIdentity(repository({ 'user.name': 'Config', 'user.email': 'config@example.test' }), { GIT_AUTHOR_NAME: 'Env Name', GIT_AUTHOR_EMAIL: 'env@example.test' });
+    expect(answer.ok && [answer.identity.name, answer.identity.email]).toEqual(['Env Name', 'env@example.test']);
+    rmSync(folder!, { recursive: true, force: true });
+    const noEmail = localGitIdentity(repository({ 'user.name': 'A' }), { GIT_AUTHOR_NAME: 'Env Name' });
+    expect(noEmail.ok).toBe(false);
   });
 
   test('whoIsTheUser asks the provider it is given, so a server\'s verified identity plugs in behind the same question', () => {

@@ -120,6 +120,26 @@ describe('refreshing the wiki', () => {
     expect(ownGit(folder, ['rev-parse', 'HEAD'])).toBe(before);
   });
 
+  test('git variables that point at another repository are not passed on: the refresh answers for the wiki\'s folder alone', async () => {
+    installOwnWiki({ env, repository: source });
+    const other = makeWikiRepository(join(work, 'other'));
+    writeFileSync(join(source, 'docs', 'new.md'), '# New\n');
+    ownGit(source, ['add', '.']);
+    ownGit(source, ['commit', '--quiet', '-m', 'New']);
+    const before = ownGit(other, ['rev-parse', 'HEAD']);
+    const held = { dir: process.env.GIT_DIR, tree: process.env.GIT_WORK_TREE };
+    process.env.GIT_DIR = join(other, '.git');
+    process.env.GIT_WORK_TREE = other;
+    try {
+      expect(await refreshOwnWiki({ env })).toContain('was updated to');
+    } finally {
+      if (held.dir === undefined) delete process.env.GIT_DIR; else process.env.GIT_DIR = held.dir;
+      if (held.tree === undefined) delete process.env.GIT_WORK_TREE; else process.env.GIT_WORK_TREE = held.tree;
+    }
+    expect(ownGit(other, ['rev-parse', 'HEAD'])).toBe(before);
+    expect(existsSync(join(home, 'madarch-wiki', 'docs', 'new.md'))).toBe(true);
+  });
+
   test('an unreachable repository is told with the repository and the folder, and the wiki stands as it was', async () => {
     installOwnWiki({ env, repository: source });
     const before = ownGit(join(home, 'madarch-wiki'), ['rev-parse', 'HEAD']);

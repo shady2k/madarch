@@ -12,12 +12,12 @@ import { Alert, AlertDescription } from '@/components/ui/alert.js';
 import { Badge } from '@/components/ui/badge.js';
 import { Input } from '@/components/ui/input.js';
 import { getGlossary } from './api.js';
-import { KLink, KMarkdown } from './blocks.js';
+import { Findings, KLink, KMarkdown } from './blocks.js';
 import { PageSkeleton } from './skeleton.js';
 import { addressOfDocument } from './routes.js';
 import { useTabTitle } from './tabs.js';
 import type { Glossary, GlossaryTerm, Resolution } from './types.js';
-import type { MNode } from './statements.js';
+import { plainText, type MNode } from './statements.js';
 
 /** The names that link to a term: its title and its synonyms. */
 export interface TermIndex {
@@ -60,10 +60,10 @@ const SKIP = new Set(['link', 'linkReference', 'inlineCode', 'code', 'footnoteDe
  * A remark plugin: in the text of a paragraph or a table cell, the first use of each term becomes a link to its entry.
  * `except` is the id of the entry the page is itself (a term does not link to itself).
  */
-export function remarkTerms(index: TermIndex, except?: string): () => (tree: MNode) => void {
+export function remarkTerms(index_: TermIndex, except?: string): () => (tree: MNode) => void {
   return () => (tree) => {
-    if (index.pattern === null) return;
-    const pattern = index.pattern;
+    if (index_.pattern === null) return;
+    const pattern = index_.pattern;
     const visit = (node: MNode): void => {
       if (SKIP.has(node.type)) return;
       if (CONTAINERS.has(node.type)) linkIn(node);
@@ -71,31 +71,39 @@ export function remarkTerms(index: TermIndex, except?: string): () => (tree: MNo
     };
     const linkIn = (container: MNode): void => {
       const seen = new Set<string>();
-      const walk = (node: MNode): void => {
+      const isWord = (char: string | undefined): boolean => char !== undefined && char !== '' && /[\p{L}\p{N}_]/u.test(char);
+      // `left` and `right` are the characters just outside the node in the paragraph's text, so a word is judged whole across formatting.
+      const walk = (node: MNode, left: string, right: string): void => {
         if (node.children === undefined) return;
         const next: MNode[] = [];
-        for (const child of node.children) {
+        const children = node.children;
+        children.forEach((child, index) => {
+          const before = index > 0 ? plainText(children[index - 1]!).slice(-1) : left;
+          const after = index < children.length - 1 ? plainText(children[index + 1]!).charAt(0) : right;
           if (child.type === 'text') {
             const text = child.value ?? '';
             let at = 0;
             pattern.lastIndex = 0;
             for (const match of text.matchAll(pattern)) {
-              const term = index.names.get(match[0]);
+              const start = match.index!;
+              const end = start + match[0].length;
+              const term = index_.names.get(match[0]);
               if (term === undefined || term.id === except || seen.has(term.id)) continue;
+              if ((start === 0 && isWord(before)) || (end === text.length && isWord(after))) continue;
               seen.add(term.id);
-              if (match.index! > at) next.push({ type: 'text', value: text.slice(at, match.index) });
+              if (start > at) next.push({ type: 'text', value: text.slice(at, start) });
               next.push({ type: 'link', url: term.href, children: [{ type: 'text', value: match[0] }], data: { hProperties: { className: 'term-link', title: term.definition.split('\n')[0] ?? '' } } });
-              at = match.index! + match[0].length;
+              at = end;
             }
             next.push(at === 0 ? child : { type: 'text', value: text.slice(at) });
           } else {
-            if (!SKIP.has(child.type)) walk(child);
+            if (!SKIP.has(child.type)) walk(child, before, after);
             next.push(child);
           }
-        }
+        });
         node.children = next;
       };
-      walk(container);
+      walk(container, '', '');
     };
     visit(tree);
   };
@@ -205,6 +213,7 @@ export function GlossaryPage({ version }: { version: number }): ReactElement {
           </li>
         ))}
       </ul>
+      <Findings findings={glossary.findings} />
       {glossary.terms.length > 0 && shown.length === 0 && <p className="text-muted">{t('knowledge.nothingOfKind')}</p>}
     </section>
   );

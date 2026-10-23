@@ -50,21 +50,24 @@ const names = (value: string): string[] => value.split(',').map((part) => part.r
 export function parseTermText(text: string): TermFields {
   const definition: string[] = [];
   const fields: TermFields = { definition: '', synonyms: [], code: [], usedIn: null, ambiguous: null };
-  let labelled = false;
+  let active: TermField | undefined;
+  const add = (field: TermField, value: string): void => {
+    if (field === 'synonyms') fields.synonyms.push(...names(value));
+    else if (field === 'code') fields.code.push(...names(value));
+    else if (field === 'usedIn') fields.usedIn = fields.usedIn === null || fields.usedIn === '' ? value : `${fields.usedIn} ${value}`.trim();
+    else fields.ambiguous = fields.ambiguous === null || fields.ambiguous === '-' ? (value === '' ? '-' : value) : `${fields.ambiguous} ${value}`.trim();
+  };
   for (const line of text.split('\n')) {
     const match = LABEL_LINE.exec(line);
     const field = match === null ? undefined : LABELS[match[1]!.trim().toLowerCase()];
     if (match !== null && field !== undefined) {
-      labelled = true;
-      const value = match[2]!.trim();
-      if (field === 'synonyms') fields.synonyms.push(...names(value));
-      else if (field === 'code') fields.code.push(...names(value));
-      else if (field === 'usedIn') fields.usedIn = value;
-      else fields.ambiguous = value === '' ? '-' : value;
+      active = field;
+      add(field, match[2]!.trim());
       continue;
     }
-    // A line after the labels that is no label continues the previous one only when indented; plain prose before them is the definition.
-    if (!labelled) definition.push(line.replace(/^\s{0,4}/, ''));
+    // After a label, a line that is no label is the rest of that field (a wrapped line); before any, it is the definition.
+    if (active === undefined) definition.push(line.replace(/^\s{0,4}/, ''));
+    else if (line.trim() !== '') add(active, line.trim());
   }
   fields.definition = definition.join('\n').trim();
   return fields;
