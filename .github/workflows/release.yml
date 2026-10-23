@@ -132,6 +132,16 @@ jobs:
           } catch {
             Write-Host "FAILED: $_"
             Get-ChildItem $products -Filter '*.log' -Recurse -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "--- $($_.FullName)"; Get-Content $_.FullName -Tail 40 }
+            # The reader the server starts, run by hand on a fresh folder: what it says on standard error is not in the log.
+            try {
+              $probe = Join-Path $env:RUNNER_TEMP 'madarch-probe'
+              $line = (@{ type = 'open'; path = (Join-Path $probe 'db'); create = $true } | ConvertTo-Json -Compress)
+              Set-Content -Path (Join-Path $env:RUNNER_TEMP 'probe-in.txt') -Value $line
+              $worker = Start-Process -FilePath $binary -ArgumentList @('knowledge-read-worker') -PassThru -RedirectStandardInput (Join-Path $env:RUNNER_TEMP 'probe-in.txt') -RedirectStandardOutput (Join-Path $env:RUNNER_TEMP 'probe-out.txt') -RedirectStandardError (Join-Path $env:RUNNER_TEMP 'probe-err.txt')
+              [void]$worker.WaitForExit(90000)
+              Write-Host '--- probe stdout'; Get-Content (Join-Path $env:RUNNER_TEMP 'probe-out.txt') -Tail 20
+              Write-Host '--- probe stderr'; Get-Content (Join-Path $env:RUNNER_TEMP 'probe-err.txt') -Tail 40
+            } catch { Write-Host "probe failed: $_" }
             throw
           } finally {
             # The daemon holds the step's handles: it is ended by the pid `new` printed, so the step can return.
