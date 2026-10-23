@@ -72,7 +72,7 @@ describe('clean install platform contracts', () => {
   test('the release smokes read the wiki through the one app\'s routes, not the removed /api/product', () => {
     for (const file of ['.github/workflows/release.yml', '.github/workflows/clean-installs.yml', 'scripts/smoke-binary.sh', 'scripts/clean-homebrew-walk.sh']) {
       const text = readFileSync(file, 'utf8');
-      if (file !== '.github/workflows/clean-installs.yml') expect(text).not.toContain('/api/product');
+      expect(text).not.toContain('/api/product');
     }
     expect(readFileSync('.github/workflows/release.yml', 'utf8')).toContain('scripts/smoke-binary.sh');
     expect(readFileSync('scripts/smoke-binary.sh', 'utf8')).toContain('api/k/status');
