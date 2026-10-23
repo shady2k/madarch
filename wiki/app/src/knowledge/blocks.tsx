@@ -119,6 +119,8 @@ const CLICK_INTERVAL = 400;
 
 /** The opening a sentence's click asked for: whether the press that ended a selection was seen, and the wait it started. */
 interface PendingOpen {
+  /** The sentence whose click asked for this opening. */
+  sentence: string | null;
   /** The press found a selection: the click that follows only dismisses it and opens nothing. */
   pressed: boolean;
   timer: ReturnType<typeof setTimeout> | null;
@@ -130,7 +132,7 @@ export function KMarkdown({ text, resolutions, inDocument, statements, exceptTer
   const kindName = useKindName();
   const pending = useContext(PendingPages);
   // An opening belongs to the page its click was made on: the wait is this text's own, and leaving the page drops it.
-  const pendingOpen = useRef<PendingOpen>({ pressed: false, timer: null });
+  const pendingOpen = useRef<PendingOpen>({ sentence: null, pressed: false, timer: null });
   useEffect(() => () => {
     if (pendingOpen.current.timer !== null) clearTimeout(pendingOpen.current.timer);
     pendingOpen.current.timer = null;
@@ -192,10 +194,11 @@ export function KMarkdown({ text, resolutions, inDocument, statements, exceptTer
             onMouseDown={() => {
               const wait = pendingOpen.current;
               wait.pressed = selecting();
-              if (wait.timer !== null) {
-                // The second press of a double click: the opening its first click asked for is dropped, the press selects.
+              if (wait.timer !== null && wait.sentence === sentence) {
+                // The second press on this sentence: its pending opening is dropped, and the press selects.
                 clearTimeout(wait.timer);
                 wait.timer = null;
+                wait.sentence = null;
                 wait.pressed = true;
               }
             }}
@@ -206,9 +209,11 @@ export function KMarkdown({ text, resolutions, inDocument, statements, exceptTer
               if ((event.target as HTMLElement).closest('a') !== null || dismissed || selecting()) return;
               // Wait one click interval: a native double click selects a word after its
               // first click, and a slow one arrives well inside this window.
-              if (wait.timer !== null) clearTimeout(wait.timer);
+              if (wait.timer !== null && wait.sentence === sentence) clearTimeout(wait.timer);
+              wait.sentence = sentence;
               wait.timer = setTimeout(() => {
                 wait.timer = null;
+                wait.sentence = null;
                 if (!selecting()) open();
               }, CLICK_INTERVAL);
             }}
