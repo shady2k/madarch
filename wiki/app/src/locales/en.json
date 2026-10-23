@@ -481,7 +481,6 @@
       "refusal": "refused request"
     },
     "unreadable": "Lines of the journal that could not be read",
-    "otherRuns": "Other runs that wrote this page",
-    "agentAsked_many": "The agent asked {{count}} questions: they are on the Questions page."
+    "otherRuns": "Other runs that wrote this page"
   }
 }
