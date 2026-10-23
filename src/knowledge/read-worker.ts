@@ -85,8 +85,9 @@ export async function runReadWorker(io: { lines: AsyncIterable<string>; send: (r
         await owner.ready;
         if (request.create) {
           await createGraphStore(owner).createSchema();
-          await owner.transaction('write', async (tx) => { await tx.query(SCHEMA_TABLE); });
         }
+        // A store a fill never wrote (an earlier madarch's, or the one `new` made) has no fill table: it is made when absent, on every open.
+        await owner.transaction('write', async (tx) => { await tx.query(SCHEMA_TABLE); });
         send({ type: 'ready' });
       } catch (error) {
         send({ type: 'failed', message: `the snapshot ${request.path} could not be opened: ${errorText(error)}` });

@@ -192,6 +192,21 @@ describe('the fill the reader watches', () => {
     const callers = page.body.blocks.find((block: { type: string }) => block.type === 'callers');
     expect(callers.rows.map((row: { entity: { id: string }; site: { path: string; lineStart: number } }) => [row.entity.id, row.site.path, row.site.lineStart])).toEqual([[sym('src/b.ts#entry'), 'src/b.ts', 4]]);
 
+    // The diagrams are left to be read on their own, each by the line of its block; `full=1` has them in the page.
+    const deferred = page.body.blocks.filter((block: { type: string }) => block.type === 'deferred');
+    expect(deferred.map((block: { block: string }) => block.block)).toEqual(['graph', 'sequence']);
+    const drawn = await get(`/products/tiny/api/k/block?id=${encodeURIComponent(key)}&line=${deferred[1].line}`);
+    expect(drawn.status).toBe(200);
+    expect(drawn.body.type).toBe('sequence');
+    expect((await get(`/products/tiny/api/k/block?id=${encodeURIComponent(key)}&line=0`)).status).toBe(400);
+    expect((await get(`/products/tiny/api/k/block?id=${encodeURIComponent(key)}&line=9999`)).status).toBe(404);
+    const whole = await get(`/products/tiny/api/k/page?id=${encodeURIComponent(key)}&full=1`);
+    expect(whole.body.blocks.map((block: { type: string }) => block.type)).toEqual(expect.arrayContaining(['graph', 'sequence']));
+    const neighbours = await get(`/products/tiny/api/k/neighborhood?id=${encodeURIComponent(key)}&limit=3`);
+    expect(neighbours.status).toBe(200);
+    expect(neighbours.body.center).toBe(key);
+    expect((await get(`/products/tiny/api/k/neighborhood?id=${encodeURIComponent(key)}&direction=sideways`)).status).toBe(400);
+
     const file = await get(`/products/tiny/api/k/source?repo=tiny&path=${encodeURIComponent('src/b.ts')}`);
     expect(file.body).toMatchObject({ repo: 'tiny', path: 'src/b.ts', language: 'typescript', commit: git(repository, 'rev-parse', 'HEAD').trim(), text: B_TS });
     expect((await get('/products/tiny/api/k/source?repo=tiny&path=..%2Fsecret')).status).toBe(400);
