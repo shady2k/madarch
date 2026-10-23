@@ -25,13 +25,14 @@ repository prevents regressions.
 - Changes to graph storage or product data, and tests requiring an outside repository or owner infrastructure.
 
 ## Changes to requirements
-- product-wiki (extended): graph kinds have their meaning-implied relations and an exhaustive no-isolated-node audit; operations are grouped by contract with protocol-aware, lazy Definition views and operation deep-links; graph neighbourhood and related blocks agree; task, commit and author pages carry history summaries. Complete proposed text is in `capabilities/product-wiki.md`.
+- product-wiki (extended): graph kinds have their meaning-implied relations; an exhaustive audit checks isolation, unique labels and locations; entry points identify service, file, function location and started process; operations are grouped by contract with protocol-aware, lazy Definition views and operation deep-links; graph neighbourhood and related blocks agree; task, commit and author pages carry history summaries. Complete proposed text is in `capabilities/product-wiki.md`.
 
 ## Preserved contracts
 None.
 
 ## Coverage
 - product-wiki/graph-connectivity: test, generated-training-repository-audit
+- product-wiki/entry-points-and-code-locations: test, generated-training-repository-audit
 - product-wiki/contract-display: test, browser-walk
 - product-wiki/graph-neighborhood: test, generated-training-repository-audit
 - product-wiki/history-pages: test, generated-training-repository-audit, browser-walk
@@ -45,7 +46,7 @@ Mockup: docs/prototypes/madarch-m38l.9/function-pay-1150-light.png
 1. A reader opens the operations index and finds operations grouped by contract, with protocol badges and the implemented-by, called-by and place columns.
 2. They open a contract's Definition view to read its OpenAPI, AsyncAPI or gRPC definition, or follow an operation page to its contract slice and call chain.
 3. They follow graph relations from a contract, table, endpoint, file, task or commit, and see its neighbours in both the graph diagram and relations block.
-4. They open a task, commit or author history page and see the commits, changed files, symbols, authors and activity that explain it.
+4. They open an entry point and see its service, file, function location and started process; then open task, commit or author history pages and see the commits, changed files, symbols, authors and activity that explain them.
 
 ## Blocking questions
 None.
@@ -58,6 +59,9 @@ column and index; channel carries message; entry-point starts process or file;
 health and metrics endpoint is served by service or route, with `GET /healthz`
 also represented as a route; logger is used by file or service; commit touches
 file and is authored by author; task is named by commit; facet describes file.
+Every code-derived node has a path and line span, every kind's labels are
+unique, and entry points include service and file in the label, the function's
+location, and links to service, file and process.
 Existing graph ids must be resolved by their stable keys so these edges reach
 real nodes. If an entity kind is truly standalone, the starter template names
 it and gives its reason. The generated training-repository audit enumerates
@@ -95,6 +99,8 @@ the exhaustive generated-repository audit has no unjustified isolated nodes
 and its before/after counts are recorded. The operations index is grouped by
 contract and protocol with the required columns; contract Definition views use
 the required lazy, read-only protocol renderers; operation views deep-link to
-the operation. The graph neighbourhood and related block agree, and task,
-commit and author pages carry the required history. English and Russian reader
+the operation. The graph neighbourhood and related block agree, entry points identify their
+service, file, function location and process, every code-derived node has a
+location, labels are unique within each kind, and task, commit and author pages
+carry the required history. English and Russian reader
 screens are inspected in light and dark at desktop and phone widths.

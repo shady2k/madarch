@@ -889,3 +889,30 @@ shall be available in English and Russian.
 - When: its operations table and Definition view are read
 - Then: all madarch-owned headings, badges, loading and error text use the selected language
 
+## Requirement: entry-points-and-code-locations — Code pages identify their place and avoid duplicate labels
+Every code-derived graph node shall carry a useful source location naming its
+repository-relative path and the line or line range where it was found. An
+entry-point label shall combine its service and source file, such as
+`orders · cmd/orders/main.go` or `payments · src/index.ts`; its page shall
+show the function's path and line and link to its service, file and the process
+it starts. A graph kind's list shall never contain two rows with the same
+label: labels are made unique using stable, meaningful identity details rather
+than hiding, merging or silently dropping nodes. The generated
+training-repository audit shall check locations for every code-derived node
+and unique labels within every kind as well as isolation.
+
+### Scenario: entry-point-has-service-file-and-process
+- Given: entry points from different services or files, including duplicate function names
+- When: the entry-point list and each entry-point page are read
+- Then: labels include service and file, locations name the function path and line, and each page links to its service, file and started process
+
+### Scenario: every-code-node-has-a-location
+- Given: every code-derived node in the generated training repository
+- When: the committed graph audit reads the nodes
+- Then: each node has a repository-relative source path and line or line range; missing locations fail with kind and node key
+
+### Scenario: labels-are-unique-per-kind
+- Given: every node list in the generated training repository
+- When: the committed graph audit checks labels
+- Then: no kind has duplicate labels, and any duplicate fails with the kind and colliding node keys
+
