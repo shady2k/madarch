@@ -281,6 +281,8 @@ describe('a page’s diagrams', () => {
       }) as typeof window.clearInterval;
       into(createElement(DiagramTabs, { diagram: diagram(), repos: repos.repos }));
       await until(() => document.querySelector('[data-testid="graph-diagram-deferred"]') !== null, 'the deferral’s words');
+      // The words are rendered before the effect that starts the watching has run, so wait for the watching itself.
+      await until(() => added.includes('scroll') && added.includes('resize') && intervals === 1, 'the app to start watching');
       expect(added.filter((type) => type === 'scroll' || type === 'resize').sort()).toEqual(['resize', 'scroll']);
       expect(intervals).toBe(1);
       expect(removed).toEqual([]);
