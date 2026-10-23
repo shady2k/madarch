@@ -84,30 +84,17 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: bun scripts/build-binary.ts --version $env:VERSION.Substring(1) --os windows --arch x64 --out dist
-      - name: prove the binary (version, list, new, serve)
+      - name: prove the binary (version, list, new, the wiki a reader reaches)
         if: runner.os != 'Windows'
         env:
-          BINARY: ./dist/madarch-${{ matrix.os }}-${{ matrix.arch }}
           GIT_AUTHOR_NAME: Madarch CI
           GIT_AUTHOR_EMAIL: madarch-ci@example.invalid
           GIT_COMMITTER_NAME: Madarch CI
           GIT_COMMITTER_EMAIL: madarch-ci@example.invalid
-        run: |
-          tmp=$(mktemp -d)
-          "$BINARY" version
-          "$BINARY" list --home "$tmp/home"
-          # a real product: the draft is created and its wiki is served on a port of this run's own
-          port=$((10000 + RANDOM % 20000))
-          "$BINARY" new --home "$tmp/home" --port $port --no-open &
-          pid=$!
-          sleep 12
-          curl -fsS "http://127.0.0.1:$port/" >/dev/null
-          curl -fsS "http://127.0.0.1:$port/api/product" | grep '"id"'
-          kill $pid 2>/dev/null || true
-          wait "$pid" 2>/dev/null || true
-          rm -rf "$tmp"
+        run: sh scripts/smoke-binary.sh ./dist/madarch-${{ matrix.os }}-${{ matrix.arch }}
       - name: prove the Windows binary
         if: runner.os == 'Windows'
+        timeout-minutes: 5
         shell: pwsh
         env:
           GIT_AUTHOR_NAME: Madarch CI
@@ -117,17 +104,49 @@ jobs:
         run: |
           $binary = Resolve-Path ./dist/madarch-windows-x64.exe
           $smokeHome = Join-Path $env:RUNNER_TEMP 'madarch-smoke'
+          $products = Join-Path $smokeHome 'products'
           $port = 18127
-          $proc = Start-Process -FilePath $binary -ArgumentList @('new', '--home', (Join-Path $smokeHome 'products'), '--port', "$port", '--no-open') -PassThru -RedirectStandardOutput (Join-Path $env:RUNNER_TEMP 'madarch-out.txt') -RedirectStandardError (Join-Path $env:RUNNER_TEMP 'madarch-err.txt')
           try {
+            # `new` returns at once; the products home's background server serves the draft.
+            # The daemon the command starts inherits its output handles, so a pipe would never close: the output goes to files.
+            $out = Join-Path $env:RUNNER_TEMP 'madarch-new-out.txt'
+            $err = Join-Path $env:RUNNER_TEMP 'madarch-new-err.txt'
+            $created = Start-Process -FilePath $binary -ArgumentList @('new', '--home', $products, '--port', "$port", '--json', '--no-open') -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+            if (-not $created.WaitForExit(120000)) { throw 'madarch new did not return within 120 s' }
+            if ($created.ExitCode -ne 0) { throw "madarch new exited $($created.ExitCode): $(Get-Content $err -Raw)" }
+            $facts = (Get-Content $out | Select-Object -Last 1) | ConvertFrom-Json
+            $url = $facts.url
+            Write-Host "madarch new served $url (pid $($facts.pid))"
+            if ($url -notlike "http://127.0.0.1:$port/products/*") { throw "madarch new printed no product address on port ${port}: $url" }
             $served = $false
-            for ($i = 0; $i -lt 200; $i++) {
-              if ($proc.HasExited) { throw "madarch new exited $($proc.ExitCode): $(Get-Content (Join-Path $env:RUNNER_TEMP 'madarch-err.txt') -Raw)" }
-              try { $answer = Invoke-RestMethod "http://127.0.0.1:$port/api/product"; if ($answer.id) { $served = $true; break } } catch {}
+            $until = (Get-Date).AddSeconds(60)
+            while ((Get-Date) -lt $until) {
+              try { $status = Invoke-RestMethod -TimeoutSec 10 "${url}api/k/status"; if ($status.manifest -eq 'ok') { $served = $true; break } } catch {}
               Start-Sleep -Milliseconds 100
             }
-            if (-not $served) { throw 'madarch new did not serve a graph-backed product' }
-          } finally { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
+            if (-not $served) { throw "the product's api/k/status never answered a manifest that is ok at $url" }
+            $root = Invoke-WebRequest -TimeoutSec 30 -UseBasicParsing "http://127.0.0.1:$port/"
+            if ($root.StatusCode -ne 200) { throw "the root answered $($root.StatusCode)" }
+            $page = Invoke-WebRequest -TimeoutSec 30 -UseBasicParsing $url
+            if ($page.Content -notmatch '<div id="root"') { throw "the product page at $url is not the wiki app's HTML" }
+          } catch {
+            Write-Host "FAILED: $_"
+            Get-ChildItem $products -Filter '*.log' -Recurse -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "--- $($_.FullName)"; Get-Content $_.FullName -Tail 40 }
+            # The reader the server starts, run by hand on a fresh folder: what it says on standard error is not in the log.
+            try {
+              $probe = Join-Path $env:RUNNER_TEMP 'madarch-probe'
+              $line = (@{ type = 'open'; path = (Join-Path $probe 'db'); create = $true } | ConvertTo-Json -Compress)
+              Set-Content -Path (Join-Path $env:RUNNER_TEMP 'probe-in.txt') -Value $line
+              $worker = Start-Process -FilePath $binary -ArgumentList @('knowledge-read-worker') -PassThru -RedirectStandardInput (Join-Path $env:RUNNER_TEMP 'probe-in.txt') -RedirectStandardOutput (Join-Path $env:RUNNER_TEMP 'probe-out.txt') -RedirectStandardError (Join-Path $env:RUNNER_TEMP 'probe-err.txt')
+              [void]$worker.WaitForExit(90000)
+              Write-Host '--- probe stdout'; Get-Content (Join-Path $env:RUNNER_TEMP 'probe-out.txt') -Tail 20
+              Write-Host '--- probe stderr'; Get-Content (Join-Path $env:RUNNER_TEMP 'probe-err.txt') -Tail 40
+            } catch { Write-Host "probe failed: $_" }
+            throw
+          } finally {
+            # The daemon holds the step's handles: it is ended by the pid `new` printed, so the step can return.
+            if ($facts.pid) { taskkill /T /F /PID $facts.pid | Out-Host }
+          }
       - name: checksum
         shell: bash
         env:

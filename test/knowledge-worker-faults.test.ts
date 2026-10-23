@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { KnowledgeProduct, type FillWorkerHandle } from '../src/knowledge/product.js';
 import { RemoteOwner, type ReadWorkerProcess } from '../src/knowledge/remote-owner.js';
+import { createPGliteDatabaseOwner, insideCompiledBinary } from '../src/adapters/database-owner.js';
 import { runReadWorker } from '../src/knowledge/read-worker.js';
 import { encodeWire, decodeWire } from '../src/knowledge/wire.js';
 import type { FromWorker, ToWorker } from '../src/knowledge/fill-protocol.js';
@@ -154,4 +155,34 @@ describe('a read worker that ends', () => {
     const code = await Promise.race([finished, new Promise<number>((_, reject) => setTimeout(() => reject(new Error('the read worker kept its database after the server closed the pipe')), 20_000))]);
     expect(code).toBe(0);
   }, 60_000);
+
+  test('an existing store with no tables at all (the folder the home made) is read with the graph and fill tables made on open', async () => {
+    root = mkdtempSync(join(tmpdir(), 'madarch-read-nofill-'));
+    const path = join(root, 'read', '1');
+    mkdirSync(join(root, 'read'), { recursive: true });
+    const maker = createPGliteDatabaseOwner({ path, btreeGist: true });
+    await maker.ready;
+    await maker.close();
+    const input = channel();
+    const said: string[] = [];
+    const finished = runReadWorker({ lines: input.lines, send: (line) => { said.push(line); } });
+    input.push(encodeWire({ type: 'open', path, create: false }));
+    const has = (type: string): boolean => said.some((line) => decodeWire<{ type: string }>(line).type === type);
+    for (let tries = 0; tries < 300 && !has('ready') && !has('failed'); tries += 1) await new Promise((rest) => setTimeout(rest, 100));
+    expect(has('ready')).toBe(true);
+    input.push(encodeWire({ type: 'query', id: 7, sql: 'SELECT (SELECT count(*) FROM knowledge_fill) + (SELECT count(*) FROM node_version) AS n' }));
+    for (let tries = 0; tries < 100 && !has('rows') && !has('error'); tries += 1) await new Promise((rest) => setTimeout(rest, 50));
+    expect(said.map((line) => decodeWire<{ type: string }>(line).type)).not.toContain('error');
+    expect(has('rows')).toBe(true);
+    input.end();
+    await finished;
+  }, 60_000);
+
+  test('the compiled-binary check knows the Windows bundle path as well as the Linux one', () => {
+    expect(insideCompiledBinary('file:///$bunfs/root/madarch-linux-x64')).toBe(true);
+    expect(insideCompiledBinary('file:///B:/~BUN/root/madarch-windows-x64.exe')).toBe(true);
+    expect(insideCompiledBinary('file:///B:/%7EBUN/root/madarch-windows-x64.exe')).toBe(true);
+    expect(insideCompiledBinary('B:\\~BUN\\root\\madarch-windows-x64.exe')).toBe(true);
+    expect(insideCompiledBinary('file:///work/madarch/src/adapters/database-owner.ts')).toBe(false);
+  });
 });

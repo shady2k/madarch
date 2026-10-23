@@ -15,6 +15,7 @@ on:
       - '.github/workflows/release.yml'
       - '.github/workflows/clean-installs.yml'
       - 'scripts/clean-install-walk.ts'
+      - 'scripts/smoke-binary.sh'
       - 'scripts/clean-homebrew-walk.sh'
       - 'src/product/cli.ts'
       - 'src/product/lifecycle.ts'
@@ -129,22 +130,25 @@ jobs:
           export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME"
           export GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
           export HOME="$TMP/home"; mkdir -p "$HOME"
-          # The published release of the tap, which still serves `new` in the
-          # foreground: this walk is the release's, not the branch's. A release
-          # that returns at once and serves from the home's background server
-          # needs the form scripts/clean-homebrew-walk.sh now carries.
+          # The published release returns from `new` at once and serves from the
+          # home's background server (the form scripts/clean-homebrew-walk.sh walks).
           PORT=$(($(od -An -N2 -tu2 /dev/urandom) % 20000 + 20000))
-          madarch new --home "$HOME/products" --port "$PORT" --no-open > "$TMP/new.txt" 2>&1 & PID=$!
-          for n in $(seq 1 200); do if curl -fsS "http://127.0.0.1:$PORT/api/product" | grep -q '"id"'; then break; fi; sleep .1; done
-          curl -fsS "http://127.0.0.1:$PORT/api/product" | grep -q '"id"'
-          PRODUCT=$(sed -n 's/^folder: //p' "$TMP/new.txt" | head -1)
-          test -n "$PRODUCT"
-          kill "$PID"; wait "$PID" || true; PID=
+          madarch new --json --home "$HOME/products" --port "$PORT" --no-open > "$TMP/new.txt" 2>&1
+          cat "$TMP/new.txt"
+          URL=$(tail -n 1 "$TMP/new.txt" | sed -n 's/.*"url":"\([^"]*\)".*/\1/p')
+          PRODUCT=$(tail -n 1 "$TMP/new.txt" | sed -n 's/.*"folder":"\([^"]*\)".*/\1/p')
+          test -n "$URL" && test -n "$PRODUCT"
+          for n in $(seq 1 200); do if curl -fsS -L "${URL}api/k/status" | grep -q '"manifest":"ok"'; then break; fi; sleep .1; done
+          curl -fsS -L "${URL}api/k/status" | grep -q '"manifest":"ok"'
+          curl -fsS -L "http://127.0.0.1:$PORT/" >/dev/null
+          curl -fsS -L "$URL" | grep -q '<div id="root"'
+          madarch stop --home "$HOME/products"
           PORT=$((PORT + 1))
           madarch serve --product "$PRODUCT" --port "$PORT" --no-open > "$TMP/serve.txt" 2>&1 & PID=$!
-          for n in $(seq 1 200); do if curl -fsS "http://127.0.0.1:$PORT/api/product" | grep -q '"id"'; then break; fi; sleep .1; done
-          curl -fsS "http://127.0.0.1:$PORT/api/product" | grep -q '"id"'
-          cat "$TMP/new.txt" "$TMP/serve.txt"
+          for n in $(seq 1 200); do if curl -fsS "http://127.0.0.1:$PORT/api/k/status" | grep -q '"manifest":"ok"'; then break; fi; sleep .1; done
+          curl -fsS "http://127.0.0.1:$PORT/api/k/status" | grep -q '"manifest":"ok"'
+          curl -fsS "http://127.0.0.1:$PORT/" | grep -q '<div id="root"'
+          cat "$TMP/serve.txt"
           kill "$PID"; wait "$PID" || true; PID=
 
   macos-arm64:

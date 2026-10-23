@@ -225,8 +225,14 @@ export class KnowledgeProduct {
       const path = join(root, String(seq));
       // The snapshot is read by a process of its own, so that opening it never holds up this server's thread.
       const owner = new RemoteOwner(path, { create: created });
-      await owner.ready;
-      if (this.pins.size === 0) await this.loadPins(owner);
+      try {
+        await owner.ready;
+        if (this.pins.size === 0) await this.loadPins(owner);
+      } catch (error) {
+        // A reader that failed to open is given back: a retry must not leave one worker process behind per request.
+        await owner.close().catch(() => undefined);
+        throw error;
+      }
       this.reader = { owner, seq, path };
     })();
     try {

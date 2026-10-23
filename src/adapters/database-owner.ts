@@ -58,7 +58,12 @@ async function extractedBtreeGist(): Promise<URL> {
   return extractedArchive;
 }
 
-const btreeGistExtension: typeof btree_gist = import.meta.url.includes('/$bunfs/')
+/** Whether a module URL lies inside a compiled binary: `/$bunfs/` on Linux and macOS, `B:/~BUN/` on Windows, where a file URL spells the tilde `%7E`. */
+export function insideCompiledBinary(moduleUrl: string): boolean {
+  return /[/\\](?:\$bunfs|%24bunfs|~BUN|%7EBUN)[/\\]/i.test(moduleUrl);
+}
+
+const btreeGistExtension: typeof btree_gist = insideCompiledBinary(import.meta.url)
   ? { ...btree_gist, setup: async () => ({ bundlePath: await extractedBtreeGist() }) }
   : btree_gist;
 

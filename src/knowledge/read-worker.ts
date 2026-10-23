@@ -83,10 +83,10 @@ export async function runReadWorker(io: { lines: AsyncIterable<string>; send: (r
         mkdirSync(dirname(request.path), { recursive: true });
         owner = createPGliteDatabaseOwner({ path: request.path, btreeGist: true });
         await owner.ready;
-        if (request.create) {
-          await createGraphStore(owner).createSchema();
-          await owner.transaction('write', async (tx) => { await tx.query(SCHEMA_TABLE); });
-        }
+        // A store a fill never wrote - an empty folder the home made, or an earlier madarch's - has no tables: they are made
+        // when absent on every open (both statements are idempotent), so a first read never fails on a missing relation.
+        await createGraphStore(owner).createSchema();
+        await owner.transaction('write', async (tx) => { await tx.query(SCHEMA_TABLE); });
         send({ type: 'ready' });
       } catch (error) {
         send({ type: 'failed', message: `the snapshot ${request.path} could not be opened: ${errorText(error)}` });

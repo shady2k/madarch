@@ -67,8 +67,10 @@ URL=$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read().splitlines(
 PRODUCT=$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read().splitlines()[-1])["folder"])' < "$TMP/new.txt")
 case "$URL" in *":$PORT/"*) ;; *) echo "Homebrew madarch new served at $URL, not on the port $PORT it was given" >&2; exit 1 ;; esac
 SERVED=0
-for n in $(seq 1 200); do if curl -fsS "${URL}api/product" | grep -q '"id"'; then SERVED=1; break; fi; sleep .1; done
+for n in $(seq 1 200); do if curl -fsS "${URL}api/k/status" | grep -q '"manifest":"ok"'; then SERVED=1; break; fi; sleep .1; done
 [ "$SERVED" -eq 1 ] || { cat "$TMP/new.txt"; echo "Homebrew madarch new did not serve the graph-backed product at $URL" >&2; exit 1; }
+curl -fsS -L "http://127.0.0.1:$PORT/" >/dev/null || { echo "Homebrew madarch new: the root of the server did not answer" >&2; exit 1; }
+curl -fsS "$URL" | grep -q '<div id="root"' || { echo "Homebrew madarch new: $URL is not the wiki app's page" >&2; exit 1; }
 # The server stays up until it is stopped: the walk stops it, then serves the
 # product again in the foreground.
 madarch stop --home "$HOME/products"
@@ -82,7 +84,7 @@ done
 [ -n "$ADDRESS" ] || { cat "$TMP/serve.txt"; echo 'Homebrew madarch serve printed no address for the product it serves' >&2; exit 1; }
 case "$ADDRESS" in */) ;; *) ADDRESS="$ADDRESS/" ;; esac
 SERVED=0
-for n in $(seq 1 200); do if curl -fsS "${ADDRESS}api/product" | grep -q '"id"'; then SERVED=1; break; fi; sleep .1; done
+for n in $(seq 1 200); do if curl -fsS "${ADDRESS}api/k/status" | grep -q '"manifest":"ok"'; then SERVED=1; break; fi; sleep .1; done
 [ "$SERVED" -eq 1 ] || { cat "$TMP/serve.txt"; echo "Homebrew madarch serve did not reopen the graph-backed product at $ADDRESS" >&2; exit 1; }
 cat "$TMP/serve.txt"
 printf 'Homebrew walk passed: brew install local release formula, madarch new (served by the background server on the port it chose), madarch stop, then madarch serve; graph-backed product API answered.\n'
