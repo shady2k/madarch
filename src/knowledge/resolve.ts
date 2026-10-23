@@ -12,7 +12,15 @@ import { parseTarget } from './markdown.js';
 
 export type Resolution =
   | { state: 'ok'; target: string; kind: string; label: string; href: string | null; note?: string; location?: CodeLocation; /** The id or key of the entity the target is, when it is one. */ entity?: string }
-  | { state: 'broken'; target: string; reason: string };
+  /** `why` is the reason as data, so the app can say it in the reader's language; `reason` is the same in English for an engineer. */
+  | { state: 'broken'; target: string; reason: string; why?: BrokenWhy };
+
+export type BrokenWhy =
+  | { code: 'empty' }
+  | { code: 'no-entity'; key: string }
+  | { code: 'no-path' }
+  | { code: 'no-document'; path: string }
+  | { code: 'no-section'; path: string; anchor: string; repos: string };
 
 /** Where an entity page and a source view stand in the app. */
 export const entityAddress = (key: string): string => `/k/e/${encodeURIComponent(key)}`;
@@ -73,18 +81,18 @@ export class Resolver {
     const target = parseTarget(url);
     if (target.kind === 'doc') return await this.resolveDocument(url, target.path, target.anchor);
     const key = target.key;
-    if (key === '') return { state: 'broken', target: url, reason: 'the link names nothing after "madarch:"' };
+    if (key === '') return { state: 'broken', target: url, reason: 'the link names nothing after "madarch:"', why: { code: 'empty' } };
     const markdown = this.deps.markdown.get(key);
     if (markdown !== undefined) return { state: 'ok', target: url, kind: markdown.kind, label: markdown.title, href: this.deps.declared(markdown.kind) ? entityAddress(key) : null, entity: key };
     const found = await this.deps.graph.find(key);
     if (found.length === 0) {
-      return { state: 'broken', target: url, reason: noEntityMessage(key) };
+      return { state: 'broken', target: url, reason: noEntityMessage(key), why: { code: 'no-entity', key } };
     }
     return resolutionOfEntity(url, found[0]!, this.deps.declared(found[0]!.kind), this.deps.locate(found[0]!), found.length > 1 ? `the key is also in ${found.length - 1} other repositor${found.length === 2 ? 'y' : 'ies'}; the first is shown` : undefined);
   }
 
   private async resolveDocument(url: string, path: string, anchor: string | null): Promise<Resolution> {
-    if (path === '') return { state: 'broken', target: url, reason: 'the document link names no path' };
+    if (path === '') return { state: 'broken', target: url, reason: 'the document link names no path', why: { code: 'no-path' } };
     const roots: (string | null)[] = [null, ...this.deps.repositories()];
     const seen: string[] = [];
     for (const root of roots) {
@@ -99,8 +107,8 @@ export class Resolver {
       if (entity !== undefined && this.deps.declared(entity.kind)) return { state: 'ok', target: url, kind: entity.kind, label: entity.title, href: entityAddress(entity.id), entity: entity.id };
       if (line !== null) return { state: 'ok', target: url, kind: 'document', label: `${path}#${anchor}`, href: isMarkdownPath(path) ? documentAddress(root, path, anchor) : sourceAddress(root, path, line) };
     }
-    if (seen.length === 0) return { state: 'broken', target: url, reason: `no document "${path}" in the product repository or its code repositories` };
-    return { state: 'broken', target: url, reason: `the document "${path}" (in ${seen.join(', ')}) has no section "${anchor}"` };
+    if (seen.length === 0) return { state: 'broken', target: url, reason: `no document "${path}" in the product repository or its code repositories`, why: { code: 'no-document', path } };
+    return { state: 'broken', target: url, reason: `the document "${path}" (in ${seen.join(', ')}) has no section "${anchor}"`, why: { code: 'no-section', path, anchor: anchor ?? '', repos: seen.join(', ') } };
   }
 }
 

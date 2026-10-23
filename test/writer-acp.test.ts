@@ -63,7 +63,7 @@ describe('the unit endpoint', () => {
     expect((await post({ jsonrpc: '2.0', id: 1, method: 'ping' }, 'other')).status).toBe(401);
     expect((await fetch(endpoint.url, { method: 'GET', headers: { authorization: 'Bearer secret' } })).status).toBe(405);
     const listed = await (await post({ jsonrpc: '2.0', id: 2, method: 'tools/list' })).json() as { result: { tools: { name: string }[] } };
-    expect(listed.result.tools.map((t) => t.name)).toEqual(['overview', 'find_nodes', 'get_node', 'neighbors', 'read_file', 'write_page']);
+    expect(listed.result.tools.map((t) => t.name)).toEqual(['overview', 'find_nodes', 'get_node', 'neighbors', 'read_file', 'write_page', 'ask_question']);
     expect((await post({ jsonrpc: '2.0', method: 'notifications/initialized' })).status).toBe(202);
     const called = await (await post({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'overview', arguments: {} } })).json() as { result: { content: { text: string }[]; isError: boolean } };
     expect(JSON.parse(called.result.content[0]!.text)).toEqual({ written: false, echo: 'overview' });

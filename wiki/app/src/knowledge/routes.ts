@@ -10,12 +10,18 @@ export type KRoute =
   | { name: 'doc'; repo: string | null; path: string }
   | { name: 'catalogue' }
   | { name: 'glossary' }
+  | { name: 'questions' }
+  | { name: 'question'; slug: string }
+  | { name: 'problems' }
   | { name: 'statement'; id: string; sentence: string; turn: number };
 
 export const K_HOME = '/k';
 export const K_DOCS = '/k/docs';
 export const K_CATALOGUE = '/k/catalogue';
 export const K_GLOSSARY = '/k/glossary';
+export const K_QUESTIONS = '/k/questions';
+export const K_PROBLEMS = '/k/problems';
+export const addressOfQuestion = (slug: string): string => `/k/questions/${encodeURIComponent(slug)}`;
 /** Where the statement view of a sentence of a page stands. */
 export function addressOfStatement(id: string, sentence: string, turn = 0): string {
   return `/k/statement?${new URLSearchParams({ id, sentence, ...(turn > 0 ? { n: String(turn) } : {}) }).toString()}`;
@@ -34,9 +40,22 @@ export const addressOfKind = (kind: string): string => `/k/kind/${encodeURICompo
 export function kRouteOf(pathname: string, search = ''): KRoute | null {
   const path = appRoute(pathname);
   if (path === '/k' || path === '/k/') return { name: 'home' };
+  if (path === '/k/questions' || path === '/k/questions/') return { name: 'questions' };
+  if (path.startsWith('/k/questions/')) {
+    try {
+      return { name: 'question', slug: decodeURIComponent(path.slice('/k/questions/'.length)) };
+    } catch {
+      return { name: 'questions' };
+    }
+  }
+  if (path === '/k/problems' || path === '/k/problems/') return { name: 'problems' };
   if (path.startsWith('/k/e/')) {
     try {
-      return { name: 'entity', id: decodeURIComponent(path.slice('/k/e/'.length)) };
+      const id = decodeURIComponent(path.slice('/k/e/'.length));
+      // A question or a correction has its place in the loop's pages, not a generic entity page.
+      if (id.startsWith('question:')) return { name: 'question', slug: id.slice('question:'.length) };
+      if (id.startsWith('correction:')) return { name: 'problems' };
+      return { name: 'entity', id };
     } catch {
       return { name: 'home' };
     }

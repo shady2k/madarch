@@ -17,9 +17,14 @@ import type { DatabaseOwner } from '../adapters/database-owner.js';
 import type { GraphStore } from '../graph/index.js';
 import { byCodePoint } from '../model/order.js';
 import type { McpToolDefinition } from '../fill/unit-mcp.js';
+import { parse as parseYaml } from 'yaml';
+import { splitFrontMatter } from '../knowledge/markdown.js';
+import { readCorrections, readQuestions, type Correction, type Question } from '../loop/entities.js';
 import { writtenAtOf } from './basis.js';
+import { includedNotes, type EditBrief } from './edit.js';
+import { statementsOf } from './sentences.js';
 import { MAX_SLUG_LENGTH, SLUG } from './format.js';
-import { domainPrompt, productPrompt } from './prompts.js';
+import { domainPrompt, productPrompt, type UnitContext } from './prompts.js';
 import { DEFAULT_UNIT_BOUNDS, UnitTools, type DomainDeclaration, type PageSink, type ToolAnswer, type UnitBounds, type UnitOutcome, type UnitSpec } from './tools.js';
 import { GraphView, ingestContent, type ContentReport } from './view.js';
 
@@ -78,6 +83,10 @@ export interface WriterOptions {
   readonly afterWrite?: (written: { readonly path: string }) => Promise<void>;
   /** Called with a unit's id and page as the unit starts, so a reader can see which unit is writing now. */
   readonly onUnitStart?: (unit: { readonly unit: string; readonly path: string }) => void;
+  /** Called once an answer or a correction was used by every page it touched and all of them were written. A failure is reported in `loopProblems`. */
+  readonly resolved?: (resolved: ResolvedEntity) => Promise<void>;
+  /** The clock questions are stamped with; tests inject. */
+  readonly clock?: () => Date;
 }
 
 export interface WriterReport {
@@ -92,6 +101,10 @@ export interface WriterReport {
   readonly stale: readonly string[];
   /** What `afterWrite` raised, with the page it was told about; the run is not `ok` while this is not empty. */
   readonly indexErrors: readonly string[];
+  /** Question and correction files that could not be read, and what `resolved` raised, each with its file and line: told, never hidden. */
+  readonly loopProblems: readonly string[];
+  /** The ids of the questions the units asked in this run, in the order they were asked. */
+  readonly questions: readonly string[];
 }
 
 /** What the seam is given: the pages that exist and whether the content language was changed by this run. */
@@ -104,10 +117,19 @@ export interface UnitsInput {
 }
 
 export interface UnitsNeeded {
-  /** The product unit runs: it also declares the domains, so it runs whenever any page is needed. */
+  /** The product unit runs: it also declares the domains, so it runs whenever a page it declares is new. */
   readonly product: boolean;
   /** A domain page is written when this says so for its path. */
   readonly domain: (path: string) => boolean;
+  /** What a unit is told about the page it edits, by the page's path; absent for a page written from the graph. */
+  readonly brief?: (path: string) => EditBrief | undefined;
+}
+
+/** An answer or a correction a rewrite used: the pages (ids) it touched, all written. */
+export interface ResolvedEntity {
+  readonly kind: 'question' | 'correction';
+  readonly slug: string;
+  readonly pages: readonly string[];
 }
 
 /**
@@ -135,7 +157,7 @@ export function fsSink(root: string): PageSink {
   return {
     async write(relativePath: string, content: string): Promise<void> {
       const target = path.resolve(root, relativePath);
-      if (!target.startsWith(`${path.resolve(root)}${path.sep}`) || !/^docs\/(product\.md|domains\/[a-z][a-z0-9-]*\.md)$/.test(relativePath)) {
+      if (!target.startsWith(`${path.resolve(root)}${path.sep}`) || !/^docs\/(product\.md|domains\/[a-z][a-z0-9-]*\.md|questions\/[a-z][a-z0-9-]*\.md)$/.test(relativePath)) {
         throw new Error(`src/writer/run.ts: ${JSON.stringify(relativePath)} is not a page the writer may write`);
       }
       await mkdir(path.dirname(target), { recursive: true });
@@ -181,12 +203,33 @@ async function existingDomainPages(output: string): Promise<string[]> {
   }
 }
 
+/** A domain's declaration as its page gives it now: the title, a summary from its first statement, the keys it relates to. */
+export function declarationOf(path: string, text: string): DomainDeclaration {
+  const slug = path.replace(/^.*\//, '').replace(/\.md$/, '');
+  const { front, body, bodyLine } = splitFrontMatter(text.replace(/\r\n/g, '\n'));
+  let record: Record<string, unknown> = {};
+  try {
+    const raw: unknown = front === null ? {} : parseYaml(front);
+    if (raw !== null && typeof raw === 'object' && !Array.isArray(raw)) record = raw as Record<string, unknown>;
+  } catch (error) {
+    throw new Error(`src/writer/run.ts: ${path}:2: the front matter of the domain page is no YAML, so the domain cannot be declared again: ${(error as Error).message.split('\n')[0]}`);
+  }
+  const statements = statementsOf(body, bodyLine);
+  const title = typeof record['title'] === 'string' && record['title'].trim() !== '' ? record['title'].trim() : slug;
+  const relates = Array.isArray(record['relates']) ? (record['relates'] as unknown[]).filter((entry): entry is string => typeof entry === 'string') : [];
+  const evidence = relates.length > 0 ? relates : [...new Set(statements.flatMap((statement) => statement.grounds))];
+  return { slug, title, summary: statements[0]?.text ?? title, evidence: [...evidence].sort(byCodePoint) };
+}
+
+const entityKey = (kind: string, slug: string): string => `${kind}:${slug}`;
+
 export async function runWriter(options: WriterOptions): Promise<WriterReport> {
   const bounds = options.bounds ?? DEFAULT_UNIT_BOUNDS;
   const view = await GraphView.open(options.owner, options.store);
   const content = await ingestContent(options.owner, options.store, view, options.repository, options.ref);
   const inner = options.sink ?? fsSink(options.output);
   const indexErrors: string[] = [];
+  const loopProblems: string[] = [];
   const sink: PageSink = options.afterWrite === undefined ? inner : {
     read: inner.read,
     write: async (relativePath, content) => {
@@ -202,44 +245,114 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
   const slug = productSlug(options.productName);
   const productUnit: UnitSpec = { kind: 'product', id: `product:${slug}`, path: PRODUCT_PATH, name: options.productName };
   const language = options.language ?? 'en';
+  // The questions people were asked and the corrections they made: a unit is told those about its page, and may stand on the answered ones.
+  const readQ = readQuestions(options.output);
+  const readC = readCorrections(options.output);
+  loopProblems.push(...[...readQ.problems, ...readC.problems].map((problem) => problem.message));
+  const questions: readonly Question[] = readQ.items;
+  const corrections: readonly Correction[] = readC.items;
+  const entityIds = [...questions.filter((question) => question.status === 'answered').map((question) => question.id), ...corrections.map((correction) => correction.id)].sort(byCodePoint);
+  const extras = { entityIds: async () => entityIds, ...(options.clock === undefined ? {} : { clock: options.clock }) };
   let existingProduct: string | null = null;
   try { existingProduct = await sink.read(PRODUCT_PATH); } catch { existingProduct = null; }
-  const need = (options.needed ?? unitsNeeded)({ productPage: existingProduct, domainPages: await existingDomainPages(options.output), languageChanged: options.languageChanged === true });
-  if (!need.product) {
+  const domainPages = await existingDomainPages(options.output);
+  const need = (options.needed ?? unitsNeeded)({ productPage: existingProduct, domainPages, languageChanged: options.languageChanged === true });
+  const askedIds: string[] = [];
+  const keptOutcome = (unit: string, path: string): UnitOutcome => ({ unit, status: 'written', path, writeAttempts: 0, calls: 0, refusals: [], domains: [], grounds: [], links: [], filesRead: [], questions: [] });
+  const neededDomains = domainPages.filter((page) => need.domain(page));
+  if (!need.product && neededDomains.length === 0) {
     // Every page is there and in the language asked: nothing to write, and the pages' grounds are re-checked by the wiki.
-    const kept: UnitOutcome = { unit: productUnit.id, status: 'written', path: PRODUCT_PATH, writeAttempts: 0, calls: 0, refusals: [], domains: [], grounds: [], links: [], filesRead: [] };
-    return { content, product: kept, domains: [], units: 0, ok: true, stale: [], indexErrors: [] };
+    return { content, product: keptOutcome(productUnit.id, PRODUCT_PATH), domains: [], units: 0, ok: true, stale: [], indexErrors: [], loopProblems, questions: [] };
   }
-  options.onUnitStart?.({ unit: productUnit.id, path: productUnit.path });
-  const productTools = new UnitTools(view, productUnit, sink, [], bounds, basis);
-  const product = await runUnit(options.agent, productTools, await productPrompt(view, productUnit, language));
-  options.onUnit?.(product);
+  // The answers and corrections each page's unit is told, so a rewrite that used them can close them.
+  const expected = new Map<string, Set<string>>();
+  const done = new Map<string, Set<string>>();
+  const expect = (unit: string, brief: EditBrief | undefined): void => {
+    // Only a note the prompt carries is told to the agent, so only that one can be marked as used.
+    for (const note of brief === undefined ? [] : includedNotes(brief)) {
+      const key = note.kind === 'answer' ? entityKey('question', note.question) : note.kind === 'correction' ? entityKey('correction', note.correction) : undefined;
+      if (key === undefined) continue;
+      if (!expected.has(key)) expected.set(key, new Set());
+      expected.get(key)!.add(unit);
+    }
+  };
+  // Every page the plan touches is expected, whether or not its unit gets to start: a question closes only when all of them were written.
+  expect(productUnit.id, need.brief?.(PRODUCT_PATH));
+  for (const page of domainPages) expect(`domain:${page.replace(/^.*\//, '').replace(/\.md$/, '')}`, need.brief?.(page));
+  const finish = (unit: string, outcome: UnitOutcome): void => {
+    askedIds.push(...outcome.questions);
+    if (outcome.status !== 'written' || outcome.writeAttempts === 0) return;
+    for (const [key, units] of expected) if (units.has(unit)) { if (!done.has(key)) done.set(key, new Set()); done.get(key)!.add(unit); }
+  };
+  // The domains the product page declares now, as their pages say, for a product unit that edits.
+  const declaredNow = async (): Promise<DomainDeclaration[]> => {
+    const out: DomainDeclaration[] = [];
+    for (const page of domainPages) out.push(declarationOf(page, await sink.read(page)));
+    return out;
+  };
+  let product: UnitOutcome;
+  let declarations: readonly DomainDeclaration[];
+  let productPage = '';
+  if (need.product) {
+    const brief = need.brief?.(PRODUCT_PATH);
+    expect(productUnit.id, brief);
+    options.onUnitStart?.({ unit: productUnit.id, path: productUnit.path });
+    const productTools = new UnitTools(view, productUnit, sink, [], bounds, basis, extras);
+    const declared = existingProduct === null ? [] : await declaredNow();
+    product = await runUnit(options.agent, productTools, await productPrompt(view, productUnit, language, { ...(brief === undefined ? {} : { brief }), questions, declared }));
+    options.onUnit?.(product);
+    finish(productUnit.id, product);
+    declarations = product.domains;
+    if (product.status === 'written') {
+      try {
+        productPage = await sink.read(PRODUCT_PATH);
+      } catch (error) {
+        throw new Error(`src/writer/run.ts: the product page ${PRODUCT_PATH} was written but cannot be read back for the domain units: ${(error as Error).message}`);
+      }
+    }
+  } else {
+    // The product page stays: its domains are the pages it links, as those pages say.
+    declarations = await declaredNow();
+    product = { ...keptOutcome(productUnit.id, PRODUCT_PATH), domains: [...declarations] };
+    options.onUnit?.(product);
+    productPage = existingProduct ?? '';
+  }
   const domains: UnitOutcome[] = [];
   if (product.status === 'written') {
-    let productPage = '';
-    try {
-      productPage = await sink.read(PRODUCT_PATH);
-    } catch (error) {
-      throw new Error(`src/writer/run.ts: the product page ${PRODUCT_PATH} was written but cannot be read back for the domain units: ${(error as Error).message}`);
-    }
-    for (const declaration of product.domains) {
-      if (!need.domain(`${DOMAINS_FOLDER}/${declaration.slug}.md`)) {
+    for (const declaration of declarations) {
+      const path = `${DOMAINS_FOLDER}/${declaration.slug}.md`;
+      if (!need.domain(path)) {
         // The page is there and stays: the unit does not run, and it is told as a kept page.
-        const kept: UnitOutcome = { unit: `domain:${declaration.slug}`, status: 'written', path: `${DOMAINS_FOLDER}/${declaration.slug}.md`, writeAttempts: 0, calls: 0, refusals: [], domains: [], grounds: [], links: [], filesRead: [] };
+        const kept = keptOutcome(`domain:${declaration.slug}`, path);
         options.onUnit?.(kept);
         domains.push(kept);
         continue;
       }
-      const spec: UnitSpec = { kind: 'domain', id: `domain:${declaration.slug}`, path: `${DOMAINS_FOLDER}/${declaration.slug}.md`, domain: declaration, productId: productUnit.id };
+      const spec: UnitSpec = { kind: 'domain', id: `domain:${declaration.slug}`, path, domain: declaration, productId: productUnit.id };
+      const brief = need.brief?.(path);
+      expect(spec.id, brief);
       options.onUnitStart?.({ unit: spec.id, path: spec.path });
-      const tools = new UnitTools(view, spec, sink, product.domains, bounds, basis);
-      const outcome = await runUnit(options.agent, tools, await domainPrompt(view, spec, productPage, product.domains, language));
+      const tools = new UnitTools(view, spec, sink, declarations, bounds, basis, extras);
+      const outcome = await runUnit(options.agent, tools, await domainPrompt(view, spec, productPage, declarations, language, { ...(brief === undefined ? {} : { brief }), questions }));
       options.onUnit?.(outcome);
+      finish(spec.id, outcome);
       domains.push(outcome);
     }
   }
+  if (options.resolved !== undefined) {
+    for (const [key, units] of [...expected].sort(([a], [b]) => byCodePoint(a, b))) {
+      const written = done.get(key);
+      if (written === undefined || written.size !== units.size) continue;
+      const [kind, ...rest] = key.split(':');
+      try {
+        await options.resolved({ kind: kind as 'question' | 'correction', slug: rest.join(':'), pages: [...units].sort(byCodePoint) });
+      } catch (error) {
+        loopProblems.push(`${key}: it was used but could not be marked resolved: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+  }
   const stale = (await existingDomainPages(options.output)).filter((page) => !domains.some((d) => d.path === page));
-  return { content, product, domains, units: 1 + domains.length, ok: product.status === 'written' && domains.every((d) => d.status === 'written') && indexErrors.length === 0, stale, indexErrors };
+  return { content, product, domains, units: (need.product ? 1 : 0) + domains.filter((d) => d.writeAttempts > 0 || d.calls > 0 || d.status !== 'written').length, ok: product.status === 'written' && domains.every((d) => d.status === 'written') && indexErrors.length === 0, stale, indexErrors, loopProblems, questions: askedIds };
 }
 
 export type { DomainDeclaration };

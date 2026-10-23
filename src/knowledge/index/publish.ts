@@ -161,7 +161,10 @@ export async function indexKnowledge(owner: DatabaseOwner, store: GraphStore, in
       for (const key of statement.mentions) targets.add(key);
     }
   }
-  const graphKeys = [...targets].filter((target) => !pageIds.has(target) && docTarget(target) === undefined);
+  // A statement is named `<page id>#<statement name>` by the corrections and questions about it.
+  const statementRefs = new Set<string>();
+  for (const page of pages) for (const statement of page.statements) statementRefs.add(`${page.id}#${statement.id}`);
+  const graphKeys = [...targets].filter((target) => !pageIds.has(target) && docTarget(target) === undefined && !statementRefs.has(target));
   const nodes = await findNodes(owner, graphKeys, input.at);
 
   const unresolved: Unresolved[] = [];
@@ -224,6 +227,7 @@ export async function indexKnowledge(owner: DatabaseOwner, store: GraphStore, in
   const counts = { statements: 0, grounds: 0, mentions: 0, relates: 0 };
   const endOf = (target: string): { id: GraphId } | { ref: string } | undefined => {
     if (pageIds.has(target)) return { ref: pageKey(target) };
+    if (statementRefs.has(target)) return { ref: statementKey(target.slice(0, target.indexOf('#')), target.slice(target.indexOf('#') + 1)) };
     const doc = docTarget(target);
     if (doc !== undefined) return sections.has(sectionKey(doc.path, doc.anchor)) ? { ref: sectionKey(doc.path, doc.anchor) } : undefined;
     const found = nodes.get(target);

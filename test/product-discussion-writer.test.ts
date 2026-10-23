@@ -289,7 +289,7 @@ describe('the writer asks who the user is (decision 0031)', () => {
     expect(refused).toMatchObject({ ok: false, status: 409 });
     if (!refused.ok) {
       expect(refused.message).toContain(product);
-      expect(refused.message).toContain('git config user.name');
+      expect(refused.message).toContain('user.name');
     }
     expect(git(product, ['rev-parse', 'HEAD'])).toBe(before);
     expect(git(product, ['status', '--porcelain', '--untracked-files=all'])).toBe('');

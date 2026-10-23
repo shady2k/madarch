@@ -131,14 +131,15 @@
       "pendingTitle": "The agent has not written this page yet; the link opens when its unit has.",
       "languageTitle": "Language of the pages",
       "languageNote": "The agent writes every sentence and heading in this language; keys, paths and identifiers stay as they are. Changing it writes the pages again.",
-      "dismiss": "Dismiss"
+      "dismiss": "Dismiss",
+      "unitKept": "Kept as it is"
     },
     "fillWriting": "The agent is writing",
     "fillDone": "Filled {{date}}, {{count}} pages",
     "fillDoneNoDate": "Filled, {{count}} pages",
     "fillMenuTitle": "The fill of this product",
     "refresh": "Refresh",
-    "refreshNote": "Refresh reads the code again from the new commits and checks the links of the pages. The agent writes only pages that do not exist yet, or every page when you change the language of the pages; each unit is bound by {{turns}} turns and {{minutes}} minutes.",
+    "refreshNote": "“Refresh” reads the code again from the new commits and checks the links of the pages. The agent then edits only the pages that need it (listed above), keeping every sentence whose grounds did not change; with a new language it translates all pages. Each unit is bound by {{turns}} turns and {{minutes}} minutes.",
     "reset": {
       "menu": "Start over…",
       "title": "Start {{product}} over?",
@@ -197,7 +198,7 @@
     "statementNoGrounds": "This sentence has no ground. Nothing in the graph or the documents is cited for it, so the wiki does not show it as a fact.",
     "statementNoExcerpt": "Nothing to show from this ground: it names an entity, not lines of text.",
     "statementCorrection": "Correct this statement",
-    "statementCorrectionNote": "Recording a correction is not available yet. When it is, you will say here what is wrong and why, and the agent will take it into account when it writes the page again.",
+    "statementCorrectionNote": "Say what is wrong and why. The correction is saved as a file in the product repository under your git name and email, marked local, not verified. The agent takes it into account when it edits this page at the next refresh.",
     "statementCorrectionPlaceholder": "This is wrong, because…",
     "statementCorrectionSend": "Record the correction",
     "statementMissing": "The statement cannot be shown",
@@ -220,6 +221,15 @@
     "catalogueStatements": "{{count}} statements",
     "statementRelying": "Other statements that rely on the same grounds",
     "statementSharedGround": "Shared ground",
+    "statementCorrectionUnnamed": "This sentence has no name on its page yet, so a correction cannot point at it: the agent names its statements when it writes the page again.",
+    "statementCorrectionDone": "The correction is saved in {{file}}. See it under",
+    "brokenWhy": {
+      "empty": "The link points at nothing.",
+      "noEntity": "Nothing in the graph or among the product pages is called \"{{key}}\".",
+      "noPath": "The document link has no file name.",
+      "noDocument": "There is no document \"{{path}}\" in the product repository or the code repositories.",
+      "noSection": "The document \"{{path}}\" (in {{repos}}) has no section \"{{anchor}}\"."
+    },
     "glossary": {
       "title": "Glossary",
       "lead_one": "{{count}} term, each with the place it is stated.",
@@ -266,5 +276,109 @@
       "label": "madarch documentation",
       "title": "madarch documentation"
     }
+  },
+  "loop": {
+    "questionsTitle": "Questions",
+    "problemsTitle": "Problems",
+    "questionsIntro": "What the agent could not settle from the code and the documents: two sources that disagree, a word used two ways, behaviour no document describes. Answer one; the next refresh edits the pages it touches and the question shows as closed by that rewrite.",
+    "noQuestions": "No questions yet. The agent asks one when it finds two sources that disagree or a term that means two things.",
+    "questionsMissing": "The questions could not be read",
+    "unreadableFiles": "Question files that could not be read",
+    "openHeading": "Open ({{count}})",
+    "answeredHeading": "Answered, waiting for a refresh ({{count}})",
+    "closedHeading": "Closed by a rewrite ({{count}})",
+    "stateOpen": "Open",
+    "stateAnswered": "Answered",
+    "stateClosed": "Closed",
+    "type": {
+      "contradiction": "Sources disagree",
+      "ambiguous-term": "Ambiguous term",
+      "undocumented": "Not documented",
+      "gap": "Could not ground"
+    },
+    "askedIn": "Asked while writing",
+    "askedBy": "Asked by the agent, {{when}}, while writing",
+    "closedBy": "closed by",
+    "waitsForRefresh": "the next refresh uses the answer",
+    "noSuchQuestion": "There is no such question",
+    "whyItMatters": "Why it matters",
+    "whatSourcesSay": "What the sources say",
+    "grounds": "Grounds:",
+    "affects": "The answer changes:",
+    "answerHeading": "Answer",
+    "yourAnswer": "Your answer",
+    "answerPlaceholder": "Say what is true, in your own words. The agent will state it on the pages this question touches.",
+    "answerWhere": "The answer is saved in {{file}} in the product repository and committed under your git name and email. It is marked local, not verified.",
+    "saveAnswer": "Save the answer",
+    "notCommitted": "The answer was saved but not committed.",
+    "by": "{{name}} <{{email}}>",
+    "localUnverified": "local, not verified",
+    "verifiedHint": "On a local install the author is whatever git says; nothing has checked it.",
+    "answerWaiting": "The answer is saved. The next refresh edits the pages this question touches, using it.",
+    "answerClosed": "Closed {{when}}: a refresh used this answer on",
+    "problemsIntro": "What is wrong with the pages: statements people marked as wrong, and what the engine found itself. Each says who fixes it.",
+    "noProblems": "No problems. Every ground and link resolves and nobody has recorded a correction.",
+    "problemsMissing": "The problems could not be read",
+    "openProblems": "To fix ({{count}})",
+    "closedProblems": "Fixed by a rewrite ({{count}})",
+    "onPage": "On the page",
+    "problem": {
+      "correction": "A person says this statement is wrong",
+      "ground-removed": "A statement stands on something that is gone",
+      "broken-link": "A link or ground names nothing",
+      "unreadable-file": "A file cannot be read",
+      "unplaced": "An answer or correction reaches no page"
+    },
+    "because": {
+      "correction": "Why:",
+      "ground-removed": "What happened:",
+      "broken-link": "What the wiki found:",
+      "unreadable-file": "What is wrong:",
+      "unplaced": "What is wrong:"
+    },
+    "fixer": {
+      "agent": "The agent fixes it",
+      "person": "A person fixes it"
+    },
+    "whoFixes": {
+      "correction": "The agent fixes it at the next refresh: it edits this page using the reason above, and the correction shows as fixed.",
+      "ground-removed": "The agent fixes it at the next refresh: it grounds the sentence on something that still exists, or drops it.",
+      "broken-link": "The agent fixes it at the next refresh, when it edits this page.",
+      "unreadable-file": "A person fixes it: open the file at the line shown and correct it; the wiki reads it again at once.",
+      "unplaced": "A person fixes it: name a page in the file's \"about\", or add the page."
+    },
+    "plan": {
+      "title": "What the refresh will do",
+      "nothing": "Nothing needs the agent: no ground changed, no answer or correction is waiting, and the language is the same. The refresh reads the code again and checks the links.",
+      "touches_one": "The agent will edit {{count}} page:",
+      "touches_few": "The agent will edit {{count}} pages:",
+      "touches_many": "The agent will edit {{count}} pages:",
+      "touches_other": "The agent will edit {{count}} pages:",
+      "leaves_one": "{{count}} page stays as it is and costs no agent run.",
+      "leaves_few": "{{count}} pages stay as they are and cost no agent run.",
+      "leaves_many": "{{count}} pages stay as they are and cost no agent run.",
+      "leaves_other": "{{count}} pages stay as they are and cost no agent run.",
+      "unplaced": "Not placed: «{{title}}».",
+      "commits_one": "{{count}} commit has not been read yet. The refresh reads it first, and pages whose grounds it changes join this list.",
+      "commits_few": "{{count}} commits have not been read yet. The refresh reads them first, and pages whose grounds they change join this list.",
+      "commits_many": "{{count}} commits have not been read yet. The refresh reads them first, and pages whose grounds they change join this list.",
+      "commits_other": "{{count}} commits have not been read yet. The refresh reads them first, and pages whose grounds they change join this list.",
+      "reading": "Working out which pages the refresh touches…"
+    },
+    "reason": {
+      "missing": "the page does not exist yet",
+      "language": "translate it from {{from}} to {{to}}, keeping the grounds",
+      "groundChanged": "{{ground}} changed (statement {{statement}})",
+      "groundRemoved": "{{ground}} is gone (statement {{statement}})",
+      "answer": "answer to «{{title}}»",
+      "correction": "corrected statement {{statement}}",
+      "newService": "new in the code and named by no page: {{services}}",
+      "missingDomain": "the product page links the domain \"{{domain}}\" and its page is missing"
+    },
+    "fixedNote": "Fixed: a refresh edited this page using the reason above.",
+    "agentAsked_one": "The agent asked {{count}} question: it is on the Questions page.",
+    "agentAsked_other": "The agent asked {{count}} questions: they are on the Questions page.",
+    "agentAsked_few": "The agent asked {{count}} questions: they are on the Questions page.",
+    "agentAsked_many": "The agent asked {{count}} questions: they are on the Questions page."
   }
 }

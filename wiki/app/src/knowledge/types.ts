@@ -46,7 +46,14 @@ export type Block =
 
 export type Resolution =
   | { state: 'ok'; target: string; kind: string; label: string; href: string | null; note?: string; location?: CodeLocation; entity?: string }
-  | { state: 'broken'; target: string; reason: string };
+  | { state: 'broken'; target: string; reason: string; why?: BrokenWhy };
+
+export type BrokenWhy =
+  | { code: 'empty' }
+  | { code: 'no-entity'; key: string }
+  | { code: 'no-path' }
+  | { code: 'no-document'; path: string }
+  | { code: 'no-section'; path: string; anchor: string; repos: string };
 
 export type PageModel = {
   id: string;
@@ -107,6 +114,9 @@ export type WriterState = {
   startedAt?: string;
   finishedAt?: string;
   message?: string;
+  asked?: number;
+  /** Which pages this run touches and why; known once the code is read, before the agent starts. */
+  plan?: RefreshPlan;
 };
 
 export type WriterBounds = { turns: number; minutes: number; toolCalls: number; writeAttempts: number; maxDomains: number };
@@ -140,6 +150,8 @@ export type WikiStatus = {
   home: string | null;
   roles?: Record<string, { open?: string[]; lead: string[] }>;
   own?: boolean;
+  /** Questions and corrections waiting, counted from their files. */
+  loop?: { questionsOpen: number; questionsAnswered: number; correctionsOpen: number };
 };
 
 export type SourceFile = { repo: string | null; path: string; language: string; commit: string | null; text: string };
@@ -164,6 +176,8 @@ export type RelyingRef = { page: string; pageTitle: string; text: string; line: 
 
 export type StatementModel = {
   page: EntityRef;
+  /** The statement's name on its page: what a correction names it by. */
+  name: string | null;
   sentence: string;
   paragraph: string;
   file: string;
@@ -173,3 +187,77 @@ export type StatementModel = {
   relying: RelyingRef[];
   resolutions: Record<string, Resolution>;
 };
+
+// ---- the loop of questions and corrections (madarch-m38l.7) ----------------------------------
+
+export type Author = { name: string; email: string; verified: string };
+
+export type QuestionType = 'contradiction' | 'ambiguous-term' | 'undocumented' | 'gap';
+export type QuestionState = 'open' | 'answered' | 'closed';
+
+export type QuestionRow = {
+  slug: string;
+  id: string;
+  title: string;
+  type: QuestionType;
+  state: QuestionState;
+  askedIn: string | null;
+  askedAt: string | null;
+  about: string[];
+  answeredBy: Author | null;
+  answeredAt: string | null;
+  closedBy: string[];
+};
+
+export type QuestionListing = { rows: QuestionRow[]; open: number; answered: number; closed: number; problems: string[] };
+
+export type QuestionDetail = QuestionRow & {
+  file: string;
+  question: string;
+  why: string;
+  sides: { claim: string; grounds: string[] }[];
+  answer: { text: string; by: Author; at: string } | null;
+  resolutions: Record<string, Resolution>;
+  resolvedAt: string | null;
+};
+
+export type AnswerResult = { question: string; state: 'answered'; committed: boolean; commit?: string; note?: string; by: Author; at: string };
+export type CorrectionResult = { correction: string; id: string; file: string; committed: boolean; commit?: string; note?: string; by: Author; at: string };
+
+export type ProblemKind = 'correction' | 'ground-removed' | 'broken-link' | 'unreadable-file' | 'unplaced';
+
+export type Problem = {
+  kind: ProblemKind;
+  fixer: 'agent' | 'person';
+  closed: boolean;
+  page: string | null;
+  pageTitle: string | null;
+  statement: string | null;
+  sentence: string | null;
+  target: string | null;
+  reason: string;
+  file: string;
+  line: number | null;
+  by: Author | null;
+  at: string | null;
+};
+
+export type ProblemListing = { problems: Problem[]; open: number; closed: number; notes: string[] };
+
+export type PlanReason =
+  | { kind: 'missing' }
+  | { kind: 'language'; from: string | null; to: string }
+  | { kind: 'ground-changed' | 'ground-removed'; statement: string; ground: string }
+  | { kind: 'answer'; question: string; title: string }
+  | { kind: 'correction'; correction: string; statement: string }
+  | { kind: 'new-service'; services: string[] }
+  | { kind: 'missing-domain'; domain: string };
+
+export type PlannedPage = { id: string; path: string; reasons: PlanReason[] };
+export type Unplaced = { kind: 'question' | 'correction'; slug: string; title: string; reason: string };
+
+export type RefreshPlan = { languageChanged: boolean; pages: PlannedPage[]; unchanged: string[]; unplaced: Unplaced[]; problems: string[] };
+
+export type RefreshPreview =
+  | { available: true; plan: RefreshPlan; language: { from: string | null; to: string; changed: boolean }; commitsNotRead: number | null }
+  | { available: false; reason: string };

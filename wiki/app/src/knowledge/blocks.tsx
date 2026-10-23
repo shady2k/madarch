@@ -28,7 +28,7 @@ import { linkHandlers, openInNewTab, syncFrontTabAddress } from './tabs.js';
 import { remarkStatements, type MNode } from './statements.js';
 import { setShowGrounds, useShowGrounds } from './preferences.js';
 import { TermBlockView, remarkTerms, useTerms } from './glossary.js';
-import type { Block, CallRow, CodeLocation, EntityRef, RelatedGroup, Resolution } from './types.js';
+import type { Block, BrokenWhy, CallRow, CodeLocation, EntityRef, RelatedGroup, Resolution } from './types.js';
 
 /** A link inside the wiki, opened without a reload: in the tab in front, or in a new tab on a middle or control click. */
 export function KLink({ href, children, className, title }: { href: string; children: ReactNode; className?: string; title?: string }): ReactElement {
@@ -123,7 +123,7 @@ export function KMarkdown({ text, resolutions, inDocument, statements, exceptTer
           return <span className="ref-pending" data-testid="ref-pending" title={t('knowledge.writer.pendingTitle')}>{children}<span className="ref-broken-mark">{t('knowledge.writer.pending')}</span></span>;
         }
         if (resolution === undefined || resolution.state === 'broken') {
-          return <span className="ref-broken" data-testid="ref-broken" title={resolution?.state === 'broken' ? resolution.reason : t('knowledge.unresolved')}>{children}<span className="ref-broken-mark">{t('knowledge.broken')}</span></span>;
+          return <span className="ref-broken" data-testid="ref-broken" title={resolution?.state === 'broken' ? brokenWords(resolution, t) : t('knowledge.unresolved')}>{children}<span className="ref-broken-mark">{t('knowledge.broken')}</span></span>;
         }
         // A reference to code also opens the source at its line: the page link and the place stand together; a statement read plainly names the entity and nothing else.
         const place = resolution.location === undefined || (statements !== undefined && !statements.showGrounds) ? null : <span className="ground-place ml-1.5"><CodePlace location={resolution.location} /></span>;
@@ -513,4 +513,17 @@ export function Findings({ findings }: { findings: readonly { file: string; line
       </AlertDescription>
     </Alert>
   );
+}
+
+/** Why a link is broken, in the reader's language; the engineer's English message only where the server gave no reason as data. */
+export function brokenWords(resolution: { reason: string; why?: BrokenWhy }, t: (key: string, options?: Record<string, unknown>) => string): string {
+  const why = resolution.why;
+  if (why === undefined) return resolution.reason;
+  switch (why.code) {
+    case 'empty': return t('knowledge.brokenWhy.empty');
+    case 'no-entity': return t('knowledge.brokenWhy.noEntity', { key: why.key });
+    case 'no-path': return t('knowledge.brokenWhy.noPath');
+    case 'no-document': return t('knowledge.brokenWhy.noDocument', { path: why.path });
+    case 'no-section': return t('knowledge.brokenWhy.noSection', { path: why.path, anchor: why.anchor, repos: why.repos });
+  }
 }

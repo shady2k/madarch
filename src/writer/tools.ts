@@ -1,6 +1,6 @@
 /**
  * The tools one writer unit has (decision 0026: agents read only through the
- * graph, in bounded units with checked tools). Six reads and one checked
+ * graph, in bounded units with checked tools). Five reads, one checked page write and one question
  * write; nothing else reaches the repository or the disk.
  *
  * - Reads answer bounded pages in code-point order and say when they cut:
@@ -18,6 +18,10 @@ import { byCodePoint } from '../model/order.js';
 import type { McpToolDefinition } from '../fill/unit-mcp.js';
 import { checkPage, MAX_SLUG_LENGTH, parseTarget, SLUG, type Refusal } from './format.js';
 import type { WrittenAt } from '../knowledge/index/page.js';
+import { MAX_ABOUT, MAX_SIDES, MAX_TEXT, MAX_TITLE, QUESTION_TYPES, parseStatementRef, questionPath, renderQuestion, type QuestionType } from '../loop/entities.js';
+import { slugOf } from './names.js';
+import { statementsOf } from './sentences.js';
+import { splitFrontMatter } from '../knowledge/markdown.js';
 import type { GraphView } from './view.js';
 
 /** A domain the product page declares. */
@@ -49,6 +53,16 @@ export interface UnitBounds {
 
 export const DEFAULT_UNIT_BOUNDS: UnitBounds = { maxWriteAttempts: 5, maxCalls: 80 };
 
+/** The questions one unit may ask (madarch-m38l.7): a person answers each, so the number is bounded. */
+export const MAX_QUESTIONS_PER_UNIT = 6;
+
+/** What a unit's tools take from the run besides the graph and the sink. */
+export interface UnitExtras {
+  /** The ids of the answered questions and the corrections a statement may stand on, read when a page is written. */
+  readonly entityIds?: () => Promise<readonly string[]>;
+  readonly clock?: () => Date;
+}
+
 export const MAX_DOMAINS = 12;
 export const FIND_LIMIT = 40;
 export const NEIGHBOR_LIMIT = 40;
@@ -76,6 +90,8 @@ export interface UnitOutcome {
   readonly links: readonly string[];
   /** The paths the unit read through `read_file`, in order of first read. */
   readonly filesRead: readonly string[];
+  /** The ids of the questions the unit asked, in order. */
+  readonly questions: readonly string[];
 }
 
 const object = (properties: Record<string, unknown>, required: string[] = []): Record<string, unknown> => ({ type: 'object', additionalProperties: false, required, properties });
@@ -138,6 +154,25 @@ export const WRITER_TOOLS: readonly McpToolDefinition[] = [
       },
     }, ['markdown']),
   },
+  {
+    name: 'ask_question',
+    description: `Asks the people a question you could not settle from the graph and the documents, and keeps going. Ask when two sources disagree (a document says one thing, the code another: say what each says, with its ground), when a term is used two ways, or when the code does something no document describes. Do not guess and do not state either side as fact. The question is saved as a file in the product; a person answers it in the wiki and the next refresh gives you the answer. At most ${MAX_QUESTIONS_PER_UNIT} questions per unit; asking does not end your unit, you still write your page.`,
+    inputSchema: object({
+      type: { type: 'string', enum: [...QUESTION_TYPES], description: 'contradiction: sources disagree; ambiguous-term: a word means two things; undocumented: code behaviour no document describes; gap: something you could not ground.' },
+      title: { type: 'string', description: `The question in one line (${MAX_TITLE} characters at most).` },
+      question: { type: 'string', description: 'The question in full: what exactly a person must decide or tell.' },
+      why: { type: 'string', description: 'Why it matters to a reader of the wiki.' },
+      sides: {
+        type: 'array',
+        description: `What each source says, one entry per side (1 to ${MAX_SIDES}; a contradiction has at least two): a sentence and the grounds that show it.`,
+        items: object({
+          claim: { type: 'string', description: 'One sentence: what this source says.' },
+          grounds: { type: 'array', items: { type: 'string' }, description: 'Graph keys or doc:<path>#<anchor> that show it; each must resolve.' },
+        }, ['claim', 'grounds']),
+      },
+      about: { type: 'array', items: { type: 'string' }, description: `Optional, up to ${MAX_ABOUT}: graph keys, doc:<path>#<anchor>, or ids of pages the answer would change. Your own page is always included.` },
+    }, ['type', 'title', 'question', 'why', 'sides']),
+  },
 ];
 
 const fail = (code: string, message: string, extra: Record<string, unknown> = {}): ToolAnswer => ({ answer: { error: { code, message, ...extra } }, isError: true });
@@ -175,6 +210,7 @@ export class UnitTools {
   private declared: readonly DomainDeclaration[] = [];
   private written: { grounds: readonly string[]; links: readonly string[] } = { grounds: [], links: [] };
   private readonly read: string[] = [];
+  private readonly asked: string[] = [];
 
   constructor(
     private readonly view: GraphView,
@@ -185,6 +221,7 @@ export class UnitTools {
     private readonly bounds: UnitBounds = DEFAULT_UNIT_BOUNDS,
     /** The repositories the page is written from; recorded in its front matter. */
     private readonly basis: readonly WrittenAt[] = [],
+    private readonly extras: UnitExtras = {},
   ) {}
 
   get tools(): readonly McpToolDefinition[] {
@@ -208,6 +245,7 @@ export class UnitTools {
       grounds: this.written.grounds,
       links: this.written.links,
       filesRead: this.read,
+      questions: this.asked,
     };
   }
 
@@ -223,6 +261,7 @@ export class UnitTools {
         case 'neighbors': return await this.neighbors(args);
         case 'read_file': return await this.readFile(args);
         case 'write_page': return await this.writePage(args);
+        case 'ask_question': return await this.askQuestion(args);
         default: return fail('unknown-tool', `"${tool}" is no tool of this unit: the tools are ${WRITER_TOOLS.map((t) => t.name).join(', ')}`);
       }
     } catch (error) {
@@ -318,6 +357,93 @@ export class UnitTools {
     return problems.length > 0 ? { problems } : { domains: out.sort((a, b) => byCodePoint(a.slug, b.slug)) };
   }
 
+  private async askQuestion(args: Record<string, unknown>): Promise<ToolAnswer> {
+    if (this.asked.length >= MAX_QUESTIONS_PER_UNIT) return fail('too-many-questions', `this unit asked its ${MAX_QUESTIONS_PER_UNIT} questions; write your page with what you know and leave the rest out`);
+    const problems: string[] = [];
+    const bad = (message: string): void => { problems.push(message); };
+    const type = args['type'];
+    if (typeof type !== 'string' || !(QUESTION_TYPES as readonly string[]).includes(type)) bad(`"type" is one of ${QUESTION_TYPES.join(', ')}`);
+    const bounded = (name: 'title' | 'question' | 'why', most: number): string => {
+      const value = args[name];
+      if (typeof value !== 'string' || value.trim() === '') { bad(`"${name}" is a non-empty text`); return ''; }
+      if (value.trim().length > most) bad(`"${name}" is ${value.trim().length} characters; at most ${most}`);
+      // The file's own structure (headings, a rule, a fence, footnote marks) is not the question's to write.
+      if (/^\s{0,3}(#{1,6}\s|---\s*$|```|~~~)|\[\^/m.test(value)) bad(`"${name}" is plain paragraphs: no headings, rules, code fences or footnote marks`);
+      return value.trim();
+    };
+    const title = bounded('title', MAX_TITLE).replace(/\s+/g, ' ');
+    const question = bounded('question', MAX_TEXT);
+    const why = bounded('why', MAX_TEXT);
+    const rawSides = args['sides'];
+    const sides: { claim: string; grounds: string[] }[] = [];
+    if (!Array.isArray(rawSides) || rawSides.length === 0 || rawSides.length > MAX_SIDES) bad(`"sides" is a list of 1 to ${MAX_SIDES} entries, each with a claim and grounds`);
+    else {
+      if (type === 'contradiction' && rawSides.length < 2) bad('a contradiction has at least two sides: what one source says and what the other says');
+      for (const [index, raw] of rawSides.entries()) {
+        const entry = argumentsOf(raw);
+        const where = `sides[${index}]`;
+        const claim = entry['claim'];
+        const grounds = entry['grounds'];
+        if (typeof claim !== 'string' || claim.trim() === '' || claim.trim().length > MAX_TEXT) { bad(`${where}.claim is a non-empty text of at most ${MAX_TEXT} characters`); continue; }
+        if (/\[\^|\]\(|\n/.test(claim)) { bad(`${where}.claim is one plain sentence: no line breaks, no links and no footnote marks`); continue; }
+        if (!Array.isArray(grounds) || grounds.length === 0 || grounds.some((g) => typeof g !== 'string')) { bad(`${where}.grounds is a non-empty list of graph keys or doc:<path>#<anchor>`); continue; }
+        const kept: string[] = [];
+        for (const ground of [...new Set((grounds as string[]).map((g) => (g.startsWith('madarch:') ? g.slice('madarch:'.length) : g)))].sort(byCodePoint)) {
+          const parsed = parseTarget(ground);
+          if (parsed === undefined || parsed.type === 'page') { bad(`${where}.grounds "${ground}" is no graph key and no doc:<path>#<anchor>`); continue; }
+          const found = parsed.type === 'doc' ? await this.view.docSection(parsed.path, parsed.anchor) : await this.view.graphKey(parsed.key);
+          if (!found) { bad(`${where}.grounds "${ground}" does not resolve in the graph at the last filled commit${parsed.type === 'doc' ? `: the document ${parsed.path} has no section "${parsed.anchor}"` : ''}`); continue; }
+          kept.push(ground);
+        }
+        sides.push({ claim: claim.trim(), grounds: kept });
+      }
+    }
+    const rawAbout = args['about'];
+    const about = new Set<string>([this.unit.id]);
+    if (rawAbout !== undefined) {
+      if (!Array.isArray(rawAbout) || rawAbout.length > MAX_ABOUT || rawAbout.some((a) => typeof a !== 'string')) bad(`"about" is a list of at most ${MAX_ABOUT} texts`);
+      else {
+        for (const entry of (rawAbout as string[]).map((a) => (a.startsWith('madarch:') ? a.slice('madarch:'.length) : a))) {
+          const statement = parseStatementRef(entry);
+          if (statement !== undefined) {
+            if (statement.page !== this.unit.id) { bad(`about "${entry}": a statement can be named only on your own page (${this.unit.id}); name the page ${statement.page} instead`); continue; }
+            const previous = await this.sink.read(this.unit.path).catch(() => undefined);
+            const read = previous === undefined ? undefined : splitFrontMatter(previous);
+            const body = read === undefined ? [] : statementsOf(read.body, read.bodyLine);
+            if (!body.some((s) => s.id === statement.statement)) { bad(`about "${entry}": your page ${this.unit.id} has no statement ${statement.statement}`); continue; }
+            about.add(entry);
+            continue;
+          }
+          const parsed = parseTarget(entry);
+          if (parsed === undefined) { bad(`about "${entry}" is no graph key, doc:<path>#<anchor> or page id`); continue; }
+          if (parsed.type === 'page') {
+            const own = parsed.id === this.unit.id || (this.unit.kind === 'domain' && parsed.id === this.unit.productId) || (parsed.id.startsWith('domain:') && this.knownDomains.some((d) => `domain:${d.slug}` === parsed.id));
+            if (!own) { bad(`about "${entry}" names a page that does not exist: the pages are ${[...new Set([this.unit.id, ...this.knownDomains.map((d) => `domain:${d.slug}`)])].join(', ')}`); continue; }
+            about.add(entry);
+            continue;
+          }
+          const found = parsed.type === 'doc' ? await this.view.docSection(parsed.path, parsed.anchor) : await this.view.graphKey(parsed.key);
+          if (!found) { bad(`about "${entry}" does not resolve in the graph at the last filled commit`); continue; }
+          about.add(entry);
+        }
+      }
+    }
+    const slug = title === '' ? '' : slugOf(title);
+    if (title !== '' && slug === 'statement') bad('"title" has no word to name the question by: say what it is about in words');
+    if (problems.length > 0) return fail('bad-question', `the question was not saved: ${problems.join('; ')}`, { problems });
+    const path = questionPath(slug);
+    const existing = await this.sink.read(path).then(() => true, () => false);
+    if (existing) return fail('question-exists', `a question "${slug}" is already asked (${path}); if it is yours to ask again it is the same question, and if it is another, give it a title that names what is different`);
+    const now = (this.extras.clock?.() ?? new Date()).toISOString();
+    const markdown = renderQuestion({
+      slug, title, type: type as QuestionType, status: 'open', about: [...about].sort(byCodePoint), askedIn: this.unit.id, askedAt: now,
+      question, why, sides, answer: null, resolvedBy: [], resolvedAt: null, writtenAt: this.basis,
+    });
+    await this.sink.write(path, markdown);
+    this.asked.push(`question:${slug}`);
+    return ok({ asked: true, id: `question:${slug}`, path, note: 'Saved for the people to answer. Do not state either side as fact on your page; go on and write what the sources agree on.' });
+  }
+
   private refuse(refusals: readonly Refusal[]): ToolAnswer {
     this.refusals = refusals;
     const left = this.bounds.maxWriteAttempts - this.writeAttempts;
@@ -356,7 +482,8 @@ export class UnitTools {
     }
     // The page this one replaces, when there is one: a sentence that stands keeps its footnote name.
     const previous = await this.sink.read(this.unit.path).catch(() => undefined);
-    const verdict = await checkPage(markdown, { ...(previous === undefined ? {} : { previous }), ...(this.basis.length === 0 ? {} : { writtenAt: this.basis }), id: this.unit.id, kind: this.unit.kind, domains: domains.map((d) => d.slug), mustLinkDomains: this.unit.kind === 'product', ...(this.unit.kind === 'domain' && this.unit.productId !== undefined ? { productId: this.unit.productId } : {}) }, this.view);
+    const entities = await this.extras.entityIds?.();
+    const verdict = await checkPage(markdown, { ...(previous === undefined ? {} : { previous }), ...(entities === undefined ? {} : { entities }), ...(this.basis.length === 0 ? {} : { writtenAt: this.basis }), id: this.unit.id, kind: this.unit.kind, domains: domains.map((d) => d.slug), mustLinkDomains: this.unit.kind === 'product', ...(this.unit.kind === 'domain' && this.unit.productId !== undefined ? { productId: this.unit.productId } : {}) }, this.view);
     if (!verdict.ok) return this.refuse(verdict.refusals);
     await this.sink.write(this.unit.path, verdict.page.markdown);
     this.status = 'written';

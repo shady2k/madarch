@@ -47,14 +47,14 @@ describe('the local identity', () => {
     expect(noName.ok).toBe(false);
     if (!noName.ok) {
       expect(noName.message).toContain(folder!);
-      expect(noName.message).toContain('git config user.name');
+      expect(noName.message).toContain('git config --global user.name');
     }
     rmSync(folder!, { recursive: true, force: true });
     const noEmail = localGitIdentity(repository({ 'user.name': 'A' }));
     expect(noEmail.ok).toBe(false);
     if (!noEmail.ok) {
       expect(noEmail.message).toContain(folder!);
-      expect(noEmail.message).toContain('git config user.email');
+      expect(noEmail.message).toContain('git config --global user.email');
     }
   });
 

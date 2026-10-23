@@ -13,10 +13,10 @@ import { Button } from '@/components/ui/button.js';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.js';
 import { Input } from '@/components/ui/input.js';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.js';
-import { getDocument, getDocuments, getEntities, getPage, getSource, getStatement, startFill } from './api.js';
+import { getDocument, getDocuments, getEntities, getPage, getSource, getStatement, correctStatement, startFill } from './api.js';
 import { useTabTitle } from './tabs.js';
 import { AgentChoice, WriterCard, useAgentChoice } from './writer.js';
-import { BlockView, CodeLines, CodePlace, EntityName, Findings, KLink, KMarkdown, scrollToAnchor } from './blocks.js';
+import { BlockView, CodeLines, CodePlace, EntityName, Findings, KLink, KMarkdown, brokenWords, scrollToAnchor } from './blocks.js';
 import { addressOfDocument, addressOfKind, addressOfStatement } from './routes.js';
 import { useKindName } from './kind-names.js';
 import { fillShare, fillWords } from './fill-words.js';
@@ -24,7 +24,7 @@ import { useRead } from './live.js';
 import { blockOpen, useRole } from './roles.js';
 import { PageSkeleton } from './skeleton.js';
 import { Textarea } from '@/components/ui/textarea.js';
-import type { DocumentListing, DocumentPageModel, EntityListing, EntityRef, Excerpt, GroundView, Origin, PageModel, SourceFile, StatementModel, WikiStatus } from './types.js';
+import type { CorrectionResult, DocumentListing, DocumentPageModel, EntityListing, EntityRef, Excerpt, GroundView, Origin, PageModel, SourceFile, StatementModel, WikiStatus } from './types.js';
 
 function message(failure: unknown): string {
   return failure instanceof Error ? failure.message : String(failure);
@@ -68,7 +68,6 @@ export function EntityPage({ id, version }: { id: string; version: number }): Re
         <Trail trail={page.trail} />
         <div className="mb-2 flex items-center gap-2">
           <Badge data-testid="page-kind">{kindName(page.kind, 'one')}</Badge>
-          <code className="min-w-0 truncate text-small text-muted" title={page.id}>{page.id}</code>
         </div>
         <h1 data-testid="page-title">{page.title}</h1>
         {page.notes.map((note) => <p key={note} className="text-small text-muted" data-testid="page-note">{note}</p>)}
@@ -580,7 +579,7 @@ function GroundCard({ ground, index }: { ground: GroundView; index: number }): R
       <CardHeader className="flex-row items-center gap-3 pb-3">
         <span className="text-small text-muted" aria-hidden="true">{index + 1}</span>
         {resolution.state === 'broken' ? (
-          <CardTitle className="min-w-0 flex-1 text-small"><span className="ref-broken" data-testid="ref-broken" title={resolution.reason}>{ground.url.replace(/^madarch:/, '')}<span className="ref-broken-mark">{t('knowledge.broken')}</span></span></CardTitle>
+          <CardTitle className="min-w-0 flex-1 text-small"><span className="ref-broken" data-testid="ref-broken" title={brokenWords(resolution, t)}>{ground.url.replace(/^madarch:/, '')}<span className="ref-broken-mark">{t('knowledge.broken')}</span></span></CardTitle>
         ) : (
           <>
             <CardTitle className="min-w-0 flex-1 text-small">{resolution.href === null ? resolution.label : <KLink href={resolution.href}>{resolution.label}</KLink>}</CardTitle>
@@ -589,11 +588,43 @@ function GroundCard({ ground, index }: { ground: GroundView; index: number }): R
         )}
       </CardHeader>
       <CardContent>
-        {resolution.state === 'broken' && <p className="m-0 text-small" role="note">{resolution.reason}</p>}
+        {resolution.state === 'broken' && <p className="m-0 text-small" role="note">{brokenWords(resolution, t)}</p>}
         {resolution.state === 'ok' && ground.excerpt !== null && <ExcerptView excerpt={ground.excerpt} />}
         {resolution.state === 'ok' && ground.excerpt === null && <p className="m-0 text-small text-muted">{t('knowledge.statementNoExcerpt')}</p>}
       </CardContent>
     </Card>
+  );
+}
+
+/** Where a person says the statement is wrong and why: a correction file in the product repository, committed under the person's git name. */
+function CorrectionBox({ page, name }: { page: string; name: string | null }): ReactElement {
+  const { t } = useTranslation();
+  const [reason, setReason] = useState('');
+  const [sending, setSending] = useState(false);
+  const [refused, setRefused] = useState<string | null>(null);
+  const [done, setDone] = useState<CorrectionResult | null>(null);
+  const send = (): void => {
+    if (name === null) return;
+    setSending(true);
+    setRefused(null);
+    correctStatement(`${page}#${name}`, reason).then(
+      (result) => { setSending(false); setDone(result); setReason(''); },
+      (failure: unknown) => { setSending(false); setRefused(message(failure)); },
+    );
+  };
+  return (
+    <section data-testid="statement-correction">
+      <h2>{t('knowledge.statementCorrection')}</h2>
+      <p className="text-small text-muted">{name === null ? t('knowledge.statementCorrectionUnnamed') : t('knowledge.statementCorrectionNote')}</p>
+      <Textarea value={reason} onChange={(event) => setReason(event.target.value)} disabled={name === null || sending} placeholder={t('knowledge.statementCorrectionPlaceholder')} aria-label={t('knowledge.statementCorrection')} className="mb-3 max-w-xl" data-testid="correction-text" />
+      <div><Button variant="default" size="default" disabled={name === null || sending || reason.trim() === ''} onClick={send} data-testid="correction-send">{t('knowledge.statementCorrectionSend')}</Button></div>
+      {refused !== null && <p className="mb-0 mt-3 text-small" role="alert" data-testid="correction-refused">{refused}</p>}
+      {done !== null && (
+        <p className="mb-0 mt-3 text-small" role="status" data-testid="correction-done">
+          {t('knowledge.statementCorrectionDone', { file: done.file })} {done.committed ? '' : (done.note ?? '')} <KLink href="/k/problems">{t('loop.problemsTitle')}</KLink>
+        </p>
+      )}
+    </section>
   );
 }
 
@@ -650,12 +681,7 @@ export function StatementPage({ id, sentence, turn = 0, version }: { id: string;
           </Table>
         </section>
       )}
-      <section data-testid="statement-correction">
-        <h2>{t('knowledge.statementCorrection')}</h2>
-        <p className="text-small text-muted">{t('knowledge.statementCorrectionNote')}</p>
-        <Textarea disabled placeholder={t('knowledge.statementCorrectionPlaceholder')} aria-label={t('knowledge.statementCorrection')} className="mb-3 max-w-xl" />
-        <div><Button variant="default" size="default" disabled>{t('knowledge.statementCorrectionSend')}</Button></div>
-      </section>
+      <CorrectionBox page={statement.page.id} name={statement.name} />
     </article>
   );
 }

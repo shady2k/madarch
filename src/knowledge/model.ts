@@ -3,6 +3,7 @@
  * is a list of blocks, each already read from the graph or the Markdown, so the
  * app holds no knowledge of any kind and draws only these shapes.
  */
+import type { RefreshPlan } from '../loop/plan.js';
 import type { Finding } from './kinds.js';
 import type { Resolution } from './resolve.js';
 
@@ -154,6 +155,10 @@ export interface WriterState {
   startedAt?: string;
   finishedAt?: string;
   message?: string;
+  /** How many questions the agent asked in this run; the app says so in the reader's language. */
+  asked?: number;
+  /** Which pages this run touches and why; known once the code is read, before the agent starts. */
+  plan?: RefreshPlan;
 }
 
 /** What one agent costs to use and what the stage is bound by, stated for the reader before the press. */
@@ -213,6 +218,8 @@ export interface WikiStatus {
   roles: Record<string, { open?: string[]; lead: string[] }>;
   /** This is madarch's own wiki (documentation): no fill is offered. Set by the server, not by the product. */
   own?: boolean;
+  /** The loop of questions and corrections (madarch-m38l.7), counted from their files. */
+  loop: { questionsOpen: number; questionsAnswered: number; correctionsOpen: number };
 }
 
 /** A Markdown document the wiki shows as a page: of the product repository (`repo` null) or of a connected code repository. */
@@ -270,6 +277,8 @@ export interface RelyingRef {
 /** A statement of an agent's page: the sentence, its paragraph and each ground with its excerpt (the statement view). */
 export interface StatementModel {
   page: EntityRef;
+  /** The statement's name on its page (its first footnote's name, `~2` from the second use): what a correction names it by; null when unnamed. */
+  name: string | null;
   sentence: string;
   /** The paragraph the sentence stands in, as Markdown with its footnote references removed. */
   paragraph: string;

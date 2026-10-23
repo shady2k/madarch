@@ -11,6 +11,7 @@
  * One JSON object per line, in each direction, over the worker's standard
  * input and output; the worker's standard error is its log.
  */
+import type { RefreshPlan } from '../loop/plan.js';
 import type { DomainDeclaration } from '../writer/tools.js';
 
 /** What a repository was filled to: kept in the primary store (`knowledge_fill`) and told to the server. */
@@ -45,6 +46,8 @@ export interface WorkerStart {
   writer: boolean;
   language: string;
   languageChanged: boolean;
+  /** The language the pages were last written in, when it is known: a translation says from which. */
+  languageFrom?: string | null;
   /** The least time between two snapshots, in milliseconds. */
   snapshotMs: number;
 }
@@ -66,6 +69,8 @@ export interface UnitSummary {
   calls: number;
   refusals: { line: number; rule: string; message: string }[];
   domains: DomainDeclaration[];
+  /** The ids of the questions the unit asked. */
+  questions?: string[];
 }
 
 export type FromWorker =
@@ -77,14 +82,16 @@ export type FromWorker =
   | { type: 'fill'; state: 'done'; gaps: number }
   | { type: 'fill'; state: 'stopped' }
   | { type: 'fill'; state: 'failed'; message: string }
+  /** Which pages the refresh will touch and why, told before the agent is asked for its first unit. */
+  | { type: 'plan'; plan: RefreshPlan }
   | { type: 'agent-wanted' }
   | { type: 'unit-start'; unit: string; path: string }
   | { type: 'unit'; id: string; prompt: string; definitions: ToolDefinition[] }
   | { type: 'tool-result'; callId: number; answer: unknown; finished: boolean }
   | { type: 'unit-outcome'; outcome: UnitSummary }
   | { type: 'page'; path: string }
-  | { type: 'writer'; state: 'done'; message?: string }
-  | { type: 'writer'; state: 'failed'; message: string }
+  | { type: 'writer'; state: 'done'; message?: string; asked?: number }
+  | { type: 'writer'; state: 'failed'; message: string; asked?: number }
   | { type: 'log'; line: string };
 
 /** Reads a line as a message; the error names the line it could not read. */

@@ -31,17 +31,24 @@ export interface Identity {
 export type IdentityResult = { ok: true; identity: Identity } | { ok: false; message: string };
 
 /** Answers who the user is for a write into the product repository at `folder`. */
-export type IdentityProvider = (folder: string) => IdentityResult;
+export type IdentityProvider = (folder: string, env?: Readonly<Record<string, string | undefined>>) => IdentityResult;
 
 /** The local implementation: git's `user.name` and `user.email` as the product repository sees them. */
-export const localGitIdentity: IdentityProvider = (folder) => {
-  const name = runGit(folder, ['config', '--get', 'user.name']);
+/** The refusal when git does not know the user: what is missing, where, and the commands that fix it. */
+const missing = (folder: string, key: 'user.name' | 'user.email'): string =>
+  `git has no ${key} for ${folder}, so the wiki cannot say who wrote this: run  git config --global user.name "Your Name"  and  git config --global user.email "you@example.com"  (or the same without --global inside ${folder}), then try again`;
+
+export const localGitIdentity: IdentityProvider = (folder, env = process.env) => {
+  // git's own order: the author variables, then the configuration.
+  const named = (env['GIT_AUTHOR_NAME'] ?? '').trim();
+  const mailed = (env['GIT_AUTHOR_EMAIL'] ?? '').trim();
+  const name = named !== '' ? { ok: true, output: named } : runGit(folder, ['config', '--get', 'user.name']);
   if (!name.ok || name.output.trim() === '') {
-    return { ok: false, message: `git has no user.name for the product repository ${folder}: the wiki writes as the git user, so set it with git config user.name "Your Name" in that folder, or globally with --global` };
+    return { ok: false, message: missing(folder, 'user.name') };
   }
-  const email = runGit(folder, ['config', '--get', 'user.email']);
+  const email = mailed !== '' ? { ok: true, output: mailed } : runGit(folder, ['config', '--get', 'user.email']);
   if (!email.ok || email.output.trim() === '') {
-    return { ok: false, message: `git has no user.email for the product repository ${folder}: the wiki writes as the git user, so set it with git config user.email you@example.com in that folder, or globally with --global` };
+    return { ok: false, message: missing(folder, 'user.email') };
   }
   const key = runGit(folder, ['config', '--get', 'user.signingkey']);
   const sign = runGit(folder, ['config', '--type=bool', '--get', 'commit.gpgsign']);
@@ -58,8 +65,8 @@ export const localGitIdentity: IdentityProvider = (folder) => {
 };
 
 /** The one question every write asks. A provider other than the local one is passed by the server that has one. */
-export function whoIsTheUser(folder: string, provider: IdentityProvider = localGitIdentity): IdentityResult {
-  return provider(folder);
+export function whoIsTheUser(folder: string, provider: IdentityProvider = localGitIdentity, env?: Readonly<Record<string, string | undefined>>): IdentityResult {
+  return provider(folder, env);
 }
 
 /** `Name <email>`, the way git writes an author. */

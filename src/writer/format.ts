@@ -47,6 +47,11 @@ export interface PageExpectation {
   readonly writtenAt?: readonly WrittenAt[];
   /** The page this one replaces, as written: a sentence it kept keeps its footnote name. */
   readonly previous?: string;
+  /**
+   * The ids of the question and correction files a statement may stand on or a link may name (`question:<slug>`):
+   * the answered questions and the corrections of the product (madarch-m38l.7). Any other entity page is refused.
+   */
+  readonly entities?: readonly string[];
 }
 
 export interface FrontMatter {
@@ -158,7 +163,7 @@ export function parseTarget(target: string): MadarchTarget | undefined {
     if (hash <= 0 || hash === rest.length - 1) return undefined;
     return { type: 'doc', path: rest.slice(0, hash), anchor: rest.slice(hash + 1).toLowerCase() };
   }
-  if (target.startsWith('domain:') || target.startsWith('product:')) return { type: 'page', id: target };
+  if (target.startsWith('domain:') || target.startsWith('product:') || target.startsWith('question:') || target.startsWith('correction:')) return { type: 'page', id: target };
   if (!/^[a-z][a-z0-9.-]*:.+/.test(target)) return undefined;
   return { type: 'graph', key: target };
 }
@@ -323,7 +328,8 @@ export async function checkPage(markdown: string, expected: PageExpectation, res
       if (!ground.target.startsWith('madarch:')) { refusals.push({ line: definition.line, rule: 'ground-scheme', message: `the ground "${ground.label}" links ${JSON.stringify(ground.target)}: a ground is a madarch: link to a graph key or to doc:<path>#<anchor>` }); continue; }
       const parsed = parseTarget(ground.target.slice('madarch:'.length));
       if (parsed === undefined) { refusals.push({ line: definition.line, rule: 'ground-shape', message: `the ground target ${JSON.stringify(ground.target)} is no graph key (kind:path) and no doc:<path>#<anchor>` }); continue; }
-      if (parsed.type === 'page') { refusals.push({ line: definition.line, rule: 'ground-shape', message: `the ground target ${JSON.stringify(ground.target)} is a page, not evidence: a ground is a graph key or a document section` }); continue; }
+      if (parsed.type === 'page' && /^(question|correction):/.test(parsed.id) && expected.entities?.includes(parsed.id) === true) { allGrounds.push(parsed.id); continue; }
+      if (parsed.type === 'page') { refusals.push({ line: definition.line, rule: 'ground-shape', message: /^(question|correction):/.test(parsed.id) ? `the ground ${JSON.stringify(ground.target)} is no answered question and no correction of this product (${expected.entities === undefined || expected.entities.length === 0 ? 'there are none' : expected.entities.join(', ')})` : `the ground target ${JSON.stringify(ground.target)} is a page, not evidence: a ground is a graph key or a document section` }); continue; }
       if (!(await resolves(parsed))) {
         refusals.push({
           line: definition.line,
@@ -348,7 +354,7 @@ export async function checkPage(markdown: string, expected: PageExpectation, res
       links.push(target.slice('madarch:'.length));
       if (parsed.type === 'page') {
         const slug = parsed.id.startsWith('domain:') ? parsed.id.slice('domain:'.length) : undefined;
-        const own = parsed.id === expected.id || parsed.id === expected.productId;
+        const own = parsed.id === expected.id || parsed.id === expected.productId || expected.entities?.includes(parsed.id) === true;
         if (!own && !(slug !== undefined && expected.domains.includes(slug))) {
           refusals.push({ line: unit.line, rule: 'link-outside-graph', message: `the link ${target} names a page that does not exist: the pages are this one (${expected.id}) and the declared domains (${expected.domains.map((d) => `domain:${d}`).join(', ') || 'none declared'})` });
         }

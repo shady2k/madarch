@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useState, type ReactElement, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu';
-import { BookOpenIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, FolderGit2Icon, GlobeIcon, HomeIcon, LayoutGridIcon, MenuIcon, RotateCcwIcon, XIcon } from 'lucide-react';
+import { AlertTriangleIcon, BookOpenIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, FolderGit2Icon, GlobeIcon, HelpCircleIcon, HomeIcon, LayoutGridIcon, MenuIcon, RotateCcwIcon, XIcon } from 'lucide-react';
 import { appPath } from '../app-base.js';
 import { setWikiLanguage, type WikiLanguage } from '../i18n.js';
 import { navigateTo } from '../hold.js';
@@ -22,10 +22,11 @@ import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } fr
 import { getProducts, getResetPlan, resetProduct, startFill, type ResetPlan } from './api.js';
 import { KLink } from './blocks.js';
 import { CataloguePage, DocumentPage, DocumentsPage, EntityPage, EmptyHome, FillCard, KindPage, SourcePage, StatementPage, Overview } from './pages.js';
-import { addressOfKind, K_CATALOGUE, K_DOCS, K_GLOSSARY, K_HOME, kRouteOf, type KRoute } from './routes.js';
 import { GlossaryContext, GlossaryPage, useGlossary, useGlossaryValue, useTerms } from './glossary.js';
 import { HelpLink, RoleCard, RoleMenu } from './role-ui.js';
 import { RoleContext, leadGroups, loadSettings, useRole, useSettings } from './roles.js';
+import { addressOfKind, K_CATALOGUE, K_DOCS, K_GLOSSARY, K_HOME, K_PROBLEMS, K_QUESTIONS, kRouteOf, type KRoute } from './routes.js';
+import { ProblemsPage, QuestionPage, QuestionsPage, RefreshPreviewView } from './loop.js';
 import { KindLabels, useKindName } from './kind-names.js';
 import { PageSkeleton } from './skeleton.js';
 import { fillWords } from './fill-words.js';
@@ -43,6 +44,9 @@ function BrandMark(): ReactElement {
     </svg>
   );
 }
+
+/** The two kinds of the loop have their own places («Вопросы», «Проблемы»), not a kind page of their own. */
+const LOOP_KINDS: ReadonlySet<string> = new Set(['question', 'correction']);
 
 /** The choices the selector offers: each product's wiki address, and which one is open. */
 export function productChoices(products: readonly ProductChoice[], current: string | null): { name: string; folder: string; href: string; here: boolean }[] {
@@ -158,8 +162,8 @@ function StartOver({ open, onOpenChange, name, refresh }: { open: boolean; onOpe
 /** The kinds of the manifest as the navigation shows them: by group, in the manifest's order, the groups with the entities they hold. */
 export function navGroups(status: WikiStatus, pending: (kind: string) => number): { group: string | null; labels: Record<string, string> | null; total: number; kinds: KindSummary[] }[] {
   // A group counts every entity of its kinds, the home page included, so the navigation and the catalogue say the same number.
-  const counted = status.kinds;
-  const shown = status.kinds.filter((kind) => !kind.single && (kind.count > 0 || pending(kind.kind) > 0));
+  const counted = status.kinds.filter((kind) => !LOOP_KINDS.has(kind.kind));
+  const shown = status.kinds.filter((kind) => !LOOP_KINDS.has(kind.kind) && !kind.single && (kind.count > 0 || pending(kind.kind) > 0));
   const declared = status.groups.map((group) => ({ group: group.group as string | null, labels: group.labels as Record<string, string> | null }));
   const known = new Set(status.groups.map((group) => group.group));
   const loose = shown.filter((kind) => kind.group === undefined || !known.has(kind.group));
@@ -178,6 +182,7 @@ function NavPanel({ status, products, route, onNavigate, onStartOver }: { status
   const kindName = useKindName();
   const language = (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en';
   const folder = decodeURIComponent((/^\/products\/([^/]+)/.exec(window.location.pathname)?.[1] ?? ''));
+  const questionsOpen = status.loop?.questionsOpen ?? 0;
   /** The pages of a kind the agent has yet to write: its units that wait or are writing (a unit is named `<kind>:<slug>`). */
   const pendingOf = (kind: string): number => status.writer.units.filter((unit) => unit.unit.startsWith(`${kind}:`) && (unit.state === 'waiting' || unit.state === 'writing')).length;
   const { role, roles } = useRole();
@@ -245,7 +250,17 @@ function NavPanel({ status, products, route, onNavigate, onStartOver }: { status
             </div>
           );
         })}
-        <a href={appPath(K_DOCS)} className={link(route.name === 'docs' || route.name === 'doc') + ' mt-4'} aria-current={route.name === 'docs' || route.name === 'doc' ? 'page' : undefined} data-testid="nav-documents" {...pick(K_DOCS)}>
+        <a href={appPath(K_QUESTIONS)} className={link(route.name === 'questions' || route.name === 'question') + ' mt-4'} aria-current={route.name === 'questions' || route.name === 'question' ? 'page' : undefined} data-testid="nav-questions" {...pick(K_QUESTIONS)}>
+          <HelpCircleIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
+          <span className="min-w-0 flex-1">{t('loop.questionsTitle')}</span>
+          {questionsOpen > 0 && <span className="text-small text-muted" data-testid="nav-questions-count">{questionsOpen}</span>}
+        </a>
+        <a href={appPath(K_PROBLEMS)} className={link(route.name === 'problems')} aria-current={route.name === 'problems' ? 'page' : undefined} data-testid="nav-problems" {...pick(K_PROBLEMS)}>
+          <AlertTriangleIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
+          <span className="min-w-0 flex-1">{t('loop.problemsTitle')}</span>
+          {(status.loop?.correctionsOpen ?? 0) > 0 && <span className="text-small text-muted" data-testid="nav-problems-count">{status.loop?.correctionsOpen}</span>}
+        </a>
+        <a href={appPath(K_DOCS)} className={link(route.name === 'docs' || route.name === 'doc')} aria-current={route.name === 'docs' || route.name === 'doc' ? 'page' : undefined} data-testid="nav-documents" {...pick(K_DOCS)}>
           <FolderGit2Icon aria-hidden="true" className="size-4 shrink-0 text-muted" />
           <span className="min-w-0 flex-1">{t('knowledge.documents')}</span>
         </a>
@@ -284,7 +299,7 @@ function LanguageMenu(): ReactElement {
 
 /** The pages the product holds, for the status line: the Markdown kinds' entities. */
 function pagesOf(status: WikiStatus): number {
-  return status.kinds.filter((kind) => kind.source === 'markdown').reduce((sum, kind) => sum + kind.count, 0);
+  return status.kinds.filter((kind) => kind.source === 'markdown' && !LOOP_KINDS.has(kind.kind)).reduce((sum, kind) => sum + kind.count, 0);
 }
 
 /**
@@ -340,6 +355,7 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
               ))}
             </ul>
           )}
+          {writer.asked !== undefined && writer.asked > 0 && <p className="m-0 px-2 pb-2 text-small" data-testid="fill-menu-asked">{t('loop.agentAsked', { count: writer.asked })}</p>}
           {writer.message !== undefined && <p className="m-0 px-2 pb-2 text-small" data-testid="fill-menu-message">{writer.message}</p>}
           {fill.message !== undefined && fill.state === 'failed' && <p className="m-0 px-2 pb-2 text-small">{fill.message}</p>}
           <div className="px-2 pb-2">
@@ -356,6 +372,7 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
                 </div>
               </div>
             )}
+            {writer.state !== 'running' && writer.state !== 'waiting' && fill.state !== 'running' && <div className="mb-3"><RefreshPreviewView language={pagesLanguage ?? status.language} refreshKey={`${status.fill.finishedAt ?? ''}:${status.writer.finishedAt ?? ''}:${status.loop?.questionsAnswered ?? 0}:${status.loop?.correctionsOpen ?? 0}`} /></div>}
             <p className="mb-2 mt-0 text-small text-muted" data-testid="refresh-note">{t('knowledge.refreshNote', { turns: status.bounds.turns, minutes: status.bounds.minutes })}</p>
             <Button variant="default" size="default" disabled={busy} onClick={press} data-testid="refresh">{t('knowledge.refresh')}</Button>
             {refused !== null && <p className="mb-0 mt-2 text-small" role="alert" data-testid="refresh-refused">{refused}</p>}
@@ -369,7 +386,7 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
 function Toolbar({ status, route, menu, refresh, products, current }: { status: WikiStatus; route: KRoute; menu: ReactNode; refresh: () => void; products: readonly ProductChoice[]; current: string | null }): ReactElement {
   const { t } = useTranslation();
   const kindName = useKindName();
-  const where = route.name === 'kind' ? kindName(route.kind, 'many') : route.name === 'source' ? t('knowledge.source') : route.name === 'docs' || route.name === 'doc' ? t('knowledge.documents') : route.name === 'catalogue' ? t('knowledge.catalogue') : route.name === 'glossary' ? t('knowledge.glossary.title') : route.name === 'statement' ? t('knowledge.statement') : route.name === 'entity' ? null : t('knowledge.home');
+  const where = route.name === 'questions' || route.name === 'question' ? t('loop.questionsTitle') : route.name === 'problems' ? t('loop.problemsTitle') : route.name === 'kind' ? kindName(route.kind, 'many') : route.name === 'source' ? t('knowledge.source') : route.name === 'docs' || route.name === 'doc' ? t('knowledge.documents') : route.name === 'catalogue' ? t('knowledge.catalogue') : route.name === 'glossary' ? t('knowledge.glossary.title') : route.name === 'statement' ? t('knowledge.statement') : route.name === 'entity' ? null : t('knowledge.home');
   return (
     <header className="shell-toolbar sticky top-0 z-30 flex min-h-[58px] items-center justify-between gap-3 border-b border-line bg-page px-4 wide:px-[35px]">
       <span className="shell-breadcrumb min-w-0 truncate text-small text-secondary">
@@ -507,6 +524,9 @@ export function KnowledgeApp(): ReactElement {
   if (route.name === 'home') view = status.home !== null ? <EntityPage key={status.home} id={status.home} version={version} /> : <Overview status={status} refresh={refresh} />;
   else if (route.name === 'entity') view = <EntityPage key={route.id} id={route.id} version={version} />;
   else if (route.name === 'kind') view = <KindPage key={route.kind} kind={route.kind} version={version} />;
+  else if (route.name === 'questions') view = <QuestionsPage version={version} />;
+  else if (route.name === 'question') view = <QuestionPage key={route.slug} slug={route.slug} version={version} refresh={refresh} />;
+  else if (route.name === 'problems') view = <ProblemsPage version={version} />;
   else if (route.name === 'docs') view = <DocumentsPage version={version} />;
   else if (route.name === 'doc') view = <DocumentPage key={`${route.repo ?? ''}:${route.path}`} repo={route.repo} path={route.path} version={version} />;
   else if (route.name === 'catalogue') view = <CataloguePage status={status} />;

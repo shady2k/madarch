@@ -101,6 +101,9 @@ export async function buildStatement(ctx: RenderContext, pageId: string, sentenc
   if (found === undefined) {
     return { ok: false, status: 404, message: `${page.file} holds no statement ${JSON.stringify(sentence.length > 120 ? `${sentence.slice(0, 119)}…` : sentence)}${turn > 0 ? ` at its turn ${turn}` : ''}: the page changed since it was drawn, or the text is not one sentence of its body` };
   }
+  const first = found.notes[0];
+  const sameFirst = first === undefined ? 0 : reading.statements.slice(0, reading.statements.indexOf(found)).filter((candidate) => candidate.notes[0] === first).length;
+  const name = first === undefined ? null : sameFirst === 0 ? first : `${first}~${sameFirst + 1}`;
   const urls: string[] = [];
   for (const note of found.notes) for (const url of reading.definitions.get(note) ?? []) if (!urls.includes(url)) urls.push(url);
   const grounds = await Promise.all(urls.map((url) => groundOf(ctx, url)));
@@ -149,6 +152,7 @@ export async function buildStatement(ctx: RenderContext, pageId: string, sentenc
     statement: {
       relying: relying.slice(0, 20),
       page: refOfMarkdown(ctx, page),
+      name,
       sentence: found.text,
       paragraph: found.paragraph,
       file: page.file,
