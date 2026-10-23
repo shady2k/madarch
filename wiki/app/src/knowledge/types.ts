@@ -26,16 +26,39 @@ export type RelatedGroup = {
 
 export type CallRow = { entity: EntityRef; sites: number; site?: CodeLocation };
 
+export type DiagramNode = { id: string; kind: string; label: string; href: string | null; hops?: number };
+export type DiagramEdge = { from: string; to: string; relation: string; count: number };
+export type DiagramMore = { node: string; relation: string; direction: 'out' | 'in'; hidden: number };
+export type Neighborhood = {
+  center: string;
+  nodes: DiagramNode[];
+  edges: DiagramEdge[];
+  more: DiagramMore[];
+  relations: { relation: string; direction: 'out' | 'in'; count: number }[];
+};
+export type StepKind = 'enter' | 'route' | 'call' | 'self' | 'read' | 'write' | 'http' | 'grpc' | 'publish' | 'consume';
+export type ChainLane = { id: string; label: string; sub: string; kind: string; href: string | null; group: string };
+export type ChainStep = { n: number; from: string; to: string; label: string; kind: StepKind; href: string | null; site?: CodeLocation; order: 'source' | 'unordered'; note?: string };
+export type Chain = { title: string; entry: EntityRef | null; lanes: ChainLane[]; steps: ChainStep[]; notes: string[]; total: number };
+export type SystemNode = { id: string; kind: 'service' | 'database' | 'topic' | 'external'; label: string; sub: string; href: string | null };
+export type SystemEdge = { from: string; to: string; via: 'http' | 'grpc' | 'sql' | 'publishes' | 'consumes'; label: string; count: number };
+export type ModuleNode = { id: string; label: string; files: number; href: string | null; cycle: boolean };
+export type ModuleEdge = { from: string; to: string; cycle: boolean };
+export type TreemapFile = { id: string; path: string; href: string | null; lines: number; churn: number };
+
 export type Block =
   | { type: 'markdown'; markdown: string }
   | { type: 'body'; markdown: string; file: string; statements: number; ungrounded: { text: string; line: number }[] }
-  | { type: 'graph'; title: string; mermaid: string; shown: number; total: number }
+  | { type: 'graph'; title: string; neighborhood: Neighborhood; depth: number; shown: number; total: number }
+  | { type: 'system'; title: string; nodes: SystemNode[]; edges: SystemEdge[]; notes: string[] }
+  | { type: 'modules'; title: string; service: string; nodes: ModuleNode[]; edges: ModuleEdge[]; cycles: string[][]; notes: string[] }
+  | { type: 'treemap'; title: string; scope: string; files: TreemapFile[]; maxChurn: number; total: number; notes: string[] }
   | { type: 'related'; title: string; groups: RelatedGroup[] }
   | { type: 'callers'; title: string; total: number; rows: CallRow[] }
   | { type: 'callees'; title: string; total: number; rows: CallRow[] }
   | { type: 'source'; title: string; location: CodeLocation; language: string; text: string; truncated: boolean }
-  | { type: 'er'; title: string; mermaid: string; tables: number; shownTables: number }
-  | { type: 'sequence'; title: string; mermaid: string; shown: number; total: number }
+  | { type: 'er'; title: string; mermaid: string; tables: number; shownTables: number; links: EntityRef[] }
+  | { type: 'sequence'; title: string; scenario: string; chains: Chain[]; entries: number; notes: string[] }
   | { type: 'problem'; block: string; message: string; file: string; line: number };
 
 export type Resolution =

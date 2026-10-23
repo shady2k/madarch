@@ -202,7 +202,7 @@ describe('template text and the service page', () => {
     const model = await page(SERVICE);
     const problems = model.blocks.filter((entry) => entry.type === 'problem');
     expect(problems.map((entry) => entry.type === 'problem' ? [entry.file, entry.line] : [])).toEqual([['templates/service.md', 5], ['templates/service.md', 6]]);
-    expect(model.findings.map((entry) => entry.message)).toContain('"nonsense" is not a block of the library (body, graph, related, callers, callees, source, er, sequence)');
+    expect(model.findings.map((entry) => entry.message)).toContain('"nonsense" is not a block of the library (body, graph, related, callers, callees, source, er, sequence, system, modules, treemap)');
     expect(model.findings.some((entry) => entry.line === 6 && entry.message.includes('closes nothing'))).toBe(true);
   });
 
@@ -215,14 +215,18 @@ describe('template text and the service page', () => {
     expect(files.groups[0]!.rows.every((row) => row.entity.href === `/k/e/${encodeURIComponent(row.entity.id)}`)).toBe(true);
   });
 
-  test('the graph block draws the entity and what is linked to it, naming how many are shown of how many', async () => {
+  test('the graph block holds the entity and what is linked to it as nodes and edges, naming how many are shown of how many, with the filter\'s relations', async () => {
     const model = await page(SERVICE);
     const graph = block(model, 'graph');
-    expect(graph.mermaid.startsWith('flowchart LR')).toBe(true);
-    expect(graph.mermaid).toContain('["billing"]');
-    expect(graph.mermaid).toContain('-->|contains|');
-    expect(graph.shown).toBe(graph.total);
-    expect(graph.shown).toBeGreaterThanOrEqual(1);
+    const hood = graph.neighborhood;
+    expect(hood.center).toBe(SERVICE);
+    expect(hood.nodes.find((entry) => entry.id === SERVICE)).toMatchObject({ label: 'billing', hops: 0, href: `/k/e/${encodeURIComponent(SERVICE)}` });
+    // The manifest's declared edge joins the service to its package; the package, the Markdown pages that name it, both ends are nodes.
+    expect(hood.edges).toContainEqual({ from: SERVICE, to: PACKAGE, relation: 'code.contains', count: 1 });
+    expect(hood.edges).toContainEqual({ from: 'domain:billing', to: SERVICE, relation: 'relates', count: 1 });
+    expect(hood.relations).toContainEqual({ relation: 'code.contains', direction: 'out', count: 1 });
+    expect(graph.shown).toBe(hood.nodes.length - 1);
+    expect(graph.shown).toBeGreaterThanOrEqual(3);
   });
 
   test('a block that follows code relations says so on an entity that has none of the data it needs', async () => {
@@ -263,14 +267,29 @@ describe('the function page', () => {
     expect(source.location.href).toBe('/k/src?repo=shop&path=svc%2Fbilling%2Fsrc%2Fa.ts&line=3');
   });
 
-  test('the sequence block follows calls out from the function to the depth given, one message per call', async () => {
+  test('the sequence block follows the calls out of the function, a step for each, in the source order of the places the graph read them at, and says what it does not model', async () => {
     const sequence = block(await page(HANDLE), 'sequence');
-    expect(sequence.mermaid.split('\n')[0]).toBe('sequenceDiagram');
-    expect(sequence.mermaid).toContain('as b.ts');
-    expect(sequence.mermaid).toContain('as a.ts');
-    expect(sequence.mermaid).toMatch(/p0->>p1: charge/);
-    expect(sequence.mermaid).toMatch(/p1->>p1: audit/);
-    expect(sequence.shown).toBe(sequence.total);
+    expect(sequence.entries).toBe(1);
+    const [chain] = sequence.chains;
+    expect(chain!.entry!.id).toBe(HANDLE);
+    expect(chain!.lanes.map((lane) => lane.label)).toEqual(['b.ts', 'a.ts']);
+    expect(chain!.steps.map((step) => [step.n, step.from, step.to, step.label, step.kind, step.order])).toEqual([
+      [1, 'file:svc/billing/src/b.ts', 'file:svc/billing/src/a.ts', 'charge', 'call', 'source'],
+      [2, 'file:svc/billing/src/a.ts', 'file:svc/billing/src/a.ts', 'audit', 'self', 'source'],
+      [3, 'file:svc/billing/src/a.ts', 'file:svc/billing/src/a.ts', 'charge', 'self', 'source'],
+    ]);
+    expect(chain!.steps[2]!.note).toBe('called again; its steps are shown above');
+    expect(chain!.steps[0]!.site).toMatchObject({ path: 'svc/billing/src/b.ts', lineStart: 3 });
+    expect(chain!.steps.every((step) => step.href === `/k/e/${encodeURIComponent(step.n === 2 ? AUDIT : CHARGE)}`)).toBe(true);
+    expect(chain!.notes.join(' ')).toContain('branches, loops, error paths and repeated calls are not modelled');
+    expect(chain!.total).toBe(3);
+  });
+
+  test('a function no route reaches starts its own chain and says so; a function with no calls draws no chain', async () => {
+    const [chain] = block(await page(HANDLE), 'sequence').chains;
+    expect(chain!.notes[0]).toContain('no route of the graph reaches this function');
+    const none = block(await page(AUDIT), 'sequence');
+    expect(none.entries).toBe(1);
   });
 
   test('related in a direction follows the containment up to the file; the breadcrumb is the containers from the top', async () => {

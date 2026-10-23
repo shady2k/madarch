@@ -1809,3 +1809,121 @@ a.graph-diagram-element-label:hover {
     background: var(--surface-active);
   }
 }
+
+/* ---- The graph diagrams (madarch-m38l.9) ---------------------------------------------------------
+ * Drawn as SVG from the page model, on the wiki's own tokens: structure in graphite, no accent colour.
+ * What is told apart is told by a line style and a word as well as by a hue, in both schemes. The only
+ * hues are the warmth of the treemap (churn) and the red of a dependency cycle. */
+:root {
+  --dg-cold: var(--surface-soft);
+  --dg-hot: #e5a63c;
+  --dg-bad: #b3261e;
+  --dg-node: var(--surface-card);
+  --dg-node-line: #b7b9be;
+  --dg-center-line: var(--text);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --dg-cold: #303030;
+    --dg-hot: #8c5a14;
+    --dg-bad: #ff8a80;
+    --dg-node: #333333;
+    --dg-node-line: #6a6a6a;
+  }
+}
+
+.dg-frame { border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--surface-page); overflow: hidden; }
+.dg-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 6px 8px; border-bottom: 1px solid var(--border-subtle); background: var(--surface-soft); font-size: var(--fs-small); }
+.dg-group { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.dg-caption { color: var(--text-muted); margin-right: 2px; }
+.dg-spacer { flex: 1 1 auto; }
+.dg-chip { min-height: 28px; padding: 0 8px; font-size: 13px; line-height: 1; white-space: nowrap; border: 1px solid var(--border); background: var(--surface-page); }
+.dg-chip[data-state='off'] { opacity: 0.55; text-decoration: line-through; }
+.dg-count { color: var(--text-muted); font-variant-numeric: tabular-nums; margin-left: 4px; }
+.dg-viewport { position: relative; overflow: hidden; touch-action: pan-y; cursor: grab; background: var(--surface-page); }
+.dg-viewport:active { cursor: grabbing; }
+.dg-svg { display: block; font-family: var(--font-sans); font-size: 12px; color: var(--text); }
+.dg-svg text { fill: var(--text); }
+.dg-svg a { cursor: pointer; }
+.dg-svg a:focus-visible { outline: none; }
+.dg-svg a:focus-visible .dg-node, .dg-svg a:hover .dg-node { stroke: var(--text); stroke-width: 1.6; }
+.dg-svg a text { text-decoration: none; }
+.dg-svg a:hover .dg-label, .dg-svg a:hover.dg-step, .dg-svg a:hover .dg-step { text-decoration: underline; }
+
+.dg-node { fill: var(--dg-node); stroke: var(--dg-node-line); stroke-width: 1; }
+.dg-center { stroke: var(--dg-center-line); stroke-width: 2; }
+.dg-plain { stroke-dasharray: 4 3; fill: var(--surface-soft); }
+.dg-label { font-size: 12.5px; font-weight: 600; }
+.dg-kind, .dg-sub, .dg-head, .dg-groupname { fill: var(--text-secondary) !important; font-size: 11px; }
+.dg-kind { font-size: 10px; }
+.dg-head { font-size: 11px; letter-spacing: 0.01em; }
+.dg-edge { fill: none; stroke: var(--dg-node-line); stroke-width: 1.4; }
+.dg-headpath { fill: var(--dg-node-line); stroke: none; }
+.dg-more rect { fill: transparent; stroke: var(--dg-node-line); stroke-dasharray: 5 3; }
+.dg-more { cursor: pointer; }
+.dg-more:hover rect, .dg-more:focus-visible rect { stroke: var(--text); fill: var(--surface-hover); }
+.dg-more:focus-visible, .dg-expand:focus-visible { outline: none; }
+.dg-expand { cursor: pointer; }
+.dg-expand circle { fill: var(--surface-page); stroke: var(--dg-node-line); }
+.dg-expand svg, .dg-expand path { stroke: var(--text-secondary); }
+.dg-expand:hover circle, .dg-expand:focus-visible circle { stroke: var(--text); fill: var(--surface-hover); }
+.dg-note { margin-top: 6px; font-size: var(--fs-small); color: var(--text-muted); }
+.dg-links { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 8px 0 0; padding: 0; list-style: none; }
+.dg-links li { margin: 0; }
+
+/* the chain */
+.dg-scenario { margin: 0 0 10px; color: var(--text-secondary); }
+.dg-chain { margin: 0 0 22px; }
+.dg-chain-title { margin: 0 0 8px; font-size: 1.05em; }
+.dg-chain-count { margin-left: 10px; font-size: var(--fs-small); font-weight: 400; color: var(--text-muted); }
+.dg-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--surface-page); padding: 4px 0 6px; }
+.dg-life { stroke: var(--dg-node-line); stroke-width: 1; stroke-dasharray: 3 4; }
+.dg-band { fill: var(--surface-active); }
+.dg-groupname { font-weight: 600; }
+.dg-arrow { fill: none; stroke: var(--text-secondary); stroke-width: 1.5; }
+.dg-arrow.dg-grpc { stroke-dasharray: 9 4; }
+.dg-arrow.dg-event { stroke-dasharray: 2 4; }
+.dg-arrow.dg-data { stroke-dasharray: 1 3; stroke-width: 2; }
+.dg-arrow.dg-route { stroke-width: 2.4; stroke: var(--text); }
+.dg-arrow.dg-remote { stroke-width: 2.4; }
+.dg-step { font-size: 12.5px; font-weight: 500; }
+.dg-step.dg-event { font-style: italic; }
+.dg-step.dg-data { font-family: var(--font-mono); font-size: 11.5px; }
+.dg-step.dg-route { font-weight: 700; }
+.dg-num { fill: var(--surface-soft); stroke: var(--dg-node-line); }
+.dg-numtext { font-size: 11px; font-weight: 600; fill: var(--text) !important; pointer-events: none; }
+.dg-svg a:hover .dg-num { stroke: var(--text); }
+.dg-sep { stroke: var(--dg-node-line); stroke-width: 1.2; stroke-dasharray: 7 5; }
+.dg-unordered .dg-arrow { opacity: 0.85; }
+.dg-notes { margin: 8px 0 0; padding-left: 1.2em; font-size: var(--fs-small); color: var(--text-muted); }
+.dg-notes li { margin: 2px 0; }
+
+/* the system and module views */
+.dg-sys-database { stroke-dasharray: none; }
+.dg-sys-topic { fill: var(--surface-soft); stroke-dasharray: 5 3; }
+.dg-sys-external { fill: var(--surface-soft); stroke-dasharray: 2 3; }
+.dg-via-grpc { stroke-dasharray: 10 4; }
+.dg-via-sql { stroke-dasharray: 1 4; stroke-width: 2; stroke-linecap: round; }
+.dg-via-event { stroke-dasharray: 8 3 2 3; }
+.dg-labelbg { fill: var(--surface-page); stroke: var(--border-subtle); }
+.dg-edgelabel { font-size: 11px; }
+.dg-legend { display: flex; flex-wrap: wrap; gap: 4px 18px; margin-top: 8px; font-size: var(--fs-small); color: var(--text-muted); }
+.dg-key { display: inline-flex; align-items: center; gap: 6px; }
+.dg-cycle { stroke: var(--dg-bad) !important; stroke-width: 2; }
+.dg-cycle-fill { fill: var(--dg-bad) !important; }
+.dg-cycle-node { stroke: var(--dg-bad); stroke-width: 2; }
+
+/* the treemap */
+.dg-treemap { width: 100%; border: 1px solid var(--border); border-radius: var(--radius-card); overflow: hidden; background: var(--surface-page); }
+.dg-tdir { fill: none; stroke: var(--dg-node-line); stroke-width: 1; }
+.dg-tdirname { font-size: 10px; font-weight: 600; fill: var(--text-secondary) !important; }
+.dg-tfile { fill: color-mix(in srgb, var(--dg-hot) calc(var(--heat, 0) * 100%), var(--dg-cold)); stroke: var(--surface-page); stroke-width: 1; }
+.dg-svg a:hover .dg-tfile, .dg-svg a:focus-visible .dg-tfile { stroke: var(--text); stroke-width: 1.6; }
+.dg-tname { font-size: 10px; font-weight: 600; pointer-events: none; }
+.dg-tsub { font-size: 9.5px; fill: var(--text-secondary) !important; pointer-events: none; }
+.dg-ramp { display: inline-block; width: 70px; height: 10px; border-radius: 3px; border: 1px solid var(--border); background: linear-gradient(to right, var(--dg-cold), var(--dg-hot)); }
+
+@media (max-width: 700px) {
+  .dg-toolbar { padding: 6px; }
+  .dg-chip { min-height: 32px; }
+}

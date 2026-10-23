@@ -19,6 +19,7 @@ export interface KnowledgePart {
   status: (request: Request) => Promise<Handled>;
   page: (request: Request) => Promise<Handled>;
   entities: (request: Request) => Promise<Handled>;
+  neighborhood: (request: Request) => Promise<Handled>;
   source: (request: Request) => Promise<Handled>;
   fill: (request: Request) => Promise<Handled>;
   agents: (request: Request) => Promise<Handled>;
@@ -86,6 +87,19 @@ export function createKnowledgePart(
       const listing = await product.list(kind, { ...(query.get('q') === null ? {} : { q: query.get('q')! }), ...(query.get('after') === null ? {} : { after: query.get('after')! }), limit });
       if (listing === undefined) return refused(404, { field: 'kind', message: `the manifest declares no kind "${kind}"` });
       return { response: json(200, listing) };
+    }),
+    neighborhood: guarded('read the neighbourhood', async (request) => {
+      const query = new URL(request.url).searchParams;
+      const id = query.get('id');
+      if (id === null || id.trim() === '') return refused(400, { field: 'id', message: '"id" is required: the key or id of the entity whose neighbours are asked for' });
+      const direction = query.get('direction');
+      if (direction !== null && direction !== 'out' && direction !== 'in') return refused(400, { field: 'direction', accepted: 'out or in', message: `"direction" is ${JSON.stringify(direction)}: the neighbours that go out of the entity (out) or come in to it (in)` });
+      const asked = query.get('limit');
+      const limit = asked === null ? 8 : Number(asked);
+      if (!Number.isInteger(limit) || limit < 1 || limit > 100) return refused(400, { field: 'limit', accepted: '1 to 100', message: `"limit" is ${JSON.stringify(asked)}: a node opens 1 to 100 neighbours per relation` });
+      const result = await product.neighborhood(id, { ...(query.get('relation') === null ? {} : { relation: query.get('relation')! }), ...(direction === null ? {} : { direction }), limit });
+      if (!result.ok) return refused(result.status, { field: 'id', message: result.message });
+      return { response: json(200, result.neighborhood) };
     }),
     source: guarded('read the source', async (request) => {
       const query = new URL(request.url).searchParams;

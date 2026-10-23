@@ -1,6 +1,6 @@
 import { appPath } from '../app-base.js';
 import { readJson, RequestError } from '../api.js';
-import type { AgentOffer, DocumentListing, DocumentPageModel, EntityListing, PageModel, ProductChoice, SourceFile, WikiStatus } from './types.js';
+import type { AgentOffer, DocumentListing, DocumentPageModel, EntityListing, Neighborhood, PageModel, ProductChoice, SourceFile, WikiStatus } from './types.js';
 
 /** The wiki's status: manifest, kinds, repositories, fill. */
 export const getStatus = (signal?: AbortSignal): Promise<WikiStatus> => readJson<WikiStatus>('read the wiki', '/api/k/status', signal);
@@ -114,4 +114,12 @@ export function getDocument(repo: string | null, path: string, signal?: AbortSig
   const query = new URLSearchParams({ path });
   if (repo !== null) query.set('repo', repo);
   return readJson<DocumentPageModel>(`read the document ${path}`, `/api/k/document?${query.toString()}`, signal);
+}
+
+/** The neighbours of one entity, one hop: for a diagram that opens a node. */
+export function getNeighborhood(id: string, options: { relation?: string; direction?: 'out' | 'in'; limit?: number } = {}, signal?: AbortSignal): Promise<Neighborhood> {
+  const query = new URLSearchParams({ id, limit: String(options.limit ?? 8) });
+  if (options.relation !== undefined) query.set('relation', options.relation);
+  if (options.direction !== undefined) query.set('direction', options.direction);
+  return readJson<Neighborhood>(`read the neighbours of ${id}`, `/api/k/neighborhood?${query.toString()}`, signal);
 }

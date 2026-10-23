@@ -9,9 +9,10 @@ import { join } from 'node:path';
 import { CONTAINS } from '../graph/vocabulary.js';
 import { byCodePoint } from '../model/order.js';
 import {
-  attributeOf, bodyBlock, callBlock, erBlock, graphBlock, idOf, kindOf, refOfGraph, refOfMarkdown, relatedBlock, sequenceBlock, sourceBlock,
+  attributeOf, bodyBlock, callBlock, erBlock, idOf, kindOf, refOfGraph, refOfMarkdown, relatedBlock, sourceBlock,
   type RenderContext, type Subject,
 } from './blocks.js';
+import { graphBlock, modulesBlock, sequenceBlock, systemBlock, treemapBlock } from './diagrams.js';
 import type { GraphEntity } from './graph-read.js';
 import { homeKind, type Finding } from './kinds.js';
 import { readBody } from './markdown.js';
@@ -115,6 +116,9 @@ async function renderBlock(ctx: RenderContext, subject: Subject, name: string, p
   switch (name) {
     case 'body': return bodyBlock(subject, name, file, line);
     case 'graph': return await graphBlock(ctx, subject, params);
+    case 'system': return await systemBlock(ctx, params);
+    case 'modules': return await modulesBlock(ctx, subject, params, file, line);
+    case 'treemap': return await treemapBlock(ctx, subject, params);
     case 'related': return await relatedBlock(ctx, subject, params, file, line);
     case 'callers': return await callBlock(ctx, subject, 'in', params, file, line);
     case 'callees': return await callBlock(ctx, subject, 'out', params, file, line);

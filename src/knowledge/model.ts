@@ -44,16 +44,133 @@ export interface CallRow {
   site?: CodeLocation;
 }
 
+/** A node of a drawn diagram: a link to the entity's page when the kind has one. */
+export interface DiagramNode {
+  id: string;
+  kind: string;
+  label: string;
+  href: string | null;
+  /** Hops from the entity the neighbourhood is drawn around (0 is that entity). */
+  hops?: number;
+}
+
+/** An edge of a neighbourhood: `from` to `to` by a relation, `count` edges (call sites, say) behind it. */
+export interface DiagramEdge {
+  from: string;
+  to: string;
+  relation: string;
+  count: number;
+}
+
+/** A group of neighbours the diagram does not show: `hidden` more behind a node's relation and direction, one click away. */
+export interface DiagramMore {
+  node: string;
+  relation: string;
+  direction: 'out' | 'in';
+  hidden: number;
+}
+
+/** The neighbourhood of an entity: what the graph holds around it, with the pieces left out counted. */
+export interface Neighborhood {
+  center: string;
+  nodes: DiagramNode[];
+  edges: DiagramEdge[];
+  more: DiagramMore[];
+  /** The relations present, with the direction (from the centre) and how many edges each holds, for the filter. */
+  relations: { relation: string; direction: 'out' | 'in'; count: number }[];
+}
+
+export type StepKind = 'enter' | 'route' | 'call' | 'self' | 'read' | 'write' | 'http' | 'grpc' | 'publish' | 'consume';
+
+/** A lifeline of a chain: a file of a service, a table, a topic or the caller. */
+export interface ChainLane {
+  id: string;
+  label: string;
+  /** The line under the label: the file's folder, the table's database. */
+  sub: string;
+  kind: string;
+  href: string | null;
+  /** The container the lane belongs to (a service, a database, the broker): lanes of one group stand together. */
+  group: string;
+}
+
+/** One step: `from` to `to`, a link to what it reaches, the line it is read at. */
+export interface ChainStep {
+  n: number;
+  from: string;
+  to: string;
+  label: string;
+  kind: StepKind;
+  href: string | null;
+  site?: CodeLocation;
+  /** `source`: after the previous step in the source order of one function. `unordered`: the graph holds no order against the steps before. */
+  order: 'source' | 'unordered';
+  note?: string;
+}
+
+/** One end-to-end chain from an entry point. */
+export interface Chain {
+  title: string;
+  entry: EntityRef | null;
+  lanes: ChainLane[];
+  steps: ChainStep[];
+  notes: string[];
+  /** Steps found, and how many are drawn. */
+  total: number;
+}
+
+export interface SystemNode {
+  id: string;
+  kind: 'service' | 'database' | 'topic' | 'external';
+  label: string;
+  sub: string;
+  href: string | null;
+}
+
+export interface SystemEdge {
+  from: string;
+  to: string;
+  via: 'http' | 'grpc' | 'sql' | 'publishes' | 'consumes';
+  label: string;
+  count: number;
+}
+
+export interface ModuleNode {
+  id: string;
+  label: string;
+  files: number;
+  href: string | null;
+  cycle: boolean;
+}
+
+export interface ModuleEdge {
+  from: string;
+  to: string;
+  cycle: boolean;
+}
+
+export interface TreemapFile {
+  id: string;
+  path: string;
+  href: string | null;
+  lines: number;
+  /** Commits that changed the file, over the whole history read. */
+  churn: number;
+}
+
 export type Block =
   | { type: 'markdown'; markdown: string }
   | { type: 'body'; markdown: string; file: string; statements: number; ungrounded: { text: string; line: number }[] }
-  | { type: 'graph'; title: string; mermaid: string; shown: number; total: number }
+  | { type: 'graph'; title: string; neighborhood: Neighborhood; depth: number; shown: number; total: number }
+  | { type: 'system'; title: string; nodes: SystemNode[]; edges: SystemEdge[]; notes: string[] }
+  | { type: 'modules'; title: string; service: string; nodes: ModuleNode[]; edges: ModuleEdge[]; cycles: string[][]; notes: string[] }
+  | { type: 'treemap'; title: string; scope: string; files: TreemapFile[]; maxChurn: number; total: number; notes: string[] }
   | { type: 'related'; title: string; groups: RelatedGroup[] }
   | { type: 'callers'; title: string; total: number; rows: CallRow[] }
   | { type: 'callees'; title: string; total: number; rows: CallRow[] }
   | { type: 'source'; title: string; location: CodeLocation; language: string; text: string; truncated: boolean }
-  | { type: 'er'; title: string; mermaid: string; tables: number; shownTables: number }
-  | { type: 'sequence'; title: string; mermaid: string; shown: number; total: number }
+  | { type: 'er'; title: string; mermaid: string; tables: number; shownTables: number; links: EntityRef[] }
+  | { type: 'sequence'; title: string; scenario: string; chains: Chain[]; entries: number; notes: string[] }
   | { type: 'problem'; block: string; message: string; file: string; line: number };
 
 export interface PageModel {

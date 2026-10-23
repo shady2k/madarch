@@ -14,19 +14,21 @@ Blocks: `:::graph` is the interactive neighbourhood (incoming on the left groupe
 - Entity pages for kinds that have none today (route, table, database, operation, channel) and the tabs: madarch-m38l.6. The blocks work on those entities; the starter templates of this change carry the block lines for the kinds the starter declares.
 - Indexing Markdown into the graph (statements, grounded-by): madarch-m38l.8.
 
-## Rationale
-`behavior` with no capability file of its own: the knowledge-pages requirement is a proposal of madarch-m38l.1 that has not landed in `docs/system`, so the diagram blocks join it when that stage closes. The choices (libraries, what the graph orders) are in "Design and decisions".
+## Changes to requirements
+- product-wiki/diagrams (absent on the target): add. The diagram blocks, their links, the order they claim and the notes they owe. Complete proposed text in `capabilities/product-wiki.md`, with the scenarios `neighbourhood-of-a-function`, `open-a-neighbour`, `chain-across-services`, `unordered-steps-are-apart`, `system-view`, `module-cycle` and `hotspot-treemap`.
 
 ## Preserved contracts
 - product-wiki/serve: the routes of the knowledge wiki keep their addresses and answers; one route is added.
 
 ## Coverage
+- product-wiki/diagrams: test
 - product-wiki/serve: test
 
 ## Where it is seen
 
 Kind: screen
 Place: the wiki of a product that holds the generated training repository, the home page, a service page, a function page and a domain page
+Mockup: docs/prototypes/madarch-m38l.9/domain-payment-1150-light.png
 
 1. The person opens the home page and sees the system: the four services, their databases and the broker, with the calls between them.
 2. They open the payments domain page and see the end-to-end chain for paying, each step a link, and the part of the graph around the domain with what comes in on the left and what goes out on the right.

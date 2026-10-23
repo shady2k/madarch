@@ -88,7 +88,7 @@ describe('the payments service page', () => {
     const model = await page(PAYMENTS_SERVICE);
     const rows = block(model, 'related', 0).groups[0]!.rows;
     expect(rows.every((row) => row.entity.href === `/k/e/${encodeURIComponent(row.entity.id)}`)).toBe(true);
-    expect(block(model, 'graph').mermaid).toContain('-->|contains|');
+    expect(block(model, 'graph').neighborhood.edges.some((edge) => edge.relation === 'code.contains')).toBe(true);
   });
 });
 
@@ -124,14 +124,13 @@ describe('the function page', () => {
     expect(model.trail.map((entry) => entry.label)).toEqual(['payments', 'services/payments/src/domain', 'payment-service.ts']);
   });
 
-  test('the factory\'s page holds the anchored switch of the answer key, and the sequence from pay is a diagram of its calls', async () => {
+  test('the factory\'s page holds the anchored switch of the answer key, and the chain from pay is a sequence of its steps down to the table', async () => {
     const factory = item('pattern.factory').location!;
     const model = await page(FACTORY);
     expect(block(model, 'source').text).toContain(factory.anchor!);
-    const sequence = block(await page(PAY), 'sequence');
-    expect(sequence.mermaid.startsWith('sequenceDiagram')).toBe(true);
-    expect(sequence.mermaid).toContain('as payment-service.ts');
-    expect(sequence.mermaid).toContain('withTimeout');
+    const [chain] = block(await page(PAY), 'sequence').chains;
+    expect(chain!.lanes.map((lane) => lane.label)).toContain('payment-service.ts');
+    expect(chain!.steps.map((step) => step.label)).toContain('withTimeout');
   });
 });
 

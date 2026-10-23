@@ -23,6 +23,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { highlight } from './highlight.js';
 import { colorize, type ColoredToken } from './shiki.js';
 import { PendingPages } from './pending.js';
+import { ModulesView, SystemView } from './diagrams/system.js';
+import { NeighborhoodGraph } from './diagrams/neighborhood.js';
+import { SequenceView } from './diagrams/chain.js';
+import { TreemapView } from './diagrams/treemap.js';
 import { useKindName } from './kind-names.js';
 import { addressOfDocument } from './routes.js';
 import type { Block, CallRow, CodeLocation, EntityRef, RelatedGroup, Resolution } from './types.js';
@@ -318,7 +322,7 @@ function Source({ block }: { block: Extract<Block, { type: 'source' }> }): React
 
 // ---- diagrams -----------------------------------------------------------------------------------
 
-function Diagram({ title, mermaid, caption, empty }: { title: string; mermaid: string; caption: string | null; empty: string }): ReactElement {
+function Diagram({ title, mermaid, caption, empty, links = [] }: { title: string; mermaid: string; caption: string | null; empty: string; links?: readonly EntityRef[] }): ReactElement {
   if (mermaid === '') {
     return (
       <section data-block="diagram" aria-label={title}>
@@ -332,6 +336,7 @@ function Diagram({ title, mermaid, caption, empty }: { title: string; mermaid: s
       <h2>{title}</h2>
       <figure className="m-0">
         <MermaidDiagram source={mermaid} title={title} />
+        {links.length > 0 && <ul className="dg-links" data-testid="diagram-links">{links.map((entity) => <li key={entity.id}><EntityName entity={entity} /></li>)}</ul>}
         {caption !== null && <figcaption className="mt-1.5 text-small text-muted">{caption}</figcaption>}
       </figure>
     </section>
@@ -361,9 +366,12 @@ export function BlockView({ block, resolutions }: { block: Block; resolutions: R
     case 'callers':
     case 'callees': return <Calls block={block} />;
     case 'source': return <Source block={block} />;
-    case 'graph': return <Diagram title={block.title} mermaid={block.mermaid} empty={t('knowledge.noLinks')} caption={block.total > block.shown ? t('knowledge.showing', { shown: block.shown, total: block.total }) : null} />;
-    case 'sequence': return <Diagram title={block.title} mermaid={block.mermaid} empty={t('knowledge.noCalls')} caption={block.total > block.shown ? t('knowledge.showing', { shown: block.shown, total: block.total }) : null} />;
-    case 'er': return <Diagram title={block.title} mermaid={block.mermaid} empty={t('knowledge.noTables')} caption={block.tables > block.shownTables ? t('knowledge.showing', { shown: block.shownTables, total: block.tables }) : null} />;
+    case 'graph': return <NeighborhoodGraph block={block} />;
+    case 'sequence': return <SequenceView block={block} />;
+    case 'system': return <SystemView block={block} />;
+    case 'modules': return <ModulesView block={block} />;
+    case 'treemap': return <TreemapView block={block} />;
+    case 'er': return <Diagram title={block.title} mermaid={block.mermaid} empty={t('knowledge.noTables')} caption={block.tables > block.shownTables ? t('knowledge.showing', { shown: block.shownTables, total: block.tables }) : null} links={block.links} />;
     case 'problem': return <Problem block={block} />;
   }
 }

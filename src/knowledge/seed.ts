@@ -60,16 +60,22 @@ kinds:
 `;
 
 const PRODUCT = `:::body
+:::system{title="The system"}
+:::treemap{title="Files by size and change"}
 :::related{title="Relates to" relation="relates"}
 `;
 
 const DOMAIN = `:::body
+:::sequence{scenario="{{title}}" title="End-to-end chain"}
+:::graph{title="Around this page"}
 :::related{title="Implemented by" relation="relates"}
 `;
 
 const SERVICE = `A {{language}} service. Frameworks: {{frameworks}}. Infrastructure: {{infrastructure}}. Tests: {{testFramework}}.
 
-:::graph{depth=1 title="Links"}
+:::graph{title="Around this service"}
+:::modules{title="Modules"}
+:::treemap{title="Files by size and change"}
 :::related{title="Files" relation="code.contains" depth=3 kind="code.file" limit=60}
 :::related{title="Pages about this service" relation="relates"}
 `;
@@ -77,6 +83,7 @@ const SERVICE = `A {{language}} service. Frameworks: {{frameworks}}. Infrastruct
 const FILE = `{{path}}
 
 :::source
+:::graph{title="Around this file"}
 :::related{title="Declares" relation="code.contains" direction="out" kind="code.symbol" limit=60}
 :::related{title="Imports" relation="code.imports" direction="out"}
 :::related{title="Imported by" relation="code.imports" direction="in"}
@@ -86,9 +93,10 @@ const FILE = `{{path}}
 const SYMBOL = `{{symbolKind}} in {{path}}
 
 :::source
+:::graph{title="Around this function"}
+:::sequence{scenario="{{label}}" title="End-to-end chain"}
 :::callers
 :::callees{title="Calls"}
-:::sequence{depth=2}
 :::related{title="Tests and types" relation="code.tests,code.implements,code.inherits"}
 :::related{title="Pages about this function" relation="relates"}
 `;

@@ -1,6 +1,7 @@
 /**
- * The block library (decision 0029): `body`, `graph`, `related`, `callers`,
- * `callees`, `source`, `er` and `sequence`. The engine owns the blocks; a
+ * The block library (decision 0029): `body`, `related`, `callers`, `callees`,
+ * `source` and `er`; the diagram blocks (`graph`, `sequence`, `system`,
+ * `modules`, `treemap`) are `diagrams.ts`. The engine owns the blocks; a
  * template arranges them. Each block reads the graph or the Markdown and
  * answers a shape of `model.ts`, or a `problem` block that says why it could
  * not, with the template's file and line.
@@ -238,73 +239,6 @@ export async function relatedBlock(ctx: RenderContext, subject: Subject, params:
   return { type: 'related', title, groups };
 }
 
-export async function graphBlock(ctx: RenderContext, subject: Subject, params: Readonly<Record<string, string>>): Promise<Block> {
-  const depth = toInt(params['depth'], 1, 1, 2);
-  const limit = toInt(params['limit'], 24, 1, 60);
-  const relations = list(params['relation']);
-  const title = params['title'] ?? 'Links';
-  const labels: string[] = [];
-  const ids = new Map<string, string>();
-  const lines: string[] = ['flowchart LR'];
-  const add = (key: string, label: string): string => {
-    const held = ids.get(key);
-    if (held !== undefined) return held;
-    const id = `n${ids.size}`;
-    ids.set(key, id);
-    labels.push(`  ${id}["${mermaidLabel(label)}"]`);
-    return id;
-  };
-  const centerKey = idOf(subject);
-  const centerLabel = subject.source === 'graph' ? subject.entity.label : subject.entity.title;
-  add(centerKey, centerLabel);
-  const edges: string[] = [];
-  let total = 0;
-  const neighborsOf = async (current: Subject): Promise<{ key: string; label: string; relation: string; direction: 'out' | 'in' }[]> => {
-    const found: { key: string; label: string; relation: string; direction: 'out' | 'in' }[] = [];
-    if (current.source === 'graph') {
-      for (const group of await declaredNeighbors(ctx, current)) {
-        if (relations !== undefined && !relations.includes(group.relation)) continue;
-        for (const row of group.rows) found.push({ key: row.entity.id, label: row.entity.label, relation: group.relation, direction: 'out' });
-      }
-      for (const group of await ctx.graph.neighbors(current.entity, { ...(relations === undefined ? {} : { relations }), direction: 'both', limit: limit + 1 })) {
-        for (const row of group.rows) found.push({ key: row.entity.key, label: row.entity.label, relation: group.relation, direction: group.direction });
-      }
-    }
-    if (relations === undefined || relations.includes('relates')) {
-      for (const group of await relatesGroups(ctx, current)) {
-        for (const row of group.rows) if (row.entity.broken === undefined) found.push({ key: row.entity.id, label: row.entity.label, relation: 'relates', direction: group.direction });
-      }
-    }
-    return found;
-  };
-  let frontier: Subject[] = [subject];
-  const expanded = new Set<string>([centerKey]);
-  for (let hop = 0; hop < depth; hop += 1) {
-    const next: Subject[] = [];
-    for (const current of frontier) {
-      const from = ids.get(idOf(current))!;
-      const found = await neighborsOf(current);
-      total += found.length;
-      for (const neighbor of found) {
-        if (ids.size >= limit + 1 && !ids.has(neighbor.key)) continue;
-        const to = add(neighbor.key, neighbor.label);
-        const word = mermaidLabel(relationWord(neighbor.relation), 24);
-        const edge = neighbor.direction === 'out' ? `  ${from} -->|${word}| ${to}` : `  ${to} -->|${word}| ${from}`;
-        if (!edges.includes(edge)) edges.push(edge);
-        if (!expanded.has(neighbor.key) && hop + 1 < depth) {
-          expanded.add(neighbor.key);
-          const [again] = await ctx.graph.find(neighbor.key);
-          if (again !== undefined) next.push({ source: 'graph', entity: again });
-        }
-      }
-    }
-    frontier = next;
-  }
-  if (edges.length === 0) return { type: 'graph', title, mermaid: '', shown: 0, total };
-  lines.push(...labels, ...edges, `  style n0 stroke-width:2px`);
-  return { type: 'graph', title, mermaid: lines.join('\n'), shown: ids.size - 1, total };
-}
-
 // ---- callers and callees ----------------------------------------------------------------------
 
 export async function callBlock(ctx: RenderContext, subject: Subject, direction: 'in' | 'out', params: Readonly<Record<string, string>>, file: string, line: number): Promise<Block> {
@@ -349,51 +283,6 @@ export async function sourceBlock(ctx: RenderContext, subject: Subject, params: 
   };
 }
 
-// ---- sequence ---------------------------------------------------------------------------------
-
-export async function sequenceBlock(ctx: RenderContext, subject: Subject, params: Readonly<Record<string, string>>, file: string, line: number): Promise<Block> {
-  if (subject.source !== 'graph') return { type: 'problem', block: 'sequence', file, line, message: 'the sequence block follows calls of the graph; the entities of this kind are Markdown pages' };
-  const relation = params['relation'] ?? CALLS;
-  const depth = toInt(params['depth'], 2, 1, 5);
-  const limit = toInt(params['limit'], 16, 1, 60);
-  const title = params['title'] ?? 'Call sequence';
-  const participants = new Map<string, string>();
-  const names: string[] = [];
-  const participantOf = (entity: GraphEntity): string => {
-    const path = typeof entity.properties['path'] === 'string' ? entity.properties['path'] : entity.span?.path ?? entity.key;
-    const label = path.slice(path.lastIndexOf('/') + 1);
-    const held = participants.get(path);
-    if (held !== undefined) return held;
-    const alias = `p${participants.size}`;
-    participants.set(path, alias);
-    names.push(`  participant ${alias} as ${mermaidLabel(label, 32)}`);
-    return alias;
-  };
-  const messages: string[] = [];
-  let total = 0;
-  const seen = new Set<string>([subject.entity.key]);
-  let frontier: GraphEntity[] = [subject.entity];
-  participantOf(subject.entity);
-  for (let hop = 0; hop < depth; hop += 1) {
-    const next: GraphEntity[] = [];
-    for (const caller of frontier) {
-      const calls = await ctx.graph.edgesOf(caller, relation, 'out', 100);
-      for (const call of calls.rows) {
-        total += 1;
-        if (messages.length >= limit) continue;
-        messages.push(`  ${participantOf(caller)}->>${participantOf(call.other)}: ${mermaidLabel(call.other.label.replace(/^.*\./, ''), 36)}`);
-        if (!seen.has(call.other.key)) {
-          seen.add(call.other.key);
-          next.push(call.other);
-        }
-      }
-    }
-    frontier = next;
-  }
-  if (messages.length === 0) return { type: 'sequence', title, mermaid: '', shown: 0, total: 0 };
-  return { type: 'sequence', title, mermaid: ['sequenceDiagram', ...names, ...messages].join('\n'), shown: messages.length, total };
-}
-
 // ---- er ---------------------------------------------------------------------------------------
 
 const ER_TYPE = (type: unknown): string => {
@@ -418,7 +307,7 @@ export async function erBlock(ctx: RenderContext, subject: Subject, params: Read
   } else {
     return { type: 'problem', block: 'er', file, line, message: `the er block draws a database or a table, and this is a ${entity.kind}` };
   }
-  if (tables.length === 0) return { type: 'er', title, mermaid: '', tables: 0, shownTables: 0 };
+  if (tables.length === 0) return { type: 'er', title, mermaid: '', tables: 0, shownTables: 0, links: [] };
   const out: string[] = ['erDiagram'];
   const nameOf = (table: GraphEntity): string => mermaidLabel(table.label, 40).replace(/\s/g, '_');
   const inDiagram = new Set(tables.map((table) => table.key));
@@ -441,5 +330,5 @@ export async function erBlock(ctx: RenderContext, subject: Subject, params: Read
     }
   }
   out.push(...[...edges].sort(byCodePoint));
-  return { type: 'er', title, mermaid: out.join('\n'), tables: total, shownTables: tables.length };
+  return { type: 'er', title, mermaid: out.join('\n'), tables: total, shownTables: tables.length, links: tables.map((table) => refOfGraph(ctx, table)) };
 }
