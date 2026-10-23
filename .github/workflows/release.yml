@@ -94,6 +94,7 @@ jobs:
         run: sh scripts/smoke-binary.sh ./dist/madarch-${{ matrix.os }}-${{ matrix.arch }}
       - name: prove the Windows binary
         if: runner.os == 'Windows'
+        timeout-minutes: 5
         shell: pwsh
         env:
           GIT_AUTHOR_NAME: Madarch CI
@@ -115,6 +116,7 @@ jobs:
             if ($created.ExitCode -ne 0) { throw "madarch new exited $($created.ExitCode): $(Get-Content $err -Raw)" }
             $facts = (Get-Content $out | Select-Object -Last 1) | ConvertFrom-Json
             $url = $facts.url
+            Write-Host "madarch new served $url (pid $($facts.pid))"
             if ($url -notlike "http://127.0.0.1:$port/products/*") { throw "madarch new printed no product address on port ${port}: $url" }
             $served = $false
             for ($i = 0; $i -lt 300; $i++) {
@@ -126,7 +128,10 @@ jobs:
             if ($root.StatusCode -ne 200) { throw "the root answered $($root.StatusCode)" }
             $page = Invoke-WebRequest -UseBasicParsing $url
             if ($page.Content -notmatch '<div id="root"') { throw "the product page at $url is not the wiki app's HTML" }
-          } finally { Start-Process -FilePath $binary -ArgumentList @('stop', '--home', $products) -NoNewWindow | Out-Null; Start-Sleep -Seconds 2 }
+          } finally {
+            # The daemon holds the step's handles: it is ended by the pid `new` printed, so the step can return.
+            if ($facts.pid) { taskkill /T /F /PID $facts.pid | Out-Host }
+          }
       - name: checksum
         shell: bash
         env:
