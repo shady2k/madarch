@@ -18,13 +18,13 @@ import { parseQuestion, QUESTION_HEADINGS, renderQuestion, type Question } from 
 const KEYS: Record<string, string> = {
   'code.service:payments': 'payments',
   'code.service:orders': 'orders',
-  'code.symbol:services/payments/pay.ts#withTimeout': 'withTimeout',
-  'code.symbol:services/payments/refund.ts#refund': 'refund',
-  'code.symbol:services/orders/tax.ts#taxFor': 'taxFor',
-  'code.symbol:services/orders/discount.ts#discountFor': 'discountFor',
-  'code.symbol:services/orders/discount.ts#roundDiscount': 'roundDiscount',
-  'code.route:services/payments/routes.ts#POST:/pay': 'POST /pay',
-  'code.file:services/orders/retention.ts': 'services/orders/retention.ts',
+  'code.symbol\u003aservices/payments/pay.ts#withTimeout': 'withTimeout',
+  'code.symbol\u003aservices/payments/refund.ts#refund': 'refund',
+  'code.symbol\u003aservices/orders/tax.ts#taxFor': 'taxFor',
+  'code.symbol\u003aservices/orders/discount.ts#discountFor': 'discountFor',
+  'code.symbol\u003aservices/orders/discount.ts#roundDiscount': 'roundDiscount',
+  'code.route\u003aservices/payments/routes.ts#POST:/pay': 'POST /pay',
+  'code.file\u003aservices/orders/retention.ts': 'services/orders/retention.ts',
 };
 const SECTIONS: Record<string, string> = {
   'docs/requirements.md#uc-2': 'UC-2',
@@ -38,7 +38,7 @@ const resolver: GroundResolver = {
   docSection: async (path, anchor) => `${path}#${anchor}` in SECTIONS,
   sourceName: async () => true,
   nameOf: async (target: MadarchTarget) => (target.type === 'graph' ? KEYS[target.key] : target.type === 'doc' ? SECTIONS[`${target.path}#${target.anchor}`] : undefined),
-  uniqueRoute: async (method, routePath) => (method === 'POST' && routePath === '/pay' ? 'code.route:services/payments/routes.ts#POST:/pay' : undefined),
+  uniqueRoute: async (method, routePath) => (method === 'POST' && routePath === '/pay' ? 'code.route\u003aservices/payments/routes.ts#POST:/pay' : undefined),
   uniqueSymbol: async (name) => Object.keys(KEYS).find((key) => key.startsWith('code.symbol:') && KEYS[key] === name),
 };
 
@@ -53,13 +53,13 @@ describe('a ground is shown by the entity\'s own name', () => {
     const verdict = await page([
       'A call to the card network waits a bounded time.[^wait]', '',
       'The first release serves shoppers.[^users] The same page cites a use case.[^uc]', '',
-      '[^wait]: [Ожидание](madarch:code.symbol:services/payments/pay.ts#withTimeout)',
+      '[^wait]: [Ожидание](madarch:code.symbol\u003aservices/payments/pay.ts#withTimeout)',
       '[^users]: [who buys](madarch:doc:docs/vision.md#users)',
       '[^uc]: [the second use case](madarch:doc:docs/requirements.md#uc-2)',
     ].join('\n'));
     expect(verdict.ok, verdict.ok ? '' : JSON.stringify(verdict.refusals)).toBe(true);
     if (!verdict.ok) return;
-    expect(verdict.page.markdown).toContain('[^wait]: [withTimeout](madarch:code.symbol:services/payments/pay.ts#withTimeout)');
+    expect(verdict.page.markdown).toContain('[^wait]: [withTimeout](madarch:code.symbol\u003aservices/payments/pay.ts#withTimeout)');
     expect(verdict.page.markdown).toContain('[Users](madarch:doc:docs/vision.md#users)');
     expect(verdict.page.markdown).toContain('[UC-2](madarch:doc:docs/requirements.md#uc-2)');
     expect(verdict.page.markdown).not.toContain('Ожидание');
@@ -82,7 +82,7 @@ describe('a link names an entity; it is not a ground', () => {
   });
 
   test('the same sentence grounded on the document that says it, or on code that does it, passes', async () => {
-    const verdict = await page(['Payments are taken by the [payments service](madarch:code.service:payments).[^a] It waits for the network.[^b]', '', '[^a]: [x](madarch:doc:docs/requirements.md#uc-2)', '[^b]: [x](madarch:code.symbol:services/payments/pay.ts#withTimeout), [x](madarch:code.service:payments)'].join('\n'));
+    const verdict = await page(['Payments are taken by the [payments service](madarch:code.service:payments).[^a] It waits for the network.[^b]', '', '[^a]: [x](madarch:doc:docs/requirements.md#uc-2)', '[^b]: [x](madarch:code.symbol\u003aservices/payments/pay.ts#withTimeout), [x](madarch:code.service:payments)'].join('\n'));
     expect(verdict.ok, verdict.ok ? '' : JSON.stringify(verdict.refusals)).toBe(true);
   });
 });
@@ -96,22 +96,22 @@ describe('routes and operations are written as links', () => {
     ].join('\n'));
     expect(verdict.ok, verdict.ok ? '' : JSON.stringify(verdict.refusals)).toBe(true);
     if (!verdict.ok) return;
-    expect(verdict.page.markdown).toContain('[POST /pay](madarch:code.route:services/payments/routes.ts#POST:/pay)');
-    expect(verdict.page.markdown).toContain('[refund](madarch:code.symbol:services/payments/refund.ts#refund)');
+    expect(verdict.page.markdown).toContain('[POST /pay](madarch:code.route\u003aservices/payments/routes.ts#POST:/pay)');
+    expect(verdict.page.markdown).toContain('[refund](madarch:code.symbol\u003aservices/payments/refund.ts#refund)');
     expect(verdict.page.markdown).toContain('`fetch /x`');
-    expect(verdict.page.links).toContain('code.route:services/payments/routes.ts#POST:/pay');
+    expect(verdict.page.links).toContain('code.route\u003aservices/payments/routes.ts#POST:/pay');
   });
 
   test('headings, footnote lines and what is already a link are left alone', async () => {
     const verdict = await page([
       '## About `POST /pay`', '',
-      'See the [route `POST /pay`](madarch:code.route:services/payments/routes.ts#POST:/pay).[^a]', '',
+      'See the [route `POST /pay`](madarch:code.route\u003aservices/payments/routes.ts#POST:/pay).[^a]', '',
       '[^a]: [x](madarch:doc:docs/requirements.md#uc-2)',
     ].join('\n'));
     expect(verdict.ok, verdict.ok ? '' : JSON.stringify(verdict.refusals)).toBe(true);
     if (!verdict.ok) return;
     expect(verdict.page.markdown).toContain('## About `POST /pay`');
-    expect(verdict.page.markdown).toContain('[route `POST /pay`](madarch:code.route:services/payments/routes.ts#POST:/pay)');
+    expect(verdict.page.markdown).toContain('[route `POST /pay`](madarch:code.route\u003aservices/payments/routes.ts#POST:/pay)');
   });
 });
 
@@ -136,7 +136,7 @@ const ask = (title: string, extra: Record<string, unknown> = {}): Record<string,
   type: 'contradiction', title, question: 'Which one is meant?', why: 'A shopper is told one number and charged another.',
   sides: [
     { claim: 'The README says retention is ninety days.', grounds: ['doc:README.md#retention'] },
-    { claim: 'The code deletes orders after six hours.', grounds: ['code.file:services/orders/retention.ts'] },
+    { claim: 'The code deletes orders after six hours.', grounds: ['code.file\u003aservices/orders/retention.ts'] },
   ],
   ...extra,
 });
@@ -170,8 +170,8 @@ describe('a subject is asked once', () => {
 
   test('two questions that share one document section but differ in the rest are two questions', async () => {
     const { sink, open } = sessions();
-    await open('ordering').call('ask_question', ask('Which tax rate applies?', { sides: [{ claim: 'The README says eight percent.', grounds: ['doc:README.md#retention'] }, { claim: 'The code reads the rate from a table.', grounds: ['code.symbol:services/orders/tax.ts#taxFor'] }] }));
-    const other = await open('ordering').call('ask_question', ask('How is the discount rounded?', { sides: [{ claim: 'The README says nothing.', grounds: ['doc:README.md#retention'] }, { claim: 'The code rounds down.', grounds: ['code.symbol:services/orders/discount.ts#roundDiscount'] }] }));
+    await open('ordering').call('ask_question', ask('Which tax rate applies?', { sides: [{ claim: 'The README says eight percent.', grounds: ['doc:README.md#retention'] }, { claim: 'The code reads the rate from a table.', grounds: ['code.symbol\u003aservices/orders/tax.ts#taxFor'] }] }));
+    const other = await open('ordering').call('ask_question', ask('How is the discount rounded?', { sides: [{ claim: 'The README says nothing.', grounds: ['doc:README.md#retention'] }, { claim: 'The code rounds down.', grounds: ['code.symbol\u003aservices/orders/discount.ts#roundDiscount'] }] }));
     expect(other.answer).toMatchObject({ asked: true });
     expect(sink.pages.size).toBe(2);
   });
@@ -179,7 +179,7 @@ describe('a subject is asked once', () => {
   test('a different subject, or a different type of question, is its own question', async () => {
     const { sink, open } = sessions();
     await open('ordering').call('ask_question', ask('How long are orders kept?'));
-    const other = await open('payments').call('ask_question', ask('Which tax rate applies?', { sides: [{ claim: 'The README says eight percent.', grounds: ['doc:README.md#tax'] }, { claim: 'The code reads the rate from the tax table.', grounds: ['code.symbol:services/orders/tax.ts#taxFor'] }] }));
+    const other = await open('payments').call('ask_question', ask('Which tax rate applies?', { sides: [{ claim: 'The README says eight percent.', grounds: ['doc:README.md#tax'] }, { claim: 'The code reads the rate from the tax table.', grounds: ['code.symbol\u003aservices/orders/tax.ts#taxFor'] }] }));
     expect(other.answer).toMatchObject({ asked: true });
     const kind = await open('payments').call('ask_question', ask('What does retention cover?', { type: 'undocumented' }));
     expect(kind.answer).toMatchObject({ asked: true });
@@ -231,7 +231,7 @@ describe('a contradiction keeps both of its sides on the page', () => {
     expect(rules.map((r) => r.rule)).toEqual(['contradiction-side-missing']);
     expect(rules[0]!.message).toContain('question:how-long-orders-kept');
     expect(rules[0]!.message).toContain('The code deletes orders after six hours.');
-    expect(rules[0]!.message).toContain('code.file:services/orders/retention.ts');
+    expect(rules[0]!.message).toContain('code.file\u003aservices/orders/retention.ts');
     expect(rules[0]!.message).not.toContain('The README says retention');
   });
 
@@ -239,7 +239,7 @@ describe('a contradiction keeps both of its sides on the page', () => {
     const { open, sink } = sessions();
     const tools = open('payments');
     await tools.call('ask_question', ask('How long are orders kept?'));
-    const markdown = `${header}Orders are deleted after six hours.[^code]\n\nThe README promises ninety days; see the question.[^readme]\n\n[^code]: [x](madarch:code.file:services/orders/retention.ts)\n[^readme]: [x](madarch:doc:README.md#retention)\n`;
+    const markdown = `${header}Orders are deleted after six hours.[^code]\n\nThe README promises ninety days; see the question.[^readme]\n\n[^code]: [x](madarch:code.file\u003aservices/orders/retention.ts)\n[^readme]: [x](madarch:doc:README.md#retention)\n`;
     const written = await tools.call('write_page', { markdown });
     expect(written.isError, JSON.stringify(written.answer)).toBe(false);
     expect(sink.pages.has('docs/domains/payments.md')).toBe(true);
@@ -248,8 +248,8 @@ describe('a contradiction keeps both of its sides on the page', () => {
   test('a ground in the same file as a side\'s ground counts: a function and its file are one place', async () => {
     const { open } = sessions();
     const tools = open('payments');
-    await tools.call('ask_question', ask('How long are orders kept?', { sides: [{ claim: 'The README says ninety days.', grounds: ['doc:README.md#retention'] }, { claim: 'The code keeps six hours.', grounds: ['code.symbol:services/orders/discount.ts#discountFor'] }] }));
-    const markdown = `${header}Rounding happens here.[^a]\n\nThe README promises ninety days.[^b]\n\n[^a]: [x](madarch:code.symbol:services/orders/discount.ts#roundDiscount)\n[^b]: [x](madarch:doc:README.md#retention)\n`;
+    await tools.call('ask_question', ask('How long are orders kept?', { sides: [{ claim: 'The README says ninety days.', grounds: ['doc:README.md#retention'] }, { claim: 'The code keeps six hours.', grounds: ['code.symbol\u003aservices/orders/discount.ts#discountFor'] }] }));
+    const markdown = `${header}Rounding happens here.[^a]\n\nThe README promises ninety days.[^b]\n\n[^a]: [x](madarch:code.symbol\u003aservices/orders/discount.ts#roundDiscount)\n[^b]: [x](madarch:doc:README.md#retention)\n`;
     const written = await tools.call('write_page', { markdown });
     expect(written.isError, JSON.stringify(written.answer)).toBe(false);
   });
