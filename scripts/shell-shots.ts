@@ -185,7 +185,8 @@ try {
         if (shown.code) fail(`${tag}: the service ground also draws the manifest as code`);
         const kindWord = lang === 'ru' ? 'Сервис' : 'Service';
         if (!shown.kind.includes(kindWord)) fail(`${tag}: the service card does not name its kind «${kindWord}»: ${JSON.stringify(shown)}`);
-        if (shown.page !== '/k/e/code.service%3Apayments') fail(`${tag}: the service card links ${shown.page}, not its page`);
+        // The link carries the product's mount; the page it names is the service's.
+        if (!shown.page.endsWith('/k/e/code.service%3Apayments')) fail(`${tag}: the service card links ${shown.page}, not its page`);
         if (!shown.facts.includes('language') || !shown.related.includes('payments')) fail(`${tag}: the service card does not show what the code says of it and what it is connected to: ${JSON.stringify(shown)}`);
         await noLoading(card, `${tag} card`);
         await shoot(card, `${tag}-02-service-ground-card`);
