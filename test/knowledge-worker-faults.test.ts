@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { KnowledgeProduct, type FillWorkerHandle } from '../src/knowledge/product.js';
 import { RemoteOwner, type ReadWorkerProcess } from '../src/knowledge/remote-owner.js';
-import { createPGliteDatabaseOwner } from '../src/adapters/database-owner.js';
+import { createPGliteDatabaseOwner, insideCompiledBinary } from '../src/adapters/database-owner.js';
 import { runReadWorker } from '../src/knowledge/read-worker.js';
 import { encodeWire, decodeWire } from '../src/knowledge/wire.js';
 import type { FromWorker, ToWorker } from '../src/knowledge/fill-protocol.js';
@@ -177,4 +177,11 @@ describe('a read worker that ends', () => {
     input.end();
     await finished;
   }, 60_000);
+
+  test('the compiled-binary check knows the Windows bundle path as well as the Linux one', () => {
+    expect(insideCompiledBinary('file:///$bunfs/root/madarch-linux-x64')).toBe(true);
+    expect(insideCompiledBinary('file:///B:/~BUN/root/madarch-windows-x64.exe')).toBe(true);
+    expect(insideCompiledBinary('B:\\~BUN\\root\\madarch-windows-x64.exe')).toBe(true);
+    expect(insideCompiledBinary('file:///home/dev/madarch/src/adapters/database-owner.ts')).toBe(false);
+  });
 });
