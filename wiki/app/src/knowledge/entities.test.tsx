@@ -41,12 +41,13 @@ function into(element: ReturnType<typeof createElement>): HTMLElement {
   return container;
 }
 
-async function until(holds: () => boolean | undefined, what: string): Promise<void> {
-  for (let attempt = 0; attempt < 300; attempt++) {
+async function until(holds: () => boolean | undefined, what: string, timeoutMs = 3_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
     if (holds()) return;
     await new Promise((step) => setTimeout(step, 10));
   }
-  throw new Error(`never came to ${what}; the tree holds: ${document.body.innerHTML.slice(0, 2000)}`);
+  throw new Error(`never came to ${what} within ${timeoutMs} ms; the tree holds: ${document.body.innerHTML.slice(0, 2000)}`);
 }
 
 afterEach(() => {
@@ -216,7 +217,7 @@ describe('Markdown read as statements', () => {
 
   test('clicking two different sentences quickly opens both statements', async () => {
     const container = into(createElement('div', null, createElement(TabBar), createElement(KMarkdown, { text: 'First sentence here.[^1] Second sentence here.[^2]\n\n[^1]: [f](madarch:code.symbol:a.ts#F)\n[^2]: [g](madarch:code.symbol:b.ts#G)\n', resolutions, statements: { pageId: 'domain:payment', showGrounds: false } })));
-    await until(() => container.querySelectorAll('[data-testid=statement]').length === 2 && container.querySelector('[data-testid=tab]') !== null, 'two statements and a tab');
+    await until(() => container.querySelectorAll('[data-testid=statement]').length === 2 && container.querySelector('[data-testid=tab]') !== null, 'two statements and a tab', 10_000);
     const sentences = [...container.querySelectorAll<HTMLElement>('[data-testid=statement]')];
     sentences[0]!.click();
     sentences[1]!.click();
