@@ -74,7 +74,7 @@ describe('the kinds manifest', () => {
     const manifest = parseKinds(text, 'madarch/kinds.yaml', root);
     expect([...manifest.kinds.keys()]).toEqual(['good']);
     expect(manifest.findings.map((finding) => [finding.line, finding.message])).toEqual([
-      [10, '"extra" is not a field of the manifest: the manifest holds "kinds", "groups", "documents" and "language"'],
+      [10, '"extra" is not a field of the manifest: the manifest holds "kinds", "groups", "documents", "roles" and "language"'],
       [3, 'kind "nosource": "source" is "graph", "markdown" or "document", got undefined'],
       [4, 'kind "missing": the template "templates/none.md" does not exist in the product repository'],
       [5, 'kind "climbing": the template "../outside.md" is not a path inside the product repository'],
@@ -121,7 +121,7 @@ describe('the template', () => {
   test('an unknown block, a stray closing line and unreadable parameters are problems at their line', () => {
     const parts = parseTemplate([':::chart', ':::', ':::related{title}', ':::related{a=1 a=2}', ':::source'].join('\n'));
     expect(parts.map((part) => (part.type === 'problem' ? [part.line, part.message] : [part.type]))).toEqual([
-      [1, '"chart" is not a block of the library (body, graph, related, callers, callees, source, er, sequence, stated, implementedby, linkedfrom, properties, children)'],
+      [1, '"chart" is not a block of the library (body, graph, related, callers, callees, source, er, sequence, stated, implementedby, linkedfrom, properties, children, term)'],
       [2, 'a ":::" line closes nothing: a block is one line, ":::name{parameters}"'],
       [3, 'the parameters of :::related are unreadable: "title" is not name=value'],
       [4, 'the parameters of :::related are unreadable: "a" is given twice'],

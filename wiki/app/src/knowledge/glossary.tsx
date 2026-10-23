@@ -153,13 +153,16 @@ export function TermBlockView({ block, pageId, resolutions }: { block: { definit
   const term = { ...block, id: pageId };
   return (
     <section data-block="term">
-      <KMarkdown text={block.definition} resolutions={resolutions} exceptTerm={pageId} />
+      <KMarkdown text={upperFirst(block.definition)} resolutions={resolutions} exceptTerm={pageId} />
       <Names term={term as unknown as GlossaryTerm} />
       <Ambiguity term={term} pageId={pageId} resolutions={resolutions} />
       {block.usedIn !== null && <div className="mb-2 text-small"><span className="text-muted">{t('knowledge.glossary.usedIn')} </span><KMarkdown text={block.usedIn} resolutions={resolutions} /></div>}
     </section>
   );
 }
+
+/** A definition starts a sentence on the page whatever case the document wrote it in. */
+export const upperFirst = (text: string): string => (text === '' ? text : text.charAt(0).toLocaleUpperCase() + text.slice(1));
 
 /** The terms whose name, synonym or code name holds the text, in any case; all of them for an empty text. */
 export function filterTerms(terms: readonly GlossaryTerm[], query: string): GlossaryTerm[] {
@@ -186,12 +189,12 @@ export function GlossaryPage({ version }: { version: number }): ReactElement {
       {glossary.terms.length === 0 && <p className="text-muted" data-testid="glossary-empty">{t('knowledge.glossary.empty')}</p>}
       <ul className="m-0 list-none p-0">
         {shown.map((term) => (
-          <li key={term.id} id={term.id} className="mb-6 border-b border-line pb-5" data-testid="glossary-term" data-term={term.title} data-ambiguous={term.ambiguous === null ? 'false' : 'true'}>
+          <li key={term.id} id={term.id} style={{ listStyle: 'none' }} className="mb-6 border-b border-line pb-5" data-testid="glossary-term" data-term={term.title} data-ambiguous={term.ambiguous === null ? 'false' : 'true'}>
             <h2 className="!mb-1 !mt-0 flex flex-wrap items-center gap-2 !text-[1.15rem]">
               <KLink href={term.href} className="text-ink">{term.title}</KLink>
               {term.ambiguous !== null && <Badge data-testid="term-ambiguous-badge">{t('knowledge.glossary.ambiguousBadge')}</Badge>}
             </h2>
-            <KMarkdown text={term.definition} resolutions={glossary.resolutions} exceptTerm={term.id} />
+            <KMarkdown text={upperFirst(term.definition)} resolutions={glossary.resolutions} exceptTerm={term.id} />
             <Names term={term} />
             <Ambiguity term={term} pageId={term.id} resolutions={glossary.resolutions} />
             {term.usedIn !== null && <div className="mb-2 text-small"><span className="text-muted">{t('knowledge.glossary.usedIn')} </span><KMarkdown text={term.usedIn} resolutions={glossary.resolutions} /></div>}
