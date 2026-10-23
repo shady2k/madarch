@@ -77,7 +77,12 @@ async function shoot(page: Page, name: string): Promise<void> {
 }
 const tabs = (page: Page): Promise<{ title: string; active: boolean }[]> => page.evaluate(() => [...document.querySelectorAll('[data-testid=tab]')].map((tab) => ({ title: tab.querySelector('[role=tab]')!.textContent ?? '', active: tab.getAttribute('data-active') === 'true' })));
 const noLoading = async (page: Page, where: string): Promise<void> => {
-  await page.waitForFunction(() => document.querySelector('[data-testid=tab-bar]') !== null);
+  try {
+    await page.waitForFunction(() => document.querySelector('[data-testid=tab-bar]') !== null, { timeout: 120_000 });
+  } catch {
+    const seen = await page.evaluate(() => ({ url: window.location.href, body: document.body.innerHTML.slice(0, 1500) }));
+    fail(`${where}: no tab bar after 120 s: ${JSON.stringify(seen)}`);
+  }
   await new Promise((rest) => setTimeout(rest, 800));
   const titles = (await tabs(page)).map((tab) => tab.title);
   if (titles.some((title) => /Loading|Загрузка/.test(title) || title.trim() === '')) fail(`${where}: a tab is still titled as loading: ${JSON.stringify(titles)}`);
