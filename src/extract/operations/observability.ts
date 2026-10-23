@@ -181,6 +181,24 @@ function metricsEndpoints(t: TreeText, records: Records): void {
   }
 }
 
+/**
+ * The endpoints link to the service that serves them (madarch-m38l.16): the health and metrics endpoints point at the
+ * file they stand in, and a reader also needs "this is the health route of the orders service". Run after the stack
+ * extractor, which makes the `code.service` nodes; an endpoint whose service has no manifest keeps its file link and
+ * gets no service link, because a link to a service nothing declares would be a node of its own.
+ */
+export function linkEndpoints(t: TreeText, records: Records): void {
+  for (const node of [...records.nodes]) {
+    if (node.kind !== 'code.health-endpoint' && node.kind !== 'code.metrics-endpoint') continue;
+    const path = node.key.slice(node.key.indexOf(':') + 1, node.key.lastIndexOf('#'));
+    const service = serviceOf(path);
+    if (service === undefined) continue;
+    const key = `code.service:${service}`;
+    if (!records.nodes.some((held) => held.key === key)) continue;
+    records.edge('code.served-by', node.key, key, {role: 'service'}, node.span ?? t.spanOfFile(path));
+  }
+}
+
 /** The observability area. */
 export function extractObservability(t: TreeText, records: Records): void {
   loggers(t, records);

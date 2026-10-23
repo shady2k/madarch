@@ -468,8 +468,18 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
         }
       }
       if (Object.keys(extra).length === 0) continue;
+      // A facet is named by the file it is about and its owner, so two producers' facets of two same-named things do not
+      // read alike; its place is the place of the node it describes, where that node has one (madarch-m38l.16).
+      const described = node.span ?? held.span;
+      const pathOfOwner = node.key.startsWith('code.file:') ? node.key.slice('code.file:'.length) : described?.path;
       facets.push({
-        node: { key: `code.facet:${extraction.producer}#${node.key}`, kind: 'code.facet', label: node.label, properties: { ...extra, ownerKey: node.key }, ...(node.span === undefined ? {} : { span: node.span }) },
+        node: {
+          key: `code.facet:${extraction.producer}#${node.key}`,
+          kind: 'code.facet',
+          label: pathOfOwner === undefined ? node.label : `${node.label} · ${pathOfOwner}`,
+          properties: { ...extra, ownerKey: node.key },
+          ...(described === undefined ? {} : { span: described }),
+        },
       });
     }
     const effective: Extraction = {

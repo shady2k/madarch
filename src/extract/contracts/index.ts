@@ -194,7 +194,9 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
     else tsFiles.push({path: p, ts: read.value as TsFileFacts});
   }
 
-  const serviceOf = (path: string): string => /^(services\/[^/]+)\//.exec(path)?.[1] ?? path;
+  // The service a file belongs to, named as the operations extractor names it: the folder under services/ and nothing
+  // else, so `code.service:<name>` reaches the node the stack extractor makes (madarch-m38l.16).
+  const serviceOf = (path: string): string => /^services\/([^/]+)\//.exec(path)?.[1] ?? path;
   const folderOf = (path: string): string => path.slice(0, Math.max(0, path.lastIndexOf('/')));
   const goMethodFiles = new Map<string, string>();
   for (const file of goFiles) for (const method of file.go.methods) if (!goMethodFiles.has(method)) goMethodFiles.set(method, file.path);
@@ -290,10 +292,11 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
       nodes.push({
         key: routeKey(file.path, route.method, route.path),
         kind: KIND_ROUTE,
-        label: `${route.method} ${route.path}`,
+        label: `${route.method} ${route.path} · ${service}`,
         properties,
         span: route.span,
       });
+      edges.push({type: 'code.references', from: routeKey(file.path, route.method, route.path), to: fileKey(file.path), discriminator: '', properties: {}, span: route.span});
     }
 
     if (file.go.entryPoint) {
@@ -309,6 +312,9 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
         span: entrySpan,
       });
       edges.push({type: 'code.starts', from: entryKey, to: fileKey(file.path), discriminator: '', properties: {kind: 'entry-file'}, span: entrySpan});
+      if (service !== undefined) edges.push({type: 'code.belongs-to' as const, from: entryKey, to: `code.service:${service}`, discriminator: '', properties: {}, span: entrySpan});
+      const goProcess = processKeyOf(file.path);
+      if (goProcess !== undefined) edges.push({type: 'code.starts', from: entryKey, to: goProcess, discriminator: 'process', properties: {kind: 'process'}, span: entrySpan});
       for (const unit of started) {
         const target = unit.path !== undefined ? fileKey(unit.path) : undefined;
         if (target !== undefined) edges.push({type: 'code.starts', from: entryKey, to: target, discriminator: `${unit.kind}:${unit.symbol}`, properties: {kind: unit.kind, symbol: unit.symbol, ...(unit.port !== undefined ? {port: unit.port} : {})}, span: entrySpan});
@@ -383,7 +389,7 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
       nodes.push({
         key: routeKey(file.path, route.method, path),
         kind: KIND_ROUTE,
-        label: `${route.method} ${path}`,
+        label: `${route.method} ${path} · ${service}`,
         properties: {
           method: route.method,
           path,
@@ -393,6 +399,7 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
         },
         span: route.span,
       });
+      edges.push({type: 'code.references', from: routeKey(file.path, route.method, path), to: fileKey(file.path), discriminator: '', properties: {}, span: route.span});
     }
 
     if (ts.entry !== undefined) {
@@ -410,6 +417,9 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
         span: entrySpan,
       });
       edges.push({type: 'code.starts', from: entryKey, to: fileKey(file.path), discriminator: '', properties: {kind: 'entry-file'}, span: entrySpan});
+      if (service !== undefined) edges.push({type: 'code.belongs-to' as const, from: entryKey, to: `code.service:${service}`, discriminator: '', properties: {}, span: entrySpan});
+      const tsProcess = processKeyOf(file.path);
+      if (tsProcess !== undefined) edges.push({type: 'code.starts', from: entryKey, to: tsProcess, discriminator: 'process', properties: {kind: 'process'}, span: entrySpan});
       for (const unit of ts.started) {
         const target = unit.path !== undefined ? fileKey(unit.path) : undefined;
         if (target !== undefined) edges.push({type: 'code.starts', from: entryKey, to: target, discriminator: `${unit.kind}:${unit.symbol}`, properties: {kind: unit.kind, symbol: unit.symbol, ...(unit.port !== undefined ? {port: unit.port} : {})}, span: entrySpan});
@@ -516,6 +526,20 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
 
 }
 
+
+/**
+ * The process node a entry point starts, keyed as the deploy extractor keys it (madarch-m38l.16): the entry file of a
+ * TypeScript program, or the folder of a Go `main.go`. A program that starts from neither has no process key, and the
+ * entry point keeps its file link alone.
+ */
+function processKeyOf(path: string): string | undefined {
+  if (path.endsWith('/main.go')) {
+    const folder = path.slice(0, path.lastIndexOf('/'));
+    return folder === '' ? undefined : `code.process:${folder}`;
+  }
+  return /\.[cm]?[jt]sx?$/.test(path) ? `code.process:${path}` : undefined;
+}
+
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -556,6 +580,8 @@ function extractSqlFlow(
       properties: {source: 'query', name: input.name, ...(input.fn !== undefined ? {readBy: input.fn} : {})},
       span: input.span,
     });
+    // The input is read in this file, whether or not it reaches a builder or a sink (madarch-m38l.16).
+    addEdge('code.references', inputKey(path, 'query', input.name), fileKey(path), {}, input.span);
   }
   const pathBuilds = ts.stringSplicers.filter((splicer) => ts.buildersOnPath.includes(splicer.fn));
   for (const build of pathBuilds) {
@@ -564,6 +590,7 @@ function extractSqlFlow(
       kind: KIND_SQL_BUILD,
       label: build.fn,
       properties: {function: build.fn, spliced: build.spliced},
+      ...(build.span === undefined ? {} : {span: build.span}),
     });
   }
   for (const sink of ts.sqlSinks) {

@@ -8,7 +8,7 @@ import { CODE_PRODUCER, extractCode } from '../code/index.js';
 import { extractContracts } from '../contracts/index.js';
 import { extractDataModel } from '../data-model/extract.js';
 import { extractHistory } from '../history/index.js';
-import { extractOperations } from '../operations/index.js';
+import { extractOperations, OPERATIONS_PRODUCER } from '../operations/index.js';
 import { extractFiles, FILES_PRODUCER } from './files.js';
 import type { HistoryExtractor, TreeExtractor } from './index.js';
 
@@ -21,6 +21,9 @@ export const HISTORY_EXTRACTOR: HistoryExtractor = (repository) => extractHistor
 /**
  * Node ownership: one owning producer per kind, in the order they publish
  * within a commit. The tree lister owns files; the code extractor
- * (`code.extract.code`) owns symbols.
+ * (`code.extract.code`) owns symbols; the operations extractor owns services,
+ * because it is the one that reads them from their manifests — without the
+ * entry, the data model's `code.service:` edge opened a stub node of its own
+ * and one service stood in the graph twice (madarch-m38l.16).
  */
-export const OWNERS: Readonly<Record<string, string>> = { 'code.file': FILES_PRODUCER, 'code.symbol': CODE_PRODUCER };
+export const OWNERS: Readonly<Record<string, string>> = { 'code.file': FILES_PRODUCER, 'code.symbol': CODE_PRODUCER, 'code.service': OPERATIONS_PRODUCER };

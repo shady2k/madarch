@@ -57,6 +57,12 @@ const decoder = new TextDecoder('utf-8', { fatal: true });
 
 export { CODE_PRODUCER };
 
+
+/** The span of a whole file, from the text a reader already holds: a manifest's place is the manifest. */
+function fileSpan(path: string, text: string): SourceSpan {
+  return {path, byteStart: 0, byteEnd: text.length, lineStart: 1, lineEnd: text === '' ? 1 : text.split('\n').length};
+}
+
 function toSpan(path: string, span: SyntaxSpan): SourceSpan {
   return { path, byteStart: span.startByte, byteEnd: span.endByte, lineStart: span.startLine, lineEnd: span.endLine };
 }
@@ -70,6 +76,7 @@ interface Manifest {
   readonly ecosystem: 'go' | 'node';
   readonly name: string;
   readonly frameworks: readonly string[];
+  readonly span: SourceSpan;
 }
 
 interface FileFacts {
@@ -116,13 +123,13 @@ export async function extractCode(reader: TreeReader): Promise<Extraction> {
         continue;
       }
       goModules.push({ folder: folderOf(path), module });
-      manifests.push({ folder: folderOf(path), ecosystem: 'go', name: module, frameworks: ['go-test'] });
+      manifests.push({ folder: folderOf(path), ecosystem: 'go', name: module, frameworks: ['go-test'], span: fileSpan(path, text) });
     } else {
       try {
         const parsed = JSON.parse(text) as { name?: unknown; dependencies?: Record<string, unknown>; devDependencies?: Record<string, unknown> };
         const names = new Set([...Object.keys(parsed.dependencies ?? {}), ...Object.keys(parsed.devDependencies ?? {})]);
         const frameworks = ['jest', 'vitest', 'mocha'].filter((name) => names.has(name));
-        manifests.push({ folder: folderOf(path), ecosystem: 'node', name: typeof parsed.name === 'string' ? parsed.name : folderOf(path), frameworks });
+        manifests.push({ folder: folderOf(path), ecosystem: 'node', name: typeof parsed.name === 'string' ? parsed.name : folderOf(path), frameworks, span: fileSpan(path, text) });
       } catch (error) {
         gap(path, `the package.json is not JSON: ${describeError(error)}`);
       }
@@ -487,10 +494,13 @@ export async function extractCode(reader: TreeReader): Promise<Extraction> {
     const goCode = members.find((file) => file.source.language === 'go' && file.source.role === 'code') ?? go;
     const packageName = goCode === undefined ? undefined : goCode.decls.packageName;
     const allTests = members.every((file) => file.source.role !== 'code');
+    // A module's place is its first member's file, in code point order: a folder has no line of its own.
+    const declaredIn = [...paths].sort(byCodePoint)[0];
     addNode({
       key: moduleKey(folder),
       kind: KIND_MODULE,
       label: folder === '' ? '.' : folder,
+      ...(declaredIn === undefined ? {} : {span: {path: declaredIn, byteStart: 0, byteEnd: 0, lineStart: 1, lineEnd: 1}}),
       properties: {
         language: go === undefined ? 'typescript' : 'go',
         kind: go === undefined ? 'folder' : 'package',
@@ -516,6 +526,7 @@ export async function extractCode(reader: TreeReader): Promise<Extraction> {
       key: packageKey(manifest.folder),
       kind: KIND_PACKAGE,
       label: manifest.name,
+      ...(manifest.span === undefined ? {} : {span: manifest.span}),
       properties: {
         ecosystem: manifest.ecosystem,
         name: manifest.name,
@@ -557,7 +568,8 @@ export async function extractCode(reader: TreeReader): Promise<Extraction> {
       for (const from of component) for (const to of [...(graph.get(from) ?? [])].sort(byCodePoint)) if (inside.has(to)) internal.push(`${from} -> ${to}`);
       if (level === 'file') fileCycleFolders.push(new Set(component.map((member) => moduleKey(folderOf(member.slice(member.indexOf(':') + 1))))));
       const key = cycleKey(level, component);
-      addNode({ key, kind: KIND_CYCLE, label: component.map((member) => member.slice(member.indexOf(':') + 1)).join(' <-> '), properties: { level, size: component.length, members: component, edges: internal } });
+      const first = [...component].sort(byCodePoint)[0];
+      addNode({ key, kind: KIND_CYCLE, label: component.map((member) => member.slice(member.indexOf(':') + 1)).join(' <-> '), ...(first === undefined ? {} : {span: {path: first.slice(first.indexOf(':') + 1), byteStart: 0, byteEnd: 0, lineStart: 1, lineEnd: 1}}), properties: { level, size: component.length, members: component, edges: internal } });
       for (const member of component) addEdge({ type: REL_CYCLE_MEMBER, from: key, to: member, discriminator: '', properties: {} });
     }
   };

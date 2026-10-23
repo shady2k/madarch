@@ -223,8 +223,15 @@ export function extractDriverTests(label: string, make: () => { owner: DatabaseO
         'code.author': 'an author is a person',
         'code.task': 'a task is a tracker key that commit messages name',
       };
-      /** The kinds whose labels may repeat, and why: two commits may carry the same message. */
-      const repeatedLabels: Readonly<Record<string, string>> = {'code.commit': 'two commits may carry the same message'};
+      /**
+       * The kinds whose labels may repeat, and why. A commit's label is its message, and two commits may carry one
+       * message; a symbol's label is the name it is written under (`New` in four packages), and its row names the file
+       * and the line, which tell them apart.
+       */
+      const repeatedLabels: Readonly<Record<string, string>> = {
+        'code.commit': 'two commits may carry the same message',
+        'code.symbol': 'a symbol is labelled by its name in its file; the file and the line tell two of them apart',
+      };
       const totals = new Map<string, {total: number; isolated: string[]}>();
       const unplaced: string[] = [];
       const labels = new Map<string, Map<string, string[]>>();

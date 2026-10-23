@@ -409,13 +409,23 @@ export async function extractDataModel(tree: TreeReader): Promise<Extraction> {
   // ---- the nodes --------------------------------------------------------------
   const nodes: ExtractedNode[] = [];
   for (const database of [...databases.values()].sort((left, right) => byCodePoint(left.name, right.name))) {
-    nodes.push({key: databaseKey(database.name), kind: 'code.database', label: database.name, properties: {service: database.name}});
+    // The database's place is the first file that declares it — its first migration, its schema, or the folder it
+    // stands in — and every migration names its own file (madarch-m38l.16: a node says where it stands).
+    const declaredIn = database.migrations[0]?.path;
+    nodes.push({
+      key: databaseKey(database.name),
+      kind: 'code.database',
+      label: database.name,
+      properties: {service: database.name, ...(declaredIn === undefined ? {} : {path: declaredIn})},
+      ...(declaredIn === undefined ? {} : {span: wholeFile(tree, declaredIn)}),
+    });
     for (const migration of database.migrations) {
       nodes.push({
         key: migrationKey(database.name, migration.name),
         kind: 'code.migration',
         label: migration.name,
         properties: {path: migration.path, ordinal: migrationOrdinals.get(migration.path) ?? 0},
+        span: wholeFile(tree, migration.path),
       });
     }
     for (const table of [...database.tables.values()].sort((left, right) => byCodePoint(left.name, right.name))) {
@@ -430,7 +440,7 @@ export async function extractDataModel(tree: TreeReader): Promise<Extraction> {
         nodes.push({
           key: columnKey(database.name, table.name, column.name, table.schema),
           kind: 'code.column',
-          label: column.name,
+          label: `${table.name}.${column.name}`,
           properties: {
             type: column.type,
             nullable: column.nullable,
@@ -446,7 +456,7 @@ export async function extractDataModel(tree: TreeReader): Promise<Extraction> {
         nodes.push({
           key: indexKey(database.name, table.name, index.name, table.schema),
           kind: 'code.index',
-          label: index.name,
+          label: `${table.name}.${index.name}`,
           properties: {
             columns: [...index.columns].sort(byCodePoint),
             unique: index.unique,
@@ -532,6 +542,7 @@ export async function extractDataModel(tree: TreeReader): Promise<Extraction> {
           edge('code.alters', migrationId, columnKey(database.name, statement.table, statement.column.name, statement.schema), statement.column.span);
         } else if (statement.kind === 'alter-table-add-foreign-key') {
           edge('code.alters', migrationId, tableKey(database.name, statement.table, statement.schema), statement.span);
+          edge('code.alters', migrationId, columnKey(database.name, statement.table, statement.foreignKey.column, statement.schema), statement.span);
         } else if (statement.kind === 'create-index') {
           edge('code.creates', migrationId, indexKey(database.name, statement.table, statement.index.name, statement.schema), statement.index.span);
         }
@@ -616,6 +627,21 @@ function tableOf(database: MergedDatabase, name: string, schema = 'public'): Mer
 }
 
 /** Reads a path's bytes as text; the reason is the gap when they cannot be read. */
+
+/** The span of a whole file, or the first line where its bytes cannot be read: a database and a migration say where they stand. */
+function wholeFile(tree: TreeReader, path: string): SourceSpan {
+  const read = readUtf8(tree, path);
+  const lines = read.ok && read.text !== '' ? read.text.split('\n').length : 1;
+  const bytes = (() => {
+    try {
+      return tree.read(path).length;
+    } catch {
+      return 0;
+    }
+  })();
+  return {path, byteStart: 0, byteEnd: bytes, lineStart: 1, lineEnd: lines};
+}
+
 function readUtf8(tree: TreeReader, path: string): TextOrGap {
   let bytes: Uint8Array;
   try {

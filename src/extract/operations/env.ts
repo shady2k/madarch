@@ -286,7 +286,9 @@ export function extractEnv(t: TreeText, records: Records): Map<string, EnvRead[]
     records.add({
       key: `code.env-var:${variable}`,
       kind: 'code.env-var',
-      label: variable.slice(variable.indexOf('/') + 1),
+      // The same variable is set for several services (DATABASE_URL of orders, payments, promotions): its label names
+      // the service it belongs to, so a list of variables shows each once (madarch-m38l.16).
+      label: variable,
       properties: { required, default: defaults[0] ?? null } satisfies { [key: string]: PropertyValue },
       span: t.spanOfLine(first.path, first.line),
     });
@@ -301,13 +303,19 @@ export function extractEnv(t: TreeText, records: Records): Map<string, EnvRead[]
     }
   }
   for (const definition of definitions.sort((left, right) => byCodePoint(left.key, right.key))) {
+    // A definition is labelled by the file it stands in as well as the variable it sets: `.env.example` and three
+    // compose files all define DATABASE_URL, and a list shows each row once (madarch-m38l.16).
+    const where = definition.span?.path;
     records.add({
       key: definition.key,
       kind: 'code.env-definition',
-      label: definition.name,
-      properties: { value: definition.value },
+      label: where === undefined ? definition.name : `${definition.name} · ${where}`,
+      properties: { value: definition.value, ...(definition.scope === null ? {} : {scope: definition.scope}) },
       span: definition.span,
     });
+    // The file that gives the variable its value is the definition's own place in the code, whether or not the code
+    // reads the variable: `.env.example` and a compose file connect through it (madarch-m38l.16).
+    if (where !== undefined) records.edge('code.defined-in', definition.key, records.file(where), {}, definition.span);
     if (definition.scope === null) continue;
     const variable = `${definition.scope}/${definition.name}`;
     if (!byVariable.has(variable)) continue;
