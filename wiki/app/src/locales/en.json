@@ -231,7 +231,9 @@
       "ambiguous": "Ambiguous.",
       "ambiguousNoNote": "The documents use this word for more than one thing.",
       "ambiguousBadge": "Ambiguous",
-      "statedAt": "Stated at"
+      "statedAt": "Stated at",
+      "lead_few": "{{count}} terms, each with the place it is stated.",
+      "lead_many": "{{count}} terms, each with the place it is stated."
     },
     "roles": {
       "cardTitle": "Which role do you read as?",

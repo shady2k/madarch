@@ -8,7 +8,6 @@ import { useTranslation } from 'react-i18next';
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu';
 import { CheckIcon, CircleHelpIcon, UserRoundIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button.js';
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog.js';
 import { K_HOME } from './routes.js';
 import { ROLES, chooseRole, useSettings } from './roles.js';
 import type { ProductChoice } from './types.js';
@@ -27,30 +26,34 @@ export function RoleCard(): ReactElement | null {
     chooseRole(role).then(() => setWorking(false), (failure: unknown) => { setWorking(false); setError(failure instanceof Error ? failure.message : String(failure)); });
   };
   return (
-    <Dialog open onOpenChange={(open) => { if (!open && !working) keep('everything'); }}>
-      <DialogContent data-testid="role-card">
-        <DialogTitle>{t('knowledge.roles.cardTitle')}</DialogTitle>
-        <DialogDescription asChild>
-          <div className="grid gap-3 text-small text-secondary">
-            <p className="m-0">{t('knowledge.roles.cardLead')}</p>
-            <div role="radiogroup" aria-label={t('knowledge.roles.cardTitle')} className="grid gap-1.5">
-              {ROLES.map((role) => (
-                <label key={role} className="flex cursor-pointer items-start gap-2.5 rounded-[var(--radius-card)] border border-line px-3 py-2 has-[:checked]:border-ink" data-testid="role-option" data-role={role}>
-                  <input type="radio" name="role" className="mt-1" checked={picked === role} onChange={() => setPicked(role)} />
-                  <span><b className="text-ink">{t(`knowledge.roles.names.${role}`)}</b><br />{t(`knowledge.roles.about.${role}`)}</span>
-                </label>
-              ))}
-            </div>
-            <p className="m-0 text-muted">{t('knowledge.roles.cardNote')}</p>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-ink/40 p-4" role="presentation" onKeyDown={(event) => { if (event.key === 'Escape' && !working) keep('everything'); }}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="role-card-title"
+        data-testid="role-card"
+        className="grid max-h-[85dvh] w-[min(34rem,_92vw)] gap-3 overflow-y-auto rounded-[var(--radius-panel)] border border-line bg-[var(--surface-menu)] p-5 text-ink shadow-[var(--shadow-high)]"
+      >
+        <h2 id="role-card-title" className="m-0 text-h3 font-semibold text-ink">{t('knowledge.roles.cardTitle')}</h2>
+        <div className="grid gap-3 text-small text-secondary">
+          <p className="m-0">{t('knowledge.roles.cardLead')}</p>
+          <div role="radiogroup" aria-labelledby="role-card-title" className="grid gap-1.5">
+            {ROLES.map((role) => (
+              <label key={role} className="flex cursor-pointer items-start gap-2.5 rounded-[var(--radius-card)] border border-line px-3 py-2 has-[:checked]:border-ink" data-testid="role-option" data-role={role}>
+                <input type="radio" name="role" className="mt-1" checked={picked === role} onChange={() => setPicked(role)} autoFocus={role === 'everything'} />
+                <span><b className="text-ink">{t(`knowledge.roles.names.${role}`)}</b><br />{t(`knowledge.roles.about.${role}`)}</span>
+              </label>
+            ))}
           </div>
-        </DialogDescription>
+          <p className="m-0 text-muted">{t('knowledge.roles.cardNote')}</p>
+        </div>
         {error !== null && <p className="m-0 text-small" role="alert" data-testid="role-error">{error}</p>}
         <div className="flex justify-end gap-2">
           <Button variant="default" size="default" disabled={working} onClick={() => keep('everything')} data-testid="role-skip">{t('knowledge.roles.skip')}</Button>
           <Button variant="default" size="default" className="!border-ink !bg-ink !text-page" disabled={working} onClick={() => keep(picked)} data-testid="role-continue">{t('knowledge.roles.continue')}</Button>
         </div>
-      </DialogContent>
-    </Dialog>
+      </div>
+    </div>
   );
 }
 

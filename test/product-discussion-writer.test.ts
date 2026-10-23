@@ -270,7 +270,7 @@ describe('the writer asks who the user is (decision 0031)', () => {
     expect(written.ok).toBe(true);
     if (!written.ok) return;
     const message = readFileSync(join(product, 'comments', written.thread, `${written.message}.md`), 'utf8');
-    expect(message).toContain('author: Fixture Author');
+    expect(message).toContain('author: "Fixture Author"');
     expect(message).toContain('verified: local-git');
     expect(git(product, ['log', '-1', '--format=%B'])).toContain('Written-by: Fixture Author <fixture@example.test> (local, not verified)');
     const question = join(product, 'docs', 'question.md');

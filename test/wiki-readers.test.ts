@@ -16,7 +16,7 @@ import { readKinds } from '../src/knowledge/kinds.js';
 import { readSettings, settingsPath, writeRole } from '../src/knowledge/settings.js';
 import { startServer, type StartedServer } from '../src/server/http.js';
 import { installOwnWiki } from '../src/product/own-wiki.js';
-import { GLOSSARY, makeWikiRepository } from './own-wiki-fixture.js';
+import { GLOSSARY, makeWikiRepository, ownGit } from './own-wiki-fixture.js';
 import { generateTrainingRepository, makeProduct } from './knowledge-fixture.js';
 
 const MANIFEST = (roles: string): string => `groups:\n  product: { en: Product, ru: Продукт }\n  code: { en: Code, ru: Код }\nkinds:\n  product:\n    template: templates/product.md\n    source: markdown\n    file: docs/product.md\n${roles}`;
@@ -138,6 +138,7 @@ describe('the products-home server with madarch\'s own wiki', () => {
   let madarchHome: string;
   let empty: StartedServer;
   let busy: StartedServer;
+  const errors: string[] = [];
   const get = async (server: StartedServer, path: string, init?: RequestInit): Promise<{ status: number; body: any; location: string | null }> => {
     const response = await fetch(`${server.url}${path}`, { redirect: 'manual', ...init });
     const text = await response.text();
@@ -161,10 +162,18 @@ describe('the products-home server with madarch\'s own wiki', () => {
     mkdirSync(busyHome);
     const mine = makeWikiRepository(join(busyHome, 'my-product'), { 'docs/extra.md': '# Extra\n' });
     writeFileSync(join(mine, 'workspace.yaml'), 'schemaVersion: 1\nid: 2ed7a5e0-3aa5-4e9a-9d3c-76d0a0c5c0aa\nname: My product\n');
-    const common = { appFolder: app, port: 0, log: () => undefined, errorLog: () => undefined, env: { MADARCH_HOME: madarchHome }, ownWiki: { folder: installed.folder } };
+    const common = { appFolder: app, port: 0, log: () => undefined, errorLog: (line: string) => { errors.push(line); }, env: { MADARCH_HOME: madarchHome }, ownWiki: { folder: installed.folder } };
     empty = await startServer({ ...common, productHome: emptyHome, knowledgeRoot: join(work, 'store-a') });
     busy = await startServer({ ...common, productHome: busyHome, knowledgeRoot: join(work, 'store-b') });
-  }, 60_000);
+    // The first page of a product waits for its reader to start (a process of its own): the tests below do not.
+    for (const [server, path] of [[empty, '/products/madarch-wiki/api/k/status'], [busy, '/products/madarch-wiki/api/k/status'], [busy, '/products/my-product/api/k/status']] as const) {
+      for (let tries = 0; ; tries += 1) {
+        if ((await fetch(`${server.url}${path}`)).ok) break;
+        if (tries > 60) throw new Error(`the status at ${path} never answered; the server said:\n${errors.join('\n')}`);
+        await new Promise((rest) => setTimeout(rest, 500));
+      }
+    }
+  }, 120_000);
 
   afterAll(async () => {
     await empty.stop();
@@ -190,6 +199,8 @@ describe('the products-home server with madarch\'s own wiki', () => {
     expect(own.body.home).toBe('product:docs');
     expect(Object.keys(own.body.roles)).toEqual(['product', 'analyst', 'architect', 'developer', 'operations', 'tester']);
     expect((await get(busy, '/products/my-product/api/k/status')).body.own).toBeUndefined();
+    // Serving the wiki writes nothing into it, so the refresh can fast-forward it.
+    expect(ownGit(join(madarchHome, 'madarch-wiki'), ['status', '--porcelain', '--untracked-files=all'])).toBe('');
   });
 
   test('reading the own wiki does not make it the product the root opens next', async () => {
@@ -208,7 +219,7 @@ describe('the products-home server with madarch\'s own wiki', () => {
 
   test('the glossary is read with no fill: the terms, their fields and the resolution of the links they hold; the ambiguity is flagged', async () => {
     const answer = await get(busy, '/products/madarch-wiki/api/k/glossary');
-    expect(answer.status).toBe(200);
+    if (answer.status !== 200) throw new Error(`the glossary answered ${answer.status} ${JSON.stringify(answer.body)}; the server said:\n${errors.join('\n')}`);
     expect(answer.body.terms.map((term: { title: string }) => term.title)).toEqual(['Capture', 'Manifest', 'Payment token']);
     const manifest = answer.body.terms.find((term: { title: string }) => term.title === 'Manifest');
     expect(manifest).toMatchObject({ synonyms: ['manifests', 'kinds file'], code: ['madarch/kinds.yaml'], path: 'docs/glossary.md', line: 3 });
@@ -220,7 +231,7 @@ describe('the products-home server with madarch\'s own wiki', () => {
   test('a term is a page with its definition block, its links resolved on the page', async () => {
     const id = encodeURIComponent('doc:docs/glossary.md#payment-token');
     const page = await get(busy, `/products/madarch-wiki/api/k/page?id=${id}`);
-    expect(page.status).toBe(200);
+    if (page.status !== 200) throw new Error(`the page answered ${page.status} ${JSON.stringify(page.body)}; the server said:\n${errors.join('\n')}`);
     const term = page.body.blocks.find((block: { type: string }) => block.type === 'term');
     expect(term).toMatchObject({ type: 'term', definition: 'The proof a provider returns when it captured money.' });
     expect(term.ambiguous).toContain('open question');

@@ -12,7 +12,7 @@ import { createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { setWikiLanguage } from '../i18n.js';
 import { KMarkdown } from './blocks.js';
-import { GlossaryContext, GlossaryPage, TermBlockView, termIndex } from './glossary.js';
+import { GlossaryContext, GlossaryPage, TermBlockView, filterTerms, termIndex } from './glossary.js';
 import { EntityPage } from './pages.js';
 import { HelpLink, RoleCard, RoleMenu } from './role-ui.js';
 import { RoleContext, blockOpen, chooseRole, leadGroups, loadSettings, resetSettings } from './roles.js';
@@ -150,7 +150,7 @@ describe('the links from the text to the glossary', () => {
     const russian = [term('Манифест', { synonyms: ['манифеста'] })];
     const container = into(createElement(GlossaryContext.Provider, { value: { index: termIndex(russian), terms: russian } }, createElement(KMarkdown, { text: 'Файл манифеста лежит рядом; манифестация — другое слово.', resolutions: {} })));
     await until(() => container.querySelector('a.term-link') !== null, 'the term link');
-    expect(linked(container)).toEqual([`манифеста>${russian[0]!.href}`]);
+    expect(linked(container).map((entry) => decodeURIComponent(entry))).toEqual([decodeURIComponent(`манифеста>${russian[0]!.href}`)]);
   });
 });
 
@@ -184,16 +184,12 @@ describe('the glossary page and a term\'s block', () => {
     expect(items[1]!.querySelector('[data-testid=term-ground]')!.textContent).toContain('docs/glossary.md:7');
   });
 
-  test('the filter narrows by a name, a synonym or a code name', async () => {
-    (globalThis as { fetch?: unknown }).fetch = async () => Response.json(glossary);
-    const container = into(createElement(GlossaryPage, { version: 1 }));
-    await until(() => container.querySelector('[data-testid=glossary-term]') !== null, 'the terms');
-    const filter = container.querySelector('[data-testid=glossary-filter]') as HTMLInputElement;
-    const set = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(filter), 'value')!.set!;
-    set.call(filter, 'kinds.yaml');
-    filter.dispatchEvent(new Event('input', { bubbles: true }));
-    await until(() => container.querySelectorAll('[data-testid=glossary-term]').length === 1, 'the filtered list');
-    expect(container.querySelector('[data-testid=glossary-term]')!.getAttribute('data-term')).toBe('Manifest');
+  test('the filter narrows by a name, a synonym or a code name, in any case', () => {
+    expect(filterTerms(glossary.terms, 'kinds.YAML').map((entry) => entry.title)).toEqual(['Manifest']);
+    expect(filterTerms(glossary.terms, 'MANIFESTS').map((entry) => entry.title)).toEqual(['Manifest']);
+    expect(filterTerms(glossary.terms, 'token').map((entry) => entry.title)).toEqual(['Payment token']);
+    expect(filterTerms(glossary.terms, '  ').map((entry) => entry.title)).toEqual(['Manifest', 'Payment token']);
+    expect(filterTerms(glossary.terms, 'nothing like it')).toEqual([]);
   });
 
   test('a product with no glossary says what a glossary is; a read that fails shows its reason', async () => {

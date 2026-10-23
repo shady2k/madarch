@@ -161,6 +161,12 @@ export function TermBlockView({ block, pageId, resolutions }: { block: { definit
   );
 }
 
+/** The terms whose name, synonym or code name holds the text, in any case; all of them for an empty text. */
+export function filterTerms(terms: readonly GlossaryTerm[], query: string): GlossaryTerm[] {
+  const text = query.trim().toLowerCase();
+  return terms.filter((term) => text === '' || [term.title, ...term.synonyms, ...term.code].some((name) => name.toLowerCase().includes(text)));
+}
+
 /** The glossary page: every term with its definition, names, ambiguity and the document and line it is stated at. */
 export function GlossaryPage({ version }: { version: number }): ReactElement {
   const { t } = useTranslation();
@@ -169,8 +175,7 @@ export function GlossaryPage({ version }: { version: number }): ReactElement {
   useTabTitle(t('knowledge.glossary.title'));
   if (glossary === null && error === null) return <PageSkeleton testId="glossary-loading" rows />;
   if (glossary === null) return <Alert variant="problem" data-testid="glossary-error"><AlertDescription><p>{error}</p></AlertDescription></Alert>;
-  const text = query.trim().toLowerCase();
-  const shown = glossary.terms.filter((term) => text === '' || [term.title, ...term.synonyms, ...term.code].some((name) => name.toLowerCase().includes(text)));
+  const shown = filterTerms(glossary.terms, query);
   return (
     <section data-testid="glossary-page">
       <header className="mb-6">
