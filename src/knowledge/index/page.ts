@@ -88,7 +88,8 @@ export function readIndexedPage(file: string, source: string, sha256: (text: str
     kind,
     title: text(record['title']) ?? id.slice(id.indexOf(':') + 1),
     file,
-    relates: list('relates'),
+    // A question or a correction says what it is `about` where a page says what it `relates` to: the same edge in the index.
+    relates: [...new Set([...list('relates'), ...list('about')])].sort(byCodePoint),
     sources: list('sources'),
     writtenAt: readWrittenAt(record['written-at'], file),
     producer: text(record['producer']) ?? null,

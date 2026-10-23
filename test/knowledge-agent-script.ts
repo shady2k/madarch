@@ -8,10 +8,10 @@
  */
 import { FACTORY, PAY, PAYMENTS_SERVICE } from './knowledge-fixture.js';
 
-const ORDERS_SERVICE = 'code.service:orders';
+export const ORDERS_SERVICE = 'code.service:orders';
 
 /** What the fake agent says, per language: the headings and the statements it grounds. The grounds are the same facts in both. */
-const TEXT = {
+export const TEXT = {
   en: {
     orderingSummary: 'Ordering is what the orders service does when a shopper places an order.',
     paymentsSummary: 'Payments is what the payments service does when it charges a card.',
@@ -39,7 +39,7 @@ const TEXT = {
 } as const;
 export type ScriptLanguage = keyof typeof TEXT;
 
-const productPage = (language: ScriptLanguage): string => {
+export const productPage = (language: ScriptLanguage): string => {
   const t = TEXT[language];
   return [
     '---', 'id: product:training-shop', 'kind: product', `title: ${t.productTitle}`, 'relates:', `  - ${ORDERS_SERVICE}`, `  - ${PAYMENTS_SERVICE}`, 'producer: agent', 'sources: [docs/vision.md, docs/requirements.md]', '---', '',
@@ -53,7 +53,7 @@ const productPage = (language: ScriptLanguage): string => {
     `[^3]: [payments](madarch:${PAYMENTS_SERVICE}), [UC-2](madarch:doc:docs/requirements.md#uc-2)`,
   ].join('\n');
 };
-const domain = (language: ScriptLanguage, slug: 'ordering' | 'payments', service: string, grounds: string[]): string => {
+export const domain = (language: ScriptLanguage, slug: 'ordering' | 'payments', service: string, grounds: string[]): string => {
   const t = TEXT[language];
   return [
     '---', `id: domain:${slug}`, 'kind: domain', `title: ${t[slug]}`, 'relates:', `  - ${service}`, 'producer: agent', 'sources: [docs/requirements.md]', '---', '',
@@ -62,7 +62,7 @@ const domain = (language: ScriptLanguage, slug: 'ordering' | 'payments', service
   ].join('\n');
 };
 
-const call = (markdown: string, domains?: unknown) => ({ call: { tool: 'write_page', arguments: domains === undefined ? { markdown } : { markdown, domains } } });
+export const call = (markdown: string, domains?: unknown) => ({ call: { tool: 'write_page', arguments: domains === undefined ? { markdown } : { markdown, domains } } });
 /**
  * `delays` holds the milliseconds each unit takes before it writes, so a walk can see a unit in progress. The agent
  * writes in the language its prompt asks for: English, or Russian when the prompt says "in Russian".

@@ -10,6 +10,7 @@
  * connection.
  */
 import { languageOf } from '../knowledge/blocks.js';
+import { LoopRefusal } from '../loop/answer.js';
 import { WikiReadError, type KnowledgeProduct } from '../knowledge/product.js';
 import type { Handled, ReplyMaker } from './http.js';
 
@@ -28,10 +29,21 @@ export interface KnowledgePart {
   reset: (request: Request) => Promise<Handled>;
   documents: (request: Request) => Promise<Handled>;
   document: (request: Request) => Promise<Handled>;
+  questions: (request: Request) => Promise<Handled>;
+  question: (request: Request) => Promise<Handled>;
+  answer: (request: Request) => Promise<Handled>;
+  correction: (request: Request) => Promise<Handled>;
+  problems: (request: Request) => Promise<Handled>;
+  refreshPlan: (request: Request) => Promise<Handled>;
 }
 
 /** The largest file the source view shows whole. */
 export const SOURCE_VIEW_BYTES = 2 * 1024 * 1024;
+
+/** A write that is not JSON could be a form another site posted without a preflight: refused. */
+function notJson(request: Request): string | undefined {
+  return request.headers.get('content-type')?.toLowerCase().includes('application/json') === true ? undefined : 'the request body is JSON and says so (content-type: application/json)';
+}
 
 /**
  * A request another site's page made through the reader's browser: the browser says so in `Sec-Fetch-Site`, and what
@@ -55,6 +67,7 @@ export function createKnowledgePart(
     try {
       return await work(request);
     } catch (error) {
+      if (error instanceof LoopRefusal) return refused(error.status, { message: error.message });
       if (error instanceof WikiReadError) {
         errorLog(`the knowledge wiki could not ${what}: ${error.message}`);
         return refused(500, { message: error.message });
@@ -166,6 +179,46 @@ export function createKnowledgePart(
       const done = await product.reset();
       if (!done.ok) return refused(409, { message: done.message });
       return { response: json(200, done.plan) };
+    }),
+    questions: guarded('list the questions', async () => ({ response: json(200, product.questions()) })),
+    question: guarded('read the question', async (request) => {
+      const id = new URL(request.url).searchParams.get('id');
+      if (id === null || !/^[a-z][a-z0-9]*(-[a-z0-9]+)*$/.test(id)) return refused(400, { field: 'id', message: '"id" is required: a question\'s id, lower-case words joined by hyphens' });
+      const detail = await product.question(id);
+      if (detail === undefined) return refused(404, { field: 'id', message: `there is no question ${id}: docs/questions/${id}.md is not in the product repository` });
+      return { response: json(200, detail) };
+    }),
+    answer: guarded('save the answer', async (request) => {
+      const crossSite = foreign(request);
+      if (crossSite !== undefined) return refused(403, { message: crossSite });
+      const plain = notJson(request);
+      if (plain !== undefined) return refused(415, { message: plain });
+      let body: unknown;
+      try { body = await request.json(); } catch (error) { return refused(400, { message: `the request body is not JSON: ${(error as Error).message}` }); }
+      const asked = body as { question?: unknown; text?: unknown } | null;
+      if (typeof asked?.question !== 'string') return refused(400, { field: 'question', message: '"question" is required: the id of the question being answered' });
+      if (typeof asked.text !== 'string') return refused(400, { field: 'text', message: '"text" is required: the answer' });
+      const done = await product.answer(asked.question, asked.text);
+      return { response: json(200, { question: done.question.slug, state: 'answered', committed: done.committed, ...(done.commit === undefined ? {} : { commit: done.commit }), ...(done.note === undefined ? {} : { note: done.note }), by: done.question.answer!.by, at: done.question.answer!.at }) };
+    }),
+    correction: guarded('save the correction', async (request) => {
+      const crossSite = foreign(request);
+      if (crossSite !== undefined) return refused(403, { message: crossSite });
+      const plain = notJson(request);
+      if (plain !== undefined) return refused(415, { message: plain });
+      let body: unknown;
+      try { body = await request.json(); } catch (error) { return refused(400, { message: `the request body is not JSON: ${(error as Error).message}` }); }
+      const asked = body as { statement?: unknown; reason?: unknown } | null;
+      if (typeof asked?.statement !== 'string') return refused(400, { field: 'statement', message: '"statement" is required: <page id>#<statement name>, such as domain:payments#refund-check' });
+      if (typeof asked.reason !== 'string') return refused(400, { field: 'reason', message: '"reason" is required: why the statement is wrong' });
+      const done = await product.correct(asked.statement, asked.reason);
+      return { response: json(201, { correction: done.correction.slug, id: done.correction.id, file: done.correction.file, committed: done.committed, ...(done.commit === undefined ? {} : { commit: done.commit }), ...(done.note === undefined ? {} : { note: done.note }), by: done.correction.by, at: done.correction.at }) };
+    }),
+    problems: guarded('list the problems', async () => ({ response: json(200, await product.problems()) })),
+    refreshPlan: guarded('plan the refresh', async (request) => {
+      const language = new URL(request.url).searchParams.get('language');
+      if (language !== null && language !== 'en' && language !== 'ru') return refused(400, { field: 'language', message: `"language" is en or ru, got ${JSON.stringify(language)}` });
+      return { response: json(200, await product.refreshPlan(language ?? undefined)) };
     }),
     products: guarded('list the products', async () => ({ response: json(200, { current: product.folder, products: siblings() }) })),
   };

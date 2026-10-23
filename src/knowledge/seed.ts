@@ -1,5 +1,7 @@
-import { existsSync, lstatSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, join, sep } from 'node:path';
+import { parseDocument } from 'yaml';
+import { KINDS_FILE } from './kinds.js';
 
 /**
  * The starter set `madarch new` writes into a product (decision 0029): the
@@ -135,6 +137,8 @@ const TEMPLATES: Readonly<Record<string, string>> = {
   'table.md': TABLE,
   'entity-text.md': ENTITY_TEXT,
   'term.md': TERM,
+  'question.md': ':::body\n',
+  'correction.md': ':::body\n',
 };
 
 interface StarterKind {
@@ -164,6 +168,8 @@ const GROUPS: readonly { name: string; en: string; ru: string }[] = [
 const STARTER_KINDS: readonly StarterKind[] = [
   { name: 'product', template: 'product.md', source: 'markdown', group: 'product', en: ['Product', 'Products'], ru: ['Продукт', 'Продукты'], describe: ['What the product is, for whom, and its architecture: the home page the agent writes.', 'Что это за продукт, для кого и как устроен: главная страница, которую пишет агент.'], extra: ['file: docs/product.md'] },
   { name: 'domain', template: 'domain.md', source: 'markdown', group: 'product', en: ['Domain', 'Domains'], ru: ['Домен', 'Домены'], describe: ['A part of the business the product serves, such as payment or ordering: how it works and what implements it.', 'Часть бизнеса, которую обслуживает продукт, например оплата или заказы: как она работает и что её реализует.'], extra: ['folder: docs/domains'] },
+  { name: 'question', template: 'question.md', source: 'markdown', group: 'product', origin: 'agent', en: ['Question', 'Questions'], ru: ['Вопрос', 'Вопросы'], describe: ['Something the agent could not settle from the code and the documents; a person answers it.', 'То, что агент не смог решить по коду и документам; отвечает человек.'], extra: ['folder: docs/questions'] },
+  { name: 'correction', template: 'correction.md', source: 'markdown', group: 'product', origin: 'person', en: ['Correction', 'Corrections'], ru: ['Поправка', 'Поправки'], describe: ['A person\'s note that a statement is wrong, and why; the agent takes it into account at the next refresh.', 'Заметка человека о том, что утверждение неверно, и почему; агент учтёт её при следующем обновлении.'], extra: ['folder: docs/corrections'] },
   { name: 'doc.use-case', template: 'entity-text.md', source: 'document', group: 'product', origin: 'person', en: ['Use case', 'Use cases'], ru: ['Сценарий', 'Сценарии'], describe: ['A way a person uses the product (UC-1, UC-2 ...), as the documents state it.', 'Способ, которым человек пользуется продуктом (UC-1, UC-2 ...), как его описывают документы.'], extra: ['identifier: UC'] },
   { name: 'doc.rule', template: 'entity-text.md', source: 'document', group: 'product', origin: 'person', en: ['Business rule', 'Business rules'], ru: ['Бизнес-правило', 'Бизнес-правила'], describe: ['A rule the product keeps (BR-1, BR-2 ...), with the code that implements it.', 'Правило, которое соблюдает продукт (BR-1, BR-2 ...), и код, который его реализует.'], extra: ['identifier: BR'] },
   { name: 'doc.decision', template: 'entity-text.md', source: 'document', group: 'product', origin: 'person', en: ['Decision', 'Decisions'], ru: ['Решение', 'Решения'], describe: ['An architecture decision record (ADR-0001 ...): what was decided and why.', 'Запись об архитектурном решении (ADR-0001 ...): что решили и почему.'], extra: ['identifier: ADR'] },
@@ -238,7 +244,13 @@ function kindsManifest(): string {
     "  exclude: [AGENTS.md, CLAUDE.md, GEMINI.md, \"**/AGENTS.md\", \"**/CLAUDE.md\", \"**/GEMINI.md\"]",
     "kinds:",
   ];
-  for (const kind of STARTER_KINDS) {
+  for (const kind of STARTER_KINDS) lines.push(...kindLines(kind));
+  return `${lines.join('\n')}\n`;
+}
+
+function kindLines(kind: StarterKind): string[] {
+  const lines: string[] = [];
+  {
     lines.push(`  ${kind.name}:`);
     lines.push(`    template: templates/${kind.template}`);
     lines.push(`    source: ${kind.source}`);
@@ -252,7 +264,7 @@ function kindsManifest(): string {
     lines.push(`      en: ${yamlText(kind.describe[0])}`);
     lines.push(`      ru: ${yamlText(kind.describe[1])}`);
   }
-  return `${lines.join('\n')}\n`;
+  return lines;
 }
 
 const KINDS = kindsManifest();
@@ -286,6 +298,44 @@ export function seedStarterSet(productFolder: string): string[] {
       throw new Error(`src/knowledge/seed.ts: ${target} could not be written to give the product its starter set: ${(error as Error).message}`);
     }
     written.push(starter.path);
+  }
+  return written;
+}
+
+/**
+ * The kinds the loop of questions and corrections needs (madarch-m38l.7): `question` and `correction`, their folders and
+ * their templates. A product made before they existed is given them when a refresh starts: the manifest gains the
+ * missing declarations (its comments kept) and the templates that are absent are written. Answers the paths it wrote.
+ */
+export function ensureLoopKinds(productFolder: string): string[] {
+  const written: string[] = [];
+  const file = join(productFolder, KINDS_FILE);
+  let text: string;
+  try {
+    text = readFileSync(file, 'utf8');
+  } catch (error) {
+    throw new Error(`src/knowledge/seed.ts: ${file} cannot be read to add the question and correction kinds: ${(error as Error).message}`);
+  }
+  const document = parseDocument(text);
+  if (document.errors.length > 0) throw new Error(`${file}:${document.errors[0]!.linePos?.[0].line ?? 1}: the manifest cannot be read, so the question and correction kinds are not added: ${document.errors[0]!.message.split('\n')[0]}`);
+  const wanted = STARTER_KINDS.filter((kind) => kind.name === 'question' || kind.name === 'correction');
+  let changed = false;
+  for (const kind of wanted) {
+    if (document.hasIn(['kinds', kind.name])) continue;
+    const parsed = parseDocument(`kinds:\n${kindLines(kind).join('\n')}\n`).getIn(['kinds', kind.name]) as { toJSON(): unknown };
+    document.setIn(['kinds', kind.name], document.createNode(parsed.toJSON()));
+    changed = true;
+  }
+  for (const name of ['question.md', 'correction.md']) {
+    const target = join(productFolder, 'templates', name);
+    if (existsSync(target)) continue;
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, TEMPLATES[name]!, { flag: 'wx' });
+    written.push(`templates/${name}`);
+  }
+  if (changed) {
+    writeFileSync(file, document.toString(), 'utf8');
+    written.push(KINDS_FILE);
   }
   return written;
 }
