@@ -291,8 +291,8 @@ async function createsAndServes(outfile: string, products: string, port: number,
         const page = await fetch(facts.url);
         if (!page.ok || !(await page.text()).includes('<div id="root"')) return `the built binary did not serve the embedded wiki app's entry page at ${facts.url} (HTTP ${page.status})`;
         // madarch's own wiki came out of the copy the binary carries, with no network asked for.
-        const listed = await fetch(`${facts.url}api/products`);
-        if (!listed.ok || !(await listed.text()).includes('"own":true')) return `the built binary did not serve madarch's own wiki beside the draft (GET ${facts.url}api/products answered ${listed.status})${daemonLog(products)}`;
+        const listed = await fetch(new URL('/api/products', facts.url));
+        if (!listed.ok || !(await listed.text()).includes('"own":true')) return `the built binary did not serve madarch's own wiki beside the draft (GET /api/products answered ${listed.status})${daemonLog(products)}`;
         return undefined;
       }
     } catch { /* the product's API is still coming up */ }
