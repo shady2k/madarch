@@ -10,11 +10,11 @@ export const LOCALIZED_SOURCE_SCHEMA = 'madarch.localized-document-source@1';
 export function detectDocumentLanguage(text: string): 'en' | 'ru' | undefined {
   const prose = text.replace(/`[^`]*`/g, ' ').replace(/\b(?:In code|Code names|Also called|Synonyms|Used in|Ambiguous)\s*:/gi, ' ').replace(/(?:в коде|также называют|синонимы|где используется|неоднозначно)\s*:/gi, ' ');
   const letters = [...prose.matchAll(/[\p{L}]/gu)].map((match) => match[0]!);
-  if (letters.length < 12) return undefined;
+  if (letters.length < 8) return undefined;
   const cyrillic = letters.filter((letter) => /\p{Script=Cyrillic}/u.test(letter)).length;
   const latin = letters.filter((letter) => /\p{Script=Latin}/u.test(letter)).length;
   const total = cyrillic + latin;
-  if (total < 12 || Math.min(cyrillic, latin) / total > 0.15) return undefined;
+  if (total < 8 || Math.min(cyrillic, latin) / total > 0.15) return undefined;
   return cyrillic > latin ? 'ru' : 'en';
 }
 export interface LocalizedDocumentSource {
