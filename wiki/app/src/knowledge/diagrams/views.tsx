@@ -92,7 +92,7 @@ function Frame({ view, renderer, lang, onOpen }: { view: DiagramView; renderer: 
     // error thrown out of an effect takes the whole page down, and the tabs and the list stay readable without a picture.
     let asked: Promise<Response>;
     try {
-      asked = fetch(viewFrameAddress(view.query, renderer, lang));
+      asked = globalThis.fetch(viewFrameAddress(view.query, renderer, lang));
     } catch (error) {
       setFailure(error instanceof Error ? error.message : String(error));
       setLoaded(true);
