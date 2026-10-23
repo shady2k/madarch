@@ -411,7 +411,7 @@ export async function extractDataModel(tree: TreeReader): Promise<Extraction> {
   for (const database of [...databases.values()].sort((left, right) => byCodePoint(left.name, right.name))) {
     // The database's place is the first file that declares it — its first migration, its schema, or the folder it
     // stands in — and every migration names its own file (madarch-m38l.16: a node says where it stands).
-    const declaredIn = database.migrations[0]?.path ?? firstTablePath(database);
+    const declaredIn = database.migrations[0]?.path ?? prismaSchemas.get(database.name) ?? firstTablePath(database) ?? serviceFile(tree, database.name);
     nodes.push({
       key: databaseKey(database.name),
       kind: 'code.database',
@@ -539,10 +539,10 @@ export async function extractDataModel(tree: TreeReader): Promise<Extraction> {
           for (const column of statement.table.columns) edge('code.creates', migrationId, columnKey(database.name, statement.table.name, column.name, statement.table.schema), column.span);
         } else if (statement.kind === 'alter-table-add-column') {
           edge('code.alters', migrationId, tableKey(database.name, statement.table, statement.schema), statement.column.span, {object: 'table'});
-          edge('code.alters', migrationId, columnKey(database.name, statement.table, statement.column.name, statement.schema), statement.column.span);
+          edge('code.alters', migrationId, columnKey(database.name, statement.table, statement.column.name, statement.schema), statement.column.span, {object: 'column'});
         } else if (statement.kind === 'alter-table-add-foreign-key') {
           edge('code.alters', migrationId, tableKey(database.name, statement.table, statement.schema), statement.span, {object: 'table'});
-          edge('code.alters', migrationId, columnKey(database.name, statement.table, statement.foreignKey.column, statement.schema), statement.span);
+          edge('code.alters', migrationId, columnKey(database.name, statement.table, statement.foreignKey.column, statement.schema), statement.span, {object: 'column'});
         } else if (statement.kind === 'create-index') {
           edge('code.creates', migrationId, indexKey(database.name, statement.table, statement.index.name, statement.schema), statement.index.span);
         }
@@ -627,6 +627,12 @@ function tableOf(database: MergedDatabase, name: string, schema = 'public'): Mer
 }
 
 /** Reads a path's bytes as text; the reason is the gap when they cannot be read. */
+
+/** The file a service's own folder holds, for a database whose schema no single file declares: its manifest, else its first file. */
+function serviceFile(tree: TreeReader, service: string): string | undefined {
+  for (const candidate of [`services/${service}/package.json`, `services/${service}/go.mod`, `services/${service}/prisma/schema.prisma`]) if (tree.paths.includes(candidate)) return candidate;
+  return tree.paths.filter((path) => path.startsWith(`services/${service}/`)).sort(byCodePoint)[0];
+}
 
 /** The file a database without a migration is declared in: the file of its first table, or none. */
 function firstTablePath(database: MergedDatabase): string | undefined {

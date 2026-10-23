@@ -279,7 +279,7 @@ describe('repository history pages', () => {
     expect(taskCommits?.rows[0]).toHaveProperty('text');
     expect(taskCommits?.rows[0]?.when).toMatch(/^\d{4}-\d{2}-\d{2}$/u);
     expect(taskCommits?.rows[0]?.who).toBeTruthy();
-    const taskRu = await product.page(task.id, 'ru');
+    const taskRu = await product.page(task.id, 'ru', { defer: true });
     if (!taskRu.ok) throw new Error(taskRu.message);
     expect(taskRu.page.blocks.some((entry) => entry.type === 'deferred' && entry.block === 'history' && entry.title === 'Коммиты')).toBe(true);
 
@@ -491,6 +491,9 @@ describe('the neighbourhood of a page agrees with its relations block', () => {
         const groups = page.page.blocks.filter((block) => block.type === 'related' && block.name === 'related').flatMap((block) => (block.type === 'related' ? block.groups : [])).filter((group) => group.relation !== 'relates');
         for (const group of groups) {
           for (const row of group.rows) {
+            // A block with a depth reaches two or three hops out; the neighbourhood of a page is one hop, and the
+            // parity this test keeps is the one-hop one (madarch-m38l.16, «А здесь почему пусто?»).
+            if (row.hops !== undefined) continue;
             rows += 1;
             const key = group.direction === 'out' ? `${entity.key}|${row.entity.id}|${group.relation}` : `${row.entity.id}|${entity.key}|${group.relation}`;
             if (!edges.has(key)) missing.push(`${entity.key} lists ${group.direction === 'out' ? '→' : '←'} ${group.relation} ${row.entity.id}, and its neighbourhood does not hold it`);

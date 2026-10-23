@@ -567,6 +567,13 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
       });
     // Every node any extraction declared for a key, the first with a span winning: a reference node takes the place of
     // the node that named it (madarch-m38l.16).
+    // The place an edge names for a node it refers to: a reference node carries it when nothing declares the node.
+    const edgeSpans = new Map<string, SourceSpan>();
+    for (const edge of effective.edges) {
+      if (edge.span === undefined) continue;
+      if (!edgeSpans.has(edge.from)) edgeSpans.set(edge.from, edge.span);
+      if (!edgeSpans.has(edge.to)) edgeSpans.set(edge.to, edge.span);
+    }
     const declaredNodes = new Map<string, {label: string; span?: SourceSpan}>();
     for (const node of extraction.nodes) {
       const held = declaredNodes.get(node.key);
@@ -595,12 +602,13 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
         // A reference node names a place when any extraction declared one for the key: a file a later commit renamed
         // away has no owner node at this tip, and the history's own record of it says where it stood.
         const declared = declaredNodes.get(key);
+        const place = declared?.span ?? edgeSpans.get(key);
         return {
           ...(map.has(key) ? { id: map.get(key)! } : {}),
           ref: key,
           kind: stub.kind,
           label: declared?.label ?? stub.label,
-          properties: { recordKey: key, ...(declared?.span === undefined ? {} : { span: spanProperty(declared.span) }) },
+          properties: { recordKey: key, ...(place === undefined ? {} : { span: spanProperty(place) }) },
           validFrom: effectiveTime,
           ...(bound === undefined ? {} : { validTo: bound }),
         };
