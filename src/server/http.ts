@@ -44,7 +44,7 @@ import { listProducts } from '../product/list.js';
 import { basename } from 'node:path';
 import { UNIT_TOOL_PATH, type UnitToolAnswer, type UnitToolCall } from '../fill/unit-tools.js';
 import { homeFromEnv, productsHome } from '../product/home.js';
-import { KnowledgeHost, type AgentFactory } from '../knowledge/product.js';
+import { KnowledgeHost, type AgentFactory, type KnowledgeProductOptions } from '../knowledge/product.js';
 import { createKnowledgePart, type KnowledgePart } from './knowledge.js';
 
 /** The largest body the server reads: 50 MB, far past any compiled model sent so far. */
@@ -104,6 +104,8 @@ export interface ServerOptions {
    * (madarch-m38l.3). Left out, the chosen agent's ACP adapter is started; tests give a scripted one.
    */
   knowledgeAgentFactory?: AgentFactory;
+  /** Asks an agent which models it offers; tests inject, the production one starts the agent's ACP adapter. */
+  knowledgeChoicesQuery?: KnowledgeProductOptions['choicesQuery'];
   /** The address to listen on; `127.0.0.1` unless said otherwise (decision 0012). */
   host?: string;
   /** The port to listen on; 4180 by default, 0 for a free port. */
@@ -292,7 +294,7 @@ export async function startServer(options: ServerOptions): Promise<StartedServer
     : createGraphs({ historyOf: (source) => sources.historyOf(source), database: queryDatabase });
   const env = options.env ?? process.env;
   // Each product's knowledge wiki (decision 0029): its own graph store, opened on its first ask and closed with the server.
-  const knowledgeHost = new KnowledgeHost(options.knowledgeRoot ?? joinPath(options.productHome ?? productsHome(env as Record<string, string | undefined>), '.madarch', 'knowledge'), undefined, { env, errorLog, ...(process.env.MADARCH_SNAPSHOT_MS === undefined ? {} : { snapshotMs: Number(process.env.MADARCH_SNAPSHOT_MS) }), ...(options.knowledgeAgentFactory === undefined ? {} : { agentFactory: options.knowledgeAgentFactory }) });
+  const knowledgeHost = new KnowledgeHost(options.knowledgeRoot ?? joinPath(options.productHome ?? productsHome(env as Record<string, string | undefined>), '.madarch', 'knowledge'), undefined, { env, errorLog, ...(process.env.MADARCH_SNAPSHOT_MS === undefined ? {} : { snapshotMs: Number(process.env.MADARCH_SNAPSHOT_MS) }), ...(options.knowledgeAgentFactory === undefined ? {} : { agentFactory: options.knowledgeAgentFactory }), ...(options.knowledgeChoicesQuery === undefined ? {} : { choicesQuery: options.knowledgeChoicesQuery }) });
   /** A browser opening a page of a wiki starts that product's reader at once, so the page's own requests find it started; a probe or a script does not. */
   const opensPage = (request: Request): boolean => request.method === 'GET' && (request.headers.get('accept') ?? '').includes('text/html');
   let productNames: () => { name: string; folder: string; own?: true }[] = () => (productWiki === undefined ? [] : [{ name: productWiki.product.name, folder: basename(productWiki.product.folder) }]);
@@ -593,6 +595,12 @@ export function createHandler(dependencies: {
         { method: 'GET', path: '/api/k/refresh-plan', handle: (request: Request) => dependencies.knowledge!.refreshPlan(request) },
         { method: 'GET', path: '/api/k/reset', handle: (request: Request) => dependencies.knowledge!.reset(request) },
         { method: 'POST', path: '/api/k/reset', handle: (request: Request) => dependencies.knowledge!.reset(request) },
+        { method: 'GET', path: '/api/k/product-settings', handle: (request: Request) => dependencies.knowledge!.productSettings(request) },
+        { method: 'POST', path: '/api/k/product-settings', handle: (request: Request) => dependencies.knowledge!.productSettings(request) },
+        { method: 'GET', path: '/api/k/agent-choices', handle: (request: Request) => dependencies.knowledge!.agentChoices(request) },
+        { method: 'POST', path: '/api/k/starter', handle: (request: Request) => dependencies.knowledge!.starter(request) },
+        { method: 'POST', path: '/api/k/rewrite-pages', handle: (request: Request) => dependencies.knowledge!.rewritePages(request) },
+        { method: 'POST', path: '/api/k/start-fresh', handle: (request: Request) => dependencies.knowledge!.startFresh(request) },
       ] as Route[])),
     ] as Route[]) : []),
   ];

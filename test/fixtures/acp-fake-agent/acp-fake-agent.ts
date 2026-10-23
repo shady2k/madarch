@@ -43,6 +43,12 @@
  *                 the prompt names the call as JSON (`{"tool":"neighbors",
  *                 "arguments":{"id":"..."}}`), and `neighbors` of the prompt's own
  *                 `id` is the default
+ *
+ * `--models` adds what a real adapter reports in `session/new`: a `model` option and a `thought_level` option in
+ * `configOptions` (and answers `session/set_config_option`, recording the change when `--record` is given), so a test can
+ * prove madarch offers exactly what the agent reports and sets exactly what the reader chose. `--models legacy` reports
+ * the protocol's earlier `models` form instead (and answers `session/set_model`).
+ *
  *   script        follows the steps of `--script <file>`, so a test scripts a unit's
  *                 turns without inventing a prompt format. The file is a JSON object
  *                 `{"byPrompt":[{"matches":"<text in the prompt>","steps":[…]}, …],
@@ -69,6 +75,21 @@ const option = (name: string): string | undefined => {
 const scenario = option('scenario') ?? 'default';
 const record = option('record');
 const scriptPath = option('script');
+const modelsMode = option('models');
+const modelsGiven = argv.includes('--models');
+/** The options a session reports: what a real adapter puts in `session/new` when it lets the client choose. */
+const chosen: Record<string, string> = { model: 'sonnet', effort: 'medium' };
+function modelFields(): Record<string, unknown> {
+  if (!modelsGiven) return {};
+  if (modelsMode === 'legacy') return { models: { currentModelId: chosen['model'], availableModels: [{ modelId: 'sonnet', name: 'Sonnet 4.6', description: 'Balanced' }, { modelId: 'opus', name: 'Opus 4.7' }] } };
+  return {
+    configOptions: [
+      { id: 'mode', name: 'Mode', category: 'mode', type: 'select', currentValue: 'ask', options: [{ value: 'ask', name: 'Ask' }] },
+      { id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: chosen['model'], options: [{ value: 'sonnet', name: 'Sonnet 4.6', description: 'Balanced' }, { value: 'opus', name: 'Opus 4.7' }] },
+      { id: 'effort', name: 'Reasoning effort', category: 'thought_level', type: 'select', currentValue: chosen['effort'], options: [{ group: 'levels', name: 'Levels', options: [{ value: 'low', name: 'Low' }, { value: 'medium', name: 'Medium' }, { value: 'high', name: 'High' }] }] },
+    ],
+  };
+}
 
 /** One step of a `script` scenario's steps, as the file spells them (`--script <file>`). */
 interface ScriptStep {
@@ -544,7 +565,7 @@ lines.on('line', (line: string) => {
         const servers = heldServers;
         void startMcp(servers).then((client) => {
           mcp = client;
-          respond(message.id, { sessionId: `fake-session-${sessionNumber}`, modes: { currentModeId: 'ask' }, models: { currentModelId: 'fake-model-1', availableModels: [] } });
+          respond(message.id, { sessionId: `fake-session-${sessionNumber}`, modes: { currentModeId: 'ask' }, ...modelFields(), ...(!modelsGiven ? { models: { currentModelId: 'fake-model-1', availableModels: [] } } : {}) });
         }).catch((error: Error) => {
           send({ jsonrpc: '2.0', id: message.id, error: { code: -32603, message: `the MCP server would not start: ${error.message}` } });
         });
@@ -553,7 +574,7 @@ lines.on('line', (line: string) => {
       // A `script` scenario records the session's servers and starts them at its first call step, so a script that
       // never calls a tool starts no server at all.
       serversBySession.set(`fake-session-${sessionNumber}`, heldServers);
-      respond(message.id, { sessionId: `fake-session-${sessionNumber}`, modes: { currentModeId: 'ask' }, models: { currentModelId: 'fake-model-1', availableModels: [] } });
+      respond(message.id, { sessionId: `fake-session-${sessionNumber}`, modes: { currentModeId: 'ask' }, ...modelFields(), ...(!modelsGiven ? { models: { currentModelId: 'fake-model-1', availableModels: [] } } : {}) });
       // `deaf` stops reading here, in the same turn as the answer, so the client's next message meets a full pipe.
       if (scenario === 'deaf') lines.pause();
       return;
@@ -561,6 +582,19 @@ lines.on('line', (line: string) => {
     case 'session/prompt': {
       const params = message.params ?? {};
       void runPrompt(message.id as number, String(params.sessionId), String((params.prompt as { text?: string }[] | undefined)?.[0]?.text ?? ''));
+      return;
+    }
+    case 'session/set_config_option': {
+      const params = message.params ?? {};
+      chosen[String(params['configId'])] = String(params['value']);
+      // As real adapters do, choosing the larger model resets the reasoning level, and the answer is the whole state after.
+      if (params['configId'] === 'model' && params['value'] === 'opus') chosen['effort'] = 'low';
+      respond(message.id, { configOptions: (modelFields() as { configOptions?: unknown }).configOptions ?? [] });
+      return;
+    }
+    case 'session/set_model': {
+      chosen['model'] = String((message.params ?? {})['modelId']);
+      respond(message.id, {});
       return;
     }
     case 'session/cancel': {

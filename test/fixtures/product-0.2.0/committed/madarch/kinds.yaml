@@ -1,0 +1,26 @@
+# The kinds this product's wiki shows (decision 0029, docs/decisions/0029-knowledge-in-markdown-graph-as-index.md).
+# Each kind names where its entities come from and the template that draws them:
+#   source: markdown  the entity is a Markdown file of this repository (a folder of them, or one file)
+#   source: graph     the entity is a node of the graph the fill builds from the code repositories
+# A kind with `file:` is one page; the first such kind is the home page.
+# `relations` declares an edge between kinds: {attribute|dirname} puts a part of the entity into the other end's key.
+kinds:
+  product:
+    template: templates/product.md
+    source: markdown
+    file: docs/product.md
+  domain:
+    template: templates/domain.md
+    source: markdown
+    folder: docs/domains
+  code.service:
+    template: templates/service.md
+    source: graph
+    relations:
+      - { type: code.contains, to: "code.package:{span.path|dirname}" }
+  code.file:
+    template: templates/file.md
+    source: graph
+  code.symbol:
+    template: templates/symbol.md
+    source: graph
