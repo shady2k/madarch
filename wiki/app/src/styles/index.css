@@ -1781,3 +1781,31 @@ a.graph-diagram-element-label:hover {
     color: var(--shiki-dark);
   }
 }
+
+/* A section a link opened: it stands out for a moment, below the toolbar that sticks to the top. */
+[data-line] {
+  scroll-margin-top: 80px;
+}
+
+.anchor-hit {
+  border-radius: var(--radius-row);
+  animation: anchor-hit 2.4s ease-out;
+}
+
+@keyframes anchor-hit {
+  from {
+    background: var(--surface-active);
+    box-shadow: 0 0 0 6px var(--surface-active);
+  }
+  to {
+    background: transparent;
+    box-shadow: 0 0 0 6px transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .anchor-hit {
+    animation: none;
+    background: var(--surface-active);
+  }
+}

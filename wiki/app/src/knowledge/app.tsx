@@ -131,7 +131,7 @@ function StartOver({ open, onOpenChange, name, refresh }: { open: boolean; onOpe
         <DialogDescription asChild>
           <div className="grid gap-2 text-small text-secondary">
             <p className="m-0">{t('knowledge.reset.removes')}</p>
-            <ul className="m-0 ps-5">
+            <ul className="m-0 list-disc ps-5">
               <li>{t('knowledge.reset.store')}</li>
               <li data-testid="start-over-pages">{plan === null ? '…' : plan.agentPages.length === 0 ? t('knowledge.reset.noPages') : t('knowledge.reset.pages', { count: plan.agentPages.length, list: plan.agentPages.join(', ') })}</li>
             </ul>
@@ -276,7 +276,7 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
         </button>
       </DropdownMenuPrimitive.Trigger>
       <DropdownMenuPrimitive.Portal>
-        <DropdownMenuPrimitive.Content align="end" sideOffset={7} className="language-menu fill-menu" data-testid="fill-menu">
+        <DropdownMenuPrimitive.Content align="end" sideOffset={7} className="language-menu fill-menu w-[min(26rem,92vw)]" data-testid="fill-menu">
           <DropdownMenuPrimitive.Label className="language-menu-label">{t('knowledge.fillMenuTitle')}</DropdownMenuPrimitive.Label>
           <DropdownMenuPrimitive.Separator className="language-menu-separator" />
           {writer.units.length > 0 && (

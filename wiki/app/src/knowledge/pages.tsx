@@ -412,7 +412,7 @@ export function DocumentsPage({ version }: { version: number }): ReactElement {
       {shown.length === 0 && <p className="text-muted" data-testid="documents-empty">{t('knowledge.noDocuments')}</p>}
       {[...groups.entries()].map(([repo, documents]) => (
         <section key={repo} className="mb-8" data-testid="documents-group" data-repo={repo}>
-          <h2>{repo === '' ? t('knowledge.productRepository') : repo}</h2>
+          <h2 className="first-letter:uppercase">{repo === '' ? t('knowledge.productRepository') : repo}</h2>
           <ul className="m-0 list-none p-0">
             {documents.map((document) => (
               <li key={document.path} className="border-b border-line py-1.5 last:border-b-0"><KLink href={addressOfDocument(document.repo, document.path)}>{document.path}</KLink></li>
