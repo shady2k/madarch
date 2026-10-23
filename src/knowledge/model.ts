@@ -3,6 +3,7 @@
  * is a list of blocks, each already read from the graph or the Markdown, so the
  * app holds no knowledge of any kind and draws only these shapes.
  */
+import type { RefreshPlan } from '../loop/plan.js';
 import type { Finding } from './kinds.js';
 import type { Resolution } from './resolve.js';
 
@@ -130,6 +131,8 @@ export interface WriterState {
   startedAt?: string;
   finishedAt?: string;
   message?: string;
+  /** Which pages this run touches and why; known once the code is read, before the agent starts. */
+  plan?: RefreshPlan;
 }
 
 /** What one agent costs to use and what the stage is bound by, stated for the reader before the press. */
@@ -183,6 +186,8 @@ export interface WikiStatus {
   chosenAgent: { id: string; label: string } | null;
   /** The entity the home page shows, when the manifest names one and its file exists. */
   home: string | null;
+  /** The loop of questions and corrections (madarch-m38l.7), counted from their files. */
+  loop: { questionsOpen: number; questionsAnswered: number; correctionsOpen: number };
 }
 
 /** A Markdown document the wiki shows as a page: of the product repository (`repo` null) or of a connected code repository. */

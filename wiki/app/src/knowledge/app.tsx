@@ -8,7 +8,7 @@
 import { useEffect, useState, type ReactElement, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu';
-import { CheckIcon, ChevronDownIcon, FolderGit2Icon, GlobeIcon, HomeIcon, MenuIcon, RotateCcwIcon } from 'lucide-react';
+import { AlertTriangleIcon, CheckIcon, ChevronDownIcon, FolderGit2Icon, GlobeIcon, HelpCircleIcon, HomeIcon, MenuIcon, RotateCcwIcon } from 'lucide-react';
 import { appPath } from '../app-base.js';
 import { setWikiLanguage, type WikiLanguage } from '../i18n.js';
 import { navigateTo } from '../hold.js';
@@ -21,7 +21,8 @@ import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } fr
 import { getProducts, getResetPlan, resetProduct, startFill, type ResetPlan } from './api.js';
 import { KLink } from './blocks.js';
 import { DocumentPage, DocumentsPage, EntityPage, EmptyHome, FillCard, KindPage, SourcePage, Overview } from './pages.js';
-import { addressOfKind, K_DOCS, K_HOME, kRouteOf, type KRoute } from './routes.js';
+import { addressOfKind, K_DOCS, K_HOME, K_PROBLEMS, K_QUESTIONS, kRouteOf, type KRoute } from './routes.js';
+import { ProblemsPage, QuestionPage, QuestionsPage, RefreshPreviewView } from './loop.js';
 import { KindLabels, useKindName } from './kind-names.js';
 import { PageSkeleton } from './skeleton.js';
 import { fillWords } from './fill-words.js';
@@ -39,6 +40,9 @@ function BrandMark(): ReactElement {
     </svg>
   );
 }
+
+/** The two kinds of the loop have their own places («Вопросы», «Проблемы»), not a kind page of their own. */
+const LOOP_KINDS: ReadonlySet<string> = new Set(['question', 'correction']);
 
 /** The choices the selector offers: each product's wiki address, and which one is open. */
 export function productChoices(products: readonly ProductChoice[], current: string | null): { name: string; folder: string; href: string; here: boolean }[] {
@@ -153,7 +157,8 @@ function NavPanel({ status, products, route, onNavigate, onStartOver }: { status
   const { t } = useTranslation();
   const kindName = useKindName();
   const folder = decodeURIComponent((/^\/products\/([^/]+)/.exec(window.location.pathname)?.[1] ?? ''));
-  const kinds = status.kinds.filter((kind) => !kind.single);
+  const kinds = status.kinds.filter((kind) => !kind.single && !LOOP_KINDS.has(kind.kind));
+  const questionsOpen = status.loop?.questionsOpen ?? 0;
   /** The pages of a kind the agent has yet to write: its units that wait or are writing (a unit is named `<kind>:<slug>`). */
   const pendingOf = (kind: string): number => status.writer.units.filter((unit) => unit.unit.startsWith(`${kind}:`) && (unit.state === 'waiting' || unit.state === 'writing')).length;
   const pick = (address: string) => (event: React.MouseEvent<HTMLAnchorElement>): void => {
@@ -191,7 +196,17 @@ function NavPanel({ status, products, route, onNavigate, onStartOver }: { status
             </a>
           );
         })}
-        <a href={appPath(K_DOCS)} className={link(route.name === 'docs' || route.name === 'doc') + ' mt-4'} aria-current={route.name === 'docs' || route.name === 'doc' ? 'page' : undefined} data-testid="nav-documents" onClick={pick(K_DOCS)}>
+        <a href={appPath(K_QUESTIONS)} className={link(route.name === 'questions' || route.name === 'question') + ' mt-4'} aria-current={route.name === 'questions' || route.name === 'question' ? 'page' : undefined} data-testid="nav-questions" onClick={pick(K_QUESTIONS)}>
+          <HelpCircleIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
+          <span className="min-w-0 flex-1">{t('loop.questionsTitle')}</span>
+          {questionsOpen > 0 && <span className="text-small text-muted" data-testid="nav-questions-count">{questionsOpen}</span>}
+        </a>
+        <a href={appPath(K_PROBLEMS)} className={link(route.name === 'problems')} aria-current={route.name === 'problems' ? 'page' : undefined} data-testid="nav-problems" onClick={pick(K_PROBLEMS)}>
+          <AlertTriangleIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
+          <span className="min-w-0 flex-1">{t('loop.problemsTitle')}</span>
+          {(status.loop?.correctionsOpen ?? 0) > 0 && <span className="text-small text-muted" data-testid="nav-problems-count">{status.loop?.correctionsOpen}</span>}
+        </a>
+        <a href={appPath(K_DOCS)} className={link(route.name === 'docs' || route.name === 'doc')} aria-current={route.name === 'docs' || route.name === 'doc' ? 'page' : undefined} data-testid="nav-documents" onClick={pick(K_DOCS)}>
           <FolderGit2Icon aria-hidden="true" className="size-4 shrink-0 text-muted" />
           <span className="min-w-0 flex-1">{t('knowledge.documents')}</span>
         </a>
@@ -230,7 +245,7 @@ function LanguageMenu(): ReactElement {
 
 /** The pages the product holds, for the status line: the Markdown kinds' entities. */
 function pagesOf(status: WikiStatus): number {
-  return status.kinds.filter((kind) => kind.source === 'markdown').reduce((sum, kind) => sum + kind.count, 0);
+  return status.kinds.filter((kind) => kind.source === 'markdown' && !LOOP_KINDS.has(kind.kind)).reduce((sum, kind) => sum + kind.count, 0);
 }
 
 /**
@@ -302,6 +317,7 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
                 </div>
               </div>
             )}
+            {writer.state !== 'running' && writer.state !== 'waiting' && fill.state !== 'running' && <div className="mb-3"><RefreshPreviewView language={pagesLanguage ?? status.language} refreshKey={`${status.fill.finishedAt ?? ''}:${status.writer.finishedAt ?? ''}:${status.loop?.questionsAnswered ?? 0}:${status.loop?.correctionsOpen ?? 0}`} /></div>}
             <p className="mb-2 mt-0 text-small text-muted" data-testid="refresh-note">{t('knowledge.refreshNote', { turns: status.bounds.turns, minutes: status.bounds.minutes })}</p>
             <Button variant="default" size="default" disabled={busy} onClick={press} data-testid="refresh">{t('knowledge.refresh')}</Button>
             {refused !== null && <p className="mb-0 mt-2 text-small" role="alert" data-testid="refresh-refused">{refused}</p>}
@@ -315,7 +331,7 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
 function Toolbar({ status, route, menu, refresh }: { status: WikiStatus; route: KRoute; menu: ReactNode; refresh: () => void }): ReactElement {
   const { t } = useTranslation();
   const kindName = useKindName();
-  const where = route.name === 'kind' ? kindName(route.kind, 'many') : route.name === 'source' ? t('knowledge.source') : route.name === 'docs' || route.name === 'doc' ? t('knowledge.documents') : route.name === 'entity' ? null : t('knowledge.home');
+  const where = route.name === 'questions' || route.name === 'question' ? t('loop.questionsTitle') : route.name === 'problems' ? t('loop.problemsTitle') : route.name === 'kind' ? kindName(route.kind, 'many') : route.name === 'source' ? t('knowledge.source') : route.name === 'docs' || route.name === 'doc' ? t('knowledge.documents') : route.name === 'entity' ? null : t('knowledge.home');
   return (
     <header className="shell-toolbar sticky top-0 z-30 flex min-h-[58px] items-center justify-between gap-3 border-b border-line bg-page px-4 wide:px-[35px]">
       <span className="shell-breadcrumb min-w-0 truncate text-small text-secondary">
@@ -393,6 +409,9 @@ export function KnowledgeApp(): ReactElement {
   if (route.name === 'home') view = status.home !== null ? <EntityPage key={status.home} id={status.home} version={version} /> : <Overview status={status} refresh={refresh} />;
   else if (route.name === 'entity') view = <EntityPage key={route.id} id={route.id} version={version} />;
   else if (route.name === 'kind') view = <KindPage key={route.kind} kind={route.kind} version={version} />;
+  else if (route.name === 'questions') view = <QuestionsPage version={version} />;
+  else if (route.name === 'question') view = <QuestionPage key={route.slug} slug={route.slug} version={version} refresh={refresh} />;
+  else if (route.name === 'problems') view = <ProblemsPage version={version} />;
   else if (route.name === 'docs') view = <DocumentsPage version={version} />;
   else if (route.name === 'doc') view = <DocumentPage key={`${route.repo ?? ''}:${route.path}`} repo={route.repo} path={route.path} version={version} />;
   else view = <SourcePage key={`${route.repo ?? ''}:${route.path}`} repo={route.repo} path={route.path} line={route.line} />;

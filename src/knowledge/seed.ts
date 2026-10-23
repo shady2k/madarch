@@ -1,5 +1,7 @@
-import { existsSync, lstatSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, join, sep } from 'node:path';
+import { parseDocument } from 'yaml';
+import { KINDS_FILE } from './kinds.js';
 
 /**
  * The starter set `madarch new` writes into a product (decision 0029): the
@@ -37,6 +39,20 @@ kinds:
     labels:
       en: { one: Domain, many: Domains }
       ru: { one: Домен, many: Домены }
+  question:
+    template: templates/question.md
+    source: markdown
+    folder: docs/questions
+    labels:
+      en: { one: Question, many: Questions }
+      ru: { one: Вопрос, many: Вопросы }
+  correction:
+    template: templates/correction.md
+    source: markdown
+    folder: docs/corrections
+    labels:
+      en: { one: Correction, many: Corrections }
+      ru: { one: Поправка, many: Поправки }
   code.service:
     template: templates/service.md
     source: graph
@@ -65,6 +81,12 @@ const PRODUCT = `:::body
 
 const DOMAIN = `:::body
 :::related{title="Implemented by" relation="relates"}
+`;
+
+const QUESTION = `:::body
+`;
+
+const CORRECTION = `:::body
 `;
 
 const SERVICE = `A {{language}} service. Frameworks: {{frameworks}}. Infrastructure: {{infrastructure}}. Tests: {{testFramework}}.
@@ -97,6 +119,8 @@ export const STARTER_FILES: readonly StarterFile[] = [
   { path: 'madarch/kinds.yaml', content: KINDS },
   { path: 'templates/product.md', content: PRODUCT },
   { path: 'templates/domain.md', content: DOMAIN },
+  { path: 'templates/question.md', content: QUESTION },
+  { path: 'templates/correction.md', content: CORRECTION },
   { path: 'templates/service.md', content: SERVICE },
   { path: 'templates/file.md', content: FILE },
   { path: 'templates/symbol.md', content: SYMBOL },
@@ -126,6 +150,47 @@ export function seedStarterSet(productFolder: string): string[] {
       throw new Error(`src/knowledge/seed.ts: ${target} could not be written to give the product its starter set: ${(error as Error).message}`);
     }
     written.push(starter.path);
+  }
+  return written;
+}
+
+
+/**
+ * The kinds the loop of questions and corrections needs (madarch-m38l.7): `question` and `correction`, their folders and
+ * their templates. A product made before they existed is given them when a refresh starts: the manifest gains the
+ * missing declarations (its comments kept) and the templates that are absent are written. Answers the paths it wrote.
+ */
+export function ensureLoopKinds(productFolder: string): string[] {
+  const written: string[] = [];
+  const file = join(productFolder, KINDS_FILE);
+  let text: string;
+  try {
+    text = readFileSync(file, 'utf8');
+  } catch (error) {
+    throw new Error(`src/knowledge/seed.ts: ${file} cannot be read to add the question and correction kinds: ${(error as Error).message}`);
+  }
+  const document = parseDocument(text);
+  if (document.errors.length > 0) throw new Error(`${file}:${document.errors[0]!.linePos?.[0].line ?? 1}: the manifest cannot be read, so the question and correction kinds are not added: ${document.errors[0]!.message.split('\n')[0]}`);
+  const wanted = parseDocument(KINDS).getIn(['kinds']) as { items: { key: { value: string }; value: unknown }[] };
+  let changed = false;
+  for (const item of wanted.items) {
+    const name = item.key.value;
+    if (name !== 'question' && name !== 'correction') continue;
+    if (document.hasIn(['kinds', name])) continue;
+    document.setIn(['kinds', name], document.createNode((item.value as { toJSON(): unknown }).toJSON()));
+    changed = true;
+  }
+  const starters = STARTER_FILES.filter((starter) => starter.path === 'templates/question.md' || starter.path === 'templates/correction.md');
+  for (const starter of starters) {
+    const target = join(productFolder, starter.path);
+    if (existsSync(target)) continue;
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, starter.content, { flag: 'wx' });
+    written.push(starter.path);
+  }
+  if (changed) {
+    writeFileSync(file, document.toString(), 'utf8');
+    written.push(KINDS_FILE);
   }
   return written;
 }

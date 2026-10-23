@@ -33,9 +33,16 @@ export function readKnowledgePages(productFolder: string): { pages: IndexedPage[
   const read = readMarkdownEntities(productFolder, kinds.manifest);
   const findings: Finding[] = [...kinds.manifest.findings, ...read.findings];
   const pages: IndexedPage[] = [];
+  const sha = (text: string): string => sha256Hex(new TextEncoder().encode(text));
   for (const entity of read.entities) {
     try {
-      pages.push(readIndexedPage(entity.file, readFileSync(join(productFolder, entity.file), 'utf8'), (text) => sha256Hex(new TextEncoder().encode(text))));
+      const source = readFileSync(join(productFolder, entity.file), 'utf8');
+      const page = readIndexedPage(entity.file, source, sha);
+      pages.push(page);
+      // An answered question is two entities in the index: the question, and the answer a person gave to it (madarch-m38l.7).
+      if (entity.kind === 'question' && entity.front['status'] === 'answered') {
+        pages.push({ id: `answer:${page.id.slice(page.id.indexOf(':') + 1)}`, kind: 'answer', title: `Answer: ${page.title}`, file: entity.file, relates: page.relates, sources: [], writtenAt: [], producer: 'person', statements: [], mentions: [page.id], digest: sha(`answer\n${source}`) });
+      }
     } catch (error) {
       if (error instanceof PageReadError) findings.push({ file: error.file, line: error.line, message: error.message.slice(error.file.length + String(error.line).length + 2) });
       else findings.push({ file: join(productFolder, entity.file), line: 1, message: (error as Error).message });

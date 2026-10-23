@@ -385,10 +385,10 @@ describe('the unit tools', () => {
     return { sink, tools: new UnitTools(view, spec, sink, known, bounds) };
   }
 
-  test('an agent has six tools and no way to reach the repository, a shell or the disk', () => {
-    expect(WRITER_TOOLS.map((t) => t.name)).toEqual(['overview', 'find_nodes', 'get_node', 'neighbors', 'read_file', 'write_page']);
+  test('an agent has seven tools and no way to reach the repository, a shell or the disk', () => {
+    expect(WRITER_TOOLS.map((t) => t.name)).toEqual(['overview', 'find_nodes', 'get_node', 'neighbors', 'read_file', 'write_page', 'ask_question']);
     const { tools } = session();
-    expect(tools.tools.map((t) => t.name)).toEqual(['overview', 'find_nodes', 'get_node', 'neighbors', 'read_file', 'write_page']);
+    expect(tools.tools.map((t) => t.name)).toEqual(['overview', 'find_nodes', 'get_node', 'neighbors', 'read_file', 'write_page', 'ask_question']);
   });
 
   test('a file is read from the graph in bounded numbered lines, and a missing or unlisted file is an error', async () => {

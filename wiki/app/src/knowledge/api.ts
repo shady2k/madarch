@@ -1,6 +1,6 @@
 import { appPath } from '../app-base.js';
 import { readJson, RequestError } from '../api.js';
-import type { AgentOffer, DocumentListing, DocumentPageModel, EntityListing, PageModel, ProductChoice, SourceFile, WikiStatus } from './types.js';
+import type { AgentOffer, AnswerResult, CorrectionResult, DocumentListing, DocumentPageModel, EntityListing, PageModel, ProblemListing, ProductChoice, QuestionDetail, QuestionListing, RefreshPreview, SourceFile, WikiStatus } from './types.js';
 
 /** The wiki's status: manifest, kinds, repositories, fill. */
 export const getStatus = (signal?: AbortSignal): Promise<WikiStatus> => readJson<WikiStatus>('read the wiki', '/api/k/status', signal);
@@ -115,3 +115,39 @@ export function getDocument(repo: string | null, path: string, signal?: AbortSig
   if (repo !== null) query.set('repo', repo);
   return readJson<DocumentPageModel>(`read the document ${path}`, `/api/k/document?${query.toString()}`, signal);
 }
+
+// ---- the loop of questions and corrections (madarch-m38l.7) ----------------------------------
+
+export const getQuestions = (signal?: AbortSignal): Promise<QuestionListing> => readJson<QuestionListing>('list the questions', '/api/k/questions', signal);
+
+export const getQuestion = (id: string, signal?: AbortSignal): Promise<QuestionDetail> => readJson<QuestionDetail>(`read the question ${id}`, `/api/k/question?id=${encodeURIComponent(id)}`, signal);
+
+export const getProblems = (signal?: AbortSignal): Promise<ProblemListing> => readJson<ProblemListing>('list the problems', '/api/k/problems', signal);
+
+/** Which pages a refresh would touch and why, before it is pressed; `language` is the one the reader means to ask for. */
+export const getRefreshPlan = (language?: string, signal?: AbortSignal): Promise<RefreshPreview> => readJson<RefreshPreview>('plan the refresh', `/api/k/refresh-plan${language === undefined ? '' : `?language=${encodeURIComponent(language)}`}`, signal);
+
+async function post<T>(what: string, url: string, body: unknown): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(appPath(url), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  } catch (error) {
+    throw new RequestError(what, `the request failed (${error instanceof Error ? error.message : String(error)})`);
+  }
+  if (response.ok) return (await response.json()) as T;
+  let reason = `the server answered ${response.status}`;
+  try {
+    const answer = (await response.json()) as { message?: unknown; error?: { message?: unknown } };
+    if (typeof answer.message === 'string') reason = answer.message;
+    else if (typeof answer.error?.message === 'string') reason = answer.error.message;
+  } catch {
+    // the status stands
+  }
+  throw new RequestError(what, reason, response.status);
+}
+
+/** A person's answer to a question; the server writes it into the question's file and commits it. */
+export const answerQuestion = (question: string, text: string): Promise<AnswerResult> => post<AnswerResult>('save the answer', '/api/k/answer', { question, text });
+
+/** A person's correction of a statement (`<page id>#<statement name>`): "wrong, because ...". */
+export const correctStatement = (statement: string, reason: string): Promise<CorrectionResult> => post<CorrectionResult>('save the correction', '/api/k/correction', { statement, reason });

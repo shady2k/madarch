@@ -213,16 +213,16 @@ describe('a body and its grounds', () => {
 });
 
 describe('the starter set madarch new seeds', () => {
-  test('a new product holds the manifest and the five templates, the manifest reads without a finding and every template parses without a problem', () => {
+  test('a new product holds the manifest and the seven templates, the manifest reads without a finding and every template parses without a problem', () => {
     const home = scratch();
     const draft = createDraft({ home, name: 'seeded', gitEnv: gitEnv({ GIT_AUTHOR_NAME: 'a', GIT_AUTHOR_EMAIL: 'a@example.test', GIT_COMMITTER_NAME: 'a', GIT_COMMITTER_EMAIL: 'a@example.test' }) });
     if (draft.outcome !== 'created') throw new Error(JSON.stringify(draft));
-    expect(STARTER_FILES.map((file) => file.path)).toEqual(['madarch/kinds.yaml', 'templates/product.md', 'templates/domain.md', 'templates/service.md', 'templates/file.md', 'templates/symbol.md']);
+    expect(STARTER_FILES.map((file) => file.path)).toEqual(['madarch/kinds.yaml', 'templates/product.md', 'templates/domain.md', 'templates/question.md', 'templates/correction.md', 'templates/service.md', 'templates/file.md', 'templates/symbol.md']);
     for (const file of STARTER_FILES) expect(readFileSync(join(draft.folder, file.path), 'utf8')).toBe(file.content);
     const read = readKinds(draft.folder);
     if (!read.present) throw new Error('the seeded manifest is absent');
     expect(read.manifest.findings).toEqual([]);
-    expect([...read.manifest.kinds.keys()]).toEqual(['product', 'domain', 'code.service', 'code.file', 'code.symbol']);
+    expect([...read.manifest.kinds.keys()]).toEqual(['product', 'domain', 'question', 'correction', 'code.service', 'code.file', 'code.symbol']);
     expect(homeKind(read.manifest)!.name).toBe('product');
     for (const decl of read.manifest.kinds.values()) {
       const parts = parseTemplate(readFileSync(join(draft.folder, decl.template), 'utf8'));
