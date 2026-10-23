@@ -1,14 +1,13 @@
 /**
- * The browser's stand-in for `node:module` (madarch-m38l.15): the LikeC4 React runtime is bundled from the package's
- * own rolldown chunk, whose first line imports `createRequire` for the CLI's dynamic requires. A browser never calls
- * it, and a build cannot resolve `node:module` at all, so the app aliases the module to this file: an import that
- * stands and a call that says what happened instead of taking the page down.
+ * The browser's stand-in for `node:module` (madarch-m38l.15): LikeC4's model entry begins with its rolldown runtime,
+ * which calls `createRequire(import.meta.url)` as it initialises and hands the result to the CommonJS loaders it
+ * carries for its CLI. A browser never loads a module that way, and `node:module` cannot be resolved into an app at
+ * all — an unresolved import takes the first paint down with it — so the app aliases the module to this file: the
+ * call stands, and a load that really needs it says what happened instead.
  */
-export function createRequire(from: string): (specifier: string) => never {
-  // LikeC4's browser renderer imports the same rolldown runtime as its Node CLI. Creating the require function is
-  // harmless and happens when the runtime loads; invoking it is Node-only and is the operation this shim rejects.
-  return (specifier: string): never => {
-    throw new Error(`require(${JSON.stringify(specifier)}) from ${JSON.stringify(from)} is a Node.js call: the wiki app runs in the browser (wiki/app/src/shims/node-module.ts)`);
+export function createRequire(from: string): (id: string) => never {
+  return (id: string) => {
+    throw new Error(`createRequire(${JSON.stringify(from)})(${JSON.stringify(id)}) is a Node.js module load: the wiki app runs in the browser (wiki/app/src/shims/node-module.ts)`);
   };
 }
 
