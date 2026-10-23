@@ -10,7 +10,7 @@
  * its page in a tab of the wiki.
  */
 import { useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
-import { LikeC4View, LikeC4ModelProvider } from 'likec4/react';
+import { LikeC4View, LikeC4ModelProvider, useOnDiagramEvent } from 'likec4/react';
 import { LikeC4Model } from 'likec4/model';
 import { useTranslation } from 'react-i18next';
 import { ArrowLeftIcon, ChevronsDownIcon, MinusIcon, PlusIcon, ScanIcon } from 'lucide-react';
@@ -63,6 +63,19 @@ export function bindMermaid(root: HTMLElement, elements: readonly ViewElement[],
   return () => undo.forEach((fn) => fn());
 }
 
+/**
+ * A click on a LikeC4 element opens its page: LikeC4 reports the click as a diagram event, and the element's own id
+ * names the address the server sent beside the model. It renders nothing — it is mounted inside the diagram so the
+ * event reaches it.
+ */
+function NodeClicks({ links, onOpen }: { links: Readonly<Record<string, string>>; onOpen: (href: string) => void }): null {
+  useOnDiagramEvent('nodeClick', ({ node }) => {
+    const href = links[node.modelRef ?? node.id] ?? links[node.id];
+    if (href !== undefined) onOpen(href);
+  });
+  return null;
+}
+
 /** The frame of a LikeC4 or archify document; a click inside it arrives as a message and opens the page. */
 function Frame({ view, renderer, lang, onOpen }: { view: DiagramView; renderer: 'likec4' | 'archify'; lang: string; onOpen: (href: string) => void }): ReactElement {
   const { t } = useTranslation();
@@ -97,7 +110,13 @@ function Frame({ view, renderer, lang, onOpen }: { view: DiagramView; renderer: 
   const likeC4 = layout as { model?: { projectId?: string }; elementLinks?: Record<string, string> } | null;
   const likeC4Model = useMemo(() => likeC4?.model ? LikeC4Model.create(likeC4.model as never) : null, [likeC4?.model]);
   const content = renderer === 'likec4' && likeC4Model
-    ? <LikeC4ModelProvider likec4model={likeC4Model}><LikeC4View className="dg-likec4-view" viewId="index" pannable zoomable controls onNodeClick={(node) => { const href = likeC4?.elementLinks?.[node.modelRef ?? node.id]; if (href) onOpen(href); }} /></LikeC4ModelProvider>
+    ? (
+      <LikeC4ModelProvider likec4model={likeC4Model}>
+        <LikeC4View className="dg-likec4-view" viewId="index" pannable zoomable controls>
+          <NodeClicks links={likeC4?.elementLinks ?? {}} onOpen={onOpen} />
+        </LikeC4View>
+      </LikeC4ModelProvider>
+    )
     : null;
   return (
     <div className="dg-frame-box" data-testid={`view-frame-${renderer}`}>

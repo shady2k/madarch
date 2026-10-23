@@ -90,12 +90,17 @@ async function layoutOf(workspace: string, viewId: string): Promise<{ ok: true; 
         id: view.id,
         title: view.title ?? view.id,
         nodes: view.nodes.map((node) => ({ id: node.id, kind: node.kind ?? 'external', title: node.title, parent: node.parent ?? null, x: node.x, y: node.y, width: node.width, height: node.height })),
-        edges: view.edges.map((edge) => ({
-          source: edge.source,
-          target: edge.target,
-          ...(edge.label === undefined ? {} : { label: edge.label }),
-          ...(edge.labelBBox === undefined ? {} : { labelAt: [edge.labelBBox.x + edge.labelBBox.width / 2, edge.labelBBox.y + edge.labelBBox.height / 2] as const }),
-        })),
+        // LikeC4 spells an absent label as `null` as well as `undefined`, and an edge without one carries no box:
+        // the archify edge takes a label only when it holds a string, and the label's place only with its box.
+        edges: view.edges.map((edge) => {
+          const box = edge.labelBBox;
+          return {
+            source: edge.source,
+            target: edge.target,
+            ...(typeof edge.label === 'string' ? { label: edge.label } : {}),
+            ...(box === undefined || box === null ? {} : { labelAt: [box.x + box.width / 2, box.y + box.height / 2] as const }),
+          };
+        }),
       },
     };
   } catch (error) {
