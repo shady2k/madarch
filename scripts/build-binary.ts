@@ -234,6 +234,8 @@ async function smokeServing(outfile: string, home: string): Promise<string | und
     ...process.env,
     GIT_AUTHOR_NAME: 'Madarch Build Smoke', GIT_AUTHOR_EMAIL: 'build@example.invalid',
     GIT_COMMITTER_NAME: 'Madarch Build Smoke', GIT_COMMITTER_EMAIL: 'build@example.invalid',
+    // madarch's own wiki is installed in the madarch home: the smoke's, never the machine's.
+    MADARCH_HOME: home,
   };
   // A port of the smoke's own, found free on the machine: the facts the
   // command prints must name it, so a server that took another port — or
@@ -288,6 +290,9 @@ async function createsAndServes(outfile: string, products: string, port: number,
       if (answer.ok && (await answer.text()).includes('"id"')) {
         const page = await fetch(facts.url);
         if (!page.ok || !(await page.text()).includes('<div id="root"')) return `the built binary did not serve the embedded wiki app's entry page at ${facts.url} (HTTP ${page.status})`;
+        // madarch's own wiki came out of the copy the binary carries, with no network asked for.
+        const listed = await fetch(`${facts.url}api/products`);
+        if (!listed.ok || !(await listed.text()).includes('"own":true')) return `the built binary did not serve madarch's own wiki beside the draft (GET ${facts.url}api/products answered ${listed.status})${daemonLog(products)}`;
         return undefined;
       }
     } catch { /* the product's API is still coming up */ }

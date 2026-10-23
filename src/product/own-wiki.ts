@@ -10,7 +10,7 @@
  * repository and the folder, and the server runs without the entry.
  */
 import { execFile } from 'node:child_process';
-import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, renameSync, rmSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { embeddedOwnWiki } from '../product-wiki/release-assets.js';
 import { madarchHome, type DraftEnv } from './home.js';
@@ -65,7 +65,8 @@ export function installOwnWiki(options: OwnWikiOptions = {}): OwnWikiInstall {
     // The binary's embedded file lives in its own virtual file system, which a git process cannot read: the bytes go to a real file first.
     from = join(staging, 'own-wiki.bundle');
     try {
-      copyFileSync(embedded.bundle, from);
+      // readFileSync reaches the binary's embedded files; copyFileSync does not.
+      writeFileSync(from, readFileSync(embedded.bundle));
     } catch (error) {
       rmSync(staging, { recursive: true, force: true });
       return { ok: false, folder, message: `madarch's own wiki cannot be installed at ${folder}: the embedded copy ${embedded.bundle} could not be read: ${(error as Error).message}` };
