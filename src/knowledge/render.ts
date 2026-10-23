@@ -9,9 +9,10 @@ import { join } from 'node:path';
 import { CONTAINS } from '../graph/vocabulary.js';
 import { byCodePoint } from '../model/order.js';
 import {
-  attributeOf, bodyBlock, callBlock, childrenBlock, erBlock, graphBlock, idOf, kindOf, propertiesBlock, refOfGraph, refOfMarkdown, relatedBlock, sequenceBlock, sourceBlock,
+  attributeOf, bodyBlock, callBlock, childrenBlock, erBlock, idOf, kindOf, propertiesBlock, refOfGraph, refOfMarkdown, relatedBlock, sourceBlock,
   type RenderContext, type Subject,
 } from './blocks.js';
+import { graphBlock, modulesBlock, sequenceBlock, systemBlock, treemapBlock } from './diagrams.js';
 import type { GraphEntity } from './graph-read.js';
 import { implementedByBlock, linkedFromBlock, statedBlock, termBlock } from './doc-blocks.js';
 import { homeKind, type Finding, type Origin } from './kinds.js';
@@ -40,7 +41,10 @@ export async function findSubject(ctx: RenderContext, id: string): Promise<{ sub
  * Renders the page of an entity. `lang` is the interface language the reader reads in: a block parameter
  * `title-<lang>` (for example `title-ru="Файлы"`) names the block in that language where the template gives one.
  */
-export async function renderPage(ctx: RenderContext, id: string, lang?: string): Promise<PageResult> {
+/** The blocks that read the graph at length: drawn by a read of their own when the page is asked for with `defer`. */
+const DEFERRED_BLOCKS: ReadonlySet<string> = new Set(['graph', 'sequence', 'system', 'modules', 'treemap']);
+
+export async function renderPage(ctx: RenderContext, id: string, lang?: string, options: { defer?: boolean; only?: number } = {}): Promise<PageResult> {
   const located = await findSubject(ctx, id);
   if (located === undefined) return { ok: false, status: 404, message: `no entity "${id}" in the graph or among the product's Markdown pages` };
   const { subject } = located;
@@ -62,6 +66,8 @@ export async function renderPage(ctx: RenderContext, id: string, lang?: string):
     return attributeOf(subject, name);
   };
   for (const part of parseTemplate(templateText)) {
+    // One block of the template, asked for by its line (the page a deferred diagram reads itself from).
+    if (options.only !== undefined && part.line !== options.only) continue;
     if (part.type === 'text') {
       const text = substitute(part.text, part.line, decl.template, value, findings);
       if (text.trim() !== '') blocks.push({ type: 'markdown', markdown: text });
@@ -78,6 +84,11 @@ export async function renderPage(ctx: RenderContext, id: string, lang?: string):
       if (!name.startsWith('title-')) continue;
       if (lang !== undefined && name === `title-${lang}`) params['title'] = params[name]!;
       delete params[name];
+    }
+    // The diagrams read the graph many times; a page that asks for them later answers at once and draws them when they come.
+    if (options.defer === true && DEFERRED_BLOCKS.has(part.name)) {
+      blocks.push({ type: 'deferred', block: part.name, title: params['title'] ?? '', line: part.line });
+      continue;
     }
     const block = await renderBlock(ctx, subject, part.name, params, decl.template, part.line);
     if (block.type === 'problem') findings.push({ file: block.file, line: block.line, message: `:::${block.block}: ${block.message}` });
@@ -133,6 +144,9 @@ async function renderBlock(ctx: RenderContext, subject: Subject, name: string, p
   switch (name) {
     case 'body': return bodyBlock(subject, name, file, line);
     case 'graph': return await graphBlock(ctx, subject, params);
+    case 'system': return await systemBlock(ctx, params);
+    case 'modules': return await modulesBlock(ctx, subject, params, file, line);
+    case 'treemap': return await treemapBlock(ctx, subject, params);
     case 'related': return await relatedBlock(ctx, subject, params, file, line);
     case 'callers': return await callBlock(ctx, subject, 'in', params, file, line);
     case 'callees': return await callBlock(ctx, subject, 'out', params, file, line);

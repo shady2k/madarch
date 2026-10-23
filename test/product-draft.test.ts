@@ -131,6 +131,7 @@ describe('createDraft', () => {
       'templates/package.md',
       'templates/product.md',
       'templates/question.md',
+      'templates/route.md',
       'templates/service.md',
       'templates/symbol.md',
       'templates/table.md',

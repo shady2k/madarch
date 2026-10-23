@@ -19,9 +19,14 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert.js';
 import { Badge } from '@/components/ui/badge.js';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.js';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.js';
+import { getBlock } from './api.js';
 import { highlight } from './highlight.js';
 import { colorize, type ColoredToken } from './shiki.js';
 import { PendingPages } from './pending.js';
+import { ModulesView, SystemView } from './diagrams/system.js';
+import { NeighborhoodGraph } from './diagrams/neighborhood.js';
+import { SequenceView } from './diagrams/chain.js';
+import { TreemapView } from './diagrams/treemap.js';
 import { useKindName } from './kind-names.js';
 import { addressOfDocument, addressOfStatement } from './routes.js';
 import { linkHandlers, openInNewTab, syncFrontTabAddress } from './tabs.js';
@@ -369,7 +374,7 @@ function Source({ block }: { block: Extract<Block, { type: 'source' }> }): React
 
 // ---- diagrams -----------------------------------------------------------------------------------
 
-function Diagram({ title, mermaid, caption, empty }: { title: string; mermaid: string; caption: string | null; empty: string }): ReactElement {
+function Diagram({ title, mermaid, caption, empty, links = [] }: { title: string; mermaid: string; caption: string | null; empty: string; links?: readonly EntityRef[] }): ReactElement {
   if (mermaid === '') {
     return (
       <section data-block="diagram" aria-label={title}>
@@ -383,6 +388,7 @@ function Diagram({ title, mermaid, caption, empty }: { title: string; mermaid: s
       <h2>{title}</h2>
       <figure className="m-0">
         <MermaidDiagram source={mermaid} title={title} />
+        {links.length > 0 && <ul className="dg-links" data-testid="diagram-links">{links.map((entity) => <li key={entity.id}><EntityName entity={entity} /></li>)}</ul>}
         {caption !== null && <figcaption className="mt-1.5 text-small text-muted">{caption}</figcaption>}
       </figure>
     </section>
@@ -455,6 +461,30 @@ function Stated({ block }: { block: Extract<Block, { type: 'stated' }> }): React
   );
 }
 
+/** A diagram the page left to be read on its own: drawn when its read comes, a failure said with its reason. */
+function Deferred({ block, pageId, resolutions }: { block: Extract<Block, { type: 'deferred' }>; pageId?: string; resolutions: Readonly<Record<string, Resolution>> }): ReactElement {
+  const { t, i18n } = useTranslation();
+  const [drawn, setDrawn] = useState<Block | null>(null);
+  const [failure, setFailure] = useState<string | null>(null);
+  useEffect(() => {
+    if (pageId === undefined) return;
+    const stop = new AbortController();
+    setDrawn(null);
+    setFailure(null);
+    getBlock(pageId, block.line, i18n.resolvedLanguage ?? 'en', stop.signal).then(setDrawn, (error: unknown) => {
+      if (!(error instanceof DOMException && error.name === 'AbortError')) setFailure(error instanceof Error ? error.message : String(error));
+    });
+    return () => stop.abort();
+  }, [pageId, block.line, block.block, i18n.resolvedLanguage]);
+  if (drawn !== null) return <BlockView block={drawn} resolutions={resolutions} {...(pageId === undefined ? {} : { pageId })} />;
+  return (
+    <section data-block="diagram" data-diagram="deferred" aria-label={block.title}>
+      {block.title !== '' && <h2>{block.title}</h2>}
+      {failure === null ? <p className="text-small text-muted" data-testid="diagram-loading">{t('knowledge.diagram.drawing')}</p> : <p className="ref-broken" data-testid="diagram-failure">{failure}</p>}
+    </section>
+  );
+}
+
 function Problem({ block }: { block: Extract<Block, { type: 'problem' }> }): ReactElement {
   const { t } = useTranslation();
   return (
@@ -482,9 +512,13 @@ export function BlockView({ block, resolutions, pageId }: { block: Block; resolu
     case 'callers':
     case 'callees': return <Calls block={block} />;
     case 'source': return <Source block={block} />;
-    case 'graph': return <Diagram title={block.title} mermaid={block.mermaid} empty={t('knowledge.noLinks')} caption={block.total > block.shown ? t('knowledge.showing', { shown: block.shown, total: block.total }) : null} />;
-    case 'sequence': return <Diagram title={block.title} mermaid={block.mermaid} empty={t('knowledge.noCalls')} caption={block.total > block.shown ? t('knowledge.showing', { shown: block.shown, total: block.total }) : null} />;
-    case 'er': return <Diagram title={block.title} mermaid={block.mermaid} empty={t('knowledge.noTables')} caption={block.tables > block.shownTables ? t('knowledge.showing', { shown: block.shownTables, total: block.tables }) : null} />;
+    case 'graph': return <NeighborhoodGraph block={block} />;
+    case 'sequence': return <SequenceView block={block} />;
+    case 'system': return <SystemView block={block} />;
+    case 'modules': return <ModulesView block={block} />;
+    case 'treemap': return <TreemapView block={block} />;
+    case 'er': return <Diagram title={block.title} mermaid={block.mermaid} empty={t('knowledge.noTables')} caption={block.tables > block.shownTables ? t('knowledge.showing', { shown: block.shownTables, total: block.tables }) : null} links={block.links} />;
+    case 'deferred': return <Deferred block={block} resolutions={resolutions} {...(pageId === undefined ? {} : { pageId })} />;
     case 'problem': return <Problem block={block} />;
   }
 }

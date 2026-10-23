@@ -22,6 +22,9 @@ function block(name: string, en: string, ru: string, params = ''): string {
   return `:::${name}{title="${en}" title-ru="${ru}"${params === '' ? '' : ` ${params}`}}`;
 }
 
+/** The neighbourhood block of a page. */
+const G = (en: string, ru: string): string => block('graph', en, ru);
+
 const SECTION = {
   details: block('properties', 'Details', 'Сведения'),
   source: block('source', 'Source', 'Исходный текст'),
@@ -30,16 +33,22 @@ const SECTION = {
 };
 
 const PRODUCT = `:::body
+${block('system', 'The system', 'Система')}
+${block('treemap', 'Files by size and change', 'Файлы по размеру и изменчивости')}
 ${block('related', 'Relates to', 'Связано с', 'relation="relates"')}
 `;
 
 const DOMAIN = `:::body
+${block('sequence', 'End-to-end chain', 'Сквозная цепочка', 'scenario="{{title}}"')}
+${G('Around this page','Вокруг этой страницы')}
 ${block('related', 'Implemented by', 'Реализуют', 'relation="relates"')}
 `;
 
 const SERVICE = `A {{language}} service. Frameworks: {{frameworks}}. Infrastructure: {{infrastructure}}. Tests: {{testFramework}}.
 
-:::graph{depth=1 title="Links" title-ru="Связи"}
+${G('Around this service','Вокруг этого сервиса')}
+${block('modules', 'Modules', 'Модули')}
+${block('treemap', 'Files by size and change', 'Файлы по размеру и изменчивости')}
 ${block('related', 'Files', 'Файлы', 'relation="code.contains" depth=3 kind="code.file" limit=60')}
 ${block('related', 'Modules', 'Модули', 'relation="code.contains" depth=2 kind="code.module" limit=60')}
 ${SECTION.pagesAbout('this service', 'этом сервисе')}
@@ -48,6 +57,7 @@ ${SECTION.pagesAbout('this service', 'этом сервисе')}
 const FILE = `{{path}}
 
 ${block('source', 'Source', 'Исходный текст')}
+${G('Around this file','Вокруг этого файла')}
 ${block('related', 'Declares', 'Объявляет', 'relation="code.contains" direction="out" kind="code.symbol" limit=60')}
 ${block('related', 'Imports', 'Импортирует', 'relation="code.imports" direction="out"')}
 ${block('related', 'Imported by', 'Импортируют', 'relation="code.imports" direction="in"')}
@@ -60,12 +70,14 @@ const SYMBOL = `{{symbolKind}} in {{path}}
 ${block('source', 'Source', 'Исходный текст')}
 ${block('callers', 'Callers', 'Кто вызывает')}
 ${block('callees', 'Calls', 'Что вызывает')}
-:::sequence{depth=2 title="Call sequence" title-ru="Последовательность вызовов"}
+${G('Around this function','Вокруг этой функции')}
+${block('sequence', 'End-to-end chain', 'Сквозная цепочка', 'scenario="{{label}}"')}
 ${block('related', 'Tests and types', 'Тесты и типы', 'relation="code.tests,code.implements,code.inherits"')}
 ${SECTION.pagesAbout('this function', 'этой функции')}
 `;
 
 const PACKAGE = `${SECTION.details}
+${G('Around this','Вокруг этого')}
 ${block('related', 'Modules', 'Модули', 'relation="code.contains" direction="out" kind="code.module" limit=60')}
 ${block('related', 'Files', 'Файлы', 'relation="code.contains" depth=3 kind="code.file" limit=80')}
 ${block('related', 'Relations', 'Связи', 'relation="code.manifest-of" direction="in"')}
@@ -73,6 +85,7 @@ ${SECTION.pagesAbout('this package', 'этом пакете')}
 `;
 
 const MODULE = `${SECTION.details}
+${G('Around this','Вокруг этого')}
 ${block('related', 'Files', 'Файлы', 'relation="code.contains" depth=2 kind="code.file" limit=80')}
 ${block('related', 'Symbols', 'Символы', 'relation="code.contains" depth=3 kind="code.symbol" limit=60')}
 ${block('related', 'Depends on', 'Зависит от', 'relation="code.depends-on" direction="out"')}
@@ -83,6 +96,7 @@ ${SECTION.pagesAbout('this module', 'этом модуле')}
 
 /** Entities that carry a place in a file: the details, the lines, the relations. */
 const ITEM = `${SECTION.details}
+${G('Around this','Вокруг этого')}
 ${SECTION.source}
 ${SECTION.relations}
 ${SECTION.pagesAbout('this', 'нём')}
@@ -90,11 +104,13 @@ ${SECTION.pagesAbout('this', 'нём')}
 
 /** Entities with no place of their own in a file: the details and the relations. */
 const ITEM_PLAIN = `${SECTION.details}
+${G('Around this','Вокруг этого')}
 ${SECTION.relations}
 ${SECTION.pagesAbout('this', 'нём')}
 `;
 
 const DATABASE = `${SECTION.details}
+${G('Around this','Вокруг этого')}
 ${block('children', 'Tables', 'Таблицы', 'kind="code.table" prefix="code.table:{{label}}/" relation="code.contains"')}
 ${block('children', 'Migrations', 'Миграции', 'kind="code.migration" prefix="code.migration:{{label}}/" relation="code.contains"')}
 ${block('er', 'Tables and their links', 'Таблицы и связи между ними', 'limit=12')}
@@ -103,12 +119,22 @@ ${SECTION.pagesAbout('this database', 'этой базе данных')}
 `;
 
 const TABLE = `${SECTION.details}
+${G('Around this','Вокруг этого')}
 ${SECTION.source}
 ${block('children', 'Columns', 'Столбцы', 'kind="code.column" prefix="{{key}}/" relation="code.contains" limit=200')}
 ${block('children', 'Indexes', 'Индексы', 'kind="code.index" prefix="code.index:{{keyrest}}/" relation="code.contains"')}
 ${block('er', 'The table and its links', 'Таблица и её связи')}
 ${SECTION.relations}
 ${SECTION.pagesAbout('this table', 'этой таблице')}
+`;
+
+/** A route: its neighbourhood and the chain from it to the tables, the other services and the topics. */
+const ROUTE = `${SECTION.details}
+${G('Around this route','Вокруг этого маршрута')}
+${block('sequence', 'End-to-end chain', 'Сквозная цепочка', 'scenario="{{label}}"')}
+${SECTION.source}
+${SECTION.relations}
+${SECTION.pagesAbout('this route', 'этом маршруте')}
 `;
 
 const ENTITY_TEXT = `:::body
@@ -131,6 +157,7 @@ const TEMPLATES: Readonly<Record<string, string>> = {
   'module.md': MODULE,
   'file.md': FILE,
   'symbol.md': SYMBOL,
+  'route.md': ROUTE,
   'item.md': ITEM,
   'item-plain.md': ITEM_PLAIN,
   'database.md': DATABASE,
@@ -196,7 +223,7 @@ const STARTER_KINDS: readonly StarterKind[] = [
   { name: 'code.input', template: 'item.md', source: 'graph', group: 'code', en: ['Input', 'Inputs'], ru: ['Входные данные', 'Входные данные'], describe: ['A value that enters the code from outside, such as a query parameter.', 'Значение, которое попадает в код снаружи, например параметр запроса.'] },
   { name: 'code.sql-build', template: 'item-plain.md', source: 'graph', group: 'code', en: ['SQL build', 'SQL builds'], ru: ['Сборка SQL', 'Сборки SQL'], describe: ['A function that builds SQL text by joining strings.', 'Функция, которая собирает текст SQL склейкой строк.'] },
   { name: 'code.sql-sink', template: 'item.md', source: 'graph', group: 'code', en: ['SQL sink', 'SQL sinks'], ru: ['Выполнение SQL', 'Места выполнения SQL'], describe: ['A call that runs SQL text as it is.', 'Вызов, который выполняет текст SQL как есть.'] },
-  { name: 'code.route', template: 'item.md', source: 'graph', group: 'contracts', en: ['HTTP route', 'HTTP routes'], ru: ['HTTP-маршрут', 'HTTP-маршруты'], describe: ['An HTTP route a service serves, read from its code.', 'HTTP-маршрут, который обслуживает сервис, прочитанный из кода.'] },
+  { name: 'code.route', template: 'route.md', source: 'graph', group: 'contracts', en: ['HTTP route', 'HTTP routes'], ru: ['HTTP-маршрут', 'HTTP-маршруты'], describe: ['An HTTP route a service serves, read from its code.', 'HTTP-маршрут, который обслуживает сервис, прочитанный из кода.'] },
   { name: 'code.operation', template: 'item.md', source: 'graph', group: 'contracts', en: ['API operation', 'API operations'], ru: ['Операция API', 'Операции API'], describe: ['An operation an OpenAPI or gRPC contract declares.', 'Операция, которую объявляет контракт OpenAPI или gRPC.'] },
   { name: 'code.contract', template: 'item-plain.md', source: 'graph', group: 'contracts', en: ['Contract', 'Contracts'], ru: ['Контракт', 'Контракты'], describe: ['An OpenAPI, gRPC or AsyncAPI file that fixes an interface.', 'Файл OpenAPI, gRPC или AsyncAPI, который фиксирует интерфейс.'] },
   { name: 'code.channel', template: 'item-plain.md', source: 'graph', group: 'contracts', en: ['Event channel', 'Event channels'], ru: ['Канал событий', 'Каналы событий'], describe: ['A topic or queue that services publish to and read from.', 'Топик или очередь, в которую сервисы пишут и из которой читают.'] },

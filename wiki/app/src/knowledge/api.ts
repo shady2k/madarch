@@ -1,6 +1,6 @@
 import { appPath } from '../app-base.js';
 import { readJson, RequestError } from '../api.js';
-import type { AgentOffer, AnswerResult, CorrectionResult, DocumentListing, Glossary, UserSettings, DocumentPageModel, EntityListing, PageModel, ProblemListing, ProductChoice, QuestionDetail, QuestionListing, RefreshPreview, SourceFile, StatementModel, WikiStatus } from './types.js';
+import type { AgentOffer, AnswerResult, CorrectionResult, DocumentListing, Glossary, UserSettings, DocumentPageModel, Block, EntityListing, Neighborhood, PageModel, ProblemListing, ProductChoice, QuestionDetail, QuestionListing, RefreshPreview, SourceFile, StatementModel, WikiStatus } from './types.js';
 
 /** The wiki's status: manifest, kinds, repositories, fill. */
 export const getStatus = (signal?: AbortSignal): Promise<WikiStatus> => readJson<WikiStatus>('read the wiki', '/api/k/status', signal);
@@ -143,6 +143,15 @@ export async function setRole(role: string): Promise<UserSettings> {
   }
   throw new RequestError('keep the role', reason, response.status);
 }
+
+/** The neighbours of one entity, one hop: for a diagram that opens a node. */
+export function getNeighborhood(id: string, options: { relation?: string; direction?: 'out' | 'in'; limit?: number } = {}, signal?: AbortSignal): Promise<Neighborhood> {
+  const query = new URLSearchParams({ id, limit: String(options.limit ?? 8) });
+  if (options.relation !== undefined) query.set('relation', options.relation);
+  if (options.direction !== undefined) query.set('direction', options.direction);
+  return readJson<Neighborhood>(`read the neighbours of ${id}`, `/api/k/neighborhood?${query.toString()}`, signal);
+}
+
 // ---- the loop of questions and corrections (madarch-m38l.7) ----------------------------------
 
 export const getQuestions = (signal?: AbortSignal): Promise<QuestionListing> => readJson<QuestionListing>('list the questions', '/api/k/questions', signal);
@@ -178,3 +187,6 @@ export const answerQuestion = (question: string, text: string): Promise<AnswerRe
 
 /** A person's correction of a statement (`<page id>#<statement name>`): "wrong, because ...". */
 export const correctStatement = (statement: string, reason: string): Promise<CorrectionResult> => post<CorrectionResult>('save the correction', '/api/k/correction', { statement, reason });
+
+/** One block of a page, by the line of its template: what a deferred diagram reads to draw itself. */
+export const getBlock = (id: string, line: number, lang: string, signal?: AbortSignal): Promise<Block> => readJson<Block>(`read the block at line ${line} of the page of ${id}`, `/api/k/block?id=${encodeURIComponent(id)}&line=${line}&lang=${lang === 'ru' ? 'ru' : 'en'}`, signal);

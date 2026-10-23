@@ -56,12 +56,19 @@ export interface NeighborGroup {
   rows: { entity: GraphEntity; edges: number; span?: SourceSpan }[];
 }
 
+/** One edge with the lightweight view of both ends. */
+export interface RelationEdge {
+  from: { key: string; kind: string; label: string };
+  to: { key: string; kind: string; label: string };
+  properties: Record<string, unknown>;
+}
+
 type Raw = Record<string, unknown>;
 
 const NODE_SELECT = `v.node_id::text AS node_id, k.key AS kind, v.label, v.properties, v.scope_id::text AS scope_id, v.producer`;
 const VISIBLE = (alias: string): string => `${alias}.valid_from <= $1::timestamptz AND $1::timestamptz < ${alias}.valid_to AND ${alias}.recorded_to = 'infinity'`;
 
-function spanOf(value: unknown): SourceSpan | undefined {
+export function spanOf(value: unknown): SourceSpan | undefined {
   if (value === null || typeof value !== 'object') return undefined;
   const span = value as Record<string, unknown>;
   const { path, lineStart, lineEnd, byteStart, byteEnd } = span;
@@ -314,6 +321,53 @@ export class GraphReader {
       );
       const all = keys.rows.map((row) => String(row['key']));
       return { total: all.length, rows: await this.entitiesByKeys(tx, at, all.slice(0, limit)) };
+    });
+  }
+
+  /**
+   * Every edge of one relation type whose two ends both carry a key, with the ends' kinds, labels and the edge's own
+   * properties; the diagram views (system, modules) read whole relations. At most `limit` edges come back, and `total`
+   * says how many there are, so a caller shows both and never presents a cut as the whole.
+   */
+  async relationEdges(relation: string, limit: number): Promise<{ total: number; rows: RelationEdge[] }> {
+    return await this.run(async (tx, at) => {
+      const found = await tx.query<Raw>(
+        `SELECT s.properties->>'recordKey' AS from_key, ks.key AS from_kind, s.label AS from_label,
+                d.properties->>'recordKey' AS to_key, kd.key AS to_kind, d.label AS to_label, e.properties AS properties, count(*) OVER ()::int AS total
+         FROM edge_version e JOIN relation_type r ON r.id = e.relation_type_id
+         JOIN node_version s ON s.node_id = e.src_id AND ${VISIBLE('s')} AND s.properties ? 'recordKey'
+         JOIN node_kind ks ON ks.id = s.kind_id
+         JOIN node_version d ON d.node_id = e.dst_id AND ${VISIBLE('d')} AND d.properties ? 'recordKey'
+         JOIN node_kind kd ON kd.id = d.kind_id
+         WHERE r.key = $2 AND ${VISIBLE('e')}
+         ORDER BY s.properties->>'recordKey' COLLATE "C", d.properties->>'recordKey' COLLATE "C", e.id
+         LIMIT $3::int`,
+        [at, relation, String(limit)],
+      );
+      const rows = found.rows.map((row) => ({
+        from: { key: String(row['from_key']), kind: String(row['from_kind']), label: String(row['from_label']) },
+        to: { key: String(row['to_key']), kind: String(row['to_kind']), label: String(row['to_label']) },
+        properties: (row['properties'] ?? {}) as Record<string, unknown>,
+      }));
+      return { total: Number(found.rows[0]?.['total'] ?? 0), rows };
+    });
+  }
+
+  /** How many edges of one relation end at each of the keys (the commits that touched a file, say); a key with none is 0. */
+  async inDegrees(relation: string, keys: readonly string[]): Promise<Map<string, number>> {
+    const counts = new Map<string, number>(keys.map((key) => [key, 0]));
+    if (keys.length === 0) return counts;
+    return await this.run(async (tx, at) => {
+      const found = await tx.query<Raw>(
+        `SELECT d.properties->>'recordKey' AS key, count(DISTINCT e.id)::int AS n
+         FROM edge_version e JOIN relation_type r ON r.id = e.relation_type_id
+         JOIN node_version d ON d.node_id = e.dst_id AND ${VISIBLE('d')} AND d.properties ? 'recordKey'
+         WHERE r.key = $2 AND ${VISIBLE('e')} AND d.properties->>'recordKey' = ANY($3::text[])
+         GROUP BY 1`,
+        [at, relation, `{${keys.map((key) => `"${key.replace(/(["\\])/g, '\\$1')}"`).join(',')}}`],
+      );
+      for (const row of found.rows) counts.set(String(row['key']), Number(row['n']));
+      return counts;
     });
   }
 
