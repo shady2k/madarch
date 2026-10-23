@@ -26,7 +26,10 @@ let env: Record<string, string>;
 let url = '';
 let initOutput = '';
 
-const madarch = (args: string[], cwd: string) => spawnSync(process.execPath, [join(ROOT, 'scripts', 'madarch.ts'), ...args], { cwd, env, encoding: 'utf8', timeout: 120_000 });
+// MADARCH_E2E_BINARY runs the same walk with a built release binary instead of the checkout's entry.
+const madarch = (args: string[], cwd: string) => process.env['MADARCH_E2E_BINARY'] !== undefined
+  ? spawnSync(process.env['MADARCH_E2E_BINARY'], args, { cwd, env, encoding: 'utf8', timeout: 120_000 })
+  : spawnSync(process.execPath, [join(ROOT, 'scripts', 'madarch.ts'), ...args], { cwd, env, encoding: 'utf8', timeout: 120_000 });
 const get = async (path: string): Promise<{ status: number; body: any }> => {
   const response = await fetch(`${url}${path}`);
   return { status: response.status, body: await response.json() };
