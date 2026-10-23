@@ -254,7 +254,7 @@ describe('the pages of the documents\' entities', () => {
     const terms = await product.list('doc.term', { limit: 50 });
     expect(terms!.total).toBe(item('doc.glossary').judge.mustShow.length === 1 ? 7 : 0);
     const outbox = terms!.rows.find((row) => row.label === 'Outbox')!;
-    expect(block(await page(outbox.id), 'body').markdown).toContain('the table in which orders queues the messages');
+    expect((block(await page(outbox.id), 'term') as { definition: string }).definition).toContain('the table in which orders queues the messages');
   });
 
   test('the documents list holds neither the product\'s own pages nor a file the manifest excludes', async () => {
