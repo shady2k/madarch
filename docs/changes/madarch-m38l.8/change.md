@@ -50,6 +50,16 @@ Decision 0029 and the vertical's shared formats. Choices inside them:
 - The writer, not the agent, writes `written-at` (`repository`, `commit`, `branch` when a branch is checked out, `origin` when the repository has an `origin` remote, credentials of an origin URL removed).
 - Local `main` was behind `origin/main` by decision 0031's two commits at the start; Base is `origin/main` at the start, as the coordinator directed once local `main` was advanced.
 
+### The read API (`src/knowledge/index/index.ts`) for the wiki
+All reads take the graph's `DatabaseOwner` and answer from the current index; every list is in code-point order.
+- `statementsRelyingOn(owner, key)`: the statements grounded on (`how: 'grounds'`) or only mentioning (`'mentions'`) a graph key, a page id (`domain:payments`) or a document section (`doc:docs/requirements.md#uc-2`). Each row: `page`, `pageTitle`, `pageKind`, `file`, `statement` (the footnote name), `text`, `line`. This is the entity page's "statements that rely on this entity".
+- `indexCounts(owner)`: `{ kind, pages, statements }` per page kind, for the catalogue.
+- `changedGrounds(owner, { commit, git }, { page? })`: every ground of every statement (or of one page) with `status` `changed | unchanged | removed | unknown`, the `method` of its digest, the page's `writtenCommit`, `before`/`after` digests and, for `unknown`, a `reason`. `commit` is the repository head the graph describes; `git` is `gitReader(repositoryPath)`.
+- `webLink({ origin, commit, path, lineStart?, lineEnd? })`: `{ host: 'GitHub' | 'GitLab' | 'Bitbucket' | 'Gitea' | 'Forgejo', url }`, or `undefined` for a host not known. A page's `written-at` entries (`readIndexedPage(file, text, sha).writtenAt`) give `origin` and `commit`.
+- `readKnowledgePages(productFolder)` and `readIndexedPage`: a page as the index reads it (`statements` with `id`, `text`, `line`, `grounds`, `mentions`).
+- Publishing: `indexProductMarkdown` / `indexWorkerProduct` (run by the fill worker after the fill and after each page the writer writes; a product whose Markdown cannot be read whole publishes nothing and throws every finding with file and line).
+- The index's nodes are `knowledge:page`, `knowledge:statement`, `knowledge:section` (property `key`: `page:<id>`, `statement:<page id>#<name>`, `section:<path>#<anchor>`); relations `knowledge:statement-of | grounded-by | mentions | relates`.
+
 ### The vertical's format, section 1, as changed (the file outside the repository is the coordinator's)
 - Front matter gains an optional `written-at`, written by the writer, never by the agent:
   ```yaml
