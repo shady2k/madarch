@@ -437,20 +437,17 @@ describe('the product selector', () => {
   });
 });
 
-describe('which app opens', () => {
+describe('there is one app', () => {
   const answer = (manifest: 'ok' | 'no-manifest') => async (url: string): Promise<Response> => {
     if (url.endsWith('/api/k/status')) {
-      return new Response(JSON.stringify({ product: { name: 'shop', id: 'x' }, manifest, manifestFile: 'madarch/kinds.yaml', findings: [], kinds: [], repositories: [], filled: false, incomplete: false, fill: { state: 'idle' }, writer: { state: 'idle', agent: null, units: [] }, bounds: { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12 }, chosenAgent: null, home: null }));
+      return new Response(JSON.stringify({ product: { name: 'shop', id: 'x' }, manifest, manifestFile: 'madarch/kinds.yaml', language: 'en', seeded: [], findings: [], kinds: [], repositories: [], filled: false, incomplete: false, fill: { state: 'idle' }, writer: { state: 'idle', agent: null, units: [] }, bounds: { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12 }, chosenAgent: null, home: null }));
     }
     if (url.endsWith('/api/k/agents')) return new Response(JSON.stringify({ agents: [], chosen: null }));
-    // What the documents app asks first; every other read of it is optional and may fail.
-    if (url.endsWith('/api/pages')) return new Response(JSON.stringify({ pages: [] }));
-    if (url.endsWith('/api/product')) return new Response(JSON.stringify({ name: 'shop' }));
     if (url.endsWith('/api/k/products')) return new Response(JSON.stringify({ products: [] }));
     return new Response(JSON.stringify({ message: 'not here' }), { status: 404 });
   };
 
-  test('the front door of a product that has a kinds manifest opens the knowledge wiki at /k', async () => {
+  test('the front door opens the knowledge wiki at /k', async () => {
     (globalThis as { fetch?: unknown }).fetch = answer('ok');
     window.history.replaceState({}, '', '/');
     const container = into(createElement(AppRoot));
@@ -458,20 +455,20 @@ describe('which app opens', () => {
     expect(window.location.pathname).toBe('/k');
   });
 
-  test('a product without the manifest, and the address /?documents, keep the documents app', async () => {
+  test('the old address /?documents opens the knowledge wiki too: no other app stands anywhere', async () => {
+    (globalThis as { fetch?: unknown }).fetch = answer('ok');
+    window.history.replaceState({}, '', '/?documents');
+    const container = into(createElement(AppRoot));
+    await until(() => container.querySelector('[data-testid=knowledge-app]') !== null, 'the knowledge wiki');
+    expect(window.location.pathname).toBe('/k');
+  });
+
+  test('a product whose manifest has no kinds is still the knowledge wiki, which says what to do', async () => {
     (globalThis as { fetch?: unknown }).fetch = answer('no-manifest');
     window.history.replaceState({}, '', '/');
     const container = into(createElement(AppRoot));
-    await until(() => container.querySelector('[data-testid=knowledge-app]') === null && container.innerHTML !== '', 'the documents app');
-    expect(window.location.pathname).toBe('/');
-    rendered?.unmount();
-    document.body.innerHTML = '';
-    (globalThis as { fetch?: unknown }).fetch = answer('ok');
-    window.history.replaceState({}, '', '/?documents');
-    const again = into(createElement(AppRoot));
-    await new Promise((rest) => setTimeout(rest, 50));
-    expect(again.querySelector('[data-testid=knowledge-app]')).toBeNull();
-    expect(window.location.pathname).toBe('/');
+    await until(() => container.querySelector('[data-testid=no-manifest]') !== null, 'the page that says what to do');
+    expect(container.querySelector('[data-testid=knowledge-app]')).not.toBeNull();
   });
 });
 

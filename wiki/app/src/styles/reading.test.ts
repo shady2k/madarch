@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { createRoot, type Root } from 'react-dom/client';
 import { createElement } from 'react';
-import { Markdown } from '../view.js';
+import { KMarkdown } from '../knowledge/blocks.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const indexCss = readFileSync(join(here, 'index.css'), 'utf8');
@@ -163,7 +163,7 @@ describe('the Markdown hooks the reading rules scope to', () => {
     document.body.appendChild(container);
     const root = createRoot(container);
     rendered = { root, container };
-    root.render(createElement(Markdown, { text: 'Hello' }));
+    root.render(createElement(KMarkdown, { text: 'Hello', resolutions: {} }));
     for (let i = 0; i < 200; i++) {
       if (container.querySelector('.reading') !== null) break;
       await new Promise((step) => setTimeout(step, 10));
@@ -179,8 +179,9 @@ describe('the Markdown hooks the reading rules scope to', () => {
     const root = createRoot(container);
     rendered = { root, container };
     root.render(
-      createElement(Markdown, {
+      createElement(KMarkdown, {
         text: '| A | B |\n| --- | --- |\n| 1 | 2 |',
+        resolutions: {},
       }),
     );
     for (let i = 0; i < 200; i++) {
