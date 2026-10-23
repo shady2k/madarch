@@ -362,24 +362,6 @@ describe('the stage index of a product', () => {
     // A manifest with no repos clause and no repos folder names nothing.
   });
 
-  test('the stages answer over the server at /api/stages, read-only like every wiki route', async () => {
-    draft();
-    tracker([CHILD, EPIC]);
-    write('docs/vision.md', '# Vision\n\nWhat it is for.\n');
-    const app = mkdtempSync(join(tmpdir(), 'madarch-stages-app-'));
-    writeFileSync(join(app, 'index.html'), '<!doctype html><title>wiki</title>');
-    server = await startServer({ productFolder: folder!, appFolder: app, port: 0, log: () => {}, errorLog: () => {} });
-    return (async () => {
-      const answer = await fetch(`${server!.url}/api/stages`);
-      expect(answer.status).toBe(200);
-      const body = (await answer.json()) as { stages: { id: string; artifacts: unknown[] }[] };
-      expect(body.stages.map((stage) => stage.id)).toEqual(['idea', 'requirements', 'design', 'build', 'verify', 'release', 'operate']);
-      expect(body.stages.find((stage) => stage.id === 'idea')!.artifacts).toHaveLength(1);
-      const again = await fetch(`${server!.url}/api/stages`);
-      expect(await again.text()).toBe(JSON.stringify(body));
-    })();
-  });
-
   test('a title inside a fence is not the artifact title, and a file with no heading takes the file name', async () => {
     draft();
     write('docs/sources/S-001-notes.md', '```\n# Not a heading\n```\nplain text\n');

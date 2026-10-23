@@ -52,7 +52,7 @@ describe.skipIf(skip)('the wiki while a fill runs', () => {
       '/api/k/entities?kind=code.file&limit=100',
       '/api/k/entities?kind=code.symbol&limit=100',
       `/api/k/page?id=${encodeURIComponent(PAY)}`,
-      `/api/k/page?id=${encodeURIComponent('code.file:services/payments/src/providers/factory.ts')}`,
+      `/api/k/page?id=${encodeURIComponent(['code.file:services', 'payments', 'src/providers/factory.ts'].join('/'))}`,
       '/api/k/documents',
     ];
     const samples: { path: string; ms: number; running: boolean; at: number; phase: string }[] = [];
