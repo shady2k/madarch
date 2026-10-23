@@ -4,7 +4,7 @@
  * `doc:<path>#<anchor>` for a section of a document. A target that does not
  * resolve is shown as broken with the reason, never dropped and never linked.
  */
-import { SLUGGER_REGEX } from '../wiki/github-slugger-regex.js';
+import { findAnchor } from './anchors.js';
 import type { GraphEntity, GraphReader } from './graph-read.js';
 import type { CodeLocation } from './model.js';
 import type { MarkdownEntity } from './markdown.js';
@@ -25,31 +25,17 @@ export function sourceAddress(repo: string | null, path: string, line?: number):
   return `/k/src?${query.toString()}`;
 }
 
-/** The slug GitHub gives a heading. */
-export function slugOf(heading: string): string {
-  return heading.trim().toLowerCase().replace(SLUGGER_REGEX, '').replace(/ /g, '-');
+export { findAnchor, slugOf } from './anchors.js';
+
+/** Where a Markdown document stands in the app: a page of its own, at the section an anchor names. */
+export function documentAddress(repo: string | null, path: string, anchor?: string | null): string {
+  const query = new URLSearchParams();
+  if (repo !== null) query.set('repo', repo);
+  query.set('path', path);
+  return `/k/doc?${query.toString()}${anchor === undefined || anchor === null || anchor === '' ? '' : `#${encodeURIComponent(anchor)}`}`;
 }
 
-/**
- * The line a document's section is on: a heading whose slug is the anchor, an
- * explicit `{#anchor}` on a heading, or a line that opens with the anchor as
- * its label (`- **UC-2 Pay.**`, `UC-2:`), compared without case.
- */
-export function findAnchor(text: string, anchor: string): number | null {
-  const wanted = anchor.toLowerCase();
-  const lines = text.split('\n');
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index]!;
-    const heading = /^#{1,6}\s+(.*?)\s*(?:\{#([\w-]+)\})?\s*#*\s*$/.exec(line);
-    if (heading !== null) {
-      if (heading[2]?.toLowerCase() === wanted) return index + 1;
-      if (slugOf(heading[1]!.replace(/[*_`]/g, '')) === wanted) return index + 1;
-    }
-    const label = /^\s*(?:[-*+]|\d+[.)])?\s*(?:\*\*|__)?\s*([A-Za-z][\w-]*)(?=[\s.:*_)-]|$)/.exec(line);
-    if (label !== null && label[1]!.toLowerCase() === wanted && /[\w-]+\d|[A-Z]{2,}-/.test(label[1]!)) return index + 1;
-  }
-  return null;
-}
+const isMarkdownPath = (path: string): boolean => /\.(md|markdown)$/i.test(path);
 
 /** What is said of a key that names nothing. */
 export const noEntityMessage = (key: string): string => `no entity "${key}" in the graph or among the product's Markdown pages`;
@@ -103,9 +89,10 @@ export class Resolver {
       const text = await this.deps.readDocument(root, path);
       if (text === undefined) continue;
       seen.push(root ?? 'the product repository');
-      if (anchor === null || anchor === '') return { state: 'ok', target: url, kind: 'document', label: path, href: sourceAddress(root, path) };
+      // A Markdown document opens as a page of the wiki at its section; any other file opens in the source view.
+      if (anchor === null || anchor === '') return { state: 'ok', target: url, kind: 'document', label: path, href: isMarkdownPath(path) ? documentAddress(root, path) : sourceAddress(root, path) };
       const line = findAnchor(text, anchor);
-      if (line !== null) return { state: 'ok', target: url, kind: 'document', label: `${path}#${anchor}`, href: sourceAddress(root, path, line) };
+      if (line !== null) return { state: 'ok', target: url, kind: 'document', label: `${path}#${anchor}`, href: isMarkdownPath(path) ? documentAddress(root, path, anchor) : sourceAddress(root, path, line) };
     }
     if (seen.length === 0) return { state: 'broken', target: url, reason: `no document "${path}" in the product repository or its code repositories` };
     return { state: 'broken', target: url, reason: `the document "${path}" (in ${seen.join(', ')}) has no section "${anchor}"` };

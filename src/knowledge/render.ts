@@ -144,6 +144,7 @@ export async function kindSummaries(ctx: RenderContext): Promise<KindSummary[]> 
     kind: decl.name,
     source: decl.source,
     single: decl.file !== undefined,
+    ...(decl.labels === undefined ? {} : { labels: { ...decl.labels } }),
     count: decl.source === 'markdown' ? [...ctx.markdown.values()].filter((entity) => entity.kind === decl.name).length : counts.get(decl.name) ?? 0,
   }));
 }

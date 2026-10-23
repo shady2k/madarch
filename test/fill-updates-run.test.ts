@@ -16,7 +16,6 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { fillStatePaths } from '../src/product/fill-runtime.js';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { startServer, type StartedServer } from '../src/index.js';
 import type { FillOrchestratorService, FillRunResult } from '../src/fill/orchestrator-host.js';
 import type { RunStatus } from '../src/fill/orchestrator.js';
 import { daemonFillOrchestrator, daemonUpdateWatch } from '../src/product/daemon.js';
@@ -33,7 +32,6 @@ let update: RunStatus | undefined;
 let lastRequest = '';
 let lines: string[] = [];
 /** The wiki app's built files, as a served product needs them: the test's own folder with its shell in it. */
-let appFolder = '';
 let commit = '';
 
 /** One git call in a fixture checkout, through the project's own runner (which strips a caller's loader variables). */
@@ -66,8 +64,6 @@ beforeAll(async () => {
   git(product, 'symbolic-ref', 'HEAD', 'refs/heads/main');
   commitAll(product, 'one');
 
-  appFolder = mkdtempSync(join(tmpdir(), 'madarch-update-app-'));
-  writeFileSync(join(appFolder, 'index.html'), '<!doctype html><title>update wiki</title>');
 
   service = daemonFillOrchestrator(home);
   const filled = await service.run({ product: { name: 'shop', folder: product }, runId: 'first-fill' });
@@ -99,7 +95,6 @@ beforeAll(async () => {
 afterAll(async () => {
   watch?.stop();
   await service?.stop();
-  if (appFolder !== '') rmSync(appFolder, { recursive: true, force: true });
   if (root !== '') rmSync(root, { recursive: true, force: true });
 });
 
@@ -151,35 +146,6 @@ describe('the update a default-branch commit starts', () => {
     expect(await service!.progress(other)).toBeNull();
   }, 900_000);
 
-  test('GET /api/fill answers the orchestrator\'s run, and the state file where it answers none', async () => {
-    let server: StartedServer | undefined;
-    try {
-      const asked: string[] = [];
-      server = await startServer({
-        productFolder: product,
-        appFolder,
-        port: 0,
-        host: '127.0.0.1',
-        orchestrator: {
-          stop: async () => undefined,
-          progress: async (folder) => {
-            asked.push(folder);
-            return await service!.progress(folder);
-          },
-        },
-      });
-      const answered = await fetch(`${server.url}/api/fill`);
-      expect(answered.status).toBe(200);
-      const body = await answered.json() as { run?: { id: string; status: string }; units?: { stage: string }[]; events?: { type: string }[] };
-      expect(asked).toEqual([product]);
-      expect(body.run?.id).toBe(lastRequest);
-      expect(body.run?.status).toBe('succeeded');
-      expect((body.units ?? []).length).toBeGreaterThan(0);
-      expect((body.events ?? []).length).toBeGreaterThan(0);
-    } finally {
-      await server?.stop();
-    }
-  }, 900_000);
 });
 
 describe('the person\'s control of a run the server keeps', () => {
@@ -218,31 +184,6 @@ describe('the person\'s control of a run the server keeps', () => {
     expect(paused.reason).toContain('succeeded');
     expect(paused.reason).toContain('nothing was paused');
   }, 900_000);
-
-  test('POST /api/fill/control takes the orchestrator\'s answer first and the state file\'s where it holds no run', async () => {
-    let server: StartedServer | undefined;
-    try {
-      server = await startServer({
-        productFolder: product,
-        appFolder,
-        port: 0,
-        host: '127.0.0.1',
-        orchestrator: { stop: async () => undefined, control: (request) => service!.control(request) },
-      });
-      const mine = await fetch(`${server.url}/api/fill/control?runId=${encodeURIComponent(lastRequest)}&action=stop`, { method: 'POST' });
-      expect(mine.status).toBe(409);
-      expect(((await mine.json()) as { error: { message: string } }).error.message).toContain('cannot be cancelled');
-      // A run the orchestrator does not hold falls through to the landed fill's state file, which answers its own 404.
-      const theirs = await fetch(`${server.url}/api/fill/control?runId=the-landed-fills-run&action=stop`, { method: 'POST' });
-      expect(theirs.status).toBe(404);
-      expect(((await theirs.json()) as { error: { message: string } }).error.message).toContain('No fill run is active');
-      // An action that is neither of the two is refused before anything is asked.
-      const wrong = await fetch(`${server.url}/api/fill/control?runId=${encodeURIComponent(lastRequest)}&action=restart`, { method: 'POST' });
-      expect(wrong.status).toBe(400);
-    } finally {
-      await server?.stop();
-    }
-  }, 900_000);
 });
 
 describe('the landed fill beside the update', () => {
@@ -258,34 +199,6 @@ describe('the landed fill beside the update', () => {
   function removeLandedFill(): void {
     rmSync(fillStatePaths(product).root, { recursive: true, force: true });
   }
-
-  test('the landed fill\'s live run is what the progress shows while it runs', async () => {
-    let server: StartedServer | undefined;
-    try {
-      writeLandedFill('running');
-      server = await startServer({
-        productFolder: product,
-        appFolder,
-        port: 0,
-        host: '127.0.0.1',
-        orchestrator: { stop: async () => undefined, progress: (folder) => service!.progress(folder) },
-      });
-      const answered = await fetch(`${server.url}/api/fill`);
-      const body = await answered.json() as { run: { id: string; status: string } };
-      expect(body.run.id).toBe('landed-1');
-      expect(body.run.status).toBe('running');
-      // The landed fill ends: the orchestrator's newest run of this product is what the panel shows next, and the
-      // landed record stands aside.
-      writeLandedFill('complete');
-      const after = await fetch(`${server.url}/api/fill`);
-      const afterBody = await after.json() as { run: { id: string; product: string } };
-      expect(afterBody.run.id).not.toBe('landed-1');
-      expect(afterBody.run.product).toBe('shop');
-    } finally {
-      await server?.stop();
-      removeLandedFill();
-    }
-  }, 900_000);
 
   test('an update waits for the landed fill of its product, and follows it when it ends', async () => {
     try {

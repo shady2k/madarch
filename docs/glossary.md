@@ -284,13 +284,15 @@ one Markdown file under the product's `docs/` or its `README.md`, read from git
 at every ask; or a graph page, a view of one page-worthy graph node read from
 the fill's fact store, never a file in git (decision 0026, "Pages").
 
-**Graph page** (`src/fill/graph-pages.ts`, `src/server/graph-pages.ts`):
+**Graph page** (`src/fill/graph-pages.ts`):
 The live page of one page-worthy graph node: its facts with their code places,
 its relations both ways, its coverage, its questions, its assumptions kept
 apart and the diagrams its kind draws; read from the fill's fact store at every
 ask and updated in the browser as facts are published. The graph's index stands
 at `/p/graph`, a node's page at `/p/graph/` plus the node's fact id, and a kind
-of node the graph holds none of has no page (0026, "Pages").
+of node the graph holds none of has no page (0026, "Pages"). No server route or
+app page shows it any more: the documents app was removed (madarch-m38l.4), and
+the knowledge wiki is the one reader (decision 0029).
 
 **Diagram tab**:
 One format of a wiki page's view: LikeC4 (interactive), Mermaid, or archify

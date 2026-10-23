@@ -22,10 +22,11 @@
  * not match, a rename refused).
  */
 import { chmodSync, mkdtempSync, readSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { basename, dirname, join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { runningVersion } from './version.js';
+import { daemonIsRunning } from './daemon.js';
 
 /** The GitHub repository this binary upgrades itself from (the project's own). */
 export const GITHUB_REPO = 'shady2k/madarch';
@@ -74,6 +75,12 @@ export interface UpgradeOptions {
   readonly targetPath?: string;
   /** The version the binary answers with, over the embedded one (tests name the version the release names). */
   readonly currentVersion?: string;
+  /**
+   * What happens to the background server after the binary was replaced: the new binary is started with `start`, which
+   * ends the old server (it runs the old code) and starts its own, and says so. The lines it printed are the answer;
+   * `null` means no server was running. Tests name it; the default runs the new binary.
+   */
+  readonly restartServer?: (target: string) => string[] | null;
 }
 
 /**
@@ -247,8 +254,9 @@ export async function upgrade(options: UpgradeOptions = {}): Promise<UpgradeOutc
       return { prints: [], errors: [`the binary at ${target} could not be replaced: ${(error as Error).message}`], exit: 1 };
     }
   }
+  const restarted = process.platform === 'win32' && options.targetPath === undefined ? null : (options.restartServer ?? restartServerWith)(target);
   return {
-    prints: [`upgraded to ${release.tag}: the next launch runs it (this process still runs ${current})`],
+    prints: [`upgraded to ${release.tag}: the next launch runs it (this process still runs ${current})`, ...(restarted ?? [])],
     errors: [],
     exit: 0,
   };
@@ -279,3 +287,15 @@ async function download(fetch_: typeof fetch, url: string): Promise<{ ok: true; 
   }
 }
 
+
+/**
+ * Starts the new binary's server in place of the running one: only when a background server is running, `start` of the
+ * new binary ends the old one and starts its own, and prints what it did.
+ */
+function restartServerWith(target: string): string[] | null {
+  if (!daemonIsRunning()) return null;
+  const run = spawnSync(target, ['start'], { encoding: 'utf8', timeout: 60_000 });
+  const said = `${run.stdout ?? ''}${run.stderr ?? ''}`.trim().split('\n').filter((line) => line !== '');
+  if (run.status !== 0) return [`the background server is still the old one: ${said.join(' | ') || `${target} start exited with ${String(run.status)}`}; stop it with madarch stop and start it again`];
+  return said;
+}

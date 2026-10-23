@@ -77,3 +77,57 @@ export function useWikiStatus(): { status: WikiStatus | null; error: string | nu
 
   return { status, error, version, refresh: load };
 }
+
+/**
+ * One read of the server for a page, kept alive across the commits of a fill.
+ * `key` names what is read (a page's id, a kind and its filter); `version` moves
+ * after each commit. A new key abandons the read in flight and clears the data; a
+ * new version never cuts a read short and never clears the data: it asks for one
+ * more read once the one under way ends, so a slow answer is not starved by the
+ * next commit, and the page keeps showing what it has until the new one arrives.
+ */
+export function useRead<T>(key: string, version: number, read: (signal: AbortSignal) => Promise<T>): { data: T | null; error: string | null } {
+  const [state, setState] = useState<{ key: string; data: T | null; error: string | null }>({ key, data: null, error: null });
+  const flight = useRef<{ key: string; controller: AbortController } | null>(null);
+  const queued = useRef(false);
+  const latest = useRef({ key, read });
+  latest.current = { key, read };
+  const start = useCallback((): void => {
+    const { key: asked, read: reader } = latest.current;
+    const controller = new AbortController();
+    flight.current = { key: asked, controller };
+    reader(controller.signal).then(
+      (data) => {
+        if (!controller.signal.aborted) setState({ key: asked, data, error: null });
+      },
+      (failure: unknown) => {
+        if (!controller.signal.aborted) setState((held) => ({ key: asked, data: held.key === asked ? held.data : null, error: failure instanceof Error ? failure.message : String(failure) }));
+      },
+    ).finally(() => {
+      if (flight.current?.controller !== controller) return;
+      flight.current = null;
+      if (queued.current || latest.current.key !== asked) {
+        queued.current = false;
+        start();
+      }
+    });
+  }, []);
+  useEffect(() => {
+    if (flight.current !== null && flight.current.key !== key) {
+      flight.current.controller.abort();
+      flight.current = null;
+      queued.current = false;
+    }
+    if (flight.current !== null) {
+      queued.current = true;
+      return;
+    }
+    start();
+  }, [key, version, start]);
+  useEffect(() => () => {
+    flight.current?.controller.abort();
+    flight.current = null;
+    queued.current = false;
+  }, []);
+  return state.key === key ? { data: state.data, error: state.error } : { data: null, error: null };
+}

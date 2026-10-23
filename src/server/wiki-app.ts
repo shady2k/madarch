@@ -1,45 +1,23 @@
 /**
- * The server's product mode (docs/changes/draft-product/capabilities/server.md,
- * requirement `serves-wiki`): the wiki API the app reads — `GET /api/product`
- * (the product's id and name), `GET /api/pages` (its pages with their paths,
- * titles and addresses, plus the revision), `GET /api/page?path=...` (one page
- * — and the app's built files served from the app folder the server is given,
- * so a page's address can be opened, reloaded and linked.
+ * The server's product mode: the wiki's change stream and the app's built
+ * files, over one open product and one app folder.
  *
- * The product is opened once, through `openProductWiki`; a folder whose
- * manifest cannot be read refuses the start. Serving reads the product and
- * changes nothing in it: no write, no git command, no document content in the
- * log — the log line is the handler's own, method, path and status only.
+ * There is one wiki app (decision 0029), the knowledge wiki, and its routes
+ * are `src/server/knowledge.ts`; what stands here is what every product's
+ * wiki shares with it: the Server-Sent Events stream that tells an open page
+ * to read again, and the built files of the app, so a page's address can be
+ * opened, reloaded and linked.
  *
- * Refusals are JSON naming what was asked for and where it must be looked
- * for. The wiki's refusal body is held at its top level as `{"message"}`
- * because the app's reader shows the message straight from that field
- * (wiki/app/src/api.ts); the model routes keep their own error envelope.
+ * Serving reads the product and changes nothing in it: no write, no git
+ * command, no document content in the log. Refusals are JSON naming what was
+ * asked for and where it must be looked for, held at the top level as
+ * `{"message"}` because the app's reader shows the message straight from that
+ * field (wiki/app/src/api.ts).
  */
-import { basename as nameOf } from 'node:path';
 import type { ProductWiki } from '../product-wiki/pages.js';
-import { readProductDiscussions, writeProductDiscussion, writeProductDiscussionAction, writeProductPageDiscussion, answerProductQuestion, restoreProductDiscussionAnchor } from '../product/discussion-writer.js';
-import { readProductRepos } from '../product-wiki/repos.js';
-import { readProductModel } from '../product-wiki/model.js';
-import { createArchitectureAnswer } from './architecture-answer.js';
-import { likec4Webcomponent } from '../product-wiki/likec4-webcomponent.js';
-import { renderModel } from '../render/prepare.js';
-import { readStagesIndex, type StagesIndex } from '../wiki/stages.js';
-import { readProductRegistry, registryKit } from '../product/registry.js';
-import { recommendNextStep } from '../product-wiki/recommendations.js';
 import { existsSync, readFileSync, statSync, watch } from 'node:fs';
 import { join as joinPath, normalize, resolve, sep } from 'node:path';
-import { readdirSync, readFileSync as readFillFileSync, mkdirSync, writeFileSync, renameSync } from 'node:fs';
-import { randomUUID } from 'node:crypto';
-import { fillStatePaths, withFillControlLock } from '../product/fill-runtime.js';
-import { detectFillAgents, readChosenAgent, readChosenAuth, readChosenModel, saveChosenAgent, testFillAgent } from '../product/fill-wizard.js';
-import type { WizardAgent, WizardAuth } from '../product/fill-wizard.js';
-import { inventoryRepository } from '../product/fill-index.js';
-import { AGENT_API_KEY_ENV, type AgentKind } from '../product/fill-agents.js';
-import { homeFromEnv } from '../product/home.js';
-import { resolve as resolvePath } from 'node:path';
-import { execFileSync } from 'node:child_process';
-import type { Handled, Refusal, ReplyMaker } from './http.js';
+import type { Handled, ReplyMaker } from './http.js';
 
 /** How long the event stream holds a burst of tree events back before it asks the wiki what changed. */
 export const CHANGE_DEBOUNCE_MS = 200;
@@ -184,76 +162,14 @@ const CONTENT_TYPES: Record<string, string> = {
   '.md': 'text/markdown; charset=utf-8',
 };
 
-/** The three wiki routes and the app files' answer, over one open product and one app folder. */
+/** The change stream and the app's files, over one open product and one app folder. */
 export interface WikiPart {
-  /** `GET /api/product`: the product's id and name. */
-  product: () => Handled;
-  /** `GET /api/questions`: the product's questions as the set's form computes them. */
-  questions: () => Handled;
-  /** `GET /api/architecture`: the whole Architecture bundle of the revision the product stands at — built once and kept until a page, a model file or the manifest moves (`architecture-answer.ts`). */
-  architecture: () => Handled | Promise<Handled>;
-  /** `GET /api/architecture/likec4.js`: the LikeC4 webcomponent bundle of the rendered workspace. */
-  likec4Script: () => Handled | Promise<Handled>;
-  /** `GET /api/pages`: the pages with the wiki's revision. */
-  pages: () => Handled;
-  /** `GET /api/page?path=...`: one page, whole. */
-  page: (request: Request) => Promise<Handled>;
-  /** `GET /api/discussions?path=...`: read valid comments for one product page. */
-  discussions: (request: Request) => Handled;
-  /** `POST /api/discussions`: validate and write one discussion action. */
-  discussion: (request: Request) => Promise<Handled>;
-  /** `POST /api/questions/answer`: write an answer through the product Git path. */
-  answerQuestion: (request: Request) => Promise<Handled>;
-  /** `GET /api/stages`: the stage index, read from the product's files now. */
-  stages: () => Handled;
-  /** `GET /api/registry`: the product's kinds registry as the wiki reads it — the kinds and stages, or the refusals, or absence. */
-  registry: () => Handled;
-  /** `GET /api/fill`: current fill run, units and normalized journal. */
-  fill: () => Handled;
-  /** `POST /api/fill/<run-id>/{pause|stop}`: persist a control request for the fill coordinator. */
-  fillControl: (request: Request, runId: string, action: 'pause' | 'stop') => Promise<Handled>;
-  fillWizard: (request: Request) => Promise<Handled>;
-  /** `POST /api/fill/agent-install`: install one agent's ACP adapter into madarch's own folder, on the person's yes. */
-  fillAgentInstall: (request: Request) => Promise<Handled>;
-  fillInventory: () => Promise<Handled>;
-  fillAgentTest: (request: Request) => Promise<Handled>;
-  /** `GET /api/events`: the wiki's change stream, held open until the asker hangs up. */
+  /** `GET /api/events`: the one change stream. */
   events: (request: Request) => Handled;
-  /** `GET /api/repos`: the declared code repositories, their checkouts, HEADs and READMEs. */
-  repos: () => Handled;
-  /** Whether the manifest declares any repository: the `/r` route exists only then. */
-  reposDeclared: boolean;
-  /** The app's files: called for a path outside the route table, answering a file or index.html. */
+  /** The app's built files and its routes' index.html; `undefined` where the server was given no app folder. */
   app: (pathname: string) => Handled | undefined;
 }
 
-/** Resolve persisted fill-unit outputs back to their dependent pages for question backlinks. */
-function dependentFillUnitsForPage(product: string, page: string): Set<string> {
-  const directory = joinPath(product, '.madarch', 'fill', 'units');
-  if (!existsSync(directory)) return new Set();
-  const result = new Set<string>();
-  for (const name of readdirSync(directory).filter((entry) => entry.endsWith('.json')).sort()) {
-    const file = joinPath(directory, name);
-    try {
-      const unit = JSON.parse(readFileSync(file, 'utf8')) as { id?: unknown; outputPaths?: unknown };
-      if (typeof unit.id === 'string' && Array.isArray(unit.outputPaths) && unit.outputPaths.includes(page)) result.add(unit.id);
-      if (typeof unit.id === 'string' && Array.isArray(unit.outputPaths)) for (const output of unit.outputPaths) {
-        if (typeof output !== 'string') continue;
-        const resolvedOutput = resolve(product, output);
-        if (!resolvedOutput.startsWith(`${resolve(product)}${sep}`) || !resolvedOutput.endsWith('.json') || !existsSync(resolvedOutput)) continue;
-        const data = JSON.parse(readFileSync(resolvedOutput, 'utf8')) as { path?: unknown; claims?: unknown };
-        if (data.path === page && Array.isArray(data.claims)) for (const claim of data.claims) {
-          if (claim !== null && typeof claim === 'object' && typeof (claim as { id?: unknown }).id === 'string') result.add((claim as { id: string }).id);
-        }
-      }
-    } catch (error) {
-      throw new Error(`${file}: cannot read dependent fill-unit output paths: ${(error as Error).message}`);
-    }
-  }
-  return result;
-}
-
-/** Builds the wiki part from an already-opened product wiki and the app folder's path. */
 export function createWikiPart(
   json: ReplyMaker['json'],
   refused: ReplyMaker['refused'],
@@ -261,410 +177,14 @@ export function createWikiPart(
   appFolder: string | undefined,
   options: { env?: Readonly<Record<string, string | undefined>>; outside?: OutsideChanges } = {},
 ): WikiPart {
-  const env = options.env ?? process.env;
-  /**
-   * The last ACP report and when it was taken: the wizard's own page asks
-   * again after a start, and two loads within a couple of seconds are one
-   * machine, so the second answer is the first one rather than four more
-   * agent processes. An install and a start invalidate it.
-   */
-  let report: { at: number; value: unknown } | undefined;
-  const acpReport = async (fresh = false): Promise<unknown> => {
-    if (!fresh && report !== undefined && Date.now() - report.at < WIZARD_PROBE_CACHE_MS) return report.value;
-    const value = await wizardAcp(env);
-    report = { at: Date.now(), value };
-    return value;
-  };
-  /** The Architecture answer of this product, built once per revision (madarch-tzte.23.8). */
-  const architecture = createArchitectureAnswer(wiki);
-  /** One install at a time: two tabs must not write one agents folder together, and npm runs outside the model state's own lock. */
-  let installTail: Promise<void> = Promise.resolve();
-  const oneInstallAtATime = async <T,>(operation: () => Promise<T>): Promise<T> => {
-    const previous = installTail;
-    let release!: () => void;
-    installTail = new Promise<void>((resolve) => { release = resolve; });
-    await previous;
-    try {
-      return await operation();
-    } finally {
-      release();
-    }
-  };
   return {
-    product: (): Handled => {
-      // Every overview value comes from the product registry's declared page
-      // and section. The old top-level audience remains an exact alias.
-      const overview = wiki.overview();
-      const identity = wiki.product.manifest === 'present'
-        ? { id: wiki.product.id, name: wiki.product.name, folder: nameOf(wiki.product.folder) }
-        : { name: wiki.product.name, folder: nameOf(wiki.product.folder) };
-      const audience = overview?.audience;
-      const listed = wiki.nextStepPages();
-      const questions = wiki.questions();
-      const registry = readProductRegistry(wiki.product.folder);
-      const recommendation = recommendNextStep({
-        kinds: registry.present && !('refused' in registry) ? registry.kinds : [],
-        pages: listed.ok ? listed.pages : [],
-        questions: questions.ok ? questions.questions : [],
-      });
-      return {
-        response: json(200, {
-          ...identity,
-          ...(overview === undefined ? {} : { overview }),
-          ...(audience === undefined ? {} : { audience }),
-          recommendation,
-        }),
-      };
-    },
-    questions: (): Handled => {
-      const asked = wiki.questions();
-      if (!asked.ok) return { response: json(500, { message: asked.message }) };
-      return { response: json(200, { questions: asked.questions, openCount: asked.openCount }) };
-    },
-    architecture: async (): Promise<Handled> => ({
-      // The bundle of the revision the product stands at, built once and kept until a
-      // page, a model file or the manifest moves (src/server/architecture-answer.ts):
-      // the app asks it on every page load, and a render of every view is seconds.
-      response: json(200, await architecture.answer()),
-    }),
-    likec4Script: async (): Promise<Handled> => {
-      const product = readProductModel(wiki.product);
-      if (product.model === undefined) {
-        return refused(200, {
-          message: [
-            'the product model does not compile, so there is no LikeC4 workspace to serve',
-            ...product.errors.map((error) => `${error.file}:${error.line}: ${error.path}: ${error.message}`),
-          ].join('\n'),
-        });
-      }
-      const rendering = await renderModel(product.model, { source: 'product-model', commit: 'product', at: 0 });
-      if (rendering.workspace === undefined) {
-        return refused(200, {
-          message: [
-            'the product model does not render, so there is no LikeC4 workspace to serve',
-            ...rendering.errors.map((message) => `model: ${message}`),
-          ].join('\n'),
-        });
-      }
-      const bundle = likec4Webcomponent(rendering.workspace);
-      if (!bundle.ok) return refused(500, { message: bundle.message });
-      return {
-        response: new Response(bundle.script, {
-          status: 200,
-          headers: { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-cache' },
-        }),
-      };
-    },
-    pages: (): Handled => {
-      const asked = wiki.pages();
-      if (!asked.ok) return refused(500, { message: `the pages of the product ${JSON.stringify(wiki.product.folder)} could not be read: ${asked.message}` });
-      // The registry's serving state rides the answer only when the
-      // product holds a registry: without one the answer keeps its shape
-      // before registries, and the app's banner has nothing to say.
-      return asked.contract === undefined
-        ? { response: json(200, { revision: asked.revision, pages: asked.pages }) }
-        : { response: json(200, { revision: asked.revision, pages: asked.pages, contract: asked.contract }) };
-    },
-    discussions: (request: Request): Handled => {
-      const document = new URL(request.url).searchParams.get('path');
-      if (document === null) return refused(400, { field: 'path', message: 'path is required: name a product-relative Markdown page under docs/' });
-      const result = readProductDiscussions(wiki.product.folder, document);
-      if (!result.ok) return refused(result.status, { field: 'path', message: result.message });
-      return { response: json(200, { discussions: result.entries }) };
-    },
-    answerQuestion: async (request: Request): Promise<Handled> => {
-      const declared = request.headers.get('content-length');
-      if (declared !== null && Number(declared) > 1_000_000) return refused(413, { message: 'the answer request is larger than 1 MB' });
-      const text = await request.text();
-      if (Buffer.byteLength(text) > 1_000_000) return refused(413, { message: 'the answer request is larger than 1 MB' });
-      let body: unknown;
-      try { body = JSON.parse(text); } catch { return refused(400, { message: 'the answer request body must be valid JSON' }); }
-      if (body === null || typeof body !== 'object' || Array.isArray(body)) return refused(400, { message: 'the answer request must be an object' });
-      const value = body as Record<string, unknown>;
-      if (typeof value.document !== 'string' || typeof value.answer !== 'string') return refused(400, { message: 'the answer request needs a question document and Markdown answer' });
-      const registry = readProductRegistry(wiki.product.folder);
-      const questionKind = registry.present && !('refused' in registry) ? registry.kinds.find((kind) => kind.questions !== undefined) : undefined;
-      if (questionKind === undefined) return refused(409, { message: 'the product has no configured question kind' });
-      const questions = wiki.questions();
-      if (!questions.ok) return refused(500, { message: questions.message });
-      const question = questions.questions.find((entry) => entry.path === value.document && entry.state === 'open' && (entry.path === questionKind.folder || entry.path.startsWith(questionKind.folder.replace(/\/$/, '') + '/')));
-      if (question === undefined) return refused(404, { field: 'document', message: 'the document is not an open question in the configured question folder' });
-      const result = await answerProductQuestion(wiki.product.folder, { document: value.document, answer: value.answer, answerSection: questionKind.questions!.answerSection });
-      if (!result.ok) return refused(result.status, { field: 'document', message: result.message });
-      return { response: json(201, result) };
-    },
-    discussion: async (request: Request): Promise<Handled> => {
-      const declared = request.headers.get('content-length');
-      if (declared !== null && Number(declared) > 1_000_000) return refused(413, { message: 'the discussion request is larger than 1 MB' });
-      const text = await request.text();
-      if (Buffer.byteLength(text) > 1_000_000) return refused(413, { message: 'the discussion request is larger than 1 MB' });
-      let body: unknown;
-      try { body = JSON.parse(text); } catch { return refused(400, { message: 'the discussion request body must be valid JSON' }); }
-      if (body === null || typeof body !== 'object' || Array.isArray(body)) return refused(400, { message: 'the discussion request must be an object' });
-      const value = body as Record<string, unknown>;
-      const document = value.document;
-      const range = value.range;
-      const messageBody = value.body;
-      if (typeof document !== 'string' || (value.action !== 'resolve' && typeof messageBody !== 'string'))
-        return refused(400, { message: 'the discussion request needs a document and the fields required by its action' });
-      if (value.action === 'reply' || value.action === 'resolve') {
-        if (typeof value.thread !== 'string' || (value.action === 'reply' && typeof messageBody !== 'string')) return refused(400, { message: 'reply/resolve needs a thread ULID and reply body' });
-        const result = writeProductDiscussionAction(wiki.product.folder, { document, thread: value.thread, action: value.action, ...(typeof messageBody === 'string' ? { body: messageBody } : {}) });
-        if (!result.ok) return refused(result.status, { field: 'thread', message: result.message });
-        return { response: json(201, result) };
-      }
-      if (value.action === 'page') {
-        if (typeof messageBody !== 'string') return refused(400, { message: 'page comment needs a message body' });
-        const result = writeProductPageDiscussion(wiki.product.folder, { document, body: messageBody });
-        if (!result.ok) return refused(result.status, { field: 'document', message: result.message });
-        return { response: json(201, result) };
-      }
-      if (value.action === 'recover') {
-        if (typeof value.thread !== 'string' || range === null || typeof range !== 'object' || Array.isArray(range)) return refused(400, { message: 'anchor recovery needs a thread ULID and selected range' });
-        const chosen = range as Record<string, unknown>;
-        if (typeof chosen.start !== 'number' || typeof chosen.end !== 'number' || typeof chosen.quote !== 'string' || typeof chosen.before !== 'string' || typeof chosen.after !== 'string' || typeof chosen.paragraph !== 'number' || typeof chosen.from !== 'number' || typeof chosen.to !== 'number') return refused(400, { message: 'anchor recovery range is incomplete' });
-        const result = restoreProductDiscussionAnchor(wiki.product.folder, { document, thread: value.thread, range: { start: chosen.start, end: chosen.end, quote: chosen.quote, before: chosen.before, after: chosen.after, paragraph: chosen.paragraph, from: chosen.from, to: chosen.to } });
-        if (!result.ok) return refused(result.status, { field: 'thread', message: result.message });
-        return { response: json(201, result) };
-      }
-      if (range === null || typeof range !== 'object' || Array.isArray(range)) return refused(400, { message: 'a selected-text comment needs a range' });
-      const mapped = range as Record<string, unknown>;
-      if (typeof mapped.start !== 'number' || typeof mapped.end !== 'number' || typeof mapped.quote !== 'string' || typeof mapped.before !== 'string' || typeof mapped.after !== 'string' || typeof mapped.paragraph !== 'number' || typeof mapped.from !== 'number' || typeof mapped.to !== 'number')
-        return refused(400, { message: 'the discussion range needs numeric start/end offsets and quote/before/after text' });
-      if (typeof messageBody !== 'string') return refused(400, { message: 'discussion body must be text' });
-      const result = writeProductDiscussion(wiki.product.folder, {
-        document,
-        range: { start: mapped.start, end: mapped.end, quote: mapped.quote, before: mapped.before, after: mapped.after, paragraph: mapped.paragraph, from: mapped.from, to: mapped.to },
-        body: messageBody,
-      });
-      if (!result.ok) return refused(result.status, { field: 'document', message: result.message });
-      return { response: json(201, result) };
-    },
-    page: async (request: Request): Promise<Handled> => {
-      const askedFor = new URL(request.url).searchParams.get('path');
-      if (askedFor === null) {
-        return refused(400, {
-          field: 'path',
-          accepted: 'a page path the product holds, like docs/example.md',
-          message: `"path" is required: the path within the product of the page asked for, like ${JSON.stringify('docs/example.md')}`,
-        });
-      }
-      const asked = wiki.page(askedFor);
-      // Absence or an invalid ask is a 404; a filesystem failure is the
-      // server failing, answered with 500 and the cause kept (finding 2.10).
-      if (!asked.ok) {
-        return asked.notFound
-          ? refused(404, { field: 'path', message: asked.message })
-          : refused(500, { field: 'path', message: asked.message });
-      }
-      const questionList = wiki.questions();
-      const unitIdsForPage = dependentFillUnitsForPage(wiki.product.folder, asked.page.path);
-      const dependentQuestions = questionList.ok ? questionList.questions.filter((question) => question.path === asked.page.path || question.dependsOn.includes(asked.page.path) || (asked.page.document?.id !== undefined && question.dependsOn.includes(asked.page.document.id)) || question.dependsOn.some((id) => unitIdsForPage.has(id))) : [];
-      return {
-        response: json(200, {
-          path: asked.page.path,
-          title: asked.page.title,
-          markdown: asked.page.markdown,
-          changedAt: asked.page.changedAt,
-          document: asked.page.document,
-          questions: dependentQuestions,
-          findings: asked.page.findings,
-          structural: asked.page.structural,
-          recommendation: asked.page.recommendation,
-          check: asked.page.check,
-        }),
-      };
-    },
-    registry: (): Handled => {
-      const read = readProductRegistry(wiki.product.folder);
-      if (!read.present) return { response: json(200, { present: false }) };
-      if ('refused' in read) {
-        return {
-          response: json(200, {
-            present: true,
-            refused: read.refused.map((error) => ({ file: error.file, line: error.line, path: error.path, message: error.message })),
-          }),
-        };
-      }
-      // The kit's own normalization applies (a left-out cardinality reads
-      // as many), so the answer carries the same defaults the page reader
-      // walked the kinds by — and readProductRegistry reads fresh per ask.
-      const kit = registryKit(read);
-      if (kit === undefined) return { response: json(200, { present: true, refused: [] }) };
-      return {
-        response: json(200, {
-          present: true,
-          stages: kit.stages.map((stage) => ({ id: stage.id, ...(stage.name === undefined ? {} : { name: stage.name }), ...(stage.labels === undefined ? {} : { labels: stage.labels }), ...(stage.expected === undefined ? {} : { expected: stage.expected }) })),
-          goals: kit.goals,
-          overview: kit.overview,
-          reservations: kit.reservations,
-          kinds: kit.kinds.map((kind) => ({
-            name: kind.name,
-            ...(kind.labels === undefined ? {} : { labels: kind.labels }),
-            questions: kind.questions,
-            prefix: kind.prefix,
-            folder: kind.folder,
-            stage: kind.stage,
-            hint: kind.hint,
-            storage: kind.storage,
-            evidence: kind.evidence,
-            statuses: kind.statuses === undefined ? undefined : [...kind.statuses],
-            links: kind.links === undefined ? undefined : kind.links.map((link) => ({
-              field: link.field,
-              targets: [...link.targets],
-              backlink: link.backlink,
-              cardinality: link.cardinality,
-              required: link.required,
-            })),
-          })),
-        }),
-      };
-    },
-    stages: (): Handled => {
-      let index: StagesIndex;
-      try {
-        index = readStagesIndex(wiki.product.folder);
-      } catch (error) {
-        // A product folder that cannot be read at all is the server failing:
-        // 500, the folder named, the cause kept for the log line.
-        return refused(500, {
-          message: `the stage index of the product ${JSON.stringify(wiki.product.folder)} could not be read: ${(error as Error).message}`,
-        });
-      }
-      return { response: json(200, index) };
-    },
-    async fillInventory(): Promise<Handled> {
-      try {
-        const repos = readProductRepos({ folder: wiki.product.folder, repos: wiki.product.repos });
-        const checkouts = repos.repos.filter(repo => ['linked','cloned','moved','checked-out'].includes(repo.state) && repo.head).map(repo => ({ path: resolvePath(wiki.product.folder, repo.path), inventoryPath: repo.path, commit: execFileSync('git', ['-C', resolvePath(wiki.product.folder, repo.path), 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim() }));
-        if (wiki.product.repos.length > checkouts.length) return refused(409, { message: 'Every declared code repository must be checked out and readable before inventory can run.' });
-        const inventory = checkouts.length ? await inventoryRepository(checkouts[0]!.path, checkouts[0]!.commit, checkouts.slice(1), checkouts[0]!.inventoryPath) : await inventoryRepository(wiki.product.folder, execFileSync('git', ['-C', wiki.product.folder, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim());
-        const paths = fillStatePaths(wiki.product.folder);
-        let units: Array<{stage:string;agentUsage?:{elapsedMs?:number}}> = [];
-        try { for (const entry of readdirSync(paths.units)) if (entry.endsWith('.json')) { try { units.push(JSON.parse(readFillFileSync(joinPath(paths.units,entry),'utf8'))); } catch { /* one unreadable unit file must not blank every measured time */ } } } catch { /* no measured calls yet */ }
-        const times = new Map<string,number[]>();
-        for (const unit of units) if (unit.agentUsage?.elapsedMs) times.set(unit.stage,[...(times.get(unit.stage)??[]),unit.agentUsage.elapsedMs]);
-        const estimates = inventory.estimates.map((estimate)=>{const samples=times.get(estimate.stage)??[]; const avg=samples.length?samples.reduce((a,b)=>a+b,0)/samples.length:undefined; return {...estimate,...(avg===undefined?{}:{estimatedMs:Math.round(avg*estimate.units),measuredCalls:samples.length})};});
-        return { response: json(200, { inventory:{...inventory,estimates}, rough: true, declaredRepositoryCount: wiki.product.repos.length }) };
-      }
-      catch { return refused(500, { message: 'inventory failed; check that declared code repositories are readable git checkouts' }); }
-    },
-    async fillAgentTest(request: Request): Promise<Handled> {
-      let value: unknown; try { value = await request.json(); } catch { return refused(400, { message: 'request body must be JSON' }); }
-      if (!value || typeof value !== 'object' || Array.isArray(value) || !['claude','codex','omp'].includes((value as {agent?:string}).agent ?? '')) return refused(400, { message: 'agent must be claude, codex, or omp' });
-      const { agent, model } = value as { agent: WizardAgent; model?: unknown };
-      if (model !== undefined && typeof model !== 'string') return refused(400, { message: 'model must be a string' });
-      return { response: json(200, { result: await testFillAgent(agent, env.PATH ?? process.env.PATH ?? '', model) }) };
-    },
-    async fillWizard(request: Request): Promise<Handled> {
-      // One environment for one answer: the command list, the stored choice
-      // and the probe all read the server's own `env`, so a server given one
-      // never answers half from the machine it runs on.
-      const home = homeFromEnv(env);
-      const agents = await detectFillAgents(env.PATH ?? process.env.PATH ?? '');
-      const chosen = await readChosenAgent(home);
-      const paths = fillStatePaths(wiki.product.folder);
-      let runExists = false;
-      try { readFillFileSync(paths.run, 'utf8'); runExists = true; }
-      catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') return refused(500, { message: `could not read fill state: ${(error as Error).message}` }); }
-      const acp = await acpReport();
-      return { response: json(200, { agents, chosen, auth: await readChosenAuth(home), model: await readChosenModel(home), runExists, acp }) };
-    },
-    /**
-     * The person's yes to one adapter's install: madarch fetches the package,
-     * pinned, into its own folder, and answers with the probe's finding for
-     * that agent again, so the wizard shows what the probe now finds rather
-     * than what the install claimed.
-     */
-    async fillAgentInstall(request: Request): Promise<Handled> {
-      return oneInstallAtATime(async () => {
-      let body: Record<string, unknown>;
-      try { const parsed = await request.json(); if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('body must be an object'); body = parsed as Record<string, unknown>; }
-      catch (error) { return refused(400, { message: `invalid adapter install request: ${(error as Error).message}` }); }
-      const probe = await import('../fill/acp-probe.js');
-      const entry = probe.ACP_ADAPTERS.find((candidate) => candidate.id === body.agent);
-      if (entry === undefined) return refused(400, { message: `madarch has no ACP adapter named ${JSON.stringify(String(body.agent))}: it knows ${probe.ACP_ADAPTERS.map((candidate) => candidate.id).join(', ')}` });
-      const { installAcpAdapter } = await import('../fill/acp-install.js');
-      const installed = await installAcpAdapter(entry, { env });
-      if (installed.outcome === 'refused') return refused(409, { message: installed.message });
-      // The message carries npm's own, redacted words for the person; the log
-      // line names only what madarch itself knows — the folder, the package
-      // and the version — so npm's output never reaches the server's log.
-      if (installed.outcome === 'failed') {
-        const what = entry.install.kind === 'npm' ? `${entry.install.package}@${entry.install.version}` : entry.label;
-        return refused(500, { message: installed.message, logMessage: `the ACP adapter install of ${what} for ${entry.id} failed` });
-      }
-      const probed = await probe.probeAcpAgents({ cwd: process.cwd(), env, timeoutMs: WIZARD_PROBE_TIMEOUT_MS });
-      const value = wizardPayload(probed);
-      report = { at: Date.now(), value };
-      return { response: json(200, { installed: { folder: installed.folder, executable: installed.executable, command: installed.command }, finding: probed.findings.find((finding) => finding.id === entry.id) ?? null, acp: value }) };
-      });
-    },
-    fill: (): Handled => {
-      const paths = fillStatePaths(wiki.product.folder);
-      try {
-        const run = JSON.parse(readFillFileSync(paths.run, 'utf8'));
-        const units = readdirSync(paths.units).filter((entry) => entry.endsWith('.json')).sort().map((entry) => JSON.parse(readFillFileSync(joinPath(paths.units, entry), 'utf8')));
-        let events: unknown[] = [];
-        try { events = readFillFileSync(paths.events, 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line)); }
-        catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
-        return { response: json(200, { run, units, events }) };
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { response: json(404, { message: 'No fill run is active' }) };
-        return refused(500, { message: `the fill state in ${JSON.stringify(paths.root)} could not be read: ${(error as Error).message}` });
-      }
-    },
-    async fillControl(request, runId, action): Promise<Handled> {
-      const paths = fillStatePaths(wiki.product.folder);
-      return withFillControlLock(wiki.product.folder, async () => {
-      try {
-        const run = JSON.parse(readFillFileSync(paths.run, 'utf8')) as { id?: string; status?: string; controlOpen?: boolean };
-        if (run.id !== runId) return refused(404, { message: `no fill run has id ${JSON.stringify(runId)}` });
-        if (run.controlOpen === false || (run.status !== 'running' && run.status !== 'paused')) return refused(409, { message: `fill run ${JSON.stringify(runId)} is final and cannot accept control requests` });
-        if (action === 'pause' && run.status !== 'running') return refused(409, { message: `fill run ${JSON.stringify(runId)} is not running` });
-        mkdirSync(paths.root, { recursive: true });
-        const file = joinPath(paths.root, 'control.json');
-        let pending: { runId?: string; action?: string } | undefined;
-        try { pending = JSON.parse(readFillFileSync(file, 'utf8')) as { runId?: string; action?: string }; } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
-        if (pending?.runId === runId && pending.action === 'stop' && action === 'pause') return refused(409, { message: 'a stop request is already pending for this fill run' });
-        const acceptedAction = pending?.runId === runId && pending.action === 'stop' ? 'stop' : action;
-        if (run.status === 'paused' && acceptedAction === 'stop') {
-          writeFileSync(file, `${JSON.stringify({ runId, action: 'stop', requestedAt: new Date().toISOString() })}\n`);
-          writeFileSync(paths.run, `${JSON.stringify({ ...run, status: 'stopped', controlOpen: false, updatedAt: new Date().toISOString() }, null, 2)}\n`);
-          return { response: json(202, { runId, action: 'stop', accepted: true }) };
-        }
-        const temporary = `${file}.${randomUUID()}.tmp`;
-        writeFileSync(temporary, `${JSON.stringify({ runId, action: acceptedAction, requestedAt: new Date().toISOString() })}\n`, { flag: 'wx' });
-        renameSync(temporary, file);
-        return { response: json(202, { runId, action: acceptedAction, accepted: true }) };
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return refused(404, { message: 'No fill run is active' });
-        return refused(500, { message: `could not request ${action} for fill run ${JSON.stringify(runId)}: ${(error as Error).message}` });
-      }
-      });
-    },
     events: (request) => streamingEvents(wiki, request, options.outside),
-    repos: (): Handled => {
-      const asked = readProductRepos(wiki.product);
-      return { response: json(200, { repos: asked.repos }) };
-    },
-    reposDeclared: wiki.product.repos.length > 0,
     app: appFolder === undefined
       ? (): Handled | undefined => undefined
-      : (pathname): Handled | undefined => serveAppFiles(json, refused, appFolder, pathname, wiki.product.repos.length > 0),
+      : (pathname): Handled | undefined => serveAppFiles(json, refused, appFolder, pathname),
   };
 }
 
-/**
- * One path under the app's files, or index.html when the app holds no file
- * there — the app's own routes, `/` and `/p/…` only, fall back to index.html
- * when no file answers: a page's address `/p/docs/example.md` names no file,
- * and index.html answers it, so the app's own routes run; the same answer
- * keeps reload and links working. A path under /api/ never reaches here: it
- * is answered by the routes or refused. Any other path is tried as a file
- * inside the app folder, % escapes decoded, no path climbing out of it — and
- * when no file answers it, it is a named 404, never index.html (finding 6).
- */
 /**
  * One built app file under `assets/` — the styles and fonts other surfaces
  * (the products home) read from the same build as the wikis. A file answer
@@ -686,7 +206,7 @@ export function serveAppAssets(appFolder: string, pathname: string): Response | 
   } catch { return undefined; }
 }
 
-function serveAppFiles(json: ReplyMaker['json'], refused: ReplyMaker['refused'], appFolder: string, pathname: string, reposDeclared: boolean): Handled {
+function serveAppFiles(json: ReplyMaker['json'], refused: ReplyMaker['refused'], appFolder: string, pathname: string): Handled {
   const root = resolve(appFolder);
   let wanted: string | undefined;
   try {
@@ -707,7 +227,7 @@ function serveAppFiles(json: ReplyMaker['json'], refused: ReplyMaker['refused'],
       // anything else is a named 404 (finding 6).
     }
   }
-  if (!isAppRoute(pathname, reposDeclared)) {
+  if (!isAppRoute(pathname)) {
     return refused(404, { message: `no such path "${pathname}": the server offers the wiki's API and the app's routes (${APP_ROUTE_PREFIXES.join(', ')})` });
   }
   try {
@@ -720,73 +240,10 @@ function serveAppFiles(json: ReplyMaker['json'], refused: ReplyMaker['refused'],
   }
 }
 
-/**
- * The ACP picture the wizard shows: which agents connect over ACP on this
- * machine, whether each is signed in, and one that is missing with the install
- * madarch would run for it. The ACP client and its protocol library are
- * imported here rather than at the top of this module, so the server starts
- * without them for every other route (`madarch fill --probe-acp` loads them
- * the same way).
- */
-async function wizardAcp(env: Readonly<Record<string, string | undefined>> = process.env): Promise<unknown> {
-  const probe = await import('../fill/acp-probe.js');
-  return wizardPayload(await probe.probeAcpAgents({ cwd: process.cwd(), env, timeoutMs: WIZARD_PROBE_TIMEOUT_MS }));
+/** The address prefixes the app itself answers: the knowledge wiki under `/k`, and the front door. */
+const APP_ROUTE_PREFIXES = ['/k', '/'];
+
+/** Whether the fallback to index.html may answer this path: only the app's own routes. */
+function isAppRoute(pathname: string): boolean {
+  return pathname === '/' || pathname === '/k' || pathname.startsWith('/k/');
 }
-
-/**
- * How long one agent's `initialize` may take while the wizard lists the
- * machine: a person waiting for the agent step gets an answer in seconds, and
- * an adapter that does not answer in that time is a row that says it did not
- * connect — `madarch fill --probe-acp` keeps the client's own longer default.
- */
-const WIZARD_PROBE_TIMEOUT_MS = 10_000;
-
-/** How long the wizard's own report stands before the machine is asked again. */
-const WIZARD_PROBE_CACHE_MS = 2_000;
-
-/**
- * How a start pays for its fill, judged before anything is saved: the agent's
- * own sign-in, or an API key — and a key exists only in the environment the
- * agent reads it from, so an API-key start of an agent whose variable is not
- * set is refused by its name. madarch never asks for the key, reads it or
- * stores it; it only says which variable the agent's own client reads.
- */
-export function fillAuth(agent: unknown, asked: unknown, env: Readonly<Record<string, string | undefined>> = process.env): { auth: WizardAuth } | { refusal: string } {
-  if (asked !== undefined && asked !== 'subscription' && asked !== 'api-key') return { refusal: `auth must be subscription or api-key, not ${JSON.stringify(asked)}` };
-  if (asked !== 'api-key') return { auth: 'subscription' };
-  // The variable's name only: the key stays in the environment the agent's own
-  // client reads, and no probe or ACP client is loaded to judge it.
-  const variable = typeof agent === 'string' && Object.hasOwn(AGENT_API_KEY_ENV, agent) ? AGENT_API_KEY_ENV[agent as AgentKind] : undefined;
-  if (variable === undefined) {
-    return { refusal: `${String(agent)} has no API key that madarch knows of: choose your own ${String(agent)} sign-in, or another agent` };
-  }
-  if ((env[variable] ?? '').trim() === '') {
-    return { refusal: `an API-key fill of ${String(agent)} reads the key from ${variable}, which is not set in the environment madarch runs in: madarch never asks for the key itself` };
-  }
-  return { auth: 'api-key' };
-}
-
-/**
- * The ACP report as the wizard's own payload: every finding as the probe wrote
- * it, the two places it searched, and where madarch installs its agents (the
- * second of them).
- */
-function wizardPayload(report: { at: string; path: string; agentsFolder: string; findings: readonly unknown[] }): unknown {
-  return { at: report.at, path: report.path, agentsFolder: report.agentsFolder, findings: report.findings };
-}
-
-/**
- * The address prefixes the app itself answers: a page's route (`/p/`, which carries a
- * graph node's page too: `/p/graph/<fact id>`, the address every page set entry
- * carries), the questions view, a stage's route and the home page; `/r` stands among
- * them only where repositories are declared.
- */
-const APP_ROUTE_PREFIXES = ['/p/', '/k', '/questions', '/r', '/s/', '/'];
-
-/** Whether the fallback to index.html may answer this path: only the app's own routes, `/r` only where the manifest declares repositories. */
-function isAppRoute(pathname: string, reposDeclared: boolean): boolean {
-  return pathname === '/' || pathname === '/questions' || pathname.startsWith('/questions/')
-    || pathname.startsWith('/p/') || pathname.startsWith('/s/') || pathname === '/k' || pathname.startsWith('/k/')
-    || (reposDeclared && pathname === '/r');
-}
-

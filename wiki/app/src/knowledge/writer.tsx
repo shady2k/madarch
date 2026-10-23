@@ -24,8 +24,12 @@ export function useAgentChoice(status: WikiStatus): {
   setPick: (id: string | null) => void;
   offer: AgentOffer | undefined;
   loadError: string | null;
+  /** The language the pages are written in: the reader's pick, else the product's own, else the interface's. */
+  language: string;
+  setLanguage: (language: string) => void;
   commit: () => Promise<void>;
 } {
+  const { i18n } = useTranslation();
   const [agents, setAgents] = useState<AgentOffer[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [picked, setPicked] = useState<Pick>(undefined);
@@ -37,6 +41,10 @@ export function useAgentChoice(status: WikiStatus): {
     );
     return () => controller.abort();
   }, []);
+  const [pickedLanguage, setPickedLanguage] = useState<string | undefined>(undefined);
+  const interfaceLanguage = (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en';
+  // A product with pages keeps its language until the reader changes it; one without follows the interface.
+  const language = pickedLanguage ?? (status.filled && status.kinds.some((kind) => kind.source === 'markdown' && kind.count > 0) ? status.language : interfaceLanguage);
   const saved = status.chosenAgent?.id ?? null;
   const pick = picked === undefined ? saved : picked;
   const offer = agents?.find((candidate) => candidate.id === pick);
@@ -44,7 +52,7 @@ export function useAgentChoice(status: WikiStatus): {
     if (pick === saved && (offer === undefined || offer.installed)) return;
     await chooseAgent(pick, true);
   };
-  return { agents, pick, setPick: setPicked, offer, loadError, commit };
+  return { agents, pick, setPick: setPicked, offer, loadError, language, setLanguage: setPickedLanguage, commit };
 }
 
 function boundWords(status: WikiStatus, t: (key: string, options?: Record<string, unknown>) => string): string {
@@ -81,12 +89,26 @@ export function AgentChoice({ status, choice }: { status: WikiStatus; choice: Re
         ))}
       </div>
       {loadError !== null && <p className="mb-0 mt-2 text-small" role="alert">{loadError}</p>}
+      {pick !== null && (
+        <div className="mt-4" role="radiogroup" aria-label={t('knowledge.writer.languageTitle')} data-testid="content-language">
+          <div className="mb-1.5 text-small font-medium text-ink">{t('knowledge.writer.languageTitle')}</div>
+          <div className="flex flex-wrap gap-2">
+            {(['ru', 'en'] as const).map((code) => (
+              <label key={code} className="flex cursor-pointer items-center gap-2 rounded-[var(--radius-card)] border border-line px-3 py-1.5 has-[:checked]:border-ink" data-testid={`content-language-${code}`}>
+                <input type="radio" name="content-language" checked={choice.language === code} onChange={() => choice.setLanguage(code)} />
+                <span>{t(code === 'ru' ? 'navigation.russian' : 'navigation.english')}</span>
+              </label>
+            ))}
+          </div>
+          <p className="mb-0 mt-1.5 text-small text-muted">{t('knowledge.writer.languageNote')}</p>
+        </div>
+      )}
       <p className="mb-0 mt-3 text-small text-muted" data-testid="agent-bound">{boundWords(status, t)}</p>
     </fieldset>
   );
 }
 
-const STATE_KEY: Record<WriterUnit['state'], string> = {
+export const UNIT_STATE_KEY: Record<WriterUnit['state'], string> = {
   waiting: 'knowledge.writer.unitWaiting',
   writing: 'knowledge.writer.unitWriting',
   written: 'knowledge.writer.unitWritten',
@@ -100,7 +122,7 @@ function UnitRow({ unit, current }: { unit: WriterUnit; current: boolean }): Rea
     <li className="border-b border-line py-2 last:border-b-0" data-testid="writer-unit" data-unit={unit.unit} data-state={unit.state} aria-current={current ? 'step' : undefined}>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <code className="text-small">{unit.path}</code>
-        <Badge variant={unit.state === 'writing' ? 'solid' : 'outline'}>{t(STATE_KEY[unit.state])}</Badge>
+        <Badge variant={unit.state === 'writing' ? 'solid' : 'outline'}>{t(UNIT_STATE_KEY[unit.state])}</Badge>
         {unit.calls !== undefined && <span className="text-small text-muted">{t('knowledge.writer.unitCalls', { calls: unit.calls, attempts: unit.writeAttempts ?? 0 })}</span>}
       </div>
       {unit.refusals !== undefined && unit.refusals.length > 0 && (
@@ -120,7 +142,11 @@ export function WriterCard({ status, refresh }: { status: WikiStatus; refresh: (
   const [retrying, setRetrying] = useState(false);
   const [refused, setRefused] = useState<string | null>(null);
   const writer = status.writer;
-  if (writer.agent === null || writer.state === 'idle') return null;
+  const dismissKey = `${status.product.id}:${writer.finishedAt ?? ''}`;
+  const [dismissed, setDismissed] = useState<string | null>(() => { try { return window.sessionStorage.getItem('madarch-writer-dismissed'); } catch { return null; } });
+  // A finished run is not shown on the pages: its outcome is the status in the top bar. A failure stays until it is dismissed.
+  if (writer.agent === null || writer.state === 'idle' || writer.state === 'done') return null;
+  if (writer.state === 'failed' && dismissed === dismissKey) return null;
   const agent = writer.agent.label;
   if (writer.state === 'waiting') {
     return (
@@ -132,7 +158,7 @@ export function WriterCard({ status, refresh }: { status: WikiStatus; refresh: (
       </Card>
     );
   }
-  const title = writer.state === 'running' ? t('knowledge.writer.runningTitle', { agent }) : writer.state === 'done' ? t('knowledge.writer.doneTitle') : t('knowledge.writer.failedTitle', { agent });
+  const title = writer.state === 'running' ? t('knowledge.writer.runningTitle', { agent }) : t('knowledge.writer.failedTitle', { agent });
   const body = (
     <>
       <ol className="m-0 list-none p-0" data-testid="writer-units">
@@ -154,6 +180,8 @@ export function WriterCard({ status, refresh }: { status: WikiStatus; refresh: (
               setRefused(null);
               startFill(writer.agent?.id).then(() => { setRetrying(false); refresh(); }, (failure: unknown) => { setRetrying(false); setRefused(failure instanceof Error ? failure.message : String(failure)); });
             }}>{t('knowledge.writer.retry')}</Button>
+            {' '}
+            <Button variant="default" size="default" data-testid="writer-dismiss" onClick={() => { try { window.sessionStorage.setItem('madarch-writer-dismissed', dismissKey); } catch { /* the dismissal lasts until the page is read again */ } setDismissed(dismissKey); }}>{t('knowledge.writer.dismiss')}</Button>
           </p>
           {refused !== null && <p className="mb-0 mt-3 text-small" role="alert">{refused}</p>}
         </AlertDescription>

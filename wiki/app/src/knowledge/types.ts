@@ -53,13 +53,15 @@ export type PageModel = {
   notes: string[];
 };
 
-export type KindSummary = { kind: string; source: 'graph' | 'markdown'; count: number; single: boolean };
+export type KindSummary = { kind: string; source: 'graph' | 'markdown'; count: number; single: boolean; labels?: Record<string, { one: string; many: string }> };
 
 export type EntityListing = { kind: string; total: number; rows: EntityRef[]; next: string | null };
 
 export type FillState = {
   state: 'idle' | 'running' | 'done' | 'failed';
   repository?: string;
+  phase?: 'code' | 'history' | 'points';
+  newCommits?: number;
   commit?: number;
   commits?: number;
   startedAt?: string;
@@ -102,6 +104,9 @@ export type WikiStatus = {
   product: { name: string; id: string };
   manifest: 'ok' | 'no-manifest';
   manifestFile: string;
+  language: string;
+  seeded: string[];
+  seedError?: string;
   findings: Finding[];
   kinds: KindSummary[];
   repositories: { name: string; filled: boolean }[];
@@ -117,3 +122,7 @@ export type WikiStatus = {
 export type SourceFile = { repo: string | null; path: string; language: string; commit: string | null; text: string };
 
 export type ProductChoice = { name: string; folder: string };
+
+export type DocumentRef = { repo: string | null; path: string };
+export type DocumentListing = { documents: DocumentRef[]; truncated: { repo: string | null; total: number; shown: number }[] };
+export type DocumentPageModel = { repo: string | null; path: string; title: string; markdown: string; resolutions: Record<string, Resolution>; anchors: Record<string, number>; commit: string | null };

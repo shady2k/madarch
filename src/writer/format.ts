@@ -70,11 +70,13 @@ const FRONT_KEYS = ['id', 'kind', 'title', 'relates', 'producer', 'sources'] as 
 const LINK = /\[([^\]\n]*)\]\(((?:[^()\s]|\([^()\s]*\))*)\)/g;
 const FOOTNOTE_DEFINITION = /^\[\^([A-Za-z0-9_-]+)\]:[ \t]*(.*)$/;
 const FOOTNOTE_REFERENCE = /\[\^([A-Za-z0-9_-]+)\]/g;
-const ABBREVIATION = /\b(?:[Ee]\.g|[Ii]\.e)\.|\b(?:etc|vs|cf|approx)\.(?=\s+[a-z0-9(,;])/g;
+const ABBREVIATION = /\b(?:[Ee]\.g|[Ii]\.e)\.|\b(?:etc|vs|cf|approx)\.(?=\s+[a-z0-9(,;])|(?<![\p{L}\p{N}])(?:[Тт]\.\s?[еквдпн]|и\s+т\.\s?[дп]|напр|[Сс]м|ср|рис|табл|стр|гг|руб|тыс|млн|млрд)\.(?=\s+[\p{Ll}\p{N}(,;])/gu;
 /** A character that stands for a masked dot; the page may not hold it (checked on entry). */
 const DOT = '\u0001';
 /** The most words a "See also" line may carry beside its links before it is read as a statement. */
 const SEE_ALSO_WORDS = 4;
+/** The words that open a connecting "See also" line, in English and in Russian (`См. также`, `Смотрите также`). */
+const SEE_ALSO = /^(?:see also|см\.?\s+также|смотрите также)(?![\p{L}\p{N}])/iu;
 /** The most words a heading may have; a longer one reads as a statement. */
 const HEADING_WORDS = 10;
 
@@ -251,8 +253,8 @@ const LINK_ONLY_WORDS = 5;
 function connecting(text: string): boolean {
   const plain = text.replace(FOOTNOTE_REFERENCE, '').trim();
   const labelWords = plainWords([...plain.matchAll(LINK)].map((m) => m[1]!).join(' ')).length;
-  if (/^see also\b/i.test(plain)) {
-    const outside = plainWords(plain.replace(/^see also\b/i, '').replace(LINK, '')).length;
+  if (SEE_ALSO.test(plain)) {
+    const outside = plainWords(plain.replace(SEE_ALSO, '').replace(LINK, '')).length;
     return sentencesOf(maskInline(plain)).length <= 1 && outside <= SEE_ALSO_WORDS && labelWords <= 2 * SEE_ALSO_WORDS;
   }
   const rest = plain.replace(LINK, '').replace(/[\s,;:.\u2013\u2014-]+/g, '');

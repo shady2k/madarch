@@ -83,7 +83,7 @@ async function serveCheck(): Promise<void> {
     const until = Date.now() + 30_000;
     while (Date.now() < until) {
       try {
-        const answer = await fetch(`${url}api/product`);
+        const answer = await fetch(`${url}api/k/product`);
         if (answer.ok && (await answer.text()).includes('"id"')) return true;
       } catch { /* the server has not answered yet */ }
       await new Promise((done) => setTimeout(done, 150));

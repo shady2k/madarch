@@ -5,9 +5,19 @@ export type KRoute =
   | { name: 'home' }
   | { name: 'entity'; id: string }
   | { name: 'kind'; kind: string }
-  | { name: 'source'; repo: string | null; path: string; line: number | null };
+  | { name: 'source'; repo: string | null; path: string; line: number | null }
+  | { name: 'docs' }
+  | { name: 'doc'; repo: string | null; path: string };
 
 export const K_HOME = '/k';
+export const K_DOCS = '/k/docs';
+/** Where a Markdown document stands, at a section when an anchor is given. */
+export function addressOfDocument(repo: string | null, path: string, anchor?: string): string {
+  const query = new URLSearchParams();
+  if (repo !== null) query.set('repo', repo);
+  query.set('path', path);
+  return `/k/doc?${query.toString()}${anchor === undefined || anchor === '' ? '' : `#${encodeURIComponent(anchor)}`}`;
+}
 export const addressOfEntity = (id: string): string => `/k/e/${encodeURIComponent(id)}`;
 export const addressOfKind = (kind: string): string => `/k/kind/${encodeURIComponent(kind)}`;
 
@@ -28,6 +38,13 @@ export function kRouteOf(pathname: string, search = ''): KRoute | null {
     } catch {
       return { name: 'home' };
     }
+  }
+  if (path === '/k/docs') return { name: 'docs' };
+  if (path === '/k/doc') {
+    const query = new URLSearchParams(search);
+    const file = query.get('path');
+    if (file === null || file === '') return { name: 'docs' };
+    return { name: 'doc', repo: query.get('repo'), path: file };
   }
   if (path === '/k/src') {
     const query = new URLSearchParams(search);

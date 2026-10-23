@@ -143,7 +143,7 @@ describe('the pages an agent wrote, over the filled graph', () => {
     expect(model.resolutions[`madarch:${PAYMENTS_SERVICE}`]).toMatchObject({ state: 'ok', label: 'payments' });
     const useCase = model.resolutions['madarch:doc:docs/requirements.md#uc-2'];
     expect(useCase?.state).toBe('ok');
-    expect(useCase !== undefined && useCase.state === 'ok' ? useCase.href : '').toBe(`/k/src?repo=training&path=docs%2Frequirements.md&line=${lineOf('docs/requirements.md', '**UC-2 Pay.**')}`);
+    expect(useCase !== undefined && useCase.state === 'ok' ? useCase.href : '').toBe('/k/doc?repo=training&path=docs%2Frequirements.md#uc-2');
     expect(model.findings).toEqual([]);
   });
 

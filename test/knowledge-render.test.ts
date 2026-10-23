@@ -321,7 +321,7 @@ describe('Markdown pages, links and grounds', () => {
     const { resolutions } = await page('domain:billing');
     expect(resolutions[`madarch:${CHARGE}`]).toMatchObject({ state: 'ok', kind: 'code.symbol', label: 'charge', href: `/k/e/${encodeURIComponent(CHARGE)}`, location: { repo: 'shop', path: 'svc/billing/src/a.ts', lineStart: 3, lineEnd: 6, href: '/k/src?repo=shop&path=svc%2Fbilling%2Fsrc%2Fa.ts&line=3' } });
     expect(resolutions[`madarch:${K('code.symbol', 'svc/none.ts#gone')}`]).toEqual({ state: 'broken', target: `madarch:${K('code.symbol', 'svc/none.ts#gone')}`, reason: `no entity "${K('code.symbol', 'svc/none.ts#gone')}" in the graph or among the product's Markdown pages` });
-    expect(resolutions['madarch:doc:docs/handbook.md#money']).toMatchObject({ state: 'ok', href: '/k/src?repo=shop&path=docs%2Fhandbook.md&line=3' });
+    expect(resolutions['madarch:doc:docs/handbook.md#money']).toMatchObject({ state: 'ok', href: '/k/doc?repo=shop&path=docs%2Fhandbook.md#money' });
     expect(resolutions['madarch:doc:docs/handbook.md#nothing']).toMatchObject({ state: 'broken', reason: 'the document "docs/handbook.md" (in shop) has no section "nothing"' });
     expect(resolutions['madarch:doc:docs/none.md']).toMatchObject({ state: 'broken', reason: 'no document "docs/none.md" in the product repository or its code repositories' });
     expect(resolutions['madarch:product:shop']).toMatchObject({ state: 'ok', kind: 'product', label: 'The shop' });

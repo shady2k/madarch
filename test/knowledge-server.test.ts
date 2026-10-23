@@ -64,6 +64,9 @@ beforeAll(async () => {
   writeFileSync(join(app, 'index.html'), '<!doctype html><title>app</title><div id="root"></div>');
   writeFileSync(join(app, 'fonts', 'Face.woff2'), 'face');
   server = await startServer({ productHome: home, appFolder: app, port: 0, knowledgeRoot: join(work, 'store'), log: () => undefined, errorLog: () => undefined });
+  // The first page of a product waits for its reader to start (a process of its own): the suite's first test does not.
+  await fetch(`${server.url}/products/tiny/api/k/status`);
+  await fetch(`${server.url}/products/unconnected/api/k/status`);
 }, 60_000);
 
 afterAll(async () => {
@@ -72,10 +75,13 @@ afterAll(async () => {
 });
 
 describe('an empty product', () => {
-  test('a product without a manifest says so; a product with one and no graph says what to do: connect a repository, or start the fill', async () => {
+  test('a product without a manifest is given the starter set and then reads as any empty product; one with a manifest and no graph says what to do: connect a repository, or start the fill', async () => {
     const bare = await get('/products/bare/api/k/status');
-    expect(bare.body).toMatchObject({ manifest: 'no-manifest', filled: false, kinds: [], home: null });
-    expect(bare.body.manifestFile).toEndWith('/bare/madarch/kinds.yaml');
+    expect(bare.body).toMatchObject({ manifest: 'ok', filled: false, home: null });
+    expect(bare.body.seeded).toEqual(['madarch/kinds.yaml']);
+    expect(bare.body.kinds.map((kind: { kind: string }) => kind.kind)).toEqual(['product', 'domain', 'code.service', 'code.file', 'code.symbol']);
+    // The kinds carry their names in both languages, from the manifest.
+    expect(bare.body.kinds.find((kind: { kind: string }) => kind.kind === 'code.file').labels).toEqual({ en: { one: 'File', many: 'Files' }, ru: { one: 'Файл', many: 'Файлы' } });
     const tiny = await get('/products/tiny/api/k/status');
     expect(tiny.body).toMatchObject({ manifest: 'ok', filled: false, home: null, fill: { state: 'idle' }, repositories: [{ name: 'tiny', filled: false }] });
     expect(tiny.body.kinds.map((kind: { kind: string; count: number }) => [kind.kind, kind.count])).toEqual([['product', 0], ['domain', 0], ['code.service', 0], ['code.file', 0], ['code.symbol', 0]]);
@@ -83,10 +89,7 @@ describe('an empty product', () => {
     expect(unconnected.body.repositories).toEqual([]);
   });
 
-  test('the fill is refused in words where it cannot start: no manifest, no repository', async () => {
-    const bare = await fetch(`${server.url}/products/bare/api/k/fill`, { method: 'POST' });
-    expect(bare.status).toBe(409);
-    expect((await bare.json() as { message: string }).message).toContain('has no');
+  test('the fill is refused in words where it cannot start: no repository', async () => {
     const none = await fetch(`${server.url}/products/unconnected/api/k/fill`, { method: 'POST' });
     expect(none.status).toBe(409);
     expect((await none.json() as { message: string }).message).toBe('the product declares no code repository: connect one with "madarch repo add <name> <url>", then start the fill');

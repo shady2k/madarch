@@ -1,3 +1,6 @@
+import { existsSync, lstatSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
+import { dirname, join, sep } from 'node:path';
+
 /**
  * The starter set `madarch new` writes into a product (decision 0029): the
  * kinds manifest and the templates for the kinds a first reader walks down —
@@ -17,27 +20,43 @@ const KINDS = `# The kinds this product's wiki shows (decision 0029, docs/decisi
 #   source: markdown  the entity is a Markdown file of this repository (a folder of them, or one file)
 #   source: graph     the entity is a node of the graph the fill builds from the code repositories
 # A kind with \`file:\` is one page; the first such kind is the home page.
+# \`labels\` names the kind in each interface language (en, ru): the navigation and a page's badge read it.
 # \`relations\` declares an edge between kinds: {attribute|dirname} puts a part of the entity into the other end's key.
 kinds:
   product:
     template: templates/product.md
     source: markdown
     file: docs/product.md
+    labels:
+      en: { one: Product, many: Products }
+      ru: { one: Продукт, many: Продукты }
   domain:
     template: templates/domain.md
     source: markdown
     folder: docs/domains
+    labels:
+      en: { one: Domain, many: Domains }
+      ru: { one: Домен, many: Домены }
   code.service:
     template: templates/service.md
     source: graph
+    labels:
+      en: { one: Service, many: Services }
+      ru: { one: Сервис, many: Сервисы }
     relations:
       - { type: code.contains, to: "code.package:{span.path|dirname}" }
   code.file:
     template: templates/file.md
     source: graph
+    labels:
+      en: { one: File, many: Files }
+      ru: { one: Файл, many: Файлы }
   code.symbol:
     template: templates/symbol.md
     source: graph
+    labels:
+      en: { one: Symbol, many: Symbols }
+      ru: { one: Символ, many: Символы }
 `;
 
 const PRODUCT = `:::body
@@ -82,3 +101,31 @@ export const STARTER_FILES: readonly StarterFile[] = [
   { path: 'templates/file.md', content: FILE },
   { path: 'templates/symbol.md', content: SYMBOL },
 ];
+
+/**
+ * Writes the starter set into a product that has none: the files that are absent, never one that is there. Answers the
+ * paths it wrote. An error names the file that could not be written.
+ */
+export function seedStarterSet(productFolder: string): string[] {
+  const written: string[] = [];
+  const root = realpathSync(productFolder);
+  for (const starter of STARTER_FILES) {
+    const target = join(productFolder, starter.path);
+    if (existsSync(target) || lstatSync(target, { throwIfNoEntry: false }) !== undefined) continue;
+    // A folder of the product that is a link out of it would take the file somewhere else: refused, naming it.
+    let ancestor = dirname(target);
+    while (!existsSync(ancestor)) ancestor = dirname(ancestor);
+    const real = realpathSync(ancestor);
+    if (real !== root && !real.startsWith(`${root}${sep}`)) {
+      throw new Error(`src/knowledge/seed.ts: ${ancestor} is a link to ${real}, outside the product ${productFolder}: ${target} was not written, and the starter set is not given to this product`);
+    }
+    try {
+      mkdirSync(dirname(target), { recursive: true });
+      writeFileSync(target, starter.content, { flag: 'wx' });
+    } catch (error) {
+      throw new Error(`src/knowledge/seed.ts: ${target} could not be written to give the product its starter set: ${(error as Error).message}`);
+    }
+    written.push(starter.path);
+  }
+  return written;
+}

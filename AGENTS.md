@@ -97,3 +97,10 @@ Artifacts (documents, tasks, commit messages, code comments) are written in Engl
   `wiki/app`, then `--fetch` the folder): it serves the generated training repository
   as two products, walks the empty one into its fill and the filled one from the home
   page to a function.
+- A PGlite process is about 1 GB resident (measured on the pod, 2026-10-23) and runs
+  a statement on the thread that owns it. The knowledge wiki therefore keeps its fill
+  and its reads in processes of their own (`madarch knowledge-fill-worker`,
+  `madarch knowledge-read-worker`; madarch-m38l.4): the server's thread is never
+  blocked by either. A test that opens a product's wiki pays 3-6 s for the reader's
+  first start (warm it in `beforeAll`), and a pod of 4 GB is killed (exit 137) by a
+  fill with its reader: start the cluster with `MADARCH_SKY_MEMORY=8`.
