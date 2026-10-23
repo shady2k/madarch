@@ -39,10 +39,10 @@ export function PanZoom({ width, height, focus, floor = 0.85, label, children, t
   const drag = useRef<{ x: number; y: number; vx: number; vy: number; moved: boolean; id: number } | null>(null);
   const fitted = useRef(false);
 
-  const frameHeight = Math.min(560, Math.max(180, Math.ceil(height * 1 + 16)));
+  const frameHeight = Math.min(600, Math.max(180, Math.ceil(height + 16)));
 
   const fit = useCallback((w: number): View => {
-    const scale = Math.min(1, Math.max(floor, (w - 16) / Math.max(1, width)));
+    const scale = Math.min(1, Math.max(floor, Math.min((w - 16) / Math.max(1, width), (frameHeight - 16) / Math.max(1, height))));
     const spare = w - width * scale;
     const x = spare >= 0 ? spare / 2 : Math.min(8, Math.max(spare - 8, w / 2 - (focus?.x ?? width / 2) * scale - ((focus === undefined ? 0 : 98) * scale)));
     const spareY = frameHeight - height * scale;

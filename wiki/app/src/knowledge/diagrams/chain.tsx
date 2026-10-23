@@ -26,7 +26,7 @@ export interface ChainLayout {
   height: number;
   laneX: Map<string, number>;
   laneW: number;
-  rows: { step: ChainStep; y: number; x1: number; x2: number; label: { x: number; anchor: 'start' | 'middle' | 'end'; width: number; text: string }; self: boolean }[];
+  rows: { step: ChainStep; y: number; x1: number; x2: number; label: { x: number; anchor: 'start' | 'middle' | 'end'; width: number; text: string }; self: boolean; noteX: number }[];
   groups: { name: string; x: number; w: number }[];
   separator: { y: number } | null;
   /** Where every text of a row stands, for the checks that measure overlap. */
@@ -57,8 +57,11 @@ export function layoutChain(chain: Chain): ChainLayout {
       else label = { x: Math.min(x1, x2) + 8, anchor: 'start', width, text };
     }
     const right = label.anchor === 'middle' ? label.x + width / 2 : label.x + width;
-    widest = Math.max(widest, right + 16);
-    rows.push({ step, y, x1, x2, label, self });
+    const left = label.anchor === 'middle' ? label.x - width / 2 : label.x;
+    // The note stands under the label's left edge and never left of the step numbers.
+    const noteX = Math.max(GUTTER - 4, left);
+    widest = Math.max(widest, right + 16, step.note === undefined ? 0 : noteX + textWidth(step.note, 11) + 16);
+    rows.push({ step, y, x1, x2, label, self, noteX });
     y += ROW;
   }
   const groups: ChainLayout['groups'] = [];
@@ -104,7 +107,7 @@ function Step({ row }: { row: ChainLayout['rows'][number] }): ReactElement {
         ? <path className={`dg-arrow ${mark}`} d={`M${row.x1},${row.y - 10} h${LOOP} v20 h-${LOOP - 2}`} markerEnd="url(#dg-head)" />
         : <line className={`dg-arrow ${mark}${step.kind === 'grpc' ? ' dg-grpc' : ''}`} x1={row.x1} x2={arrowEnd} y1={row.y} y2={row.y} markerEnd="url(#dg-head)" />}
       {step.href === null ? label : <a {...link(step.href)}>{label}<title>{step.label}</title></a>}
-      {step.note !== undefined && <text className="dg-sub" x={row.label.x} y={row.y + (row.self ? 20 : 14)} textAnchor={row.label.anchor}>{step.note}</text>}
+      {step.note !== undefined && <text className="dg-sub" x={row.noteX} y={row.y + (row.self ? 20 : 14)}>{step.note}</text>}
       {step.site === undefined
         ? <circle className="dg-num" cx="16" cy={row.y} r="10" />
         : <a {...link(step.site.href)}><circle className="dg-num" cx="16" cy={row.y} r="10" /><title>{`${step.site.path}:${step.site.lineStart}`}</title></a>}
@@ -117,6 +120,7 @@ export function ChainView({ chain }: { chain: Chain }): ReactElement {
   const { t } = useTranslation();
   const link = useDiagramLink();
   const layout = layoutChain(chain);
+  const laneName = new Map(chain.lanes.map((lane) => [lane.id, lane.label]));
   return (
     <div className="dg-chain" data-testid="chain">
       <h3 className="dg-chain-title">
@@ -144,6 +148,22 @@ export function ChainView({ chain }: { chain: Chain }): ReactElement {
           {layout.rows.map((row) => <Step key={row.step.n} row={row} />)}
         </svg>
       </div>
+      <ol className="dg-chain-list" data-testid="chain-list">
+        {chain.steps.map((step, index) => {
+          const first = step.order === 'unordered' && chain.steps[index - 1]?.order !== 'unordered';
+          const from = laneName.get(step.from) ?? step.from;
+          const to = laneName.get(step.to) ?? step.to;
+          return (
+            <li key={step.n} value={step.n} className={step.order === 'unordered' ? 'dg-unordered' : undefined}>
+              {first && <p className="dg-sub dg-list-unordered">{t('knowledge.diagram.unordered')}</p>}
+              <span className="dg-list-lanes">{from} → {to}</span>
+              {step.href === null ? <span className="dg-list-label">{step.label}</span> : <a className="dg-list-label" {...link(step.href)}>{step.label}</a>}
+              {step.site !== undefined && <a className="dg-list-site" {...link(step.site.href)}>{step.site.path}:{step.site.lineStart}</a>}
+              {step.note !== undefined && <span className="dg-sub">{step.note}</span>}
+            </li>
+          );
+        })}
+      </ol>
       {chain.notes.length > 0 && <ul className="dg-notes">{chain.notes.map((note) => <li key={note}>{note}</li>)}</ul>}
     </div>
   );

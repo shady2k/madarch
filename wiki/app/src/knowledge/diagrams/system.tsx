@@ -34,7 +34,7 @@ export function SystemView({ block }: { block: SystemBlock }): ReactElement {
     <section data-block="diagram" data-diagram="system" aria-label={block.title}>
       <h2>{block.title}</h2>
       <figure className="m-0">
-        <PanZoom width={layout.width} height={layout.height} label={block.title} testId="system" floor={0.8}>
+        <PanZoom width={layout.width} height={layout.height} label={block.title} testId="system" floor={0.7}>
           <defs>
             <marker id="dg-sys-head" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path className="dg-headpath" d="M0,0 L10,5 L0,10 z" /></marker>
           </defs>
@@ -101,7 +101,7 @@ export function ModulesView({ block }: { block: ModulesBlock }): ReactElement {
     <section data-block="diagram" data-diagram="modules" aria-label={block.title}>
       <h2>{block.title}</h2>
       <figure className="m-0">
-        <PanZoom width={layout.width} height={layout.height} label={block.title} testId="modules" floor={0.8}>
+        <PanZoom width={layout.width} height={layout.height} label={block.title} testId="modules" floor={0.7}>
           <defs>
             <marker id="dg-mod-head" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path className="dg-headpath" d="M0,0 L10,5 L0,10 z" /></marker>
             <marker id="dg-mod-head-cycle" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path className="dg-headpath dg-cycle-fill" d="M0,0 L10,5 L0,10 z" /></marker>

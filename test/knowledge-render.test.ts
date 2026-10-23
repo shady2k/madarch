@@ -140,7 +140,7 @@ beforeAll(async () => {
     ':::callers',
     '',
   ].join('\n'));
-  write('templates/symbol.md', '{{symbolKind}} in {{path}}\n:::source\n:::callers\n:::callees\n:::sequence{depth=2}\n:::related{title="Declared in" relation="code.contains" direction="in"}\n:::er\n');
+  write('templates/symbol.md', '{{symbolKind}} in {{path}}\n:::source\n:::callers\n:::callees\n:::sequence\n:::related{title="Declared in" relation="code.contains" direction="in"}\n:::er\n');
   write('templates/file.md', '{{path}}\n:::source\n:::related{title="Imports" relation="code.imports" direction="out"}\n:::related{title="Imported by" relation="code.imports" direction="in"}\n');
   write('templates/database.md', ':::er{limit=5}\n');
   write('docs/product.md', ['---', 'id: product:shop', 'kind: product', 'title: The shop', 'relates:', `  - ${SERVICE}`, 'producer: agent', '---', `The shop bills customers through the billing service.[^1]`, '', `[^1]: [billing](madarch:${SERVICE})`, ''].join('\n'));

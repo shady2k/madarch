@@ -1979,3 +1979,16 @@ a.graph-diagram-element-label:hover {
   .dg-toolbar { padding: 6px; }
   .dg-chip { min-height: 32px; }
 }
+
+/* The chain on a phone: the lanes would scroll sideways under a column of bare numbers, so the steps are a list. */
+.dg-chain-list { display: none; margin: 0; padding-left: 2.2em; font-size: var(--fs-small); }
+.dg-chain-list li { margin: 0 0 10px; padding-left: 2px; }
+.dg-chain-list li > * { display: block; }
+.dg-list-lanes { color: var(--text-muted); font-size: 12px; }
+.dg-list-label { font-weight: 600; overflow-wrap: anywhere; }
+.dg-list-site { font-family: var(--font-mono); font-size: 11.5px; overflow-wrap: anywhere; }
+.dg-list-unordered { margin: 8px 0 6px !important; padding-top: 8px; border-top: 1px dashed var(--dg-node-line); }
+@media (max-width: 700px) {
+  .dg-chain .dg-scroll { display: none; }
+  .dg-chain-list { display: block; }
+}

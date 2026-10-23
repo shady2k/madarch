@@ -24,7 +24,8 @@ export function NeighborhoodGraph({ block }: { block: GraphBlock }): ReactElemen
   const link = useDiagramLink();
   const [hood, setHood] = useState<Neighborhood>(block.neighborhood);
   const [depth, setDepth] = useState(block.depth);
-  const [off, setOff] = useState<ReadonlySet<string>>(new Set());
+  // Type references are the busiest relation of a function and say least; they are one click away.
+  const [off, setOff] = useState<ReadonlySet<string>>(() => new Set(block.neighborhood.relations.filter((entry) => entry.relation === 'code.references').map((entry) => slotOf(entry.relation, entry.direction))));
   const [grown, setGrown] = useState<ReadonlySet<string>>(new Set());
   const [failure, setFailure] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);

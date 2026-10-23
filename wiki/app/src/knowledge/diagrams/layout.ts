@@ -325,7 +325,7 @@ export function layered(nodes: readonly LayeredNode[], edges: readonly LayeredEd
 
 // ---- the system view --------------------------------------------------------------------------
 
-export const SYS_W = 188;
+export const SYS_W = 176;
 export const SYS_H = 58;
 
 export interface SystemLayout {
@@ -355,7 +355,7 @@ const cubic = (a: Placed, b: Placed, slot: number, slots: number): { d: string; 
 };
 
 export function layoutSystem(nodes: readonly SystemNode[], edges: readonly SystemEdge[]): SystemLayout {
-  const { placed, back, width, height } = layered(nodes.map((node) => ({ id: node.id, w: SYS_W, h: SYS_H })), edges, { gapX: 150, gapY: 34 });
+  const { placed, back, width, height } = layered(nodes.map((node) => ({ id: node.id, w: SYS_W, h: SYS_H })), edges, { gapX: 112, gapY: 30 });
   const pairCount = new Map<string, number>();
   const out: SystemLayout['edges'] = [];
   for (const edge of edges) {

@@ -429,7 +429,7 @@ export class ChainBuilder {
         if (!again && depthLeft > 1) await this.visit(target, depthLeft - 1, undefined, unordered);
         else if (!again && depthLeft <= 1) this.cutAtDepth += 1;
         // A helper of the same file that reaches nothing else adds a row and no information: it is left out, and counted.
-        if (same && this.steps.length === before + 1 && this.total === totalBefore + 1 && !again) {
+        if (same && !again && depthLeft > 1 && this.steps.length === before + 1 && this.total === totalBefore + 1) {
           this.steps.pop();
           this.total -= 1;
           this.omittedHelpers += 1;
@@ -826,13 +826,20 @@ export async function treemapBlock(ctx: RenderContext, subject: Subject, params:
   const found = await ctx.graph.byPrefix('code.file', scope === '' ? 'code.file:' : `code.file:${scope}/`, limit);
   const notes: string[] = [];
   if (found.total > found.rows.length) notes.push(`Showing the first ${found.rows.length} of ${found.total} files by path.`);
+  // Generated files (lock files) are not code anyone edits: they would fill the picture and carry no hotspot.
+  const generated = (path: string): boolean => /(^|\/)(package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb?|go\.sum|Cargo\.lock|poetry\.lock|composer\.lock)$/.test(path);
   const churn = await ctx.graph.inDegrees('code.touched', found.rows.map((file) => file.key));
+  let lockfiles = 0;
   const files: TreemapFile[] = [];
   let unread = 0;
   const queue = [...found.rows];
   const read = async (): Promise<void> => {
     for (let file = queue.shift(); file !== undefined; file = queue.shift()) {
       const path = String(file.properties['path'] ?? pathOfKey(file.key));
+      if (generated(path)) {
+        lockfiles += 1;
+        continue;
+      }
       const repo = ctx.repoOfScope(file.scope) ?? null;
       const text = await ctx.readSource(repo, path);
       if (text === undefined) {
@@ -844,7 +851,8 @@ export async function treemapBlock(ctx: RenderContext, subject: Subject, params:
     }
   };
   await Promise.all(Array.from({ length: 8 }, read));
-  if (unread > 0) notes.push(`${unread} files could not be read at the commit the graph was filled from and are not drawn.`);
+  if (lockfiles > 0) notes.push(`${lockfiles} lock file${lockfiles === 1 ? ' is' : 's are'} generated and not drawn.`);
+  if (unread > 0) notes.push(`${unread} file${unread === 1 ? ' was' : 's were'} not readable at the commit the graph was filled from and ${unread === 1 ? 'is' : 'are'} not drawn.`);
   files.sort((a, b) => byCodePoint(a.path, b.path));
   return { type: 'treemap', title, scope, files, maxChurn: files.reduce((max, file) => Math.max(max, file.churn), 0), total: found.total, notes };
 }
