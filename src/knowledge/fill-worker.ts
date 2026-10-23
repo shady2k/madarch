@@ -21,7 +21,10 @@ import { HISTORY_EXTRACTOR, OWNERS, TREE_EXTRACTORS } from '../extract/driver/ex
 import { createGraphStore } from '../graph/index.js';
 import { indexWorkerProduct } from './index/run.js';
 import { markResolved } from '../loop/answer.js';
-import { briefsFor, neededFrom, planRefresh } from '../loop/plan.js';
+import { briefsFor, neededFrom, neededFromPaths, planRefresh } from '../loop/plan.js';
+import { planTaskRun } from '../loop/task-run.js';
+import type { EditBrief } from '../writer/edit.js';
+import type { UnitsInput, UnitsNeeded } from '../writer/run.js';
 import { fsSink, productSlug, runWriter, type ToolClient, type UnitAgent } from '../writer/index.js';
 import { parseMessage, type FromWorker, type RepositoryPin, type ToWorker, type WorkerStart } from './fill-protocol.js';
 
@@ -223,14 +226,25 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
       return 0;
     }
     // What the refresh will touch, and why, is decided from what exists and told before the agent is asked for anything.
-    let planned: Awaited<ReturnType<typeof planRefresh>>;
-    let briefs: Awaited<ReturnType<typeof briefsFor>>;
+    // A run a person limited to one task («Поправить страницы сейчас») gets exactly the pages that task's impact lists.
+    let planned: Awaited<ReturnType<typeof planRefresh>> | undefined;
+    let briefs: ReadonlyMap<string, EditBrief>;
+    let needed: (input: UnitsInput) => UnitsNeeded;
     try {
-      const repo = repositories[0]!;
-      const head = pins.get(repo.name)?.head ?? (await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repo.path, encoding: 'utf8' })).stdout.trim();
-      planned = await planRefresh({ owner, productFolder, repository: repo, commit: head, language: { from: start.languageFrom ?? null, to: start.language, changed: start.languageChanged } });
-      briefs = await briefsFor(planned);
-      send({ type: 'plan', plan: planned.plan });
+      if (start.task !== undefined) {
+        const run = await planTaskRun({ owner, productFolder, task: start.task });
+        briefs = run.briefs;
+        needed = neededFromPaths(new Set(briefs.keys()), briefs);
+        send({ type: 'plan', plan: run.plan });
+      } else {
+        const repo = repositories[0]!;
+        const head = pins.get(repo.name)?.head ?? (await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repo.path, encoding: 'utf8' })).stdout.trim();
+        planned = await planRefresh({ owner, productFolder, repository: repo, commit: head, language: { from: start.languageFrom ?? null, to: start.language, changed: start.languageChanged } });
+        const built = await briefsFor(planned);
+        briefs = built;
+        needed = neededFrom(planned, built);
+        send({ type: 'plan', plan: planned.plan });
+      }
     } catch (error) {
       send({ type: 'writer', state: 'failed', code: 'plan', message: `the refresh could not tell which pages need the agent, so it wrote nothing: ${error instanceof Error ? error.message : String(error)}` });
       return 0;
@@ -256,7 +270,7 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
       const report = await runWriter({
         owner, store, repository: repo.path, ...(pins.get(repo.name)?.head === undefined ? {} : { ref: pins.get(repo.name)!.head }), output: productFolder, productName: start.productName, agent: remote, sink,
         language: start.language, languageChanged: start.languageChanged, repositoryName: repo.name,
-        needed: neededFrom(planned, briefs),
+        needed,
         resolved: async (used) => { await markResolved(productFolder, used); },
         // Every page written is in the graph's index at once; a failure is told, never hidden.
         afterWrite: async () => { const result = await indexNow(); if (result.error !== undefined) throw new Error(result.error); },

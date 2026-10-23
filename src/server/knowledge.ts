@@ -11,6 +11,7 @@
  */
 import { languageOf } from '../knowledge/blocks.js';
 import { LoopRefusal } from '../loop/answer.js';
+import { ProposalRefusal } from '../loop/propose.js';
 import { WikiReadError, type KnowledgeProduct } from '../knowledge/product.js';
 import type { Handled, ReplyMaker } from './http.js';
 import { CHOOSABLE_ROLES, readSettings, writeRole } from '../knowledge/settings.js';
@@ -48,8 +49,11 @@ export interface KnowledgePart {
   startFresh: (request: Request) => Promise<Handled>;
   journal: (request: Request) => Promise<Handled>;
   tasks: (request: Request) => Promise<Handled>;
-  taskImpact: (request: Request) => Promise<Handled>;
+  task: (request: Request) => Promise<Handled>;
+  proposeTask: (request: Request) => Promise<Handled>;
   createTask: (request: Request) => Promise<Handled>;
+  closeTask: (request: Request) => Promise<Handled>;
+  runTask: (request: Request) => Promise<Handled>;
 }
 
 /** The largest file the source view shows whole. */
@@ -357,11 +361,30 @@ export function createKnowledgePart(
         throw error;
       }
     }),
-    tasks: guarded('list the tasks', async () => ({ response: json(200, product.tasks()) })),
-    taskImpact: guarded('compute task impact', async (request) => {
-      const body = await request.json() as { grounds?: unknown };
-      if (!Array.isArray(body?.grounds) || body.grounds.some((ground) => typeof ground !== 'string' || ground.trim() === '')) return refused(400, { field: 'grounds', message: '"grounds" is a list of non-empty graph keys' });
-      return { response: json(200, await product.taskImpact(body.grounds as string[])) };
+    tasks: guarded('list the tasks', async () => ({ response: json(200, await product.tasks()) })),
+    task: guarded('read one task with its impact', async (request) => {
+      const id = new URL(request.url).searchParams.get('id');
+      if (id === null || id.trim() === '') return refused(400, { field: 'id', message: '"id" is required: the task\'s id (task:<name>) or its name' });
+      const detail = await product.task(id);
+      if (detail === undefined) return refused(404, { field: 'id', message: `there is no task ${id}: docs/tasks/${id.replace(/^task:/, '')}.md is not in the product repository` });
+      return { response: json(200, detail) };
+    }),
+    proposeTask: guarded('propose the task of an answer', async (request) => {
+      const crossSite = foreign(request);
+      if (crossSite !== undefined) return refused(403, { message: crossSite });
+      const plain = notJson(request);
+      if (plain !== undefined) return refused(415, { message: plain });
+      let body: unknown;
+      try { body = await request.json(); } catch (error) { return refused(400, { message: `the request body is not JSON: ${(error as Error).message}` }); }
+      const asked = body as { question?: unknown; choice?: unknown } | null;
+      if (typeof asked?.question !== 'string') return refused(400, { field: 'question', message: '"question" is required: the id of the answered question the task comes from' });
+      if (asked.choice !== 'code' && asked.choice !== 'docs') return refused(400, { field: 'choice', message: '"choice" is code (the code is right, the documents are old) or docs (the documents are right, the code must change)' });
+      try {
+        return { response: json(200, await product.proposeTask(asked.question, asked.choice)) };
+      } catch (error) {
+        if (error instanceof ProposalRefusal) return refused(409, { field: 'question', message: error.message });
+        throw error;
+      }
     }),
     createTask: guarded('create a task', async (request) => {
       const crossSite = foreign(request); if (crossSite !== undefined) return refused(403, { message: crossSite });
@@ -369,8 +392,35 @@ export function createKnowledgePart(
       let body: unknown; try { body = await request.json(); } catch (error) { return refused(400, { message: `the request body is not JSON: ${(error as Error).message}` }); }
       const value = body as { question?: unknown; title?: unknown; grounds?: unknown; scope?: unknown } | null;
       if (typeof value?.question !== 'string' || typeof value.title !== 'string' || !Array.isArray(value.grounds) || !Array.isArray(value.scope)) return refused(400, { message: 'question, title, grounds and scope are required to confirm a task' });
+      if (value.grounds.some((ground) => typeof ground !== 'string' || ground.trim() === '')) return refused(400, { field: 'grounds', message: '"grounds" is a list of non-empty graph keys' });
       const result = await product.createTask({ question: value.question, title: value.title, grounds: value.grounds as string[], scope: value.scope as import('../loop/tasks.js').TaskScope[] });
       return { response: json(201, result) };
+    }),
+    closeTask: guarded('close a task by hand', async (request) => {
+      const crossSite = foreign(request);
+      if (crossSite !== undefined) return refused(403, { message: crossSite });
+      const plain = notJson(request);
+      if (plain !== undefined) return refused(415, { message: plain });
+      let body: unknown;
+      try { body = await request.json(); } catch (error) { return refused(400, { message: `the request body is not JSON: ${(error as Error).message}` }); }
+      const id = (body as { id?: unknown } | null)?.id;
+      if (typeof id !== 'string' || id.trim() === '') return refused(400, { field: 'id', message: '"id" is required: the task to close by hand' });
+      const result = await product.closeTask(id);
+      return { response: json(200, result) };
+    }),
+    runTask: guarded('fix the pages of a task now', async (request) => {
+      const crossSite = foreign(request);
+      if (crossSite !== undefined) return refused(403, { message: crossSite });
+      if (own) return refused(403, { message: "madarch's own wiki is documentation, not a product to rewrite: its pages are not written here" });
+      const plain = notJson(request);
+      if (plain !== undefined) return refused(415, { message: plain });
+      let body: unknown;
+      try { body = await request.json(); } catch (error) { return refused(400, { message: `the request body is not JSON: ${(error as Error).message}` }); }
+      const id = (body as { id?: unknown } | null)?.id;
+      if (typeof id !== 'string' || id.trim() === '') return refused(400, { field: 'id', message: '"id" is required: the task whose pages the run fixes' });
+      const done = await product.runTask(id);
+      if (!done.ok) return refused(409, { field: 'id', message: done.message });
+      return { response: json(202, { task: done.task, pages: done.pages, fill: done.fill }) };
     }),
     products: guarded('list the products', async () => ({ response: json(200, { current: product.folder, products: siblings() }) })),
   };

@@ -48,6 +48,11 @@ export interface WorkerStart {
   languageChanged: boolean;
   /** The language the pages were last written in, when it is known: a translation says from which. */
   languageFrom?: string | null;
+  /**
+   * The task whose pages alone this run writes (madarch-m38l.14, «Поправить страницы сейчас»): the writer's plan is
+   * exactly the impact of that task's grounds, computed through the graph, and no other page is given to the agent.
+   */
+  task?: string;
   /** The least time between two snapshots, in milliseconds. */
   snapshotMs: number;
 }

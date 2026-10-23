@@ -8,7 +8,7 @@
  * mention of an entity that has a page is a link to the page; a reference that
  * does not resolve is shown as broken, with its reason.
  */
-import { createElement, useContext, useEffect, useState, type ReactElement, type ReactNode } from 'react';
+import { createContext, createElement, useContext, useEffect, useState, type ReactElement, type ReactNode } from 'react';
 import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useTranslation } from 'react-i18next';
@@ -28,12 +28,12 @@ import { NeighborhoodGraph } from './diagrams/neighborhood.js';
 import { SequenceView } from './diagrams/chain.js';
 import { TreemapView } from './diagrams/treemap.js';
 import { useKindName } from './kind-names.js';
-import { addressOfDocument, addressOfStatement, K_PROBLEMS } from './routes.js';
+import { addressOfDocument, addressOfStatement, addressOfTask, K_PROBLEMS } from './routes.js';
 import { linkHandlers, openInNewTab, syncFrontTabAddress } from './tabs.js';
 import { remarkStatements, type MNode } from './statements.js';
 import { setShowGrounds, useShowGrounds } from './preferences.js';
 import { TermBlockView, remarkTerms, useTerms } from './glossary.js';
-import type { Block, BrokenWhy, CallRow, CodeLocation, EntityRef, RelatedGroup, Resolution } from './types.js';
+import type { Block, BrokenWhy, CallRow, CodeLocation, EntityRef, PlannedMarkView, RelatedGroup, Resolution } from './types.js';
 
 /** A link inside the wiki, opened without a reload: in the tab in front, or in a new tab on a middle or control click. */
 export function KLink({ href, children, className, title }: { href: string; children: ReactNode; className?: string; title?: string }): ReactElement {
@@ -107,6 +107,19 @@ export function scrollToAnchor(anchor: string, lines?: Readonly<Record<string, n
   return true;
 }
 
+/**
+ * A planned change, where a reader meets it (madarch-m38l.14): the badge names the task and links to it, so what will
+ * change is visible on the section, the statement or the page itself and not only on a list elsewhere.
+ */
+export function PlannedBadge({ mark, ground = false }: { mark: PlannedMarkView; ground?: boolean }): ReactElement {
+  const { t } = useTranslation();
+  return (
+    <span className="planned-badge" data-testid="planned-badge" data-how={mark.how} data-task={mark.task.id} title={t('loop.plannedTitle', { title: mark.task.title })}>
+      <KLink href={addressOfTask(mark.task.id)} className="planned-badge-link">{ground ? t('loop.basisWillChange') : t('loop.plannedChange')}</KLink>
+    </span>
+  );
+}
+
 /** The Markdown of a page: text, `madarch:` links resolved against the page's resolutions, footnote grounds listed at the end. */
 /** The statements of an agent's page: which page they stand on, and whether their grounds are shown in the text. */
 export interface StatementView {
@@ -114,11 +127,30 @@ export interface StatementView {
   showGrounds: boolean;
 }
 
-export function KMarkdown({ text, resolutions, inDocument, statements, exceptTerm }: { text: string; resolutions: Readonly<Record<string, Resolution>>; inDocument?: { repo: string | null; path: string; anchors?: Readonly<Record<string, number>> }; statements?: StatementView; /** The id of the glossary entry this text is, which it does not link to. */ exceptTerm?: string }): ReactElement {
+/** The planned changes of one page, as its text is drawn: headings by the line they are on, statements by their sentence. */
+export interface PlannedMarks {
+  headings: Readonly<Record<number, PlannedMarkView>>;
+  statements: Readonly<Record<string, PlannedMarkView>>;
+}
+
+export const NO_PLANNED: PlannedMarks = { headings: {}, statements: {} };
+
+/** What a page's text is read for: a page that carries a planned change tells every block of it (madarch-m38l.14). */
+export const PlannedContext = createContext<PlannedMarks>(NO_PLANNED);
+
+export function KMarkdown({ text, resolutions, inDocument, statements, exceptTerm }: {
+  text: string;
+  resolutions: Readonly<Record<string, Resolution>>;
+  inDocument?: { repo: string | null; path: string; anchors?: Readonly<Record<string, number>> };
+  statements?: StatementView;
+  /** The id of the glossary entry this text is, which it does not link to. */
+  exceptTerm?: string;
+}): ReactElement {
   const { t } = useTranslation();
   const { index } = useTerms();
   const kindName = useKindName();
   const pending = useContext(PendingPages);
+  const planned = useContext(PlannedContext);
   const components: Components = {
     a: ({ href, children, className, title }) => {
       if (href === undefined) return <span>{children}</span>;
@@ -150,7 +182,11 @@ export function KMarkdown({ text, resolutions, inDocument, statements, exceptTer
       }
       return <span className="plain-link">{children}</span>;
     },
-    ...(inDocument === undefined ? {} : (Object.fromEntries((['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'li', 'blockquote', 'pre'] as const).map((tag) => [tag, ({ node, children }: { node?: { position?: { start: { line: number } } }; children?: ReactNode }) => createElement(tag, { 'data-line': node?.position?.start.line }, children)])) as Components)),
+    ...(inDocument === undefined ? {} : (Object.fromEntries((['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'li', 'blockquote', 'pre'] as const).map((tag) => [tag, ({ node, children }: { node?: { position?: { start: { line: number } } }; children?: ReactNode }) => {
+      const line = node?.position?.start.line;
+      const mark = line === undefined ? undefined : planned.headings[line];
+      return createElement(tag, mark === undefined ? { 'data-line': line } : { 'data-line': line, 'data-planned': 'true' }, children, mark === undefined ? null : <PlannedBadge mark={mark} />);
+    }])) as Components)),
     table: ({ children }) => <div className="table-wrap"><table>{children}</table></div>,
     ...(statements === undefined ? {} : {
       span: ({ node: _node, className, children, ...rest }) => {
@@ -158,6 +194,7 @@ export function KMarkdown({ text, resolutions, inDocument, statements, exceptTer
         if (typeof sentence !== 'string' || !String(className ?? '').split(' ').includes('statement')) return <span className={className}>{children}</span>;
         const grounded = (rest as Record<string, unknown>)['data-grounded'] === 'true';
         const turn = Number((rest as Record<string, unknown>)['data-turn'] ?? 0);
+        const mark = planned.statements[sentence.replace(/\s+/g, ' ').trim()];
         const open = (): void => openInNewTab(addressOfStatement(statements.pageId, sentence, Number.isInteger(turn) ? turn : 0));
         return (
           <span
@@ -166,11 +203,13 @@ export function KMarkdown({ text, resolutions, inDocument, statements, exceptTer
             tabIndex={0}
             data-testid="statement"
             data-grounded={grounded ? 'true' : 'false'}
+            {...(mark === undefined ? {} : { 'data-planned': mark.how })}
             title={grounded ? t('knowledge.statementOpen') : t('knowledge.statementUngroundedTitle')}
             onClick={(event) => { if ((event.target as HTMLElement).closest('a') === null) open(); }}
             onKeyDown={(event) => { if (event.key === 'Enter' && (event.target as HTMLElement).closest('a') === null) open(); }}
           >
             {children}
+            {mark !== undefined && <PlannedBadge mark={mark} ground={mark.how === 'impact'} />}
             {!grounded && <span className="statement-mark" data-testid="statement-ungrounded">{t('knowledge.statementUngrounded')}</span>}
           </span>
         );

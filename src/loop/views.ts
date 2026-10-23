@@ -11,6 +11,10 @@ import { changedGrounds, gitReader, readKnowledgePages, type IndexedPage } from 
 import type { Resolution } from '../knowledge/resolve.js';
 import { DOMAINS_FOLDER, PRODUCT_PATH } from '../writer/run.js';
 import { parseStatementRef, readCorrections, readQuestions, type Author, type Correction, type Question } from './entities.js';
+import { closingCommit, type RepositoryRef, type TaskClosure } from './closure.js';
+import { impactOf, type TaskImpact } from './impact.js';
+import type { PlannedMarks } from './planned.js';
+import { readTasks, scopeWords, type PlannedTask, type TaskScope } from './tasks.js';
 import type { Unplaced } from './plan.js';
 import type { StarterOffer } from '../knowledge/starter-upgrade.js';
 
@@ -194,5 +198,122 @@ function correctionProblem(correction: Correction, pages: ReadonlyMap<string, In
   return {
     kind: 'correction', fixer: 'agent', closed: correction.status === 'applied', page: ref?.page ?? null, pageTitle: page?.title ?? null, statement: ref?.statement ?? null, sentence: correction.statement,
     target: correction.slug, reason: correction.reason, file: correction.file, line: null, by: correction.by, at: correction.at,
+  };
+}
+
+// ---- the scoped tasks of answers (madarch-m38l.14) ------------------------------------------
+
+/** One scope of a task, as it is stored and as a reader says it. */
+export interface TaskScopeRow {
+  readonly scope: TaskScope;
+  readonly words: string;
+}
+
+/** How a task closed: by a commit of a repository, or by a person. */
+export type TaskClosureView =
+  | { readonly repository: string; readonly commit: string; readonly at: string; readonly subject: string }
+  | { readonly person: true; readonly at: string | null };
+
+export interface TaskRow {
+  readonly id: string;
+  readonly slug: string;
+  readonly title: string;
+  readonly status: 'open' | 'closed';
+  readonly file: string;
+  readonly question: string;
+  readonly answer: string;
+  readonly at: string;
+  readonly by: Author;
+  readonly grounds: readonly string[];
+  readonly scope: readonly TaskScopeRow[];
+  readonly closedBy: TaskClosureView | null;
+  /** What the change reaches through the graph: null when it could not be read, with the reason in `problem`. */
+  readonly impact: { readonly pages: number; readonly statements: number } | null;
+  /** Why the impact could not be read: a task whose impact is unknown says so, and never shows an empty list. */
+  readonly problem?: string;
+}
+
+export interface TaskDetail extends Omit<TaskRow, 'impact'> {
+  /** The complete impact through the graph: the pages and statements the change reaches. */
+  readonly impact: TaskImpact | null;
+  /** The product's pages a run would rewrite: exactly what the preview lists. */
+  readonly writable: readonly string[];
+  /** The sections, statements and entities this task marks as a planned change. */
+  readonly marks: { readonly sections: number; readonly statements: number; readonly entities: number };
+}
+
+export interface TaskListing {
+  readonly tasks: readonly TaskRow[];
+  readonly open: number;
+  readonly closed: number;
+  /** Task files that could not be read, each with its file and line. */
+  readonly problems: readonly string[];
+  /** Why a closure or an impact could not be read: said, never hidden. */
+  readonly notes: readonly string[];
+}
+
+export interface TaskReadInput {
+  readonly productFolder: string;
+  readonly owner: DatabaseOwner;
+  /** The repositories a commit may close a task in: the product's own, then each code repository. */
+  readonly repositories: readonly RepositoryRef[];
+}
+
+function closureOf(task: PlannedTask, repositories: readonly RepositoryRef[], notes: string[]): TaskClosureView | null {
+  if (task.closedBy !== null) return { person: true, at: task.closedAt };
+  try {
+    const closing: TaskClosure | undefined = closingCommit(task, repositories);
+    return closing === undefined ? null : { repository: closing.repository, commit: closing.commit, at: closing.at, subject: closing.subject };
+  } catch (error) {
+    notes.push((error as Error).message);
+    return null;
+  }
+}
+
+async function rowOfTask(task: PlannedTask, input: TaskReadInput, notes: string[]): Promise<TaskRow> {
+  const closedBy = closureOf(task, input.repositories, notes);
+  let impact: TaskImpact | null = null;
+  let problem: string | undefined;
+  try {
+    impact = await impactOf(input.owner, input.productFolder, task.grounds);
+  } catch (error) {
+    problem = (error as Error).message;
+    notes.push(`${task.file}: ${problem}`);
+  }
+  return {
+    id: task.id, slug: task.slug, title: task.title, status: closedBy === null ? 'open' : 'closed', file: task.file, question: task.question, answer: task.answer,
+    at: task.at, by: task.by, grounds: task.grounds, scope: task.scope.map((scope) => ({ scope, words: scopeWords(scope) })), closedBy,
+    impact: impact === null ? null : { pages: impact.counts.pages, statements: impact.counts.statements },
+    ...(problem === undefined ? {} : { problem }),
+  };
+}
+
+/** The product's tasks, open first, then closed; each in id order, with its impact counted through the graph. */
+export async function listTasks(input: TaskReadInput): Promise<TaskListing> {
+  const read = readTasks(input.productFolder);
+  const notes: string[] = [];
+  const rows: TaskRow[] = [];
+  for (const task of read.tasks) rows.push(await rowOfTask(task, input, notes));
+  rows.sort((a, b) => Number(a.status === 'closed') - Number(b.status === 'closed') || byCodePoint(a.id, b.id));
+  return { tasks: rows, open: rows.filter((row) => row.status === 'open').length, closed: rows.filter((row) => row.status === 'closed').length, problems: read.findings.map((finding) => `${finding.file}:${finding.line}: ${finding.message}`), notes };
+}
+
+/** One task with its complete, graph-computed impact: what a run would rewrite and where the planned change shows. */
+export async function taskDetail(input: TaskReadInput, id: string, marks: PlannedMarks): Promise<TaskDetail | undefined> {
+  const read = readTasks(input.productFolder);
+  const task = read.tasks.find((candidate) => candidate.id === id || candidate.slug === id);
+  if (task === undefined) return undefined;
+  const notes: string[] = [];
+  const row = await rowOfTask(task, input, notes);
+  const impact = row.impact === null ? null : await impactOf(input.owner, input.productFolder, task.grounds);
+  return {
+    ...row,
+    impact,
+    writable: impact === null ? [] : impact.writable,
+    marks: {
+      sections: marks.sections.filter((section) => section.task.id === task.id).length,
+      statements: marks.statements.filter((statement) => statement.task.id === task.id).length,
+      entities: marks.entities.filter((entity) => entity.task.id === task.id).length,
+    },
   };
 }

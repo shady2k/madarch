@@ -91,6 +91,8 @@ export type PageModel = {
   resolutions: Record<string, Resolution>;
   findings: Finding[];
   notes: string[];
+  /** The planned change this page stands in, and the statements of it a task's grounds reach (madarch-m38l.14). */
+  planned?: { entity: PlannedMarkView | null; statements: (PlannedMarkView & { sentence: string })[]; note?: string };
 };
 
 export type Origin = 'agent' | 'person' | 'code' | 'history';
@@ -196,7 +198,12 @@ export type UserSettings = { role: string; asked: boolean; roles: string[] };
 
 export type DocumentRef = { repo: string | null; path: string };
 export type DocumentListing = { documents: DocumentRef[]; truncated: { repo: string | null; total: number; shown: number }[] };
-export type DocumentPageModel = { repo: string | null; path: string; title: string; markdown: string; resolutions: Record<string, Resolution>; anchors: Record<string, number>; commit: string | null };
+/** A planned change as a page shows it: the task it belongs to, and how the page is reached. */
+export type PlannedMarkView = { task: { id: string; slug: string; title: string; file: string }; how: 'scope' | 'impact' };
+
+export type PlannedSectionView = PlannedMarkView & { anchor: string | null; lines: { start: number; end: number } | null };
+
+export type DocumentPageModel = { repo: string | null; path: string; title: string; markdown: string; resolutions: Record<string, Resolution>; anchors: Record<string, number>; commit: string | null; planned?: PlannedSectionView[]; plannedNote?: string };
 
 export type Excerpt =
   | { type: 'code'; location: CodeLocation; language: string; firstLine: number; text: string; marked: { start: number; end: number }; truncated: boolean }
@@ -218,6 +225,9 @@ export type StatementModel = {
   grounds: GroundView[];
   relying: RelyingRef[];
   resolutions: Record<string, Resolution>;
+  /** The planned change this statement stands in, or null (madarch-m38l.14). */
+  planned?: PlannedMarkView | null;
+  plannedNote?: string;
 };
 
 // ---- the loop of questions and corrections (madarch-m38l.7) ----------------------------------
@@ -318,7 +328,8 @@ export type PlanReason =
   | { kind: 'answer'; question: string; title: string }
   | { kind: 'correction'; correction: string; statement: string }
   | { kind: 'new-service'; services: string[] }
-  | { kind: 'missing-domain'; domain: string };
+  | { kind: 'missing-domain'; domain: string }
+  | { kind: 'task'; task: string; title: string };
 
 export type PlannedPage = { id: string; path: string; reasons: PlanReason[] };
 export type Unplaced = { kind: 'question' | 'correction'; slug: string; title: string; reason: string };
@@ -353,6 +364,61 @@ export type JournalRecord = {
 };
 
 export type PageJournal = { run: string | null; runs: string[]; records: JournalRecord[]; problems: string[] };
-export type PlannedTask = { slug: string; id: string; file: string; title: string; status: 'open'|'closed'; question: string; answer: string; grounds: string[]; scope: ({type:'section';path:string;anchor:string}|{type:'lines';path:string;start:number;end:number}|{type:'symbol'|'statement';key:string})[]; by: Author; at: string };
-export type TaskListing = { tasks: PlannedTask[]; problems: string[] };
-export type TaskImpact = { pages: {id:string;title:string;file:string}[]; statements: {page:string;statement:string;file:string;line:number;text:string;ground:string}[] };
+// ---- the scoped tasks of answers (madarch-m38l.14) -------------------------------------------
+
+/** What a task changes: a document section, a line range, a symbol, a statement, or a whole path. */
+export type TaskScope =
+  | { type: 'section'; path: string; anchor: string }
+  | { type: 'lines'; path: string; start: number; end: number }
+  | { type: 'symbol'; key: string }
+  | { type: 'statement'; key: string }
+  | { type: 'file'; path: string };
+
+/** A task as the wiki lists it, with what its change reaches through the graph counted. */
+export type TaskRow = {
+  id: string;
+  slug: string;
+  title: string;
+  status: 'open' | 'closed';
+  file: string;
+  question: string;
+  answer: string;
+  at: string;
+  by: Author;
+  grounds: string[];
+  scope: { scope: TaskScope; words: string }[];
+  closedBy: { repository: string; commit: string; at: string; subject: string } | { person: true; at: string | null } | null;
+  impact: { pages: number; statements: number } | null;
+  problem?: string;
+};
+
+export type TaskListing = { tasks: TaskRow[]; open: number; closed: number; problems: string[]; notes: string[] };
+
+/** What a change reaches, computed through the graph. */
+export type TaskImpact = {
+  grounds: string[];
+  pages: { id: string; title: string; file: string; kind: string; because: 'statement' | 'link' }[];
+  writable: string[];
+  entities: string[];
+  statements: { page: string; pageTitle: string; pageKind: string; file: string; line: number; statement: string; text: string; ground: string; how: 'grounds' | 'mentions' }[];
+  counts: { pages: number; statements: number };
+};
+
+export type TaskDetail = Omit<TaskRow, 'impact'> & {
+  impact: TaskImpact | null;
+  writable: string[];
+  marks: { sections: number; statements: number; entities: number };
+};
+
+/** The task an answer proposes: the scope its grounds name, and what it reaches. */
+export type TaskProposal = {
+  choice: 'code' | 'docs';
+  title: string;
+  grounds: string[];
+  scope: TaskScope[];
+  impact: TaskImpact;
+  question: { slug: string; title: string; file: string };
+  answer: { text: string; by: string; at: string };
+};
+
+export type CreatedTask = { task: { slug: string; id: string; file: string; title: string; status: 'open' | 'closed' }; state: 'created'; committed: boolean; note?: string; commit?: string };

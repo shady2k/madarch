@@ -25,7 +25,7 @@ import { GlossaryContext, GlossaryPage, useGlossary, useGlossaryValue, useTerms 
 import { HelpLink, RoleCard, RoleMenu } from './role-ui.js';
 import { RoleContext, leadGroups, loadSettings, useRole, useSettings } from './roles.js';
 import { addressOfKind, K_CATALOGUE, K_DOCS, K_GLOSSARY, K_HOME, K_PROBLEMS, K_QUESTIONS, K_TASKS, K_SETTINGS, kRouteOf, type KRoute } from './routes.js';
-import { ProblemsPage, QuestionPage, QuestionsPage, TasksPage, RefreshPreviewView } from './loop.js';
+import { ProblemsPage, QuestionPage, QuestionsPage, TaskPage, TasksPage, RefreshPreviewView } from './loop.js';
 import { JournalPage } from './journal.js';
 import { KindLabels, useKindName } from './kind-names.js';
 import { PageSkeleton } from './skeleton.js';
@@ -362,6 +362,11 @@ function Toolbar({ status, route, menu, refresh, products, current }: { status: 
         {where !== null && <><span aria-hidden="true" className="px-2 text-muted">/</span><span className="text-ink">{where}</span></>}
       </span>
       <span className="flex shrink-0 items-center gap-1">
+        {status.loop !== undefined && status.loop.questionsAnswered > 0 && (
+          <KLink href={K_QUESTIONS} className="answers-waiting no-underline" data-testid="answers-waiting" title={t('loop.answersWaitingHint')}>
+            <Badge variant="outline">{t('loop.answersWaiting', { count: status.loop.questionsAnswered })}</Badge>
+          </KLink>
+        )}
         {menu}
         {status.own !== true && <FillMenu status={status} refresh={refresh} />}
         <RoleMenu />
@@ -497,6 +502,7 @@ export function KnowledgeApp(): ReactElement {
   else if (route.name === 'settings') view = <SettingsPage version={version} status={status} refresh={refresh} />;
   else if (route.name === 'journal') view = <JournalPage key={`${route.id}\0${route.run ?? ''}`} id={route.id} run={route.run} version={version} />;
   else if (route.name === 'tasks') view = <TasksPage version={version} />;
+  else if (route.name === 'task') view = <TaskPage key={route.id} id={route.id} version={version} refresh={refresh} />;
   else if (route.name === 'docs') view = <DocumentsPage version={version} />;
   else if (route.name === 'doc') view = <DocumentPage key={`${route.repo ?? ''}:${route.path}`} repo={route.repo} path={route.path} version={version} />;
   else if (route.name === 'catalogue') view = <CataloguePage status={status} />;
