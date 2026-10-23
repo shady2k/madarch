@@ -83,6 +83,26 @@ export const LOOP_QUESTIONS: readonly LoopQuestion[] = [
 
 export const questionSlug = (question: LoopQuestion, language: ScriptLanguage): string => slugOf(question.text[language].title);
 
+/**
+ * The page keeps what a contradiction's sides say (madarch-m38l.13): after its own statement it states each side of
+ * every contradiction its unit asked, each as its own grounded sentence on that side's sources, as the writer requires.
+ */
+function keepingSides(markdown: string, questions: readonly LoopQuestion[], language: ScriptLanguage): string {
+  const lines = markdown.split('\n');
+  const at = lines.findIndex((line) => /^\[\^1\]:/.test(line));
+  const body = lines.slice(0, at);
+  const notes = lines.slice(at);
+  let n = 0;
+  for (const question of questions.filter((held) => held.type === 'contradiction')) {
+    question.sides.forEach((grounds, index) => {
+      n += 1;
+      body.push(`${question.text[language].claims[index]}[^side-${n}]`, '');
+      notes.push(`[^side-${n}]: ${grounds.map((ground) => `[${ground.replace(/^.*[:#/]/, '')}](madarch:${ground})`).join(', ')}`);
+    });
+  }
+  return [...body, ...notes].join('\n');
+}
+
 const ask = (question: LoopQuestion, language: ScriptLanguage) => {
   const text = question.text[language];
   return {
@@ -111,7 +131,13 @@ export function firstRunScript(delays: { product?: number; ordering?: number; pa
       const asks = LOOP_QUESTIONS.filter((question) => question.unit === unit).map((question) => ask(question, language));
       // The delay, if any, stays first; the questions come before the page.
       const sleeps = entry.steps.filter((step) => 'sleep' in step);
-      const rest = entry.steps.filter((step) => !('sleep' in step));
+      const mine = LOOP_QUESTIONS.filter((question) => question.unit === unit);
+      const rest = entry.steps.filter((step) => !('sleep' in step)).map((step) => {
+        const written = (step as { call?: { tool?: string; arguments?: { markdown?: string } } }).call;
+        return written?.tool === 'write_page' && typeof written.arguments?.markdown === 'string'
+          ? { call: { ...written, arguments: { ...written.arguments, markdown: keepingSides(written.arguments.markdown, mine, language) } } }
+          : step;
+      });
       return { ...entry, steps: [...sleeps, ...asks, ...rest] };
     }),
   };

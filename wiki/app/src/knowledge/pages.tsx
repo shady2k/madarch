@@ -17,7 +17,8 @@ import { getDocument, getDocuments, getEntities, getPage, getSource, getStatemen
 import { useTabTitle } from './tabs.js';
 import { AgentChoice, WriterCard, useAgentChoice } from './writer.js';
 import { BlockView, CodeLines, CodePlace, EntityName, Findings, KLink, KMarkdown, brokenWords, groupLabel, scrollToAnchor } from './blocks.js';
-import { addressOfDocument, addressOfKind, addressOfStatement } from './routes.js';
+import { addressOfDocument, addressOfJournal, addressOfKind, addressOfStatement } from './routes.js';
+import { hasJournal } from './journal.js';
 import { KindLabels, useKindName } from './kind-names.js';
 import { fillShare, fillWords } from './fill-words.js';
 import { useRead } from './live.js';
@@ -71,6 +72,7 @@ export function EntityPage({ id, version }: { id: string; version: number }): Re
         </div>
         <h1 data-testid="page-title">{page.title}</h1>
         {page.notes.map((note) => <p key={note} className="text-small text-muted" data-testid="page-note">{note}</p>)}
+        {hasJournal(page.id) && <p className="text-small" data-testid="journal-link"><KLink href={addressOfJournal(page.id)}>{t('journal.title')}</KLink></p>}
       </header>
       {page.blocks.map((block, index) => {
         const view = <BlockView key={index} block={block} resolutions={page.resolutions} pageId={page.id} />;

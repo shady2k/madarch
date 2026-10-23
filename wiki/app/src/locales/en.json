@@ -437,5 +437,42 @@
     "agentAsked_other": "The agent asked {{count}} questions: they are on the Questions page.",
     "agentAsked_few": "The agent asked {{count}} questions: they are on the Questions page.",
     "agentAsked_many": "The agent asked {{count}} questions: they are on the Questions page."
+  },
+  "journal": {
+    "title": "How the agent wrote this page",
+    "back": "Back to the page",
+    "intro": "Every call the agent made while it wrote this page, and every request the core refused, as the core recorded them. The journal is kept on this machine, not in the product repository.",
+    "none": "No journal for this page. It was written before the core kept one, or no agent has written it on this machine.",
+    "failed": "The journal could not be read",
+    "run": "Run",
+    "agent": "Agent",
+    "model": "Model",
+    "session": "Session",
+    "notReported": "not reported",
+    "calls": "Tool calls",
+    "refusals": "Refusals",
+    "time": "Time in calls",
+    "onlyRefused": "Show only refusals",
+    "records": "Records",
+    "arguments": "Arguments",
+    "response": "Response",
+    "reason": "Why it was refused",
+    "noResponse": "No response",
+    "cut": "The response was cut: {{size}} bytes in all, the first part is kept.",
+    "size": "{{size}} bytes",
+    "ms": "{{ms}} ms",
+    "tool": "Request",
+    "outcome": {
+      "ok": "answered",
+      "refused": "refused",
+      "failed": "failed",
+      "rejected": "not served"
+    },
+    "kind": {
+      "tool-call": "tool call",
+      "refusal": "refused request"
+    },
+    "unreadable": "Lines of the journal that could not be read",
+    "otherRuns": "Other runs that wrote this page"
   }
 }

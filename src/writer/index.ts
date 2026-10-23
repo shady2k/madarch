@@ -4,3 +4,4 @@ export { UnitTools, WRITER_TOOLS, DEFAULT_UNIT_BOUNDS, type DomainDeclaration, t
 export { runWriter, fsSink, memorySink, productSlug, PRODUCT_PATH, DOMAINS_FOLDER, type ToolClient, type UnitAgent, type UnitRequest, type WriterOptions, type WriterReport } from './run.js';
 export { acpUnitAgent, type AcpAgentOptions } from './acp-agent.js';
 export { writtenAtOf, withoutCredentials } from './basis.js';
+export { fileJournal, memoryJournal, journalOfUnit, newRunId, readJournalFile, JOURNAL_SCHEMA, type Journal, type JournalRecord, type PageJournal } from './journal.js';

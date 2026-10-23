@@ -34,6 +34,7 @@ import type { AgentOffer, Block, DocumentListing, DocumentPage, DocumentRef, Fil
 import { neighborhoodOf } from './diagrams.js';
 import { anchorLines } from './anchors.js';
 import { adapterOf, installAdapter, makeUnitAgent, offers, WRITER_BOUNDS } from './agents.js';
+import { fileJournal, journalFolder, journalOfUnit, newRunId, type Journal, type PageJournal } from '../writer/journal.js';
 import { productSlug, PRODUCT_PATH, type ToolAnswer, type ToolClient, type UnitAgent } from '../writer/index.js';
 import { CONTENT_LANGUAGES } from '../writer/prompts.js';
 import type { DraftEnv } from '../product/home.js';
@@ -113,7 +114,7 @@ const SNAPSHOT_KEEP_MS = 3_000;
 const READER_IDLE_MS = 10 * 60_000;
 
 /** Starts the agent that writes the pages; the error names why it cannot. */
-export type AgentFactory = (agentId: string) => (UnitAgent & { close(): Promise<void> }) | { error: string };
+export type AgentFactory = (agentId: string, journal: Journal) => (UnitAgent & { close(): Promise<void> }) | { error: string };
 
 export interface KnowledgeProductOptions {
   productFolder: string;
@@ -524,7 +525,9 @@ export class KnowledgeProduct {
         case 'agent-wanted': {
           const chosen = this.writer.agent;
           if (chosen === null) { worker.send({ type: 'agent-failed', message: 'no agent was chosen for this press' }); return; }
-          const built = this.options.agentFactory === undefined ? makeUnitAgent(chosen.id, this.env) : this.options.agentFactory(chosen.id);
+          // Every call this run's agent makes is journaled in the product's machine-local store (madarch-m38l.13).
+          const journal = fileJournal(journalFolder(this.storeFolder()), newRunId(this.options.now?.()));
+          const built = this.options.agentFactory === undefined ? makeUnitAgent(chosen.id, this.env, undefined, journal) : this.options.agentFactory(chosen.id, journal);
           if ('error' in built) { worker.send({ type: 'agent-failed', message: built.error }); return; }
           // A unit never starts once the wiki is shutting down, even if the agent was closed before its connection opened.
           const made: UnitAgent & { close(): Promise<void> } = {
@@ -655,6 +658,14 @@ export class KnowledgeProduct {
   }
 
   // ---- the agent stage ---------------------------------------------------------------------
+
+  /** What the agent did to write one page: the records of the newest run that wrote it, or of the run asked for. */
+  journalOf(pageId: string, run?: string): PageJournal {
+    if (!/^(product|domain):[a-z][a-z0-9-]*$/.test(pageId)) {
+      throw new WikiReadError(`${JSON.stringify(pageId)} is no page an agent writes: the journal is kept per product or domain page (product:<slug>, domain:<slug>)`);
+    }
+    return journalOfUnit(journalFolder(this.storeFolder()), pageId, run);
+  }
 
   private get env(): DraftEnv {
     return this.options.env ?? process.env;

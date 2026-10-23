@@ -31,6 +31,15 @@ export interface GroundResolver {
   docSection(path: string, anchor: string): Promise<boolean>;
   /** A `sources` entry: a document path of the graph, or an id or anchor found in a document. */
   sourceName(name: string): Promise<boolean>;
+  /**
+   * The name a ground is shown by: the entity's label, or the section's heading. The writer sets every ground's label
+   * from it, so an agent's own wording never stands for an entity (madarch-m38l.13). Absent: the agent's label stays.
+   */
+  nameOf?(target: MadarchTarget): Promise<string | undefined>;
+  /** The key of the one route `METHOD path` names, when the graph has exactly one; a code span that names it is made a link. */
+  uniqueRoute?(method: string, routePath: string): Promise<string | undefined>;
+  /** The key of the one symbol of this exact name, when the graph has exactly one; a code span that names it is made a link. */
+  uniqueSymbol?(name: string): Promise<string | undefined>;
 }
 
 /** What the caller knows about the page being checked. */
@@ -284,6 +293,51 @@ function groundsOf(text: string): { links: { label: string; target: string }[]; 
   return { links, leftover };
 }
 
+const ROUTE_SPAN = /^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+(\/\S*)$/;
+const SYMBOL_SPAN = /^([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)(?:\(\))?$/;
+
+/**
+ * A route or an operation named in a code span is an entity, and an entity is named with a link (madarch-m38l.13):
+ * `POST /pay` becomes [POST /pay](madarch:code.route:...) when the graph has that one route, and `refund` becomes a link
+ * when exactly one symbol bears the name. A span that names nothing, or something ambiguous, stays as the agent wrote it.
+ * Headings, footnote lines and what already sits inside a link are left alone.
+ */
+async function linkCodeSpans(body: string, resolver: GroundResolver): Promise<string> {
+  if (resolver.uniqueRoute === undefined && resolver.uniqueSymbol === undefined) return body;
+  const out: string[] = [];
+  for (const line of body.split('\n')) {
+    const trimmed = line.trim();
+    if (!line.includes('`') || FOOTNOTE_DEFINITION.test(trimmed) || /^#{1,6}\s/.test(trimmed) || /^(```|~~~)/.test(trimmed)) { out.push(line); continue; }
+    let rebuilt = '';
+    let cursor = 0;
+    const segment = async (text: string): Promise<string> => {
+      let result = '';
+      let last = 0;
+      for (const match of text.matchAll(/`([^`\n]+)`/g)) {
+        const inner = match[1]!.trim();
+        let key: string | undefined;
+        const route = ROUTE_SPAN.exec(inner);
+        if (route !== null) key = await resolver.uniqueRoute?.(route[1]!, route[2]!);
+        else {
+          const symbol = SYMBOL_SPAN.exec(inner);
+          if (symbol !== null) key = await resolver.uniqueSymbol?.(symbol[1]!);
+        }
+        result += text.slice(last, match.index);
+        result += key === undefined || /\s/.test(key) ? match[0] : `[${inner.replace(/\(\)$/, '')}](madarch:${key})`;
+        last = match.index + match[0].length;
+      }
+      return result + text.slice(last);
+    };
+    for (const link of line.matchAll(LINK)) {
+      rebuilt += await segment(line.slice(cursor, link.index)) + link[0];
+      cursor = link.index + link[0].length;
+    }
+    rebuilt += await segment(line.slice(cursor));
+    out.push(rebuilt);
+  }
+  return out.join('\n');
+}
+
 /**
  * Checks one page. Every rule that fails is reported at once, so an agent
  * fixes a page in one round rather than one rule at a time.
@@ -294,7 +348,8 @@ export async function checkPage(markdown: string, expected: PageExpectation, res
   const refusals: Refusal[] = [];
   const front = frontMatterOf(split.front, expected);
   refusals.push(...front.refusals);
-  const { units, definitions, headings } = textUnits(split.body, split.bodyStart, refusals);
+  const body = await linkCodeSpans(split.body, resolver);
+  const { units, definitions, headings } = textUnits(body, split.bodyStart, refusals);
 
   const known = new Map<string, boolean>();
   const resolves = async (target: MadarchTarget): Promise<boolean> => {
@@ -343,6 +398,19 @@ export async function checkPage(markdown: string, expected: PageExpectation, res
     }
     defined.set(definition.label, { line: definition.line, grounds: links });
   }
+  // Each ground is shown by the name the graph gives it, never by the agent's wording.
+  const names = new Map<string, string>();
+  if (resolver.nameOf !== undefined) {
+    for (const entry of defined.values()) {
+      for (const ground of entry.grounds) {
+        if (names.has(ground.target) || !ground.target.startsWith('madarch:')) continue;
+        const parsed = parseTarget(ground.target.slice('madarch:'.length));
+        if (parsed === undefined || parsed.type === 'page') continue;
+        const name = await resolver.nameOf(parsed);
+        if (name !== undefined && name.trim() !== '') names.set(ground.target, name.trim());
+      }
+    }
+  }
 
   const links: string[] = [];
   const checkLinks = async (unit: TextUnit): Promise<void> => {
@@ -382,6 +450,13 @@ export async function checkPage(markdown: string, expected: PageExpectation, res
       const shown = sentence.text.replaceAll(DOT, '.');
       const hasLink = shown.includes('](madarch:');
       if (plainWords(shown).length < 2 && !hasLink) continue;
+      const labels = [...shown.matchAll(FOOTNOTE_REFERENCE)].map((m) => m[1]!);
+      const named = new Set([...shown.matchAll(LINK)].map((m) => m[2]!));
+      const supports = labels.flatMap((label) => defined.get(label)?.grounds.map((g) => g.target) ?? []);
+      // A link names an entity; it does not support the sentence that names it. A container named in a sentence and used as its only ground says nothing the link does not.
+      if (supports.length > 0 && supports.every((target) => named.has(target) && /^madarch:code\.(service|module):/.test(target))) {
+        refusals.push({ line: unit.line, rule: 'link-is-not-a-ground', message: `this sentence is grounded only on ${[...new Set(supports)].map((t) => t.slice('madarch:'.length)).join(', ')}, which it already names with a link; a link names an entity and a ground supports the sentence: ground it on the code or the document section that shows what it says` });
+      }
       const grounded = sentence.terminated ? /[.!?\u2026][)"'\u201d\u2019\u00bb]*(?:\[\^[A-Za-z0-9_-]+\])+$/.test(sentence.text) : /(?:\[\^[A-Za-z0-9_-]+\])+$/.test(sentence.text);
       if (!grounded) {
         const quoted = shown.replace(LINK, (_w, label: string) => label);
@@ -395,7 +470,7 @@ export async function checkPage(markdown: string, expected: PageExpectation, res
   }
   if (units.length === 0) refusals.push({ line: split.bodyStart, rule: 'empty', message: 'the page states nothing: it has no sentence with grounds' });
   if (refusals.length > 0 || front.front === undefined) return { ok: false, refusals: refusals.sort((a, b) => a.line - b.line || byCodePoint(a.rule, b.rule)) };
-  return { ok: true, page: canonical(front.front, split.body, defined, links, allGrounds, expected.previous) };
+  return { ok: true, page: canonical(front.front, body, defined, links, allGrounds, expected.previous, names) };
 }
 
 /** The names the replaced page gave its sentences, by sentence. */
@@ -433,7 +508,7 @@ function sentenceBefore(text: string, from: number, to: number): string {
  * their grounds; a name several sentences shared is made unique. The same
  * checked page, with the same replaced page, always gives the same bytes.
  */
-function canonical(front: FrontMatter, body: string, defined: Map<string, { line: number; grounds: { label: string; target: string }[] }>, links: string[], grounds: string[], previous: string | undefined): CheckedPage {
+function canonical(front: FrontMatter, body: string, defined: Map<string, { line: number; grounds: { label: string; target: string }[] }>, links: string[], grounds: string[], previous: string | undefined, names: ReadonlyMap<string, string> = new Map()): CheckedPage {
   const lines: string[] = [];
   for (const raw of body.split('\n')) {
     if (FOOTNOTE_DEFINITION.test(raw.trim())) continue;
@@ -445,15 +520,15 @@ function canonical(front: FrontMatter, body: string, defined: Map<string, { line
     const own = [...new Map(run.labels.flatMap((label) => defined.get(label)?.grounds ?? []).map((ground) => [ground.target, ground])).values()];
     return { run, own, sentence: sentenceBefore(text, index === 0 ? 0 : runs[index - 1]!.at + runs[index - 1]!.length, run.at), labels: run.labels, hint: own[0]?.label ?? '' };
   });
-  const names = nameStatements(items, previousNames(previous));
+  const statementNames = nameStatements(items, previousNames(previous));
   let renamed = '';
   let cursor = 0;
   items.forEach((item, index) => {
-    renamed += `${text.slice(cursor, item.run.at)}[^${names[index]}]`;
+    renamed += `${text.slice(cursor, item.run.at)}[^${statementNames[index]}]`;
     cursor = item.run.at + item.run.length;
   });
   renamed += text.slice(cursor);
-  const notes = items.map((item, index) => `[^${names[index]}]: ${item.own.map((ground) => `[${ground.label}](${ground.target})`).join(', ')}`);
+  const notes = items.map((item, index) => `[^${statementNames[index]}]: ${item.own.map((ground) => `[${(names.get(ground.target) ?? ground.label).replace(/[\[\]]/g, '')}](${ground.target})`).join(', ')}`);
   const yamlList = (name: string, list: readonly string[]): string => (list.length === 0 ? `${name}: []` : `${name}:\n${list.map((entry) => `  - ${JSON.stringify(entry)}`).join('\n')}`);
   const writtenAt = front.writtenAt.length === 0 ? [] : [`written-at:\n${front.writtenAt.map((entry) => [`  - repository: ${JSON.stringify(entry.repository)}`, `    commit: ${entry.commit}`, ...(entry.branch === undefined ? [] : [`    branch: ${JSON.stringify(entry.branch)}`]), ...(entry.origin === undefined ? [] : [`    origin: ${JSON.stringify(entry.origin)}`])].join('\n')).join('\n')}`];
   const header = [
