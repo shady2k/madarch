@@ -216,8 +216,9 @@ describe('Markdown read as statements', () => {
   });
 
   test('clicking two different sentences quickly opens both statements', async () => {
-    const container = into(createElement('div', null, createElement(TabBar), createElement(KMarkdown, { text: 'First sentence here.[^1] Second sentence here.[^2]\n\n[^1]: [f](madarch:code.symbol:a.ts#F)\n[^2]: [g](madarch:code.symbol:b.ts#G)\n', resolutions, statements: { pageId: 'domain:payment', showGrounds: false } })));
-    await until(() => container.querySelectorAll('[data-testid=statement]').length === 2 && container.querySelector('[data-testid=tab]') !== null, 'two statements and a tab', 10_000);
+    // Two sentences of two paragraphs, each with its own ground: both are statements of the page.
+    const container = into(createElement('div', null, createElement(TabBar), createElement(KMarkdown, { text: 'Checkout asks payments to authorize the card now.[^1]\n\nA captured payment confirms the order.[^2]\n\n[^1]: [f](madarch:code.symbol:a.ts#F)\n[^2]: [g](madarch:code.symbol:b.ts#G)\n', resolutions, statements: { pageId: 'domain:payment', showGrounds: false } })));
+    await until(() => container.querySelectorAll('[data-testid=statement]').length === 2 && container.querySelector('[data-testid=tab]') !== null, 'two statements and a tab');
     const sentences = [...container.querySelectorAll<HTMLElement>('[data-testid=statement]')];
     sentences[0]!.click();
     sentences[1]!.click();
