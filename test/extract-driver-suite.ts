@@ -195,7 +195,13 @@ export function extractDriverTests(label: string, make: () => { owner: DatabaseO
 
     }, 600_000);
 
-    test('generated-repository graph audit: every node has a location, a unique label, and a connected graph edge', async () => {
+    /**
+     * The exhaustive audit of the generated repository's graph (madarch-m38l.16): every node of every kind, at the tip
+     * the fill read, asked three questions — is it connected to anything, does a code-derived node say where it stands
+     * in a file, and is its label the only one of its kind. Nothing is sampled and nothing is capped: the counts are
+     * printed for the change record and the failures name every node that breaks a rule.
+     */
+    test('generated-repository graph audit: every node is connected, placed and uniquely labelled', async () => {
       const at = env.report.commits.at(-1)?.effectiveTime;
       if (at === undefined) throw new Error('the generated graph has no tip valid time');
       const nodes = await env.query<{key: string; kind: string; label: string; span: unknown; node: string}>(
@@ -210,26 +216,38 @@ export function extractDriverTests(label: string, make: () => { owner: DatabaseO
          WHERE e.recorded_to='infinity' AND e.valid_from <= $1::timestamptz AND e.valid_to > $1::timestamptz`, [at],
       );
       const incident = new Set(edges.flatMap((edge) => [edge.src, edge.dst]));
-      const totals = new Map<string, {total: number; isolated: string[]; duplicates: Map<string, string[]>}>();
+      /** The kinds whose nodes are no place in a file, and why: the audit asks the others for a path and a line. */
+      const noFile: Readonly<Record<string, string>> = {
+        'code.repository': 'the repository is the scope every other node is read in',
+        'code.commit': 'a commit is an instant of the history, not a place in a file',
+        'code.author': 'an author is a person',
+        'code.task': 'a task is a tracker key that commit messages name',
+      };
+      /** The kinds whose labels may repeat, and why: two commits may carry the same message. */
+      const repeatedLabels: Readonly<Record<string, string>> = {'code.commit': 'two commits may carry the same message'};
+      const totals = new Map<string, {total: number; isolated: string[]}>();
+      const unplaced: string[] = [];
       const labels = new Map<string, Map<string, string[]>>();
       for (const node of nodes) {
-        const byKind = totals.get(node.kind) ?? {total: 0, isolated: [], duplicates: new Map<string, string[]>()};
-        byKind.total += 1;
-        if (!incident.has(node.node)) byKind.isolated.push(node.key);
-        if (node.kind.startsWith('code.') && (node.span === null || typeof node.span !== 'object' || typeof (node.span as Record<string, unknown>)['path'] !== 'string' || typeof (node.span as Record<string, unknown>)['lineStart'] !== 'number')) {
-          throw new Error(`code node has no source location: ${node.kind} ${node.key}`);
+        const held = totals.get(node.kind) ?? {total: 0, isolated: []};
+        held.total += 1;
+        if (!incident.has(node.node)) held.isolated.push(node.key);
+        totals.set(node.kind, held);
+        const span = node.span === null || typeof node.span !== 'object' ? undefined : (node.span as Record<string, unknown>);
+        if (node.kind.startsWith('code.') && noFile[node.kind] === undefined && (span === undefined || typeof span['path'] !== 'string' || typeof span['lineStart'] !== 'number' || typeof span['lineEnd'] !== 'number')) {
+          unplaced.push(`${node.kind} ${node.key}`);
         }
-        const kinds = labels.get(node.kind) ?? new Map<string, string[]>();
-        kinds.set(node.label, [...(kinds.get(node.label) ?? []), node.key]);
-        labels.set(node.kind, kinds);
-        totals.set(node.kind, byKind);
+        const ofKind = labels.get(node.kind) ?? new Map<string, string[]>();
+        ofKind.set(node.label, [...(ofKind.get(node.label) ?? []), node.key]);
+        labels.set(node.kind, ofKind);
       }
-      const report = [...totals].map(([kind, value]) => ({kind, ...value, isolated: value.isolated.length}));
-      console.log(`GRAPH_AUDIT ${JSON.stringify(report)}`);
-      const duplicateLabels = [...labels].flatMap(([kind, values]) => [...values].filter(([, keys]) => keys.length > 1).map(([label, keys]) => `${kind} ${JSON.stringify(label)}: ${keys.join(', ')}`));
-      expect(duplicateLabels, `duplicate labels: ${duplicateLabels.join('; ')}`).toEqual([]);
-      const isolated = [...totals].flatMap(([kind, value]) => value.isolated.map((key) => `${kind} ${key}`));
-      expect(isolated, `isolated graph nodes: ${isolated.join('; ')}`).toEqual([]);
+      const audit = [...totals].sort((left, right) => (left[0] < right[0] ? -1 : left[0] > right[0] ? 1 : 0)).map(([kind, held]) => ({kind, total: held.total, isolated: held.isolated.length}));
+      console.log(`GRAPH_AUDIT ${JSON.stringify(audit)}`);
+      const isolated = [...totals].flatMap(([kind, held]) => held.isolated.map((key) => `${kind} ${key}`));
+      expect(isolated, `isolated graph nodes (${String(isolated.length)}): ${isolated.join('; ')}`).toEqual([]);
+      expect(unplaced, `code nodes with no source path and line (${String(unplaced.length)}): ${unplaced.join('; ')}`).toEqual([]);
+      const duplicateLabels = [...labels].filter(([kind]) => repeatedLabels[kind] === undefined).flatMap(([kind, values]) => [...values].filter(([, keys]) => keys.length > 1).map(([label, keys]) => `${kind} ${JSON.stringify(label)}: ${keys.join(', ')}`));
+      expect(duplicateLabels, `duplicate labels (${String(duplicateLabels.length)}): ${duplicateLabels.join('; ')}`).toEqual([]);
     }, 120_000);
 
     test('idempotent-refill (0028): a second fill of the unchanged repository writes no row in any table', async () => {

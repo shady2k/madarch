@@ -490,16 +490,15 @@ function Deferred({ block, pageId, resolutions }: { block: Extract<Block, { type
  * lines it added and removed, or the files its commits touched most. Each figure is a badge whose word comes from the
  * reader's language, so a row reads "2026-01-02 · Ada · +42 −7".
  */
-/** One figure of a history row in the reader's language: `+42`, `−7`, `3 symbols`, `module: services/orders`. */
-function figureText(figure: { kind: string; value: string }, t: (key: string, options?: Record<string, unknown>) => string): string {
-  if (figure.kind === 'added') return `+${figure.value}`;
-  if (figure.kind === 'removed') return `−${figure.value}`;
-  if (figure.kind === 'module') return `${t('knowledge.historyFigure.module')}: ${figure.value}`;
-  return `${figure.value} ${t(`knowledge.historyFigure.${figure.kind}`)}`;
-}
-
 function History({ block }: { block: Extract<Block, { type: 'history' }> }): ReactElement {
   const { t } = useTranslation();
+  /** One figure in the reader's language: `+42`, `−7`, `3 symbols`, `module: services/orders`. */
+  const figureText = (figure: { kind: string; value: string }): string => {
+    if (figure.kind === 'added') return `+${figure.value}`;
+    if (figure.kind === 'removed') return `−${figure.value}`;
+    if (figure.kind === 'module') return `${t('knowledge.historyFigure.module')}: ${figure.value}`;
+    return `${figure.value} ${t(`knowledge.historyFigure.${figure.kind}`)}`;
+  };
   return (
     <section data-block="history" aria-label={block.title}>
       <h2>{block.title}</h2>
@@ -527,7 +526,7 @@ function History({ block }: { block: Extract<Block, { type: 'history' }> }): Rea
                     <span className="flex flex-wrap items-center gap-1">
                       {row.figures.map((figure, at) => (
                         <Badge key={`${figure.kind}-${String(at)}`} data-figure={figure.kind} title={t(`knowledge.historyFigure.${figure.kind}`)}>
-                          {figureText(figure, t)}
+                          {figureText(figure)}
                         </Badge>
                       ))}
                       {row.figures.length === 0 && <span className="text-muted">–</span>}
@@ -565,6 +564,13 @@ function Problem({ block }: { block: Extract<Block, { type: 'problem' }> }): Rea
 /** A repository history summary: the row facts and bounded cut are written in the reader language. */
 function History({ block }: { block: Extract<Block, { type: 'history' }> }): ReactElement {
   const { t } = useTranslation();
+  /** One figure in the reader's language: `+42`, `−7`, `3 symbols`, `module: services/orders`. */
+  const figureText = (figure: { kind: string; value: string }): string => {
+    if (figure.kind === 'added') return `+${figure.value}`;
+    if (figure.kind === 'removed') return `−${figure.value}`;
+    if (figure.kind === 'module') return `${t('knowledge.historyFigure.module')}: ${figure.value}`;
+    return `${figure.value} ${t(`knowledge.historyFigure.${figure.kind}`)}`;
+  };
   const figure = (kind: string, value: string): string => t(`knowledge.history${kind[0]!.toUpperCase()}${kind.slice(1)}`, { value });
   return (
     <section data-block="history" aria-label={block.title}>

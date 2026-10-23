@@ -225,8 +225,8 @@ const ROLES: readonly { name: string; lead: string[]; open: string[] }[] = [
   { name: 'product', lead: ['product', 'tests'], open: ['stated', 'implementedby', 'linkedfrom', 'related', 'properties'] },
   { name: 'analyst', lead: ['product', 'data', 'contracts'], open: ['stated', 'implementedby', 'linkedfrom', 'related', 'properties', 'er', 'sequence', 'children'] },
   { name: 'architect', lead: ['product', 'code', 'contracts', 'data'], open: ['graph', 'related', 'sequence', 'er', 'stated', 'implementedby', 'linkedfrom', 'properties', 'children'] },
-  { name: 'developer', lead: ['code', 'contracts', 'data', 'tests'], open: ['source', 'callers', 'callees', 'sequence', 'graph', 'related', 'properties', 'children', 'er', 'stated'] },
-  { name: 'operations', lead: ['operations', 'data', 'contracts'], open: ['properties', 'related', 'children', 'source', 'er', 'stated'] },
+  { name: 'developer', lead: ['code', 'contracts', 'data', 'tests'], open: ['source', 'callers', 'callees', 'sequence', 'graph', 'related', 'history', 'properties', 'children', 'er', 'stated'] },
+  { name: 'operations', lead: ['operations', 'data', 'contracts'], open: ['properties', 'related', 'history', 'children', 'source', 'er', 'stated'] },
   { name: 'tester', lead: ['tests', 'product'], open: ['stated', 'implementedby', 'linkedfrom', 'related', 'properties', 'callers', 'children'] },
 ];
 
