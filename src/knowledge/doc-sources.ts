@@ -25,6 +25,15 @@ export const DOCUMENT_BYTES = 1024 * 1024;
 /** The most bytes of one code repository's documents read at once; the rest is named in a finding, not read. */
 export const DOCUMENT_BUDGET_BYTES = 64 * 1024 * 1024;
 
+/** The harness files of a coding agent: never listed as a source of the product, wherever they stand. */
+export const HARNESS_FILES = new Set(['AGENTS.md', 'CLAUDE.md']);
+
+/** A document's title: its first level-one heading, else its file name without the Markdown extension. */
+export function documentTitle(markdown: string, path: string): string {
+  const heading = /^#\s+(.+?)\s*#*\s*$/m.exec(markdown);
+  return heading === null ? path.split('/').pop()!.replace(/\.(md|markdown)$/i, '') : heading[1]!.replace(/[*_`]/g, '');
+}
+
 /** Whether a path is a page of a Markdown kind of the manifest: its one file, or a file below its folder. */
 export function isKindPage(manifest: KindsManifest, path: string): boolean {
   for (const decl of manifest.kinds.values()) {

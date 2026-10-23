@@ -114,6 +114,9 @@ export interface StatementView {
   showGrounds: boolean;
 }
 
+/** Whether a text was selected when the last press on a sentence began. */
+let selectionOnPress = false;
+
 export function KMarkdown({ text, resolutions, inDocument, statements, exceptTerm }: { text: string; resolutions: Readonly<Record<string, Resolution>>; inDocument?: { repo: string | null; path: string; anchors?: Readonly<Record<string, number>> }; statements?: StatementView; /** The id of the glossary entry this text is, which it does not link to. */ exceptTerm?: string }): ReactElement {
   const { t } = useTranslation();
   const { index } = useTerms();
@@ -158,6 +161,12 @@ export function KMarkdown({ text, resolutions, inDocument, statements, exceptTer
         if (typeof sentence !== 'string' || !String(className ?? '').split(' ').includes('statement')) return <span className={className}>{children}</span>;
         const grounded = (rest as Record<string, unknown>)['data-grounded'] === 'true';
         const turn = Number((rest as Record<string, unknown>)['data-turn'] ?? 0);
+        // A drag across the sentence selects text: it opens nothing. Only a click that leaves no selection opens the statement.
+        const selecting = (): boolean => {
+          const selection = window.getSelection();
+          return selection !== null && !selection.isCollapsed && selection.toString().trim() !== '';
+        };
+        // A click that only dismisses a selection finds it already gone (the press collapsed it): the press says it was there.
         const open = (): void => openInNewTab(addressOfStatement(statements.pageId, sentence, Number.isInteger(turn) ? turn : 0));
         return (
           <span
@@ -167,7 +176,8 @@ export function KMarkdown({ text, resolutions, inDocument, statements, exceptTer
             data-testid="statement"
             data-grounded={grounded ? 'true' : 'false'}
             title={grounded ? t('knowledge.statementOpen') : t('knowledge.statementUngroundedTitle')}
-            onClick={(event) => { if ((event.target as HTMLElement).closest('a') === null) open(); }}
+            onMouseDown={() => { selectionOnPress = selecting(); }}
+            onClick={(event) => { const dismissed = selectionOnPress; selectionOnPress = false; if ((event.target as HTMLElement).closest('a') === null && !dismissed && !selecting()) open(); }}
             onKeyDown={(event) => { if (event.key === 'Enter' && (event.target as HTMLElement).closest('a') === null) open(); }}
           >
             {children}
@@ -220,7 +230,7 @@ function Body({ block, resolutions, pageId }: { block: Extract<Block, { type: 'b
 
 // ---- related, callers, callees ------------------------------------------------------------------
 
-function groupLabel(group: RelatedGroup, t: (key: string, options?: Record<string, unknown>) => string): string {
+export function groupLabel(group: RelatedGroup, t: (key: string, options?: Record<string, unknown>) => string): string {
   const word = group.relation.startsWith('code.') ? group.relation.slice('code.'.length) : group.relation;
   return t(group.direction === 'out' ? 'knowledge.relationOut' : 'knowledge.relationIn', { relation: word.replace(/-/g, ' ') });
 }

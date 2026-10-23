@@ -4,7 +4,7 @@
  * Each view reads the server's model and draws it; the page of an entity is its
  * blocks in the order its template gave them.
  */
-import { useEffect, useRef, useState, type ReactElement } from 'react';
+import { Fragment, useContext, useEffect, useRef, useState, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
 import { appPath } from '../app-base.js';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert.js';
@@ -16,9 +16,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { getDocument, getDocuments, getEntities, getPage, getSource, getStatement, correctStatement, startFill } from './api.js';
 import { useTabTitle } from './tabs.js';
 import { AgentChoice, WriterCard, useAgentChoice } from './writer.js';
-import { BlockView, CodeLines, CodePlace, EntityName, Findings, KLink, KMarkdown, brokenWords, scrollToAnchor } from './blocks.js';
+import { BlockView, CodeLines, CodePlace, EntityName, Findings, KLink, KMarkdown, brokenWords, groupLabel, scrollToAnchor } from './blocks.js';
 import { addressOfDocument, addressOfKind, addressOfStatement } from './routes.js';
-import { useKindName } from './kind-names.js';
+import { KindLabels, useKindName } from './kind-names.js';
 import { fillShare, fillWords } from './fill-words.js';
 import { useRead } from './live.js';
 import { blockOpen, useRole } from './roles.js';
@@ -52,7 +52,7 @@ export function EntityPage({ id, version }: { id: string; version: number }): Re
   const language = (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en';
   const { data: page, error } = useRead<PageModel>(`${id}\0${language}`, version, (signal) => getPage(id, language, signal));
   const { role, roles } = useRole();
-  useTabTitle(page?.title ?? null);
+  useTabTitle(page?.title ?? (error !== null ? t('knowledge.noSuchPage') : null));
   if (page === null && error === null) return <PageSkeleton testId="page-loading" />;
   if (page === null) {
     return (
@@ -374,6 +374,7 @@ function ManifestFindings({ status }: { status: WikiStatus }): ReactElement | nu
 /** A product with no kinds manifest: what the file is and where it comes from. */
 export function EmptyHome({ status }: { status: WikiStatus; refresh: () => void }): ReactElement {
   const { t } = useTranslation();
+  useTabTitle(status.product.name);
   return (
     <section data-testid="no-manifest">
       <header className="mb-6">
@@ -393,6 +394,12 @@ export function EmptyHome({ status }: { status: WikiStatus; refresh: () => void 
   );
 }
 
+/** The sources a filter keeps: those whose title or path holds the words, in any case. */
+export function filterSources<T extends { title: string; path: string }>(documents: readonly T[], query: string): T[] {
+  const wanted = query.trim().toLowerCase();
+  return documents.filter((document) => wanted === '' || document.path.toLowerCase().includes(wanted) || document.title.toLowerCase().includes(wanted));
+}
+
 /** The Markdown documents of the product and of its connected repositories, grouped by where they live, as pages of this wiki. */
 export function DocumentsPage({ version }: { version: number }): ReactElement {
   const { t } = useTranslation();
@@ -408,8 +415,7 @@ export function DocumentsPage({ version }: { version: number }): ReactElement {
       </Alert>
     );
   }
-  const wanted = query.trim().toLowerCase();
-  const shown = listing.documents.filter((document) => wanted === '' || document.path.toLowerCase().includes(wanted));
+  const shown = filterSources(listing.documents, query);
   const groups = new Map<string, typeof shown>();
   for (const document of shown) {
     const key = document.repo ?? '';
@@ -419,8 +425,9 @@ export function DocumentsPage({ version }: { version: number }): ReactElement {
     <section data-testid="documents-page">
       <header className="mb-6">
         <h1>{t('knowledge.documents')}</h1>
+        <p className="text-secondary" data-testid="documents-intro">{t('knowledge.documentsIntro')}</p>
         <div className="flex items-center gap-3">
-          <Input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('knowledge.filter')} aria-label={t('knowledge.filter')} className="max-w-sm" data-testid="documents-filter" />
+          <Input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('knowledge.filterSources')} aria-label={t('knowledge.filterSources')} className="max-w-sm" data-testid="documents-filter" />
           <span className="text-small text-muted" data-testid="documents-total">{t('knowledge.total', { count: shown.length })}</span>
         </div>
       </header>
@@ -430,7 +437,10 @@ export function DocumentsPage({ version }: { version: number }): ReactElement {
           <h2 className="first-letter:uppercase">{repo === '' ? t('knowledge.productRepository') : repo}</h2>
           <ul className="m-0 list-none p-0">
             {documents.map((document) => (
-              <li key={document.path} className="border-b border-line py-1.5 last:border-b-0"><KLink href={addressOfDocument(document.repo, document.path)}>{document.path}</KLink></li>
+              <li key={document.path} className="border-b border-line py-1.5 last:border-b-0" data-testid="document-row">
+                <KLink href={addressOfDocument(document.repo, document.path)}>{document.title}</KLink>
+                <span className="block break-all text-small text-muted" data-testid="document-path">{document.path}</span>
+              </li>
             ))}
           </ul>
           {listing.truncated.filter((cut) => (cut.repo ?? '') === repo).map((cut) => <p key={repo} className="mt-2 text-small text-muted" data-testid="documents-cut">{t('knowledge.showing', { shown: cut.shown, total: cut.total })}</p>)}
@@ -444,7 +454,7 @@ export function DocumentsPage({ version }: { version: number }): ReactElement {
 export function DocumentPage({ repo, path, version }: { repo: string | null; path: string; version: number }): ReactElement {
   const { t } = useTranslation();
   const { data: page, error } = useRead<DocumentPageModel>(`${repo ?? ''}\0${path}`, version, (signal) => getDocument(repo, path, signal));
-  useTabTitle(page?.title ?? null);
+  useTabTitle(page?.title ?? (error !== null ? t('knowledge.noSuchPage') : null));
   // The section the address names: it changes with a link to another section of the same document too.
   const [hash, setHash] = useState(() => window.location.hash);
   useEffect(() => {
@@ -545,6 +555,44 @@ export function CataloguePage({ status }: { status: WikiStatus }): ReactElement 
   );
 }
 
+/** A ground that is a thing of the system: its name and kind, what the kind is, what the code says of it, what it is connected to, and its page. */
+function EntityCard({ excerpt }: { excerpt: Extract<Excerpt, { type: 'entity' }> }): ReactElement {
+  const { t, i18n } = useTranslation();
+  const kindName = useKindName();
+  const kinds = useContext(KindLabels);
+  const language = (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en';
+  const { entity } = excerpt;
+  const description = kinds.find((kind) => kind.kind === entity.kind)?.descriptions?.[language];
+  return (
+    <div data-testid="excerpt" data-excerpt="entity" className="flex flex-col gap-3">
+      <p className="m-0 text-small text-muted" data-testid="card-kind">{kindName(entity.kind, 'one')}{description !== undefined && <> · {description}</>}</p>
+      {excerpt.facts.length > 0 && (
+        <div>
+          <p className="mb-1 mt-0 text-small text-muted">{t('knowledge.cardFacts')}</p>
+          <dl className="m-0 grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-small" data-testid="card-facts">
+            {excerpt.facts.map((fact) => (<Fragment key={fact.name}><dt className="font-mono text-secondary">{fact.name}</dt><dd className="m-0 break-words">{fact.value}</dd></Fragment>))}
+          </dl>
+        </div>
+      )}
+      {excerpt.related.length > 0 && (
+        <div data-testid="card-related">
+          <p className="mb-1 mt-0 text-small text-muted">{t('knowledge.cardRelated')}</p>
+          <ul className="m-0 flex list-none flex-col gap-1 p-0 text-small">
+            {excerpt.related.map((group) => (
+              <li key={`${group.relation}:${group.direction}`} data-relation={group.relation}>
+                <span className="text-muted">{groupLabel(group, t)}: </span>
+                {group.rows.map((row, index) => <Fragment key={row.entity.id}>{index > 0 && ', '}<EntityName entity={row.entity} /></Fragment>)}
+                {group.total > group.rows.length && <span className="text-muted"> +{group.total - group.rows.length}</span>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {entity.href !== null && <p className="m-0 text-small" data-testid="card-page"><KLink href={entity.href}>{t('knowledge.cardOpen', { kind: kindName(entity.kind, 'one').toLowerCase() })}</KLink></p>}
+    </div>
+  );
+}
+
 function ExcerptView({ excerpt }: { excerpt: Excerpt }): ReactElement {
   const { t } = useTranslation();
   if (excerpt.type === 'text') {
@@ -556,6 +604,7 @@ function ExcerptView({ excerpt }: { excerpt: Excerpt }): ReactElement {
       </div>
     );
   }
+  if (excerpt.type === 'entity') return <EntityCard excerpt={excerpt} />;
   return (
     <div data-testid="excerpt" data-excerpt="code">
       <div className="source-view overflow-hidden rounded-[var(--radius-card)] border border-line">

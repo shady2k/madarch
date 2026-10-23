@@ -58,8 +58,8 @@ describe('serveWiki with a product or a manifestless directory', () => {
     run(['init', '--quiet', '--initial-branch=main']); run(['add', '-A']); run(['commit', '--quiet', '-m', 'Source']);
     mkdirSync(join(product, 'repos')); symlinkSync(source, join(product, 'repos', 'source'), 'dir');
     const result = serving(await serveWiki({ productFolder: product, appFolder: builtApp(base), port: 0, open: false, print: () => {}, printError: () => {} }));
-    const listed = await (await fetch(`${result.url}/api/k/documents`)).json() as { documents: { repo: string | null; path: string }[] };
-    expect(listed.documents).toContainEqual({ repo: 'source', path: 'README.md' });
+    const listed = await (await fetch(`${result.url}/api/k/documents`)).json() as { documents: { repo: string | null; path: string; title: string }[] };
+    expect(listed.documents).toContainEqual({ repo: 'source', path: 'README.md', title: 'Linked source' });
     const response = await fetch(`${result.url}/api/k/document?repo=source&path=README.md`);
     const page = await response.json() as { title: string; markdown: string };
     expect(response.status, JSON.stringify(page)).toBe(200);
