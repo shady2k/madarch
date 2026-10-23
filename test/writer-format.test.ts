@@ -65,22 +65,77 @@ describe('a page that follows the format', () => {
     expect(verdict.page.frontMatter.relates).toEqual(['code.service:payments']);
   });
 
-  test('is written in one canonical form: footnotes numbered by first use and listed last, front matter in the format\'s key order', async () => {
-    const swapped = good(body.replace(/\[\^1\]/g, '[^b]').replace(/\[\^2\]/g, '[^a]'));
+  const FACTORY = 'code.symbol\u003aservices/payments/src/providers/factory.ts#PaymentClientFactory';
+
+  test('is written in one canonical form: one named footnote per statement listed last, front matter in the format\'s key order', async () => {
     const first = await checkPage(good(body), expectation, resolver);
-    const second = await checkPage(swapped, expectation, resolver);
-    expect(first.ok && second.ok).toBe(true);
-    if (!first.ok || !second.ok) return;
-    expect(second.page.markdown).toBe(first.page.markdown);
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
     const lines = first.page.markdown.split('\n');
     expect(lines.slice(0, 10)).toEqual(['---', 'id: domain:payments', 'kind: domain', 'title: "Payment"', 'relates:', '  - "code.service:payments"', 'producer: agent', 'sources:', '  - "UC-2"', '  - "docs/vision.md"']);
+    // a numbered footnote becomes the readable name of its statement; a footnote two sentences shared becomes one per sentence
     expect(lines.filter((l) => l.startsWith('[^'))).toEqual([
-      '[^1]: [PaymentClientFactory](madarch:code.symbol\u003aservices/payments/src/providers/factory.ts#PaymentClientFactory), [UC-2](madarch:doc:docs/requirements.md#uc-2)',
-      '[^2]: [BR-4](madarch:doc:docs/requirements.md#br-4)',
+      `[^payments-charged-through-two]: [PaymentClientFactory](madarch:${FACTORY}), [UC-2](madarch:doc:docs/requirements.md#uc-2)`,
+      '[^refund-checked-before-made]: [BR-4](madarch:doc:docs/requirements.md#br-4)',
+      `[^payments-service-takes-charge]: [PaymentClientFactory](madarch:${FACTORY}), [UC-2](madarch:doc:docs/requirements.md#uc-2)`,
     ]);
+    expect(first.page.markdown).toContain('configuration.[^payments-charged-through-two]\nA refund is checked before it is made.[^refund-checked-before-made]');
+    expect(first.page.markdown).toContain('takes the charge.[^payments-service-takes-charge]');
     // Checking the canonical form again changes nothing.
     const again = await checkPage(first.page.markdown, expectation, resolver);
     expect(again.ok && again.page.markdown === first.page.markdown).toBe(true);
+  });
+
+  test('a name the agent chose is kept, and the page is the same whatever number a footnote had', async () => {
+    const named = good(body.replace(/\[\^1\]/g, '[^b]').replace(/\[\^2\]/g, '[^a]'));
+    const verdict = await checkPage(named, expectation, resolver);
+    expect(verdict.ok).toBe(true);
+    if (!verdict.ok) return;
+    // [^b] was shared by two sentences: the first keeps it, the second is made unique by a slug
+    expect(verdict.page.markdown).toContain('configuration.[^b]');
+    expect(verdict.page.markdown).toContain('before it is made.[^a]');
+    expect(verdict.page.markdown).toContain('takes the charge.[^payments-service-takes-charge]');
+  });
+
+  test('a sentence that stands keeps the name it had in the page it replaces; a sentence that changed gets a new one', async () => {
+    const named = body.replace('takes the charge.[^1]', 'takes the charge.[^charge-step]').replace('[^2]: [BR-4]', `[^charge-step]: [PaymentClientFactory](madarch:${FACTORY})\n[^2]: [BR-4]`);
+    const first = await checkPage(good(named), expectation, resolver);
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    expect(first.page.markdown).toContain('takes the charge.[^charge-step]');
+    // the agent writes the page again with every footnote numbered and one sentence reworded
+    const names = [...first.page.markdown.matchAll(/^\[\^([^\]]+)\]:/gm)].map((m) => m[1]!);
+    let renumbered = first.page.markdown.replace('A refund is checked before it is made.', 'A refund is checked twice before it is made.');
+    names.forEach((name, index) => { renumbered = renumbered.replaceAll(`[^${name}]`, `[^${index + 1}]`); });
+    const without = await checkPage(renumbered, expectation, resolver);
+    const withPrevious = await checkPage(renumbered, { ...expectation, previous: first.page.markdown }, resolver);
+    expect(without.ok && withPrevious.ok).toBe(true);
+    if (!without.ok || !withPrevious.ok) return;
+    expect(without.page.markdown).toContain('takes the charge.[^payments-service-takes-charge]');
+    expect(withPrevious.page.markdown).toContain('configuration.[^payments-charged-through-two]');
+    expect(withPrevious.page.markdown).toContain('takes the charge.[^charge-step]');
+    expect(withPrevious.page.markdown).toContain('it is made.[^refund-checked-twice-before]');
+    expect(withPrevious.page.markdown).not.toContain('refund-checked-before-made');
+  });
+
+  test('a page that was written with numbered footnotes is renamed when it is written again', async () => {
+    // the replaced page still has numbers: they are no names, so the new page gets readable ones
+    const oldNumbered = `${front()}\n\nPayments are charged through one of two providers chosen by configuration.[^7]\n\n[^7]: [UC-2](madarch:doc:docs/requirements.md#uc-2)\n`;
+    const again = await checkPage(good('Payments are charged through one of two providers chosen by configuration.[^1]\n\n[^1]: [UC-2](madarch:doc:docs/requirements.md#uc-2)'), { ...expectation, previous: oldNumbered }, resolver);
+    expect(again.ok && again.page.markdown.includes('configuration.[^payments-charged-through-two]')).toBe(true);
+  });
+
+  test('the repositories a page was written from are recorded in its front matter, and what an agent writes there is replaced', async () => {
+    const writtenAt = [{ repository: 'training', commit: '0123456789abcdef0123456789abcdef01234567', branch: 'main', origin: 'git@github.com:acme/shop.git' }];
+    const withOwn = good(body).replace('sources: [docs/vision.md, UC-2]', 'sources: [docs/vision.md, UC-2]\nwritten-at: [{ repository: x, commit: abc1234 }]');
+    const verdict = await checkPage(withOwn, { ...expectation, writtenAt }, resolver);
+    expect(verdict.ok).toBe(true);
+    if (!verdict.ok) return;
+    expect(verdict.page.markdown).toContain('written-at:\n  - repository: "training"\n    commit: 0123456789abcdef0123456789abcdef01234567\n    branch: "main"\n    origin: "git@github.com:acme/shop.git"\n---');
+    expect(verdict.page.markdown).not.toContain('abc1234');
+    expect(verdict.page.frontMatter.writtenAt).toEqual(writtenAt);
+    const none = await checkPage(good(body), expectation, resolver);
+    expect(none.ok && !none.page.markdown.includes('written-at')).toBe(true);
   });
 
   test('does not split a sentence at e.g. or at a dot inside a key or code', async () => {
