@@ -126,7 +126,12 @@ for (const view of views) {
       console.error(`${entry.name} ${view.tag}: ${entry.wait} never appeared: ${(error as Error).message}`);
     }
     await new Promise((rest) => setTimeout(rest, 800));
-    await page.screenshot({ path: join(out, `${entry.name}-${view.tag}.png`), fullPage: true });
+    // The viewport takes the page's whole height, so the pictures hold what a reader scrolls through and no diagram is
+    // measured again while the capture resizes the window.
+    const height = await page.evaluate(() => Math.max(document.documentElement.scrollHeight, ...[...document.querySelectorAll('main, [data-testid=entity-page]')].map((element) => element.scrollHeight)));
+    await page.setViewport({ width: view.width, height: Math.min(9000, Math.max(900, height)) });
+    await new Promise((rest) => setTimeout(rest, 800));
+    await page.screenshot({ path: join(out, `${entry.name}-${view.tag}.png`) });
     report[`${entry.name}-${view.tag}`] = await measure(page);
     await page.close();
   }
