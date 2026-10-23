@@ -47,3 +47,19 @@ export function releaseVersion(root: string = releaseRoot()): string | undefined
     return undefined;
   }
 }
+
+/**
+ * The pinned copy of madarch's own wiki the release binary carries (decision 0031): a git bundle of the madarch product
+ * repository at the revision `own-wiki.lock` names, with the revision beside it. undefined in a source checkout and in a
+ * binary built without it, where the first start fetches the repository instead.
+ */
+export function embeddedOwnWiki(root: string = releaseRoot()): { bundle: string; revision: string } | undefined {
+  const folder = join(root, 'own-wiki');
+  try {
+    const revision = readFileSync(join(folder, 'REVISION'), 'utf8').trim();
+    if (revision !== '' && existsSync(join(folder, 'madarch-product.bundle'))) return { bundle: join(folder, 'madarch-product.bundle'), revision };
+  } catch {
+    // no copy embedded: the checkout's first start fetches it
+  }
+  return undefined;
+}

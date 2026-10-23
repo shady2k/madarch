@@ -48,8 +48,9 @@ export type ModuleNode = { id: string; label: string; files: number; href: strin
 export type ModuleEdge = { from: string; to: string; cycle: boolean };
 export type TreemapFile = { id: string; path: string; href: string | null; lines: number; churn: number };
 
-export type Block =
+type BlockShape =
   | { type: 'markdown'; markdown: string }
+  | { type: 'term'; title: string; definition: string; synonyms: string[]; code: string[]; usedIn: string | null; ambiguous: string | null }
   | { type: 'body'; markdown: string; file: string; statements: number; ungrounded: { text: string; line: number }[] }
   | { type: 'graph'; title: string; neighborhood: Neighborhood; depth: number; shown: number; total: number }
   | { type: 'system'; title: string; nodes: SystemNode[]; edges: SystemEdge[]; notes: string[] }
@@ -66,6 +67,9 @@ export type Block =
   | { type: 'stated'; title: string; place: { repo: string | null; path: string; lineStart: number; lineEnd: number; href: string; commit: string | null } }
   | { type: 'deferred'; block: string; title: string; line: number }
   | { type: 'problem'; block: string; message: string; file: string; line: number };
+
+/** One block of a page; `name` is the template's block it was made from (`implementedby` and `linkedfrom` both draw as `refs`), which the manifest's roles name. */
+export type Block = BlockShape & { name?: string };
 
 export type Resolution =
   | { state: 'ok'; target: string; kind: string; label: string; href: string | null; note?: string; location?: CodeLocation; entity?: string }
@@ -137,6 +141,7 @@ export type WriterState = {
   startedAt?: string;
   finishedAt?: string;
   message?: string;
+  asked?: number;
   /** Which pages this run touches and why; known once the code is read, before the agent starts. */
   plan?: RefreshPlan;
 };
@@ -170,13 +175,19 @@ export type WikiStatus = {
   bounds: WriterBounds;
   chosenAgent: { id: string; label: string } | null;
   home: string | null;
+  roles?: Record<string, { open?: string[]; lead: string[] }>;
+  own?: boolean;
   /** Questions and corrections waiting, counted from their files. */
   loop?: { questionsOpen: number; questionsAnswered: number; correctionsOpen: number };
 };
 
 export type SourceFile = { repo: string | null; path: string; language: string; commit: string | null; text: string };
 
-export type ProductChoice = { name: string; folder: string };
+export type ProductChoice = { name: string; folder: string; own?: boolean };
+
+export type GlossaryTerm = { id: string; title: string; definition: string; synonyms: string[]; code: string[]; usedIn: string | null; ambiguous: string | null; repo: string | null; path: string; line: number; endLine: number; anchor: string; href: string };
+export type Glossary = { terms: GlossaryTerm[]; resolutions: Record<string, Resolution>; findings: Finding[] };
+export type UserSettings = { role: string; asked: boolean; roles: string[] };
 
 export type DocumentRef = { repo: string | null; path: string };
 export type DocumentListing = { documents: DocumentRef[]; truncated: { repo: string | null; total: number; shown: number }[] };

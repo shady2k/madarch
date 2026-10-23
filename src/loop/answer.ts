@@ -8,6 +8,7 @@
  * the person set. A write that cannot be made is an error saying why; a write
  * that was made but not committed says so in `committed`.
  */
+import { whoIsTheUser } from '../identity/identity.js';
 import { execFile } from 'node:child_process';
 import { existsSync, realpathSync } from 'node:fs';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
@@ -44,22 +45,11 @@ async function git(folder: string, args: string[], env: NodeJS.ProcessEnv = proc
   return stdout.trim();
 }
 
-/** The person writing: git's identity in the product repository (`GIT_AUTHOR_NAME` and `GIT_AUTHOR_EMAIL`, else `user.name` and `user.email`). A missing one is refused with the fix. */
+/** The person writing: whoever the identity seam says the user is (decision 0031; git's name and email here, the author variables first). A missing one is refused with the fix. */
 export async function localIdentity(productFolder: string, env: NodeJS.ProcessEnv = process.env): Promise<Author> {
-  const read = async (key: string): Promise<string> => {
-    try {
-      return await git(productFolder, ['config', '--get', key], env);
-    } catch {
-      return '';
-    }
-  };
-  // git's own order: the author variables, then the configuration.
-  const name = (env['GIT_AUTHOR_NAME'] ?? '').trim() || await read('user.name');
-  const email = (env['GIT_AUTHOR_EMAIL'] ?? '').trim() || await read('user.email');
-  if (name === '' || email === '') {
-    throw new LoopRefusal(409, `git has no ${name === '' ? 'user.name' : 'user.email'} for ${productFolder}, so the wiki cannot say who wrote this: run  git config --global user.name "Your Name"  and  git config --global user.email "you@example.com"  (or the same without --global inside ${productFolder}), then try again`);
-  }
-  return { name, email, verified: LOCAL_UNVERIFIED };
+  const who = whoIsTheUser(productFolder, undefined, env);
+  if (!who.ok) throw new LoopRefusal(409, who.message);
+  return { name: who.identity.name, email: who.identity.email, verified: who.identity.mark };
 }
 
 async function insideRepository(productFolder: string, env: NodeJS.ProcessEnv): Promise<string | undefined> {
@@ -77,7 +67,10 @@ export async function commitFiles(productFolder: string, files: readonly string[
   if (top === undefined) return { committed: false, note: `${productFolder} is not a git repository, so the file was written but not committed` };
   try {
     await git(productFolder, ['add', '--', ...files], env);
-    await git(productFolder, ['-c', `user.name=${by.name}`, '-c', `user.email=${by.email}`, 'commit', '-q', '-m', message, `--author=${by.name} <${by.email}>`, '--', ...files], env);
+    // The user's own signing key, when git has one, signs the commit (decision 0031).
+    const who = whoIsTheUser(productFolder, undefined, env);
+    const signing = who.ok && who.identity.signing ? ['-S'] : [];
+    await git(productFolder, ['-c', `user.name=${by.name}`, '-c', `user.email=${by.email}`, 'commit', '-q', ...signing, '-m', message, `--author=${by.name} <${by.email}>`, '--', ...files], env);
     return { committed: true, commit: await git(productFolder, ['rev-parse', 'HEAD'], env) };
   } catch (error) {
     const stderr = String((error as { stderr?: unknown }).stderr ?? '').trim();

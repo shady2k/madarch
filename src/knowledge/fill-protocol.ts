@@ -90,8 +90,8 @@ export type FromWorker =
   | { type: 'tool-result'; callId: number; answer: unknown; finished: boolean }
   | { type: 'unit-outcome'; outcome: UnitSummary }
   | { type: 'page'; path: string }
-  | { type: 'writer'; state: 'done'; message?: string }
-  | { type: 'writer'; state: 'failed'; message: string }
+  | { type: 'writer'; state: 'done'; message?: string; asked?: number }
+  | { type: 'writer'; state: 'failed'; message: string; asked?: number }
   | { type: 'log'; line: string };
 
 /** Reads a line as a message; the error names the line it could not read. */

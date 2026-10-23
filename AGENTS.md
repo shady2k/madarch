@@ -104,3 +104,10 @@ Artifacts (documents, tasks, commit messages, code comments) are written in Engl
   blocked by either. A test that opens a product's wiki pays 3-6 s for the reader's
   first start (warm it in `beforeAll`), and a pod of 4 GB is killed (exit 137) by a
   fill with its reader: start the cluster with `MADARCH_SKY_MEMORY=8`.
+- madarch's own wiki (decision 0031, madarch-m38l.10) is the repository
+  `shady2k/madarch-product`, not content of this repository. `own-wiki.lock` pins the
+  revision `scripts/build-binary.ts` embeds as a git bundle; a first start installs it at
+  `<madarch home>/madarch-wiki` and later starts fast-forward it when untouched. Change the
+  lock when the binary should carry newer pages. `MADARCH_OWN_WIKI=off` switches it off (the
+  test preload sets it, so a run never reaches the network; the tests of the wiki install a
+  fixture repository themselves). The reader's role lives in `<madarch home>/settings.json`.

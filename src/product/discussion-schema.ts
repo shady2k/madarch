@@ -20,6 +20,7 @@ export const DiscussionMessage = Type.Object({
   contract: Type.Literal(1, { description: 'The discussion-message contract version; this schema publishes version 1.' }),
   author: Type.String({ minLength: 1 }),
   time: Type.String({ pattern: ISO_DATE_TIME_PATTERN, format: 'date-time', description: 'The message creation time in ISO 8601 date-time form with an explicit UTC offset.' }),
+  verified: Type.Optional(Type.Literal('local-git', { description: 'How the author was verified: local-git is git\'s own user.name and user.email, which proves nothing (decision 0031).' })),
   thread: Ulid,
   anchor: Type.Union([PageAnchor, SelectionAnchor]),
   document: Type.String({ pattern: '^docs/(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*(?:^|/)\\.(?:/|$))(?:[^/]+/)*[^/]+\\.md$', description: 'A product-relative Markdown document path under docs/, without dot-segment traversal.' }),

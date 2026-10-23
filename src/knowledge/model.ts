@@ -171,8 +171,9 @@ export interface TreemapFile {
   churn: number;
 }
 
-export type Block =
+type BlockShape =
   | { type: 'markdown'; markdown: string }
+  | { type: 'term'; title: string; definition: string; synonyms: string[]; code: string[]; usedIn: string | null; ambiguous: string | null }
   | { type: 'body'; markdown: string; file: string; statements: number; ungrounded: { text: string; line: number }[] }
   | { type: 'graph'; title: string; neighborhood: Neighborhood; depth: number; shown: number; total: number }
   | { type: 'system'; title: string; nodes: SystemNode[]; edges: SystemEdge[]; notes: string[] }
@@ -189,6 +190,9 @@ export type Block =
   | { type: 'stated'; title: string; place: { repo: string | null; path: string; lineStart: number; lineEnd: number; href: string; commit: string | null } }
   | { type: 'deferred'; block: string; title: string; line: number }
   | { type: 'problem'; block: string; message: string; file: string; line: number };
+
+/** One block of a page; `name` is the template's block it was made from (`implementedby` and `linkedfrom` both draw as `refs`), which the manifest's roles name. */
+export type Block = BlockShape & { name?: string };
 
 export interface PageModel {
   id: string;
@@ -272,6 +276,8 @@ export interface WriterState {
   startedAt?: string;
   finishedAt?: string;
   message?: string;
+  /** How many questions the agent asked in this run; the app says so in the reader's language. */
+  asked?: number;
   /** Which pages this run touches and why; known once the code is read, before the agent starts. */
   plan?: RefreshPlan;
 }
@@ -329,6 +335,10 @@ export interface WikiStatus {
   chosenAgent: { id: string; label: string } | null;
   /** The entity the home page shows, when the manifest names one and its file exists. */
   home: string | null;
+  /** What each role the manifest declares changes (decision 0031); a role it does not declare reads everything open. */
+  roles: Record<string, { open?: string[]; lead: string[] }>;
+  /** This is madarch's own wiki (documentation): no fill is offered. Set by the server, not by the product. */
+  own?: boolean;
   /** The loop of questions and corrections (madarch-m38l.7), counted from their files. */
   loop: { questionsOpen: number; questionsAnswered: number; correctionsOpen: number };
 }
