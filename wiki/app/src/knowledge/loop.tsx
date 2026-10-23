@@ -13,13 +13,13 @@ import { useTranslation } from 'react-i18next';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert.js';
 import { Badge } from '@/components/ui/badge.js';
 import { Button } from '@/components/ui/button.js';
-import { answerQuestion, getProblems, getQuestion, getQuestions, getRefreshPlan } from './api.js';
+import { addStarter, answerQuestion, getProblems, getQuestion, getQuestions, getRefreshPlan } from './api.js';
 import { CodePlace, KLink, brokenWords } from './blocks.js';
 import { addressOfEntity, addressOfQuestion, K_QUESTIONS } from './routes.js';
 import { useRead } from './live.js';
 import { useTabTitle } from './tabs.js';
 import { PageSkeleton } from './skeleton.js';
-import type { Author, Problem, QuestionDetail, QuestionRow, QuestionState, RefreshPlan, RefreshPreview, Resolution } from './types.js';
+import type { Author, Problem, QuestionDetail, StarterOffer, QuestionRow, QuestionState, RefreshPlan, RefreshPreview, Resolution } from './types.js';
 
 const message = (failure: unknown): string => (failure instanceof Error ? failure.message : String(failure));
 
@@ -231,6 +231,10 @@ export function QuestionPage({ slug, version, refresh }: { slug: string; version
 function ProblemItem({ problem }: { problem: Problem }): ReactElement {
   const { t } = useTranslation();
   const where = problem.page === null ? null : <KLink href={addressOfEntity(problem.page)}>{problem.pageTitle ?? shortId(problem.page)}</KLink>;
+  const missingGroup = /^kind "([^"]+)": "group" names a group of "groups" (?:\([^)]*\)|.*?), got "([^"]+)"$/.exec(problem.reason);
+  const readerReason = missingGroup === null ? problem.reason : t('knowledge.manifestMissingGroup', {
+    kind: t(`knowledge.manifestKinds.${missingGroup[1]}`, { defaultValue: missingGroup[1] }), group: missingGroup[2],
+  });
   return (
     <li className="border-b border-line py-3 last:border-b-0" data-testid="problem-row" data-kind={problem.kind} data-closed={problem.closed ? 'true' : 'false'}>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -239,7 +243,8 @@ function ProblemItem({ problem }: { problem: Problem }): ReactElement {
         {problem.closed && <Badge>{t('loop.stateClosed')}</Badge>}
       </div>
       {problem.sentence !== null && <p className="mb-0 mt-1.5 text-secondary" data-testid="problem-sentence">«{problem.sentence}»</p>}
-      <p className="mb-0 mt-1 text-small">{t(`loop.because.${problem.kind}`)} <span data-testid="problem-reason">{problem.reason}</span></p>
+      <p className="mb-0 mt-1 text-small">{t(`loop.because.${problem.kind}`)} <span data-testid="problem-reason">{readerReason}</span></p>
+      {missingGroup !== null && <details className="mt-1 text-small text-muted" data-testid="problem-details"><summary className="cursor-pointer underline">{t('knowledge.findingsDetails')}</summary><code>{problem.reason}</code></details>}
       <p className="mb-0 mt-1 text-small text-muted">
         {where !== null && <span>{t('loop.onPage')} {where} · </span>}
         <code>{problem.file}{problem.line === null ? '' : `:${problem.line}`}</code>
@@ -250,8 +255,65 @@ function ProblemItem({ problem }: { problem: Problem }): ReactElement {
   );
 }
 
+/** What the starter set holds and the product's own (edited) manifest lacks, each added on a press (madarch-m38l.11). */
+export function StarterOffers({ offers, refresh }: { offers: readonly StarterOffer[]; refresh: () => void }): ReactElement | null {
+  const { t } = useTranslation();
+  const language = useLanguage();
+  const [working, setWorking] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  if (offers.length === 0) return null;
+  const add = (ids: string[], key: string): void => {
+    setWorking(key);
+    setError(null);
+    addStarter(ids).then(() => { setWorking(null); refresh(); }, (failure: unknown) => { setWorking(null); setError(message(failure)); });
+  };
+  const nameOf = (offer: StarterOffer): string => {
+    const label = offer.labels?.[language as 'en' | 'ru'];
+    switch (offer.type) {
+      case 'kind': return t('loop.starter.kind', { name: label ?? offer.name, key: offer.name });
+      case 'fields': return t('loop.starter.fields', { name: label ?? offer.name, key: offer.name, fields: (offer.fields ?? []).join(', ') });
+      case 'group': return t('loop.starter.group', { name: label ?? offer.name });
+      case 'roles': return t('loop.starter.roles');
+      case 'role': return t('loop.starter.role', { name: t(`knowledge.roles.names.${offer.name}`, { defaultValue: offer.name }) });
+      case 'documents': return t('loop.starter.documents');
+    }
+  };
+  const grouped = new Map<string, StarterOffer[]>();
+  for (const offer of offers) {
+    const group = offer.group ?? (offer.type === 'group' ? offer.name : 'product');
+    const entries = grouped.get(group) ?? [];
+    entries.push(offer);
+    grouped.set(group, entries);
+  }
+  const groupOrder = ['code', 'contracts', 'data', 'operations', 'tests', 'history', 'product'];
+  const groupRank = (group: string): number => { const rank = groupOrder.indexOf(group); return rank < 0 ? groupOrder.length : rank; };
+  const groupLabel = (group: string): string => t(`loop.starter.groups.${group}`, { defaultValue: group });
+  return (
+    <section className="mb-8" data-testid="problems-starter">
+      <h2>{t('loop.starter.summary', { count: offers.length })}</h2>
+      <p className="mb-3 flex flex-wrap items-center gap-3">
+        <Button variant="default" size="default" disabled={working !== null} onClick={() => add(offers.map((offer) => offer.id), '*')} data-testid="starter-add-all">{t('loop.starter.addAll')}</Button>
+        <button type="button" className="cursor-pointer bg-transparent p-0 text-left text-secondary underline" aria-expanded={expanded} onClick={() => setExpanded(!expanded)} data-testid="starter-toggle">{expanded ? t('loop.starter.hideItems') : t('loop.starter.showItems')}</button>
+      </p>
+      {expanded && <div data-testid="starter-items">{[...grouped.keys()].sort((a, b) => groupRank(a) - groupRank(b)).map((group) => (
+        <section key={group} className="mb-4" data-testid="starter-group" data-group={group}>
+          <h3 className="mb-1 text-base font-semibold">{groupLabel(group)}</h3>
+          <ul className="m-0 list-none p-0">{grouped.get(group)!.map((offer) => (
+            <li key={offer.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line py-2.5 last:border-b-0" data-testid="starter-offer" data-offer={offer.id}>
+              <span className="min-w-0 flex-1"><span className="block font-medium">{nameOf(offer)}</span>{offer.description !== undefined && <span className="block text-small text-muted">{offer.description[language as 'en' | 'ru']}</span>}</span>
+              <Button variant="default" size="default" disabled={working !== null} onClick={() => add([offer.id], offer.id)} data-testid="starter-add">{t('loop.starter.add')}</Button>
+            </li>
+          ))}</ul>
+        </section>
+      ))}</div>}
+      {error !== null && <p className="mb-0 mt-3 text-small" role="alert" data-testid="starter-error">{error}</p>}
+    </section>
+  );
+}
+
 /** «Проблемы»: corrections people made and what the engine found, each with who fixes it. */
-export function ProblemsPage({ version }: { version: number }): ReactElement {
+export function ProblemsPage({ version, refresh = () => undefined }: { version: number; refresh?: () => void }): ReactElement {
   const { t } = useTranslation();
   const { data, error } = useRead('problems', version, (signal) => getProblems(signal));
   useTabTitle(t('loop.problemsTitle'));
@@ -268,7 +330,8 @@ export function ProblemsPage({ version }: { version: number }): ReactElement {
         <p className="text-secondary" data-testid="problems-intro">{t('loop.problemsIntro')}</p>
       </header>
       {data.notes.map((note) => <Alert key={note} className="mb-4" data-testid="problems-note"><AlertDescription><p>{note}</p></AlertDescription></Alert>)}
-      {data.problems.length === 0 && <p className="text-muted" data-testid="problems-empty">{t('loop.noProblems')}</p>}
+      <StarterOffers offers={data.starter ?? []} refresh={refresh} />
+      {data.problems.length === 0 && (data.starter ?? []).length === 0 && <p className="text-muted" data-testid="problems-empty">{t('loop.noProblems')}</p>}
       {open.length > 0 && (
         <section className="mb-8" data-testid="problems-open">
           <h2>{t('loop.openProblems', { count: open.length })}</h2>

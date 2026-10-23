@@ -124,8 +124,16 @@ export interface AcpSession {
   readonly sessionId: string;
   /** The mode state `session/new` returned, when it returned one. */
   readonly modes: unknown;
-  /** The model the agent says the session runs on (`models.currentModelId` of `session/new`), or null when it says none. */
+  /** The options the agent says the session has (`configOptions` of `session/new`): the model, the reasoning level, the mode. Empty when it reports none. */
+  readonly configOptions: readonly AcpConfigOption[];
+  /** The model list some agents report beside the options (`models` of `session/new`, the protocol's earlier form); null when it reports none. */
+  readonly models: { readonly current: string | null; readonly available: readonly { id: string; name: string; description?: string }[] } | null;
+  /** The model reported by ACP's earlier `models.currentModelId` form. */
   readonly model: string | null;
+  /** Sets one of the session's options to one of the values the agent offered (`session/set_config_option`); the agent's refusal is raised with its words. */
+  setConfigOption(configId: string, value: string): Promise<void>;
+  /** Sets the session's model by the earlier form (`session/set_model`). */
+  setModel(modelId: string): Promise<void>;
   /**
    * Send one prompt turn and wait for its stop reason; `onUpdate` sees each update as it arrives. An aborted
    * `signal` ends the turn as cancelled: madarch sends `session/cancel` and stops waiting for the agent, so a turn
@@ -138,6 +146,47 @@ export interface AcpSession {
   usage(): AcpSessionUsage;
   /** Whether a prompt is in flight right now. */
   running(): boolean;
+}
+
+/** One option of a session that has values to choose from, as the agent reported it. */
+export interface AcpConfigOption {
+  readonly id: string;
+  readonly name: string;
+  /** The agent's own category: `model`, `thought_level`, `mode`, or a custom one. */
+  readonly category: string | null;
+  readonly current: string | null;
+  readonly values: readonly { readonly value: string; readonly name: string; readonly description?: string }[];
+}
+
+/** The select options of a `configOptions` answer; boolean options and anything unreadable are left out. */
+export function readConfigOptions(raw: unknown): AcpConfigOption[] {
+  if (!Array.isArray(raw)) return [];
+  const out: AcpConfigOption[] = [];
+  for (const entry of raw as unknown[]) {
+    const option = entry as { id?: unknown; name?: unknown; category?: unknown; type?: unknown; currentValue?: unknown; options?: unknown } | null;
+    if (option === null || typeof option !== 'object' || typeof option.id !== 'string' || typeof option.name !== 'string' || option.type !== 'select' || !Array.isArray(option.options)) continue;
+    const values: { value: string; name: string; description?: string }[] = [];
+    const take = (item: unknown): void => {
+      const value = item as { value?: unknown; name?: unknown; description?: unknown; options?: unknown } | null;
+      if (value === null || typeof value !== 'object') return;
+      if (Array.isArray(value.options)) { for (const inner of value.options) take(inner); return; }
+      if (typeof value.value === 'string' && typeof value.name === 'string') values.push({ value: value.value, name: value.name, ...(typeof value.description === 'string' && value.description !== '' ? { description: value.description } : {}) });
+    };
+    for (const item of option.options) take(item);
+    out.push({ id: option.id, name: option.name, category: typeof option.category === 'string' ? option.category : null, current: typeof option.currentValue === 'string' ? option.currentValue : null, values });
+  }
+  return out;
+}
+
+function readModels(raw: unknown): AcpSession['models'] {
+  const state = raw as { currentModelId?: unknown; availableModels?: unknown } | null | undefined;
+  if (state === null || state === undefined || typeof state !== 'object' || !Array.isArray(state.availableModels)) return null;
+  const available: { id: string; name: string; description?: string }[] = [];
+  for (const entry of state.availableModels as unknown[]) {
+    const model = entry as { modelId?: unknown; name?: unknown; description?: unknown } | null;
+    if (model !== null && typeof model === 'object' && typeof model.modelId === 'string') available.push({ id: model.modelId, name: typeof model.name === 'string' ? model.name : model.modelId, ...(typeof model.description === 'string' && model.description !== '' ? { description: model.description } : {}) });
+  }
+  return { current: typeof state.currentModelId === 'string' ? state.currentModelId : null, available };
 }
 
 /** What the agent answered to `initialize`. */
@@ -578,6 +627,9 @@ export async function connectAcpAgent(spec: AcpAgentSpec, options: ConnectAcpOpt
       }
       const state: SessionState = { updates: [], text: [] };
       sessions.set(sessionId, state);
+      let options = readConfigOptions(answer.configOptions);
+      let models = readModels((answer as { models?: unknown }).models);
+      let reportedModel = (answer as { models?: { currentModelId?: unknown } }).models?.currentModelId;
       let turns = 0;
       let reports = 0;
       let last: AcpUsageReport | undefined;
@@ -585,7 +637,30 @@ export async function connectAcpAgent(spec: AcpAgentSpec, options: ConnectAcpOpt
       const session: AcpSession = {
         sessionId,
         modes: answer.modes,
-        model: ((answer as { models?: { currentModelId?: unknown } }).models?.currentModelId as string | undefined) ?? null,
+        get configOptions() { return options; },
+        get models() { return models; },
+        get model() { return typeof reportedModel === 'string' ? reportedModel : models?.current ?? options.find((option) => option.category === 'model' || option.id === 'model')?.current ?? null; },
+        async setConfigOption(configId, value) {
+          let response: { configOptions?: unknown } | undefined;
+          try {
+            response = await request<{ configOptions?: unknown } | undefined>(acp.methods.agent.session.setConfigOption, { sessionId, configId, value }, sessionTimeoutMs);
+          } catch (error) {
+            throw await wrapped(error, 'session/set_config_option');
+          }
+          // The answer is the whole state after the change (an option may move another: a model change can reset the level);
+          // an agent that answers none is taken at its word for the one option changed.
+          const whole = readConfigOptions(response?.configOptions);
+          options = whole.length > 0 ? whole : options.map((option) => (option.id === configId ? { ...option, current: value } : option));
+        },
+        async setModel(modelId) {
+          try {
+            await request('session/set_model', { sessionId, modelId }, sessionTimeoutMs);
+          } catch (error) {
+            throw await wrapped(error, 'session/set_model');
+          }
+          if (models !== null) models = { ...models, current: modelId };
+          reportedModel = modelId;
+        },
         running: () => inFlight,
         usage() {
           return { ...(last ?? {}), reported: reports > 0, turns, reports, ...(state.context === undefined ? {} : { context: state.context }) };
