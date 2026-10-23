@@ -219,13 +219,23 @@ try {
       const after = (await tabs(page)).length;
       if (after !== before) fail(`${tag}: a drag across a sentence opened a tab (${before} -> ${after})`);
       await shoot(page, `${tag}-04-selection-opens-nothing`);
-      // A plain click opens the statement; opening it again focuses its tab.
+      // A plain click opens the statement; opening it again focuses its tab. The click lands on the
+      // sentence's own text at the start of its line, never on a link that happens to stand in the middle of it.
+      const clickSentence = (): Promise<void> => page.mouse.click(box.x + 6, box.y + box.height / 2);
+      const waitTabs = async (count: number, where: string): Promise<void> => {
+        try {
+          await page.waitForFunction((wanted) => document.querySelectorAll('[data-testid=tab]').length === wanted, { timeout: 20_000 }, count);
+        } catch {
+          const seen = await page.evaluate(() => ({ url: window.location.href, tabs: [...document.querySelectorAll('[data-testid=tab]')].map((tab) => tab.textContent ?? '') }));
+          fail(`${where}: the tab bar did not come to ${count} tabs: ${JSON.stringify(seen)}`);
+        }
+      };
       await page.evaluate(() => window.getSelection()?.removeAllRanges());
-      await page.click('[data-testid=statement]');
-      await page.waitForFunction((count) => document.querySelectorAll('[data-testid=tab]').length === count, {}, before + 1);
+      await clickSentence();
+      await waitTabs(before + 1, `${tag} a click on a sentence`);
       await page.evaluate(() => { history.back(); });
-      await page.waitForFunction((count) => document.querySelectorAll('[data-testid=tab]').length === count, {}, before + 1);
-      await page.click('[data-testid=statement]');
+      await waitTabs(before + 1, `${tag} after the browser's Back`);
+      await clickSentence();
       await new Promise((rest) => setTimeout(rest, 600));
       const final = await tabs(page);
       if (final.length !== before + 1) fail(`${tag}: opening an open statement made a second tab: ${JSON.stringify(final)}`);
