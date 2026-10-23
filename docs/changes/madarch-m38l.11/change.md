@@ -56,7 +56,7 @@ None.
 
 ## Acceptance evidence
 
-- AVX2 pod (`madarch-avx2-madarch-product-upgrade-9ac8e9`): `bun run check`; focused upgrade/index/settings/ACP tests; wiki app `bun run check` and `bun test` (165 passed). Exit 0.
+- AVX2 pod (`madarch-avx2-madarch-product-upgrade-9ac8e9`): merged root `bun run check`; focused starter-upgrade, ACP-choice and writer-journal tests; wiki app `bun run check` and focused settings, knowledge and journal tests (58 passed). Exit 0. Wiki app build also passed on the merged branch.
 - Reader rendering: `scripts/settings-shots.ts` produced Russian and English settings, upgraded catalogue, route, contract and use-case views, and edited-manifest Problems views at 1150 px and 390 px in light and dark themes. Reviewed the screenshots at `/tmp/madarch-m38l11-shots/shots/`; the English settings mockup is `docs/prototypes/madarch-m38l.11/settings-en.png`.
 
 ## DONE WHEN

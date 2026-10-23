@@ -22,7 +22,7 @@ import { connectAcpAgent, type AcpConnection, type AcpAgentSpec, type AcpRefusal
 import { answerUnitMcpMessage } from '../fill/unit-mcp.js';
 import { DEFAULT_STAGE_LIMITS, type StageLimits } from '../fill/stage.js';
 import { createUnitLimitGuard, PROCESS_TIMERS, watchUnitTimeLimit, type UnitLimitCause, type UnitTimers } from '../fill/unit-limits.js';
-import { applyPreferences, type AgentPreferences } from '../fill/acp-choices.js';
+import { applyPreferences, choicesOf, type AgentPreferences } from '../fill/acp-choices.js';
 import type { Journal, JournalContext, JournalEntry } from './journal.js';
 import type { ToolClient, UnitAgent, UnitRequest } from './run.js';
 import type { ToolAnswer } from './tools.js';
@@ -199,12 +199,12 @@ export function acpUnitAgent(options: AcpAgentOptions): UnitAgent & { close(): P
       let wrapPending = false;
       try {
         const session = await acp.newSession({ cwd: scratch!, mcpServers: [{ name: 'madarch-writer', type: 'http', url: endpoint.url, headers: { Authorization: `Bearer ${token}` } }] });
+        if (options.preferences !== undefined) await applyPreferences(session, options.preferences, options.progress);
         if (journal !== undefined) {
-          context = { run: journal.run, unit: request.id, agent: options.spec.id, model: session.model, session: session.sessionId };
+          context = { run: journal.run, unit: request.id, agent: options.spec.id, model: choicesOf(session).model?.current ?? session.model, session: session.sessionId };
           contexts.set(session.sessionId, context);
           latest = context;
         }
-        if (options.preferences !== undefined) await applyPreferences(session, options.preferences, options.progress);
         let prompt = request.prompt;
         for (let turns = 1; turns <= limits.maxTurns && stop === undefined; turns += 1) {
           guard.sent(Math.ceil([...prompt].length / CHARACTERS_PER_TOKEN));

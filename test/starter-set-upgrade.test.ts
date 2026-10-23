@@ -11,7 +11,7 @@ import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { parseKinds, setKindsLanguage } from '../src/knowledge/kinds.js';
 import { STARTER_FILES, STARTER_KINDS, ensureLoopKinds, starterManifest } from '../src/knowledge/seed.js';
-import { addStarterItems, currentOffers, filesAPersonEdited, provenanceOf, rememberMadarchStarterFile, replaceWithStarterSet, starterOffers, upgradeStarterSet } from '../src/knowledge/starter-upgrade.js';
+import { addStarterItems, currentOffers, filesAPersonEdited, provenanceOf, rememberChangedStarterFileIfOwned, replaceWithStarterSet, starterOffers, upgradeStarterSet } from '../src/knowledge/starter-upgrade.js';
 import { gitEnv } from './git-env.js';
 
 const FIXTURE = join(import.meta.dir, 'fixtures', 'product-0.2.0');
@@ -84,14 +84,26 @@ describe('a manifest and templates only madarch wrote', () => {
   });
 
   test('a language change to an upgraded manifest remains madarch-owned on a later upgrade', () => {
-    const { product, record } = oldProduct({ working: false });
+    const { product, record } = oldProduct();
     upgradeStarterSet(product, record);
+    const previous = read(product, 'madarch/kinds.yaml');
     expect(setKindsLanguage(product, 'en')).toBeUndefined();
-    rememberMadarchStarterFile(record, 'madarch/kinds.yaml', read(product, 'madarch/kinds.yaml'));
+    expect(rememberChangedStarterFileIfOwned(product, record, 'madarch/kinds.yaml', previous, read(product, 'madarch/kinds.yaml'))).toBe(true);
     const later = upgradeStarterSet(product, record);
     expect(later.kept).not.toContain('madarch/kinds.yaml');
     expect(later.offers).toEqual([]);
     expect(currentOffers(product, record)).toEqual([]);
+  });
+
+  test('a language change does not turn an edited manifest into madarch-owned', () => {
+    const { product, record } = oldProduct();
+    upgradeStarterSet(product, record);
+    writeFileSync(join(product, 'madarch', 'kinds.yaml'), `${read(product, 'madarch/kinds.yaml')}# person added this comment\n`);
+    const before = read(product, 'madarch/kinds.yaml');
+    const after = before.replace('language: ru', 'language: en').replace('# person added this comment\n', '');
+    writeFileSync(join(product, 'madarch', 'kinds.yaml'), after);
+    expect(rememberChangedStarterFileIfOwned(product, record, 'madarch/kinds.yaml', before, after)).toBe(false);
+    expect(provenanceOf(product, 'madarch/kinds.yaml', starterManifest('ru'), JSON.parse(readFileSync(record, 'utf8')))).toBe('person');
   });
 
   test('an edit inside a kind madarch added (its description) makes the manifest the person\'s', () => {

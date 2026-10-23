@@ -53,6 +53,9 @@ describe('what the agent reports', () => {
     const { session: opened } = await session('--models', 'legacy');
     expect(choicesOf(opened).model).toEqual({ configId: null, name: 'Model', current: 'sonnet', values: [{ value: 'sonnet', name: 'Sonnet 4.6', description: 'Balanced' }, { value: 'opus', name: 'Opus 4.7' }] });
     expect(choicesOf(opened).reasoning).toBeNull();
+    const configured = await session('--models');
+    expect(configured.session.model).toBe('sonnet');
+    expect(choicesOf(configured.session).model?.current).toBe('sonnet');
   }, 30_000);
 
   test('options that are not a select, or are unreadable, are left out', () => {

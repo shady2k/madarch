@@ -35,7 +35,7 @@ import { neighborhoodOf } from './diagrams.js';
 import { anchorLines } from './anchors.js';
 import { adapterOf, installAdapter, makeUnitAgent, offers, queryAgentChoices, WRITER_BOUNDS } from './agents.js';
 import type { AgentChoices } from '../fill/acp-choices.js';
-import { addStarterItems, currentOffers, filesAPersonEdited, replaceWithStarterSet, upgradeStarterSet, type StarterOffer, type UpgradeReport, rememberMadarchStarterFile } from './starter-upgrade.js';
+import { addStarterItems, currentOffers, filesAPersonEdited, replaceWithStarterSet, upgradeStarterSet, type StarterOffer, type UpgradeReport, rememberChangedStarterFileIfOwned } from './starter-upgrade.js';
 import { fileJournal, journalFolder, journalOfUnit, newRunId, type Journal, type PageJournal } from '../writer/journal.js';
 import { productSlug, PRODUCT_PATH, type ToolAnswer, type ToolClient, type UnitAgent } from '../writer/index.js';
 import { CONTENT_LANGUAGES } from '../writer/prompts.js';
@@ -1072,7 +1072,7 @@ export class KnowledgeProduct {
     if (failure !== undefined) return { ok: false, message: failure };
     try {
       const manifest = readFileSync(join(product.folder, KINDS_FILE), 'utf8');
-      rememberMadarchStarterFile(this.starterRecord(), KINDS_FILE, manifest);
+      rememberChangedStarterFileIfOwned(product.folder, this.starterRecord(), KINDS_FILE, previousManifest, manifest);
     } catch (error) {
       const file = join(product.folder, KINDS_FILE);
       try { writeFileSync(file, previousManifest, 'utf8'); }

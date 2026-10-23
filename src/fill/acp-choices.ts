@@ -36,13 +36,15 @@ export interface AgentPreferences {
 const REASONING_IDS = ['thought_level', 'reasoning_effort', 'effort', 'reasoning'];
 
 /** The model and the reasoning level of a session, as the agent reported them. */
-export function choicesOf(session: Pick<AcpSession, 'configOptions' | 'models'>): AgentChoices {
+export function choicesOf(session: Pick<AcpSession, 'configOptions' | 'models'> & Partial<Pick<AcpSession, 'model'>>): AgentChoices {
   const options = session.configOptions;
   const modelOption = options.find((option) => option.category === 'model') ?? options.find((option) => option.id === 'model');
   const reasoningOption = options.find((option) => option.category === 'thought_level') ?? options.find((option) => REASONING_IDS.includes(option.id));
   let model: Choice | null = modelOption === undefined || modelOption.values.length === 0 ? null : { configId: modelOption.id, name: modelOption.name, current: modelOption.current, values: modelOption.values };
   if (model === null && session.models !== null && session.models.available.length > 0) {
     model = { configId: null, name: 'Model', current: session.models.current, values: session.models.available.map((entry) => ({ value: entry.id, name: entry.name, ...(entry.description === undefined ? {} : { description: entry.description }) })) };
+  } else if (model !== null && model.current === null && session.model !== undefined) {
+    model = { ...model, current: session.model };
   }
   const reasoning: Choice | null = reasoningOption === undefined || reasoningOption.values.length === 0 ? null : { configId: reasoningOption.id, name: reasoningOption.name, current: reasoningOption.current, values: reasoningOption.values };
   return { model, reasoning };

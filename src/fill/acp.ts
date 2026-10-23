@@ -639,7 +639,7 @@ export async function connectAcpAgent(spec: AcpAgentSpec, options: ConnectAcpOpt
         modes: answer.modes,
         get configOptions() { return options; },
         get models() { return models; },
-        get model() { return typeof reportedModel === 'string' ? reportedModel : models?.current ?? null; },
+        get model() { return typeof reportedModel === 'string' ? reportedModel : models?.current ?? options.find((option) => option.category === 'model' || option.id === 'model')?.current ?? null; },
         async setConfigOption(configId, value) {
           let response: { configOptions?: unknown } | undefined;
           try {

@@ -140,7 +140,7 @@ function onlyMadarchAdditions(working: string, committed: string): boolean {
 }
 
 /** Who wrote a starter file as the product holds it now. */
-export function provenanceOf(productFolder: string, path: string, starter: string, record: Record_): Provenance {
+export function provenanceOf(productFolder: string, path: string, starter: string, record: Record_, observedText?: string): Provenance {
   const file = join(productFolder, path);
   const stat = lstatSync(file, { throwIfNoEntry: false });
   if (stat === undefined) return 'absent';
@@ -148,7 +148,7 @@ export function provenanceOf(productFolder: string, path: string, starter: strin
   if (!stat.isFile()) return 'person';
   let text: string;
   try {
-    text = readFileSync(file, 'utf8');
+    text = observedText ?? readFileSync(file, 'utf8');
   } catch {
     return 'person';
   }
@@ -314,6 +314,21 @@ function languageOf(text: string): string | undefined {
  */
 export function rememberMadarchStarterFile(recordFile: string, path: string, text: string): void {
   remember(recordFile, { [path]: text });
+}
+
+/** Records a changed starter file only when its bytes before the change prove madarch already owned it. */
+export function rememberChangedStarterFileIfOwned(productFolder: string, recordFile: string, path: string, previous: string, next: string): boolean {
+  const starter = STARTER_FILES.find((entry) => entry.path === path);
+  if (starter === undefined) return false;
+  const record = readRecordSoftly(recordFile);
+  const expected = path === KINDS_FILE ? starterManifest(languageOf(previous)) : starter.content;
+  const previousOwnership = previous === starter.content || (record[path] ?? []).includes(sha(previous))
+    ? 'madarch'
+    : provenanceOf(productFolder, path, expected, record, previous);
+  if (previousOwnership !== 'current' && previousOwnership !== 'madarch') return false;
+  if (readFileSync(join(productFolder, path), 'utf8') !== next) return false;
+  remember(recordFile, { [path]: next });
+  return true;
 }
 
 export function upgradeStarterSet(productFolder: string, recordFile: string): UpgradeReport {
