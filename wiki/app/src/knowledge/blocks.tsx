@@ -114,8 +114,9 @@ export interface StatementView {
   showGrounds: boolean;
 }
 
-/** Whether a text was selected when the last press on a sentence began. */
+/** Whether a selection gesture is still in progress or the click immediately follows a double-click selection. */
 let selectionOnPress = false;
+let selectionClickTimer: ReturnType<typeof setTimeout> | null = null;
 
 export function KMarkdown({ text, resolutions, inDocument, statements, exceptTerm }: { text: string; resolutions: Readonly<Record<string, Resolution>>; inDocument?: { repo: string | null; path: string; anchors?: Readonly<Record<string, number>> }; statements?: StatementView; /** The id of the glossary entry this text is, which it does not link to. */ exceptTerm?: string }): ReactElement {
   const { t } = useTranslation();
@@ -176,8 +177,26 @@ export function KMarkdown({ text, resolutions, inDocument, statements, exceptTer
             data-testid="statement"
             data-grounded={grounded ? 'true' : 'false'}
             title={grounded ? t('knowledge.statementOpen') : t('knowledge.statementUngroundedTitle')}
-            onMouseDown={() => { selectionOnPress = selecting(); }}
-            onClick={(event) => { const dismissed = selectionOnPress; selectionOnPress = false; if ((event.target as HTMLElement).closest('a') === null && !dismissed && !selecting()) open(); }}
+            onMouseDown={() => {
+              selectionOnPress = selecting();
+              if (selectionClickTimer !== null) {
+                clearTimeout(selectionClickTimer);
+                selectionClickTimer = null;
+                selectionOnPress = true;
+              }
+            }}
+            onClick={(event) => {
+              const dismissed = selectionOnPress;
+              selectionOnPress = false;
+              if ((event.target as HTMLElement).closest('a') !== null || dismissed || selecting()) return;
+              // Wait one click interval: a native double click selects a word after
+              // its first click, so opening immediately prevents the selection.
+              if (selectionClickTimer !== null) clearTimeout(selectionClickTimer);
+              selectionClickTimer = setTimeout(() => {
+                selectionClickTimer = null;
+                if (!selecting()) open();
+              }, 250);
+            }}
             onKeyDown={(event) => { if (event.key === 'Enter' && (event.target as HTMLElement).closest('a') === null) open(); }}
           >
             {children}

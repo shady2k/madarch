@@ -9,17 +9,27 @@ of 0.2.2 (2026-10-23) found each of them acting against the way editors and
 reading tools behave.
 
 ## Requirement: tabs — A tab is named by its page and a page has one tab
-When a reader selects text, drags across a sentence or ends a selection with a
-click, the wiki shall open nothing. When a reader opens a page that a tab already
+When a reader selects text, drags across a sentence, double-clicks to select a word, or ends a selection with a
+click, the wiki shall open nothing. The first click waits briefly so the second click of a double-click can select text. When a reader opens a page that a tab already
 holds (the address without its section), the wiki shall bring that tab to the
 front, showing the section if the address names one, and shall not open a second
 tab for it. Every page shall name its tab once it has loaded, an error page
 included, and a tab shall never keep the word for loading after the page is shown.
 
+### Scenario: double-click-selects-without-opening
+- Given: a page with a statement sentence and one tab
+- When: the reader double-clicks a word in the sentence
+- Then: the word is selected and no statement page opens
+
 ### Scenario: drag-opens-nothing
 - Given: a page with a statement sentence and one tab
 - When: the reader drags across the sentence and releases
 - Then: the text is selected, the tab count is unchanged and no statement page opens
+
+### Scenario: browser-history-restores-open-tabs
+- Given: two tabs and browser history entries for each tab
+- When: the reader focuses the other tab and uses Back or Forward
+- Then: the tab already holding the history address comes to the front and no tab is overwritten
 
 ### Scenario: open-page-is-focused
 - Given: two tabs, the second holding the catalogue

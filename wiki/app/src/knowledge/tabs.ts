@@ -100,6 +100,14 @@ function onPop(): void {
   const address = currentAddress();
   const front = now.tabs.find((tab) => tab.key === now.active);
   if (front?.address === address) return;
+  // Focusing an already-open tab pushes its address into browser history. Back/forward
+  // should restore the tab already holding that address, not overwrite the tab that
+  // happened to be active when the history event arrived.
+  const held = now.tabs.find((tab) => tab.key !== now.active && tab.address === address);
+  if (held !== undefined) {
+    set({ ...now, active: held.key });
+    return;
+  }
   set({ ...now, tabs: now.tabs.map((tab) => (tab.key === now.active ? { ...tab, address, title: null } : tab)) });
 }
 

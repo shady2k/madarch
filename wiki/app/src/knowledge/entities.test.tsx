@@ -184,6 +184,20 @@ describe('Markdown read as statements', () => {
     expect(window.location.pathname + window.location.search).toBe(addressOfStatement('domain:payment', sentence));
   });
 
+  test('a double click on a sentence can select a word without opening its statement', async () => {
+    const container = into(createElement('div', null, createElement(TabBar), createElement(KMarkdown, { text: 'Checkout asks payments to authorize the card now.[^1]\n\n[^1]: [f](madarch:code.symbol:a.ts#F)\n', resolutions, statements: { pageId: 'domain:payment', showGrounds: false } })));
+    await until(() => container.querySelector('[data-testid=statement]') !== null && container.querySelector('[data-testid=tab]') !== null, 'the statement and the tab bar');
+    const statement = container.querySelector('[data-testid=statement]') as HTMLElement;
+    const before = container.querySelectorAll('[data-testid=tab]').length;
+    statement.dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true, detail: 1 }));
+    statement.click();
+    statement.dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true, detail: 2 }));
+    statement.click();
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(container.querySelectorAll('[data-testid=tab]')).toHaveLength(before);
+    expect(frontTab().address).toBe('/k');
+  });
+
   test('a drag across a sentence selects text and opens nothing; a click after it, with the selection gone, opens the statement', async () => {
     const container = into(createElement('div', null, createElement(TabBar), createElement(KMarkdown, { text: 'Checkout asks payments to authorize the card now.[^1]\n\n[^1]: [f](madarch:code.symbol:a.ts#F)\n', resolutions, statements: { pageId: 'domain:payment', showGrounds: false } })));
     await until(() => container.querySelector('[data-testid=statement]') !== null && container.querySelector('[data-testid=tab]') !== null, 'the statement and the tab bar');
@@ -241,6 +255,25 @@ describe('the tabs', () => {
     openInNewTab('/k/e/domain%3Apayment');
     expect(frontTab().address).toBe('/k/e/domain%3Apayment');
     expect(JSON.parse(window.sessionStorage.getItem('madarch-tabs:/')!).tabs.map((tab: { address: string }) => tab.address)).toEqual(['/k', '/k/e/domain%3Apayment', '/k/catalogue']);
+  });
+
+  test('browser Back and Forward restore the open tab that holds the history address', () => {
+    openInNewTab('/k/catalogue');
+    openInNewTab('/k/docs');
+    const tabs = JSON.parse(window.sessionStorage.getItem('madarch-tabs:/')!).tabs as { key: string; address: string }[];
+    const catalogue = tabs.find((tab) => tab.address === '/k/catalogue')!;
+    const docs = tabs.find((tab) => tab.address === '/k/docs')!;
+    // The current docs page links to a catalogue already held in another tab.
+    linkHandlers('/k/catalogue').onClick({ shiftKey: false, altKey: false, ctrlKey: false, metaKey: false, button: 0, preventDefault: () => undefined } as never);
+    expect(frontTab().key).toBe(catalogue.key);
+    // Model the browser's popstate after Back, then Forward.
+    window.history.pushState({}, '', '/k/docs');
+    window.dispatchEvent(new Event('popstate'));
+    expect(frontTab().key).toBe(docs.key);
+    window.history.pushState({}, '', '/k/catalogue');
+    window.dispatchEvent(new Event('popstate'));
+    expect(frontTab().key).toBe(catalogue.key);
+    expect(JSON.parse(window.sessionStorage.getItem('madarch-tabs:/')!).tabs).toHaveLength(3);
   });
 
   test('a plain click on a link to a page another tab holds focuses that tab; another section of an open document is the same page', () => {
