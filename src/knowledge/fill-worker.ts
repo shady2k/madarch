@@ -209,6 +209,8 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
     const first = await indexNow();
     const firstNote = first.error ?? first.unresolved;
     if (firstNote !== undefined) process.stderr.write(`knowledge index: ${firstNote}\n`);
+    // The reader sees the index only in a snapshot made after it: without an agent stage no later snapshot would carry it.
+    await snapshot(true).catch(() => undefined);
 
     // ---- the agent stage --------------------------------------------------------------------
     if (!start.writer) return 0;

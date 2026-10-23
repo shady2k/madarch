@@ -133,13 +133,15 @@ describe('the one press', () => {
 
     // The documents are pages of the same wiki: the written pages and the repository's own, and a ground opens the document at its section.
     const documents = (await get('api/k/documents')).body as { documents: { repo: string | null; path: string }[] };
-    expect(documents.documents).toContainEqual({ repo: null, path: 'docs/product.md' });
+    // The written pages are the pages of their kinds, not documents to list.
+    expect(documents.documents).not.toContainEqual({ repo: null, path: 'docs/product.md' });
     expect(documents.documents).toContainEqual({ repo: 'training-shop', path: 'docs/requirements.md' });
     const requirements = await get('api/k/document?repo=training-shop&path=docs/requirements.md');
     expect(requirements.status).toBe(200);
     expect(requirements.body.anchors['uc-2']).toBeGreaterThan(0);
     const ground = (homePage.body.resolutions as Record<string, { state: string; href: string | null }>)['madarch:doc:docs/requirements.md#uc-2'];
-    expect(ground?.href).toBe('/k/doc?repo=training-shop&path=docs%2Frequirements.md#uc-2');
+    // The section is a use case of the manifest's document kind: its ground opens the entity's page.
+    expect(ground?.href).toBe(`/k/e/${encodeURIComponent('doc:@training-shop/docs/requirements.md#uc-2')}`);
 
     // The same press with the language of the pages changed asks the agent in Russian and writes every page again.
     const russian = await post('api/k/fill', { agent: 'claude-code', language: 'ru' });

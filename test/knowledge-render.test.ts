@@ -14,6 +14,7 @@ import { createGraphStore, type GraphId, type GraphStore } from '../src/graph/in
 import type { RenderContext } from '../src/knowledge/blocks.js';
 import { GraphReader } from '../src/knowledge/graph-read.js';
 import { parseKinds } from '../src/knowledge/kinds.js';
+import { readDocEntities } from '../src/knowledge/doc-entities.js';
 import { readMarkdownEntities } from '../src/knowledge/markdown.js';
 import type { Block, PageModel } from '../src/knowledge/model.js';
 import { kindSummaries, listEntities, renderPage } from '../src/knowledge/render.js';
@@ -120,8 +121,13 @@ beforeAll(async () => {
     '  code.database:',
     '    template: templates/database.md',
     '    source: graph',
+    '  doc.use-case:',
+    '    template: templates/use-case.md',
+    '    source: document',
+    '    identifier: UC',
     '',
   ].join('\n'));
+  write('templates/use-case.md', ':::body\n:::stated{title="Stated in"}\n:::implementedby\n:::linkedfrom\n');
   write('templates/product.md', ':::body\n');
   write('templates/domain.md', ':::body\n:::related{title="Implemented by" relation="relates"}\n');
   write('templates/service.md', [
@@ -150,7 +156,7 @@ beforeAll(async () => {
   ].join('\n'));
   // A document of the code repository: sections found by slug, by an explicit id and by a label.
   const documents = new Map<string, string>([
-    ['docs/handbook.md', ['# Handbook', '', '## Money', 'text', '', '## Refunds {#refunds}', 'text', '', '- **UC-7 Pay.** The shopper pays.', ''].join('\n')],
+    ['docs/handbook.md', ['# Handbook', '', '## Money', 'text', '', '## Refunds {#refunds}', 'text', '', `- **UC-7 Pay.** The shopper pays through [charge](madarch:${CHARGE}), as \`svc/billing/src/a.ts\` (\`audit\`, \`nothere\`) says.`, ''].join('\n')],
     ['svc/billing/src/a.ts', A_TS],
     ['svc/billing/src/b.ts', B_TS],
   ]);
@@ -159,13 +165,19 @@ beforeAll(async () => {
   expect(read.findings).toEqual([]);
   const markdown = new Map(readMarkdownEntities(productFolder, read).entities.map((entity) => [entity.id, entity]));
   const graph = new GraphReader(owner, () => '2026-06-01T00:00:00Z');
+  const docs = readDocEntities([{ repo: 'shop', path: 'docs/handbook.md', text: documents.get('docs/handbook.md')! }], read);
   const readSource = async (repo: string | null, path: string): Promise<string | undefined> => (repo === 'shop' ? documents.get(path) : undefined);
   ctx = {
     productFolder,
     manifest: read,
     graph,
     markdown,
-    resolver: new Resolver({ graph, markdown, declared: (kind) => read.kinds.has(kind), readDocument: readSource, repositories: () => ['shop'], locate: (entity) => (entity.span === undefined ? undefined : { repo: 'shop', path: entity.span.path, lineStart: entity.span.lineStart, lineEnd: entity.span.lineEnd, href: `/k/src?repo=shop&path=${encodeURIComponent(entity.span.path)}&line=${entity.span.lineStart}` }) }),
+    docEntities: new Map(docs.entities.map((entity) => [entity.id, entity])),
+    documents: [{ repo: 'shop', path: 'docs/handbook.md', text: documents.get('docs/handbook.md')! }],
+    repositories: ['shop'],
+    commitOf: () => null,
+    resolver: new Resolver({ graph, markdown, declared: (kind) => read.kinds.has(kind), readDocument: readSource, repositories: () => ['shop'], documentEntity: (repo, path, line) => docs.entities.find((entity) => entity.repo === repo && entity.path === path && entity.line === line),
+    locate: (entity) => (entity.span === undefined ? undefined : { repo: 'shop', path: entity.span.path, lineStart: entity.span.lineStart, lineEnd: entity.span.lineEnd, href: `/k/src?repo=shop&path=${encodeURIComponent(entity.span.path)}&line=${entity.span.lineStart}` }) }),
     repoOfScope: (id) => repoOfScope.get(id),
     readSource,
   };
@@ -202,7 +214,7 @@ describe('template text and the service page', () => {
     const model = await page(SERVICE);
     const problems = model.blocks.filter((entry) => entry.type === 'problem');
     expect(problems.map((entry) => entry.type === 'problem' ? [entry.file, entry.line] : [])).toEqual([['templates/service.md', 5], ['templates/service.md', 6]]);
-    expect(model.findings.map((entry) => entry.message)).toContain('"nonsense" is not a block of the library (body, graph, related, callers, callees, source, er, sequence)');
+    expect(model.findings.map((entry) => entry.message)).toContain('"nonsense" is not a block of the library (body, graph, related, callers, callees, source, er, sequence, stated, implementedby, linkedfrom, properties, children)');
     expect(model.findings.some((entry) => entry.line === 6 && entry.message.includes('closes nothing'))).toBe(true);
   });
 
@@ -351,6 +363,27 @@ describe('Markdown pages, links and grounds', () => {
   });
 });
 
+describe('a document entity\'s page', () => {
+  test('its text links to the graph as the links resolve, its text names code that the page lists (a name the file does not hold is shown broken), and the document and line it is stated at are on the page', async () => {
+    const model = await page('doc:@shop/docs/handbook.md#uc-7');
+    expect(model).toMatchObject({ kind: 'doc.use-case', title: 'UC-7 Pay' });
+    expect(model.resolutions[`madarch:${CHARGE}`]).toMatchObject({ state: 'ok', label: 'charge' });
+    expect(block(model, 'stated').place).toMatchObject({ repo: 'shop', path: 'docs/handbook.md', lineStart: 9 });
+    const implemented = block(model, 'refs', 0);
+    expect(implemented.rows.map((row) => [row.entity.id, row.entity.broken === undefined ? 'found' : 'broken'])).toEqual([
+      [FILE_A, 'found'],
+      [AUDIT, 'found'],
+      [K('code.symbol', 'svc/billing/src/a.ts#nothere'), 'broken'],
+    ]);
+    expect(block(model, 'refs', 1).rows).toEqual([]);
+  });
+
+  test('a ground that names the section opens the entity\'s page, and the section\'s own anchor and a heading anchor behave as before', async () => {
+    expect(await ctx.resolver.resolve('madarch:doc:docs/handbook.md#uc-7')).toMatchObject({ state: 'ok', kind: 'doc.use-case', href: `/k/e/${encodeURIComponent('doc:@shop/docs/handbook.md#uc-7')}` });
+    expect(await ctx.resolver.resolve('madarch:doc:docs/handbook.md#money')).toMatchObject({ state: 'ok', kind: 'document', href: '/k/doc?repo=shop&path=docs%2Fhandbook.md#money' });
+  });
+});
+
 describe('what has a page', () => {
   test('an entity of a kind the manifest does not declare has no page, and says which manifest is missing the kind', async () => {
     const result = await renderPage(ctx, MODULE);
@@ -362,12 +395,13 @@ describe('what has a page', () => {
   test('the kinds are counted from the graph and from the Markdown, and listed in key order with a filter', async () => {
     const summaries = await kindSummaries(ctx);
     expect(summaries).toEqual([
-      { kind: 'product', source: 'markdown', single: true, count: 1 },
-      { kind: 'domain', source: 'markdown', single: false, count: 1 },
-      { kind: 'code.service', source: 'graph', single: false, count: 1 },
-      { kind: 'code.symbol', source: 'graph', single: false, count: 3 },
-      { kind: 'code.file', source: 'graph', single: false, count: 2 },
-      { kind: 'code.database', source: 'graph', single: false, count: 1 },
+      { kind: 'product', source: 'markdown', single: true, count: 1, origins: ['agent'] },
+      { kind: 'domain', source: 'markdown', single: false, count: 1, origins: ['agent'] },
+      { kind: 'code.service', source: 'graph', single: false, count: 1, origins: ['code'] },
+      { kind: 'code.symbol', source: 'graph', single: false, count: 3, origins: ['code'] },
+      { kind: 'code.file', source: 'graph', single: false, count: 2, origins: ['code'] },
+      { kind: 'code.database', source: 'graph', single: false, count: 1, origins: ['code'] },
+      { kind: 'doc.use-case', source: 'document', single: false, count: 1, origins: ['person'] },
     ]);
     const symbols = await listEntities(ctx, 'code.symbol', { limit: 2 });
     expect(symbols).toMatchObject({ total: 3, next: CHARGE });
