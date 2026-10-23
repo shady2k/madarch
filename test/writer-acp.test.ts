@@ -117,14 +117,24 @@ describe('a unit driven over ACP', () => {
     const tools: ToolClient & { readonly calls: { tool: string; args: unknown }[] } = {
       ...base,
       definitions: [{ name: 'write_localized_source', description: 'Write a localized source statement.', inputSchema: { type: 'object', properties: { statement: { type: 'string' } }, required: ['statement'] } }],
+      call: async (tool, args) => {
+        if (tool === 'write_localized_source' && base.calls.length === 0) {
+          base.calls.push({ tool, args });
+          return { answer: { refused: [{ rule: 'localized-language', message: 'write a Russian statement' }] }, isError: true };
+        }
+        return base.call(tool, args);
+      },
     };
-    const { agent, messages } = agentOf(folder, { steps: [{ say: 'thinking' }, { end: { stopReason: 'end_turn' } }, { call: { tool: 'write_localized_source', arguments: { statement: 'The statement.' } } }, { end: { stopReason: 'end_turn' } }] }, { limits: { ...DEFAULT_STAGE_LIMITS, maxTurns: 3 } });
+    const { agent, messages } = agentOf(folder, {
+      steps: [{ call: { tool: 'write_localized_source', arguments: { statement: 'Токен.' } } }, { end: { stopReason: 'end_turn' } }],
+      byPrompt: [{ matches: 'Call write_localized_source', steps: [{ call: { tool: 'write_localized_source', arguments: { statement: 'Токен.' } } }, { end: { stopReason: 'end_turn' } }] }],
+    }, { limits: { ...DEFAULT_STAGE_LIMITS, maxTurns: 3 } });
     await agent.run({ id: 'localized-source:doc:test', prompt: 'WRITE', tools });
     const prompts = messages().filter((m) => m.method === 'session/prompt').map((m) => JSON.stringify(m.params));
     expect(prompts).toHaveLength(2);
     expect(prompts[1]).toContain('write_localized_source');
     expect(prompts[1]).not.toContain('write_page');
-    expect(tools.calls.map((call) => call.tool)).toEqual(['write_localized_source']);
+    expect(tools.calls.map((call) => call.tool)).toEqual(['write_localized_source', 'write_localized_source']);
   });
 
   test('a turn that crosses the context stop is cancelled and the unit ends there', async () => {

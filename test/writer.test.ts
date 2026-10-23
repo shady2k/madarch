@@ -252,14 +252,14 @@ describe('the writer over the training repository', () => {
     const mostlyWrong = await tools.call('write_localized_source', { statement: 'This paragraph is still mostly English. тест' });
     expect(mostlyWrong.isError).toBe(true);
     expect((mostlyWrong.answer as { error: { code: string } }).error.code).toBe('wrong-language');
-    const answer = await tools.call('write_localized_source', { statement: 'Токен подтверждения после успешной оплаты.' });
+    const answer = await tools.call('write_localized_source', { statement: 'Не входи.' });
     expect(answer.isError).toBe(false);
     expect(tools.outcome().status).toBe('written');
     const markdown = sink.pages.get(sourcePath)!;
     expect(markdown).toContain(`entity: ${entity.id}`);
     expect(markdown).toContain('source-document: docs/requirements.md');
     expect(markdown).toContain(entity.text);
-    expect(markdown).toContain('Токен подтверждения');
+    expect(markdown).toContain('Не входи.');
   });
   beforeAll(async () => {
     first = await run({ spoilProduct: true, spoilDomains: true });
