@@ -39,7 +39,12 @@ export async function runReadWorker(io: { lines: AsyncIterable<string>; send: (r
   const send = (reply: ReadReply): void => io.send(encodeWire(reply));
   let owner: DatabaseOwner | undefined;
   const transactions = new Map<number, { queue: ReadRequest[]; wake: (() => void) | undefined }>();
-  const work: Promise<void>[] = [];
+  /** The statements and transactions under way; each leaves the set when it ends. */
+  const work = new Set<Promise<void>>();
+  const track = (operation: Promise<void>): void => {
+    work.add(operation);
+    void operation.finally(() => work.delete(operation));
+  };
   const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
   const runStatement = async (target: { query: OuterTransaction['query'] }, id: number, sql: string, values: unknown[] | undefined): Promise<void> => {
@@ -54,7 +59,7 @@ export async function runReadWorker(io: { lines: AsyncIterable<string>; send: (r
   const beginTransaction = (request: Extract<ReadRequest, { type: 'begin' }>): void => {
     const state: { queue: ReadRequest[]; wake: (() => void) | undefined } = { queue: [], wake: undefined };
     transactions.set(request.id, state);
-    work.push(owner!.transaction(request.kind, async (tx) => {
+    track(owner!.transaction(request.kind, async (tx) => {
       send({ type: 'begun', id: request.id });
       for (;;) {
         while (state.queue.length === 0) await new Promise<void>((resolve) => { state.wake = resolve; });
@@ -94,7 +99,7 @@ export async function runReadWorker(io: { lines: AsyncIterable<string>; send: (r
       return 1;
     }
     if (request.type === 'query') {
-      work.push(owner.run((executor) => runStatement(executor, request.id, request.sql, request.values)));
+      track(owner.run((executor) => runStatement(executor, request.id, request.sql, request.values)));
     } else if (request.type === 'begin') {
       beginTransaction(request);
     } else {
@@ -107,7 +112,12 @@ export async function runReadWorker(io: { lines: AsyncIterable<string>; send: (r
       state.wake?.();
     }
   }
-  await Promise.allSettled(work);
+  // The server's pipe is closed: a transaction still open will get no more words, so each is rolled back and ends.
+  for (const state of transactions.values()) {
+    state.queue.push({ type: 'end', tx: -1, commit: false });
+    state.wake?.();
+  }
+  while (work.size > 0) await Promise.allSettled([...work]);
   await owner?.close().catch(() => undefined);
   return 0;
 }

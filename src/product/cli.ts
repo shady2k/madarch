@@ -20,7 +20,7 @@ import { listProducts, type ProductList } from './list.js';
 import { runningVersion } from './version.js';
 import { startDaemon, stopDaemon, daemonStatus, serveDaemon, ensureDaemon, daemonUrl } from './daemon.js';
 import { applyReset, planReset, type ResetPlan } from '../knowledge/reset.js';
-import { defaultKnowledgeRoot } from '../knowledge/product.js';
+import { defaultKnowledgeRoot, storeFolderOf } from '../knowledge/product.js';
 import { upgrade, type UpgradeOptions } from './upgrade.js';
 import { serveWiki, machineOpener, type Opener, type ServeEnv, type ServeOptions } from '../product-wiki/serve.js';
 import {
@@ -940,7 +940,8 @@ async function resetCommand(name: string | undefined, homeOption: string | undef
       if (!answer.ok) throw new Error(`the background server at ${server} answered ${answer.status}: ${await answer.text()}`);
       plan = (await answer.json()) as ResetPlan;
     } else {
-      plan = planReset(folder, join(defaultKnowledgeRoot(root), read.product.id));
+      const knowledge = defaultKnowledgeRoot(root);
+      plan = planReset(folder, storeFolderOf(knowledge, read.product.id, join(folder, 'workspace.yaml')), knowledge);
     }
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));

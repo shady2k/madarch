@@ -92,6 +92,9 @@ export class RemoteOwner implements DatabaseOwner {
       refused(this.failure);
       for (const entry of this.waiting.values()) entry.reject(this.failure);
       this.waiting.clear();
+      // A transaction waiting for its end is over with the worker: it ends with the failure.
+      for (const ended of [...this.ending.values()]) ended({ type: 'ended', tx: -1, error: this.failure.message });
+      this.ending.clear();
     })();
     this.send({ type: 'open', path: location, create: options.create });
   }

@@ -3,10 +3,13 @@
  * command and the wiki, and nothing of a person's removed.
  */
 import { afterEach, describe, expect, test } from 'bun:test';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { applyReset, planReset } from '../src/knowledge/reset.js';
+import { storeFolderOf } from '../src/knowledge/product.js';
+import { seedStarterSet } from '../src/knowledge/seed.js';
+import { setKindsLanguage } from '../src/knowledge/kinds.js';
 import { describeReset } from '../src/product/cli.js';
 
 let root: string | undefined;
@@ -63,5 +66,44 @@ describe('starting over', () => {
     const plan = planReset(join(root, 'product'), join(root, 'store'));
     expect(plan).toEqual({ store: [], agentPages: [], keptPages: [] });
     expect(describeReset('shop', plan).join('\n')).toContain('no page: the agent has written none');
+  });
+});
+
+describe('what a reset and the wiki\'s own writes never touch', () => {
+  test('a product id that climbs out of the knowledge root names no folder, and a reset refuses a store folder outside the root', () => {
+    expect(() => storeFolderOf('/srv/knowledge', '../../home', '/p/workspace.yaml')).toThrow('cannot name a folder');
+    expect(() => storeFolderOf('/srv/knowledge', 'a/b', '/p/workspace.yaml')).toThrow('/p/workspace.yaml');
+    expect(storeFolderOf('/srv/knowledge', 'shop-1.2', '/p/workspace.yaml')).toBe('/srv/knowledge/shop-1.2');
+    const { product } = fixture();
+    expect(() => planReset(product, join(root!, '..', 'elsewhere'), join(root!, 'store'))).toThrow('not inside the knowledge root');
+  });
+
+  test('a docs folder that is a link out of the product is not read and not removed: the reset refuses and names it', () => {
+    const { product, store } = fixture();
+    const other = join(root!, 'other-repository');
+    mkdirSync(join(other, 'domains'), { recursive: true });
+    writeFileSync(join(other, 'product.md'), page('agent'));
+    writeFileSync(join(other, 'domains', 'x.md'), page('agent'));
+    rmSync(join(product, 'docs'), { recursive: true });
+    symlinkSync(other, join(product, 'docs'));
+    expect(() => planReset(product, store)).toThrow(`${join(product, 'docs')} is a link to a place outside the product`);
+    expect(existsSync(join(other, 'product.md'))).toBe(true);
+  });
+
+  test('the starter set is not written through a folder that links out of the product, and a manifest that links out keeps its language', () => {
+    root = mkdtempSync(join(tmpdir(), 'madarch-writes-'));
+    const product = join(root, 'product');
+    const outside = join(root, 'outside');
+    mkdirSync(product); mkdirSync(outside);
+    symlinkSync(outside, join(product, 'templates'));
+    expect(() => seedStarterSet(product)).toThrow(`${join(product, 'templates')} is a link to`);
+    expect(existsSync(join(outside, 'product.md'))).toBe(false);
+    // The manifest as a link out of the product is somebody else's file.
+    const folder = join(root, 'p2');
+    mkdirSync(join(folder, 'madarch'), { recursive: true });
+    writeFileSync(join(outside, 'kinds.yaml'), 'kinds: {}\n');
+    symlinkSync(join(outside, 'kinds.yaml'), join(folder, 'madarch', 'kinds.yaml'));
+    expect(setKindsLanguage(folder, 'ru')).toContain('is a link to');
+    expect(readFileSync(join(outside, 'kinds.yaml'), 'utf8')).toBe('kinds: {}\n');
   });
 });

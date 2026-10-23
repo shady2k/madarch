@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { existsSync, lstatSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
+import { dirname, join, sep } from 'node:path';
 
 /**
  * The starter set `madarch new` writes into a product (decision 0029): the
@@ -108,9 +108,17 @@ export const STARTER_FILES: readonly StarterFile[] = [
  */
 export function seedStarterSet(productFolder: string): string[] {
   const written: string[] = [];
+  const root = realpathSync(productFolder);
   for (const starter of STARTER_FILES) {
     const target = join(productFolder, starter.path);
-    if (existsSync(target)) continue;
+    if (existsSync(target) || lstatSync(target, { throwIfNoEntry: false }) !== undefined) continue;
+    // A folder of the product that is a link out of it would take the file somewhere else: refused, naming it.
+    let ancestor = dirname(target);
+    while (!existsSync(ancestor)) ancestor = dirname(ancestor);
+    const real = realpathSync(ancestor);
+    if (real !== root && !real.startsWith(`${root}${sep}`)) {
+      throw new Error(`src/knowledge/seed.ts: ${ancestor} is a link to ${real}, outside the product ${productFolder}: ${target} was not written, and the starter set is not given to this product`);
+    }
     try {
       mkdirSync(dirname(target), { recursive: true });
       writeFileSync(target, starter.content, { flag: 'wx' });

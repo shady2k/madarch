@@ -94,7 +94,7 @@ export function scrollToAnchor(anchor: string, lines?: Readonly<Record<string, n
 }
 
 /** The Markdown of a page: text, `madarch:` links resolved against the page's resolutions, footnote grounds listed at the end. */
-export function KMarkdown({ text, resolutions, inDocument }: { text: string; resolutions: Readonly<Record<string, Resolution>>; inDocument?: { repo: string | null; path: string } }): ReactElement {
+export function KMarkdown({ text, resolutions, inDocument }: { text: string; resolutions: Readonly<Record<string, Resolution>>; inDocument?: { repo: string | null; path: string; anchors?: Readonly<Record<string, number>> } }): ReactElement {
   const { t } = useTranslation();
   const kindName = useKindName();
   const pending = useContext(PendingPages);
@@ -119,7 +119,11 @@ export function KMarkdown({ text, resolutions, inDocument }: { text: string; res
         // In a document: a link to another Markdown document of the same repository is a page of the wiki, a link to a
         // section of this one scrolls to it, and a link to another site opens it in a tab of its own.
         if (/^https?:\/\//i.test(href)) return <a href={href} target="_blank" rel="noreferrer noopener">{children}</a>;
-        if (href.startsWith('#')) return <a href={href} onClick={(event) => { event.preventDefault(); window.history.replaceState({}, '', `${window.location.pathname}${window.location.search}${href}`); scrollToAnchor(href.slice(1)); }}>{children}</a>;
+        if (href.startsWith('#')) {
+          let anchor = href.slice(1);
+          try { anchor = decodeURIComponent(anchor); } catch { /* the text as written names the section */ }
+          return <a href={href} onClick={(event) => { event.preventDefault(); window.history.replaceState({}, '', `${window.location.pathname}${window.location.search}${href}`); scrollToAnchor(anchor, inDocument.anchors); }}>{children}</a>;
+        }
         const target = relativeDocument(inDocument, href);
         if (target !== null) return <KLink href={addressOfDocument(inDocument.repo, target.path, target.anchor)}>{children}</KLink>;
       }

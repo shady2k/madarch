@@ -41,9 +41,22 @@ describe('the writer reads Russian', () => {
     expect(verdict.refusals.map((r) => r.rule)).toContain('ungrounded-statement');
   });
 
-  test('a statement hidden behind "См. также" is refused, as behind "See also"', async () => {
-    const verdict = await verdictOf(['## Платежи', '', 'См. также что платежи принимает отдельный сервис со своей базой данных и очередью.', '', grounds].join('\n'));
+  test('a statement hidden behind "См. также" is refused, as behind "See also", and as a statement, not as an unused footnote', async () => {
+    const verdict = await verdictOf(['## Платежи', '', 'См. также что платежи принимает отдельный сервис со своей базой данных и очередью.', '', 'Платежи принимает отдельный сервис.[^1]', '', grounds].join('\n'));
     expect(verdict.ok).toBe(false);
+    if (verdict.ok) return;
+    expect(verdict.refusals.map((refusal) => [refusal.line, refusal.rule])).toContainEqual([expect.any(Number), 'ungrounded-statement']);
+    expect(verdict.refusals.filter((refusal) => refusal.rule === 'ungrounded-statement')).toHaveLength(1);
+  });
+
+  test('an abbreviation that can end a sentence does not swallow the sentence end: the sentence before it needs its own ground', async () => {
+    const verdict = await verdictOf(['## Платежи', '', 'Комиссия составляет 500 руб. Сервис принимает платежи.[^1]', '', grounds].join('\n'));
+    expect(verdict.ok).toBe(false);
+    if (verdict.ok) return;
+    expect(verdict.refusals.map((refusal) => refusal.rule)).toContain('ungrounded-statement');
+    // The same abbreviation inside a sentence, before a lowercase word, is not an end.
+    const inside = await verdictOf(['## Платежи', '', 'Комиссия составляет 500 руб. за платёж, т.е. фиксированную сумму.[^1]', '', grounds].join('\n'));
+    expect(inside.ok, inside.ok ? '' : JSON.stringify(inside.refusals)).toBe(true);
   });
 
   test('a page in English is not refused when the product speaks Russian: the check does not read the language', async () => {

@@ -69,12 +69,11 @@ export interface UnitSummary {
 }
 
 export type FromWorker =
-  | { type: 'pins'; pins: RepositoryPin[] }
-  | { type: 'pin'; pin: RepositoryPin }
   | { type: 'progress'; repository: string; commit: number; commits: number }
   /** A phase of the fill begins: the last commit's code is read first, then the history of every commit. */
   | { type: 'phase'; repository: string; phase: 'code' | 'history' | 'points'; commits: number; newCommits: number }
-  | { type: 'snapshot'; seq: number }
+  /** A snapshot is ready; `pins` are what the repositories were filled to in it, applied when the server reads it so source and graph agree. */
+  | { type: 'snapshot'; seq: number; pins: RepositoryPin[] }
   | { type: 'fill'; state: 'done'; gaps: number }
   | { type: 'fill'; state: 'stopped' }
   | { type: 'fill'; state: 'failed'; message: string }

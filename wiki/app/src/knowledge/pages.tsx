@@ -429,14 +429,23 @@ export function DocumentsPage({ version }: { version: number }): ReactElement {
 export function DocumentPage({ repo, path, version }: { repo: string | null; path: string; version: number }): ReactElement {
   const { t } = useTranslation();
   const { data: page, error } = useRead<DocumentPageModel>(`${repo ?? ''}\0${path}`, version, (signal) => getDocument(repo, path, signal));
+  // The section the address names: it changes with a link to another section of the same document too.
+  const [hash, setHash] = useState(() => window.location.hash);
+  useEffect(() => {
+    const read = (): void => setHash(window.location.hash);
+    window.addEventListener('popstate', read);
+    window.addEventListener('hashchange', read);
+    return () => { window.removeEventListener('popstate', read); window.removeEventListener('hashchange', read); };
+  }, []);
   useEffect(() => {
     if (page === null) return;
-    const hash = decodeURIComponent(window.location.hash.replace(/^#/, ''));
-    if (hash === '') return;
+    let anchor = hash.replace(/^#/, '');
+    try { anchor = decodeURIComponent(anchor); } catch { /* the text as written names the section */ }
+    if (anchor === '') return;
     // The elements stand after this render: the section is looked for once they are in the document.
-    const handle = setTimeout(() => { scrollToAnchor(hash, page.anchors); }, 0);
+    const handle = setTimeout(() => { scrollToAnchor(anchor, page.anchors); }, 0);
     return () => clearTimeout(handle);
-  }, [page?.path, page?.repo]);
+  }, [page?.path, page?.repo, hash]);
   if (page === null && error === null) return <PageSkeleton testId="document-loading" />;
   if (page === null) {
     return (
@@ -456,7 +465,7 @@ export function DocumentPage({ repo, path, version }: { repo: string | null; pat
           {page.commit !== null && <Badge title={page.commit}>{page.commit.slice(0, 10)}</Badge>}
         </div>
       </header>
-      <KMarkdown text={page.markdown} resolutions={page.resolutions} inDocument={{ repo: page.repo, path: page.path }} />
+      <KMarkdown text={page.markdown} resolutions={page.resolutions} inDocument={{ repo: page.repo, path: page.path, anchors: page.anchors }} />
     </article>
   );
 }

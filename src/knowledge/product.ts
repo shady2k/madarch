@@ -49,6 +49,17 @@ const DOCUMENT_LIMIT = 2000;
 /** A read the wiki cannot make and can say why: its message is for the reader, who sees it in place of the page. */
 export class WikiReadError extends Error {}
 
+/**
+ * The folder a product's knowledge is kept in: named by the product's id under the knowledge root. An id with a
+ * separator or a dot segment would name another place, so it names none.
+ */
+export function storeFolderOf(storeRoot: string, id: string, manifest: string): string {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id) || id.includes('..')) {
+    throw new WikiReadError(`${manifest}: the product id ${JSON.stringify(id)} cannot name a folder (letters, digits, dots, hyphens and underscores only): the wiki keeps nothing for it`);
+  }
+  return join(storeRoot, id);
+}
+
 /** A fill worker as the server holds it: what it is told, what it says, and how it ends. */
 export interface FillWorkerHandle {
   send(message: ToWorker): void;
@@ -144,6 +155,8 @@ export class KnowledgeProduct {
   private choosing: Promise<unknown> = Promise.resolve();
   private choiceWrites = 0;
   private swapping: Promise<void> = Promise.resolve();
+  /** A reset is under way: no fill starts meanwhile, and no second reset. */
+  private resetting = false;
   private lastUse = Date.now();
   private idleTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -164,7 +177,7 @@ export class KnowledgeProduct {
   private storeFolder(): string {
     const product = this.product();
     if ('message' in product) throw new WikiReadError(product.message);
-    return join(this.options.storeRoot, product.id);
+    return storeFolderOf(this.options.storeRoot, product.id, join(this.options.productFolder, 'workspace.yaml'));
   }
 
   /** The primary store: the fill worker's alone while it runs. */
@@ -278,18 +291,24 @@ export class KnowledgeProduct {
    * have ended, closes and removes the old one. A request is never held up by this: the open runs while the old
    * snapshot answers.
    */
-  private swapReader(seq: number): Promise<void> {
+  private swapReader(seq: number, pins: readonly RepositoryPin[]): Promise<void> {
     const work = this.swapping.then(async () => {
       if (this.closed) return;
       await this.open();
       const held = this.reader!;
-      if (held.seq >= seq) return;
+      if (held.seq >= seq) {
+        for (const pin of pins) this.pins.set(pin.name, pin);
+        return;
+      }
       const path = join(this.readRoot(), String(seq));
       const owner = new RemoteOwner(path, { create: false });
       await owner.ready;
       // The new process answers its first statements slowly; it is warmed with what the old one answered, then the reads move.
       if (held.owner instanceof RemoteOwner) await owner.warm(held.owner.recent());
       this.reader = { owner, seq, path };
+      // What the repositories were filled to is applied with the snapshot it belongs to: a source is read at the commit
+      // the graph it is shown beside was filled from.
+      for (const pin of pins) this.pins.set(pin.name, pin);
       setTimeout(() => {
         void held.owner.close().catch(() => undefined).finally(() => rmSync(held.path, { recursive: true, force: true }));
       }, SNAPSHOT_KEEP_MS).unref();
@@ -367,6 +386,7 @@ export class KnowledgeProduct {
       return { started: false, message: `the repositories ${missing.map((repo) => repo.name).join(', ')} are not checked out under repos/: run "madarch bootstrap" first`, fill: this.fill };
     }
     if (this.closed) return { started: false, message: 'the wiki is shutting down', fill: this.fill };
+    if (this.resetting) return { started: false, message: 'this product is being started over: press again when it is done', fill: this.fill };
     // The press consented to one agent: a choice saved meanwhile from another tab is not the one this press was for.
     if (options.expectAgent !== undefined) {
       const saved = this.chosenAgent()?.id ?? null;
@@ -380,7 +400,10 @@ export class KnowledgeProduct {
     if (!Object.keys(CONTENT_LANGUAGES).includes(wanted)) {
       return { started: false, message: `"language" is ${JSON.stringify(wanted)}: the pages are written in ${Object.keys(CONTENT_LANGUAGES).join(' or ')}`, fill: this.fill };
     }
-    const languageChanged = options.language !== undefined && options.language !== current;
+    // The pages are in the language they were last written whole in: a run that failed half way leaves the old one on
+    // record, so the next press writes them again. Pages from before the record are judged by what this press asks.
+    const written = this.pagesLanguage();
+    const languageChanged = written !== undefined ? written !== wanted : options.language !== undefined && options.language !== current;
     if (options.language !== undefined && options.language !== read.manifest.language) {
       const set = setKindsLanguage(product.folder, options.language);
       if (set !== undefined) return { started: false, message: set, fill: this.fill };
@@ -416,6 +439,12 @@ export class KnowledgeProduct {
       failFill(`the product's graph store could not be opened: ${error instanceof Error ? error.message : String(error)}`);
       return;
     }
+    // A wiki that began shutting down while its store opened starts no worker.
+    if (this.closed) {
+      this.fill = { state: 'idle', message: 'the wiki shut down before the fill started' };
+      this.notify();
+      return;
+    }
     let worker: FillWorkerHandle;
     try {
       worker = (this.options.workerFactory ?? spawnFillWorker)();
@@ -440,6 +469,7 @@ export class KnowledgeProduct {
     const calls = new Map<number, (value: { answer: ToolAnswer; finished: boolean }) => void>();
     let callIds = 0;
     const finishedUnits = new Map<string, boolean>();
+    let workerGone = false;
     const unitsRunning: Promise<void>[] = [];
     let agent: (UnitAgent & { close(): Promise<void> }) | undefined;
     const setUnit = (unit: string, change: Partial<WriterUnit>): void => {
@@ -448,12 +478,6 @@ export class KnowledgeProduct {
     const now = (): string => (this.options.now?.() ?? new Date()).toISOString();
     const heard = async (message: FromWorker): Promise<void> => {
       switch (message.type) {
-        case 'pins':
-          for (const pin of message.pins) this.pins.set(pin.name, pin);
-          return;
-        case 'pin':
-          this.pins.set(message.pin.name, message.pin);
-          return;
         case 'progress':
           this.fill = { ...this.fill, repository: message.repository, commit: message.commit, commits: message.commits };
           this.notify();
@@ -464,7 +488,7 @@ export class KnowledgeProduct {
           return;
         case 'snapshot':
           // Not waited for: the worker's tool calls go on while the snapshot is opened beside the one in use.
-          this.swapReader(message.seq).catch((error: unknown) => {
+          this.swapReader(message.seq, message.pins).catch((error: unknown) => {
             // The reads stay on the snapshot they had; the next snapshot tries again.
             this.options.errorLog?.(`the knowledge wiki could not read the snapshot ${message.seq} of ${this.readRoot()}: ${error instanceof Error ? error.message : String(error)}`);
           }).finally(() => this.notify());
@@ -516,6 +540,7 @@ export class KnowledgeProduct {
           const tools: ToolClient = {
             definitions: message.definitions,
             call: (name, args) => new Promise((resolve) => {
+              if (workerGone) { resolve({ isError: true, answer: { error: 'worker-gone', message: 'the fill worker has ended; nothing more is answered for this unit' } } as never); return; }
               const callId = (callIds += 1);
               calls.set(callId, (value) => { finishedUnits.set(message.id, value.finished); resolve(value.answer as never); });
               worker.send({ type: 'tool', callId, unit: message.id, name, args });
@@ -547,6 +572,13 @@ export class KnowledgeProduct {
           return;
         case 'writer':
           await this.swapping.catch(() => undefined);
+          if (message.state === 'done') {
+            try {
+              await writeFile(join(this.storeFolder(), 'pages-language.json'), `${JSON.stringify({ language: run.language })}\n`, 'utf8');
+            } catch (error) {
+              this.options.errorLog?.(`the knowledge wiki could not record the language of the pages in ${this.storeFolder()}: ${error instanceof Error ? error.message : String(error)}`);
+            }
+          }
           this.writer = message.state === 'done'
             ? { ...this.writer, state: 'done', current: undefined, finishedAt: now(), ...(message.message === undefined ? {} : { message: message.message }) }
             : { ...this.writer, state: 'failed', current: undefined, finishedAt: now(), message: message.message };
@@ -569,6 +601,13 @@ export class KnowledgeProduct {
       }
     } catch (error) {
       this.options.errorLog?.(`the knowledge wiki lost the fill worker's output: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    // The worker's output has ended: a tool call still waiting for its answer never gets one, and the unit that made it
+    // is answered with an error so its agent can end.
+    workerGone = true;
+    for (const [callId, answer] of [...calls]) {
+      calls.delete(callId);
+      answer({ answer: { isError: true, answer: { error: 'worker-gone', message: 'the fill worker has ended; nothing more is answered for this unit' } } as unknown as ToolAnswer, finished: true });
     }
     const code = await worker.exited;
     await Promise.allSettled(unitsRunning);
@@ -678,7 +717,12 @@ export class KnowledgeProduct {
   resetPlan(): ResetPlan {
     const product = this.product();
     if ('message' in product) throw new WikiReadError(product.message);
-    return planReset(product.folder, this.storeFolder());
+    try {
+      return planReset(product.folder, this.storeFolder(), this.options.storeRoot);
+    } catch (error) {
+      if (error instanceof WikiReadError) throw error;
+      throw new WikiReadError(error instanceof Error ? error.message : String(error));
+    }
   }
 
   /**
@@ -687,20 +731,31 @@ export class KnowledgeProduct {
    */
   async reset(): Promise<{ ok: true; plan: ResetPlan } | { ok: false; message: string }> {
     if (this.running !== undefined) return { ok: false, message: 'a fill of this product is running; start over after it ends' };
+    if (this.resetting) return { ok: false, message: 'this product is already being started over' };
     const product = this.product();
     if ('message' in product) return { ok: false, message: product.message };
-    const plan = planReset(product.folder, this.storeFolder());
-    await this.swapping.catch(() => undefined);
-    await this.opening?.catch(() => undefined);
-    if (this.reader !== undefined) await this.reader.owner.close().catch(() => undefined);
-    this.reader = undefined;
-    this.opening = undefined;
-    this.pins.clear();
-    this.fill = { state: 'idle' };
-    this.writer = { state: 'idle', agent: null, units: [] };
-    applyReset(product.folder, plan);
-    this.notify();
-    return { ok: true, plan };
+    let plan: ResetPlan;
+    try {
+      plan = planReset(product.folder, this.storeFolder(), this.options.storeRoot);
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : String(error) };
+    }
+    this.resetting = true;
+    try {
+      await this.swapping.catch(() => undefined);
+      await this.opening?.catch(() => undefined);
+      if (this.reader !== undefined) await this.reader.owner.close().catch(() => undefined);
+      this.reader = undefined;
+      this.opening = undefined;
+      this.pins.clear();
+      this.fill = { state: 'idle' };
+      this.writer = { state: 'idle', agent: null, units: [] };
+      applyReset(product.folder, plan);
+      this.notify();
+      return { ok: true, plan };
+    } finally {
+      this.resetting = false;
+    }
   }
 
   /** Resolves when the running fill has ended; for tests and for a clean stop. */
@@ -751,6 +806,16 @@ export class KnowledgeProduct {
       manifest: read.manifest,
       findings: [...read.manifest.findings, ...markdownRead.findings],
     };
+  }
+
+  /** The language the writer last wrote the pages in whole, as kept beside the store; absent when none was recorded. */
+  private pagesLanguage(): string | undefined {
+    try {
+      const language = (JSON.parse(readFileSync(join(this.storeFolder(), 'pages-language.json'), 'utf8')) as { language?: unknown }).language;
+      return typeof language === 'string' ? language : undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   /** When the last fill of this product ended, as kept beside its store; absent when none was recorded. */

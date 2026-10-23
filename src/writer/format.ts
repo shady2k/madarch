@@ -70,7 +70,7 @@ const FRONT_KEYS = ['id', 'kind', 'title', 'relates', 'producer', 'sources'] as 
 const LINK = /\[([^\]\n]*)\]\(((?:[^()\s]|\([^()\s]*\))*)\)/g;
 const FOOTNOTE_DEFINITION = /^\[\^([A-Za-z0-9_-]+)\]:[ \t]*(.*)$/;
 const FOOTNOTE_REFERENCE = /\[\^([A-Za-z0-9_-]+)\]/g;
-const ABBREVIATION = /\b(?:[Ee]\.g|[Ii]\.e)\.|\b(?:etc|vs|cf|approx)\.(?=\s+[a-z0-9(,;])|(?<![\p{L}\p{N}])(?:т\.\s?е|т\.\s?к|т\.\s?н|т\.\s?д|т\.\s?п|и\s+т\.\s?д|и\s+т\.\s?п|напр|см|ср|рис|табл|стр|гг|руб|тыс|млн|млрд)\.(?=\s)/giu;
+const ABBREVIATION = /\b(?:[Ee]\.g|[Ii]\.e)\.|\b(?:etc|vs|cf|approx)\.(?=\s+[a-z0-9(,;])|(?<![\p{L}\p{N}])(?:[Тт]\.\s?[еквдпн]|и\s+т\.\s?[дп]|напр|[Сс]м|ср|рис|табл|стр|гг|руб|тыс|млн|млрд)\.(?=\s+[\p{Ll}\p{N}(,;])/gu;
 /** A character that stands for a masked dot; the page may not hold it (checked on entry). */
 const DOT = '\u0001';
 /** The most words a "See also" line may carry beside its links before it is read as a statement. */

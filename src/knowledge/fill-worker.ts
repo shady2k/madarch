@@ -129,13 +129,12 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
         });
       }
     });
-    send({ type: 'pins', pins: [...pins.values()] });
     let lastSnapshot = 0;
     const snapshot = async (force: boolean): Promise<void> => {
       if (!force && Date.now() - lastSnapshot < start.snapshotMs) return;
       const seq = await takeSnapshot(owner, graphPath, readRoot);
       lastSnapshot = Date.now();
-      send({ type: 'snapshot', seq });
+      send({ type: 'snapshot', seq, pins: [...pins.values()] });
     };
     const pin = async (next: RepositoryPin): Promise<void> => {
       pins.set(next.name, next);
@@ -144,7 +143,6 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
          ON CONFLICT (repo) DO UPDATE SET scope = $2, head = $3, commit_hash = $4, effective_time = $5, commits = $6::int, filled_commits = $7::int`,
         [next.name, next.scope, next.head, next.commit, next.effectiveTime, String(next.commits), String(next.filledCommits)],
       ));
-      send({ type: 'pin', pin: next });
     };
 
     // ---- the fill -------------------------------------------------------------------------

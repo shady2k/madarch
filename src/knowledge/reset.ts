@@ -10,8 +10,8 @@
  * producer, the choice of the agent, and the code repositories under `repos/`,
  * which are never opened for writing here.
  */
-import { existsSync, readdirSync, readFileSync, rmSync, rmdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readdirSync, readFileSync, realpathSync, rmSync, rmdirSync } from 'node:fs';
+import { join, resolve, sep } from 'node:path';
 
 export interface ResetPlan {
   /** Store folders and files that would be removed, absolute. */
@@ -31,13 +31,32 @@ function producerOf(text: string): string | null {
   return line === undefined ? null : line.replace(/^producer:\s*/, '').trim().replace(/^["']|["']$/g, '');
 }
 
+/** Whether the real place of a path stands inside a folder: a link out of it is not inside. */
+export function realInside(folder: string, path: string): boolean {
+  try {
+    const root = realpathSync(folder);
+    const real = realpathSync(path);
+    return real === root || real.startsWith(`${root}${sep}`);
+  } catch {
+    return false;
+  }
+}
+
 /** What a reset would remove and keep; nothing is changed. */
-export function planReset(productFolder: string, storeFolder: string): ResetPlan {
-  const store = ['graph', 'read', 'last-fill.json'].map((name) => join(storeFolder, name)).filter((path) => existsSync(path));
+export function planReset(productFolder: string, storeFolder: string, storeRoot?: string): ResetPlan {
+  // The store folder is named by the product's id: one that climbs out of the knowledge root is refused, never removed.
+  if (storeRoot !== undefined && !resolve(storeFolder).startsWith(`${resolve(storeRoot)}${sep}`)) {
+    throw new Error(`src/knowledge/reset.ts: the store folder ${storeFolder} is not inside the knowledge root ${storeRoot}: the product's id names a path outside it, so nothing was removed`);
+  }
+  const store = ['graph', 'read', 'last-fill.json', 'pages-language.json'].map((name) => join(storeFolder, name)).filter((path) => existsSync(path));
   const agentPages: string[] = [];
   const keptPages: string[] = [];
   const candidates = ['docs/product.md'];
   const domains = join(productFolder, 'docs', 'domains');
+  // A `docs` or `docs/domains` that is a link out of the product holds another repository's files, which are never read here.
+  for (const place of [join(productFolder, 'docs'), domains]) {
+    if (existsSync(place) && !realInside(productFolder, place)) throw new Error(`src/knowledge/reset.ts: ${place} is a link to a place outside the product ${productFolder}, so the pages in it are not the writer's to remove: nothing was removed`);
+  }
   if (existsSync(domains)) for (const name of readdirSync(domains).sort()) if (name.endsWith('.md')) candidates.push(`docs/domains/${name}`);
   for (const relative of candidates) {
     let text: string;

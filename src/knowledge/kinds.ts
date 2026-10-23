@@ -26,7 +26,7 @@
  * problem is left out and the others still stand, so one bad line never blanks
  * the wiki and never passes unseen.
  */
-import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { LineCounter, parseDocument } from 'yaml';
 import { lineForPath } from '../model/yaml-position.js';
@@ -227,6 +227,12 @@ export function setKindsLanguage(productFolder: string, language: string): strin
   const file = join(productFolder, KINDS_FILE);
   if (!LABEL_LANGUAGES.includes(language)) return `${file}: "${language}" is not a language of the wiki; the languages are ${LABEL_LANGUAGES.join(', ')}`;
   try {
+    // A manifest that is a link out of the product is somebody else's file: it is not rewritten.
+    if (lstatSync(file).isSymbolicLink()) {
+      const real = realpathSync(file);
+      const root = realpathSync(productFolder);
+      if (!real.startsWith(`${root}/`) && !real.startsWith(`${root}\\`)) return `${file}: the manifest is a link to ${real}, outside the product ${productFolder}, so the language is not written into it`;
+    }
     const document = parseDocument(readFileSync(file, 'utf8'));
     if (document.errors.length > 0) return `${file}: the manifest cannot be read, so the language is not written into it: ${document.errors[0]!.message.split('\n')[0]}`;
     document.set('language', language);
