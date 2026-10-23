@@ -91,24 +91,30 @@ refuses to start, saying what to build. The server runs in three modes: with
 a data folder only it answers the model routes alone; with a product folder
 only it serves the wiki alone; with both, each is answered beside the other.
 
-**Graph pages** (`src/fill/graph-pages.ts`, `src/server/graph-pages.ts`): the
-graph's own pages, read from the fill's fact store and never from a file
-(decision 0026, "Pages"). A page exists for the fact kinds the product
-registry may be about (`REGISTRY_KIND_MAPPINGS`'s `subject` role, read once in
-`src/fill/page-changes.ts`); the server answers the page set of a product
-(`/api/graph/pages`, whole, or `?fields=nav` for the four fields the navigation and
-the index draw), one node's page model — its facts with code links, its
-relations both ways, its coverage, its questions, its assumptions kept apart
-and its drafts marked (`/api/graph/page?id=…`) — and a live channel of the
-pages each publication touched (`/api/graph/events`, Server-Sent Events). The
-channel is woken by the orchestrator's own `unit-published` events, and the
-pages a publication touched are recorded in `fill_page_change` inside that
-publication's transaction (`src/fill/fact-store.ts`). The answers a reader waits
-on are kept where the process keeps them: the fill's store answers the page set,
-a page and a diagram from its own cache until a publication
-(`src/fill/page-cache.ts`), the page set's bodies are encoded once per set
-(`src/server/graph-pages.ts`), and the Architecture bundle is built once per
-revision of the product (`src/server/architecture-answer.ts`).
+**Graph pages** (`src/fill/graph-pages.ts`): the engine of the fill's own pages,
+read from the fill's fact store and never from a file (decision 0026,
+"Pages"). A page exists for the fact kinds the product registry may be about
+(`REGISTRY_KIND_MAPPINGS`'s `subject` role, read once in
+`src/fill/page-changes.ts`); one node's page model holds its facts with code
+links, its relations both ways, its coverage, its questions, its assumptions
+kept apart and its drafts marked, and the pages each publication touched are
+recorded in `fill_page_change` inside that publication's transaction
+(`src/fill/fact-store.ts`; the answers are kept in `src/fill/page-cache.ts`).
+No server route shows them since the documents app was removed
+(madarch-m38l.4): the knowledge wiki of decision 0029 is the one app.
+
+**The knowledge wiki's processes** (madarch-m38l.4). The wiki's one server
+(`src/server/http.ts`, `src/server/knowledge.ts`) never runs a fill and never
+opens a graph store itself, because PGlite runs a statement on the thread that
+owns it and a commit of the fill is seconds of statements. A fill is
+`madarch knowledge-fill-worker` (`src/knowledge/fill-worker.ts`, protocol in
+`fill-protocol.ts`): it owns the product's primary store, makes a snapshot of
+it between phases and runs the writer's non-agent work; the agent itself runs in
+the server, which answers the worker's request for each unit and relays the
+unit's tool calls. The server reads the newest snapshot through
+`madarch knowledge-read-worker` (`src/knowledge/read-worker.ts`, spoken to by
+`remote-owner.ts`), one process per snapshot, warmed with what its predecessor
+answered before the reads move to it, and closed when nobody reads.
 
 ## From a document to a reader
 
