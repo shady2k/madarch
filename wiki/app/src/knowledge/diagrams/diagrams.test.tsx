@@ -10,7 +10,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { setWikiLanguage } from '../../i18n.js';
 import { BlockView } from '../blocks.js';
 import { DiagramOpenProvider } from './open.js';
-import { layoutChain } from './chain.js';
+import { autoFolded, foldChain, layoutChain, MIN_LANE } from './chain.js';
 import { frontTab, resetTabs } from '../tabs.js';
 import type { Block, Chain, Neighborhood } from '../types.js';
 
@@ -168,6 +168,92 @@ const CHAIN: Chain = {
   total: 4,
 };
 
+/** A chain through three services of four files each, the shape that overflowed a column. */
+function wideChain(): Chain {
+  const lanes: Chain['lanes'] = [{ id: 'actor', label: 'Caller', sub: 'client', kind: 'actor', href: null, group: 'client' }];
+  for (const service of ['checkout', 'orders', 'payments']) for (const file of ['routes', 'handler', 'service', 'repository']) lanes.push({ id: `file:${service}/${file}`, label: `${file}.ts`, sub: service, kind: 'code.file', href: `/k/e/${service}-${file}`, group: service });
+  const steps: Chain['steps'] = [];
+  let n = 0;
+  const step = (from: string, to: string, label: string, kind: Chain['steps'][number]['kind'] = 'call'): void => { n += 1; steps.push({ n, from, to, label, kind, href: `/k/e/${n}`, order: 'source' }); };
+  step('actor', 'file:checkout/routes', 'POST /checkout', 'route');
+  step('file:checkout/routes', 'file:checkout/handler', 'handle');
+  step('file:checkout/handler', 'file:checkout/service', 'CheckoutService.checkout');
+  step('file:checkout/service', 'file:orders/routes', 'POST /orders', 'http');
+  step('file:orders/routes', 'file:orders/handler', 'OrderHandlers.Create');
+  step('file:orders/handler', 'file:orders/service', 'Service.Place');
+  step('file:orders/service', 'file:orders/repository', 'OrderRepository.Create');
+  step('file:orders/service', 'file:orders/service', 'localHelper');
+  step('file:checkout/service', 'file:payments/routes', 'Payments/Authorize', 'grpc');
+  step('file:payments/routes', 'file:payments/service', 'PaymentService.pay');
+  return { title: 'POST /checkout', entry: null, lanes, steps, notes: [], total: steps.length };
+}
+
+describe('the chain fits its column', () => {
+  test('the services with most files fold into one lane until the lanes fit, a step inside a folded lane is counted and not drawn, and the numbers stay', () => {
+    const chain = wideChain();
+    const folded = autoFolded(chain, 800);
+    expect([...folded].sort()).toEqual(['checkout', 'orders']);
+    const view = foldChain(chain, folded, false);
+    expect(view.lanes.map((lane) => lane.label)).toEqual(['Caller', 'checkout', 'orders', 'routes.ts', 'service.ts']);
+    expect(view.inside).toEqual([{ group: 'checkout', count: 2 }, { group: 'orders', count: 4 }]);
+    expect(view.sameFile).toBe(0);
+    expect(view.steps.map((entry) => entry.n)).toEqual([1, 4, 9, 10]);
+    const layout = layoutChain(view, 800);
+    expect(layout.width).toBeLessThanOrEqual(800);
+    for (const lane of view.lanes) expect(layout.laneX.get(lane.id)! + layout.laneW / 2).toBeLessThanOrEqual(layout.width);
+  });
+
+  test('no text of any row leaves the diagram at the widths of the wiki\'s column, with every service open or folded', () => {
+    const chain = wideChain();
+    for (const width of [560, 790, 1100]) {
+      for (const open of [false, true]) {
+        const view = foldChain(chain, open ? new Set() : autoFolded(chain, width), open);
+        const layout = layoutChain(view, width);
+        expect(layout.laneW).toBeGreaterThanOrEqual(MIN_LANE);
+        for (const row of layout.rows) {
+          const left = row.label.anchor === 'middle' ? row.label.x - row.label.width / 2 : row.label.x;
+          expect(left).toBeGreaterThanOrEqual(0);
+          expect(left + row.label.width).toBeLessThanOrEqual(layout.width);
+        }
+        if (!open) expect(layout.width).toBeLessThanOrEqual(width);
+      }
+    }
+  });
+
+  test('every step is a row of a lane that is drawn: no step of the diagram names a lane that is not there', () => {
+    const chain = wideChain();
+    for (const open of [false, true]) {
+      const view = foldChain(chain, open ? new Set() : autoFolded(chain, 600), open);
+      const ids = new Set(view.lanes.map((lane) => lane.id));
+      for (const entry of view.steps) {
+        expect(ids.has(entry.from)).toBe(true);
+        expect(ids.has(entry.to)).toBe(true);
+      }
+    }
+  });
+
+  test('the diagram says how many steps are folded and offers all of them; opening shows the files and the same-file steps', async () => {
+    Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, get: () => 600 });
+    try {
+      const block: Block = { type: 'sequence', title: 'End-to-end chain', scenario: 'x', chains: [wideChain()], entries: 1, notes: [] };
+      const container = into(createElement(BlockView, { block, resolutions: {} }));
+      await until(() => container.querySelector('[data-testid=chain-step]') !== null, 'the steps');
+      const drawn = (): number => container.querySelectorAll('[data-testid=chain-step]').length;
+      await until(() => drawn() === 3, 'the diagram fitted to the column');
+      expect(container.querySelector('[data-testid=chain-folded]')!.textContent).toBe('7 steps inside one lane or one file are folded.');
+      const all = container.querySelector('[data-testid=chain-show-all]') as unknown as HTMLElement;
+      expect(all.textContent).toBe('Show all 10 steps');
+      all.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await until(() => drawn() === 10, 'all the steps');
+      expect(container.querySelector('[data-testid=chain-scroll]')!.className).toContain('dg-scrolls');
+      (container.querySelector('[data-testid=chain-fit]') as unknown as HTMLElement).dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+      await until(() => drawn() === 3, 'the fitted diagram again');
+    } finally {
+      delete (HTMLElement.prototype as { clientWidth?: unknown }).clientWidth;
+    }
+  });
+});
+
 describe('a deferred diagram', () => {
   test('is a place with its title until its block is read, then the diagram; a failed read says why', async () => {
     const asked: string[] = [];
@@ -201,12 +287,12 @@ describe('the chain', () => {
     expect(steps[2]!.querySelector('a')).toBeNull();
     expect(container.querySelector('[data-testid=chain-unordered]')!.textContent).toContain('holds no order');
     expect(container.querySelectorAll('[data-testid=chain-lane]')).toHaveLength(5);
-    expect([...container.querySelectorAll('[data-testid=chain-group]')].map((group) => group.textContent)).toEqual(['client', 'payments', 'broker', 'orders']);
+    expect([...container.querySelectorAll('[data-testid=chain-group]')].map((group) => group.textContent)).toEqual(['client', '− payments', 'broker', 'orders']);
     expect(container.querySelector('.dg-notes')!.textContent).toBe('Branches and loops are not modelled.');
   });
 
   test('no two labels of the chain overlap, and each stays inside the diagram', () => {
-    const layout = layoutChain(CHAIN);
+    const layout = layoutChain(CHAIN, 0);
     const boxes = layout.rows.map((row) => {
       const left = row.label.anchor === 'middle' ? row.label.x - row.label.width / 2 : row.label.x;
       return { left, right: left + row.label.width, y: row.y };

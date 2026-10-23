@@ -94,7 +94,7 @@ const report: Record<string, unknown> = {};
 /** Rendered label sizes and overlaps of the SVG texts of each diagram on the page. */
 async function measure(page: Page): Promise<unknown> {
   return await page.evaluate(() => {
-    const result: Record<string, { texts: number; minFontPx: number; overlaps: string[]; clipped: string[] }> = {};
+    const result: Record<string, unknown> = {};
     document.querySelectorAll('[data-diagram]').forEach((diagram, index) => {
       const name = `${diagram.getAttribute('data-diagram')}#${index}`;
       const texts = [...diagram.querySelectorAll('svg text')].filter((node) => (node.textContent ?? '').trim() !== '') as SVGTextElement[];
@@ -109,6 +109,21 @@ async function measure(page: Page): Promise<unknown> {
       const clipped = frame === undefined ? [] : boxes.filter((box) => box.rect.width > 0 && (box.rect.right > frame.right + 1 && !diagram.querySelector('.dg-scroll'))).map((box) => box.node.textContent ?? '');
       result[name] = { texts: boxes.length, minFontPx: Math.round(Math.min(...boxes.map((box) => box.size)) * 10) / 10, overlaps: overlaps.slice(0, 8), clipped: clipped.slice(0, 5) };
     });
+    // The chain's own checks: every lane box and every row's label and arrow stands inside the visible part of its frame,
+    // and at phone width every step is a list item with its text (the diagram is not shown there).
+    const chains: Record<string, unknown>[] = [];
+    document.querySelectorAll('[data-testid=chain]').forEach((chain) => {
+      const scroll = chain.querySelector('[data-testid=chain-scroll]') as HTMLElement;
+      const frame = scroll.getBoundingClientRect();
+      const shown = frame.width > 0;
+      const outside = (rect: DOMRect): boolean => rect.right > frame.right + 1 || rect.left < frame.left - 1;
+      const lanes = [...chain.querySelectorAll('[data-testid=chain-lane] rect')].map((node) => node.getBoundingClientRect());
+      const rows = [...chain.querySelectorAll('[data-testid=chain-step]')];
+      const rowsOutside = rows.filter((row) => outside((row.querySelector('text.dg-step') as SVGTextElement).getBoundingClientRect()) || outside((row.querySelector('line, path.dg-arrow') as SVGGraphicsElement).getBoundingClientRect())).length;
+      const items = [...chain.querySelectorAll('[data-testid=chain-list] li')];
+      chains.push({ shown, scrolls: scroll.scrollWidth > scroll.clientWidth + 1, lanes: lanes.length, lanesClipped: shown ? lanes.filter(outside).length : 0, rows: rows.length, rowsOutside: shown ? rowsOutside : 0, listItems: items.length, emptyListItems: items.filter((item) => (item.textContent ?? '').trim() === '').length, listShown: (chain.querySelector('[data-testid=chain-list]') as HTMLElement).getBoundingClientRect().width > 0 });
+    });
+    if (chains.length > 0) (result as Record<string, unknown>)['chains'] = chains;
     return result;
   });
 }

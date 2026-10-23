@@ -274,7 +274,13 @@
       "commitsN": "{{count}} commits",
       "areaIsLines": "Area is the lines of the file.",
       "heatIsChurn": "Warmer is more often changed (up to {{max}} commits).",
-      "drawing": "Drawing…"
+      "drawing": "Drawing…",
+      "openLane": "{{count}} files · open",
+      "openService": "Open {{name}} into its files",
+      "foldService": "Fold {{name}} into one lane",
+      "foldedSteps": "{{count}} steps inside one lane or one file are folded.",
+      "showAll": "Show all {{count}} steps",
+      "fitChain": "Fit to the page"
     }
   },
   "loop": {

@@ -1992,3 +1992,14 @@ a.graph-diagram-element-label:hover {
   .dg-chain .dg-scroll { display: none; }
   .dg-chain-list { display: block; }
 }
+
+/* The chain's bar, the folded service lanes and the edge shadow that says the diagram scrolls sideways. */
+.dg-chain-bar { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; margin: 0 0 6px; font-size: var(--fs-small); color: var(--text-muted); }
+.dg-chain-bar:empty { display: none; }
+.dg-linkbutton { background: none; border: 0; padding: 0; font: inherit; color: var(--text); text-decoration: underline; text-decoration-color: var(--link-underline); cursor: pointer; }
+.dg-toggle { cursor: pointer; }
+.dg-toggle:focus-visible { outline: none; }
+.dg-toggle:hover .dg-node, .dg-toggle:focus-visible .dg-node { stroke: var(--text); stroke-width: 1.6; }
+.dg-lane-folded { stroke-dasharray: 5 3; fill: var(--surface-soft); }
+.dg-scroll { position: relative; background: linear-gradient(to right, var(--surface-page) 30%, transparent), linear-gradient(to left, var(--surface-page) 30%, transparent) 100% 0, radial-gradient(farthest-side at 0 50%, rgba(0,0,0,.28), transparent) 0 0, radial-gradient(farthest-side at 100% 50%, rgba(0,0,0,.28), transparent) 100% 0; background-repeat: no-repeat; background-size: 40px 100%, 40px 100%, 14px 100%, 14px 100%; background-attachment: local, local, scroll, scroll; background-color: var(--surface-page); }
+.dg-scrolls { border-right-width: 3px; border-right-color: var(--text-muted); }
