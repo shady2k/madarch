@@ -302,7 +302,7 @@ describe('the writer over the training repository', () => {
   test('every ground of every footnote resolves: a key the graph holds at the fill, or a section the document has', async () => {
     let grounds = 0;
     for (const markdown of first.pages.values()) {
-      for (const definition of markdown.split('\n').filter((l) => /^\[\^\d+\]: /.test(l))) {
+      for (const definition of markdown.split('\n').filter((l) => /^\[\^[a-z0-9-]+\]: /.test(l))) {
         for (const target of [...definition.matchAll(/\]\(madarch:([^)]+)\)/g)].map((m) => m[1]!)) {
           grounds += 1;
           if (target.startsWith('doc:')) {
@@ -324,7 +324,7 @@ describe('the writer over the training repository', () => {
   test('every entity link in the text is a key of the graph, a document section or a declared domain', async () => {
     const declared = new Set(first.report.product.domains.map((d: DomainDeclaration) => `domain:${d.slug}`));
     for (const markdown of first.pages.values()) {
-      const body = markdown.split('\n').filter((l) => !/^\[\^\d+\]: /.test(l)).join('\n');
+      const body = markdown.split('\n').filter((l) => !/^\[\^[a-z0-9-]+\]: /.test(l)).join('\n');
       for (const target of [...body.matchAll(/\]\(madarch:([^)]+)\)/g)].map((m) => m[1]!)) {
         if (target.startsWith('domain:')) expect(declared.has(target)).toBe(true);
         else if (target.startsWith('doc:')) expect(await view.docSection(target.slice(4).split('#')[0]!, target.split('#')[1]!)).toBe(true);

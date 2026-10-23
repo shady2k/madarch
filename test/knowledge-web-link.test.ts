@@ -75,7 +75,7 @@ describe('webLink: no link rather than a wrong one', () => {
 
 describe('parseRemote', () => {
   test('reads host and repository apart', () => {
-    expect(parseRemote('git@gitlab.com:a/b/c.git')).toEqual({ host: 'gitlab.com', repository: 'a/b/c', scheme: 'https', port: undefined });
-    expect(parseRemote('http://Host.Example:8080/a/b')).toEqual({ host: 'host.example', repository: 'a/b', scheme: 'http', port: '8080' });
+    expect(parseRemote('git@gitlab.com:acme/b/c.git')).toEqual({ host: 'gitlab.com', repository: 'acme/b/c', scheme: 'https', port: undefined });
+    expect(parseRemote('http://Host.Example:8080/acme/b')).toEqual({ host: 'host.example', repository: 'acme/b', scheme: 'http', port: '8080' });
   });
 });

@@ -110,7 +110,7 @@ written-at:
 [^refund-decision]: [refund](madarch:${refundKey}), [UC-1](madarch:doc:docs/requirements.md#uc-1)
 [^refund-window]: [BR-2](madarch:doc:docs/requirements.md#br-2)
 [^capture-on-ship]: [capture](madarch:${captureKey}), [BR-3](madarch:doc:docs/requirements.md#br-3)
-[^source-file]: [refund.ts](madarch:code.file:src/refund.ts)
+[^source-file]: [refund.ts](madarch:code.file\u003asrc/refund.ts)
 `;
   const product = `${front('product:shop', 'product', 'Shop', refundKey)}The shop refunds orders through the [refunds domain](madarch:domain:refunds).[^shop-refunds]
 
@@ -146,8 +146,8 @@ describe('the index of the Markdown over a filled graph', () => {
   beforeAll(async () => {
     held = await openStore('store-a');
     await fill(held);
-    refundKey = await keyOf(held.owner, 'code.symbol:src/refund.ts#refund');
-    captureKey = await keyOf(held.owner, 'code.symbol:src/refund.ts#capture');
+    refundKey = await keyOf(held.owner, 'code.symbol\u003asrc/refund.ts#refund');
+    captureKey = await keyOf(held.owner, 'code.symbol\u003asrc/refund.ts#capture');
     at = (await GraphView.open(held.owner, held.store)).at;
   }, 300_000);
 
@@ -178,9 +178,9 @@ describe('the index of the Markdown over a filled graph', () => {
     expect(onFunction.map((s) => [s.page, s.statement, s.how])).toEqual([['domain:refunds', 'refund-decision', 'grounds']]);
     expect(onFunction[0]!.text).toBe('Refunds are decided by one function.');
     expect(onFunction[0]!.file).toBe('docs/domains/refunds.md');
-    expect((await statementsRelyingOn(held.owner, 'code.file:src/refund.ts')).map((s) => s.statement)).toEqual(['source-file']);
+    expect((await statementsRelyingOn(held.owner, 'code.file\u003asrc/refund.ts')).map((s) => s.statement)).toEqual(['source-file']);
     expect((await statementsRelyingOn(held.owner, 'doc:docs/requirements.md#uc-1')).map((s) => `${s.page}#${s.statement}`)).toEqual(['domain:refunds#refund-decision', 'product:shop#shop-refunds']);
-    expect(await statementsRelyingOn(held.owner, 'code.symbol:src/nothing.ts#none')).toEqual([]);
+    expect(await statementsRelyingOn(held.owner, 'code.symbol\u003asrc/nothing.ts#none')).toEqual([]);
   });
 
   test('a page that only names an entity is listed as a mention, not as a ground', async () => {
@@ -193,10 +193,10 @@ describe('the index of the Markdown over a filled graph', () => {
   });
 
   test('a ground that resolves to nothing makes no edge and is reported with file and line', async () => {
-    const text = `---\nid: domain:broken\nkind: domain\n---\nA claim with a broken ground.[^broken]\n\n[^broken]: [x](madarch:code.symbol:src/refund.ts#nope), [y](madarch:doc:docs/requirements.md#no-such-section)\n`;
+    const text = `---\nid: domain:broken\nkind: domain\n---\nA claim with a broken ground.[^broken]\n\n[^broken]: [x](madarch:code.symbol\u003asrc/refund.ts#nope), [y](madarch:doc:docs/requirements.md#no-such-section)\n`;
     const report = await indexKnowledge(held.owner, held.store, { productId: 'shop', at, pages: [...pages(refundKey, captureKey), readIndexedPage('docs/domains/broken.md', text, sha)], head: head(), repositories });
     expect(report.unresolved.map((u) => `${u.file}:${u.line} ${u.target}`)).toEqual([
-      'docs/domains/broken.md:5 code.symbol:src/refund.ts#nope',
+      'docs/domains/broken.md:5 code.symbol\u003asrc/refund.ts#nope',
       'docs/domains/broken.md:5 doc:docs/requirements.md#no-such-section',
     ]);
     expect((await dump(held.owner)).some((l) => l.startsWith('edge knowledge:grounded-by statement:domain:broken#broken '))).toBe(false);
@@ -228,7 +228,7 @@ describe('the index of the Markdown over a filled graph', () => {
       // the function refund is untouched although its file changed; capture changed; the file as a whole changed
       expect(status('refund-decision', refundKey)).toBe('unchanged');
       expect(status('capture-on-ship', captureKey)).toBe('changed');
-      expect(status('source-file', 'code.file:src/refund.ts')).toBe('changed');
+      expect(status('source-file', 'code.file\u003asrc/refund.ts')).toBe('changed');
       const changed = changes.filter((c) => c.status === 'changed' || c.status === 'removed').map((c) => c.statement);
       expect(new Set(changed)).toEqual(new Set(['refund-window', 'capture-on-ship', 'source-file']));
       expect(changes.find((c) => c.statement === 'refund-window')!.writtenCommit).toBe(commit1);

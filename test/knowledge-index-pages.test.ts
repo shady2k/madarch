@@ -36,7 +36,7 @@ See also [ordering](madarch:domain:ordering).
 [^charge-by-service]: [payments](madarch:code.service:payments), [UC-2](madarch:doc:docs/requirements.md#uc-2)
 [^refund-check]: [BR-4](madarch:doc:docs/requirements.md#br-4)
 [^refund-window]: [BR-4](madarch:doc:docs/requirements.md#br-4)
-[^refund-policy]: [refund](madarch:code.symbol:src/refund.ts#refund)
+[^refund-policy]: [refund](madarch:code.symbol\u003asrc/refund.ts#refund)
 `;
 
 describe('readIndexedPage', () => {
@@ -60,7 +60,7 @@ describe('readIndexedPage', () => {
   test('a sentence with two footnotes is one statement with the grounds of both, named by the first', () => {
     const window = page.statements.find((s) => s.id === 'refund-window')!;
     expect(window.labels).toEqual(['refund-window', 'refund-policy']);
-    expect(window.grounds).toEqual(['doc:docs/requirements.md#br-4', 'code.symbol:src/refund.ts#refund']);
+    expect(window.grounds).toEqual(['doc:docs/requirements.md#br-4', 'code.symbol\u003asrc/refund.ts#refund']);
   });
 
   test('grounds and mentions are separate: the mention is a link in the text, the ground is a link in the footnote', () => {
