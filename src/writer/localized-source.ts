@@ -27,7 +27,7 @@ export function detectDocumentLanguage(text: string): 'en' | 'ru' | undefined {
 export function detectStatementLanguage(text: string): 'en' | 'ru' | undefined {
   const { cyrillic, latin } = languageCounts(text);
   const total = cyrillic + latin;
-  if (total < 3 || Math.min(cyrillic, latin) / total > 0.15) return undefined;
+  if (total < 2 || Math.min(cyrillic, latin) / total > 0.15) return undefined;
   return cyrillic > latin ? 'ru' : 'en';
 }
 export interface LocalizedDocumentSource {

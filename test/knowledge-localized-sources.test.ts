@@ -30,8 +30,12 @@ describe('localized document sources', () => {
     if (!unresolved.ok) expect(unresolved.message).toContain('front matter cannot be read');
     const shortRussian = renderLocalizedSource({ schema: LOCALIZED_SOURCE_SCHEMA, entity: entity.id, kind: entity.kind, wikiLanguage: 'ru', sourceLanguage: 'en', sourceDocument: entity.path, sourceLine: entity.line, sourceEndLine: entity.endLine, original: entity.text, statement: 'Не входи.' });
     expect(parseLocalizedSource('entity.md', shortRussian, entity, 'ru').ok).toBe(true);
-    const shortEnglish = renderLocalizedSource({ schema: LOCALIZED_SOURCE_SCHEMA, entity: entity.id, kind: entity.kind, wikiLanguage: 'en', sourceLanguage: 'ru', sourceDocument: entity.path, sourceLine: entity.line, sourceEndLine: entity.endLine, original: entity.text, statement: 'Do not enter.' });
+    const shortEnglish = renderLocalizedSource({ schema: LOCALIZED_SOURCE_SCHEMA, entity: entity.id, kind: entity.kind, wikiLanguage: 'en', sourceLanguage: 'ru', sourceDocument: entity.path, sourceLine: entity.line, sourceEndLine: entity.endLine, original: entity.text, statement: 'Stop.' });
     expect(parseLocalizedSource('entity.md', shortEnglish, entity, 'en').ok).toBe(true);
+    const twoLetterRussian = renderLocalizedSource({ schema: LOCALIZED_SOURCE_SCHEMA, entity: entity.id, kind: entity.kind, wikiLanguage: 'ru', sourceLanguage: 'en', sourceDocument: entity.path, sourceLine: entity.line, sourceEndLine: entity.endLine, original: entity.text, statement: 'Да.' });
+    expect(parseLocalizedSource('entity.md', twoLetterRussian, entity, 'ru').ok).toBe(true);
+    const twoLetterEnglish = renderLocalizedSource({ schema: LOCALIZED_SOURCE_SCHEMA, entity: entity.id, kind: entity.kind, wikiLanguage: 'en', sourceLanguage: 'ru', sourceDocument: entity.path, sourceLine: entity.line, sourceEndLine: entity.endLine, original: entity.text, statement: 'Go.' });
+    expect(parseLocalizedSource('entity.md', twoLetterEnglish, entity, 'en').ok).toBe(true);
     const wrong = renderLocalizedSource({ schema: LOCALIZED_SOURCE_SCHEMA, entity: entity.id, kind: entity.kind, wikiLanguage: 'ru', sourceLanguage: 'en', sourceDocument: entity.path, sourceLine: entity.line, sourceEndLine: entity.endLine, original: entity.text, statement: 'This is still an English sentence.' });
     const rejected = parseLocalizedSource('entity.md', wrong, entity, 'ru');
     expect(rejected.ok).toBe(false);
