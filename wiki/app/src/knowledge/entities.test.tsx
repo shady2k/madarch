@@ -184,6 +184,34 @@ describe('Markdown read as statements', () => {
     expect(window.location.pathname + window.location.search).toBe(addressOfStatement('domain:payment', sentence));
   });
 
+  test('a slow double click, its presses further apart than a fast one, still selects and opens nothing', async () => {
+    const container = into(createElement('div', null, createElement(TabBar), createElement(KMarkdown, { text: 'Checkout asks payments to authorize the card now.[^1]\n\n[^1]: [f](madarch:code.symbol:a.ts#F)\n', resolutions, statements: { pageId: 'domain:payment', showGrounds: false } })));
+    await until(() => container.querySelector('[data-testid=statement]') !== null && container.querySelector('[data-testid=tab]') !== null, 'the statement and the tab bar');
+    const statement = container.querySelector('[data-testid=statement]') as HTMLElement;
+    const before = container.querySelectorAll('[data-testid=tab]').length;
+    statement.dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true, detail: 1 }));
+    statement.click();
+    // A reader whose double click is slower than the fastest one: the second press still comes before the first click opens.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    statement.dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true, detail: 2 }));
+    statement.click();
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(container.querySelectorAll('[data-testid=tab]')).toHaveLength(before);
+    expect(frontTab().address).toBe('/k');
+  });
+
+  test('a click whose sentence was asked for on a page the reader left opens nothing', async () => {
+    const container = into(createElement('div', null, createElement(TabBar), createElement(KMarkdown, { text: 'Checkout asks payments to authorize the card now.[^1]\n\n[^1]: [f](madarch:code.symbol:a.ts#F)\n', resolutions, statements: { pageId: 'domain:payment', showGrounds: false } })));
+    await until(() => container.querySelector('[data-testid=statement]') !== null && container.querySelector('[data-testid=tab]') !== null, 'the statement and the tab bar');
+    const before = container.querySelectorAll('[data-testid=tab]').length;
+    (container.querySelector('[data-testid=statement]') as HTMLElement).click();
+    // The reader follows a link before the click interval is over: the page that asked for the opening is gone.
+    rendered?.unmount();
+    rendered = undefined;
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    expect(JSON.parse(window.sessionStorage.getItem('madarch-tabs:/')!).tabs).toHaveLength(before);
+  });
+
   test('a double click on a sentence can select a word without opening its statement', async () => {
     const container = into(createElement('div', null, createElement(TabBar), createElement(KMarkdown, { text: 'Checkout asks payments to authorize the card now.[^1]\n\n[^1]: [f](madarch:code.symbol:a.ts#F)\n', resolutions, statements: { pageId: 'domain:payment', showGrounds: false } })));
     await until(() => container.querySelector('[data-testid=statement]') !== null && container.querySelector('[data-testid=tab]') !== null, 'the statement and the tab bar');
@@ -257,22 +285,28 @@ describe('the tabs', () => {
     expect(JSON.parse(window.sessionStorage.getItem('madarch-tabs:/')!).tabs.map((tab: { address: string }) => tab.address)).toEqual(['/k', '/k/e/domain%3Apayment', '/k/catalogue']);
   });
 
-  test('browser Back and Forward restore the open tab that holds the history address', () => {
+  test('browser Back and Forward bring the open tab that holds the history address forward, another section of it included', async () => {
+    // The tab bar is what listens to the window's moves.
+    const container = into(createElement(TabBar));
+    await until(() => container.querySelector('[data-testid=tab]') !== null, 'the tab bar');
     openInNewTab('/k/catalogue');
-    openInNewTab('/k/docs');
+    openInNewTab('/k/doc?path=a.md#one');
     const tabs = JSON.parse(window.sessionStorage.getItem('madarch-tabs:/')!).tabs as { key: string; address: string }[];
     const catalogue = tabs.find((tab) => tab.address === '/k/catalogue')!;
-    const docs = tabs.find((tab) => tab.address === '/k/docs')!;
-    // The current docs page links to a catalogue already held in another tab.
+    const doc = tabs.find((tab) => tab.address === '/k/doc?path=a.md#one')!;
+    // The current document links to a catalogue already held in another tab.
     linkHandlers('/k/catalogue').onClick({ shiftKey: false, altKey: false, ctrlKey: false, metaKey: false, button: 0, preventDefault: () => undefined } as never);
     expect(frontTab().key).toBe(catalogue.key);
-    // Model the browser's popstate after Back, then Forward.
-    window.history.pushState({}, '', '/k/docs');
+    // Back to another section of the same document: its own tab comes forward and names where the window is now.
+    window.history.pushState({}, '', '/k/doc?path=a.md#two');
     window.dispatchEvent(new Event('popstate'));
-    expect(frontTab().key).toBe(docs.key);
+    expect(frontTab().key).toBe(doc.key);
+    expect(frontTab().address).toBe('/k/doc?path=a.md#two');
+    // Forward, to the catalogue again.
     window.history.pushState({}, '', '/k/catalogue');
     window.dispatchEvent(new Event('popstate'));
     expect(frontTab().key).toBe(catalogue.key);
+    expect(frontTab().address).toBe('/k/catalogue');
     expect(JSON.parse(window.sessionStorage.getItem('madarch-tabs:/')!).tabs).toHaveLength(3);
   });
 
@@ -300,11 +334,15 @@ describe('the tabs', () => {
   test('a tab whose window moved to another page and back is named again by the page that stayed mounted', async () => {
     const Page = (): null => { useTabTitle('Home page'); return null; };
     const container = into(createElement('div', null, createElement(TabBar), createElement(Page)));
-    await until(() => container.textContent!.includes('Home page'), 'the title');
+    await until(() => frontTab().title === 'Home page', 'the title');
+    const shown = (): string => container.querySelector('[data-testid=tab][data-active=true]')!.textContent ?? '';
     window.history.pushState({}, '', '/k/catalogue');
     window.dispatchEvent(new Event('popstate'));
-    await until(() => container.textContent!.includes('Home page'), 'the title after the move');
-    expect(container.textContent).not.toMatch(/Loading|Загрузка/);
+    // The window moved: the tab names where it is now, so its title is the loading one until the mounted page names it again.
+    await until(() => frontTab().address === '/k/catalogue', 'the move');
+    await until(() => frontTab().title === 'Home page', 'the title written again');
+    expect(shown()).toContain('Home page');
+    expect(shown()).not.toMatch(/Loading|Загрузка/);
   });
 
   test('a tab is switched to and closed; the neighbour comes to the front; the last tab stays', async () => {
@@ -602,6 +640,9 @@ describe('the statement view', () => {
     const missing = into(createElement(StatementPage, { id: 'domain:payment', sentence: 'x', version: 0 }));
     await until(() => missing.querySelector('[data-testid=statement-error]') !== null, 'the refusal');
     expect(missing.textContent).toContain('holds no statement');
+    // A page that is not there names its tab as well: no tab is left titled as loading.
+    await until(() => frontTab().title !== null && frontTab().title !== '', 'the title of the refused page');
+    expect(frontTab().title).toBe('There is no such page');
   });
 });
 
