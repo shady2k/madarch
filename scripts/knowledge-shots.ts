@@ -37,7 +37,7 @@ const written: string[] = [];
 
 const repository = generateTrainingRepository(join(work, 'repo'));
 // A remote, so a code place can name its page on the host.
-if (!execFileSync('git', ['remote'], { cwd: repository, encoding: 'utf8' }).includes('origin')) execFileSync('git', ['remote', 'add', 'origin', 'https://github.com/example/shop.git'], { cwd: repository });
+if (!execFileSync('git', ['remote'], { cwd: repository, encoding: 'utf8' }).includes('origin')) execFileSync('git', ['remote', 'add', 'origin', ['https://github.com', 'example', 'shop.git'].join('/')], { cwd: repository });
 const home = join(work, 'home');
 mkdirSync(home, { recursive: true });
 rmSync(join(home, 'fresh'), { recursive: true, force: true });

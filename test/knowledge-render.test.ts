@@ -373,7 +373,7 @@ describe('a document entity\'s page', () => {
     expect(implemented.rows.map((row) => [row.entity.id, row.entity.broken === undefined ? 'found' : 'broken'])).toEqual([
       [FILE_A, 'found'],
       [AUDIT, 'found'],
-      ['code.symbol:svc/billing/src/a.ts#nothere', 'broken'],
+      [K('code.symbol', 'svc/billing/src/a.ts#nothere'), 'broken'],
     ]);
     expect(block(model, 'refs', 1).rows).toEqual([]);
   });

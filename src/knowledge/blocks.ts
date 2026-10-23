@@ -150,7 +150,7 @@ export function attributeOf(subject: Subject, name: string): string | undefined 
     const entity = subject.entity;
     if (name === 'label') return entity.label;
     if (name === 'key' || name === 'id') return entity.key;
-    // The key after its kind and colon: the part a child's key repeats (`orders/public.orders` for `code.table:orders/public.orders`).
+    // The key after its kind and colon: the part a child's key repeats (a table's key minus its kind, for its columns).
     if (name === 'keyrest') return entity.key.slice(entity.key.indexOf(':') + 1);
     if (name === 'kind') return entity.kind;
     const whole = entity.properties[name];

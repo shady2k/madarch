@@ -970,9 +970,9 @@ export class KnowledgeProduct {
   async documents(): Promise<DocumentListing> {
     const product = this.product();
     if ('message' in product) throw new WikiReadError(product.message);
-    const read = this.kinds(product.folder);
-    if (!read.present) return { documents: [], truncated: [] };
-    const manifest = read.manifest;
+    // Listing the documents writes nothing: a product with no manifest has no pages of kinds and no excluded files.
+    const read = readKinds(product.folder);
+    const manifest: KindsManifest = read.present ? read.manifest : { file: read.file, kinds: new Map(), groups: new Map(), excludeDocuments: [], findings: [] };
     const documents: DocumentRef[] = [];
     const truncated: DocumentListing['truncated'] = [];
     // The product's own pages (the files of its Markdown kinds) are entity pages, and the manifest names the harness files that are no product document.
