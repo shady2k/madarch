@@ -181,6 +181,7 @@ describe('a read worker that ends', () => {
   test('the compiled-binary check knows the Windows bundle path as well as the Linux one', () => {
     expect(insideCompiledBinary('file:///$bunfs/root/madarch-linux-x64')).toBe(true);
     expect(insideCompiledBinary('file:///B:/~BUN/root/madarch-windows-x64.exe')).toBe(true);
+    expect(insideCompiledBinary('file:///B:/%7EBUN/root/madarch-windows-x64.exe')).toBe(true);
     expect(insideCompiledBinary('B:\\~BUN\\root\\madarch-windows-x64.exe')).toBe(true);
     expect(insideCompiledBinary('file:///work/madarch/src/adapters/database-owner.ts')).toBe(false);
   });
