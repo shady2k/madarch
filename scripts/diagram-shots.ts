@@ -101,7 +101,7 @@ async function measure(page: Page): Promise<unknown> {
     document.querySelectorAll('[data-diagram]').forEach((diagram, index) => {
       const name = `${diagram.getAttribute('data-diagram')}#${index}`;
       const texts = [...diagram.querySelectorAll('svg text')].filter((node) => (node.textContent ?? '').trim() !== '') as SVGTextElement[];
-      const boxes = texts.map((node) => ({ node, rect: node.getBoundingClientRect(), size: parseFloat(getComputedStyle(node).fontSize) * (node.getScreenCTM()?.a ?? 1) }));
+      const boxes = texts.map((node) => ({ node, rect: node.getBoundingClientRect(), size: parseFloat(getComputedStyle(node).fontSize) * (typeof node.getScreenCTM === 'function' ? node.getScreenCTM()?.a ?? 1 : 1) }));
       const overlaps: string[] = [];
       for (let i = 0; i < boxes.length; i += 1) for (let j = i + 1; j < boxes.length; j += 1) {
         const a = boxes[i]!.rect; const b = boxes[j]!.rect;
@@ -129,7 +129,8 @@ const MEASURE_LABELS = `(() => {
       if (rect.width < 1 || rect.height < 1) return;
       const style = getComputedStyle(node);
       if (style.visibility === 'hidden' || style.display === 'none') return;
-      const scale = node instanceof SVGElement ? (node.getScreenCTM() ? node.getScreenCTM().a : 1) : (node.offsetHeight > 0 ? rect.height / node.offsetHeight : 1);
+      // An SVG element that is not a graphics element (a <title>, a <defs> child) has no screen matrix: it is measured unscaled.
+      const scale = node instanceof SVGElement ? (typeof node.getScreenCTM === 'function' ? node.getScreenCTM().a : 1) : (node.offsetHeight > 0 ? rect.height / node.offsetHeight : 1);
       found.push({ text: own, rect, size: parseFloat(style.fontSize) * scale });
     });
   };
@@ -168,7 +169,7 @@ async function walkViews(page: Page, entry: { name: string }, tag: string): Prom
         const label = `${entry.name}-${type}-${renderer}-${tag}`;
         await block.screenshot({ path: join(out, `${label}.png`) });
         const measures: Record<string, unknown>[] = [];
-        if (renderer === 'mermaid') measures.push((await page.evaluate(`(() => { const root = document.querySelectorAll('[data-diagram=views]')[${blockAt}].querySelector('[data-testid=view-picture]'); const texts = [...root.querySelectorAll('svg text, svg foreignObject *')].filter((n) => (n.textContent||'').trim() !== '' && n.children.length === 0); const boxes = texts.map((n) => ({ t: n.textContent.trim(), r: n.getBoundingClientRect(), s: parseFloat(getComputedStyle(n).fontSize) * (n.getScreenCTM() ? n.getScreenCTM().a : 1) })).filter((b) => b.r.width > 0); const over = []; for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) { const a = boxes[i].r, b = boxes[j].r; const w = Math.min(a.right, b.right) - Math.max(a.left, b.left), h = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top); if (w > 1.5 && h > 1.5) over.push(boxes[i].t + ' / ' + boxes[j].t); } return { texts: boxes.length, minFontPx: boxes.length ? Math.round(Math.min(...boxes.map((b) => b.s)) * 10) / 10 : null, overlaps: over.slice(0, 8), overlapCount: over.length }; })()`)) as Record<string, unknown>);
+        if (renderer === 'mermaid') measures.push((await page.evaluate(`(() => { const root = document.querySelectorAll('[data-diagram=views]')[${blockAt}].querySelector('[data-testid=view-picture]'); const texts = [...root.querySelectorAll('svg text, svg foreignObject *')].filter((n) => (n.textContent||'').trim() !== '' && n.children.length === 0); const boxes = texts.map((n) => ({ t: n.textContent.trim(), r: n.getBoundingClientRect(), s: parseFloat(getComputedStyle(n).fontSize) * (typeof n.getScreenCTM === 'function' ? n.getScreenCTM()?.a ?? 1 : 1) })).filter((b) => b.r.width > 0); const over = []; for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) { const a = boxes[i].r, b = boxes[j].r; const w = Math.min(a.right, b.right) - Math.max(a.left, b.left), h = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top); if (w > 1.5 && h > 1.5) over.push(boxes[i].t + ' / ' + boxes[j].t); } return { texts: boxes.length, minFontPx: boxes.length ? Math.round(Math.min(...boxes.map((b) => b.s)) * 10) / 10 : null, overlaps: over.slice(0, 8), overlapCount: over.length }; })()`)) as Record<string, unknown>);
         else if (renderer === 'likec4') {
           // LikeC4 draws into the page's own tree, so its labels are read inside the block that holds it.
           const inBlock = MEASURE_LABELS.replace('walk(document);', `walk(document.querySelectorAll('[data-diagram=views]')[${blockAt}]);`);
