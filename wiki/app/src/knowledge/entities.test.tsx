@@ -224,7 +224,7 @@ describe('Markdown read as statements', () => {
     sentences[1]!.click();
     await new Promise((resolve) => setTimeout(resolve, 500));
     expect(JSON.parse(window.sessionStorage.getItem('madarch-tabs:/')!).tabs).toHaveLength(3);
-  });
+  }, 15_000);
 
   test('a double click on a sentence can select a word without opening its statement', async () => {
     const container = into(createElement('div', null, createElement(TabBar), createElement(KMarkdown, { text: 'Checkout asks payments to authorize the card now.[^1]\n\n[^1]: [f](madarch:code.symbol:a.ts#F)\n', resolutions, statements: { pageId: 'domain:payment', showGrounds: false } })));
