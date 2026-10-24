@@ -64,6 +64,13 @@ export function bindMermaid(root: HTMLElement, elements: readonly ViewElement[],
 }
 
 /**
+ * The diagram is drawn at its natural size and panned, never shrunk to fit: LikeC4 measures its labels in diagram units,
+ * and a fit that squeezes sixty elements into a column drew them 2-3 px high (the owner's review of 2026-10-24). The
+ * props reach `LikeC4Diagram`, which reads them ahead of its own defaults.
+ */
+const LIKE_C4_SIZE = { fitView: false, initialZoom: 1, minZoom: 0.4 } as unknown as Record<string, never>;
+
+/**
  * A click on a LikeC4 element opens its page: LikeC4 reports the click as a diagram event, and the element's own id
  * names the address the server sent beside the model. It renders nothing — it is mounted inside the diagram so the
  * event reaches it.
@@ -122,7 +129,7 @@ function Frame({ view, renderer, lang, onOpen }: { view: DiagramView; renderer: 
   const content = renderer === 'likec4' && likeC4Model
     ? (
       <LikeC4ModelProvider likec4model={likeC4Model}>
-        <LikeC4View className="dg-likec4-view" viewId="index" pannable zoomable controls>
+        <LikeC4View className="dg-likec4-view" viewId="index" pannable zoomable controls {...LIKE_C4_SIZE}>
           <NodeClicks links={likeC4?.elementLinks ?? {}} onOpen={onOpen} />
         </LikeC4View>
       </LikeC4ModelProvider>

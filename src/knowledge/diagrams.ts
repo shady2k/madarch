@@ -808,9 +808,12 @@ export async function modulesBlockModel(ctx: RenderContext, subject: Subject): P
   const inCycle = new Set([...cycles.values()].flat());
   const cycleOf = (a: string, b: string): boolean => [...cycles.values()].some((members) => members.includes(a) && members.includes(b));
   const prefix = root === '.' ? '' : `${root}/`;
-  const nodes: ModuleNode[] = inside.map((module) => ({
-    id: module.key, label: module.key.slice('code.module:'.length).slice(prefix.length) || '.', files: Number(module.properties['files'] ?? 0), href: refOfGraph(ctx, module).href, cycle: inCycle.has(module.key),
-  }));
+  const nodes: ModuleNode[] = inside.map((module) => {
+    // The module of the service's own folder stands for the service: it is named by the service, never by "." — a
+    // reader was shown a box called "."
+    const tail = module.key.slice('code.module:'.length).slice(prefix.length);
+    return { id: module.key, label: tail === '' ? subject.entity.label : tail, files: Number(module.properties['files'] ?? 0), href: refOfGraph(ctx, module).href, cycle: inCycle.has(module.key) };
+  });
   const edges: ModuleEdge[] = dependsOn.rows
     .filter((edge) => keys.has(edge.from.key) && keys.has(edge.to.key))
     .map((edge) => ({ from: edge.from.key, to: edge.to.key, cycle: cycleOf(edge.from.key, edge.to.key) }));

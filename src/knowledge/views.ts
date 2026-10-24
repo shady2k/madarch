@@ -178,6 +178,15 @@ export interface GraphView {
   mermaid?: string;
 }
 
+/** Russian counts a noun in three forms: one, two to four, and the rest. */
+function russianPlural(n: number, one: string, few: string, many: string): string {
+  const rest10 = n % 10;
+  const rest100 = n % 100;
+  if (rest10 === 1 && rest100 !== 11) return one;
+  if (rest10 >= 2 && rest10 <= 4 && (rest100 < 12 || rest100 > 14)) return few;
+  return many;
+}
+
 /** The three languages' words inside a diagram. */
 const WORDS = {
   en: {
@@ -187,6 +196,7 @@ const WORDS = {
     caller: 'Caller', foreignKey: 'foreign key', routesTo: 'routes to', builds: 'builds', dependsOn: 'depends on', builtBy: 'built by', replicas: (n: number) => `${n} replica${n === 1 ? '' : 's'}`,
     folded: (n: number, g: string) => `${n} in ${g}`, truncated: (shown: number, total: number) => `Showing ${shown} of ${total}.`,
     columnsTruncated: (list: string) => `Some columns are not drawn: ${list}.`,
+    files: (n: number) => `${n} ${n === 1 ? 'file' : 'files'}`, cycle: 'cycle',
     noServices: 'The graph holds no service yet.', noModules: (root: string) => `The graph holds no module under ${root}.`, noTables: 'The graph holds no table here.',
     noMachines: 'No transition table was found in the code of this page.', noDeploy: 'The graph holds no compose service, Kubernetes deployment or Dockerfile.',
     noEntry: 'No route or function of the graph starts a chain here.', outside: (n: number) => `${n} links to elements outside this folder are not drawn.`,
@@ -205,6 +215,7 @@ const WORDS = {
     caller: 'Вызывающий', foreignKey: 'внешний ключ', routesTo: 'направляет на', builds: 'собирает', dependsOn: 'зависит от', builtBy: 'собран из', replicas: (n: number) => `реплик: ${n}`,
     folded: (n: number, g: string) => `${n} в ${g}`, truncated: (shown: number, total: number) => `Показано ${shown} из ${total}.`,
     columnsTruncated: (list: string) => `Часть столбцов не нарисована: ${list}.`,
+    files: (n: number) => `${n} ${russianPlural(n, 'файл', 'файла', 'файлов')}`, cycle: 'цикл',
     noServices: 'В графе пока нет ни одного сервиса.', noModules: (root: string) => `В графе нет модулей в ${root}.`, noTables: 'В графе здесь нет таблиц.',
     noMachines: 'В коде этой страницы не найдено таблицы переходов.', noDeploy: 'В графе нет ни сервисов compose, ни развёртываний Kubernetes, ни Dockerfile.',
     noEntry: 'Ни один маршрут или функция графа не начинает здесь цепочку.', outside: (n: number) => `Связи с элементами за пределами этой папки (${n}) не нарисованы.`,
@@ -395,10 +406,10 @@ async function componentView(ctx: RenderContext, spec: ViewSpec, w: Words): Prom
     nodes = members;
     edges = edges.filter((edge) => ids.has(edge.from) && ids.has(edge.to));
     if (outside > 0) notes.push(w.outside(outside));
-    const elements = nodes.map((node): ViewElement => ({ id: node.id, label: node.label, kind: 'component', detail: `${node.files} files`, href: node.href, dashed: false }));
+    const elements = nodes.map((node): ViewElement => ({ id: node.id, label: node.label, kind: 'component', detail: w.files(node.files), href: node.href, dashed: false }));
     return { spec, title: `${title} / ${spec.scope}`, label: w.components, elements, edges: edges.map((edge) => ({ from: edge.from, to: edge.to, label: edge.cycle ? 'cycle' : w.dependsOn, dashed: false })), notes, empty: null, up: { spec: { type: 'c4-component', subject: spec.subject }, title }, marker };
   }
-  let elements: ViewElement[] = nodes.map((node) => ({ id: node.id, label: node.label, kind: 'component', detail: `${node.files} files${node.cycle ? ' · cycle' : ''}`, href: node.href, dashed: false }));
+  let elements: ViewElement[] = nodes.map((node) => ({ id: node.id, label: node.label, kind: 'component', detail: `${w.files(node.files)}${node.cycle ? ` · ${w.cycle}` : ''}`, href: node.href, dashed: false }));
   let arrows: ViewEdge[] = edges.map((edge) => ({ from: edge.from, to: edge.to, label: edge.cycle ? 'cycle' : w.dependsOn, dashed: false }));
   const folded = foldInto(nodes.map((node) => ({ id: node.id })), (item) => topFolder(byKey.get(item.id)!.label), NODE_BUDGET);
   if (folded !== undefined) {

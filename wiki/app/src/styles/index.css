@@ -852,7 +852,9 @@ main .footnotes {
 .diagram-mermaid svg {
   display: block;
   margin-inline: auto;
-  max-width: 100%;
+  /* Natural size, scrolled by the box that holds it: a svg squeezed to a column's width keeps its shape and loses its
+     words (the owner's review of 2026-10-24 read 2-3 px labels). */
+  max-width: none;
   height: auto;
 }
 
@@ -1890,7 +1892,11 @@ a.graph-diagram-element-label:hover {
 .dg-caption { color: var(--text-muted); margin-right: 2px; }
 .dg-spacer { flex: 1 1 auto; }
 .dg-chip { min-height: 28px; padding: 0 8px; font-size: 13px; line-height: 1; white-space: nowrap; border: 1px solid var(--border); background: var(--surface-page); }
-.dg-chip[data-state='off'] { opacity: 0.55; text-decoration: line-through; }
+/* A tab that is one click away is a normal tab, not a disabled one: the selected one is marked, the others only sit
+   quietly beside it (the owner's review of 2026-10-24 read the strike-through as "unavailable"). */
+.dg-chip[data-state='off'] { opacity: 0.9; }
+.dg-chip[data-state='off']:hover { background: var(--surface-hover); }
+.dg-chip[data-state='on'] { border-color: var(--text); font-weight: 600; }
 .dg-count { color: var(--text-muted); font-variant-numeric: tabular-nums; margin-left: 4px; }
 .dg-viewport { position: relative; overflow: hidden; touch-action: pan-y; cursor: grab; background: var(--surface-page); }
 .dg-viewport:active { cursor: grabbing; }
@@ -2022,9 +2028,11 @@ a.graph-diagram-element-label:hover {
 
 /* The drawn views (C4, sequence, ER, state, deployment) under their renderer tabs. */
 .dg-switcher { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; }
-.dg-picture { background: var(--surface-page); }
+.dg-picture { background: var(--surface-page); overflow-x: auto; }
 .dg-picture .diagram-mermaid { border: 0; border-radius: 0; margin: 0; }
-.dg-frame-box { position: relative; background: var(--surface-page); }
+/* A frame the diagram is bigger than: it scrolls sideways at the diagram's natural size instead of shrinking it. */
+.dg-frame-box { position: relative; background: var(--surface-page); overflow-x: auto; }
+.dg-frame-box > * { min-width: 1080px; }
 .dg-likec4-view { width: 100%; height: 540px; min-height: 360px; }
 @media (max-width: 700px) { .dg-likec4-view { height: 420px; } }
 .dg-full .dg-likec4-view { height: calc(100vh - 190px); min-height: 360px; }

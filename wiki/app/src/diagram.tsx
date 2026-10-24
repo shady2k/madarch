@@ -57,7 +57,12 @@ export function MermaidDiagram({ source, title, bind }: { source: string; title?
           startOnLoad: false,
           securityLevel: 'strict',
           theme: mermaidThemeOf(scheme),
-          flowchart: { curve: 'linear', useMaxWidth: true, htmlLabels: false },
+          // A diagram is drawn at its natural size and the frame scrolls or pans over it: a picture squeezed into a
+          // narrow column would keep its shape and lose its words (the owner's review of 2026-10-24 read 2-3 px labels).
+          flowchart: { curve: 'linear', useMaxWidth: false, htmlLabels: false },
+          sequence: { useMaxWidth: false },
+          er: { useMaxWidth: false },
+          state: { useMaxWidth: false },
         });
         const id = `wiki-mermaid-${Math.random().toString(36).slice(2)}`;
         const drawn = await mermaid.render(id, source);
