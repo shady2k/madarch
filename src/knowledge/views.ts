@@ -437,10 +437,6 @@ async function componentView(ctx: RenderContext, spec: ViewSpec, w: Words): Prom
 
 // ---- ER ----------------------------------------------------------------------------------------------
 
-const erName = (label: string): string => label.replace(/[^A-Za-z0-9_]/g, '_');
-
-/** The name a reader reads on an ER box: the table's own name, escaped for Mermaid's quoted alias. */
-const erAlias = (label: string): string => label.replace(/["%\\\r\n]/g, ' ');
 const erType = (type: unknown): string => {
   const word = String(type ?? 'text').trim().replace(/\s+/g, '_').replace(/[^A-Za-z0-9_(),-]/g, '');
   return word === '' ? 'text' : word;
@@ -501,18 +497,17 @@ async function erView(ctx: RenderContext, spec: ViewSpec, w: Words, limit: numbe
     ...(total > tables.length ? [w.truncated(tables.length, total)] : []),
     ...(hiddenColumns.length === 0 ? [] : [w.columnsTruncated(hiddenColumns.join('; '))]),
   ];
-  // Mermaid's own ER syntax reads best, and every line here is a fact.
-  const lines = ['erDiagram'];
-  const mermaidId = new Map(elements.map((element, index) => [element.id, `table${index}`]));
-  for (const [index, element] of elements.entries()) {
-    // The entity's id is the table's position — two schemas may hold a table of one name — and the alias is the name
-    // a reader reads on the box.
-    lines.push(`  ${mermaidId.get(element.id)!}["${erAlias(element.label)}"] {`);
-    for (const column of element.columns ?? []) lines.push(`    ${erType(column.type)} ${erName(column.name)}${column.key ? ' PK' : ''}`);
-    lines.push('  }');
+  // A flowchart, not Mermaid's own ER syntax: a table carries its name and its columns on one box with a link to its
+  // page, and every arrow here is a fact the graph holds. The curve setting is the one the wiki's other pictures carry,
+  // so a reader sees one style of line throughout.
+  const lines = ['%%{init: {"flowchart": {"curve": "linear"}}}%%', 'flowchart LR'];
+  const mermaidId = new Map(elements.map((element, index) => [element.id, `n${index}`]));
+  for (const element of elements) {
+    const columns = (element.columns ?? []).map((column) => `${column.name} ${column.type}`).join(', ');
+    const label = columns === '' ? element.label : `${element.label}: ${columns}`;
+    lines.push(`  ${mermaidId.get(element.id)!}[("${label.replace(/"/g, "'")}")]`);
   }
-  const byId = new Map(elements.map((element) => [element.id, element]));
-  for (const edge of edges) lines.push(`  ${mermaidId.get(edge.from)!} }o--|| ${mermaidId.get(edge.to)!} : "${edge.label}"`);
+  for (const edge of edges) lines.push(`  ${mermaidId.get(edge.from)!} -->|"${edge.label}"| ${mermaidId.get(edge.to)!}`);
   return { spec, title, label: w.er, elements, edges, notes, empty: null, up, marker: null, mermaid: lines.join('\n') };
 }
 

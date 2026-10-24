@@ -39,11 +39,11 @@ export function bindMermaid(root: HTMLElement, elements: readonly ViewElement[],
   elements.forEach((element, index) => {
     if (element.href === null) return;
     const href = element.href;
-    const selectors = type === 'er'
-      ? [`[id^="entity-table${index}-"]`]
-      : type === 'state' ? [`[id^="state-s${index}-"]`]
-        : type === 'sequence' ? [`[name="n${index}"]`]
-          : [`[id^="flowchart-n${index}-"]`];
+    // An ER picture is a flowchart like the C4 ones now (its tables are nodes with their columns on the box), so it
+    // finds its boxes the way every flowchart does.
+    const selectors = type === 'state' ? [`[id^="state-s${index}-"]`]
+      : type === 'sequence' ? [`[name="n${index}"]`]
+        : [`[id^="flowchart-n${index}-"]`];
     for (const selector of selectors) {
       for (const node of Array.from(root.querySelectorAll<SVGElement>(selector))) {
         const target = node.closest('g') ?? node;
