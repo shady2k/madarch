@@ -20,6 +20,11 @@ export type ChangeNote =
     }
   | { readonly kind: 'answer'; readonly question: string; readonly title: string; readonly answer: string; readonly by: string; readonly at: string; readonly sides: readonly Side[] }
   | { readonly kind: 'correction'; readonly correction: string; readonly statement: string; readonly sentence: string; readonly reason: string; readonly by: string }
+  /**
+   * A person planned this change and confirmed the task it became (madarch-m38l.14): the grounds it stands on and the
+   * sentences of this page that stand on them are exactly what the agent was told to change.
+   */
+  | { readonly kind: 'task'; readonly task: string; readonly title: string; readonly grounds: readonly string[]; readonly statements: readonly { readonly name: string; readonly sentence: string }[] }
   | { readonly kind: 'new-service'; readonly services: readonly string[] }
   | { readonly kind: 'language'; readonly from: string | null; readonly to: string }
   | { readonly kind: 'missing' };
@@ -57,6 +62,14 @@ function noteText(note: ChangeNote): string[] {
       ];
     case 'correction':
       return [`- A person CORRECTED the statement [^${note.statement}] (madarch:correction:${note.correction}), ${note.by}: "${note.sentence}" is wrong, because:`, fenced(note.reason)];
+    case 'task':
+      return [
+        `- A person PLANNED this change and confirmed the task (madarch:task:${note.task}): "${note.title}".`,
+        `  Its grounds: ${note.grounds.join(', ')}.`,
+        ...(note.statements.length === 0
+          ? ['  No sentence of this page stands on those grounds: check whether the page still says what they say.']
+          : ['  The sentences of this page that stand on them, and that change because of this task:', ...note.statements.map((statement) => `  - [^${statement.name}]: "${statement.sentence}"`)]),
+      ];
     case 'new-service':
       return [`- The graph has ${note.services.length === 1 ? 'a service' : 'services'} no page names yet: ${note.services.join(', ')}. Look at ${note.services.length === 1 ? 'it' : 'them'} and say what the page now lacks.`];
     case 'language':

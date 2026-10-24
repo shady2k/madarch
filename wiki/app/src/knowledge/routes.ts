@@ -15,6 +15,8 @@ export type KRoute =
   | { name: 'problems' }
   | { name: 'settings' }
   | { name: 'journal'; id: string; run: string | null }
+  | { name: 'tasks' }
+  | { name: 'task'; id: string }
   | { name: 'statement'; id: string; sentence: string; turn: number };
 
 export const K_HOME = '/k';
@@ -28,6 +30,9 @@ export const K_SETTINGS = '/k/settings';
 export function addressOfJournal(id: string, run?: string): string {
   return `/k/journal?${new URLSearchParams({ id, ...(run === undefined ? {} : { run }) }).toString()}`;
 }
+export const K_TASKS = '/k/tasks';
+/** Where one task stands: its scope, its impact and the way to fix the pages now (madarch-m38l.14). */
+export const addressOfTask = (id: string): string => `/k/task?${new URLSearchParams({ id }).toString()}`;
 export const addressOfQuestion = (slug: string): string => `/k/questions/${encodeURIComponent(slug)}`;
 /** Where the statement view of a sentence of a page stands. */
 export function addressOfStatement(id: string, sentence: string, turn = 0): string {
@@ -61,6 +66,12 @@ export function kRouteOf(pathname: string, search = ''): KRoute | null {
     const query = new URLSearchParams(search);
     const id = query.get('id');
     return id === null || id === '' ? { name: 'home' } : { name: 'journal', id, run: query.get('run') };
+  }
+  if (path === '/k/tasks' || path === '/k/tasks/') return { name: 'tasks' };
+  if (path === '/k/task') {
+    const query = new URLSearchParams(search);
+    const id = query.get('id');
+    return id === null || id === '' ? { name: 'tasks' } : { name: 'task', id };
   }
   if (path.startsWith('/k/e/')) {
     try {
