@@ -500,6 +500,13 @@ if (only === '' || only === 'tasks') {
     const page = await open(question, combo.width, combo.width === 390 ? 1600 : 1500, combo.scheme);
     await page.evaluate((language) => { try { window.localStorage.setItem('madarch-wiki-language', language); } catch { /* the browser's own language */ } }, combo.lang);
     await page.goto(`${server.url}${question}`, { waitUntil: 'domcontentloaded' });
+    // A machine the walk never used asks which role it reads as: the card is answered once, and the page is read again.
+    const role = await page.$('[data-testid=role-skip]');
+    if (role !== null) {
+      await role.click();
+      await page.waitForFunction(() => document.querySelector('[data-testid=role-card]') === null, { timeout: 30_000 });
+      await page.goto(`${server.url}${question}`, { waitUntil: 'domcontentloaded' });
+    }
     await waited(page, `the task choice (${tag(combo)})`, () => page.waitForSelector('[data-testid=task-choice-code]', { timeout: 120_000 }));
     await page.click('[data-testid=task-choice-code]');
     await page.click('[data-testid=task-propose]');

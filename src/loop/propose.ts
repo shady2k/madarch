@@ -15,9 +15,9 @@
  */
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import { byCodePoint } from '../model/order.js';
-import { readKnowledgePages } from '../knowledge/index/index.js';
 import { readQuestions, type Question } from './entities.js';
 import { impactOf, type TaskImpact } from './impact.js';
+import { groundsOfScope } from './planned.js';
 import type { TaskScope } from './tasks.js';
 
 /** The reader's choice: the code is right and the documents are old, or the documents are right and the code must change. */
@@ -40,7 +40,7 @@ export class ProposalRefusal extends Error {}
 const TITLE_PREFIX: Record<TaskChoice, string> = { code: 'Update the documents', docs: 'Fix the code' };
 
 /** The scope a ground names, when it names one of the product's places; undefined when it names no place. */
-export function scopeOfGround(ground: string, filesById: ReadonlyMap<string, string>): TaskScope | undefined {
+export function scopeOfGround(ground: string): TaskScope | undefined {
   const doc = /^doc:([^#]+)(?:#(.+))?$/.exec(ground);
   if (doc !== null) return doc[2] === undefined || doc[2] === '' ? { type: 'file', path: doc[1]! } : { type: 'section', path: doc[1]!, anchor: doc[2].toLowerCase() };
   const symbol = /^code\.symbol:(.+)$/.exec(ground);
@@ -50,8 +50,7 @@ export function scopeOfGround(ground: string, filesById: ReadonlyMap<string, str
   // A statement of a page keeps its own name; a page of the product becomes its file, so the scope names where it is written.
   const statement = /^((?:product|domain):[a-z][a-z0-9-]*)#([^#]+)$/.exec(ground);
   if (statement !== null) return { type: 'statement', key: ground };
-  const page = filesById.get(ground);
-  if (page !== undefined) return { type: 'file', path: page };
+  // A bare page id names where the question was asked, not a place to change: it becomes no scope.
   return undefined;
 }
 
@@ -68,20 +67,20 @@ export async function proposeTask(input: { readonly owner: DatabaseOwner; readon
   if (question.answer === null) throw new ProposalRefusal(`${question.file}:1: the question ${question.slug} has no answer yet, so it proposes no task: answer it first`);
   const grounds = [...new Set([...question.about, ...question.sides.flatMap((side) => side.grounds)])].sort(byCodePoint);
   if (grounds.length === 0) throw new ProposalRefusal(`${question.file}:1: the question ${question.slug} names no ground, so a task from it would change nothing`);
-  const pages = readKnowledgePages(input.productFolder);
-  const filesById = new Map(pages.pages.map((page) => [page.id, page.file] as const));
   // Which side the task changes decides the scope: «Прав код, документ устарел» changes the documents the answer names,
   // «Прав документ, код нужно исправить» changes the code it names. The whole grounds stay the task's evidence either way.
   const side = grounds.filter((ground) => (input.choice === 'docs' ? ground.startsWith('code.') : !ground.startsWith('code.')));
   const mine = side.length > 0 ? side : grounds;
   const scopes = new Map<string, TaskScope>();
   for (const ground of mine) {
-    const scope = scopeOfGround(ground, filesById);
+    const scope = scopeOfGround(ground);
     if (scope !== undefined) scopes.set(scopeKey(scope), scope);
   }
   if (scopes.size === 0) throw new ProposalRefusal(`${question.file}:1: none of the grounds of ${question.slug} names a place of the product, so a task from it would mark nothing: ${grounds.join(', ')}`);
   const scope = [...scopes.values()].sort((a, b) => byCodePoint(JSON.stringify(a), JSON.stringify(b)));
-  const impact = await impactOf(input.owner, input.productFolder, grounds);
+  // The preview is what the scope reaches: the sections the task changes, not the evidence of the whole answer.
+  const keys = [...new Set([...scopes.values()].flatMap((scope) => groundsOfScope(scope)))].sort(byCodePoint);
+  const impact = await impactOf(input.owner, input.productFolder, keys.length === 0 ? grounds : keys);
   const title = `${TITLE_PREFIX[input.choice]}: ${question.title}`;
   return {
     choice: input.choice,
