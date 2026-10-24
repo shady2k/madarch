@@ -351,6 +351,8 @@ export interface WikiStatus {
 export interface DocumentRef {
   repo: string | null;
   path: string;
+  /** The first heading of the document, else its file name without the extension. */
+  title: string;
 }
 
 export interface DocumentListing {
@@ -375,7 +377,9 @@ export interface DocumentPage {
 /** What a ground shows of what it points at: the lines of code with the cited ones marked, or the text of the section. */
 export type Excerpt =
   | { type: 'code'; location: CodeLocation; language: string; firstLine: number; text: string; marked: { start: number; end: number }; truncated: boolean }
-  | { type: 'text'; markdown: string; place: { repo: string | null; path: string; lineStart: number; lineEnd: number; href: string } };
+  | { type: 'text'; markdown: string; place: { repo: string | null; path: string; lineStart: number; lineEnd: number; href: string } }
+  /** A thing of the system (a service, a database, a channel, a contract): its card, not the file it was read from. */
+  | { type: 'entity'; entity: EntityRef; facts: { name: string; value: string }[]; related: RelatedGroup[] };
 
 /** One ground of a statement with its excerpt. */
 export interface GroundView {

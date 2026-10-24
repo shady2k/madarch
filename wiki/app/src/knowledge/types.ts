@@ -224,13 +224,14 @@ export type GlossaryTerm = { id: string; title: string; definition: string; syno
 export type Glossary = { terms: GlossaryTerm[]; resolutions: Record<string, Resolution>; findings: Finding[] };
 export type UserSettings = { role: string; asked: boolean; roles: string[] };
 
-export type DocumentRef = { repo: string | null; path: string };
+export type DocumentRef = { repo: string | null; path: string; title: string };
 export type DocumentListing = { documents: DocumentRef[]; truncated: { repo: string | null; total: number; shown: number }[] };
 export type DocumentPageModel = { repo: string | null; path: string; title: string; markdown: string; resolutions: Record<string, Resolution>; anchors: Record<string, number>; commit: string | null };
 
 export type Excerpt =
   | { type: 'code'; location: CodeLocation; language: string; firstLine: number; text: string; marked: { start: number; end: number }; truncated: boolean }
-  | { type: 'text'; markdown: string; place: { repo: string | null; path: string; lineStart: number; lineEnd: number; href: string } };
+  | { type: 'text'; markdown: string; place: { repo: string | null; path: string; lineStart: number; lineEnd: number; href: string } }
+  | { type: 'entity'; entity: EntityRef; facts: { name: string; value: string }[]; related: RelatedGroup[] };
 
 export type GroundView = { url: string; resolution: Resolution; excerpt: Excerpt | null };
 

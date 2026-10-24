@@ -430,8 +430,9 @@ describe('the server\'s product mode', () => {
     expect(viewText).toContain('svc');
     const pages = await fetch(`${url}/api/k/documents`);
     expect(pages.status).toBe(200);
-    const body = (await pages.json()) as { documents: { repo: string | null; path: string }[] };
-    expect(body.documents).toEqual([{ repo: null, path: 'docs/vision.md' }]);
+    const body = (await pages.json()) as { documents: { repo: string | null; path: string; title: string }[] };
+    // A listing entry carries the document's title: its first heading, else its file name.
+    expect(body.documents).toEqual([{ repo: null, path: 'docs/vision.md', title: 'Vision' }]);
     rmSync(dataFolder!, { recursive: true, force: true });
   }, MODEL_ROUTES_MS);
 

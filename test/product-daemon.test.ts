@@ -130,8 +130,8 @@ test('products-home mode lists products and routes each wiki under its folder', 
   expect(await nestedPage.text()).toContain('/products/alpha/assets/');
   expect((await fetch(`${server.url}/products/alpha/assets/app.js`)).status).toBe(200);
   // The wiki's documents are listed product-relative: the app adds its mount base itself.
-  const documents = await (await fetch(`${server.url}/products/alpha/api/k/documents`)).json() as { documents: { repo: string | null; path: string }[] };
-  expect(documents.documents).toContainEqual({ repo: null, path: 'docs/vision.md' });
+  const documents = await (await fetch(`${server.url}/products/alpha/api/k/documents`)).json() as { documents: { repo: string | null; path: string; title: string }[] };
+  expect(documents.documents).toContainEqual({ repo: null, path: 'docs/vision.md', title: 'alpha vision' });
 });
 
 test('the root opens a product directly: the only one, the last this browser opened, else the most recently changed', async () => {

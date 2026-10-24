@@ -8,7 +8,7 @@
  * The tabs are the reader's own state of one browser tab: they are kept in
  * `sessionStorage` (a reload keeps them) and the wiki works without it.
  */
-import { useEffect, useSyncExternalStore, type MouseEvent } from 'react';
+import { useEffect, useRef, useSyncExternalStore, type MouseEvent } from 'react';
 import { appBase, appPath, appRoute } from '../app-base.js';
 
 export interface Tab {
@@ -100,6 +100,15 @@ function onPop(): void {
   const address = currentAddress();
   const front = now.tabs.find((tab) => tab.key === now.active);
   if (front?.address === address) return;
+  // Focusing an already-open tab pushes its address into browser history. Back/forward
+  // should restore the tab already holding that address, not overwrite the tab that
+  // happened to be active when the history event arrived. A page is its address without
+  // the section, so coming back to another section of a document brings its tab forward.
+  const held = now.tabs.find((tab) => tab.key !== now.active && withoutHash(tab.address) === withoutHash(address));
+  if (held !== undefined) {
+    set({ tabs: now.tabs.map((tab) => (tab.key === held.key ? { ...tab, address } : tab)), active: held.key });
+    return;
+  }
   set({ ...now, tabs: now.tabs.map((tab) => (tab.key === now.active ? { ...tab, address, title: null } : tab)) });
 }
 
@@ -114,12 +123,39 @@ function show(address: string): void {
   if (currentAddress() !== address) window.history.pushState({}, '', appPath(address));
 }
 
+/** Brings a tab to the front on another section of the page it holds: the tab names it, the window moves, the page reads the move. */
+function showSection(now: TabsState, key: string, address: string): void {
+  set({ tabs: now.tabs.map((tab) => (tab.key === key ? { ...tab, address } : tab)), active: key });
+  show(address);
+  window.dispatchEvent(new Event('popstate'));
+}
+
+const withoutHash = (address: string): string => {
+  const at = address.indexOf('#');
+  return at < 0 ? address : address.slice(0, at);
+};
+
+/**
+ * Brings the tab that already holds a page to the front, the way an editor focuses a file it has open. The page is the
+ * address without its hash, so another section of an open document is the same page: that tab then shows the section.
+ * Returns whether a tab other than the one in front held it.
+ */
+export function focusOpenTab(address: string): boolean {
+  const now = current();
+  const open = now.tabs.find((tab) => tab.key !== now.active && withoutHash(tab.address) === withoutHash(address));
+  if (open === undefined) return false;
+  if (open.address !== address && address.includes('#')) showSection(now, open.key, address);
+  else activateTab(open.key);
+  return true;
+}
+
 /** Opens a page in a new tab and brings it to the front; a page already open in a tab is switched to instead. */
 export function openInNewTab(address: string): void {
   const now = current();
-  const open = now.tabs.find((tab) => tab.address === address);
+  const open = now.tabs.find((tab) => withoutHash(tab.address) === withoutHash(address));
   if (open !== undefined) {
-    activateTab(open.key);
+    if (open.key !== now.active) focusOpenTab(address);
+    else if (open.address !== address) showSection(now, open.key, address);
     return;
   }
   counter += 1;
@@ -187,6 +223,7 @@ export function linkHandlers(address: string, before?: () => void): { onClick: (
     event.preventDefault();
     before?.();
     if (wantsNewTab(event)) openInNewTab(address);
+    else if (focusOpenTab(address)) return;
     else {
       window.history.pushState({}, '', appPath(address));
       window.dispatchEvent(new Event('popstate'));
@@ -201,8 +238,17 @@ export function linkHandlers(address: string, before?: () => void): { onClick: (
 
 /** Names the tab in front by the page this view shows; null while the page loads. */
 export function useTabTitle(title: string | null): void {
-  const { active } = useTabs();
+  const { active, tabs } = useTabs();
+  // The tab's own title is a dependency: it is cleared when the window moves to another page (the back button, a link),
+  // and a page kept mounted across that move (the home page and its entity page are one) must name the tab again.
+  // A title this view wrote is not written twice unless the tab lost it, so two views naming one tab cannot ping-pong.
+  const named = tabs.find((tab) => tab.key === active)?.title ?? null;
+  const written = useRef<string | null>(null);
   useEffect(() => {
-    if (title !== null && title !== '') setTabTitle(active, title);
-  }, [active, title]);
+    if (title === null || title === '') return;
+    if (named === null || written.current !== title) {
+      written.current = title;
+      setTabTitle(active, title);
+    }
+  }, [active, title, named]);
 }

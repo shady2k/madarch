@@ -48,7 +48,7 @@ import { noEntityMessage, Resolver, type Resolution } from './resolve.js';
 import { indexCounts, statementsRelyingOn } from './index/queries.js';
 import { webLink } from './index/web-link.js';
 import { readDocEntities, type DocEntity, type DocumentSource } from './doc-entities.js';
-import { DOCUMENT_LIMIT, DOCUMENT_PATH, docsLinkedOutside, listedDocument, productDocumentPaths, readProductDocument, readRepoDocuments, repoDocumentPaths } from './doc-sources.js';
+import { DOCUMENT_LIMIT, DOCUMENT_PATH, HARNESS_FILES, documentTitle, docsLinkedOutside, listedDocument, productDocumentPaths, readProductDocument, readRepoDocuments, repoDocumentPaths } from './doc-sources.js';
 import { ensureLoopKinds, seedStarterSet, TEMPLATES } from './seed.js';
 import { readCorrections } from '../loop/entities.js';
 import { answerQuestion, recordCorrection, type Answered, type Corrected } from '../loop/answer.js';
@@ -1392,11 +1392,19 @@ export class KnowledgeProduct {
     const documents: DocumentRef[] = [];
     const truncated: DocumentListing['truncated'] = [];
     // The product's own pages (the files of its Markdown kinds) are entity pages, and the manifest names the harness files that are no product document.
-    for (const path of productDocumentPaths(product.folder)) if (listedDocument(manifest, null, path)) documents.push({ repo: null, path });
+    const shown = (path: string): boolean => !HARNESS_FILES.has(path.split('/').pop()!);
+    for (const path of productDocumentPaths(product.folder).filter(shown)) {
+      if (!listedDocument(manifest, null, path)) continue;
+      documents.push({ repo: null, path, title: documentTitle(readProductDocument(product.folder, path) ?? '', path) });
+    }
     for (const repo of this.repositories().filter((candidate) => candidate.present)) {
-      const names = (await repoDocumentPaths(repo.name, repo.path, this.pins.get(repo.name)?.commit)).filter((name) => listedDocument(manifest, repo.name, name));
+      const commit = this.pins.get(repo.name)?.commit;
+      const names = (await repoDocumentPaths(repo.name, repo.path, commit)).filter((name) => shown(name) && listedDocument(manifest, repo.name, name));
       if (names.length > DOCUMENT_LIMIT) truncated.push({ repo: repo.name, total: names.length, shown: DOCUMENT_LIMIT });
-      for (const name of names.slice(0, DOCUMENT_LIMIT)) documents.push({ repo: repo.name, path: name });
+      const listed = names.slice(0, DOCUMENT_LIMIT);
+      // One git process reads the lot; a document too large to read is titled by its file name.
+      const texts = await readRepoDocuments(repo.name, repo.path, commit === undefined || commit === '' ? 'HEAD' : commit, listed);
+      for (const name of listed) documents.push({ repo: repo.name, path: name, title: documentTitle(texts.get(name) ?? '', name) });
     }
     return { documents, truncated };
   }
@@ -1419,11 +1427,10 @@ export class KnowledgeProduct {
       const target = match[0].replace(/[.,;:]+$/, '');
       if (!(target in resolutions)) resolutions[target] = await context.ctx.resolver.resolve(target);
     }
-    const heading = /^#\s+(.+?)\s*#*\s*$/m.exec(markdown);
     return {
       repo,
       path,
-      title: heading === null ? path.split('/').pop()!.replace(/\.(md|markdown)$/i, '') : heading[1]!.replace(/[*_`]/g, ''),
+      title: documentTitle(markdown, path),
       markdown,
       resolutions,
       anchors: Object.fromEntries(anchorLines(markdown)),
