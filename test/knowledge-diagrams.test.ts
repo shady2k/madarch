@@ -253,11 +253,12 @@ describe('the drawn views: C4, components, ER, state and deployment, and the hot
 
   test('the database page draws its tables with the foreign keys between them and links each table (database.orders)', async () => {
     const [er] = ofType(await page(recordKey('code.database', 'orders')), 'er');
-    // Every table is an entity of its own id — two schemas may hold one name — and carries its name as the alias a
-    // reader reads on the box.
-    expect(er!.mermaidSource.match(/^  table\d+\["[^"]+"\] \{/gm)).toHaveLength(er!.elements.length);
-    expect(er!.mermaidSource).toContain('}o--||');
-    expect(er!.mermaidSource.match(/table\d+ }o--\|\| table\d+ :/g)).toHaveLength(er!.edges.length);
+    // Each table has its own Mermaid node id, carries its name and columns on the box, and each foreign key is an arrow.
+    const nodes = [...er!.mermaidSource.matchAll(/^  (n\d+)\[\("([^"]+)"\)\]$/gm)];
+    expect(nodes).toHaveLength(er!.elements.length);
+    expect(nodes.map((node) => node[2])).toEqual(expect.arrayContaining(['customers:', 'order_items:', 'orders:', 'outbox:']));
+    expect(er!.mermaidSource).toContain('-->');
+    expect(er!.mermaidSource.match(/^  n\d+ -->(?:\|"[^"]+"\| )n\d+$/gm)).toHaveLength(er!.edges.length);
     expect(er!.elements.map((element) => element.label).sort()).toEqual(expect.arrayContaining(['customers', 'order_items', 'orders', 'outbox']));
     expect(er!.elements.every((element) => element.href !== null)).toBe(true);
     expect(er!.renderers).toEqual(['mermaid', 'archify']);
