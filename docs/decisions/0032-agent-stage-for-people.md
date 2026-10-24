@@ -15,21 +15,25 @@ On 2026-10-24 the owner walked shop on 0.2.4 and found the wiki unfit to read; t
 walk of all 1 528 pages and the comparison with the training repository's answer key confirmed it:
 about 27% of the key's 175 items fully shown, 62% partly, 11% not at all. The causes are structural:
 
-- The writer runs two kinds of unit, the product page and the domain pages (`runWriter()` in
-  `src/writer/run.ts`; `UnitSpec`; `fsSink()` allows product, domain and question files). Use cases,
-  rules and decisions are never enriched, so a UC page says «implemented by: nothing».
+- The writer runs the product page, the domain pages and the translations of documents
+  (`runWriter()` in `src/writer/run.ts`; `UnitSpec` holds product, domain and `localized-source`;
+  `fsSink()` allows those files and questions). Use cases, rules and decisions are translated but never
+  enriched, so a UC page says «implemented by: nothing».
 - The agent navigates the graph like a file system. The payments domain unit made 35 calls: 21
   `read_file` of whole files, 12 `find_nodes` by path text, no `get_node` and no `neighbors`. It
   paraphrased code, so domain pages read as code walkthroughs; the shared prompt (`fixedPart()` in
   `prompts.ts`) even asks for timeouts and retries on every page.
 - Documents are read by numbering (`sectionsOf()`/`kindOfSection()` in `doc-entities.ts`); an
   unnumbered «Qualities» section yields nothing.
-- Question deduplication is word overlap (`askQuestion()`: same type, `subjectOf()` Jaccard ≥ 0.5);
-  shop got 35 questions, about 12 of them duplicates.
+- Question deduplication compares the sets of entities a question cites (`askQuestion()`: same type,
+  `subjectOf()` Jaccard ≥ 0.5 over entity ids, broad containers excluded); questions about the same
+  decision grounded in different files slip through, and shop got 35 questions, about 12 of them
+  duplicates.
 - Nothing checks meaning: an invented database, routes without handlers and 377 isolated symbols
   passed every check, because the checks verify that citations resolve, not that facts are true.
-- Templates are substitution plus directives, with no inheritance or conditions; every document kind
-  shares one template, and empty sections cannot be hidden.
+- Templates are substitution plus directives, with no inheritance or conditions; use cases, rules,
+  decisions and requirements share `entity-text.md` (terms have `term.md`), deferred blocks are
+  addressed by template line, and empty sections cannot be hidden.
 
 The owner's words, 2026-10-24:
 - «В первую очередь эта вики для людей, поэтому нужно смотреть за смыслом текста, согласованностью.
@@ -143,6 +147,27 @@ reruns extraction and the affected units, and shows what changed.
 **10. Agents read the same pages.** Every page is served as Markdown and JSON from the same page
 model, and each product has `llms.txt`.
 
+**11. Every unit keeps one contract.** Codex's review asked for it before building, and it is what
+makes 0026-0029 enforceable here. A unit is declared with a version, its inputs and its outputs.
+- It reads at a pinned temporal context, the full `{valid, known, state}` of 0028, not only a
+  revision, so a unit can be asked about a past date.
+- Its inputs are bounded and splittable; every read is tracked, empty results included, so a rerun
+  knows what the unit saw.
+- It keeps deterministic facts apart from proposed interpretations. A semantic entity, a scenario's
+  implementation link, an automatic entity link and a validation verdict are proposals with their
+  evidence until a check confirms them; the wiki marks them as such and never presents them as
+  extracted fact.
+- Verdicts and interpretations are cached by their evidence and the unit's version; coverage that
+  is partial is said to be partial.
+- Publication is fenced and idempotent: a unit delivers its Markdown once per input digest, so a
+  retried unit writes the same file.
+- The editorial pass converges: at most two revision rounds per page per fill, and a revision
+  invalidates only the units downstream of the page it changed.
+- The overview is written last, but a fill shows a placeholder home page from the graph's inventory
+  from its first minute, so a reader watches the wiki fill.
+- Anomaly rules do not see a well-connected invented fact, so each fill also sends a small random
+  sample of unflagged nodes per kind to the same jev check, and reports the sample's error rate.
+
 ## Consequences
 
 - The milestone's tasks under madarch-mwhd, madarch-ztyq, madarch-u3vw and madarch-rckk implement
@@ -154,7 +179,15 @@ model, and each product has `llms.txt`.
 - What validation, interpretation and editorial passes decide is Markdown in the product repository,
   so a rebuild repeats no judgement whose evidence did not change.
 
-## Not decided here
+## Covered elsewhere and not decided here
+
+- The charter's defects that are not about the agent stage are designed in their own tasks:
+  extraction repairs 2-9 in madarch-m38l.20, the SQL-injection finding 14 in madarch-m38l.19,
+  history and time 16 in madarch-mwhd.2, page content and navigation 28-38 and 40 in madarch-m38l.21,
+  .23 and .24, contracts 41 in madarch-m38l.16, diagrams 42 in madarch-m38l.15, agent formats 43 in
+  madarch-m38l.25 (its schema is decided there), the checks and thresholds of O6 in madarch-j6ho.1-.3.
+  The expected open questions (25) are asked by the units of section 1 and measured by the
+  answer-key check; the absence of frontend and design (15) is stated by the overview unit.
 
 - The exact rule set of section 3 grows with each extractor; each rule is a named check with a test.
 - The thresholds of jev batches and escalation are tuned on the training product and recorded with
