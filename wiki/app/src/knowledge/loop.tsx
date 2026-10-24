@@ -13,13 +13,13 @@ import { useTranslation } from 'react-i18next';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert.js';
 import { Badge } from '@/components/ui/badge.js';
 import { Button } from '@/components/ui/button.js';
-import { addStarter, answerQuestion, getProblems, getQuestion, getQuestions, getRefreshPlan } from './api.js';
+import { addStarter, answerQuestion, closeTask, createTask, getProblems, getQuestion, getQuestions, getRefreshPlan, getScopeImpact, getTask, getTasks, proposeTask, runTask } from './api.js';
 import { CodePlace, KLink, brokenWords } from './blocks.js';
-import { addressOfEntity, addressOfQuestion, K_QUESTIONS } from './routes.js';
+import { addressOfEntity, addressOfQuestion, addressOfStatement, addressOfTask, K_QUESTIONS, K_TASKS } from './routes.js';
 import { useRead } from './live.js';
 import { useTabTitle } from './tabs.js';
 import { PageSkeleton } from './skeleton.js';
-import type { Author, Problem, QuestionDetail, StarterOffer, QuestionRow, QuestionState, RefreshPlan, RefreshPreview, Resolution } from './types.js';
+import type { Author, PlaceView, Problem, QuestionDetail, StarterOffer, QuestionRow, QuestionState, RefreshPlan, RefreshPreview, Resolution, TaskDetail, TaskImpact, TaskProposal, TaskScope } from './types.js';
 
 const message = (failure: unknown): string => (failure instanceof Error ? failure.message : String(failure));
 
@@ -148,9 +148,7 @@ function AnswerForm({ question, onSaved }: { question: QuestionDetail; onSaved: 
         />
       </label>
       <p className="m-0 text-small text-muted" data-testid="answer-where">{t('loop.answerWhere', { file: question.file })}</p>
-      <div>
-        <Button variant="default" size="default" type="submit" disabled={saving || text.trim() === ''} data-testid="answer-save">{t('loop.saveAnswer')}</Button>
-      </div>
+      <div className="flex flex-wrap gap-2"><Button variant="default" size="default" type="submit" disabled={saving || text.trim() === ''} data-testid="answer-save">{t('loop.saveAnswer')}</Button></div>
       {refused !== null && <p className="m-0 text-small" role="alert" data-testid="answer-refused">{refused}</p>}
     </form>
   );
@@ -163,12 +161,15 @@ export function QuestionPage({ slug, version, refresh }: { slug: string; version
   const [commitNote, setCommitNote] = useState<string | null>(null);
   const language = useLanguage();
   const { data: question, error } = useRead<QuestionDetail>(`question:${slug}`, version, (signal) => getQuestion(slug, signal));
+  // The tasks this question's answer became: the reader confirms one, and then fixes the pages it reaches.
+  const { data: tasks } = useRead('tasks', version, (signal) => getTasks(signal));
   useTabTitle(question?.title ?? (error !== null ? t('loop.noSuchQuestion') : null));
   if (question === null && error === null) return <PageSkeleton testId="question-loading" />;
   if (question === null) {
     return <Alert variant="problem" data-testid="question-error"><AlertTitle>{t('loop.noSuchQuestion')}</AlertTitle><AlertDescription><p>{error}</p></AlertDescription></Alert>;
   }
   const affected = [...new Set(question.about.map((entry) => entry.split('#')[0]!).filter((entry) => /^(product|domain):/.test(entry)))];
+  const mine = (tasks?.tasks ?? []).filter((row) => row.question === `question:${question.slug}`);
   return (
     <article data-testid="question-page" data-question={question.slug} data-state={question.state}>
       <header className="mb-6">
@@ -222,6 +223,8 @@ export function QuestionPage({ slug, version, refresh }: { slug: string; version
           )}
         </section>
       )}
+      {question.answer !== null && mine.length > 0 && mine.map((task) => <TaskCard key={task.id} id={task.id} version={version} refresh={refresh} />)}
+      {question.answer !== null && mine.length === 0 && <ProposeTaskForm question={question} refresh={refresh} />}
     </article>
   );
 }
@@ -361,6 +364,7 @@ function ReasonText({ reason }: { reason: RefreshPlan['pages'][number]['reasons'
     case 'correction': return <>{t('loop.reason.correction', { statement: reason.statement.slice(reason.statement.indexOf('#') + 1) })}</>;
     case 'new-service': return <>{t('loop.reason.newService', { services: reason.services.join(', ') })}</>;
     case 'missing-domain': return <>{t('loop.reason.missingDomain', { domain: reason.domain })}</>;
+    case 'task': return <>{t('loop.reasonTask', { title: reason.title })}</>;
   }
 }
 
@@ -408,5 +412,358 @@ export function RefreshPreviewView({ language, refreshKey }: { language: string;
       <PlanList plan={preview.plan} compact />
       {preview.commitsNotRead !== null && preview.commitsNotRead > 0 && <p className="mb-0 mt-2 text-small text-muted" data-testid="plan-commits">{t('loop.plan.commits', { count: preview.commitsNotRead })}</p>}
     </div>
+  );
+}
+
+// ---- the scoped tasks of answers (madarch-m38l.14) -------------------------------------------
+
+/** A scope as a reader says it: `README.md#what-it-does`, `src/a.ts:12-20`, a code symbol's graph key, a statement's, or a path. */
+export function scopeWords(scope: TaskScope): string {
+  switch (scope.type) {
+    case 'section': return `${scope.path}#${scope.anchor}`;
+    case 'lines': return `${scope.path}:${scope.start}-${scope.end}`;
+    case 'file': return scope.path;
+    case 'symbol': return scope.key.startsWith('code.symbol:') ? scope.key : `code.symbol:${scope.key}`;
+    case 'statement': return scope.key;
+  }
+}
+
+const SYMBOL_KEY = /^code\.symbol:/;
+const LINES_WORDS = /^(.+):(\d+)-(\d+)$/;
+const STATEMENT_KEY = /^(?:product|domain):[a-z][a-z0-9-]*#[^#]+$/;
+
+/**
+ * The scope a person typed: a path (a whole file), `path#section`, `path:12-20`, a statement of a page, or a code symbol.
+ * Words that name no place of the product are refused with the words themselves, never guessed at.
+ */
+export function scopeOfWords(words: string): TaskScope | undefined {
+  const text = words.trim();
+  if (text === '') return undefined;
+  const lines = LINES_WORDS.exec(text);
+  if (lines !== null && Number(lines[2]) > 0 && Number(lines[3]) >= Number(lines[2])) return { type: 'lines', path: lines[1]!, start: Number(lines[2]), end: Number(lines[3]) };
+  if (SYMBOL_KEY.test(text)) return { type: 'symbol', key: text };
+  if (STATEMENT_KEY.test(text)) return { type: 'statement', key: text };
+  const hash = text.indexOf('#');
+  if (hash > 0) return hash === text.length - 1 ? undefined : { type: 'section', path: text.slice(0, hash), anchor: text.slice(hash + 1).toLowerCase() };
+  if (text.includes(' ')) return undefined;
+  return { type: 'file', path: text };
+}
+
+/** A place a task changes, as a reader says it: the heading and its document's title, each a link; the path is small. */
+export function PlaceName({ place }: { place: PlaceView }): ReactElement {
+  const { t } = useTranslation();
+  const label = place.href === null ? <span>{place.label}</span> : <KLink href={place.href}>{place.label}</KLink>;
+  return (
+    <span className="place" data-testid="place" data-kind={place.kind} title={place.words}>
+      {label}
+      {place.where !== null && place.where !== place.label && <span className="text-muted"> — {place.where}</span>}
+      {place.path !== null && place.path !== place.label && place.kind !== 'section' && <code className="ms-2 text-muted">{place.path}</code>}
+      {place.kind === 'section' && place.path !== null && <code className="ms-2 text-muted" data-testid="place-path">{place.path}</code>}
+    </span>
+  );
+}
+
+/** What a change reaches, computed through the graph: every page and statement, before anything runs. */
+function ImpactList({ impact }: { impact: TaskImpact }): ReactElement {
+  const { t } = useTranslation();
+  return (
+    <div className="mt-2" data-testid="task-impact-list">
+      <p className="m-0 text-small font-medium text-ink" data-testid="impact-counts">{t('loop.taskImpactSummary', { pages: impact.counts.pages, statements: impact.counts.statements })}</p>
+      {impact.pages.length === 0 && impact.statements.length === 0 && <p className="m-0 mt-1 text-small text-muted" data-testid="impact-none">{t('loop.taskImpactNone')}</p>}
+      {impact.unindexed.length > 0 && <p className="m-0 mt-1 text-small text-muted" role="status" data-testid="impact-unindexed" title={impact.unindexed.join(', ')}>{t('loop.taskImpactUnindexed', { count: impact.unindexed.length })}</p>}
+      {impact.pages.length > 0 && (
+        <section className="mt-2" data-testid="impact-pages">
+          <h4 className="mb-1 text-small font-semibold">{t('loop.taskImpactPages')}</h4>
+          <ul className="m-0 list-none p-0 text-small">
+            {impact.pages.map((page) => (
+              <li key={page.id} className="flex flex-wrap items-center gap-x-2 py-0.5" data-testid="impact-page" data-id={page.id} data-because={page.because}>
+                <KLink href={addressOfEntity(page.id)}>{page.title}</KLink>
+                <code className="text-muted">{page.file}</code>
+                {page.because === 'link' && <span className="text-muted">· {t('loop.taskImpactLinked')}</span>}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+      {impact.statements.length > 0 && (
+        <section className="mt-2" data-testid="impact-statements">
+          <h4 className="mb-1 text-small font-semibold">{t('loop.taskImpactStatements')}</h4>
+          <ul className="m-0 list-none p-0 text-small">
+            {impact.statements.map((statement) => (
+              <li key={`${statement.page}#${statement.statement}`} className="py-0.5" data-testid="impact-statement" data-page={statement.page} data-statement={statement.statement}>
+                <KLink href={addressOfStatement(statement.page, statement.text)}>«{statement.text}»</KLink>
+                <span className="ms-2 text-muted">{statement.pageTitle}</span>
+                <code className="ms-2 text-muted" title={statement.grounds.join(', ')}>{statement.file}:{statement.line}</code>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The task an answer proposes: the reader chooses what needs to change, and the engine turns the answer's grounds into
+ * an editable scope and the impact through the graph. Nothing is written before the reader confirms.
+ */
+export function ProposeTaskForm({ question, refresh }: { question: QuestionDetail; refresh: () => void }): ReactElement {
+  const { t } = useTranslation();
+  const [choice, setChoice] = useState<'code' | 'docs' | 'other'>('code');
+  const [proposal, setProposal] = useState<TaskProposal | null>(null);
+  const [title, setTitle] = useState('');
+  const [scope, setScope] = useState<TaskScope[]>([]);
+  // The impact the reader sees is read again from the scope as they edit it: what they confirm is what runs.
+  const [impact, setImpact] = useState<TaskImpact | null>(null);
+  const [adding, setAdding] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [refused, setRefused] = useState<string | null>(null);
+  // The places the server worded, by the scope itself: a reader's edit keeps the places of what they did not change.
+  const places = new Map((proposal?.scope ?? []).map((one, index) => [JSON.stringify(one), proposal?.places?.[index]]));
+  const language = useLanguage();
+  const propose = (): void => {
+    if (choice === 'other') return;
+    setBusy(true); setRefused(null);
+    proposeTask(question.slug, choice, language).then(
+      (answered) => { setBusy(false); setProposal(answered); setTitle(answered.title); setScope(answered.scope); setImpact(answered.impact); },
+      (failure: unknown) => { setBusy(false); setRefused(message(failure)); },
+    );
+  };
+  const withScope = (next: TaskScope[]): void => {
+    setScope(next);
+    setRefused(null);
+    if (next.length === 0) { setImpact(null); return; }
+    getScopeImpact(next).then(setImpact, (failure: unknown) => { setImpact(null); setRefused(message(failure)); });
+  };
+  const add = (): void => {
+    const parsed = scopeOfWords(adding);
+    if (parsed === undefined) { setRefused(t('loop.taskScopeWrong', { place: adding })); return; }
+    setAdding('');
+    withScope([...scope.filter((one) => JSON.stringify(one) !== JSON.stringify(parsed)), parsed]);
+  };
+  const confirm = (): void => {
+    if (proposal === null) return;
+    if (scope.length === 0) { setRefused(t('loop.taskScopeEmpty')); return; }
+    setBusy(true); setRefused(null);
+    createTask({ question: question.slug, title, grounds: [...proposal.grounds], scope }).then(
+      () => { setBusy(false); refresh(); },
+      (failure: unknown) => { setBusy(false); setRefused(message(failure)); },
+    );
+  };
+  return (
+    <section className="mt-6" data-testid="task-proposal">
+      <h2>{t('loop.taskChoice')}</h2>
+      <div role="radiogroup" aria-label={t('loop.taskChoice')} className="grid gap-2" data-testid="task-choice">
+        {([['code', t('loop.taskDocsWrong')], ['docs', t('loop.taskCodeWrong')], ['other', t('loop.taskOther')]] as const).map(([value, label]) => (
+          <label key={value} className="flex cursor-pointer items-center gap-2 text-small">
+            <input type="radio" name="task-choice" value={value} checked={choice === value} onChange={() => setChoice(value)} data-testid={`task-choice-${value}`} />
+            <span>{label}</span>
+          </label>
+        ))}
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <Button variant="default" size="default" type="button" disabled={busy || choice === 'other'} onClick={propose} data-testid="task-propose">{t('loop.taskPropose')}</Button>
+      </div>
+      {proposal !== null && (
+        <section className="mt-4 rounded-[var(--radius-card)] border border-line p-3" data-testid="task-proposed">
+          <label className="grid gap-1">
+            <span className="text-small font-medium text-ink">{t('loop.taskTitle')}</span>
+            <input value={title} onChange={(event) => setTitle(event.target.value)} data-testid="task-title" className="ui-input w-full rounded-[var(--radius-control)] border border-line bg-page px-3 py-2 text-small text-ink outline-none focus-visible:ring-2 focus-visible:ring-ink" />
+          </label>
+          <p className="mb-1 mt-3 flex flex-wrap items-baseline gap-2 text-small font-medium text-ink">{t('loop.taskScope')} <span className="text-muted" data-testid="task-scope-count">({scope.length})</span></p>
+          <ul className="m-0 grid list-none gap-1.5 p-0" data-testid="task-scope">
+            {scope.map((one) => (
+              <li key={JSON.stringify(one)} className="flex flex-wrap items-center gap-2 text-small" data-testid="task-scope-item" data-scope={scopeWords(one)} data-type={one.type}>
+                <PlaceName place={places.get(JSON.stringify(one)) ?? { kind: one.type, label: scopeWords(one), where: null, href: null, path: null, words: scopeWords(one) }} />
+                <button type="button" className="cursor-pointer bg-transparent p-0 text-small text-muted underline" onClick={() => withScope(scope.filter((held) => JSON.stringify(held) !== JSON.stringify(one)))} data-testid="task-scope-remove">{t('loop.taskScopeRemove')}</button>
+              </li>
+            ))}
+          </ul>
+          {scope.length === 0 && <p className="m-0 text-small text-muted" data-testid="task-scope-empty">{t('loop.taskScopeEmpty')}</p>}
+          <div className="mt-2 flex flex-wrap items-end gap-2">
+            <label className="grid gap-1 text-small">
+              <span>{t('loop.taskScopeAdd')}</span>
+              <input value={adding} onChange={(event) => setAdding(event.target.value)} placeholder={t('loop.taskScopeAddPlaceholder')} data-testid="task-scope-add-input" className="ui-input w-[18rem] rounded-[var(--radius-control)] border border-line bg-page px-2 py-1.5 text-small text-ink outline-none focus-visible:ring-2 focus-visible:ring-ink" />
+            </label>
+            <Button variant="default" size="default" type="button" onClick={add} disabled={adding.trim() === ''} data-testid="task-scope-add">{t('loop.taskScopeAddButton')}</Button>
+          </div>
+          <h3 className="mb-0 mt-4 text-base font-semibold">{t('loop.taskImpact')}</h3>
+          {impact === null ? <p className="m-0 mt-1 text-small text-muted" data-testid="impact-none">{t('loop.taskImpactNone')}</p> : <ImpactList impact={impact} />}
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Button variant="default" size="default" type="button" disabled={busy} onClick={confirm} data-testid="task-confirm">{t('loop.taskConfirm')}</Button>
+          </div>
+        </section>
+      )}
+      {refused !== null && <p className="m-0 mt-3 text-small" role="alert" data-testid="task-refused">{refused}</p>}
+    </section>
+  );
+}
+
+/**
+ * One confirmed task where its answer stands: its scope, what the change reaches, and «Поправить страницы сейчас» — a
+ * run over exactly those pages — or «Позже, вместе с другими ответами», which runs nothing.
+ */
+/** One task's card away from its page: it reads the task, then draws the same body the task page draws. */
+export function TaskCard({ id, version, refresh }: { id: string; version: number; refresh: () => void }): ReactElement {
+  const { t } = useTranslation();
+  const { data: task, error } = useRead<TaskDetail>(`task:${id}`, version, (signal) => getTask(id, signal));
+  if (task === null && error === null) return <PageSkeleton testId="task-loading" rows />;
+  if (task === null) {
+    return <Alert variant="problem" data-testid="task-error"><AlertTitle>{t('loop.taskPageTitle')}</AlertTitle><AlertDescription><p>{error}</p></AlertDescription></Alert>;
+  }
+  return <TaskBody task={task} refresh={refresh} />;
+}
+
+/** A confirmed task as both its page and its answer's page draw it: its impact, then the press that fixes the pages. */
+export function TaskBody({ task, refresh, headline = true }: { task: TaskDetail; refresh: () => void; headline?: boolean }): ReactElement {
+  const { t } = useTranslation();
+  const language = useLanguage();
+  const [working, setWorking] = useState(false);
+  const [refused, setRefused] = useState<string | null>(null);
+  const [said, setSaid] = useState<string | null>(null);
+  const run = (): void => {
+    setWorking(true); setRefused(null); setSaid(null);
+    runTask(task.id).then(
+      (started) => { setWorking(false); setSaid(t('loop.refreshStarted', { count: started.pages.length })); refresh(); },
+      (failure: unknown) => { setWorking(false); setRefused(message(failure)); },
+    );
+  };
+  const close = (): void => {
+    setWorking(true); setRefused(null);
+    closeTask(task.id).then(() => { setWorking(false); refresh(); }, (failure: unknown) => { setWorking(false); setRefused(`${t('loop.taskCloseRefused')}: ${message(failure)}`); });
+  };
+  const nothingToRun = task.writable.length === 0;
+  return (
+    <section className="mt-6 rounded-[var(--radius-card)] border border-line p-3" data-testid="task-card" data-task={task.id} data-state={task.status}>
+      {headline && (
+        <div className="flex flex-wrap items-center gap-2">
+          <KLink href={addressOfTask(task.id)} className="font-medium" data-testid="task-title-link">{task.title}</KLink>
+          <Badge variant={task.status === 'open' ? 'solid' : 'outline'} data-testid="task-state">{task.status === 'open' ? t('loop.taskStateOpen') : t('loop.taskStateClosed')}</Badge>
+          <Badge variant="outline" data-testid="task-marks">{t('loop.plannedChange')}</Badge>
+        </div>
+      )}
+      <p className="mb-0 mt-1 flex flex-wrap items-center gap-x-3 text-small text-muted" data-testid="task-scope-words">{task.scope.map((one) => <PlaceName key={one.words} place={one.place} />)}</p>
+      {task.closedBy !== null && (
+        <p className="mb-0 mt-1 text-small text-muted" data-testid="task-closed-by">
+          {'person' in task.closedBy
+            ? t('loop.taskClosedByPerson', { when: whenWords(task.closedBy.at, language) })
+            : t('loop.taskClosedByCommit', { commit: task.closedBy.commit.slice(0, 10), repository: task.closedBy.repository || t('knowledge.productRepository'), subject: task.closedBy.subject })}
+        </p>
+      )}
+      {task.impact !== null && <ImpactList impact={task.impact} />}
+      {task.problem !== undefined && <p className="m-0 mt-2 text-small" role="alert" data-testid="task-impact-problem">{task.problem}</p>}
+      {task.status === 'open' && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <Button variant="default" size="default" type="button" disabled={working || nothingToRun} onClick={run} data-testid="task-fix-now">{t('loop.refreshNow')}</Button>
+          <Button variant="default" size="default" type="button" disabled={working} onClick={() => setSaid(t('loop.refreshDeferred'))} data-testid="task-fix-later">{t('loop.laterAnswers')}</Button>
+          <button type="button" className="cursor-pointer bg-transparent p-0 text-small text-muted underline" disabled={working} onClick={close} data-testid="task-close">{t('loop.taskClose')}</button>
+        </div>
+      )}
+      {nothingToRun && task.status === 'open' && <p className="m-0 mt-2 text-small text-muted" data-testid="task-nothing-to-run">{t('loop.refreshNothing')}</p>}
+      {said !== null && <p className="m-0 mt-2 text-small" role="status" data-testid="task-said">{said}</p>}
+      {refused !== null && <p className="m-0 mt-2 text-small" role="alert" data-testid="task-refused">{refused}</p>}
+    </section>
+  );
+}
+
+/** «Задачи»: every task of the product, open first, each with its scope and what its change reaches. */
+export function TasksPage({ version }: { version: number }): ReactElement {
+  const { t } = useTranslation();
+  const { data, error } = useRead('tasks', version, (signal) => getTasks(signal));
+  useTabTitle(t('loop.tasksTitle'));
+  if (data === null && error === null) return <PageSkeleton testId="tasks-loading" rows />;
+  if (data === null) return <Alert variant="problem" data-testid="tasks-error"><AlertTitle>{t('loop.tasksMissing')}</AlertTitle><AlertDescription><p>{error}</p></AlertDescription></Alert>;
+  const groups = [
+    { state: 'open' as const, heading: t('loop.openTasks', { count: data.open }), rows: data.tasks.filter((row) => row.status === 'open') },
+    { state: 'closed' as const, heading: t('loop.closedTasks', { count: data.closed }), rows: data.tasks.filter((row) => row.status === 'closed') },
+  ];
+  return (
+    <section data-testid="tasks-page">
+      <header className="mb-6">
+        <h1>{t('loop.tasksTitle')}</h1>
+        <p className="text-secondary" data-testid="tasks-intro">{t('loop.tasksIntro')}</p>
+      </header>
+      {data.problems.length > 0 && <Alert variant="problem" className="mb-6" data-testid="tasks-files"><AlertTitle>{t('loop.unreadableFiles')}</AlertTitle><AlertDescription><ul className="m-0 list-none p-0">{data.problems.map((line) => <li key={line}><code>{line}</code></li>)}</ul></AlertDescription></Alert>}
+      {data.notes.length > 0 && <Alert className="mb-6" data-testid="tasks-notes"><AlertDescription><ul className="m-0 list-none p-0">{data.notes.map((note) => <li key={note}>{note}</li>)}</ul></AlertDescription></Alert>}
+      {data.tasks.length === 0 && <p className="text-muted" data-testid="tasks-empty">{t('loop.noTasks')}</p>}
+      {groups.map((group) => {
+        if (group.rows.length === 0) return null;
+        return (
+          <section key={group.state} className="mb-8" data-testid="tasks-group" data-state={group.state}>
+            <h2>{group.heading}</h2>
+            <ul className="m-0 list-none p-0">
+              {group.rows.map((row) => (
+                <li key={row.id} className="border-b border-line py-3 last:border-b-0" data-testid="task-row" data-state={row.status} data-task={row.id}>
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <KLink href={addressOfTask(row.id)} className="font-medium">{row.title}</KLink>
+                    <Badge variant={row.status === 'open' ? 'solid' : 'outline'}>{row.status === 'open' ? t('loop.taskStateOpen') : t('loop.taskStateClosed')}</Badge>
+                  </div>
+                  <p className="mb-0 mt-1 flex flex-wrap items-center gap-x-3 text-small text-muted" data-testid="task-row-scope">{row.scope.map((one) => <PlaceName key={one.words} place={one.place} />)}</p>
+                  {row.impact !== null && <p className="mb-0 mt-1 text-small text-muted" data-testid="task-row-impact">{t('loop.taskImpactSummary', { pages: row.impact.pages, statements: row.impact.statements })}</p>}
+                  {row.closedBy !== null && !('person' in row.closedBy) && <p className="mb-0 mt-1 text-small text-muted">{t('loop.taskClosedByCommit', { commit: row.closedBy.commit.slice(0, 10), repository: row.closedBy.repository || t('knowledge.productRepository'), subject: row.closedBy.subject })}</p>}
+                </li>
+              ))}
+            </ul>
+          </section>
+        );
+      })}
+    </section>
+  );
+}
+
+/** One task's page: its grounds, its scope, what the change reaches, and the way to fix the pages now or later. */
+export function TaskPage({ id, version, refresh }: { id: string; version: number; refresh: () => void }): ReactElement {
+  const { t } = useTranslation();
+  const language = useLanguage();
+  const { data: task, error } = useRead<TaskDetail>(`task:${id}`, version, (signal) => getTask(id, signal));
+  useTabTitle(task?.title ?? null);
+  if (task === null && error === null) return <PageSkeleton testId="task-page-loading" />;
+  if (task === null) {
+    return <Alert variant="problem" data-testid="task-page-error"><AlertTitle>{t('loop.tasksMissing')}</AlertTitle><AlertDescription><p>{error}</p></AlertDescription></Alert>;
+  }
+  const slug = task.question.startsWith('question:') ? task.question.slice('question:'.length) : task.question;
+  return (
+    <article data-testid="task-page" data-task={task.id} data-state={task.status}>
+      <header className="mb-6">
+        <nav aria-label="trail" className="mb-2 flex flex-wrap items-center gap-x-2 text-small text-muted"><KLink href={K_TASKS}>{t('loop.tasksTitle')}</KLink></nav>
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          <Badge variant={task.status === 'open' ? 'solid' : 'outline'} data-testid="task-page-state">{task.status === 'open' ? t('loop.taskStateOpen') : t('loop.taskStateClosed')}</Badge>
+          <code className="text-small text-muted">{task.file}</code>
+        </div>
+        <h1 data-testid="task-page-title">{task.title}</h1>
+        <p className="m-0 text-small text-muted">
+          <KLink href={addressOfQuestion(slug)}>{t('loop.taskFromAnswer', { title: slug })}</KLink>
+          {' · '}
+          <AuthorLine by={task.by} at={task.at} />
+        </p>
+        {task.closedBy !== null && (
+          <p className="mb-0 mt-1 text-small" data-testid="task-page-closed-by">
+            {'person' in task.closedBy
+              ? t('loop.taskClosedByPerson', { when: whenWords(task.closedBy.at, language) })
+              : t('loop.taskClosedByCommit', { commit: task.closedBy.commit.slice(0, 10), repository: task.closedBy.repository || t('knowledge.productRepository'), subject: task.closedBy.subject })}
+          </p>
+        )}
+      </header>
+      <section className="mb-6" data-testid="task-page-scope">
+        <h2>{t('loop.taskScope')}</h2>
+        <ul className="m-0 list-none p-0">
+          {task.scope.map((one) => <li key={JSON.stringify(one.scope)} className="py-0.5 text-small" data-testid="task-page-scope-item" data-type={one.scope.type}><PlaceName place={one.place} /></li>)}
+        </ul>
+      </section>
+      <section className="mb-6" data-testid="task-page-grounds">
+        <h2>{t('loop.grounds')}</h2>
+        <ul className="m-0 list-none p-0">
+          {task.grounds.map((ground) => <li key={ground} className="py-0.5 text-small"><code>{ground}</code></li>)}
+        </ul>
+      </section>
+      <section className="mb-6" data-testid="task-page-impact">
+        <h2>{t('loop.taskImpact')}</h2>
+        {task.impact === null
+          ? <p className="m-0 text-small" role="alert">{task.problem ?? t('loop.taskImpactNone')}</p>
+          : <ImpactList impact={task.impact} />}
+        <p className="mb-0 mt-2 text-small text-muted" data-testid="task-page-marks">{t('loop.taskMarks', { sections: task.marks.sections, statements: task.marks.statements, entities: task.marks.entities })}</p>
+      </section>
+      {task.status === 'open' && <TaskBody task={task} refresh={refresh} headline={false} />}
+    </article>
   );
 }

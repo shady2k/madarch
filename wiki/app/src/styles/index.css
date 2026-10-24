@@ -1687,6 +1687,54 @@ a.graph-diagram-element-label:hover {
   color: var(--text-muted);
 }
 
+/* A planned change (madarch-m38l.14): the badge sits where the change lands — a heading, a sentence, a page — and links
+   to the task that plans it. */
+.planned-badge {
+  display: inline-block;
+  margin-inline-start: 0.5em;
+  padding: 0 0.4em;
+  border: 1px solid var(--border-strong, var(--text-muted));
+  border-radius: var(--radius-row);
+  font-size: var(--fs-small);
+  font-weight: 500;
+  line-height: 1.35;
+  text-decoration: none;
+  vertical-align: baseline;
+  white-space: nowrap;
+}
+
+.planned-badge[data-how='impact'] {
+  border-style: dashed;
+}
+
+.planned-badge-link {
+  text-decoration: none;
+  color: inherit;
+}
+
+.reading [data-planned='true'] {
+  scroll-margin-block-start: 4rem;
+}
+
+.answers-waiting {
+  display: inline-flex;
+}
+
+/* Below a phone's width the waiting answers are a count alone, with the whole sentence as its title: the bar keeps one row. */
+.answers-waiting-count {
+  display: none;
+}
+
+@media (max-width: 700px) {
+  .answers-waiting-words {
+    display: none;
+  }
+
+  .answers-waiting-count {
+    display: inline;
+  }
+}
+
 /* The grounds of a statement: footnote references and the list they point to. */
 .reading sup a,
 .reading a[data-footnote-ref] {

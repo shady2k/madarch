@@ -135,6 +135,7 @@ describe('createDraft', () => {
       'templates/service.md',
       'templates/symbol.md',
       'templates/table.md',
+      'templates/task.md',
       'templates/term.md',
       'workspace.yaml',
     ]);

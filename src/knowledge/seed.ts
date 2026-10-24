@@ -171,6 +171,7 @@ export const TEMPLATES: Readonly<Record<string, string>> = {
   'term.md': TERM,
   'question.md': ':::body\n',
   'correction.md': ':::body\n',
+  'task.md': ':::body\n',
 };
 
 export interface StarterKind {
@@ -212,6 +213,7 @@ export const STARTER_KINDS: readonly StarterKind[] = [
   { name: 'domain', template: 'domain.md', source: 'markdown', group: 'product', en: ['Domain', 'Domains'], ru: ['Домен', 'Домены'], describe: ['A part of the business the product serves, such as payment or ordering: how it works and what implements it.', 'Часть бизнеса, которую обслуживает продукт, например оплата или заказы: как она работает и что её реализует.'], extra: ['folder: docs/domains'] },
   { name: 'question', template: 'question.md', source: 'markdown', group: 'product', origin: 'agent', en: ['Question', 'Questions'], ru: ['Вопрос', 'Вопросы'], describe: ['Something the agent could not settle from the code and the documents; a person answers it.', 'То, что агент не смог решить по коду и документам; отвечает человек.'], extra: ['folder: docs/questions'] },
   { name: 'correction', template: 'correction.md', source: 'markdown', group: 'product', origin: 'person', en: ['Correction', 'Corrections'], ru: ['Поправка', 'Поправки'], describe: ['A person\'s note that a statement is wrong, and why; the agent takes it into account at the next refresh.', 'Заметка человека о том, что утверждение неверно, и почему; агент учтёт её при следующем обновлении.'], extra: ['folder: docs/corrections'] },
+  { name: 'task', template: 'task.md', source: 'markdown', group: 'product', origin: 'person', en: ['Task', 'Tasks'], ru: ['Задача', 'Задачи'], describe: ['A scoped change the person plans, with the pages and statements it affects.', 'Запланированное изменение с указанной областью и затронутыми страницами и утверждениями.'], extra: ['folder: docs/tasks'] },
   { name: 'doc.use-case', template: 'entity-text.md', source: 'document', group: 'product', origin: 'person', en: ['Use case', 'Use cases'], ru: ['Сценарий', 'Сценарии'], describe: ['A way a person uses the product (UC-1, UC-2 ...), as the documents state it.', 'Способ, которым человек пользуется продуктом (UC-1, UC-2 ...), как его описывают документы.'], extra: ['identifier: UC'] },
   { name: 'doc.rule', template: 'entity-text.md', source: 'document', group: 'product', origin: 'person', en: ['Business rule', 'Business rules'], ru: ['Бизнес-правило', 'Бизнес-правила'], describe: ['A rule the product keeps (BR-1, BR-2 ...), with the code that implements it.', 'Правило, которое соблюдает продукт (BR-1, BR-2 ...), и код, который его реализует.'], extra: ['identifier: BR'] },
   { name: 'doc.decision', template: 'entity-text.md', source: 'document', group: 'product', origin: 'person', en: ['Decision', 'Decisions'], ru: ['Решение', 'Решения'], describe: ['An architecture decision record (ADR-0001 ...): what was decided and why.', 'Запись об архитектурном решении (ADR-0001 ...): что решили и почему.'], extra: ['identifier: ADR'] },

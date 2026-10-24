@@ -17,7 +17,7 @@ import { getViews, getDocument, getDocuments, getEntities, getPage, getSource, g
 import { useTabTitle } from './tabs.js';
 import { AgentChoice, WriterCard, useAgentChoice } from './writer.js';
 import { FailureNote } from './errors.js';
-import { BlockView, CodeLines, CodePlace, EntityName, Findings, KLink, KMarkdown, brokenWords, groupLabel, scrollToAnchor } from './blocks.js';
+import { BlockView, CodeLines, CodePlace, EntityName, Findings, KLink, KMarkdown, PlannedBadge, PlannedContext, brokenWords, groupLabel, scrollToAnchor, sentenceKey, type PlannedMarks } from './blocks.js';
 import { addressOfDocument, addressOfJournal, addressOfKind, addressOfStatement } from './routes.js';
 import { hasJournal } from './journal.js';
 import { KindLabels, useKindName } from './kind-names.js';
@@ -65,17 +65,25 @@ export function EntityPage({ id, version }: { id: string; version: number }): Re
       </Alert>
     );
   }
+  // A planned change on this page is said in its header and on each statement that stands on it (madarch-m38l.14).
+  const planned: PlannedMarks = {
+    headings: {},
+    statements: Object.fromEntries((page.planned?.statements ?? []).map((mark) => [sentenceKey(mark.sentence), { task: mark.task, how: mark.how }])),
+  };
   return (
-    <article data-testid="entity-page" data-entity={page.id} data-kind={page.kind}>
+    <article data-testid="entity-page" data-entity={page.id} data-kind={page.kind} data-planned={page.planned?.entity === null || page.planned?.entity === undefined ? 'false' : page.planned.entity.how}>
       <header className="mb-6">
         <Trail trail={page.trail} />
         <div className="mb-2 flex items-center gap-2">
           <Badge data-testid="page-kind">{kindName(page.kind, 'one')}</Badge>
+          {page.planned?.entity != null && <PlannedBadge mark={page.planned.entity} />}
         </div>
         <h1 data-testid="page-title">{page.title}</h1>
         {page.notes.map((note) => <p key={note} className="text-small text-muted" data-testid="page-note">{note}</p>)}
+        {page.planned?.note !== undefined && <p className="text-small" role="alert" data-testid="page-planned-note">{page.planned.note}</p>}
         {hasJournal(page.id) && <p className="text-small" data-testid="journal-link"><KLink href={addressOfJournal(page.id)}>{t('journal.title')}</KLink></p>}
       </header>
+      <PlannedContext.Provider value={planned}>
       {page.blocks.map((block, index) => {
         const view = <BlockView key={index} block={block} resolutions={page.resolutions} pageId={page.id} />;
         if (blockOpen(block, role, roles)) return view;
@@ -83,6 +91,7 @@ export function EntityPage({ id, version }: { id: string; version: number }): Re
         const title = 'title' in block ? block.title : block.type;
         return <details key={index} className="role-collapsed mb-4" data-testid="block-collapsed" data-block-type={block.type}><summary className="cursor-pointer text-secondary">{title}</summary>{view}</details>;
       })}
+      </PlannedContext.Provider>
       <Findings findings={page.findings} />
     </article>
   );
@@ -489,8 +498,16 @@ export function DocumentPage({ repo, path, version }: { repo: string | null; pat
       </Alert>
     );
   }
+  // The heading a task's scope names carries its badge: the anchor's line is the line the heading stands on (madarch-m38l.14).
+  const planned: PlannedMarks = {
+    headings: Object.fromEntries((page.planned ?? []).flatMap((mark) => {
+      const line = mark.anchor === null ? undefined : page.anchors[mark.anchor];
+      return line === undefined ? [] : [[line, { task: mark.task, how: mark.how }] as const];
+    })),
+    statements: {},
+  };
   return (
-    <article data-testid="document-page" data-path={page.path} data-repo={page.repo ?? ''}>
+    <article data-testid="document-page" data-path={page.path} data-repo={page.repo ?? ''} data-planned={String((page.planned ?? []).length)}>
       <header className="mb-6">
         <nav aria-label="trail" className="mb-2 flex flex-wrap items-center gap-x-2 text-small text-muted"><KLink href="/k/docs">{t('knowledge.documents')}</KLink><span aria-hidden="true">/</span><span>{page.repo ?? t('knowledge.productRepository')}</span></nav>
         <div className="mb-2 flex items-center gap-2">
@@ -499,7 +516,10 @@ export function DocumentPage({ repo, path, version }: { repo: string | null; pat
           {page.commit !== null && <Badge title={page.commit}>{page.commit.slice(0, 10)}</Badge>}
         </div>
       </header>
-      <KMarkdown text={page.markdown} resolutions={page.resolutions} inDocument={{ repo: page.repo, path: page.path, anchors: page.anchors }} />
+      {page.plannedNote !== undefined && <Alert data-testid="document-planned-note"><AlertDescription><p>{page.plannedNote}</p></AlertDescription></Alert>}
+      <PlannedContext.Provider value={planned}>
+        <KMarkdown text={page.markdown} resolutions={page.resolutions} inDocument={{ repo: page.repo, path: page.path, anchors: page.anchors }} />
+      </PlannedContext.Provider>
     </article>
   );
 }
@@ -707,6 +727,8 @@ export function StatementPage({ id, sentence, turn = 0, version }: { id: string;
           <span className="text-small text-muted">{t('knowledge.statementOnPage')}: <EntityName entity={statement.page} /></span>
         </div>
         <p className="statement-sentence m-0" data-testid="statement-sentence">{statement.sentence}</p>
+        {statement.planned != null && <p className="m-0 mt-2" data-testid="statement-planned"><PlannedBadge mark={statement.planned} ground={statement.planned.how === 'impact'} /></p>}
+        {statement.plannedNote !== undefined && <p className="m-0 mt-1 text-small" role="alert" data-testid="statement-planned-note">{statement.plannedNote}</p>}
       </header>
       <section className="mb-8" data-testid="statement-paragraph">
         <h2>{t('knowledge.statementParagraph')}</h2>
