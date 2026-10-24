@@ -11,7 +11,7 @@
  * comes back to the caller as bytes.
  */
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -75,6 +75,17 @@ export async function layoutedViews(workspace: string): Promise<Map<string, Arch
  */
 const ARCHIFY_RENDER_TIMEOUT_MS = 120_000;
 
+/** Bun's embedded files support readFile, but not the native copyfile syscall used by cpSync. */
+function materialise(source: string, target: string): void {
+  mkdirSync(target, { recursive: true });
+  for (const entry of readdirSync(source, { withFileTypes: true })) {
+    const from = join(source, entry.name);
+    const to = join(target, entry.name);
+    if (entry.isDirectory()) materialise(from, to);
+    else writeFileSync(to, readFileSync(from));
+  }
+}
+
 /**
  * Renders one archify document with the vendored renderer: document in,
  * self-contained page out. Bounded like every other external tool call here, and a
@@ -97,7 +108,7 @@ export async function renderArchifyPage(document: ArchifyDocument, input: string
     const scratch = mkdtempSync(join(tmpdir(), 'madarch-archify-'));
     try {
       const vendor = join(scratch, 'archify');
-      cpSync(join(app, 'dist', 'archify', 'vendor', 'archify'), vendor, { recursive: true });
+      materialise(join(app, 'dist', 'archify', 'vendor', 'archify'), vendor);
       const executable = join(vendor, 'renderers', 'architecture', 'render-architecture.mjs');
       const run = spawnSync(process.execPath, [executable, input, output], {
         encoding: 'utf8', timeout: ARCHIFY_RENDER_TIMEOUT_MS, killSignal: 'SIGKILL',
