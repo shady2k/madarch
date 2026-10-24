@@ -33,7 +33,7 @@ export function scopePath(scope: TaskScope): string | undefined {
   }
 }
 
-/** A scope as a reader says it: `README.md#what-it-does`, `src/a.ts:12-20`, `code.symbol:src/a.ts#f`, `domain:payments#x`, `README.md`. */
+/** A scope as a reader says it: `README.md#what-it-does`, `src/a.ts:12-20`, a code symbol's graph key, a statement's, or a path. */
 export function scopeWords(scope: TaskScope): string {
   switch (scope.type) {
     case 'section': return `${scope.path}#${scope.anchor}`;

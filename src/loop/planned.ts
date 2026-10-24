@@ -88,8 +88,8 @@ export async function plannedMarks(input: { readonly owner: DatabaseOwner; reado
       continue;
     }
     tasks.push(refOf(task));
+    const how = 'scope' as const;
     for (const scope of task.scope) {
-      const how = 'scope' as const;
       const path = scopePath(scope);
       if (path !== undefined) {
         if (scope.type === 'section') sections.set(`${scope.path}#${scope.anchor}`, { repo: repositoriesOf(scope.path), path: scope.path, anchor: scope.anchor.toLowerCase(), lines: null, task: refOf(task), how });
@@ -131,7 +131,8 @@ function markStatement(marks: Map<string, PlannedStatement>, statement: Impacted
 function groundsOfScope(scope: TaskScope): string[] {
   switch (scope.type) {
     case 'section': return [`doc:${scope.path}#${scope.anchor}`];
-    case 'file': return [`code.file:${scope.path}`, `doc:${scope.path}`];
+    // A document's path is a document's key; a code path is a file of the graph, never a document.
+    case 'file': return [scope.path.endsWith('.md') ? `doc:${scope.path}` : `code.file:${scope.path}`];
     case 'symbol': return [scope.key.startsWith('code.symbol:') ? scope.key : `code.symbol:${scope.key}`];
     case 'lines': return [`code.file:${scope.path}`];
     case 'statement': return [];

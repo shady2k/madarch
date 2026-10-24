@@ -11,6 +11,7 @@
  * naming the repository, never a task silently left open or closed.
  */
 import { execFileSync } from 'node:child_process';
+import { anchorLines } from '../knowledge/anchors.js';
 import { byCodePoint } from '../model/order.js';
 import { scopePath, type PlannedTask, type TaskScope } from './tasks.js';
 
@@ -78,15 +79,39 @@ function changedLines(repository: string, commit: string, path: string): { start
   return ranges;
 }
 
-/** Whether a commit's change of the file touches the task's scope there. */
+/** The lines a section of a file holds at a commit: from its heading to the line before the next anchor. */
+function sectionLines(repository: string, commit: string, path: string, anchor: string): { start: number; end: number } | undefined {
+  let text: string;
+  try {
+    text = git(repository, ['show', `${commit}:${path}`]);
+  } catch {
+    return undefined;
+  }
+  const anchors = [...anchorLines(text).entries()].sort((a, b) => a[1] - b[1]);
+  const at = anchors.find(([name]) => name === anchor.toLowerCase());
+  if (at === undefined) return undefined;
+  const next = anchors.find(([, line]) => line > at[1]);
+  return { start: at[1], end: next === undefined ? text.split('\n').length : next[1] - 1 };
+}
+
+const overlaps = (ranges: readonly { start: number; end: number }[], scope: { start: number; end: number }): boolean =>
+  ranges.some((range) => range.start <= scope.end && range.end >= scope.start);
+
+/**
+ * Whether a commit's change of the file touches the task's scope there. A section scope is
+ * the section's own lines, not the whole file (the owner, 2026-10-23: "Зачем помечать весь
+ * файл, если исправить нужно одну строчку?"); a file scope is the whole file.
+ */
 function touches(repository: string, commit: string, changed: readonly string[], scope: TaskScope): boolean {
   const path = scopePath(scope);
   if (path === undefined || !changed.includes(path)) return false;
-  if (scope.type !== 'lines') return true;
+  if (scope.type === 'file' || scope.type === 'symbol' || scope.type === 'statement') return true;
   const ranges = changedLines(repository, commit, path);
   // A patch this reader cannot parse has already named the file: the file is the scope's own.
   if (ranges.length === 0) return true;
-  return ranges.some((range) => range.start <= scope.end && range.end >= scope.start);
+  if (scope.type === 'lines') return overlaps(ranges, { start: scope.start, end: scope.end });
+  const section = sectionLines(repository, commit, path, scope.anchor);
+  return section === undefined ? true : overlaps(ranges, section);
 }
 
 interface Commit {

@@ -18,6 +18,7 @@ import { join, resolve } from 'node:path';
 import { startServer, type StartedServer } from '../src/server/http.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY, ROOT, generateTrainingRepository, makeProduct } from './knowledge-fixture.js';
+import { slugOf } from '../src/writer/names.js';
 import { ANSWER_TEXT, LOOP_QUESTIONS, firstRunScript, questionSlug, refreshScript } from './loop-agent-script.js';
 
 const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, env: gitEnv(SAMPLE_IDENTITY), encoding: 'utf8' }).trim();
@@ -165,4 +166,126 @@ describe('the agent asks, a person answers, the refresh edits one page', () => {
     const problems = (await get('/api/k/problems')).body;
     expect(problems.problems.filter((p: { kind: string }) => p.kind === 'broken-link')).toEqual([]);
   }, 3_000_000);
+});
+
+describe('an answer scopes a task, marks only what it reaches, fixes those pages and closes on its commit', () => {
+  const retention = LOOP_QUESTIONS.find((question) => question.item === 'contradiction.retention')!;
+  const slug = questionSlug(retention, 'en');
+  const answer = 'Orders that were not shipped are removed ninety days after they were placed; the README says they are kept, and the code is right.';
+  const taskSlug = slugOf(`Update the documents: ${retention.text.en.title}`);
+  let proposed: any;
+
+  test('the answer proposes a task whose scope is the two README sections the question names, not their files', async () => {
+    expect((await post('/api/k/answer', { question: slug, text: answer })).status).toBe(200);
+    const proposal = await post('/api/k/task-propose', { question: slug, choice: 'code' });
+    expect(proposal.status).toBe(200);
+    proposed = proposal.body;
+    // «Прав код, документ устарел»: the documents the answer names, each as the section that is wrong.
+    expect(proposed.title).toBe(`Update the documents: ${retention.text.en.title}`);
+    expect(proposed.scope).toEqual([
+      { type: 'section', path: 'README.md', anchor: 'what-it-does' },
+      { type: 'section', path: 'services/orders/README.md', anchor: 'orders-service' },
+    ]);
+    expect(proposed.grounds).toEqual(['code.file\u003aservices/orders/internal/application/order_service.go', 'doc:README.md#what-it-does', 'doc:services/orders/README.md#orders-service']);
+    // The impact is read through the graph: the ordering page's sentences that stand on the two sections.
+    expect(proposed.impact.pages.map((page: { id: string }) => page.id)).toEqual(['domain:ordering']);
+    expect(proposed.impact.statements.length).toBeGreaterThan(0);
+    expect([...new Set(proposed.impact.statements.map((statement: { ground: string }) => statement.ground))].sort())
+      .toEqual(['doc:README.md#what-it-does', 'doc:services/orders/README.md#orders-service']);
+    for (const statement of proposed.impact.statements) expect(statement.page).toBe('domain:ordering');
+    // Nothing is written before the reader confirms.
+    expect(readdirSync(join(product, 'docs')).includes('tasks')).toBe(false);
+  }, 120_000);
+
+  test('confirming writes the task as the reader, and only the sections and statements it reaches are marked', async () => {
+    const created = await post('/api/k/task-create', { question: slug, title: proposed.title, grounds: proposed.grounds, scope: proposed.scope });
+    expect(created.status).toBe(201);
+    expect(created.body).toMatchObject({ state: 'created', committed: true, task: { id: `task:${taskSlug}`, file: `docs/tasks/${taskSlug}.md`, status: 'open' } });
+    expect(git(product, 'log', '-1', '--format=%an <%ae>|%s')).toBe(`Ada Reader <ada@example.test>|Plan the task ${taskSlug}`);
+    const file = readFileSync(join(product, `docs/tasks/${taskSlug}.md`), 'utf8');
+    for (const line of ['id: task:', 'kind: task', 'status: open', `question: question:${slug}`, `answer: answer:${slug}`, 'type: section', 'path: README.md', 'anchor: what-it-does']) expect(file).toContain(line);
+
+    const listing = (await get('/api/k/tasks')).body;
+    expect(listing).toMatchObject({ open: 1, closed: 0, problems: [] });
+    expect(listing.tasks[0]).toMatchObject({ id: `task:${taskSlug}`, status: 'open', closedBy: null, impact: { pages: proposed.impact.counts.pages, statements: proposed.impact.counts.statements } });
+
+    // The badge stands on the two sections and nowhere else in the documents.
+    const readme = (await get(`/api/k/document?repo=training&path=${encodeURIComponent('README.md')}`)).body;
+    expect(readme.planned).toEqual([{ anchor: 'what-it-does', lines: null, how: 'scope', task: { id: `task:${taskSlug}`, slug: taskSlug, title: proposed.title, file: `docs/tasks/${taskSlug}.md` } }]);
+    const orders = (await get(`/api/k/document?repo=training&path=${encodeURIComponent('services/orders/README.md')}`)).body;
+    expect(orders.planned.map((mark: { anchor: string }) => mark.anchor)).toEqual(['orders-service']);
+    for (const path of ['docs/requirements.md', 'docs/adr/0002-outbox.md', 'docs/architecture.md']) {
+      const other = (await get(`/api/k/document?repo=training&path=${encodeURIComponent(path)}`)).body;
+      expect({ path, planned: other.planned }).toEqual({ path, planned: [] });
+    }
+    // The statements that stand on those sections say their ground will change; the payments page stands on neither.
+    const ordering = (await get('/api/k/e/' + encodeURIComponent('domain:ordering'))).body;
+    expect(ordering.planned.entity).toMatchObject({ how: 'impact', task: { id: `task:${taskSlug}` } });
+    expect(ordering.planned.statements.map((mark: { sentence: string; how: string }) => mark.how)).toEqual(ordering.planned.statements.map(() => 'impact'));
+    expect(ordering.planned.statements.length).toBe(proposed.impact.statements.length);
+    const payments = (await get('/api/k/e/' + encodeURIComponent('domain:payments'))).body;
+    expect(payments.planned.statements).toEqual([]);
+  }, 120_000);
+
+  test('«Поправить страницы сейчас» runs the scripted agent over exactly the impacted page and rewrites nothing else', async () => {
+    const before = {
+      product: sha(join(product, 'docs/product.md')),
+      payments: sha(join(product, 'docs/domains/payments.md')),
+      ordering: readFileSync(join(product, 'docs/domains/ordering.md'), 'utf8'),
+    };
+    // The agent's page: the ordering page as it stands, with the sentence the README ground reached now stating the code's rule.
+    const kept = before.ordering.split('\n').find((line) => line.startsWith('The root README and the orders README say orders are retained indefinitely.'))!;
+    const marker = /\[\^[\w-]+\]$/.exec(kept)?.[0] ?? '';
+    const written = before.ordering.replace(kept, `Orders that were not shipped are removed ninety days after they were placed, as the retention job does.${marker}`);
+    expect(written).not.toBe(before.ordering);
+    writeFileSync(scriptFile, JSON.stringify({ byPrompt: [{ matches: `(madarch:task:${taskSlug})`, steps: [{ call: { tool: 'write_page', arguments: { markdown: written } } }, { end: { stopReason: 'end_turn' } }] }], steps: [{ end: { stopReason: 'end_turn' } }] }));
+    const started = await post('/api/k/task-run', { id: `task:${taskSlug}` });
+    expect(started.status).toBe(202);
+    expect(started.body.pages).toEqual(['docs/domains/ordering.md']);
+    const status = await settled();
+    expect({ writer: status.writer.state, message: status.writer.message }).toMatchObject({ writer: 'done' });
+    expect(status.writer.plan.pages.map((page: { path: string; reasons: { kind: string }[] }) => [page.path, page.reasons.map((reason) => reason.kind)])).toEqual([['docs/domains/ordering.md', ['task']]]);
+    expect(status.writer.units.filter((unit: { calls?: number }) => (unit.calls ?? 0) > 0).map((unit: { unit: string }) => unit.unit)).toEqual(['domain:ordering']);
+    expect(sha(join(product, 'docs/product.md'))).toBe(before.product);
+    expect(sha(join(product, 'docs/domains/payments.md'))).toBe(before.payments);
+    expect(readFileSync(join(product, 'docs/domains/ordering.md'), 'utf8')).toBe(written);
+  }, 3_000_000);
+
+  test('a commit closes the task only when it names the task and touches its scope', async () => {
+    const repository = join(product, 'repos/training');
+    const readme = (): string => readFileSync(join(repository, 'README.md'), 'utf8');
+    const edit = (from: string, to: string): void => {
+      const text = readme();
+      if (!text.includes(from)) throw new Error(`${join(repository, 'README.md')}: the README no longer holds ${JSON.stringify(from)}, so this commit would change nothing`);
+      writeFileSync(join(repository, 'README.md'), text.replace(from, to));
+    };
+    const commit = (message: string, path: string, change: () => void): string => {
+      change();
+      git(repository, 'add', '--', path);
+      git(repository, '-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', message);
+      return git(repository, 'rev-parse', 'HEAD');
+    };
+    const codePath = 'services/orders/internal/application/order_service.go';
+    const open = async (): Promise<any> => (await get('/api/k/tasks')).body.tasks[0];
+    // It names another task: nothing closes, whatever the file.
+    commit('Touch the README for another reason\n\nTask: some-other-task', 'README.md', () => edit('applies a 10% discount', 'applies a 10 per cent discount'));
+    expect(await open()).toMatchObject({ status: 'open', closedBy: null });
+    // It names this task but changes no file of its scope.
+    const code = readFileSync(join(repository, codePath), 'utf8');
+    commit(`A code change that is not in the task's scope\n\nTask: ${taskSlug}`, codePath, () => writeFileSync(join(repository, codePath), `${code}\n// A comment outside the task's scope.\n`));
+    expect(await open()).toMatchObject({ status: 'open', closedBy: null });
+    // It names the task and changes the same file, but another section of it: the scope is the section, not the file.
+    commit(`A change to how the service is run\n\nTask: ${taskSlug}`, 'README.md', () => edit('Prerequisites: Go 1.22, Node 20, Docker Compose and psql.', 'Prerequisites: Go 1.22, Node 20, Docker Compose and psql 16.'));
+    expect(await open()).toMatchObject({ status: 'open', closedBy: null });
+    // It names the task and changes the section the task's scope names: the task closes with that commit.
+    const closing = commit('Say what the retention job does\n\nTask: ' + taskSlug, 'README.md', () => edit('Orders are retained indefinitely.', 'Orders that were not shipped are removed ninety days after they were placed.'));
+    const listed = (await get('/api/k/tasks')).body;
+    expect(listed).toMatchObject({ open: 0, closed: 1 });
+    expect(listed.tasks[0].closedBy).toEqual({ repository: 'training', commit: closing, at: expect.any(String), subject: 'Say what the retention job does' });
+    // A closed task marks nothing: the sections are no longer planned changes.
+    const after = (await get(`/api/k/document?repo=training&path=${encodeURIComponent('README.md')}`)).body;
+    expect(after.planned).toEqual([]);
+    // Closing it again, by hand, is refused: it is closed already.
+    expect((await post('/api/k/task-close', { id: `task:${taskSlug}` })).status).toBe(409);
+  }, 120_000);
 });

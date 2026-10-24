@@ -50,7 +50,7 @@ import { DOCUMENT_LIMIT, DOCUMENT_PATH, docsLinkedOutside, listedDocument, produ
 import { ensureLoopKinds, seedStarterSet, TEMPLATES } from './seed.js';
 import { readCorrections } from '../loop/entities.js';
 import { answerQuestion, commitFiles, localIdentity, recordCorrection, type Answered, type Corrected } from '../loop/answer.js';
-import { readTasks, renderTask, taskSlug, writeTask, type PlannedTask, type TaskScope } from '../loop/tasks.js';
+import { readTasks, renderTask, TASKS_FOLDER, taskSlug, writeTask, type PlannedTask, type TaskScope } from '../loop/tasks.js';
 import { impactOf, type TaskImpact } from '../loop/impact.js';
 import type { RepositoryRef } from '../loop/closure.js';
 import { NO_MARKS, markForEntity, marksForDocument, marksForPage, plannedMarks, type PlannedMarks } from '../loop/planned.js';
@@ -1159,8 +1159,18 @@ export class KnowledgeProduct {
     };
   }
 
-  /** The planned-change marks, read once per revision: a task written, a commit or a page edit makes them read again. */
-  private marksMemo: { revision: number; marks: PlannedMarks } | undefined;
+  /** The planned-change marks, read once per revision and per head of the product's repositories: a commit makes them read again. */
+  private marksMemo: { key: string; marks: PlannedMarks } | undefined;
+
+  /** What the planned-change marks depend on besides the wiki's revision: the tasks folder and every repository's head. */
+  private marksKey(): string {
+    const parts: string[] = [String(this.revision)];
+    try { parts.push(String(statSync(join(this.options.productFolder, TASKS_FOLDER)).mtimeMs)); } catch { parts.push('-'); }
+    for (const repository of [{ path: this.options.productFolder }, ...this.repositories().filter((repo) => repo.present)]) {
+      try { parts.push(execFileSync('git', ['-C', repository.path, 'rev-parse', 'HEAD'], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' } }).trim()); } catch { parts.push('-'); }
+    }
+    return parts.join('|');
+  }
 
   /** The memo of the document entities: they are read again only when a document, a commit or a document kind changed. */
   private docMemo: { key: string; sources: DocumentSource[]; entities: DocEntity[]; findings: Finding[] } | undefined;
@@ -1488,8 +1498,9 @@ export class KnowledgeProduct {
 
   /** Where planned changes show now, read once per revision of the product's files and its graph. */
   private async marks(): Promise<PlannedMarks> {
+    const key = this.marksKey();
     const held = this.marksMemo;
-    if (held !== undefined && held.revision === this.revision) return held.marks;
+    if (held !== undefined && held.key === key) return held.marks;
     const product = this.product();
     if ('message' in product) return NO_MARKS;
     const owner = await this.open();
@@ -1498,7 +1509,7 @@ export class KnowledgeProduct {
       repositories: this.repositories().filter((repo) => repo.present).map((repo) => ({ name: repo.name, path: repo.path })),
       productFiles: productDocumentPaths(product.folder),
     });
-    this.marksMemo = { revision: this.revision, marks };
+    this.marksMemo = { key, marks };
     return marks;
   }
 
@@ -1523,24 +1534,24 @@ export class KnowledgeProduct {
   /** Create a task only after the reader confirms its proposed scope: a product file, committed as the reader. */
   async createTask(input: { question: string; title: string; grounds: string[]; scope: TaskScope[] }): Promise<{ task: PlannedTask; state: 'created'; committed: boolean; note?: string; commit?: string }> {
     const question = this.questions().rows.find((row) => row.slug === input.question);
-    if (question === undefined || question.state === 'open') throw new WikiReadError(`docs/questions/${input.question}.md:1: a task needs a saved answer to an existing question`);
+    if (question === undefined || question.state === 'open') throw new LoopRefusal(409, `docs/questions/${input.question}.md:1: a task needs a saved answer to an existing question`);
     const detail = await this.question(input.question);
-    if (detail?.answer === null || detail?.answer === undefined) throw new WikiReadError(`docs/questions/${input.question}.md:1: the saved answer cannot be read`);
-    if (input.title.trim() === '') throw new WikiReadError('docs/tasks:1: a confirmed task needs a title');
-    if (input.scope.length === 0) throw new WikiReadError('docs/tasks:1: a confirmed task needs a scope: the section, lines, symbol or statement it changes');
-    if (input.grounds.length === 0) throw new WikiReadError('docs/tasks:1: a confirmed task needs its grounds: what the change stands on');
+    if (detail?.answer === null || detail?.answer === undefined) throw new LoopRefusal(409, `docs/questions/${input.question}.md:1: the saved answer cannot be read`);
+    if (input.title.trim() === '') throw new LoopRefusal(400, 'docs/tasks:1: a confirmed task needs a title');
+    if (input.scope.length === 0) throw new LoopRefusal(400, 'docs/tasks:1: a confirmed task needs a scope: the section, lines, symbol or statement it changes');
+    if (input.grounds.length === 0) throw new LoopRefusal(400, 'docs/tasks:1: a confirmed task needs its grounds: what the change stands on');
     const by = await localIdentity(this.options.productFolder, { ...process.env, ...(this.options.env ?? {}) } as NodeJS.ProcessEnv);
     const slug = taskSlug(input.title, input.question);
     const file = `docs/tasks/${slug}.md`;
     const existing = readTasks(this.options.productFolder);
-    if (existing.findings.length > 0) throw new WikiReadError(`docs/tasks:1: cannot safely check existing tasks: ${existing.findings.map((finding) => `${finding.file}:${finding.line}: ${finding.message}`).join('; ')}`);
-    if (existing.tasks.some((task) => task.slug === slug)) throw new WikiReadError(`${file}:1: a task with this id already exists`);
+    if (existing.findings.length > 0) throw new LoopRefusal(409, `docs/tasks:1: cannot safely check existing tasks: ${existing.findings.map((finding) => `${finding.file}:${finding.line}: ${finding.message}`).join('; ')}`);
+    if (existing.tasks.some((task) => task.slug === slug)) throw new LoopRefusal(409, `${file}:1: a task with this id already exists`);
     const scopes = dedupeScopes(input.scope);
     const task = { slug, title: input.title.trim(), status: 'open' as const, question: `question:${input.question}`, answer: `answer:${input.question}`, grounds: [...new Set(input.grounds)].sort(byCodePoint), scope: scopes, by, at: (this.options.now?.() ?? new Date()).toISOString(), closedBy: null, closedAt: null };
     try {
       writeTask(this.options.productFolder, file, task);
     } catch (error) {
-      throw new WikiReadError(`${file}:1: the task could not be written: ${(error as Error).message}`);
+      throw new LoopRefusal(409, `${file}:1: the task could not be written: ${(error as Error).message}`);
     }
     const committed = await commitFiles(this.options.productFolder, [file], `Plan the task ${slug}\n\nTask: ${slug}`, by, { ...process.env, ...(this.options.env ?? {}) } as NodeJS.ProcessEnv);
     this.notify();
@@ -1551,8 +1562,8 @@ export class KnowledgeProduct {
   async closeTask(id: string): Promise<{ task: PlannedTask; state: 'closed'; committed: boolean; note?: string; commit?: string }> {
     const read = readTasks(this.options.productFolder);
     const task = read.tasks.find((candidate) => candidate.id === id || candidate.slug === id);
-    if (task === undefined) throw new WikiReadError(`docs/tasks:1: there is no task ${id}: docs/tasks/${id.replace(/^task:/, '')}.md is not in the product repository`);
-    if (task.status === 'closed') throw new WikiReadError(`${task.file}:1: the task ${task.slug} is already closed`);
+    if (task === undefined) throw new LoopRefusal(404, `docs/tasks:1: there is no task ${id}: docs/tasks/${id.replace(/^task:/, '')}.md is not in the product repository`);
+    if (task.status === 'closed') throw new LoopRefusal(409, `${task.file}:1: the task ${task.slug} is already closed`);
     const by = await localIdentity(this.options.productFolder, { ...process.env, ...(this.options.env ?? {}) } as NodeJS.ProcessEnv);
     const at = (this.options.now?.() ?? new Date()).toISOString();
     const closed: PlannedTask = { ...task, status: 'closed', closedBy: 'person', closedAt: at };

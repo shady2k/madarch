@@ -15,11 +15,12 @@
  * Usage: bun scripts/knowledge-shots.ts [--out <folder>] [--work <folder>]
  * The pictures are written to --out (shots/ by default) and listed on standard output.
  */
-import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import puppeteer, { type Page } from 'puppeteer';
 import { resolveBrowserExecutable } from './chromium.js';
 import { agentScript } from '../test/knowledge-agent-script.js';
+import { LOOP_QUESTIONS, firstRunScript, questionSlug } from '../test/loop-agent-script.js';
 import { FACTORY, PAY, PAYMENTS_SERVICE, generateTrainingRepository, makeProduct, recordKey, writeSamplePages } from '../test/knowledge-fixture.js';
 import { existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -445,6 +446,109 @@ if (only === 'entities') {
     await shoot(page, `${lang}-e37-documents`);
     await page.close();
   }
+}
+
+
+// ---- the scoped tasks of answers (madarch-m38l.14) -------------------------------------------
+// The acceptance walk of a task: an answer that says the code is right and the document is out of date proposes a task
+// scoped to the two README sections the question names, with its impact computed through the graph; confirming it marks
+// exactly those sections and the statements that stand on them; «Поправить страницы сейчас» lists the pages it rewrites;
+// and the «Задачи» page lists the task. Every state is shot in both languages, both schemes and both widths.
+if (only === '' || only === 'tasks') {
+  const product = '/products/training-shop';
+  const api = (path: string, body?: unknown): Promise<Response> => fetch(`${server.url}${product}${path}`, body === undefined ? {} : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const retention = LOOP_QUESTIONS.find((question) => question.item === 'contradiction.retention')!;
+  const slug = questionSlug(retention, 'en');
+  const ANSWER = 'The code is right: orders that were not shipped are removed ninety days after they were placed, and the two READMEs still say they are kept.';
+  // A product of its own, filled once with the scripted agent: the run asks its questions before it writes the pages.
+  const questions = join(home, 'training-shop', 'docs', 'questions');
+  if (!existsSync(questions) || !existsSync(join(questions, `${slug}.md`))) {
+    rmSync(join(home, 'training-shop'), { recursive: true, force: true });
+    makeProduct(home, 'training-shop', repository);
+    writeFileSync(join(work, 'agent-script.json'), JSON.stringify(firstRunScript()));
+    const status = await api('/api/k/agent', { agent: 'claude-code', install: false });
+    if (!status.ok) throw new Error(`the agent could not be chosen: ${status.status} ${await status.text()}`);
+    const started = await api('/api/k/fill', { agent: 'claude-code' });
+    if (started.status !== 202) throw new Error(`the fill did not start: ${started.status} ${await started.text()}`);
+    for (let tries = 0; ; tries += 1) {
+      const state = (await (await api('/api/k/status')).json()) as { fill: { state: string }; writer: { state: string } };
+      if (state.fill.state !== 'running' && state.writer.state !== 'running' && state.writer.state !== 'waiting') {
+        if (state.fill.state !== 'done') throw new Error(`the fill ended as ${state.fill.state}`);
+        break;
+      }
+      if (tries > 1_800) throw new Error('the fill of the training repository never ended');
+      await new Promise((rest) => setTimeout(rest, 2_000));
+    }
+  }
+  // The walk confirms a task and cannot un-confirm it: a second run against the same work folder would show no proposal.
+  const tasksFolder = join(home, 'training-shop', 'docs', 'tasks');
+  if (existsSync(tasksFolder) && readdirSync(tasksFolder).length > 0) throw new Error(`${tasksFolder} already holds ${readdirSync(tasksFolder).length} task file(s): the walk starts from a product with no task, so run it with a new --work folder`);
+  // The answer is a file of the product, committed as the reader: written once, and read by every walk below.
+  const answered = await api('/api/k/answer', { question: slug, text: ANSWER });
+  if (!answered.ok && answered.status !== 409) throw new Error(`the answer could not be saved: ${answered.status} ${await answered.text()}`);
+
+  const combos: { lang: 'en' | 'ru'; scheme: 'light' | 'dark'; width: number }[] = [];
+  for (const language of ['en', 'ru'] as const) {
+    for (const scheme of ['light', 'dark'] as const) for (const width of [1150, 390]) combos.push({ lang: language, scheme, width });
+  }
+  const tag = (combo: { lang: string; scheme: string; width: number }): string => `${combo.lang}-${combo.scheme}-${combo.width}`;
+  const question = `${product}/k/questions/${encodeURIComponent(slug)}`;
+
+  // Before the task is confirmed, in every language, scheme and width: the saved answer, the choice «Прав код, документ
+  // устарел», the filled proposal and the pages and statements it reaches.
+  const propose = async (combo: { lang: string; scheme: 'light' | 'dark'; width: number }, shot: boolean): Promise<Page> => {
+    const page = await open(question, combo.width, combo.width === 390 ? 1600 : 1500, combo.scheme);
+    await page.evaluate((language) => { try { window.localStorage.setItem('madarch-wiki-language', language); } catch { /* the browser's own language */ } }, combo.lang);
+    await page.goto(`${server.url}${question}`, { waitUntil: 'domcontentloaded' });
+    await waited(page, `the task choice (${tag(combo)})`, () => page.waitForSelector('[data-testid=task-choice-code]', { timeout: 120_000 }));
+    await page.click('[data-testid=task-choice-code]');
+    await page.click('[data-testid=task-propose]');
+    await waited(page, `the proposed task (${tag(combo)})`, () => page.waitForSelector('[data-testid=task-impact-list]', { timeout: 60_000 }));
+    if (shot) {
+      await page.evaluate(() => document.querySelector('[data-testid=task-proposed]')?.scrollIntoView({ block: 'start' }));
+      await shoot(page, `${tag(combo)}-k01-answer-proposes-a-task`);
+    }
+    return page;
+  };
+  for (const combo of combos) {
+    const page = await propose(combo, true);
+    await page.close();
+  }
+  // The one press that writes the task is the reader's, made once, as the acceptance walk makes it.
+  {
+    const page = await propose(combos[0]!, false);
+    await page.click('[data-testid=task-confirm]');
+    await waited(page, 'the confirmed task', () => page.waitForSelector('[data-testid=task-card] [data-testid=task-fix-now]', { timeout: 60_000 }));
+    await page.close();
+  }
+
+  // After the confirmation: the badges on the two sections and on the statements that stand on them, and the fixes.
+  for (const combo of combos) {
+    const language = combo.lang;
+    const at = async (path: string, what: string, ready: string, height: number): Promise<Page> => {
+      const page = await open(path, combo.width, height, combo.scheme);
+      await page.evaluate((chosen) => { try { window.localStorage.setItem('madarch-wiki-language', chosen); } catch { /* the browser's own language */ } }, language);
+      await page.goto(`${server.url}${path}`, { waitUntil: 'domcontentloaded' });
+      await waited(page, `${what} (${tag(combo)})`, () => page.waitForSelector(ready, { timeout: 120_000 }));
+      return page;
+    };
+    const readme = await at(`${product}/k/doc?repo=training&path=${encodeURIComponent('README.md')}#what-it-does`, 'the README section badge', '[data-testid=planned-badge]', combo.width === 390 ? 1500 : 1300);
+    await readme.evaluate(() => document.querySelector('[data-testid=planned-badge]')?.scrollIntoView({ block: 'center' }));
+    await shoot(readme, `${tag(combo)}-k02-badge-on-the-readme-section`);
+    await readme.close();
+    const ordering = await at(`${product}/k/e/${encodeURIComponent('domain:ordering')}`, 'the dependent statement badge', '[data-testid=statement][data-planned]', combo.width === 390 ? 1900 : 1600);
+    await ordering.evaluate(() => document.querySelector('[data-testid=statement][data-planned]')?.scrollIntoView({ block: 'center' }));
+    await shoot(ordering, `${tag(combo)}-k03-badge-on-the-dependent-statement`);
+    await ordering.close();
+    const fixing = await at(question, 'the task card with its pages', '[data-testid=task-card] [data-testid=task-fix-now]', combo.width === 390 ? 2000 : 1700);
+    await fixing.evaluate(() => document.querySelector('[data-testid=task-card]')?.scrollIntoView({ block: 'start' }));
+    await shoot(fixing, `${tag(combo)}-k04-fix-the-pages-now`);
+    await fixing.close();
+    const tasks = await at(`${product}/k/tasks`, 'the tasks page', '[data-testid=task-row]', combo.width === 390 ? 1400 : 1000);
+    await shoot(tasks, `${tag(combo)}-k05-tasks`);
+    await tasks.close();
+  }
+  console.log(`the scoped-task walk wrote ${written.length} pictures into ${out}`);
 }
 
 await browser.close();

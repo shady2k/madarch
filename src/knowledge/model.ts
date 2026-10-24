@@ -207,8 +207,11 @@ export interface PageModel {
   findings: Finding[];
   /** A reader's notes the page carries: an ambiguous key, a source that moved. */
   notes: string[];
-  /** The planned change this entity's page stands in, and the statements of the page that rely on one (madarch-m38l.14). */
-  planned: { entity: PlannedMarkView | null; statements: (PlannedMarkView & { sentence: string })[]; note?: string };
+  /**
+   * The planned change this entity's page stands in, and the statements of the page that rely on one (madarch-m38l.14).
+   * `product.page` adds it after the page is drawn; the page the renderer builds knows nothing of the product's tasks.
+   */
+  planned?: { entity: PlannedMarkView | null; statements: (PlannedMarkView & { sentence: string })[]; note?: string };
 }
 
 export interface KindSummary {
