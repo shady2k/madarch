@@ -217,5 +217,8 @@ describe('ensureBuilt: the app folder it decides from', () => {
     const built = ensureBuilt({ env: { MADARCH_APP: '   ' } });
     if (!built.ok) throw new Error(built.message);
     expect(built.appFolder).not.toBe('   ');
-  });
+    // This case builds the checkout's own app — `bun install` and a vite build of ~5000 modules — so it names its own
+    // bound: an unnamed case runs under ten seconds, and the build alone can take longer on a loaded runner
+    // (madarch-cznn, and CI run 40074196671 stopped this case at 10 010 ms).
+  }, 180_000);
 });

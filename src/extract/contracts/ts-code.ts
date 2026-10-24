@@ -76,7 +76,7 @@ export interface TsFileFacts {
   /** The query parameters each function returns under its own name (`readFilters` -> order, status, ...). */
   readonly returnedQueryProps: ReadonlyMap<string, readonly string[]>;
   /** The functions that splice a parameter property into a string, and the properties. */
-  readonly stringSplicers: readonly {fn: string; spliced: readonly string[]}[];
+  readonly stringSplicers: readonly {fn: string; spliced: readonly string[]; span: SourceSpan}[];
   /** The file's local bindings: the functions and variables each initializer uses. */
   readonly bindings: ReadonlyMap<string, {calls: readonly string[]; vars: readonly string[]}>;
   /** The functions whose string-building result reaches the sink's function. */
@@ -110,7 +110,7 @@ export function readTsFile(path: string, root: SyntaxNode): TsFileFacts {
   const newCalls = new Map<string, string[]>();
   const configDefaults = new Map<string, number>();
   const inputs: {name: string; fn?: string; span: SourceSpan}[] = [];
-  const stringSplicers: {fn: string; spliced: string[]}[] = [];
+  const stringSplicers: {fn: string; spliced: string[]; span: SourceSpan}[] = [];
   const bindings = new Map<string, {calls: Set<string>; vars: Set<string>}>();
   const sqlSinks: {callee: string; fn?: string; span: SourceSpan}[] = [];
   const callSiteArgs = new Map<string, string[][]>();
@@ -433,7 +433,7 @@ export function readTsFile(path: string, root: SyntaxNode): TsFileFacts {
       const prop = inner.childForFieldName('property')?.text;
       if (parameterNames.includes(object) && prop !== undefined) spliced.add(prop);
     });
-    if (spliced.size > 0) stringSplicers.push({fn: name, spliced: [...spliced].sort()});
+    if (spliced.size > 0) stringSplicers.push({fn: name, spliced: [...spliced].sort(), span: spanOf(node, path)});
   });
 
   // The builders whose result reaches a sink's function, through the file's bindings.

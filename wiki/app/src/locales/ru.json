@@ -61,6 +61,13 @@
     "noLinks": "в графе нет связей",
     "noCalls": "в графе нет вызовов",
     "noTables": "в графе нет таблиц",
+    "historyAdded": "+{{value}} строк",
+    "historyRemoved": "−{{value}} строк",
+    "historySymbols": "{{value}} символов",
+    "historyCommits": "{{value}} коммитов",
+    "historyFiles": "{{value}} файлов",
+    "historyModule": "модуль: {{value}}",
+    "historyUnavailable": "Для этой страницы в истории нет записанных значений.",
     "blockProblem": "Блок :::{{block}} не удалось нарисовать",
     "findings": "Найдено проблем: {{count}}",
     "chooseProduct": "Выбрать продукт",
@@ -334,6 +341,23 @@
       "label": "Документация madarch",
       "title": "Документация madarch"
     },
+    "historyColWhen": "Когда",
+    "historyColWho": "Автор",
+    "historyColWhat": "Коммит",
+    "historyColFile": "Файл",
+    "historyColFigures": "Что изменилось",
+    "historySection": {
+      "commits": "Коммиты",
+      "files": "Файлы"
+    },
+    "historyFigure": {
+      "added": "добавлено строк",
+      "removed": "удалено строк",
+      "symbols": "символов",
+      "commits": "коммитов",
+      "files": "файлов",
+      "module": "модуль"
+    },
     "manifestFindingsHelp": "Часть видов или строк манифеста прочитать не удалось. Страницы остальных видов показаны и проиндексированы; строки перечислены в «Подробностях».",
     "manifestMissingGroup": "Вид «{{kind}}» ссылается на группу «{{group}}», которой нет в манифесте.",
     "manifestKinds": {
@@ -357,6 +381,36 @@
       "table": "Таблица",
       "column": "Столбец",
       "test-case": "Тестовый сценарий"
+    },
+    "definitionOpenApi": "OpenAPI",
+    "definitionAsyncApi": "AsyncAPI",
+    "definitionProto": "gRPC (protobuf)",
+    "definitionMember": "Операция",
+    "definitionProtocol": "Протокол",
+    "definitionDetail": "Что сказано",
+    "definitionEmpty": "Этот контракт не объявляет ни операции, ни канала, ни rpc, которые читатель смог бы прочитать.",
+    "definitionSource": "Сам контракт",
+    "definitionCut": "Показаны первые {{shown}} строк из {{total}}.",
+    "definitionMembersCut": "Показано {{shown}} из {{total}} элементов контракта.",
+    "definitionChannelCut": "Канал {{channel}}: показано {{shown}} из {{total}} сообщений.",
+    "historyNote": {
+      "manyCommits": "В списке {{total}} коммитов; показаны первые {{shown}}.",
+      "manyFiles": "Коммит изменил {{total}} файлов; показаны первые {{shown}}.",
+      "noCounts": "У {{count}} файлов нет числа строк: двоичный файл или путь, оставшийся от переименования.",
+      "merge": "Этот коммит не изменил ни одного файла сам: это слияние, изменения пришли с ветками, которые он соединил.",
+      "noFiles": "Этот коммит не изменил ни одного файла сам.",
+      "partialFiles": "Файлы ниже считают показанные коммиты; коммит с бо́льшим числом файлов добавляет только те, что видны.",
+      "symbolsCut": "В файле {{path}} больше сущностей, чем считает страница; число символов относится к первым {{shown}}."
+    },
+    "property": {
+      "authoredAt": "Создан",
+      "committedAt": "Зафиксирован",
+      "subject": "Тема",
+      "merge": "Коммит слияния",
+      "language": "Язык",
+      "symbol": "Символ",
+      "method": "Метод",
+      "path": "Путь"
     }
   },
   "loop": {
@@ -517,7 +571,7 @@
     "plannedTitle": "Здесь запланировано изменение: {{title}}",
     "plannedNote": "Запланированные изменения прочитать не удалось",
     "reasonTask": "Подтверждённая задача планирует это изменение: {{title}}",
-"starter": {
+    "starter": {
       "title_one": "В стартовом наборе есть {{count}} вещь, которой нет в этом продукте",
       "title_few": "В стартовом наборе есть {{count}} вещи, которых нет в этом продукте",
       "title_many": "В стартовом наборе есть {{count}} вещей, которых нет в этом продукте",

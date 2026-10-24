@@ -61,6 +61,13 @@
     "noLinks": "no links in the graph",
     "noCalls": "no calls in the graph",
     "noTables": "no tables in the graph",
+    "historyAdded": "+{{value}} lines",
+    "historyRemoved": "−{{value}} lines",
+    "historySymbols": "{{value}} symbols",
+    "historyCommits": "{{value}} commits",
+    "historyFiles": "{{value}} files",
+    "historyModule": "module: {{value}}",
+    "historyUnavailable": "The history has no recorded values for this page.",
     "blockProblem": "The :::{{block}} block could not be drawn",
     "findings": "Problems found: {{count}}",
     "chooseProduct": "Choose a product",
@@ -334,6 +341,23 @@
       "label": "madarch documentation",
       "title": "madarch documentation"
     },
+    "historyColWhen": "When",
+    "historyColWho": "Author",
+    "historyColWhat": "Commit",
+    "historyColFile": "File",
+    "historyColFigures": "What changed",
+    "historySection": {
+      "commits": "Commits",
+      "files": "Files"
+    },
+    "historyFigure": {
+      "added": "added lines",
+      "removed": "removed lines",
+      "symbols": "symbols",
+      "commits": "commits",
+      "files": "files",
+      "module": "module"
+    },
     "manifestFindingsHelp": "Some kinds or lines of the manifest could not be read. The pages of the other kinds are shown and indexed; the lines are listed under Details.",
     "manifestMissingGroup": "Kind \"{{kind}}\" refers to group \"{{group}}\", which is not in the manifest.",
     "manifestKinds": {
@@ -357,6 +381,36 @@
       "table": "Table",
       "column": "Column",
       "test-case": "Test case"
+    },
+    "definitionOpenApi": "OpenAPI",
+    "definitionAsyncApi": "AsyncAPI",
+    "definitionProto": "gRPC (protobuf)",
+    "definitionMember": "Operation",
+    "definitionProtocol": "Protocol",
+    "definitionDetail": "What it says",
+    "definitionEmpty": "This contract declares no operation, channel or rpc the reader could read.",
+    "definitionSource": "The contract itself",
+    "definitionCut": "Showing the first {{shown}} lines of {{total}}.",
+    "definitionMembersCut": "Showing {{shown}} of {{total}} contract members.",
+    "definitionChannelCut": "Channel {{channel}}: showing {{shown}} of {{total}} messages.",
+    "historyNote": {
+      "manyCommits": "The list names {{total}} commits; the first {{shown}} are shown.",
+      "manyFiles": "The commit changed {{total}} files; the first {{shown}} are shown.",
+      "noCounts": "{{count}} of the files report no line count: a binary file, or a path a rename left behind.",
+      "merge": "This commit changed no file of its own: it is a merge, and the changes came in with the branches it brought together.",
+      "noFiles": "This commit changed no file of its own.",
+      "partialFiles": "The files below count the commits shown; a commit with more files than this page reads adds only the ones it shows.",
+      "symbolsCut": "The file {{path}} holds more entities than this page counts; its symbol figure covers the first {{shown}}."
+    },
+    "property": {
+      "authoredAt": "Authored",
+      "committedAt": "Committed",
+      "subject": "Subject",
+      "merge": "Merge commit",
+      "language": "Language",
+      "symbol": "Symbol",
+      "method": "Method",
+      "path": "Path"
     }
   },
   "loop": {
@@ -517,7 +571,7 @@
     "plannedTitle": "A change is planned here: {{title}}",
     "plannedNote": "The planned changes could not be read",
     "reasonTask": "A confirmed task plans this change: {{title}}",
-"starter": {
+    "starter": {
       "title_one": "The starter set has {{count}} thing this product lacks",
       "title_other": "The starter set has {{count}} things this product lacks",
       "intro": "A person edited this product's manifest, so madarch does not rewrite it. This is what the current starter set holds and the manifest lacks. Adding writes it into madarch/kinds.yaml and keeps your comments and everything else.",

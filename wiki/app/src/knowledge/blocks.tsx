@@ -497,8 +497,16 @@ function Diagram({ title, mermaid, caption, empty, links = [] }: { title: string
   );
 }
 
+
+/** An instant as the wiki writes dates: the day and the time in the reader's language, the raw text where it is no date. */
+function when(value: string, language: string): string {
+  const instant = new Date(value);
+  if (Number.isNaN(instant.getTime())) return value;
+  return new Intl.DateTimeFormat(language, {dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC'}).format(instant);
+}
+
 function Properties({ block }: { block: Extract<Block, { type: 'properties' }> }): ReactElement | null {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   if (block.rows.length === 0) return null;
   return (
     <section data-block="properties" aria-label={block.title}>
@@ -510,8 +518,8 @@ function Properties({ block }: { block: Extract<Block, { type: 'properties' }> }
         <TableBody>
           {block.rows.map((row) => (
             <TableRow key={row.name}>
-              <TableCell className="whitespace-nowrap align-top font-mono text-[0.875em] text-secondary">{row.name}</TableCell>
-              <TableCell className="max-w-[40rem] break-words">{row.value}</TableCell>
+              <TableCell className="whitespace-nowrap align-top font-mono text-[0.875em] text-secondary">{row.nameKey === undefined ? row.name : t(`knowledge.property.${row.nameKey}`)}</TableCell>
+              <TableCell className="max-w-[40rem] break-words">{row.valueKind === 'date' ? when(row.value, i18n.language) : row.value}</TableCell>
             </TableRow>
           ))}
         </TableBody>
@@ -587,6 +595,111 @@ function Deferred({ block, pageId, resolutions }: { block: Extract<Block, { type
   );
 }
 
+/**
+ * The history of a task, a commit or an author (madarch-m38l.16): the commits it names, the files it changed with the
+ * lines it added and removed, or the files its commits touched most. Each figure is a badge whose word comes from the
+ * reader's language, so a row reads "2026-01-02 · Ada · +42 −7".
+ */
+function History({ block }: { block: Extract<Block, { type: 'history' }> }): ReactElement {
+  const { t } = useTranslation();
+  /** One figure in the reader's language: `+42`, `−7`, `3 symbols`, `module: services/orders`. */
+  const figureText = (figure: { kind: string; value: string }): string => {
+    if (figure.kind === 'added') return `+${figure.value}`;
+    if (figure.kind === 'removed') return `−${figure.value}`;
+    if (figure.kind === 'module') return `${t('knowledge.historyFigure.module')}: ${figure.value}`;
+    return `${figure.value} ${t(`knowledge.historyFigure.${figure.kind}`)}`;
+  };
+  return (
+    <section data-block="history" aria-label={block.title}>
+      <h2>{block.title}</h2>
+      {block.sections.length === 0 ? <p className="text-small text-muted" data-testid="history-empty">{t('knowledge.none')}</p> : block.sections.map((section) => (
+        <div key={section.role} data-history-section={section.role} className="mb-4">
+          {block.sections.length > 1 && <h3 className="text-small text-muted">{t(`knowledge.historySection.${section.role}`)}</h3>}
+          <Table>
+            <TableHeader>
+              <TableRow>
+                {section.role === 'commits' && <TableHead>{t('knowledge.historyColWhen')}</TableHead>}
+                {section.role === 'commits' && <TableHead>{t('knowledge.historyColWho')}</TableHead>}
+                <TableHead>{section.role === 'commits' ? t('knowledge.historyColWhat') : t('knowledge.historyColFile')}</TableHead>
+                <TableHead>{t('knowledge.historyColFigures')}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {section.rows.map((row, index) => (
+                <TableRow key={row.entity?.id ?? `${section.role}-${String(index)}`} {...(row.entity === undefined ? {} : {'data-entity': row.entity.id})}>
+                  {section.role === 'commits' && <TableCell className="whitespace-nowrap">{row.when ?? <span className="text-muted">–</span>}</TableCell>}
+                  {section.role === 'commits' && <TableCell className="whitespace-nowrap">{row.who ?? <span className="text-muted">–</span>}</TableCell>}
+                  <TableCell className="max-w-[32rem] break-words">
+                    {row.entity === undefined ? row.text : <EntityName entity={row.entity} />}
+                  </TableCell>
+                  <TableCell>
+                    <span className="flex flex-wrap items-center gap-1">
+                      {row.figures.map((figure, at) => (
+                        <Badge key={`${figure.kind}-${String(at)}`} data-figure={figure.kind} title={t(`knowledge.historyFigure.${figure.kind}`)}>
+                          {figureText(figure)}
+                        </Badge>
+                      ))}
+                      {row.figures.length === 0 && <span className="text-muted">–</span>}
+                    </span>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+          {section.total > section.rows.length && <p className="mt-1.5 text-small text-muted" data-testid="history-cut">{t('knowledge.showing', { shown: section.rows.length, total: section.total })}</p>}
+        </div>
+      ))}
+      {block.notes.length > 0 && (
+        <ul className="mt-1.5 text-small text-muted" data-testid="history-notes">
+          {block.notes.map((note, index) => <li key={index}>{t(`knowledge.historyNote.${note.key}`, note.args ?? {})}</li>)}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/**
+ * A contract's definition in its own format (madarch-m38l.16): the operations of an OpenAPI document, the channels and
+ * their messages of an AsyncAPI document, or the services and rpcs of a protobuf file, each at an anchor a link can open
+ * the page at, beside the contract's own text. The block arrives deferred, so a reader pays for it only when they open it.
+ */
+function Definition({ block }: { block: Extract<Block, { type: 'definition' }> }): ReactElement {
+  const { t } = useTranslation();
+  const formatName = block.format === 'openapi' ? t('knowledge.definitionOpenApi') : block.format === 'asyncapi' ? t('knowledge.definitionAsyncApi') : block.format === 'proto' ? t('knowledge.definitionProto') : block.format;
+  return (
+    <section data-block="definition" aria-label={block.title}>
+      <h2>{block.title}</h2>
+      <p className="m-0 flex flex-wrap items-center gap-2">
+        <Badge data-testid="definition-format">{formatName}</Badge>
+        {block.location === undefined ? <span className="font-mono text-[0.875em]">{block.contract}</span> : <KLink href={block.location.href} className="font-mono text-[0.875em] text-secondary">{block.contract}</KLink>}
+      </p>
+      {block.memberCuts.map((cut, index) => <p key={`${cut.channel}:${index}`} className="mt-2 text-small text-muted">{cut.channel === '' ? t('knowledge.definitionMembersCut', { shown: cut.shown, total: cut.total }) : t('knowledge.definitionChannelCut', { channel: cut.channel, shown: cut.shown, total: cut.total })}</p>)}
+      {block.members.length === 0 ? <p className="mt-2 text-small text-muted" data-testid="definition-empty">{t('knowledge.definitionEmpty')}</p> : (
+        <Table className="mt-3">
+          <TableHeader>
+            <TableRow><TableHead>{t('knowledge.definitionMember')}</TableHead><TableHead>{t('knowledge.definitionDetail')}</TableHead></TableRow>
+          </TableHeader>
+          <TableBody>
+            {block.members.map((member) => (
+              <TableRow key={member.anchor} id={member.anchor} data-member={member.anchor}>
+                <TableCell className="max-w-[28rem] break-words">
+                  {member.href === null ? <span className="font-mono text-[0.875em]">{member.label}</span> : <KLink href={member.href} className="font-mono text-[0.875em]">{member.label}</KLink>}
+                </TableCell>
+                <TableCell className="max-w-[32rem] break-words">{member.detail ?? <span className="text-muted">–</span>}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      )}
+      <details className="mt-5">
+        <summary className="cursor-pointer text-small text-muted">{t('knowledge.definitionSource')}</summary>
+        <pre className="mt-2 max-h-[32rem] overflow-auto rounded-md border p-3 text-small"><code>{block.spec.text}</code></pre>
+        {block.spec.lines > block.spec.text.split('\n').length && <p className="text-small text-muted">{t('knowledge.definitionCut', { shown: block.spec.text.split('\n').length, total: block.spec.lines })}</p>}
+      </details>
+    </section>
+  );
+}
+
 function Problem({ block }: { block: Extract<Block, { type: 'problem' }> }): ReactElement {
   const { t } = useTranslation();
   return (
@@ -599,6 +712,7 @@ function Problem({ block }: { block: Extract<Block, { type: 'problem' }> }): Rea
     </Alert>
   );
 }
+
 
 /** One block of a page. */
 export function BlockView({ block, resolutions, pageId }: { block: Block; resolutions: Readonly<Record<string, Resolution>>; pageId?: string }): ReactElement | null {
@@ -619,6 +733,8 @@ export function BlockView({ block, resolutions, pageId }: { block: Block; resolu
     case 'system': return <SystemView block={block} />;
     case 'modules': return <ModulesView block={block} />;
     case 'treemap': return <TreemapView block={block} />;
+    case 'history': return <History block={block} />;
+    case 'definition': return <Definition block={block} />;
     case 'er': return <Diagram title={block.title} mermaid={block.mermaid} empty={t('knowledge.noTables')} caption={block.tables > block.shownTables ? t('knowledge.showing', { shown: block.shownTables, total: block.tables }) : null} links={block.links} />;
     case 'deferred': return <Deferred block={block} resolutions={resolutions} {...(pageId === undefined ? {} : { pageId })} />;
     case 'problem': return <Problem block={block} />;

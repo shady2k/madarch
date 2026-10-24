@@ -186,10 +186,73 @@ type BlockShape =
   | { type: 'er'; title: string; mermaid: string; tables: number; shownTables: number; links: EntityRef[] }
   | { type: 'sequence'; title: string; scenario: string; chains: Chain[]; entries: number; notes: string[] }
   | { type: 'refs'; title: string; total: number; rows: RefRow[] }
-  | { type: 'properties'; title: string; rows: { name: string; value: string }[] }
+  | { type: 'properties'; title: string; rows: PropertyRow[] }
   | { type: 'stated'; title: string; place: { repo: string | null; path: string; lineStart: number; lineEnd: number; href: string; commit: string | null } }
   | { type: 'deferred'; block: string; title: string; line: number }
+  | { type: 'definition'; title: string; format: string; contract: string; location?: CodeLocation; members: DefinitionMember[]; membersTotal: number; membersShown: number; memberCuts: { channel: string; total: number; shown: number }[]; spec: { text: string; lines: number } }
+  | { type: 'history'; title: string; sections: HistorySection[]; notes: HistoryNote[] }
   | { type: 'problem'; block: string; message: string; file: string; line: number };
+
+
+/** One member of a contract's definition: an operation, a channel, or an rpc, with the anchor the page opens at. */
+export interface DefinitionMember {
+  /** The anchor the member is addressable by: `op-<id>`, `channel-<name>`, `rpc-<service>/<rpc>`. */
+  anchor: string;
+  /** The member's own words: `GET /payments`, `orders.created`, `Payments.Authorize`. */
+  label: string;
+  /** What the contract says beside it: a summary, the message a channel carries, the request and response of an rpc. */
+  detail?: string;
+  /** The page of the member, when the graph holds one. */
+  href: string | null;
+  /** The badge of the member's protocol face: the HTTP method, `async`, `gRPC`. */
+  badge?: string;
+  detailTotal?: number;
+}
+
+/** One list of a history block: the commits it shows, or the files it shows, with the list's own columns. */
+export interface HistorySection {
+  /** What the rows are: the commits themselves, or the files they touched. */
+  role: 'commits' | 'files';
+  /** How many rows the list has in the graph; `rows` holds the first of them. */
+  total: number;
+  rows: HistoryRow[];
+}
+
+/** One row of a history block: when, who and what, with the figures the row's own facts give. */
+export interface HistoryRow {
+  /** The day it happened, `YYYY-MM-DD` in UTC, when the row is a commit. */
+  when?: string;
+  /** The name of the author, when the row is a commit. */
+  who?: string;
+  /** The row's words: a commit's message, or a file's path. */
+  text: string;
+  /** The entity the row is about, when the kind has a page. */
+  entity?: EntityRef;
+  /** The figures the app draws beside the row; each names its kind so the app writes it in the reader's language. */
+  figures: HistoryFigure[];
+}
+
+/** One note under a history block: why the list is not the whole story, said in the reader's language by the app. */
+export interface HistoryNote {
+  key: 'manyCommits' | 'manyFiles' | 'noCounts' | 'merge' | 'noFiles' | 'partialFiles' | 'symbolsCut';
+  args?: Record<string, string | number>;
+}
+
+/** One figure of a history row: added or removed lines, symbols, commits, files, or the module a file belongs to. */
+export interface HistoryFigure {
+  kind: 'added' | 'removed' | 'symbols' | 'commits' | 'files' | 'module';
+  value: string;
+}
+
+/** One row of a properties block: the name the extractor gave it, and, where the app knows the name, its key in the reader's language. */
+export interface PropertyRow {
+  name: string;
+  value: string;
+  /** The name's key under `knowledge.property.`, where the app knows this name. */
+  nameKey?: 'authoredAt' | 'committedAt' | 'subject' | 'merge' | 'language' | 'symbol' | 'method' | 'path';
+  /** A date the app writes the way the wiki writes dates, in the reader's language. */
+  valueKind?: 'date';
+}
 
 /** One block of a page; `name` is the template's block it was made from (`implementedby` and `linkedfrom` both draw as `refs`), which the manifest's roles name. */
 export type Block = BlockShape & { name?: string };
