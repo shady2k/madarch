@@ -53,6 +53,8 @@ export interface WorkerStart {
    * exactly the impact of that task's grounds, computed through the graph, and no other page is given to the agent.
    */
   task?: string;
+  /** The pages the reader saw in the preview and pressed to run: the worker refuses a run that writes fewer of them. */
+  taskPages?: string[];
   /** The least time between two snapshots, in milliseconds. */
   snapshotMs: number;
 }

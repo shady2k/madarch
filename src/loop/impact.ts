@@ -44,6 +44,8 @@ export interface ImpactedPage {
 }
 
 export interface TaskImpact {
+  /** A ground the graph answers nothing for: the index may not have been published yet, and the list may be shorter. */
+  readonly unindexed: readonly string[];
   /** The grounds the impact was computed from, de-duplicated, in code-point order. */
   readonly grounds: readonly string[];
   readonly pages: readonly ImpactedPage[];
@@ -104,8 +106,10 @@ export async function impactOf(owner: DatabaseOwner, productFolder: string, grou
     if (because === 'statement' && reached[at]!.because === 'link') reached[at] = { ...reached[at]!, because };
   };
   const refs = new Set<string>();
+  const unindexed: string[] = [];
   for (const ground of wanted) {
-    // A ground that names a statement of a page reaches that statement itself; every other one is asked of the graph.
+    const before = statements.size;
+    // A ground that names a statement of a page reaches that statement itself, and the statements that stand on it.
     const ref = parseStatementRef(ground);
     const named = ref === undefined ? undefined : byId.get(ref.page)?.statements.find((candidate) => candidate.id === ref.statement);
     if (ref !== undefined && named !== undefined) {
@@ -114,7 +118,6 @@ export async function impactOf(owner: DatabaseOwner, productFolder: string, grou
       if (!statements.has(key)) statements.set(key, { page: page.id, pageTitle: page.title, pageKind: page.kind, file: page.file, line: named.line, statement: named.id, text: named.text, ground, how: 'grounds' });
       refs.add(key);
       reach(page, 'statement');
-      continue;
     }
     for (const row of await statementsRelyingOn(owner, ground)) {
       const key = `${row.page}#${row.statement}`;
@@ -125,6 +128,8 @@ export async function impactOf(owner: DatabaseOwner, productFolder: string, grou
       const page = byId.get(row.page);
       if (page !== undefined) reach(page, 'statement');
     }
+    // A ground the graph answers nothing for may be a ground the index has not published yet: said, never hidden.
+    if (statements.size === before) unindexed.push(ground);
   }
   // The second hop: a page that links a reached statement, a reached page or the same entity is reached too.
   const reachedPages = new Set(reached.map((page) => page.id));
@@ -137,6 +142,7 @@ export async function impactOf(owner: DatabaseOwner, productFolder: string, grou
   const writable = [...new Set(orderedPages.map((page) => page.file))].filter((file) => file === PRODUCT_PATH || file.startsWith(`${DOMAINS_FOLDER}/`)).sort(byCodePoint);
   return {
     grounds: wanted,
+    unindexed,
     pages: orderedPages,
     writable,
     entities: wanted.filter(isPathKey),

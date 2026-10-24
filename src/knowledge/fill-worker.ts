@@ -25,7 +25,7 @@ import { briefsFor, neededFrom, neededFromPaths, planRefresh } from '../loop/pla
 import { planTaskRun } from '../loop/task-run.js';
 import type { EditBrief } from '../writer/edit.js';
 import type { UnitsInput, UnitsNeeded } from '../writer/run.js';
-import { fsSink, productSlug, runWriter, type ToolClient, type UnitAgent } from '../writer/index.js';
+import { fsSink, PRODUCT_PATH, productSlug, runWriter, type ToolClient, type UnitAgent } from '../writer/index.js';
 import { parseMessage, type FromWorker, type RepositoryPin, type ToWorker, type WorkerStart } from './fill-protocol.js';
 
 const execFileAsync = promisify(execFile);
@@ -277,6 +277,15 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
         onUnitStart: (began) => send({ type: 'unit-start', unit: began.unit, path: began.path }),
         onUnit: (outcome) => send({ type: 'unit-outcome', outcome: { unit: outcome.unit, status: outcome.status, writeAttempts: outcome.writeAttempts, calls: outcome.calls, refusals: outcome.refusals.map((r) => ({ line: r.line, rule: r.rule, message: r.message })), domains: [...outcome.domains], questions: [...outcome.questions] } }),
       });
+      // A page the reader saw in the preview must be written: a run that silently writes fewer is a failure, not a success.
+      if (start.taskPages !== undefined) {
+        const written = new Set([...(report.product.status === 'written' ? [PRODUCT_PATH] : []), ...report.domains.filter((unit) => unit.status === 'written').map((unit) => unit.path)]);
+        const missing = start.taskPages.filter((page) => !written.has(page));
+        if (missing.length > 0) {
+          send({ type: 'writer', state: 'failed', code: 'scope', message: `the run wrote fewer pages than the preview showed: ${missing.join(', ')} ${missing.length === 1 ? 'was' : 'were'} not written, so the task is not fixed (the preview showed ${start.taskPages.join(', ')})` });
+          return 0;
+        }
+      }
       const left = report.content.skipped;
       const skipped = left.length === 0 ? '' : ` ${left.length} file${left.length === 1 ? ' was' : 's were'} not stored for the agent to read: ${left.slice(0, 3).map((entry) => `${entry.path === '' ? '(no path)' : entry.path} (${entry.reason})`).join('; ')}${left.length > 3 ? '; …' : ''}.`;
       const stale = report.stale.length === 0 ? '' : ` Pages from an earlier run that this run did not write were left alone: ${report.stale.join(', ')}.`;

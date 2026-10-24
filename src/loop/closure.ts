@@ -51,7 +51,9 @@ export function defaultBranch(repository: string): string {
 
 /** Whether a commit's message names the task: its id, or a `Task:` line listing the task's name. */
 export function namesTask(message: string, slug: string): boolean {
-  if (message.includes(`task:${slug}`)) return true;
+  // Whole ids only: `task:discount` must not be named by a commit that names `task:discount-rate`.
+  const whole = new RegExp(`(^|[^\\w:.-])task:${slug.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^\\w:.-]|$)`);
+  if (whole.test(message)) return true;
   return message.split('\n').some((line) => {
     const match = /^task:\s*(.+)$/i.exec(line.trim());
     return match !== null && match[1]!.split(/[,\s]+/).map((id) => id.trim()).filter((id) => id !== '').includes(slug);
@@ -71,10 +73,10 @@ function changedLines(repository: string, commit: string, path: string): { start
     // `@@ -1,2 +3,4 @@`: the new side is what the file says now.
     const hunk = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(line);
     if (hunk === null) continue;
-    const start = Number(hunk[1]);
+    const start = Math.max(1, Number(hunk[1]));
     const count = hunk[2] === undefined ? 1 : Number(hunk[2]);
-    if (count === 0) continue;
-    ranges.push({ start, end: start + count - 1 });
+    // A hunk with no lines of the new side is a deletion: the text it removed stood where the new side now begins.
+    ranges.push({ start, end: count === 0 ? start : start + count - 1 });
   }
   return ranges;
 }
@@ -102,16 +104,22 @@ const overlaps = (ranges: readonly { start: number; end: number }[], scope: { st
  * the section's own lines, not the whole file (the owner, 2026-10-23: "Зачем помечать весь
  * файл, если исправить нужно одну строчку?"); a file scope is the whole file.
  */
-function touches(repository: string, commit: string, changed: readonly string[], scope: TaskScope): boolean {
+function touches(repository: string, commit: string, changed: readonly string[], scope: TaskScope, pageFiles: ReadonlyMap<string, string>): boolean {
+  // A statement stands on a page of the product: its file is the page's own.
+  if (scope.type === 'statement') {
+    const file = pageFiles.get(scope.key.slice(0, scope.key.indexOf('#')));
+    return file !== undefined && changed.includes(file);
+  }
   const path = scopePath(scope);
   if (path === undefined || !changed.includes(path)) return false;
-  if (scope.type === 'file' || scope.type === 'symbol' || scope.type === 'statement') return true;
+  if (scope.type === 'file' || scope.type === 'symbol') return true;
   const ranges = changedLines(repository, commit, path);
-  // A patch this reader cannot parse has already named the file: the file is the scope's own.
-  if (ranges.length === 0) return true;
+  // A change of the file with no readable patch is not the scope's change: a task closes on what this reader can see.
+  if (ranges.length === 0) return false;
   if (scope.type === 'lines') return overlaps(ranges, { start: scope.start, end: scope.end });
   const section = sectionLines(repository, commit, path, scope.anchor);
-  return section === undefined ? true : overlaps(ranges, section);
+  // The section is not at that commit: the commit did not change it.
+  return section === undefined ? false : overlaps(ranges, section);
 }
 
 interface Commit {
@@ -144,14 +152,14 @@ function commitsSince(repository: string, since: string, most: number): Commit[]
 }
 
 /** The commit that closes a task, when its repositories' default branches hold one since the task was written. */
-export function closingCommit(task: PlannedTask, repositories: readonly RepositoryRef[], options: { readonly most?: number } = {}): TaskClosure | undefined {
+export function closingCommit(task: PlannedTask, repositories: readonly RepositoryRef[], options: { readonly most?: number; readonly pageFiles?: ReadonlyMap<string, string> } = {}): TaskClosure | undefined {
   if (task.closedBy !== null) return undefined;
   const since = task.at === '' || Number.isNaN(new Date(task.at).getTime()) ? '1970-01-01T00:00:00Z' : task.at;
   const found: TaskClosure[] = [];
   for (const repository of repositories) {
-    for (const commit of commitsSince(repository.path, since, options.most ?? 200)) {
+    for (const commit of commitsSince(repository.path, since, options.most ?? 2_000)) {
       if (!namesTask(commit.message, task.slug)) continue;
-      if (!task.scope.some((scope) => touches(repository.path, commit.commit, commit.changed, scope))) continue;
+      if (!task.scope.some((scope) => touches(repository.path, commit.commit, commit.changed, scope, options.pageFiles ?? new Map()))) continue;
       found.push({ repository: repository.name, commit: commit.commit, at: commit.at, subject: commit.subject });
       break;
     }

@@ -596,6 +596,7 @@ export function createHandler(dependencies: {
         { method: 'GET', path: '/api/k/tasks', handle: (request: Request) => dependencies.knowledge!.tasks(request) },
         { method: 'GET', path: '/api/k/task', handle: (request: Request) => dependencies.knowledge!.task(request) },
         { method: 'POST', path: '/api/k/task-propose', handle: (request: Request) => dependencies.knowledge!.proposeTask(request) },
+        { method: 'POST', path: '/api/k/task-impact', handle: (request: Request) => dependencies.knowledge!.scopeImpact(request) },
         { method: 'POST', path: '/api/k/task-create', handle: (request: Request) => dependencies.knowledge!.createTask(request) },
         { method: 'POST', path: '/api/k/task-close', handle: (request: Request) => dependencies.knowledge!.closeTask(request) },
         { method: 'POST', path: '/api/k/task-run', handle: (request: Request) => dependencies.knowledge!.runTask(request) },

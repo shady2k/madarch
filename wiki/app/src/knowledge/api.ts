@@ -1,6 +1,6 @@
 import { appPath } from '../app-base.js';
 import { readJson, RequestError } from '../api.js';
-import type { AgentChoices, AgentOffer, AnswerResult, ProductSettings, CorrectionResult, CreatedTask, DocumentListing, FillState, Glossary, UserSettings, DocumentPageModel, Block, EntityListing, Neighborhood, PageModel, ProblemListing, PageJournal, ProductChoice, QuestionDetail, QuestionListing, RefreshPreview, SourceFile, StatementModel, TaskDetail, TaskListing, TaskProposal, TaskRow, TaskScope, WikiStatus } from './types.js';
+import type { AgentChoices, AgentOffer, AnswerResult, ProductSettings, CorrectionResult, CreatedTask, DocumentListing, FillState, Glossary, UserSettings, DocumentPageModel, Block, EntityListing, Neighborhood, PageModel, ProblemListing, PageJournal, ProductChoice, QuestionDetail, QuestionListing, RefreshPreview, SourceFile, StatementModel, TaskDetail, TaskImpact, TaskListing, TaskProposal, TaskRow, TaskScope, WikiStatus } from './types.js';
 
 /** The wiki's status: manifest, kinds, repositories, fill. */
 export const getStatus = (signal?: AbortSignal): Promise<WikiStatus> => readJson<WikiStatus>('read the wiki', '/api/k/status', signal);
@@ -220,6 +220,9 @@ export const getTask = (id: string, signal?: AbortSignal): Promise<TaskDetail> =
 
 /** The task an answer proposes: the scope its grounds name and what it reaches, before anything is written. */
 export const proposeTask = (question: string, choice: 'code' | 'docs'): Promise<TaskProposal> => post<TaskProposal>('propose the task of the answer', '/api/k/task-propose', { question, choice });
+
+/** What the reader's edited scope reaches through the graph: the preview follows the scope, not the answer it came from. */
+export const getScopeImpact = (scope: TaskScope[]): Promise<TaskImpact> => post<TaskImpact>('compute what the scope reaches', '/api/k/task-impact', { scope });
 
 /** Confirms the reader's edited proposal: only now is a task written, as the reader, in the product repository. */
 export const createTask = (input: { question: string; title: string; grounds: string[]; scope: TaskScope[] }): Promise<CreatedTask> => post<CreatedTask>('confirm the task', '/api/k/task-create', input);

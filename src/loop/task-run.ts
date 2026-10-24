@@ -13,6 +13,7 @@ import { byCodePoint } from '../model/order.js';
 import { readKnowledgePages } from '../knowledge/index/index.js';
 import type { ChangeNote, EditBrief } from '../writer/edit.js';
 import { impactOf } from './impact.js';
+import { impactGroundsOf } from './planned.js';
 import type { RefreshPlan } from './plan.js';
 import { readTasks, type PlannedTask } from './tasks.js';
 
@@ -35,7 +36,7 @@ export async function planTaskRun(input: { readonly owner: DatabaseOwner; readon
     throw new TaskRunRefusal(broken === undefined ? `docs/tasks/${input.task}.md:1: there is no task ${input.task} in the product repository` : broken.message);
   }
   if (task.status === 'closed') throw new TaskRunRefusal(`${task.file}:1: the task ${task.slug} is closed, so its pages are not written again`);
-  const impact = await impactOf(input.owner, input.productFolder, task.grounds);
+  const impact = await impactOf(input.owner, input.productFolder, impactGroundsOf(task));
   if (impact.writable.length === 0) {
     throw new TaskRunRefusal(`${task.file}:1: the task ${task.slug} reaches no page of the product the agent writes (${impact.pages.map((page) => page.file).join(', ') || 'no page at all'}); its grounds are ${impact.grounds.join(', ')}`);
   }

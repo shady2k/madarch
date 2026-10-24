@@ -12,6 +12,7 @@
 import { languageOf } from '../knowledge/blocks.js';
 import { LoopRefusal } from '../loop/answer.js';
 import { ProposalRefusal } from '../loop/propose.js';
+import { readScope } from '../loop/tasks.js';
 import { WikiReadError, type KnowledgeProduct } from '../knowledge/product.js';
 import type { Handled, ReplyMaker } from './http.js';
 import { CHOOSABLE_ROLES, readSettings, writeRole } from '../knowledge/settings.js';
@@ -51,6 +52,7 @@ export interface KnowledgePart {
   tasks: (request: Request) => Promise<Handled>;
   task: (request: Request) => Promise<Handled>;
   proposeTask: (request: Request) => Promise<Handled>;
+  scopeImpact: (request: Request) => Promise<Handled>;
   createTask: (request: Request) => Promise<Handled>;
   closeTask: (request: Request) => Promise<Handled>;
   runTask: (request: Request) => Promise<Handled>;
@@ -383,6 +385,25 @@ export function createKnowledgePart(
         return { response: json(200, await product.proposeTask(asked.question, asked.choice)) };
       } catch (error) {
         if (error instanceof ProposalRefusal) return refused(409, { field: 'question', message: error.message });
+        throw error;
+      }
+    }),
+    scopeImpact: guarded('compute what a scope reaches', async (request) => {
+      const crossSite = foreign(request);
+      if (crossSite !== undefined) return refused(403, { message: crossSite });
+      const plain = notJson(request);
+      if (plain !== undefined) return refused(415, { message: plain });
+      let body: unknown;
+      try { body = await request.json(); } catch (error) { return refused(400, { message: `the request body is not JSON: ${(error as Error).message}` }); }
+      const scope = (body as { scope?: unknown } | null)?.scope;
+      if (!Array.isArray(scope)) return refused(400, { field: 'scope', message: '"scope" is the list of places the change names' });
+      const read = scope.map((one) => readScope(one));
+      const bad = read.findIndex((one) => one === undefined);
+      if (bad >= 0) return refused(400, { field: 'scope', message: `scope[${bad}] is ${JSON.stringify(scope[bad])}, and a scope is a section { path, anchor }, lines { path, start, end }, file { path }, symbol or statement { key }` });
+      try {
+        return { response: json(200, await product.scopeImpact(read as import('../loop/tasks.js').TaskScope[])) };
+      } catch (error) {
+        if (error instanceof WikiReadError) return refused(409, { field: 'scope', message: error.message });
         throw error;
       }
     }),

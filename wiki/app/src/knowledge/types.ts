@@ -397,6 +397,8 @@ export type TaskListing = { tasks: TaskRow[]; open: number; closed: number; prob
 /** What a change reaches, computed through the graph. */
 export type TaskImpact = {
   grounds: string[];
+  /** The grounds the graph answers nothing for: the index may not have been published for them yet. */
+  unindexed: string[];
   pages: { id: string; title: string; file: string; kind: string; because: 'statement' | 'link' }[];
   writable: string[];
   entities: string[];

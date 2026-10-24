@@ -71,7 +71,7 @@ const refOf = (task: PlannedTask): PlannedTaskRef => ({ id: task.id, slug: task.
  * tasks a commit has closed; `productFiles` are the product's own documents,
  * which belong to no code repository.
  */
-export async function plannedMarks(input: { readonly owner: DatabaseOwner; readonly productFolder: string; readonly repositories: readonly RepositoryRef[]; readonly productFiles: readonly string[] }): Promise<PlannedMarks> {
+export async function plannedMarks(input: { readonly owner: DatabaseOwner; readonly productFolder: string; readonly repositories: readonly RepositoryRef[]; readonly productFiles: readonly string[]; readonly pageFiles: ReadonlyMap<string, string> }): Promise<PlannedMarks> {
   const read = readTasks(input.productFolder);
   const notes: string[] = read.findings.map((finding) => `${finding.file}:${finding.line}: ${finding.message}`);
   const repositoriesOf = (path: string): string | null => (input.productFiles.includes(path) ? null : input.repositories.length === 1 ? input.repositories[0]!.name : null);
@@ -82,7 +82,7 @@ export async function plannedMarks(input: { readonly owner: DatabaseOwner; reado
   for (const task of read.tasks) {
     if (task.status === 'closed') continue;
     try {
-      if (closingCommit(task, input.repositories) !== undefined) continue;
+      if (closingCommit(task, input.repositories, { pageFiles: input.pageFiles }) !== undefined) continue;
     } catch (error) {
       notes.push((error as Error).message);
       continue;
@@ -104,8 +104,8 @@ export async function plannedMarks(input: { readonly owner: DatabaseOwner; reado
       // A place the scope names is also an entity of the graph: its page says a change is planned.
       for (const key of groundsOfScope(scope)) entities.set(key, { id: key, task: refOf(task), how });
     }
-    // The statements the task's grounds reach through the graph: their grounds will change.
-    const impact = await impactOf(input.owner, input.productFolder, task.grounds);
+    // What the task's own scope reaches through the graph: a section the reader removed marks nothing, and one added marks what it reaches.
+    const impact = await impactOf(input.owner, input.productFolder, impactGroundsOf(task));
     for (const statement of impact.statements) markStatement(statements, statement, refOf(task));
     for (const key of impact.entities) if (!entities.has(key)) entities.set(key, { id: key, task: refOf(task), how });
     for (const page of impact.pages) if (!entities.has(page.id)) entities.set(page.id, { id: page.id, task: refOf(task), how: 'impact' });
@@ -120,6 +120,8 @@ export async function plannedMarks(input: { readonly owner: DatabaseOwner; reado
 }
 
 function markStatement(marks: Map<string, PlannedStatement>, statement: ImpactedStatement, task: PlannedTaskRef): void {
+  // Only a statement that stands on the ground has a basis that will change; one that merely names it is not marked.
+  if (statement.how !== 'grounds') return;
   const key = `${statement.page}#${statement.statement}`;
   const held = marks.get(key);
   // A statement the task's own scope names stays worded as the scope's; the graph's ground mark never overrides it.
@@ -127,8 +129,18 @@ function markStatement(marks: Map<string, PlannedStatement>, statement: Impacted
   marks.set(key, { page: statement.page, statement: statement.statement, task, how: 'impact' });
 }
 
+/**
+ * The grounds a task's impact is computed from: the places its scope names, and its own grounds when they name no place.
+ * A person edits the scope before confirming, and the impact follows it, not the answer it came from.
+ */
+export function impactGroundsOf(task: PlannedTask): string[] {
+  const keys = new Set<string>();
+  for (const scope of task.scope) for (const key of groundsOfScope(scope)) keys.add(key);
+  return keys.size === 0 ? [...task.grounds] : [...keys].sort(byCodePoint);
+}
+
 /** The graph keys a scope names, as the entity page of each is addressed. */
-function groundsOfScope(scope: TaskScope): string[] {
+export function groundsOfScope(scope: TaskScope): string[] {
   switch (scope.type) {
     case 'section': return [`doc:${scope.path}#${scope.anchor}`];
     // A document's path is a document's key; a code path is a file of the graph, never a document.

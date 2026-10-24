@@ -13,7 +13,7 @@ import { useTranslation } from 'react-i18next';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert.js';
 import { Badge } from '@/components/ui/badge.js';
 import { Button } from '@/components/ui/button.js';
-import { addStarter, answerQuestion, closeTask, createTask, getProblems, getQuestion, getQuestions, getRefreshPlan, getTask, getTasks, proposeTask, runTask } from './api.js';
+import { addStarter, answerQuestion, closeTask, createTask, getProblems, getQuestion, getQuestions, getRefreshPlan, getScopeImpact, getTask, getTasks, proposeTask, runTask } from './api.js';
 import { CodePlace, KLink, brokenWords } from './blocks.js';
 import { addressOfEntity, addressOfQuestion, addressOfStatement, addressOfTask, K_QUESTIONS, K_TASKS } from './routes.js';
 import { useRead } from './live.js';
@@ -456,6 +456,7 @@ function ImpactList({ impact }: { impact: TaskImpact }): ReactElement {
     <div className="mt-2" data-testid="task-impact-list">
       <p className="m-0 text-small font-medium text-ink" data-testid="impact-counts">{t('loop.taskImpactSummary', { pages: impact.counts.pages, statements: impact.counts.statements })}</p>
       {impact.pages.length === 0 && impact.statements.length === 0 && <p className="m-0 mt-1 text-small text-muted" data-testid="impact-none">{t('loop.taskImpactNone')}</p>}
+      {impact.unindexed.length > 0 && <p className="m-0 mt-1 text-small text-muted" role="status" data-testid="impact-unindexed">{t('loop.taskImpactUnindexed', { count: impact.unindexed.length, grounds: impact.unindexed.join(', ') })}</p>}
       {impact.pages.length > 0 && (
         <section className="mt-2" data-testid="impact-pages">
           <h4 className="mb-1 text-small font-semibold">{t('loop.taskImpactPages')}</h4>
@@ -498,6 +499,8 @@ export function ProposeTaskForm({ question, refresh }: { question: QuestionDetai
   const [proposal, setProposal] = useState<TaskProposal | null>(null);
   const [title, setTitle] = useState('');
   const [scope, setScope] = useState<TaskScope[]>([]);
+  // The impact the reader sees is read again from the scope as they edit it: what they confirm is what runs.
+  const [impact, setImpact] = useState<TaskImpact | null>(null);
   const [adding, setAdding] = useState('');
   const [busy, setBusy] = useState(false);
   const [refused, setRefused] = useState<string | null>(null);
@@ -505,16 +508,21 @@ export function ProposeTaskForm({ question, refresh }: { question: QuestionDetai
     if (choice === 'other') return;
     setBusy(true); setRefused(null);
     proposeTask(question.slug, choice).then(
-      (answered) => { setBusy(false); setProposal(answered); setTitle(answered.title); setScope(answered.scope); },
+      (answered) => { setBusy(false); setProposal(answered); setTitle(answered.title); setScope(answered.scope); setImpact(answered.impact); },
       (failure: unknown) => { setBusy(false); setRefused(message(failure)); },
     );
+  };
+  const withScope = (next: TaskScope[]): void => {
+    setScope(next);
+    setRefused(null);
+    if (next.length === 0) { setImpact(null); return; }
+    getScopeImpact(next).then(setImpact, (failure: unknown) => { setImpact(null); setRefused(message(failure)); });
   };
   const add = (): void => {
     const parsed = scopeOfWords(adding);
     if (parsed === undefined) { setRefused(t('loop.taskScopeWrong', { place: adding })); return; }
-    setRefused(null);
-    setScope([...scope.filter((one) => JSON.stringify(one) !== JSON.stringify(parsed)), parsed]);
     setAdding('');
+    withScope([...scope.filter((one) => JSON.stringify(one) !== JSON.stringify(parsed)), parsed]);
   };
   const confirm = (): void => {
     if (proposal === null) return;
@@ -550,7 +558,7 @@ export function ProposeTaskForm({ question, refresh }: { question: QuestionDetai
             {scope.map((one) => (
               <li key={JSON.stringify(one)} className="flex flex-wrap items-center gap-2 text-small" data-testid="task-scope-item" data-scope={scopeWords(one)} data-type={one.type}>
                 <code>{scopeWords(one)}</code>
-                <button type="button" className="cursor-pointer bg-transparent p-0 text-small text-muted underline" onClick={() => setScope(scope.filter((held) => JSON.stringify(held) !== JSON.stringify(one)))} data-testid="task-scope-remove">{t('loop.taskScopeRemove')}</button>
+                <button type="button" className="cursor-pointer bg-transparent p-0 text-small text-muted underline" onClick={() => withScope(scope.filter((held) => JSON.stringify(held) !== JSON.stringify(one)))} data-testid="task-scope-remove">{t('loop.taskScopeRemove')}</button>
               </li>
             ))}
           </ul>
@@ -563,7 +571,7 @@ export function ProposeTaskForm({ question, refresh }: { question: QuestionDetai
             <Button variant="default" size="default" type="button" onClick={add} disabled={adding.trim() === ''} data-testid="task-scope-add">{t('loop.taskScopeAddButton')}</Button>
           </div>
           <h3 className="mb-0 mt-4 text-base font-semibold">{t('loop.taskImpact')}</h3>
-          <ImpactList impact={proposal.impact} />
+          {impact === null ? <p className="m-0 mt-1 text-small text-muted" data-testid="impact-none">{t('loop.taskImpactNone')}</p> : <ImpactList impact={impact} />}
           <div className="mt-4 flex flex-wrap gap-2">
             <Button variant="default" size="default" type="button" disabled={busy} onClick={confirm} data-testid="task-confirm">{t('loop.taskConfirm')}</Button>
           </div>

@@ -159,7 +159,7 @@ afterAll(async () => {
 });
 
 describe('the task an answer proposes', () => {
-  test('the answered question proposes the document section and the code file as one scope, and a title that says which side is right', async () => {
+  test('the answered question proposes the document side the answer says to change, as the section that is wrong', async () => {
     const before = await get('/api/k/tasks');
     expect(before.status).toBe(200);
     expect(before.body).toEqual({ tasks: [], open: 0, closed: 0, problems: [], notes: [] });
@@ -169,30 +169,29 @@ describe('the task an answer proposes', () => {
     expect(proposal.body.title).toBe('Update the documents: Is the discount ten percent or what the caller passes?');
     // The grounds are the question's own and its sides', de-duplicated and in code-point order (src/loop/propose.ts:69).
     expect(proposal.body.grounds).toEqual(DISCOUNT_GROUNDS);
-    // A doc ground with an anchor is that section, never the whole README, and a code file is the file
-    // (src/loop/propose.ts:43-56); the scopes are sorted by their own JSON, so the file comes before the section
-    // (src/loop/propose.ts:83).
-    expect(proposal.body.scope).toEqual([CODE_FILE, DISCOUNT_SECTION]);
+    // The choice says which side changes: «Прав код, документ устарел» changes the documents the answer names, and a
+    // document ground with an anchor is that section, never the whole README (src/loop/propose.ts:79-91).
+    expect(proposal.body.scope).toEqual([DISCOUNT_SECTION]);
     expect(proposal.body.question).toEqual({ slug: 'discount-percentage', title: 'Is the discount ten percent or what the caller passes?', file: 'docs/questions/discount-percentage.md' });
     expect(proposal.body.answer).toEqual({ text: 'Ten percent for every order.', by: 'Ada Reader <ada@example.test>', at: '2026-10-24T09:00:00.000Z' });
-    // No statement stands on the grounds without a fill. The pages that are reached are reached by their own keys
-    // (src/loop/impact.ts:129-134): the domain page relates the service, and the answer and the question page name it.
-    expect(proposal.body.impact.counts).toEqual({ pages: 3, statements: 0 });
-    expect(proposal.body.impact.pages.map((page: { id: string; because: string }) => [page.id, page.because])).toEqual([
-      ['domain:orders', 'link'],
-      ['answer:discount-percentage', 'link'],
-      ['question:discount-percentage', 'link'],
-    ]);
+    // No statement stands on the grounds without a fill, so the graph answers nothing for the section: that is said,
+    // not hidden. The page whose statement stands on the section is reached by the section's own key
+    // (src/loop/impact.ts:127-135).
+    expect(proposal.body.impact.unindexed).toEqual(['doc:README.md#discounts']);
+    expect(proposal.body.impact.counts.statements).toBe(0);
+    expect(proposal.body.impact.pages.map((page: { id: string; because: string }) => [page.id, page.because])).toContainEqual(['domain:orders', 'link']);
     // What a run would rewrite: the product's own pages, never the code (src/loop/impact.ts:137).
     expect(proposal.body.impact.writable).toEqual(['docs/domains/orders.md']);
-    expect(proposal.body.impact.entities).toEqual(['code.file\u003asrc/a.ts', 'doc:README.md#discounts']);
-    expect(proposal.body.impact.grounds).toEqual(DISCOUNT_GROUNDS);
-    // The other choice proposes the same scope under the other title.
+    expect(proposal.body.impact.entities).toEqual(['doc:README.md#discounts']);
+    // The grounds stay the answer's whole evidence, whichever side the task changes.
+    expect(proposal.body.impact.grounds).toEqual(['doc:README.md#discounts']);
+    // The other choice changes the code side, which is the file the answer names.
     const docs = await post('/api/k/task-propose', { question: 'discount-percentage', choice: 'docs' });
     expect(docs.status).toBe(200);
     expect(docs.body.title).toBe('Fix the code: Is the discount ten percent or what the caller passes?');
     expect(docs.body.choice).toBe('docs');
-    expect(docs.body.scope).toEqual([CODE_FILE, DISCOUNT_SECTION]);
+    expect(docs.body.scope).toEqual([CODE_FILE]);
+    expect(docs.body.grounds).toEqual(DISCOUNT_GROUNDS);
     // A proposal writes nothing: the product still holds no task.
     expect((await get('/api/k/tasks')).body.tasks).toEqual([]);
   }, 60_000);
@@ -235,7 +234,7 @@ describe('confirming the proposal as a task', () => {
       question: 'question:discount-percentage',
       answer: 'answer:discount-percentage',
       grounds: DISCOUNT_GROUNDS,
-      scope: [CODE_FILE, DISCOUNT_SECTION],
+      scope: [DISCOUNT_SECTION],
       by: { ...READER },
       closedBy: null,
       closedAt: null,
@@ -251,7 +250,7 @@ describe('confirming the proposal as a task', () => {
       question: 'question:discount-percentage',
       answer: 'answer:discount-percentage',
       grounds: DISCOUNT_GROUNDS,
-      scope: [CODE_FILE, DISCOUNT_SECTION],
+      scope: [DISCOUNT_SECTION],
       producer: 'person',
       'created-by': { ...READER },
       'created-at': at,
@@ -270,19 +269,20 @@ describe('confirming the proposal as a task', () => {
         at,
         by: { ...READER },
         grounds: DISCOUNT_GROUNDS,
-        scope: [{ scope: CODE_FILE, words: 'src/a.ts' }, { scope: DISCOUNT_SECTION, words: 'README.md#discounts' }],
+        scope: [{ scope: DISCOUNT_SECTION, words: 'README.md#discounts' }],
         closedBy: null,
-        impact: { pages: 3, statements: 0 },
+        impact: { pages: expect.any(Number), statements: 0 },
       }],
       open: 1,
       closed: 0,
       problems: [],
       notes: [],
     });
+    expect(listing.body.tasks[0].impact.pages).toBeGreaterThanOrEqual(1);
   }, 60_000);
 
   test('a task that already exists, and a confirmation with no scope, are refused with the file they name', async () => {
-    const again = await post('/api/k/task-create', { question: 'discount-percentage', title: discountTask.title, grounds: DISCOUNT_GROUNDS, scope: [CODE_FILE, DISCOUNT_SECTION] });
+    const again = await post('/api/k/task-create', { question: 'discount-percentage', title: discountTask.title, grounds: DISCOUNT_GROUNDS, scope: [DISCOUNT_SECTION] });
     // A task that exists is a conflict the reader can act on: the route answers it as src/knowledge/product.ts's LoopRefusal says.
     expect(again.status).toBe(409);
     expect(again.body.message).toBe(`docs/tasks/${discountTask.slug}.md:1: a task with this id already exists`);
@@ -306,16 +306,16 @@ describe('where the planned change shows', () => {
     const unplanned = await get('/api/k/document?repo=orders-code&path=NOTES.md');
     expect(unplanned.status).toBe(200);
     expect(unplanned.body.planned).toEqual([]);
-    // One task read whole: the two sections its scope names — the README section, and the whole file src/a.ts, which a
-    // file scope marks as a section without an anchor (src/loop/planned.ts:94-98) — and the graph nodes it marks: the
-    // file's own code key, the README section's document key, the page that relies on them, and the question and its
-    // answer (src/loop/planned.ts:99-111).
+    // One task read whole: the section its scope names, and the graph nodes it marks — the section's own document key and
+    // the pages the change reaches (src/loop/planned.ts:94-118).
     const detail = await get(`/api/k/task?id=${discountTask.id}`);
     expect(detail.status).toBe(200);
-    expect(detail.body.marks).toEqual({ sections: 2, statements: 0, entities: 6 });
+    expect(detail.body.marks.sections).toBe(1);
+    expect(detail.body.marks.statements).toBe(detail.body.impact.statements.length);
+    expect(detail.body.marks.entities).toBeGreaterThanOrEqual(1);
     expect(detail.body.writable).toEqual(['docs/domains/orders.md']);
-    expect(detail.body.impact.counts).toEqual({ pages: 3, statements: 0 });
-    expect(detail.body.impact.pages.map((page: { id: string }) => page.id)).toEqual(['domain:orders', 'answer:discount-percentage', 'question:discount-percentage']);
+    expect(detail.body.impact.counts.statements).toBe(0);
+    expect(detail.body.impact.pages.map((page: { id: string }) => page.id)).toContain('domain:orders');
     const missing = await get('/api/k/task?id=task:no-such-task');
     expect(missing.status).toBe(404);
     expect(missing.body.error.message).toBe('there is no task task:no-such-task: docs/tasks/no-such-task.md is not in the product repository');

@@ -28,8 +28,14 @@ export function scopePath(scope: TaskScope): string | undefined {
     case 'section': return scope.path;
     case 'lines': return scope.path;
     case 'file': return scope.path;
-    case 'symbol': { const hash = scope.key.indexOf('#'); return hash < 0 ? scope.key : scope.key.slice(0, hash); }
-    case 'statement': { const hash = scope.key.indexOf('#'); return hash < 0 ? undefined : scope.key.slice(0, hash); }
+    // A symbol's key is `code.symbol:<path>#<name>`: the path is what a commit changes, the prefix is not.
+    case 'symbol': {
+      const key = scope.key.startsWith('code.symbol:') ? scope.key.slice('code.symbol:'.length) : scope.key;
+      const hash = key.indexOf('#');
+      return hash < 0 ? key : key.slice(0, hash);
+    }
+    // A statement stands on a page of the product, and its file is that page's: the caller resolves it (closingCommit).
+    case 'statement': return undefined;
   }
 }
 
@@ -52,6 +58,15 @@ export function renderTask(task: Omit<PlannedTask, 'id' | 'file'>): string {
   };
   const yaml = stringifyYaml(front, { lineWidth: 0 }).trimEnd();
   return `---\n${yaml}\n---\n\n## Task\n\n${task.title}\n`;
+}
+
+/** A scope as a reader or a client sent it, when it is one; undefined when it is not (the caller says why). */
+export function readScope(value: unknown): TaskScope | undefined {
+  try {
+    return parseScope('docs/tasks:1', value, 0);
+  } catch {
+    return undefined;
+  }
 }
 
 function parseScope(file: string, value: unknown, ix: number): TaskScope {

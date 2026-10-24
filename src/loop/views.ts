@@ -257,12 +257,14 @@ export interface TaskReadInput {
   readonly owner: DatabaseOwner;
   /** The repositories a commit may close a task in: the product's own, then each code repository. */
   readonly repositories: readonly RepositoryRef[];
+  /** The file each page of the product is written in: what a statement scope names when a commit closes it. */
+  readonly pageFiles: ReadonlyMap<string, string>;
 }
 
-function closureOf(task: PlannedTask, repositories: readonly RepositoryRef[], notes: string[]): TaskClosureView | null {
+function closureOf(task: PlannedTask, repositories: readonly RepositoryRef[], pageFiles: ReadonlyMap<string, string>, notes: string[]): TaskClosureView | null {
   if (task.closedBy !== null) return { person: true, at: task.closedAt };
   try {
-    const closing: TaskClosure | undefined = closingCommit(task, repositories);
+    const closing: TaskClosure | undefined = closingCommit(task, repositories, { pageFiles });
     return closing === undefined ? null : { repository: closing.repository, commit: closing.commit, at: closing.at, subject: closing.subject };
   } catch (error) {
     notes.push((error as Error).message);
@@ -271,7 +273,7 @@ function closureOf(task: PlannedTask, repositories: readonly RepositoryRef[], no
 }
 
 async function rowOfTask(task: PlannedTask, input: TaskReadInput, notes: string[]): Promise<TaskRow> {
-  const closedBy = closureOf(task, input.repositories, notes);
+  const closedBy = closureOf(task, input.repositories, input.pageFiles, notes);
   let impact: TaskImpact | null = null;
   let problem: string | undefined;
   try {
