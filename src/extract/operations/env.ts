@@ -301,13 +301,15 @@ export function extractEnv(t: TreeText, records: Records): Map<string, EnvRead[]
     }
   }
   for (const definition of definitions.sort((left, right) => byCodePoint(left.key, right.key))) {
-    // A definition is labelled by the file it stands in as well as the variable it sets: `.env.example` and three
-    // compose files all define DATABASE_URL, and a list shows each row once (madarch-m38l.16).
+    // A definition is labelled by the service it gives the variable to and by the file it stands in: `.env.example`
+    // and the compose file define DATABASE_URL for orders, payments and promotions, and a list shows each row once
+    // (madarch-m38l.16).
     const where = definition.span?.path;
+    const label = [definition.name, definition.scope, where].filter((part): part is string => typeof part === 'string' && part !== '').join(' · ');
     records.add({
       key: definition.key,
       kind: 'code.env-definition',
-      label: where === undefined ? definition.name : `${definition.name} · ${where}`,
+      label,
       properties: { value: definition.value, ...(definition.scope === null ? {} : {scope: definition.scope}) },
       span: definition.span,
     });

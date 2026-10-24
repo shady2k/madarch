@@ -585,7 +585,9 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
       if (!kind.startsWith('code.')) {
         throw new Error(`extract driver: ${where}: producer "${extraction.producer}" names the edge end ${JSON.stringify(key)}, whose kind prefix is no extractor-schema key, and no node of this extraction declares it`);
       }
-      return { key, kind, label: key.slice(key.lastIndexOf('/') + 1) };
+      // A reference node is labelled by what its key says — the path, or the service and the path — so two of them in
+      // one kind never read alike (`index.ts` twice, madarch-m38l.16).
+      return { key, kind, label: key.slice(key.indexOf(':') + 1) };
     };
     const nodes = [
       ...effective.nodes.map((node) => ({
