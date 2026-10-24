@@ -41,6 +41,12 @@ const repository = generateTrainingRepository(join(work, 'repo'));
 if (!execFileSync('git', ['remote'], { cwd: repository, encoding: 'utf8' }).includes('origin')) execFileSync('git', ['remote', 'add', 'origin', ['https://github.com', 'example', 'shop.git'].join('/')], { cwd: repository });
 const home = join(work, 'home');
 mkdirSync(home, { recursive: true });
+// The first open asks which role the reader reads as, over every page (madarch-m38l.12). The walk reads as everything,
+// so the answer is written here, before the server starts, in a madarch home of the walk's own — the way a person's
+// answer is kept (madarch-m38l.16).
+const madarchHome = join(work, 'madarch-home');
+mkdirSync(madarchHome, {recursive: true});
+writeFileSync(join(madarchHome, 'settings.json'), JSON.stringify({role: 'everything', roleAsked: true}, null, 2));
 rmSync(join(home, 'fresh'), { recursive: true, force: true });
 makeProduct(home, 'fresh', repository);
 const shop = existsSync(join(home, 'shop')) ? join(home, 'shop') : makeProduct(home, 'shop', repository);
@@ -62,7 +68,7 @@ chmodSync(join(bin, 'claude-agent-acp'), 0o755);
 // process busy between commits, and a walk that served in its own process would stop answering the browser with it.
 const port = Number(argument('port', '4291'));
 const child = Bun.spawn(['bun', resolve(import.meta.dir, 'madarch.ts'), 'daemon-serve', '--home', home, '--port', String(port)], {
-  env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}`, MADARCH_APP_DIST: resolve(import.meta.dir, '..', 'wiki', 'app', 'dist') },
+  env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}`, MADARCH_APP_DIST: resolve(import.meta.dir, '..', 'wiki', 'app', 'dist'), MADARCH_HOME: madarchHome },
   stdout: 'ignore',
   stderr: 'inherit',
 });
