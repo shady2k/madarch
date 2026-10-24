@@ -15,12 +15,12 @@
  * Usage: bun scripts/knowledge-shots.ts [--out <folder>] [--work <folder>]
  * The pictures are written to --out (shots/ by default) and listed on standard output.
  */
-import { chmodSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import puppeteer, { type Page } from 'puppeteer';
 import { resolveBrowserExecutable } from './chromium.js';
-import { agentScript } from '../test/knowledge-agent-script.js';
+import { agentScript, localizedScript } from '../test/knowledge-agent-script.js';
 import { LOOP_QUESTIONS, firstRunScript } from '../test/loop-agent-script.js';
 import { FACTORY, PAY, PAYMENTS_SERVICE, generateTrainingRepository, makeProduct, recordKey, writeSamplePages } from '../test/knowledge-fixture.js';
 import { existsSync } from 'node:fs';
@@ -617,6 +617,134 @@ if (only === '' || only === 'tasks') {
     await tasks.close();
   }
   console.log(`the scoped-task walk wrote ${written.length} pictures into ${out}`);
+}
+
+// ---- a Russian wiki over English documents (madarch-m38l.18) -----------------------------------
+// The owner's complaint: after a Russian refresh the glossary still showed the English definitions of
+// docs/glossary.md, and a place still carried the name of the repository it stands in. The walk fills a
+// product whose madarch/kinds.yaml says `language: ru` over the training repository's English documents,
+// with the scripted agent (no model runs), and shows what a reader sees: the glossary with «В источнике»
+// closed and open, a use case and a business rule, the domain page the agent wrote in Russian, and the
+// place a term is stated at. Every surface is shot in both schemes and at both widths, and the language
+// of what stands outside «В источнике» is told in the log, so a page that is still English is said in
+// words and not only shown in a picture.
+/** The language a text is written in, by its letters: none when it holds no letter at all. */
+const languageOf = (text: string): 'ru' | 'en' | 'none' => {
+  const cyrillic = (text.match(/[\u0400-\u04FF]/g) ?? []).length;
+  const latin = (text.match(/[A-Za-z]/g) ?? []).length;
+  return cyrillic + latin === 0 ? 'none' : cyrillic > latin ? 'ru' : 'en';
+};
+if (only === 'localized') {
+  const name = 'localized-shop';
+  const folder = join(home, name);
+  const product = `/products/${name}`;
+  const api = (path: string, body?: unknown): Promise<Response> => fetch(`${server.url}${product}${path}`, body === undefined ? {} : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  // A product of the training repository whose pages are written in Russian: the language the settings page
+  // writes into the manifest, as `language: ru` among its top-level keys.
+  rmSync(folder, { recursive: true, force: true });
+  makeProduct(home, name, repository);
+  const manifest = join(folder, 'madarch', 'kinds.yaml');
+  writeFileSync(manifest, `${readFileSync(manifest, 'utf8')}language: ru\n`);
+  writeFileSync(join(work, 'agent-script.json'), JSON.stringify(localizedScript()));
+  const chosen = await api('/api/k/agent', { agent: 'claude-code', install: false });
+  if (!chosen.ok) throw new Error(`the agent could not be chosen: ${chosen.status} ${await chosen.text()}`);
+  const started = await api('/api/k/fill', { agent: 'claude-code' });
+  if (started.status !== 202) throw new Error(`the fill did not start: ${started.status} ${await started.text()}`);
+  // The press answers at once: the run is seen running before its end is waited for, so a status read that still
+  // shows the empty product is not mistaken for a finished fill.
+  const until = Date.now() + 15 * 60_000;
+  let seen = false;
+  for (;;) {
+    const state = (await (await api('/api/k/status')).json()) as { language: string; fill: { state: string }; writer: { state: string; units: { unit: string; state: string }[] } };
+    const running = state.fill.state === 'running' || state.writer.state === 'running' || state.writer.state === 'waiting';
+    // A run too quick for a poll is told by the units it wrote.
+    if (running || state.writer.units.length > 0) seen = true;
+    if (seen && !running) {
+      if (state.fill.state !== 'done') throw new Error(`the fill ended as ${state.fill.state}`);
+      console.log(`the fill of ${name} ended in ${state.language}: ${state.writer.units.map((unit) => `${unit.unit} ${unit.state}`).join(', ') || 'the agent was asked for no unit'}`);
+      break;
+    }
+    if (Date.now() > until) throw new Error(`the fill of ${name} never ended`);
+    await new Promise((rest) => setTimeout(rest, 1_000));
+  }
+
+  // What the pages say, told in the log as well as in the pictures: the language of every term's definition
+  // and the place it is stated at (requirement: the place loses the repository's name when the product has
+  // one repository).
+  {
+    const glossary = (await (await api('/api/k/glossary')).json()) as { terms: { title: string; definition: string; repo: string | null; path: string; line: number; source?: { document: string } }[] };
+    console.log(`the glossary of ${name} holds ${glossary.terms.length} term(s)`);
+    for (const term of glossary.terms) {
+      console.log(`TERM ${JSON.stringify({ title: term.title, definition: term.definition.slice(0, 120), definitionLanguage: languageOf(term.definition), sourceDocument: term.source?.document ?? null, place: `${term.repo === null ? '' : `${term.repo}/`}${term.path}:${term.line}` })}`);
+    }
+  }
+  const wiki = (id: string): string => `${product}/k/e/${encodeURIComponent(id)}`;
+  const combos: { scheme: 'light' | 'dark'; width: number }[] = [];
+  for (const scheme of ['light', 'dark'] as const) for (const width of [1150, 390]) combos.push({ scheme, width });
+  for (const combo of combos) {
+    const tag = `ru-${combo.scheme}-${combo.width}`;
+    const height = combo.width === 390 ? 2600 : 1900;
+    // (a) The glossary: every term keeps its name, its definition is Russian, and the English original stands
+    // collapsed under «В источнике» — first as the reader finds it, then with the originals opened.
+    const glossary = await open(`${product}/k/glossary`, combo.width, height, combo.scheme, 'ru');
+    await waited(glossary, `the glossary (${tag})`, () => glossary.waitForSelector('[data-testid=glossary-term]', { timeout: 60_000 }));
+    await shoot(glossary, `${tag}-l01-glossary`);
+    const opened = await glossary.evaluate(() => {
+      const details = document.querySelectorAll<HTMLDetailsElement>('[data-testid=glossary-term] details[data-testid=localized-source]');
+      for (const one of details) one.open = true;
+      document.querySelector('[data-testid=glossary-term]')?.scrollIntoView({ block: 'start' });
+      return { terms: document.querySelectorAll('[data-testid=glossary-term]').length, opened: details.length, places: [...document.querySelectorAll('[data-testid=term-ground]')].map((row) => (row.textContent ?? '').replace(/\s+/g, ' ').trim()) };
+    });
+    console.log(`GLOSSARY ${tag} ${JSON.stringify(opened)}`);
+    await shoot(glossary, `${tag}-l02-glossary-source-open`);
+    await glossary.close();
+    // (d) The place a term is stated at, alone on the page and readable at both widths.
+    const place = await open(`${product}/k/glossary`, combo.width, combo.width === 390 ? 900 : 800, combo.scheme, 'ru');
+    await waited(place, `the place of a term (${tag})`, () => place.waitForSelector('[data-testid=term-ground]', { timeout: 60_000 }));
+    const placeText = await place.evaluate(() => {
+      const row = document.querySelector('[data-testid=term-ground]');
+      row?.scrollIntoView({ block: 'center' });
+      return (row?.textContent ?? '').replace(/\s+/g, ' ').trim();
+    });
+    console.log(`PLACE ${tag} ${JSON.stringify(placeText)}`);
+    await shoot(place, `${tag}-l03-term-place`);
+    await place.close();
+    // (b) A use case and a business rule: the identifier and the name stay as the document writes them, the
+    // summary is Russian, and the original stands collapsed under «В источнике» — closed, then opened.
+    for (const doc of [{ closed: 'l04', open: 'l05', name: 'uc-2', id: 'doc:@training/docs/requirements.md#uc-2' }, { closed: 'l06', open: 'l07', name: 'br-1', id: 'doc:@training/docs/requirements.md#br-1' }]) {
+      const page = await open(wiki(doc.id), combo.width, height, combo.scheme, 'ru');
+      await waited(page, `the ${doc.name} page (${tag})`, () => page.waitForSelector('[data-block=body]', { timeout: 60_000 }));
+      await page.evaluate(() => document.querySelector('[data-block=body]')?.scrollIntoView({ block: 'start' }));
+      await shoot(page, `${tag}-${doc.closed}-${doc.name}`);
+      const toggled = await page.evaluate(() => {
+        const details = document.querySelector<HTMLDetailsElement>('[data-block=body] details[data-testid=localized-source]');
+        if (details === null) return { source: false, outside: (document.querySelector('[data-block=body]')?.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 400) };
+        details.open = true;
+        details.scrollIntoView({ block: 'start' });
+        const copy = document.querySelector('[data-block=body]')!.cloneNode(true) as HTMLElement;
+        for (const one of copy.querySelectorAll('details[data-testid=localized-source]')) one.remove();
+        return { source: true, outside: (copy.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 400) };
+      });
+      console.log(`${doc.name.toUpperCase()} ${tag} ${JSON.stringify({ source: toggled.source, outsideLanguage: languageOf(toggled.outside), outside: toggled.outside })}`);
+      await shoot(page, `${tag}-${doc.open}-${doc.name}-source-open`);
+      await page.close();
+    }
+    // (c) The domain page the agent wrote: no English sentence stands outside «В источнике» on a page the
+    // agent wrote in the wiki's language.
+    const domain = await open(wiki('domain:ordering'), combo.width, height, combo.scheme, 'ru');
+    await waited(domain, `the ordering page (${tag})`, () => domain.waitForSelector('[data-block=body]', { timeout: 60_000 }));
+    const outside = await domain.evaluate(() => {
+      const body = document.querySelector('[data-block=body]');
+      if (body === null) return '';
+      const copy = body.cloneNode(true) as HTMLElement;
+      for (const one of copy.querySelectorAll('details[data-testid=localized-source]')) one.remove();
+      return (copy.textContent ?? '').replace(/\s+/g, ' ').trim();
+    });
+    console.log(`DOMAIN ${tag} ${JSON.stringify({ outsideLanguage: languageOf(outside), outside: outside.slice(0, 600) })}`);
+    await shoot(domain, `${tag}-l08-domain-page`);
+    await domain.close();
+  }
+  console.log(`the localized walk wrote ${written.length} pictures into ${out}`);
 }
 
 await browser.close();
