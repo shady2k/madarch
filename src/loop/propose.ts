@@ -18,7 +18,7 @@ import { byCodePoint } from '../model/order.js';
 import { readQuestions, type Question } from './entities.js';
 import { impactOf, type TaskImpact } from './impact.js';
 import { groundsOfScope } from './planned.js';
-import type { TaskScope } from './tasks.js';
+import type { PlaceView, TaskScope } from './tasks.js';
 
 /** The reader's choice: the code is right and the documents are old, or the documents are right and the code must change. */
 export type TaskChoice = 'code' | 'docs';
@@ -28,6 +28,8 @@ export interface TaskProposal {
   readonly title: string;
   readonly grounds: readonly string[];
   readonly scope: readonly TaskScope[];
+  /** The places of the scope as a reader says them, one for each scope in the same order (the server adds them). */
+  readonly places?: readonly PlaceView[];
   /** What the change reaches, computed through the graph before anything is confirmed. */
   readonly impact: TaskImpact;
   readonly question: { readonly slug: string; readonly title: string; readonly file: string };
@@ -37,7 +39,11 @@ export interface TaskProposal {
 /** A proposal that cannot be made: it says which grounds name no place, and the file it read. */
 export class ProposalRefusal extends Error {}
 
-const TITLE_PREFIX: Record<TaskChoice, string> = { code: 'Update the documents', docs: 'Fix the code' };
+// The task's title is a product artifact and follows the product's language (the manifest's `language:`).
+const TITLE_PREFIX: Record<TaskChoice, Record<'en' | 'ru', string>> = {
+  code: { en: 'Update the documents', ru: 'Обновить документы' },
+  docs: { en: 'Fix the code', ru: 'Исправить код' },
+};
 
 /** The scope a ground names, when it names one of the product's places; undefined when it names no place. */
 export function scopeOfGround(ground: string): TaskScope | undefined {
@@ -57,7 +63,7 @@ export function scopeOfGround(ground: string): TaskScope | undefined {
 const scopeKey = (scope: TaskScope): string => JSON.stringify(scope);
 
 /** The proposal for one answer: its grounds as a scope, its impact read through the graph. */
-export async function proposeTask(input: { readonly owner: DatabaseOwner; readonly productFolder: string; readonly question: string; readonly choice: TaskChoice }): Promise<TaskProposal> {
+export async function proposeTask(input: { readonly owner: DatabaseOwner; readonly productFolder: string; readonly question: string; readonly choice: TaskChoice; readonly language?: 'en' | 'ru' }): Promise<TaskProposal> {
   const read = readQuestions(input.productFolder);
   const question: Question | undefined = read.items.find((candidate) => candidate.slug === input.question);
   if (question === undefined) {
@@ -84,7 +90,8 @@ export async function proposeTask(input: { readonly owner: DatabaseOwner; readon
   // The preview is what the scope reaches: the sections the task changes, not the evidence of the whole answer.
   const keys = [...new Set([...scopes.values()].flatMap((scope) => groundsOfScope(scope)))].sort(byCodePoint);
   const impact = await impactOf(input.owner, input.productFolder, keys.length === 0 ? grounds : keys);
-  const title = `${TITLE_PREFIX[input.choice]}: ${question.title}`;
+  const language = input.language === 'ru' ? 'ru' : 'en';
+  const title = `${TITLE_PREFIX[input.choice][language]}: ${question.title}`;
   return {
     choice: input.choice,
     title: title.length > 120 ? `${title.slice(0, 119)}…` : title,

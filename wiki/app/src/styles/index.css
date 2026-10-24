@@ -1718,6 +1718,21 @@ a.graph-diagram-element-label:hover {
   display: inline-flex;
 }
 
+/* Below a phone's width the waiting answers are a count alone, with the whole sentence as its title: the bar keeps one row. */
+.answers-waiting-count {
+  display: none;
+}
+
+@media (max-width: 700px) {
+  .answers-waiting-words {
+    display: none;
+  }
+
+  .answers-waiting-count {
+    display: inline;
+  }
+}
+
 /* The grounds of a statement: footnote references and the list they point to. */
 .reading sup a,
 .reading a[data-footnote-ref] {

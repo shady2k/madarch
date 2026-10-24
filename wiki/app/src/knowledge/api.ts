@@ -219,7 +219,7 @@ export const getTasks = (signal?: AbortSignal): Promise<TaskListing> => readJson
 export const getTask = (id: string, signal?: AbortSignal): Promise<TaskDetail> => readJson(`read the task ${id}`, `/api/k/task?id=${encodeURIComponent(id)}`, signal);
 
 /** The task an answer proposes: the scope its grounds name and what it reaches, before anything is written. */
-export const proposeTask = (question: string, choice: 'code' | 'docs'): Promise<TaskProposal> => post<TaskProposal>('propose the task of the answer', '/api/k/task-propose', { question, choice });
+export const proposeTask = (question: string, choice: 'code' | 'docs', language: string): Promise<TaskProposal> => post<TaskProposal>('propose the task of the answer', '/api/k/task-propose', { question, choice, language });
 
 /** What the reader's edited scope reaches through the graph: the preview follows the scope, not the answer it came from. */
 export const getScopeImpact = (scope: TaskScope[]): Promise<TaskImpact> => post<TaskImpact>('compute what the scope reaches', '/api/k/task-impact', { scope });

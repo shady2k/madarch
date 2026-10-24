@@ -499,7 +499,7 @@
     "taskImpactStatements": "Statements",
     "taskImpactNone": "The graph holds no page or statement that this change reaches yet.",
     "taskImpactLinked": "linked to it",
-    "taskImpactUnindexed": "The graph holds nothing that stands on {{count}} of these grounds yet: {{grounds}}. The index of the pages may not have been published for them; the list above is shorter than the change really reaches.",
+    "taskImpactUnindexed": "The graph holds nothing that stands on {{count}} of the places of this scope yet. The index of the pages may not have been published for them; the list above is shorter than the change really reaches.",
     "taskFromAnswer": "From the answer to «{{title}}»",
     "taskMarks": "Marked as a planned change: {{sections}} sections, {{statements}} statements, {{entities}} pages of code or documents.",
     "taskClose": "Close by hand",

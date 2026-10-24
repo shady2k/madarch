@@ -19,7 +19,7 @@ import { addressOfEntity, addressOfQuestion, addressOfStatement, addressOfTask, 
 import { useRead } from './live.js';
 import { useTabTitle } from './tabs.js';
 import { PageSkeleton } from './skeleton.js';
-import type { Author, Problem, QuestionDetail, StarterOffer, QuestionRow, QuestionState, RefreshPlan, RefreshPreview, Resolution, TaskDetail, TaskImpact, TaskProposal, TaskScope } from './types.js';
+import type { Author, PlaceView, Problem, QuestionDetail, StarterOffer, QuestionRow, QuestionState, RefreshPlan, RefreshPreview, Resolution, TaskDetail, TaskImpact, TaskProposal, TaskScope } from './types.js';
 
 const message = (failure: unknown): string => (failure instanceof Error ? failure.message : String(failure));
 
@@ -449,6 +449,20 @@ export function scopeOfWords(words: string): TaskScope | undefined {
   return { type: 'file', path: text };
 }
 
+/** A place a task changes, as a reader says it: the heading and its document's title, each a link; the path is small. */
+export function PlaceName({ place }: { place: PlaceView }): ReactElement {
+  const { t } = useTranslation();
+  const label = place.href === null ? <span>{place.label}</span> : <KLink href={place.href}>{place.label}</KLink>;
+  return (
+    <span className="place" data-testid="place" data-kind={place.kind} title={place.words}>
+      {label}
+      {place.where !== null && place.where !== place.label && <span className="text-muted"> — {place.where}</span>}
+      {place.path !== null && place.path !== place.label && place.kind !== 'section' && <code className="ms-2 text-muted">{place.path}</code>}
+      {place.kind === 'section' && place.path !== null && <code className="ms-2 text-muted" data-testid="place-path">{place.path}</code>}
+    </span>
+  );
+}
+
 /** What a change reaches, computed through the graph: every page and statement, before anything runs. */
 function ImpactList({ impact }: { impact: TaskImpact }): ReactElement {
   const { t } = useTranslation();
@@ -456,7 +470,7 @@ function ImpactList({ impact }: { impact: TaskImpact }): ReactElement {
     <div className="mt-2" data-testid="task-impact-list">
       <p className="m-0 text-small font-medium text-ink" data-testid="impact-counts">{t('loop.taskImpactSummary', { pages: impact.counts.pages, statements: impact.counts.statements })}</p>
       {impact.pages.length === 0 && impact.statements.length === 0 && <p className="m-0 mt-1 text-small text-muted" data-testid="impact-none">{t('loop.taskImpactNone')}</p>}
-      {impact.unindexed.length > 0 && <p className="m-0 mt-1 text-small text-muted" role="status" data-testid="impact-unindexed">{t('loop.taskImpactUnindexed', { count: impact.unindexed.length, grounds: impact.unindexed.join(', ') })}</p>}
+      {impact.unindexed.length > 0 && <p className="m-0 mt-1 text-small text-muted" role="status" data-testid="impact-unindexed" title={impact.unindexed.join(', ')}>{t('loop.taskImpactUnindexed', { count: impact.unindexed.length })}</p>}
       {impact.pages.length > 0 && (
         <section className="mt-2" data-testid="impact-pages">
           <h4 className="mb-1 text-small font-semibold">{t('loop.taskImpactPages')}</h4>
@@ -478,8 +492,8 @@ function ImpactList({ impact }: { impact: TaskImpact }): ReactElement {
             {impact.statements.map((statement) => (
               <li key={`${statement.page}#${statement.statement}`} className="py-0.5" data-testid="impact-statement" data-page={statement.page} data-statement={statement.statement}>
                 <KLink href={addressOfStatement(statement.page, statement.text)}>«{statement.text}»</KLink>
-                <code className="ms-2 text-muted">{statement.file}:{statement.line}</code>
-                <code className="ms-2 text-muted">{statement.ground}</code>
+                <span className="ms-2 text-muted">{statement.pageTitle}</span>
+                <code className="ms-2 text-muted" title={statement.grounds.join(', ')}>{statement.file}:{statement.line}</code>
               </li>
             ))}
           </ul>
@@ -504,10 +518,13 @@ export function ProposeTaskForm({ question, refresh }: { question: QuestionDetai
   const [adding, setAdding] = useState('');
   const [busy, setBusy] = useState(false);
   const [refused, setRefused] = useState<string | null>(null);
+  // The places the server worded, by the scope itself: a reader's edit keeps the places of what they did not change.
+  const places = new Map((proposal?.scope ?? []).map((one, index) => [JSON.stringify(one), proposal?.places?.[index]]));
+  const language = useLanguage();
   const propose = (): void => {
     if (choice === 'other') return;
     setBusy(true); setRefused(null);
-    proposeTask(question.slug, choice).then(
+    proposeTask(question.slug, choice, language).then(
       (answered) => { setBusy(false); setProposal(answered); setTitle(answered.title); setScope(answered.scope); setImpact(answered.impact); },
       (failure: unknown) => { setBusy(false); setRefused(message(failure)); },
     );
@@ -557,7 +574,7 @@ export function ProposeTaskForm({ question, refresh }: { question: QuestionDetai
           <ul className="m-0 grid list-none gap-1.5 p-0" data-testid="task-scope">
             {scope.map((one) => (
               <li key={JSON.stringify(one)} className="flex flex-wrap items-center gap-2 text-small" data-testid="task-scope-item" data-scope={scopeWords(one)} data-type={one.type}>
-                <code>{scopeWords(one)}</code>
+                <PlaceName place={places.get(JSON.stringify(one)) ?? { kind: one.type, label: scopeWords(one), where: null, href: null, path: null, words: scopeWords(one) }} />
                 <button type="button" className="cursor-pointer bg-transparent p-0 text-small text-muted underline" onClick={() => withScope(scope.filter((held) => JSON.stringify(held) !== JSON.stringify(one)))} data-testid="task-scope-remove">{t('loop.taskScopeRemove')}</button>
               </li>
             ))}
@@ -625,7 +642,7 @@ export function TaskBody({ task, refresh, headline = true }: { task: TaskDetail;
           <Badge variant="outline" data-testid="task-marks">{t('loop.plannedChange')}</Badge>
         </div>
       )}
-      <p className="mb-0 mt-1 text-small text-muted" data-testid="task-scope-words">{task.scope.map((one) => one.words).join(', ')}</p>
+      <p className="mb-0 mt-1 flex flex-wrap items-center gap-x-3 text-small text-muted" data-testid="task-scope-words">{task.scope.map((one) => <PlaceName key={one.words} place={one.place} />)}</p>
       {task.closedBy !== null && (
         <p className="mb-0 mt-1 text-small text-muted" data-testid="task-closed-by">
           {'person' in task.closedBy
@@ -681,7 +698,7 @@ export function TasksPage({ version }: { version: number }): ReactElement {
                     <KLink href={addressOfTask(row.id)} className="font-medium">{row.title}</KLink>
                     <Badge variant={row.status === 'open' ? 'solid' : 'outline'}>{row.status === 'open' ? t('loop.taskStateOpen') : t('loop.taskStateClosed')}</Badge>
                   </div>
-                  <p className="mb-0 mt-1 text-small text-muted" data-testid="task-row-scope">{row.scope.map((one) => one.words).join(', ')}</p>
+                  <p className="mb-0 mt-1 flex flex-wrap items-center gap-x-3 text-small text-muted" data-testid="task-row-scope">{row.scope.map((one) => <PlaceName key={one.words} place={one.place} />)}</p>
                   {row.impact !== null && <p className="mb-0 mt-1 text-small text-muted" data-testid="task-row-impact">{t('loop.taskImpactSummary', { pages: row.impact.pages, statements: row.impact.statements })}</p>}
                   {row.closedBy !== null && !('person' in row.closedBy) && <p className="mb-0 mt-1 text-small text-muted">{t('loop.taskClosedByCommit', { commit: row.closedBy.commit.slice(0, 10), repository: row.closedBy.repository || t('knowledge.productRepository'), subject: row.closedBy.subject })}</p>}
                 </li>
@@ -730,7 +747,7 @@ export function TaskPage({ id, version, refresh }: { id: string; version: number
       <section className="mb-6" data-testid="task-page-scope">
         <h2>{t('loop.taskScope')}</h2>
         <ul className="m-0 list-none p-0">
-          {task.scope.map((one) => <li key={JSON.stringify(one.scope)} className="py-0.5 text-small" data-testid="task-page-scope-item" data-type={one.scope.type}><code>{one.words}</code></li>)}
+          {task.scope.map((one) => <li key={JSON.stringify(one.scope)} className="py-0.5 text-small" data-testid="task-page-scope-item" data-type={one.scope.type}><PlaceName place={one.place} /></li>)}
         </ul>
       </section>
       <section className="mb-6" data-testid="task-page-grounds">

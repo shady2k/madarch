@@ -378,11 +378,12 @@ export function createKnowledgePart(
       if (plain !== undefined) return refused(415, { message: plain });
       let body: unknown;
       try { body = await request.json(); } catch (error) { return refused(400, { message: `the request body is not JSON: ${(error as Error).message}` }); }
-      const asked = body as { question?: unknown; choice?: unknown } | null;
+      const asked = body as { question?: unknown; choice?: unknown; language?: unknown } | null;
       if (typeof asked?.question !== 'string') return refused(400, { field: 'question', message: '"question" is required: the id of the answered question the task comes from' });
       if (asked.choice !== 'code' && asked.choice !== 'docs') return refused(400, { field: 'choice', message: '"choice" is code (the code is right, the documents are old) or docs (the documents are right, the code must change)' });
       try {
-        return { response: json(200, await product.proposeTask(asked.question, asked.choice)) };
+        const language = asked.language === 'ru' || asked.language === 'en' ? asked.language : undefined;
+        return { response: json(200, await product.proposeTask(asked.question, asked.choice, language)) };
       } catch (error) {
         if (error instanceof ProposalRefusal) return refused(409, { field: 'question', message: error.message });
         throw error;

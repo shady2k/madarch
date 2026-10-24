@@ -119,7 +119,7 @@ export function ProductSelector({ name, products, current }: { name: string; pro
 }
 
 /** The kinds that have a top-level page of their own in the navigation (the glossary is the page of the glossary terms): "Pages by kind" does not list them again. Their pages stay reachable from that page and from links. */
-const KINDS_WITH_OWN_PAGE: ReadonlySet<string> = new Set(['doc.term']);
+const KINDS_WITH_OWN_PAGE: ReadonlySet<string> = new Set(['doc.term', 'task']);
 
 /** The kinds of the manifest as the navigation shows them: by group, in the manifest's order, the groups with the entities they hold. */
 export function navGroups(status: WikiStatus, pending: (kind: string) => number): { group: string | null; labels: Record<string, string> | null; total: number; kinds: KindSummary[] }[] {
@@ -217,7 +217,10 @@ function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus;
           <span className="min-w-0 flex-1">{t('loop.questionsTitle')}</span>
           {questionsOpen > 0 && <span className="text-small text-muted" data-testid="nav-questions-count">{questionsOpen}</span>}
         </a>
-        <a href={appPath(K_TASKS)} className={link(route.name === 'tasks')} aria-current={route.name === 'tasks' ? 'page' : undefined} data-testid="nav-tasks" {...pick(K_TASKS)}><span className="min-w-0 flex-1">{t('loop.tasksTitle')}</span></a>
+        <a href={appPath(K_TASKS)} className={link(route.name === 'tasks' || route.name === 'task')} aria-current={route.name === 'tasks' ? 'page' : undefined} data-testid="nav-tasks" {...pick(K_TASKS)}>
+          <CheckIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
+          <span className="min-w-0 flex-1">{t('loop.tasksTitle')}</span>
+        </a>
         <a href={appPath(K_PROBLEMS)} className={link(route.name === 'problems')} aria-current={route.name === 'problems' ? 'page' : undefined} data-testid="nav-problems" {...pick(K_PROBLEMS)}>
           <AlertTriangleIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
           <span className="min-w-0 flex-1">{t('loop.problemsTitle')}</span>
@@ -367,7 +370,7 @@ function Toolbar({ status, route, menu, refresh, products, current }: { status: 
       <span className="flex shrink-0 items-center gap-1">
         {status.loop !== undefined && status.loop.questionsAnswered > 0 && (
           <KLink href={K_QUESTIONS} className="answers-waiting no-underline" data-testid="answers-waiting" title={t('loop.answersWaitingHint')}>
-            <Badge variant="outline">{t('loop.answersWaiting', { count: status.loop.questionsAnswered })}</Badge>
+            <Badge variant="outline"><span className="answers-waiting-words">{t('loop.answersWaiting', { count: status.loop.questionsAnswered })}</span><span className="answers-waiting-count">{status.loop.questionsAnswered}</span></Badge>
           </KLink>
         )}
         {menu}

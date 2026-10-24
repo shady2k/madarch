@@ -387,7 +387,7 @@ export type TaskRow = {
   at: string;
   by: Author;
   grounds: string[];
-  scope: { scope: TaskScope; words: string }[];
+  scope: { scope: TaskScope; words: string; place: PlaceView }[];
   closedBy: { repository: string; commit: string; at: string; subject: string } | { person: true; at: string | null } | null;
   impact: { pages: number; statements: number } | null;
   problem?: string;
@@ -413,12 +413,23 @@ export type TaskDetail = Omit<TaskRow, 'impact'> & {
   marks: { sections: number; statements: number; entities: number };
 };
 
+/** A place a task changes as a reader says it: a section's heading and its document's title, each a link (madarch-m38l.14). */
+export type PlaceView = {
+  kind: 'section' | 'file' | 'lines' | 'symbol' | 'statement';
+  label: string;
+  where: string | null;
+  href: string | null;
+  path: string | null;
+  words: string;
+};
+
 /** The task an answer proposes: the scope its grounds name, and what it reaches. */
 export type TaskProposal = {
   choice: 'code' | 'docs';
   title: string;
   grounds: string[];
   scope: TaskScope[];
+  places?: PlaceView[];
   impact: TaskImpact;
   question: { slug: string; title: string; file: string };
   answer: { text: string; by: string; at: string };

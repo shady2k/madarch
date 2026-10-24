@@ -14,7 +14,7 @@ import { parseStatementRef, readCorrections, readQuestions, type Author, type Co
 import { closingCommit, type RepositoryRef, type TaskClosure } from './closure.js';
 import { impactOf, type TaskImpact } from './impact.js';
 import { impactGroundsOf, type PlannedMarks } from './planned.js';
-import { readTasks, scopeWords, type PlannedTask, type TaskScope } from './tasks.js';
+import { readTasks, scopeWords, type PlaceView, type PlannedTask, type TaskScope } from './tasks.js';
 import type { Unplaced } from './plan.js';
 import type { StarterOffer } from '../knowledge/starter-upgrade.js';
 
@@ -207,6 +207,8 @@ function correctionProblem(correction: Correction, pages: ReadonlyMap<string, In
 export interface TaskScopeRow {
   readonly scope: TaskScope;
   readonly words: string;
+  /** The place as a reader says it: a heading and a title, each a link. */
+  readonly place: PlaceView;
 }
 
 /** How a task closed: by a commit of a repository, or by a person. */
@@ -255,6 +257,8 @@ export interface TaskListing {
 export interface TaskReadInput {
   readonly productFolder: string;
   readonly owner: DatabaseOwner;
+  /** The place a scope names, as the wiki words it (product.placeOf). */
+  readonly placeOf: (scope: TaskScope) => Promise<PlaceView>;
   /** The repositories a commit may close a task in: the product's own, then each code repository. */
   readonly repositories: readonly RepositoryRef[];
   /** The file each page of the product is written in: what a statement scope names when a commit closes it. */
@@ -284,7 +288,7 @@ async function rowOfTask(task: PlannedTask, input: TaskReadInput, notes: string[
   }
   return {
     id: task.id, slug: task.slug, title: task.title, status: closedBy === null ? 'open' : 'closed', file: task.file, question: task.question, answer: task.answer,
-    at: task.at, by: task.by, grounds: task.grounds, scope: task.scope.map((scope) => ({ scope, words: scopeWords(scope) })), closedBy,
+    at: task.at, by: task.by, grounds: task.grounds, scope: await Promise.all(task.scope.map(async (scope) => ({ scope, words: scopeWords(scope), place: await input.placeOf(scope) }))), closedBy,
     impact: impact === null ? null : { pages: impact.counts.pages, statements: impact.counts.statements },
     ...(problem === undefined ? {} : { problem }),
   };

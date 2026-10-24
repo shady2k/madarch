@@ -117,6 +117,8 @@ async function measured(page: Page, name: string): Promise<Record<string, unknow
       impactStatements: document.querySelectorAll('[data-testid=impact-statements] [data-testid=impact-statement]').length,
       scopeItems: document.querySelectorAll('[data-testid=task-scope-item]').length,
       fixtureKeys: (document.body.innerText.match(/loop\.[a-zA-Z.]+/g) ?? []).slice(0, 5),
+      proposalTitle: (document.querySelector('[data-testid=task-title]') as HTMLInputElement | null)?.value ?? null,
+      storedLanguage: (() => { try { return window.localStorage.getItem('madarch-wiki-language'); } catch { return 'unreadable'; } })(),
     };
   }, name);
 }
@@ -534,10 +536,13 @@ if (only === '' || only === 'tasks') {
   const saved = (await (await api(`/api/k/question?id=${encodeURIComponent(slug)}`)).json()) as { state: string };
   if (saved.state === 'open') throw new Error(`the answer to ${slug} was saved but the question still reads open`);
 
-  const combos: { lang: 'en' | 'ru'; scheme: 'light' | 'dark'; width: number }[] = [];
+  // Every language, scheme and width; `--task-combos` names a few of them as `<lang>-<scheme>-<width>`, comma separated.
+  const all: { lang: 'en' | 'ru'; scheme: 'light' | 'dark'; width: number }[] = [];
   for (const language of ['en', 'ru'] as const) {
-    for (const scheme of ['light', 'dark'] as const) for (const width of [1150, 390]) combos.push({ lang: language, scheme, width });
+    for (const scheme of ['light', 'dark'] as const) for (const width of [1150, 390]) all.push({ lang: language, scheme, width });
   }
+  const onlyCombos = argument('task-combos', '').split(',').map((one) => one.trim()).filter((one) => one !== '');
+  const combos = onlyCombos.length === 0 ? all : all.filter((combo) => onlyCombos.includes(`${combo.lang}-${combo.scheme}-${combo.width}`));
   const tag = (combo: { lang: string; scheme: string; width: number }): string => `${combo.lang}-${combo.scheme}-${combo.width}`;
   const question = `${product}/k/questions/${encodeURIComponent(slug)}`;
 

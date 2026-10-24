@@ -44,13 +44,22 @@ import { findSubject, kindSummaries, renderPage, listEntities, type PageResult }
 import { buildStatement, type StatementResult } from './statement.js';
 import { Resolver, type Resolution } from './resolve.js';
 import { indexCounts } from './index/queries.js';
+import { documentSections } from './index/sections.js';
+
+/** The wiki's address of a document, at a section when one is named: the client opens it as it opens any in-wiki link. */
+const documentAddress = (repo: string | null, path: string, anchor?: string): string => {
+  const query = new URLSearchParams();
+  if (repo !== null) query.set('repo', repo);
+  query.set('path', path);
+  return `/k/doc?${query.toString()}${anchor === undefined || anchor === '' ? '' : `#${encodeURIComponent(anchor)}`}`;
+};
 import { webLink } from './index/web-link.js';
 import { readDocEntities, type DocEntity, type DocumentSource } from './doc-entities.js';
 import { DOCUMENT_LIMIT, DOCUMENT_PATH, HARNESS_FILES, documentTitle, docsLinkedOutside, listedDocument, productDocumentPaths, readProductDocument, readRepoDocuments, repoDocumentPaths } from './doc-sources.js';
 import { ensureLoopKinds, seedStarterSet, TEMPLATES } from './seed.js';
 import { readCorrections } from '../loop/entities.js';
 import { answerQuestion, commitFiles, localIdentity, LoopRefusal, recordCorrection, type Answered, type Corrected } from '../loop/answer.js';
-import { readScope, readTasks, renderTask, TASKS_FOLDER, taskSlug, writeTask, type PlannedTask, type TaskScope } from '../loop/tasks.js';
+import { readScope, readTasks, renderTask, scopeWords, TASKS_FOLDER, taskSlug, writeTask, type PlaceView, type PlannedTask, type TaskScope } from '../loop/tasks.js';
 import { impactOf, type TaskImpact } from '../loop/impact.js';
 import { impactGroundsOf } from '../loop/planned.js';
 import { closingCommit, type RepositoryRef } from '../loop/closure.js';
@@ -1535,19 +1544,56 @@ export class KnowledgeProduct {
   /** The product's tasks, open first, each with what its change reaches through the graph. */
   async tasks(): Promise<TaskListing> {
     const owner = await this.open();
-    return await listTasks({ productFolder: this.options.productFolder, owner, repositories: this.taskRepositories(), pageFiles: this.pageFiles() });
+    return await listTasks({ productFolder: this.options.productFolder, owner, repositories: this.taskRepositories(), pageFiles: this.pageFiles(), placeOf: (scope) => this.placeOf(scope) });
   }
 
   /** One task with its complete impact: the pages a run would rewrite and the marks it stands on. */
   async task(id: string): Promise<TaskDetail | undefined> {
     const owner = await this.open();
-    return await taskDetail({ productFolder: this.options.productFolder, owner, repositories: this.taskRepositories(), pageFiles: this.pageFiles() }, id, await this.marks());
+    return await taskDetail({ productFolder: this.options.productFolder, owner, repositories: this.taskRepositories(), pageFiles: this.pageFiles(), placeOf: (scope) => this.placeOf(scope) }, id, await this.marks());
   }
 
   /** The task an answer proposes: the scope its grounds name and its impact through the graph, before anything is written. */
-  async proposeTask(question: string, choice: TaskChoice): Promise<TaskProposal> {
+  async proposeTask(question: string, choice: TaskChoice, asked?: 'en' | 'ru'): Promise<TaskProposal> {
     const owner = await this.open();
-    return await proposeTask({ owner, productFolder: this.options.productFolder, question, choice });
+    const read = readKinds(this.options.productFolder);
+    // The reader's interface language when it says one, else the language the product's pages are written in.
+    const language = asked ?? (read.present && read.manifest.language === 'ru' ? 'ru' : 'en');
+    const proposal = await proposeTask({ owner, productFolder: this.options.productFolder, question, choice, language });
+    // The places as a reader says them: a section's heading and its document's title, never a `doc:` key.
+    return { ...proposal, places: await Promise.all(proposal.scope.map((scope) => this.placeOf(scope))) };
+  }
+
+  /**
+   * A place as the wiki names it: a section's heading and the document's title, a document's title, a symbol's or a
+   * statement's words. Each with the address that opens it, and the path only as small secondary text.
+   */
+  async placeOf(scope: TaskScope): Promise<PlaceView> {
+    const words = scopeWords(scope);
+    const repoOf = (path: string): string | null => (productDocumentPaths(this.options.productFolder).includes(path) ? null : this.singleRepository()?.name ?? null);
+    if (scope.type === 'section') {
+      const repo = repoOf(scope.path);
+      const page = await this.document(repo, scope.path);
+      const section = page === undefined ? undefined : documentSections(page.markdown).find((candidate) => candidate.anchor === scope.anchor.toLowerCase());
+      const heading = section?.text.split('\n')[0]?.replace(/^#{1,6}\s+/, '').replace(/\s*#*\s*$/, '');
+      return { kind: 'section', label: heading === undefined || heading === '' ? scope.anchor : heading, where: page?.title ?? scope.path, href: documentAddress(repo, scope.path, scope.anchor), path: scope.path, words };
+    }
+    if (scope.type === 'file' || scope.type === 'lines') {
+      const repo = repoOf(scope.path);
+      const page = await this.document(repo, scope.path);
+      const title = page?.title ?? scope.path.split('/').pop() ?? scope.path;
+      const label = scope.type === 'lines' ? `${title} · ${scope.start}–${scope.end}` : title;
+      return { kind: scope.type, label, where: null, href: documentAddress(repo, scope.path), path: scope.path, words };
+    }
+    if (scope.type === 'symbol') {
+      const key = scope.key.startsWith('code.symbol:') ? scope.key : `code.symbol:${scope.key}`;
+      const rest = key.slice('code.symbol:'.length);
+      const hash = rest.indexOf('#');
+      return { kind: 'symbol', label: hash < 0 ? rest : rest.slice(hash + 1), where: hash < 0 ? null : rest.slice(0, hash), href: `/k/e/${encodeURIComponent(key)}`, path: hash < 0 ? rest : rest.slice(0, hash), words };
+    }
+    const page = scope.key.slice(0, scope.key.indexOf('#'));
+    const title = readKnowledgePages(this.options.productFolder).pages.find((candidate) => candidate.id === page)?.title ?? page;
+    return { kind: 'statement', label: title, where: null, href: `/k/e/${encodeURIComponent(page)}`, path: null, words };
   }
 
   /** Create a task only after the reader confirms its proposed scope: a product file, committed as the reader. */
@@ -1643,7 +1689,7 @@ export class KnowledgeProduct {
     if (this.chosenAgent() === null) return { ok: false, message: 'no agent is chosen for this product: choose one before fixing the pages' };
     const started = await this.startFill({ task: task.slug, taskPages: impact.writable });
     if (!started.started) return { ok: false, message: started.message };
-    return { ok: true, task: (await listTasks({ productFolder: this.options.productFolder, owner, repositories: this.taskRepositories(), pageFiles: this.pageFiles() })).tasks.find((row) => row.id === task.id)!, pages: impact.writable, fill: started.fill };
+    return { ok: true, task: (await listTasks({ productFolder: this.options.productFolder, owner, repositories: this.taskRepositories(), pageFiles: this.pageFiles(), placeOf: (scope) => this.placeOf(scope) })).tasks.find((row) => row.id === task.id)!, pages: impact.writable, fill: started.fill };
   }
 
   /** A person's correction of a statement: a new file, committed with the person as author. */
