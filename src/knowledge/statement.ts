@@ -7,7 +7,7 @@
  */
 import { byCodePoint } from '../model/order.js';
 import { findAnchor } from './anchors.js';
-import { languageOf, refOfMarkdown, type RenderContext } from './blocks.js';
+import { languageOf, propertiesBlock, refOfGraph, refOfMarkdown, relatedBlock, type RenderContext } from './blocks.js';
 import type { GraphEntity } from './graph-read.js';
 import { parseTarget, readStatements } from './markdown.js';
 import type { CodeLocation, Excerpt, GroundView, RelyingRef, StatementModel } from './model.js';
@@ -16,6 +16,29 @@ import { documentAddress, noEntityMessage, sourceAddress, type Resolution } from
 /** Lines of context shown above and below the cited lines, and the most lines an excerpt shows. */
 const CONTEXT_LINES = 3;
 const EXCERPT_LINES = 60;
+/** What a card of an entity shows of its neighbours: this many groups, this many rows in each. */
+const CARD_GROUPS = 4;
+const CARD_ROWS = 5;
+
+/**
+ * The graph kinds that are things of the system, not code: a ground on one of them is a card of the entity (its
+ * name, kind, facts, what it is related to and its page), not the lines of the manifest it was read from. Functions,
+ * classes, files and routes keep the code excerpt.
+ */
+const CARD_KINDS: ReadonlySet<string> = new Set(['code.service', 'code.package', 'code.database', 'code.table', 'code.channel', 'code.contract', 'code.message', 'code.operation']);
+
+async function entityCard(ctx: RenderContext, entity: GraphEntity): Promise<Excerpt> {
+  const subject = { source: 'graph' as const, entity };
+  const facts = propertiesBlock(subject, {}, '', 0);
+  const related = await relatedBlock(ctx, subject, { limit: String(CARD_ROWS) }, '', 0);
+  const ref = refOfGraph(ctx, entity);
+  return {
+    type: 'entity',
+    entity: ref,
+    facts: facts.type === 'properties' ? facts.rows : [],
+    related: related.type === 'related' ? related.groups.slice(0, CARD_GROUPS).map((group) => ({ ...group, rows: group.rows.slice(0, CARD_ROWS) })) : [],
+  };
+}
 
 export type StatementResult = { ok: true; statement: StatementModel } | { ok: false; status: 404; message: string };
 
@@ -66,6 +89,7 @@ async function groundOf(ctx: RenderContext, url: string): Promise<GroundView> {
     }
     if (ctx.markdown.has(resolution.entity)) return { url, resolution, excerpt: null };
     const [entity] = await ctx.graph.find(resolution.entity);
+    if (entity !== undefined && CARD_KINDS.has(entity.kind)) return { url, resolution, excerpt: await entityCard(ctx, entity) };
     if (entity !== undefined && resolution.location !== undefined) return { url, resolution, excerpt: await codeExcerpt(ctx, entity, resolution.location) };
     if (entity !== undefined && typeof entity.properties['path'] === 'string') {
       const repo = ctx.repoOfScope(entity.scope) ?? null;
