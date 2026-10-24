@@ -32,6 +32,8 @@ describe('the LikeC4 workspace of every view type', () => {
     test(`the ${type} view's DSL parses with LikeC4's own language services`, async () => {
       const held = diagramWorkspace(shapeOf(nested(type)), { pageAddress: () => '/k/e/x' });
       expect(held.workspace).not.toContain('include **');
+      // Flat elements: a holder and what it holds are joined by an arrow, which LikeC4 refuses for a parent and its child.
+      expect(held.workspace).not.toMatch(/^\s+n\d+ = \w+ "[^"]*" \{$/m);
       let likec4: Awaited<ReturnType<typeof LikeC4.fromSource>> | undefined;
       try {
         likec4 = await LikeC4.fromSource(held.workspace, { logger: false, printErrors: false, throwIfInvalid: true });

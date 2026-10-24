@@ -28,7 +28,12 @@ function scratchOf(workspace: string, env: Readonly<Record<string, string | unde
 
 /** The workspace of a view, with every element's link the wiki's own address. */
 export function workspaceOf(view: GraphView) {
-  return diagramWorkspace(shapeOf(view), { pageAddress: (id) => view.elements.find((element) => element.id === id)?.href ?? '' });
+  // The elements are written flat, never nested: a view's own arrows go from a holder to what it holds (a product to
+  // its domains, a domain to its services), and LikeC4 refuses a relationship between an element and its own child
+  // ("Invalid parent-child relationship", measured 2026-10-24). Flat, every relation is the arrow the view means.
+  const shape = shapeOf(view);
+  const flat = { ...shape, elements: shape.elements.map((element) => ({ ...element, parent: undefined })) };
+  return diagramWorkspace(flat, { pageAddress: (id) => view.elements.find((element) => element.id === id)?.href ?? '' });
 }
 
 // ---- LikeC4 --------------------------------------------------------------------------------------------

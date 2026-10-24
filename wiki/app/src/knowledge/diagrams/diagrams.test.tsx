@@ -215,6 +215,9 @@ describe('the drawn views', () => {
     // The LikeC4 tab draws inside the page and reads its laid-out model from the server's own frame answer; the
     // archify tab frames the page the server renders.
     await until(() => asked.some((url) => url.includes('/api/k/view-frame?type=c4-container&subject=&renderer=likec4&lang=en')), 'the LikeC4 model read');
+    // A renderer whose model cannot be read hands the view to one that drew, and the page says so in one sentence.
+    await until(() => container.querySelector('[data-testid=renderer-fallback]') !== null, 'the fallback sentence');
+    expect(container.querySelector('[data-testid=view]')!.getAttribute('data-renderer')).toBe('mermaid');
     (container.querySelector('[data-testid=renderer-archify]') as HTMLElement).click();
     await until(() => container.querySelector('iframe')?.getAttribute('src')?.includes('renderer=archify') === true, 'the archify frame');
     expect(container.querySelector('[data-testid=view]')!.getAttribute('data-renderer')).toBe('archify');
