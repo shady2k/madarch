@@ -29,7 +29,7 @@ import { SequenceView } from './diagrams/chain.js';
 import { TreemapView } from './diagrams/treemap.js';
 import { useKindName } from './kind-names.js';
 import { addressOfDocument, addressOfStatement, K_PROBLEMS } from './routes.js';
-import { linkHandlers, openInNewTab, syncFrontTabAddress } from './tabs.js';
+import { currentAddress, linkHandlers, openInNewTab, syncFrontTabAddress } from './tabs.js';
 import { remarkStatements, type MNode } from './statements.js';
 import { setShowGrounds, useShowGrounds } from './preferences.js';
 import { TermBlockView, remarkTerms, useTerms } from './glossary.js';
@@ -122,7 +122,7 @@ interface PendingOpen {
   /** The press found a selection: the click that follows only dismisses it and opens nothing. */
   pressed: boolean;
   /** A wait per sentence: two sentences clicked one after the other each open, and a second press drops its own wait alone. */
-  timers: Map<string, ReturnType<typeof setTimeout>>;
+  timers: Map<string, { timer: ReturnType<typeof setTimeout>; turn: number }>;
 }
 
 export function KMarkdown({ text, resolutions, inDocument, statements, exceptTerm }: { text: string; resolutions: Readonly<Record<string, Resolution>>; inDocument?: { repo: string | null; path: string; anchors?: Readonly<Record<string, number>> }; statements?: StatementView; /** The id of the glossary entry this text is, which it does not link to. */ exceptTerm?: string }): ReactElement {
@@ -132,13 +132,16 @@ export function KMarkdown({ text, resolutions, inDocument, statements, exceptTer
   const pending = useContext(PendingPages);
   // An opening belongs to the page its click was made on: the wait is this text's own, and leaving the page drops it.
   const pendingOpen = useRef<PendingOpen>({ pressed: false, timers: new Map() });
+  // A pending click is owned by its page, not its component: changing routes can
+  // leave KMarkdown mounted briefly, then render a different page in the same slot.
+  const pageAddress = currentAddress();
   useEffect(() => {
     const wait = pendingOpen.current;
     return () => {
-      for (const timer of wait.timers.values()) clearTimeout(timer);
+      for (const { timer } of wait.timers.values()) clearTimeout(timer);
       wait.timers.clear();
     };
-  }, []);
+  }, [pageAddress]);
   const components: Components = {
     a: ({ href, children, className, title }) => {
       if (href === undefined) return <span>{children}</span>;
@@ -199,7 +202,7 @@ export function KMarkdown({ text, resolutions, inDocument, statements, exceptTer
               const waiting = wait.timers.get(sentence);
               if (waiting !== undefined) {
                 // The second press on this sentence: its pending opening is dropped, and the press selects.
-                clearTimeout(waiting);
+                clearTimeout(waiting.timer);
                 wait.timers.delete(sentence);
                 wait.pressed = true;
               }
@@ -212,11 +215,13 @@ export function KMarkdown({ text, resolutions, inDocument, statements, exceptTer
               // Wait one click interval: a native double click selects a word after its
               // first click, and a slow one arrives well inside this window.
               const waiting = wait.timers.get(sentence);
-              if (waiting !== undefined) clearTimeout(waiting);
-              wait.timers.set(sentence, setTimeout(() => {
+              if (waiting !== undefined) clearTimeout(waiting.timer);
+              wait.timers.set(sentence, { timer: setTimeout(() => {
+                const pending = wait.timers.get(sentence);
+                if (pending === undefined) return;
                 wait.timers.delete(sentence);
                 if (!selecting()) open();
-              }, CLICK_INTERVAL));
+              }, CLICK_INTERVAL), turn });
             }}
             onKeyDown={(event) => { if (event.key === 'Enter' && (event.target as HTMLElement).closest('a') === null) open(); }}
           >

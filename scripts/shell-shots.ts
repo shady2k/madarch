@@ -12,6 +12,7 @@ import { appendFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import puppeteer, { type Page } from 'puppeteer';
+import { addressOfStatement } from '../wiki/app/src/knowledge/routes.js';
 import { resolveBrowserExecutable } from './chromium.js';
 import { SAMPLE_IDENTITY, generateTrainingRepository, makeProduct, writeSamplePages } from '../test/knowledge-fixture.js';
 import { gitEnv } from '../test/git-env.js';
@@ -221,25 +222,29 @@ try {
       await shoot(page, `${tag}-04-selection-opens-nothing`);
       // A plain click opens the statement; opening it again focuses its tab. The click lands on the
       // sentence's own text at the start of its line, never on a link that happens to stand in the middle of it.
-      const clickSentence = (): Promise<void> => page.mouse.click(box.x + 6, box.y + box.height / 2);
-      const waitTabs = async (count: number, where: string): Promise<void> => {
-        try {
-          await page.waitForFunction((wanted) => document.querySelectorAll('[data-testid=tab]').length === wanted, { timeout: 20_000 }, count);
-        } catch {
-          const seen = await page.evaluate(() => ({ url: window.location.href, tabs: [...document.querySelectorAll('[data-testid=tab]')].map((tab) => tab.textContent ?? '') }));
-          fail(`${where}: the tab bar did not come to ${count} tabs: ${JSON.stringify(seen)}`);
-        }
+      const pageUrl = page.url();
+      const statementAddress = `/products/shop${addressOfStatement('product:shop', SHOP_SENTENCE)}`;
+      // Clicking the sentence's element: the browser scrolls it into view and clicks its middle, which the
+      // drag above proves is text and not a link. A click at a computed corner missed it on three runs.
+      const clickSentence = async (): Promise<void> => {
+        await page.waitForSelector('[data-testid=statement]', { timeout: 20_000 });
+        // The browser scrolls it into view; the drag already proved its middle is text, not a link.
+        await page.click('[data-testid=statement]');
       };
       await page.evaluate(() => window.getSelection()?.removeAllRanges());
       await clickSentence();
-      await waitTabs(before + 1, `${tag} a click on a sentence`);
+      await page.waitForFunction((address) => location.pathname + location.search === address, { timeout: 20_000 }, statementAddress);
+      await page.waitForSelector('[data-testid=statement-grounds]', { timeout: 20_000 });
       await page.evaluate(() => { history.back(); });
-      await waitTabs(before + 1, `${tag} after the browser's Back`);
+      await page.waitForFunction((url) => location.pathname + location.search + location.hash === new URL(url).pathname + new URL(url).search + new URL(url).hash, { timeout: 20_000 }, pageUrl);
+      await page.waitForSelector('[data-testid=statement]', { timeout: 20_000 });
       await clickSentence();
-      await new Promise((rest) => setTimeout(rest, 600));
+      await page.waitForFunction((address) => location.pathname + location.search === address, { timeout: 20_000 }, statementAddress);
+      const statementTitle = SHOP_SENTENCE.length > 40 ? `${SHOP_SENTENCE.slice(0, 39)}…` : SHOP_SENTENCE;
+      await page.waitForFunction((title) => [...document.querySelectorAll('[data-testid=tab]')].some((tab) => tab.getAttribute('data-active') === 'true' && tab.querySelector('[role=tab]')?.getAttribute('title') === title), { timeout: 20_000 }, statementTitle);
       const final = await tabs(page);
       if (final.length !== before + 1) fail(`${tag}: opening an open statement made a second tab: ${JSON.stringify(final)}`);
-      if (!final[final.length - 1]!.active && !final.some((tab) => tab.active)) fail(`${tag}: no tab is in front: ${JSON.stringify(final)}`);
+      if (!final.some((tab) => tab.active && tab.title === statementTitle)) fail(`${tag}: the statement tab was not brought to the front: ${JSON.stringify(final)}`);
       await noLoading(page, `${tag} after the clicks`);
       await shoot(page, `${tag}-05-open-page-focused-not-duplicated`);
       await page.close();
