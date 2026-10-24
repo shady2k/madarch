@@ -63,6 +63,61 @@ export const domain = (language: ScriptLanguage, slug: 'ordering' | 'payments', 
 };
 
 export const call = (markdown: string, domains?: unknown) => ({ call: { tool: 'write_page', arguments: domains === undefined ? { markdown } : { markdown, domains } } });
+
+/** The call a localized-source unit's prompt asks for: the one statement it writes, in the wiki's language. */
+export const localizedCall = (statement: string) => ({ call: { tool: 'write_localized_source', arguments: { statement } } });
+
+/**
+ * The Russian statement the scripted agent writes for each extracted document entity of the training
+ * repository (madarch-m38l.18): the entity's name stays exactly as the source writes it, and the
+ * statement says in Russian what the source section says. Nothing here is a quotation: the writer keeps
+ * the original wording beside the statement, under «В источнике».
+ */
+export const LOCALIZED_STATEMENTS: Readonly<Record<string, string>> = {
+  // docs/glossary.md
+  Order: 'Одна покупка: её позиции, цены и статус.',
+  Outbox: 'Таблица, в которой сервис заказов хранит сообщения, которые опубликует.',
+  'Idempotency key': 'Значение, которое выбирает вызывающий, чтобы повтор запроса не повторял его результат.',
+  CardToken: 'Ссылка на карту в хранилище карт; сервисы никогда не видят номер карты.',
+  PaymentToken: 'Подтверждение, которое провайдер возвращает, когда списал деньги.',
+  Capture: 'Момент, когда деньги списываются с карты.',
+  'Zero-rated': 'Товар, который продаётся без налога с продаж.',
+  // docs/requirements.md
+  'UC-1 Place order': 'Покупатель с активной сессией отправляет корзину; заказ сохраняется со статусом pending_payment, позициями, скидкой, налогом и суммой, а повторная отправка с тем же идентификатором запроса возвращает первый заказ.',
+  'UC-2 Pay': 'При оформлении заказа сервис платежей авторизует карту на сумму заказа; успешный платёж подтверждает заказ, а отклонённый отменяет его, и покупателю объясняют причину.',
+  'UC-3 Refund': 'Поддержка возвращает деньги за списанный платёж; возврат, который доводит сумму возвратов до списанной суммы, переводит заказ в статус refunded.',
+  'UC-4 Apply promotion': 'Покупатель вводит код, и скидка, которую он даёт, вычитается из заказа до того, как запрашивается платёж.',
+  'BR-1 Discount': 'Скидка — это процент, который выбирает вызывающий сервис заказов; он вычитается из каждой позиции заказа, а заказы применяют полученный процент и не выбирают его сами.',
+  'BR-2 Tax': 'Налог с продаж — 8% от каждой позиции после скидки, округлённые до ближайшего цента; позиции без налога налогом не облагаются.',
+  'BR-3 One charge per key': 'Оплата с уже использованным ключом идемпотентности возвращает первый платёж, и карта никогда не списывается дважды.',
+  'BR-4 Refunds': 'Вернуть можно только списанный платёж, на положительную сумму, в течение 30 дней после списания и не больше списанной суммы.',
+  'BR-5 Promotion cap': 'Акция никогда не вычитает больше, чем составляет сумма позиций.',
+  // docs/adr
+  'ADR-0001: Kafka is the broker': 'События заказов публикуются в Kafka, а не в очередь самого приложения.',
+  'ADR-0002: The outbox table': 'Сервис заказов пишет сообщения в таблицу outbox в той же транзакции, что и изменение заказа, а отдельный процесс публикует их в Kafka.',
+};
+
+/** The statement of an entity the table does not name: Russian prose that keeps the entity's own name out of it. */
+export const LOCALIZED_STATEMENT = 'Краткое изложение источника на русском языке.';
+
+/**
+ * The script of a wiki whose pages are Russian over the training repository's English documents: the
+ * product page and its domains in Russian, and one Russian statement for every extracted document
+ * entity the writer asks for. A prompt that names an entity is answered by its name alone, so a page
+ * never falls back to another unit's text.
+ */
+export function localizedScript(delays: { product?: number; ordering?: number; payments?: number } = {}) {
+  const base = agentScript(delays);
+  const named = Object.entries(LOCALIZED_STATEMENTS).map(([title, statement]) => ({ matches: `Entity name: ${title}\n`, steps: [localizedCall(statement), { end: { stopReason: 'end_turn' } }] }));
+  return {
+    byPrompt: [
+      ...named,
+      { matches: 'You are translating one extracted document entity', steps: [localizedCall(LOCALIZED_STATEMENT), { end: { stopReason: 'end_turn' } }] },
+      ...base.byPrompt,
+    ],
+    steps: base.steps,
+  };
+}
 /**
  * `delays` holds the milliseconds each unit takes before it writes, so a walk can see a unit in progress. The agent
  * writes in the language its prompt asks for: English, or Russian when the prompt says "in Russian".

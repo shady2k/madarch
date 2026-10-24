@@ -23,6 +23,7 @@ import { slugOf } from './names.js';
 import { statementsOf } from './sentences.js';
 import { splitFrontMatter } from '../knowledge/markdown.js';
 import type { GraphView } from './view.js';
+import { detectStatementLanguage, LOCALIZED_SOURCE_SCHEMA, parseLocalizedSource, renderLocalizedSource } from './localized-source.js';
 
 /** A domain the product page declares. */
 export interface DomainDeclaration {
@@ -35,7 +36,8 @@ export interface DomainDeclaration {
 
 export type UnitSpec =
   | { readonly kind: 'product'; readonly id: string; readonly path: string; readonly name: string }
-  | { readonly kind: 'domain'; readonly id: string; readonly path: string; readonly domain: DomainDeclaration; readonly productId?: string };
+  | { readonly kind: 'domain'; readonly id: string; readonly path: string; readonly domain: DomainDeclaration; readonly productId?: string }
+  | { readonly kind: 'localized-source'; readonly id: string; readonly path: string; readonly entity: import('../knowledge/doc-entities.js').DocEntity; readonly sourceLanguage: 'en' | 'ru'; readonly language: 'en' | 'ru' };
 
 /** Where checked pages go; the filesystem's is in `run.ts`. */
 export interface PageSink {
@@ -275,6 +277,9 @@ export class UnitTools {
   ) {}
 
   get tools(): readonly McpToolDefinition[] {
+    if (this.unit.kind === 'localized-source') return [
+      { name: 'write_localized_source', description: `Write one grounded ${this.unit.language === 'ru' ? 'Russian' : 'English'} statement for this document entity. Use only the supplied source excerpt.`, inputSchema: object({ statement: { type: 'string' } }, ['statement']) },
+    ];
     return this.unit.kind === 'product' ? WRITER_TOOLS : WRITER_TOOLS.map((tool) => (tool.name === 'write_page' ? { ...tool, inputSchema: object({ markdown: { type: 'string' } }, ['markdown']) } : tool));
   }
 
@@ -311,6 +316,7 @@ export class UnitTools {
         case 'get_node': return await this.getNode(args);
         case 'neighbors': return await this.neighbors(args);
         case 'read_file': return await this.readFile(args);
+        case 'write_localized_source': return await this.writeLocalizedSource(args);
         case 'write_page': return await this.writePage(args);
         case 'ask_question': return await this.askQuestion(args);
         default: return fail('unknown-tool', `"${tool}" is no tool of this unit: the tools are ${WRITER_TOOLS.map((t) => t.name).join(', ')}`);
@@ -353,6 +359,36 @@ export class UnitTools {
     if (node === null) return fail('no-such-key', `the graph has no node with the key ${JSON.stringify(key)} at the last filled commit`);
     const page = await this.view.neighbors(node, { direction, ...(args['relation'] === undefined ? {} : { relation: args['relation'] as string }), ...(args['after'] === undefined ? {} : { after: args['after'] as string }), limit });
     return ok({ key, direction, neighbors: page.neighbors.map((n) => ({ relation: n.relation, key: n.key, kind: n.kind, label: n.label })), next: page.next });
+  }
+
+  private async writeLocalizedSource(args: Record<string, unknown>): Promise<ToolAnswer> {
+    if (this.unit.kind !== 'localized-source') return fail('wrong-unit', 'write_localized_source is available only to a localized document-source unit');
+    if (this.status === 'written') return fail('already-written', `this unit already wrote ${this.unit.path}`);
+    if (this.writeAttempts >= this.bounds.maxWriteAttempts) return fail('no-attempts', `this unit made ${this.bounds.maxWriteAttempts} refused writes and has failed; nothing more is accepted`);
+    this.writeAttempts += 1;
+    const reject = (code: string, rule: string, message: string): ToolAnswer => {
+      this.refusals = [{ line: this.unit.kind === 'localized-source' ? this.unit.entity.line : 1, rule, message }];
+      return fail(code, message);
+    };
+    const statement = args['statement'];
+    if (typeof statement !== 'string' || statement.trim() === '') return reject('bad-statement', 'localized-statement', '"statement" is non-empty Markdown');
+    if (statement.trim().length > 12_000) return reject('bad-statement', 'localized-statement', '"statement" is over the 12,000 character limit');
+    // The fresh extracted excerpt is part of this isolated unit's input; product-owned documents are not code-graph files.
+    const language = this.unit.language;
+    const original = this.unit.entity.text;
+    if (language === this.unit.sourceLanguage && statement.trim() === original.trim()) {
+      this.status = 'written';
+      return ok({ written: true, unchanged: true, id: this.unit.entity.id, path: this.unit.path });
+    }
+    if (detectStatementLanguage(statement) !== language) return reject('wrong-language', 'localized-language', `the statement does not appear to be in ${language}`);
+    const content = renderLocalizedSource({ schema: LOCALIZED_SOURCE_SCHEMA, entity: this.unit.entity.id, kind: this.unit.entity.kind, wikiLanguage: language, sourceLanguage: this.unit.sourceLanguage, sourceDocument: this.unit.entity.repo === null ? this.unit.entity.path : `repos/${this.unit.entity.repo}/${this.unit.entity.path}`, sourceLine: this.unit.entity.line, sourceEndLine: this.unit.entity.endLine, original, statement: statement.trim() });
+    const validated = parseLocalizedSource(this.unit.path, content, this.unit.entity, language);
+    if (!validated.ok) return reject('invalid-localized-source', 'localized-format', `${this.unit.path}:${validated.line}: the generated artifact is invalid: ${validated.message}`);
+    await this.sink.write(this.unit.path, content);
+    this.refusals = [];
+    this.status = 'written';
+    this.written = { grounds: [`doc:${this.unit.entity.path}#${this.unit.entity.anchor}`], links: [] };
+    return ok({ written: true, id: this.unit.entity.id, path: this.unit.path });
   }
 
   private async readFile(args: Record<string, unknown>): Promise<ToolAnswer> {
@@ -556,6 +592,7 @@ export class UnitTools {
   }
 
   private async writePageNow(args: Record<string, unknown>): Promise<ToolAnswer> {
+    if (this.unit.kind === 'localized-source') return fail('wrong-unit', 'write_page is unavailable to a localized document-source unit');
     if (this.status === 'written') return fail('already-written', `this unit already wrote ${this.unit.path}`);
     if (this.writeAttempts >= this.bounds.maxWriteAttempts) return fail('no-attempts', `this unit made ${this.bounds.maxWriteAttempts} refused writes and has failed; nothing more is accepted`);
     this.writeAttempts += 1;

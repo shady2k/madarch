@@ -72,8 +72,8 @@ export type TreemapFile = { id: string; path: string; href: string | null; lines
 
 type BlockShape =
   | { type: 'markdown'; markdown: string }
-  | { type: 'term'; title: string; definition: string; synonyms: string[]; code: string[]; usedIn: string | null; ambiguous: string | null }
-  | { type: 'body'; markdown: string; file: string; statements: number; ungrounded: { text: string; line: number }[] }
+  | { type: 'term'; title: string; definition: string; synonyms: string[]; code: string[]; usedIn: string | null; ambiguous: string | null; localized?: { statement: string; original: string; sourceDocument: string; sourceLine: number; sourceEndLine: number } }
+  | { type: 'body'; markdown: string; file: string; statements: number; ungrounded: { text: string; line: number }[]; localized?: { statement: string; original: string; sourceDocument: string; sourceLine: number; sourceEndLine: number } }
   | { type: 'graph'; title: string; neighborhood: Neighborhood; depth: number; shown: number; total: number }
   | { type: 'system'; title: string; nodes: SystemNode[]; edges: SystemEdge[]; notes: string[] }
   | { type: 'modules'; title: string; service: string; nodes: ModuleNode[]; edges: ModuleEdge[]; cycles: string[][]; notes: string[] }
@@ -216,7 +216,7 @@ export type SourceFile = { repo: string | null; path: string; language: string; 
 
 export type ProductChoice = { name: string; folder: string; own?: boolean };
 
-export type GlossaryTerm = { id: string; title: string; definition: string; synonyms: string[]; code: string[]; usedIn: string | null; ambiguous: string | null; repo: string | null; path: string; line: number; endLine: number; anchor: string; href: string };
+export type GlossaryTerm = { id: string; title: string; definition: string; synonyms: string[]; code: string[]; usedIn: string | null; ambiguous: string | null; source?: { original: string; document: string; line: number; endLine: number }; repo: string | null; path: string; line: number; endLine: number; anchor: string; href: string };
 export type Glossary = { terms: GlossaryTerm[]; resolutions: Record<string, Resolution>; findings: Finding[] };
 export type UserSettings = { role: string; asked: boolean; roles: string[] };
 

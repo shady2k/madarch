@@ -13,6 +13,7 @@ import { execFileSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 import { ACP_ADAPTERS, acpAgentFolder } from '../src/fill/acp-probe.js';
 import { startServer, type StartedServer } from '../src/server/http.js';
 import type { UnitAgent, UnitRequest } from '../src/writer/index.js';
@@ -64,6 +65,11 @@ const agent: UnitAgent & { close(): Promise<void> } = {
   async run(request: UnitRequest): Promise<void> {
     seen.push(request.id);
     prompts.push(request.prompt);
+    if (request.id.startsWith('localized-source:')) {
+      const written = await request.tools.call('write_localized_source', { statement: 'Счет, в котором хранится результат завершенного вычисления.' });
+      if (written.isError) throw new Error(`the localized source was refused: ${JSON.stringify(written.answer)}`);
+      return;
+    }
     if (request.id === 'product:tiny') {
       const written = await request.tools.call('write_page', {
         markdown: PRODUCT_PAGE,
@@ -108,7 +114,9 @@ beforeAll(async () => {
   git(repository, '-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'Add the leaf and the root', '--date', '2026-03-01T10:00:00Z');
   home = join(work, 'home');
   mkdirSync(home);
-  makeProduct(home, 'tiny', repository, 'tiny');
+  const productFolder = makeProduct(home, 'tiny', repository, 'tiny');
+  mkdirSync(join(productFolder, 'docs'), { recursive: true });
+  writeFileSync(join(productFolder, 'docs', 'glossary.md'), '# Glossary\n\n- **Tiny account** - An account that holds the number results from a completed calculation.\n- **X** - X.\n');
   const app = join(work, 'app');
   mkdirSync(app);
   writeFileSync(join(app, 'index.html'), '<!doctype html><title>app</title><div id="root"></div>');
@@ -239,6 +247,10 @@ describe('one press with an agent chosen', () => {
     const body = home.body.blocks.find((block: { type: string }) => block.type === 'body');
     expect(body.markdown).toContain('The tiny product computes numbers with a leaf function and a root function.');
     expect(body.ungrounded).toEqual([]);
+    const sameLanguageGlossary = await get('/api/k/glossary');
+    const sameLanguageTerm = sameLanguageGlossary.body.terms.find((term: { title: string }) => term.title === 'Tiny account');
+    expect(sameLanguageTerm.definition).toContain('An account that holds the number results');
+    expect(sameLanguageTerm.source).toBeUndefined();
     // The grounds resolve; the link to the domain whose page is not yet written is shown as broken until its unit writes it.
     const states = Object.entries(home.body.resolutions).map(([link, resolution]) => [link, (resolution as { state: string }).state]);
     expect(states.filter(([, state]) => state === 'broken').map(([link]) => link)).toEqual(['madarch:domain:numbers']);
@@ -249,7 +261,7 @@ describe('one press with an agent chosen', () => {
     expect(events.join('')).toContain('event: change');
     release();
     const done = await until('the stage', async () => (await get('/api/k/status')).body, (value) => value.writer.state !== 'running');
-    expect(done.writer).toMatchObject({ state: 'done', units: [{ unit: 'product:tiny', state: 'written' }, { unit: 'domain:numbers', state: 'written' }] });
+    expect(done.writer).toMatchObject({ state: 'done', units: [{ unit: 'product:tiny', state: 'written' }, { unit: 'domain:numbers', state: 'written' }, { unit: 'localized-source:doc:docs/glossary.md#x', state: 'not-written', refusals: [{ rule: 'source-language' }] }] });
     expect(seen).toEqual(['product:tiny', 'domain:numbers']);
     const domain = await get('/api/k/page?id=domain%3Anumbers');
     expect(domain.status).toBe(200);
@@ -275,11 +287,29 @@ describe('one press with an agent chosen', () => {
     // The manifest holds the language now, and every unit's prompt tells the agent to write in it.
     expect(readFileSync(join(home, 'tiny', 'madarch', 'kinds.yaml'), 'utf8')).toContain('language: ru');
     const done = await until('the Russian run', async () => (await get('/api/k/status')).body, (value) => value.language === 'ru' && value.writer.state === 'done' && value.fill.state === 'done');
-    expect(done.writer.units.map((unit: { state: string }) => unit.state)).toEqual(['written', 'written']);
-    expect(seen).toEqual(['product:tiny', 'domain:numbers']);
-    expect(prompts.length).toBe(2);
-    expect(prompts.every((prompt) => prompt.includes('Write every sentence and every heading of the page, and its title, in Russian'))).toBe(true);
+    expect(done.writer.units.map((unit: { state: string }) => unit.state)).toEqual(['written', 'written', 'written', 'not-written']);
+    const skipped = done.writer.units.find((unit: { unit: string }) => unit.unit === 'localized-source:doc:docs/glossary.md#x');
+    expect(skipped).toMatchObject({ state: 'not-written', refusals: [{ rule: 'source-language' }] });
+    expect(seen).toEqual(['product:tiny', 'domain:numbers', expect.stringMatching(/^localized-source:doc:docs\/glossary\.md#/)]);
+    expect(prompts.filter((_, index) => !seen[index]!.startsWith('localized-source:')).every((prompt) => prompt.includes('Write every sentence and every heading of the page, and its title, in Russian'))).toBe(true);
+    expect(prompts.at(-1)).toContain('in Russian');
     expect(readFileSync(join(home, 'tiny', 'docs', 'domains', 'numbers.md'), 'utf8')).toContain('Как считаются числа');
+    const localizedPath = join(home, 'tiny', 'docs', 'sources', 'doc.term', createHash('sha256').update('doc:docs/glossary.md#tiny-account').digest('hex') + '.md');
+    expect(readFileSync(localizedPath, 'utf8')).toContain('Счет, в котором хранится результат завершенного вычисления.');
+    const glossary = await get('/api/k/glossary');
+    const localizedTerm = glossary.body.terms.find((term: { title: string }) => term.title === 'Tiny account');
+    expect(localizedTerm.definition).toBe('Счет, в котором хранится результат завершенного вычисления.');
+    expect(localizedTerm.source).toMatchObject({ original: expect.stringContaining('An account that holds'), document: 'docs/glossary.md' });
+    const entityPage = await get(`/api/k/page?id=${encodeURIComponent(localizedTerm.id)}`);
+    expect(entityPage.status).toBe(200);
+    const localizedBlock = entityPage.body.blocks.find((block: { type: string }) => block.type === 'term');
+    expect(localizedBlock.definition).toBe('Счет, в котором хранится результат завершенного вычисления.');
+    expect(localizedBlock.localized.original).toContain('An account that holds');
+    writeFileSync(localizedPath, '---\nentity: another-entity\n---\n\n## Localized statement\n\nNo wrong text.\n\n## In the source\n\nA different source.\n');
+    const invalidGlossary = await get('/api/k/glossary');
+    const invalidTerm = invalidGlossary.body.terms.find((term: { title: string }) => term.title === 'Tiny account');
+    expect(invalidTerm.definition).toBe('');
+    expect(invalidGlossary.body.findings.some((finding: { file: string; line: number }) => finding.file === 'docs/sources/doc.term/' + createHash('sha256').update('doc:docs/glossary.md#tiny-account').digest('hex') + '.md' && finding.line > 0)).toBe(true);
   }, 120_000);
 
   test('a unit the writer refused is shown with its line and rule', async () => {

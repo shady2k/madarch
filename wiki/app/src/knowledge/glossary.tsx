@@ -156,7 +156,7 @@ function Ambiguity({ term, pageId, resolutions }: { term: Pick<GlossaryTerm, 'am
 }
 
 /** The block of a term's page. */
-export function TermBlockView({ block, pageId, resolutions }: { block: { definition: string; synonyms: string[]; code: string[]; usedIn: string | null; ambiguous: string | null }; pageId: string; resolutions: Readonly<Record<string, Resolution>> }): ReactElement {
+export function TermBlockView({ block, pageId, resolutions }: { block: { definition: string; synonyms: string[]; code: string[]; usedIn: string | null; ambiguous: string | null; localized?: { statement: string; original: string; sourceDocument: string; sourceLine: number; sourceEndLine: number } }; pageId: string; resolutions: Readonly<Record<string, Resolution>> }): ReactElement {
   const { t } = useTranslation();
   const term = { ...block, id: pageId };
   return (
@@ -165,6 +165,11 @@ export function TermBlockView({ block, pageId, resolutions }: { block: { definit
       <Names term={term as unknown as GlossaryTerm} />
       <Ambiguity term={term} pageId={pageId} resolutions={resolutions} />
       {block.usedIn !== null && <div className="mb-2 flex flex-wrap items-baseline gap-2 text-small"><span className="text-muted">{t('knowledge.glossary.usedIn')}</span><KMarkdown text={block.usedIn} resolutions={resolutions} /></div>}
+      {'localized' in block && block.localized !== undefined && <details className="mt-5 border-t border-line pt-4" data-testid="localized-source">
+        <summary className="cursor-pointer text-small font-medium text-secondary">{t('knowledge.localizedSource')}</summary>
+        <KMarkdown text={block.localized.original} resolutions={resolutions} />
+        <p className="m-0 mt-2 text-small text-muted" data-testid="localized-source-place">{block.localized.sourceDocument}:{block.localized.sourceLine}{block.localized.sourceEndLine === block.localized.sourceLine ? '' : `–${block.localized.sourceEndLine}`}</p>
+      </details>}
     </section>
   );
 }
@@ -203,6 +208,11 @@ export function GlossaryPage({ version }: { version: number }): ReactElement {
               {term.ambiguous !== null && <Badge data-testid="term-ambiguous-badge">{t('knowledge.glossary.ambiguousBadge')}</Badge>}
             </h2>
             <KMarkdown text={upperFirst(term.definition)} resolutions={glossary.resolutions} exceptTerm={term.id} />
+            {term.source !== undefined && <details className="mb-3 border-t border-line pt-3" data-testid="localized-source">
+              <summary className="cursor-pointer text-small font-medium text-secondary">{t('knowledge.localizedSource')}</summary>
+              <KMarkdown text={term.source.original} resolutions={glossary.resolutions} />
+              <p className="m-0 mt-2 text-small text-muted" data-testid="localized-source-place">{term.source.document}:{term.source.line}{term.source.endLine === term.source.line ? '' : `–${term.source.endLine}`}</p>
+            </details>}
             <Names term={term} />
             <Ambiguity term={term} pageId={term.id} resolutions={glossary.resolutions} />
             {term.usedIn !== null && <div className="mb-2 flex flex-wrap items-baseline gap-2 text-small"><span className="text-muted">{t('knowledge.glossary.usedIn')}</span><KMarkdown text={term.usedIn} resolutions={glossary.resolutions} /></div>}

@@ -175,7 +175,7 @@ describe('the links from the text to the glossary', () => {
 describe('the glossary page and a term\'s block', () => {
   const glossary: Glossary = {
     terms: [
-      term('Manifest', { definition: 'The file that lists the kinds.', synonyms: ['manifests'], code: ['madarch/kinds.yaml'], usedIn: '[the reference](madarch:doc:docs/reference.md#manifest)' }),
+      term('Manifest', { definition: 'The file that lists the kinds.', synonyms: ['manifests'], code: ['madarch/kinds.yaml'], usedIn: '[the reference](madarch:doc:docs/reference.md#manifest)', source: { original: 'The glossary defines the manifest as the file listing kinds.', document: 'docs/glossary.md', line: 3, endLine: 4 } }),
       term('Payment token', { definition: 'The proof a provider returns.', ambiguous: 'also the vault reference; see [the question](madarch:doc:docs/reference.md#question)', line: 7 }),
     ],
     resolutions: {
@@ -194,6 +194,11 @@ describe('the glossary page and a term\'s block', () => {
     expect(items[0]!.textContent).toContain('The file that lists the kinds.');
     expect(items[0]!.querySelector('[data-testid=term-names]')!.textContent).toContain('madarch/kinds.yaml');
     expect(items[0]!.querySelector('[data-testid=term-ground]')!.textContent).toContain('docs/glossary.md:3');
+    const source = items[0]!.querySelector('details[data-testid=localized-source]') as HTMLDetailsElement;
+    expect(source.open).toBe(false);
+    expect(source.querySelector('summary')!.textContent).toBe('In the source');
+    expect(source.textContent).toContain('The glossary defines the manifest as the file listing kinds.');
+    expect(source.textContent).toContain('docs/glossary.md:3–4');
     expect(items[0]!.getAttribute('data-ambiguous')).toBe('false');
     expect(items[0]!.querySelector('[data-testid=term-ambiguous-badge]')).toBeNull();
     expect(items[1]!.getAttribute('data-ambiguous')).toBe('true');

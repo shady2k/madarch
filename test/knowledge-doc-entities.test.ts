@@ -91,6 +91,7 @@ describe('the manifest fields of the entity pages', () => {
     expect(listedDocument(read, null, 'sub/CLAUDE.md')).toBe(false);
     expect(listedDocument(read, null, 'README.md')).toBe(true);
     expect(listedDocument(read, 'shop', 'docs/product.md')).toBe(true);
+    expect(listedDocument(read, null, 'docs/sources/doc.term/abc_def.md')).toBe(false);
   });
 
   test('the starter set declares every group it uses and parses with no finding', () => {

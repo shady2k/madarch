@@ -311,6 +311,11 @@ function Body({ block, resolutions, pageId }: { block: Extract<Block, { type: 'b
         </Alert>
       )}
       <KMarkdown text={block.markdown} resolutions={resolutions} {...(read ? { statements: { pageId: pageId!, showGrounds } } : {})} />
+      {block.localized !== undefined && <details className="mt-5 border-t border-line pt-4" data-testid="localized-source">
+        <summary className="cursor-pointer text-small font-medium text-secondary">{t('knowledge.localizedSource')}</summary>
+        <KMarkdown text={block.localized.original} resolutions={resolutions} />
+        <p className="m-0 mt-2 text-small text-muted" data-testid="localized-source-place">{block.localized.sourceDocument}:{block.localized.sourceLine}{block.localized.sourceEndLine === block.localized.sourceLine ? '' : `–${block.localized.sourceEndLine}`}</p>
+      </details>}
     </section>
   );
 }

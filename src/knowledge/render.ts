@@ -144,7 +144,7 @@ function titleOf(subject: Subject, attribute: string): string {
 
 async function renderBlock(ctx: RenderContext, subject: Subject, name: string, params: Readonly<Record<string, string>>, file: string, line: number): Promise<Block> {
   switch (name) {
-    case 'body': return bodyBlock(subject, name, file, line);
+    case 'body': return bodyBlock(ctx, subject, name, file, line);
     case 'graph': return await graphBlock(ctx, subject, params);
     case 'system': return await systemBlock(ctx, params);
     case 'modules': return await modulesBlock(ctx, subject, params, file, line);
@@ -159,7 +159,7 @@ async function renderBlock(ctx: RenderContext, subject: Subject, name: string, p
     case 'sequence': return await sequenceBlock(ctx, subject, params, file, line);
     case 'children': return await childrenBlock(ctx, subject, params, file, line);
     case 'properties': return propertiesBlock(subject, params, file, line);
-    case 'term': return termBlock(subject, params, file, line);
+    case 'term': return termBlock(ctx, subject, params, file, line);
     case 'stated': return statedBlock(ctx, subject, params, file, line);
     case 'implementedby': return await implementedByBlock(ctx, subject, params, file, line);
     case 'linkedfrom': return await linkedFromBlock(ctx, subject, params, file, line);

@@ -36,6 +36,7 @@
     "language": "Выбрать язык"
   },
   "knowledge": {
+    "localizedSource": "В источнике",
     "title": "{{product}} — вики знаний",
     "loading": "Загрузка…",
     "broken": "битая",
