@@ -40,6 +40,9 @@ const repository = generateTrainingRepository(join(work, 'repo'));
 if (!execFileSync('git', ['remote'], { cwd: repository, encoding: 'utf8' }).includes('origin')) execFileSync('git', ['remote', 'add', 'origin', ['https://github.com', 'example', 'shop.git'].join('/')], { cwd: repository });
 const home = join(work, 'home');
 mkdirSync(home, { recursive: true });
+// The first-open role card covers the page and blocks the scripted acceptance walk.
+// This is an already-answered reader, so the screenshots show the wiki itself.
+writeFileSync(join(home, 'settings.json'), JSON.stringify({ role: 'everything', roleAsked: true }, null, 2) + '\n');
 rmSync(join(home, 'fresh'), { recursive: true, force: true });
 makeProduct(home, 'fresh', repository);
 const shop = existsSync(join(home, 'shop')) ? join(home, 'shop') : makeProduct(home, 'shop', repository);
