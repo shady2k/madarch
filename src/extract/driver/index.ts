@@ -468,14 +468,31 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
         }
       }
       if (Object.keys(extra).length === 0) continue;
+      // A facet is named by the file it is about and its owner, so two producers' facets of two same-named things do not
+      // read alike; its place is the place of the node it describes, where that node has one (madarch-m38l.16).
+      const described = node.span ?? held.span;
+      const pathOfOwner = node.key.startsWith('code.file:') ? node.key.slice('code.file:'.length) : described?.path;
       facets.push({
-        node: { key: `code.facet:${extraction.producer}#${node.key}`, kind: 'code.facet', label: node.label, properties: { ...extra, ownerKey: node.key }, ...(node.span === undefined ? {} : { span: node.span }) },
+        node: {
+          key: `code.facet:${extraction.producer}#${node.key}`,
+          kind: 'code.facet',
+          label: pathOfOwner === undefined ? node.label : `${node.label} · ${pathOfOwner}`,
+          properties: { ...extra, ownerKey: node.key },
+          ...(described === undefined ? {} : { span: described }),
+        },
       });
     }
     const effective: Extraction = {
       ...extraction,
       nodes: [...ownKept, ...facets.map((facet) => facet.node)],
-      edges: [...extraction.edges, ...facets.map((facet) => ({ type: 'code.facet-of' as const, from: facet.node.key, to: String(facet.node.properties['ownerKey']), discriminator: '', properties: {} }))],
+      edges: [...extraction.edges, ...facets.flatMap((facet) => {
+        const ownerKey = String(facet.node.properties['ownerKey']);
+        const path = facet.node.span?.path ?? (ownerKey.startsWith('code.file:') ? ownerKey.slice('code.file:'.length) : undefined);
+        return [
+          { type: 'code.facet-of' as const, from: facet.node.key, to: ownerKey, discriminator: '', properties: {} },
+          ...(path === undefined ? [] : [{type: 'code.describes-file' as const, from: facet.node.key, to: `code.file:${path}`, discriminator: '', properties: {}}]),
+        ];
+      })],
     };
     const foreignKinds = [...new Set(effective.edges.flatMap((edge) => [edge.from, edge.to]).filter((key) => !effective.nodes.some((node) => node.key === key)).map((key) => key.slice(0, key.indexOf(':'))))].filter((kind) => kind.startsWith('code.'));
     await through('registering the extractor schema', () => registerSchema(effective, foreignKinds));
@@ -548,12 +565,29 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
         return false;
         return true;
       });
+    // Every node any extraction declared for a key, the first with a span winning: a reference node takes the place of
+    // the node that named it (madarch-m38l.16).
+    // The place an edge names for a node it refers to: a reference node carries it when nothing declares the node.
+    const edgeSpans = new Map<string, SourceSpan>();
+    for (const edge of effective.edges) {
+      if (edge.span === undefined) continue;
+      if (!edgeSpans.has(edge.from)) edgeSpans.set(edge.from, edge.span);
+      if (!edgeSpans.has(edge.to)) edgeSpans.set(edge.to, edge.span);
+    }
+    const declaredNodes = new Map<string, {label: string; span?: SourceSpan}>();
+    for (const node of extraction.nodes) {
+      const held = declaredNodes.get(node.key);
+      if (held !== undefined && held.span !== undefined) continue;
+      declaredNodes.set(node.key, {...(held ?? {label: node.label}), ...(node.span === undefined ? {} : {span: node.span})});
+    }
     const stubOf = (key: string) => {
       const kind = key.slice(0, key.indexOf(':'));
       if (!kind.startsWith('code.')) {
         throw new Error(`extract driver: ${where}: producer "${extraction.producer}" names the edge end ${JSON.stringify(key)}, whose kind prefix is no extractor-schema key, and no node of this extraction declares it`);
       }
-      return { key, kind, label: key.slice(key.lastIndexOf('/') + 1) };
+      // A reference node is labelled by what its key says — the path, or the service and the path — so two of them in
+      // one kind never read alike (`index.ts` twice, madarch-m38l.16).
+      return { key, kind, label: key.slice(key.indexOf(':') + 1) };
     };
     const nodes = [
       ...effective.nodes.map((node) => ({
@@ -567,12 +601,16 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
       })),
       ...foreignEnds.map((key) => {
         const stub = stubOf(key);
+        // A reference node names a place when any extraction declared one for the key: a file a later commit renamed
+        // away has no owner node at this tip, and the history's own record of it says where it stood.
+        const declared = declaredNodes.get(key);
+        const place = declared?.span ?? edgeSpans.get(key);
         return {
           ...(map.has(key) ? { id: map.get(key)! } : {}),
           ref: key,
           kind: stub.kind,
-          label: stub.label,
-          properties: { recordKey: key },
+          label: declared?.label ?? stub.label,
+          properties: { recordKey: key, ...(place === undefined ? {} : { span: spanProperty(place) }) },
           validFrom: effectiveTime,
           ...(bound === undefined ? {} : { validTo: bound }),
         };

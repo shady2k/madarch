@@ -301,13 +301,21 @@ export function extractEnv(t: TreeText, records: Records): Map<string, EnvRead[]
     }
   }
   for (const definition of definitions.sort((left, right) => byCodePoint(left.key, right.key))) {
+    // A definition is labelled by the service it gives the variable to and by the file it stands in: `.env.example`
+    // and the compose file define DATABASE_URL for orders, payments and promotions, and a list shows each row once
+    // (madarch-m38l.16).
+    const where = definition.span?.path;
+    const label = [definition.name, definition.scope, where].filter((part): part is string => typeof part === 'string' && part !== '').join(' · ');
     records.add({
       key: definition.key,
       kind: 'code.env-definition',
-      label: definition.name,
-      properties: { value: definition.value },
+      label,
+      properties: { value: definition.value, ...(definition.scope === null ? {} : {scope: definition.scope}) },
       span: definition.span,
     });
+    // The file that gives the variable its value is the definition's own place in the code, whether or not the code
+    // reads the variable: `.env.example` and a compose file connect through it (madarch-m38l.16).
+    if (where !== undefined) records.edge('code.defined-in', definition.key, records.file(where), {}, definition.span);
     if (definition.scope === null) continue;
     const variable = `${definition.scope}/${definition.name}`;
     if (!byVariable.has(variable)) continue;

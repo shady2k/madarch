@@ -121,7 +121,7 @@ describe('the template', () => {
   test('an unknown block, a stray closing line and unreadable parameters are problems at their line', () => {
     const parts = parseTemplate([':::chart', ':::', ':::related{title}', ':::related{a=1 a=2}', ':::source'].join('\n'));
     expect(parts.map((part) => (part.type === 'problem' ? [part.line, part.message] : [part.type]))).toEqual([
-      [1, '"chart" is not a block of the library (body, graph, related, callers, callees, source, er, sequence, system, modules, treemap, stated, implementedby, linkedfrom, properties, children, term)'],
+      [1, '"chart" is not a block of the library (body, graph, related, callers, callees, source, er, sequence, system, modules, treemap, history, definition, stated, implementedby, linkedfrom, properties, children, term)'],
       [2, 'a ":::" line closes nothing: a block is one line, ":::name{parameters}"'],
       [3, 'the parameters of :::related are unreadable: "title" is not name=value'],
       [4, 'the parameters of :::related are unreadable: "a" is given twice'],
@@ -217,7 +217,12 @@ describe('the starter set madarch new seeds', () => {
     const home = scratch();
     const draft = createDraft({ home, name: 'seeded', gitEnv: gitEnv({ GIT_AUTHOR_NAME: 'a', GIT_AUTHOR_EMAIL: 'a@example.test', GIT_COMMITTER_NAME: 'a', GIT_COMMITTER_EMAIL: 'a@example.test' }) });
     if (draft.outcome !== 'created') throw new Error(JSON.stringify(draft));
-    expect(STARTER_FILES.map((file) => file.path)).toEqual(['madarch/kinds.yaml', ...['product', 'domain', 'service', 'package', 'module', 'file', 'symbol', 'route', 'item', 'item-plain', 'database', 'table', 'entity-text', 'term', 'question', 'correction', 'task'].map((name) => `templates/${name}.md`)]);
+    // The starter set of both changes: the document task page and the history task page are two templates of one name
+    // (`task.md` for the document, `history-task.md` for the graph's task), so both stand in the list (madarch-m38l.16).
+    expect(STARTER_FILES.map((file) => file.path)).toEqual(['madarch/kinds.yaml', ...[
+      'product', 'domain', 'service', 'package', 'module', 'file', 'symbol', 'route', 'item', 'item-plain', 'contract', 'operation',
+      'history-task', 'commit', 'author', 'database', 'table', 'entity-text', 'term', 'question', 'correction', 'task',
+    ].map((name) => `templates/${name}.md`)]);
     for (const file of STARTER_FILES) expect(readFileSync(join(draft.folder, file.path), 'utf8')).toBe(file.content);
     const read = readKinds(draft.folder);
     if (!read.present) throw new Error('the seeded manifest is absent');
