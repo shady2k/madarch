@@ -475,6 +475,18 @@ describe('there is one app', () => {
     expect(window.location.pathname).toBe('/k');
   });
 
+  test('the top bar and the tab bar stand in one sticky block, so only the page below them scrolls', async () => {
+    (globalThis as { fetch?: unknown }).fetch = answer('ok');
+    window.history.replaceState({}, '', '/');
+    const container = into(createElement(AppRoot));
+    await until(() => container.querySelector('[data-testid=shell-fixed]') !== null, 'the fixed block');
+    const fixed = container.querySelector('[data-testid=shell-fixed]')!;
+    expect(fixed.className).toContain('sticky');
+    expect(fixed.querySelector('.shell-toolbar')).not.toBeNull();
+    expect(fixed.querySelector('[data-testid=tab-bar]')).not.toBeNull();
+    expect(container.querySelector('[data-testid=knowledge-main]')!.closest('[data-testid=shell-fixed]')).toBeNull();
+  });
+
   test('the old address /?documents opens the knowledge wiki too: no other app stands anywhere', async () => {
     (globalThis as { fetch?: unknown }).fetch = answer('ok');
     window.history.replaceState({}, '', '/?documents');

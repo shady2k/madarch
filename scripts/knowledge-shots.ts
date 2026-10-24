@@ -84,18 +84,56 @@ for (let tries = 0; ; tries += 1) {
 }
 const browser = await puppeteer.launch({ executablePath: resolveBrowserExecutable(), headless: true, protocolTimeout: 900_000, args: ['--no-sandbox'] });
 
+/**
+ * What a reader sees, measured as the picture is taken: the visible text of the state, the badge or card that state is
+ * about (its words and where it sits) and whether the page overflows its width. The picture is for the owner's eyes; these
+ * numbers say what it holds, so a state that is empty, cut off or overflowing is told even when nobody looks.
+ */
+async function measured(page: Page, name: string): Promise<Record<string, unknown>> {
+  return await page.evaluate((shot) => {
+    const box = (element: Element | null): { words: string; top: number; left: number; width: number; height: number } | null => {
+      if (element === null) return null;
+      const rect = element.getBoundingClientRect();
+      return { words: (element.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 160), top: Math.round(rect.top), left: Math.round(rect.left), width: Math.round(rect.width), height: Math.round(rect.height) };
+    };
+    const one = (selector: string): Element | null => document.querySelector(selector);
+    const visible = (element: Element | null): boolean => {
+      if (element === null) return false;
+      const rect = element.getBoundingClientRect();
+      return rect.top >= 0 && rect.top < window.innerHeight && rect.width > 0 && rect.height > 0;
+    };
+    return {
+      shot,
+      text: (document.body.innerText ?? '').replace(/\s+/g, ' ').trim().slice(0, 600),
+      title: document.title,
+      overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      height: { window: window.innerHeight, document: document.documentElement.scrollHeight },
+      badge: box(one('[data-testid=planned-badge]')),
+      badgeVisible: visible(one('[data-testid=planned-badge]')),
+      card: box(one('[data-testid=task-card]')),
+      proposal: box(one('[data-testid=task-proposed]')),
+      rows: document.querySelectorAll('[data-testid=task-row]').length,
+      impactPages: document.querySelectorAll('[data-testid=impact-page]').length,
+      impactStatements: document.querySelectorAll('[data-testid=impact-statements] [data-testid=impact-statement]').length,
+      scopeItems: document.querySelectorAll('[data-testid=task-scope-item]').length,
+      fixtureKeys: (document.body.innerText.match(/loop\.[a-zA-Z.]+/g) ?? []).slice(0, 5),
+    };
+  }, name);
+}
+
 async function shoot(page: Page, name: string, settle?: () => Promise<unknown>): Promise<void> {
   if (settle !== undefined) await settle();
   await new Promise((rest) => setTimeout(rest, 400));
   const file = join(out, `${name}.png`);
   await page.screenshot({ path: file, fullPage: false });
   written.push(file);
+  console.log(`MEASURED ${JSON.stringify(await measured(page, name))}`);
 }
 
-async function open(url: string, width: number, height: number, scheme: 'light' | 'dark' = 'light'): Promise<Page> {
+async function open(url: string, width: number, height: number, scheme: 'light' | 'dark' = 'light', language: string = lang): Promise<Page> {
   const page = await browser.newPage();
   // The interface speaks the language of the walk (the wiki reads its choice from this storage key).
-  await page.evaluateOnNewDocument((language) => { try { window.localStorage.setItem('madarch-wiki-language', language); } catch { /* the walk goes on in the browser's own language */ } }, lang);
+  await page.evaluateOnNewDocument((chosen) => { try { window.localStorage.setItem('madarch-wiki-language', chosen); } catch { /* the walk goes on in the browser's own language */ } }, language);
   await page.setViewport({ width, height });
   await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: scheme }]);
   page.on('pageerror', (error) => console.error(`page error at ${url}: ${error.message}`));
@@ -506,9 +544,7 @@ if (only === '' || only === 'tasks') {
   // Before the task is confirmed, in every language, scheme and width: the saved answer, the choice «Прав код, документ
   // устарел», the filled proposal and the pages and statements it reaches.
   const propose = async (combo: { lang: string; scheme: 'light' | 'dark'; width: number }, shot: boolean): Promise<Page> => {
-    const page = await open(question, combo.width, combo.width === 390 ? 1600 : 1500, combo.scheme);
-    await page.evaluate((language) => { try { window.localStorage.setItem('madarch-wiki-language', language); } catch { /* the browser's own language */ } }, combo.lang);
-    await page.goto(`${server.url}${question}`, { waitUntil: 'domcontentloaded' });
+    const page = await open(question, combo.width, combo.width === 390 ? 1600 : 1500, combo.scheme, combo.lang);
     // A machine the walk never used asks which role it reads as: the card is answered once, and the page is read again.
     await page.waitForFunction(() => document.querySelector('[data-testid=task-choice-code]') !== null || document.querySelector('[data-testid=role-skip]') !== null, { timeout: 120_000 });
     if ((await page.$('[data-testid=role-skip]')) !== null) {
@@ -542,9 +578,7 @@ if (only === '' || only === 'tasks') {
   for (const combo of combos) {
     const language = combo.lang;
     const at = async (path: string, what: string, ready: string, height: number): Promise<Page> => {
-      const page = await open(path, combo.width, height, combo.scheme);
-      await page.evaluate((chosen) => { try { window.localStorage.setItem('madarch-wiki-language', chosen); } catch { /* the browser's own language */ } }, language);
-      await page.goto(`${server.url}${path}`, { waitUntil: 'domcontentloaded' });
+      const page = await open(path, combo.width, height, combo.scheme, language);
       await page.waitForFunction(() => document.querySelector('[data-testid=role-skip]') !== null || document.body.innerText.length > 0, { timeout: 60_000 });
       if ((await page.$('[data-testid=role-skip]')) !== null) {
         await page.click('[data-testid=role-skip]');

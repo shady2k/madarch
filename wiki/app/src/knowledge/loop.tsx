@@ -163,7 +163,7 @@ export function QuestionPage({ slug, version, refresh }: { slug: string; version
   const { data: question, error } = useRead<QuestionDetail>(`question:${slug}`, version, (signal) => getQuestion(slug, signal));
   // The tasks this question's answer became: the reader confirms one, and then fixes the pages it reaches.
   const { data: tasks } = useRead('tasks', version, (signal) => getTasks(signal));
-  useTabTitle(question?.title ?? null);
+  useTabTitle(question?.title ?? (error !== null ? t('loop.noSuchQuestion') : null));
   if (question === null && error === null) return <PageSkeleton testId="question-loading" />;
   if (question === null) {
     return <Alert variant="problem" data-testid="question-error"><AlertTitle>{t('loop.noSuchQuestion')}</AlertTitle><AlertDescription><p>{error}</p></AlertDescription></Alert>;
