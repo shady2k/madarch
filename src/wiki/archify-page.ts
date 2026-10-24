@@ -80,9 +80,10 @@ const ARCHIFY_RENDER_TIMEOUT_MS = 120_000;
  * renderer that could not be run at all names why — a refusal that says nothing is
  * a refusal nobody can act on.
  */
-export async function renderArchifyPage(document: ArchifyDocument, input: string, output: string): Promise<{ status: number | null; output: string }> {
+export async function renderArchifyPage(document: ArchifyDocument, input: string, output: string, options: { app?: string } = {}): Promise<{ status: number | null; output: string }> {
   writeFileSync(input, JSON.stringify(document));
-  const app = embeddedWikiApp();
+  // `options.app` is the tree a compiled binary carries, for a test that stands in for one.
+  const app = options.app ?? embeddedWikiApp();
   // In a compiled binary the renderer is the vendored file we ship inside the app's assets, run by the Bun runtime the
   // binary itself is: Bun's own binary re-enters its runtime when BUN_BE_BUN is set, which is the only way an installed
   // madarch has a JavaScript runner at all (there is no Node.js beside it). Importing the file was no use: the renderer
