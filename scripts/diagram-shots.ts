@@ -62,6 +62,11 @@ for (let tries = 0; ; tries += 1) {
   await new Promise((rest) => setTimeout(rest, 500));
 }
 
+// The first open asks which role the reader reads as, over every page: the walk answers it the way the file does, so
+// no picture carries the dialog (the owner's review of 2026-10-24).
+mkdirSync(home, { recursive: true });
+writeFileSync(join(home, 'settings.json'), JSON.stringify({ role: 'everything', roleAsked: true }));
+
 const started = await fetch(`${base}/products/${name}/api/k/fill`, { method: 'POST' });
 if (!started.ok) throw new Error(`the fill did not start: ${started.status} ${await started.text()}`);
 for (const until = Date.now() + 900_000; ; ) {
@@ -144,69 +149,124 @@ const MEASURE_LABELS = `(() => {
   return { texts: found.length, minFontPx: found.length === 0 ? null : Math.round(Math.min(...found.map((entry) => entry.size)) * 10) / 10, overlaps: overlaps.slice(0, 8), overlapCount: overlaps.length };
 })()`;
 
-/** Walks every views block of a page: each view tab under each renderer tab, a picture and its measures. */
-async function walkViews(page: Page, entry: { name: string }, tag: string): Promise<void> {
-  const blocks = await page.$$('[data-diagram=views]');
-  for (let blockAt = 0; blockAt < blocks.length; blockAt += 1) {
-    const views = await blocks[blockAt]!.$$('[data-testid=view-tab]');
-    const viewCount = Math.max(1, views.length);
-    for (let viewAt = 0; viewAt < viewCount; viewAt += 1) {
-      const block = (await page.$$('[data-diagram=views]'))[blockAt]!;
-      if (views.length > 0) { await (await block.$$('[data-testid=view-tab]'))[viewAt]!.click(); await new Promise((rest) => setTimeout(rest, 400)); }
-      const type = await block.$eval('[data-testid=view]', (node) => node.getAttribute('data-view'));
-      const renderers = await block.$$eval('[data-testid^=renderer-]', (nodes) => nodes.map((node) => node.getAttribute('data-testid')!.slice('renderer-'.length)));
+/**
+ * Walks every views block of a page: each view tab, each renderer tab under it, and — for every one of them — the page's
+ * own viewport as a reader sees it, plus the diagram in full screen. The tabs are re-read on every step (a step replaces
+ * the block's state), and a renderer the tab does not offer is never asked for.
+ */
+async function walkViews(page: Page, entry: { name: string }, tag: string, lang: string): Promise<void> {
+  const blocks = await page.evaluate(() => document.querySelectorAll('[data-diagram=views]').length);
+  for (let blockAt = 0; blockAt < blocks; blockAt += 1) {
+    const viewTabs = await page.evaluate((at) => [...document.querySelectorAll('[data-diagram=views]')[at]!.querySelectorAll('[data-testid=view-tab]')].map((node) => (node.textContent ?? '').trim()), blockAt);
+    const steps = Math.max(1, viewTabs.length);
+    for (let viewAt = 0; viewAt < steps; viewAt += 1) {
+      await page.evaluate(([at, step]) => {
+        const block = document.querySelectorAll('[data-diagram=views]')[at];
+        const tab = block?.querySelectorAll('[data-testid=view-tab]')[step];
+        if (tab instanceof HTMLElement) tab.click();
+      }, [blockAt, viewAt]);
+      await new Promise((rest) => setTimeout(rest, 400));
+      const type = await page.evaluate((at) => document.querySelectorAll('[data-diagram=views]')[at]?.querySelector('[data-testid=view]')?.getAttribute('data-view') ?? 'view', blockAt);
+      const renderers = await page.evaluate((at) => [...document.querySelectorAll('[data-diagram=views]')[at]!.querySelectorAll('[data-testid^=renderer-]')].map((node) => node.getAttribute('data-testid')!.slice('renderer-'.length)), blockAt);
       for (const renderer of renderers) {
-        await block.$eval(`[data-testid=renderer-${renderer}]`, (node) => (node as HTMLElement).click());
+        await page.evaluate(([at, name]) => {
+          const block = document.querySelectorAll('[data-diagram=views]')[at];
+          const tab = block?.querySelector(`[data-testid=renderer-${name}]`);
+          if (tab instanceof HTMLElement) tab.click();
+        }, [blockAt, renderer]);
         let drawn = true;
         try {
-          // The Mermaid tab draws in the page itself, the LikeC4 tab draws its laid-out model in the page, and the
-          // archify tab is the server's page in a frame: each one is waited for where it really appears.
-          if (renderer === 'mermaid') await block.waitForSelector('[data-testid=view-picture] svg', { timeout: 60_000 });
-          else if (renderer === 'likec4') await block.waitForFunction((root) => { const host = root.querySelector('[data-testid=view-frame-likec4] likec4-view'); return host?.shadowRoot?.querySelector('.react-flow__node, [data-node-id]') !== null || root.querySelector('[data-testid=view-frame-likec4] [role=alert]') !== null; }, {}, 60_000);
-          else await block.waitForSelector(`iframe[data-renderer=${renderer}]`, { timeout: 30_000 });
+          // Each renderer is waited for where it really appears: Mermaid draws in the page, LikeC4 draws its laid-out
+          // model in the page, and the archify tab frames the page the server rendered.
+          if (renderer === 'mermaid') await page.waitForFunction((at) => document.querySelectorAll('[data-diagram=views]')[at]?.querySelector('[data-testid=view-picture] svg') !== null, { timeout: 60_000 }, blockAt);
+          else if (renderer === 'likec4') await page.waitForFunction((at) => {
+            const frame = document.querySelectorAll('[data-diagram=views]')[at]?.querySelector('[data-testid=view-frame-likec4]');
+            if (!frame) return false;
+            const hasNode = (root) => {
+              if (root.querySelector('.react-flow__node, [data-node-id]')) return true;
+              return [...root.querySelectorAll('*')].some((node) => node.shadowRoot !== null && hasNode(node.shadowRoot));
+            };
+            return hasNode(frame) || frame.querySelector('[role=alert]') !== null;
+          }, { timeout: 60_000 }, blockAt);
+          else await page.waitForFunction((at) => document.querySelectorAll('[data-diagram=views]')[at]?.querySelector('iframe[data-renderer=archify]') !== null, { timeout: 60_000 }, blockAt);
         } catch { drawn = false; }
-        await new Promise((rest) => setTimeout(rest, renderer === 'mermaid' ? 600 : 9000));
-        const label = `${entry.name}-${type}-${renderer}-${tag}`;
-        await block.screenshot({ path: join(out, `${label}.png`) });
-        const measures: Record<string, unknown>[] = [];
-        if (renderer === 'mermaid') measures.push((await page.evaluate(`(() => { const root = document.querySelectorAll('[data-diagram=views]')[${blockAt}].querySelector('[data-testid=view-picture]'); const texts = [...root.querySelectorAll('svg text, svg foreignObject *')].filter((n) => (n.textContent||'').trim() !== '' && n.children.length === 0); const boxes = texts.map((n) => ({ t: n.textContent.trim(), r: n.getBoundingClientRect(), s: parseFloat(getComputedStyle(n).fontSize) * (typeof n.getScreenCTM === 'function' ? n.getScreenCTM()?.a ?? 1 : 1) })).filter((b) => b.r.width > 0); const over = []; for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) { const a = boxes[i].r, b = boxes[j].r; const w = Math.min(a.right, b.right) - Math.max(a.left, b.left), h = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top); if (w > 1.5 && h > 1.5) over.push(boxes[i].t + ' / ' + boxes[j].t); } return { texts: boxes.length, minFontPx: boxes.length ? Math.round(Math.min(...boxes.map((b) => b.s)) * 10) / 10 : null, overlaps: over.slice(0, 8), overlapCount: over.length }; })()`)) as Record<string, unknown>);
-        else if (renderer === 'likec4') {
-          // LikeC4 draws into the page's own tree, so its labels are read inside the block that holds it.
-          const inBlock = MEASURE_LABELS.replace('walk(document);', `walk(document.querySelectorAll('[data-diagram=views]')[${blockAt}]);`);
-          measures.push((await page.evaluate(inBlock)) as Record<string, unknown>);
-        } else {
-          const handle = await block.$(`iframe[data-renderer=${renderer}]`);
-          const frame = await handle?.contentFrame();
-          if (frame !== null && frame !== undefined) measures.push((await frame.evaluate(MEASURE_LABELS)) as Record<string, unknown>);
+        await new Promise((rest) => setTimeout(rest, 900));
+        const label = `${entry.name}-${type}-${renderer}-${tag}-${lang}`;
+        // The picture is the reader's own column, not a crop of the block.
+        await page.evaluate((at) => document.querySelectorAll('[data-diagram=views]')[at]?.scrollIntoView({ block: 'center' }), blockAt);
+        await new Promise((rest) => setTimeout(rest, 200));
+        await page.screenshot({ path: join(out, `${label}.png`) });
+        const measures = await measureBlock(page, blockAt, renderer);
+        // Full screen: the same diagram over the whole window, which is how a dense view is read.
+        let full = false;
+        try {
+          await page.evaluate((at) => {
+            const block = document.querySelectorAll('[data-diagram=views]')[at];
+            const button = block?.querySelector('[data-testid=fullscreen-button]');
+            if (button instanceof HTMLElement) button.click();
+          }, blockAt);
+          await page.waitForFunction((at) => document.querySelectorAll('[data-diagram=views]')[at]?.querySelector('[data-testid=fullscreenable]')?.getAttribute('data-fullscreen') === 'true', { timeout: 10_000 }, blockAt);
+          await new Promise((rest) => setTimeout(rest, 700));
+          full = true;
+        } catch { full = false; }
+        if (full) {
+          await page.screenshot({ path: join(out, `${label}-full.png`) });
+          await page.keyboard.press('Escape');
+          await new Promise((rest) => setTimeout(rest, 300));
         }
-        report[label] = { drawn, ...(measures[0] ?? {}) };
+        report[label] = { drawn, full, ...(measures ?? {}) };
       }
     }
   }
 }
 
-for (const view of views) {
-  for (const entry of pages) {
-    const page = await browser.newPage();
-    await page.setViewport({ width: view.width, height: 900 });
-    await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: view.scheme }]);
-    page.on('pageerror', (error) => console.error(`page error at ${entry.url}: ${error.message}`));
-    await page.goto(`${base}${entry.url}`, { waitUntil: 'domcontentloaded' });
-    try {
-      await page.waitForSelector(entry.wait, { timeout: 90_000 });
-    } catch (error) {
-      console.error(`${entry.name} ${view.tag}: ${entry.wait} never appeared: ${(error as Error).message}`);
+/** The label sizes and overlaps of one block's drawn picture, whichever renderer drew it. */
+async function measureBlock(page: Page, blockAt: number, renderer: string): Promise<Record<string, unknown> | undefined> {
+  try {
+    if (renderer === 'mermaid') {
+      return (await page.evaluate(`(() => { const root = document.querySelectorAll('[data-diagram=views]')[${blockAt}].querySelector('[data-testid=view-picture]'); const texts = [...root.querySelectorAll('svg text, svg foreignObject *')].filter((n) => (n.textContent || '').trim() !== '' && n.children.length === 0); const boxes = texts.map((n) => ({ t: n.textContent.trim(), r: n.getBoundingClientRect(), s: parseFloat(getComputedStyle(n).fontSize) * (typeof n.getScreenCTM === 'function' ? n.getScreenCTM().a : 1) })).filter((b) => b.r.width > 0); const over = []; for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) { const a = boxes[i].r, b = boxes[j].r; const w = Math.min(a.right, b.right) - Math.max(a.left, b.left), h = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top); if (w > 1.5 && h > 1.5) over.push(boxes[i].t + ' / ' + boxes[j].t); } return { texts: boxes.length, minFontPx: boxes.length ? Math.round(Math.min(...boxes.map((b) => b.s)) * 10) / 10 : null, overlaps: over.slice(0, 8), overlapCount: over.length }; })()`)) as Record<string, unknown>;
     }
-    await new Promise((rest) => setTimeout(rest, 800));
-    // The viewport takes the page's whole height, so the pictures hold what a reader scrolls through and no diagram is
-    // measured again while the capture resizes the window.
-    const height = await page.evaluate(() => Math.max(document.documentElement.scrollHeight, ...[...document.querySelectorAll('main, [data-testid=entity-page]')].map((element) => element.scrollHeight)));
-    await page.setViewport({ width: view.width, height: Math.min(9000, Math.max(900, height)) });
-    await new Promise((rest) => setTimeout(rest, 800));
-    await page.screenshot({ path: join(out, `${entry.name}-${view.tag}.png`) });
-    report[`${entry.name}-${view.tag}`] = await measure(page);
-    await walkViews(page, entry, view.tag);
-    await page.close();
+    if (renderer === 'likec4') {
+      const inBlock = MEASURE_LABELS.replace('walk(document);', `walk(document.querySelectorAll('[data-diagram=views]')[${blockAt}]);`);
+      return (await page.evaluate(inBlock)) as Record<string, unknown>;
+    }
+    const handle = await page.$(`[data-diagram=views]:nth-of-type(${blockAt + 1}) iframe[data-renderer=${renderer}]`);
+    const fallback = handle ?? (await page.$$('iframe[data-renderer=' + renderer + ']'))[blockAt];
+    const frame = await fallback?.contentFrame();
+    return frame === null || frame === undefined ? undefined : ((await frame.evaluate(MEASURE_LABELS)) as Record<string, unknown>);
+  } catch {
+    return undefined;
+  }
+}
+
+for (const lang of ['en', 'ru'] as const) {
+  for (const view of views) {
+    for (const entry of pages) {
+      const page = await browser.newPage();
+      await page.evaluateOnNewDocument((language) => { try { localStorage.setItem('madarch-wiki-language', language); } catch { /* storage off */ } }, lang);
+      await page.setViewport({ width: view.width, height: 900 });
+      await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: view.scheme }]);
+      page.on('pageerror', (error) => console.error(`page error at ${entry.url} ${lang}: ${error.message}`));
+      await page.goto(`${base}${entry.url}`, { waitUntil: 'domcontentloaded' });
+      try {
+        await page.waitForSelector(entry.wait, { timeout: 90_000 });
+      } catch (error) {
+        console.error(`${entry.name} ${view.tag} ${lang}: ${entry.wait} never appeared: ${(error as Error).message}`);
+      }
+      await new Promise((rest) => setTimeout(rest, 800));
+      // The page picture is the whole page in the reader's own column: the viewport is the width asked for, and the
+      // capture takes its height, so the column never changes from one picture to the next.
+      const height = await page.evaluate(() => Math.max(document.documentElement.scrollHeight, ...[...document.querySelectorAll('main, [data-testid=entity-page]')].map((element) => element.scrollHeight)));
+      await page.setViewport({ width: view.width, height: Math.min(9000, Math.max(900, height)) });
+      await new Promise((rest) => setTimeout(rest, 800));
+      await page.screenshot({ path: join(out, `${entry.name}-${view.tag}-${lang}.png`) });
+      report[`${entry.name}-${view.tag}-${lang}`] = await measure(page);
+      // The diagrams are walked in a plain viewport again: a window as tall as the page would stretch every frame.
+      await page.setViewport({ width: view.width, height: 900 });
+      await new Promise((rest) => setTimeout(rest, 500));
+      await walkViews(page, entry, view.tag, lang);
+      await page.close();
+    }
   }
 }
 writeFileSync(join(out, 'measures.json'), JSON.stringify(report, null, 2));
