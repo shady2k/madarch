@@ -1,0 +1,1538 @@
+{
+  "home-1150-light": {
+    "views#0": {
+      "texts": 0,
+      "minFontPx": null,
+      "overlaps": [],
+      "clipped": []
+    },
+    "treemap#1": {
+      "texts": 102,
+      "minFontPx": 9.8,
+      "overlaps": [],
+      "clipped": [
+        "order…",
+        "68 lines",
+        "contracts",
+        "openapi",
+        "orders.yaml"
+      ]
+    }
+  },
+  "home-c4-context-likec4-1150-light": {
+    "drawn": false,
+    "texts": 13,
+    "minFontPx": 10.7,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "home-c4-context-mermaid-1150-light": {
+    "drawn": true,
+    "texts": 2,
+    "minFontPx": 16,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "home-c4-context-archify-1150-light": {
+    "drawn": true,
+    "texts": 11,
+    "minFontPx": 15.5,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "domain-list-1150-light": {
+    "views#0": {
+      "texts": 0,
+      "minFontPx": null,
+      "overlaps": [],
+      "clipped": []
+    }
+  },
+  "domain-list-domain-map-likec4-1150-light": {
+    "drawn": false,
+    "texts": 7,
+    "minFontPx": 14,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "domain-list-domain-map-mermaid-1150-light": {
+    "drawn": true,
+    "texts": 1,
+    "minFontPx": 16,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "domain-list-domain-map-archify-1150-light": {
+    "drawn": true,
+    "texts": 1,
+    "minFontPx": 13,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "domain-payment-1150-light": {
+    "views#0": {
+      "texts": 0,
+      "minFontPx": null,
+      "overlaps": [],
+      "clipped": []
+    },
+    "views#1": {
+      "texts": 50,
+      "minFontPx": 7.7,
+      "overlaps": [],
+      "clipped": []
+    },
+    "neighborhood#2": {
+      "texts": 7,
+      "minFontPx": 11,
+      "overlaps": [],
+      "clipped": []
+    }
+  },
+  "domain-payment-domain-likec4-1150-light": {
+    "drawn": false,
+    "texts": 46,
+    "minFontPx": 3.7,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "domain-payment-domain-mermaid-1150-light": {
+    "drawn": true,
+    "texts": 12,
+    "minFontPx": 16,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "domain-payment-domain-archify-1150-light": {
+    "drawn": true,
+    "texts": 45,
+    "minFontPx": 1.4,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "domain-payment-sequence-mermaid-1150-light": {
+    "drawn": true,
+    "texts": 38,
+    "minFontPx": 7.7,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "route-post-orders-1150-light": {
+    "neighborhood#0": {
+      "texts": 8,
+      "minFontPx": 11,
+      "overlaps": [],
+      "clipped": []
+    },
+    "views#1": {
+      "texts": 48,
+      "minFontPx": 12.9,
+      "overlaps": [],
+      "clipped": []
+    }
+  },
+  "route-post-orders-sequence-mermaid-1150-light": {
+    "drawn": true,
+    "texts": 40,
+    "minFontPx": 12.9,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "route-post-checkout-1150-light": {
+    "neighborhood#0": {
+      "texts": 5,
+      "minFontPx": 11,
+      "overlaps": [],
+      "clipped": []
+    },
+    "views#1": {
+      "texts": 54,
+      "minFontPx": 7,
+      "overlaps": [],
+      "clipped": []
+    }
+  },
+  "route-post-checkout-sequence-mermaid-1150-light": {
+    "drawn": true,
+    "texts": 40,
+    "minFontPx": 7,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "service-payments-1150-light": {
+    "neighborhood#0": {
+      "texts": 22,
+      "minFontPx": 11,
+      "overlaps": [],
+      "clipped": []
+    },
+    "views#1": {
+      "texts": 0,
+      "minFontPx": null,
+      "overlaps": [],
+      "clipped": []
+    },
+    "treemap#2": {
+      "texts": 53,
+      "minFontPx": 9.8,
+      "overlaps": [],
+      "clipped": [
+        "test",
+        "pay.test.ts",
+        "150 lines",
+        "refund.test.ts",
+        "54 lines"
+      ]
+    }
+  },
+  "service-payments-c4-component-likec4-1150-light": {
+    "drawn": false,
+    "texts": 63,
+    "minFontPx": 3,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "service-payments-c4-component-mermaid-1150-light": {
+    "drawn": true,
+    "texts": 10,
+    "minFontPx": 16,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "service-payments-c4-component-archify-1150-light": {
+    "drawn": true,
+    "texts": 1,
+    "minFontPx": 13,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "service-orders-1150-light": {
+    "neighborhood#0": {
+      "texts": 20,
+      "minFontPx": 11,
+      "overlaps": [],
+      "clipped": [
+        "calls-http →",
+        "manifest-of →",
+        "→ contains",
+        "→ consumes",
+        "→ publishes"
+      ]
+    },
+    "views#1": {
+      "texts": 0,
+      "minFontPx": null,
+      "overlaps": [],
+      "clipped": []
+    },
+    "treemap#2": {
+      "texts": 55,
+      "minFontPx": 9.8,
+      "overlaps": [],
+      "clipped": [
+        "order_test.go",
+        "123 lines",
+        "consumer",
+        "payments.go",
+        "79 lines"
+      ]
+    }
+  },
+  "service-orders-c4-component-likec4-1150-light": {
+    "drawn": false,
+    "texts": 57,
+    "minFontPx": 3.5,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "service-orders-c4-component-mermaid-1150-light": {
+    "drawn": true,
+    "texts": 10,
+    "minFontPx": 16,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "service-orders-c4-component-archify-1150-light": {
+    "drawn": true,
+    "texts": 1,
+    "minFontPx": 13,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "file-order-go-1150-light": {
+    "neighborhood#0": {
+      "texts": 23,
+      "minFontPx": 11,
+      "overlaps": [],
+      "clipped": [
+        "CancelRequested",
+        "Confirmed",
+        "ErrInvalidItems",
+        "ErrInvalidTransition",
+        "ErrNotFound"
+      ]
+    },
+    "views#1": {
+      "texts": 7,
+      "minFontPx": 16,
+      "overlaps": [],
+      "clipped": []
+    }
+  },
+  "file-order-go-state-mermaid-1150-light": {
+    "drawn": true,
+    "texts": 5,
+    "minFontPx": 16,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "file-order-go-state-archify-1150-light": {
+    "drawn": true,
+    "texts": 1,
+    "minFontPx": 13,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "function-pay-1150-light": {
+    "neighborhood#0": {
+      "texts": 31,
+      "minFontPx": 11,
+      "overlaps": [],
+      "clipped": [
+        "BaseProvider.charge",
+        "PaymentProvider.charge",
+        "PaymentRepository.create",
+        "PaymentRepository.findByI…",
+        "withTimeout"
+      ]
+    },
+    "views#1": {
+      "texts": 50,
+      "minFontPx": 7.7,
+      "overlaps": [],
+      "clipped": []
+    }
+  },
+  "function-pay-sequence-mermaid-1150-light": {
+    "drawn": true,
+    "texts": 38,
+    "minFontPx": 7.7,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "table-orders-1150-light": {
+    "neighborhood#0": {
+      "texts": 29,
+      "minFontPx": 11,
+      "overlaps": [],
+      "clipped": []
+    },
+    "views#1": {
+      "texts": 2,
+      "minFontPx": 14,
+      "overlaps": [],
+      "clipped": []
+    }
+  },
+  "table-orders-er-mermaid-1150-light": {
+    "drawn": true,
+    "texts": 48,
+    "minFontPx": 16,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "table-orders-er-archify-1150-light": {
+    "drawn": true,
+    "texts": 1,
+    "minFontPx": 13,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "database-orders-1150-light": {
+    "views#0": {
+      "texts": 2,
+      "minFontPx": 13.6,
+      "overlaps": [],
+      "clipped": []
+    }
+  },
+  "database-orders-er-mermaid-1150-light": {
+    "drawn": true,
+    "texts": 63,
+    "minFontPx": 16,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "database-orders-er-archify-1150-light": {
+    "drawn": true,
+    "texts": 1,
+    "minFontPx": 13,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "home-1150-dark": {
+    "views#0": {
+      "texts": 0,
+      "minFontPx": null,
+      "overlaps": [],
+      "clipped": []
+    },
+    "treemap#1": {
+      "texts": 102,
+      "minFontPx": 9.8,
+      "overlaps": [],
+      "clipped": [
+        "order…",
+        "68 lines",
+        "contracts",
+        "openapi",
+        "orders.yaml"
+      ]
+    }
+  },
+  "home-c4-context-likec4-1150-dark": {
+    "drawn": false,
+    "texts": 13,
+    "minFontPx": 10.7,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "home-c4-context-mermaid-1150-dark": {
+    "drawn": true,
+    "texts": 2,
+    "minFontPx": 16,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "home-c4-context-archify-1150-dark": {
+    "drawn": true,
+    "texts": 11,
+    "minFontPx": 15.5,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "domain-list-1150-dark": {
+    "views#0": {
+      "texts": 0,
+      "minFontPx": null,
+      "overlaps": [],
+      "clipped": []
+    }
+  },
+  "domain-list-domain-map-likec4-1150-dark": {
+    "drawn": false,
+    "texts": 7,
+    "minFontPx": 14,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "domain-list-domain-map-mermaid-1150-dark": {
+    "drawn": true,
+    "texts": 1,
+    "minFontPx": 16,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "domain-list-domain-map-archify-1150-dark": {
+    "drawn": true,
+    "texts": 1,
+    "minFontPx": 13,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "domain-payment-1150-dark": {
+    "views#0": {
+      "texts": 0,
+      "minFontPx": null,
+      "overlaps": [],
+      "clipped": []
+    },
+    "views#1": {
+      "texts": 50,
+      "minFontPx": 7.7,
+      "overlaps": [],
+      "clipped": []
+    },
+    "neighborhood#2": {
+      "texts": 7,
+      "minFontPx": 11,
+      "overlaps": [],
+      "clipped": []
+    }
+  },
+  "domain-payment-domain-likec4-1150-dark": {
+    "drawn": false,
+    "texts": 46,
+    "minFontPx": 3.7,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "domain-payment-domain-mermaid-1150-dark": {
+    "drawn": true,
+    "texts": 12,
+    "minFontPx": 16,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "domain-payment-domain-archify-1150-dark": {
+    "drawn": true,
+    "texts": 45,
+    "minFontPx": 1.4,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "domain-payment-sequence-mermaid-1150-dark": {
+    "drawn": true,
+    "texts": 38,
+    "minFontPx": 7.7,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "route-post-orders-1150-dark": {
+    "neighborhood#0": {
+      "texts": 8,
+      "minFontPx": 11,
+      "overlaps": [],
+      "clipped": []
+    },
+    "views#1": {
+      "texts": 48,
+      "minFontPx": 12.9,
+      "overlaps": [],
+      "clipped": []
+    }
+  },
+  "route-post-orders-sequence-mermaid-1150-dark": {
+    "drawn": true,
+    "texts": 40,
+    "minFontPx": 12.9,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "route-post-checkout-1150-dark": {
+    "neighborhood#0": {
+      "texts": 5,
+      "minFontPx": 11,
+      "overlaps": [],
+      "clipped": []
+    },
+    "views#1": {
+      "texts": 54,
+      "minFontPx": 7,
+      "overlaps": [],
+      "clipped": []
+    }
+  },
+  "route-post-checkout-sequence-mermaid-1150-dark": {
+    "drawn": true,
+    "texts": 40,
+    "minFontPx": 7,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "service-payments-1150-dark": {
+    "neighborhood#0": {
+      "texts": 22,
+      "minFontPx": 11,
+      "overlaps": [],
+      "clipped": []
+    },
+    "views#1": {
+      "texts": 0,
+      "minFontPx": null,
+      "overlaps": [],
+      "clipped": []
+    },
+    "treemap#2": {
+      "texts": 53,
+      "minFontPx": 9.8,
+      "overlaps": [],
+      "clipped": [
+        "test",
+        "pay.test.ts",
+        "150 lines",
+        "refund.test.ts",
+        "54 lines"
+      ]
+    }
+  },
+  "service-payments-c4-component-likec4-1150-dark": {
+    "drawn": false,
+    "texts": 63,
+    "minFontPx": 3,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "service-payments-c4-component-mermaid-1150-dark": {
+    "drawn": true,
+    "texts": 0,
+    "minFontPx": null,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "service-payments-c4-component-archify-1150-dark": {
+    "drawn": true,
+    "texts": 1,
+    "minFontPx": 13,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "service-orders-1150-dark": {
+    "neighborhood#0": {
+      "texts": 20,
+      "minFontPx": 11,
+      "overlaps": [],
+      "clipped": [
+        "calls-http →",
+        "manifest-of →",
+        "→ contains",
+        "→ consumes",
+        "→ publishes"
+      ]
+    },
+    "views#1": {
+      "texts": 0,
+      "minFontPx": null,
+      "overlaps": [],
+      "clipped": []
+    },
+    "treemap#2": {
+      "texts": 55,
+      "minFontPx": 9.8,
+      "overlaps": [],
+      "clipped": [
+        "order_test.go",
+        "123 lines",
+        "consumer",
+        "payments.go",
+        "79 lines"
+      ]
+    }
+  },
+  "service-orders-c4-component-likec4-1150-dark": {
+    "drawn": false,
+    "texts": 57,
+    "minFontPx": 3.5,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "service-orders-c4-component-mermaid-1150-dark": {
+    "drawn": true,
+    "texts": 10,
+    "minFontPx": 16,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "service-orders-c4-component-archify-1150-dark": {
+    "drawn": true,
+    "texts": 1,
+    "minFontPx": 13,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "file-order-go-1150-dark": {
+    "neighborhood#0": {
+      "texts": 23,
+      "minFontPx": 11,
+      "overlaps": [],
+      "clipped": [
+        "CancelRequested",
+        "Confirmed",
+        "ErrInvalidItems",
+        "ErrInvalidTransition",
+        "ErrNotFound"
+      ]
+    },
+    "views#1": {
+      "texts": 7,
+      "minFontPx": 16,
+      "overlaps": [],
+      "clipped": []
+    }
+  },
+  "file-order-go-state-mermaid-1150-dark": {
+    "drawn": true,
+    "texts": 5,
+    "minFontPx": 16,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "file-order-go-state-archify-1150-dark": {
+    "drawn": true,
+    "texts": 1,
+    "minFontPx": 13,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "function-pay-1150-dark": {
+    "neighborhood#0": {
+      "texts": 31,
+      "minFontPx": 11,
+      "overlaps": [],
+      "clipped": [
+        "BaseProvider.charge",
+        "PaymentProvider.charge",
+        "PaymentRepository.create",
+        "PaymentRepository.findByI…",
+        "withTimeout"
+      ]
+    },
+    "views#1": {
+      "texts": 50,
+      "minFontPx": 7.7,
+      "overlaps": [],
+      "clipped": []
+    }
+  },
+  "function-pay-sequence-mermaid-1150-dark": {
+    "drawn": true,
+    "texts": 38,
+    "minFontPx": 7.7,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "table-orders-1150-dark": {
+    "neighborhood#0": {
+      "texts": 29,
+      "minFontPx": 11,
+      "overlaps": [],
+      "clipped": []
+    },
+    "views#1": {
+      "texts": 2,
+      "minFontPx": 14,
+      "overlaps": [],
+      "clipped": []
+    }
+  },
+  "table-orders-er-mermaid-1150-dark": {
+    "drawn": true,
+    "texts": 48,
+    "minFontPx": 16,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "table-orders-er-archify-1150-dark": {
+    "drawn": true,
+    "texts": 1,
+    "minFontPx": 13,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "database-orders-1150-dark": {
+    "views#0": {
+      "texts": 2,
+      "minFontPx": 13.6,
+      "overlaps": [],
+      "clipped": []
+    }
+  },
+  "database-orders-er-mermaid-1150-dark": {
+    "drawn": true,
+    "texts": 63,
+    "minFontPx": 16,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "database-orders-er-archify-1150-dark": {
+    "drawn": true,
+    "texts": 1,
+    "minFontPx": 13,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "home-390-light": {
+    "views#0": {
+      "texts": 0,
+      "minFontPx": null,
+      "overlaps": [],
+      "clipped": []
+    },
+    "treemap#1": {
+      "texts": 34,
+      "minFontPx": 9.5,
+      "overlaps": [],
+      "clipped": [
+        "payments",
+        "legacy-report.ts",
+        "796 lines",
+        "providers",
+        "pay.te…"
+      ]
+    }
+  },
+  "home-c4-context-likec4-390-light": {
+    "drawn": false,
+    "texts": 13,
+    "minFontPx": 9.2,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "home-c4-context-mermaid-390-light": {
+    "drawn": true,
+    "texts": 2,
+    "minFontPx": 16,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "home-c4-context-archify-390-light": {
+    "drawn": true,
+    "texts": 11,
+    "minFontPx": 6.4,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "domain-list-390-light": {
+    "views#0": {
+      "texts": 0,
+      "minFontPx": null,
+      "overlaps": [],
+      "clipped": []
+    }
+  },
+  "domain-list-domain-map-likec4-390-light": {
+    "drawn": false,
+    "texts": 7,
+    "minFontPx": 14,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "domain-list-domain-map-mermaid-390-light": {
+    "drawn": true,
+    "texts": 0,
+    "minFontPx": null,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "domain-list-domain-map-archify-390-light": {
+    "drawn": true,
+    "texts": 1,
+    "minFontPx": 13,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "domain-payment-390-light": {
+    "views#0": {
+      "texts": 0,
+      "minFontPx": null,
+      "overlaps": [],
+      "clipped": []
+    },
+    "views#1": {
+      "texts": 0,
+      "minFontPx": null,
+      "overlaps": [],
+      "clipped": []
+    },
+    "neighborhood#2": {
+      "texts": 7,
+      "minFontPx": 9.9,
+      "overlaps": [],
+      "clipped": [
+        "→ relates",
+        "PaymentService.pay",
+        "Symbol",
+        "payments",
+        "Service"
+      ]
+    }
+  },
+  "domain-payment-domain-likec4-390-light": {
+    "drawn": false,
+    "texts": 46,
+    "minFontPx": 1.5,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "domain-payment-domain-mermaid-390-light": {
+    "drawn": true,
+    "texts": 12,
+    "minFontPx": 16,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "domain-payment-domain-archify-390-light": {
+    "drawn": true,
+    "texts": 43,
+    "minFontPx": 1.4,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "domain-payment-sequence-mermaid-390-light": {
+    "drawn": true,
+    "texts": 38,
+    "minFontPx": 3.2,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "route-post-orders-390-light": {
+    "neighborhood#0": {
+      "texts": 8,
+      "minFontPx": 9.9,
+      "overlaps": [],
+      "clipped": [
+        "→ serves",
+        "→ handled-by",
+        "POST /orders",
+        "API operation",
+        "OrderHandlers.Create"
+      ]
+    },
+    "views#1": {
+      "texts": 48,
+      "minFontPx": 5.4,
+      "overlaps": [],
+      "clipped": []
+    }
+  },
+  "route-post-orders-sequence-mermaid-390-light": {
+    "drawn": true,
+    "texts": 40,
+    "minFontPx": 5.4,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "route-post-checkout-390-light": {
+    "neighborhood#0": {
+      "texts": 5,
+      "minFontPx": 9.9,
+      "overlaps": [],
+      "clipped": [
+        "→ handled-by",
+        "CheckoutService.checkout",
+        "Symbol"
+      ]
+    },
+    "views#1": {
+      "texts": 54,
+      "minFontPx": 2.9,
+      "overlaps": [],
+      "clipped": []
+    }
+  },
+  "route-post-checkout-sequence-mermaid-390-light": {
+    "drawn": true,
+    "texts": 40,
+    "minFontPx": 2.9,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "service-payments-390-light": {
+    "neighborhood#0": {
+      "texts": 22,
+      "minFontPx": 9.9,
+      "overlaps": [],
+      "clipped": [
+        "→ contains",
+        "→ publishes",
+        "→ uses-database",
+        "payments",
+        "Package"
+      ]
+    },
+    "views#1": {
+      "texts": 0,
+      "minFontPx": null,
+      "overlaps": [],
+      "clipped": []
+    },
+    "treemap#2": {
+      "texts": 26,
+      "minFontPx": 9.5,
+      "overlaps": [],
+      "clipped": [
+        "payment-…",
+        "87 lines",
+        "events",
+        "publis…",
+        "config.…"
+      ]
+    }
+  },
+  "service-payments-c4-component-likec4-390-light": {
+    "drawn": false,
+    "texts": 31,
+    "minFontPx": 2,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "service-payments-c4-component-mermaid-390-light": {
+    "drawn": true,
+    "texts": 10,
+    "minFontPx": 16,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "service-payments-c4-component-archify-390-light": {
+    "drawn": true,
+    "texts": 1,
+    "minFontPx": 13,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "service-orders-390-light": {
+    "neighborhood#0": {
+      "texts": 20,
+      "minFontPx": 9.9,
+      "overlaps": [],
+      "clipped": [
+        "→ contains",
+        "→ consumes",
+        "→ publishes",
+        "→ uses-database",
+        "training.example/orders"
+      ]
+    },
+    "views#1": {
+      "texts": 0,
+      "minFontPx": null,
+      "overlaps": [],
+      "clipped": []
+    },
+    "treemap#2": {
+      "texts": 30,
+      "minFontPx": 9.5,
+      "overlaps": [],
+      "clipped": [
+        "order_reposito…",
+        "outbox.go",
+        "77 lines",
+        "db.go",
+        "75 lines"
+      ]
+    }
+  },
+  "service-orders-c4-component-likec4-390-light": {
+    "drawn": false,
+    "texts": 32,
+    "minFontPx": 2.3,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "service-orders-c4-component-mermaid-390-light": {
+    "drawn": true,
+    "texts": 10,
+    "minFontPx": 16,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "service-orders-c4-component-archify-390-light": {
+    "drawn": true,
+    "texts": 1,
+    "minFontPx": 13,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "file-order-go-390-light": {
+    "neighborhood#0": {
+      "texts": 23,
+      "minFontPx": 9.9,
+      "overlaps": [],
+      "clipped": [
+        "→ contains",
+        "CancelRequested",
+        "Symbol",
+        "Cancelled",
+        "Symbol"
+      ]
+    },
+    "views#1": {
+      "texts": 7,
+      "minFontPx": 8,
+      "overlaps": [],
+      "clipped": []
+    }
+  },
+  "file-order-go-state-mermaid-390-light": {
+    "drawn": true,
+    "texts": 5,
+    "minFontPx": 16,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "file-order-go-state-archify-390-light": {
+    "drawn": true,
+    "texts": 1,
+    "minFontPx": 13,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "function-pay-390-light": {
+    "neighborhood#0": {
+      "texts": 31,
+      "minFontPx": 9.9,
+      "overlaps": [],
+      "clipped": [
+        "→ calls",
+        "BaseProvider.charge",
+        "Symbol",
+        "PaymentProvider.charge",
+        "Symbol"
+      ]
+    },
+    "views#1": {
+      "texts": 50,
+      "minFontPx": 3.2,
+      "overlaps": [],
+      "clipped": []
+    }
+  },
+  "function-pay-sequence-mermaid-390-light": {
+    "drawn": true,
+    "texts": 38,
+    "minFontPx": 3.2,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "table-orders-390-light": {
+    "neighborhood#0": {
+      "texts": 29,
+      "minFontPx": 9.9,
+      "overlaps": [],
+      "clipped": [
+        "→ foreign-key",
+        "customers",
+        "Table"
+      ]
+    },
+    "views#1": {
+      "texts": 2,
+      "minFontPx": 13.6,
+      "overlaps": [],
+      "clipped": []
+    }
+  },
+  "table-orders-er-mermaid-390-light": {
+    "drawn": true,
+    "texts": 48,
+    "minFontPx": 16,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "table-orders-er-archify-390-light": {
+    "drawn": true,
+    "texts": 1,
+    "minFontPx": 13,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "database-orders-390-light": {
+    "views#0": {
+      "texts": 2,
+      "minFontPx": 5.7,
+      "overlaps": [],
+      "clipped": []
+    }
+  },
+  "database-orders-er-mermaid-390-light": {
+    "drawn": true,
+    "texts": 63,
+    "minFontPx": 16,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "database-orders-er-archify-390-light": {
+    "drawn": true,
+    "texts": 1,
+    "minFontPx": 13,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "home-390-dark": {
+    "views#0": {
+      "texts": 0,
+      "minFontPx": null,
+      "overlaps": [],
+      "clipped": []
+    },
+    "treemap#1": {
+      "texts": 34,
+      "minFontPx": 9.5,
+      "overlaps": [],
+      "clipped": [
+        "payments",
+        "legacy-report.ts",
+        "796 lines",
+        "providers",
+        "pay.te…"
+      ]
+    }
+  },
+  "home-c4-context-likec4-390-dark": {
+    "drawn": false,
+    "texts": 13,
+    "minFontPx": 9.2,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "home-c4-context-mermaid-390-dark": {
+    "drawn": true,
+    "texts": 2,
+    "minFontPx": 16,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "home-c4-context-archify-390-dark": {
+    "drawn": true,
+    "texts": 11,
+    "minFontPx": 6.4,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "domain-list-390-dark": {
+    "views#0": {
+      "texts": 0,
+      "minFontPx": null,
+      "overlaps": [],
+      "clipped": []
+    }
+  },
+  "domain-list-domain-map-likec4-390-dark": {
+    "drawn": false,
+    "texts": 7,
+    "minFontPx": 14,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "domain-list-domain-map-mermaid-390-dark": {
+    "drawn": true,
+    "texts": 0,
+    "minFontPx": null,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "domain-list-domain-map-archify-390-dark": {
+    "drawn": true,
+    "texts": 1,
+    "minFontPx": 13,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "domain-payment-390-dark": {
+    "views#0": {
+      "texts": 0,
+      "minFontPx": null,
+      "overlaps": [],
+      "clipped": []
+    },
+    "views#1": {
+      "texts": 0,
+      "minFontPx": null,
+      "overlaps": [],
+      "clipped": []
+    },
+    "neighborhood#2": {
+      "texts": 7,
+      "minFontPx": 9.9,
+      "overlaps": [],
+      "clipped": [
+        "→ relates",
+        "PaymentService.pay",
+        "Symbol",
+        "payments",
+        "Service"
+      ]
+    }
+  },
+  "domain-payment-domain-likec4-390-dark": {
+    "drawn": false,
+    "texts": 46,
+    "minFontPx": 1.5,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "domain-payment-domain-mermaid-390-dark": {
+    "drawn": true,
+    "texts": 12,
+    "minFontPx": 16,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "domain-payment-domain-archify-390-dark": {
+    "drawn": true,
+    "texts": 43,
+    "minFontPx": 1.4,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "domain-payment-sequence-mermaid-390-dark": {
+    "drawn": true,
+    "texts": 38,
+    "minFontPx": 3.2,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "route-post-orders-390-dark": {
+    "neighborhood#0": {
+      "texts": 8,
+      "minFontPx": 9.9,
+      "overlaps": [],
+      "clipped": [
+        "→ serves",
+        "→ handled-by",
+        "POST /orders",
+        "API operation",
+        "OrderHandlers.Create"
+      ]
+    },
+    "views#1": {
+      "texts": 48,
+      "minFontPx": 5.4,
+      "overlaps": [],
+      "clipped": []
+    }
+  },
+  "route-post-orders-sequence-mermaid-390-dark": {
+    "drawn": true,
+    "texts": 40,
+    "minFontPx": 5.4,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "route-post-checkout-390-dark": {
+    "neighborhood#0": {
+      "texts": 5,
+      "minFontPx": 9.9,
+      "overlaps": [],
+      "clipped": [
+        "→ handled-by",
+        "CheckoutService.checkout",
+        "Symbol"
+      ]
+    },
+    "views#1": {
+      "texts": 54,
+      "minFontPx": 2.9,
+      "overlaps": [],
+      "clipped": []
+    }
+  },
+  "route-post-checkout-sequence-mermaid-390-dark": {
+    "drawn": true,
+    "texts": 40,
+    "minFontPx": 2.9,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "service-payments-390-dark": {
+    "neighborhood#0": {
+      "texts": 22,
+      "minFontPx": 9.9,
+      "overlaps": [],
+      "clipped": [
+        "→ contains",
+        "→ publishes",
+        "→ uses-database",
+        "payments",
+        "Package"
+      ]
+    },
+    "views#1": {
+      "texts": 0,
+      "minFontPx": null,
+      "overlaps": [],
+      "clipped": []
+    },
+    "treemap#2": {
+      "texts": 26,
+      "minFontPx": 9.5,
+      "overlaps": [],
+      "clipped": [
+        "payment-…",
+        "87 lines",
+        "events",
+        "publis…",
+        "config.…"
+      ]
+    }
+  },
+  "service-payments-c4-component-likec4-390-dark": {
+    "drawn": false,
+    "texts": 31,
+    "minFontPx": 2,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "service-payments-c4-component-mermaid-390-dark": {
+    "drawn": true,
+    "texts": 0,
+    "minFontPx": null,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "service-payments-c4-component-archify-390-dark": {
+    "drawn": true,
+    "texts": 1,
+    "minFontPx": 13,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "service-orders-390-dark": {
+    "neighborhood#0": {
+      "texts": 20,
+      "minFontPx": 9.9,
+      "overlaps": [],
+      "clipped": [
+        "→ contains",
+        "→ consumes",
+        "→ publishes",
+        "→ uses-database",
+        "training.example/orders"
+      ]
+    },
+    "views#1": {
+      "texts": 0,
+      "minFontPx": null,
+      "overlaps": [],
+      "clipped": []
+    },
+    "treemap#2": {
+      "texts": 30,
+      "minFontPx": 9.5,
+      "overlaps": [],
+      "clipped": [
+        "order_reposito…",
+        "outbox.go",
+        "77 lines",
+        "db.go",
+        "75 lines"
+      ]
+    }
+  },
+  "service-orders-c4-component-likec4-390-dark": {
+    "drawn": false,
+    "texts": 32,
+    "minFontPx": 2.3,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "service-orders-c4-component-mermaid-390-dark": {
+    "drawn": true,
+    "texts": 10,
+    "minFontPx": 16,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "service-orders-c4-component-archify-390-dark": {
+    "drawn": true,
+    "texts": 1,
+    "minFontPx": 13,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "file-order-go-390-dark": {
+    "neighborhood#0": {
+      "texts": 23,
+      "minFontPx": 9.9,
+      "overlaps": [],
+      "clipped": [
+        "→ contains",
+        "CancelRequested",
+        "Symbol",
+        "Cancelled",
+        "Symbol"
+      ]
+    },
+    "views#1": {
+      "texts": 7,
+      "minFontPx": 8,
+      "overlaps": [],
+      "clipped": []
+    }
+  },
+  "file-order-go-state-mermaid-390-dark": {
+    "drawn": true,
+    "texts": 5,
+    "minFontPx": 16,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "file-order-go-state-archify-390-dark": {
+    "drawn": true,
+    "texts": 1,
+    "minFontPx": 13,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "function-pay-390-dark": {
+    "neighborhood#0": {
+      "texts": 31,
+      "minFontPx": 9.9,
+      "overlaps": [],
+      "clipped": [
+        "→ calls",
+        "BaseProvider.charge",
+        "Symbol",
+        "PaymentProvider.charge",
+        "Symbol"
+      ]
+    },
+    "views#1": {
+      "texts": 50,
+      "minFontPx": 3.2,
+      "overlaps": [],
+      "clipped": []
+    }
+  },
+  "function-pay-sequence-mermaid-390-dark": {
+    "drawn": true,
+    "texts": 38,
+    "minFontPx": 3.2,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "table-orders-390-dark": {
+    "neighborhood#0": {
+      "texts": 29,
+      "minFontPx": 9.9,
+      "overlaps": [],
+      "clipped": [
+        "→ foreign-key",
+        "customers",
+        "Table"
+      ]
+    },
+    "views#1": {
+      "texts": 2,
+      "minFontPx": 13.6,
+      "overlaps": [],
+      "clipped": []
+    }
+  },
+  "table-orders-er-mermaid-390-dark": {
+    "drawn": true,
+    "texts": 48,
+    "minFontPx": 16,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "table-orders-er-archify-390-dark": {
+    "drawn": true,
+    "texts": 1,
+    "minFontPx": 13,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "database-orders-390-dark": {
+    "views#0": {
+      "texts": 2,
+      "minFontPx": 5.7,
+      "overlaps": [],
+      "clipped": []
+    }
+  },
+  "database-orders-er-mermaid-390-dark": {
+    "drawn": true,
+    "texts": 63,
+    "minFontPx": 16,
+    "overlaps": [],
+    "overlapCount": 0
+  },
+  "database-orders-er-archify-390-dark": {
+    "drawn": true,
+    "texts": 1,
+    "minFontPx": 13,
+    "overlaps": [],
+    "overlapCount": 0
+  }
+}
