@@ -222,6 +222,38 @@ for (const entry of only === '' || only === 'shop' ? pages : []) {
   await shoot(page, entry.name, entry.wait === undefined ? undefined : () => entry.wait!(page));
   await page.close();
 }
+// ---- the pages a connected graph earns (madarch-m38l.16): a task, a commit and an author with their history, and a
+// contract with its definition in its own format, in both schemes and at a phone's width.
+if (only === '' || only === 'shop' || only === 'graph') {
+  const firstOf = async (kind: string): Promise<string | null> => {
+    const response = await fetch(`${server.url}${'/products/shop'}/api/k/entities?kind=${encodeURIComponent(kind)}&limit=1`);
+    const body = (await response.json()) as {rows?: {id: string}[]};
+    return body.rows?.[0]?.id ?? null;
+  };
+  const contract = recordKey('code.contract', 'contracts/openapi/orders.yaml');
+  const task = await firstOf('code.task');
+  const commit = await firstOf('code.commit');
+  const author = await firstOf('code.author');
+  const shots: {name: string; id: string | null; block: string; width?: number; height?: number; scheme?: 'light' | 'dark'}[] = [
+    {name: '40-task-history', id: task, block: 'history', width: 1440, height: 1400},
+    {name: '41-commit-history', id: commit, block: 'history', width: 1440, height: 1400},
+    {name: '42-author-history', id: author, block: 'history', width: 1440, height: 1600},
+    {name: '43-task-history-dark', id: task, block: 'history', width: 1440, height: 1400, scheme: 'dark'},
+    {name: '44-task-history-phone', id: task, block: 'history', width: 390, height: 1800},
+    {name: '45-contract-definition', id: contract, block: 'definition', width: 1440, height: 1600},
+    {name: '46-contract-definition-dark', id: contract, block: 'definition', width: 1440, height: 1600, scheme: 'dark'},
+    {name: '47-contract-definition-phone', id: contract, block: 'definition', width: 390, height: 1800},
+  ];
+  for (const entry of shots) {
+    if (entry.id === null) {
+      throw new Error(`the filled product holds no page for ${entry.name}: the graph has no entity of that kind, so the walk cannot show it`);
+    }
+    const page = await open(at(entry.id), entry.width ?? 1440, entry.height ?? 900, entry.scheme ?? 'light');
+    await shoot(page, entry.name, () => page.waitForSelector(`[data-block=${entry.block}]`, {timeout: 120_000}));
+    await page.close();
+  }
+}
+
 if (only === '' || only === 'shop') {
   const page = await open('/products/shop/k', 1440, 700);
   await page.waitForSelector('[data-testid=product-selector]');
