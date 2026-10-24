@@ -62,6 +62,11 @@ for (let tries = 0; ; tries += 1) {
   await new Promise((rest) => setTimeout(rest, 500));
 }
 
+// The first open asks which role the reader reads as, over every page: the walk answers it the way the file does, so
+// no picture carries the dialog (the owner's review of 2026-10-24).
+mkdirSync(home, { recursive: true });
+writeFileSync(join(home, 'settings.json'), JSON.stringify({ role: 'everything', roleAsked: true }));
+
 const started = await fetch(`${base}/products/${name}/api/k/fill`, { method: 'POST' });
 if (!started.ok) throw new Error(`the fill did not start: ${started.status} ${await started.text()}`);
 for (const until = Date.now() + 900_000; ; ) {
@@ -76,15 +81,18 @@ const encode = encodeURIComponent;
 const at = (id: string): string => `/products/${name}/k/e/${encode(id)}`;
 const key = (kind: string, rest: string): string => `${kind}:${rest}`;
 const pages: { name: string; url: string; wait: string }[] = [
-  { name: 'home', url: `/products/${name}/k`, wait: '[data-diagram=system] [data-testid=system-node]' },
-  { name: 'domain-payment', url: at('domain:payment'), wait: '[data-diagram=sequence] [data-testid=chain-step]' },
-  { name: 'route-post-orders', url: at(key('code.route', 'services/orders/internal/api/router.go#POST:/orders')), wait: '[data-diagram=sequence] [data-testid=chain-step]' },
-  { name: 'route-post-checkout', url: at(key('code.route', 'services/checkout/src/api/routes.ts#POST:/checkout')), wait: '[data-diagram=sequence] [data-testid=chain-step]' },
-  { name: 'service-payments', url: at('code.service:payments'), wait: '[data-diagram=modules] [data-testid=module-node]' },
+  { name: 'home', url: `/products/${name}/k`, wait: '[data-diagram=views] [data-testid=view]' },
+  // The domain list: the map of the domains with the services behind them (the owner's first ask).
+  { name: 'domain-list', url: `/products/${name}/k/kind/domain`, wait: '[data-diagram=views] [data-testid=view]' },
+  { name: 'domain-payment', url: at('domain:payment'), wait: '[data-diagram=views] [data-testid=view]' },
+  { name: 'route-post-orders', url: at(key('code.route', 'services/orders/internal/api/router.go#POST:/orders')), wait: '[data-diagram=views] [data-testid=view]' },
+  { name: 'route-post-checkout', url: at(key('code.route', 'services/checkout/src/api/routes.ts#POST:/checkout')), wait: '[data-diagram=views] [data-testid=view]' },
+  { name: 'service-payments', url: at('code.service:payments'), wait: '[data-diagram=views] [data-testid=view]' },
   { name: 'service-orders', url: at('code.service:orders'), wait: '[data-diagram=treemap] [data-testid=treemap-file]' },
+  { name: 'file-order-go', url: at(key('code.file', 'services/orders/internal/domain/order.go')), wait: '[data-diagram=views] [data-testid=view]' },
   { name: 'function-pay', url: at(key('code.symbol', 'services/payments/src/domain/payment-service.ts#PaymentService.pay')), wait: '[data-diagram=neighborhood] [data-testid=hood-node]' },
   { name: 'table-orders', url: at(key('code.table', 'orders/public.orders')), wait: '[data-diagram=neighborhood] [data-testid=hood-node]' },
-  { name: 'database-orders', url: at(key('code.database', 'orders')), wait: '[data-testid=diagram-links]' },
+  { name: 'database-orders', url: at(key('code.database', 'orders')), wait: '[data-diagram=views] [data-testid=view]' },
 ];
 const views = [{ tag: '1150-light', width: 1150, scheme: 'light' as const }, { tag: '1150-dark', width: 1150, scheme: 'dark' as const }, { tag: '390-light', width: 390, scheme: 'light' as const }, { tag: '390-dark', width: 390, scheme: 'dark' as const }];
 
@@ -98,7 +106,7 @@ async function measure(page: Page): Promise<unknown> {
     document.querySelectorAll('[data-diagram]').forEach((diagram, index) => {
       const name = `${diagram.getAttribute('data-diagram')}#${index}`;
       const texts = [...diagram.querySelectorAll('svg text')].filter((node) => (node.textContent ?? '').trim() !== '') as SVGTextElement[];
-      const boxes = texts.map((node) => ({ node, rect: node.getBoundingClientRect(), size: parseFloat(getComputedStyle(node).fontSize) * (node.getScreenCTM()?.a ?? 1) }));
+      const boxes = texts.map((node) => ({ node, rect: node.getBoundingClientRect(), size: parseFloat(getComputedStyle(node).fontSize) * (typeof node.getScreenCTM === 'function' ? node.getScreenCTM()?.a ?? 1 : 1) }));
       const overlaps: string[] = [];
       for (let i = 0; i < boxes.length; i += 1) for (let j = i + 1; j < boxes.length; j += 1) {
         const a = boxes[i]!.rect; const b = boxes[j]!.rect;
@@ -109,46 +117,165 @@ async function measure(page: Page): Promise<unknown> {
       const clipped = frame === undefined ? [] : boxes.filter((box) => box.rect.width > 0 && (box.rect.right > frame.right + 1 && !diagram.querySelector('.dg-scroll'))).map((box) => box.node.textContent ?? '');
       result[name] = { texts: boxes.length, minFontPx: Math.round(Math.min(...boxes.map((box) => box.size)) * 10) / 10, overlaps: overlaps.slice(0, 8), clipped: clipped.slice(0, 5) };
     });
-    // The chain's own checks: every lane box and every row's label and arrow stands inside the visible part of its frame,
-    // and at phone width every step is a list item with its text (the diagram is not shown there).
-    const chains: Record<string, unknown>[] = [];
-    document.querySelectorAll('[data-testid=chain]').forEach((chain) => {
-      const scroll = chain.querySelector('[data-testid=chain-scroll]') as HTMLElement;
-      const frame = scroll.getBoundingClientRect();
-      const shown = frame.width > 0;
-      const outside = (rect: DOMRect): boolean => rect.right > frame.right + 1 || rect.left < frame.left - 1;
-      const lanes = [...chain.querySelectorAll('[data-testid=chain-lane] rect')].map((node) => node.getBoundingClientRect());
-      const rows = [...chain.querySelectorAll('[data-testid=chain-step]')];
-      const rowsOutside = rows.filter((row) => outside((row.querySelector('text.dg-step') as SVGTextElement).getBoundingClientRect()) || outside((row.querySelector('line, path.dg-arrow') as SVGGraphicsElement).getBoundingClientRect())).length;
-      const items = [...chain.querySelectorAll('[data-testid=chain-list] li')];
-      chains.push({ shown, scrolls: scroll.scrollWidth > scroll.clientWidth + 1, lanes: lanes.length, lanesClipped: shown ? lanes.filter(outside).length : 0, rows: rows.length, rowsOutside: shown ? rowsOutside : 0, listItems: items.length, emptyListItems: items.filter((item) => (item.textContent ?? '').trim() === '').length, listShown: (chain.querySelector('[data-testid=chain-list]') as HTMLElement).getBoundingClientRect().width > 0 });
-    });
-    if (chains.length > 0) (result as Record<string, unknown>)['chains'] = chains;
     return result;
   });
 }
 
-for (const view of views) {
-  for (const entry of pages) {
-    const page = await browser.newPage();
-    await page.setViewport({ width: view.width, height: 900 });
-    await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: view.scheme }]);
-    page.on('pageerror', (error) => console.error(`page error at ${entry.url}: ${error.message}`));
-    await page.goto(`${base}${entry.url}`, { waitUntil: 'domcontentloaded' });
-    try {
-      await page.waitForSelector(entry.wait, { timeout: 90_000 });
-    } catch (error) {
-      console.error(`${entry.name} ${view.tag}: ${entry.wait} never appeared: ${(error as Error).message}`);
+/** Label sizes and overlaps of everything a renderer drew inside a root (the page, or a frame), through shadow roots. */
+const MEASURE_LABELS = `(() => {
+  const found = [];
+  const walk = (root) => {
+    root.querySelectorAll('*').forEach((node) => {
+      if (node.shadowRoot) walk(node.shadowRoot);
+      const own = [...node.childNodes].filter((child) => child.nodeType === 3 && (child.textContent || '').trim() !== '').map((child) => child.textContent.trim()).join(' ');
+      if (own === '') return;
+      if (node.closest && node.closest('button, script, style, [data-testid=view-legend]')) return;
+      const rect = node.getBoundingClientRect();
+      if (rect.width < 1 || rect.height < 1) return;
+      const style = getComputedStyle(node);
+      if (style.visibility === 'hidden' || style.display === 'none') return;
+      // An SVG element that is not a graphics element (a <title>, a <defs> child) has no screen matrix: it is measured unscaled.
+      const scale = node instanceof SVGElement ? (typeof node.getScreenCTM === 'function' ? node.getScreenCTM().a : 1) : (node.offsetHeight > 0 ? rect.height / node.offsetHeight : 1);
+      found.push({ text: own, rect, size: parseFloat(style.fontSize) * scale });
+    });
+  };
+  walk(document);
+  const overlaps = [];
+  for (let i = 0; i < found.length; i += 1) for (let j = i + 1; j < found.length; j += 1) {
+    const a = found[i].rect; const b = found[j].rect;
+    const w = Math.min(a.right, b.right) - Math.max(a.left, b.left); const h = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+    if (w > 1.5 && h > 1.5) overlaps.push(found[i].text + ' / ' + found[j].text);
+  }
+  return { texts: found.length, minFontPx: found.length === 0 ? null : Math.round(Math.min(...found.map((entry) => entry.size)) * 10) / 10, overlaps: overlaps.slice(0, 8), overlapCount: overlaps.length };
+})()`;
+
+/**
+ * Walks every views block of a page: each view tab, each renderer tab under it, and — for every one of them — the page's
+ * own viewport as a reader sees it, plus the diagram in full screen. The tabs are re-read on every step (a step replaces
+ * the block's state), and a renderer the tab does not offer is never asked for.
+ */
+async function walkViews(page: Page, entry: { name: string }, tag: string, lang: string): Promise<void> {
+  const blocks = await page.evaluate(() => document.querySelectorAll('[data-diagram=views]').length);
+  for (let blockAt = 0; blockAt < blocks; blockAt += 1) {
+    const viewTabs = await page.evaluate((at) => [...document.querySelectorAll('[data-diagram=views]')[at]!.querySelectorAll('[data-testid=view-tab]')].map((node) => (node.textContent ?? '').trim()), blockAt);
+    const steps = Math.max(1, viewTabs.length);
+    for (let viewAt = 0; viewAt < steps; viewAt += 1) {
+      await page.evaluate(([at, step]) => {
+        const block = document.querySelectorAll('[data-diagram=views]')[at];
+        const tab = block?.querySelectorAll('[data-testid=view-tab]')[step];
+        if (tab instanceof HTMLElement) tab.click();
+      }, [blockAt, viewAt]);
+      await new Promise((rest) => setTimeout(rest, 400));
+      const type = await page.evaluate((at) => document.querySelectorAll('[data-diagram=views]')[at]?.querySelector('[data-testid=view]')?.getAttribute('data-view') ?? 'view', blockAt);
+      const renderers = await page.evaluate((at) => [...document.querySelectorAll('[data-diagram=views]')[at]!.querySelectorAll('[data-testid^=renderer-]')].map((node) => node.getAttribute('data-testid')!.slice('renderer-'.length)), blockAt);
+      for (const renderer of renderers) {
+        await page.evaluate(([at, name]) => {
+          const block = document.querySelectorAll('[data-diagram=views]')[at];
+          const tab = block?.querySelector(`[data-testid=renderer-${name}]`);
+          if (tab instanceof HTMLElement) tab.click();
+        }, [blockAt, renderer]);
+        let drawn = true;
+        try {
+          // Each renderer is waited for where it really appears: Mermaid draws in the page, LikeC4 draws its laid-out
+          // model in the page, and the archify tab frames the page the server rendered.
+          if (renderer === 'mermaid') await page.waitForFunction((at) => document.querySelectorAll('[data-diagram=views]')[at]?.querySelector('[data-testid=view-picture] svg') !== null, { timeout: 60_000 }, blockAt);
+          else if (renderer === 'likec4') await page.waitForFunction((at) => {
+            const frame = document.querySelectorAll('[data-diagram=views]')[at]?.querySelector('[data-testid=view-frame-likec4]');
+            if (!frame) return false;
+            const hasNode = (root) => {
+              if (root.querySelector('.react-flow__node, [data-node-id]')) return true;
+              return [...root.querySelectorAll('*')].some((node) => node.shadowRoot !== null && hasNode(node.shadowRoot));
+            };
+            return hasNode(frame) || frame.querySelector('[role=alert]') !== null;
+          }, { timeout: 60_000 }, blockAt);
+          else await page.waitForFunction((at) => document.querySelectorAll('[data-diagram=views]')[at]?.querySelector('iframe[data-renderer=archify]') !== null, { timeout: 60_000 }, blockAt);
+          // A frame that answered with an error page is not a drawing: the walk says so instead of counting it.
+          if (renderer === 'archify') {
+            const handle = await page.$(`iframe[data-renderer=archify]`);
+            const frame = await handle?.contentFrame();
+            if (frame !== null && frame !== undefined) {
+              const failed = await frame.evaluate(() => document.querySelector('[data-frame-error]') !== null).catch(() => false);
+              if (failed) drawn = false;
+            }
+          }
+        } catch { drawn = false; }
+        await new Promise((rest) => setTimeout(rest, 900));
+        const label = `${entry.name}-${type}-${renderer}-${tag}-${lang}`;
+        // The picture is the reader's own column, not a crop of the block.
+        await page.evaluate((at) => document.querySelectorAll('[data-diagram=views]')[at]?.scrollIntoView({ block: 'center' }), blockAt);
+        await new Promise((rest) => setTimeout(rest, 200));
+        await page.screenshot({ path: join(out, `${label}.png`) });
+        const measures = await measureBlock(page, blockAt, renderer);
+        // Full screen: the same diagram over the whole window, which is how a dense view is read.
+        let full = false;
+        try {
+          await page.evaluate((at) => {
+            const block = document.querySelectorAll('[data-diagram=views]')[at];
+            const button = block?.querySelector('[data-testid=fullscreen-button]');
+            if (button instanceof HTMLElement) button.click();
+          }, blockAt);
+          await page.waitForFunction((at) => document.querySelectorAll('[data-diagram=views]')[at]?.querySelector('[data-testid=fullscreenable]')?.getAttribute('data-fullscreen') === 'true', { timeout: 10_000 }, blockAt);
+          await new Promise((rest) => setTimeout(rest, 700));
+          full = true;
+        } catch { full = false; }
+        if (full) {
+          await page.screenshot({ path: join(out, `${label}-full.png`) });
+          await page.keyboard.press('Escape');
+          await new Promise((rest) => setTimeout(rest, 300));
+        }
+        report[label] = { drawn, full, ...(measures ?? {}) };
+      }
     }
-    await new Promise((rest) => setTimeout(rest, 800));
-    // The viewport takes the page's whole height, so the pictures hold what a reader scrolls through and no diagram is
-    // measured again while the capture resizes the window.
-    const height = await page.evaluate(() => Math.max(document.documentElement.scrollHeight, ...[...document.querySelectorAll('main, [data-testid=entity-page]')].map((element) => element.scrollHeight)));
-    await page.setViewport({ width: view.width, height: Math.min(9000, Math.max(900, height)) });
-    await new Promise((rest) => setTimeout(rest, 800));
-    await page.screenshot({ path: join(out, `${entry.name}-${view.tag}.png`) });
-    report[`${entry.name}-${view.tag}`] = await measure(page);
-    await page.close();
+  }
+}
+
+/** The label sizes and overlaps of one block's drawn picture, whichever renderer drew it. */
+async function measureBlock(page: Page, blockAt: number, renderer: string): Promise<Record<string, unknown> | undefined> {
+  try {
+    if (renderer === 'mermaid') {
+      return (await page.evaluate(`(() => { const root = document.querySelectorAll('[data-diagram=views]')[${blockAt}].querySelector('[data-testid=view-picture]'); const texts = [...root.querySelectorAll('svg text, svg foreignObject *')].filter((n) => (n.textContent || '').trim() !== '' && n.children.length === 0); const boxes = texts.map((n) => ({ t: n.textContent.trim(), r: n.getBoundingClientRect(), s: parseFloat(getComputedStyle(n).fontSize) * (typeof n.getScreenCTM === 'function' ? n.getScreenCTM().a : 1) })).filter((b) => b.r.width > 0); const over = []; for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) { const a = boxes[i].r, b = boxes[j].r; const w = Math.min(a.right, b.right) - Math.max(a.left, b.left), h = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top); if (w > 1.5 && h > 1.5) over.push(boxes[i].t + ' / ' + boxes[j].t); } return { texts: boxes.length, minFontPx: boxes.length ? Math.round(Math.min(...boxes.map((b) => b.s)) * 10) / 10 : null, overlaps: over.slice(0, 8), overlapCount: over.length }; })()`)) as Record<string, unknown>;
+    }
+    if (renderer === 'likec4') {
+      const inBlock = MEASURE_LABELS.replace('walk(document);', `walk(document.querySelectorAll('[data-diagram=views]')[${blockAt}]);`);
+      return (await page.evaluate(inBlock)) as Record<string, unknown>;
+    }
+    const handle = await page.$(`[data-diagram=views]:nth-of-type(${blockAt + 1}) iframe[data-renderer=${renderer}]`);
+    const fallback = handle ?? (await page.$$('iframe[data-renderer=' + renderer + ']'))[blockAt];
+    const frame = await fallback?.contentFrame();
+    return frame === null || frame === undefined ? undefined : ((await frame.evaluate(MEASURE_LABELS)) as Record<string, unknown>);
+  } catch {
+    return undefined;
+  }
+}
+
+for (const lang of ['en', 'ru'] as const) {
+  for (const view of views) {
+    for (const entry of pages) {
+      const page = await browser.newPage();
+      await page.evaluateOnNewDocument((language) => { try { localStorage.setItem('madarch-wiki-language', language); } catch { /* storage off */ } }, lang);
+      await page.setViewport({ width: view.width, height: 900 });
+      await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: view.scheme }]);
+      page.on('pageerror', (error) => console.error(`page error at ${entry.url} ${lang}: ${error.message}`));
+      await page.goto(`${base}${entry.url}`, { waitUntil: 'domcontentloaded' });
+      try {
+        await page.waitForSelector(entry.wait, { timeout: 90_000 });
+      } catch (error) {
+        console.error(`${entry.name} ${view.tag} ${lang}: ${entry.wait} never appeared: ${(error as Error).message}`);
+      }
+      await new Promise((rest) => setTimeout(rest, 800));
+      // The page picture is the whole page in the reader's own column: the viewport is the width asked for, and the
+      // capture takes its height, so the column never changes from one picture to the next.
+      const height = await page.evaluate(() => Math.max(document.documentElement.scrollHeight, ...[...document.querySelectorAll('main, [data-testid=entity-page]')].map((element) => element.scrollHeight)));
+      await page.setViewport({ width: view.width, height: Math.min(9000, Math.max(900, height)) });
+      await new Promise((rest) => setTimeout(rest, 800));
+      await page.screenshot({ path: join(out, `${entry.name}-${view.tag}-${lang}.png`) });
+      report[`${entry.name}-${view.tag}-${lang}`] = await measure(page);
+      // The diagrams are walked in a plain viewport again: a window as tall as the page would stretch every frame.
+      await page.setViewport({ width: view.width, height: 900 });
+      await new Promise((rest) => setTimeout(rest, 500));
+      await walkViews(page, entry, view.tag, lang);
+      await page.close();
+    }
   }
 }
 writeFileSync(join(out, 'measures.json'), JSON.stringify(report, null, 2));

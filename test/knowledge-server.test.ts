@@ -194,14 +194,14 @@ describe('the fill the reader watches', () => {
 
     // The diagrams are left to be read on their own, each by the line of its block; `full=1` has them in the page.
     const deferred = page.body.blocks.filter((block: { type: string }) => block.type === 'deferred');
-    expect(deferred.map((block: { block: string }) => block.block)).toEqual(['graph', 'sequence']);
-    const drawn = await get(`/products/tiny/api/k/block?id=${encodeURIComponent(key)}&line=${deferred[1].line}`);
+    expect(deferred.map((block: { block: string }) => block.block)).toEqual(['graph', 'modules', 'sequence']);
+    const drawn = await get(`/products/tiny/api/k/block?id=${encodeURIComponent(key)}&line=${deferred[2].line}`);
     expect(drawn.status).toBe(200);
-    expect(drawn.body.type).toBe('sequence');
+    expect(drawn.body.type).toBe('diagrams');
     expect((await get(`/products/tiny/api/k/block?id=${encodeURIComponent(key)}&line=0`)).status).toBe(400);
     expect((await get(`/products/tiny/api/k/block?id=${encodeURIComponent(key)}&line=9999`)).status).toBe(404);
     const whole = await get(`/products/tiny/api/k/page?id=${encodeURIComponent(key)}&full=1`);
-    expect(whole.body.blocks.map((block: { type: string }) => block.type)).toEqual(expect.arrayContaining(['graph', 'sequence']));
+    expect(whole.body.blocks.map((block: { type: string }) => block.type)).toEqual(expect.arrayContaining(['graph', 'diagrams']));
     const neighbours = await get(`/products/tiny/api/k/neighborhood?id=${encodeURIComponent(key)}&limit=3`);
     expect(neighbours.status).toBe(200);
     expect(neighbours.body.center).toBe(key);
@@ -228,6 +228,12 @@ describe('the fill the reader watches', () => {
     expect(all.body.total).toBe(3);
     const some = await get('/products/tiny/api/k/entities?kind=code.symbol&q=ent');
     expect(some.body.rows.map((row: { id: string }) => row.id)).toEqual([sym('src/b.ts#entry')]);
+  });
+
+  test('a domain map accepts the manifest kind scope rather than looking for an entity with that id', async () => {
+    const map = await get('/products/tiny/api/k/view?type=domain-map&subject=domain&lang=en');
+    expect(map.status).toBe(200);
+    expect(map.body.views[0]).toMatchObject({ spec: { type: 'domain-map', subject: 'domain' }, empty: expect.any(String) });
   });
 
   test('filling again an unchanged repository is done at once and changes no page', async () => {

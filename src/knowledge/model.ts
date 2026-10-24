@@ -6,6 +6,7 @@
 import type { RefreshPlan } from '../loop/plan.js';
 import type { Finding } from './kinds.js';
 import type { Resolution } from './resolve.js';
+import type { DiagramsBlockShape } from './views.js';
 
 /** Where a piece of code is: the file in a repository and its lines. */
 export interface CodeLocation {
@@ -176,15 +177,12 @@ type BlockShape =
   | { type: 'term'; title: string; definition: string; synonyms: string[]; code: string[]; usedIn: string | null; ambiguous: string | null }
   | { type: 'body'; markdown: string; file: string; statements: number; ungrounded: { text: string; line: number }[] }
   | { type: 'graph'; title: string; neighborhood: Neighborhood; depth: number; shown: number; total: number }
-  | { type: 'system'; title: string; nodes: SystemNode[]; edges: SystemEdge[]; notes: string[] }
-  | { type: 'modules'; title: string; service: string; nodes: ModuleNode[]; edges: ModuleEdge[]; cycles: string[][]; notes: string[] }
+  | DiagramsBlockShape
   | { type: 'treemap'; title: string; scope: string; files: TreemapFile[]; maxChurn: number; total: number; notes: string[] }
   | { type: 'related'; title: string; groups: RelatedGroup[] }
   | { type: 'callers'; title: string; total: number; rows: CallRow[] }
   | { type: 'callees'; title: string; total: number; rows: CallRow[] }
   | { type: 'source'; title: string; location: CodeLocation; language: string; text: string; truncated: boolean }
-  | { type: 'er'; title: string; mermaid: string; tables: number; shownTables: number; links: EntityRef[] }
-  | { type: 'sequence'; title: string; scenario: string; chains: Chain[]; entries: number; notes: string[] }
   | { type: 'refs'; title: string; total: number; rows: RefRow[] }
   | { type: 'properties'; title: string; rows: PropertyRow[] }
   | { type: 'stated'; title: string; place: { repo: string | null; path: string; lineStart: number; lineEnd: number; href: string; commit: string | null } }

@@ -8,12 +8,19 @@ import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { Block, TreemapFile } from '../types.js';
 import { fit, layoutTreemap, textWidth, type TreeCell } from './layout.js';
+import { Fullscreenable, fullscreenHeight, useFullscreen } from './fullscreen.js';
+import { PanZoom } from './pan-zoom.js';
 import { useDiagramLink } from './open.js';
 
 type TreemapBlock = Extract<Block, { type: 'treemap' }>;
 
 export function TreemapView({ block }: { block: TreemapBlock }): ReactElement {
+  return <Fullscreenable><TreemapBody block={block} /></Fullscreenable>;
+}
+
+function TreemapBody({ block }: { block: TreemapBlock }): ReactElement {
   const { t } = useTranslation();
+  const full = useFullscreen();
   const link = useDiagramLink();
   const holder = useRef<HTMLDivElement | null>(null);
   const [width, setWidth] = useState(0);
@@ -30,7 +37,7 @@ export function TreemapView({ block }: { block: TreemapBlock }): ReactElement {
   const files = block.files.filter((file) => file.lines > 0);
   const compact = width > 0 && width < 560;
   const w = Math.max(280, width);
-  const h = Math.round(Math.min(560, Math.max(compact ? 320 : 260, w * (compact ? 0.9 : 0.48))));
+  const h = full ? fullscreenHeight(190) : Math.round(Math.min(560, Math.max(compact ? 320 : 260, w * (compact ? 0.9 : 0.48))));
   const cells: TreeCell[] = width === 0 ? [] : layoutTreemap(files.map((file) => ({ id: file.id, name: file.path.slice(file.path.lastIndexOf('/') + 1), path: file.path, value: file.lines, data: file })), w, h);
   if (files.length === 0) {
     return (
@@ -47,7 +54,8 @@ export function TreemapView({ block }: { block: TreemapBlock }): ReactElement {
       <figure className="m-0">
         <div ref={holder} className="dg-treemap" data-testid="treemap">
           {width > 0 && (
-            <svg className="dg-svg" width={w} height={h} viewBox={`0 0 ${w} ${h}`} role="group" aria-label={block.title}>
+            // The map is panned and zoomed like every other diagram, in the frame and in full screen.
+            <PanZoom width={w} height={h} label={block.title}>
               {cells.map((cell) => {
                 const file = cell.leaf?.data as TreemapFile | undefined;
                 if (file === undefined) {
@@ -73,7 +81,7 @@ export function TreemapView({ block }: { block: TreemapBlock }): ReactElement {
                   </g>
                 );
               })}
-            </svg>
+            </PanZoom>
           )}
         </div>
         <figcaption className="dg-legend" data-testid="treemap-legend">

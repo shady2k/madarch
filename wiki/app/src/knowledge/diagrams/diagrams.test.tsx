@@ -1,7 +1,8 @@
 /**
  * The diagram blocks as the app draws them (madarch-m38l.9), over the server's shapes: nodes are links, a click goes
- * through the `onOpen` hook, a plus opens a node's neighbours through the neighbourhood route, the chain marks what the
- * graph does not order, the module view marks cycles, the treemap gives area to lines and warmth to churn.
+ * through the `onOpen` hook, a plus opens a node's neighbours through the neighbourhood route, the drawn views (C4,
+ * sequence, ER, state, deployment; madarch-m38l.15) switch renderer and drill down, the treemap gives area to lines and
+ * warmth to churn.
  */
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test';
 import { GlobalRegistrator } from '@happy-dom/global-registrator';
@@ -10,9 +11,9 @@ import { createRoot, type Root } from 'react-dom/client';
 import { setWikiLanguage } from '../../i18n.js';
 import { BlockView } from '../blocks.js';
 import { DiagramOpenProvider } from './open.js';
-import { autoFolded, foldChain, layoutChain, MIN_LANE } from './chain.js';
 import { frontTab, resetTabs } from '../tabs.js';
-import type { Block, Chain, Neighborhood } from '../types.js';
+import type { Block, DiagramView, Neighborhood } from '../types.js';
+import { bindMermaid } from './views.js';
 
 beforeAll(async () => {
   GlobalRegistrator.register({ url: 'http://localhost/' });
@@ -148,109 +149,148 @@ describe('the neighbourhood', () => {
   });
 });
 
-const CHAIN: Chain = {
-  title: 'POST /payments',
-  entry: { id: 'route', kind: 'code.route', label: 'POST /payments', href: '/k/e/route' },
-  lanes: [
-    { id: 'actor', label: 'Caller', sub: 'client', kind: 'actor', href: null, group: 'client' },
-    { id: 'file:routes', label: 'routes.ts', sub: 'services/payments/src/api', kind: 'code.file', href: '/k/e/routes', group: 'payments' },
-    { id: 'file:svc', label: 'payment-service.ts', sub: 'services/payments/src/domain', kind: 'code.file', href: '/k/e/svc', group: 'payments' },
-    { id: 'topic', label: 'payments.events', sub: 'topic', kind: 'code.channel', href: null, group: 'broker' },
-    { id: 'file:consumer', label: 'payments.go', sub: 'services/orders/internal/consumer', kind: 'code.file', href: '/k/e/consumer', group: 'orders' },
+const CONTAINER: DiagramView = {
+  spec: { type: 'c4-container', subject: '' },
+  title: 'Containers',
+  label: 'Containers',
+  elements: [
+    { id: 'code.service:payments', label: 'payments', kind: 'container', detail: 'TypeScript', href: '/k/e/code.service%3Apayments', dashed: false, drill: { spec: { type: 'c4-component', subject: 'code.service:payments' }, title: 'Components' } },
+    { id: 'code.database:payments', label: 'payments', kind: 'database', href: '/k/e/code.database%3Apayments', dashed: false },
+    { id: 'external:x', label: 'card network', kind: 'external', href: null, dashed: true },
   ],
-  steps: [
-    { n: 1, from: 'actor', to: 'file:routes', label: 'POST /payments', kind: 'route', href: '/k/e/route', order: 'source', note: 'middleware: authenticate' },
-    { n: 2, from: 'file:routes', to: 'file:svc', label: 'PaymentService.pay', kind: 'call', href: '/k/e/pay', order: 'source', site: { repo: 'training', path: 'services/payments/src/api/routes.ts', lineStart: 22, lineEnd: 22, href: '/k/src?path=routes.ts&line=22' } },
-    { n: 3, from: 'file:svc', to: 'topic', label: 'publishes payments.events', kind: 'publish', href: null, order: 'source' },
-    { n: 4, from: 'topic', to: 'file:consumer', label: 'Service.ApplyPaymentEvent', kind: 'consume', href: '/k/e/apply', order: 'unordered', note: 'consumes payments.events' },
+  edges: [
+    { from: 'code.service:payments', to: 'code.database:payments', label: 'SQL writes', dashed: false },
+    { from: 'code.service:payments', to: 'external:x', label: 'HTTP', dashed: true, why: 'assumed' },
   ],
-  notes: ['Branches and loops are not modelled.'],
-  total: 4,
+  notes: ['Showing 3 of 3.'],
+  empty: null,
+  marker: null,
+  renderers: ['likec4', 'mermaid', 'archify'],
+  mermaidSource: 'flowchart LR\n  n0["payments"]\n',
+  query: 'type=c4-container&subject=',
 };
+const COMPONENTS: DiagramView = {
+  spec: { type: 'c4-component', subject: 'code.service:payments' },
+  title: 'Components: payments',
+  label: 'Components',
+  elements: [{ id: 'code.module:domain', label: 'src/domain', kind: 'component', detail: '4 files', href: '/k/e/m', dashed: false }],
+  edges: [],
+  notes: [],
+  empty: null,
+  up: { spec: { type: 'c4-container', subject: '' }, title: 'Containers' },
+  marker: null,
+  renderers: ['likec4', 'mermaid', 'archify'],
+  mermaidSource: 'flowchart LR\n  n0["src/domain"]\n',
+  query: 'type=c4-component&subject=code.service%3Apayments',
+};
+const SEQUENCE: DiagramView = {
+  spec: { type: 'sequence', subject: 'domain:payment', entry: 'route' },
+  title: 'Chain: POST /payments',
+  label: 'POST /payments',
+  elements: [{ id: 'lane:Caller', label: 'Caller', kind: 'person', href: null, dashed: true }, { id: 'lane:payments', label: 'payments', kind: 'participant', href: '/k/e/code.service%3Apayments', dashed: false }],
+  edges: [
+    { from: 'lane:Caller', to: 'lane:payments', label: 'POST /payments', dashed: false, step: 1, kind: 'route', href: '/k/e/route', note: 'middleware: authenticate' },
+    { from: 'lane:payments', to: 'lane:payments', label: 'consumes payments.events', dashed: true, why: 'the graph holds no order for this step', step: 2, kind: 'consume', href: null },
+  ],
+  notes: [],
+  empty: null,
+  marker: null,
+  renderers: ['mermaid'],
+  mermaidSource: 'sequenceDiagram\n  participant n0 as Caller\n',
+  query: 'type=sequence&subject=domain%3Apayment&entry=route',
+};
+const viewsBlock = (...views: DiagramView[]): Block => ({ type: 'diagrams', title: 'The system', renderer: 'likec4', views });
 
-/** A chain through three services of four files each, the shape that overflowed a column. */
-function wideChain(): Chain {
-  const lanes: Chain['lanes'] = [{ id: 'actor', label: 'Caller', sub: 'client', kind: 'actor', href: null, group: 'client' }];
-  for (const service of ['checkout', 'orders', 'payments']) for (const file of ['routes', 'handler', 'service', 'repository']) lanes.push({ id: `file:${service}/${file}`, label: `${file}.ts`, sub: service, kind: 'code.file', href: `/k/e/${service}-${file}`, group: service });
-  const steps: Chain['steps'] = [];
-  let n = 0;
-  const step = (from: string, to: string, label: string, kind: Chain['steps'][number]['kind'] = 'call'): void => { n += 1; steps.push({ n, from, to, label, kind, href: `/k/e/${n}`, order: 'source' }); };
-  step('actor', 'file:checkout/routes', 'POST /checkout', 'route');
-  step('file:checkout/routes', 'file:checkout/handler', 'handle');
-  step('file:checkout/handler', 'file:checkout/service', 'CheckoutService.checkout');
-  step('file:checkout/service', 'file:orders/routes', 'POST /orders', 'http');
-  step('file:orders/routes', 'file:orders/handler', 'OrderHandlers.Create');
-  step('file:orders/handler', 'file:orders/service', 'Service.Place');
-  step('file:orders/service', 'file:orders/repository', 'OrderRepository.Create');
-  step('file:orders/service', 'file:orders/service', 'localHelper');
-  step('file:checkout/service', 'file:payments/routes', 'Payments/Authorize', 'grpc');
-  step('file:payments/routes', 'file:payments/service', 'PaymentService.pay');
-  return { title: 'POST /checkout', entry: null, lanes, steps, notes: [], total: steps.length };
-}
-
-describe('the chain fits its column', () => {
-  test('the services with most files fold into one lane until the lanes fit, a step inside a folded lane is counted and not drawn, and the numbers stay', () => {
-    const chain = wideChain();
-    const folded = autoFolded(chain, 800);
-    expect([...folded].sort()).toEqual(['checkout', 'orders']);
-    const view = foldChain(chain, folded, false);
-    expect(view.lanes.map((lane) => lane.label)).toEqual(['Caller', 'checkout', 'orders', 'routes.ts', 'service.ts']);
-    expect(view.inside).toEqual([{ group: 'checkout', count: 2 }, { group: 'orders', count: 4 }]);
-    expect(view.sameFile).toBe(0);
-    expect(view.steps.map((entry) => entry.n)).toEqual([1, 4, 9, 10]);
-    const layout = layoutChain(view, 800);
-    expect(layout.width).toBeLessThanOrEqual(800);
-    for (const lane of view.lanes) expect(layout.laneX.get(lane.id)! + layout.laneW / 2).toBeLessThanOrEqual(layout.width);
+describe('the drawn views', () => {
+  test('the first tab is the setting, every renderer of the type is a tab, and the other tabs are one click away', async () => {
+    const asked: string[] = [];
+    // The model read never answers here: this test is about the tabs and the first one, and a refusal would hand the
+    // view to another renderer while it is being asserted (that hand-over is the next test).
+    (globalThis as { fetch?: unknown }).fetch = (url: string) => {
+      asked.push(String(url));
+      return new Promise<Response>(() => undefined);
+    };
+    const container = into(createElement(BlockView, { block: viewsBlock(CONTAINER), resolutions: {} }));
+    await until(() => container.querySelector('[data-testid=view]') !== null, 'the view');
+    expect([...container.querySelectorAll('[role=tab]')].map((tab) => tab.textContent)).toEqual(['LikeC4', 'Mermaid', 'archify']);
+    expect(container.querySelector('[data-testid=view]')!.getAttribute('data-renderer')).toBe('likec4');
+    // The LikeC4 tab draws inside the page and reads its laid-out model from the server's own frame answer; the
+    // archify tab frames the page the server renders.
+    await until(() => asked.some((url) => url.includes('/api/k/view-frame?type=c4-container&subject=&renderer=likec4&lang=en')), 'the LikeC4 model read');
+    (container.querySelector('[data-testid=renderer-archify]') as HTMLElement).click();
+    await until(() => container.querySelector('iframe')?.getAttribute('src')?.includes('renderer=archify') === true, 'the archify frame');
+    expect(container.querySelector('[data-testid=view]')!.getAttribute('data-renderer')).toBe('archify');
   });
 
-  test('no text of any row leaves the diagram at the widths of the wiki\'s column, with every service open or folded', () => {
-    const chain = wideChain();
-    for (const width of [560, 790, 1100]) {
-      for (const open of [false, true]) {
-        const view = foldChain(chain, open ? new Set() : autoFolded(chain, width), open);
-        const layout = layoutChain(view, width);
-        expect(layout.laneW).toBeGreaterThanOrEqual(MIN_LANE);
-        for (const row of layout.rows) {
-          const left = row.label.anchor === 'middle' ? row.label.x - row.label.width / 2 : row.label.x;
-          expect(left).toBeGreaterThanOrEqual(0);
-          expect(left + row.label.width).toBeLessThanOrEqual(layout.width);
-        }
-        if (!open) expect(layout.width).toBeLessThanOrEqual(width);
-      }
-    }
+  test('a renderer whose model cannot be read hands the view to one that drew, and the page says so in one sentence', async () => {
+    (globalThis as { fetch?: unknown }).fetch = async () => new Response(JSON.stringify({ message: 'no drawing in this test' }), { status: 500 });
+    const container = into(createElement(BlockView, { block: viewsBlock(CONTAINER), resolutions: {} }));
+    await until(() => container.querySelector('[data-testid=renderer-fallback]') !== null, 'the fallback sentence');
+    expect(container.querySelector('[data-testid=view]')!.getAttribute('data-renderer')).toBe('mermaid');
+    expect(container.querySelector('[data-testid=renderer-fallback]')!.textContent).toContain('could not draw this diagram here');
   });
 
-  test('every step is a row of a lane that is drawn: no step of the diagram names a lane that is not there', () => {
-    const chain = wideChain();
-    for (const open of [false, true]) {
-      const view = foldChain(chain, open ? new Set() : autoFolded(chain, 600), open);
-      const ids = new Set(view.lanes.map((lane) => lane.id));
-      for (const entry of view.steps) {
-        expect(ids.has(entry.from)).toBe(true);
-        expect(ids.has(entry.to)).toBe(true);
-      }
-    }
+  test('every drawn view has a full-screen control that toggles and exits on Escape', async () => {
+    const container = into(createElement(BlockView, { block: viewsBlock(CONTAINER), resolutions: {} }));
+    await until(() => container.querySelector('[data-testid=fullscreen-button]') !== null, 'the full-screen control');
+    const button = container.querySelector('[data-testid=fullscreen-button]') as HTMLButtonElement;
+    button.click();
+    await until(() => container.querySelector('[data-testid=fullscreenable]')?.getAttribute('data-fullscreen') === 'true', 'full screen');
+    window.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' }));
+    await until(() => container.querySelector('[data-testid=fullscreenable]')?.getAttribute('data-fullscreen') === 'false', 'exit full screen');
   });
 
-  test('the diagram says how many steps are folded and offers all of them; opening shows the files and the same-file steps', async () => {
-    Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, get: () => 600 });
-    try {
-      const block: Block = { type: 'sequence', title: 'End-to-end chain', scenario: 'x', chains: [wideChain()], entries: 1, notes: [] };
-      const container = into(createElement(BlockView, { block, resolutions: {} }));
-      await until(() => container.querySelector('[data-testid=chain-step]') !== null, 'the steps');
-      const drawn = (): number => container.querySelectorAll('[data-testid=chain-step]').length;
-      await until(() => drawn() === 3, 'the diagram fitted to the column');
-      expect(container.querySelector('[data-testid=chain-folded]')!.textContent).toBe('7 steps inside one lane or one file are folded.');
-      const all = container.querySelector('[data-testid=chain-show-all]') as unknown as HTMLElement;
-      expect(all.textContent).toBe('Show all 10 steps');
-      all.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-      await until(() => drawn() === 10, 'all the steps');
-      expect(container.querySelector('[data-testid=chain-scroll]')!.className).toContain('dg-scrolls');
-      (container.querySelector('[data-testid=chain-fit]') as unknown as HTMLElement).dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-      await until(() => drawn() === 3, 'the fitted diagram again');
-    } finally {
-      delete (HTMLElement.prototype as { clientWidth?: unknown }).clientWidth;
-    }
+  test('a sequence has the one renderer that draws it, and the steps are a list: numbered, linked, the unordered one marked', async () => {
+    const container = into(createElement(BlockView, { block: viewsBlock(SEQUENCE), resolutions: {} }));
+    await until(() => container.querySelector('[data-testid=view-steps]') !== null, 'the steps');
+    expect([...container.querySelectorAll('[role=tab]')].map((tab) => tab.textContent)).toEqual(['Mermaid']);
+    const steps = [...container.querySelectorAll('[data-testid=view-step]')];
+    expect(steps).toHaveLength(2);
+    expect(steps[0]!.querySelector('a')!.getAttribute('href')).toBe('/k/e/route');
+    expect(steps[0]!.textContent).toContain('middleware: authenticate');
+    expect(steps[1]!.getAttribute('data-dashed')).toBe('true');
+    expect(container.querySelector('[data-testid=view-why]')!.textContent).toContain('the graph holds no order for this step');
+  });
+
+  test('an element links to its page; one that stands for a level below opens it in place, and the way up comes back', async () => {
+    const asked: string[] = [];
+    (globalThis as { fetch?: unknown }).fetch = async (url: string) => {
+      asked.push(String(url));
+      return new Response(JSON.stringify({ views: [COMPONENTS] }), { status: 200 });
+    };
+    const container = into(createElement(BlockView, { block: viewsBlock(CONTAINER), resolutions: {} }));
+    await until(() => container.querySelector('[data-testid=view-drill]') !== null, 'the drill-down');
+    const rows = [...container.querySelectorAll('[data-testid=view-element]')];
+    expect(rows[0]!.querySelector('a')!.getAttribute('href')).toBe('/k/e/code.service%3Apayments');
+    expect(rows[2]!.getAttribute('data-dashed')).toBe('true');
+    (container.querySelector('[data-testid=view-drill]') as HTMLElement).click();
+    await until(() => container.querySelector('[data-testid=view-title]')?.textContent === 'Components: payments', 'the components view');
+    // The drill-down asks the server for the view; the LikeC4 tab reads its own model frame beside it.
+    expect(asked.filter((url) => url.startsWith('/api/k/view?'))).toEqual(['/api/k/view?type=c4-component&subject=code.service%3Apayments&lang=en']);
+    (container.querySelector('[data-testid=view-up]') as HTMLElement).click();
+    await until(() => container.querySelector('[data-testid=view-title]')?.textContent === 'Containers', 'the way back up');
+  });
+
+  test('a view switcher appears when a block holds several views, and a failed drill-down says why', async () => {
+    (globalThis as { fetch?: unknown }).fetch = async () => new Response(JSON.stringify({ message: 'no module here' }), { status: 404 });
+    const container = into(createElement(BlockView, { block: viewsBlock(CONTAINER, COMPONENTS), resolutions: {} }));
+    await until(() => container.querySelector('[data-testid=view-switcher]') !== null, 'the switcher');
+    (container.querySelector('[data-testid=view-drill]') as HTMLElement).click();
+    await until(() => container.querySelector('[data-testid=diagram-failure]') !== null, 'the failure');
+    expect(container.querySelector('[data-testid=diagram-failure]')!.textContent).toContain('no module here');
+    (container.querySelectorAll('[data-testid=view-tab]')[1] as HTMLElement).click();
+    await until(() => container.querySelector('[data-testid=view-title]')?.textContent === 'Components: payments', 'the second view');
+  });
+
+  test('a click on a Mermaid node opens the page of the element the node stands for', () => {
+    const root = document.createElement('div');
+    root.innerHTML = '<svg><g id="flowchart-n0-3" class="node"><rect/></g><g id="flowchart-n2-5" class="node"><rect/></g></svg>';
+    const opened: string[] = [];
+    const undo = bindMermaid(root, CONTAINER.elements, 'c4-container', (href) => opened.push(href));
+    (root.querySelector('#flowchart-n0-3') as unknown as HTMLElement).dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    (root.querySelector('#flowchart-n2-5') as unknown as HTMLElement).dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+    expect(opened).toEqual(['/k/e/code.service%3Apayments']);
+    undo();
   });
 });
 
@@ -271,94 +311,6 @@ describe('a deferred diagram', () => {
     const failed = into(createElement(BlockView, { block, resolutions: {}, pageId: 'code.symbol:x' }));
     await until(() => failed.querySelector('[data-testid=diagram-failure]') !== null, 'the failure');
     expect(failed.querySelector('[data-testid=diagram-failure]')!.textContent).toContain('no block at line 7');
-  });
-});
-
-describe('the chain', () => {
-  test('every step is a link, a step with a site links its number to the code, and what the graph does not order is drawn below a dashed line that says so', async () => {
-    const block: Block = { type: 'sequence', title: 'End-to-end chain', scenario: 'Payment', chains: [CHAIN], entries: 1, notes: [] };
-    const container = into(createElement(BlockView, { block, resolutions: {} }));
-    await until(() => container.querySelector('[data-testid=chain-step]') !== null, 'the steps');
-    expect(container.querySelector('[data-testid=scenario]')!.textContent).toBe('Scenario: Payment');
-    const steps = [...container.querySelectorAll('[data-testid=chain-step]')];
-    expect(steps).toHaveLength(4);
-    expect(steps[1]!.querySelectorAll('a')).toHaveLength(2);
-    expect(steps[1]!.querySelectorAll('a')[1]!.getAttribute('href')).toBe('/k/src?path=routes.ts&line=22');
-    expect(steps[2]!.querySelector('a')).toBeNull();
-    expect(container.querySelector('[data-testid=chain-unordered]')!.textContent).toContain('holds no order');
-    expect(container.querySelectorAll('[data-testid=chain-lane]')).toHaveLength(5);
-    expect([...container.querySelectorAll('[data-testid=chain-group]')].map((group) => group.textContent)).toEqual(['client', '− payments', 'broker', 'orders']);
-    expect(container.querySelector('.dg-notes')!.textContent).toBe('Branches and loops are not modelled.');
-  });
-
-  test('no two labels of the chain overlap, and each stays inside the diagram', () => {
-    const layout = layoutChain(CHAIN, 0);
-    const boxes = layout.rows.map((row) => {
-      const left = row.label.anchor === 'middle' ? row.label.x - row.label.width / 2 : row.label.x;
-      return { left, right: left + row.label.width, y: row.y };
-    });
-    for (const a of boxes) {
-      expect(a.left).toBeGreaterThanOrEqual(0);
-      expect(a.right).toBeLessThanOrEqual(layout.width);
-      for (const b of boxes) if (a !== b) expect(a.y !== b.y || a.right <= b.left || b.right <= a.left).toBe(true);
-    }
-    expect(layout.separator).not.toBeNull();
-    expect(layout.separator!.y).toBeGreaterThan(layout.rows[2]!.y);
-    expect(layout.separator!.y).toBeLessThan(layout.rows[3]!.y);
-  });
-
-  test('a scenario no route reaches says so', async () => {
-    const block: Block = { type: 'sequence', title: 'End-to-end chain', scenario: 'x', chains: [], entries: 0, notes: [] };
-    const container = into(createElement(BlockView, { block, resolutions: {} }));
-    await until(() => container.querySelector('[data-testid=diagram-empty]') !== null, 'the note');
-    expect(container.querySelector('[data-testid=diagram-empty]')!.textContent).toContain('No route or function of the graph leads here');
-  });
-});
-
-describe('the system and module views', () => {
-  test('the system view draws the services, the database and the topic with the link of each kind told by a word on its line and a legend', async () => {
-    const block: Block = {
-      type: 'system', title: 'The system', notes: [],
-      nodes: [
-        { id: 's:checkout', kind: 'service', label: 'checkout', sub: 'typescript', href: '/k/e/checkout' },
-        { id: 's:orders', kind: 'service', label: 'orders', sub: 'go · Kafka, Postgres', href: '/k/e/orders' },
-        { id: 'db:orders', kind: 'database', label: 'orders', sub: 'database', href: null },
-        { id: 'topic:ev', kind: 'topic', label: 'orders.events', sub: 'topic', href: null },
-      ],
-      edges: [
-        { from: 's:checkout', to: 's:orders', via: 'http', label: 'POST /orders', count: 2 },
-        { from: 's:orders', to: 'db:orders', via: 'sql', label: 'reads, writes', count: 3 },
-        { from: 's:orders', to: 'topic:ev', via: 'publishes', label: 'publishes', count: 1 },
-      ],
-    };
-    const container = into(createElement(BlockView, { block, resolutions: {} }));
-    await until(() => container.querySelector('[data-testid=system-node]') !== null, 'the nodes');
-    expect(container.querySelectorAll('[data-testid=system-node]')).toHaveLength(4);
-    expect([...container.querySelectorAll('[data-testid=system-edge-label] text')].map((text) => text.textContent)).toEqual(['HTTP POST /orders', 'SQL · reads, writes', 'publishes']);
-    expect(container.querySelector('[data-testid=system-node] a')!.getAttribute('href')).toBe('/k/e/checkout');
-    expect(container.querySelector('[data-testid=system-legend]')!.textContent).toContain('HTTP');
-  });
-
-  test('the module view marks the modules and the edges of a cycle and names the cycle', async () => {
-    const block: Block = {
-      type: 'modules', title: 'Modules', service: 'payments', notes: [],
-      nodes: [
-        { id: 'm:domain', label: 'src/domain', files: 3, href: '/k/e/domain', cycle: true },
-        { id: 'm:events', label: 'src/events', files: 1, href: '/k/e/events', cycle: true },
-        { id: 'm:api', label: 'src/api', files: 3, href: '/k/e/api', cycle: false },
-      ],
-      edges: [
-        { from: 'm:api', to: 'm:domain', cycle: false },
-        { from: 'm:domain', to: 'm:events', cycle: true },
-        { from: 'm:events', to: 'm:domain', cycle: true },
-      ],
-      cycles: [['m:domain', 'm:events']],
-    };
-    const container = into(createElement(BlockView, { block, resolutions: {} }));
-    await until(() => container.querySelector('[data-testid=module-node]') !== null, 'the nodes');
-    expect([...container.querySelectorAll('[data-testid=module-node][data-cycle=true]')]).toHaveLength(2);
-    expect(container.querySelectorAll('path.dg-cycle')).toHaveLength(2);
-    expect(container.querySelector('[data-testid=cycle]')!.textContent).toBe('Cycle: src/domain ⇄ src/events');
   });
 });
 

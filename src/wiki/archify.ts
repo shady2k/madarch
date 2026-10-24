@@ -39,6 +39,15 @@ const TYPE_BY_KIND: Record<string, string> = {
   column: 'backend',
   state: 'backend',
   table: 'database',
+  // The knowledge wiki's views (src/knowledge/views.ts) draw the graph's containers with these looks.
+  database: 'database',
+  channel: 'messagebus',
+  node: 'cloud',
+  image: 'cloud',
+  container: 'backend',
+  component: 'backend',
+  participant: 'backend',
+  product: 'cloud',
 };
 
 /** The one kind that gets an icon: a person is drawn as one. */

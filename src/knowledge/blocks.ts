@@ -1,7 +1,7 @@
 /**
- * The block library (decision 0029): `body`, `related`, `callers`, `callees`,
- * `source` and `er`; the diagram blocks (`graph`, `sequence`, `system`,
- * `modules`, `treemap`) are `diagrams.ts`. The engine owns the blocks; a
+ * The block library (decision 0029): `body`, `related`, `callers`, `callees`
+ * and `source`; the diagram blocks (`graph`, `treemap`) are `diagrams.ts` and
+ * the drawn views (`system`, `modules`, `er`, `sequence`) are `views.ts`. The engine owns the blocks; a
  * template arranges them. Each block reads the graph or the Markdown and
  * answers a shape of `model.ts`, or a `problem` block that says why it could
  * not, with the template's file and line.
@@ -96,12 +96,6 @@ const toInt = (value: string | undefined, fallback: number, min: number, max: nu
 };
 
 const list = (value: string | undefined): string[] | undefined => (value === undefined ? undefined : value.split(',').map((entry) => entry.trim()).filter(Boolean));
-
-/** Mermaid text of a label: no quote or line break can end the string. */
-function mermaidLabel(text: string, max = 44): string {
-  const flat = text.replace(/["`\n\r\\]/g, "'").replace(/[<>]/g, '');
-  return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
-}
 
 /** A relation type as a reader reads it on an edge: the extractor prefix dropped. */
 export function relationWord(relation: string): string {
@@ -316,56 +310,6 @@ export async function sourceBlock(ctx: RenderContext, subject: Subject, params: 
     text: lines.slice(span.lineStart - 1, stop).join('\n'),
     truncated: stop < end,
   };
-}
-
-// ---- er ---------------------------------------------------------------------------------------
-
-const ER_TYPE = (type: unknown): string => {
-  const word = String(type ?? 'text').trim().replace(/\s+/g, '_').replace(/[^A-Za-z0-9_(),-]/g, '');
-  return word === '' ? 'text' : word;
-};
-
-export async function erBlock(ctx: RenderContext, subject: Subject, params: Readonly<Record<string, string>>, file: string, line: number): Promise<Block> {
-  if (subject.source !== 'graph') return { type: 'problem', block: 'er', file, line, message: 'the er block draws tables of the graph; the entities of this kind are Markdown pages' };
-  const entity = subject.entity;
-  const title = params['title'] ?? 'Tables';
-  const limit = toInt(params['limit'], 12, 1, 40);
-  let tables: GraphEntity[];
-  let total: number;
-  if (entity.kind === 'code.database') {
-    const found = await ctx.graph.byPrefix('code.table', `code.table:${entity.key.slice(entity.key.indexOf(':') + 1)}/`, limit);
-    tables = found.rows;
-    total = found.total;
-  } else if (entity.kind === 'code.table') {
-    tables = [entity];
-    total = 1;
-  } else {
-    return { type: 'problem', block: 'er', file, line, message: `the er block draws a database or a table, and this is a ${entity.kind}` };
-  }
-  if (tables.length === 0) return { type: 'er', title, mermaid: '', tables: 0, shownTables: 0, links: [] };
-  const out: string[] = ['erDiagram'];
-  const nameOf = (table: GraphEntity): string => mermaidLabel(table.label, 40).replace(/\s/g, '_');
-  const inDiagram = new Set(tables.map((table) => table.key));
-  for (const table of tables) {
-    const columns = await ctx.graph.byPrefix('code.column', `${table.key}/`, 40);
-    out.push(`  "${nameOf(table)}" {`);
-    for (const column of columns.rows) {
-      const marks = [column.properties['primaryKey'] === true ? 'PK' : '', column.properties['unique'] === true ? 'UK' : ''].filter(Boolean).join(',');
-      out.push(`    ${ER_TYPE(column.properties['type'])} ${mermaidLabel(column.label, 40).replace(/\s/g, '_')}${marks === '' ? '' : ` ${marks}`}`);
-    }
-    out.push('  }');
-  }
-  const edges = new Set<string>();
-  for (const table of tables) {
-    for (const group of await ctx.graph.neighbors(table, { relations: ['code.foreign-key'], direction: 'out', limit: 40 })) {
-      for (const row of group.rows) {
-        if (!inDiagram.has(row.entity.key)) continue;
-        edges.add(`  "${nameOf(table)}" }o--|| "${nameOf(row.entity)}" : "foreign key"`);
-      }
-    }
-  }
-  out.push(...[...edges].sort(byCodePoint));
-  return { type: 'er', title, mermaid: out.join('\n'), tables: total, shownTables: tables.length, links: tables.map((table) => refOfGraph(ctx, table)) };
 }
 
 // ---- properties -------------------------------------------------------------------------------

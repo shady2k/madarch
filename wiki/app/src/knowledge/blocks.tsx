@@ -14,7 +14,6 @@ import remarkGfm from 'remark-gfm';
 import { useTranslation } from 'react-i18next';
 import { ExternalLinkIcon, FileCode2Icon } from 'lucide-react';
 import { appPath } from '../app-base.js';
-import { MermaidDiagram } from '../diagram.js';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert.js';
 import { Badge } from '@/components/ui/badge.js';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.js';
@@ -23,9 +22,8 @@ import { getBlock } from './api.js';
 import { highlight } from './highlight.js';
 import { colorize, type ColoredToken } from './shiki.js';
 import { PendingPages } from './pending.js';
-import { ModulesView, SystemView } from './diagrams/system.js';
+import { DiagramsView } from './diagrams/views.js';
 import { NeighborhoodGraph } from './diagrams/neighborhood.js';
-import { SequenceView } from './diagrams/chain.js';
 import { TreemapView } from './diagrams/treemap.js';
 import { useKindName } from './kind-names.js';
 import { addressOfDocument, addressOfStatement, addressOfTask, K_PROBLEMS } from './routes.js';
@@ -471,33 +469,11 @@ function Source({ block }: { block: Extract<Block, { type: 'source' }> }): React
 
 // ---- diagrams -----------------------------------------------------------------------------------
 
-function Diagram({ title, mermaid, caption, empty, links = [] }: { title: string; mermaid: string; caption: string | null; empty: string; links?: readonly EntityRef[] }): ReactElement {
-  if (mermaid === '') {
-    return (
-      <section data-block="diagram" aria-label={title}>
-        <h2>{title}</h2>
-        <p className="text-small text-muted" data-testid="diagram-empty">{empty}</p>
-      </section>
-    );
-  }
-  return (
-    <section data-block="diagram" aria-label={title}>
-      <h2>{title}</h2>
-      <figure className="m-0">
-        <MermaidDiagram source={mermaid} title={title} />
-        {links.length > 0 && <ul className="dg-links" data-testid="diagram-links">{links.map((entity) => <li key={entity.id}><EntityName entity={entity} /></li>)}</ul>}
-        {caption !== null && <figcaption className="mt-1.5 text-small text-muted">{caption}</figcaption>}
-      </figure>
-    </section>
-  );
-}
-
-
 /** An instant as the wiki writes dates: the day and the time in the reader's language, the raw text where it is no date. */
 function when(value: string, language: string): string {
   const instant = new Date(value);
   if (Number.isNaN(instant.getTime())) return value;
-  return new Intl.DateTimeFormat(language, {dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC'}).format(instant);
+  return new Intl.DateTimeFormat(language, { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' }).format(instant);
 }
 
 function Properties({ block }: { block: Extract<Block, { type: 'properties' }> }): ReactElement | null {
@@ -724,13 +700,10 @@ export function BlockView({ block, resolutions, pageId }: { block: Block; resolu
     case 'callees': return <Calls block={block} />;
     case 'source': return <Source block={block} />;
     case 'graph': return <NeighborhoodGraph block={block} />;
-    case 'sequence': return <SequenceView block={block} />;
-    case 'system': return <SystemView block={block} />;
-    case 'modules': return <ModulesView block={block} />;
+    case 'diagrams': return <DiagramsView block={block} />;
     case 'treemap': return <TreemapView block={block} />;
     case 'history': return <History block={block} />;
     case 'definition': return <Definition block={block} />;
-    case 'er': return <Diagram title={block.title} mermaid={block.mermaid} empty={t('knowledge.noTables')} caption={block.tables > block.shownTables ? t('knowledge.showing', { shown: block.shownTables, total: block.tables }) : null} links={block.links} />;
     case 'deferred': return <Deferred block={block} resolutions={resolutions} {...(pageId === undefined ? {} : { pageId })} />;
     case 'problem': return <Problem block={block} />;
   }

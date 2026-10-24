@@ -24,7 +24,7 @@
  * bytes on every machine, the node ids are the elements' own positions in the
  * model's code point order, and nothing here reads the clock.
  */
-import type { DiagramElement, DiagramEdge, DiagramModel } from '../fill/diagrams.js';
+import type { ShapeDiagram as DiagramModel, ShapeEdge as DiagramEdge, ShapeElement as DiagramElement } from './diagram-shape.js';
 
 /** Mermaid's straight-line flowchart setting, the one the wiki's own Mermaid pages carry (views/mermaid). */
 const STRAIGHT = '%%{init: {"flowchart": {"curve": "linear"}}}%%';
@@ -40,6 +40,14 @@ const SHAPES: Readonly<Record<string, readonly [string, string]>> = {
   'repository': ['[[', ']]'],
   'state': ['([', '])'],
   'table': ['[(', ')]'],
+  'database': ['[(', ')]'],
+  'channel': ['>', ']'],
+  'person': ['([', '])'],
+  'external': ['[/', '/]'],
+  'node': ['[[', ']]'],
+  'image': ['(', ')'],
+  'domain': ['[[', ']]'],
+  'product': ['[[', ']]'],
 };
 const BOX: readonly [string, string] = ['[', ']'];
 
@@ -79,7 +87,17 @@ export function mermaidOfDiagram(model: DiagramModel): string {
     return ['sequenceDiagram', ...nodes.map((node) => `  participant ${node.id} as ${text(participantLabelOf(node.element))}`), ...arrows].join('\n').concat('\n');
   }
   const lines = [STRAIGHT, 'flowchart LR'];
-  for (const node of nodes) lines.push(`  ${nodeBox(node)}`);
+  // An element that holds others is a frame around them (a subgraph); the others stand in the order the model has them.
+  const holders = new Set(nodes.map((node) => node.element.parent).filter((parent): parent is string => parent !== undefined));
+  const members = (parent: string | undefined): Node[] => nodes.filter((node) => node.element.parent === parent);
+  const draw = (node: Node, indent: string): void => {
+    if (holders.has(node.element.id)) {
+      lines.push(`${indent}subgraph ${node.id}["${text(node.element.label)}"]`);
+      for (const member of members(node.element.id)) draw(member, `${indent}  `);
+      lines.push(`${indent}end`);
+    } else lines.push(`${indent}${nodeBox(node)}`);
+  };
+  for (const node of members(undefined)) draw(node, '  ');
   for (const arrow of arrows) lines.push(`  ${arrow}`);
   if (dashed.length > 0) {
     lines.push(`  classDef ${ASSUMPTION_CLASS} stroke-dasharray: 5 5`);
