@@ -14,6 +14,7 @@
 import { CALLS } from '../graph/vocabulary.js';
 import { byCodePoint } from '../model/order.js';
 import type { DocEntity, DocumentSource } from './doc-entities.js';
+import { detectDocumentLanguage } from '../writer/localized-source.js';
 import type { KindCount, RelyingStatement } from './index/queries.js';
 import type { GraphEntity, GraphReader, SourceSpan } from './graph-read.js';
 import type { KindsManifest } from './kinds.js';
@@ -31,6 +32,10 @@ export interface RenderContext {
   markdown: ReadonlyMap<string, MarkdownEntity>;
   /** The entities of the manifest's document kinds, by id. */
   docEntities: ReadonlyMap<string, DocEntity>;
+  /** The validated product-repository translation for an extracted document entity, by id. */
+  localizedSources: ReadonlyMap<string, import('../writer/localized-source.js').LocalizedDocumentSource>;
+  /** The current product wiki language, used when rendering document entities. */
+  language: string;
   /** The Markdown documents the entities were read from (the product repository's and the code repositories'). */
   documents: readonly DocumentSource[];
   /** The names of the code repositories, in the order documents are searched. */
@@ -182,9 +187,20 @@ export function attributeOf(subject: Subject, name: string): string | undefined 
 
 // ---- body -------------------------------------------------------------------------------------
 
-export function bodyBlock(subject: Subject, block: string, file: string, line: number): Block {
-  // A document entity's text is the section of the document that names it.
-  if (subject.source === 'document') return { type: 'body', markdown: subject.entity.text, file: subject.entity.path, statements: 0, ungrounded: [] };
+export function bodyBlock(ctx: RenderContext, subject: Subject, block: string, file: string, line: number): Block {
+  // A document entity's identity and source remain those of the original document; a valid translation is only its reader-facing statement.
+  if (subject.source === 'document') {
+    const source = ctx.localizedSources.get(subject.entity.id);
+    const sourceLanguage = detectDocumentLanguage(subject.entity.text);
+    const needsLocalization = sourceLanguage !== ctx.language;
+    if (needsLocalization && source === undefined) return { type: 'problem', block, file: subject.entity.path, line: subject.entity.line, message: `no valid localized statement for ${subject.entity.id} in ${ctx.language}; see the localized-source finding for its file and line` };
+    const sameLanguage = source !== undefined && source.sourceLanguage === ctx.language;
+    return {
+      type: 'body', markdown: source === undefined || sameLanguage ? subject.entity.text : source.statement,
+      file: subject.entity.path, statements: 0, ungrounded: [],
+      ...(source === undefined || sameLanguage ? {} : { localized: { statement: source.statement, original: source.original, sourceDocument: source.sourceDocument, sourceLine: source.sourceLine, sourceEndLine: source.sourceEndLine } }),
+    };
+  }
   if (subject.source !== 'markdown') {
     return { type: 'problem', block, file, line, message: 'the body block shows the Markdown of a page; the entities of this kind come from the graph and have none' };
   }

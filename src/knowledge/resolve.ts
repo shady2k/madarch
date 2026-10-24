@@ -46,7 +46,9 @@ export function documentAddress(repo: string | null, path: string, anchor?: stri
 const isMarkdownPath = (path: string): boolean => /\.(md|markdown)$/i.test(path);
 
 /** What is said of a key that names nothing. */
-export const noEntityMessage = (key: string): string => `no entity "${key}" in the graph or among the product's Markdown pages`;
+export const noEntityMessage = (key: string, language?: string): string => (language === 'ru'
+  ? `сущности "${key}" нет ни в графе, ни среди Markdown-страниц продукта`
+  : `no entity "${key}" in the graph or among the product's Markdown pages`);
 
 export interface ResolverDeps {
   graph: GraphReader;

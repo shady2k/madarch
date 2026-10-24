@@ -22,7 +22,7 @@ import { readBody } from './markdown.js';
 import type { DocEntity } from './doc-entities.js';
 import type { MarkdownEntity } from './markdown.js';
 import type { Block, EntityListing, EntityRef, KindSummary, PageModel } from './model.js';
-import { documentAddress, type Resolution } from './resolve.js';
+import { documentAddress, noEntityMessage, type Resolution } from './resolve.js';
 import { parseTemplate, substitute } from './template.js';
 import { termLinks } from './glossary.js';
 
@@ -48,7 +48,7 @@ const DEFERRED_BLOCKS: ReadonlySet<string> = new Set(['graph', 'sequence', 'syst
 
 export async function renderPage(ctx: RenderContext, id: string, lang?: string, options: { defer?: boolean; only?: number } = {}): Promise<PageResult> {
   const located = await findSubject(ctx, id);
-  if (located === undefined) return { ok: false, status: 404, message: `no entity "${id}" in the graph or among the product's Markdown pages` };
+  if (located === undefined) return { ok: false, status: 404, message: noEntityMessage(id, lang ?? ctx.language) };
   const { subject } = located;
   const decl = ctx.manifest.kinds.get(kindOf(subject));
   if (decl === undefined) {
@@ -144,7 +144,7 @@ function titleOf(subject: Subject, attribute: string): string {
 
 async function renderBlock(ctx: RenderContext, subject: Subject, name: string, params: Readonly<Record<string, string>>, file: string, line: number): Promise<Block> {
   switch (name) {
-    case 'body': return bodyBlock(subject, name, file, line);
+    case 'body': return bodyBlock(ctx, subject, name, file, line);
     case 'graph': return await graphBlock(ctx, subject, params);
     case 'system': return await systemBlock(ctx, params);
     case 'modules': return await modulesBlock(ctx, subject, params, file, line);
@@ -159,7 +159,7 @@ async function renderBlock(ctx: RenderContext, subject: Subject, name: string, p
     case 'sequence': return await sequenceBlock(ctx, subject, params, file, line);
     case 'children': return await childrenBlock(ctx, subject, params, file, line);
     case 'properties': return propertiesBlock(subject, params, file, line);
-    case 'term': return termBlock(subject, params, file, line);
+    case 'term': return termBlock(ctx, subject, params, file, line);
     case 'stated': return statedBlock(ctx, subject, params, file, line);
     case 'implementedby': return await implementedByBlock(ctx, subject, params, file, line);
     case 'linkedfrom': return await linkedFromBlock(ctx, subject, params, file, line);
