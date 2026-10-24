@@ -541,7 +541,7 @@ function History({ block }: { block: Extract<Block, { type: 'history' }> }): Rea
       ))}
       {block.notes.length > 0 && (
         <ul className="mt-1.5 text-small text-muted" data-testid="history-notes">
-          {block.notes.map((note, index) => <li key={index}>{note}</li>)}
+          {block.notes.map((note, index) => <li key={index}>{t(`knowledge.historyNote.${note.key}`, note.args ?? {})}</li>)}
         </ul>
       )}
     </section>

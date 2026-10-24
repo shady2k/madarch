@@ -31,6 +31,9 @@ export type HistoryRow = {
 /** One list of a history block: the commits it shows, or the files they touched. */
 export type HistorySection = { role: 'commits' | 'files'; total: number; rows: HistoryRow[] };
 
+/** One note under a history block (the engine's `HistoryNote`): a key the app writes in the reader's language. */
+export type HistoryNote = { key: 'manyCommits' | 'manyFiles' | 'noCounts' | 'merge' | 'noFiles' | 'partialFiles'; args?: Record<string, string | number> };
+
 /** One member of a contract's definition (the engine's `DefinitionMember`). */
 export type DefinitionMember = { anchor: string; label: string; detail?: string; href: string | null; badge?: string; detailTotal?: number };
 
@@ -82,7 +85,7 @@ type BlockShape =
   | { type: 'properties'; title: string; rows: { name: string; value: string }[] }
   | { type: 'stated'; title: string; place: { repo: string | null; path: string; lineStart: number; lineEnd: number; href: string; commit: string | null } }
   | { type: 'definition'; title: string; format: string; contract: string; location?: CodeLocation; members: DefinitionMember[]; membersTotal: number; membersShown: number; memberCuts: { channel: string; total: number; shown: number }[]; spec: { text: string; lines: number } }
-  | { type: 'history'; title: string; sections: HistorySection[]; notes: string[] }
+  | { type: 'history'; title: string; sections: HistorySection[]; notes: HistoryNote[] }
   | { type: 'deferred'; block: string; title: string; line: number }
   | { type: 'problem'; block: string; message: string; file: string; line: number };
 

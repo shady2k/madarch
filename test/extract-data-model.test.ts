@@ -162,8 +162,11 @@ describe('data-model extractor (training repository, answer key)', () => {
   });
 
   test('each ALTER TABLE operation links its migration to the table once with a stable discriminator', () => {
-    // A column's key opens with `code.table:` too (`code.table:<db>/<table>/<column>`): a table's key holds one slash.
-    const tableEdges = extraction.edges.filter((edge) => edge.type === 'code.alters' && edge.to.startsWith('code.table:') && !edge.to.slice('code.table:'.length).includes('/'));
+    // A column's key opens with `code.table:` too (`code.table:<db>/<table>/<column>`): a table's key holds one slash,
+    // a column's holds two (madarch-m38l.16).
+    const slashes = (key: string): number => key.slice(key.indexOf(':') + 1).split('/').length - 1;
+    const tableEdges = extraction.edges.filter((edge) => edge.type === 'code.alters' && edge.to.startsWith('code.table:') && slashes(edge.to) === 1);
+    expect(tableEdges.length).toBeGreaterThan(0);
     const identities = tableEdges.map((edge) => `${edge.from}|${edge.to}|${edge.discriminator}`);
     expect(new Set(identities).size).toBe(identities.length);
     expect(tableEdges.every((edge) => edge.properties['object'] === 'table')).toBe(true);

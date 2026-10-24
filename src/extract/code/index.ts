@@ -104,6 +104,7 @@ export async function extractCode(reader: TreeReader): Promise<Extraction> {
   };
 
   // ---- the manifests ------------------------------------------------------------
+  const moduleFirstFile = new Map<string, string>();
   const manifests: Manifest[] = [];
   const goModules: { folder: string; module: string }[] = [];
   for (const path of reader.paths) {
@@ -496,6 +497,7 @@ export async function extractCode(reader: TreeReader): Promise<Extraction> {
     const allTests = members.every((file) => file.source.role !== 'code');
     // A module's place is its first member's file, in code point order: a folder has no line of its own.
     const declaredIn = [...paths].sort(byCodePoint)[0];
+    if (declaredIn !== undefined) moduleFirstFile.set(moduleKey(folder), declaredIn);
     addNode({
       key: moduleKey(folder),
       kind: KIND_MODULE,
@@ -568,8 +570,11 @@ export async function extractCode(reader: TreeReader): Promise<Extraction> {
       for (const from of component) for (const to of [...(graph.get(from) ?? [])].sort(byCodePoint)) if (inside.has(to)) internal.push(`${from} -> ${to}`);
       if (level === 'file') fileCycleFolders.push(new Set(component.map((member) => moduleKey(folderOf(member.slice(member.indexOf(':') + 1))))));
       const key = cycleKey(level, component);
-      const first = [...component].sort(byCodePoint)[0];
-      addNode({ key, kind: KIND_CYCLE, label: component.map((member) => member.slice(member.indexOf(':') + 1)).join(' <-> '), ...(first === undefined ? {} : {span: {path: first.slice(first.indexOf(':') + 1), byteStart: 0, byteEnd: 0, lineStart: 1, lineEnd: 1}}), properties: { level, size: component.length, members: component, edges: internal } });
+      // A file cycle names its first file; a module cycle names the first file of its first module, because a folder is no
+      // file to open (madarch-m38l.16).
+      const member = [...component].sort(byCodePoint)[0];
+      const path = level === 'file' ? member?.slice(member.indexOf(':') + 1) : member === undefined ? undefined : moduleFirstFile.get(member);
+      addNode({ key, kind: KIND_CYCLE, label: component.map((member) => member.slice(member.indexOf(':') + 1)).join(' <-> '), ...(path === undefined ? {} : {span: {path, byteStart: 0, byteEnd: 0, lineStart: 1, lineEnd: 1}}), properties: { level, size: component.length, members: component, edges: internal } });
       for (const member of component) addEdge({ type: REL_CYCLE_MEMBER, from: key, to: member, discriminator: '', properties: {} });
     }
   };

@@ -7,6 +7,7 @@
  * Every member carries an anchor, so an operation page can open the definition at its own operation, and the raw text
  * says how many lines it holds when the page shows only the first of them.
  */
+import { createHash } from 'node:crypto';
 import { byCodePoint } from '../model/order.js';
 import type { GraphEntity } from './graph-read.js';
 import type { Block, DefinitionMember } from './model.js';
@@ -20,14 +21,19 @@ const SPEC_LIMIT = 400;
 
 const textOf = (value: unknown): string | undefined => (typeof value === 'string' && value !== '' ? value : undefined);
 
-/** The anchor of one member: what identifies it inside its contract, made safe for a fragment. */
+/** The anchor of one member: its identity made safe for a fragment, with a short digest so two members never share one. */
 function anchorOf(prefix: string, rest: string): string {
-  return `${prefix}-${rest.replace(/[^A-Za-z0-9_.:/-]+/gu, '-')}`;
+  const safe = rest.replace(/[^A-Za-z0-9_.:/-]+/gu, '-');
+  const digest = createHash('sha256').update(rest).digest('hex').slice(0, 8);
+  return `${prefix}-${safe}-${digest}`;
 }
 
 /** The members one contract declares, in the order its format reads best: operations by path, channels by name. */
 async function membersOf(ctx: RenderContext, contract: GraphEntity): Promise<{ members: DefinitionMember[]; total: number; shown: number; cuts: { channel: string; total: number; shown: number }[] }> {
+  // Only the members the table draws are read: a message is a channel's own row, and it would count against the cut
+  // without ever being shown (codex review, madarch-m38l.16).
   const declared = await ctx.graph.neighbors(contract, { relations: ['code.declares'], direction: 'out', limit: 500 });
+  const renderable = declared.map((group) => ({...group, rows: group.rows.filter((row) => row.entity.kind === 'code.operation' || row.entity.kind === 'code.channel')}));
   const members: DefinitionMember[] = [];
   const total = declared.reduce((sum, group) => sum + group.total, 0);
   const shown = declared.reduce((sum, group) => sum + group.rows.length, 0);

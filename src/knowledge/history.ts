@@ -12,7 +12,7 @@
  */
 import { byCodePoint } from '../model/order.js';
 import type { GraphEntity } from './graph-read.js';
-import type { Block, HistoryFigure, HistoryRow, HistorySection } from './model.js';
+import type { Block, HistoryFigure, HistoryNote, HistoryRow, HistorySection } from './model.js';
 import { refOfGraph, type RenderContext, type Subject } from './blocks.js';
 
 /** The kinds the history block tells the story of. */
@@ -42,7 +42,7 @@ function churnOf(properties: Record<string, unknown>): HistoryFigure[] {
 }
 
 /** The commit rows of one task: its commits with the day, the author and the message each carries. */
-async function taskRows(ctx: RenderContext, task: GraphEntity, limit: number): Promise<{ sections: HistorySection[]; notes: string[] }> {
+async function taskRows(ctx: RenderContext, task: GraphEntity, limit: number): Promise<{ sections: HistorySection[]; notes: HistoryNote[] }> {
   const found = await ctx.graph.edgesOf(task, 'code.tasks', 'in', limit);
   const rows: HistoryRow[] = [];
   for (const edge of found.rows) {
@@ -56,12 +56,12 @@ async function taskRows(ctx: RenderContext, task: GraphEntity, limit: number): P
       figures: [],
     });
   }
-  const notes = found.total > rows.length ? [`The task names ${String(found.total)} commits; this page shows the first ${String(rows.length)}.`] : [];
+  const notes: HistoryNote[] = found.total > rows.length ? [{key: 'manyCommits', args: {total: found.total, shown: rows.length}}] : [];
   return { sections: rows.length === 0 ? [] : [{ role: 'commits', total: found.total, rows }], notes };
 }
 
 /** The files one commit changed, each with the lines it added and removed and the symbols the file declares. */
-async function commitRows(ctx: RenderContext, commit: GraphEntity, limit: number): Promise<{ sections: HistorySection[]; notes: string[] }> {
+async function commitRows(ctx: RenderContext, commit: GraphEntity, limit: number): Promise<{ sections: HistorySection[]; notes: HistoryNote[] }> {
   const found = await ctx.graph.edgesOf(commit, 'code.touched', 'out', limit);
   const rows: HistoryRow[] = [];
   let uncounted = 0;
@@ -88,7 +88,7 @@ async function commitRows(ctx: RenderContext, commit: GraphEntity, limit: number
 }
 
 /** The commits of one author, then the files those commits touched most, each with its module. */
-async function authorRows(ctx: RenderContext, author: GraphEntity, limit: number): Promise<{ sections: HistorySection[]; notes: string[] }> {
+async function authorRows(ctx: RenderContext, author: GraphEntity, limit: number): Promise<{ sections: HistorySection[]; notes: HistoryNote[] }> {
   const found = await ctx.graph.edgesOf(author, 'code.authored', 'out', limit);
   const commits: HistoryRow[] = found.rows.map((edge) => ({
     ...(dayOf(edge.other.properties['effectiveAt'] ?? edge.other.properties['committedAt']) === undefined ? {} : { when: dayOf(edge.other.properties['effectiveAt'] ?? edge.other.properties['committedAt'])! }),
@@ -97,8 +97,10 @@ async function authorRows(ctx: RenderContext, author: GraphEntity, limit: number
     figures: [],
   }));
   const files = new Map<string, { entity: GraphEntity; commits: number; added: number; removed: number }>();
+  let partial = false;
   for (const edge of found.rows) {
     const touched = await ctx.graph.edgesOf(edge.other, 'code.touched', 'out', 500);
+    if (touched.total > touched.rows.length) partial = true;
     for (const one of touched.rows) {
       const held = files.get(one.other.key) ?? { entity: one.other, commits: 0, added: 0, removed: 0 };
       held.commits += 1;
@@ -107,7 +109,8 @@ async function authorRows(ctx: RenderContext, author: GraphEntity, limit: number
       files.set(one.other.key, held);
     }
   }
-  const top = [...files.values()].sort((left, right) => right.commits - left.commits || left.added + left.removed - (right.added + right.removed) || byCodePoint(left.entity.key, right.entity.key)).slice(0, Math.min(10, limit));
+  const ranked = [...files.values()].sort((left, right) => right.commits - left.commits || left.added + left.removed - (right.added + right.removed) || byCodePoint(left.entity.key, right.entity.key));
+  const top = ranked.slice(0, Math.min(10, limit));
   const notes: string[] = [];
   const topRows: HistoryRow[] = [];
   for (const file of top) {
@@ -123,10 +126,11 @@ async function authorRows(ctx: RenderContext, author: GraphEntity, limit: number
       ],
     });
   }
-  if (found.total > found.rows.length) notes.push(`The author made ${String(found.total)} commits; the files below count the ${String(found.rows.length)} shown, and no line counts for a file the walk did not count.`);
+  if (found.total > found.rows.length) notes.push({key: 'manyCommits', args: {total: found.total, shown: found.rows.length}});
+  if (partial) notes.push({key: 'partialFiles'});
   const sections: HistorySection[] = [];
   if (commits.length > 0) sections.push({ role: 'commits', total: found.total, rows: commits });
-  if (topRows.length > 0) sections.push({ role: 'files', total: topRows.length, rows: topRows });
+  if (topRows.length > 0) sections.push({ role: 'files', total: ranked.length, rows: topRows });
   return { sections, notes };
 }
 

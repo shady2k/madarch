@@ -386,7 +386,15 @@
     "definitionSource": "The contract itself",
     "definitionCut": "Showing the first {{shown}} lines of {{total}}.",
     "definitionMembersCut": "Showing {{shown}} of {{total}} contract members.",
-    "definitionChannelCut": "Channel {{channel}}: showing {{shown}} of {{total}} messages."
+    "definitionChannelCut": "Channel {{channel}}: showing {{shown}} of {{total}} messages.",
+    "historyNote": {
+      "manyCommits": "The list names {{total}} commits; the first {{shown}} are shown.",
+      "manyFiles": "The commit changed {{total}} files; the first {{shown}} are shown.",
+      "noCounts": "{{count}} of the files report no line count: a binary file, or a path a rename left behind.",
+      "merge": "This commit changed no file of its own: it is a merge, and the changes came in with the branches it brought together.",
+      "noFiles": "This commit changed no file of its own.",
+      "partialFiles": "The files below count the commits shown; a commit with more files than this page reads adds only the ones it shows."
+    }
   },
   "loop": {
     "questionsTitle": "Questions",

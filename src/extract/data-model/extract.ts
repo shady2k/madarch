@@ -521,7 +521,13 @@ export async function extractDataModel(tree: TreeReader): Promise<Extraction> {
   }
 
   const structuralEdges: ExtractedEdge[] = [];
+  const structuralSeen = new Set<string>();
+  // One relation between two records is published once: a migration that alters the same table in two statements says so
+  // once, and the store refuses a second record of the same relation (madarch-m38l.16).
   const edge = (type: string, from: string, to: string, span?: SourceSpan, properties: ExtractedEdge['properties'] = {}): void => {
+    const identity = `${type}\u0000${from}\u0000${to}`;
+    if (structuralSeen.has(identity)) return;
+    structuralSeen.add(identity);
     structuralEdges.push({ type: type as ExtractedEdge['type'], from, to, discriminator: '', properties, ...(span === undefined ? {} : {span}) });
   };
   for (const database of databases.values()) {

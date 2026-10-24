@@ -190,7 +190,7 @@ type BlockShape =
   | { type: 'stated'; title: string; place: { repo: string | null; path: string; lineStart: number; lineEnd: number; href: string; commit: string | null } }
   | { type: 'deferred'; block: string; title: string; line: number }
   | { type: 'definition'; title: string; format: string; contract: string; location?: CodeLocation; members: DefinitionMember[]; membersTotal: number; membersShown: number; memberCuts: { channel: string; total: number; shown: number }[]; spec: { text: string; lines: number } }
-  | { type: 'history'; title: string; sections: HistorySection[]; notes: string[] }
+  | { type: 'history'; title: string; sections: HistorySection[]; notes: HistoryNote[] }
   | { type: 'problem'; block: string; message: string; file: string; line: number };
 
 
@@ -230,6 +230,12 @@ export interface HistoryRow {
   entity?: EntityRef;
   /** The figures the app draws beside the row; each names its kind so the app writes it in the reader's language. */
   figures: HistoryFigure[];
+}
+
+/** One note under a history block: why the list is not the whole story, said in the reader's language by the app. */
+export interface HistoryNote {
+  key: 'manyCommits' | 'manyFiles' | 'noCounts' | 'merge' | 'noFiles' | 'partialFiles';
+  args?: Record<string, string | number>;
 }
 
 /** One figure of a history row: added or removed lines, symbols, commits, files, or the module a file belongs to. */

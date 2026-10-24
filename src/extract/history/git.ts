@@ -275,7 +275,12 @@ export function readNumstat(what: string, repository: string, revision: string):
     for (let at = 0; at < tokens.length;) {
       const field = tokens[at];
       if (field === undefined) throw new Error(`${where} holds the count list of ${commit} cut short at its ${at + 1} field: ${JSON.stringify(section.slice(0, 120))}`);
-      const [added, deleted, path] = field.split('\t');
+      // A path may hold a tab of its own, so only the first two tabs separate the counts from the path.
+      const first = field.indexOf('\t');
+      const second = first < 0 ? -1 : field.indexOf('\t', first + 1);
+      const added = first < 0 ? undefined : field.slice(0, first);
+      const deleted = second < 0 ? undefined : field.slice(first + 1, second);
+      const path = second < 0 ? undefined : field.slice(second + 1);
       if (added === undefined || deleted === undefined) throw new Error(`${where} holds the counts of ${commit} as ${JSON.stringify(field.slice(0, 120))}: a count entry is its added and deleted lines in tabs`);
       if (path === undefined || path === '') {
         // A rename or copy counts the path it took: `\0old\0new\0`.
@@ -283,10 +288,16 @@ export function readNumstat(what: string, repository: string, revision: string):
         const to = tokens[at + 2];
         if (from === undefined || to === undefined) throw new Error(`${where} holds a renamed count of ${commit} without its two paths: ${JSON.stringify(section.slice(0, 120))}`);
         if (/^\d+$/u.test(added) && /^\d+$/u.test(deleted)) paths.set(to, {additions: Number(added), deletions: Number(deleted)});
+        else if (!(added === '-' && deleted === '-')) {
+          throw new Error(`${where} holds the line counts of ${commit} for ${JSON.stringify(to)} as ${JSON.stringify(`${added}\t${deleted}`)}: whole lines, or the two dashes of a binary file`);
+        }
         at += 3;
         continue;
       }
       if (/^\d+$/u.test(added) && /^\d+$/u.test(deleted)) paths.set(path, {additions: Number(added), deletions: Number(deleted)});
+      else if (!(added === '-' && deleted === '-')) {
+        throw new Error(`${where} holds the line counts of ${commit} for ${JSON.stringify(path)} as ${JSON.stringify(`${added}\t${deleted}`)}: whole lines, or the two dashes of a binary file`);
+      }
       at += 1;
     }
     counts.set(commit, paths);

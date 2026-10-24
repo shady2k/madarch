@@ -493,7 +493,7 @@ describe('the neighbourhood of a page agrees with its relations block', () => {
           for (const row of group.rows) {
             // A block with a depth reaches two or three hops out; the neighbourhood of a page is one hop, and the
             // parity this test keeps is the one-hop one (madarch-m38l.16, «А здесь почему пусто?»).
-            if (row.hops !== undefined) continue;
+            if (row.hops !== undefined && row.hops > 1) continue;
             rows += 1;
             const key = group.direction === 'out' ? `${entity.key}|${row.entity.id}|${group.relation}` : `${row.entity.id}|${entity.key}|${group.relation}`;
             if (!edges.has(key)) missing.push(`${entity.key} lists ${group.direction === 'out' ? '→' : '←'} ${group.relation} ${row.entity.id}, and its neighbourhood does not hold it`);

@@ -195,8 +195,9 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
   }
 
   // The service a file belongs to, named as the operations extractor names it: the folder under services/ and nothing
-  // else, so `code.service:<name>` reaches the node the stack extractor makes (madarch-m38l.16).
-  const serviceOf = (path: string): string => /^services\/([^/]+)\//.exec(path)?.[1] ?? path;
+  // else, so `code.service:<name>` reaches the node the stack extractor makes. A file outside services/ belongs to no
+  // service, and an edge would invent one (madarch-m38l.16).
+  const serviceOf = (path: string): string | undefined => /^services\/([^/]+)\//.exec(path)?.[1];
   const folderOf = (path: string): string => path.slice(0, Math.max(0, path.lastIndexOf('/')));
   const goMethodFiles = new Map<string, string>();
   for (const file of goFiles) for (const method of file.go.methods) if (!goMethodFiles.has(method)) goMethodFiles.set(method, file.path);
@@ -205,7 +206,7 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
   const authMiddleware = new Map<string, string>();
   for (const file of [...goFiles, ...tsFiles]) {
     const service = serviceOf(file.path);
-    if (authMiddleware.has(service)) continue;
+    if (service === undefined || authMiddleware.has(service)) continue;
     const names = new Set<string>();
     if ('go' in file) {
       for (const route of file.go.routes) for (const name of route.middleware) names.add(name.replace(/\(.*/, ''));
@@ -273,7 +274,7 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
   // ---- Go: routes, entry points, Kafka ---------------------------------------
   for (const file of goFiles) {
     const service = serviceOf(file.path);
-    const auth = authMiddleware.get(service);
+    const auth = service === undefined ? undefined : authMiddleware.get(service);
     for (const route of file.go.routes) {
       const properties: {[key: string]: PropertyValue} = {
         method: route.method,
@@ -313,7 +314,7 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
       });
       edges.push({type: 'code.starts', from: entryKey, to: fileKey(file.path), discriminator: '', properties: {kind: 'entry-file'}, span: entrySpan});
       if (service !== undefined) edges.push({type: 'code.belongs-to' as const, from: entryKey, to: `code.service:${service}`, discriminator: '', properties: {}, span: entrySpan});
-      const goProcess = processKeyOf(file.path);
+      const goProcess = service === undefined ? undefined : processKeyOf(file.path);
       if (goProcess !== undefined) edges.push({type: 'code.starts', from: entryKey, to: goProcess, discriminator: 'process', properties: {kind: 'process'}, span: entrySpan});
       for (const unit of started) {
         const target = unit.path !== undefined ? fileKey(unit.path) : undefined;
@@ -327,7 +328,7 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
         // A channel is claimed only when the constant that names it is written
         // into that same table -- the writer's file carries the INSERT.
         for (const channel of channels) {
-          const constant = constantForService(service, channel);
+          const constant = service === undefined ? undefined : constantForService(service, channel);
           if (constant === undefined) continue;
           const constantText = textOf(reader, constant.path);
           if (constantText === undefined || !/INTO\s+outbox/.test(constantText)) continue;
@@ -347,7 +348,7 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
         continue;
       }
       if (site.topic === undefined) continue;
-      const topic = constValue(service, site.topic);
+      const topic = service === undefined ? undefined : constValue(service, site.topic);
       if (topic === undefined || !channels.includes(topic)) continue;
       const properties: {[key: string]: PropertyValue} = {topic, ...(site.group !== undefined ? {group: site.group} : {})};
       // The handler the consumer delegates to, its mapping, and its behaviour.
@@ -372,7 +373,7 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
   for (const file of tsFiles) {
     const {ts} = file;
     const service = serviceOf(file.path);
-    const auth = authMiddleware.get(service);
+    const auth = service === undefined ? undefined : authMiddleware.get(service);
     // The mounts other files of this service declare for the routers this file builds.
     const ownFactories = new Set([...ts.routerFactories.values()].filter((name) => name !== ''));
     const mountsHere = tsFiles
@@ -418,7 +419,7 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
       });
       edges.push({type: 'code.starts', from: entryKey, to: fileKey(file.path), discriminator: '', properties: {kind: 'entry-file'}, span: entrySpan});
       if (service !== undefined) edges.push({type: 'code.belongs-to' as const, from: entryKey, to: `code.service:${service}`, discriminator: '', properties: {}, span: entrySpan});
-      const tsProcess = processKeyOf(file.path);
+      const tsProcess = service === undefined ? undefined : processKeyOf(file.path);
       if (tsProcess !== undefined) edges.push({type: 'code.starts', from: entryKey, to: tsProcess, discriminator: 'process', properties: {kind: 'process'}, span: entrySpan});
       for (const unit of ts.started) {
         const target = unit.path !== undefined ? fileKey(unit.path) : undefined;
@@ -479,7 +480,7 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
     // Kafka sends that name a channel.
     for (const send of ts.sends) {
       if (send.channel === undefined || !channels.includes(send.channel)) continue;
-      const constant = constantForService(service, send.channel);
+      const constant = service === undefined ? undefined : constantForService(service, send.channel);
       const union = [...ts.typeUnions.values()].find((members) => members.length > 0 && members.every((member) => member.includes('.')));
       addEdge(REL_PUBLISHES, fileKey(file.path), channelKey(send.channel), {
         topic: send.channel,

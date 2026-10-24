@@ -87,11 +87,57 @@ files and modules. Missing data is named, and any bounded result exposes its
 total rather than implying the list is complete.
 
 ## Acceptance evidence
-To be filled after implementation. Record the generated training repository's
-per-kind isolated-node audit counts before and after, the exhaustive committed
-audit result, relation parity, focused SkyPilot tests, contract renderer tests,
-English and Russian rendered screenshots in light and dark at 1150 px and
-390 px, read-only Codex review, and CI on the PR head.
+
+**Isolated nodes, before and after.** The owner's walk of shop on 0.2.2 found,
+per kind: contract 3/3, message 2/2, database 4/4, column 40/40, index 6/6,
+migration 8/8, entry-point 4/4, facet 40/40, health-endpoint 4/4,
+metrics-endpoint 1/1, logger 4/4, commit 40/40, author 3/3, task 40/40 and
+newcomer-prerequisites isolated, and file 21/40, input 5/10, operation 1/9,
+env-definition 15/26 and make-target 2/7 partly isolated. Part of that was the
+neighbourhood query hiding the history relations; part was edges no extractor
+made.
+
+After this change `test/extract-driver-suite.ts` walks every node of the
+generated training repository at the tip the fill read, and prints
+`GRAPH_AUDIT` per kind. CI run 40047024531 (test shard 1, job 120730994820)
+printed 46 kinds and **0 isolated nodes in every one**, among them
+`code.commit` 72, `code.task` 72, `code.author` 3, `code.contract` 3,
+`code.column` 49, `code.index` 6, `code.migration` 8, `code.entry-point` 4,
+`code.facet` 182, `code.file` 115, `code.route` 18, `code.env-definition` 26,
+`code.input` 10, `code.make-target` 7, `code.service` 4. The audit also
+requires a path and a line for every code-derived node (the history kinds and
+the repository node are exempted with their reason in the test) and one label
+per kind, the kinds whose label is a local name (a column of a table, a
+symbol's name, a route's method and path, a service's variables) exempted with
+their reason written beside them.
+
+**Relation parity.** `test/knowledge-vertical.test.ts` walks twenty entities of
+every kind of the filled product and requires every row every `related` block
+of that page shows to stand in the page's depth-one neighbourhood, and a page
+that shows relations to have a neighbourhood at all — the owner's «А здесь
+почему пусто?». `QUIET_RELATIONS` is empty: the graph block no longer hides the
+history relations.
+
+**Entry points.** Each is labelled `<service> · <file>`, carries the file's
+span and links to its service (`code.belongs-to`) and the process it starts
+(`code.starts` → `code.process`), keyed as the deploy extractor keys it.
+
+**History and definition pages.** Task pages list their commits with the day,
+the author and the message; commit pages list the files with the lines added
+and removed (a `--numstat` walk) and the symbols each file declares; author
+pages list their commits and the files their work touched most, with their
+module. Contract pages get a Definition block, lazy like the diagrams: the
+OpenAPI operations, the AsyncAPI channels and messages, or the protobuf
+services and rpcs, each at an anchor, beside the contract's own text.
+
+**Checks.** GitHub CI on the PR head: run 40047024531 on `babb750c` is green in
+all six jobs — `checks` (`bun run check`, the views and contract checks, and the
+wiki app's own check, tests and build) and the five test shards. Shard 1
+reported 2103 passing cases.
+
+**Screenshots.** Rendered on the SkyPilot pod by `bun scripts/knowledge-shots.ts
+--only shop`, which now also walks a task, a commit, an author and the OpenAPI
+contract in light, dark and at a phone's width.
 
 ## DONE WHEN
 All listed graph kinds have their meaning-implied relations and stable endpoints;
