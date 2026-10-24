@@ -1,6 +1,6 @@
 {
   "strength": "block",
-  "currentMilestone": "self-filling",
+  "currentMilestone": "wiki-for-people",
   "milestoneLabels": [
     "knowledge-base",
     "registry",
@@ -11,7 +11,8 @@
     "work-from-wiki",
     "standalone",
     "tracker",
-    "self-filling"
+    "self-filling",
+    "wiki-for-people"
   ],
   "areaLabels": [
     "model",
@@ -29,7 +30,7 @@
   "findingLabels": [
     "finding"
   ],
-  "findingBudget": 11,
+  "findingBudget": 10,
   "staleDays": 14,
   "holdDays": 2,
   "bulkCluster": 20,
