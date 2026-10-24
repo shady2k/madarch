@@ -161,23 +161,29 @@ describe('the one press', () => {
 
     // The fill worker passes the code repository's documents to the writer too (madarch-m38l.18).
     // No source entity is supplied by the test: the real fill must discover and localize them.
-    const glossary = (await get('api/k/glossary')).body;
+    const glossary = (await get('api/k/glossary')).body as { terms: { title: string; definition: string; source: { original: string; document: string }; single: boolean }[] };
     expect(glossary.terms).toHaveLength(7);
     for (const term of glossary.terms) {
-      expect(term.definition, term.title).toBe(LOCALIZED_STATEMENTS[term.title]);
+      const statement = LOCALIZED_STATEMENTS[term.title];
+      if (statement === undefined) throw new Error(`no scripted translation for ${term.title}`);
+      expect(term.definition, term.title).toBe(statement);
       expect(term.source.original, term.title).toBeTruthy();
       expect(term.source.document).toBe('docs/glossary.md');
       expect(term.single).toBe(true);
     }
-    for (const title of ['UC-2 Pay', 'BR-1 Discount']) {
-      const anchor = title.startsWith('UC') ? 'uc-2' : 'br-1';
-      const page = await pageOf(`doc:@training-shop/docs/requirements.md#${anchor}`);
+    for (const [title, path, anchor] of [
+      ['UC-2 Pay', 'docs/requirements.md', 'uc-2'],
+      ['BR-1 Discount', 'docs/requirements.md', 'br-1'],
+      ['ADR-0001 Kafka is the broker', 'docs/adr/0001-broker.md', 'adr-0001'],
+      ['ADR-0002 Events leave through a transactional outbox', 'docs/adr/0002-outbox.md', 'adr-0002'],
+    ] as const) {
+      const page = await pageOf(`doc:@training-shop/${path}#${anchor}`);
       expect(page.status).toBe(200);
       expect(page.body.title).toBe(title);
       const body = page.body.blocks.find((block: { type: string }) => block.type === 'body');
       expect(body.markdown).toBe(LOCALIZED_STATEMENTS[title]);
       expect(body.localized.original).toBeTruthy();
-      expect(body.localized.sourceDocument).toBe('docs/requirements.md');
+      expect(body.localized.sourceDocument).toBe(path);
     }
     const missing = await get(`api/k/page?id=${encodeURIComponent('domain:missing')}&lang=ru`);
     expect(missing.status).toBe(404);

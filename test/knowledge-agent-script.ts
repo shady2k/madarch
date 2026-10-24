@@ -100,12 +100,12 @@ export const LOCALIZED_STATEMENTS: Readonly<Record<string, string>> = {
   'BR-4 Refunds': 'Вернуть можно только списанный платёж, на положительную сумму, в течение 30 дней после списания и не больше списанной суммы.',
   'BR-5 Promotion cap': 'Акция никогда не вычитает больше, чем составляет сумма позиций.',
   // docs/adr
-  'ADR-0001: Kafka is the broker': 'События заказов публикуются в Kafka, а не в очередь самого приложения.',
-  'ADR-0002: The outbox table': 'Сервис заказов пишет сообщения в таблицу outbox в той же транзакции, что и изменение заказа, а отдельный процесс публикует их в Kafka.',
+  'ADR-0001 Kafka is the broker': 'События заказов публикуются в Kafka, а не в очередь самого приложения.',
+  'ADR-0002 Events leave through a transactional outbox': 'Сервис заказов пишет сообщения в таблицу outbox в той же транзакции, что и изменение заказа, а отдельный процесс публикует их в Kafka.',
 };
 
-/** The statement of an entity the table does not name: Russian prose that keeps the entity's own name out of it. */
-export const LOCALIZED_STATEMENT = 'Краткое изложение источника на русском языке.';
+/** An unknown fixture entity must fail validation, not appear to have a meaningful translation. */
+export const LOCALIZED_STATEMENT = '';
 
 /**
  * The script of a wiki whose pages are Russian over the training repository's English documents: the
