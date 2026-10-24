@@ -30,7 +30,7 @@ import { snapshotNumbers } from './fill-worker.js';
 import { locationOf, type RenderContext } from './blocks.js';
 import { GraphReader } from './graph-read.js';
 import { readMarkdownEntities, type MarkdownEntity } from './markdown.js';
-import type { AgentOffer, Block, DocumentListing, DocumentPage, DocumentRef, FillState, Neighborhood, WikiStatus, WriterState, WriterUnit } from './model.js';
+import type { AgentOffer, Block, DocumentListing, DocumentPage, DocumentRef, FillState, Neighborhood, PageModel, PlannedMarkView, PlannedSectionView, WikiStatus, WriterState, WriterUnit } from './model.js';
 import { neighborhoodOf } from './diagrams.js';
 import { anchorLines } from './anchors.js';
 import { adapterOf, installAdapter, makeUnitAgent, offers, queryAgentChoices, WRITER_BOUNDS } from './agents.js';
@@ -43,17 +43,41 @@ import type { DraftEnv } from '../product/home.js';
 import { findSubject, kindSummaries, renderPage, listEntities, type PageResult } from './render.js';
 import { buildStatement, type StatementResult } from './statement.js';
 import { Resolver, type Resolution } from './resolve.js';
-import { indexCounts, statementsRelyingOn } from './index/queries.js';
+import { indexCounts } from './index/queries.js';
+import { documentSections } from './index/sections.js';
+
+/** The wiki's address of a document, at a section when one is named: the client opens it as it opens any in-wiki link. */
+const documentAddress = (repo: string | null, path: string, anchor?: string): string => {
+  const query = new URLSearchParams();
+  if (repo !== null) query.set('repo', repo);
+  query.set('path', path);
+  return `/k/doc?${query.toString()}${anchor === undefined || anchor === '' ? '' : `#${encodeURIComponent(anchor)}`}`;
+};
 import { webLink } from './index/web-link.js';
 import { readDocEntities, type DocEntity, type DocumentSource } from './doc-entities.js';
 import { DOCUMENT_LIMIT, DOCUMENT_PATH, HARNESS_FILES, documentTitle, docsLinkedOutside, listedDocument, productDocumentPaths, readProductDocument, readRepoDocuments, repoDocumentPaths } from './doc-sources.js';
 import { ensureLoopKinds, seedStarterSet, TEMPLATES } from './seed.js';
 import { readCorrections } from '../loop/entities.js';
-import { answerQuestion, recordCorrection, type Answered, type Corrected } from '../loop/answer.js';
+import { answerQuestion, commitFiles, localIdentity, LoopRefusal, recordCorrection, type Answered, type Corrected } from '../loop/answer.js';
+import { readScope, readTasks, renderTask, scopeWords, TASKS_FOLDER, taskSlug, writeTask, type PlaceView, type PlannedTask, type TaskScope } from '../loop/tasks.js';
+import { impactOf, type TaskImpact } from '../loop/impact.js';
+import { impactGroundsOf } from '../loop/planned.js';
+import { closingCommit, type RepositoryRef } from '../loop/closure.js';
+import { groundsOfScope, NO_MARKS, markForEntity, marksForDocument, marksForPage, plannedMarks, type PlannedMarks } from '../loop/planned.js';
+import { proposeTask, type TaskChoice, type TaskProposal } from '../loop/propose.js';
+import { statementsRelyingOn } from './index/queries.js';
+import { readKnowledgePages } from './index/index.js';
 import { planRefresh, type RefreshPlan } from '../loop/plan.js';
-import { listProblems, listQuestions, questionDetail, type ProblemListing, type QuestionDetail, type QuestionListing } from '../loop/views.js';
+import { listProblems, listQuestions, listTasks, questionDetail, taskDetail, type ProblemListing, type QuestionDetail, type QuestionListing, type TaskDetail, type TaskListing, type TaskRow } from '../loop/views.js';
 
 const execFileAsync = promisify(execFile);
+
+/** The scopes of a confirmed task, each once, in the order the reader sent them. */
+const dedupeScopes = (scopes: readonly TaskScope[]): TaskScope[] => {
+  const byKey = new Map<string, TaskScope>();
+  for (const scope of scopes) byKey.set(JSON.stringify(scope), scope);
+  return [...byKey.values()];
+};
 
 
 /** A read the wiki cannot make and can say why: its message is for the reader, who sees it in place of the page. */
@@ -454,7 +478,7 @@ export class KnowledgeProduct {
   // ---- the fill --------------------------------------------------------------------------
 
   /** Starts the fill if none is running; the answer says whether it started and why not. */
-  async startFill(options: { expectAgent?: string | null; language?: string } = {}): Promise<{ started: true; fill: FillState } | { started: false; message: string; fill: FillState }> {
+  async startFill(options: { expectAgent?: string | null; language?: string; task?: string; taskPages?: readonly string[] } = {}): Promise<{ started: true; fill: FillState } | { started: false; message: string; fill: FillState }> {
     if (this.running !== undefined) {
       const busy = this.fill.state === 'running' || this.writer.state === 'running' || this.writer.state === 'waiting';
       if (busy) return { started: false, message: 'a fill of this product is already running', fill: this.fill };
@@ -510,7 +534,7 @@ export class KnowledgeProduct {
     const chosen = this.chosenAgent();
     this.writer = chosen === null ? { state: 'idle', agent: null, units: [] } : { state: 'waiting', agent: chosen, units: [] };
     this.notify();
-    this.running = this.runJob(product, repositories, { language: wanted, languageChanged, languageFrom: written ?? current }).finally(() => {
+    this.running = this.runJob(product, repositories, { language: wanted, languageChanged, languageFrom: written ?? current, ...(options.task === undefined ? {} : { task: options.task }), ...(options.taskPages === undefined ? {} : { taskPages: options.taskPages }) }).finally(() => {
       // A fill that did not reach its end leaves the agent stage unstarted, not waiting for ever.
       if (this.writer.state === 'waiting') this.writer = { ...this.writer, state: 'idle' };
       this.running = undefined;
@@ -523,7 +547,7 @@ export class KnowledgeProduct {
    * One fill: a worker process reads the repositories into the primary store and, when an agent is chosen, runs the
    * writer's work; this method hears the worker and keeps the fill's and the writer's state, the pins and the reader.
    */
-  private async runJob(product: ProductIdentity, repositories: readonly { name: string; path: string }[], run: { language: string; languageChanged: boolean; languageFrom: string }): Promise<void> {
+  private async runJob(product: ProductIdentity, repositories: readonly { name: string; path: string }[], run: { language: string; languageChanged: boolean; languageFrom: string; task?: string; taskPages?: readonly string[] }): Promise<void> {
     const failFill = (message: string, code: string): void => {
       this.fill = { state: 'failed', startedAt: this.fill.startedAt, finishedAt: (this.options.now?.() ?? new Date()).toISOString(), message, code };
       this.notify();
@@ -559,6 +583,8 @@ export class KnowledgeProduct {
       language: run.language,
       languageChanged: run.languageChanged,
       languageFrom: run.languageFrom,
+      ...(run.task === undefined ? {} : { task: run.task }),
+      ...(run.taskPages === undefined ? {} : { taskPages: [...run.taskPages] }),
       snapshotMs: this.options.snapshotMs ?? 8_000,
     };
     worker.send(start);
@@ -1144,6 +1170,19 @@ export class KnowledgeProduct {
     };
   }
 
+  /** The planned-change marks, read once per revision and per head of the product's repositories: a commit makes them read again. */
+  private marksMemo: { key: string; marks: PlannedMarks } | undefined;
+
+  /** What the planned-change marks depend on besides the wiki's revision: the tasks folder and every repository's head. */
+  private marksKey(): string {
+    const parts: string[] = [String(this.revision)];
+    try { parts.push(String(statSync(join(this.options.productFolder, TASKS_FOLDER)).mtimeMs)); } catch { parts.push('-'); }
+    for (const repository of [{ path: this.options.productFolder }, ...this.repositories().filter((repo) => repo.present)]) {
+      try { parts.push(execFileSync('git', ['-C', repository.path, 'rev-parse', 'HEAD'], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C' } }).trim()); } catch { parts.push('-'); }
+    }
+    return parts.join('|');
+  }
+
   /** The memo of the document entities: they are read again only when a document, a commit or a document kind changed. */
   private docMemo: { key: string; sources: DocumentSource[]; entities: DocEntity[]; findings: Finding[] } | undefined;
   private readonly repoDocs = new Map<string, DocumentSource[]>();
@@ -1280,7 +1319,57 @@ export class KnowledgeProduct {
   async page(id: string, lang?: string, options: { defer?: boolean; only?: number } = {}): Promise<PageResult> {
     const context = await this.context();
     if ('absent' in context) return { ok: false, status: 404, message: `the product has no ${context.file}: the wiki shows the kinds that file declares` };
-    return await renderPage(context.ctx, id, lang, options);
+    const result = await renderPage(context.ctx, id, lang, options);
+    if (!result.ok) return result;
+    return { ok: true, page: { ...result.page, planned: await this.plannedForPage(id) } };
+  }
+
+  /** The planned changes one page stands in: its own entity, and the statements of it a task's grounds reach. */
+  private async plannedForPage(id: string): Promise<PageModel['planned']> {
+    try {
+      const marks = await this.marks();
+      const entity = markForEntity(marks, id);
+      const byStatement = marksForPage(marks, id);
+      const statements: (PlannedMarkView & { sentence: string })[] = [];
+      if (byStatement.size > 0) {
+        for (const statement of readKnowledgePages(this.options.productFolder).pages.find((candidate) => candidate.id === id)?.statements ?? []) {
+          const mark = byStatement.get(statement.id);
+          if (mark !== undefined) statements.push({ task: mark.task, how: mark.how, sentence: statement.text });
+        }
+      }
+      return { entity: entity === undefined ? null : { task: entity.task, how: entity.how }, statements };
+    } catch (error) {
+      // A mark that cannot be read is said on the page: an empty list would read as "nothing is planned".
+      return { entity: null, statements: [], note: (error as Error).message };
+    }
+  }
+
+  /** The planned change one statement stands in, by the statement's name on its page. */
+  private async plannedForStatement(pageId: string, name: string | null): Promise<{ planned: PlannedMarkView | null; plannedNote?: string }> {
+    try {
+      const marks = await this.marks();
+      const mark = name === null ? undefined : marksForPage(marks, pageId).get(name);
+      return { planned: mark === undefined ? null : { task: mark.task, how: mark.how } };
+    } catch (error) {
+      return { planned: null, plannedNote: (error as Error).message };
+    }
+  }
+
+  /** The planned changes on one document's sections, by the anchor or the line range the task's scope names. */
+  private async plannedForDocument(repo: string | null, path: string): Promise<{ sections: PlannedSectionView[]; note?: string }> {
+    try {
+      const marks = await this.marks();
+      // A task whose closure or impact could not be read marks nothing, and the page says so rather than showing none.
+      const note = marks.notes.join(' · ');
+      return { sections: marksForDocument(marks, repo, path).map((section) => ({ anchor: section.anchor, lines: section.lines, task: section.task, how: section.how })), ...(note === '' ? {} : { note }) };
+    } catch (error) {
+      return { sections: [], note: (error as Error).message };
+    }
+  }
+
+  /** The file each page of the product is written in: what a task's statement scope names when a commit closes it. */
+  private pageFiles(): Map<string, string> {
+    return new Map(readKnowledgePages(this.options.productFolder).pages.map((page) => [page.id, page.file] as const));
   }
 
   /** One block of a page, by the line of its template: what a deferred diagram reads to draw itself. */
@@ -1295,7 +1384,9 @@ export class KnowledgeProduct {
   async statement(id: string, sentence: string, turn = 0): Promise<StatementResult> {
     const context = await this.context();
     if ('absent' in context) return { ok: false, status: 404, message: `the product has no ${context.file}: the wiki shows the kinds that file declares` };
-    return await buildStatement(context.ctx, id, sentence, turn);
+    const result = await buildStatement(context.ctx, id, sentence, turn);
+    if (!result.ok) return result;
+    return { ok: true, statement: { ...result.statement, ...(await this.plannedForStatement(id, result.statement.name)) } };
   }
 
   /** The terms of the product's glossaries, read from its documents (no fill is needed). */
@@ -1376,6 +1467,7 @@ export class KnowledgeProduct {
       const target = match[0].replace(/[.,;:]+$/, '');
       if (!(target in resolutions)) resolutions[target] = await context.ctx.resolver.resolve(target);
     }
+    const planned = await this.plannedForDocument(repo, path);
     return {
       repo,
       path,
@@ -1384,6 +1476,8 @@ export class KnowledgeProduct {
       resolutions,
       anchors: Object.fromEntries(anchorLines(markdown)),
       commit: repo === null ? null : this.pins.get(repo)?.commit ?? null,
+      planned: planned.sections,
+      ...(planned.note === undefined ? {} : { plannedNote: planned.note }),
     };
   }
 
@@ -1416,6 +1510,192 @@ export class KnowledgeProduct {
     const done = await answerQuestion({ productFolder: this.options.productFolder, slug, text, ...(this.options.now === undefined ? {} : { now: this.options.now }), env: { ...process.env, ...(this.options.env ?? {}) } as NodeJS.ProcessEnv });
     this.notify();
     return done;
+  }
+
+  // ---- the scoped tasks of answers (madarch-m38l.14) ------------------------------------------
+
+  /** The repositories a commit may close a task in: the product's own, then each code repository checked out. */
+  private taskRepositories(): RepositoryRef[] {
+    const product = this.product();
+    if ('message' in product) return [];
+    return [{ name: '', path: product.folder }, ...this.repositories().filter((repo) => repo.present).map((repo) => ({ name: repo.name, path: repo.path }))];
+  }
+
+  /** Where planned changes show now, read once per revision of the product's files and its graph. */
+  private async marks(): Promise<PlannedMarks> {
+    const key = this.marksKey();
+    const held = this.marksMemo;
+    if (held !== undefined && held.key === key) return held.marks;
+    const product = this.product();
+    if ('message' in product) return NO_MARKS;
+    const owner = await this.open();
+    const repositories = this.repositories().filter((repo) => repo.present).map((repo) => ({ name: repo.name, path: repo.path }));
+    const marks = await plannedMarks({
+      owner, productFolder: this.options.productFolder,
+      // The product's own repository closes a task as a code repository does: its documents are in it.
+      repositories: [{ name: '', path: product.folder }, ...repositories],
+      productFiles: productDocumentPaths(product.folder),
+      pageFiles: this.pageFiles(),
+    });
+    this.marksMemo = { key, marks };
+    return marks;
+  }
+
+  /** The product's tasks, open first, each with what its change reaches through the graph. */
+  async tasks(): Promise<TaskListing> {
+    const owner = await this.open();
+    return await listTasks({ productFolder: this.options.productFolder, owner, repositories: this.taskRepositories(), pageFiles: this.pageFiles(), placeOf: (scope) => this.placeOf(scope) });
+  }
+
+  /** One task with its complete impact: the pages a run would rewrite and the marks it stands on. */
+  async task(id: string): Promise<TaskDetail | undefined> {
+    const owner = await this.open();
+    return await taskDetail({ productFolder: this.options.productFolder, owner, repositories: this.taskRepositories(), pageFiles: this.pageFiles(), placeOf: (scope) => this.placeOf(scope) }, id, await this.marks());
+  }
+
+  /** The task an answer proposes: the scope its grounds name and its impact through the graph, before anything is written. */
+  async proposeTask(question: string, choice: TaskChoice, asked?: 'en' | 'ru'): Promise<TaskProposal> {
+    const owner = await this.open();
+    const read = readKinds(this.options.productFolder);
+    // The reader's interface language when it says one, else the language the product's pages are written in.
+    const language = asked ?? (read.present && read.manifest.language === 'ru' ? 'ru' : 'en');
+    const proposal = await proposeTask({ owner, productFolder: this.options.productFolder, question, choice, language });
+    // The places as a reader says them: a section's heading and its document's title, never a `doc:` key.
+    return { ...proposal, places: await Promise.all(proposal.scope.map((scope) => this.placeOf(scope))) };
+  }
+
+  /**
+   * A place as the wiki names it: a section's heading and the document's title, a document's title, a symbol's or a
+   * statement's words. Each with the address that opens it, and the path only as small secondary text.
+   */
+  async placeOf(scope: TaskScope): Promise<PlaceView> {
+    const words = scopeWords(scope);
+    // The product's own documents belong to no code repository; every other path belongs to the one repository the pages
+    // are written from (asked of the declared checkouts, not of a fill: a place is shown before anything was read).
+    const repoOf = (path: string): string | null => {
+      if (productDocumentPaths(this.options.productFolder).includes(path)) return null;
+      const present = this.repositories().filter((repo) => repo.present);
+      return present.length === 1 ? present[0]!.name : null;
+    };
+    if (scope.type === 'section') {
+      const repo = repoOf(scope.path);
+      const page = await this.document(repo, scope.path);
+      const section = page === undefined ? undefined : documentSections(page.markdown).find((candidate) => candidate.anchor === scope.anchor.toLowerCase());
+      const heading = section?.text.split('\n')[0]?.replace(/^#{1,6}\s+/, '').replace(/\s*#*\s*$/, '');
+      return { kind: 'section', label: heading === undefined || heading === '' ? scope.anchor : heading, where: page?.title ?? scope.path, href: documentAddress(repo, scope.path, scope.anchor), path: scope.path, words };
+    }
+    if (scope.type === 'file' || scope.type === 'lines') {
+      const repo = repoOf(scope.path);
+      const page = await this.document(repo, scope.path);
+      const title = page?.title ?? scope.path.split('/').pop() ?? scope.path;
+      const label = scope.type === 'lines' ? `${title} · ${scope.start}–${scope.end}` : title;
+      return { kind: scope.type, label, where: null, href: documentAddress(repo, scope.path), path: scope.path, words };
+    }
+    if (scope.type === 'symbol') {
+      const key = scope.key.startsWith('code.symbol:') ? scope.key : `code.symbol:${scope.key}`;
+      const rest = key.slice('code.symbol:'.length);
+      const hash = rest.indexOf('#');
+      return { kind: 'symbol', label: hash < 0 ? rest : rest.slice(hash + 1), where: hash < 0 ? null : rest.slice(0, hash), href: `/k/e/${encodeURIComponent(key)}`, path: hash < 0 ? rest : rest.slice(0, hash), words };
+    }
+    const page = scope.key.slice(0, scope.key.indexOf('#'));
+    const title = readKnowledgePages(this.options.productFolder).pages.find((candidate) => candidate.id === page)?.title ?? page;
+    return { kind: 'statement', label: title, where: null, href: `/k/e/${encodeURIComponent(page)}`, path: null, words };
+  }
+
+  /** Create a task only after the reader confirms its proposed scope: a product file, committed as the reader. */
+  async createTask(input: { question: string; title: string; grounds: string[]; scope: TaskScope[] }): Promise<{ task: PlannedTask; state: 'created'; committed: boolean; note?: string; commit?: string }> {
+    const question = this.questions().rows.find((row) => row.slug === input.question);
+    if (question === undefined || question.state === 'open') throw new LoopRefusal(409, `docs/questions/${input.question}.md:1: a task needs a saved answer to an existing question`);
+    const detail = await this.question(input.question);
+    if (detail?.answer === null || detail?.answer === undefined) throw new LoopRefusal(409, `docs/questions/${input.question}.md:1: the saved answer cannot be read`);
+    if (input.title.trim() === '') throw new LoopRefusal(400, 'docs/tasks:1: a confirmed task needs a title');
+    if (input.scope.length === 0) throw new LoopRefusal(400, 'docs/tasks:1: a confirmed task needs a scope: the section, lines, symbol or statement it changes');
+    if (input.grounds.length === 0) throw new LoopRefusal(400, 'docs/tasks:1: a confirmed task needs its grounds: what the change stands on');
+    const by = await localIdentity(this.options.productFolder, { ...process.env, ...(this.options.env ?? {}) } as NodeJS.ProcessEnv);
+    const slug = taskSlug(input.title, input.question);
+    const file = `docs/tasks/${slug}.md`;
+    const existing = readTasks(this.options.productFolder);
+    if (existing.findings.length > 0) throw new LoopRefusal(409, `docs/tasks:1: cannot safely check existing tasks: ${existing.findings.map((finding) => `${finding.file}:${finding.line}: ${finding.message}`).join('; ')}`);
+    if (existing.tasks.some((task) => task.slug === slug)) throw new LoopRefusal(409, `${file}:1: a task with this id already exists`);
+    // A scope the wiki cannot read back is refused now: a task file it cannot parse would vanish into findings.
+    const scopes = dedupeScopes(input.scope);
+    const bad = scopes.findIndex((scope) => readScope(JSON.parse(JSON.stringify(scope))) === undefined);
+    if (bad >= 0) throw new LoopRefusal(400, `docs/tasks:1: scope[${bad}] is ${JSON.stringify(scopes[bad])}, and a scope is a section { path, anchor }, lines { path, start, end }, file { path }, symbol or statement { key }`);
+    const task = { slug, title: input.title.trim(), status: 'open' as const, question: `question:${input.question}`, answer: `answer:${input.question}`, grounds: [...new Set(input.grounds)].sort(byCodePoint), scope: scopes, by, at: (this.options.now?.() ?? new Date()).toISOString(), closedBy: null, closedAt: null };
+    try {
+      writeTask(this.options.productFolder, file, task);
+    } catch (error) {
+      throw new LoopRefusal(409, `${file}:1: the task could not be written: ${(error as Error).message}`);
+    }
+    const committed = await commitFiles(this.options.productFolder, [file], `Plan the task ${slug}\n\nTask: ${slug}`, by, { ...process.env, ...(this.options.env ?? {}) } as NodeJS.ProcessEnv);
+    this.notify();
+    return { task: { ...task, id: `task:${slug}`, file }, state: 'created', ...committed };
+  }
+
+  /**
+   * What a scope reaches through the graph, read while the reader edits it: the preview follows the scope, not the answer.
+   * A scope that names nothing refuses with its scopes rather than answering an empty list.
+   */
+  async scopeImpact(scope: readonly TaskScope[]): Promise<TaskImpact> {
+    const keys = [...new Set(scope.flatMap((one) => groundsOfScope(one)))].sort(byCodePoint);
+    if (keys.length === 0) throw new WikiReadError('docs/tasks:1: this scope names no place of the product, so the change reaches nothing: name a section, a file, a symbol or a statement');
+    const owner = await this.open();
+    return await impactOf(owner, this.options.productFolder, keys);
+  }
+
+  /** Closes a task by hand: the file says who and when, and the change is committed as the reader. */
+  async closeTask(id: string): Promise<{ task: PlannedTask; state: 'closed'; committed: boolean; note?: string; commit?: string }> {
+    const read = readTasks(this.options.productFolder);
+    const task = read.tasks.find((candidate) => candidate.id === id || candidate.slug === id);
+    if (task === undefined) throw new LoopRefusal(404, `docs/tasks:1: there is no task ${id}: docs/tasks/${id.replace(/^task:/, '')}.md is not in the product repository`);
+    if (task.status === 'closed') throw new LoopRefusal(409, `${task.file}:1: the task ${task.slug} is already closed`);
+    let closing: ReturnType<typeof closingCommit>;
+    try {
+      closing = closingCommit(task, this.taskRepositories(), { pageFiles: this.pageFiles() });
+    } catch (error) {
+      throw new LoopRefusal(409, (error as Error).message);
+    }
+    if (closing !== undefined) throw new LoopRefusal(409, `${task.file}:1: the task ${task.slug} is already closed by the commit ${closing.commit} of ${closing.repository || 'the product'}`);
+    const by = await localIdentity(this.options.productFolder, { ...process.env, ...(this.options.env ?? {}) } as NodeJS.ProcessEnv);
+    const at = (this.options.now?.() ?? new Date()).toISOString();
+    const closed: PlannedTask = { ...task, status: 'closed', closedBy: 'person', closedAt: at };
+    // The file is replaced whole: a half-written task is a task the wiki cannot read.
+    writeFileSync(join(this.options.productFolder, task.file), renderTask(closed), 'utf8');
+    const committed = await commitFiles(this.options.productFolder, [task.file], `Close the task ${task.slug} by hand\n\nTask: ${task.slug}`, by, { ...process.env, ...(this.options.env ?? {}) } as NodeJS.ProcessEnv);
+    this.notify();
+    return { task: closed, state: 'closed', ...committed };
+  }
+
+  /**
+   * «Поправить страницы сейчас»: a refresh limited to exactly the pages the task's impact lists. The plan the agent is
+   * given is that list, computed here, so the run cannot widen it; a task that reaches no page of the product refuses
+   * with its grounds rather than writing something else.
+   */
+  async runTask(id: string): Promise<{ ok: true; task: TaskRow; pages: readonly string[]; fill: FillState } | { ok: false; message: string }> {
+    const read = readTasks(this.options.productFolder);
+    const task = read.tasks.find((candidate) => candidate.id === id || candidate.slug === id);
+    if (task === undefined) return { ok: false, message: `there is no task ${id}: docs/tasks/${id.replace(/^task:/, '')}.md is not in the product repository` };
+    const owner = await this.open();
+    // A task a commit already closed writes nothing: its change is in the history.
+    try {
+      const closing = closingCommit(task, this.taskRepositories(), { pageFiles: this.pageFiles() });
+      if (closing !== undefined) return { ok: false, message: `the task ${task.slug} is closed by the commit ${closing.commit} of ${closing.repository || 'the product'}, so its pages are not written again` };
+    } catch (error) {
+      return { ok: false, message: (error as Error).message };
+    }
+    let impact: TaskImpact;
+    try {
+      impact = await impactOf(owner, this.options.productFolder, impactGroundsOf(task));
+    } catch (error) {
+      return { ok: false, message: (error as Error).message };
+    }
+    if (impact.writable.length === 0) {
+      return { ok: false, message: `the task ${task.slug} reaches no page of the product that the agent writes (${impact.pages.map((page) => page.file).join(', ') || 'no page at all'}): its grounds are ${impact.grounds.join(', ')}` };
+    }
+    if (this.chosenAgent() === null) return { ok: false, message: 'no agent is chosen for this product: choose one before fixing the pages' };
+    const started = await this.startFill({ task: task.slug, taskPages: impact.writable });
+    if (!started.started) return { ok: false, message: started.message };
+    return { ok: true, task: (await listTasks({ productFolder: this.options.productFolder, owner, repositories: this.taskRepositories(), pageFiles: this.pageFiles(), placeOf: (scope) => this.placeOf(scope) })).tasks.find((row) => row.id === task.id)!, pages: impact.writable, fill: started.fill };
   }
 
   /** A person's correction of a statement: a new file, committed with the person as author. */

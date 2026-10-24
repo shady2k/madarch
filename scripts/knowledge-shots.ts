@@ -15,14 +15,15 @@
  * Usage: bun scripts/knowledge-shots.ts [--out <folder>] [--work <folder>]
  * The pictures are written to --out (shots/ by default) and listed on standard output.
  */
-import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import puppeteer, { type Page } from 'puppeteer';
 import { resolveBrowserExecutable } from './chromium.js';
 import { agentScript } from '../test/knowledge-agent-script.js';
+import { LOOP_QUESTIONS, firstRunScript } from '../test/loop-agent-script.js';
 import { FACTORY, PAY, PAYMENTS_SERVICE, generateTrainingRepository, makeProduct, recordKey, writeSamplePages } from '../test/knowledge-fixture.js';
 import { existsSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
 
 function argument(name: string, fallback: string): string {
   const at = process.argv.indexOf(`--${name}`);
@@ -83,18 +84,58 @@ for (let tries = 0; ; tries += 1) {
 }
 const browser = await puppeteer.launch({ executablePath: resolveBrowserExecutable(), headless: true, protocolTimeout: 900_000, args: ['--no-sandbox'] });
 
+/**
+ * What a reader sees, measured as the picture is taken: the visible text of the state, the badge or card that state is
+ * about (its words and where it sits) and whether the page overflows its width. The picture is for the owner's eyes; these
+ * numbers say what it holds, so a state that is empty, cut off or overflowing is told even when nobody looks.
+ */
+async function measured(page: Page, name: string): Promise<Record<string, unknown>> {
+  return await page.evaluate((shot) => {
+    const box = (element: Element | null): { words: string; top: number; left: number; width: number; height: number } | null => {
+      if (element === null) return null;
+      const rect = element.getBoundingClientRect();
+      return { words: (element.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 160), top: Math.round(rect.top), left: Math.round(rect.left), width: Math.round(rect.width), height: Math.round(rect.height) };
+    };
+    const one = (selector: string): Element | null => document.querySelector(selector);
+    const visible = (element: Element | null): boolean => {
+      if (element === null) return false;
+      const rect = element.getBoundingClientRect();
+      return rect.top >= 0 && rect.top < window.innerHeight && rect.width > 0 && rect.height > 0;
+    };
+    return {
+      shot,
+      text: (document.body.innerText ?? '').replace(/\s+/g, ' ').trim().slice(0, 600),
+      title: document.title,
+      overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      height: { window: window.innerHeight, document: document.documentElement.scrollHeight },
+      badge: box(one('[data-testid=planned-badge]')),
+      badgeVisible: visible(one('[data-testid=planned-badge]')),
+      card: box(one('[data-testid=task-card]')),
+      proposal: box(one('[data-testid=task-proposed]')),
+      rows: document.querySelectorAll('[data-testid=task-row]').length,
+      impactPages: document.querySelectorAll('[data-testid=impact-page]').length,
+      impactStatements: document.querySelectorAll('[data-testid=impact-statements] [data-testid=impact-statement]').length,
+      scopeItems: document.querySelectorAll('[data-testid=task-scope-item]').length,
+      fixtureKeys: (document.body.innerText.match(/loop\.[a-zA-Z.]+/g) ?? []).slice(0, 5),
+      proposalTitle: (document.querySelector('[data-testid=task-title]') as HTMLInputElement | null)?.value ?? null,
+      storedLanguage: (() => { try { return window.localStorage.getItem('madarch-wiki-language'); } catch { return 'unreadable'; } })(),
+    };
+  }, name);
+}
+
 async function shoot(page: Page, name: string, settle?: () => Promise<unknown>): Promise<void> {
   if (settle !== undefined) await settle();
   await new Promise((rest) => setTimeout(rest, 400));
   const file = join(out, `${name}.png`);
   await page.screenshot({ path: file, fullPage: false });
   written.push(file);
+  console.log(`MEASURED ${JSON.stringify(await measured(page, name))}`);
 }
 
-async function open(url: string, width: number, height: number, scheme: 'light' | 'dark' = 'light'): Promise<Page> {
+async function open(url: string, width: number, height: number, scheme: 'light' | 'dark' = 'light', language: string = lang): Promise<Page> {
   const page = await browser.newPage();
   // The interface speaks the language of the walk (the wiki reads its choice from this storage key).
-  await page.evaluateOnNewDocument((language) => { try { window.localStorage.setItem('madarch-wiki-language', language); } catch { /* the walk goes on in the browser's own language */ } }, lang);
+  await page.evaluateOnNewDocument((chosen) => { try { window.localStorage.setItem('madarch-wiki-language', chosen); } catch { /* the walk goes on in the browser's own language */ } }, language);
   await page.setViewport({ width, height });
   await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: scheme }]);
   page.on('pageerror', (error) => console.error(`page error at ${url}: ${error.message}`));
@@ -445,6 +486,132 @@ if (only === 'entities') {
     await shoot(page, `${lang}-e37-documents`);
     await page.close();
   }
+}
+
+
+// ---- the scoped tasks of answers (madarch-m38l.14) -------------------------------------------
+// The acceptance walk of a task: an answer that says the code is right and the document is out of date proposes a task
+// scoped to the two README sections the question names, with its impact computed through the graph; confirming it marks
+// exactly those sections and the statements that stand on them; «Поправить страницы сейчас» lists the pages it rewrites;
+// and the «Задачи» page lists the task. Every state is shot in both languages, both schemes and both widths.
+if (only === '' || only === 'tasks') {
+  const product = '/products/training-shop';
+  const api = (path: string, body?: unknown): Promise<Response> => fetch(`${server.url}${product}${path}`, body === undefined ? {} : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const retention = LOOP_QUESTIONS.find((question) => question.item === 'contradiction.retention')!;
+  const ANSWER = 'The code is right: orders that were not shipped are removed ninety days after they were placed, and the two READMEs still say they are kept.';
+  // A product of its own, filled once with the scripted agent: the run asks its questions before it writes the pages.
+  const questions = join(home, 'training-shop', 'docs', 'questions');
+  if (!existsSync(questions)) {
+    rmSync(join(home, 'training-shop'), { recursive: true, force: true });
+    makeProduct(home, 'training-shop', repository);
+    writeFileSync(join(work, 'agent-script.json'), JSON.stringify(firstRunScript()));
+    const status = await api('/api/k/agent', { agent: 'claude-code', install: false });
+    if (!status.ok) throw new Error(`the agent could not be chosen: ${status.status} ${await status.text()}`);
+    const started = await api('/api/k/fill', { agent: 'claude-code' });
+    if (started.status !== 202) throw new Error(`the fill did not start: ${started.status} ${await started.text()}`);
+    for (let tries = 0; ; tries += 1) {
+      const state = (await (await api('/api/k/status')).json()) as { fill: { state: string }; writer: { state: string } };
+      if (state.fill.state !== 'running' && state.writer.state !== 'running' && state.writer.state !== 'waiting') {
+        if (state.fill.state !== 'done') throw new Error(`the fill ended as ${state.fill.state}`);
+        break;
+      }
+      if (tries > 1_800) throw new Error('the fill of the training repository never ended');
+      await new Promise((rest) => setTimeout(rest, 2_000));
+    }
+  }
+  // The question the walk answers, by the title the agent gave it: its id is the agent's own slug, not the title's.
+  const listing = (await (await api('/api/k/questions')).json()) as { rows: { slug: string; title: string }[] };
+  const found = listing.rows.find((row) => row.title === retention.text.en.title);
+  if (found === undefined) throw new Error(`the questions of the training repository hold none titled ${JSON.stringify(retention.text.en.title)}: the fill did not ask it, so there is no answer to give`);
+  const slug = found.slug;
+  // The answer is committed as the person reading: the product repository's git identity is that person's.
+  execFileSync('git', ['-C', join(home, 'training-shop'), 'config', 'user.name', 'Ada Reader']);
+  execFileSync('git', ['-C', join(home, 'training-shop'), 'config', 'user.email', 'ada@example.test']);
+  // The walk confirms a task and cannot un-confirm it: a second run against the same work folder would show no proposal.
+  const tasksFolder = join(home, 'training-shop', 'docs', 'tasks');
+  if (existsSync(tasksFolder) && readdirSync(tasksFolder).length > 0) throw new Error(`${tasksFolder} already holds ${readdirSync(tasksFolder).length} task file(s): the walk starts from a product with no task, so run it with a new --work folder`);
+  // The answer is a file of the product, committed as the reader: written once, and read by every walk below.
+  const answered = await api('/api/k/answer', { question: slug, text: ANSWER });
+  if (!answered.ok) throw new Error(`the answer to ${slug} could not be saved: ${answered.status} ${await answered.text()}`);
+  const saved = (await (await api(`/api/k/question?id=${encodeURIComponent(slug)}`)).json()) as { state: string };
+  if (saved.state === 'open') throw new Error(`the answer to ${slug} was saved but the question still reads open`);
+
+  // Every language, scheme and width; `--task-combos` names a few of them as `<lang>-<scheme>-<width>`, comma separated.
+  const all: { lang: 'en' | 'ru'; scheme: 'light' | 'dark'; width: number }[] = [];
+  for (const language of ['en', 'ru'] as const) {
+    for (const scheme of ['light', 'dark'] as const) for (const width of [1150, 390]) all.push({ lang: language, scheme, width });
+  }
+  const onlyCombos = argument('task-combos', '').split(',').map((one) => one.trim()).filter((one) => one !== '');
+  // The first walk confirms the task, and the title it writes is the title every later picture shows: the order asked
+  // for is the order walked, so a Russian walk's pictures carry the Russian title.
+  const combos = onlyCombos.length === 0 ? all : onlyCombos.map((name) => all.find((combo) => `${combo.lang}-${combo.scheme}-${combo.width}` === name)).filter((combo): combo is (typeof all)[number] => combo !== undefined);
+  const tag = (combo: { lang: string; scheme: string; width: number }): string => `${combo.lang}-${combo.scheme}-${combo.width}`;
+  const question = `${product}/k/questions/${encodeURIComponent(slug)}`;
+
+  // Before the task is confirmed, in every language, scheme and width: the saved answer, the choice «Прав код, документ
+  // устарел», the filled proposal and the pages and statements it reaches.
+  const propose = async (combo: { lang: string; scheme: 'light' | 'dark'; width: number }, shot: boolean): Promise<Page> => {
+    const page = await open(question, combo.width, combo.width === 390 ? 1600 : 1500, combo.scheme, combo.lang);
+    // A machine the walk never used asks which role it reads as: the card is answered once, and the page is read again.
+    await page.waitForFunction(() => document.querySelector('[data-testid=task-choice-code]') !== null || document.querySelector('[data-testid=role-skip]') !== null, { timeout: 120_000 });
+    if ((await page.$('[data-testid=role-skip]')) !== null) {
+      await page.click('[data-testid=role-skip]');
+      await page.waitForFunction(() => document.querySelector('[data-testid=role-card]') === null, { timeout: 30_000 });
+      await page.goto(`${server.url}${question}`, { waitUntil: 'domcontentloaded' });
+    }
+    await waited(page, `the task choice (${tag(combo)})`, () => page.waitForSelector('[data-testid=task-choice-code]', { timeout: 120_000 }));
+    await page.click('[data-testid=task-choice-code]');
+    await page.click('[data-testid=task-propose]');
+    await waited(page, `the proposed task (${tag(combo)})`, () => page.waitForSelector('[data-testid=task-impact-list]', { timeout: 60_000 }));
+    if (shot) {
+      await page.evaluate(() => document.querySelector('[data-testid=task-proposed]')?.scrollIntoView({ block: 'start' }));
+      await shoot(page, `${tag(combo)}-k01-answer-proposes-a-task`);
+    }
+    return page;
+  };
+  for (const combo of combos) {
+    const page = await propose(combo, true);
+    await page.close();
+  }
+  // The one press that writes the task is the reader's, made once, as the acceptance walk makes it.
+  {
+    const page = await propose(combos[0]!, false);
+    await page.click('[data-testid=task-confirm]');
+    await waited(page, 'the confirmed task', () => page.waitForSelector('[data-testid=task-card] [data-testid=task-fix-now]', { timeout: 60_000 }));
+    await page.close();
+  }
+
+  // After the confirmation: the badges on the two sections and on the statements that stand on them, and the fixes.
+  for (const combo of combos) {
+    const language = combo.lang;
+    const at = async (path: string, what: string, ready: string, height: number): Promise<Page> => {
+      const page = await open(path, combo.width, height, combo.scheme, language);
+      await page.waitForFunction(() => document.querySelector('[data-testid=role-skip]') !== null || document.body.innerText.length > 0, { timeout: 60_000 });
+      if ((await page.$('[data-testid=role-skip]')) !== null) {
+        await page.click('[data-testid=role-skip]');
+        await page.waitForFunction(() => document.querySelector('[data-testid=role-card]') === null, { timeout: 30_000 });
+        await page.goto(`${server.url}${path}`, { waitUntil: 'domcontentloaded' });
+      }
+      await waited(page, `${what} (${tag(combo)})`, () => page.waitForSelector(ready, { timeout: 120_000 }));
+      return page;
+    };
+    const readme = await at(`${product}/k/doc?repo=training&path=${encodeURIComponent('README.md')}#what-it-does`, 'the README section badge', '[data-testid=planned-badge]', combo.width === 390 ? 1500 : 1300);
+    await readme.evaluate(() => document.querySelector('[data-testid=planned-badge]')?.scrollIntoView({ block: 'center' }));
+    await shoot(readme, `${tag(combo)}-k02-badge-on-the-readme-section`);
+    await readme.close();
+    const ordering = await at(`${product}/k/e/${encodeURIComponent('domain:ordering')}`, 'the dependent statement badge', '[data-testid=statement][data-planned]', combo.width === 390 ? 1900 : 1600);
+    await ordering.evaluate(() => document.querySelector('[data-testid=statement][data-planned]')?.scrollIntoView({ block: 'center' }));
+    await shoot(ordering, `${tag(combo)}-k03-badge-on-the-dependent-statement`);
+    await ordering.close();
+    const fixing = await at(question, 'the task card with its pages', '[data-testid=task-card] [data-testid=task-fix-now]', combo.width === 390 ? 2000 : 1700);
+    await fixing.evaluate(() => document.querySelector('[data-testid=task-card]')?.scrollIntoView({ block: 'start' }));
+    await shoot(fixing, `${tag(combo)}-k04-fix-the-pages-now`);
+    await fixing.close();
+    const tasks = await at(`${product}/k/tasks`, 'the tasks page', '[data-testid=task-row]', combo.width === 390 ? 1400 : 1000);
+    await shoot(tasks, `${tag(combo)}-k05-tasks`);
+    await tasks.close();
+  }
+  console.log(`the scoped-task walk wrote ${written.length} pictures into ${out}`);
 }
 
 await browser.close();
