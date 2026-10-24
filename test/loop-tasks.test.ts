@@ -269,7 +269,9 @@ describe('confirming the proposal as a task', () => {
         at,
         by: { ...READER },
         grounds: DISCOUNT_GROUNDS,
-        scope: [{ scope: DISCOUNT_SECTION, words: 'README.md#discounts' }],
+        // The place as a reader says it (madarch-m38l.14, the owner's review): the section's heading and its document's
+        // title, each a link; the stored words stay for a tooltip.
+        scope: [{ scope: DISCOUNT_SECTION, words: 'README.md#discounts', place: { kind: 'section', label: 'Discounts', where: 'Shop', href: '/k/doc?repo=orders-code&path=README.md#discounts', path: 'README.md', words: 'README.md#discounts' } }],
         closedBy: null,
         impact: { pages: expect.any(Number), statements: 0 },
       }],
@@ -371,7 +373,7 @@ describe('closing a task by a commit', () => {
     const row = taskRowOf(closed, taxTask.id);
     expect(row.status).toBe('closed');
     expect(row.closedBy).toEqual({ repository: CODE, commit: closing, at: recorded[1], subject: 'Say when tax is added' });
-    expect(row.scope).toEqual([{ scope: TAX_SECTION, words: 'README.md#tax' }]);
+    expect(row.scope).toEqual([{ scope: TAX_SECTION, words: 'README.md#tax', place: { kind: 'section', label: 'Tax', where: 'Shop', href: '/k/doc?repo=orders-code&path=README.md#tax', path: 'README.md', words: 'README.md#tax' } }]);
     // The other task is untouched by these commits: none of them names it.
     expect(taskRowOf(closed, discountTask.id).status).toBe('open');
   }, 60_000);

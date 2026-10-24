@@ -542,7 +542,9 @@ if (only === '' || only === 'tasks') {
     for (const scheme of ['light', 'dark'] as const) for (const width of [1150, 390]) all.push({ lang: language, scheme, width });
   }
   const onlyCombos = argument('task-combos', '').split(',').map((one) => one.trim()).filter((one) => one !== '');
-  const combos = onlyCombos.length === 0 ? all : all.filter((combo) => onlyCombos.includes(`${combo.lang}-${combo.scheme}-${combo.width}`));
+  // The first walk confirms the task, and the title it writes is the title every later picture shows: the order asked
+  // for is the order walked, so a Russian walk's pictures carry the Russian title.
+  const combos = onlyCombos.length === 0 ? all : onlyCombos.map((name) => all.find((combo) => `${combo.lang}-${combo.scheme}-${combo.width}` === name)).filter((combo): combo is (typeof all)[number] => combo !== undefined);
   const tag = (combo: { lang: string; scheme: string; width: number }): string => `${combo.lang}-${combo.scheme}-${combo.width}`;
   const question = `${product}/k/questions/${encodeURIComponent(slug)}`;
 
