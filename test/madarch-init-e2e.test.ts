@@ -134,8 +134,9 @@ describe('the one press', () => {
     // The documents are pages of the same wiki: the written pages and the repository's own, and a ground opens the document at its section.
     const documents = (await get('api/k/documents')).body as { documents: { repo: string | null; path: string }[] };
     // The written pages are the pages of their kinds, not documents to list.
-    expect(documents.documents).not.toContainEqual({ repo: null, path: 'docs/product.md' });
-    expect(documents.documents).toContainEqual({ repo: 'training-shop', path: 'docs/requirements.md' });
+    const listed = documents.documents.map((document) => `${document.repo ?? ''}:${document.path}`);
+    expect(listed).not.toContain(':docs/product.md');
+    expect(listed).toContain('training-shop:docs/requirements.md');
     const requirements = await get('api/k/document?repo=training-shop&path=docs/requirements.md');
     expect(requirements.status).toBe(200);
     expect(requirements.body.anchors['uc-2']).toBeGreaterThan(0);
