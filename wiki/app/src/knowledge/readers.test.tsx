@@ -52,7 +52,7 @@ afterEach(() => {
 
 const term = (title: string, extra: Partial<GlossaryTerm> = {}): GlossaryTerm => ({
   id: `doc:docs/glossary.md#${title.toLowerCase().replace(/\s+/g, '-')}`, title, definition: `${title} means a thing.`, synonyms: [], code: [], usedIn: null, ambiguous: null,
-  repo: null, path: 'docs/glossary.md', line: 3, endLine: 4, anchor: title.toLowerCase().replace(/\s+/g, '-'), href: `/k/e/doc%3Adocs%2Fglossary.md%23${title.toLowerCase().replace(/\s+/g, '-')}`, ...extra,
+  repo: null, path: 'docs/glossary.md', line: 3, endLine: 4, anchor: title.toLowerCase().replace(/\s+/g, '-'), single: false, href: `/k/e/doc%3Adocs%2Fglossary.md%23${title.toLowerCase().replace(/\s+/g, '-')}`, ...extra,
 });
 
 describe('what a role opens', () => {

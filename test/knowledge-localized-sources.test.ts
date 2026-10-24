@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'bun:test';
-import { detectDocumentLanguage, localizedSourcePath, parseLocalizedSource, renderLocalizedSource, LOCALIZED_SOURCE_SCHEMA } from '../src/writer/localized-source.js';
+import { detectDocumentLanguage, localizedSourcePath, parseLocalizedSource, renderLocalizedSource, LOCALIZED_SOURCE_SCHEMA, type LocalizedDocumentSource } from '../src/writer/localized-source.js';
 import type { DocEntity } from '../src/knowledge/doc-entities.js';
+import { glossaryTerms } from '../src/knowledge/glossary.js';
+import { noEntityMessage } from '../src/knowledge/resolve.js';
+import type { KindsManifest } from '../src/knowledge/kinds.js';
 
 const entity: DocEntity = { id: 'doc:docs/glossary.md#payment-token', kind: 'doc.term', title: 'Payment token', identifier: null, repo: null, path: 'docs/glossary.md', anchor: 'payment-token', line: 4, endLine: 6, text: 'The token returned after payment succeeds.', };
 
@@ -59,5 +62,32 @@ describe('localized document sources', () => {
     const stale = parseLocalizedSource('entity.md', markdown, changed, 'ru');
     expect(stale.ok).toBe(false);
     if (!stale.ok) expect(stale.message).toContain('In the source');
+  });
+});
+
+describe('a code repository\'s documents in a Russian wiki (madarch-m38l.18)', () => {
+  const manifest: KindsManifest = {
+    file: 'madarch/kinds.yaml', roles: new Map(), groups: new Map(), excludeDocuments: [], findings: [],
+    kinds: new Map([['doc.term', { name: 'doc.term', template: 'templates/term.md', source: 'document', terms: ['**/glossary*.md'], title: 'title', relations: [], line: 1 }]]),
+  };
+  const inRepository: DocEntity = { id: 'doc:@training/docs/glossary.md#outbox', kind: 'doc.term', title: 'Outbox', identifier: null, repo: 'training', path: 'docs/glossary.md', anchor: 'outbox', line: 3, endLine: 3, text: 'The table in which orders queues the messages it will publish.' };
+  const localized = new Map<string, LocalizedDocumentSource>([['doc:@training/docs/glossary.md#outbox', { schema: LOCALIZED_SOURCE_SCHEMA, entity: inRepository.id, kind: inRepository.kind, wikiLanguage: 'ru', sourceLanguage: 'en', sourceDocument: 'docs/glossary.md', sourceLine: 3, sourceEndLine: 3, original: inRepository.text, statement: 'Таблица, в которой сервис заказов хранит сообщения, которые опубликует.' }]]);
+
+  test('a term of the repository\'s glossary is shown in Russian with its original beside it', () => {
+    const [term] = glossaryTerms(manifest, [inRepository], localized, 'ru', true);
+    expect(term!.title).toBe('Outbox');
+    expect(term!.definition).toBe('Таблица, в которой сервис заказов хранит сообщения, которые опубликует.');
+    expect(term!.source).toMatchObject({ document: 'docs/glossary.md', line: 3, original: inRepository.text });
+  });
+
+  test('a product with one repository does not name it in the place of the term', () => {
+    expect(glossaryTerms(manifest, [inRepository], localized, 'ru', true)[0]!.single).toBe(true);
+    expect(glossaryTerms(manifest, [inRepository], localized, 'ru', false)[0]!.single).toBe(false);
+    expect(glossaryTerms(manifest, [{ ...inRepository, repo: null, id: 'doc:docs/glossary.md#outbox' }], new Map(), 'ru', true)[0]!.single).toBe(false);
+  });
+
+  test('a page that names nothing says so in the language of the wiki', () => {
+    expect(noEntityMessage('domain:ordering', 'ru')).toBe('сущности "domain:ordering" нет ни в графе, ни среди Markdown-страниц продукта');
+    expect(noEntityMessage('domain:ordering')).toContain('no entity "domain:ordering"');
   });
 });

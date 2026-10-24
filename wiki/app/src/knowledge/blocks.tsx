@@ -563,7 +563,7 @@ function Stated({ block }: { block: Extract<Block, { type: 'stated' }> }): React
     <section data-block="stated" aria-label={block.title}>
       <h2>{block.title}</h2>
       <p className="m-0 flex flex-wrap items-center gap-2">
-        <Badge>{place.repo ?? t('knowledge.productRepository')}</Badge>
+        {place.single === true ? null : <Badge>{place.repo ?? t('knowledge.productRepository')}</Badge>}
         <KLink href={place.href} className="font-mono text-[0.875em]"><span data-testid="stated-place">{place.path}:{lines}</span></KLink>
         {place.commit !== null && <Badge title={place.commit}>{place.commit.slice(0, 10)}</Badge>}
       </p>

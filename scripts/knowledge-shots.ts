@@ -678,7 +678,7 @@ if (only === 'localized') {
   makeProduct(home, name, repository);
   const manifest = join(folder, 'madarch', 'kinds.yaml');
   writeFileSync(manifest, `${readFileSync(manifest, 'utf8')}language: ru\n`);
-  writeFileSync(join(work, 'agent-script.json'), JSON.stringify(localizedScript()));
+  writeFileSync(join(work, 'agent-script.json'), JSON.stringify(localizedScript({}, { product: `product:${name}`, repo: 'training' })));
   const chosen = await api('/api/k/agent', { agent: 'claude-code', install: false });
   if (!chosen.ok) throw new Error(`the agent could not be chosen: ${chosen.status} ${await chosen.text()}`);
   const started = await api('/api/k/fill', { agent: 'claude-code' });
@@ -705,10 +705,10 @@ if (only === 'localized') {
   // and the place it is stated at (requirement: the place loses the repository's name when the product has
   // one repository).
   {
-    const glossary = (await (await api('/api/k/glossary')).json()) as { terms: { title: string; definition: string; repo: string | null; path: string; line: number; source?: { document: string } }[] };
+    const glossary = (await (await api('/api/k/glossary')).json()) as { terms: { title: string; definition: string; repo: string | null; path: string; line: number; single: boolean; source?: { document: string } }[] };
     console.log(`the glossary of ${name} holds ${glossary.terms.length} term(s)`);
     for (const term of glossary.terms) {
-      console.log(`TERM ${JSON.stringify({ title: term.title, definition: term.definition.slice(0, 120), definitionLanguage: languageOf(term.definition), sourceDocument: term.source?.document ?? null, place: `${term.repo === null ? '' : `${term.repo}/`}${term.path}:${term.line}` })}`);
+      console.log(`TERM ${JSON.stringify({ title: term.title, definition: term.definition.slice(0, 120), definitionLanguage: languageOf(term.definition), sourceDocument: term.source?.document ?? null, place: `${term.repo === null || term.single ? '' : `${term.repo}/`}${term.path}:${term.line}`, singleRepository: term.single })}`);
     }
   }
   const wiki = (id: string): string => `${product}/k/e/${encodeURIComponent(id)}`;

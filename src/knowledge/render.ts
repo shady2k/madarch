@@ -22,7 +22,7 @@ import { readBody } from './markdown.js';
 import type { DocEntity } from './doc-entities.js';
 import type { MarkdownEntity } from './markdown.js';
 import type { Block, EntityListing, EntityRef, KindSummary, PageModel } from './model.js';
-import { documentAddress, type Resolution } from './resolve.js';
+import { documentAddress, noEntityMessage, type Resolution } from './resolve.js';
 import { parseTemplate, substitute } from './template.js';
 import { termLinks } from './glossary.js';
 
@@ -48,7 +48,7 @@ const DEFERRED_BLOCKS: ReadonlySet<string> = new Set(['graph', 'sequence', 'syst
 
 export async function renderPage(ctx: RenderContext, id: string, lang?: string, options: { defer?: boolean; only?: number } = {}): Promise<PageResult> {
   const located = await findSubject(ctx, id);
-  if (located === undefined) return { ok: false, status: 404, message: `no entity "${id}" in the graph or among the product's Markdown pages` };
+  if (located === undefined) return { ok: false, status: 404, message: noEntityMessage(id, lang ?? ctx.language) };
   const { subject } = located;
   const decl = ctx.manifest.kinds.get(kindOf(subject));
   if (decl === undefined) {

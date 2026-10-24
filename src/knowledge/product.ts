@@ -43,7 +43,7 @@ import { CONTENT_LANGUAGES } from '../writer/prompts.js';
 import type { DraftEnv } from '../product/home.js';
 import { findSubject, kindSummaries, renderPage, listEntities, type PageResult } from './render.js';
 import { buildStatement, type StatementResult } from './statement.js';
-import { Resolver, type Resolution } from './resolve.js';
+import { Resolver, noEntityMessage, type Resolution } from './resolve.js';
 import { indexCounts } from './index/queries.js';
 import { documentSections } from './index/sections.js';
 
@@ -1134,7 +1134,6 @@ export class KnowledgeProduct {
     const localizedSources = new Map<string, LocalizedDocumentSource>();
     const localizedFindings: Finding[] = [];
     for (const entity of reading.entities) {
-      if (entity.repo !== null) continue;
       const sourceLanguage = detectDocumentLanguage(entity.text);
       if (sourceLanguage === language) continue;
       const file = localizedSourcePath(entity);
@@ -1156,7 +1155,9 @@ export class KnowledgeProduct {
         localizedFindings.push({ file, line: 2, message: `source-language is ${parsed.source.sourceLanguage}, but the current document is detected as ${sourceLanguage}` });
         continue;
       }
-      localizedSources.set(entity.id, parsed.source);
+      // A product with one code repository does not name it in the place of a localized statement either.
+      const single = entity.repo !== null && this.repositories().length === 1;
+      localizedSources.set(entity.id, single ? { ...parsed.source, sourceDocument: parsed.source.sourceDocument.replace(new RegExp(`^repos/${entity.repo?.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/`), '') } : parsed.source);
     }
     const entityAtLine = new Map<string, DocEntity>(reading.entities.map((entity) => [`${entity.repo ?? ''}\0${entity.path}\0${entity.line}`, entity]));
     const repoOfScope = (scope: string): string | undefined => [...this.pins.values()].find((pin) => pin.scope === scope)?.name;
@@ -1423,7 +1424,7 @@ export class KnowledgeProduct {
   async glossary(): Promise<{ terms: GlossaryTerm[]; resolutions: Record<string, Resolution>; findings: Finding[] }> {
     const context = await this.context();
     if ('absent' in context) return { terms: [], resolutions: {}, findings: [] };
-    const terms = glossaryTerms(context.manifest, context.ctx.docEntities.values(), context.ctx.localizedSources, context.ctx.language);
+    const terms = glossaryTerms(context.manifest, context.ctx.docEntities.values(), context.ctx.localizedSources, context.ctx.language, context.ctx.repositories.length === 1);
     // The links the terms' texts hold are resolved here once, so the page draws them as it draws any other (broken ones marked).
     const resolutions: Record<string, Resolution> = {};
     for (const url of [...new Set(terms.flatMap(termLinks))].sort(byCodePoint)) resolutions[url] = await context.ctx.resolver.resolve(url);
@@ -1438,7 +1439,7 @@ export class KnowledgeProduct {
     const context = await this.context();
     if ('absent' in context) return { ok: false, status: 404, message: `the product has no ${context.file}: the wiki shows the kinds that file declares` };
     const located = await findSubject(context.ctx, id);
-    if (located === undefined) return { ok: false, status: 404, message: `no entity "${id}" in the graph or among the product's Markdown pages` };
+    if (located === undefined) return { ok: false, status: 404, message: noEntityMessage(id, context.ctx.language) };
     const { hood } = await neighborhoodOf(context.ctx, located.subject, { depth: 1, ...(options.relation === undefined ? {} : { relations: [options.relation] }), ...(options.direction === undefined ? {} : { direction: options.direction }), limit: options.limit, maxNodes: options.limit * 4 + 1 });
     return { ok: true, neighborhood: hood };
   }

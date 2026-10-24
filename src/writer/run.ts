@@ -381,7 +381,9 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
     }
   }
   const localizedSources: UnitOutcome[] = [];
-  const localizedEntities = [...(options.documentEntities ?? [])].filter((entity) => entity.repo === null).sort((a, b) => byCodePoint(a.id, b.id));
+  // Every extracted document entity, of the product's own documents and of each code repository's: a Russian wiki over
+  // English documents shows each of them in Russian, with its original beside it.
+  const localizedEntities = [...(options.documentEntities ?? [])].sort((a, b) => byCodePoint(a.id, b.id));
   for (const entity of localizedEntities) {
     const sourceLanguage = detectDocumentLanguage(entity.text);
     if (sourceLanguage === undefined) {

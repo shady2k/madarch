@@ -86,23 +86,25 @@ export interface GlossaryTerm extends TermFields {
   endLine: number;
   /** The section's anchor in its document. */
   anchor: string;
+  /** The product has one code repository, so the place of the term does not name it. */
+  single: boolean;
   href: string;
 }
 
 /** The terms of the document kinds that name glossaries, in code point order of their titles. */
-export function glossaryTerms(manifest: KindsManifest, entities: Iterable<DocEntity>, localized: ReadonlyMap<string, LocalizedDocumentSource> = new Map(), language = manifest.language ?? 'en'): GlossaryTerm[] {
+export function glossaryTerms(manifest: KindsManifest, entities: Iterable<DocEntity>, localized: ReadonlyMap<string, LocalizedDocumentSource> = new Map(), language = manifest.language ?? 'en', singleRepository = false): GlossaryTerm[] {
   const kinds = new Set([...manifest.kinds.values()].filter((kind) => kind.source === 'document' && kind.terms !== undefined).map((kind) => kind.name));
   const terms: GlossaryTerm[] = [];
   for (const entity of entities) {
     if (!kinds.has(entity.kind)) continue;
-    const source = entity.repo === null ? localized.get(entity.id) : undefined;
+    const source = localized.get(entity.id);
     const sameLanguage = source !== undefined && source.sourceLanguage === language;
     const detectedLanguage = detectDocumentLanguage(entity.text);
-    const needsLocalization = entity.repo === null && detectedLanguage !== language;
+    const needsLocalization = detectedLanguage !== language;
     const originalFields = parseTermText(entity.text);
     const localizedFields = source !== undefined && !sameLanguage ? parseTermText(source.statement) : originalFields;
     const fields = source !== undefined && !sameLanguage ? { ...originalFields, definition: localizedFields.definition || source.statement } : needsLocalization ? { ...originalFields, definition: '' } : originalFields;
-    terms.push({ ...fields, ...(source === undefined || sameLanguage ? {} : { source: { original: source.original, document: source.sourceDocument, line: source.sourceLine, endLine: source.sourceEndLine } }), id: entity.id, title: entity.title, repo: entity.repo, path: entity.path, line: entity.line, endLine: entity.endLine, anchor: entity.anchor, href: `/k/e/${encodeURIComponent(entity.id)}` });
+    terms.push({ ...fields, ...(source === undefined || sameLanguage ? {} : { source: { original: source.original, document: source.sourceDocument, line: source.sourceLine, endLine: source.sourceEndLine } }), id: entity.id, title: entity.title, repo: entity.repo, path: entity.path, line: entity.line, endLine: entity.endLine, anchor: entity.anchor, single: entity.repo !== null && singleRepository, href: `/k/e/${encodeURIComponent(entity.id)}` });
   }
   return terms.sort((a, b) => byCodePoint(a.title.toLowerCase(), b.title.toLowerCase()) || byCodePoint(a.id, b.id));
 }

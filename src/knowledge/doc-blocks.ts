@@ -26,7 +26,9 @@ export function statedBlock(ctx: RenderContext, subject: Subject, params: Readon
   const title = params['title'] ?? 'Stated in';
   if (subject.source === 'document') {
     const doc = subject.entity;
-    return { type: 'stated', title, place: { repo: doc.repo, path: doc.path, lineStart: doc.line, lineEnd: doc.endLine, href: documentAddress(doc.repo, doc.path, doc.anchor), commit: doc.repo === null ? null : ctx.commitOf(doc.repo) } };
+    // A product with one code repository does not name it: the reader knows which repository the pages are written from.
+    const single = doc.repo !== null && ctx.repositories.length === 1;
+    return { type: 'stated', title, place: { repo: doc.repo, path: doc.path, lineStart: doc.line, lineEnd: doc.endLine, href: documentAddress(doc.repo, doc.path, doc.anchor), commit: doc.repo === null ? null : ctx.commitOf(doc.repo), ...(single ? { single: true } : {}) } };
   }
   if (subject.source === 'markdown') {
     return { type: 'stated', title, place: { repo: null, path: subject.entity.file, lineStart: subject.entity.bodyLine, lineEnd: subject.entity.bodyLine, href: documentAddress(null, subject.entity.file), commit: null } };
@@ -202,12 +204,12 @@ export async function linkedFromBlock(ctx: RenderContext, subject: Subject, para
 /** The glossary term a document entity is: its definition, synonyms, code names, places of use and ambiguity (decision 0031). */
 export function termBlock(ctx: RenderContext, subject: Subject, params: Readonly<Record<string, string>>, file: string, line: number): Block {
   if (subject.source !== 'document') return { type: 'problem', block: 'term', file, line, message: 'the term block shows a glossary term; the entities of this kind are not terms of a document' };
-  const source = subject.entity.repo === null ? ctx.localizedSources.get(subject.entity.id) : undefined;
+  const source = ctx.localizedSources.get(subject.entity.id);
   const detected = source === undefined ? undefined : source.sourceLanguage;
   const localized = source !== undefined && detected !== ctx.language;
   const originalFields = parseTermText(subject.entity.text);
   const localizedFields = localized ? parseTermText(source.statement) : originalFields;
-  const needsLocalization = subject.entity.repo === null && detectDocumentLanguage(subject.entity.text) !== ctx.language;
+  const needsLocalization = detectDocumentLanguage(subject.entity.text) !== ctx.language;
   const fields = localized ? { ...originalFields, definition: localizedFields.definition || source.statement } : originalFields;
   return { type: 'term', title: params['title'] ?? 'Term', ...fields, ...(localized ? { localized: { statement: source.statement, original: source.original, sourceDocument: source.sourceDocument, sourceLine: source.sourceLine, sourceEndLine: source.sourceEndLine } } : {}), ...(needsLocalization && source === undefined ? { definition: '' } : {}) };
 }

@@ -187,7 +187,7 @@ type BlockShape =
   | { type: 'sequence'; title: string; scenario: string; chains: Chain[]; entries: number; notes: string[] }
   | { type: 'refs'; title: string; total: number; rows: RefRow[] }
   | { type: 'properties'; title: string; rows: PropertyRow[] }
-  | { type: 'stated'; title: string; place: { repo: string | null; path: string; lineStart: number; lineEnd: number; href: string; commit: string | null } }
+  | { type: 'stated'; title: string; place: { repo: string | null; path: string; lineStart: number; lineEnd: number; href: string; commit: string | null; single?: boolean } }
   | { type: 'deferred'; block: string; title: string; line: number }
   | { type: 'definition'; title: string; format: string; contract: string; location?: CodeLocation; members: DefinitionMember[]; membersTotal: number; membersShown: number; memberCuts: { channel: string; total: number; shown: number }[]; spec: { text: string; lines: number } }
   | { type: 'history'; title: string; sections: HistorySection[]; notes: HistoryNote[] }

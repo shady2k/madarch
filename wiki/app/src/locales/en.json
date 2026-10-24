@@ -411,7 +411,8 @@
       "symbol": "Symbol",
       "method": "Method",
       "path": "Path"
-    }
+    },
+    "pageNotRead": "Could not read the page of {{id}}: {{reason}}"
   },
   "loop": {
     "questionsTitle": "Questions",

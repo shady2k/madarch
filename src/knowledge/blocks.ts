@@ -190,9 +190,9 @@ export function attributeOf(subject: Subject, name: string): string | undefined 
 export function bodyBlock(ctx: RenderContext, subject: Subject, block: string, file: string, line: number): Block {
   // A document entity's identity and source remain those of the original document; a valid translation is only its reader-facing statement.
   if (subject.source === 'document') {
-    const source = subject.entity.repo === null ? ctx.localizedSources.get(subject.entity.id) : undefined;
+    const source = ctx.localizedSources.get(subject.entity.id);
     const sourceLanguage = detectDocumentLanguage(subject.entity.text);
-    const needsLocalization = subject.entity.repo === null && sourceLanguage !== ctx.language;
+    const needsLocalization = sourceLanguage !== ctx.language;
     if (needsLocalization && source === undefined) return { type: 'problem', block, file: subject.entity.path, line: subject.entity.line, message: `no valid localized statement for ${subject.entity.id} in ${ctx.language}; see the localized-source finding for its file and line` };
     const sameLanguage = source !== undefined && source.sourceLanguage === ctx.language;
     return {
