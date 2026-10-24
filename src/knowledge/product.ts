@@ -1570,7 +1570,13 @@ export class KnowledgeProduct {
    */
   async placeOf(scope: TaskScope): Promise<PlaceView> {
     const words = scopeWords(scope);
-    const repoOf = (path: string): string | null => (productDocumentPaths(this.options.productFolder).includes(path) ? null : this.singleRepository()?.name ?? null);
+    // The product's own documents belong to no code repository; every other path belongs to the one repository the pages
+    // are written from (asked of the declared checkouts, not of a fill: a place is shown before anything was read).
+    const repoOf = (path: string): string | null => {
+      if (productDocumentPaths(this.options.productFolder).includes(path)) return null;
+      const present = this.repositories().filter((repo) => repo.present);
+      return present.length === 1 ? present[0]!.name : null;
+    };
     if (scope.type === 'section') {
       const repo = repoOf(scope.path);
       const page = await this.document(repo, scope.path);
