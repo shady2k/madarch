@@ -39,19 +39,15 @@ export const TEXT = {
 } as const;
 export type ScriptLanguage = keyof typeof TEXT;
 
-/** A document id as a page of the product repository, or of the one code repository the walk writes from. */
-const documentGround = (ground: string, repo: string | undefined): string => (repo === undefined || !ground.startsWith('doc:') || ground.startsWith('doc:@') ? ground : `doc:@${repo}/${ground.slice('doc:'.length)}`);
-
 /**
- * Where a page's ids and document grounds point: the product the walk fills (its id is `product:<name>`) and the code
- * repository its documents are read from (`training` when the walk fills a product over the training repository, whose
- * documents are not the product's own).
+ * Where a page's id points: the product the walk fills, whose id is `product:<name>`. A document ground keeps the path the
+ * document has in the code repository (`docs/requirements.md`), which the writer reads and the reader resolves to the one
+ * repository's document.
  */
-export interface PagePlaces { product?: string; repo?: string }
+export interface PagePlaces { product?: string }
 
 export const productPage = (language: ScriptLanguage, places: PagePlaces = {}): string => {
   const t = TEXT[language];
-  const uc = (rest: string): string => `madarch:${documentGround(`doc:${rest}`, places.repo)}`;
   return [
     '---', `id: ${places.product ?? 'product:training-shop'}`, 'kind: product', `title: ${t.productTitle}`, 'relates:', `  - ${ORDERS_SERVICE}`, `  - ${PAYMENTS_SERVICE}`, 'producer: agent', 'sources: [docs/vision.md, docs/requirements.md]', '---', '',
     `## ${t.whatItIs}`, '',
@@ -60,16 +56,16 @@ export const productPage = (language: ScriptLanguage, places: PagePlaces = {}): 
     `- [${t.ordering}](madarch:domain:ordering) ${t.orderingLine(ORDERS_SERVICE)}[^2]`,
     `- [${t.payments}](madarch:domain:payments) ${t.paymentsLine(PAYMENTS_SERVICE)}[^3]`, '',
     `[^1]: [orders](madarch:${ORDERS_SERVICE}), [payments](madarch:${PAYMENTS_SERVICE})`,
-    `[^2]: [orders](madarch:${ORDERS_SERVICE}), [UC-1](${uc('docs/requirements.md#uc-1')})`,
-    `[^3]: [payments](madarch:${PAYMENTS_SERVICE}), [UC-2](${uc('docs/requirements.md#uc-2')})`,
+    `[^2]: [orders](madarch:${ORDERS_SERVICE}), [UC-1](madarch:doc:docs/requirements.md#uc-1)`,
+    `[^3]: [payments](madarch:${PAYMENTS_SERVICE}), [UC-2](madarch:doc:docs/requirements.md#uc-2)`,
   ].join('\n');
 };
-export const domain = (language: ScriptLanguage, slug: 'ordering' | 'payments', service: string, grounds: string[], places: PagePlaces = {}): string => {
+export const domain = (language: ScriptLanguage, slug: 'ordering' | 'payments', service: string, grounds: string[]): string => {
   const t = TEXT[language];
   return [
     '---', `id: domain:${slug}`, 'kind: domain', `title: ${t[slug]}`, 'relates:', `  - ${service}`, 'producer: agent', 'sources: [docs/requirements.md]', '---', '',
     `## ${t.how(slug)}`, '', `${slug === 'ordering' ? t.orderingStatement : t.paymentsStatement}[^1]`, '',
-    `[^1]: ${grounds.map((ground) => `[${ground.replace(/^.*[:#/]/, '')}](madarch:${documentGround(ground, places.repo)})`).join(', ')}`,
+    `[^1]: ${grounds.map((ground) => `[${ground.replace(/^.*[:#/]/, '')}](madarch:${ground})`).join(', ')}`,
   ].join('\n');
 };
 
@@ -138,8 +134,8 @@ export function agentScript(delays: { product?: number; ordering?: number; payme
   const unit = (language: ScriptLanguage) => {
     const t = TEXT[language];
     return [
-      { matches: `The product unit declared this domain: ${t.orderingSummary}`, steps: [...wait(delays.ordering), call(domain(language, 'ordering', ORDERS_SERVICE, ['doc:docs/requirements.md#uc-2', PAY], places)), { end: { stopReason: 'end_turn' } }] },
-      { matches: `The product unit declared this domain: ${t.paymentsSummary}`, steps: [...wait(delays.payments), call(domain(language, 'payments', PAYMENTS_SERVICE, [FACTORY], places)), { end: { stopReason: 'end_turn' } }] },
+      { matches: `The product unit declared this domain: ${t.orderingSummary}`, steps: [...wait(delays.ordering), call(domain(language, 'ordering', ORDERS_SERVICE, ['doc:docs/requirements.md#uc-2', PAY])), { end: { stopReason: 'end_turn' } }] },
+      { matches: `The product unit declared this domain: ${t.paymentsSummary}`, steps: [...wait(delays.payments), call(domain(language, 'payments', PAYMENTS_SERVICE, [FACTORY])), { end: { stopReason: 'end_turn' } }] },
     ];
   };
   const productSteps = (language: ScriptLanguage) => {
@@ -147,8 +143,8 @@ export function agentScript(delays: { product?: number; ordering?: number; payme
     return [
       ...wait(delays.product),
       call(productPage(language, places), [
-        { slug: 'ordering', title: t.ordering, summary: t.orderingSummary, evidence: [ORDERS_SERVICE, documentGround('doc:docs/requirements.md#uc-1', places.repo)] },
-        { slug: 'payments', title: t.payments, summary: t.paymentsSummary, evidence: [PAYMENTS_SERVICE, documentGround('doc:docs/requirements.md#uc-2', places.repo)] },
+        { slug: 'ordering', title: t.ordering, summary: t.orderingSummary, evidence: [ORDERS_SERVICE, 'doc:docs/requirements.md#uc-1'] },
+        { slug: 'payments', title: t.payments, summary: t.paymentsSummary, evidence: [PAYMENTS_SERVICE, 'doc:docs/requirements.md#uc-2'] },
       ]),
       { end: { stopReason: 'end_turn' } },
     ];

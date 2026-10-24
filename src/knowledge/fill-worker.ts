@@ -28,8 +28,8 @@ import type { UnitsInput, UnitsNeeded } from '../writer/run.js';
 import { fsSink, PRODUCT_PATH, productSlug, runWriter, type ToolClient, type UnitAgent } from '../writer/index.js';
 import { parseMessage, type FromWorker, type RepositoryPin, type ToWorker, type WorkerStart } from './fill-protocol.js';
 import { readKinds } from './kinds.js';
-import { productDocumentPaths, readProductDocument, listedDocument } from './doc-sources.js';
-import { readDocEntities } from './doc-entities.js';
+import { DOCUMENT_LIMIT, listedDocument, productDocumentPaths, readProductDocument, readRepoDocuments, repoDocumentPaths } from './doc-sources.js';
+import { readDocEntities, type DocumentSource } from './doc-entities.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -271,10 +271,26 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
     try {
       const repo = repositories[0]!;
       const kinds = readKinds(productFolder);
-      const documentSources = kinds.present ? productDocumentPaths(productFolder).filter((path) => listedDocument(kinds.manifest, null, path)).flatMap((path) => {
+      const documentSources: DocumentSource[] = kinds.present ? productDocumentPaths(productFolder).filter((path) => listedDocument(kinds.manifest, null, path)).flatMap((path) => {
         const text = readProductDocument(productFolder, path);
         return text === undefined ? [] : [{ repo: null, path, text }];
       }) : [];
+      // The code repository's documents are extracted entities of the wiki too (madarch-m38l.18): a Russian wiki shows each
+      // of them in Russian with its original beside it, so the fill reads them as the reader does.
+      if (kinds.present) {
+        for (const repository of repositories) {
+          const commit = pins.get(repository.name)?.commit;
+          const at = commit === undefined || commit === '' ? 'HEAD' : commit;
+          const all = (await repoDocumentPaths(repository.name, repository.path, at)).filter((path) => listedDocument(kinds.manifest, repository.name, path));
+          if (all.length > DOCUMENT_LIMIT) throw new Error(`repos/${repository.name}:1: the repository holds ${all.length} Markdown documents, more than the fill can read (${DOCUMENT_LIMIT}); no smaller set of localized statements was written`);
+          const texts = await readRepoDocuments(repository.name, repository.path, at, all);
+          for (const path of all) {
+            const text = texts.get(path);
+            if (typeof text !== 'string') throw new Error(`repos/${repository.name}/${path}:1: the document cannot be read within the document size and byte limits; no smaller set of localized statements was written`);
+            documentSources.push({ repo: repository.name, path, text });
+          }
+        }
+      }
       const documentEntities = kinds.present ? readDocEntities(documentSources, kinds.manifest).entities : [];
       const report = await runWriter({
         owner, store, repository: repo.path, ...(pins.get(repo.name)?.head === undefined ? {} : { ref: pins.get(repo.name)!.head }), output: productFolder, productName: start.productName, agent: remote, sink,

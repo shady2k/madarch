@@ -678,7 +678,7 @@ if (only === 'localized') {
   makeProduct(home, name, repository);
   const manifest = join(folder, 'madarch', 'kinds.yaml');
   writeFileSync(manifest, `${readFileSync(manifest, 'utf8')}language: ru\n`);
-  writeFileSync(join(work, 'agent-script.json'), JSON.stringify(localizedScript({}, { product: `product:${name}`, repo: 'training' })));
+  writeFileSync(join(work, 'agent-script.json'), JSON.stringify(localizedScript({}, { product: `product:${name}` })));
   const chosen = await api('/api/k/agent', { agent: 'claude-code', install: false });
   if (!chosen.ok) throw new Error(`the agent could not be chosen: ${chosen.status} ${await chosen.text()}`);
   const started = await api('/api/k/fill', { agent: 'claude-code' });
@@ -688,12 +688,12 @@ if (only === 'localized') {
   const until = Date.now() + 15 * 60_000;
   let seen = false;
   for (;;) {
-    const state = (await (await api('/api/k/status')).json()) as { language: string; fill: { state: string }; writer: { state: string; units: { unit: string; state: string }[] } };
+    const state = (await (await api('/api/k/status')).json()) as { language: string; fill: { state: string }; writer: { state: string; message?: string; units: { unit: string; state: string; message?: string }[] } };
     const running = state.fill.state === 'running' || state.writer.state === 'running' || state.writer.state === 'waiting';
     // A run too quick for a poll is told by the units it wrote.
     if (running || state.writer.units.length > 0) seen = true;
     if (seen && !running) {
-      if (state.fill.state !== 'done') throw new Error(`the fill ended as ${state.fill.state}`);
+      if (state.fill.state !== 'done' || state.writer.state !== 'done' || state.writer.units.some((unit) => unit.state !== 'written')) throw new Error(`the fill did not write every page: ${JSON.stringify(state)}`);
       console.log(`the fill of ${name} ended in ${state.language}: ${state.writer.units.map((unit) => `${unit.unit} ${unit.state}`).join(', ') || 'the agent was asked for no unit'}`);
       break;
     }
@@ -707,8 +707,10 @@ if (only === 'localized') {
   {
     const glossary = (await (await api('/api/k/glossary')).json()) as { terms: { title: string; definition: string; repo: string | null; path: string; line: number; single: boolean; source?: { document: string } }[] };
     console.log(`the glossary of ${name} holds ${glossary.terms.length} term(s)`);
+    if (glossary.terms.length !== 7) throw new Error(`the glossary should hold all seven training terms, not ${glossary.terms.length}`);
     for (const term of glossary.terms) {
       console.log(`TERM ${JSON.stringify({ title: term.title, definition: term.definition.slice(0, 120), definitionLanguage: languageOf(term.definition), sourceDocument: term.source?.document ?? null, place: `${term.repo === null || term.single ? '' : `${term.repo}/`}${term.path}:${term.line}`, singleRepository: term.single })}`);
+      if (languageOf(term.definition) !== 'ru' || term.source === undefined || !term.single || term.source.document.startsWith('repos/')) throw new Error(`the term ${term.title} has no Russian definition, original, or single-repository place: ${JSON.stringify(term)}`);
     }
   }
   const wiki = (id: string): string => `${product}/k/e/${encodeURIComponent(id)}`;
@@ -759,6 +761,7 @@ if (only === 'localized') {
         return { source: true, outside: (copy.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 400) };
       });
       console.log(`${doc.name.toUpperCase()} ${tag} ${JSON.stringify({ source: toggled.source, outsideLanguage: languageOf(toggled.outside), outside: toggled.outside })}`);
+      if (!toggled.source || languageOf(toggled.outside) !== 'ru') throw new Error(`the ${doc.name} page has no Russian summary and original: ${JSON.stringify(toggled)}`);
       await shoot(page, `${tag}-${doc.open}-${doc.name}-source-open`);
       await page.close();
     }
@@ -774,6 +777,7 @@ if (only === 'localized') {
       return (copy.textContent ?? '').replace(/\s+/g, ' ').trim();
     });
     console.log(`DOMAIN ${tag} ${JSON.stringify({ outsideLanguage: languageOf(outside), outside: outside.slice(0, 600) })}`);
+    if (languageOf(outside) !== 'ru') throw new Error(`the ordering page is not in Russian: ${outside}`);
     await shoot(domain, `${tag}-l08-domain-page`);
     await domain.close();
   }

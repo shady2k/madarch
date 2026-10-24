@@ -15,7 +15,7 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ROOT, SAMPLE_IDENTITY, generateTrainingRepository } from './knowledge-fixture.js';
-import { agentScript } from './knowledge-agent-script.js';
+import { localizedScript, LOCALIZED_STATEMENTS } from './knowledge-agent-script.js';
 
 const FAKE_AGENT = join(ROOT, 'test', 'fixtures', 'acp-fake-agent', 'acp-fake-agent.ts');
 
@@ -55,7 +55,7 @@ beforeAll(async () => {
   const app = join(work, 'app');
   mkdirSync(join(app, 'dist'), { recursive: true });
   writeFileSync(join(app, 'dist', 'index.html'), '<!doctype html><title>app</title><div id="root"></div>');
-  writeFileSync(join(work, 'script.json'), JSON.stringify(agentScript()));
+  writeFileSync(join(work, 'script.json'), JSON.stringify(localizedScript()));
   // The adapter the wiki finds by its name, as it finds a real one.
   writeFileSync(join(bin, 'claude-agent-acp'), `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(FAKE_AGENT)} --scenario script --script ${JSON.stringify(join(work, 'script.json'))}\n`);
   chmodSync(join(bin, 'claude-agent-acp'), 0o755);
@@ -158,5 +158,29 @@ describe('the one press', () => {
     expect(paymentsRuBody.markdown).toContain('Платёж проходит через одного из двух провайдеров');
     expect(paymentsRuBody.ungrounded).toEqual([]);
     expect(paymentsRu.body.findings).toEqual([]);
+
+    // The fill worker passes the code repository's documents to the writer too (madarch-m38l.18).
+    // No source entity is supplied by the test: the real fill must discover and localize them.
+    const glossary = (await get('api/k/glossary')).body;
+    expect(glossary.terms).toHaveLength(7);
+    for (const term of glossary.terms) {
+      expect(term.definition, term.title).toBe(LOCALIZED_STATEMENTS[term.title]);
+      expect(term.source.original, term.title).toBeTruthy();
+      expect(term.source.document).toBe('docs/glossary.md');
+      expect(term.single).toBe(true);
+    }
+    for (const title of ['UC-2 Pay', 'BR-1 Discount']) {
+      const anchor = title.startsWith('UC') ? 'uc-2' : 'br-1';
+      const page = await pageOf(`doc:@training-shop/docs/requirements.md#${anchor}`);
+      expect(page.status).toBe(200);
+      expect(page.body.title).toBe(title);
+      const body = page.body.blocks.find((block: { type: string }) => block.type === 'body');
+      expect(body.markdown).toBe(LOCALIZED_STATEMENTS[title]);
+      expect(body.localized.original).toBeTruthy();
+      expect(body.localized.sourceDocument).toBe('docs/requirements.md');
+    }
+    const missing = await get(`api/k/page?id=${encodeURIComponent('domain:missing')}&lang=ru`);
+    expect(missing.status).toBe(404);
+    expect(missing.body.message).toBe('сущности "domain:missing" нет ни в графе, ни среди Markdown-страниц продукта');
   }, 1_800_000);
 });

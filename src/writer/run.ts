@@ -71,7 +71,7 @@ export interface WriterOptions {
   readonly language?: string;
   /** The content language was changed by this run: every page is written again. */
   readonly languageChanged?: boolean;
-  /** Extracted product-repository document entities to localize with scripted ACP units. */
+  /** Extracted document entities of the product and its code repositories to localize with agent units. */
   readonly documentEntities?: readonly DocEntity[];
   /**
    * Which pages need an agent unit. The seam of the incremental update (madarch-m38l.7): given the pages already
