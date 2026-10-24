@@ -13,7 +13,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { embeddedWikiApp } from '../product-wiki/release-assets.js';
 import type { ArchifyDocument, ArchifyLayoutedView, LayoutPoint } from './archify.js';
 
@@ -83,34 +83,27 @@ const ARCHIFY_RENDER_TIMEOUT_MS = 120_000;
 export async function renderArchifyPage(document: ArchifyDocument, input: string, output: string): Promise<{ status: number | null; output: string }> {
   writeFileSync(input, JSON.stringify(document));
   const app = embeddedWikiApp();
-  const bundled = app === undefined ? undefined : join(app, 'dist', 'archify', 'vendor', 'archify', 'renderers', 'architecture', 'render-architecture.mjs');
-  if (bundled !== undefined) {
-    if (!existsSync(bundled)) return { status: 1, output: `${bundled}:1: the compiled binary has no bundled archify renderer` };
-    const argv = process.argv;
-    const priorExit = process.exitCode;
-    process.argv = [process.execPath, bundled, input, output];
-    process.exitCode = 0;
-    try {
-      const url = `${pathToFileURL(bundled).href}?render=${encodeURIComponent(input)}`;
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      const timeout = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(`the bundled archify renderer did not finish within ${ARCHIFY_RENDER_TIMEOUT_MS / 1000} s`)), ARCHIFY_RENDER_TIMEOUT_MS); });
-      try {
-        await Promise.race([import(url), timeout]);
-      } finally {
-        if (timer !== undefined) clearTimeout(timer);
-      }
-      const renderedStatus = typeof process.exitCode === 'number' ? process.exitCode : 0;
-      if (renderedStatus !== 0) return { status: renderedStatus, output: `the bundled archify renderer ended with ${renderedStatus}` };
-      if (!existsSync(output)) return { status: 1, output: `the bundled archify renderer completed without writing ${output}` };
-      // The renderer is a one-shot CLI bundle. Importing it runs the vendored renderer against these arguments inside
-      // Bun's embedded runtime, without Node.js or a checkout beside the installed binary.
-      return { status: 0, output: '' };
-    } catch (error) {
-      return { status: 1, output: `the bundled archify renderer failed: ${error instanceof Error ? error.message : String(error)}` };
-    } finally {
-      process.argv = argv;
-      process.exitCode = priorExit;
+  // In a compiled binary the renderer is the vendored file we ship inside the app's assets, run by the Bun runtime the
+  // binary itself is: Bun's own binary re-enters its runtime when BUN_BE_BUN is set, which is the only way an installed
+  // madarch has a JavaScript runner at all (there is no Node.js beside it). Importing the file was no use: the renderer
+  // is a command-line program, and an import returns before it writes anything.
+  const renderer = app === undefined ? undefined : join(app, 'dist', 'archify', 'vendor', 'archify', 'renderers', 'architecture', 'render-architecture.mjs');
+  if (renderer !== undefined) {
+    if (!existsSync(renderer)) return { status: 1, output: `${renderer}:1: the compiled binary carries no archify renderer` };
+    const run = spawnSync(process.execPath, [renderer, input, output], {
+      encoding: 'utf8',
+      timeout: ARCHIFY_RENDER_TIMEOUT_MS,
+      killSignal: 'SIGKILL',
+      env: { ...process.env, BUN_BE_BUN: '1' },
+    });
+    if (run.error !== undefined) {
+      const timedOut = (run.error as NodeJS.ErrnoException).code === 'ETIMEDOUT' || run.signal === 'SIGKILL';
+      return { status: run.status, output: timedOut ? `the archify renderer was killed after ${String(ARCHIFY_RENDER_TIMEOUT_MS / 1000)} s without writing a page` : `${renderer}:1: the bundled archify renderer could not be run: ${run.error.message}` };
     }
+    const said = `${run.stdout ?? ''}${run.stderr ?? ''}`.trim();
+    if (run.status !== 0) return { status: run.status, output: said === '' ? `${renderer}:1: the bundled archify renderer said nothing and was ended with status ${String(run.status)}` : said };
+    if (!existsSync(output)) return { status: 1, output: `${renderer}:1: the bundled archify renderer ended with status 0 and wrote no page to ${output}` };
+    return { status: 0, output: said };
   }
   const run = spawnSync('node', [ARCHIFY_RENDERER, input, output], { encoding: 'utf8', timeout: ARCHIFY_RENDER_TIMEOUT_MS, killSignal: 'SIGKILL' });
   if (run.error !== undefined) {

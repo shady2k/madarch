@@ -349,7 +349,8 @@
       "exitFullscreen": "Close full screen",
       "zoomIn": "Zoom in",
       "zoomOut": "Zoom out",
-      "zoomFit": "Fit"
+      "zoomFit": "Fit",
+      "rendererFailed": "{{renderer}} could not draw this diagram here; the renderer that did is shown instead."
     },
     "manifestFindingsHelp": "Some kinds or lines of the manifest could not be read. The pages of the other kinds are shown and indexed; the lines are listed under Details.",
     "manifestMissingGroup": "Kind \"{{kind}}\" refers to group \"{{group}}\", which is not in the manifest.",

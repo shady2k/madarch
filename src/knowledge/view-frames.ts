@@ -77,37 +77,34 @@ const escapeHtml = (value: string): string => value.replace(/&/g, '&amp;').repla
 // ---- archify -------------------------------------------------------------------------------------------
 
 /** The script the layout child runs: LikeC4's layout of every view of the workspace on its input, as JSON on its output. */
-async function layoutOf(workspace: string, viewId: string): Promise<{ ok: true; view: ArchifyLayoutedView } | { ok: false; message: string }> {
-  let likec4: Awaited<ReturnType<typeof LikeC4.fromSource>> | undefined;
-  try {
-    likec4 = await LikeC4.fromSource(workspace, { logger: false, printErrors: false, throwIfInvalid: true });
-    const diagrams = await likec4.diagrams();
-    const view = diagrams.find((diagram) => diagram.id === viewId);
-    if (view === undefined) return { ok: false, message: `LikeC4 did not lay out the view "${viewId}"` };
+/**
+ * The layout of the view, read off the LikeC4 model the LikeC4 tab already lays out: one parse of the workspace serves
+ * both renderers, and the archify page cannot fail where the model succeeded. `$data` is LikeC4's own serialised model;
+ * its view holds the nodes and edges at their laid-out positions.
+ */
+function layoutOfModel(model: unknown, viewId: string): { ok: true; view: ArchifyLayoutedView } | { ok: false; message: string } {
+  type Held = { views?: Record<string, { nodes?: ReadonlyArray<Record<string, unknown>>; edges?: ReadonlyArray<Record<string, unknown>> }> };
+  const views = (model as Held | null)?.views;
+  const view = views === undefined ? undefined : views[viewId];
+  if (view === undefined) return { ok: false, message: `the LikeC4 model madarch laid out holds no view "${viewId}"` };
+  const nodes = (view.nodes ?? []).map((node) => ({
+    id: String(node['id']),
+    kind: String(node['kind'] ?? 'external'),
+    title: String(node['title'] ?? node['id']),
+    parent: node['parent'] === undefined || node['parent'] === null ? null : String(node['parent']),
+    x: Number(node['x']), y: Number(node['y']), width: Number(node['width']), height: Number(node['height']),
+  }));
+  const edges = (view.edges ?? []).map((edge) => {
+    const box = edge['labelBBox'] as { x: number; y: number; width: number; height: number } | null | undefined;
+    const label = edge['label'];
     return {
-      ok: true,
-      view: {
-        id: view.id,
-        title: view.title ?? view.id,
-        nodes: view.nodes.map((node) => ({ id: node.id, kind: node.kind ?? 'external', title: node.title, parent: node.parent ?? null, x: node.x, y: node.y, width: node.width, height: node.height })),
-        // LikeC4 spells an absent label as `null` as well as `undefined`, and an edge without one carries no box:
-        // the archify edge takes a label only when it holds a string, and the label's place only with its box.
-        edges: view.edges.map((edge) => {
-          const box = edge.labelBBox;
-          return {
-            source: edge.source,
-            target: edge.target,
-            ...(typeof edge.label === 'string' ? { label: edge.label } : {}),
-            ...(box === undefined || box === null ? {} : { labelAt: [box.x + box.width / 2, box.y + box.height / 2] as const }),
-          };
-        }),
-      },
+      source: String(edge['source']),
+      target: String(edge['target']),
+      ...(typeof label === 'string' ? { label } : {}),
+      ...(box === undefined || box === null ? {} : { labelAt: [box.x + box.width / 2, box.y + box.height / 2] as const }),
     };
-  } catch (error) {
-    return { ok: false, message: `LikeC4 could not lay out the workspace: ${error instanceof Error ? error.message : String(error)}` };
-  } finally {
-    await likec4?.[Symbol.asyncDispose]?.();
-  }
+  });
+  return { ok: true, view: { id: viewId, title: viewId, nodes, edges } };
 }
 
 /** The archify page of a view: the vendored renderer's page over the layout LikeC4 computes, with the click bridge. */
@@ -117,7 +114,11 @@ export async function archifyFrame(view: GraphView, env: Readonly<Record<string,
   if (!scratch.ok) return scratch;
   const page = join(scratch.folder, 'frame.html');
   if (existsSync(page)) return { ok: true, html: readFileSync(page, 'utf8') };
-  const layout = await layoutOf(held.workspace, held.viewId);
+  // The layout comes from the model the LikeC4 tab lays out, so the archify page never re-parses the workspace: one parse
+  // serves both renderers, and a view the model laid out is a view archify can draw.
+  const modelled = await likec4Model(view);
+  if (!modelled.ok) return { ok: false, message: modelled.message };
+  const layout = layoutOfModel(modelled.model, held.viewId);
   if (!layout.ok) return layout;
   const dashed = new Set<string>();
   for (const edge of view.edges) {
@@ -147,6 +148,10 @@ export async function archifyFrame(view: GraphView, env: Readonly<Record<string,
   }
   try {
     let html = archifyPageLinks(readFileSync(output, 'utf8'), Object.fromEntries(Object.entries(links).filter(([id]) => readFileSync(output, 'utf8').includes(`<g id="node-${id}" `))));
+    // The page draws at the diagram's own size and scrolls: a page squeezed into the frame would keep the picture and
+    // lose its words. Full screen, the frame is the window, so the diagram fits it there.
+    const natural = '<style>html,body{margin:0}body{overflow:auto}svg{max-width:none!important;height:auto!important}</style>';
+    html = html.replace('</head>', `${natural}</head>`);
     html = html.replace('</body>', `<script>${FORWARD_CLICKS.replace('__ELEMENTS__', '{}')}</script></body>`);
     writeFileSync(page, html);
     return { ok: true, html };

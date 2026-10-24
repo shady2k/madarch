@@ -231,7 +231,12 @@ const WORDS = {
 export type Words = (typeof WORDS)['en'];
 export const wordsOf = (lang: string | undefined): Words => (lang === 'ru' ? WORDS.ru : WORDS.en);
 
-const via = (word: string, label: string): string => (label === '' ? word : `${word} ${label}`);
+const via = (word: string, label: string): string => {
+  // One label per relation: a label that already says the verb is not said twice ("publishes publishes").
+  if (label === '') return word;
+  const verb = word.split(' (')[0]!.toLowerCase();
+  return label.toLowerCase().startsWith(verb) ? label : `${word} ${label}`;
+};
 
 // ---- shared helpers ----------------------------------------------------------------------------------
 

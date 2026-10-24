@@ -67,11 +67,11 @@ export function bindMermaid(root: HTMLElement, elements: readonly ViewElement[],
 }
 
 /**
- * The diagram is drawn at its natural size and panned, never shrunk to fit: LikeC4 measures its labels in diagram units,
- * and a fit that squeezes sixty elements into a column drew them 2-3 px high (the owner's review of 2026-10-24). The
- * props reach `LikeC4Diagram`, which reads them ahead of its own defaults.
+ * The fit a view opens at: fitted to its frame when the fit keeps the labels at least 12 px, else the smallest zoom that
+ * does (LikeC4 draws its labels at 14 px, so 12/14 is the floor), centred on the view. Full screen fits the screen, which
+ * is what its frame gives it. The props reach `LikeC4Diagram`, which reads them ahead of its own defaults.
  */
-const LIKE_C4_SIZE = { fitView: false, initialZoom: 1, minZoom: 0.4 } as unknown as Record<string, never>;
+const LIKE_C4_SIZE = { minZoom: 0.86, maxZoom: 2.5 } as unknown as Record<string, never>;
 
 /**
  * A click on a LikeC4 element opens its page: LikeC4 reports the click as a diagram event, and the element's own id
@@ -87,7 +87,7 @@ function NodeClicks({ links, onOpen }: { links: Readonly<Record<string, string>>
 }
 
 /** The frame of a LikeC4 or archify document; a click inside it arrives as a message and opens the page. */
-function Frame({ view, renderer, lang, onOpen }: { view: DiagramView; renderer: 'likec4' | 'archify'; lang: string; onOpen: (href: string) => void }): ReactElement {
+function Frame({ view, renderer, lang, onOpen, onFailure }: { view: DiagramView; renderer: 'likec4' | 'archify'; lang: string; onOpen: (href: string) => void; onFailure?: (renderer: 'likec4' | 'archify') => void }): ReactElement {
   const { t } = useTranslation();
   const ref = useRef<HTMLIFrameElement | null>(null);
   const [loaded, setLoaded] = useState(renderer === 'likec4');
@@ -119,14 +119,19 @@ function Frame({ view, renderer, lang, onOpen }: { view: DiagramView; renderer: 
     setLoaded(false);
     const listen = (event: MessageEvent): void => {
       if (event.source !== ref.current?.contentWindow) return;
-      const data = event.data as { madarch?: string; href?: unknown } | null;
+      const data = event.data as { madarch?: string; href?: unknown; renderer?: unknown } | null;
+      // A frame that could not draw says so: the app says it in one sentence and switches to a renderer that drew.
+      if (data?.madarch === 'failed') {
+        onFailure?.(renderer);
+        return;
+      }
       if (data?.madarch !== 'open' || typeof data.href !== 'string') return;
       const base = appBase();
       onOpen(base !== '' && data.href.startsWith(`${base}/`) ? data.href.slice(base.length) : data.href);
     };
     window.addEventListener('message', listen);
     return () => window.removeEventListener('message', listen);
-  }, [onOpen, renderer, view.query]);
+  }, [onOpen, onFailure, renderer, view.query]);
   const likeC4 = layout as { model?: { projectId?: string }; elementLinks?: Record<string, string> } | null;
   const likeC4Model = useMemo(() => likeC4?.model ? LikeC4Model.create(likeC4.model as never) : null, [likeC4?.model]);
   const content = renderer === 'likec4' && likeC4Model
@@ -191,7 +196,14 @@ function ViewBody({ view, initial, onDrill, onUp, drilling, depth }: { view: Dia
   const lang = i18n.resolvedLanguage ?? 'en';
   const open = useContext(DiagramOpenContext);
   const [chosen, setChosen] = useState<DiagramRenderer | null>(null);
+  const [fellBack, setFellBack] = useState<DiagramRenderer | null>(null);
   const renderer = chosen !== null && view.renderers.includes(chosen) ? chosen : view.renderers.includes(initial) ? initial : view.renderers[0]!;
+  // A frame that could not draw hands the view to a renderer that did, and the page says so once, in one sentence.
+  const onFailure = (failed: 'likec4' | 'archify'): void => {
+    const next = view.renderers.find((name) => name !== failed && name !== renderer) ?? view.renderers.find((name) => name !== failed);
+    setFellBack(failed);
+    if (next !== undefined) setChosen(next);
+  };
   const bind = useMemo(() => (root: HTMLElement) => bindMermaid(root, view.elements, view.spec.type, open), [view, open]);
   const stepped = view.edges.some((edge) => edge.step !== undefined);
   const dashed = view.edges.filter((edge) => edge.dashed);
@@ -215,7 +227,8 @@ function ViewBody({ view, initial, onDrill, onUp, drilling, depth }: { view: Dia
       </div>
       {view.empty !== null ? <p className="m-0 p-3 text-small text-muted" data-testid="diagram-empty">{view.empty}</p> : (
         <div className="dg-picture" data-testid="view-picture">
-          {renderer === 'mermaid' ? <ZoomBox><MermaidDiagram source={view.mermaidSource} title={view.title} bind={bind} /></ZoomBox> : <Frame view={view} renderer={renderer} lang={lang} onOpen={open} />}
+          {renderer === 'mermaid' ? <ZoomBox><MermaidDiagram source={view.mermaidSource} title={view.title} bind={bind} /></ZoomBox> : <Frame view={view} renderer={renderer} lang={lang} onOpen={open} onFailure={onFailure} />}
+          {fellBack !== null && <p className="dg-why" data-testid="renderer-fallback">{t('knowledge.views.rendererFailed', { renderer: RENDERER_NAME[fellBack] })}</p>}
         </div>
       )}
       {view.empty === null && (

@@ -189,6 +189,15 @@ async function walkViews(page: Page, entry: { name: string }, tag: string, lang:
             return hasNode(frame) || frame.querySelector('[role=alert]') !== null;
           }, { timeout: 60_000 }, blockAt);
           else await page.waitForFunction((at) => document.querySelectorAll('[data-diagram=views]')[at]?.querySelector('iframe[data-renderer=archify]') !== null, { timeout: 60_000 }, blockAt);
+          // A frame that answered with an error page is not a drawing: the walk says so instead of counting it.
+          if (renderer === 'archify') {
+            const handle = await page.$(`iframe[data-renderer=archify]`);
+            const frame = await handle?.contentFrame();
+            if (frame !== null && frame !== undefined) {
+              const failed = await frame.evaluate(() => document.querySelector('[data-frame-error]') !== null).catch(() => false);
+              if (failed) drawn = false;
+            }
+          }
         } catch { drawn = false; }
         await new Promise((rest) => setTimeout(rest, 900));
         const label = `${entry.name}-${type}-${renderer}-${tag}-${lang}`;
