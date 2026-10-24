@@ -492,8 +492,16 @@ function Diagram({ title, mermaid, caption, empty, links = [] }: { title: string
   );
 }
 
+
+/** An instant as the wiki writes dates: the day and the time in the reader's language, the raw text where it is no date. */
+function when(value: string, language: string): string {
+  const instant = new Date(value);
+  if (Number.isNaN(instant.getTime())) return value;
+  return new Intl.DateTimeFormat(language, {dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC'}).format(instant);
+}
+
 function Properties({ block }: { block: Extract<Block, { type: 'properties' }> }): ReactElement | null {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   if (block.rows.length === 0) return null;
   return (
     <section data-block="properties" aria-label={block.title}>
@@ -505,8 +513,8 @@ function Properties({ block }: { block: Extract<Block, { type: 'properties' }> }
         <TableBody>
           {block.rows.map((row) => (
             <TableRow key={row.name}>
-              <TableCell className="whitespace-nowrap align-top font-mono text-[0.875em] text-secondary">{row.name}</TableCell>
-              <TableCell className="max-w-[40rem] break-words">{row.value}</TableCell>
+              <TableCell className="whitespace-nowrap align-top font-mono text-[0.875em] text-secondary">{row.nameKey === undefined ? row.name : t(`knowledge.property.${row.nameKey}`)}</TableCell>
+              <TableCell className="max-w-[40rem] break-words">{row.valueKind === 'date' ? when(row.value, i18n.language) : row.value}</TableCell>
             </TableRow>
           ))}
         </TableBody>
@@ -601,7 +609,7 @@ function History({ block }: { block: Extract<Block, { type: 'history' }> }): Rea
       <h2>{block.title}</h2>
       {block.sections.length === 0 ? <p className="text-small text-muted" data-testid="history-empty">{t('knowledge.none')}</p> : block.sections.map((section) => (
         <div key={section.role} data-history-section={section.role} className="mb-4">
-          <h3 className="text-small text-muted">{t(`knowledge.historySection.${section.role}`)}</h3>
+          {block.sections.length > 1 && <h3 className="text-small text-muted">{t(`knowledge.historySection.${section.role}`)}</h3>}
           <Table>
             <TableHeader>
               <TableRow>
@@ -664,7 +672,7 @@ function Definition({ block }: { block: Extract<Block, { type: 'definition' }> }
       {block.members.length === 0 ? <p className="mt-2 text-small text-muted" data-testid="definition-empty">{t('knowledge.definitionEmpty')}</p> : (
         <Table className="mt-3">
           <TableHeader>
-            <TableRow><TableHead>{t('knowledge.definitionMember')}</TableHead><TableHead>{t('knowledge.definitionProtocol')}</TableHead><TableHead>{t('knowledge.definitionDetail')}</TableHead></TableRow>
+            <TableRow><TableHead>{t('knowledge.definitionMember')}</TableHead><TableHead>{t('knowledge.definitionDetail')}</TableHead></TableRow>
           </TableHeader>
           <TableBody>
             {block.members.map((member) => (
@@ -672,7 +680,6 @@ function Definition({ block }: { block: Extract<Block, { type: 'definition' }> }
                 <TableCell className="max-w-[28rem] break-words">
                   {member.href === null ? <span className="font-mono text-[0.875em]">{member.label}</span> : <KLink href={member.href} className="font-mono text-[0.875em]">{member.label}</KLink>}
                 </TableCell>
-                <TableCell>{member.badge === undefined ? <span className="text-muted">–</span> : <Badge>{member.badge}</Badge>}</TableCell>
                 <TableCell className="max-w-[32rem] break-words">{member.detail ?? <span className="text-muted">–</span>}</TableCell>
               </TableRow>
             ))}

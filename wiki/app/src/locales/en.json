@@ -347,7 +347,7 @@
     "historyColFigures": "What changed",
     "historySection": {
       "commits": "Commits",
-      "files": "Files touched most"
+      "files": "Files"
     },
     "historyFigure": {
       "added": "added lines",
@@ -400,6 +400,16 @@
       "noFiles": "This commit changed no file of its own.",
       "partialFiles": "The files below count the commits shown; a commit with more files than this page reads adds only the ones it shows.",
       "symbolsCut": "The file {{path}} holds more entities than this page counts; its symbol figure covers the first {{shown}}."
+    },
+    "property": {
+      "authoredAt": "Authored",
+      "committedAt": "Committed",
+      "subject": "Subject",
+      "merge": "Merge commit",
+      "language": "Language",
+      "symbol": "Symbol",
+      "method": "Method",
+      "path": "Path"
     }
   },
   "loop": {
@@ -560,7 +570,7 @@
     "plannedTitle": "A change is planned here: {{title}}",
     "plannedNote": "The planned changes could not be read",
     "reasonTask": "A confirmed task plans this change: {{title}}",
-"starter": {
+    "starter": {
       "title_one": "The starter set has {{count}} thing this product lacks",
       "title_other": "The starter set has {{count}} things this product lacks",
       "intro": "A person edited this product's manifest, so madarch does not rewrite it. This is what the current starter set holds and the manifest lacks. Adding writes it into madarch/kinds.yaml and keeps your comments and everything else.",

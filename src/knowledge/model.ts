@@ -186,7 +186,7 @@ type BlockShape =
   | { type: 'er'; title: string; mermaid: string; tables: number; shownTables: number; links: EntityRef[] }
   | { type: 'sequence'; title: string; scenario: string; chains: Chain[]; entries: number; notes: string[] }
   | { type: 'refs'; title: string; total: number; rows: RefRow[] }
-  | { type: 'properties'; title: string; rows: { name: string; value: string }[] }
+  | { type: 'properties'; title: string; rows: PropertyRow[] }
   | { type: 'stated'; title: string; place: { repo: string | null; path: string; lineStart: number; lineEnd: number; href: string; commit: string | null } }
   | { type: 'deferred'; block: string; title: string; line: number }
   | { type: 'definition'; title: string; format: string; contract: string; location?: CodeLocation; members: DefinitionMember[]; membersTotal: number; membersShown: number; memberCuts: { channel: string; total: number; shown: number }[]; spec: { text: string; lines: number } }
@@ -242,6 +242,16 @@ export interface HistoryNote {
 export interface HistoryFigure {
   kind: 'added' | 'removed' | 'symbols' | 'commits' | 'files' | 'module';
   value: string;
+}
+
+/** One row of a properties block: the name the extractor gave it, and, where the app knows the name, its key in the reader's language. */
+export interface PropertyRow {
+  name: string;
+  value: string;
+  /** The name's key under `knowledge.property.`, where the app knows this name. */
+  nameKey?: 'authoredAt' | 'committedAt' | 'subject' | 'merge' | 'language' | 'symbol' | 'method' | 'path';
+  /** A date the app writes the way the wiki writes dates, in the reader's language. */
+  valueKind?: 'date';
 }
 
 /** One block of a page; `name` is the template's block it was made from (`implementedby` and `linkedfrom` both draw as `refs`), which the manifest's roles name. */

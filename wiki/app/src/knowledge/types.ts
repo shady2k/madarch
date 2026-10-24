@@ -31,6 +31,9 @@ export type HistoryRow = {
 /** One list of a history block: the commits it shows, or the files they touched. */
 export type HistorySection = { role: 'commits' | 'files'; total: number; rows: HistoryRow[] };
 
+/** One row of a properties block (the engine's `PropertyRow`). */
+export type PropertyRow = { name: string; value: string; nameKey?: 'authoredAt' | 'committedAt' | 'subject' | 'merge' | 'language' | 'symbol' | 'method' | 'path'; valueKind?: 'date' };
+
 /** One note under a history block (the engine's `HistoryNote`): a key the app writes in the reader's language. */
 export type HistoryNote = { key: 'manyCommits' | 'manyFiles' | 'noCounts' | 'merge' | 'noFiles' | 'partialFiles'; args?: Record<string, string | number> };
 
@@ -82,7 +85,7 @@ type BlockShape =
   | { type: 'er'; title: string; mermaid: string; tables: number; shownTables: number; links: EntityRef[] }
   | { type: 'sequence'; title: string; scenario: string; chains: Chain[]; entries: number; notes: string[] }
   | { type: 'refs'; title: string; total: number; rows: RefRow[] }
-  | { type: 'properties'; title: string; rows: { name: string; value: string }[] }
+  | { type: 'properties'; title: string; rows: PropertyRow[] }
   | { type: 'stated'; title: string; place: { repo: string | null; path: string; lineStart: number; lineEnd: number; href: string; commit: string | null } }
   | { type: 'definition'; title: string; format: string; contract: string; location?: CodeLocation; members: DefinitionMember[]; membersTotal: number; membersShown: number; memberCuts: { channel: string; total: number; shown: number }[]; spec: { text: string; lines: number } }
   | { type: 'history'; title: string; sections: HistorySection[]; notes: HistoryNote[] }
