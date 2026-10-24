@@ -10,7 +10,7 @@
  * its page in a tab of the wiki.
  */
 import { useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
-import { LikeC4View, LikeC4ModelProvider, useOnDiagramEvent } from 'likec4/react';
+import { ReactLikeC4, LikeC4ModelProvider, useDiagram, useOnDiagramEvent } from 'likec4/react';
 import { LikeC4Model } from 'likec4/model';
 import { useTranslation } from 'react-i18next';
 import { ArrowLeftIcon, ChevronsDownIcon, MinusIcon, PlusIcon, ScanIcon } from 'lucide-react';
@@ -66,12 +66,8 @@ export function bindMermaid(root: HTMLElement, elements: readonly ViewElement[],
   return () => undo.forEach((fn) => fn());
 }
 
-/**
- * The fit a view opens at: fitted to its frame when the fit keeps the labels at least 12 px, else the smallest zoom that
- * does (LikeC4 draws its labels at 14 px, so 12/14 is the floor), centred on the view. Full screen fits the screen, which
- * is what its frame gives it. The props reach `LikeC4Diagram`, which reads them ahead of its own defaults.
- */
-const LIKE_C4_SIZE = { minZoom: 0.86, maxZoom: 2.5, reactFlowProps: { fitViewOptions: { minZoom: 0.86, maxZoom: 2.5, padding: 0.08 } } } as unknown as Record<string, never>;
+/** LikeC4's smallest technology/edge labels are 12 px at zoom 1, not the title's 14 px. */
+const LIKE_C4_SIZE = { minZoom: 1, maxZoom: 2.5, fitView: true, fitViewPadding: 16 };
 
 /**
  * A click on a LikeC4 element opens its page: LikeC4 reports the click as a diagram event, and the element's own id
@@ -79,6 +75,13 @@ const LIKE_C4_SIZE = { minZoom: 0.86, maxZoom: 2.5, reactFlowProps: { fitViewOpt
  * event reaches it.
  */
 function NodeClicks({ links, onOpen }: { links: Readonly<Record<string, string>>; onOpen: (href: string) => void }): null {
+  const diagram = useDiagram();
+  // LikeC4 1.59 passes minZoom to React Flow but not its actor. Its actor fits again after initialization at 0.05.
+  // Set the actor's own input too, then centre from its bounds (including non-zero origins), in the measured frame.
+  useOnDiagramEvent('initialized', () => {
+    diagram.send({ type: 'update.inputs', inputs: { minZoom: LIKE_C4_SIZE.minZoom, maxZoom: LIKE_C4_SIZE.maxZoom } });
+    diagram.fitDiagram(0);
+  });
   useOnDiagramEvent('nodeClick', ({ node }) => {
     const href = links[node.modelRef ?? node.id] ?? links[node.id];
     if (href !== undefined) onOpen(href);
@@ -89,6 +92,7 @@ function NodeClicks({ links, onOpen }: { links: Readonly<Record<string, string>>
 /** The frame of a LikeC4 or archify document; a click inside it arrives as a message and opens the page. */
 function Frame({ view, renderer, lang, onOpen, onFailure }: { view: DiagramView; renderer: 'likec4' | 'archify'; lang: string; onOpen: (href: string) => void; onFailure?: (renderer: 'likec4' | 'archify') => void }): ReactElement {
   const { t } = useTranslation();
+  const full = useFullscreen();
   const ref = useRef<HTMLIFrameElement | null>(null);
   const [loaded, setLoaded] = useState(renderer === 'likec4');
   const [layout, setLayout] = useState<{ model: unknown; elementLinks: Record<string, string> } | null>(null);
@@ -151,9 +155,9 @@ function Frame({ view, renderer, lang, onOpen, onFailure }: { view: DiagramView;
   const content = renderer === 'likec4' && likeC4Model
     ? (
       <LikeC4ModelProvider likec4model={likeC4Model}>
-        <LikeC4View className="dg-likec4-view" viewId="index" pannable zoomable controls {...LIKE_C4_SIZE}>
+        <ReactLikeC4 key={`${view.query}|${full}`} className="dg-likec4-view" viewId="index" pannable zoomable controls {...LIKE_C4_SIZE}>
           <NodeClicks links={likeC4?.elementLinks ?? {}} onOpen={onOpen} />
-        </LikeC4View>
+        </ReactLikeC4>
       </LikeC4ModelProvider>
     )
     : null;

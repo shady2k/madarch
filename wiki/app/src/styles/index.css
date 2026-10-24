@@ -2086,7 +2086,7 @@ html {
 .dg-picture .diagram-mermaid { border: 0; border-radius: 0; margin: 0; }
 /* A frame the diagram is bigger than: it scrolls sideways at the diagram's natural size instead of shrinking it. */
 .dg-frame-box { position: relative; background: var(--surface-page); overflow-x: auto; }
-.dg-frame-box > * { min-width: 1080px; }
+.dg-frame-box > * { min-width: 0; }
 .dg-likec4-view { width: 100%; height: 540px; min-height: 360px; }
 @media (max-width: 700px) { .dg-likec4-view { height: 420px; } }
 .dg-full .dg-likec4-view { height: calc(100vh - 190px); min-height: 360px; }

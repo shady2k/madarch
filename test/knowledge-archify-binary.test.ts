@@ -1,10 +1,10 @@
 
 import { afterAll, describe, expect, test } from 'bun:test';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { renderArchifyPage } from '../src/wiki/archify-page.js';
 import type { ArchifyDocument } from '../src/wiki/archify.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -16,6 +16,7 @@ afterAll(() => rmSync(work, { recursive: true, force: true }));
 function embeddedApp(): string {
   const app = join(work, 'wiki-app');
   mkdirSync(join(app, 'dist'), { recursive: true });
+  writeFileSync(join(app, 'dist', 'index.html'), '<div id="root"></div>');
   cpSync(VENDOR, join(app, 'dist', 'archify', 'vendor', 'archify'), { recursive: true });
   return app;
 }
@@ -33,13 +34,26 @@ const document: ArchifyDocument = {
 };
 
 describe('the archify page a compiled binary draws', () => {
-  test('the renderer the binary carries writes a page with an svg in it', async () => {
+  test('a compiled renderer runs its embedded asset outside the checkout and writes rendered.html with an svg', () => {
     const app = embeddedApp();
     const input = join(work, 'document.json');
     const output = join(work, 'rendered.html');
-    const rendered = await renderArchifyPage(document, input, output, { app });
-    expect(rendered.output).not.toContain('could not');
-    expect(rendered.status).toBe(0);
+    writeFileSync(input, JSON.stringify(document));
+    const entry = join(work, 'entry.ts');
+    writeFileSync(entry, `import { renderArchifyPage } from ${JSON.stringify(join(ROOT, 'src/wiki/archify-page.ts'))};
+import { readFileSync } from 'node:fs';
+const [input, output] = process.argv.slice(2);
+const result = await renderArchifyPage(JSON.parse(readFileSync(input, 'utf8')), input, output);
+console.log(result.output);
+process.exitCode = result.status ?? 1;
+`);
+    const binary = join(work, 'render');
+    const built = spawnSync(process.execPath, ['build', '--compile', entry, '--asset', app, '--outfile', binary], { encoding: 'utf8', timeout: 90_000 });
+    expect(`${built.stdout}${built.stderr}`).not.toContain('error:');
+    expect(built.status).toBe(0);
+    const run = spawnSync(binary, [input, output], { cwd: work, encoding: 'utf8', timeout: 90_000 });
+    expect(`${run.stdout}${run.stderr}`).not.toContain('error:');
+    expect(run.status).toBe(0);
     expect(existsSync(output)).toBe(true);
     const html = readFileSync(output, 'utf8');
     expect(html).toContain('<svg');

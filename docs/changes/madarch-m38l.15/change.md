@@ -74,3 +74,27 @@ Limits. The model that ran this session has no vision, so the pictures were read
 ## DONE WHEN
 
 The product home shows the C4 context and container diagrams with a renderer switcher; service pages show component views; domain list and domain pages show the requested map and details; sequence, ER, state and deployment views work from the graph; assumptions are visibly dashed with reasons; links and drill-down work; and every diagram can be expanded full-screen with working zoom and links. The English and Russian interface catalogues match, and the reader-facing diagrams have been inspected at 1150 px and 390 px in light and dark themes.
+
+### Binary follow-up after coordinator review 4
+
+The served app hash matched the fresh pod dist (`index-2uLxE74X.js`, SHA256
+`848a62112dcbfbf85e5554ba56e37d175a247cba7f427711901654af775f17b3`) and contained the
+old `.86` floor. Staleness was ruled out for that binary. Release builds now rebuild
+the app unconditionally and log the embedded index hash so the proof is repeatable.
+
+The real archify route failed with `Module not found /$bunfs/root/wiki-app/dist/archify/vendor/archify/renderers/architecture/render-architecture.mjs`.
+A `BUN_BE_BUN` child cannot read its parent's embedded filesystem. The parent now
+copies the complete renderer tree into a private temporary directory for that child
+and removes it in a finally block. The regression compiles and runs an embedded
+asset, rather than substituting an ordinary disk folder. The release smoke also
+fills a one-service repository through the built server, requests the archify frame,
+and requires an SVG in the response.
+
+LikeC4 passed the floor to React Flow but not to its internal controller, which fitted
+again at its default minimum. The view now uses the typed `ReactLikeC4` API and sets
+the controller's floor before fitting after initialization. Zoom 1 preserves its
+smallest 12 px labels; full-screen entry remounts the view in its new frame. The
+1080 px minimum frame width is removed, so centering uses the reader's real column.
+
+Validation of this follow-up is pending; the historical walk above is not acceptance
+of these fixes. The final binary walk is to be recorded in the worker report.

@@ -11,7 +11,8 @@
  * comes back to the caller as bytes.
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { embeddedWikiApp } from '../product-wiki/release-assets.js';
@@ -91,20 +92,28 @@ export async function renderArchifyPage(document: ArchifyDocument, input: string
   const renderer = app === undefined ? undefined : join(app, 'dist', 'archify', 'vendor', 'archify', 'renderers', 'architecture', 'render-architecture.mjs');
   if (renderer !== undefined) {
     if (!existsSync(renderer)) return { status: 1, output: `${renderer}:1: the compiled binary carries no archify renderer` };
-    const run = spawnSync(process.execPath, [renderer, input, output], {
-      encoding: 'utf8',
-      timeout: ARCHIFY_RENDER_TIMEOUT_MS,
-      killSignal: 'SIGKILL',
-      env: { ...process.env, BUN_BE_BUN: '1' },
-    });
-    if (run.error !== undefined) {
-      const timedOut = (run.error as NodeJS.ErrnoException).code === 'ETIMEDOUT' || run.signal === 'SIGKILL';
-      return { status: run.status, output: timedOut ? `the archify renderer was killed after ${String(ARCHIFY_RENDER_TIMEOUT_MS / 1000)} s without writing a page` : `${renderer}:1: the bundled archify renderer could not be run: ${run.error.message}` };
+    // BUN_BE_BUN starts a plain runtime, which cannot see its parent's /$bunfs assets. Materialise the complete
+    // vendored tree (templates and schemas included) for that child, then remove it on success and failure alike.
+    const scratch = mkdtempSync(join(tmpdir(), 'madarch-archify-'));
+    try {
+      const vendor = join(scratch, 'archify');
+      cpSync(join(app, 'dist', 'archify', 'vendor', 'archify'), vendor, { recursive: true });
+      const executable = join(vendor, 'renderers', 'architecture', 'render-architecture.mjs');
+      const run = spawnSync(process.execPath, [executable, input, output], {
+        encoding: 'utf8', timeout: ARCHIFY_RENDER_TIMEOUT_MS, killSignal: 'SIGKILL',
+        env: { ...process.env, BUN_BE_BUN: '1' },
+      });
+      if (run.error !== undefined) {
+        const timedOut = (run.error as NodeJS.ErrnoException).code === 'ETIMEDOUT' || run.signal === 'SIGKILL';
+        return { status: run.status, output: timedOut ? `the archify renderer was killed after ${String(ARCHIFY_RENDER_TIMEOUT_MS / 1000)} s without writing a page` : `${executable}:1: the bundled archify renderer could not be run: ${run.error.message}` };
+      }
+      const said = `${run.stdout ?? ''}${run.stderr ?? ''}`.trim();
+      if (run.status !== 0) return { status: run.status, output: said === '' ? `${executable}:1: the bundled archify renderer said nothing and was ended with status ${String(run.status)}` : said };
+      if (!existsSync(output)) return { status: 1, output: `${executable}:1: the bundled archify renderer ended with status 0 and wrote no page to ${output}` };
+      return { status: 0, output: said };
+    } finally {
+      rmSync(scratch, { recursive: true, force: true });
     }
-    const said = `${run.stdout ?? ''}${run.stderr ?? ''}`.trim();
-    if (run.status !== 0) return { status: run.status, output: said === '' ? `${renderer}:1: the bundled archify renderer said nothing and was ended with status ${String(run.status)}` : said };
-    if (!existsSync(output)) return { status: 1, output: `${renderer}:1: the bundled archify renderer ended with status 0 and wrote no page to ${output}` };
-    return { status: 0, output: said };
   }
   const run = spawnSync('node', [ARCHIFY_RENDERER, input, output], { encoding: 'utf8', timeout: ARCHIFY_RENDER_TIMEOUT_MS, killSignal: 'SIGKILL' });
   if (run.error !== undefined) {
