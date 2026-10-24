@@ -63,8 +63,7 @@ Mockup: docs/changes/madarch-mwhd.2/history-mockup.html
 5. Repeat in English and Russian at 1150 px and 390 px, light and dark; read the same pages through the JSON API.
 
 ## Blocking questions
-None about the requested behavior. Implementation waits for the coordinator
-to record the owner's approval of this exact proposal digest.
+None.
 
 ## Design and decisions
 - Extend the existing history block and graph reads, not a parallel database or per-page Git walk. Keep reads repository-scoped, deterministic and code-point sorted. Compute aggregate totals before display limits; show any coverage gap explicitly.
