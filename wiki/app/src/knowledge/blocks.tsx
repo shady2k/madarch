@@ -8,7 +8,7 @@
  * mention of an entity that has a page is a link to the page; a reference that
  * does not resolve is shown as broken, with its reason.
  */
-import { createElement, useContext, useEffect, useState, type ReactElement, type ReactNode } from 'react';
+import { createElement, useContext, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useTranslation } from 'react-i18next';
@@ -29,7 +29,7 @@ import { SequenceView } from './diagrams/chain.js';
 import { TreemapView } from './diagrams/treemap.js';
 import { useKindName } from './kind-names.js';
 import { addressOfDocument, addressOfStatement, K_PROBLEMS } from './routes.js';
-import { linkHandlers, openInNewTab, syncFrontTabAddress } from './tabs.js';
+import { currentAddress, linkHandlers, openInNewTab, syncFrontTabAddress } from './tabs.js';
 import { remarkStatements, type MNode } from './statements.js';
 import { setShowGrounds, useShowGrounds } from './preferences.js';
 import { TermBlockView, remarkTerms, useTerms } from './glossary.js';
@@ -114,11 +114,34 @@ export interface StatementView {
   showGrounds: boolean;
 }
 
+/** How long an opening waits after its click: a second press within this window is a double click, which selects. */
+const CLICK_INTERVAL = 400;
+
+/** The openings the sentences of one text asked for, and whether the press that ended a selection was seen. */
+interface PendingOpen {
+  /** The press found a selection: the click that follows only dismisses it and opens nothing. */
+  pressed: boolean;
+  /** A wait per sentence: two sentences clicked one after the other each open, and a second press drops its own wait alone. */
+  timers: Map<string, { timer: ReturnType<typeof setTimeout>; turn: number }>;
+}
+
 export function KMarkdown({ text, resolutions, inDocument, statements, exceptTerm }: { text: string; resolutions: Readonly<Record<string, Resolution>>; inDocument?: { repo: string | null; path: string; anchors?: Readonly<Record<string, number>> }; statements?: StatementView; /** The id of the glossary entry this text is, which it does not link to. */ exceptTerm?: string }): ReactElement {
   const { t } = useTranslation();
   const { index } = useTerms();
   const kindName = useKindName();
   const pending = useContext(PendingPages);
+  // An opening belongs to the page its click was made on: the wait is this text's own, and leaving the page drops it.
+  const pendingOpen = useRef<PendingOpen>({ pressed: false, timers: new Map() });
+  // A pending click is owned by its page, not its component: changing routes can
+  // leave KMarkdown mounted briefly, then render a different page in the same slot.
+  const pageAddress = currentAddress();
+  useEffect(() => {
+    const wait = pendingOpen.current;
+    return () => {
+      for (const { timer } of wait.timers.values()) clearTimeout(timer);
+      wait.timers.clear();
+    };
+  }, [pageAddress]);
   const components: Components = {
     a: ({ href, children, className, title }) => {
       if (href === undefined) return <span>{children}</span>;
@@ -158,6 +181,12 @@ export function KMarkdown({ text, resolutions, inDocument, statements, exceptTer
         if (typeof sentence !== 'string' || !String(className ?? '').split(' ').includes('statement')) return <span className={className}>{children}</span>;
         const grounded = (rest as Record<string, unknown>)['data-grounded'] === 'true';
         const turn = Number((rest as Record<string, unknown>)['data-turn'] ?? 0);
+        // A drag across the sentence selects text: it opens nothing. Only a click that leaves no selection opens the statement.
+        const selecting = (): boolean => {
+          const selection = window.getSelection();
+          return selection !== null && !selection.isCollapsed && selection.toString().trim() !== '';
+        };
+        // A click that only dismisses a selection finds it already gone (the press collapsed it): the press says it was there.
         const open = (): void => openInNewTab(addressOfStatement(statements.pageId, sentence, Number.isInteger(turn) ? turn : 0));
         return (
           <span
@@ -167,7 +196,33 @@ export function KMarkdown({ text, resolutions, inDocument, statements, exceptTer
             data-testid="statement"
             data-grounded={grounded ? 'true' : 'false'}
             title={grounded ? t('knowledge.statementOpen') : t('knowledge.statementUngroundedTitle')}
-            onClick={(event) => { if ((event.target as HTMLElement).closest('a') === null) open(); }}
+            onMouseDown={() => {
+              const wait = pendingOpen.current;
+              wait.pressed = selecting();
+              const waiting = wait.timers.get(sentence);
+              if (waiting !== undefined) {
+                // The second press on this sentence: its pending opening is dropped, and the press selects.
+                clearTimeout(waiting.timer);
+                wait.timers.delete(sentence);
+                wait.pressed = true;
+              }
+            }}
+            onClick={(event) => {
+              const wait = pendingOpen.current;
+              const dismissed = wait.pressed;
+              wait.pressed = false;
+              if ((event.target as HTMLElement).closest('a') !== null || dismissed || selecting()) return;
+              // Wait one click interval: a native double click selects a word after its
+              // first click, and a slow one arrives well inside this window.
+              const waiting = wait.timers.get(sentence);
+              if (waiting !== undefined) clearTimeout(waiting.timer);
+              wait.timers.set(sentence, { timer: setTimeout(() => {
+                const pending = wait.timers.get(sentence);
+                if (pending === undefined) return;
+                wait.timers.delete(sentence);
+                if (!selecting()) open();
+              }, CLICK_INTERVAL), turn });
+            }}
             onKeyDown={(event) => { if (event.key === 'Enter' && (event.target as HTMLElement).closest('a') === null) open(); }}
           >
             {children}
@@ -220,7 +275,7 @@ function Body({ block, resolutions, pageId }: { block: Extract<Block, { type: 'b
 
 // ---- related, callers, callees ------------------------------------------------------------------
 
-function groupLabel(group: RelatedGroup, t: (key: string, options?: Record<string, unknown>) => string): string {
+export function groupLabel(group: RelatedGroup, t: (key: string, options?: Record<string, unknown>) => string): string {
   const word = group.relation.startsWith('code.') ? group.relation.slice('code.'.length) : group.relation;
   return t(group.direction === 'out' ? 'knowledge.relationOut' : 'knowledge.relationIn', { relation: word.replace(/-/g, ' ') });
 }

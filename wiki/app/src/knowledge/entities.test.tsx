@@ -15,12 +15,12 @@ import { unified } from 'unified';
 import { setWikiLanguage } from '../i18n.js';
 import { BlockView, KMarkdown } from './blocks.js';
 import { navGroups, TabBar } from './app.js';
-import { CataloguePage, StatementPage } from './pages.js';
+import { CataloguePage, DocumentsPage, EntityPage, StatementPage, filterSources } from './pages.js';
 import { resetPreferences } from './preferences.js';
 import { addressOfStatement, kRouteOf } from './routes.js';
 import { cutSentences, plainText, remarkStatements, type MNode } from './statements.js';
-import { activateTab, closeTab, currentAddress, linkHandlers, openInNewTab, resetTabs, setTabTitle, frontTab, syncFrontTabAddress } from './tabs.js';
-import type { Block, KindSummary, Resolution, StatementModel, WikiStatus } from './types.js';
+import { activateTab, closeTab, currentAddress, linkHandlers, openInNewTab, resetTabs, setTabTitle, frontTab, syncFrontTabAddress, useTabTitle } from './tabs.js';
+import type { Block, DocumentListing, KindSummary, Resolution, StatementModel, WikiStatus } from './types.js';
 
 beforeAll(async () => {
   GlobalRegistrator.register({ url: 'http://localhost/' });
@@ -41,12 +41,13 @@ function into(element: ReturnType<typeof createElement>): HTMLElement {
   return container;
 }
 
-async function until(holds: () => boolean | undefined, what: string): Promise<void> {
-  for (let attempt = 0; attempt < 300; attempt++) {
+async function until(holds: () => boolean | undefined, what: string, timeoutMs = 3_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
     if (holds()) return;
     await new Promise((step) => setTimeout(step, 10));
   }
-  throw new Error(`never came to ${what}; the tree holds: ${document.body.innerHTML.slice(0, 2000)}`);
+  throw new Error(`never came to ${what} within ${timeoutMs} ms; the tree holds: ${document.body.innerHTML.slice(0, 2000)}`);
 }
 
 afterEach(() => {
@@ -178,10 +179,96 @@ describe('Markdown read as statements', () => {
     expect(frontTab().address).toBe('/k');
     (container.querySelector('[data-testid=statement]') as HTMLElement).click();
     const sentence = 'Checkout asks payments to authorize the card for the order now.';
-    expect(frontTab().address).toBe(addressOfStatement('domain:payment', sentence));
+    // The opening waits one click interval, so that a double click can select first.
+    await until(() => frontTab().address === addressOfStatement('domain:payment', sentence), 'the statement tab');
     expect(kRouteOf('/k/statement', `?id=domain%3Apayment&sentence=${encodeURIComponent(sentence)}`)).toEqual({ name: 'statement', id: 'domain:payment', sentence, turn: 0 });
     expect(kRouteOf('/k/statement', `?id=domain%3Apayment&sentence=x&n=2`)).toEqual({ name: 'statement', id: 'domain:payment', sentence: 'x', turn: 2 });
     expect(window.location.pathname + window.location.search).toBe(addressOfStatement('domain:payment', sentence));
+  });
+
+  test('a slow double click, its presses further apart than a fast one, still selects and opens nothing', async () => {
+    const container = into(createElement('div', null, createElement(TabBar), createElement(KMarkdown, { text: 'Checkout asks payments to authorize the card now.[^1]\n\n[^1]: [f](madarch:code.symbol:a.ts#F)\n', resolutions, statements: { pageId: 'domain:payment', showGrounds: false } })));
+    await until(() => container.querySelector('[data-testid=statement]') !== null && container.querySelector('[data-testid=tab]') !== null, 'the statement and the tab bar');
+    const statement = container.querySelector('[data-testid=statement]') as HTMLElement;
+    const before = container.querySelectorAll('[data-testid=tab]').length;
+    statement.dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true, detail: 1 }));
+    statement.click();
+    // A reader whose double click is slower than the fastest one: the second press still comes before the first click opens.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    statement.dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true, detail: 2 }));
+    statement.click();
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(container.querySelectorAll('[data-testid=tab]')).toHaveLength(before);
+    expect(frontTab().address).toBe('/k');
+  });
+
+  test('a click whose sentence was asked for on a page the reader left opens nothing', async () => {
+    const container = into(createElement('div', null, createElement(TabBar), createElement(KMarkdown, { text: 'Checkout asks payments to authorize the card now.[^1]\n\n[^1]: [f](madarch:code.symbol:a.ts#F)\n', resolutions, statements: { pageId: 'domain:payment', showGrounds: false } })));
+    await until(() => container.querySelector('[data-testid=statement]') !== null && container.querySelector('[data-testid=tab]') !== null, 'the statement and the tab bar');
+    expect(container.querySelectorAll('[data-testid=tab]')).toHaveLength(1);
+    (container.querySelector('[data-testid=statement]') as HTMLElement).click();
+    // The reader follows a link before the click interval is over: the page that asked for the opening is gone.
+    rendered?.unmount();
+    rendered = undefined;
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    expect(window.location.pathname).toBe('/k');
+    expect(frontTab().address).toBe('/k');
+  });
+
+  test('clicking two different sentences quickly opens both statements', async () => {
+    // Two sentences of two paragraphs, each with its own ground: both are statements of the page.
+    const container = into(createElement('div', null, createElement(TabBar), createElement(KMarkdown, { text: 'Checkout asks payments to authorize the card now.[^1]\n\nA captured payment confirms the order.[^2]\n\n[^1]: [f](madarch:code.symbol:a.ts#F)\n[^2]: [g](madarch:code.symbol:b.ts#G)\n', resolutions, statements: { pageId: 'domain:payment', showGrounds: false } })));
+    await until(() => container.querySelectorAll('[data-testid=statement]').length === 2 && container.querySelector('[data-testid=tab]') !== null, 'two statements and a tab');
+    const sentences = [...container.querySelectorAll<HTMLElement>('[data-testid=statement]')];
+    sentences[0]!.click();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    sentences[1]!.click();
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    const tabs = JSON.parse(window.sessionStorage.getItem('madarch-tabs:/')!).tabs as { address: string }[];
+    expect(tabs).toHaveLength(3);
+    expect(tabs.map((tab) => tab.address)).toContain(addressOfStatement('domain:payment', 'Checkout asks payments to authorize the card now.'));
+    expect(tabs.map((tab) => tab.address)).toContain(addressOfStatement('domain:payment', 'A captured payment confirms the order.'));
+  }, 15_000);
+
+  test('a double click on a sentence can select a word without opening its statement', async () => {
+    const container = into(createElement('div', null, createElement(TabBar), createElement(KMarkdown, { text: 'Checkout asks payments to authorize the card now.[^1]\n\n[^1]: [f](madarch:code.symbol:a.ts#F)\n', resolutions, statements: { pageId: 'domain:payment', showGrounds: false } })));
+    await until(() => container.querySelector('[data-testid=statement]') !== null && container.querySelector('[data-testid=tab]') !== null, 'the statement and the tab bar');
+    const statement = container.querySelector('[data-testid=statement]') as HTMLElement;
+    const before = container.querySelectorAll('[data-testid=tab]').length;
+    statement.dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true, detail: 1 }));
+    statement.click();
+    statement.dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true, detail: 2 }));
+    statement.click();
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(container.querySelectorAll('[data-testid=tab]')).toHaveLength(before);
+    expect(frontTab().address).toBe('/k');
+  });
+
+  test('a drag across a sentence selects text and opens nothing; a click after it, with the selection gone, opens the statement', async () => {
+    const container = into(createElement('div', null, createElement(TabBar), createElement(KMarkdown, { text: 'Checkout asks payments to authorize the card now.[^1]\n\n[^1]: [f](madarch:code.symbol:a.ts#F)\n', resolutions, statements: { pageId: 'domain:payment', showGrounds: false } })));
+    await until(() => container.querySelector('[data-testid=statement]') !== null && container.querySelector('[data-testid=tab]') !== null, 'the statement and the tab bar');
+    const tabCount = (): number => container.querySelectorAll('[data-testid=tab]').length;
+    const before = tabCount();
+    const statement = container.querySelector('[data-testid=statement]') as HTMLElement;
+    const range = document.createRange();
+    range.selectNodeContents(statement);
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    expect(selection.toString()).toContain('Checkout asks payments');
+    statement.click();
+    expect(tabCount()).toBe(before);
+    expect(frontTab().address).toBe('/k');
+    selection.removeAllRanges();
+    // A click that only dismisses a selection: the press found it, the click finds it gone.
+    selection.addRange(range);
+    statement.dispatchEvent(new window.MouseEvent('mousedown', { bubbles: true }));
+    selection.removeAllRanges();
+    statement.click();
+    expect(tabCount()).toBe(before);
+    expect(frontTab().address).toBe('/k');
+    statement.click();
+    await until(() => tabCount() === before + 1, 'the statement tab');
   });
 
   test('the switch brings the footnote numbers and the grounds back, and the choice is kept for the next page', async () => {
@@ -216,6 +303,66 @@ describe('the tabs', () => {
     expect(JSON.parse(window.sessionStorage.getItem('madarch-tabs:/')!).tabs.map((tab: { address: string }) => tab.address)).toEqual(['/k', '/k/e/domain%3Apayment', '/k/catalogue']);
   });
 
+  test('browser Back and Forward bring the open tab that holds the history address forward, another section of it included', async () => {
+    // The tab bar is what listens to the window's moves.
+    const container = into(createElement(TabBar));
+    await until(() => container.querySelector('[data-testid=tab]') !== null, 'the tab bar');
+    openInNewTab('/k/catalogue');
+    openInNewTab('/k/doc?path=a.md#one');
+    const tabs = JSON.parse(window.sessionStorage.getItem('madarch-tabs:/')!).tabs as { key: string; address: string }[];
+    const catalogue = tabs.find((tab) => tab.address === '/k/catalogue')!;
+    const doc = tabs.find((tab) => tab.address === '/k/doc?path=a.md#one')!;
+    // The current document links to a catalogue already held in another tab.
+    linkHandlers('/k/catalogue').onClick({ shiftKey: false, altKey: false, ctrlKey: false, metaKey: false, button: 0, preventDefault: () => undefined } as never);
+    expect(frontTab().key).toBe(catalogue.key);
+    // Back to another section of the same document: its own tab comes forward and names where the window is now.
+    window.history.pushState({}, '', '/k/doc?path=a.md#two');
+    window.dispatchEvent(new Event('popstate'));
+    expect(frontTab().key).toBe(doc.key);
+    expect(frontTab().address).toBe('/k/doc?path=a.md#two');
+    // Forward, to the catalogue again.
+    window.history.pushState({}, '', '/k/catalogue');
+    window.dispatchEvent(new Event('popstate'));
+    expect(frontTab().key).toBe(catalogue.key);
+    expect(frontTab().address).toBe('/k/catalogue');
+    expect(JSON.parse(window.sessionStorage.getItem('madarch-tabs:/')!).tabs).toHaveLength(3);
+  });
+
+  test('a plain click on a link to a page another tab holds focuses that tab; another section of an open document is the same page', () => {
+    openInNewTab('/k/catalogue');
+    openInNewTab('/k/doc?path=a.md');
+    const catalogue = JSON.parse(window.sessionStorage.getItem('madarch-tabs:/')!).tabs[1].key as string;
+    const link = document.createElement('a');
+    const handlers = linkHandlers('/k/catalogue');
+    link.addEventListener('click', (event) => handlers.onClick(event as never));
+    document.body.append(link);
+    link.click();
+    link.remove();
+    expect(frontTab().key).toBe(catalogue);
+    expect(JSON.parse(window.sessionStorage.getItem('madarch-tabs:/')!).tabs).toHaveLength(3);
+    openInNewTab('/k/doc?path=a.md#section');
+    expect(frontTab().address).toBe('/k/doc?path=a.md#section');
+    expect(JSON.parse(window.sessionStorage.getItem('madarch-tabs:/')!).tabs).toHaveLength(3);
+    // Another section of the document in front: the tab and the window name it.
+    openInNewTab('/k/doc?path=a.md#other');
+    expect(frontTab().address).toBe('/k/doc?path=a.md#other');
+    expect(window.location.hash).toBe('#other');
+  });
+
+  test('a tab whose window moved to another page and back is named again by the page that stayed mounted', async () => {
+    const Page = (): null => { useTabTitle('Home page'); return null; };
+    const container = into(createElement('div', null, createElement(TabBar), createElement(Page)));
+    await until(() => frontTab().title === 'Home page', 'the title');
+    const shown = (): string => container.querySelector('[data-testid=tab][data-active=true]')!.textContent ?? '';
+    window.history.pushState({}, '', '/k/catalogue');
+    window.dispatchEvent(new Event('popstate'));
+    // The window moved: the tab names where it is now, so its title is the loading one until the mounted page names it again.
+    await until(() => frontTab().address === '/k/catalogue', 'the move');
+    await until(() => frontTab().title === 'Home page', 'the title written again');
+    expect(shown()).toContain('Home page');
+    expect(shown()).not.toMatch(/Loading|Загрузка/);
+  });
+
   test('a tab is switched to and closed; the neighbour comes to the front; the last tab stays', async () => {
     const container = into(createElement(TabBar));
     openInNewTab('/k/catalogue');
@@ -237,7 +384,10 @@ describe('the tabs', () => {
     expect(frontTab().address).toBe('/k/docs');
   });
 
-  test('a plain click shows the page in the tab in front; a control click or a middle click opens a new tab', () => {
+  test('a plain click shows the page in the tab in front; a control click or a middle click opens a new tab', async () => {
+    // The tab bar is what listens to the window's moves.
+    const container = into(createElement(TabBar));
+    await until(() => container.querySelector('[data-testid=tab]') !== null, 'the tab bar');
     const handlers = linkHandlers('/k/catalogue');
     const click = (init: { ctrlKey?: boolean; button?: number }, via: 'onClick' | 'onAuxClick' = 'onClick'): void => {
       handlers[via]({ shiftKey: false, altKey: false, ctrlKey: false, metaKey: false, button: 0, ...init, preventDefault: () => undefined } as never);
@@ -304,6 +454,11 @@ describe('the navigation by group', () => {
       ['code', 803, ['code.file', 'code.symbol']],
       [null, 3, ['code.weird']],
     ]);
+  });
+
+  test('a kind with a top-level page of its own (the glossary terms) is not listed again under the kinds', () => {
+    const groups = navGroups({ ...status, kinds: [kind({ kind: 'domain', source: 'markdown', group: 'product', count: 1 }), kind({ kind: 'doc.term', source: 'document', group: 'product', count: 7 })] } as unknown as WikiStatus, () => 0);
+    expect(groups.map((entry) => entry.kinds.map((one) => one.kind))).toEqual([['domain']]);
   });
 
   test('a kind whose pages are being written is shown with its pending units', () => {
@@ -420,6 +575,19 @@ describe('the statement view', () => {
     expect(grounds[2]!.textContent).not.toContain('no entity');
   });
 
+  test('a ground that is a service is a card with its facts, what it is connected to and its page; no code is drawn', async () => {
+    const card: StatementModel = { ...statement, grounds: [{ url: 'madarch:code.service:payments', resolution: { state: 'ok', target: 'x', kind: 'code.service', label: 'payments', href: '/k/e/code.service%3Apayments' }, excerpt: { type: 'entity', entity: { id: 'code.service:payments', kind: 'code.service', label: 'payments', href: '/k/e/code.service%3Apayments' }, facts: [{ name: 'language', value: 'typescript' }], related: [{ relation: 'code.serves', direction: 'out', total: 7, rows: [{ entity: { id: 'code.route:POST:/payments', kind: 'code.route', label: 'POST /payments', href: null }, count: 1 }] }] } }] };
+    answer(card);
+    const container = into(createElement(StatementPage, { id: 'domain:payment', sentence: statement.sentence, version: 0 }));
+    await until(() => container.querySelector('[data-excerpt=entity]') !== null, 'the card');
+    const shown = container.querySelector('[data-excerpt=entity]')!;
+    expect(shown.querySelector('[data-testid=card-facts]')!.textContent).toContain('typescript');
+    expect(shown.querySelector('[data-testid=card-related]')!.textContent).toContain('POST /payments');
+    expect(shown.querySelector('[data-testid=card-page] a')!.getAttribute('href')).toBe('/k/e/code.service%3Apayments');
+    expect(container.querySelector('[data-excerpt=code]')).toBeNull();
+    expect(container.textContent).not.toContain('package.json');
+  });
+
   test('a code place that has a web address offers it, named by the host; one without offers none', async () => {
     const withWeb: StatementModel = { ...statement, grounds: [{ ...statement.grounds[1]!, excerpt: { ...(statement.grounds[1]!.excerpt as Extract<NonNullable<StatementModel['grounds'][number]['excerpt']>, { type: 'code' }>), location: { repo: 'shop', path: 'a.ts', lineStart: 4, lineEnd: 6, href: '/k/src?repo=shop&path=a.ts&line=4', web: { host: 'GitHub', url: `${PAGE_HOST}/blob/abc/a.ts#L4-L6` } } } }] };
     answer(withWeb);
@@ -490,5 +658,31 @@ describe('the statement view', () => {
     const missing = into(createElement(StatementPage, { id: 'domain:payment', sentence: 'x', version: 0 }));
     await until(() => missing.querySelector('[data-testid=statement-error]') !== null, 'the refusal');
     expect(missing.textContent).toContain('holds no statement');
+    // The refused statement's tab is named by the sentence that was asked for, never left as loading.
+    expect(frontTab().title).toBe('x');
+    // A page that is not there names its tab too.
+    rendered?.unmount();
+    document.body.innerHTML = '';
+    const noPage = into(createElement(EntityPage, { id: 'domain:none', version: 0 }));
+    await until(() => noPage.querySelector('[data-testid=page-error]') !== null, 'the page that is not there');
+    await until(() => frontTab().title === 'There is no such page', 'the title of the refused page');
+  });
+});
+
+
+describe('the sources', () => {
+  test('each source shows its title with the path small under it; the filter matches either', async () => {
+    const listing: DocumentListing = { documents: [{ repo: null, path: 'docs/vision.md', title: 'The vision' }, { repo: null, path: 'notes/ideas.md', title: 'ideas' }], truncated: [] };
+    (globalThis as { fetch?: unknown }).fetch = async (url: string) => (url.includes('/api/k/documents') ? new Response(JSON.stringify(listing)) : new Response('{}', { status: 404 }));
+    const container = into(createElement(DocumentsPage, { version: 0 }));
+    await until(() => container.querySelector('[data-testid=documents-page]') !== null, 'the page');
+    expect(container.querySelector('h1')!.textContent).toBe('Sources');
+    expect(container.querySelector('[data-testid=documents-intro]')).not.toBeNull();
+    const rows = [...container.querySelectorAll('[data-testid=document-row]')];
+    expect(rows.map((row) => [row.querySelector('a')!.textContent, row.querySelector('[data-testid=document-path]')!.textContent])).toEqual([['The vision', 'docs/vision.md'], ['ideas', 'notes/ideas.md']]);
+    expect(container.querySelector('[data-testid=documents-filter]')).not.toBeNull();
+    expect(filterSources(listing.documents, 'VISION').map((entry) => entry.path)).toEqual(['docs/vision.md']);
+    expect(filterSources(listing.documents, ' notes/ ').map((entry) => entry.title)).toEqual(['ideas']);
+    expect(filterSources(listing.documents, '')).toHaveLength(2);
   });
 });

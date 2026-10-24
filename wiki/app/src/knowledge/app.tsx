@@ -118,11 +118,14 @@ export function ProductSelector({ name, products, current }: { name: string; pro
   );
 }
 
+/** The kinds that have a top-level page of their own in the navigation (the glossary is the page of the glossary terms): "Pages by kind" does not list them again. Their pages stay reachable from that page and from links. */
+const KINDS_WITH_OWN_PAGE: ReadonlySet<string> = new Set(['doc.term']);
+
 /** The kinds of the manifest as the navigation shows them: by group, in the manifest's order, the groups with the entities they hold. */
 export function navGroups(status: WikiStatus, pending: (kind: string) => number): { group: string | null; labels: Record<string, string> | null; total: number; kinds: KindSummary[] }[] {
   // A group counts every entity of its kinds, the home page included, so the navigation and the catalogue say the same number.
   const counted = status.kinds.filter((kind) => !LOOP_KINDS.has(kind.kind));
-  const shown = status.kinds.filter((kind) => !LOOP_KINDS.has(kind.kind) && !kind.single && (kind.count > 0 || pending(kind.kind) > 0));
+  const shown = status.kinds.filter((kind) => !LOOP_KINDS.has(kind.kind) && !KINDS_WITH_OWN_PAGE.has(kind.kind) && !kind.single && (kind.count > 0 || pending(kind.kind) > 0));
   const declared = status.groups.map((group) => ({ group: group.group as string | null, labels: group.labels as Record<string, string> | null }));
   const known = new Set(status.groups.map((group) => group.group));
   const loose = shown.filter((kind) => kind.group === undefined || !known.has(kind.group));
@@ -160,7 +163,7 @@ function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus;
         <small className="nav-concept ml-auto rounded-[var(--radius-row)] border border-line px-[5px] py-0.5 text-[11px] leading-4 text-muted">{t('brand.concept')}</small>
       </a>
       <ProductSelector name={status.product.name} products={products} current={folder === '' ? products[0]?.folder ?? null : folder} own={status.own === true} />
-      <nav aria-label={t('navigation.pages')} className="min-h-0 flex-1 overflow-y-auto pb-4">
+      <nav aria-label={t('navigation.pages')} className="min-h-0 flex-1 overflow-y-auto pb-4 pr-2 [scrollbar-gutter:stable]" data-testid="nav-scroll">
         <a href={appPath(K_HOME)} className={link(route.name === 'home')} aria-current={route.name === 'home' ? 'page' : undefined} data-testid="nav-home" {...pick(K_HOME)}>
           <HomeIcon aria-hidden="true" className="size-4 shrink-0 text-muted" />
           <span className="min-w-0 flex-1">{t('knowledge.home')}</span>
@@ -355,7 +358,7 @@ function Toolbar({ status, route, menu, refresh, products, current }: { status: 
   const kindName = useKindName();
   const where = route.name === 'questions' || route.name === 'question' ? t('loop.questionsTitle') : route.name === 'problems' ? t('loop.problemsTitle') : route.name === 'settings' ? t('settings.title') : route.name === 'journal' ? t('journal.title') : route.name === 'kind' ? kindName(route.kind, 'many') : route.name === 'source' ? t('knowledge.source') : route.name === 'docs' || route.name === 'doc' ? t('knowledge.documents') : route.name === 'catalogue' ? t('knowledge.catalogue') : route.name === 'glossary' ? t('knowledge.glossary.title') : route.name === 'statement' ? t('knowledge.statement') : route.name === 'entity' ? null : t('knowledge.home');
   return (
-    <header className="shell-toolbar sticky top-0 z-30 flex min-h-[58px] items-center justify-between gap-3 border-b border-line bg-page px-4 wide:px-[35px]">
+    <header className="shell-toolbar flex min-h-[58px] items-center justify-between gap-3 border-b border-line bg-page px-4 wide:px-[35px]">
       <span className="shell-breadcrumb min-w-0 truncate text-small text-secondary">
         <KLink href={K_HOME} className="text-muted no-underline hover:text-ink">{status.product.name}</KLink>
         {where !== null && <><span aria-hidden="true" className="px-2 text-muted">/</span><span className="text-ink">{where}</span></>}
@@ -512,8 +515,11 @@ export function KnowledgeApp(): ReactElement {
           {nav()}
         </aside>
         <div className="shell-main flex min-w-0 flex-1 flex-col">
-          <Toolbar status={status} route={route} menu={menu} refresh={refresh} products={products} current={currentFolder} />
-          <TabBar />
+          {/* The top bar and the tab bar stay put; only the page below them scrolls. */}
+          <div className="shell-fixed sticky top-0 z-30" data-testid="shell-fixed">
+            <Toolbar status={status} route={route} menu={menu} refresh={refresh} products={products} current={currentFolder} />
+            <TabBar />
+          </div>
           <div className="shell-row flex flex-1">
             <div className="shell-scroll min-w-0 flex-1">
               <div className="shell-document w-full">

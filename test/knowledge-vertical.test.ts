@@ -261,8 +261,11 @@ describe('the pages of the documents\' entities', () => {
     const paths = listing.documents.filter((entry) => entry.repo === null).map((entry) => entry.path);
     expect(paths).not.toContain('docs/product.md');
     expect(paths.some((path) => path.startsWith('docs/domains/'))).toBe(false);
-    expect(listing.documents.map((entry) => entry.path)).not.toContain('AGENTS.md');
-    expect(listing.documents).toContainEqual({ repo: 'training', path: 'docs/requirements.md' });
+    expect(listing.documents.map((entry) => entry.path.split('/').pop())).not.toContain('AGENTS.md');
+    expect(listing.documents.map((entry) => entry.path.split('/').pop())).not.toContain('CLAUDE.md');
+    // A source is named by its first heading (the file name without .md when it has none), its path kept apart.
+    expect(listing.documents).toContainEqual({ repo: 'training', path: 'docs/requirements.md', title: 'Requirements' });
+    for (const entry of listing.documents) expect(entry.title, `${entry.repo ?? 'product'}:${entry.path}`).not.toMatch(/\.md$/i);
   });
 });
 
@@ -441,6 +444,20 @@ describe('the statement view', () => {
     expect(excerpt.location.path).toBe(declared.path);
     expect(excerpt.marked.start).toBe(lineOf(declared.path, 'async pay('));
     expect(excerpt.text.split('\n')[excerpt.marked.start - excerpt.firstLine]).toContain('async pay(');
+  });
+
+  test('a ground that is a service shows the entity card, not the manifest it was read from; a function ground keeps its code', async () => {
+    const result = await product.statement('product:shop', 'The shop takes orders from shoppers and charges their cards through a payments service.');
+    if (!result.ok) throw new Error(result.message);
+    const service = result.statement.grounds.find((ground) => ground.url === `madarch:${PAYMENTS_SERVICE}`)!;
+    expect(service.excerpt).toMatchObject({ type: 'entity', entity: { id: PAYMENTS_SERVICE, kind: 'code.service', label: 'payments' } });
+    const card = service.excerpt;
+    if (card === null || card.type !== 'entity') throw new Error('no card');
+    expect(card.facts.map((fact) => fact.name)).toContain('language');
+    expect(card.facts.map((fact) => fact.value).join(' ')).not.toContain('package.json');
+    const function_ = await product.statement('domain:payment', 'Checkout asks payments to authorize the card for the order\'s total.');
+    if (!function_.ok) throw new Error(function_.message);
+    expect(function_.statement.grounds[1]!.excerpt).toMatchObject({ type: 'code' });
   });
 
   test('a sentence with no ground says so, a broken ground is shown with its reason, and a sentence the page does not hold is refused', async () => {
