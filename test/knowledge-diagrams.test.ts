@@ -253,12 +253,12 @@ describe('the drawn views: C4, components, ER, state and deployment, and the hot
 
   test('the database page draws its tables with the foreign keys between them and links each table (database.orders)', async () => {
     const [er] = ofType(await page(recordKey('code.database', 'orders')), 'er');
-    // Each table has its own Mermaid node id, carries its name and columns on the box, and each foreign key is an arrow.
-    const nodes = [...er!.mermaidSource.matchAll(/^  (n\d+)\[\("([^"]+)"\)\]$/gm)];
-    expect(nodes).toHaveLength(er!.elements.length);
-    expect(nodes.map((node) => node[2])).toEqual(expect.arrayContaining(['customers:', 'order_items:', 'orders:', 'outbox:']));
-    expect(er!.mermaidSource).toContain('-->');
-    expect(er!.mermaidSource.match(/^  n\d+ -->(?:\|"[^"]+"\| )n\d+$/gm)).toHaveLength(er!.edges.length);
+    // Mermaid's ER syntax: an entity per table with a row per column, and one relationship line per foreign key.
+    expect(er!.mermaidSource.split('\n')[0]).toBe('erDiagram');
+    const entities = [...er!.mermaidSource.matchAll(/^  (\w+) \{$/gm)].map((entity) => entity[1]);
+    expect(entities).toEqual(expect.arrayContaining(['customers', 'order_items', 'orders', 'outbox']));
+    expect(er!.mermaidSource.match(/^  \w+ \|\|--o\{ \w+ : "[^"]+"$/gm)).toHaveLength(er!.edges.length);
+    expect(er!.mermaidSource).toContain(' PK');
     expect(er!.elements.map((element) => element.label).sort()).toEqual(expect.arrayContaining(['customers', 'order_items', 'orders', 'outbox']));
     expect(er!.elements.every((element) => element.href !== null)).toBe(true);
     expect(er!.renderers).toEqual(['mermaid', 'archify']);

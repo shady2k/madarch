@@ -497,17 +497,27 @@ async function erView(ctx: RenderContext, spec: ViewSpec, w: Words, limit: numbe
     ...(total > tables.length ? [w.truncated(tables.length, total)] : []),
     ...(hiddenColumns.length === 0 ? [] : [w.columnsTruncated(hiddenColumns.join('; '))]),
   ];
-  // A flowchart, not Mermaid's own ER syntax: a table carries its name and its columns on one box with a link to its
-  // page, and every arrow here is a fact the graph holds. The curve setting is the one the wiki's other pictures carry,
-  // so a reader sees one style of line throughout.
-  const lines = ['%%{init: {"flowchart": {"curve": "linear"}}}%%', 'flowchart LR'];
-  const mermaidId = new Map(elements.map((element, index) => [element.id, `n${index}`]));
+  // Mermaid's own ER syntax (decision 0026 names ER as a view type of its own): one entity per table, one row per
+  // column with its type and its key, and one relationship per foreign key. An entity's name is a sanitised identifier,
+  // made unique, because two schemas may hold a table of one name; the table's own name and its page stay in the list of
+  // elements under the picture, which Mermaid's `erDiagram` cannot carry as clicks.
+  const lines = ['erDiagram'];
+  const mermaidId = new Map<string, string>();
+  const used = new Set<string>();
   for (const element of elements) {
-    const columns = (element.columns ?? []).map((column) => `${column.name} ${column.type}`).join(', ');
-    const label = columns === '' ? element.label : `${element.label}: ${columns}`;
-    lines.push(`  ${mermaidId.get(element.id)!}[("${label.replace(/"/g, "'")}")]`);
+    const base = element.label.replace(/[^A-Za-z0-9_]/g, '_') || 'table';
+    let id = base;
+    for (let n = 2; used.has(id); n += 1) id = `${base}_${String(n)}`;
+    used.add(id);
+    mermaidId.set(element.id, id);
   }
-  for (const edge of edges) lines.push(`  ${mermaidId.get(edge.from)!} -->|"${edge.label}"| ${mermaidId.get(edge.to)!}`);
+  for (const element of elements) {
+    lines.push(`  ${mermaidId.get(element.id)!} {`);
+    for (const column of element.columns ?? []) lines.push(`    ${erType(column.type)} ${column.name.replace(/[^A-Za-z0-9_]/g, '_')}${column.key ? ' PK' : ''}`);
+    lines.push('  }');
+  }
+  // The arrow points from the table that is referenced to the table that holds the key.
+  for (const edge of edges) lines.push(`  ${mermaidId.get(edge.to)!} ||--o{ ${mermaidId.get(edge.from)!} : "${edge.label}"`);
   return { spec, title, label: w.er, elements, edges, notes, empty: null, up, marker: null, mermaid: lines.join('\n') };
 }
 

@@ -334,10 +334,11 @@ describe('files, imports and the database', () => {
   test('the er block draws a database as its tables with their columns and the foreign key between them', async () => {
     const [er] = (await page(DATABASE)).blocks.flatMap((entry) => (entry.type === 'diagrams' ? entry.views : []));
     expect(er!.elements).toHaveLength(2);
-    expect(er!.mermaidSource.split('\n')[0]).toBe('%%{init: {"flowchart": {"curve": "linear"}}}%%');
-    // Each table is a diagram node, with its columns on the label; the foreign key is a model arrow.
-    expect(er!.mermaidSource).toContain('n0[("customers: id uuid, billing_id uuid")]');
-    expect(er!.mermaidSource).toContain('n1 -->|"foreign key"| n0');
+    // Mermaid's own ER syntax: one entity per table, one row per column, and a relationship for the foreign key.
+    expect(er!.mermaidSource.split('\n')[0]).toBe('erDiagram');
+    expect(er!.mermaidSource).toMatch(/  customers \{\n    uuid id\n  \}/);
+    expect(er!.mermaidSource).toMatch(/  invoices \{\n    uuid customer_id\n    uuid id PK\n  \}/);
+    expect(er!.mermaidSource).toContain('customers ||--o{ invoices : "foreign key"');
     expect(er!.elements.map((element) => element.label).sort()).toEqual(['customers', 'invoices']);
     // The fixture's manifest names no page for a table, so the list draws each one plain: an element links only
     // where the product gives it a page, and the picture is the graph's either way.

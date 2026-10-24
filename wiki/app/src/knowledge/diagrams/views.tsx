@@ -35,6 +35,9 @@ const erName = (label: string): string => label.replace(/[^A-Za-z0-9_]/g, '_');
  * lifelines too) and a state `s<position>`, and Mermaid keeps those names in its element ids.
  */
 export function bindMermaid(root: HTMLElement, elements: readonly ViewElement[], type: string, open: (href: string) => void): () => void {
+  // Mermaid's ER diagram gives an entity no click of its own (its boxes are drawn without the element ids a flowchart
+  // carries): the tables are linked in the list under the picture instead, which every view has.
+  if (type === 'er') return () => undefined;
   const undo: (() => void)[] = [];
   elements.forEach((element, index) => {
     if (element.href === null) return;
