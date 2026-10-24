@@ -104,6 +104,13 @@ try {
   const probe = await open('/products/shop/', 'en', 'light', 1150);
   await probe.waitForSelector('[data-testid=entity-page]', { timeout: 120_000 });
   if (process.argv.includes('--probe-only')) { console.log('the fill finished'); process.exit(0); }
+  // The first-run role card covers the page: a reader says who they are, or skips, before reading a page of it.
+  // The walk skips it the way a reader does, and every page after this one is the page itself.
+  if ((await probe.$('[data-testid=role-skip]')) !== null) {
+    await probe.click('[data-testid=role-skip]');
+    await probe.waitForSelector('[data-testid=role-card]', { hidden: true, timeout: 30_000 });
+    console.log('the role card was skipped');
+  }
   await probe.close();
 
   const SHOP_SENTENCE = 'The shop takes orders from shoppers and charges their cards through a payments service.';
@@ -248,6 +255,9 @@ try {
       // A plain mouse click on the first letter of the sentence: inside the sentence's own text, never on a
       // link that may stand in the middle of a long line, and with the pointer a reader's click has.
       const clickSentence = async (): Promise<void> => {
+        // The sentence stands in the middle of the window first: the top bar and the tab bar are sticky,
+        // so a sentence scrolled to the very top would be clicked through the bars, not on its own text.
+        await page.evaluate(() => document.querySelector('[data-testid=statement]')!.scrollIntoView({ block: 'center' }));
         const point = await page.evaluate(() => {
           const statement = document.querySelector('[data-testid=statement]')!;
           const range = document.createRange();
@@ -261,10 +271,11 @@ try {
       };
       await clickSentence();
       await waitTabs(beforeClick + 1, `${tag} a click on a sentence`);
-      const opened = await page.evaluate(() => document.querySelector('[data-testid=tab][data-active=true]')?.textContent ?? '');
-      if (!opened.includes(SHOP_SENTENCE.slice(0, 24))) fail(`${tag}: the tab opened at the click is «${opened}», not the sentence that was clicked`);
+      await page.waitForFunction((address) => location.pathname + location.search === address, { timeout: 20_000 }, statementAddress);
+      await page.waitForFunction((title) => [...document.querySelectorAll('[data-testid=tab]')].some((tab) => tab.getAttribute('data-active') === 'true' && tab.querySelector('[role=tab]')?.getAttribute('title') === title), { timeout: 20_000 }, statementTitle);
       await page.evaluate(() => { history.back(); });
       await page.waitForFunction((url) => location.pathname + location.search + location.hash === new URL(url).pathname + new URL(url).search + new URL(url).hash, { timeout: 20_000 }, pageUrl);
+      await page.waitForFunction((title) => [...document.querySelectorAll('[data-testid=tab]')].some((tab) => tab.getAttribute('data-active') === 'true' && tab.querySelector('[role=tab]')?.getAttribute('title') === title), { timeout: 20_000 }, 'Online shop');
       await page.waitForSelector('[data-testid=statement]', { timeout: 20_000 });
       // Opening the same statement again brings that statement tab forward instead of adding a second one.
       await clickSentence();
