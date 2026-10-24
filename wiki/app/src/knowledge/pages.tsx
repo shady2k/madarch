@@ -53,7 +53,7 @@ export function EntityPage({ id, version }: { id: string; version: number }): Re
   const { t, i18n } = useTranslation();
   const kindName = useKindName();
   const language = (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en';
-  const { data: page, error } = useRead<PageModel>(`${id}\0${language}`, version, (signal) => getPage(id, language, signal));
+  const { data: page, error } = useRead<PageModel>(`${id}\0${language}`, version, (signal) => getPage(id, language, signal, (reason) => t('knowledge.pageNotRead', { id, reason })));
   const { role, roles } = useRole();
   useTabTitle(page?.title ?? (error !== null ? t('knowledge.noSuchPage') : null));
   if (page === null && error === null) return <PageSkeleton testId="page-loading" />;

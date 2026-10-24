@@ -173,6 +173,8 @@ beforeAll(async () => {
     graph,
     markdown,
     docEntities: new Map(docs.entities.map((entity) => [entity.id, entity])),
+    localizedSources: new Map(),
+    language: 'en',
     documents: [{ repo: 'shop', path: 'docs/handbook.md', text: documents.get('docs/handbook.md')! }],
     repositories: ['shop'],
     commitOf: () => null,

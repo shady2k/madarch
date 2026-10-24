@@ -36,6 +36,7 @@
     "language": "Выбрать язык"
   },
   "knowledge": {
+    "localizedSource": "В источнике",
     "title": "{{product}} — вики знаний",
     "loading": "Загрузка…",
     "broken": "битая",
@@ -429,7 +430,8 @@
       "symbol": "Символ",
       "method": "Метод",
       "path": "Путь"
-    }
+    },
+    "pageNotRead": "Не удалось прочитать страницу {{id}}: {{reason}}"
   },
   "loop": {
     "questionsTitle": "Вопросы",

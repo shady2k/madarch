@@ -174,8 +174,8 @@ export interface TreemapFile {
 
 type BlockShape =
   | { type: 'markdown'; markdown: string }
-  | { type: 'term'; title: string; definition: string; synonyms: string[]; code: string[]; usedIn: string | null; ambiguous: string | null }
-  | { type: 'body'; markdown: string; file: string; statements: number; ungrounded: { text: string; line: number }[] }
+  | { type: 'term'; title: string; definition: string; synonyms: string[]; code: string[]; usedIn: string | null; ambiguous: string | null; localized?: { statement: string; original: string; sourceDocument: string; sourceLine: number; sourceEndLine: number } }
+  | { type: 'body'; markdown: string; file: string; statements: number; ungrounded: { text: string; line: number }[]; localized?: { statement: string; original: string; sourceDocument: string; sourceLine: number; sourceEndLine: number } }
   | { type: 'graph'; title: string; neighborhood: Neighborhood; depth: number; shown: number; total: number }
   | DiagramsBlockShape
   | { type: 'treemap'; title: string; scope: string; files: TreemapFile[]; maxChurn: number; total: number; notes: string[] }
@@ -185,7 +185,7 @@ type BlockShape =
   | { type: 'source'; title: string; location: CodeLocation; language: string; text: string; truncated: boolean }
   | { type: 'refs'; title: string; total: number; rows: RefRow[] }
   | { type: 'properties'; title: string; rows: PropertyRow[] }
-  | { type: 'stated'; title: string; place: { repo: string | null; path: string; lineStart: number; lineEnd: number; href: string; commit: string | null } }
+  | { type: 'stated'; title: string; place: { repo: string | null; path: string; lineStart: number; lineEnd: number; href: string; commit: string | null; single?: boolean } }
   | { type: 'deferred'; block: string; title: string; line: number }
   | { type: 'definition'; title: string; format: string; contract: string; location?: CodeLocation; members: DefinitionMember[]; membersTotal: number; membersShown: number; memberCuts: { channel: string; total: number; shown: number }[]; spec: { text: string; lines: number } }
   | { type: 'history'; title: string; sections: HistorySection[]; notes: HistoryNote[] }
