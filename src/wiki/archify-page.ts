@@ -101,7 +101,7 @@ export async function renderArchifyPage(document: ArchifyDocument, input: string
   // madarch has a JavaScript runner at all (there is no Node.js beside it). Importing the file was no use: the renderer
   // is a command-line program, and an import returns before it writes anything.
   const renderer = app === undefined ? undefined : join(app, 'dist', 'archify', 'vendor', 'archify', 'renderers', 'architecture', 'render-architecture.mjs');
-  if (renderer !== undefined) {
+  if (renderer !== undefined && app !== undefined) {
     if (!existsSync(renderer)) return { status: 1, output: `${renderer}:1: the compiled binary carries no archify renderer` };
     // BUN_BE_BUN starts a plain runtime, which cannot see its parent's /$bunfs assets. Materialise the complete
     // vendored tree (templates and schemas included) for that child, then remove it on success and failure alike.
