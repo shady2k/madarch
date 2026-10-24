@@ -335,7 +335,8 @@ describe('files, imports and the database', () => {
     const [er] = (await page(DATABASE)).blocks.flatMap((entry) => (entry.type === 'diagrams' ? entry.views : []));
     expect(er!.elements).toHaveLength(2);
     expect(er!.mermaidSource.split('\n')[0]).toBe('erDiagram');
-    expect(er!.mermaidSource).toContain('table0 {');
+    // The entity is the table's position; the name a reader reads on the box is its alias.
+    expect(er!.mermaidSource).toContain('table0["customers"] {');
     expect(er!.mermaidSource).toContain('uuid id PK');
     expect(er!.mermaidSource).toContain('uuid customer_id');
     expect(er!.mermaidSource).toContain('table1 }o--|| table0 : "foreign key"');
