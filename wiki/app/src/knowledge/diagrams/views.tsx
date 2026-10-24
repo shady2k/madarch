@@ -109,14 +109,20 @@ function Frame({ view, renderer, lang, onOpen, onFailure }: { view: DiagramView;
       return () => { alive = false; };
     }
     asked.then(async (response) => {
-      if (!response.ok) throw new Error((await response.json() as { message?: string }).message ?? `HTTP ${response.status}`);
+      if (!response.ok) {
+        // The server refused the view: the renderer says it cannot draw it, so the view moves to one that did.
+        const said = (await response.json().catch(() => ({}))) as { message?: string };
+        throw Object.assign(new Error(said.message ?? `HTTP ${response.status}`), { refused: true });
+      }
       return await response.json() as { ok: true; model: unknown; elementLinks: Record<string, string> };
     }).then((answer) => { if (alive) { setLayout({ model: answer.model, elementLinks: answer.elementLinks }); setLoaded(true); } }).catch((error: unknown) => {
-      // The reason (an English diagnostic with a file path) goes to the console; the reader gets one sentence in their
-      // language, and the view moves to a renderer that drew.
-      if (alive) {
-        console.error(`the LikeC4 model of ${view.query} could not be read: ${error instanceof Error ? error.message : String(error)}`);
-        setLoaded(true);
+      if (!alive) return;
+      console.error(`the LikeC4 model of ${view.query} could not be read: ${error instanceof Error ? error.message : String(error)}`);
+      setLoaded(true);
+      // Only a renderer's own refusal hands the view on. A document without `fetch` (a test, a page offline) leaves the
+      // reader's renderer selected: nothing about it says it cannot draw.
+      if ((error as { refused?: boolean }).refused === true) {
+        setFailure(error instanceof Error ? error.message : String(error));
         onFailure?.('likec4');
       }
     });

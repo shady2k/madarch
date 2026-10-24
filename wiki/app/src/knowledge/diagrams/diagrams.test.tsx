@@ -204,9 +204,11 @@ const viewsBlock = (...views: DiagramView[]): Block => ({ type: 'diagrams', titl
 describe('the drawn views', () => {
   test('the first tab is the setting, every renderer of the type is a tab, and the other tabs are one click away', async () => {
     const asked: string[] = [];
-    (globalThis as { fetch?: unknown }).fetch = async (url: string) => {
+    // The model read never answers here: this test is about the tabs and the first one, and a refusal would hand the
+    // view to another renderer while it is being asserted (that hand-over is the next test).
+    (globalThis as { fetch?: unknown }).fetch = (url: string) => {
       asked.push(String(url));
-      return new Response(JSON.stringify({ message: 'no drawing in this test' }), { status: 500 });
+      return new Promise<Response>(() => undefined);
     };
     const container = into(createElement(BlockView, { block: viewsBlock(CONTAINER), resolutions: {} }));
     await until(() => container.querySelector('[data-testid=view]') !== null, 'the view');
@@ -215,12 +217,17 @@ describe('the drawn views', () => {
     // The LikeC4 tab draws inside the page and reads its laid-out model from the server's own frame answer; the
     // archify tab frames the page the server renders.
     await until(() => asked.some((url) => url.includes('/api/k/view-frame?type=c4-container&subject=&renderer=likec4&lang=en')), 'the LikeC4 model read');
-    // A renderer whose model cannot be read hands the view to one that drew, and the page says so in one sentence.
-    await until(() => container.querySelector('[data-testid=renderer-fallback]') !== null, 'the fallback sentence');
-    expect(container.querySelector('[data-testid=view]')!.getAttribute('data-renderer')).toBe('mermaid');
     (container.querySelector('[data-testid=renderer-archify]') as HTMLElement).click();
     await until(() => container.querySelector('iframe')?.getAttribute('src')?.includes('renderer=archify') === true, 'the archify frame');
     expect(container.querySelector('[data-testid=view]')!.getAttribute('data-renderer')).toBe('archify');
+  });
+
+  test('a renderer whose model cannot be read hands the view to one that drew, and the page says so in one sentence', async () => {
+    (globalThis as { fetch?: unknown }).fetch = async () => new Response(JSON.stringify({ message: 'no drawing in this test' }), { status: 500 });
+    const container = into(createElement(BlockView, { block: viewsBlock(CONTAINER), resolutions: {} }));
+    await until(() => container.querySelector('[data-testid=renderer-fallback]') !== null, 'the fallback sentence');
+    expect(container.querySelector('[data-testid=view]')!.getAttribute('data-renderer')).toBe('mermaid');
+    expect(container.querySelector('[data-testid=renderer-fallback]')!.textContent).toContain('could not draw this diagram here');
   });
 
   test('every drawn view has a full-screen control that toggles and exits on Escape', async () => {
