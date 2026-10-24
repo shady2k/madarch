@@ -402,7 +402,7 @@ export type TaskImpact = {
   pages: { id: string; title: string; file: string; kind: string; because: 'statement' | 'link' }[];
   writable: string[];
   entities: string[];
-  statements: { page: string; pageTitle: string; pageKind: string; file: string; line: number; statement: string; text: string; ground: string; how: 'grounds' | 'mentions' }[];
+  statements: { page: string; pageTitle: string; pageKind: string; file: string; line: number; statement: string; text: string; ground: string; grounds: string[]; how: 'grounds' | 'mentions' }[];
   counts: { pages: number; statements: number };
 };
 

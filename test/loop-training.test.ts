@@ -190,9 +190,13 @@ describe('an answer scopes a task, marks only what it reaches, fixes those pages
     // The impact is read through the graph: the ordering page's sentences that stand on the two sections.
     expect(proposed.impact.pages.map((page: { id: string }) => page.id)).toContain('domain:ordering');
     expect(proposed.impact.statements.length).toBeGreaterThan(0);
-    expect([...new Set(proposed.impact.statements.map((statement: { ground: string }) => statement.ground))].sort())
+    // One sentence stands on both README sections: it is listed once, naming every ground that reached it.
+    expect([...new Set(proposed.impact.statements.flatMap((statement: { grounds: string[] }) => statement.grounds))].sort())
       .toEqual(['doc:README.md#what-it-does', 'doc:services/orders/README.md#orders-service']);
-    for (const statement of proposed.impact.statements) expect(statement.page).toBe('domain:ordering');
+    // The sections are also stated on the question pages the agent wrote: they are reached as well.
+    const onOrdering = proposed.impact.statements.filter((statement: { page: string }) => statement.page === 'domain:ordering');
+    expect(onOrdering.length).toBeGreaterThan(0);
+    for (const statement of proposed.impact.statements) expect(statement.page).toMatch(/^(domain|product|question|correction):/);
     // Nothing is written before the reader confirms.
     expect(readdirSync(join(product, 'docs')).includes('tasks')).toBe(false);
   }, 120_000);
@@ -222,7 +226,7 @@ describe('an answer scopes a task, marks only what it reaches, fixes those pages
     const ordering = (await get('/api/k/page?id=' + encodeURIComponent('domain:ordering'))).body;
     expect(ordering.planned.entity).toMatchObject({ how: 'impact', task: { id: `task:${taskSlug}` } });
     expect(ordering.planned.statements.map((mark: { sentence: string; how: string }) => mark.how)).toEqual(ordering.planned.statements.map(() => 'impact'));
-    expect(ordering.planned.statements.length).toBe(proposed.impact.statements.length);
+    expect(ordering.planned.statements.length).toBe(proposed.impact.statements.filter((statement: { page: string }) => statement.page === 'domain:ordering').length);
     const payments = (await get('/api/k/page?id=' + encodeURIComponent('domain:payments'))).body;
     expect(payments.planned.statements).toEqual([]);
   }, 120_000);

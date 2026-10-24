@@ -16,14 +16,14 @@
  * The pictures are written to --out (shots/ by default) and listed on standard output.
  */
 import { chmodSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import puppeteer, { type Page } from 'puppeteer';
 import { resolveBrowserExecutable } from './chromium.js';
 import { agentScript } from '../test/knowledge-agent-script.js';
-import { LOOP_QUESTIONS, firstRunScript, questionSlug } from '../test/loop-agent-script.js';
+import { LOOP_QUESTIONS, firstRunScript } from '../test/loop-agent-script.js';
 import { FACTORY, PAY, PAYMENTS_SERVICE, generateTrainingRepository, makeProduct, recordKey, writeSamplePages } from '../test/knowledge-fixture.js';
 import { existsSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
 
 function argument(name: string, fallback: string): string {
   const at = process.argv.indexOf(`--${name}`);
@@ -458,11 +458,10 @@ if (only === '' || only === 'tasks') {
   const product = '/products/training-shop';
   const api = (path: string, body?: unknown): Promise<Response> => fetch(`${server.url}${product}${path}`, body === undefined ? {} : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   const retention = LOOP_QUESTIONS.find((question) => question.item === 'contradiction.retention')!;
-  const slug = questionSlug(retention, 'en');
   const ANSWER = 'The code is right: orders that were not shipped are removed ninety days after they were placed, and the two READMEs still say they are kept.';
   // A product of its own, filled once with the scripted agent: the run asks its questions before it writes the pages.
   const questions = join(home, 'training-shop', 'docs', 'questions');
-  if (!existsSync(questions) || !existsSync(join(questions, `${slug}.md`))) {
+  if (!existsSync(questions)) {
     rmSync(join(home, 'training-shop'), { recursive: true, force: true });
     makeProduct(home, 'training-shop', repository);
     writeFileSync(join(work, 'agent-script.json'), JSON.stringify(firstRunScript()));
@@ -480,12 +479,22 @@ if (only === '' || only === 'tasks') {
       await new Promise((rest) => setTimeout(rest, 2_000));
     }
   }
+  // The question the walk answers, by the title the agent gave it: its id is the agent's own slug, not the title's.
+  const listing = (await (await api('/api/k/questions')).json()) as { rows: { slug: string; title: string }[] };
+  const found = listing.rows.find((row) => row.title === retention.text.en.title);
+  if (found === undefined) throw new Error(`the questions of the training repository hold none titled ${JSON.stringify(retention.text.en.title)}: the fill did not ask it, so there is no answer to give`);
+  const slug = found.slug;
+  // The answer is committed as the person reading: the product repository's git identity is that person's.
+  execFileSync('git', ['-C', join(home, 'training-shop'), 'config', 'user.name', 'Ada Reader']);
+  execFileSync('git', ['-C', join(home, 'training-shop'), 'config', 'user.email', 'ada@example.test']);
   // The walk confirms a task and cannot un-confirm it: a second run against the same work folder would show no proposal.
   const tasksFolder = join(home, 'training-shop', 'docs', 'tasks');
   if (existsSync(tasksFolder) && readdirSync(tasksFolder).length > 0) throw new Error(`${tasksFolder} already holds ${readdirSync(tasksFolder).length} task file(s): the walk starts from a product with no task, so run it with a new --work folder`);
   // The answer is a file of the product, committed as the reader: written once, and read by every walk below.
   const answered = await api('/api/k/answer', { question: slug, text: ANSWER });
-  if (!answered.ok && answered.status !== 409) throw new Error(`the answer could not be saved: ${answered.status} ${await answered.text()}`);
+  if (!answered.ok) throw new Error(`the answer to ${slug} could not be saved: ${answered.status} ${await answered.text()}`);
+  const saved = (await (await api(`/api/k/question?id=${encodeURIComponent(slug)}`)).json()) as { state: string };
+  if (saved.state === 'open') throw new Error(`the answer to ${slug} was saved but the question still reads open`);
 
   const combos: { lang: 'en' | 'ru'; scheme: 'light' | 'dark'; width: number }[] = [];
   for (const language of ['en', 'ru'] as const) {
@@ -501,9 +510,9 @@ if (only === '' || only === 'tasks') {
     await page.evaluate((language) => { try { window.localStorage.setItem('madarch-wiki-language', language); } catch { /* the browser's own language */ } }, combo.lang);
     await page.goto(`${server.url}${question}`, { waitUntil: 'domcontentloaded' });
     // A machine the walk never used asks which role it reads as: the card is answered once, and the page is read again.
-    const role = await page.$('[data-testid=role-skip]');
-    if (role !== null) {
-      await role.click();
+    await page.waitForFunction(() => document.querySelector('[data-testid=task-choice-code]') !== null || document.querySelector('[data-testid=role-skip]') !== null, { timeout: 120_000 });
+    if ((await page.$('[data-testid=role-skip]')) !== null) {
+      await page.click('[data-testid=role-skip]');
       await page.waitForFunction(() => document.querySelector('[data-testid=role-card]') === null, { timeout: 30_000 });
       await page.goto(`${server.url}${question}`, { waitUntil: 'domcontentloaded' });
     }
@@ -536,6 +545,12 @@ if (only === '' || only === 'tasks') {
       const page = await open(path, combo.width, height, combo.scheme);
       await page.evaluate((chosen) => { try { window.localStorage.setItem('madarch-wiki-language', chosen); } catch { /* the browser's own language */ } }, language);
       await page.goto(`${server.url}${path}`, { waitUntil: 'domcontentloaded' });
+      await page.waitForFunction(() => document.querySelector('[data-testid=role-skip]') !== null || document.body.innerText.length > 0, { timeout: 60_000 });
+      if ((await page.$('[data-testid=role-skip]')) !== null) {
+        await page.click('[data-testid=role-skip]');
+        await page.waitForFunction(() => document.querySelector('[data-testid=role-card]') === null, { timeout: 30_000 });
+        await page.goto(`${server.url}${path}`, { waitUntil: 'domcontentloaded' });
+      }
       await waited(page, `${what} (${tag(combo)})`, () => page.waitForSelector(ready, { timeout: 120_000 }));
       return page;
     };

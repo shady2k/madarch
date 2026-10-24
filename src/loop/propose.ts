@@ -65,7 +65,10 @@ export async function proposeTask(input: { readonly owner: DatabaseOwner; readon
     throw new ProposalRefusal(broken === undefined ? `there is no question ${input.question}: docs/questions/${input.question}.md is not in the product repository` : broken.message);
   }
   if (question.answer === null) throw new ProposalRefusal(`${question.file}:1: the question ${question.slug} has no answer yet, so it proposes no task: answer it first`);
-  const grounds = [...new Set([...question.about, ...question.sides.flatMap((side) => side.grounds)])].sort(byCodePoint);
+  // The answer's evidence, not where the question was asked: a bare page id names a place, not a change.
+  const grounds = [...new Set([...question.about, ...question.sides.flatMap((side) => side.grounds)])]
+    .filter((ground) => /^(code\.|doc:)/.test(ground) || ground.includes('#'))
+    .sort(byCodePoint);
   if (grounds.length === 0) throw new ProposalRefusal(`${question.file}:1: the question ${question.slug} names no ground, so a task from it would change nothing`);
   // Which side the task changes decides the scope: «Прав код, документ устарел» changes the documents the answer names,
   // «Прав документ, код нужно исправить» changes the code it names. The whole grounds stay the task's evidence either way.

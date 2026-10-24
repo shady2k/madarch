@@ -29,8 +29,10 @@ export interface ImpactedStatement {
   /** The statement's name on its page (its first footnote's name): what a correction and a scope name it by. */
   readonly statement: string;
   readonly text: string;
-  /** The ground of the change the statement stands on, or the statement's own reference. */
+  /** The first ground, in code-point order, that reached the statement: what a reader sees named. */
   readonly ground: string;
+  /** Every ground that reached the statement: a sentence may stand on more than one of them. */
+  readonly grounds: readonly string[];
   readonly how: 'grounds' | 'mentions';
 }
 
@@ -81,7 +83,7 @@ export function pathOfGround(ground: string): string | undefined {
 const isPathKey = (ground: string): boolean => /^(code\.|doc:)/.test(ground);
 
 function rowOf(row: RelyingStatement, ground: string): ImpactedStatement {
-  return { page: row.page, pageTitle: row.pageTitle, pageKind: row.pageKind, file: row.file, line: row.line, statement: row.statement, text: row.text, ground, how: row.how };
+  return { page: row.page, pageTitle: row.pageTitle, pageKind: row.pageKind, file: row.file, line: row.line, statement: row.statement, text: row.text, ground, grounds: [ground], how: row.how };
 }
 
 /**
@@ -115,14 +117,18 @@ export async function impactOf(owner: DatabaseOwner, productFolder: string, grou
     if (ref !== undefined && named !== undefined) {
       const page = byId.get(ref.page)!;
       const key = `${page.id}#${named.id}`;
-      if (!statements.has(key)) statements.set(key, { page: page.id, pageTitle: page.title, pageKind: page.kind, file: page.file, line: named.line, statement: named.id, text: named.text, ground, how: 'grounds' });
+      if (!statements.has(key)) statements.set(key, { page: page.id, pageTitle: page.title, pageKind: page.kind, file: page.file, line: named.line, statement: named.id, text: named.text, ground, grounds: [ground], how: 'grounds' });
       refs.add(key);
       reach(page, 'statement');
     }
     for (const row of await statementsRelyingOn(owner, ground)) {
       const key = `${row.page}#${row.statement}`;
       const held = statements.get(key);
-      if (held !== undefined && held.how === 'grounds') continue;
+      // A sentence that stands on two grounds is listed once, with every ground that reached it.
+      if (held !== undefined) {
+        if (!held.grounds.includes(ground)) statements.set(key, { ...held, grounds: [...held.grounds, ground].sort(byCodePoint) });
+        continue;
+      }
       statements.set(key, rowOf(row, ground));
       refs.add(key);
       const page = byId.get(row.page);
@@ -131,11 +137,16 @@ export async function impactOf(owner: DatabaseOwner, productFolder: string, grou
     // A ground the graph answers nothing for may be a ground the index has not published yet: said, never hidden.
     if (statements.size === before) unindexed.push(ground);
   }
-  // The second hop: a page that links a reached statement, a reached page or the same entity is reached too.
-  const reachedPages = new Set(reached.map((page) => page.id));
+  // The second hop: a page that links a reached statement, or one of the same entities the reached statements name,
+  // is reached too — the brief's own rule, not every page that happens to link a reached page.
+  const entities = new Set<string>(wanted);
+  for (const statement of statements.values()) {
+    const one = byId.get(statement.page)?.statements.find((candidate) => candidate.id === statement.statement);
+    for (const key of [...(one?.grounds ?? []), ...(one?.mentions ?? [])]) entities.add(key);
+  }
   for (const page of pages) {
-    if (reachedPages.has(page.id)) continue;
-    if (keysOf(page).some((key) => wanted.includes(key) || reachedPages.has(key) || refs.has(key))) reach(page, 'link');
+    if (reached.some((held) => held.id === page.id)) continue;
+    if (keysOf(page).some((key) => entities.has(key) || refs.has(key))) reach(page, 'link');
   }
   const orderedPages = [...reached].sort((a, b) => byCodePoint(a.file, b.file) || byCodePoint(a.id, b.id));
   const orderedStatements = [...statements.values()].sort((a, b) => byCodePoint(a.page, b.page) || a.line - b.line || byCodePoint(a.statement, b.statement));

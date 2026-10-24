@@ -13,7 +13,7 @@ import { DOMAINS_FOLDER, PRODUCT_PATH } from '../writer/run.js';
 import { parseStatementRef, readCorrections, readQuestions, type Author, type Correction, type Question } from './entities.js';
 import { closingCommit, type RepositoryRef, type TaskClosure } from './closure.js';
 import { impactOf, type TaskImpact } from './impact.js';
-import type { PlannedMarks } from './planned.js';
+import { impactGroundsOf, type PlannedMarks } from './planned.js';
 import { readTasks, scopeWords, type PlannedTask, type TaskScope } from './tasks.js';
 import type { Unplaced } from './plan.js';
 import type { StarterOffer } from '../knowledge/starter-upgrade.js';
@@ -277,7 +277,7 @@ async function rowOfTask(task: PlannedTask, input: TaskReadInput, notes: string[
   let impact: TaskImpact | null = null;
   let problem: string | undefined;
   try {
-    impact = await impactOf(input.owner, input.productFolder, task.grounds);
+    impact = await impactOf(input.owner, input.productFolder, impactGroundsOf(task));
   } catch (error) {
     problem = (error as Error).message;
     notes.push(`${task.file}: ${problem}`);
@@ -307,7 +307,7 @@ export async function taskDetail(input: TaskReadInput, id: string, marks: Planne
   if (task === undefined) return undefined;
   const notes: string[] = [];
   const row = await rowOfTask(task, input, notes);
-  const impact = row.impact === null ? null : await impactOf(input.owner, input.productFolder, task.grounds);
+  const impact = row.impact === null ? null : await impactOf(input.owner, input.productFolder, impactGroundsOf(task));
   return {
     ...row,
     impact,
