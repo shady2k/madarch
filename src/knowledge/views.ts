@@ -468,8 +468,11 @@ async function erView(ctx: RenderContext, spec: ViewSpec, w: Words, limit: numbe
   if (tables.length === 0) return empty(spec, title, w.er, w.noTables, up);
   const inView = new Set(tables.map((table) => table.key));
   const elements: ViewElement[] = [];
+  // A table whose columns run past the drawn list keeps the count, so the page says what it does not draw.
+  const hiddenColumns: string[] = [];
   for (const table of tables) {
     const columns = await ctx.graph.byPrefix('code.column', `${table.key}/`, 40);
+    if (columns.total > columns.rows.length) hiddenColumns.push(`${table.label}: ${String(columns.rows.length)} of ${String(columns.total)}`);
     elements.push({
       id: table.key,
       label: table.label,
@@ -494,12 +497,17 @@ async function erView(ctx: RenderContext, spec: ViewSpec, w: Words, limit: numbe
     }
   }
   edges.sort((a, b) => byCodePoint(`${a.from}|${a.to}`, `${b.from}|${b.to}`));
-  const notes = total > tables.length ? [w.truncated(tables.length, total)] : [];
+  const notes = [
+    ...(total > tables.length ? [w.truncated(tables.length, total)] : []),
+    ...(hiddenColumns.length === 0 ? [] : [w.columnsTruncated(hiddenColumns.join('; '))]),
+  ];
   // Mermaid's own ER syntax reads best, and every line here is a fact.
   const lines = ['erDiagram'];
   const mermaidId = new Map(elements.map((element, index) => [element.id, `table${index}`]));
   for (const [index, element] of elements.entries()) {
-    lines.push(`  ${mermaidId.get(element.id)!} {`);
+    // The entity's id is the table's position — two schemas may hold a table of one name — and the alias is the name
+    // a reader reads on the box.
+    lines.push(`  ${mermaidId.get(element.id)!}["${erAlias(element.label)}"] {`);
     for (const column of element.columns ?? []) lines.push(`    ${erType(column.type)} ${erName(column.name)}${column.key ? ' PK' : ''}`);
     lines.push('  }');
   }
