@@ -17,7 +17,7 @@ import { getDocument, getDocuments, getEntities, getPage, getSource, getStatemen
 import { useTabTitle } from './tabs.js';
 import { AgentChoice, WriterCard, useAgentChoice } from './writer.js';
 import { FailureNote } from './errors.js';
-import { BlockView, CodeLines, CodePlace, EntityName, Findings, KLink, KMarkdown, PlannedBadge, PlannedContext, brokenWords, scrollToAnchor, type PlannedMarks } from './blocks.js';
+import { BlockView, CodeLines, CodePlace, EntityName, Findings, KLink, KMarkdown, PlannedBadge, PlannedContext, brokenWords, scrollToAnchor, sentenceKey, type PlannedMarks } from './blocks.js';
 import { addressOfDocument, addressOfJournal, addressOfKind, addressOfStatement } from './routes.js';
 import { hasJournal } from './journal.js';
 import { useKindName } from './kind-names.js';
@@ -67,7 +67,7 @@ export function EntityPage({ id, version }: { id: string; version: number }): Re
   // A planned change on this page is said in its header and on each statement that stands on it (madarch-m38l.14).
   const planned: PlannedMarks = {
     headings: {},
-    statements: Object.fromEntries((page.planned?.statements ?? []).map((mark) => [mark.sentence.replace(/\s+/g, ' ').trim(), { task: mark.task, how: mark.how }])),
+    statements: Object.fromEntries((page.planned?.statements ?? []).map((mark) => [sentenceKey(mark.sentence), { task: mark.task, how: mark.how }])),
   };
   return (
     <article data-testid="entity-page" data-entity={page.id} data-kind={page.kind} data-planned={page.planned?.entity === null || page.planned?.entity === undefined ? 'false' : page.planned.entity.how}>

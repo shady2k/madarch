@@ -49,7 +49,7 @@ import { readDocEntities, type DocEntity, type DocumentSource } from './doc-enti
 import { DOCUMENT_LIMIT, DOCUMENT_PATH, docsLinkedOutside, listedDocument, productDocumentPaths, readProductDocument, readRepoDocuments, repoDocumentPaths } from './doc-sources.js';
 import { ensureLoopKinds, seedStarterSet, TEMPLATES } from './seed.js';
 import { readCorrections } from '../loop/entities.js';
-import { answerQuestion, commitFiles, localIdentity, recordCorrection, type Answered, type Corrected } from '../loop/answer.js';
+import { answerQuestion, commitFiles, localIdentity, LoopRefusal, recordCorrection, type Answered, type Corrected } from '../loop/answer.js';
 import { readTasks, renderTask, TASKS_FOLDER, taskSlug, writeTask, type PlannedTask, type TaskScope } from '../loop/tasks.js';
 import { impactOf, type TaskImpact } from '../loop/impact.js';
 import type { RepositoryRef } from '../loop/closure.js';

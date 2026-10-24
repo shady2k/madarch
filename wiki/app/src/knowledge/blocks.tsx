@@ -135,6 +135,9 @@ export interface PlannedMarks {
 
 export const NO_PLANNED: PlannedMarks = { headings: {}, statements: {} };
 
+/** The key a sentence is matched by: its words, without the footnote references and with its blanks as one. */
+export const sentenceKey = (text: string): string => text.replace(/\[\^[^\]\s]+\]/g, '').replace(/\s+/g, ' ').trim();
+
 /** What a page's text is read for: a page that carries a planned change tells every block of it (madarch-m38l.14). */
 export const PlannedContext = createContext<PlannedMarks>(NO_PLANNED);
 
@@ -194,7 +197,7 @@ export function KMarkdown({ text, resolutions, inDocument, statements, exceptTer
         if (typeof sentence !== 'string' || !String(className ?? '').split(' ').includes('statement')) return <span className={className}>{children}</span>;
         const grounded = (rest as Record<string, unknown>)['data-grounded'] === 'true';
         const turn = Number((rest as Record<string, unknown>)['data-turn'] ?? 0);
-        const mark = planned.statements[sentence.replace(/\s+/g, ' ').trim()];
+        const mark = planned.statements[sentenceKey(sentence)];
         const open = (): void => openInNewTab(addressOfStatement(statements.pageId, sentence, Number.isInteger(turn) ? turn : 0));
         return (
           <span
