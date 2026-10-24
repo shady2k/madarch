@@ -14,6 +14,8 @@ import {
 } from './blocks.js';
 import { graphBlock, treemapBlock } from './diagrams.js';
 import { diagramsBlock } from './views.js';
+import { definitionBlock } from './definition.js';
+import { historyBlock } from './history.js';
 import type { GraphEntity } from './graph-read.js';
 import { implementedByBlock, linkedFromBlock, statedBlock, termBlock } from './doc-blocks.js';
 import { homeKind, type Finding, type Origin } from './kinds.js';
@@ -43,7 +45,7 @@ export async function findSubject(ctx: RenderContext, id: string): Promise<{ sub
  * `title-<lang>` (for example `title-ru="Файлы"`) names the block in that language where the template gives one.
  */
 /** The blocks that read the graph at length: drawn by a read of their own when the page is asked for with `defer`. */
-const DEFERRED_BLOCKS: ReadonlySet<string> = new Set(['graph', 'sequence', 'system', 'modules', 'er', 'treemap']);
+const DEFERRED_BLOCKS: ReadonlySet<string> = new Set(['graph', 'sequence', 'system', 'modules', 'er', 'treemap', 'history', 'definition']);
 
 export async function renderPage(ctx: RenderContext, id: string, lang?: string, options: { defer?: boolean; only?: number } = {}): Promise<PageResult> {
   const located = await findSubject(ctx, id);
@@ -153,6 +155,8 @@ async function renderBlock(ctx: RenderContext, subject: Subject, name: string, p
     case 'body': return bodyBlock(subject, name, file, line);
     case 'graph': return await graphBlock(ctx, subject, params);
     case 'treemap': return await treemapBlock(ctx, subject, params);
+    case 'history': return await historyBlock(ctx, subject, params, file, line);
+    case 'definition': return await definitionBlock(ctx, subject, params, file, line);
     case 'related': return await relatedBlock(ctx, subject, params, file, line);
     case 'callers': return await callBlock(ctx, subject, 'in', params, file, line);
     case 'callees': return await callBlock(ctx, subject, 'out', params, file, line);

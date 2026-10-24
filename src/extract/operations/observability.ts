@@ -33,6 +33,7 @@ function loggers(t: TreeText, records: Records): void {
         properties: { service, library: 'slog', json: true } satisfies { [key: string]: PropertyValue },
         span: t.spanOfLine(path, at + 1),
       });
+      records.edge('code.uses-logger', `code.logger:${path}#New`, records.file(path), {}, t.spanOfLine(path, at + 1));
     }
     if (path.endsWith('.ts') && /\bpino\(/.test(text)) {
       const at = lines.findIndex((line) => /export\s+const\s+([A-Za-z0-9_]+)\s*=\s*pino\(/.test(line));
@@ -45,6 +46,7 @@ function loggers(t: TreeText, records: Records): void {
         properties: { service, library: 'pino', json: true } satisfies { [key: string]: PropertyValue },
         span: t.spanOfLine(path, at + 1),
       });
+      records.edge('code.uses-logger', `code.logger:${path}#${symbol}`, records.file(path), {}, t.spanOfLine(path, at + 1));
     }
   }
 }
@@ -138,9 +140,10 @@ function healthEndpoints(t: TreeText, records: Records): void {
         key: `code.health-endpoint:${path}#${endpoint.symbol}`,
         kind: 'code.health-endpoint',
         label: `/healthz of ${serviceOf(path) ?? path}`,
-        properties: { path: endpoint.path, method: endpoint.method, statusOk: endpoint.statusOk } satisfies { [key: string]: PropertyValue },
+        properties: { path: endpoint.path, method: endpoint.method, statusOk: endpoint.statusOk, service: serviceOf(path) ?? '' } satisfies { [key: string]: PropertyValue },
         span: t.spanOfLine(path, endpoint.line),
       });
+      records.edge('code.served-by', `code.health-endpoint:${path}#${endpoint.symbol}`, records.file(path), {service: serviceOf(path) ?? ''}, t.spanOfLine(path, endpoint.line));
     }
   }
 }
@@ -174,6 +177,25 @@ function metricsEndpoints(t: TreeText, records: Records): void {
       properties: { path: '/metrics', format: 'prometheus-text', counters: distinct } satisfies { [key: string]: PropertyValue },
       span: t.spanOfFile(path),
     });
+    records.edge('code.served-by', `code.metrics-endpoint:${path}#${receiver}`, records.file(path), {service}, t.spanOfFile(path));
+  }
+}
+
+/**
+ * The endpoints link to the service that serves them (madarch-m38l.16): the health and metrics endpoints point at the
+ * file they stand in, and a reader also needs "this is the health route of the orders service". Run after the stack
+ * extractor, which makes the `code.service` nodes; an endpoint whose service has no manifest keeps its file link and
+ * gets no service link, because a link to a service nothing declares would be a node of its own.
+ */
+export function linkEndpoints(t: TreeText, records: Records): void {
+  for (const node of [...records.nodes]) {
+    if (node.kind !== 'code.health-endpoint' && node.kind !== 'code.metrics-endpoint') continue;
+    const path = node.key.slice(node.key.indexOf(':') + 1, node.key.lastIndexOf('#'));
+    const service = serviceOf(path);
+    if (service === undefined) continue;
+    const key = `code.service:${service}`;
+    if (!records.nodes.some((held) => held.key === key)) continue;
+    records.edge('code.served-by', node.key, key, {role: 'service'}, node.span ?? t.spanOfFile(path));
   }
 }
 

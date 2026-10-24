@@ -195,6 +195,86 @@ export function extractDriverTests(label: string, make: () => { owner: DatabaseO
 
     }, 600_000);
 
+    /**
+     * The exhaustive audit of the generated repository's graph (madarch-m38l.16): every node of every kind, at the tip
+     * the fill read, asked three questions — is it connected to anything, does a code-derived node say where it stands
+     * in a file, and is its label the only one of its kind. Nothing is sampled and nothing is capped: the counts are
+     * printed for the change record and the failures name every node that breaks a rule.
+     */
+    test('generated-repository graph audit: every node is connected, placed and uniquely labelled', async () => {
+      const at = env.report.commits.at(-1)?.effectiveTime;
+      if (at === undefined) throw new Error('the generated graph has no tip valid time');
+      const rows = await env.query<{key: string; kind: string; label: string; span: unknown; node: string}>(
+        `SELECT v.properties->>'recordKey' AS key, k.key AS kind, v.label, v.properties->'span' AS span, v.node_id::text AS node
+         FROM node_version v JOIN node_kind k ON k.id=v.kind_id
+         WHERE v.recorded_to='infinity' AND v.valid_from <= $1::timestamptz AND v.valid_to > $1::timestamptz
+           AND v.properties ? 'recordKey' AND v.scope_id=$2::bigint ORDER BY k.key COLLATE "C", v.properties->>'recordKey' COLLATE "C"`,
+        [at, env.report.repositoryNode],
+      );
+      // One entity may stand as several rows (a producer's stub beside the owner's node): its place is taken from the
+      // row that has one, and its nodes are all its own.
+      const merged = new Map<string, {key: string; kind: string; label: string; span: unknown; nodes: string[]}>();
+      for (const row of rows) {
+        const held = merged.get(row.key);
+        if (held === undefined) merged.set(row.key, {key: row.key, kind: row.kind, label: row.label, span: row.span, nodes: [row.node]});
+        else {
+          held.nodes.push(row.node);
+          if (held.span === null && row.span !== null) held.span = row.span;
+        }
+      }
+      const nodes = [...merged.values()];
+      const edges = await env.query<{src: string; dst: string}>(
+        `SELECT DISTINCT e.src_id::text AS src, e.dst_id::text AS dst FROM edge_version e
+         WHERE e.recorded_to='infinity' AND e.valid_from <= $1::timestamptz AND e.valid_to > $1::timestamptz`, [at],
+      );
+      const incident = new Set(edges.flatMap((edge) => [edge.src, edge.dst]));
+      /** The kinds whose nodes are no place in a file, and why: the audit asks the others for a path and a line. */
+      const noFile: Readonly<Record<string, string>> = {
+        'code.repository': 'the repository is the scope every other node is read in',
+        'code.commit': 'a commit is an instant of the history, not a place in a file',
+        'code.author': 'an author is a person',
+        'code.task': 'a task is a tracker key that commit messages name',
+        'code.snapshot': 'a snapshot is a commit the fill pinned, not a place in a file',
+      };
+      /**
+       * The kinds whose labels may repeat, and why. A commit's label is its message, and two commits may carry one
+       * message; a symbol's label is the name it is written under (`New` in four packages), and its row names the file
+       * and the line, which tell them apart.
+       */
+      const repeatedLabels: Readonly<Record<string, string>> = {
+        'code.commit': 'two commits may carry the same message',
+        'code.symbol': 'a symbol is labelled by the name it is written under; its own file and line tell two apart',
+        'code.column': 'a column is labelled by its name in its table; every list of columns is one table\'s',
+        'code.index': 'an index is labelled by the name it is created under, and its table tells two apart',
+        'code.route': 'a route is labelled by its method and path; the service that serves it tells two apart',
+        'code.dependency': 'a library is labelled by its name; the manifest that declares it tells two apart',
+        'code.env-var': 'a variable is labelled by its name; the service that reads it tells two apart',
+      };
+      const totals = new Map<string, {total: number; isolated: string[]}>();
+      const unplaced: string[] = [];
+      const labels = new Map<string, Map<string, string[]>>();
+      for (const node of nodes) {
+        const held = totals.get(node.kind) ?? {total: 0, isolated: []};
+        held.total += 1;
+        if (!node.nodes.some((id) => incident.has(id))) held.isolated.push(node.key);
+        totals.set(node.kind, held);
+        const span = node.span === null || typeof node.span !== 'object' ? undefined : (node.span as Record<string, unknown>);
+        if (node.kind.startsWith('code.') && noFile[node.kind] === undefined && (span === undefined || typeof span['path'] !== 'string' || typeof span['lineStart'] !== 'number' || typeof span['lineEnd'] !== 'number')) {
+          unplaced.push(`${node.kind} ${node.key}`);
+        }
+        const ofKind = labels.get(node.kind) ?? new Map<string, string[]>();
+        ofKind.set(node.label, [...(ofKind.get(node.label) ?? []), node.key]);
+        labels.set(node.kind, ofKind);
+      }
+      const audit = [...totals].sort((left, right) => (left[0] < right[0] ? -1 : left[0] > right[0] ? 1 : 0)).map(([kind, held]) => ({kind, total: held.total, isolated: held.isolated.length}));
+      console.log(`GRAPH_AUDIT ${JSON.stringify(audit)}`);
+      const isolated = [...totals].flatMap(([kind, held]) => held.isolated.map((key) => `${kind} ${key}`));
+      expect(isolated, `isolated graph nodes (${String(isolated.length)}): ${isolated.join('; ')}`).toEqual([]);
+      expect(unplaced, `code nodes with no source path and line (${String(unplaced.length)}): ${unplaced.join('; ')}`).toEqual([]);
+      const duplicateLabels = [...labels].filter(([kind]) => repeatedLabels[kind] === undefined).flatMap(([kind, values]) => [...values].filter(([, keys]) => keys.length > 1).map(([label, keys]) => `${kind} ${JSON.stringify(label)}: ${keys.join(', ')}`));
+      expect(duplicateLabels, `duplicate labels (${String(duplicateLabels.length)}): ${duplicateLabels.join('; ')}`).toEqual([]);
+    }, 120_000);
+
     test('idempotent-refill (0028): a second fill of the unchanged repository writes no row in any table', async () => {
       const before = await digestAll(env);
       const second = await fillGraph(fill);

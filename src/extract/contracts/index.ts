@@ -27,6 +27,11 @@ import {
   channelKey,
   CONTRACTS_PRODUCER,
   entryPointKey,
+  KIND_CHANNEL,
+  KIND_CONTRACT,
+  KIND_MESSAGE,
+  messageKey,
+  operationKey,
   fileKey,
   inputKey,
   KIND_ENTRY_POINT,
@@ -76,6 +81,13 @@ interface TsFacts {
   ts: TsFileFacts;
 }
 
+
+/** The span of a whole file: its first line to its last, its first byte to its length. */
+function wholeFileSpan(path: string, text: string): SourceSpan {
+  const lines = text === '' ? 1 : text.split('\n').length;
+  return {path, byteStart: 0, byteEnd: Buffer.byteLength(text, 'utf8'), lineStart: 1, lineEnd: lines};
+}
+
 export async function extractContracts(reader: TreeReader): Promise<Extraction> {
   const nodes: ExtractedNode[] = [];
   const edges: ExtractedEdge[] = [];
@@ -85,6 +97,8 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
   const openApiOperations: {method: string; routePath: string; key: string}[] = [];
   const channels: string[] = [];
   const protoRpcs: {protoPath: string; service: string; rpc: string; key: string}[] = [];
+  const declarations: {contract: string; member: string; relation: `code.${string}`}[] = [];
+  const contractSpans = new Map<string, SourceSpan>();
 
   for (const p of reader.paths) {
     const format = CONTRACT_FOLDERS.find(([_, applies]) => applies(p))?.[0];
@@ -103,10 +117,15 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
       gaps.push({path: p, reason: 'contracts: the bytes are not UTF-8 text'});
       continue;
     }
+    // Every node read from a contract file gets its place: the file, with the byte and line span of the whole
+    // document, and the file's path as a property. A contract is a file, and a channel or a message is declared in
+    // one; a page that names them says where (madarch-m38l.16).
+    contractSpans.set(p, wholeFileSpan(p, text));
     if (format === 'openapi') {
       const {contract, gaps: fileGaps} = readOpenApi(p, text);
       gaps.push(...fileGaps);
       nodes.push(...openApiNodes(contract));
+      for (const op of contract.operations) declarations.push({contract: `code.contract:${p}`, member: operationKey(p, `${op.method}:${op.path}`), relation: 'code.declares'});
       for (const op of contract.operations) {
         openApiOperations.push({method: op.method, routePath: op.path, key: `code.operation:${p}#${op.method}:${op.path}`});
       }
@@ -114,17 +133,44 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
       const {contract, gaps: fileGaps} = readAsyncApi(p, text);
       gaps.push(...fileGaps);
       nodes.push(...asyncApiNodes(contract));
-      for (const channel of contract.channels) channels.push(channel.name);
+      for (const channel of contract.channels) {
+        channels.push(channel.name);
+        declarations.push({contract: `code.contract:${p}`, member: channelKey(channel.name), relation: 'code.declares'});
+        for (const message of channel.messages) {
+          const messageId = messageKey(p, message.name);
+          declarations.push({contract: `code.contract:${p}`, member: messageId, relation: 'code.declares'});
+          edges.push({type: 'code.carries', from: channelKey(channel.name), to: messageId, discriminator: '', properties: {channel: channel.name}});
+        }
+      }
     } else {
       const {contract, gaps: fileGaps} = readProto(p, text);
       gaps.push(...fileGaps);
       nodes.push(...protoNodes(contract));
+      for (const service of contract.services) for (const rpc of service.rpcs) declarations.push({contract: `code.contract:${p}`, member: operationKey(p, `${contract.package ?? ''}.${service.name}/${rpc.rpc}`), relation: 'code.declares'});
       for (const service of contract.services) {
         for (const rpc of service.rpcs) {
           protoRpcs.push({protoPath: p, service: service.name, rpc: rpc.rpc, key: `code.operation:${p}#${contract.package ?? ''}.${service.name}/${rpc.rpc}`});
         }
       }
     }
+  }
+
+  for (const declaration of declarations) edges.push({type: declaration.relation, from: declaration.contract, to: declaration.member, discriminator: '', properties: {}});
+
+  // The place of every node a contract file declares: the file and the whole-document span, so a contract, a
+  // channel and a message carry the location the wiki shows (madarch-m38l.16).
+  const pathOf = (node: ExtractedNode): string | undefined => {
+    if (node.kind === KIND_CONTRACT) return node.key.slice('code.contract:'.length);
+    if (node.kind === KIND_MESSAGE) return node.key.slice(node.key.indexOf(':') + 1, node.key.lastIndexOf('#'));
+    const held = node.properties['path'] ?? node.properties['contract'];
+    return typeof held === 'string' ? held : undefined;
+  };
+  for (const [at, node] of nodes.entries()) {
+    if (node.kind !== KIND_CONTRACT && node.kind !== KIND_CHANNEL && node.kind !== KIND_MESSAGE) continue;
+    const path = pathOf(node);
+    const span = path === undefined ? undefined : contractSpans.get(path);
+    if (path === undefined || span === undefined) continue;
+    nodes[at] = {...node, properties: {...node.properties, path}, span};
   }
 
   // ---- the code, one walk per file ------------------------------------------
@@ -148,7 +194,10 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
     else tsFiles.push({path: p, ts: read.value as TsFileFacts});
   }
 
-  const serviceOf = (path: string): string => /^(services\/[^/]+)\//.exec(path)?.[1] ?? path;
+  // The service a file belongs to, named as the operations extractor names it: the folder under services/ and nothing
+  // else, so `code.service:<name>` reaches the node the stack extractor makes. A file outside services/ belongs to no
+  // service, and an edge would invent one (madarch-m38l.16).
+  const serviceOf = (path: string): string | undefined => /^services\/([^/]+)\//.exec(path)?.[1];
   const folderOf = (path: string): string => path.slice(0, Math.max(0, path.lastIndexOf('/')));
   const goMethodFiles = new Map<string, string>();
   for (const file of goFiles) for (const method of file.go.methods) if (!goMethodFiles.has(method)) goMethodFiles.set(method, file.path);
@@ -157,7 +206,7 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
   const authMiddleware = new Map<string, string>();
   for (const file of [...goFiles, ...tsFiles]) {
     const service = serviceOf(file.path);
-    if (authMiddleware.has(service)) continue;
+    if (service === undefined || authMiddleware.has(service)) continue;
     const names = new Set<string>();
     if ('go' in file) {
       for (const route of file.go.routes) for (const name of route.middleware) names.add(name.replace(/\(.*/, ''));
@@ -225,7 +274,7 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
   // ---- Go: routes, entry points, Kafka ---------------------------------------
   for (const file of goFiles) {
     const service = serviceOf(file.path);
-    const auth = authMiddleware.get(service);
+    const auth = service === undefined ? undefined : authMiddleware.get(service);
     for (const route of file.go.routes) {
       const properties: {[key: string]: PropertyValue} = {
         method: route.method,
@@ -248,17 +297,29 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
         properties,
         span: route.span,
       });
+      edges.push({type: 'code.contains', from: fileKey(file.path), to: routeKey(file.path, route.method, route.path), discriminator: '', properties: {}, span: route.span});
     }
 
     if (file.go.entryPoint) {
       const packageFiles = goFiles.filter((held) => folderOf(held.path) === folderOf(file.path));
       const started = resolveGoStarts(packageFiles, file.path);
+      const entryKey = entryPointKey(file.path, 'main');
+      const entrySpan = {path: file.path, byteStart: 0, byteEnd: reader.read(file.path).length, lineStart: 1, lineEnd: Math.max(1, textOf(reader, file.path)?.split('\n').length ?? 1)};
       nodes.push({
-        key: entryPointKey(file.path, 'main'),
+        key: entryKey,
         kind: KIND_ENTRY_POINT,
-        label: 'main',
-        properties: {language: 'go', symbol: 'main', starts: started},
+        label: `${service ?? 'service'} · ${file.path}`,
+        properties: {language: 'go', symbol: 'main', service: service ?? '', file: file.path, starts: started},
+        span: entrySpan,
       });
+      edges.push({type: 'code.starts', from: entryKey, to: fileKey(file.path), discriminator: '', properties: {kind: 'entry-file'}, span: entrySpan});
+      if (service !== undefined) edges.push({type: 'code.belongs-to' as const, from: entryKey, to: `code.service:${service}`, discriminator: '', properties: {}, span: entrySpan});
+      const goProcess = service === undefined ? undefined : processKeyOf(file.path);
+      if (goProcess !== undefined) edges.push({type: 'code.starts', from: entryKey, to: goProcess, discriminator: 'process', properties: {kind: 'process'}, span: entrySpan});
+      for (const unit of started) {
+        const target = unit.path !== undefined ? fileKey(unit.path) : undefined;
+        if (target !== undefined) edges.push({type: 'code.starts', from: entryKey, to: target, discriminator: `${unit.kind}:${unit.symbol}`, properties: {kind: unit.kind, symbol: unit.symbol, ...(unit.port !== undefined ? {port: unit.port} : {})}, span: entrySpan});
+      }
     }
 
     for (const site of file.go.kafkaSites) {
@@ -267,7 +328,7 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
         // A channel is claimed only when the constant that names it is written
         // into that same table -- the writer's file carries the INSERT.
         for (const channel of channels) {
-          const constant = constantForService(service, channel);
+          const constant = service === undefined ? undefined : constantForService(service, channel);
           if (constant === undefined) continue;
           const constantText = textOf(reader, constant.path);
           if (constantText === undefined || !/INTO\s+outbox/.test(constantText)) continue;
@@ -287,7 +348,7 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
         continue;
       }
       if (site.topic === undefined) continue;
-      const topic = constValue(service, site.topic);
+      const topic = service === undefined ? undefined : constValue(service, site.topic);
       if (topic === undefined || !channels.includes(topic)) continue;
       const properties: {[key: string]: PropertyValue} = {topic, ...(site.group !== undefined ? {group: site.group} : {})};
       // The handler the consumer delegates to, its mapping, and its behaviour.
@@ -312,7 +373,7 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
   for (const file of tsFiles) {
     const {ts} = file;
     const service = serviceOf(file.path);
-    const auth = authMiddleware.get(service);
+    const auth = service === undefined ? undefined : authMiddleware.get(service);
     // The mounts other files of this service declare for the routers this file builds.
     const ownFactories = new Set([...ts.routerFactories.values()].filter((name) => name !== ''));
     const mountsHere = tsFiles
@@ -339,19 +400,31 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
         },
         span: route.span,
       });
+      edges.push({type: 'code.contains', from: fileKey(file.path), to: routeKey(file.path, route.method, path), discriminator: '', properties: {}, span: route.span});
     }
 
     if (ts.entry !== undefined) {
+      const entryKey = entryPointKey(file.path, ts.entry.symbol);
+      const entrySpan = {path: file.path, byteStart: 0, byteEnd: reader.read(file.path).length, lineStart: 1, lineEnd: Math.max(1, textOf(reader, file.path)?.split('\n').length ?? 1)};
       nodes.push({
-        key: entryPointKey(file.path, ts.entry.symbol),
+        key: entryKey,
         kind: KIND_ENTRY_POINT,
-        label: ts.entry.symbol,
+        label: `${service ?? 'service'} · ${file.path} · ${ts.entry.symbol}`,
         properties: {
-          language: 'typescript',
+          language: 'typescript', service: service ?? '', file: file.path,
           symbol: ts.entry.symbol,
           starts: ts.started.map((unit) => ({kind: unit.kind, symbol: unit.symbol, ...(unit.path !== undefined ? {path: unit.path} : {}), ...(unit.port !== undefined ? {port: unit.port} : {})})),
         },
+        span: entrySpan,
       });
+      edges.push({type: 'code.starts', from: entryKey, to: fileKey(file.path), discriminator: '', properties: {kind: 'entry-file'}, span: entrySpan});
+      if (service !== undefined) edges.push({type: 'code.belongs-to' as const, from: entryKey, to: `code.service:${service}`, discriminator: '', properties: {}, span: entrySpan});
+      const tsProcess = service === undefined ? undefined : processKeyOf(file.path);
+      if (tsProcess !== undefined) edges.push({type: 'code.starts', from: entryKey, to: tsProcess, discriminator: 'process', properties: {kind: 'process'}, span: entrySpan});
+      for (const unit of ts.started) {
+        const target = unit.path !== undefined ? fileKey(unit.path) : undefined;
+        if (target !== undefined) edges.push({type: 'code.starts', from: entryKey, to: target, discriminator: `${unit.kind}:${unit.symbol}`, properties: {kind: unit.kind, symbol: unit.symbol, ...(unit.port !== undefined ? {port: unit.port} : {})}, span: entrySpan});
+      }
     }
 
     // The proto this file loads, when it does.
@@ -407,7 +480,7 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
     // Kafka sends that name a channel.
     for (const send of ts.sends) {
       if (send.channel === undefined || !channels.includes(send.channel)) continue;
-      const constant = constantForService(service, send.channel);
+      const constant = service === undefined ? undefined : constantForService(service, send.channel);
       const union = [...ts.typeUnions.values()].find((members) => members.length > 0 && members.every((member) => member.includes('.')));
       addEdge(REL_PUBLISHES, fileKey(file.path), channelKey(send.channel), {
         topic: send.channel,
@@ -426,6 +499,14 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
   // A contract operation is served by the one route of the tree that matches its
   // method and path template. Where several match (/healthz of four services,
   // say), the link is not claimed: ambiguity is said, not resolved.
+  for (const endpoint of nodes.filter((node) => node.kind === 'code.health-endpoint' || node.kind === 'code.metrics-endpoint')) {
+    const service = String(endpoint.properties['service'] ?? '');
+    if (service !== '') edges.push({type: 'code.served-by', from: endpoint.key, to: `code.service:${service}`, discriminator: 'service', properties: {}});
+    const endpointPath = String(endpoint.properties['path'] ?? '');
+    const endpointFile = endpoint.span?.path;
+    const routes = nodes.filter((node) => node.kind === KIND_ROUTE && node.properties['path'] === endpointPath && node.span?.path === endpointFile);
+    for (const route of routes) edges.push({type: 'code.served-by', from: endpoint.key, to: route.key, discriminator: '', properties: {}, ...(endpoint.span === undefined ? {} : {span: endpoint.span})});
+  }
   for (const operation of openApiOperations) {
     const matching = allRouteKeys().filter((route) => route.method === operation.method && pathMatches(route.path, operation.routePath));
     if (matching.length !== 1) continue;
@@ -444,6 +525,20 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
       .map((node) => ({method: node.properties['method'] as string, path: node.properties['path'] as string, key: node.key}));
   }
 
+}
+
+
+/**
+ * The process node a entry point starts, keyed as the deploy extractor keys it (madarch-m38l.16): the entry file of a
+ * TypeScript program, or the folder of a Go `main.go`. A program that starts from neither has no process key, and the
+ * entry point keeps its file link alone.
+ */
+function processKeyOf(path: string): string | undefined {
+  if (path.endsWith('/main.go')) {
+    const folder = path.slice(0, path.lastIndexOf('/'));
+    return folder === '' ? undefined : `code.process:${folder}`;
+  }
+  return /\.[cm]?[jt]sx?$/.test(path) ? `code.process:${path}` : undefined;
 }
 
 function describe(error: unknown): string {
@@ -486,6 +581,8 @@ function extractSqlFlow(
       properties: {source: 'query', name: input.name, ...(input.fn !== undefined ? {readBy: input.fn} : {})},
       span: input.span,
     });
+    // The input is read in this file, whether or not it reaches a builder or a sink (madarch-m38l.16).
+    addEdge('code.contains', fileKey(path), inputKey(path, 'query', input.name), {}, input.span);
   }
   const pathBuilds = ts.stringSplicers.filter((splicer) => ts.buildersOnPath.includes(splicer.fn));
   for (const build of pathBuilds) {
@@ -494,6 +591,7 @@ function extractSqlFlow(
       kind: KIND_SQL_BUILD,
       label: build.fn,
       properties: {function: build.fn, spliced: build.spliced},
+      ...(build.span === undefined ? {} : {span: build.span}),
     });
   }
   for (const sink of ts.sqlSinks) {

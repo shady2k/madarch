@@ -5,7 +5,7 @@
  * as the files name each other (the image meets its Dockerfile by name only).
  */
 import { LineCounter, isMap, isScalar, isSeq, parseAllDocuments } from 'yaml';
-import type { PropertyValue } from '../records.js';
+import type { PropertyValue, SourceSpan } from '../records.js';
 import { readDockerfile } from '../../fill/stages/manifest-format.js';
 import type { Records } from './accumulate.js';
 import type { ComposeService } from './compose.js';
@@ -77,7 +77,7 @@ function addDockerfileNodes(t: TreeText, records: Records, readings: readonly Do
       span: t.spanOfFile(reading.path),
     });
     for (const port of reading.exposes) {
-      records.edge('code.exposes', reading.key, records.port(reading.service, port), {}, t.spanOfFile(reading.path));
+      records.edge('code.exposes', reading.key, records.port(reading.service, port, t.spanOfFile(reading.path)), {}, t.spanOfFile(reading.path));
     }
   }
 }
@@ -297,7 +297,7 @@ export function extractDeploy(t: TreeText, records: Records): void {
         records.edge(
           'code.publishes',
           key,
-          records.port(service.name, Number.parseInt(mapping.container, 10)),
+          records.port(service.name, Number.parseInt(mapping.container, 10), t.spanOfLine(path, service.line)),
           { host: mapping.host, container: mapping.container },
           t.spanOfLine(path, service.line),
         );
@@ -333,11 +333,11 @@ export function extractDeploy(t: TreeText, records: Records): void {
           span,
         });
         if (workload.image !== null) {
-          const imageKey = imageNode(records, workload.image);
+          const imageKey = imageNode(records, workload.image, span);
           records.edge('code.runs', key, imageKey, {}, span);
           const imageService = imageServiceName(workload.image) ?? workload.name;
           for (const port of workload.containerPorts) {
-            records.edge('code.exposes', key, records.port(imageService, port), {}, span);
+            records.edge('code.exposes', key, records.port(imageService, port, span), {}, span);
           }
           const built = builtBy(t, readings, workload.image);
           if (built !== undefined) records.edge('code.built-by', imageKey, `code.dockerfile:${built}`, { matchedBy: 'name' }, span);
@@ -356,7 +356,7 @@ export function extractDeploy(t: TreeText, records: Records): void {
         });
         for (const port of workload.servicePorts) {
           if (port.targetPort === null) continue;
-          records.edge('code.targets', key, records.port(workload.name, port.targetPort), { port: port.port }, span);
+          records.edge('code.targets', key, records.port(workload.name, port.targetPort, span), { port: port.port }, span);
         }
       }
     }
@@ -379,7 +379,7 @@ export function extractDeploy(t: TreeText, records: Records): void {
     const listened = listenPort(t, mainFile);
     if (listened === undefined) continue;
     const portSpan = t.spanOfLine(mainFile, listened.line);
-    records.edge('code.listens-on', started.key, records.port(reading.service, listened.port), { addr: listened.addr }, portSpan);
+    records.edge('code.listens-on', started.key, records.port(reading.service, listened.port, portSpan), { addr: listened.addr }, portSpan);
   }
 }
 
@@ -398,8 +398,8 @@ function resolveBuild(t: TreeText, composePath: string, build: ComposeServiceBui
 }
 type ComposeServiceBuild = string | { readonly context: string; readonly dockerfile: string } | null;
 
-/** The image node of one image reference, made on first use. */
-function imageNode(records: Records, reference: string): string {
+/** The image node of one image reference, made on first use, with the place the deployment names it. */
+function imageNode(records: Records, reference: string, span?: SourceSpan): string {
   const key = `code.image:${reference}`;
   const colon = reference.lastIndexOf(':');
   const slash = reference.lastIndexOf('/');
@@ -410,7 +410,7 @@ function imageNode(records: Records, reference: string): string {
     kind: 'code.image',
     label: reference,
     properties: { repository, tag },
-    span: undefined,
+    ...(span === undefined ? {} : { span }),
   });
   return key;
 }

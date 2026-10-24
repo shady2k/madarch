@@ -153,6 +153,51 @@ ${block('stated', 'Stated in', 'Где описано')}
 ${block('linkedfrom', 'Linked from', 'Ссылаются на него')}
 `;
 
+/** A task: the commits that name it, each with its day, its author and its message. */
+const TASK = `${SECTION.details}
+${block('history', 'Commits', 'Коммиты')}
+${G('Around this','Вокруг этого')}
+${SECTION.relations}
+${SECTION.pagesAbout('this task', 'этой задаче')}
+`;
+
+/** A commit: the files it changed, with the lines it added and removed and the symbols they declare. */
+const COMMIT = `${SECTION.details}
+${block('history', 'Files changed', 'Изменённые файлы')}
+${G('Around this commit','Вокруг этого коммита')}
+${SECTION.relations}
+${SECTION.pagesAbout('this commit', 'этом коммите')}
+`;
+
+/** An author: their commits, and the files and modules their work touches most. */
+const AUTHOR = `${SECTION.details}
+${block('history', 'Commits and files', 'Коммиты и файлы')}
+${G('Around this author','Вокруг этого автора')}
+${SECTION.relations}
+${SECTION.pagesAbout('this author', 'этом авторе')}
+`;
+
+
+/** A contract: its definition in its own format, the members it declares, and where it stands. */
+const CONTRACT = `${SECTION.details}
+${block('definition', 'Definition', 'Определение')}
+${G('Around this contract','Вокруг этого контракта')}
+${SECTION.source}
+${SECTION.relations}
+${SECTION.pagesAbout('this contract', 'этом контракте')}
+`;
+
+
+/** An operation: what it is, where its code stands, the contract that declares it and its chain. */
+const OPERATION = `${SECTION.details}
+${G('Around this operation','Вокруг этой операции')}
+${SECTION.source}
+${block('related', 'Declared by', 'Объявлена в', 'relation="code.declares" direction="in"')}
+${block('related', 'Served by', 'Обслуживается', 'relation="code.serves" direction="in"')}
+${SECTION.relations}
+${SECTION.pagesAbout('this operation', 'этой операции')}
+`;
+
 /** The shape each template file has; the kinds name the file. */
 export const TEMPLATES: Readonly<Record<string, string>> = {
   'product.md': PRODUCT,
@@ -165,6 +210,11 @@ export const TEMPLATES: Readonly<Record<string, string>> = {
   'route.md': ROUTE,
   'item.md': ITEM,
   'item-plain.md': ITEM_PLAIN,
+  'contract.md': CONTRACT,
+  'operation.md': OPERATION,
+  'history-task.md': TASK,
+  'commit.md': COMMIT,
+  'author.md': AUTHOR,
   'database.md': DATABASE,
   'table.md': TABLE,
   'entity-text.md': ENTITY_TEXT,
@@ -203,8 +253,8 @@ export const ROLES: readonly { name: string; lead: string[]; open: string[] }[] 
   { name: 'product', lead: ['product', 'tests'], open: ['stated', 'implementedby', 'linkedfrom', 'related', 'properties'] },
   { name: 'analyst', lead: ['product', 'data', 'contracts'], open: ['stated', 'implementedby', 'linkedfrom', 'related', 'properties', 'er', 'sequence', 'children'] },
   { name: 'architect', lead: ['product', 'code', 'contracts', 'data'], open: ['graph', 'related', 'sequence', 'er', 'stated', 'implementedby', 'linkedfrom', 'properties', 'children'] },
-  { name: 'developer', lead: ['code', 'contracts', 'data', 'tests'], open: ['source', 'callers', 'callees', 'sequence', 'graph', 'related', 'properties', 'children', 'er', 'stated'] },
-  { name: 'operations', lead: ['operations', 'data', 'contracts'], open: ['properties', 'related', 'children', 'source', 'er', 'stated'] },
+  { name: 'developer', lead: ['code', 'contracts', 'data', 'tests'], open: ['source', 'callers', 'callees', 'sequence', 'graph', 'related', 'history', 'properties', 'children', 'er', 'stated'] },
+  { name: 'operations', lead: ['operations', 'data', 'contracts'], open: ['properties', 'related', 'history', 'children', 'source', 'er', 'stated'] },
   { name: 'tester', lead: ['tests', 'product'], open: ['stated', 'implementedby', 'linkedfrom', 'related', 'properties', 'callers', 'children'] },
 ];
 
@@ -224,15 +274,15 @@ export const STARTER_KINDS: readonly StarterKind[] = [
   { name: 'code.module', template: 'module.md', source: 'graph', group: 'code', en: ['Module', 'Modules'], ru: ['Модуль', 'Модули'], describe: ['A folder of code with a purpose of its own, with the modules it depends on.', 'Папка кода со своим назначением и модули, от которых она зависит.'] },
   { name: 'code.file', template: 'file.md', source: 'graph', group: 'code', en: ['File', 'Files'], ru: ['Файл', 'Файлы'], describe: ['A file of a code repository.', 'Файл репозитория кода.'] },
   { name: 'code.symbol', template: 'symbol.md', source: 'graph', group: 'code', en: ['Symbol', 'Symbols'], ru: ['Символ', 'Символы'], describe: ['A function, class or constant, with its callers and callees.', 'Функция, класс или константа, кто её вызывает и что она вызывает.'] },
-  { name: 'code.entry-point', template: 'item-plain.md', source: 'graph', group: 'code', en: ['Entry point', 'Entry points'], ru: ['Точка входа', 'Точки входа'], describe: ['Where a process of the system starts running.', 'Место, где начинает работать процесс системы.'] },
+  { name: 'code.entry-point', template: 'item.md', source: 'graph', group: 'code', en: ['Entry point', 'Entry points'], ru: ['Точка входа', 'Точки входа'], describe: ['Where a process of the system starts running.', 'Место, где начинает работать процесс системы.'] },
   { name: 'code.cycle', template: 'item-plain.md', source: 'graph', group: 'code', en: ['Dependency cycle', 'Dependency cycles'], ru: ['Цикл зависимостей', 'Циклы зависимостей'], describe: ['Files or modules that import one another in a ring.', 'Файлы или модули, которые импортируют друг друга по кругу.'] },
   { name: 'code.facet', template: 'item-plain.md', source: 'graph', group: 'code', en: ['File facet', 'File facets'], ru: ['Срез файла', 'Срезы файлов'], describe: ['What the code reader found out about a file: its role and language.', 'Что читатель кода выяснил о файле: его роль и язык.'] },
   { name: 'code.input', template: 'item.md', source: 'graph', group: 'code', en: ['Input', 'Inputs'], ru: ['Входные данные', 'Входные данные'], describe: ['A value that enters the code from outside, such as a query parameter.', 'Значение, которое попадает в код снаружи, например параметр запроса.'] },
   { name: 'code.sql-build', template: 'item-plain.md', source: 'graph', group: 'code', en: ['SQL build', 'SQL builds'], ru: ['Сборка SQL', 'Сборки SQL'], describe: ['A function that builds SQL text by joining strings.', 'Функция, которая собирает текст SQL склейкой строк.'] },
   { name: 'code.sql-sink', template: 'item.md', source: 'graph', group: 'code', en: ['SQL sink', 'SQL sinks'], ru: ['Выполнение SQL', 'Места выполнения SQL'], describe: ['A call that runs SQL text as it is.', 'Вызов, который выполняет текст SQL как есть.'] },
   { name: 'code.route', template: 'route.md', source: 'graph', group: 'contracts', en: ['HTTP route', 'HTTP routes'], ru: ['HTTP-маршрут', 'HTTP-маршруты'], describe: ['An HTTP route a service serves, read from its code.', 'HTTP-маршрут, который обслуживает сервис, прочитанный из кода.'] },
-  { name: 'code.operation', template: 'item.md', source: 'graph', group: 'contracts', en: ['API operation', 'API operations'], ru: ['Операция API', 'Операции API'], describe: ['An operation an OpenAPI or gRPC contract declares.', 'Операция, которую объявляет контракт OpenAPI или gRPC.'] },
-  { name: 'code.contract', template: 'item-plain.md', source: 'graph', group: 'contracts', en: ['Contract', 'Contracts'], ru: ['Контракт', 'Контракты'], describe: ['An OpenAPI, gRPC or AsyncAPI file that fixes an interface.', 'Файл OpenAPI, gRPC или AsyncAPI, который фиксирует интерфейс.'] },
+  { name: 'code.operation', template: 'operation.md', source: 'graph', group: 'contracts', en: ['API operation', 'API operations'], ru: ['Операция API', 'Операции API'], describe: ['An operation an OpenAPI or gRPC contract declares.', 'Операция, которую объявляет контракт OpenAPI или gRPC.'] },
+  { name: 'code.contract', template: 'contract.md', source: 'graph', group: 'contracts', en: ['Contract', 'Contracts'], ru: ['Контракт', 'Контракты'], describe: ['An OpenAPI, gRPC or AsyncAPI file that fixes an interface.', 'Файл OpenAPI, gRPC или AsyncAPI, который фиксирует интерфейс.'] },
   { name: 'code.channel', template: 'item-plain.md', source: 'graph', group: 'contracts', en: ['Event channel', 'Event channels'], ru: ['Канал событий', 'Каналы событий'], describe: ['A topic or queue that services publish to and read from.', 'Топик или очередь, в которую сервисы пишут и из которой читают.'] },
   { name: 'code.message', template: 'item-plain.md', source: 'graph', group: 'contracts', en: ['Event', 'Events'], ru: ['Событие', 'События'], describe: ['A kind of message sent over a channel.', 'Вид сообщения, которое передают по каналу.'] },
   { name: 'code.database', template: 'database.md', source: 'graph', group: 'data', en: ['Database', 'Databases'], ru: ['База данных', 'Базы данных'], describe: ['A database a service owns, with its tables and migrations.', 'База данных сервиса, её таблицы и миграции.'] },
@@ -253,7 +303,7 @@ export const STARTER_KINDS: readonly StarterKind[] = [
   { name: 'code.ci-workflow', template: 'item.md', source: 'graph', group: 'operations', en: ['CI workflow', 'CI workflows'], ru: ['Процесс CI', 'Процессы CI'], describe: ['A continuous-integration workflow file.', 'Файл процесса непрерывной интеграции.'] },
   { name: 'code.ci-job', template: 'item.md', source: 'graph', group: 'operations', en: ['CI job', 'CI jobs'], ru: ['Задача CI', 'Задачи CI'], describe: ['A job of a CI workflow and the steps it runs.', 'Задача процесса CI и шаги, которые она выполняет.'] },
   { name: 'code.make-target', template: 'item.md', source: 'graph', group: 'operations', en: ['Make target', 'Make targets'], ru: ['Цель make', 'Цели make'], describe: ['A target of a Makefile and the commands it runs.', 'Цель Makefile и команды, которые она выполняет.'] },
-  { name: 'code.process', template: 'item.md', source: 'graph', group: 'operations', en: ['Process', 'Processes'], ru: ['Процесс', 'Процессы'], describe: ['A program the system starts, and the port it listens on.', 'Программа, которую запускает система, и порт, который она слушает.'] },
+  { name: 'code.process', template: 'item-plain.md', source: 'graph', group: 'operations', en: ['Process', 'Processes'], ru: ['Процесс', 'Процессы'], describe: ['A program the system starts, and the port it listens on.', 'Программа, которую запускает система, и порт, который она слушает.'] },
   { name: 'code.port', template: 'item-plain.md', source: 'graph', group: 'operations', en: ['Port', 'Ports'], ru: ['Порт', 'Порты'], describe: ['A network port a service listens on or publishes.', 'Сетевой порт, который сервис слушает или публикует.'] },
   { name: 'code.health-endpoint', template: 'item.md', source: 'graph', group: 'operations', en: ['Health endpoint', 'Health endpoints'], ru: ['Проверка здоровья', 'Проверки здоровья'], describe: ['The route that tells whether a service is alive.', 'Маршрут, по которому видно, жив ли сервис.'] },
   { name: 'code.metrics-endpoint', template: 'item.md', source: 'graph', group: 'operations', en: ['Metrics endpoint', 'Metrics endpoints'], ru: ['Выдача метрик', 'Выдачи метрик'], describe: ['The route that serves a service\'s metrics.', 'Маршрут, по которому сервис отдаёт метрики.'] },
@@ -262,9 +312,9 @@ export const STARTER_KINDS: readonly StarterKind[] = [
   { name: 'code.newcomer-prerequisites', template: 'item.md', source: 'graph', group: 'operations', en: ['Prerequisites', 'Prerequisites'], ru: ['Что нужно установить', 'Что нужно установить'], describe: ['The tools the README says a newcomer needs.', 'Инструменты, которые по README нужны новичку.'] },
   { name: 'code.newcomer-failure', template: 'item.md', source: 'graph', group: 'operations', en: ['Known failure', 'Known failures'], ru: ['Известная ошибка', 'Известные ошибки'], describe: ['A failure the README names, with its fix.', 'Ошибка, которую называет README, и как её исправить.'] },
   { name: 'code.test-case', template: 'item.md', source: 'graph', group: 'tests', en: ['Test case', 'Test cases'], ru: ['Тест', 'Тесты'], describe: ['A test, and the code it exercises.', 'Тест и код, который он проверяет.'] },
-  { name: 'code.commit', template: 'item-plain.md', source: 'graph', group: 'history', origin: 'history', en: ['Commit', 'Commits'], ru: ['Коммит', 'Коммиты'], describe: ['A change in the repository\'s history, with its author and the files it touched.', 'Изменение в истории репозитория, его автор и затронутые файлы.'] },
-  { name: 'code.author', template: 'item-plain.md', source: 'graph', group: 'history', origin: 'history', en: ['Author', 'Authors'], ru: ['Автор', 'Авторы'], describe: ['A person who made commits.', 'Человек, который делал коммиты.'] },
-  { name: 'code.task', template: 'item-plain.md', source: 'graph', group: 'history', origin: 'history', en: ['Task', 'Tasks'], ru: ['Задача', 'Задачи'], describe: ['A tracker task that commit messages name.', 'Задача трекера, которую называют сообщения коммитов.'] },
+  { name: 'code.commit', template: 'commit.md', source: 'graph', group: 'history', origin: 'history', en: ['Commit', 'Commits'], ru: ['Коммит', 'Коммиты'], describe: ['A change in the repository\'s history, with its author and the files it touched.', 'Изменение в истории репозитория, его автор и затронутые файлы.'] },
+  { name: 'code.author', template: 'author.md', source: 'graph', group: 'history', origin: 'history', en: ['Author', 'Authors'], ru: ['Автор', 'Авторы'], describe: ['A person who made commits.', 'Человек, который делал коммиты.'] },
+  { name: 'code.task', template: 'history-task.md', source: 'graph', group: 'history', origin: 'history', en: ['Task', 'Tasks'], ru: ['Задача', 'Задачи'], describe: ['A tracker task that commit messages name.', 'Задача трекера, которую называют сообщения коммитов.'] },
 ];
 
 export const yamlText = (text: string): string => JSON.stringify(text);

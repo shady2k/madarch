@@ -324,6 +324,19 @@ function propertyText(value: unknown): string {
 }
 
 /** The properties of a graph entity as a table, in name order: what the extractor read, with no span (the source block shows it). */
+
+/** The property names the wiki has words for, and which of them are instants to write as dates. */
+const PROPERTY_NAMES: Readonly<Record<string, {key: 'authoredAt' | 'committedAt' | 'subject' | 'merge' | 'language' | 'symbol' | 'method' | 'path'; date?: boolean}>> = {
+  authoredAt: {key: 'authoredAt', date: true},
+  committedAt: {key: 'committedAt', date: true},
+  subject: {key: 'subject'},
+  merge: {key: 'merge'},
+  language: {key: 'language'},
+  symbol: {key: 'symbol'},
+  method: {key: 'method'},
+  path: {key: 'path'},
+};
+
 export function propertiesBlock(subject: Subject, params: Readonly<Record<string, string>>, file: string, line: number): Block {
   const title = params['title'] ?? 'Details';
   if (subject.source === 'document') {
@@ -331,11 +344,20 @@ export function propertiesBlock(subject: Subject, params: Readonly<Record<string
     return { type: 'properties', title, rows: [['identifier', doc.identifier ?? ''], ['document', doc.path], ['line', String(doc.line)]].filter(([, value]) => value !== '').map(([name, value]) => ({ name: name!, value: value! })) };
   }
   if (subject.source !== 'graph') return { type: 'problem', block: 'properties', file, line, message: 'the properties block lists what the extractors read; the entities of this kind are Markdown pages (their front matter is theirs)' };
-  const skipped = new Set(['recordKey', 'span', ...(list(params['skip']) ?? [])]);
+  // The bookkeeping a reader never needs, and the names the wiki has words for: a commit's raw effective time and its
+  // first-parent flag stay out, its authored and committed dates are written as dates (madarch-m38l.16).
+  const skipped = new Set(['recordKey', 'span', 'effectiveAt', 'onFirstParent', ...(list(params['skip']) ?? [])]);
   const rows = Object.entries(subject.entity.properties)
     .filter(([name, value]) => !skipped.has(name) && value !== null && value !== undefined && value !== '' && !(Array.isArray(value) && value.length === 0))
     .sort(([a], [b]) => byCodePoint(a, b))
-    .map(([name, value]) => ({ name, value: propertyText(value) }));
+    .map(([name, value]) => {
+      const named = PROPERTY_NAMES[name];
+      return {
+        name,
+        value: propertyText(value),
+        ...(named === undefined ? {} : { nameKey: named.key, ...(named.date === true && typeof value === 'string' ? { valueKind: 'date' as const } : {}) }),
+      };
+    });
   return { type: 'properties', title, rows };
 }
 

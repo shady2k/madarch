@@ -409,13 +409,23 @@ export async function extractDataModel(tree: TreeReader): Promise<Extraction> {
   // ---- the nodes --------------------------------------------------------------
   const nodes: ExtractedNode[] = [];
   for (const database of [...databases.values()].sort((left, right) => byCodePoint(left.name, right.name))) {
-    nodes.push({key: databaseKey(database.name), kind: 'code.database', label: database.name, properties: {service: database.name}});
+    // The database's place is the first file that declares it — its first migration, its schema, or the folder it
+    // stands in — and every migration names its own file (madarch-m38l.16: a node says where it stands).
+    const declaredIn = database.migrations[0]?.path ?? prismaSchemas.get(database.name) ?? firstTablePath(database) ?? serviceFile(tree, database.name);
+    nodes.push({
+      key: databaseKey(database.name),
+      kind: 'code.database',
+      label: database.name,
+      properties: {service: database.name, ...(declaredIn === undefined ? {} : {path: declaredIn})},
+      ...(declaredIn === undefined ? {} : {span: wholeFile(tree, declaredIn)}),
+    });
     for (const migration of database.migrations) {
       nodes.push({
         key: migrationKey(database.name, migration.name),
         kind: 'code.migration',
         label: migration.name,
         properties: {path: migration.path, ordinal: migrationOrdinals.get(migration.path) ?? 0},
+        span: wholeFile(tree, migration.path),
       });
     }
     for (const table of [...database.tables.values()].sort((left, right) => byCodePoint(left.name, right.name))) {
@@ -510,7 +520,52 @@ export async function extractDataModel(tree: TreeReader): Promise<Extraction> {
     }
   }
 
-  const edges: ExtractedEdge[] = [...foreignEdges, ...logicalEdges, ...edgeDrafts.map(toEdge)].sort(edgeOrder);
+  const structuralEdges: ExtractedEdge[] = [];
+  const structuralSeen = new Set<string>();
+  // One relation between two records is published once: a migration that alters the same table in two statements says so
+  // once, and the store refuses a second record of the same relation (madarch-m38l.16).
+  const edge = (type: string, from: string, to: string, span?: SourceSpan, properties: ExtractedEdge['properties'] = {}): void => {
+    const identity = `${type}\u0000${from}\u0000${to}`;
+    if (structuralSeen.has(identity)) return;
+    structuralSeen.add(identity);
+    structuralEdges.push({ type: type as ExtractedEdge['type'], from, to, discriminator: '', properties, ...(span === undefined ? {} : {span}) });
+  };
+  for (const database of databases.values()) {
+    const dbKey = databaseKey(database.name);
+    structuralEdges.push({type: 'code.uses-database', from: `code.service:${database.name}`, to: dbKey, discriminator: '', properties: {via: 'schema'}});
+    for (const migration of database.migrations) {
+      const migrationId = migrationKey(database.name, migration.name);
+      edge('code.contains', dbKey, migrationId);
+      const read = readUtf8(tree, migration.path);
+      if (!read.ok) continue;
+      for (const statement of parseSqlScript(migration.path, read.text).statements) {
+        if (statement.kind === 'create-table') {
+          const tableId = tableKey(database.name, statement.table.name, statement.table.schema);
+          edge('code.creates', migrationId, tableId, statement.table.span);
+          for (const column of statement.table.columns) edge('code.creates', migrationId, columnKey(database.name, statement.table.name, column.name, statement.table.schema), column.span);
+        } else if (statement.kind === 'alter-table-add-column') {
+          edge('code.alters', migrationId, tableKey(database.name, statement.table, statement.schema), statement.column.span, {object: 'table'});
+          edge('code.alters', migrationId, columnKey(database.name, statement.table, statement.column.name, statement.schema), statement.column.span, {object: 'column'});
+        } else if (statement.kind === 'alter-table-add-foreign-key') {
+          edge('code.alters', migrationId, tableKey(database.name, statement.table, statement.schema), statement.span, {object: 'table'});
+          edge('code.alters', migrationId, columnKey(database.name, statement.table, statement.foreignKey.column, statement.schema), statement.span, {object: 'column'});
+        } else if (statement.kind === 'create-index') {
+          edge('code.creates', migrationId, indexKey(database.name, statement.table, statement.index.name, statement.schema), statement.index.span);
+        }
+      }
+    }
+    for (const table of database.tables.values()) {
+      const tableId = tableKey(database.name, table.name, table.schema);
+      edge('code.holds', dbKey, tableId, table.span);
+      for (const column of table.columns.values()) edge('code.contains', tableId, columnKey(database.name, table.name, column.name, table.schema), column.span);
+      for (const index of table.indexes.values()) {
+        const indexId = indexKey(database.name, table.name, index.name, table.schema);
+        edge('code.contains', tableId, indexId, index.span);
+        for (const name of index.columns) edge('code.covers', indexId, columnKey(database.name, table.name, name, table.schema), index.span);
+      }
+    }
+  }
+  const edges: ExtractedEdge[] = [...structuralEdges, ...foreignEdges, ...logicalEdges, ...edgeDrafts.map(toEdge)].sort(edgeOrder);
   return {
     producer: DATA_MODEL_PRODUCER,
     nodes: [...nodes].sort((left, right) => byCodePoint(left.key, right.key)),
@@ -578,6 +633,33 @@ function tableOf(database: MergedDatabase, name: string, schema = 'public'): Mer
 }
 
 /** Reads a path's bytes as text; the reason is the gap when they cannot be read. */
+
+/** The file a service's own folder holds, for a database whose schema no single file declares: its manifest, else its first file. */
+function serviceFile(tree: TreeReader, service: string): string | undefined {
+  for (const candidate of [`services/${service}/package.json`, `services/${service}/go.mod`, `services/${service}/prisma/schema.prisma`]) if (tree.paths.includes(candidate)) return candidate;
+  return tree.paths.filter((path) => path.startsWith(`services/${service}/`)).sort(byCodePoint)[0];
+}
+
+/** The file a database without a migration is declared in: the file of its first table, or none. */
+function firstTablePath(database: MergedDatabase): string | undefined {
+  for (const table of database.tables.values()) if (table.span !== undefined) return table.span.path;
+  return undefined;
+}
+
+/** The span of a whole file, or the first line where its bytes cannot be read: a database and a migration say where they stand. */
+function wholeFile(tree: TreeReader, path: string): SourceSpan {
+  const read = readUtf8(tree, path);
+  const lines = read.ok && read.text !== '' ? read.text.split('\n').length : 1;
+  const bytes = (() => {
+    try {
+      return tree.read(path).length;
+    } catch {
+      return 0;
+    }
+  })();
+  return {path, byteStart: 0, byteEnd: bytes, lineStart: 1, lineEnd: lines};
+}
+
 function readUtf8(tree: TreeReader, path: string): TextOrGap {
   let bytes: Uint8Array;
   try {

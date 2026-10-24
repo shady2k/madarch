@@ -126,7 +126,7 @@ describe('the function page', () => {
     expect(source.text).toContain(item('payments.timeout').locations!.find((entry) => entry.symbol === 'pay')!.anchor!);
     expect(source.language).toBe('typescript');
     expect(source.truncated).toBe(false);
-    expect(model.trail.map((entry) => entry.label)).toEqual(['payments', 'services/payments/src/domain', 'payment-service.ts']);
+    expect(model.trail.map((entry) => entry.label)).toEqual(['payments', 'services/payments/src/domain', 'services/payments/src/domain/payment-service.ts']);
   });
 
   test('the factory\'s page holds the anchored switch of the answer key, and the chain from pay is a sequence of its steps down to the table', async () => {
@@ -266,6 +266,44 @@ describe('the pages of the documents\' entities', () => {
     // A source is named by its first heading (the file name without .md when it has none), its path kept apart.
     expect(listing.documents).toContainEqual({ repo: 'training', path: 'docs/requirements.md', title: 'Requirements' });
     for (const entry of listing.documents) expect(entry.title, `${entry.repo ?? 'product'}:${entry.path}`).not.toMatch(/\.md$/i);
+  });
+});
+
+describe('repository history pages', () => {
+  test('task, commit and author pages draw graph-backed history summaries in English and Russian', async () => {
+    const tasks = await product.list('code.task', { limit: 20 });
+    const task = tasks!.rows[0];
+    if (task === undefined) throw new Error('the generated history has no task');
+    const taskPage = await product.page(task.id, 'en', { defer: false });
+    if (!taskPage.ok) throw new Error(taskPage.message);
+    const taskHistory = block(taskPage.page, 'history');
+    const taskCommits = taskHistory.sections.find((section) => section.role === 'commits');
+    expect(taskCommits?.rows.length).toBeGreaterThan(0);
+    expect(taskCommits?.rows[0]).toHaveProperty('text');
+    expect(taskCommits?.rows[0]?.when).toMatch(/^\d{4}-\d{2}-\d{2}$/u);
+    expect(taskCommits?.rows[0]?.who).toBeTruthy();
+    const taskRu = await product.page(task.id, 'ru', { defer: true });
+    if (!taskRu.ok) throw new Error(taskRu.message);
+    expect(taskRu.page.blocks.some((entry) => entry.type === 'deferred' && entry.block === 'history' && entry.title === 'Коммиты')).toBe(true);
+
+    const commits = await product.list('code.commit', { limit: 20 });
+    const commit = commits!.rows[0];
+    if (commit === undefined) throw new Error('the generated history has no commit');
+    const commitPage = await product.page(commit.id, 'en', { defer: false });
+    if (!commitPage.ok) throw new Error(commitPage.message);
+    const commitHistory = block(commitPage.page, 'history');
+    const files = commitHistory.sections.find((section) => section.role === 'files');
+    expect(files?.rows.length).toBeGreaterThan(0);
+    expect(files?.rows.every((row) => row.figures.some((figure) => figure.kind === 'added' || figure.kind === 'removed'))).toBe(true);
+
+    const authors = await product.list('code.author', { limit: 20 });
+    const author = authors!.rows[0];
+    if (author === undefined) throw new Error('the generated history has no author');
+    const authorPage = await product.page(author.id, 'en', { defer: false });
+    if (!authorPage.ok) throw new Error(authorPage.message);
+    const authorHistory = block(authorPage.page, 'history');
+    expect(authorHistory.sections.find((section) => section.role === 'commits')?.rows.length).toBeGreaterThan(0);
+    expect(authorHistory.sections.find((section) => section.role === 'files')?.rows.length).toBeGreaterThan(0);
   });
 });
 
@@ -441,3 +479,48 @@ function lineOfDoc(text: string): number {
   if (at < 0) throw new Error(`docs/requirements.md holds no line with ${JSON.stringify(text)}`);
   return at + 1;
 }
+
+/**
+ * The graph block and the relations block read the same graph (madarch-m38l.16, the owner's «А здесь почему пусто?»):
+ * a page whose relations block lists a commit under its tasks must not print "the graph has no relations" above it, and
+ * no relation the page lists may be missing from its neighbourhood. Every page-backed entity of the graph is walked, the
+ * history and data kinds as well as the code ones, because the relations the neighbourhood used to hide were the
+ * history ones.
+ */
+describe('the neighbourhood of a page agrees with its relations block', () => {
+  test('every relation a page lists is in its neighbourhood, and a page with relations has a neighbourhood', async () => {
+    const context = await product.context();
+    if ('absent' in context) throw new Error('no manifest');
+    const missing: string[] = [];
+    const empty: string[] = [];
+    let rows = 0;
+    // Twenty entities of every kind, in the graph's own key order: the same entities on every run, and a walk of
+    // the whole graph would take longer than the fill it reads.
+    for (const { kind } of await context.ctx.graph.kindCounts()) {
+      const listing = await context.ctx.graph.list(kind, { limit: 20 });
+      for (const entity of listing.rows) {
+        const page = await product.page(entity.key, 'en', { defer: false });
+        if (!page.ok) { missing.push(`${entity.key}: ${page.message}`); continue; }
+        const hood = await product.neighborhood(entity.key, { limit: 500 });
+        if (!hood.ok) { missing.push(`${entity.key}: ${hood.message}`); continue; }
+        const edges = new Set(hood.neighborhood.edges.map((edge) => `${edge.from}|${edge.to}|${edge.relation}`));
+        // Only the page's own relations block: a children block draws related groups of its own, by key prefix, and it is no relation of the graph.
+        const groups = page.page.blocks.filter((block) => block.type === 'related' && block.name === 'related').flatMap((block) => (block.type === 'related' ? block.groups : [])).filter((group) => group.relation !== 'relates');
+        for (const group of groups) {
+          for (const row of group.rows) {
+            // A block with a depth reaches two or three hops out; the neighbourhood of a page is one hop, and the
+            // parity this test keeps is the one-hop one (madarch-m38l.16, «А здесь почему пусто?»).
+            if (row.hops !== undefined && row.hops > 1) continue;
+            rows += 1;
+            const key = group.direction === 'out' ? `${entity.key}|${row.entity.id}|${group.relation}` : `${row.entity.id}|${entity.key}|${group.relation}`;
+            if (!edges.has(key)) missing.push(`${entity.key} lists ${group.direction === 'out' ? '→' : '←'} ${group.relation} ${row.entity.id}, and its neighbourhood does not hold it`);
+          }
+        }
+        if (groups.some((group) => group.rows.length > 0) && hood.neighborhood.edges.length === 0) empty.push(entity.key);
+      }
+    }
+    expect(rows).toBeGreaterThan(0);
+    expect(missing, `relations the relations block shows and the neighbourhood hides (${String(missing.length)}):\n${missing.slice(0, 40).join('\n')}`).toEqual([]);
+    expect(empty, `pages with relations and an empty neighbourhood: ${empty.join(', ')}`).toEqual([]);
+  }, 900_000);
+});

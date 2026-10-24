@@ -71,7 +71,7 @@ export function bindMermaid(root: HTMLElement, elements: readonly ViewElement[],
  * does (LikeC4 draws its labels at 14 px, so 12/14 is the floor), centred on the view. Full screen fits the screen, which
  * is what its frame gives it. The props reach `LikeC4Diagram`, which reads them ahead of its own defaults.
  */
-const LIKE_C4_SIZE = { minZoom: 0.86, maxZoom: 2.5 } as unknown as Record<string, never>;
+const LIKE_C4_SIZE = { minZoom: 0.86, maxZoom: 2.5, reactFlowProps: { fitViewOptions: { minZoom: 0.86, maxZoom: 2.5, padding: 0.08 } } } as unknown as Record<string, never>;
 
 /**
  * A click on a LikeC4 element opens its page: LikeC4 reports the click as a diagram event, and the element's own id
@@ -111,7 +111,15 @@ function Frame({ view, renderer, lang, onOpen, onFailure }: { view: DiagramView;
     asked.then(async (response) => {
       if (!response.ok) throw new Error((await response.json() as { message?: string }).message ?? `HTTP ${response.status}`);
       return await response.json() as { ok: true; model: unknown; elementLinks: Record<string, string> };
-    }).then((answer) => { if (alive) { setLayout({ model: answer.model, elementLinks: answer.elementLinks }); setLoaded(true); } }).catch((error: unknown) => { if (alive) { setFailure(error instanceof Error ? error.message : String(error)); setLoaded(true); } });
+    }).then((answer) => { if (alive) { setLayout({ model: answer.model, elementLinks: answer.elementLinks }); setLoaded(true); } }).catch((error: unknown) => {
+      // The reason (an English diagnostic with a file path) goes to the console; the reader gets one sentence in their
+      // language, and the view moves to a renderer that drew.
+      if (alive) {
+        console.error(`the LikeC4 model of ${view.query} could not be read: ${error instanceof Error ? error.message : String(error)}`);
+        setLoaded(true);
+        onFailure?.('likec4');
+      }
+    });
     return () => { alive = false; };
   }, [renderer, view.query, lang]);
   useEffect(() => {

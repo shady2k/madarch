@@ -19,6 +19,27 @@ export type EntityRef = {
 
 export type RefRow = { entity: EntityRef; note?: string; noteKey?: 'named' | 'groundedWith' | 'statements' | 'links'; noteArgs?: Record<string, string | number> };
 
+/** One row of a history block (the engine's `HistoryRow`): when, who and what, with the figures its facts give. */
+export type HistoryRow = {
+  when?: string;
+  who?: string;
+  text: string;
+  entity?: EntityRef;
+  figures: { kind: 'added' | 'removed' | 'symbols' | 'commits' | 'files' | 'module'; value: string }[];
+};
+
+/** One list of a history block: the commits it shows, or the files they touched. */
+export type HistorySection = { role: 'commits' | 'files'; total: number; rows: HistoryRow[] };
+
+/** One row of a properties block (the engine's `PropertyRow`). */
+export type PropertyRow = { name: string; value: string; nameKey?: 'authoredAt' | 'committedAt' | 'subject' | 'merge' | 'language' | 'symbol' | 'method' | 'path'; valueKind?: 'date' };
+
+/** One note under a history block (the engine's `HistoryNote`): a key the app writes in the reader's language. */
+export type HistoryNote = { key: 'manyCommits' | 'manyFiles' | 'noCounts' | 'merge' | 'noFiles' | 'partialFiles'; args?: Record<string, string | number> };
+
+/** One member of a contract's definition (the engine's `DefinitionMember`). */
+export type DefinitionMember = { anchor: string; label: string; detail?: string; href: string | null; badge?: string; detailTotal?: number };
+
 export type RelatedGroup = {
   relation: string;
   direction: 'out' | 'in';
@@ -93,8 +114,10 @@ type BlockShape =
   | { type: 'callees'; title: string; total: number; rows: CallRow[] }
   | { type: 'source'; title: string; location: CodeLocation; language: string; text: string; truncated: boolean }
   | { type: 'refs'; title: string; total: number; rows: RefRow[] }
-  | { type: 'properties'; title: string; rows: { name: string; value: string }[] }
+  | { type: 'properties'; title: string; rows: PropertyRow[] }
   | { type: 'stated'; title: string; place: { repo: string | null; path: string; lineStart: number; lineEnd: number; href: string; commit: string | null } }
+  | { type: 'definition'; title: string; format: string; contract: string; location?: CodeLocation; members: DefinitionMember[]; membersTotal: number; membersShown: number; memberCuts: { channel: string; total: number; shown: number }[]; spec: { text: string; lines: number } }
+  | { type: 'history'; title: string; sections: HistorySection[]; notes: HistoryNote[] }
   | { type: 'deferred'; block: string; title: string; line: number }
   | { type: 'problem'; block: string; message: string; file: string; line: number };
 

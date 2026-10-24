@@ -11,7 +11,7 @@ import { extractDependencies } from './dependencies.js';
 import { extractDeploy } from './deploy.js';
 import { extractEnv } from './env.js';
 import { extractNewcomer } from './newcomer.js';
-import { extractObservability } from './observability.js';
+import { extractObservability, linkEndpoints } from './observability.js';
 import { extractStack } from './stack.js';
 import { TreeText } from './source.js';
 
@@ -29,6 +29,7 @@ export function extractOperations(tree: TreeReader): Extraction {
     const targets = extractBuild(t, records);
     extractObservability(t, records);
     extractStack(t, records, envReads);
+    linkEndpoints(t, records);
     extractNewcomer(t, records, targets);
   } catch (error) {
     records.gap('.', `the operations records cannot be extracted: ${error instanceof Error ? error.message : String(error)}`);

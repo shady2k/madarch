@@ -42,15 +42,18 @@ export class Records {
     this.gaps.push({ path, reason });
   }
 
-  /** The key of the port node of one service, made on first use. */
-  port(service: string, port: number): string {
+  /**
+   * The key of the port node of one service, made on first use, with the place the port was read at: the file and
+   * line that expose, target or listen on it (madarch-m38l.16).
+   */
+  port(service: string, port: number, span?: SourceSpan): string {
     const key = `code.port:${service}/${port}`;
     this.add({
       key,
       kind: 'code.port',
-      label: String(port),
+      label: `${service}/${String(port)}`,
       properties: { port, service },
-      span: undefined,
+      ...(span === undefined ? {} : { span }),
     });
     return key;
   }

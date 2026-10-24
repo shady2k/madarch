@@ -29,12 +29,11 @@ const toInt = (value: string | undefined, fallback: number, min: number, max: nu
 const list = (value: string | undefined): string[] | undefined => (value === undefined ? undefined : value.split(',').map((entry) => entry.trim()).filter(Boolean));
 
 /**
- * Relations that describe history or bookkeeping rather than how the product is put together: a file's thousand
- * commits would bury its neighbours. A template that wants one names it with `relation="..."`.
+ * Relations the default neighbourhood leaves out. It is empty: a page's diagram shows every relation the page's
+ * relations block shows (madarch-m38l.16), so the two never disagree. A template that wants a narrower diagram
+ * still names its relations with `relation="..."`.
  */
-export const QUIET_RELATIONS: ReadonlySet<string> = new Set([
-  'code.occurrence', 'code.touched', 'code.changed-with', 'code.parent', 'code.authored', 'code.tasks', 'code.facet-of', 'code.held', 'code.renamed-to',
-]);
+export const QUIET_RELATIONS: ReadonlySet<string> = new Set();
 
 const dirname = (path: string): string => (path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '.');
 const basename = (path: string): string => path.slice(path.lastIndexOf('/') + 1);
@@ -75,7 +74,8 @@ export async function collectNeighbors(ctx: RenderContext, subject: Subject, opt
       if (!wanted(group.relation) || !keep('out')) continue;
       for (const row of group.rows) rows.push({ direction: 'out', relation: group.relation, ref: row.entity, count: row.count });
     }
-    const groups = await ctx.graph.neighbors(subject.entity, { ...(options.relations === undefined ? {} : { relations: options.relations }), ...(options.direction === undefined ? {} : { direction: options.direction }), limit: options.limit });
+    const directions: ('out' | 'in')[] = options.direction === 'out' ? ['out'] : options.direction === 'in' ? ['in'] : ['in', 'out'];
+    const groups = (await Promise.all(directions.map((direction) => ctx.graph.neighbors(subject.entity, { ...(options.relations === undefined ? {} : { relations: options.relations }), direction, limit: options.limit })))).flat();
     for (const group of groups) {
       if (!wanted(group.relation)) continue;
       for (const row of group.rows) rows.push({ direction: group.direction, relation: group.relation, ref: refOfGraph(ctx, row.entity), count: row.edges });
