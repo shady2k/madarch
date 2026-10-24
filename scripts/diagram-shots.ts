@@ -188,7 +188,12 @@ async function walkViews(page: Page, entry: { name: string }, tag: string, lang:
             };
             return hasNode(frame) || frame.querySelector('[role=alert]') !== null;
           }, { timeout: 60_000 }, blockAt);
-          else await page.waitForFunction((at) => document.querySelectorAll('[data-diagram=views]')[at]?.querySelector('iframe[data-renderer=archify]') !== null, { timeout: 60_000 }, blockAt);
+          else await page.waitForFunction((at) => {
+            const block = document.querySelectorAll('[data-diagram=views]')[at];
+            const frame = block?.querySelector<HTMLIFrameElement>('iframe[data-renderer=archify]');
+            return Boolean(frame?.contentDocument?.querySelector('svg, [data-frame-error]')
+              || block?.querySelector('[data-testid=renderer-fallback]'));
+          }, { timeout: 60_000 }, blockAt);
           // A frame that answered with an error page is not a drawing: the walk says so instead of counting it.
           if (renderer === 'archify') {
             const handle = await page.$(`iframe[data-renderer=archify]`);
@@ -206,6 +211,9 @@ async function walkViews(page: Page, entry: { name: string }, tag: string, lang:
         await new Promise((rest) => setTimeout(rest, 200));
         await page.screenshot({ path: join(out, `${label}.png`) });
         const measures = await measureBlock(page, blockAt, renderer);
+        const selected = await page.evaluate((at) => document.querySelectorAll('[data-diagram=views]')[at]?.querySelector('[data-testid=view]')?.getAttribute('data-renderer'), blockAt);
+        if (selected !== renderer) drawn = false;
+        if (renderer === 'archify' && (measures?.['texts'] === undefined || measures?.['texts'] === 0)) drawn = false;
         // Full screen: the same diagram over the whole window, which is how a dense view is read.
         let full = false;
         try {
@@ -239,9 +247,9 @@ async function measureBlock(page: Page, blockAt: number, renderer: string): Prom
       const inBlock = MEASURE_LABELS.replace('walk(document);', `walk(document.querySelectorAll('[data-diagram=views]')[${blockAt}]);`);
       return (await page.evaluate(inBlock)) as Record<string, unknown>;
     }
-    const handle = await page.$(`[data-diagram=views]:nth-of-type(${blockAt + 1}) iframe[data-renderer=${renderer}]`);
-    const fallback = handle ?? (await page.$$('iframe[data-renderer=' + renderer + ']'))[blockAt];
-    const frame = await fallback?.contentFrame();
+    const blocks = await page.$$('[data-diagram=views]');
+    const handle = await blocks[blockAt]?.$(`iframe[data-renderer=${renderer}]`);
+    const frame = await handle?.contentFrame();
     return frame === null || frame === undefined ? undefined : ((await frame.evaluate(MEASURE_LABELS)) as Record<string, unknown>);
   } catch {
     return undefined;
