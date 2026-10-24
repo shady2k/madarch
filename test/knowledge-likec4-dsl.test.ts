@@ -1,8 +1,7 @@
 
 import { describe, expect, test } from 'bun:test';
 import { LikeC4 } from 'likec4';
-import { diagramWorkspace } from '../src/product-wiki/graph-workspace.js';
-import { shapeOf } from '../src/knowledge/views.js';
+import { workspaceOf } from '../src/knowledge/view-frames.js';
 import type { GraphView } from '../src/knowledge/views.js';
 
 /** One model per view type, each with an element that holds another and a dashed arrow: the shapes that broke the DSL. */
@@ -30,7 +29,8 @@ const VIEW_TYPES = ['c4-context', 'c4-container', 'c4-component', 'sequence', 'e
 describe('the LikeC4 workspace of every view type', () => {
   for (const type of VIEW_TYPES) {
     test(`the ${type} view's DSL parses with LikeC4's own language services`, async () => {
-      const held = diagramWorkspace(shapeOf(nested(type)), { pageAddress: () => '/k/e/x' });
+      // The production path: the knowledge views are written by `workspaceOf`, which flattens the elements.
+      const held = workspaceOf(nested(type));
       expect(held.workspace).not.toContain('include **');
       let likec4: Awaited<ReturnType<typeof LikeC4.fromSource>> | undefined;
       try {
