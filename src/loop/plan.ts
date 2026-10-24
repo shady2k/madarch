@@ -40,7 +40,9 @@ export type PlanReason =
   | { readonly kind: 'correction'; readonly correction: string; readonly statement: string }
   | { readonly kind: 'new-service'; readonly services: readonly string[] }
   /** The product page links a domain whose page is missing: the product unit declares it again. */
-  | { readonly kind: 'missing-domain'; readonly domain: string };
+  | { readonly kind: 'missing-domain'; readonly domain: string }
+  /** A person's confirmed task reaches this page («Поправить страницы сейчас»): the run edits exactly the pages it reaches. */
+  | { readonly kind: 'task'; readonly task: string; readonly title: string };
 
 export interface PlannedPage {
   readonly id: string;
@@ -312,6 +314,14 @@ export async function briefsFor(planned: Planned): Promise<Map<string, EditBrief
     out.set(page.file, { current, notes, omitted });
   }
   return out;
+}
+
+/**
+ * The writer's seam for a run limited to a set of pages (madarch-m38l.14): a page outside the set gets no unit, the
+ * product page among them, and the brief of a page inside it is the one the run wrote for it.
+ */
+export function neededFromPaths(paths: ReadonlySet<string>, briefs: ReadonlyMap<string, EditBrief>): (input: UnitsInput) => UnitsNeeded {
+  return (input) => ({ product: paths.has(PRODUCT_PATH), domain: (path) => paths.has(path), brief: (path) => briefs.get(path) });
 }
 
 /** The writer's seam: the plan as the writer reads it. */

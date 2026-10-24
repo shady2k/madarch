@@ -217,7 +217,12 @@ describe('the starter set madarch new seeds', () => {
     const home = scratch();
     const draft = createDraft({ home, name: 'seeded', gitEnv: gitEnv({ GIT_AUTHOR_NAME: 'a', GIT_AUTHOR_EMAIL: 'a@example.test', GIT_COMMITTER_NAME: 'a', GIT_COMMITTER_EMAIL: 'a@example.test' }) });
     if (draft.outcome !== 'created') throw new Error(JSON.stringify(draft));
-    expect(STARTER_FILES.map((file) => file.path)).toEqual(['madarch/kinds.yaml', ...['product', 'domain', 'service', 'package', 'module', 'file', 'symbol', 'route', 'item', 'item-plain', 'contract', 'operation', 'task', 'commit', 'author', 'database', 'table', 'entity-text', 'term', 'question', 'correction'].map((name) => `templates/${name}.md`)]);
+    // The starter set of both changes: the document task page and the history task page are two templates of one name
+    // (`task.md` for the document, `history-task.md` for the graph's task), so both stand in the list (madarch-m38l.16).
+    expect(STARTER_FILES.map((file) => file.path)).toEqual(['madarch/kinds.yaml', ...[
+      'product', 'domain', 'service', 'package', 'module', 'file', 'symbol', 'route', 'item', 'item-plain', 'contract', 'operation',
+      'history-task', 'commit', 'author', 'database', 'table', 'entity-text', 'term', 'question', 'correction', 'task',
+    ].map((name) => `templates/${name}.md`)]);
     for (const file of STARTER_FILES) expect(readFileSync(join(draft.folder, file.path), 'utf8')).toBe(file.content);
     const read = readKinds(draft.folder);
     if (!read.present) throw new Error('the seeded manifest is absent');

@@ -260,6 +260,11 @@ export interface PageModel {
   findings: Finding[];
   /** A reader's notes the page carries: an ambiguous key, a source that moved. */
   notes: string[];
+  /**
+   * The planned change this entity's page stands in, and the statements of the page that rely on one (madarch-m38l.14).
+   * `product.page` adds it after the page is drawn; the page the renderer builds knows nothing of the product's tasks.
+   */
+  planned?: { entity: PlannedMarkView | null; statements: (PlannedMarkView & { sentence: string })[]; note?: string };
 }
 
 export interface KindSummary {
@@ -416,6 +421,18 @@ export interface DocumentListing {
   truncated: { repo: string | null; total: number; shown: number }[];
 }
 
+/** A planned change as a page shows it: the task it belongs to and how the page is reached (its scope, or the graph's impact). */
+export interface PlannedMarkView {
+  readonly task: { readonly id: string; readonly slug: string; readonly title: string; readonly file: string };
+  readonly how: 'scope' | 'impact';
+}
+
+/** A section of a document a task plans to change. */
+export interface PlannedSectionView extends PlannedMarkView {
+  readonly anchor: string | null;
+  readonly lines: { readonly start: number; readonly end: number } | null;
+}
+
 /** One document drawn as a page: its text, the resolution of every `madarch:` link in it, and where each section anchor is. */
 export interface DocumentPage {
   repo: string | null;
@@ -427,6 +444,10 @@ export interface DocumentPage {
   anchors: Record<string, number>;
   /** The commit the text was read at in a code repository; null for the product repository. */
   commit: string | null;
+  /** The planned changes on this document's sections (madarch-m38l.14). */
+  planned: PlannedSectionView[];
+  /** Why the planned changes could not be read: said in place, never shown as "nothing is planned". */
+  plannedNote?: string;
 }
 
 /** What a ground shows of what it points at: the lines of code with the cited ones marked, or the text of the section. */
@@ -473,6 +494,10 @@ export interface StatementModel {
   grounds: GroundView[];
   /** Other statements that rely on the same grounds. */
   relying: RelyingRef[];
+  /** The planned change this statement stands in: its own scope, or a ground a task will change (madarch-m38l.14). */
+  planned?: PlannedMarkView | null;
+  /** Why the planned change could not be read: said in place, never shown as "nothing is planned". */
+  plannedNote?: string;
   /** The resolution of every `madarch:` link of the paragraph. */
   resolutions: Record<string, Resolution>;
 }

@@ -128,6 +128,7 @@ describe('createDraft', () => {
       'templates/domain.md',
       'templates/entity-text.md',
       'templates/file.md',
+      'templates/history-task.md',
       'templates/item-plain.md',
       'templates/item.md',
       'templates/module.md',

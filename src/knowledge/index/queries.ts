@@ -36,7 +36,9 @@ export interface RelyingStatement {
 /** The statements that rely on a graph logical key, on a page id, or on a document section given as `doc:<path>#<anchor>`. */
 export async function statementsRelyingOn(owner: DatabaseOwner, key: string): Promise<RelyingStatement[]> {
   const doc = key.startsWith('doc:') ? /^doc:([^#]+)#(.+)$/.exec(key) : null;
-  const indexKey = doc === null ? `page:${key}` : sectionKey(doc[1]!, doc[2]!.toLowerCase());
+  // A page, a document section, or a statement of a page: `statement:<page>#<name>` is the key the index publishes.
+  const statement = doc === null && key.includes('#') && !key.startsWith('code.') ? `statement:${key}` : undefined;
+  const indexKey = doc !== null ? sectionKey(doc[1]!, doc[2]!.toLowerCase()) : statement ?? `page:${key}`;
   const rows = (await owner.run((tx) => tx.query<Raw>(
     `SELECT r.key AS relation, s.properties AS statement, p.properties AS page, p.label AS page_label
      FROM edge_version e

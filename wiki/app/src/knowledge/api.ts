@@ -1,6 +1,6 @@
 import { appPath } from '../app-base.js';
 import { readJson, RequestError } from '../api.js';
-import type { AgentChoices, AgentOffer, AnswerResult, ProductSettings, CorrectionResult, DocumentListing, Glossary, UserSettings, DocumentPageModel, Block, EntityListing, Neighborhood, PageModel, ProblemListing, PageJournal, ProductChoice, QuestionDetail, QuestionListing, RefreshPreview, SourceFile, StatementModel, WikiStatus } from './types.js';
+import type { AgentChoices, AgentOffer, AnswerResult, ProductSettings, CorrectionResult, CreatedTask, DocumentListing, FillState, Glossary, UserSettings, DocumentPageModel, Block, EntityListing, Neighborhood, PageModel, ProblemListing, PageJournal, ProductChoice, QuestionDetail, QuestionListing, RefreshPreview, SourceFile, StatementModel, TaskDetail, TaskImpact, TaskListing, TaskProposal, TaskRow, TaskScope, WikiStatus } from './types.js';
 
 /** The wiki's status: manifest, kinds, repositories, fill. */
 export const getStatus = (signal?: AbortSignal): Promise<WikiStatus> => readJson<WikiStatus>('read the wiki', '/api/k/status', signal);
@@ -212,3 +212,23 @@ export const getBlock = (id: string, line: number, lang: string, signal?: AbortS
 
 /** What the agent did to write one page: the records of the newest run that wrote it, or of the run asked for. */
 export const getJournal = (id: string, run: string | null, signal?: AbortSignal): Promise<PageJournal> => readJson<PageJournal>(`read the journal of ${id}`, `/api/k/journal?id=${encodeURIComponent(id)}${run === null ? '' : `&run=${encodeURIComponent(run)}`}`, signal);
+/** The product's tasks, open first, each with what its change reaches through the graph. */
+export const getTasks = (signal?: AbortSignal): Promise<TaskListing> => readJson('list the tasks', '/api/k/tasks', signal);
+
+/** One task with its complete impact: the pages a run would rewrite and the marks it stands on. */
+export const getTask = (id: string, signal?: AbortSignal): Promise<TaskDetail> => readJson(`read the task ${id}`, `/api/k/task?id=${encodeURIComponent(id)}`, signal);
+
+/** The task an answer proposes: the scope its grounds name and what it reaches, before anything is written. */
+export const proposeTask = (question: string, choice: 'code' | 'docs', language: string): Promise<TaskProposal> => post<TaskProposal>('propose the task of the answer', '/api/k/task-propose', { question, choice, language });
+
+/** What the reader's edited scope reaches through the graph: the preview follows the scope, not the answer it came from. */
+export const getScopeImpact = (scope: TaskScope[]): Promise<TaskImpact> => post<TaskImpact>('compute what the scope reaches', '/api/k/task-impact', { scope });
+
+/** Confirms the reader's edited proposal: only now is a task written, as the reader, in the product repository. */
+export const createTask = (input: { question: string; title: string; grounds: string[]; scope: TaskScope[] }): Promise<CreatedTask> => post<CreatedTask>('confirm the task', '/api/k/task-create', input);
+
+/** Closes a task by hand; a commit that names the task and touches its scope closes it without this. */
+export const closeTask = (id: string): Promise<{ task: { slug: string; id: string }; state: 'closed'; committed: boolean; note?: string }> => post('close the task', '/api/k/task-close', { id });
+
+/** «Поправить страницы сейчас»: a run over exactly the pages this task's impact lists. */
+export const runTask = (id: string): Promise<{ task: TaskRow; pages: string[]; fill: FillState }> => post('fix the task pages now', '/api/k/task-run', { id });
