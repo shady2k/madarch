@@ -11,4 +11,7 @@ export function createRequire(from: string): (id: string) => never {
   };
 }
 
-export default { createRequire };
+// Rolldown's shared runtime creates one require at module load, even when no CLI path calls it. The browser shim
+// returns a callable that reports an actionable error only if that Node-only path is used.
+const require = createRequire(import.meta.url);
+export default { createRequire, require };
