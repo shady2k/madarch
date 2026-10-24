@@ -138,7 +138,7 @@ export interface ViewElement {
   /** The view the element opens: a container's components, a folded folder's members. */
   drill?: { spec: ViewSpec; title: string };
   /** A table's columns. */
-  columns?: { name: string; type?: string; key?: boolean }[];
+  columns?: { name: string; type?: string; key?: boolean; fk?: boolean }[];
   /** How many elements a folded element stands for. */
   standsFor?: number;
 }
@@ -464,11 +464,21 @@ async function erView(ctx: RenderContext, spec: ViewSpec, w: Words, limit: numbe
   if (tables.length === 0) return empty(spec, title, w.er, w.noTables, up);
   const inView = new Set(tables.map((table) => table.key));
   const elements: ViewElement[] = [];
+  // The foreign key's own column, by the two ends of its relation: Mermaid's ER syntax marks a key on the row it belongs
+  // to and names the relationship by that column.
+  const foreignKeys = await ctx.graph.relationEdges('code.foreign-key', 2000);
+  const columnOf = new Map<string, string>();
+  for (const edge of foreignKeys.rows) {
+    const column = edge.properties['column'];
+    if (typeof column === 'string' && column !== '') columnOf.set(`${edge.from.key}\u0000${edge.to.key}`, column);
+  }
   // A table whose columns run past the drawn list keeps the count, so the page says what it does not draw.
   const hiddenColumns: string[] = [];
   for (const table of tables) {
     const columns = await ctx.graph.byPrefix('code.column', `${table.key}/`, 40);
     if (columns.total > columns.rows.length) hiddenColumns.push(`${table.label}: ${String(columns.rows.length)} of ${String(columns.total)}`);
+    const ownColumns = new Set<string>();
+    for (const [ends, column] of columnOf) if (ends.startsWith(`${table.key}\u0000`)) ownColumns.add(column);
     elements.push({
       id: table.key,
       label: table.label,
@@ -476,7 +486,7 @@ async function erView(ctx: RenderContext, spec: ViewSpec, w: Words, limit: numbe
       href: hrefOf(ctx, table),
       ...(table.span === undefined ? {} : { location: locationOf(ctx, table.scope, table.span) }),
       dashed: false,
-      columns: columns.rows.map((column) => ({ name: column.label, type: erType(column.properties['type']), key: column.properties['primaryKey'] === true })),
+      columns: columns.rows.map((column) => ({ name: column.label, type: erType(column.properties['type']), key: column.properties['primaryKey'] === true, fk: ownColumns.has(column.label) })),
     });
   }
   const edges: ViewEdge[] = [];
@@ -488,7 +498,7 @@ async function erView(ctx: RenderContext, spec: ViewSpec, w: Words, limit: numbe
         const key = `${table.key}|${row.entity.key}`;
         if (seen.has(key)) continue;
         seen.add(key);
-        edges.push({ from: table.key, to: row.entity.key, label: w.foreignKey, dashed: false });
+        edges.push({ from: table.key, to: row.entity.key, label: columnOf.get(`${table.key}\u0000${row.entity.key}`) ?? w.foreignKey, dashed: false });
       }
     }
   }
@@ -513,7 +523,7 @@ async function erView(ctx: RenderContext, spec: ViewSpec, w: Words, limit: numbe
   }
   for (const element of elements) {
     lines.push(`  ${mermaidId.get(element.id)!} {`);
-    for (const column of element.columns ?? []) lines.push(`    ${erType(column.type)} ${column.name.replace(/[^A-Za-z0-9_]/g, '_')}${column.key ? ' PK' : ''}`);
+    for (const column of element.columns ?? []) lines.push(`    ${erType(column.type)} ${column.name.replace(/[^A-Za-z0-9_]/g, '_')}${column.key ? ' PK' : ''}${column.fk && !column.key ? ' FK' : ''}`);
     lines.push('  }');
   }
   // The arrow points from the table that is referenced to the table that holds the key.

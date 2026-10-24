@@ -61,7 +61,7 @@ export type ViewElement = {
   dashed: boolean;
   parent?: string;
   drill?: { spec: ViewSpec; title: string };
-  columns?: { name: string; type?: string; key?: boolean }[];
+  columns?: { name: string; type?: string; key?: boolean; fk?: boolean }[];
   standsFor?: number;
 };
 export type ViewEdge = { from: string; to: string; label: string; dashed: boolean; why?: string; step?: number; kind?: string; note?: string; href?: string | null; location?: CodeLocation };

@@ -259,6 +259,9 @@ describe('the drawn views: C4, components, ER, state and deployment, and the hot
     expect(entities).toEqual(expect.arrayContaining(['customers', 'order_items', 'orders', 'outbox']));
     expect(er!.mermaidSource.match(/^  \w+ \|\|--o\{ \w+ : "[^"]+"$/gm)).toHaveLength(er!.edges.length);
     expect(er!.mermaidSource).toContain(' PK');
+    // A foreign key marks its own column and names the relationship it makes.
+    expect(er!.mermaidSource).toMatch(/ (FK)$/m);
+    expect(er!.mermaidSource).toMatch(/^  \w+ \|\|--o\{ \w+ : "[a-z_]+"$/m);
     expect(er!.elements.map((element) => element.label).sort()).toEqual(expect.arrayContaining(['customers', 'order_items', 'orders', 'outbox']));
     expect(er!.elements.every((element) => element.href !== null)).toBe(true);
     expect(er!.renderers).toEqual(['mermaid', 'archify']);
