@@ -234,7 +234,7 @@ export interface HistoryRow {
 
 /** One note under a history block: why the list is not the whole story, said in the reader's language by the app. */
 export interface HistoryNote {
-  key: 'manyCommits' | 'manyFiles' | 'noCounts' | 'merge' | 'noFiles' | 'partialFiles';
+  key: 'manyCommits' | 'manyFiles' | 'noCounts' | 'merge' | 'noFiles' | 'partialFiles' | 'symbolsCut';
   args?: Record<string, string | number>;
 }
 

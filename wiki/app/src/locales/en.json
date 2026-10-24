@@ -393,7 +393,8 @@
       "noCounts": "{{count}} of the files report no line count: a binary file, or a path a rename left behind.",
       "merge": "This commit changed no file of its own: it is a merge, and the changes came in with the branches it brought together.",
       "noFiles": "This commit changed no file of its own.",
-      "partialFiles": "The files below count the commits shown; a commit with more files than this page reads adds only the ones it shows."
+      "partialFiles": "The files below count the commits shown; a commit with more files than this page reads adds only the ones it shows.",
+      "symbolsCut": "The file {{path}} holds more entities than this page counts; its symbol figure covers the first {{shown}}."
     }
   },
   "loop": {

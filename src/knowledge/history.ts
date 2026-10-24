@@ -65,7 +65,7 @@ async function commitRows(ctx: RenderContext, commit: GraphEntity, limit: number
   const found = await ctx.graph.edgesOf(commit, 'code.touched', 'out', limit);
   const rows: HistoryRow[] = [];
   let uncounted = 0;
-  const notes: string[] = [];
+  const notes: HistoryNote[] = [];
   for (const edge of found.rows) {
     const file = edge.other;
     const churn = churnOf(edge.properties);
@@ -79,11 +79,11 @@ async function commitRows(ctx: RenderContext, commit: GraphEntity, limit: number
       entity: refOfGraph(ctx, file),
       figures: [...churn, ...(symbolCount === 0 ? [] : [{ kind: 'symbols' as const, value: String(symbolCount) }])],
     });
-    if (declared !== undefined && declared.total > declared.rows.length) notes.push(`The file ${file.label} has more than ${String(declared.rows.length)} contained entities; its symbol count is incomplete.`);
+    if (declared !== undefined && declared.total > declared.rows.length) notes.push({key: 'symbolsCut', args: {path: file.label, shown: declared.rows.length}});
   }
-  if (found.total > rows.length) notes.push(`The commit changed ${String(found.total)} files; this page shows the first ${String(rows.length)}.`);
-  if (uncounted > 0) notes.push(`${String(uncounted)} of the files report no line counts: the history walk counts the lines of text, and a binary file has none.`);
-  if (found.total === 0) notes.push('This commit changed no file of its own: it is a merge, and the changes came in with the branches it brought together.');
+  if (found.total > rows.length) notes.push({key: 'manyFiles', args: {total: found.total, shown: rows.length}});
+  if (uncounted > 0) notes.push({key: 'noCounts', args: {count: uncounted}});
+  if (found.total === 0) notes.push({key: commit.properties['merge'] === true ? 'merge' : 'noFiles'});
   return { sections: rows.length === 0 ? [] : [{ role: 'files', total: found.total, rows }], notes };
 }
 
@@ -111,7 +111,7 @@ async function authorRows(ctx: RenderContext, author: GraphEntity, limit: number
   }
   const ranked = [...files.values()].sort((left, right) => right.commits - left.commits || left.added + left.removed - (right.added + right.removed) || byCodePoint(left.entity.key, right.entity.key));
   const top = ranked.slice(0, Math.min(10, limit));
-  const notes: string[] = [];
+  const notes: HistoryNote[] = [];
   const topRows: HistoryRow[] = [];
   for (const file of top) {
     const modules = await ctx.graph.neighbors(file.entity, { relations: ['code.contains'], direction: 'in', limit: 5 });
