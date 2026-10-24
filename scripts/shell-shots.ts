@@ -222,28 +222,56 @@ try {
       await shoot(page, `${tag}-04-selection-opens-nothing`);
       // A plain click opens the statement; opening it again focuses its tab. The click lands on the
       // sentence's own text at the start of its line, never on a link that happens to stand in the middle of it.
+      const beforeClick = before;
       const pageUrl = page.url();
       const statementAddress = `/products/shop${addressOfStatement('product:shop', SHOP_SENTENCE)}`;
-      // Clicking the sentence's element: the browser scrolls it into view and clicks its middle, which the
-      // drag above proves is text and not a link. A click at a computed corner missed it on three runs.
-      const clickSentence = async (): Promise<void> => {
-        await page.waitForSelector('[data-testid=statement]', { timeout: 20_000 });
-        // The browser scrolls it into view; the drag already proved its middle is text, not a link.
-        await page.click('[data-testid=statement]');
+      const statementTitle = SHOP_SENTENCE.length > 40 ? `${SHOP_SENTENCE.slice(0, 39)}…` : SHOP_SENTENCE;
+      let lastPoint: { x: number; y: number } | null = null;
+      const waitTabs = async (count: number, where: string): Promise<void> => {
+        try {
+          await page.waitForFunction((wanted: number) => document.querySelectorAll('[data-testid=tab]').length === wanted, { timeout: 20_000 }, count);
+        } catch {
+          const seen = await page.evaluate((point: { x: number; y: number } | null) => {
+            const at = point === null ? null : document.elementFromPoint(point.x, point.y);
+            return {
+              url: location.pathname + location.search,
+              tabs: [...document.querySelectorAll('[data-testid=tab]')].map((tab) => ({ title: tab.textContent ?? '', active: tab.getAttribute('data-active') })),
+              point,
+              at: at === null ? null : { tag: at.tagName, testid: at.getAttribute('data-testid'), cls: (at.className || '').toString().slice(0, 60), text: (at.textContent ?? '').slice(0, 40), anchor: at.closest('a') !== null },
+              selection: window.getSelection()?.toString().slice(0, 40) ?? '',
+            };
+          }, lastPoint);
+          fail(`${where}: the tab bar did not come to ${count} tabs: ${JSON.stringify(seen)}`);
+        }
       };
       await page.evaluate(() => window.getSelection()?.removeAllRanges());
+      // A plain mouse click on the first letter of the sentence: inside the sentence's own text, never on a
+      // link that may stand in the middle of a long line, and with the pointer a reader's click has.
+      const clickSentence = async (): Promise<void> => {
+        const point = await page.evaluate(() => {
+          const statement = document.querySelector('[data-testid=statement]')!;
+          const range = document.createRange();
+          range.setStart(statement.firstChild ?? statement, 0);
+          range.setEnd(statement.firstChild ?? statement, 1);
+          const rect = range.getBoundingClientRect();
+          return { x: rect.left + 1, y: rect.top + rect.height / 2 };
+        });
+        await page.mouse.click(point.x, point.y);
+        lastPoint = point;
+      };
       await clickSentence();
-      await page.waitForFunction((address) => location.pathname + location.search === address, { timeout: 20_000 }, statementAddress);
-      await page.waitForSelector('[data-testid=statement-grounds]', { timeout: 20_000 });
+      await waitTabs(beforeClick + 1, `${tag} a click on a sentence`);
+      const opened = await page.evaluate(() => document.querySelector('[data-testid=tab][data-active=true]')?.textContent ?? '');
+      if (!opened.includes(SHOP_SENTENCE.slice(0, 24))) fail(`${tag}: the tab opened at the click is «${opened}», not the sentence that was clicked`);
       await page.evaluate(() => { history.back(); });
       await page.waitForFunction((url) => location.pathname + location.search + location.hash === new URL(url).pathname + new URL(url).search + new URL(url).hash, { timeout: 20_000 }, pageUrl);
       await page.waitForSelector('[data-testid=statement]', { timeout: 20_000 });
+      // Opening the same statement again brings that statement tab forward instead of adding a second one.
       await clickSentence();
       await page.waitForFunction((address) => location.pathname + location.search === address, { timeout: 20_000 }, statementAddress);
-      const statementTitle = SHOP_SENTENCE.length > 40 ? `${SHOP_SENTENCE.slice(0, 39)}…` : SHOP_SENTENCE;
       await page.waitForFunction((title) => [...document.querySelectorAll('[data-testid=tab]')].some((tab) => tab.getAttribute('data-active') === 'true' && tab.querySelector('[role=tab]')?.getAttribute('title') === title), { timeout: 20_000 }, statementTitle);
       const final = await tabs(page);
-      if (final.length !== before + 1) fail(`${tag}: opening an open statement made a second tab: ${JSON.stringify(final)}`);
+      if (final.length !== beforeClick + 1) fail(`${tag}: opening an open statement made a second tab: ${JSON.stringify(final)}`);
       if (!final.some((tab) => tab.active && tab.title === statementTitle)) fail(`${tag}: the statement tab was not brought to the front: ${JSON.stringify(final)}`);
       await noLoading(page, `${tag} after the clicks`);
       await shoot(page, `${tag}-05-open-page-focused-not-duplicated`);
