@@ -107,6 +107,38 @@ function layoutOfModel(model: unknown, viewId: string): { ok: true; view: Archif
   return { ok: true, view: { id: viewId, title: viewId, nodes, edges } };
 }
 
+/** The layout of the workspace, parsed by LikeC4 here: the fallback for a model the LikeC4 tab could not read. */
+async function layoutOf(workspace: string, viewId: string): Promise<{ ok: true; view: ArchifyLayoutedView } | { ok: false; message: string }> {
+  let likec4: Awaited<ReturnType<typeof LikeC4.fromSource>> | undefined;
+  try {
+    likec4 = await LikeC4.fromSource(workspace, { logger: false, printErrors: false, throwIfInvalid: true });
+    const diagrams = await likec4.diagrams();
+    const view = diagrams.find((diagram) => diagram.id === viewId);
+    if (view === undefined) return { ok: false, message: `LikeC4 did not lay out the view "${viewId}"` };
+    return {
+      ok: true,
+      view: {
+        id: view.id,
+        title: view.title ?? view.id,
+        nodes: view.nodes.map((node) => ({ id: node.id, kind: node.kind ?? 'external', title: node.title, parent: node.parent ?? null, x: node.x, y: node.y, width: node.width, height: node.height })),
+        edges: view.edges.map((edge) => {
+          const box = edge.labelBBox;
+          return {
+            source: edge.source,
+            target: edge.target,
+            ...(typeof edge.label === 'string' ? { label: edge.label } : {}),
+            ...(box === undefined || box === null ? {} : { labelAt: [box.x + box.width / 2, box.y + box.height / 2] as const }),
+          };
+        }),
+      },
+    };
+  } catch (error) {
+    return { ok: false, message: `LikeC4 could not lay out the ${viewId} view: ${error instanceof Error ? error.message : String(error)}` };
+  } finally {
+    await likec4?.[Symbol.asyncDispose]?.();
+  }
+}
+
 /** The archify page of a view: the vendored renderer's page over the layout LikeC4 computes, with the click bridge. */
 export async function archifyFrame(view: GraphView, env: Readonly<Record<string, string | undefined>>): Promise<Frame> {
   const held = workspaceOf(view);
@@ -117,8 +149,10 @@ export async function archifyFrame(view: GraphView, env: Readonly<Record<string,
   // The layout comes from the model the LikeC4 tab lays out, so the archify page never re-parses the workspace: one parse
   // serves both renderers, and a view the model laid out is a view archify can draw.
   const modelled = await likec4Model(view);
-  if (!modelled.ok) return { ok: false, message: modelled.message };
-  const layout = layoutOfModel(modelled.model, held.viewId);
+  const fromModel = modelled.ok ? layoutOfModel(modelled.model, held.viewId) : undefined;
+  // The model the LikeC4 tab lays out is the first source of the layout; a workspace LikeC4 refuses is parsed here, so
+  // a refusal names the DSL rather than leaving the frame empty.
+  const layout = fromModel !== undefined && fromModel.ok ? fromModel : await layoutOf(held.workspace, held.viewId);
   if (!layout.ok) return layout;
   const dashed = new Set<string>();
   for (const edge of view.edges) {
