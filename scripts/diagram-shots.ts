@@ -162,7 +162,7 @@ async function walkViews(page: Page, entry: { name: string }, tag: string): Prom
           // The Mermaid tab draws in the page itself, the LikeC4 tab draws its laid-out model in the page, and the
           // archify tab is the server's page in a frame: each one is waited for where it really appears.
           if (renderer === 'mermaid') await block.waitForSelector('[data-testid=view-picture] svg', { timeout: 60_000 });
-          else if (renderer === 'likec4') await block.waitForSelector('[data-testid=view-frame-likec4] .react-flow__node, [data-testid=view-frame-likec4] .likec4-element-node, [data-testid=view-frame-likec4] [data-node-id]', { timeout: 60_000 });
+          else if (renderer === 'likec4') await block.waitForFunction((root) => { const host = root.querySelector('[data-testid=view-frame-likec4] likec4-view'); return host?.shadowRoot?.querySelector('.react-flow__node, [data-node-id]') !== null || root.querySelector('[data-testid=view-frame-likec4] [role=alert]') !== null; }, {}, 60_000);
           else await block.waitForSelector(`iframe[data-renderer=${renderer}]`, { timeout: 30_000 });
         } catch { drawn = false; }
         await new Promise((rest) => setTimeout(rest, renderer === 'mermaid' ? 600 : 9000));
