@@ -22,6 +22,7 @@ import { CodePlace, KLink } from '../blocks.js';
 import type { Block, DiagramRenderer, DiagramView, ViewElement } from '../types.js';
 import { DiagramOpenContext } from './open.js';
 import { Fullscreenable, useFullscreen } from './fullscreen.js';
+import { firstView } from './first-view.js';
 
 type DiagramsBlock = Extract<Block, { type: 'diagrams' }>;
 
@@ -66,21 +67,47 @@ export function bindMermaid(root: HTMLElement, elements: readonly ViewElement[],
   return () => undo.forEach((fn) => fn());
 }
 
-/** LikeC4's smallest technology/edge labels are 12 px at zoom 1, not the title's 14 px. */
-const LIKE_C4_SIZE = { minZoom: 1, maxZoom: 2.5, fitView: true, fitViewPadding: 16 };
+/** An explicit initial zoom avoids LikeC4's fixed controlled viewport when automatic fit is off. */
+const LIKE_C4_SIZE = { minZoom: 0.05, maxZoom: 2.5, initialZoom: 1, fitView: false, fitViewPadding: 12 };
 
 /**
  * A click on a LikeC4 element opens its page: LikeC4 reports the click as a diagram event, and the element's own id
  * names the address the server sent beside the model. It renders nothing — it is mounted inside the diagram so the
  * event reaches it.
  */
-function NodeClicks({ links, onOpen }: { links: Readonly<Record<string, string>>; onOpen: (href: string) => void }): null {
+function NodeClicks({ links, onOpen, host, full }: { links: Readonly<Record<string, string>>; onOpen: (href: string) => void; host: React.RefObject<HTMLDivElement | null>; full: boolean }): null {
   const diagram = useDiagram();
   // LikeC4 1.59 passes minZoom to React Flow but not its actor. Its actor fits again after initialization at 0.05.
   // Set the actor's own input too, then centre from its bounds (including non-zero origins), in the measured frame.
-  useOnDiagramEvent('initialized', () => {
+  useOnDiagramEvent('initialized', ({ instance }) => {
     diagram.send({ type: 'update.inputs', inputs: { minZoom: LIKE_C4_SIZE.minZoom, maxZoom: LIKE_C4_SIZE.maxZoom } });
-    diagram.fitDiagram(0);
+    const apply = (): void => {
+      const element = host.current?.querySelector('.dg-likec4-view');
+      const root = element?.shadowRoot;
+      const viewport = root?.querySelector<HTMLElement>('.react-flow__viewport');
+      if (!root || !viewport || !element) return;
+      const matrix = new DOMMatrix(getComputedStyle(viewport).transform);
+      const origin = element.getBoundingClientRect();
+      const nodes = [...root.querySelectorAll<HTMLElement>('.react-flow__node')].map((node) => node.getBoundingClientRect());
+      const titles = [...root.querySelectorAll<HTMLElement>('[data-likec4-node-title]')].map((node) => {
+        const r = node.getBoundingClientRect();
+        return { x: (r.x - origin.x - matrix.e) / matrix.a, y: (r.y - origin.y - matrix.f) / matrix.a, width: r.width / matrix.a, height: r.height / matrix.a, font: parseFloat(getComputedStyle(node).fontSize) };
+      });
+      if (!titles.length || !nodes.length) return;
+      const x = (Math.min(...nodes.map((r) => r.left)) - origin.x - matrix.e) / matrix.a;
+      const y = (Math.min(...nodes.map((r) => r.top)) - origin.y - matrix.f) / matrix.a;
+      const bounds = { x, y, width: (Math.max(...nodes.map((r) => r.right)) - origin.x - matrix.e) / matrix.a - x, height: (Math.max(...nodes.map((r) => r.bottom)) - origin.y - matrix.f) / matrix.a - y };
+      const fit = firstView(bounds, titles, origin.width, origin.height, full);
+      void instance.setViewport({ x: fit.x, y: fit.y, zoom: fit.zoom }, { duration: 0 }).then((ok: boolean) => {
+        element.setAttribute('data-viewport-result', String(ok));
+        element.setAttribute('data-viewport-read', JSON.stringify(instance.getViewport()));
+      });
+      element.setAttribute('data-first-viewport', JSON.stringify(fit));
+      element.setAttribute('data-whole-fit', String(fit.whole));
+      element.setAttribute('data-reading-window-valid', String(fit.readable));
+
+    };
+    window.setTimeout(apply, 200);
   });
   useOnDiagramEvent('nodeClick', ({ node }) => {
     const href = links[node.modelRef ?? node.id] ?? links[node.id];
@@ -94,6 +121,7 @@ function Frame({ view, renderer, lang, onOpen, onFailure }: { view: DiagramView;
   const { t } = useTranslation();
   const full = useFullscreen();
   const ref = useRef<HTMLIFrameElement | null>(null);
+  const host = useRef<HTMLDivElement | null>(null);
   const [loaded, setLoaded] = useState(renderer === 'likec4');
   const [layout, setLayout] = useState<{ model: unknown; elementLinks: Record<string, string> } | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
@@ -156,16 +184,17 @@ function Frame({ view, renderer, lang, onOpen, onFailure }: { view: DiagramView;
     ? (
       <LikeC4ModelProvider likec4model={likeC4Model}>
         <ReactLikeC4 key={`${view.query}|${full}`} className="dg-likec4-view" viewId="index" pannable zoomable controls {...LIKE_C4_SIZE}>
-          <NodeClicks links={likeC4?.elementLinks ?? {}} onOpen={onOpen} />
+          <NodeClicks links={likeC4?.elementLinks ?? {}} onOpen={onOpen} host={host} full={full} />
         </ReactLikeC4>
       </LikeC4ModelProvider>
     )
     : null;
   return (
-    <div className="dg-frame-box" data-testid={`view-frame-${renderer}`}>
+    <div ref={host} className="dg-frame-box" data-testid={`view-frame-${renderer}`}>
+      <p className="dg-view-hint">{t('knowledge.views.readingHint')}</p>
       {!loaded && <p className="m-0 p-3 text-small text-muted" data-testid="view-frame-loading">{t(renderer === 'likec4' ? 'knowledge.views.loadingLikec4' : 'knowledge.views.loadingArchify')}</p>}
       {renderer === 'likec4' && (failure ? <p className="diagram-error" role="alert">{failure}</p> : content)}
-      {renderer === 'archify' && <iframe ref={ref} key={`${view.query}|${renderer}`} title={`${RENDERER_NAME[renderer]}: ${view.title}`} src={viewFrameAddress(view.query, renderer, lang)} loading="lazy" className={loaded ? 'dg-iframe' : 'dg-iframe dg-iframe-loading'} onLoad={() => setLoaded(true)} data-renderer={renderer} />}
+      {renderer === 'archify' && <iframe ref={ref} key={`${view.query}|${renderer}`} title={`${RENDERER_NAME[renderer]}: ${view.title}`} src={`${viewFrameAddress(view.query, renderer, lang)}&fullscreen=${full ? '1' : '0'}`} loading="lazy" className={loaded ? 'dg-iframe' : 'dg-iframe dg-iframe-loading'} onLoad={() => setLoaded(true)} data-renderer={renderer} />}
     </div>
   );
 }
@@ -189,21 +218,73 @@ function ElementRow({ element, onDrill, drilling }: { element: ViewElement; onDr
   );
 }
 
+/** The zoom toolbar has SVG icons too; only the renderer's direct SVG is the drawing. */
+export function mermaidPicture(root: HTMLElement): SVGSVGElement | null {
+  return root.querySelector<SVGSVGElement>('[data-testid=mermaid-diagram] > svg');
+}
+
 /** Zoom for a Mermaid picture: the buttons, or Ctrl and the wheel; in full screen the picture fills the window and scrolls. */
 function ZoomBox({ children }: { children: ReactElement }): ReactElement {
   const { t } = useTranslation();
   const full = useFullscreen();
   const [scale, setScale] = useState(1);
+  const holder = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const root = holder.current;
+    if (!root) return;
+    const fit = (): void => {
+      const svg = mermaidPicture(root);
+      if (!svg) return;
+      const bounds = svg.getBBox();
+      // Mermaid's own viewBox can omit the end of a long edge label. Include every drawn primitive.
+      const all = [...svg.querySelectorAll<SVGGraphicsElement>('text, foreignObject, path, rect, polygon')].map((node) => {
+        const r = node.getBoundingClientRect(), matrix = svg.getScreenCTM();
+        if (!matrix || !r.width || !r.height) return null;
+        const inverse = matrix.inverse();
+        const a = new DOMPoint(r.left, r.top).matrixTransform(inverse), b = new DOMPoint(r.right, r.bottom).matrixTransform(inverse);
+        return { x: a.x, y: a.y, right: b.x, bottom: b.y };
+      }).filter((v) => v !== null);
+      const x = Math.min(bounds.x, ...all.map((r) => r.x)) - 12, y = Math.min(bounds.y, ...all.map((r) => r.y)) - 12;
+      const width = Math.max(bounds.x + bounds.width, ...all.map((r) => r.right)) - x + 12;
+      const height = Math.max(bounds.y + bounds.height, ...all.map((r) => r.bottom)) - y + 12;
+      svg.setAttribute('viewBox', `${x} ${y} ${width} ${height}`);
+      const titles = [...svg.querySelectorAll<SVGGraphicsElement>('.nodeLabel, .node .label text, .node text, .entityTitleText, text.actor, .state-title')].map((node) => {
+        const r = node.getBoundingClientRect(), inverse = svg.getScreenCTM()!.inverse();
+        const a = new DOMPoint(r.left, r.top).matrixTransform(inverse), b = new DOMPoint(r.right, r.bottom).matrixTransform(inverse);
+        return { x: a.x, y: a.y, width: b.x - a.x, height: b.y - a.y, font: parseFloat(getComputedStyle(node).fontSize) };
+      });
+      const edgeLabels = [...svg.querySelectorAll<SVGGraphicsElement>('g.edgeLabel, text.messageText, text.transition, .relationshipLabel')].map((node) => {
+        const r = node.getBoundingClientRect(), inverse = svg.getScreenCTM()!.inverse();
+        const a = new DOMPoint(r.left, r.top).matrixTransform(inverse), b = new DOMPoint(r.right, r.bottom).matrixTransform(inverse);
+        return { x:a.x, y:a.y, width:b.x-a.x, height:b.y-a.y, font:parseFloat(getComputedStyle(node).fontSize) };
+      });
+      const fitted = firstView({ x, y, width, height }, titles, root.clientWidth, full ? Math.max(320, innerHeight - 230) : 520, full, edgeLabels);
+      svg.style.setProperty('max-width', 'none');
+      svg.style.width = `${width * fitted.zoom * scale}px`;
+      svg.style.height = `${height * fitted.zoom * scale}px`;
+      svg.style.marginLeft = `${Math.max(0, fitted.x + x * fitted.zoom)}px`;
+      svg.style.marginTop = `${Math.max(0, fitted.y + y * fitted.zoom)}px`;
+      svg.setAttribute('data-whole-fit', String(fitted.whole));
+      svg.setAttribute('data-initial-scale', String(fitted.zoom * scale));
+      root.scrollLeft = Math.max(0, -(fitted.x + x * fitted.zoom)); root.scrollTop = Math.max(0, -(fitted.y + y * fitted.zoom));
+      svg.setAttribute('data-reading-window-valid', String(fitted.readable));
+    };
+    const mutation = new MutationObserver(() => { mutation.disconnect(); fit(); mutation.observe(root, { childList: true, subtree: true }); });
+    mutation.observe(root, { childList: true, subtree: true });
+    fit();
+    const resize = new ResizeObserver(fit); resize.observe(root);
+    return () => { mutation.disconnect(); resize.disconnect(); };
+  }, [full, scale]);
   const set = (next: number): void => setScale(Math.min(4, Math.max(0.4, Math.round(next * 100) / 100)));
   return (
-    <div className={full ? 'dg-zoombox dg-zoombox-full' : 'dg-zoombox'} data-testid="zoom-box" data-scale={scale}
+    <div ref={holder} className={full ? 'dg-zoombox dg-zoombox-full' : 'dg-zoombox'} data-testid="zoom-box" data-scale={scale}
       onWheel={(event) => { if (event.ctrlKey || event.metaKey) { event.preventDefault(); set(scale * (event.deltaY < 0 ? 1.12 : 1 / 1.12)); } }}>
       <div className="dg-zoom-buttons">
         <button type="button" className="dg-chip" onClick={() => set(scale / 1.25)} aria-label={t('knowledge.views.zoomOut')} data-testid="zoom-out"><MinusIcon aria-hidden="true" className="size-3.5" /></button>
         <button type="button" className="dg-chip" onClick={() => set(scale * 1.25)} aria-label={t('knowledge.views.zoomIn')} data-testid="zoom-in"><PlusIcon aria-hidden="true" className="size-3.5" /></button>
         <button type="button" className="dg-chip" onClick={() => setScale(1)} aria-label={t('knowledge.views.zoomFit')} data-testid="zoom-fit"><ScanIcon aria-hidden="true" className="size-3.5" /></button>
       </div>
-      <div className="dg-zoom-content" style={{ width: `${scale * 100}%` }}>{children}</div>
+      <div className="dg-zoom-content">{children}</div>
     </div>
   );
 }

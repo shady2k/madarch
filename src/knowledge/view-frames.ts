@@ -5,25 +5,32 @@
  * Bun's embedded runtime, so an installed binary needs neither a checkout nor an external Node installation.
  */
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { diagramWorkspace } from '../product-wiki/graph-workspace.js';
 import { renderArchifyPage } from '../wiki/archify-page.js';
 import { archifyDocument, archifyPageLinks, type ArchifyDocument, type ArchifyLayoutedView } from '../wiki/archify.js';
-import { ensureWikiCacheRoot } from '../wiki/cache.js';
 import { LikeC4 } from 'likec4';
 import { shapeOf, type GraphView } from './views.js';
 
 
 export type Frame = { ok: true; html: string } | { ok: false; message: string };
 
-/** The cache folder of one workspace's documents. */
-function scratchOf(workspace: string, env: Readonly<Record<string, string | undefined>>): { ok: true; folder: string } | { ok: false; message: string } {
-  const cache = ensureWikiCacheRoot(env);
-  if (!cache.ok) return cache;
-  const folder = join(cache.root, `view-${createHash('sha256').update(workspace).digest('hex').slice(0, 16)}`);
-  mkdirSync(folder, { recursive: true, mode: 0o700 });
-  return { ok: true, folder };
+let frameScratch: string | undefined;
+/** Derived HTML lives only for this process, not in the install cache whose POSIX ownership rules Windows cannot check. */
+function scratchOf(workspace: string): { ok: true; folder: string } | { ok: false; message: string } {
+  try {
+    if (frameScratch === undefined) {
+      frameScratch = mkdtempSync(join(tmpdir(), 'madarch-view-'));
+      process.once('exit', () => { if (frameScratch !== undefined) rmSync(frameScratch, { recursive: true, force: true }); });
+    }
+    const folder = join(frameScratch, `view-${createHash('sha256').update(workspace).digest('hex').slice(0, 16)}`);
+    mkdirSync(folder, { recursive: true, mode: 0o700 });
+    return { ok: true, folder };
+  } catch (error) {
+    return { ok: false, message: `the archify frame scratch under ${tmpdir()} could not be created: ${String(error)}` };
+  }
 }
 
 /** The workspace of a view, with every element's link the wiki's own address. */
@@ -147,7 +154,7 @@ async function layoutOf(workspace: string, viewId: string): Promise<{ ok: true; 
 /** The archify page of a view: the vendored renderer's page over the layout LikeC4 computes, with the click bridge. */
 export async function archifyFrame(view: GraphView, env: Readonly<Record<string, string | undefined>>): Promise<Frame> {
   const held = workspaceOf(view);
-  const scratch = scratchOf(held.workspace, env);
+  const scratch = scratchOf(held.workspace);
   if (!scratch.ok) return scratch;
   const page = join(scratch.folder, 'frame.html');
   if (existsSync(page)) return { ok: true, html: readFileSync(page, 'utf8') };
@@ -168,7 +175,8 @@ export async function archifyFrame(view: GraphView, env: Readonly<Record<string,
   }
   let document: ArchifyDocument;
   try {
-    document = archifyDocument(layout.view, { output: 'view.html', dashed });
+    const compact = { ...layout.view, nodes: layout.view.nodes.map((node) => ({ ...node, x: node.x * 0.5, y: node.y * 0.5, width: node.width * 0.5, height: node.height * 0.5 })), edges: layout.view.edges.map((edge) => ({ ...edge, ...(edge.labelAt ? { labelAt: [edge.labelAt[0] * 0.5, edge.labelAt[1] * 0.5] as const } : {}) })) };
+    document = archifyDocument(compact, { output: 'view.html', dashed });
   } catch (error) {
     return { ok: false, message: `the archify document of the ${view.spec.type} view could not be built: ${error instanceof Error ? error.message : String(error)}` };
   }
@@ -189,9 +197,69 @@ export async function archifyFrame(view: GraphView, env: Readonly<Record<string,
     let html = archifyPageLinks(readFileSync(output, 'utf8'), Object.fromEntries(Object.entries(links).filter(([id]) => readFileSync(output, 'utf8').includes(`<g id="node-${id}" `))));
     // The page draws at the diagram's own size and scrolls: a page squeezed into the frame would keep the picture and
     // lose its words. Full screen, the frame is the window, so the diagram fits it there.
-    const natural = '<style>html,body{margin:0}body{overflow:auto}svg{max-width:none!important;height:auto!important}</style>';
+    const natural = `<style>html,body{margin:0!important;padding:0!important;overflow:hidden!important}.diagram-container{box-sizing:border-box!important;width:100vw!important;height:100vh!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;border:0!important;overflow:auto!important}svg{max-width:none!important}</style>`;
+    const fit = `<script>
+(function () {
+  document.documentElement.setAttribute('data-embed', 'true');
+  var svg = document.querySelector('.diagram-container > svg');
+  if (!svg) return;
+  var box = svg.viewBox.baseVal;
+  var titles = Array.from(svg.querySelectorAll('text[data-node-label]'));
+  var nodes = Array.from(svg.querySelectorAll('g[id^="node-"]'));
+  var contentX = Math.min.apply(null, nodes.map(function (n) { return n.getBBox().x; }));
+  var contentY = Math.min.apply(null, nodes.map(function (n) { return n.getBBox().y; }));
+  var fonts = titles.map(function (n) { return parseFloat(getComputedStyle(n).fontSize); }).filter(function (n) { return n > 0; });
+  function fit() {
+    var parent = svg.parentElement;
+    var full = new URLSearchParams(location.search).get('fullscreen') === '1';
+    var floor = (full ? 9 : 11) / (fonts.length ? Math.min.apply(null, fonts) : 11);
+    var availableWidth = parent.clientWidth - 24, availableHeight = parent.clientHeight - 24;
+    var fitted = Math.min(availableWidth / box.width, availableHeight / box.height);
+    var whole = fitted >= floor;
+    var scale = whole ? Math.min(fitted, Math.max(1, floor)) : floor;
+    var offsetX = whole ? Math.max(0, (parent.clientWidth - box.width * scale) / 2) : 12 - (contentX - box.x) * scale;
+    var offsetY = whole ? Math.max(0, (parent.clientHeight - box.height * scale) / 2) : 12 - (contentY - box.y) * scale;
+    if (!whole) {
+      var inverse = svg.getScreenCTM().inverse();
+      var rects = titles.map(function (title) {
+        var r = title.getBoundingClientRect();
+        var a = new DOMPoint(r.left,r.top).matrixTransform(inverse), b = new DOMPoint(r.right,r.bottom).matrixTransform(inverse);
+        return {x:a.x,y:a.y,width:b.x-a.x,height:b.y-a.y};
+      });
+      var xs = Array.from(new Set([contentX].concat(rects.flatMap(function (r) { return [r.x - 12 / floor, r.x + r.width + 12 / floor, r.x + r.width - (parent.clientWidth - 12) / floor]; })))).sort(function (a,b) { return a-b; });
+      var ys = Array.from(new Set([contentY].concat(rects.map(function (r) { return r.y - 12 / floor; })))).sort(function (a,b) { return a-b; });
+      var found = false;
+      for (var top of ys) {
+        if (top < contentY) continue;
+        for (var left of xs) {
+          if (left < contentX) continue;
+          var dx = 12 - left * floor, dy = 12 - top * floor, cuts = 0, visible = 0;
+          rects.forEach(function (r) {
+            var l=dx+r.x*floor, a=dy+r.y*floor, right=l+r.width*floor, bottom=a+r.height*floor;
+            if (right>0 && l<parent.clientWidth && bottom>0 && a<parent.clientHeight) {
+              if(l<0 || right>parent.clientWidth || a<0 || bottom>parent.clientHeight) cuts++; else visible++;
+            }
+          });
+          if (cuts===0 && visible>=Math.min(2,titles.length)) { offsetX=dx+box.x*floor; offsetY=dy+box.y*floor; found=true; break; }
+        }
+        if(found) break;
+      }
+      svg.setAttribute('data-reading-window-valid', String(found));
+    }
+    svg.style.setProperty('width', (box.width * scale) + 'px', 'important');
+    svg.style.setProperty('height', (box.height * scale) + 'px', 'important');
+    svg.style.setProperty('margin-left', Math.max(0, offsetX) + 'px', 'important');
+    svg.style.setProperty('margin-top', Math.max(0, offsetY) + 'px', 'important');
+    svg.setAttribute('data-whole-fit', String(whole));
+    svg.setAttribute('data-initial-scale', String(scale));
+    parent.scrollLeft = Math.max(0, -offsetX); parent.scrollTop = Math.max(0, -offsetY);
+
+  }
+  fit(); document.fonts.ready.then(fit); addEventListener('resize', fit);
+})();
+</script>`;
     html = html.replace('</head>', `${natural}</head>`);
-    html = html.replace('</body>', `<script>${FORWARD_CLICKS.replace('__ELEMENTS__', '{}')}</script></body>`);
+    html = html.replace('</body>', `${fit}<script>${FORWARD_CLICKS.replace('__ELEMENTS__', '{}')}</script></body>`);
     writeFileSync(page, html);
     return { ok: true, html };
   } catch (error) {

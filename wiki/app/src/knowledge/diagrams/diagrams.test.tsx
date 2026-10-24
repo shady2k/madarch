@@ -13,7 +13,7 @@ import { BlockView } from '../blocks.js';
 import { DiagramOpenProvider } from './open.js';
 import { frontTab, resetTabs } from '../tabs.js';
 import type { Block, DiagramView, Neighborhood } from '../types.js';
-import { bindMermaid } from './views.js';
+import { bindMermaid, mermaidPicture } from './views.js';
 
 beforeAll(async () => {
   GlobalRegistrator.register({ url: 'http://localhost/' });
@@ -202,6 +202,12 @@ const SEQUENCE: DiagramView = {
 const viewsBlock = (...views: DiagramView[]): Block => ({ type: 'diagrams', title: 'The system', renderer: 'likec4', views });
 
 describe('the drawn views', () => {
+  test('zoom fits the Mermaid drawing, never a toolbar SVG before it', () => {
+    const root = document.createElement('div');
+    root.innerHTML = '<div class="dg-zoom-buttons"><button><svg id="toolbar-icon" viewBox="0 0 24 24"></svg></button></div><div data-testid="mermaid-diagram"><svg id="drawing" viewBox="0 0 800 500"></svg></div>';
+    expect(mermaidPicture(root)?.id).toBe('drawing');
+    expect(root.querySelector('#toolbar-icon')!.getAttribute('viewBox')).toBe('0 0 24 24');
+  });
   test('the first tab is the setting, every renderer of the type is a tab, and the other tabs are one click away', async () => {
     const asked: string[] = [];
     // The model read never answers here: this test is about the tabs and the first one, and a refusal would hand the

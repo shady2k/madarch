@@ -96,5 +96,37 @@ the controller's floor before fitting after initialization. Zoom 1 preserves its
 smallest 12 px labels; full-screen entry remounts the view in its new frame. The
 1080 px minimum frame width is removed, so centering uses the reader's real column.
 
-Validation of this follow-up is pending; the historical walk above is not acceptance
-of these fixes. The final binary walk is to be recorded in the worker report.
+The embedded materialization uses explicit reads and writes: native `copyfile` cannot
+read Bun's virtual files, as the release CI smoke proved. The parent retains the
+full renderer tree, and the compiled regression checks the output outside the checkout.
+
+An early browser probe of the binary found archify's own page fitting labels down to
+3.52 px despite the natural-size CSS. The frame now computes a scale from its SVG
+viewBox and smallest label, takes the larger of screen-fit and a 12 px floor, and
+centres its scroll position. It repeats the calculation on full-screen resize. The
+binary probe now measures 12 px for archify and zoom 1 for LikeC4 in the 792 px reader
+column. The walker waits for the archify SVG, not only an iframe, and measures the
+frame within the correct block rather than guessing its sibling index.
+
+The cross-platform release smoke also exposed archify's inappropriate use of the
+install cache: Windows has no POSIX mode bits to satisfy that cache's checks. Derived
+view HTML now uses a private, randomly named per-process temporary folder, removed
+on normal exit. The install cache's ownership and mode checks are unchanged.
+
+The merged localized-sources tree passes the root and app type checks, the compiled
+archify regression and a fresh binary build/server-route SVG smoke (each exit 0).
+The final binary walk and CI for the final pushed head remain pending; the historical
+walk above is not acceptance of these fixes. Their result belongs in the worker report.
+
+### Coordinator review 5 supersedes the earlier numerical acceptance
+
+The e walk is rejected: its all-text 12px floor enlarged boxes until the first frame
+showed only a crop, often without names. Acceptance now measures node titles only:
+11px in the page, 9px in full screen. The whole diagram is the first view whenever
+that title floor permits it; otherwise the reading viewport starts at top-left content,
+with at least two complete titles and a scroll/zoom hint. Full screen recomputes the
+fit as an overview. A title may not straddle a frame edge. Mermaid bounds include
+every drawn primitive so a long edge label is not lost outside the root viewBox.
+The f walk records whole-fit, actual scale, smallest title pixels, fully visible
+title names and cut titles/edge labels for both normal and full-screen observations.
+Validation of these revised rules is pending; the earlier e numbers do not accept them.

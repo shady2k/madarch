@@ -228,6 +228,15 @@ describe('the drawn views: C4, components, ER, state and deployment, and the hot
       expect(payload.model.views.index).toBeDefined();
       expect(Object.keys(payload.elementLinks).length).toBeGreaterThan(0);
     }
+    const archify = await product.viewFrame(new URLSearchParams(system!.query), 'archify');
+    expect(archify).toMatchObject({ ok: true, type: 'html' });
+    if (archify.ok) {
+      expect(archify.body).toContain('<svg');
+      expect(archify.body).toContain("(full ? 9 : 11)");
+      expect(archify.body).toContain("svg.querySelectorAll('text[data-node-label]')");
+      expect(archify.body).toContain("addEventListener('resize', fit)");
+      expect(archify.body).toContain('parent.scrollLeft = 0; parent.scrollTop = 0');
+    }
   });
 
   test('the deployment view draws the compose services and the Kubernetes deployments, and dashes what is matched by name only', async () => {
