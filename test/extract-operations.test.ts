@@ -175,6 +175,17 @@ describe('extract operations', () => {
     expect(extraction.producer).toBe('code.extract.operations');
   });
 
+  test('health listeners follow each generated composition root, not the service-wide ports', () => {
+    const expected: Record<string, string[]> = {checkout: ['8083'], orders: ['8080'], payments: ['8081'], promotions: ['8082']};
+    const endpoints = nodesOfKind('code.health-endpoint');
+    expect(endpoints).toHaveLength(4);
+    for (const [service, ports] of Object.entries(expected)) {
+      const held = endpoints.filter((endpoint) => endpoint.properties.service === service);
+      expect(held, `${service} health endpoint`).toHaveLength(1);
+      expect(held[0]?.properties.ports, `${service} actual HTTP listener`).toEqual(ports);
+    }
+  });
+
   // ---- stack.passport -----------------------------------------------------
 
   test('stack.passport', () => {

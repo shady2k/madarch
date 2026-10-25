@@ -227,9 +227,28 @@ export function receiverListenerPorts(t: TreeText, path: string, receiver: strin
   const definition = definitions.at(-1)?.index;
   const sameBinding = (position: number): boolean => !bindingShadowed(mask, receiver, position, definition);
   const ports = new Set<string>();
+  const visibleDefinition = (sourceMasked: string, definition: number, position: number): boolean => {
+    if (definition >= position) return false;
+    const enclosing: number[] = [];
+    for (let index = 0; index < definition; index++) {
+      if (sourceMasked[index] === '{') enclosing.push(index);
+      else if (sourceMasked[index] === '}') enclosing.pop();
+    }
+    const open = enclosing.at(-1);
+    return open === undefined || position < (closeDelimiter(sourceMasked, open, '{', '}') ?? open);
+  };
+  // Only a literal or a visible numeric const proves a static listener port.
+  const tsPort = (source: string, value: string, position: number): string | undefined => {
+    if (/^\d+$/.test(value)) return value === '0' ? undefined : value;
+    const sourceMasked = sourceMask(source);
+    const declarations = [...sourceMasked.matchAll(new RegExp(`\\bconst\\s+${escaped(value)}\\s*=\\s*(\\d+)\\s*(?=;|\\n|$)`, 'g'))]
+      .filter((entry) => visibleDefinition(sourceMasked, entry.index, position) && !bindingShadowed(sourceMasked, value, position, entry.index));
+    return declarations.length === 1 && declarations[0]![1] !== '0' ? declarations[0]![1] : undefined;
+  };
   if (!path.endsWith('.go')) {
-    for (const listener of mask.matchAll(new RegExp(`\\b${escaped(receiver)}\\.listen\\(\\s*(\\d+)\\b`, 'g'))) {
-      if (sameBinding(listener.index) && httpReceiver(t, path, receiver, listener.index)) ports.add(listener[1]!);
+    for (const listener of mask.matchAll(new RegExp(`\\b${escaped(receiver)}\\.listen\\(\\s*(\\d+|[A-Za-z_$][\\w$]*)\\s*(?=[,)])`, 'g'))) {
+      const port = tsPort(text, listener[1]!, listener.index);
+      if (port !== undefined && sameBinding(listener.index) && httpReceiver(t, path, receiver, listener.index)) ports.add(port);
     }
   }
   const owner = functionAt(t, path, at);
@@ -239,8 +258,9 @@ export function receiverListenerPorts(t: TreeText, path: string, receiver: strin
   for (const other of t.tree.paths.filter((file) => /^services\/([^/]+)\//.exec(file)?.[1] === service && file.endsWith(path.endsWith('.go') ? '.go' : '.ts'))) {
     const source = t.text(other); const otherMask = sourceMask(source);
     const factoryCalls = new Set<string>();
+    const methodReceivers: {name: string; definition: number}[] = [];
     if (factory !== undefined) {
-      if (other === path) factoryCalls.add(factory);
+      if (other === path && owner?.receiverType === undefined) factoryCalls.add(factory);
       if (path.endsWith('.ts')) {
         for (const imported of source.matchAll(/import\s*\{([^}]+)\}\s*from\s*['"]([^'"]+)['"]/g)) {
           if (relativeSource(t, other, imported[2] ?? '') !== path || otherMask.slice(imported.index, imported.index + 6) !== 'import') continue;
@@ -255,12 +275,32 @@ export function receiverListenerPorts(t: TreeText, path: string, receiver: strin
         const folder = path.slice(0, path.lastIndexOf('/'));
         const relative = folder.slice(`services/${service}`.length);
         const alias = module === undefined ? undefined : goImportAlias(source, `${module}${relative}`);
-        if (alias !== undefined) factoryCalls.add(`${alias}.${factory}`);
+        if (alias !== undefined && owner?.receiverType === undefined) factoryCalls.add(`${alias}.${factory}`);
+        // A returned mux on a method belongs only to instances made by a
+        // constructor whose declared result and returned literal prove its type.
+        if (alias !== undefined && owner?.receiverType !== undefined) {
+          for (const constructor of functionsOf(t, path).filter((site) => site.receiverType === undefined)) {
+            const signature = mask.slice(constructor.start, constructor.bodyStart);
+            const parameters = signature.indexOf('(');
+            const end = closeDelimiter(signature, parameters);
+            if (end === undefined || !new RegExp(`^\\s*\\*?${escaped(owner.receiverType)}\\s*$`).test(signature.slice(end))) continue;
+            if (!new RegExp(`\\breturn\\s+&?${escaped(owner.receiverType)}\\s*\\{`).test(mask.slice(constructor.bodyStart, constructor.end))) continue;
+            const called = `${alias}.${constructor.name}`;
+            for (const local of otherMask.matchAll(new RegExp(`\\b(\\w+)\\s*:=\\s*${escaped(called)}\\s*\\(`, 'g'))) {
+              if (bindingShadowed(otherMask, alias, local.index)) continue;
+              methodReceivers.push({name: local[1]!, definition: local.index});
+            }
+          }
+        }
       }
     }
     const handlesReceiver = (expression: string, position: number): boolean => {
       const value = expression.trim();
       if (other === path && value === receiver && sameBinding(position)) return true;
+      for (const local of methodReceivers) {
+        if (factory !== undefined && visibleDefinition(otherMask, local.definition, position) && new RegExp(`^${escaped(local.name)}\\.${escaped(factory)}\\s*\\(\\s*\\)$`).test(value)
+          && !bindingShadowed(otherMask, local.name, position, local.definition)) return true;
+      }
       for (const called of factoryCalls) {
         if (new RegExp(`^${escaped(called)}\\s*\\(`).test(value) && !bindingShadowed(otherMask, called.split('.')[0]!, position)) return true;
         for (const local of otherMask.matchAll(new RegExp(`\\b(\\w+)\\s*(?::=|=)\\s*${escaped(called)}\\s*\\(`, 'g'))) {
@@ -271,6 +311,27 @@ export function receiverListenerPorts(t: TreeText, path: string, receiver: strin
     };
     if (!path.endsWith('.go')) {
       if (factory === undefined) continue;
+      for (const called of factoryCalls) {
+        const visibleFactory = (position: number): boolean => !bindingShadowed(otherMask, called, position, other === path ? owner?.start : undefined);
+        for (const call of otherMask.matchAll(new RegExp(`\\b${escaped(called)}\\s*\\(`, 'g'))) {
+          if (!visibleFactory(call.index)) continue;
+          const open = call.index + call[0].lastIndexOf('('); const end = closeDelimiter(otherMask, open);
+          if (end === undefined) continue;
+          const chained = /^\s*\.listen\(\s*(\d+|[A-Za-z_$][\w$]*)\s*(?=[,)])/.exec(otherMask.slice(end));
+          if (chained !== null) {
+            const port = tsPort(source, chained[1]!, end);
+            if (port !== undefined) ports.add(port);
+          }
+          for (const local of otherMask.matchAll(new RegExp(`\\b(?:const|let)\\s+(\\w+)\\s*=\\s*${escaped(called)}\\s*\\(`, 'g'))) {
+            if (local.index + local[0].lastIndexOf(called) !== call.index) continue;
+            for (const listener of otherMask.matchAll(new RegExp(`\\b${escaped(local[1]!)}\\.listen\\(\\s*(\\d+|[A-Za-z_$][\\w$]*)\\s*(?=[,)])`, 'g'))) {
+              if (listener.index <= end || !visibleDefinition(otherMask, local.index, listener.index) || bindingShadowed(otherMask, local[1]!, listener.index, local.index)) continue;
+              const port = tsPort(source, listener[1]!, listener.index);
+              if (port !== undefined) ports.add(port);
+            }
+          }
+        }
+      }
       for (const mount of source.matchAll(/\b(\w+)\.use\s*\(/g)) {
         if (!httpReceiver(t, other, mount[1]!, mount.index)) continue;
         const open = mount.index + mount[0].lastIndexOf('('); const end = closeDelimiter(otherMask, open);

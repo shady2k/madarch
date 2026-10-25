@@ -188,9 +188,11 @@ describe('data-model extractor (training repository, answer key)', () => {
       },
     };
     const read = await extractDataModel(tree);
-    const gap = read.gaps.find((candidate) => candidate.path === broken);
-    expect(gap, `no gap for ${broken}`).toBeDefined();
-    expect(gap!.reason).toContain('no table or column statement');
+    const diagnostics = read.gaps.filter((candidate) => candidate.path === broken).map((gap) => gap.reason);
+    expect(diagnostics).toEqual([
+      'line 1: database broken has no contributing storage reading; service use is unresolved',
+      'no table or column statement could be read',
+    ]);
     expect(read.edges.filter((edge) => edge.type === 'code.uses-database')).toEqual([]);
     expect(read.gaps.some((candidate) => candidate.path === broken && candidate.reason.includes('line 1:') && candidate.reason.includes('no contributing storage reading'))).toBe(true);
   });

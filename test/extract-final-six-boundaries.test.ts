@@ -4,6 +4,7 @@ import {extractCode} from '../src/extract/code/index.js';
 import {extractContracts} from '../src/extract/contracts/index.js';
 import {extractOperations} from '../src/extract/operations/index.js';
 import {linkExtractions} from '../src/extract/driver/links.js';
+import {endpointRelations} from '../src/extract/driver/relationships.js';
 import type {TreeReader} from '../src/extract/records.js';
 const path = 'services/api/main.ts';
 const tree = (files: Record<string,string>): TreeReader => ({paths:Object.keys(files).sort(),read:(file)=>{const source=files[file];if(source===undefined)throw new Error(`missing fixture ${file}`);return new TextEncoder().encode(source);}});
@@ -12,7 +13,7 @@ const probe = (port: number) => `services:\n api:\n  image: api:1\n  healthcheck
 
 test('final 2: unrelated real app listener never lends ports to health receiver or route', async()=>{
  const files = {[path]:`import express from "express"; ${health} export function setup(){const app=express();app.get("/healthz",health);app.listen(9090);}`,'services/api/admin.ts':'import express from "express"; const admin=express();admin.listen(8080);','docker-compose.yml':probe(8080)};
- const read=async(input:TreeReader)=>{const code=await extractCode(input);const ops=extractOperations(input,code);const contracts=await extractContracts(input,code);return {ops,contracts,edges:linkExtractions([code,ops,contracts],{}).extractions.flatMap((ex)=>ex.edges)};};
+ const read=async(input:TreeReader)=>{const code=await extractCode(input);const ops=extractOperations(input,code);const contracts=await extractContracts(input,code);return {ops,contracts,edges:linkExtractions(endpointRelations([code,ops,contracts]),{}).extractions.flatMap((ex)=>ex.edges)};};
  const bad=await read(tree(files));
  expect(bad.ops.nodes.filter((node)=>node.kind==='code.health-endpoint').map((node)=>node.properties.ports)).toEqual([['9090']]);
  expect(bad.contracts.nodes.filter((node)=>node.kind==='code.route').map((node)=>node.properties.ports)).toEqual([['9090']]);
@@ -53,4 +54,50 @@ test('final 6: combined Express imports keep Router aliases and exact shadow gua
  for(const factory of ['Router','makeRouter']){
  const spec=factory==='Router'?'Router':'Router as makeRouter';const t=tree({[path]:`import express,{${spec},Express} from "express";${health}function routes(){const router=${factory}();router.get("/healthz",health);return router;}function shadow(${factory}:()=>{get(p:string,f:unknown):void}){const fake=${factory}();fake.get("/healthz",health);}const app=express();app.get("/readyz",health);`});const ex=extractOperations(t);expect(ex.nodes.filter((node)=>node.kind==='code.health-endpoint').map((node)=>node.properties.path).sort()).toEqual(['/healthz','/readyz']);
  }
+});
+
+
+test.each([
+ 'const PORT=9090;createApp().listen(PORT);',
+ 'const PORT=9090;const app=createApp();app.listen(PORT);',
+])('returned imported app proves its own chained or held listener: %s',async(listener)=>{
+ const appPath='services/api/app.ts';
+ const input=tree({[appPath]:`import express from "express";${health}export function createApp(){const app=express();app.get("/healthz",health);return app;}`,[path]:`import {createApp} from "./app.js";${listener}`,'services/api/admin.ts':'import express from "express";const admin=express();admin.listen(8080);'});
+ const code=await extractCode(input);const ops=extractOperations(input,code);const contracts=await extractContracts(input,code);
+ expect(ops.nodes.filter((node)=>node.kind==='code.health-endpoint').map((node)=>node.properties.ports)).toEqual([['9090']]);
+ expect(contracts.nodes.filter((node)=>node.kind==='code.route').map((node)=>node.properties.ports)).toEqual([['9090']]);
+ expect(ops.gaps).toEqual([]);expect(contracts.gaps).toEqual([]);
+});
+
+test.each([
+ 'const PORT=9090;function start(createApp:()=>{listen(p:number):void}){createApp().listen(PORT);}',
+ 'const PORT=9090;const app=createApp();function start(app:{listen(p:number):void}){app.listen(PORT);}',
+ 'const PORT=9090;const app=createApp();function start(PORT:number){app.listen(PORT);}',
+ 'const PORT=9090;const other=express();other.listen(PORT);',
+ 'function unrelated(){const PORT=9090;}createApp().listen(PORT);',
+])('returned app never borrows shadowed factory, local, port or unrelated receiver: %s',async(listener)=>{
+ const appPath='services/api/app.ts';
+ const input=tree({[appPath]:`import express from "express";${health}export function createApp(){const app=express();app.get("/healthz",health);return app;}`,[path]:`import express from "express";import {createApp} from "./app.js";${listener}`});
+ const code=await extractCode(input);const ops=extractOperations(input,code);const contracts=await extractContracts(input,code);
+ expect(ops.nodes.filter((node)=>node.kind==='code.health-endpoint').map((node)=>node.properties.ports)).toEqual([[]]);
+ expect(contracts.nodes.filter((node)=>node.kind==='code.route').map((node)=>node.properties.ports)).toEqual([[]]);
+ expect(ops.gaps.some((gap)=>gap.path===appPath&&gap.reason.includes('receiver/listener'))).toBe(true);
+ expect(contracts.gaps.some((gap)=>gap.path===appPath&&gap.reason.includes('receiver/listener'))).toBe(true);
+});
+
+const goListenerCases: [string, string, string[]][] = [
+ ['handler:=api.New();server:=&http.Server{Addr:addr,Handler:handler.Routes()};server.ListenAndServe()', 'return mux', ['9090']],
+ ['handler:=api.Other();server:=&http.Server{Addr:addr,Handler:handler.Routes()};server.ListenAndServe()', 'return mux', []],
+ ['handler:=api.New();server:=&http.Server{Addr:addr,Handler:http.NewServeMux()};server.ListenAndServe()', 'return mux', []],
+ ['handler:=api.New();server:=&http.Server{Addr:addr,Handler:handler.Routes()}', 'return mux', []],
+ ['handler:=api.New();server:=&http.Server{Addr:addr,Handler:handler.Routes()};server.ListenAndServe()', 'other:=http.NewServeMux();return other', []],
+];
+test.each(goListenerCases)('returned Go method mux keeps constructor and active Server.Handler proof: %s',async(body,returned,ports)=>{
+ const goPath='services/api/handler.go';
+ const input=tree({[goPath]:`package api\nimport "net/http"\ntype Handler struct{}\ntype Decoy struct{}\nfunc New() *Handler {return &Handler{}}\nfunc Other() *Decoy {return &Decoy{}}\nfunc (d *Decoy) Routes() http.Handler {return http.NewServeMux()}\nfunc (h *Handler) Routes() http.Handler {mux:=http.NewServeMux();mux.HandleFunc("GET /healthz",Health);${returned}}\nfunc Health(w http.ResponseWriter,r *http.Request){}\n`,'services/api/cmd/main.go':`package main\nimport ("net/http";"example.test/api")\nconst addr=":9090"\nfunc main(){${body}}\n`,'services/api/go.mod':'module example.test/api\n\ngo 1.23\n'});
+ const code=await extractCode(input);const ops=extractOperations(input,code);const contracts=await extractContracts(input,code);
+ expect(ops.nodes.filter((node)=>node.kind==='code.health-endpoint').map((node)=>node.properties.ports)).toEqual([ports]);
+ expect(contracts.nodes.filter((node)=>node.kind==='code.route').map((node)=>node.properties.ports)).toEqual([ports]);
+ if(ports.length===0){expect(ops.gaps.some((gap)=>gap.path===goPath&&gap.reason.includes('receiver/listener'))).toBe(true);expect(contracts.gaps.some((gap)=>gap.path===goPath&&gap.reason.includes('receiver/listener'))).toBe(true);}
+ else {expect(ops.gaps).toEqual([]);expect(contracts.gaps).toEqual([]);}
 });

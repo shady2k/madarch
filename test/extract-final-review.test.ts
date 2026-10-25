@@ -72,7 +72,7 @@ test('semantic evidence absence is diagnosed, explicit structural membership is 
  expect(edgeEvidenceError(input,{...base,type:'code.calls'})).toBe('no source span');
 });
 test('imported default registry exposes only default members',()=>{
- const input=read('import {Counter, register} from "prom-client";\nconst requests=new Counter({name:"requests_total",help:"Requests"});\nconst privateCount=new Counter({name:"private_total",help:"Private",registers:[]});\napp.get("/metrics", async (_req,res)=>res.end(await register.metrics()));');
+ const input=read('import express from "express";\nconst app=express();\nimport {Counter, register} from "prom-client";\nconst requests=new Counter({name:"requests_total",help:"Requests"});\nconst privateCount=new Counter({name:"private_total",help:"Private",registers:[]});\napp.get("/metrics", async (_req,res)=>res.end(await register.metrics()));');
  const ex=extractOperations(input);expect(ex.edges.filter((e)=>e.type==='code.exposes-metric').map((e)=>e.to)).toEqual([`code.metric:${path}#requests_total`]);
 });
 test('health targets preserve local listener port and explicit HTTP method',async()=>{
