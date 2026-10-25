@@ -16,8 +16,8 @@ import type { HistoryExtractor, TreeExtractor } from './index.js';
 const TREE_READERS = [
  {name:'extractFiles',version:2,extractor:extractFiles},
  {name:'extractCode',version:7,extractor:extractCode},
- {name:'extractOperations',version:4,extractor:extractOperations},
- {name:'extractContracts',version:4,extractor:extractContracts},
+ {name:'extractOperations',version:5,extractor:extractOperations},
+ {name:'extractContracts',version:5,extractor:extractContracts},
  {name:'extractDataModel',version:3,extractor:extractDataModel},
 ] as const;
 export const TREE_EXTRACTORS: readonly TreeExtractor[] = TREE_READERS.map((entry)=>entry.extractor);

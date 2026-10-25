@@ -19,6 +19,8 @@
  * - the SQL path links reads of `req.query` to the string builders whose
  *   results reach `$queryRawUnsafe`, through the file's local bindings.
  */
+import {TreeText} from '../operations/source.js';
+import {receiverListenerPorts} from '../operations/symbol-sites.js';
 import {asyncApiNodes, readAsyncApi} from './asyncapi.js';
 import {contractSymbols} from './symbol-links.js';
 import {readGoFile, resolveGoStarts, duplicatesByStatusComparison, type GoFileFacts} from './go-code.js';
@@ -175,6 +177,16 @@ export async function extractContracts(reader: TreeReader, code?: Extraction): P
   }
 
   const symbols = await contractSymbols(reader, nodes, code);
+  const sourceText = new TreeText(reader, code);
+  const portsOfRoute = (span: SourceSpan): string[] => {
+    const bytes = reader.read(span.path);
+    const at = new TextDecoder().decode(bytes.subarray(0, span.byteStart)).length;
+    const registration = new TextDecoder().decode(bytes.subarray(span.byteStart, span.byteEnd));
+    const receiver = /^([A-Za-z_$][\w$]*)\s*\./.exec(registration)?.[1];
+    const ports = receiver === undefined ? [] : receiverListenerPorts(sourceText, span.path, receiver, at);
+    if (ports.length === 0) gaps.push({path: span.path, reason: `contracts: line ${span.lineStart}: route receiver/listener association is unresolved (${span.path})`});
+    return ports;
+  };
 
   // ---- the code, one walk per file ------------------------------------------
   const goFiles: GoFacts[] = [];
@@ -333,7 +345,7 @@ export async function extractContracts(reader: TreeReader, code?: Extraction): P
         method: route.method,
         path: route.path,
         handler: route.handler,
-        ports: [...(portsByService.get(service ?? '') ?? [])],
+        ports: portsOfRoute(route.span),
         handlerSymbol: route.handlerSymbol,
         middleware: route.middleware,
         authGroup: route.authGroup,
@@ -466,7 +478,7 @@ export async function extractContracts(reader: TreeReader, code?: Extraction): P
         label: `${route.method} ${path}`,
         properties: {
           method: route.method,
-          ports: [...(portsByService.get(service ?? '') ?? [])],
+          ports: portsOfRoute(route.span),
           path,
           ...(service === undefined ? {} : {service}),
           ...(handler === undefined ? {} : {handlerKey: handler, handlerPath: handler.slice('code.symbol:'.length, handler.indexOf('#'))}),

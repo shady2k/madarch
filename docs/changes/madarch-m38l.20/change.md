@@ -259,3 +259,34 @@ after this interpretation change. They are not new-byte acceptance.
 The completed JSON walk and four audits remain honestly tied to their
 original frozen source. New complete visual evidence, mutation and final
 review remain pending.
+
+### Final reader-fact boundary repairs (2026-10-25)
+
+All six final source findings block the promised reader facts. The bounded
+repair keeps the current design and fixes these mechanisms only:
+
+- A route enters only its actual `code.handled-by` function. Callback values
+  remain references and enter the existing bounded unordered queue, with or
+  without a source range. General references never name route handlers.
+- Route and health ports belong to their actual registration receiver.
+  Positively resolved Express mounts and Go `http.Server.Handler` carry that
+  association; an unsupported association emits a located gap and no probe
+  join. Service-wide ports remain only service-authority evidence.
+- Metrics registrations use the same exact HTTP receiver proof as health
+  registrations, before any registry membership/exposure assertion.
+- Local object and array declaration bindings participate in lexical shadow
+  resolution. Renamed property keys do not bind; unsupported nested patterns
+  withhold identity and produce a located logger diagnostic.
+- An actual Kafka writer invocation reads only the direct `Topic` keyed
+  element of its actual message composite syntax node. Comments, nested
+  values and string contents cannot name a publication topic.
+- Combined default/named Express imports retain exact `Router` bindings and
+  aliases, with the same lexical shadow guard as named-only imports.
+
+Operations and contracts reader versions advance from 4 to 5. Code remains
+7, data 3 and driver/link normalization 6. The existing extractor-set digest
+forces a clean derived-graph rebuild; no schema/API, allocator or reader IPC
+change is introduced. Boundary regressions and held positives accompany the
+repair. The recovered immutable `0c21224e` baseline's ten actual failures
+remain baseline evidence, not a final-head pass. Exact-head CI, final review
+and the finite 11-page by eight-combination capture remain separate checks.

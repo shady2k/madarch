@@ -3,7 +3,7 @@ import type { PropertyValue, SourceSpan } from '../records.js';
 import { byCodePoint } from '../../model/order.js';
 import type { Records } from './accumulate.js';
 import { serviceOf, type TreeText } from './source.js';
-import { bindingShadowed, closeDelimiter, escaped, functionAt, functionNode, functionsOf, relativeSource, sourceMask, sourceSpan, withoutComments, type FunctionSite } from './symbol-sites.js';
+import { bindingShadowed, closeDelimiter, escaped, functionAt, functionNode, functionsOf, httpReceiver, relativeSource, sourceMask, sourceSpan, withoutComments, type FunctionSite } from './symbol-sites.js';
 
 interface Metric {
   readonly path: string;
@@ -211,7 +211,7 @@ export function extractMetrics(t: TreeText, records: Records): void {
     const text = t.text(path);
     const service = serviceOf(path) ?? '';
     const mask = sourceMask(text);
-    const registrations = [...text.matchAll(/\.(?:Handle|HandleFunc|get)\(\s*['"](?:GET )?\/metrics['"]\s*,/g)].filter((match) => mask[match.index] === '.');
+    const registrations = [...text.matchAll(/\b([A-Za-z_$][\w$]*)\.(?:Handle|HandleFunc|get)\(\s*['"](?:GET )?\/metrics['"]\s*,/g)].filter((match) => mask.slice(match.index, match.index + (match[1]?.length ?? 0)) === match[1] && httpReceiver(t, path, match[1] ?? '', match.index));
     if (registrations.length === 0) continue;
     const serviceMetrics = metrics.filter((metric) => serviceOf(metric.path) === service);
     for (const registration of registrations) {

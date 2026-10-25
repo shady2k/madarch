@@ -108,6 +108,17 @@ export function relativeSource(t: TreeText, from: string, specifier: string): st
   return [candidate, candidate.replace(/\.js$/, '.ts'), `${candidate}.ts`, `${candidate}/index.ts`].find((path) => t.has(path));
 }
 
+/** Binding side only. Unsupported nested/computed patterns withhold identity. */
+function patternShadows(pattern: string, name: string): boolean {
+  for (const part of pattern.split(',')) {
+    const binding = part.trim().replace(/^\.\.\./, '');
+    if (binding === '') continue;
+    const pair = /^(?:[\w$]+\s*:\s*)?([\w$]+)(?:\s*=.*)?$/.exec(binding);
+    if (pair === null || pair[1] === name) return true;
+  }
+  return false;
+}
+
 /** Conservative lexical proof for the supported source forms. Unrelated scopes cannot shadow this site. */
 export function bindingShadowed(mask: string, name: string, at: number, definition?: number): boolean {
   const stack: number[] = [];
@@ -123,6 +134,15 @@ export function bindingShadowed(mask: string, name: string, at: number, definiti
     const nameAt = match.index + match[0].lastIndexOf(name);
     if (definition !== undefined && match.index <= definition && definition < nameAt + name.length) continue;
     if (isEnclosing(match.index)) return true;
+  }
+  // Local destructuring binds in the declaration's lexical scope, not the
+  // object's braces. Parse only binding positions; renamed property keys do not bind.
+  for (const declaration of mask.matchAll(/\b(?:const|let|var)\s+([\{\[])/g)) {
+    if (!isEnclosing(declaration.index)) continue;
+    const start = declaration.index + declaration[0].length - 1;
+    const opening = mask[start]!;
+    const end = closeDelimiter(mask, start, opening, opening === '{' ? '}' : ']');
+    if (end === undefined || patternShadows(mask.slice(start + 1, end - 1), name)) return true;
   }
   // Function-typed parameters can themselves contain parentheses.
   for (const match of mask.matchAll(/\(/g)) {
@@ -143,14 +163,7 @@ export function bindingShadowed(mask: string, name: string, at: number, definiti
       const opening = trimmed[0]!;
       const stop = closeDelimiter(trimmed, 0, opening, opening === '{' ? '}' : ']');
       if (stop === undefined) return true;
-      const pattern = trimmed.slice(1, stop - 1);
-      for (const part of pattern.split(',')) {
-        const binding = part.trim().replace(/^\.\.\./, '');
-        if (binding === '') continue;
-        const pair = /^(?:[\w$]+\s*:\s*)?([\w$]+)(?:\s*=.*)?$/.exec(binding);
-        if (pair === null) return true; // Unsupported nested pattern proves no import identity.
-        if (pair[1] === name) return true;
-      }
+      if (patternShadows(trimmed.slice(1, stop - 1), name)) return true;
     }
   }
   // Go short declarations are bindings too. Keep ordinary assignment distinct.
@@ -184,10 +197,10 @@ export function httpReceiver(t: TreeText, path: string, receiver: string, at: nu
     return false;
   }
   const factories = new Set<string>();
-  for (const imported of text.matchAll(/import\s+(?:(?:\*\s+as\s+)?(\w+)(?:\s*,\s*\{[^}]*\})?|\{([^}]+)\})\s+from\s*['"]express['"]/g)) {
+  for (const imported of text.matchAll(/import\s+(?:(?:\*\s+as\s+)?(\w+)(?:\s*,\s*\{([^}]*)\})?|\{([^}]+)\})\s+from\s*['"]express['"]/g)) {
     if (mask.slice(imported.index, imported.index + 6) !== 'import') continue;
     if (imported[1] !== undefined) {factories.add(imported[1]); factories.add(`${imported[1]}.Router`);}
-    for (const entry of (imported[2] ?? '').split(',')) {
+    for (const entry of (imported[2] ?? imported[3] ?? '').split(',')) {
       const named = /^\s*Router(?:\s+as\s+(\w+))?\s*$/.exec(entry);
       if (named !== null) factories.add(named[1] ?? 'Router');
     }
@@ -198,6 +211,99 @@ export function httpReceiver(t: TreeText, path: string, receiver: string, at: nu
     if (!bindingShadowed(mask, factory.split('.')[0]!, declaration.index)) return true;
   }
   return false;
+}
+
+/** Ports proved for this registration's receiver, never the service-wide union.
+ * Unsupported aliases/mounts return no ports; callers retain a located gap.
+ */
+export function receiverListenerPorts(t: TreeText, path: string, receiver: string, at: number, seen = new Set<string>()): string[] {
+  const identity = `${path}:${receiver}:${at}`;
+  if (seen.has(identity) || seen.size >= 20) return [];
+  seen.add(identity);
+  const text = t.text(path); const mask = sourceMask(text);
+  if (!httpReceiver(t, path, receiver, at)) return [];
+  const definitions = [...mask.matchAll(new RegExp(path.endsWith('.go') ? `\\b${escaped(receiver)}\\s*:=` : `\\b(?:const|let|var)\\s+${escaped(receiver)}\\s*=`, 'g'))]
+    .filter((declaration) => declaration.index < at && !bindingShadowed(mask, receiver, at, declaration.index));
+  const definition = definitions.at(-1)?.index;
+  const sameBinding = (position: number): boolean => !bindingShadowed(mask, receiver, position, definition);
+  const ports = new Set<string>();
+  if (!path.endsWith('.go')) {
+    for (const listener of mask.matchAll(new RegExp(`\\b${escaped(receiver)}\\.listen\\(\\s*(\\d+)\\b`, 'g'))) {
+      if (sameBinding(listener.index) && httpReceiver(t, path, receiver, listener.index)) ports.add(listener[1]!);
+    }
+  }
+  const owner = functionAt(t, path, at);
+  const returned = owner !== undefined && (new RegExp(`\\breturn\\s+${escaped(receiver)}\\b`).test(mask.slice(owner.bodyStart, owner.end)) || new RegExp(`\\breturn\\s+Chain\\s*\\([^;]*\\)\\s*\\(\\s*${escaped(receiver)}\\s*\\)`).test(mask.slice(owner.bodyStart, owner.end)));
+  const factory = returned ? owner.name : undefined;
+  const service = /^services\/([^/]+)\//.exec(path)?.[1];
+  for (const other of t.tree.paths.filter((file) => /^services\/([^/]+)\//.exec(file)?.[1] === service && file.endsWith(path.endsWith('.go') ? '.go' : '.ts'))) {
+    const source = t.text(other); const otherMask = sourceMask(source);
+    const factoryCalls = new Set<string>();
+    if (factory !== undefined) {
+      if (other === path) factoryCalls.add(factory);
+      if (path.endsWith('.ts')) {
+        for (const imported of source.matchAll(/import\s*\{([^}]+)\}\s*from\s*['"]([^'"]+)['"]/g)) {
+          if (relativeSource(t, other, imported[2] ?? '') !== path || otherMask.slice(imported.index, imported.index + 6) !== 'import') continue;
+          for (const entry of imported[1]!.split(',')) {
+            const named = /^\s*(\w+)(?:\s+as\s+(\w+))?\s*$/.exec(entry);
+            if (named?.[1] === factory) factoryCalls.add(named[2] ?? factory);
+          }
+        }
+      } else {
+        const modPath = `services/${service}/go.mod`;
+        const module = t.has(modPath) ? /^module\s+(\S+)/m.exec(t.text(modPath))?.[1] : undefined;
+        const folder = path.slice(0, path.lastIndexOf('/'));
+        const relative = folder.slice(`services/${service}`.length);
+        const alias = module === undefined ? undefined : goImportAlias(source, `${module}${relative}`);
+        if (alias !== undefined) factoryCalls.add(`${alias}.${factory}`);
+      }
+    }
+    const handlesReceiver = (expression: string, position: number): boolean => {
+      const value = expression.trim();
+      if (other === path && value === receiver && sameBinding(position)) return true;
+      for (const called of factoryCalls) {
+        if (new RegExp(`^${escaped(called)}\\s*\\(`).test(value) && !bindingShadowed(otherMask, called.split('.')[0]!, position)) return true;
+        for (const local of otherMask.matchAll(new RegExp(`\\b(\\w+)\\s*(?::=|=)\\s*${escaped(called)}\\s*\\(`, 'g'))) {
+          if (value === local[1] && !bindingShadowed(otherMask, value, position, local.index) && !bindingShadowed(otherMask, called.split('.')[0]!, local.index)) return true;
+        }
+      }
+      return false;
+    };
+    if (!path.endsWith('.go')) {
+      if (factory === undefined) continue;
+      for (const mount of source.matchAll(/\b(\w+)\.use\s*\(/g)) {
+        if (!httpReceiver(t, other, mount[1]!, mount.index)) continue;
+        const open = mount.index + mount[0].lastIndexOf('('); const end = closeDelimiter(otherMask, open);
+        if (end === undefined) continue;
+        const args = source.slice(open + 1, end - 1);
+        if (![...factoryCalls].some((called) => new RegExp(`(?:^|,)\\s*${escaped(called)}\\s*\\(`).test(args) && !bindingShadowed(otherMask, called.split('.')[0]!, mount.index))) continue;
+        for (const port of receiverListenerPorts(t, other, mount[1]!, mount.index, seen)) ports.add(port);
+      }
+      continue;
+    }
+    const alias = goImportAlias(source, 'net/http');
+    if (alias === undefined) continue;
+    const literalPort = (value: string): string | undefined => {
+      const literal = value.startsWith('"') ? value : new RegExp(`\\b${escaped(value)}\\s*=\\s*("[^"\\n]+")`).exec(source)?.[1];
+      return literal === undefined ? undefined : /:(\d+)"$/.exec(literal)?.[1];
+    };
+    for (const call of source.matchAll(new RegExp(`\\b${escaped(alias)}\\.ListenAndServe\\s*\\(\\s*("[^"\\n]+"|\\w+)\\s*,\\s*([^,]+?)\\)`, 'g'))) {
+      if (otherMask.slice(call.index, call.index + alias.length) !== alias || bindingShadowed(otherMask, alias, call.index) || !handlesReceiver(call[2]!, call.index)) continue;
+      const port = literalPort(call[1]!); if (port !== undefined) ports.add(port);
+    }
+    for (const declaration of otherMask.matchAll(new RegExp(`\\b(\\w+)\\s*:=\\s*&?${escaped(alias)}\\.Server\\s*\\{`, 'g'))) {
+      const open = declaration.index + declaration[0].lastIndexOf('{'); const end = closeDelimiter(otherMask, open, '{', '}');
+      if (end === undefined || bindingShadowed(otherMask, alias, declaration.index)) continue;
+      const body = withoutComments(source.slice(open + 1, end - 1));
+      const handler = /(?:^|,)\s*Handler\s*:\s*([^,]+)/.exec(body)?.[1];
+      const addr = /(?:^|,)\s*Addr\s*:\s*("[^"\n]+"|\w+)/.exec(body)?.[1];
+      if (handler === undefined || addr === undefined || !handlesReceiver(handler, declaration.index)) continue;
+      const server = declaration[1]!;
+      const listening = [...otherMask.matchAll(new RegExp(`\\b${escaped(server)}\\.ListenAndServe\\s*\\(`, 'g'))].some((call) => !bindingShadowed(otherMask, server, call.index, declaration.index));
+      const port = literalPort(addr); if (listening && port !== undefined) ports.add(port);
+    }
+  }
+  return [...ports].sort();
 }
 
 /** Comments masked without changing literal values or source offsets. */

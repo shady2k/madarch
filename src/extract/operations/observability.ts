@@ -9,7 +9,7 @@ import type { PropertyValue } from '../records.js';
 import { extractMetrics } from './metrics.js';
 import type { Records } from './accumulate.js';
 import { serviceOf, TreeText } from './source.js';
-import { bindingShadowed, closeDelimiter, escaped, functionAt, functionNode, functionsOf, goImportAlias, httpReceiver, relativeSource, sourceMask, sourceSpan } from './symbol-sites.js';
+import { bindingShadowed, closeDelimiter, escaped, functionAt, functionNode, functionsOf, httpReceiver, receiverListenerPorts, relativeSource, sourceMask, sourceSpan } from './symbol-sites.js';
 
 /** Logger declarations and uses resolved through imports, not a global name match. */
 function loggers(t: TreeText, records: Records): void {
@@ -92,7 +92,7 @@ function loggers(t: TreeText, records: Records): void {
         }
         for (const binding of bindings) {
           for (const match of mask.matchAll(new RegExp(`\\b${escaped(binding)}\\.(?:info|error|warn|debug|trace|fatal|child)\\s*\\(`, 'g'))) {
-            if (bindingShadowed(mask, binding, match.index, path === logger.path ? logger.definition : undefined)) continue;
+            if (bindingShadowed(mask, binding, match.index, path === logger.path ? logger.definition : undefined)) {records.gap(path, `line ${sourceSpan(t, path, match.index, match.index + match[0].length).lineStart}: logger binding ${binding} is shadowed or its binding pattern is unsupported (${path})`); continue;}
             use(logger.key, path, match.index, match.index + match[0].length);
           }
         }
@@ -103,6 +103,8 @@ function loggers(t: TreeText, records: Records): void {
 
 /** A real registration, and its resolved handler (if canonical code facts are available). */
 interface Endpoint {
+  readonly receiver: string;
+  readonly at: number;
   readonly method: string;
   readonly path: string;
   readonly span: import('../records.js').SourceSpan;
@@ -134,38 +136,9 @@ function registrations(t: TreeText, path: string): Endpoint[] {
     const raw = match[3] ?? ''; const go = (match[2] ?? '').startsWith('Handle');
     const method = go ? /^([A-Z]+) /.exec(raw)?.[1] ?? '' : (match[2] ?? '').toUpperCase();
     const routePath = go ? raw.replace(/^[A-Z]+ /, '') : raw;
-    found.push({method, path: routePath, span: sourceSpan(t, path, match.index, end), ...(handler === undefined ? {} : {handler}), statusOk: handler !== undefined && /['"]ok['"]/.test(text.slice(handler.start, handler.end))});
+    found.push({receiver: match[1]!, at: match.index, method, path: routePath, span: sourceSpan(t, path, match.index, end), ...(handler === undefined ? {} : {handler}), statusOk: handler !== undefined && /['"]ok['"]/.test(text.slice(handler.start, handler.end))});
   }
   return found;
-}
-
-/** Literal listeners in this service; no healthcheck option supplies a server port. */
-function listenerPorts(t: TreeText, service: string | undefined): string[] {
-  const ports = new Set<string>();
-  for (const path of t.tree.paths.filter((path) => serviceOf(path) === service && /\.(?:ts|go)$/.test(path))) {
-    const text = t.text(path); const mask = sourceMask(text);
-    if (path.endsWith('.ts')) {
-      for (const match of mask.matchAll(/\b(\w+)\.listen\(\s*(\d+)\b/g)) if (httpReceiver(t, path, match[1] ?? '', match.index)) ports.add(match[2]!);
-      continue;
-    }
-    const alias = goImportAlias(text, 'net/http');
-    if (alias === undefined) continue;
-    for (const match of text.matchAll(new RegExp(`\\b${escaped(alias)}\\.ListenAndServe\\(\\s*"[^"]*:(\\d+)"`, 'g'))) if (mask.slice(match.index, match.index + alias.length) === alias && !bindingShadowed(mask, alias, match.index)) ports.add(match[1]!);
-    for (const declaration of mask.matchAll(new RegExp(`\\b(\\w+)\\s*:=\\s*&?${escaped(alias)}\\.Server\\s*\\{`, 'g'))) {
-      const open = declaration.index + declaration[0].lastIndexOf('{'); const end = closeDelimiter(mask, open, '{', '}');
-      if (end === undefined || bindingShadowed(mask, alias, declaration.index)) continue;
-      const server = declaration[1]!;
-      const calls = [...mask.matchAll(new RegExp(`\\b${escaped(server)}\\.ListenAndServe\\s*\\(`, 'g'))];
-      if (!calls.some((call) => !bindingShadowed(mask, server, call.index, declaration.index))) continue;
-      const body = text.slice(open, end); const bodyMask = mask.slice(open, end);
-      const addr = /\bAddr\s*:\s*("[^"]+"|\w+)/.exec(body);
-      if (addr === null || !/^Addr/.test(bodyMask.slice(addr.index))) continue;
-      const value = addr[1]!; const constant = value.startsWith('"') ? value : new RegExp(`\\b${escaped(value)}\\s*=\\s*("[^"]+")`).exec(text)?.[1];
-      const port = constant === undefined ? undefined : /:(\d+)"$/.exec(constant)?.[1];
-      if (port !== undefined) ports.add(port);
-    }
-  }
-  return [...ports].sort();
 }
 
 /** The health endpoints: every registration of /healthz, keyed by its file and symbol. */
@@ -176,11 +149,13 @@ function healthEndpoints(t: TreeText, records: Records): void {
     for (const endpoint of found.filter((entry) => /^\/(?:healthz?|readyz?|livez?|startupz?)$/.test(entry.path))) {
       const identity = endpoint.handler?.qualifiedName ?? `unresolved@${endpoint.span.lineStart}:${endpoint.span.byteStart}`;
       const endpointKey = `code.health-endpoint:${path}#${identity}${endpoint.path === '/healthz' ? '' : endpoint.path}`;
+      const ports = receiverListenerPorts(t, path, endpoint.receiver, endpoint.at);
+      if (ports.length === 0) records.gap(path, `line ${endpoint.span.lineStart}: health receiver/listener association is unresolved (${path})`);
       records.add({
         key: endpointKey,
         kind: 'code.health-endpoint',
         label: `${endpoint.path} of ${serviceOf(path) ?? path}`,
-        properties: { path: endpoint.path, method: endpoint.method, ports: listenerPorts(t, serviceOf(path)), statusOk: endpoint.statusOk, service: serviceOf(path) ?? '' } satisfies { [key: string]: PropertyValue },
+        properties: { path: endpoint.path, method: endpoint.method, ports, statusOk: endpoint.statusOk, service: serviceOf(path) ?? '' } satisfies { [key: string]: PropertyValue },
         span: endpoint.span,
       });
       records.edge('code.served-by', endpointKey, records.file(path), {service: serviceOf(path) ?? ''}, endpoint.span);

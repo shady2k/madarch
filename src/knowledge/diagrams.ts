@@ -354,7 +354,7 @@ export class ChainBuilder {
     const events: Event[] = [];
     const inRange = (span: SourceSpan | undefined): boolean => within === undefined || (span !== undefined && span.lineStart >= within.lineStart && span.lineEnd <= within.lineEnd);
     const relations: [string, Event['kind']][] = [['code.calls', 'call'], ['code.reads-table', 'read'], ['code.writes-table', 'write']];
-    relations.push(['code.references', within === undefined ? 'callback' : 'call']);
+    relations.push(['code.references', 'callback']);
     for (const [relation, kind] of relations) {
       const found = await this.ctx.graph.edgesOf(symbol, relation, 'out', 300);
       for (const edge of found.rows) {
@@ -516,7 +516,7 @@ export class ChainBuilder {
     }
   }
 
-  /** The route as the first step of a chain (from the caller), and what the function that registers it does at its lines. */
+  /** The route as the first step, then the handler its actual registration names. */
   async enterRoute(route: GraphEntity, depthLeft: number, unordered = false, fromActor = true): Promise<void> {
     const span = route.span;
     if (span === undefined) return;
@@ -529,23 +529,22 @@ export class ChainBuilder {
         ...(middleware.length === 0 ? {} : { note: `middleware: ${middleware.join(', ')}` }),
       });
     }
-    const registrar = await this.enclosing(span.path, span);
-    if (registrar === undefined) {
-      this.notes.add(`${route.label} is registered in ${span.path}, but the graph does not say which function holds the registration.`);
-      return;
+    const handlers = await this.handlersOf(route);
+    if (handlers.length === 0) this.notes.add(`${route.label} has no resolved handler function in the graph.`);
+    for (const handler of handlers) {
+      if (handler.span === undefined) continue;
+      const handlerLane = await this.laneOfFile(handler.span.path, undefined);
+      if (handlerLane.id !== lane.id) this.push({ from: lane.id, to: handlerLane.id, label: symbolName(handler), kind: 'call', href: refOfGraph(this.ctx, handler).href, order: unordered ? 'unordered' : 'source', ...this.site(route, span), note: 'registered request handler' });
+      await this.visit(handler, depthLeft, undefined, unordered);
     }
-    await this.visit(registrar, depthLeft, { lineStart: span.lineStart, lineEnd: span.lineEnd }, unordered);
   }
 
-  /** The functions a route hands the request to: what its registration calls or references at the route's own lines. */
+  /** Only the route's grounded handler relation identifies a request handler. */
   async handlersOf(route: GraphEntity): Promise<GraphEntity[]> {
-    const span = route.span;
-    if (span === undefined) return [];
-    const registrar = await this.enclosing(span.path, span);
-    if (registrar === undefined) return [];
-    const handlers = new Map<string, GraphEntity>();
-    for (const event of await this.eventsOf(registrar, { lineStart: span.lineStart, lineEnd: span.lineEnd })) if (event.kind === 'call') handlers.set(event.target.key, event.target);
-    return handlers.size === 0 ? [registrar] : [...handlers.values()].sort((a, b) => byCodePoint(a.key, b.key));
+    const found = await this.ctx.graph.edgesOf(route, 'code.handled-by', 'out', 300);
+    return found.rows.map((edge) => edge.other)
+      .filter((handler) => handler.kind === 'code.symbol' && handler.properties['test'] !== true)
+      .sort((a, b) => byCodePoint(a.key, b.key));
   }
 
   /** Starts from a function with no route above it. */

@@ -346,7 +346,10 @@ export function readGoFile(path: string, root: SyntaxNode): GoFileFacts {
         if (argument === null || argument.type !== 'composite_literal') continue;
         const type = argument.childForFieldName('type')?.text;
         if (![...aliases].some((alias) => type === `${alias}.Message`)) continue;
-        const topic = /\bTopic:\s*("[^"\n]*"|[A-Za-z_][\w.]*)/.exec(argument.text)?.[1];
+        const body = argument.childForFieldName('body');
+        const keyed = body?.namedChildren.find((element) => element?.type === 'keyed_element' && (element.childForFieldName('key') ?? element.namedChild(0))?.text === 'Topic');
+        const value = keyed?.childForFieldName('value') ?? keyed?.namedChild(1);
+        const topic = value !== null && value !== undefined && /^(?:"[^"\n]*"|[A-Za-z_][\w.]*)$/.test(value.text) ? value.text : undefined;
         kafkaSites.push({kind: 'publish', ...(topic === undefined ? {} : {topic}), span: spanOf(node, path)});
       }
       return;
