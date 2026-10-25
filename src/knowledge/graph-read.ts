@@ -63,6 +63,12 @@ export interface RelationEdge {
   properties: Record<string, unknown>;
 }
 
+/** A repository's complete indexed history evidence, read together before ranking or counting. */
+export interface HistoryEvidence {
+  entities: GraphEntity[];
+  edges: { from: string; to: string; relation: string; properties: Record<string, unknown> }[];
+}
+
 type Raw = Record<string, unknown>;
 
 const NODE_SELECT = `v.node_id::text AS node_id, k.key AS kind, v.label, v.properties, v.scope_id::text AS scope_id, v.producer`;
@@ -368,6 +374,41 @@ export class GraphReader {
       );
       for (const row of found.rows) counts.set(String(row['key']), Number(row['n']));
       return counts;
+    });
+  }
+
+  /** All visible evidence of one repository. No display limit is applied before totals or ranking. */
+  async historyEvidence(scope: string): Promise<HistoryEvidence> {
+    return await this.run(async (tx, at) => {
+      const nodes = await tx.query<Raw>(
+        `SELECT ${NODE_SELECT} FROM node_version v JOIN node_kind k ON k.id = v.kind_id
+         WHERE v.scope_id = $2::bigint AND v.properties ? 'recordKey' AND ${VISIBLE('v')}
+         ORDER BY v.properties->>'recordKey' COLLATE "C", v.node_id`,
+        [at, scope],
+      );
+      const groups = new Map<string, Raw[]>();
+      for (const row of nodes.rows) {
+        const key = String((row['properties'] as Record<string, unknown>)['recordKey']);
+        const held = groups.get(key) ?? [];
+        held.push(row);
+        groups.set(key, held);
+      }
+      const edges = await tx.query<Raw>(
+        `SELECT s.properties->>'recordKey' AS from_key, d.properties->>'recordKey' AS to_key,
+                r.key AS relation, e.properties
+         FROM edge_version e JOIN relation_type r ON r.id = e.relation_type_id
+         JOIN node_version s ON s.node_id = e.src_id AND ${VISIBLE('s')}
+         JOIN node_version d ON d.node_id = e.dst_id AND ${VISIBLE('d')}
+         WHERE s.scope_id = $2::bigint AND d.scope_id = $2::bigint AND ${VISIBLE('e')}
+           AND s.properties ? 'recordKey' AND d.properties ? 'recordKey'
+           AND r.key IN ('code.touched', 'code.authored', 'code.parent', 'code.renamed-to', 'code.changed-with', 'code.held', 'code.imports')
+         ORDER BY r.key COLLATE "C", s.properties->>'recordKey' COLLATE "C", d.properties->>'recordKey' COLLATE "C", e.id`,
+        [at, scope],
+      );
+      return {
+        entities: [...groups.values()].map(entityOf),
+        edges: edges.rows.map((row) => ({ from: String(row['from_key']), to: String(row['to_key']), relation: String(row['relation']), properties: (row['properties'] ?? {}) as Record<string, unknown> })),
+      };
     });
   }
 

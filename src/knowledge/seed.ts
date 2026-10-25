@@ -33,6 +33,7 @@ const SECTION = {
 };
 
 const PRODUCT = `:::body
+${block('history', 'Repository history', 'История репозиториев')}
 ${block('system', 'The system', 'Система')}
 ${block('treemap', 'Files by size and change', 'Файлы по размеру и изменчивости')}
 ${block('related', 'Relates to', 'Связано с', 'relation="relates"')}
@@ -55,6 +56,8 @@ ${SECTION.pagesAbout('this service', 'этом сервисе')}
 `;
 
 const FILE = `{{path}}
+
+${block('history', 'Change history', 'История изменений')}
 
 ${block('source', 'Source', 'Исходный текст')}
 ${G('Around this file','Вокруг этого файла')}
@@ -85,6 +88,7 @@ ${SECTION.pagesAbout('this package', 'этом пакете')}
 `;
 
 const MODULE = `${SECTION.details}
+${block('history', 'Observed contributions', 'Наблюдаемые изменения')}
 ${G('Around this','Вокруг этого')}
 ${block('related', 'Files', 'Файлы', 'relation="code.contains" depth=2 kind="code.file" limit=80')}
 ${block('related', 'Symbols', 'Символы', 'relation="code.contains" depth=3 kind="code.symbol" limit=60')}

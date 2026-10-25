@@ -348,7 +348,15 @@
     "historyColFigures": "What changed",
     "historySection": {
       "commits": "Commits",
-      "files": "Files"
+      "files": "Files",
+      "summary": "History summary",
+      "hotspots": "Files that change most",
+      "authors": "Observed contributions",
+      "coupling": "Files that change together",
+      "renames": "Moves with one identity",
+      "parents": "Parents, first parent first",
+      "branches": "Work introduced by this merge",
+      "snapshots": "Named snapshots"
     },
     "historyFigure": {
       "added": "added lines",
@@ -356,7 +364,21 @@
       "symbols": "symbols",
       "commits": "commits",
       "files": "files",
-      "module": "module"
+      "module": "module",
+      "reachable": "reachable commits",
+      "firstParent": "first-parent commits",
+      "merges": "merges",
+      "nonMerge": "non-merge commits",
+      "authors": "authors",
+      "since": "from",
+      "until": "to",
+      "both": "changing both",
+      "onlyThis": "changing this file alone",
+      "onlyOther": "changing the other file alone",
+      "authoredAt": "Author date",
+      "committedAt": "Committer date",
+      "effectiveAt": "Effective date",
+      "similarity": "content similarity"
     },
     "manifestFindingsHelp": "Some kinds or lines of the manifest could not be read. The pages of the other kinds are shown and indexed; the lines are listed under Details.",
     "manifestMissingGroup": "Kind \"{{kind}}\" refers to group \"{{group}}\", which is not in the manifest.",
@@ -400,7 +422,14 @@
       "merge": "This commit changed no file of its own: it is a merge, and the changes came in with the branches it brought together.",
       "noFiles": "This commit changed no file of its own.",
       "partialFiles": "The files below count the commits shown; a commit with more files than this page reads adds only the ones it shows.",
-      "symbolsCut": "The file {{path}} holds more entities than this page counts; its symbol figure covers the first {{shown}}."
+      "symbolsCut": "The file {{path}} holds more entities than this page counts; its symbol figure covers the first {{shown}}.",
+      "population": "All reachable non-merge commits count once, including merged branch work. Merge diffs do not inflate hotspots or coupling.",
+      "observedAuthorship": "These are observed contributions, not recorded organizational ownership. Each commit counts once for this module.",
+      "cochangeNotCause": "Co-change is not an import and does not prove causation. Counts cover the full histories of both file identities.",
+      "noImport": "The indexed import relations show neither direction between these coupled files.",
+      "dateAnomaly": "The raw committer date is not later than the parent’s ({{parent}}). History follows ancestry and strictly increasing effective time; raw dates are retained.",
+      "mergeBranch": "Branch {{branch}} entered the first-parent line in this merge on {{date}}.",
+      "unchangedMove": "Git identified an unchanged-content move. The old and new paths share one continuous history; the move counts once."
     },
     "property": {
       "authoredAt": "Authored",
