@@ -62,7 +62,7 @@ test.each([
  'const PORT=9090;const app=createApp();app.listen(PORT);',
 ])('returned imported app proves its own chained or held listener: %s',async(listener)=>{
  const appPath='services/api/app.ts';
- const input=tree({[appPath]:`import express from "express";${health}export function createApp(){const app=express();app.get("/healthz",health);return app;}`,[path]:`import {createApp} from "./app.js";${listener}`,'services/api/admin.ts':'import express from "express";const admin=express();admin.listen(8080);'});
+ const input=tree({'README.md':'# API\n',[appPath]:`import express from "express";${health}export function createApp(){const app=express();app.get("/healthz",health);return app;}`,[path]:`import {createApp} from "./app.js";${listener}`,'services/api/admin.ts':'import express from "express";const admin=express();admin.listen(8080);'});
  const code=await extractCode(input);const ops=extractOperations(input,code);const contracts=await extractContracts(input,code);
  expect(ops.nodes.filter((node)=>node.kind==='code.health-endpoint').map((node)=>node.properties.ports)).toEqual([['9090']]);
  expect(contracts.nodes.filter((node)=>node.kind==='code.route').map((node)=>node.properties.ports)).toEqual([['9090']]);
@@ -94,7 +94,7 @@ const goListenerCases: [string, string, string[]][] = [
 ];
 test.each(goListenerCases)('returned Go method mux keeps constructor and active Server.Handler proof: %s',async(body,returned,ports)=>{
  const goPath='services/api/handler.go';
- const input=tree({[goPath]:`package api\nimport "net/http"\ntype Handler struct{}\ntype Decoy struct{}\nfunc New() *Handler {return &Handler{}}\nfunc Other() *Decoy {return &Decoy{}}\nfunc (d *Decoy) Routes() http.Handler {return http.NewServeMux()}\nfunc (h *Handler) Routes() http.Handler {mux:=http.NewServeMux();mux.HandleFunc("GET /healthz",Health);${returned}}\nfunc Health(w http.ResponseWriter,r *http.Request){}\n`,'services/api/cmd/main.go':`package main\nimport ("net/http";"example.test/api")\nconst addr=":9090"\nfunc main(){${body}}\n`,'services/api/go.mod':'module example.test/api\n\ngo 1.23\n'});
+ const input=tree({'README.md':'# API\n',[goPath]:`package api\nimport "net/http"\ntype Handler struct{}\ntype Decoy struct{}\nfunc New() *Handler {return &Handler{}}\nfunc Other() *Decoy {return &Decoy{}}\nfunc (d *Decoy) Routes() http.Handler {return http.NewServeMux()}\nfunc (h *Handler) Routes() http.Handler {mux:=http.NewServeMux();mux.HandleFunc("GET /healthz",Health);${returned}}\nfunc Health(w http.ResponseWriter,r *http.Request){}\n`,'services/api/cmd/main.go':`package main\nimport ("net/http";"example.test/api")\nconst addr=":9090"\nfunc main(){${body}}\n`,'services/api/go.mod':'module example.test/api\n\ngo 1.23\n'});
  const code=await extractCode(input);const ops=extractOperations(input,code);const contracts=await extractContracts(input,code);
  expect(ops.nodes.filter((node)=>node.kind==='code.health-endpoint').map((node)=>node.properties.ports)).toEqual([ports]);
  expect(contracts.nodes.filter((node)=>node.kind==='code.route').map((node)=>node.properties.ports)).toEqual([ports]);
