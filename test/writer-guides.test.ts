@@ -4,6 +4,7 @@ import { guideDigest, guideStepDigest } from '../src/writer/guides/digest.js';
 import { validateGuide } from '../src/writer/guides/validate.js';
 import { renderGuideMarkdown } from '../src/writer/guides/render.js';
 import { guideWalkStatus, type GuideWalkHost } from '../src/writer/guides/receipts.js';
+import { parseGuideArtifact, renderGuideArtifact } from '../src/writer/guides/artifact.js';
 
 // Boundary fixtures, not live walkthrough evidence. The independent evidence store is host-only.
 const COMMIT = 'a'.repeat(40);
@@ -235,5 +236,83 @@ describe('bounded and pinned guide inputs', () => {
     const guide = await checked(); const receipt = receiptFor(guide);
     const swapped = { ...receipt, observed: 'Different procedure completed.' };
     expect((await guideWalkStatus(guide, [swapped], executionHost([receipt]))).status).toBe('not-walked');
+  });
+});
+
+describe('canonical generated guide artifact', () => {
+  const FILE = '/product/docs/guides/administrator.md';
+  test('en and ru render/parse roundtrip exact payload, instruction bytes and locale', async () => {
+    for (const locale of ['en', 'ru'] as const) {
+      const raw = fixture(); raw.locale = locale;
+      const guide = await checked(raw);
+      const artifact = renderGuideArtifact(guide);
+      const parsed = await parseGuideArtifact(FILE, artifact, sourceHost(raw));
+      expect(parsed.ok).toBe(true);
+      if (parsed.ok) {
+        expect(parsed.guide).toEqual(guide);
+        expect(renderGuideArtifact(parsed.guide)).toBe(artifact);
+      }
+      expect(artifact).toContain(locale === 'ru' ? 'Не пройдено' : 'Not walked');
+      expect(artifact).toContain(`wiki-language: ${locale}`);
+    }
+  });
+
+  test('ordinary Markdown and agent claims do not become checked guide artifacts', async () => {
+    const raw = fixture(); const host = sourceHost(raw);
+    for (const source of ['# Ordinary guide\n\nmake up\n', '---\nproducer: agent\n---\n# Not checked\n', '---\nschema: madarch.product-guide@1\n---\n']) {
+      expect((await parseGuideArtifact(FILE, source, host)).ok).toBe(false);
+    }
+  });
+
+  test('mirrored metadata, unknown fields and body tampering are refused, not overwritten', async () => {
+    const raw = fixture(); const guide = await checked(raw); const artifact = renderGuideArtifact(guide);
+    for (const changed of [
+      artifact.replace('id: administrator\n', 'id: another-guide\n'),
+      artifact.replace('wiki-language: en\n', 'wiki-language: ru\n'),
+      artifact.replace('producer: agent\n', 'producer: agent\npassed: true\n'),
+      artifact.replace('# Administrator guide', '# Human-authored replacement'),
+      artifact.replace('**Walkthrough status: Not walked**', '**Walkthrough status: Passed**'),
+      `${artifact}\nAn authored addition.\n`,
+    ]) {
+      const result = await parseGuideArtifact(FILE, changed, sourceHost(raw));
+      expect(result.ok).toBe(false);
+      if (!result.ok) for (const diagnostic of result.diagnostics) {
+        expect(diagnostic.file).toBe(FILE);
+        expect(diagnostic.line).toBeGreaterThan(0);
+        expect(diagnostic.message).toContain(`${FILE}:${diagnostic.line}:`);
+        expect(diagnostic.path).toStartWith('$.');
+      }
+    }
+  });
+
+  test('unique-key and strict-YAML refusal precedes alias materialization', async () => {
+    const raw = fixture(); const artifact = renderGuideArtifact(await checked(raw));
+    for (const changed of [
+      artifact.replace('schema: madarch.product-guide@1\n', 'schema: madarch.product-guide@1\nschema: other\n'),
+      artifact.replace('title: Administrator guide\n', 'title: &shared Administrator guide\n'),
+      artifact.replace('title: Administrator guide\n', 'title: !!str Administrator guide\n'),
+    ]) {
+      const result = await parseGuideArtifact(FILE, changed, sourceHost(raw));
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.diagnostics.some((d) => d.code === 'strict-yaml')).toBe(true);
+    }
+  });
+
+  test('supported metadata/body does not replace source verification or input freshness', async () => {
+    const raw = fixture(); const artifact = renderGuideArtifact(await checked(raw));
+    expect((await parseGuideArtifact(FILE, artifact, { ...sourceHost(raw), verifyStep: async () => ['unsupported expectation'] })).ok).toBe(false);
+    expect((await parseGuideArtifact(FILE, artifact, { ...sourceHost(raw), expectedInputDigest: '0'.repeat(64) })).ok).toBe(false);
+  });
+
+  test('durable artifact never persists a passed overlay and parsing never grants write ownership', async () => {
+    const raw = fixture(); const guide = await checked(raw); const receipt = receiptFor(guide);
+    const walk = await guideWalkStatus(guide, [receipt], executionHost([receipt]));
+    expect(renderGuideMarkdown(guide, walk)).toContain('Walkthrough status: Passed');
+    const artifact = renderGuideArtifact(guide);
+    expect(artifact).toContain('Walkthrough status: Not walked');
+    const parsed = await parseGuideArtifact(FILE, artifact, sourceHost(raw));
+    expect(parsed.ok).toBe(true);
+    // There is intentionally no overwrite/write capability on the read result.
+    if (parsed.ok) expect(Object.keys(parsed).sort()).toEqual(['guide', 'ok']);
   });
 });
