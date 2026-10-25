@@ -19,7 +19,7 @@ import libraryModelSource from '../library-models/models.json' with { type: 'tex
 const TREE_READERS = [
  {name:'extractFiles',version:2,extractor:extractFiles},
  {name:'extractCode',version:10,extractor:extractCodeWithFacts},
- {name:'extractOperations',version:8,extractor:extractOperations},
+ {name:'extractOperations',version:9,extractor:extractOperations},
  {name:'extractContracts',version:6,extractor:extractContracts},
  {name:'extractDataModel',version:4,extractor:extractDataModel},
 ] as const;

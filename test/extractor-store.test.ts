@@ -65,7 +65,7 @@ test('extractor catalog uses explicit unique names and positive versions, never 
 test('callback ownership, metric bindings, target matching and semantic evidence advance the persistent extractor interpretation', async () => {
  const {EXTRACTOR_VERSIONS}=await import('../src/extract/driver/extractors.js');
  expect(EXTRACTOR_VERSIONS.find((entry)=>entry.name==='extractCode')?.version).toBe(10);
- expect(EXTRACTOR_VERSIONS.find((entry)=>entry.name==='extractOperations')?.version).toBe(8);
+ expect(EXTRACTOR_VERSIONS.find((entry)=>entry.name==='extractOperations')?.version).toBe(9);
  expect(EXTRACTOR_VERSIONS.find((entry)=>entry.name==='extractContracts')?.version).toBe(6);
  expect(EXTRACTOR_VERSIONS.find((entry)=>entry.name==='driver-and-link-normalization')?.version).toBe(6);
  expect(EXTRACTOR_VERSIONS.find((entry)=>entry.name==='extractDataModel')?.version).toBe(4);

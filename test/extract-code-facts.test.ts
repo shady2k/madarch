@@ -162,7 +162,10 @@ test('Go struct proofs retain exact raw type children and local declaration iden
   const {facts} = await extractCodeWithFacts(treeOf({[path]: 'package sample\n' +
     'type Local struct { Name string }\n' +
     'var anonymous = struct { Name string }{Name:"one"}\nvar named = Local{Name:"two"}\ntype Alias = Local\nvar alias = Alias{Name:"three"}\n'}));
-  const anonymous = facts.expressions.find((entry) => entry.compositeType !== undefined);
+  const anonymousCandidates = facts.expressions.filter((entry) => entry.compositeType !== undefined && entry.compositeType.bindingId === undefined &&
+    facts.expressions.find((type) => type.id === entry.compositeType?.typeExpression)?.syntaxKind === 'struct_type');
+  expect(anonymousCandidates).toHaveLength(1);
+  const anonymous = anonymousCandidates[0];
   expect(anonymous).toBeDefined();
   const type = facts.expressions.find((entry) => entry.id === anonymous?.compositeType?.typeExpression);
   expect(type?.syntaxKind).toBe('struct_type');

@@ -95,6 +95,22 @@ export function evaluateLibraryModels(facts: CodeFacts, input: LibraryRegistry =
       binding.typeDeclaration.typeExpression,binding.typeDeclaration.scopeExpression]) getExpression(id,binding);
   }
   for (const expression of facts.expressions) {
+    if (expression.syntaxKind === 'composite_literal' && files.get(expression.path)?.language === 'go' && expression.compositeType !== undefined) {
+      const proof=expression.compositeType; const ids=expression.fields.type??[];
+      const rawType=ids.length===1?expressions.get(ids[0]!):undefined;
+      const span=proof.declarationSpan;
+      const sameDeclaration = rawType!==undefined && span.path===rawType.span.path && span.byteStart===rawType.span.byteStart &&
+        span.byteEnd===rawType.span.byteEnd && span.lineStart===rawType.span.lineStart && span.lineEnd===rawType.span.lineEnd;
+      const rawContained = rawType!==undefined && rawType.path===expression.path && rawType.span.path===expression.path &&
+        expression.span.path===expression.path && expression.span.byteStart<=rawType.span.byteStart && rawType.span.byteEnd<=expression.span.byteEnd &&
+        rawType.span.byteStart<rawType.span.byteEnd && expression.children.filter((id)=>id===rawType.id).length===1;
+      const anonymous=proof.bindingId===undefined && proof.declarationExpression===undefined;
+      if (!rawContained || rawType?.id!==proof.typeExpression || proof.shape!=='struct' ||
+        anonymous && (rawType?.syntaxKind!=='struct_type' || !sameDeclaration)) {
+        report('unsupported-selector',expression,'composite type has no unique struct-shape proof');
+        invalidExpressions.add(expression.id);
+      }
+    }
     if (expression.bindingId !== undefined && !bindings.has(expression.bindingId)) {
       report('dangling-fact', expression, `binding ${expression.bindingId} is missing or ambiguous`);
       invalidExpressions.add(expression.id);
