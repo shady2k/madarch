@@ -214,8 +214,9 @@ export async function extractContracts(reader: TreeReader, code?: Extraction): P
         const port = /:(\d+)\b/.exec(literal)?.[1];
         if (port !== undefined) ports.add(port);
       }
-    } else for (const start of file.ts.started) {
-      if (start.kind === 'http-server' && start.port !== undefined && /^\d+$/.test(start.port)) ports.add(start.port);
+    } else {
+      for (const port of file.ts.listenerPorts) ports.add(port);
+      for (const start of file.ts.started) if (start.kind === 'http-server' && start.port !== undefined && /^\d+$/.test(start.port)) ports.add(start.port);
     }
     portsByService.set(service, ports);
   }
@@ -332,6 +333,7 @@ export async function extractContracts(reader: TreeReader, code?: Extraction): P
         method: route.method,
         path: route.path,
         handler: route.handler,
+        ports: [...(portsByService.get(service ?? '') ?? [])],
         handlerSymbol: route.handlerSymbol,
         middleware: route.middleware,
         authGroup: route.authGroup,
@@ -464,6 +466,7 @@ export async function extractContracts(reader: TreeReader, code?: Extraction): P
         label: `${route.method} ${path}`,
         properties: {
           method: route.method,
+          ports: [...(portsByService.get(service ?? '') ?? [])],
           path,
           ...(service === undefined ? {} : {service}),
           ...(handler === undefined ? {} : {handlerKey: handler, handlerPath: handler.slice('code.symbol:'.length, handler.indexOf('#'))}),
@@ -616,7 +619,9 @@ export async function extractContracts(reader: TreeReader, code?: Extraction): P
         gaps.push({path: operation.contractPath, reason: `contracts: line 1: ${operation.method} ${operation.routePath} has multiple routes in the same server scope (${operation.contractPath})`});
         continue;
       }
-      addEdge(REL_SERVES, routes[0]!.key, operation.key, {service: routes[0]!.service ?? ''});
+      const route = nodes.find((node) => node.key === routes[0]!.key);
+      if (route?.span === undefined) {gaps.push({path: operation.contractPath, reason: `contracts: line 1: matching route has no registration evidence (${operation.contractPath})`}); continue;}
+      addEdge(REL_SERVES, route.key, operation.key, {service: routes[0]!.service ?? ''}, route.span);
     }
   }
 

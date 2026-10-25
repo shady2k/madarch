@@ -20,8 +20,8 @@ import { TreeText } from './source.js';
 export const OPERATIONS_PRODUCER = 'code.extract.operations';
 
 /** Extracts the operations records of one tree. */
-export function extractOperations(tree: TreeReader): Extraction {
-  const t = new TreeText(tree);
+export function extractOperations(tree: TreeReader, code?: Extraction): Extraction {
+  const t = new TreeText(tree, code);
   const records = new Records(t);
   try {
     const envReads = extractEnv(t, records);

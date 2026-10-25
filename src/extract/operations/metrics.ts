@@ -3,7 +3,7 @@ import type { PropertyValue, SourceSpan } from '../records.js';
 import { byCodePoint } from '../../model/order.js';
 import type { Records } from './accumulate.js';
 import { serviceOf, type TreeText } from './source.js';
-import { escaped, functionAt, functionNode, functionsOf, relativeSource, sourceMask, sourceSpan, type FunctionSite } from './symbol-sites.js';
+import { bindingShadowed, closeDelimiter, escaped, functionAt, functionNode, functionsOf, relativeSource, sourceMask, sourceSpan, type FunctionSite } from './symbol-sites.js';
 
 interface Metric {
   readonly path: string;
@@ -15,38 +15,9 @@ interface Metric {
   readonly span: SourceSpan;
   readonly textWriter: boolean;
   readonly bindingAt?: number;
+  readonly defaultRegistry?: boolean;
 }
 
-
-/** Conservative lexical proof for the supported source forms. Unrelated scopes cannot shadow this site. */
-function bindingShadowed(mask: string, name: string, at: number, definition?: number): boolean {
-  const stack: number[] = [];
-  const scopes: {start: number; end: number}[] = [{start: 0, end: mask.length}];
-  for (let index = 0; index < mask.length; index++) {
-    if (mask[index] === '{') stack.push(index);
-    else if (mask[index] === '}') {const start = stack.pop(); if (start !== undefined) scopes.push({start, end: index + 1});}
-  }
-  const scopeOf = (position: number) => scopes.filter((scope) => scope.start <= position && position < scope.end).sort((a, b) => (a.end - a.start) - (b.end - b.start))[0]!;
-  const isEnclosing = (position: number): boolean => {const scope = scopeOf(position); return scope.start <= at && at < scope.end;};
-  const declarations = new RegExp(`\\b(?:const|let|var|class|function)\\s+${escaped(name)}\\b`, 'g');
-  for (const match of mask.matchAll(declarations)) {
-    const nameAt = match.index + match[0].lastIndexOf(name);
-    if (definition !== undefined && match.index <= definition && definition < nameAt + name.length) continue;
-    if (isEnclosing(match.index)) return true;
-  }
-  // Parenthesized parameters and their function body, including nested functions/closures.
-  const parameters = /\(([^()]*)\)\s*(?::[^=;{]+)?(?:=>\s*)?\{/g;
-  for (const match of mask.matchAll(parameters)) {
-    const body = match.index + match[0].lastIndexOf('{');
-    const scope = scopes.find((candidate) => candidate.start === body);
-    if (scope === undefined || at < body || at >= scope.end) continue;
-    const expression = new RegExp(`(?:^|,)\\s*(?:(?:public|private|protected|readonly)\\s+)*${escaped(name)}(?:\\s*[:=,)]|\\s+[*\\w\\[\\]]+|\\s*$)`);
-    if (expression.test(match[1] ?? '')) return true;
-  }
-  // Go short declarations are bindings too. Keep ordinary assignment distinct.
-  for (const match of mask.matchAll(new RegExp(`\\b${escaped(name)}\\s*:=`, 'g'))) if (match.index !== definition && isEnclosing(match.index)) return true;
-  return false;
-}
 
 /** Explicit constructors, and the text-format definitions the training service writes. */
 function definitions(t: TreeText, path: string): Metric[] {
@@ -54,6 +25,7 @@ function definitions(t: TreeText, path: string): Metric[] {
   const found: Metric[] = [];
   const mask = sourceMask(text);
   const imported = new Map<string, string>();
+  const autoRegistered = new Set<string>();
   if (path.endsWith('.ts')) {
     for (const statement of text.matchAll(/import\s*\{([^}]+)\}\s*from\s*['"]prom-client['"]/g)) {
       if (mask.slice(statement.index, statement.index + 6) !== 'import') continue;
@@ -70,7 +42,11 @@ function definitions(t: TreeText, path: string): Metric[] {
     for (const statement of text.matchAll(/(?:^|[\n;(])\s*(?:import\s+)?(?:(\w+)\s+)?"github\.com\/prometheus\/client_golang\/(prometheus(?:\/promauto)?)"/g)) {
       const lineStart = text.lastIndexOf('\n', statement.index) + 1;
       if (/^\s*(?:\/\/|\/\*|\*)/.test(text.slice(lineStart, statement.index + statement[0].length))) continue;
-      for (const name of ['Counter', 'Gauge', 'Histogram']) for (const suffix of ['', 'Vec']) imported.set(`${statement[1] ?? (statement[2]?.endsWith('/promauto') ? 'promauto' : 'prometheus')}.New${name}${suffix}`, name);
+      for (const name of ['Counter', 'Gauge', 'Histogram']) for (const suffix of ['', 'Vec']) {
+        const binding = `${statement[1] ?? (statement[2]?.endsWith('/promauto') ? 'promauto' : 'prometheus')}.New${name}${suffix}`;
+        imported.set(binding, name);
+        if (statement[2]?.endsWith('/promauto')) autoRegistered.add(binding);
+      }
     }
   }
   const constructors = /\b(?:var|const|let)?\s*(\w+)\s*(?::=|=)\s*(?:new\s+)?([\w.]+)\s*\(/g;
@@ -81,9 +57,9 @@ function definitions(t: TreeText, path: string): Metric[] {
     if (metricType === undefined) continue;
     const rootBinding = constructor.split('.')[0]!;
     if (bindingShadowed(mask, rootBinding, match.index)) continue;
-    const end = text.indexOf('\n)', match.index);
-    const semicolon = text.indexOf(';', match.index);
-    const stop = Math.min(end < 0 ? text.length : end + 2, semicolon < 0 ? text.length : semicolon + 1);
+    const open = match.index + match[0].lastIndexOf('(');
+    const stop = closeDelimiter(mask, open);
+    if (stop === undefined) continue;
     const body = text.slice(match.index, stop);
     const name = /\b(?:Name|name)\s*:\s*['"]([^'"]+)['"]/.exec(body)?.[1];
     if (name === undefined) continue;
@@ -91,7 +67,7 @@ function definitions(t: TreeText, path: string): Metric[] {
     const subsystem = /\bSubsystem\s*:\s*"([^"]+)"/.exec(body)?.[1];
     const labelBody = /\blabelNames\s*:\s*\[([^\]]*)\]/.exec(body)?.[1] ?? /\[\]string\s*\{([^}]*)\}/.exec(body)?.[1] ?? '';
     const labels = [...labelBody.matchAll(/['"]([^'"]+)['"]/g)].map((held) => held[1] ?? '').sort(byCodePoint);
-    found.push({ path, name: [namespace, subsystem, name].filter(Boolean).join('_'), metricType: metricType.toLowerCase(), labels, binding: match[1] ?? '', span: sourceSpan(t, path, match.index, stop), textWriter: false, bindingAt: match.index + match[0].indexOf(match[1] ?? '') });
+    found.push({ path, name: [namespace, subsystem, name].filter(Boolean).join('_'), metricType: metricType.toLowerCase(), labels, binding: match[1] ?? '', span: sourceSpan(t, path, match.index, stop), textWriter: false, defaultRegistry: path.endsWith('.ts') ? !/\bregisters\s*:/.test(body) : autoRegistered.has(constructor), bindingAt: match.index + match[0].indexOf(match[1] ?? '') });
   }
   const typeDirectives = new Map<string, string>();
   for (const match of text.matchAll(/# TYPE\s+([a-zA-Z_:][\w:]*)\s+(counter|gauge|histogram)\b/g)) typeDirectives.set(match[1] ?? '', match[2] ?? '');
@@ -114,7 +90,7 @@ function definitions(t: TreeText, path: string): Metric[] {
 
 function updater(records: Records, t: TreeText, metricKey: string, path: string, at: number, end: number): FunctionSite | undefined {
   const site = functionAt(t, path, at);
-  if (site === undefined) return undefined;
+  if (site === undefined) {const span = sourceSpan(t, path, at, end); records.gap(path, `line ${span.lineStart}: metric update has no resolved function (${path})`); return undefined;}
   const span = sourceSpan(t, path, at, end);
   records.edge('code.updates-metric', functionNode(records, site), metricKey, {}, span, String(span.byteStart));
   return site;
@@ -188,11 +164,15 @@ export function extractMetrics(t: TreeText, records: Records): void {
   for (const path of sources) {
     const text = t.text(path);
     const service = serviceOf(path) ?? '';
-    const registrations = [...text.matchAll(/\.(?:Handle|HandleFunc|get)\(\s*['"](?:GET )?\/metrics['"]\s*,\s*([^\n;]+)/g)];
+    const mask = sourceMask(text);
+    const registrations = [...text.matchAll(/\.(?:Handle|HandleFunc|get)\(\s*['"](?:GET )?\/metrics['"]\s*,/g)].filter((match) => mask[match.index] === '.');
     if (registrations.length === 0) continue;
     const serviceMetrics = metrics.filter((metric) => serviceOf(metric.path) === service);
     for (const registration of registrations) {
-      const handler = registration[1] ?? '';
+      const end = closeDelimiter(mask, registration.index + registration[0].indexOf('('));
+      if (end === undefined) continue;
+      const handler = text.slice(registration.index + registration[0].length, end - 1);
+      const handlerMask = mask.slice(registration.index + registration[0].length, end - 1);
       const textGroups = new Map<string, Metric[]>();
       for (const metric of serviceMetrics.filter((held) => held.textWriter)) {
         // Resolve handler receiver type through a declared field or local constructor.
@@ -205,13 +185,35 @@ export function extractMetrics(t: TreeText, records: Records): void {
         textGroups.set(group, [...(textGroups.get(group) ?? []), metric]);
       }
       const constructorMetrics = serviceMetrics.filter((metric) => !metric.textWriter);
-      // Standard registry handler: exports metrics of this service's default registry.
-      if (/promhttp\.Handler\(|register\.metrics\(|registry\.metrics\(/.test(handler)) {
-        for (const metric of constructorMetrics) textGroups.set(`${metric.path}#registry`, [...(textGroups.get(`${metric.path}#registry`) ?? []), metric]);
+      // Only the imported default registry can expose its known members. A
+      // receiver's spelling, comments or an unrelated object prove nothing.
+      const registryBindings: string[] = [];
+      for (const statement of text.matchAll(/import\s*\{([^}]+)\}\s*from\s*['"]prom-client['"]/g)) {
+        if (mask.slice(statement.index, statement.index + 6) !== 'import') continue;
+        for (const entry of (statement[1] ?? '').split(',')) {
+          const named = /^\s*register(?:\s+as\s+(\w+))?\s*$/.exec(entry);
+          if (named !== null) registryBindings.push(named[1] ?? 'register');
+        }
       }
+      let defaultRegistry = false;
+      for (const binding of registryBindings) for (const call of handlerMask.matchAll(new RegExp(`\\b${escaped(binding)}\\.metrics\\s*\\(`, 'g'))) {
+        const at = registration.index + registration[0].length + call.index;
+        if (!bindingShadowed(mask, binding, at)) defaultRegistry = true;
+      }
+      // Go's promhttp default Handler only exports explicitly registered or
+      // promauto metrics. Plain NewCounter does not register by construction.
+      const promhttp = /(?:^|[\n;(])\s*(?:import\s+)?(?:(\w+)\s+)?"github\.com\/prometheus\/client_golang\/prometheus\/promhttp"/g;
+      for (const statement of text.matchAll(promhttp)) {
+        const alias = statement[1] ?? 'promhttp';
+        if (new RegExp(`\\b${escaped(alias)}\\.Handler\\s*\\(`).test(handlerMask) && !bindingShadowed(mask, alias, registration.index)) defaultRegistry = true;
+      }
+      if (defaultRegistry) for (const metric of constructorMetrics.filter((metric) => metric.defaultRegistry)) {
+        textGroups.set(`${metric.path}#registry`, [...(textGroups.get(`${metric.path}#registry`) ?? []), metric]);
+      }
+      if (textGroups.size === 0) records.gap(path, `line ${text.slice(0, registration.index).split('\n').length}: metrics registration receiver or membership is unresolved (${path})`);
       for (const [group, held] of textGroups) {
         const endpoint = `code.metrics-endpoint:${group}`;
-        const span = sourceSpan(t, path, registration.index, registration.index + registration[0].length);
+        const span = sourceSpan(t, path, registration.index, end);
         records.add({ key: endpoint, kind: 'code.metrics-endpoint', label: `/metrics of ${service}`, properties: { path: '/metrics', service, format: 'prometheus-text', counters: held.filter((metric) => metric.metricType === 'counter').map((metric) => metric.name).sort(byCodePoint) }, span });
         records.edge('code.served-by', endpoint, records.file(path), { service }, span);
         for (const metric of held) records.edge('code.exposes-metric', endpoint, `code.metric:${metric.path}#${metric.name}`, {}, span);

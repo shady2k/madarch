@@ -57,16 +57,34 @@ export function functionsOf(t: TreeText, path: string): FunctionSite[] {
     // A bare method form must belong to a class, never an arbitrary call block.
     if (!path.endsWith('.go') && match[3] !== undefined && owner === undefined) continue;
     const end = closeBrace(mask, open);
-    if (found.some((held) => held.start <= start && end <= held.end)) continue;
+    // Nested named functions are real owners, not uses of their outer factory.
     found.push({ path, name, qualifiedName: owner === undefined ? name : `${owner}.${name}`,
       ...(path.endsWith('.go') && match[1] !== undefined ? { receiver: match[1], receiverType: owner } : {}),
       start, end, bodyStart: open, span: sourceSpan(t, path, start, end) });
+  }
+  if (t.code !== undefined) {
+    const canonical = t.code.nodes.filter((node) => node.kind === 'code.symbol' && node.span?.path === path && ['function', 'method', 'constructor'].includes(String(node.properties.symbolKind)));
+    return canonical.flatMap((node) => {
+      const span = node.span!;
+      const start = new TextDecoder().decode(t.tree.read(path).subarray(0, span.byteStart)).length;
+      const end = new TextDecoder().decode(t.tree.read(path).subarray(0, span.byteEnd)).length;
+      const held = found.find((site) => site.start <= start && site.end === end);
+      const qualifiedName = String(node.properties.qualifiedName);
+      const open = mask.indexOf('{', start);
+      return [{...(held ?? {}), path, name: String(node.properties.name), qualifiedName, start, end, bodyStart: open < 0 || open >= end ? start : open, span}];
+    });
   }
   return found;
 }
 
 export function functionAt(t: TreeText, path: string, at: number): FunctionSite | undefined {
-  return functionsOf(t, path).filter((site) => site.start <= at && at < site.end).sort((a, b) => a.end - a.start - (b.end - b.start))[0];
+  const site = functionsOf(t, path).filter((site) => site.start <= at && at < site.end).sort((a, b) => a.end - a.start - (b.end - b.start))[0];
+  if (t.code === undefined && site !== undefined) {
+    const before = sourceMask(t.text(path)).slice(site.bodyStart, at);
+    // Without canonical syntax facts an anonymous boundary cannot be attributed to its parent.
+    if (/=>|\bfunc\s*\(|\bfunction\s*\(/.test(before)) return undefined;
+  }
+  return site;
 }
 
 export function functionNode(records: Records, site: FunctionSite): string {
@@ -88,4 +106,49 @@ export function relativeSource(t: TreeText, from: string, specifier: string): st
   }
   const candidate = parts.join('/');
   return [candidate, candidate.replace(/\.js$/, '.ts'), `${candidate}.ts`, `${candidate}/index.ts`].find((path) => t.has(path));
+}
+
+/** Conservative lexical proof for the supported source forms. Unrelated scopes cannot shadow this site. */
+export function bindingShadowed(mask: string, name: string, at: number, definition?: number): boolean {
+  const stack: number[] = [];
+  const scopes: {start: number; end: number}[] = [{start: 0, end: mask.length}];
+  for (let index = 0; index < mask.length; index++) {
+    if (mask[index] === '{') stack.push(index);
+    else if (mask[index] === '}') {const start = stack.pop(); if (start !== undefined) scopes.push({start, end: index + 1});}
+  }
+  const scopeOf = (position: number) => scopes.filter((scope) => scope.start <= position && position < scope.end).sort((a, b) => (a.end - a.start) - (b.end - b.start))[0]!;
+  const isEnclosing = (position: number): boolean => {const scope = scopeOf(position); return scope.start <= at && at < scope.end;};
+  const declarations = new RegExp(`\\b(?:const|let|var|class|function)\\s+${escaped(name)}\\b`, 'g');
+  for (const match of mask.matchAll(declarations)) {
+    const nameAt = match.index + match[0].lastIndexOf(name);
+    if (definition !== undefined && match.index <= definition && definition < nameAt + name.length) continue;
+    if (isEnclosing(match.index)) return true;
+  }
+  // Function-typed parameters can themselves contain parentheses.
+  for (const match of mask.matchAll(/\(/g)) {
+    const end = closeDelimiter(mask, match.index); if (end === undefined) continue;
+    const tail = mask.slice(end); const next = /^\s*(?::[^;{]+)?(?:=>\s*)?\{/.exec(tail);
+    if (next === null) continue;
+    const body = end + next[0].lastIndexOf('{');
+    const scope = scopes.find((candidate) => candidate.start === body);
+    if (scope === undefined || at < body || at >= scope.end) continue;
+    const parameters = mask.slice(match.index + 1, end - 1);
+    const expression = new RegExp(`(?:^|,)\\s*(?:(?:public|private|protected|readonly)\\s+)*${escaped(name)}(?:\\s*[:=,)]|\\s+[*\\w\\[\\]]+|\\s*$)`);
+    if (expression.test(parameters)) return true;
+  }
+  // Go short declarations are bindings too. Keep ordinary assignment distinct.
+  for (const match of mask.matchAll(new RegExp(`\\b${escaped(name)}\\s*:=`, 'g'))) if (match.index !== definition && isEnclosing(match.index)) return true;
+  return false;
+}
+
+
+/** A delimiter range measured in the same masked source, never a later statement. */
+export function closeDelimiter(mask: string, start: number, open = '(', close = ')'): number | undefined {
+  if (mask[start] !== open) return undefined;
+  let depth = 0;
+  for (let at = start; at < mask.length; at++) {
+    if (mask[at] === open) depth++;
+    else if (mask[at] === close && --depth === 0) return at + 1;
+  }
+  return undefined;
 }

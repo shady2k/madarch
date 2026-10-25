@@ -4,11 +4,12 @@
  * Records are keyed by the file and the symbol that serve, never by the route,
  * so the contracts extractor may find the same routes without a collision.
  */
+import {endpointTarget, matchesEndpoint} from '../endpoint-target.js';
 import type { PropertyValue } from '../records.js';
 import { extractMetrics } from './metrics.js';
 import type { Records } from './accumulate.js';
 import { serviceOf, TreeText } from './source.js';
-import { escaped, functionAt, functionNode, functionsOf, relativeSource, sourceMask, sourceSpan } from './symbol-sites.js';
+import { bindingShadowed, closeDelimiter, escaped, functionAt, functionNode, functionsOf, relativeSource, sourceMask, sourceSpan } from './symbol-sites.js';
 
 /** Logger declarations and uses resolved through imports, not a global name match. */
 function loggers(t: TreeText, records: Records): void {
@@ -34,6 +35,7 @@ function loggers(t: TreeText, records: Records): void {
       if (binding === undefined || imported === null || mask.slice(imported.index, imported.index + 6) !== 'import') continue;
       for (const match of text.matchAll(new RegExp(`(?:export\\s+)?const\\s+(\\w+)\\s*=\\s*${escaped(binding)}\\s*\\(`, 'g'))) {
         if (mask.slice(match.index, match.index + match[0].length).trim() === '') continue;
+        if (bindingShadowed(mask, binding, match.index)) continue;
         const symbol = match[1] ?? '';
         const key = `code.logger:${path}#${symbol}`;
         records.add({ key, kind: 'code.logger', label: `logger of ${service}`, properties: { service, library: 'pino', json: true }, span: sourceSpan(t, path, match.index, match.index + match[0].length) });
@@ -47,6 +49,7 @@ function loggers(t: TreeText, records: Records): void {
     records.edge('code.uses-logger', key, records.file(path), {}, span, discriminator);
     const site = functionAt(t, path, at);
     if (site !== undefined) records.edge('code.uses-logger', key, functionNode(records, site), {}, span, discriminator);
+    else records.gap(path, `line ${span.lineStart}: logger use has no resolved function (${path})`);
   };
   for (const logger of declarations) {
     const folder = logger.path.slice(0, logger.path.lastIndexOf('/'));
@@ -103,102 +106,72 @@ function loggers(t: TreeText, records: Records): void {
   }
 }
 
-/** One endpoint found in one file: the registration line and the symbol that serves it. */
+/** A real registration, and its resolved handler (if canonical code facts are available). */
 interface Endpoint {
   readonly method: string;
   readonly path: string;
-  readonly line: number;
-  readonly symbol: string;
+  readonly span: import('../records.js').SourceSpan;
+  readonly handler?: import('./symbol-sites.js').FunctionSite;
   readonly statusOk: boolean;
 }
-
-/**
- * The route registrations of one Go file. A named handler's response is read
- * at the handler's own declaration, not at the registration line, so a
- * statusOk property always sits where the answer is written.
- */
-function goRegistrations(t: TreeText, path: string): Endpoint[] {
-  const lines = t.lines(path);
-  const found: Endpoint[] = [];
-  lines.forEach((line, index) => {
-    for (const match of line.matchAll(/\.(?:Handle|HandleFunc)\(\s*"([A-Z]+)\s+(\/[A-Za-z0-9_./:-]*)"\s*,\s*([^)]*)\)/g)) {
-      const handler = (match[3] ?? '').trim();
-      const named = /^[A-Za-z0-9_.]+$/.test(handler);
-      const symbol = named ? (handler.split('.').pop() ?? '') : (nearestGoDeclaration(lines, index) ?? '');
-      let body = lines.slice(index, index + 6).join('\n');
-      if (named && symbol !== '') {
-        const declared = lines.findIndex((candidate) => new RegExp(`^func\\s+(?:\\([^)]*\\)\\s+)?${symbol}\\s*\\(`).test(candidate));
-        if (declared >= 0) body = lines.slice(declared, declared + 8).join('\n');
-      }
-      found.push({
-        method: match[1] ?? '',
-        path: match[2] ?? '',
-        line: index + 1,
-        symbol,
-        statusOk: /"ok"|'ok'/.test(body),
-      });
+function registrations(t: TreeText, path: string): Endpoint[] {
+  const text = t.text(path); const mask = sourceMask(text); const found: Endpoint[] = [];
+  const pattern = /\.(get|post|put|delete|all|Handle|HandleFunc)\(\s*['"]([^'"]+)['"]\s*,/g;
+  for (const match of text.matchAll(pattern)) {
+    if (mask[match.index] !== '.') continue;
+    const open = match.index + match[0].indexOf('(');
+    const end = closeDelimiter(mask, open); if (end === undefined) continue;
+    const handlerStart = match.index + match[0].length;
+    const handlerText = text.slice(handlerStart, end - 1).trim();
+    const at = handlerStart + text.slice(handlerStart, end - 1).indexOf(handlerText);
+    const byte = new TextEncoder().encode(text.slice(0, at)).length;
+    const inline = /^(?:async\s+)?(?:\(|function\b|func\b)/.test(handlerText);
+    const sites = functionsOf(t, path);
+    let handler = inline ? sites.find((site) => site.span.byteStart === byte && site.end <= end) : undefined;
+    if (!inline && t.code !== undefined) {
+      const targets = new Set(t.code.edges.filter((edge) => edge.type === 'code.occurrence' && edge.span?.path === path && byte <= edge.span.byteStart && edge.span.byteEnd <= new TextEncoder().encode(text.slice(0, end - 1)).length).map((edge) => edge.to));
+      const candidates = sites.filter((site) => targets.has(`code.symbol:${path}#${site.qualifiedName}`));
+      if (candidates.length === 1) handler = candidates[0];
+    } else if (!inline && /^[\w.]+$/.test(handlerText)) {
+      const candidates = sites.filter((site) => site.name === handlerText.split('.').pop());
+      if (candidates.length === 1) handler = candidates[0];
     }
-  });
+    const raw = match[2] ?? ''; const go = (match[1] ?? '').startsWith('Handle');
+    const method = go ? /^([A-Z]+) /.exec(raw)?.[1] ?? '' : (match[1] ?? '').toUpperCase();
+    const routePath = go ? raw.replace(/^[A-Z]+ /, '') : raw;
+    found.push({method, path: routePath, span: sourceSpan(t, path, match.index, end), ...(handler === undefined ? {} : {handler}), statusOk: handler !== undefined && /['"]ok['"]/.test(text.slice(handler.start, handler.end))});
+  }
   return found;
 }
 
-/** The route registrations of one TypeScript file. */
-function tsRegistrations(t: TreeText, path: string): Endpoint[] {
-  const lines = t.lines(path);
-  const found: Endpoint[] = [];
-  lines.forEach((line, index) => {
-    for (const match of line.matchAll(/\.(get|post|put|delete|all)\(\s*['"]([^'"]+)['"]/g)) {
-      const body = lines.slice(index, index + 6).join('\n');
-      found.push({
-        method: (match[1] ?? '').toUpperCase(),
-        path: match[2] ?? '',
-        line: index + 1,
-        symbol: nearestTsDeclaration(lines, index) ?? '',
-        statusOk: /"ok"|'ok'/.test(body),
-      });
-    }
-  });
-  return found;
-}
-
-function nearestGoDeclaration(lines: readonly string[], index: number): string | undefined {
-  for (let at = index; at >= 0; at -= 1) {
-    const declared = /^func\s+(?:\([^)]*\)\s+)?([A-Za-z0-9_]+)/.exec(lines[at] ?? '');
-    if (declared !== null) return declared[1];
-  }
-  return undefined;
-}
-
-function nearestTsDeclaration(lines: readonly string[], index: number): string | undefined {
-  const ownLine = lines[index] ?? '';
-  const own = ownLine.length - ownLine.trimStart().length;
-  for (let at = index; at >= 0; at -= 1) {
-    const line = lines[at] ?? '';
-    const indent = line.length - line.trimStart().length;
-    if (at !== index && indent >= own) continue;
-    const declared = /(?:function\s+([A-Za-z0-9_]+)|(?:const|let)\s+([A-Za-z0-9_]+)\s*=\s*(?:async\s*)?\()/.exec(line);
-    if (declared !== null) return declared[1] ?? declared[2];
-  }
-  return undefined;
+/** Literal listeners in this service; no healthcheck option supplies a server port. */
+function listenerPorts(t:TreeText, service:string|undefined):string[] {
+ const ports=new Set<string>();
+ for(const path of t.tree.paths.filter((path)=>serviceOf(path)===service&&/\.(?:ts|go)$/.test(path))) {
+  const text=t.text(path);const mask=sourceMask(text);
+  for(const match of text.matchAll(/\.listen\(\s*(\d+)\b|\b(?:Addr|addr)\s*:\s*["']:(\d+)["']|ListenAndServe\(\s*["']:(\d+)["']/g)) if(mask[match.index]!== ' ') ports.add(match[1]??match[2]??match[3]!);
+ }
+ return [...ports].sort();
 }
 
 /** The health endpoints: every registration of /healthz, keyed by its file and symbol. */
 function healthEndpoints(t: TreeText, records: Records): void {
   for (const path of t.tree.paths) {
     if (!/^services\//.test(path) || !(path.endsWith('.go') || path.endsWith('.ts'))) continue;
-    const found = path.endsWith('.go') ? goRegistrations(t, path) : tsRegistrations(t, path);
+    const found = registrations(t, path);
     for (const endpoint of found.filter((entry) => /^\/(?:healthz?|readyz?|livez?|startupz?)$/.test(entry.path))) {
-      const endpointKey = `code.health-endpoint:${path}#${endpoint.symbol}${endpoint.path === '/healthz' ? '' : endpoint.path}`;
+      const identity = endpoint.handler?.qualifiedName ?? `unresolved@${endpoint.span.lineStart}:${endpoint.span.byteStart}`;
+      const endpointKey = `code.health-endpoint:${path}#${identity}${endpoint.path === '/healthz' ? '' : endpoint.path}`;
       records.add({
         key: endpointKey,
         kind: 'code.health-endpoint',
         label: `${endpoint.path} of ${serviceOf(path) ?? path}`,
-        properties: { path: endpoint.path, method: endpoint.method, statusOk: endpoint.statusOk, service: serviceOf(path) ?? '' } satisfies { [key: string]: PropertyValue },
-        span: t.spanOfLine(path, endpoint.line),
+        properties: { path: endpoint.path, method: endpoint.method, ports: listenerPorts(t, serviceOf(path)), statusOk: endpoint.statusOk, service: serviceOf(path) ?? '' } satisfies { [key: string]: PropertyValue },
+        span: endpoint.span,
       });
-      records.edge('code.served-by', endpointKey, records.file(path), {service: serviceOf(path) ?? ''}, t.spanOfLine(path, endpoint.line));
-      const declared = functionsOf(t, path).filter((site) => site.name === endpoint.symbol);
-      if (declared.length === 1 && declared[0] !== undefined) records.edge('code.served-by', endpointKey, functionNode(records, declared[0]), { role: 'handler' }, t.spanOfLine(path, endpoint.line));
+      records.edge('code.served-by', endpointKey, records.file(path), {service: serviceOf(path) ?? ''}, endpoint.span);
+      if (endpoint.handler !== undefined) records.edge('code.served-by', endpointKey, functionNode(records, endpoint.handler), {role: 'handler'}, endpoint.span);
+      else records.gap(path, `line ${endpoint.span.lineStart}: health registration handler is unresolved (${path})`);
     }
   }
 }
@@ -211,12 +184,16 @@ function healthEndpoints(t: TreeText, records: Records): void {
  */
 export function linkEndpoints(t: TreeText, records: Records): void {
   for (const probe of records.nodes.filter((node) => node.kind === 'code.probe' || node.kind === 'code.healthcheck')) {
-    let routePath = probe.properties.path;
+    // A TCP/exec/database readiness command does not claim an HTTP endpoint.
+    if (probe.kind === 'code.probe' && probe.properties.transport !== 'http') continue;
     if (probe.kind === 'code.healthcheck') {
-      const command = Array.isArray(probe.properties.test) ? probe.properties.test.join(' ') : probe.properties.test;
-      routePath = typeof command === 'string' ? /https?:\/\/[^\s/]+(\/[^\s'"]*)/.exec(command)?.[1] : undefined;
+      const test = probe.properties.test;
+      const command = Array.isArray(test) ? test.join(' ') : test;
+      if (typeof command !== 'string' || !/https?:\/\//.test(command)) continue;
     }
-    const endpoints = records.nodes.filter((node) => node.kind === 'code.health-endpoint' && node.properties.path === routePath && node.properties.service === probe.properties.service);
+    const target = endpointTarget(probe);
+    if (target === undefined) {records.gap(probe.span?.path ?? '.', `line ${probe.span?.lineStart ?? 1}: probe target authority or method is unresolved (${probe.key})`); continue;}
+    const endpoints = records.nodes.filter((node) => node.kind === 'code.health-endpoint' && matchesEndpoint(target, node));
     if (endpoints.length === 1 && endpoints[0] !== undefined) records.edge('code.probes', probe.key, endpoints[0].key, { role: 'endpoint' }, probe.span);
   }
   for (const node of [...records.nodes]) {

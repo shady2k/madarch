@@ -3,7 +3,7 @@
  * point at. Offsets are bytes (records.ts), lines are 1-based; both come from
  * the same decoded text, so a span made here is the span the bytes hold.
  */
-import type { SourceSpan, TreeReader } from '../records.js';
+import type { Extraction, SourceSpan, TreeReader } from '../records.js';
 import { byCodePoint } from '../../model/order.js';
 
 const encoder = new TextEncoder();
@@ -17,7 +17,7 @@ export class TreeText {
 
   readonly tree: TreeReader;
 
-  constructor(tree: TreeReader) {
+  constructor(tree: TreeReader, readonly code?: Extraction) {
     this.tree = tree;
     const paths = new Set(tree.paths);
     this.has = (path) => paths.has(path);

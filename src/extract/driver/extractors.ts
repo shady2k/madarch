@@ -15,9 +15,9 @@ import type { HistoryExtractor, TreeExtractor } from './index.js';
 /** Every tree extractor, in the order the driver runs them per commit. */
 const TREE_READERS = [
  {name:'extractFiles',version:2,extractor:extractFiles},
- {name:'extractCode',version:5,extractor:extractCode},
- {name:'extractOperations',version:2,extractor:extractOperations},
- {name:'extractContracts',version:2,extractor:extractContracts},
+ {name:'extractCode',version:6,extractor:extractCode},
+ {name:'extractOperations',version:3,extractor:extractOperations},
+ {name:'extractContracts',version:3,extractor:extractContracts},
  {name:'extractDataModel',version:2,extractor:extractDataModel},
 ] as const;
 export const TREE_EXTRACTORS: readonly TreeExtractor[] = TREE_READERS.map((entry)=>entry.extractor);
@@ -38,5 +38,5 @@ export const OWNERS: Readonly<Record<string, string>> = { 'code.file': FILES_PRO
 /** The persistent index is rebuilt when any named reader's interpretation changes. */
 export const EXTRACTOR_VERSIONS = [
  ...TREE_READERS.map(({name,version})=>({name,version})), {name:'extractHistory',version:1},
- {name:'driver-and-link-normalization',version:5},
+ {name:'driver-and-link-normalization',version:6},
 ] as const;

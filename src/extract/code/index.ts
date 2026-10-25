@@ -61,6 +61,7 @@ import {readTsFile} from '../contracts/ts-code.js';
 import {readGoFile} from '../contracts/go-code.js';
 import {readSyntaxTree} from '../../fill/stages/syntax-extract.js';
 import {callbackName} from './keys.js';
+import {spanOf, walkTree} from '../contracts/walk.js';
 
 const decoder = new TextDecoder('utf-8', { fatal: true });
 
@@ -226,6 +227,30 @@ export async function extractCode(reader: TreeReader): Promise<Extraction> {
           startColumn: prefix.length - prefix.lastIndexOf('\n') - 1, endColumn: through.length - through.lastIndexOf('\n') - 1};
         symbols.push({key, qualifiedName: name, name, symbolKind: 'function', span, definitionSpan: span, local: false, keptKey: key, functionLike: true});
       }
+    }
+    if (syntax.parsed) {
+      // Keep actual function boundaries even when no framework registration names them.
+      // The position is an identity, not a claim about when a callback runs.
+      const boundaries = await readSyntaxTree(source.path, source.bytes, ({root}) => {
+        const found: SourceSpan[] = [];
+        walkTree(root, (node) => {
+          if (['arrow_function', 'function_expression', 'generator_function', 'func_literal'].includes(node.type)) found.push(spanOf(node, source.path));
+        });
+        return found;
+      });
+      if (boundaries.read) for (const boundary of boundaries.value.sort((a, b) => (b.byteEnd - b.byteStart) - (a.byteEnd - a.byteStart))) {
+        const existing = symbols.findIndex((symbol) => symbol.functionLike && symbol.span.startByte <= boundary.byteStart && symbol.span.endByte === boundary.byteEnd);
+        if (existing >= 0) {const symbol = symbols[existing]!; symbols[existing] = {...symbol, local: false, keptKey: symbol.key}; continue;}
+        const enclosing = holderAt(symbols, boundary.byteStart);
+        const name = callbackName(enclosing?.qualifiedName, 'anonymous', boundary.lineStart, boundary.byteStart);
+        const key = symbolKey(source.path, name);
+        const prefix = decoder.decode(source.bytes.subarray(0, boundary.byteStart));
+        const through = decoder.decode(source.bytes.subarray(0, boundary.byteEnd));
+        const span: SyntaxSpan = {startByte: boundary.byteStart, endByte: boundary.byteEnd, startLine: boundary.lineStart, endLine: boundary.lineEnd,
+          startColumn: prefix.length - prefix.lastIndexOf('\n') - 1, endColumn: through.length - through.lastIndexOf('\n') - 1};
+        symbols.push({key, qualifiedName: name, name, symbolKind: 'function', span, definitionSpan: span, local: false, keptKey: key, functionLike: true});
+      }
+      for (const [index, symbol] of symbols.entries()) if (symbol.functionLike && symbol.local) symbols[index] = {...symbol, local: false, keptKey: symbol.key};
     }
     for (const [index, symbol] of symbols.entries()) {
       if (!symbol.local) continue;

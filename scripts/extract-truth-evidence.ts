@@ -37,3 +37,20 @@ export function importReadingEvidence(tree:TreeReader,properties:Record<string,u
  }
  return sets.flatMap(({source,value})=>!Array.isArray(value)?[]:value.map((reading,index)=>({source,index,reading,error:reading===null||typeof reading!=='object'||typeof (reading as Record<string,unknown>)['specifier']!=='string'?'import reading requires specifier and exact span':evidenceError(tree,(reading as Record<string,unknown>)['span'])})));
 }
+
+/** Structural membership may be derived from declared identities. Every other
+ * relation requires a reading site, even when its missing span is null. */
+export const STRUCTURAL_RELATIONS:ReadonlySet<string>=new Set([
+ 'code.contains','code.declares','code.carries','code.belongs-to','code.member-of',
+ 'code.cycle-member',
+]);
+export function edgeEvidenceError(tree:TreeReader,edge:{type:string;evidence:unknown;properties:Record<string,unknown>}):string|null {
+ if(Array.isArray(edge.properties.origins)) {
+  const origins=originEvidence(tree,edge.properties);
+  if(origins.length===0)return 'semantic edge has an empty origin list';
+  const errors=origins.filter((origin)=>origin.error!==null);
+  return errors[0]?.error??null;
+ }
+ if(edge.evidence===null&&STRUCTURAL_RELATIONS.has(edge.type))return null;
+ return evidenceError(tree,edge.evidence);
+}

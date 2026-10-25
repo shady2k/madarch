@@ -47,6 +47,8 @@ spec:
       containers:
         - name: api
           image: api:1
+          ports:
+            - {name: web, containerPort: 8080}
           readinessProbe:
             httpGet: {path: /healthz, port: 8080}
             periodSeconds: 5
@@ -96,7 +98,7 @@ describe('madarch-m38l.20 operations truth', () => {
  });
  test('probe-to-serving-route: joins by service and method, never by path alone', () => {
   const ex = extractOperations(tree(fixture));
-  const contracts: Extraction = {producer: 'code.extract.contracts', nodes: [{key: 'code.route:api', kind: 'code.route', label: 'GET /healthz', properties: {service: 'api', path: '/healthz', method: 'GET'}}, {key: 'code.route:other', kind: 'code.route', label: 'GET /healthz', properties: {service: 'other', path: '/healthz', method: 'GET'}}], edges: [], gaps: []};
+  const contracts: Extraction = {producer: 'code.extract.contracts', nodes: [{key: 'code.route:api', kind: 'code.route', label: 'GET /healthz', properties: {service: 'api', path: '/healthz', method: 'GET', ports: ['8080']}}, {key: 'code.route:other', kind: 'code.route', label: 'GET /healthz', properties: {service: 'other', path: '/healthz', method: 'GET'}}], edges: [], gaps: []};
   const linked = endpointRelations([ex, contracts]);
   const probes = linked.flatMap((entry) => entry.edges).filter((edge) => edge.type === 'code.probes' && edge.discriminator === 'route');
   expect(probes).toHaveLength(4); expect(probes.every((edge) => edge.to === 'code.route:api')).toBe(true);

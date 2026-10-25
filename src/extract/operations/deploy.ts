@@ -240,6 +240,12 @@ function k8sWorkloads(t: TreeText, records: Records, path: string): K8sWorkload[
                 service: name, container: containerName, probeType: probeName,
                 transport: isMap(httpGet) ? 'http' : isMap(tcp) ? 'tcp' : isMap(exec) ? 'exec' : null,
                 path: scalarText0(field(httpGet, 'path')), port,
+                host: scalarText0(field(httpGet, 'host')),
+                resolvedPort: typeof port === 'number' ? port : isSeq(ports) ? (() => {
+                  const candidates = ports.items.filter((entry) => isMap(entry) && scalarText0(field(entry, 'name')) === portText);
+                  const literal = candidates.length === 1 ? scalarText0(field(candidates[0], 'containerPort')) : null;
+                  return literal !== null && /^\d+$/.test(literal) ? Number(literal) : null;
+                })() : null,
                 scheme: scalarText0(field(httpGet, 'scheme')),
                 command: isSeq(command) ? command.items.map(scalarText0) : null,
               };
@@ -320,7 +326,7 @@ export function extractDeploy(t: TreeText, records: Records): void {
         const { span: healthSpan, ...healthProperties } = service.healthcheck;
         const healthKey = `code.healthcheck:${path}#${service.name}`;
         records.add({ key: healthKey, kind: 'code.healthcheck', label: `${service.name} healthcheck`, properties: { ...healthProperties, service: service.name }, span: healthSpan });
-        records.edge('code.probes', healthKey, key, { role: 'service' }, healthSpan);
+        records.edge('code.configured-by', key, healthKey, {role: 'healthcheck'}, healthSpan);
       }
       for (const mapping of service.portMappings) {
         records.edge(

@@ -4,7 +4,7 @@
  */
 import {mkdirSync, mkdtempSync, writeFileSync, readFileSync, readdirSync, readlinkSync} from 'node:fs';
 import {createHash, randomUUID} from 'node:crypto';
-import {evidenceError as validateEvidence, originEvidence,importReadingEvidence} from './extract-truth-evidence.js';
+import {evidenceError as validateEvidence, originEvidence,importReadingEvidence,edgeEvidenceError,STRUCTURAL_RELATIONS} from './extract-truth-evidence.js';
 import {safeAuditOutput} from './extract-truth-safety.js';
 import {resolve, join} from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -112,9 +112,8 @@ function audit(nodes: readonly AuditNode[], edges: readonly AuditEdge[]): Record
   edgeEvidence: {positioned: edges.filter((edge) => edge.evidence !== null).length,
    withOrigins: edges.filter((edge)=>Array.isArray(edge.properties['origins'])).length,
    compatibilitySpanAbsentWithOrigins: edges.filter((edge)=>edge.evidence===null&&Array.isArray(edge.properties['origins'])),
-   invalid: edges.filter((edge) => Array.isArray(edge.properties['origins'])
-    ? originEvidence(tree,edge.properties).some((origin)=>origin.error!==null)
-    : (edge.evidence !== null || edge.type === 'code.occurrence') && evidenceError(edge.evidence) !== null)},
+   structuralSpanAbsent: edges.filter((edge) => edge.evidence === null && STRUCTURAL_RELATIONS.has(edge.type)),
+   invalid: edges.flatMap((edge) => {const reason=edgeEvidenceError(tree,edge);return reason===null?[]:[{...edge,reason}];})},
   provenanceRequiringSeparateAssessment: nodes.filter((node) => evidenceError(node.evidence) !== null).map((node) => ({key: node.key, kind: node.kind, producer: node.producer, properties: node.properties, evidence: node.evidence})),
  };
 }

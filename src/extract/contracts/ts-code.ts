@@ -64,6 +64,7 @@ export interface TsFileFacts {
   readonly routes: readonly TsRoute[];
   readonly entry: {symbol: string} | undefined;
   readonly started: readonly TsStarted[];
+  readonly listenerPorts: readonly string[];
   readonly sends: readonly TsSend[];
   readonly fetchCalls: readonly {urlText: string; method: string; tokenForwarded: boolean; client?: string; span: SourceSpan}[];
   /** `const PROTO_PATH = path.resolve(__dirname, '<rel>')`: the relative part. */
@@ -675,8 +676,20 @@ export function readTsFile(path: string, root: SyntaxNode): TsFileFacts {
   }
   buildersOnPath.sort();
 
+  const listenerPorts = new Set<string>();
+  walkTree(root, (node) => {
+    if (node.type !== 'call_expression') return;
+    const fn = node.childForFieldName('function');
+    if (fn?.type !== 'member_expression' || fn.childForFieldName('property')?.text !== 'listen') return;
+    const object = fn.childForFieldName('object')?.text;
+    if (object === undefined || (object !== appVar && !routerFactories.has(object))) return;
+    const argument = node.childForFieldName('arguments')?.namedChild(0)?.text;
+    const port = argument === undefined ? undefined : consts.get(argument) ?? argument;
+    if (port !== undefined && /^\d+$/.test(port)) listenerPorts.add(port);
+  });
   return {
     path,
+    listenerPorts: [...listenerPorts].sort(),
     consts,
     typeUnions,
     hs256Functions,
