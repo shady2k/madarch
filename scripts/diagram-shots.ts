@@ -115,7 +115,7 @@ if (runPhase !== 'all' && runPhase !== 'prepare') {
   sameKeys(Object.entries(prepared.inputs).map(([key, hash]) => `${key}:${hash}`), Object.entries(inputHashes(prepared.binary)).map(([key, hash]) => `${key}:${hash}`), 'immutable source/app/binary/fixture/graph');
   frozenPlan = prepared.plan; name = prepared.name;
   const command = (verb: string) => {
-    const result = spawnSync(prepared!.binary, [verb, '--home', home, '--port', String(port)], { encoding: 'utf8', cwd: work, timeout: 30_000 });
+    const result = spawnSync(prepared!.binary, [verb, '--home', home, ...(verb === 'start' ? ['--port', String(port)] : [])], { encoding: 'utf8', cwd: work, timeout: 30_000 });
     if (result.error || result.status !== 0) throw new Error(`${verb}: ${result.error ?? result.stderr}${result.stdout}`);
   };
   if (runPhase !== 'aggregate') {

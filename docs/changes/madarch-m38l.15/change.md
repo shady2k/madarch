@@ -215,3 +215,29 @@ the visible reading hint to the exact English or Russian catalogue text. After
 baseline pictures it exercises actual zoom controls and a pan gesture and records
 scale/position before and after, with bounded readiness predicates. These checks
 are source changes pending verification, not claims of working interaction.
+
+
+### Shared historical-file reader repair (integration note)
+
+The full JSON walk on `01930351` stopped at
+`code.file:services/orders/src/order.go`: the filled graph explicitly relates
+that historical path to `code.file:services/orders/internal/domain/order.go`
+through `code.renamed-to`, while the old path has no bytes at the filled tip.
+The retained response `walk/json/pages/00864-en.json` records that exact edge.
+
+Under coordinator authorization, this task ports only the `sourceBlock` missing
+file branch from graph task commit
+`9194a67acea12b3c4f324e5f2e008917c64bc496`. It is byte-identical to that branch:
+only a same-scope `code.file` successor reached by an explicit outgoing
+`code.renamed-to` edge and readable at the filled revision is listed. The
+bilingual sentence explains that the original path is absent. It never presents
+the successor's bytes as the old file. No edge, another scope or an unreadable
+successor preserves the original located problem. The regression copies that
+positive case and all three negatives. No seed, extractor, ER or rebuild change
+is imported. Integrating the graph and diagram PRs must retain this identical
+shared branch once, not create a second behavior.
+
+The same failed run also found that the walker passed `--port` to `madarch stop`,
+whose contract accepts only `--home`. The walker now supplies the port only to
+`start`; cleanup remains required. The failure, partial JSON and later NOTRUN
+matrix/mutation evidence remain retained, not accepted as a complete walk.

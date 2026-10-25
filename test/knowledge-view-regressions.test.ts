@@ -159,3 +159,13 @@ for (const mode of ['roots', 'one-group'] as const) test(`oversized deployment $
   }
   expect(view!.fullElements!.some(element => element.id.startsWith('folder:'))).toBe(false);
 });
+
+
+// Shared reader repair from graph task commit 9194a67acea12b3c4f324e5f2e008917c64bc496.
+test('historical renamed file shows only explicit readable same-scope successor, never old HEAD bytes',async()=>{
+ const {sourceBlock}=await import('../src/knowledge/blocks.js');type Context=import('../src/knowledge/blocks.js').RenderContext;
+ const span={path:'old.ts',byteStart:0,byteEnd:0,lineStart:1,lineEnd:1};const old={key:'code.file:old.ts',kind:'code.file',label:'old.ts',properties:{},nodeIds:['1'],scope:'scope-a',span};const next={...old,key:'code.file:new.ts',label:'new.ts',span:{...span,path:'new.ts'}};let rows=[{other:next}];const reads:string[]=[];
+ const ctx={language:'en',manifest:{kinds:new Map([['code.file',{}]])},repoOfScope:()=> 'fixture',readSource:async(_repo:string|null,path:string)=>{reads.push(path);return path==='new.ts'?'actual successor bytes':undefined;},graph:{edgesOf:async(entity:unknown,relation:string,direction:string)=>{expect(entity).toBe(old);expect(relation).toBe('code.renamed-to');expect(direction).toBe('out');return{total:rows.length,rows};}}} as unknown as Context;
+ const result=await sourceBlock(ctx,{source:'graph',entity:old},{},'templates/file.md',3);expect(result.type).toBe('refs');if(result.type==='refs'){expect(result.total).toBe(1);expect(result.rows[0]?.entity.id).toBe(next.key);expect(result.rows[0]?.entity.location?.path).toBe('new.ts');expect(result.title).toContain('original path is absent');}expect(reads).toEqual(['old.ts','new.ts']);expect(JSON.stringify(result)).not.toContain('actual successor bytes');
+ rows=[{other:{...next,scope:'scope-b'}}];expect((await sourceBlock(ctx,{source:'graph',entity:old},{},'templates/file.md',3)).type).toBe('problem');rows=[];expect((await sourceBlock(ctx,{source:'graph',entity:old},{},'templates/file.md',3)).type).toBe('problem');rows=[{other:{...next,span:{...span,path:'missing.ts'}}}];expect((await sourceBlock(ctx,{source:'graph',entity:old},{},'templates/file.md',3)).type).toBe('problem');
+});

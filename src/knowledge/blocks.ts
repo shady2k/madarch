@@ -313,7 +313,20 @@ export async function sourceBlock(ctx: RenderContext, subject: Subject, params: 
   if (span === undefined) return { type: 'problem', block: 'source', file, line, message: `${entity.key} has no declaration span and no path: nothing to show` };
   const repo = ctx.repoOfScope(entity.scope) ?? null;
   const text = await ctx.readSource(repo, span.path);
-  if (text === undefined) return { type: 'problem', block: 'source', file, line, message: `the file ${span.path} is not readable in ${repo ?? 'the product repository'} at the commit the graph was filled from` };
+  if (text === undefined) {
+    // History retains the old identity after a rename. Never present the successor's bytes as the old path at HEAD.
+    if (entity.kind === 'code.file') {
+      const renamed = await ctx.graph.edgesOf(entity, 'code.renamed-to', 'out', 500);
+      const successors = [];
+      for (const row of renamed.rows) {
+        if (row.other.scope !== entity.scope || row.other.kind !== 'code.file') continue;
+        const path = row.other.span?.path ?? row.other.properties['path'];
+        if (typeof path === 'string' && await ctx.readSource(repo, path) !== undefined) successors.push(row.other);
+      }
+      if (successors.length > 0) return {type:'refs',title:ctx.language === 'ru' ? 'Файл переименован; исходный путь отсутствует в текущей ревизии' : 'File renamed; the original path is absent at the filled revision',total:successors.length,rows:successors.map((successor)=>({entity:refOfGraph(ctx,successor)}))};
+    }
+    return { type: 'problem', block: 'source', file, line, message: `the file ${span.path} is not readable in ${repo ?? 'the product repository'} at the commit the graph was filled from` };
+  }
   const lines = text.split('\n');
   if (lines[lines.length - 1] === '') lines.pop();
   const end = Math.min(span.lineEnd, lines.length);
