@@ -74,12 +74,12 @@ None.
 
 ## Acceptance evidence
 - Baseline read: task madarch-mwhd.2, charter defect 16, answer-key fixtureVersion 3, decisions 0028 and 0030, history extractor and existing history block. No baseline test or fill was run locally.
-- TDD on the AVX2 SkyPilot pod: extend fixture-based extraction, chosen-point, history rendering and route tests. Run bun run check plus focused tests there; full engine and app suites run through CI. Use only the scripted ACP test agent.
+- TDD: extend fixture-based extraction, chosen-point, history rendering and route tests. Run type checks, app build and UI tests on a plain 4 GB SkyPilot pod; graph, extraction and fill checks use an 8 GB AVX2 pod. Push a draft PR early so the full engine and app suites run through CI in the background. No local Bun tests or builds, no full suite on pods, and only the scripted ACP test agent.
 - generated-history-answer-key: check every history.* and temporal.* item plus hotspot, change-coupling, provider-authorship, rename.identity and date-anomaly, using generated repository facts. Expected figures are test oracles only, never production prose.
-- history-json-walk: enumerate every changed kind and page through /products/<p>/api/k/entities?kind=<kind> and /products/<p>/api/k/page?id=<id>&lang=ru on the pod, following all pages and pagination rather than a sample. Verify the dated reads in both languages, full counts, evidence links and no silent historical fallback.
-- browser-walk: render every touched page kind using the relevant shots script on the pod at 1150 px and 390 px, light and dark, in both languages; seed role everything before walking, inspect the images personally, and record every screenshot path and any limits.
-- Run bounded mutation checks over changed logic within the project's ten-minute budget. Obtain read-only Codex review before the PR and fix findings that hold. Merge current origin/main before the final push, require green CI on the final head, hand the PR to the owner and do not merge it.
-- Pending: proposal approval, implementation, all pod checks, mutation, rendering, exhaustive JSON walk, independent review, PR and CI.
+- history-json-walk: check only the touched pages through /products/<p>/api/k/entities?kind=<kind> and /products/<p>/api/k/page?id=<id>&lang=ru on the pod, including their pagination. Verify the dated reads in both languages, full counts, evidence links and no silent historical fallback. The full-page walk runs once at milestone close, not per task.
+- browser-walk: render only the touched pages using the relevant shots script on an 8 GB AVX2 pod at 1150 px and 390 px, light and dark, in both languages. Seed settings.json with {"role":"everything","roleAsked":true}. Fetch the complete matrix to /home/dev/.cache/wiki-for-people-shots/madarch-mwhd.2/ for the coordinator's visual inspection; record every screenshot path, numeric layout measurements and any limits.
+- No per-task mutation run; mutation runs once at milestone close. Merge current origin/main before the final push. Require green CI on the exact final head and the complete touched-page screenshot matrix before one final read-only Codex review of that head. Fix findings that mislead a reader, miss the task's promise or let a check pass falsely; file other findings under the same outcome without expanding scope. Hand the PR to the owner and do not merge it.
+- Pending: proposal approval, implementation, focused pod checks, touched-page JSON checks and rendering, final-head independent review, PR and CI.
 
 ## DONE WHEN
 A fresh training-product fill fully shows every history.* and temporal.*
@@ -88,6 +88,9 @@ date-anomaly items through readable evidence-linked pages. The seven dated
 scenarios show their own snapshot's code and structure rather than today's;
 unknown coverage is explicit. Counts follow the answer key's populations,
 renames keep one history, observed contributions are not ownership, and
-English/Russian pages pass the exhaustive JSON walk and inspected desktop
-and phone renders in both themes. Focused pod checks, mutation and independent
-review are recorded, and the open PR has green CI on its final head.
+English/Russian touched pages pass their JSON checks and inspected desktop
+and phone renders in both themes, with numeric layout evidence. Focused pod
+checks are recorded. The open PR has green CI on its exact final head and a
+complete touched-page screenshot matrix before one final read-only Codex
+review with no blocking finding. The full-page walk and mutation run belong
+to milestone close, not this task.
