@@ -282,28 +282,31 @@ describe('the function page', () => {
   });
 
   test('the sequence block follows the calls out of the function, a step for each, in the source order of the places the graph read them at, and says what it does not model', async () => {
-    const sequence = block(await page(HANDLE), 'sequence');
-    expect(sequence.entries).toBe(1);
-    const [chain] = sequence.chains;
-    expect(chain!.entry!.id).toBe(HANDLE);
-    expect(chain!.lanes.map((lane) => lane.label)).toEqual(['b.ts', 'a.ts']);
-    expect(chain!.steps.map((step) => [step.n, step.from, step.to, step.label, step.kind, step.order])).toEqual([
-      [1, 'file:svc/billing/src/b.ts', 'file:svc/billing/src/a.ts', 'charge', 'call', 'source'],
-      [2, 'file:svc/billing/src/a.ts', 'file:svc/billing/src/a.ts', 'audit', 'self', 'source'],
-      [3, 'file:svc/billing/src/a.ts', 'file:svc/billing/src/a.ts', 'charge', 'self', 'source'],
+    const model = await page(HANDLE);
+    const [chain] = model.blocks.flatMap((entry) => (entry.type === 'diagrams' ? entry.views : [])).filter((view) => view.spec.type === 'sequence');
+    expect(chain!.spec.entry).toBe(HANDLE);
+    // One participant for the service whose two files take part: the picture is of services, the steps are of calls.
+    expect(chain!.elements.map((element) => element.label)).toEqual(['billing']);
+    expect(chain!.edges.map((edge) => [edge.step, edge.label, edge.kind, edge.dashed])).toEqual([
+      [1, 'charge', 'call', false],
+      [2, 'audit', 'self', false],
+      [3, 'charge', 'self', false],
     ]);
-    expect(chain!.steps[2]!.note).toBe('called again; its steps are shown above');
-    expect(chain!.steps[0]!.site).toMatchObject({ path: 'svc/billing/src/b.ts', lineStart: 3 });
-    expect(chain!.steps.every((step) => step.href === `/k/e/${encodeURIComponent(step.n === 2 ? AUDIT : CHARGE)}`)).toBe(true);
+    expect(chain!.edges[2]!.note).toBe('called again; its steps are shown above');
+    expect(chain!.edges[0]!.location).toMatchObject({ path: 'svc/billing/src/b.ts', lineStart: 3 });
+    expect(chain!.edges.every((edge) => edge.href === `/k/e/${encodeURIComponent(edge.step === 2 ? AUDIT : CHARGE)}`)).toBe(true);
     expect(chain!.notes.join(' ')).toContain('branches, loops, error paths and repeated calls are not modelled');
-    expect(chain!.total).toBe(3);
+    expect(chain!.renderers).toEqual(['mermaid']);
+    expect(chain!.mermaidSource).toContain('sequenceDiagram');
   });
 
-  test('a function no route reaches starts its own chain and says so; a function with no calls draws no chain', async () => {
-    const [chain] = block(await page(HANDLE), 'sequence').chains;
+  test('a function no route reaches starts its own chain and says so, and its calls are the steps drawn', async () => {
+    const [chain] = (await page(HANDLE)).blocks.flatMap((entry) => (entry.type === 'diagrams' ? entry.views : []));
     expect(chain!.notes[0]).toContain('no route of the graph reaches this function');
-    const none = block(await page(AUDIT), 'sequence');
-    expect(none.entries).toBe(1);
+    const [none] = (await page(AUDIT)).blocks.flatMap((entry) => (entry.type === 'diagrams' ? entry.views : []));
+    expect(none!.edges.map((edge) => edge.label)).toEqual(['charge', 'audit']);
+    expect(none!.notes.join(' ')).toContain('repeated calls are not modelled');
+    expect(none!.empty).toBeNull();
   });
 
   test('related in a direction follows the containment up to the file; the breadcrumb is the containers from the top', async () => {
@@ -331,13 +334,18 @@ describe('files, imports and the database', () => {
   });
 
   test('the er block draws a database as its tables with their columns and the foreign key between them', async () => {
-    const er = block(await page(DATABASE), 'er');
-    expect(er.tables).toBe(2);
-    expect(er.mermaid.split('\n')[0]).toBe('erDiagram');
-    expect(er.mermaid).toContain('"invoices" {');
-    expect(er.mermaid).toContain('uuid id PK');
-    expect(er.mermaid).toContain('uuid customer_id');
-    expect(er.mermaid).toContain('"invoices" }o--|| "customers" : "foreign key"');
+    const [er] = (await page(DATABASE)).blocks.flatMap((entry) => (entry.type === 'diagrams' ? entry.views : []));
+    expect(er!.elements).toHaveLength(2);
+    // Mermaid's own ER syntax: one entity per table, one row per column, and a relationship for the foreign key.
+    expect(er!.mermaidSource.split('\n')[0]).toBe('erDiagram');
+    expect(er!.mermaidSource).toMatch(/  customers \{\n    uuid id PK\n  \}/);
+    expect(er!.mermaidSource).toMatch(/  invoices \{\n    uuid customer_id FK\n    uuid id PK\n  \}/);
+    // The relationship is named by the column that carries it, not by a word every key shares.
+    expect(er!.mermaidSource).toContain('customers ||--o{ invoices : "customer_id"');
+    expect(er!.elements.map((element) => element.label).sort()).toEqual(['customers', 'invoices']);
+    // The fixture's manifest names no page for a table, so the list draws each one plain: an element links only
+    // where the product gives it a page, and the picture is the graph's either way.
+    expect(er!.elements.map((element) => element.href)).toEqual([null, null]);
   });
 });
 

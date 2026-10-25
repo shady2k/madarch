@@ -83,14 +83,37 @@ describe('the Mermaid source of a diagram', () => {
     expect(source).toContain('  class n0,n1,n2,n3 assumption');
   });
 
-  test('an ER table carries the columns it holds in its own label', async () => {
+  test('ER uses native rows for facts and keeps unresolved assumptions out of a false picture', async () => {
     const model = await buildDiagram({ type: 'er', nodes: [fx.shop.id] }, clean);
-    const lines = linesOf(mermaidOfDiagram(model));
-    // A table's name, then its columns with their types; a table the graph holds no fact of is a plain box, dashed.
-    expect(lines).toContain('  n1[("acme-shop:public.orders: id bigint, total numeric")]');
-    expect(lines).toContain('  n2[("acme-shop:public.payments: id bigint")]');
-    expect(lines).toContain('  n0["acme-shop:public.audit (unresolved): id bigint"]');
-    expect(lines).toContain('  class n0 assumption');
+    expect(() => mermaidOfDiagram(model)).toThrow('[unsupported ER assumption]');
+    const answer = graphDiagramOf({ spec: { type: 'er', nodes: [fx.shop.id] }, model }, { node: fx.shop.id, chosen: 'archify' });
+    expect(answer.tabs.map(tab => tab.renderer)).toEqual(['mermaid']);
+    expect(answer.tabs[0]!.message).toContain('[unsupported ER assumption]');
+    expect(answer.elements).toHaveLength(model.elements.length);
+    expect(answer.edges).toHaveLength(model.edges.length);
+    const ids = new Set(model.elements.filter(element => !element.dashed).map(element => element.id));
+    const factual = { ...model, elements: model.elements.filter(element => ids.has(element.id)), edges: model.edges.filter(edge => !edge.dashed && ids.has(edge.from) && ids.has(edge.to)) };
+    const source = mermaidOfDiagram(factual);
+    expect(source).toStartWith('erDiagram');
+    expect(source).toContain('bigint id');
+    expect(source).toContain('numeric total');
+    expect(source).not.toContain('flowchart');
+    // This graph fixture has table/column facts but no FK facts. Add an explicit renderer-level
+    // relationship between its two held tables; never pretend buildDiagram supplied one.
+    const from = factual.elements.find(element => element.id === fx.ordersTable.id);
+    const to = factual.elements.find(element => element.id === fx.paymentsTable.id);
+    if (!from || !to) throw new Error('The factual ER fixture must contain both held tables');
+    expect(from.label).toBe('acme-shop:public.orders');
+    expect(to.label).toBe('acme-shop:public.payments');
+    expect(factual.edges).toHaveLength(0);
+    const factualEdge = { from: from.id, to: to.id, label: 'payment_id', dashed: false };
+    const withForeignKey = { ...factual, elements: factual.elements.map(element => element.id === from.id ? { ...element, columns: [...(element.columns ?? []), { ...from.columns![0]!, id: 'renderer-payment-id', label: 'payment_id', dataType: 'bigint FK' }] } : element), edges: [factualEdge] };
+    const linkedSource = mermaidOfDiagram(withForeignKey);
+    expect(linkedSource).toContain('bigint payment_id FK');
+    expect(linkedSource).toContain('bigint id');
+    expect(linkedSource).toContain('numeric total');
+    expect(linkedSource).toContain(`n${withForeignKey.elements.indexOf(withForeignKey.elements.find(element => element.id === from.id)!)} ||--o{ n${withForeignKey.elements.indexOf(withForeignKey.elements.find(element => element.id === to.id)!)} : "payment_id"`);
+    expect(() => mermaidOfDiagram({ ...factual, edges: [{ ...factualEdge, dashed: true }] })).toThrow('[unsupported ER assumption]');
   });
 
   test('a sequence is a sequence diagram: its participants, its steps in the scenario order, and a dashed step for an assumption', async () => {
@@ -221,7 +244,7 @@ describe('the tabs a page shows its diagrams under', () => {
     expect(DIAGRAM_RENDERERS_OF['c4-container']).toEqual(['likec4', 'mermaid', 'archify']);
     expect(DIAGRAM_RENDERERS_OF['c4-component']).toEqual(['likec4', 'mermaid', 'archify']);
     expect(DIAGRAM_RENDERERS_OF['module-dependency']).toEqual(['mermaid', 'archify']);
-    expect(DIAGRAM_RENDERERS_OF['er']).toEqual(['mermaid', 'archify']);
+    expect(DIAGRAM_RENDERERS_OF['er']).toEqual(['mermaid']);
     expect(DIAGRAM_RENDERERS_OF['state']).toEqual(['mermaid', 'archify']);
     // A sequence is a lifeline and an order: archify draws components and connections, and LikeC4 draws C4.
     expect(DIAGRAM_RENDERERS_OF['sequence']).toEqual(['mermaid']);

@@ -5,14 +5,14 @@
  * tested and the picture checked against it.
  *
  * Why no layout library: the neighbourhood is a layered drawing whose layers are
- * given (what comes in on the left, what goes out on the right), the system and
- * module views are small layered graphs, the sequence is a table of lanes and
- * steps, and the treemap is a squarified partition. A general engine (ELK, dagre)
+ * given (what comes in on the left, what goes out on the right) and the treemap
+ * is a squarified partition; the C4, sequence, ER, state and deployment views are
+ * drawn by LikeC4, archify and Mermaid (views.tsx). A general engine (ELK, dagre)
  * adds a few hundred kilobytes and a worker or wasm to the compiled binary to
  * compute what a few dozen lines compute here; the choice is recorded in
  * docs/changes/madarch-m38l.9/change.md.
  */
-import type { DiagramEdge, DiagramMore, DiagramNode, ModuleEdge, ModuleNode, Neighborhood, SystemEdge, SystemNode } from '../types.js';
+import type { DiagramEdge, DiagramMore, DiagramNode, Neighborhood } from '../types.js';
 
 // ---- text -------------------------------------------------------------------------------------
 
@@ -236,171 +236,6 @@ export function layoutNeighborhood(hood: Neighborhood, state: HoodState, grown: 
     height: tallest,
     center: { x: columnX(0), y: centerY },
   };
-}
-
-// ---- layered graphs (system, modules) -----------------------------------------------------------
-
-export interface LayeredNode {
-  id: string;
-  w: number;
-  h: number;
-}
-
-export interface LayeredEdge {
-  from: string;
-  to: string;
-}
-
-export interface Placed {
-  id: string;
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  layer: number;
-}
-
-/**
- * Longest-path layers left to right. An edge that closes a cycle (found by a depth-first walk in id order) points
- * backward and does not push its target, so a cycle never loops the placement; the drawing marks those edges.
- */
-export function layered(nodes: readonly LayeredNode[], edges: readonly LayeredEdge[], options: { gapX: number; gapY: number; vertical?: boolean }): { placed: Map<string, Placed>; back: Set<string>; width: number; height: number } {
-  const ids = nodes.map((node) => node.id).sort();
-  const out = new Map<string, string[]>(ids.map((id) => [id, []]));
-  for (const edge of edges) if (out.has(edge.from) && out.has(edge.to) && edge.from !== edge.to) out.get(edge.from)!.push(edge.to);
-  for (const targets of out.values()) targets.sort();
-  const back = new Set<string>();
-  const state = new Map<string, 1 | 2>();
-  const walk = (id: string): void => {
-    state.set(id, 1);
-    for (const to of out.get(id)!) {
-      if (state.get(to) === 1) back.add(`${id}|${to}`);
-      else if (!state.has(to)) walk(to);
-    }
-    state.set(id, 2);
-  };
-  const indegree = new Map<string, number>(ids.map((id) => [id, 0]));
-  for (const [from, targets] of out) for (const to of targets) indegree.set(to, (indegree.get(to) ?? 0) + (from === to ? 0 : 1));
-  for (const id of [...ids].sort((a, b) => (indegree.get(a)! - indegree.get(b)!) || (a < b ? -1 : 1))) if (!state.has(id)) walk(id);
-  const layer = new Map<string, number>(ids.map((id) => [id, 0]));
-  const forward = (from: string, to: string): boolean => !back.has(`${from}|${to}`);
-  // Relax in rounds: at most as many rounds as there are nodes.
-  for (let round = 0; round < ids.length; round += 1) {
-    let moved = false;
-    for (const [from, targets] of out) for (const to of targets) if (forward(from, to) && layer.get(to)! < layer.get(from)! + 1) {
-      layer.set(to, layer.get(from)! + 1);
-      moved = true;
-    }
-    if (!moved) break;
-  }
-  const byLayer = new Map<number, LayeredNode[]>();
-  for (const node of nodes) {
-    const l = layer.get(node.id)!;
-    byLayer.set(l, [...(byLayer.get(l) ?? []), node]);
-  }
-  const layers = [...byLayer.keys()].sort((a, b) => a - b);
-  // Order within a layer by the mean place of the neighbours already placed, so edges cross less.
-  const rank = new Map<string, number>();
-  for (const l of layers) {
-    const members = byLayer.get(l)!;
-    members.sort((a, b) => {
-      const score = (id: string): number => {
-        const preds = [...out.entries()].filter(([from, targets]) => targets.includes(id) && rank.has(from)).map(([from]) => rank.get(from)!);
-        return preds.length === 0 ? Number.MAX_SAFE_INTEGER / 2 : preds.reduce((sum, value) => sum + value, 0) / preds.length;
-      };
-      return score(a.id) - score(b.id) || (a.id < b.id ? -1 : 1);
-    });
-    members.forEach((node, index) => rank.set(node.id, index));
-  }
-  const placed = new Map<string, Placed>();
-  let x = 0;
-  let height = 0;
-  const columnHeights = layers.map((l) => byLayer.get(l)!.reduce((sum, node) => sum + node.h, 0) + (byLayer.get(l)!.length - 1) * options.gapY);
-  const tallest = Math.max(0, ...columnHeights);
-  layers.forEach((l, index) => {
-    const members = byLayer.get(l)!;
-    let y = (tallest - columnHeights[index]!) / 2;
-    const widest = Math.max(...members.map((node) => node.w));
-    for (const node of members) {
-      placed.set(node.id, { id: node.id, x, y, w: node.w, h: node.h, layer: l });
-      y += node.h + options.gapY;
-    }
-    height = Math.max(height, y - options.gapY);
-    x += widest + options.gapX;
-  });
-  return { placed, back, width: Math.max(0, x - options.gapX), height };
-}
-
-// ---- the system view --------------------------------------------------------------------------
-
-export const SYS_W = 176;
-export const SYS_H = 58;
-
-export interface SystemLayout {
-  nodes: { node: SystemNode; box: Placed }[];
-  edges: { edge: SystemEdge; d: string; label: { x: number; y: number }; back: boolean }[];
-  width: number;
-  height: number;
-}
-
-const cubic = (a: Placed, b: Placed, slot: number, slots: number): { d: string; mid: { x: number; y: number } } => {
-  const forward = a.x < b.x;
-  const same = a.x === b.x;
-  const spread = (slot - (slots - 1) / 2) * 12;
-  if (same) {
-    const sx = a.x + a.w;
-    const sy = a.y + a.h / 2;
-    const bow = 38 + slot * 14;
-    const ty = b.y + b.h / 2;
-    return { d: `M${sx},${sy + spread} C${sx + bow},${sy} ${sx + bow},${ty} ${sx},${ty + spread}`, mid: { x: sx + bow * 0.75, y: (sy + ty) / 2 } };
-  }
-  const sx = forward ? a.x + a.w : a.x;
-  const tx = forward ? b.x : b.x + b.w;
-  const sy = a.y + a.h / 2 + spread;
-  const ty = b.y + b.h / 2 + spread;
-  const bend = Math.max(30, Math.abs(tx - sx) / 2);
-  return { d: `M${sx},${sy} C${sx + (forward ? bend : -bend)},${sy} ${tx - (forward ? bend : -bend)},${ty} ${tx},${ty}`, mid: { x: (sx + tx) / 2, y: (sy + ty) / 2 } };
-};
-
-export function layoutSystem(nodes: readonly SystemNode[], edges: readonly SystemEdge[]): SystemLayout {
-  const { placed, back, width, height } = layered(nodes.map((node) => ({ id: node.id, w: SYS_W, h: SYS_H })), edges, { gapX: 112, gapY: 30 });
-  const pairCount = new Map<string, number>();
-  const out: SystemLayout['edges'] = [];
-  for (const edge of edges) {
-    const a = placed.get(edge.from);
-    const b = placed.get(edge.to);
-    if (a === undefined || b === undefined) continue;
-    const key = [edge.from, edge.to].sort().join('|');
-    const slot = pairCount.get(key) ?? 0;
-    pairCount.set(key, slot + 1);
-    const curve = cubic(a, b, slot, 2);
-    out.push({ edge, d: curve.d, label: curve.mid, back: back.has(`${edge.from}|${edge.to}`) });
-  }
-  return { nodes: nodes.flatMap((node) => (placed.has(node.id) ? [{ node, box: placed.get(node.id)! }] : [])), edges: out, width: width + 24, height: height + 8 };
-}
-
-// ---- the module view ----------------------------------------------------------------------------
-
-export const MOD_W = 168;
-export const MOD_H = 40;
-
-export interface ModuleLayout {
-  nodes: { node: ModuleNode; box: Placed }[];
-  edges: { edge: ModuleEdge; d: string; back: boolean }[];
-  width: number;
-  height: number;
-}
-
-export function layoutModules(nodes: readonly ModuleNode[], edges: readonly ModuleEdge[]): ModuleLayout {
-  const { placed, back, width, height } = layered(nodes.map((node) => ({ id: node.id, w: Math.max(MOD_W, Math.min(280, textWidth(node.label, 12) + 36)), h: MOD_H })), edges, { gapX: 90, gapY: 16 });
-  const out: ModuleLayout['edges'] = [];
-  for (const edge of edges) {
-    const a = placed.get(edge.from);
-    const b = placed.get(edge.to);
-    if (a === undefined || b === undefined || edge.from === edge.to) continue;
-    out.push({ edge, d: cubic(a, b, 0, 1).d, back: back.has(`${edge.from}|${edge.to}`) });
-  }
-  return { nodes: nodes.flatMap((node) => (placed.has(node.id) ? [{ node, box: placed.get(node.id)! }] : [])), edges: out, width: width + 24, height: height + 8 };
 }
 
 // ---- the treemap --------------------------------------------------------------------------------

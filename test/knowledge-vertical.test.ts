@@ -133,9 +133,9 @@ describe('the function page', () => {
     const factory = item('pattern.factory').location!;
     const model = await page(FACTORY);
     expect(block(model, 'source').text).toContain(factory.anchor!);
-    const [chain] = block(await page(PAY), 'sequence').chains;
-    expect(chain!.lanes.map((lane) => lane.label)).toContain('payment-service.ts');
-    expect(chain!.steps.map((step) => step.label)).toContain('withTimeout');
+    const [chain] = (await page(PAY)).blocks.flatMap((entry) => (entry.type === 'diagrams' ? entry.views : [])).filter((view) => view.spec.type === 'sequence');
+    expect(chain!.elements.map((element) => element.label)).toContain('payments');
+    expect(chain!.edges.map((edge) => edge.label)).toContain('withTimeout');
   });
 });
 
@@ -346,7 +346,7 @@ describe('every kind the graph holds', () => {
     const database = await page(recordKey('code.database', 'orders'));
     const tables = block(database, 'related', 0).groups[0]!.rows.map((row) => row.entity.id);
     for (const table of ['customers', 'order_items', 'orders', 'outbox']) expect(tables).toContain(recordKey('code.table', `orders/public.${table}`));
-    expect(block(database, 'er').tables).toBeGreaterThanOrEqual(4);
+    expect(block(database, 'diagrams').views[0]!.elements.length).toBeGreaterThanOrEqual(4);
     const orders = await page(recordKey('code.table', 'orders/public.orders'));
     const columns = block(orders, 'related', 0).groups[0]!.rows.map((row) => row.entity.label);
     expect(columns).toContain('customer_id');
