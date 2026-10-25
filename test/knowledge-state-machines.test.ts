@@ -40,3 +40,12 @@ test('nested interpolation with escaped delimiters, comments and emoji preserves
 test('an incomplete script is refused with its source path and line, not accepted as executable facts', async () => {
   await expect(stateMachinesOf('src/broken.ts', 'const docs = `unterminated\nconst transitions = { idle: { go: "done" } };')).rejects.toThrow('src/broken.ts:');
 });
+
+for (const expression of ['choose()', '...next', "ready || 'done'", "flag ? 'done' : 'failed'", "'done' + suffix", "`done${suffix}`", "['nested']", "{ target: 'done' }", "'done',, 'failed'"]) test(`executable transition array item is refused: ${expression}`, async () => {
+  await expect(stateMachinesOf('src/transitions.ts', `const transitions = { idle: [${expression}] };`)).rejects.toThrow('src/transitions.ts:1: transition arrays accept only literal or reference items separated by commas');
+});
+
+test('complete literal and reference array items retain their states, comments and source lines', async () => {
+  const [machine] = await stateMachinesOf('src/transitions.ts', "const transitions = { idle: [/* choose() is not code */ 'done', Status.Failed, `closed`,] };\n");
+  expect(machine!.transitions).toEqual(['done', 'Status.Failed', 'closed'].map(to => ({ from: 'idle', to, event: null, line: 1 })));
+});

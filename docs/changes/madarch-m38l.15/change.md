@@ -61,13 +61,27 @@ None.
 
 ## Acceptance evidence
 
-SOURCE-ONLY UNVERIFIED checkpoint, 2026-10-25: all runtime evidence below predates
-the current source repairs and is historical, not acceptance of this candidate.
-The original final walk stopped at its recorded 1500-second bound with 2980 JSON
-observations, 1490 IDs and 524 PNGs, without final measures. That failed evidence
-is retained. Fresh native checks, mutation, complete matrix and coordinator visual
-inspection remain required. The source checkpoint does not reduce review-5 floors
-or claim any new runtime pass.
+SOURCE-ONLY UNVERIFIED checkpoint, 2026-10-25: historical runtime evidence below
+is not acceptance of the current source repairs. The read-only review of
+2846363596620b7a9cd0d413acf8611ca5504fc1 found four source blockers: incomplete ER
+membership, unbounded C4 folder/scoped projections, loss of raw folded facts, and
+executable array expressions interpreted as state transitions. The repair keeps
+complete ER members/columns/native relationships beside a twelve-table picture,
+bounds all C4 container/component projections at forty while retaining their raw
+members and relationships, and refuses executable transition-array expressions
+with a source-path/line diagnostic. Builder regressions cover thirteen tables,
+twenty-one neighbours, forty-one distinct folders, oversized/scoped folders and
+folded cycle/relationship labels. State-reader regressions cover calls, spreads,
+compound expressions and complete literal/reference items.
+
+The coordinator's 2026-10-25T10:18:25Z acceptance rule supersedes older per-task
+checklists: exact-head GitHub CI green, the touched-page screenshot matrix in both
+languages/themes/widths, and one read-only Codex review without blockers. Mutation
+and a whole-wiki walk run once at milestone close (madarch-j6ho.3), not per task.
+The touched matrix is 608 normal/fullscreen diagram images over fourteen pages;
+coordinator visual inspection remains pending. A non-AVX2 type/builder-check pod
+attempt on this repair exited 3 before running checks because capacity was refused;
+its exact cluster was brought down. No new runtime pass is claimed here.
 
 Checks. `bun run check` (root) and `bun run check` in `wiki/app` pass on c682bdef; `node .shady2k/documents.mjs check --phase feature --change madarch-m38l.15 --candidate worktree --target origin/main` passes. GitHub CI on c682bdef is green: the `checks` job (the app's own install, type check, its 168 tests in 12 files and its build, plus the postgres legs, `views:check` and `contract:check`) and all five test shards. The app suite on an AVX2 pod ran 167 of 168 in one process; the one failure (`the agent stage > a stage that ended with a failure says so and offers to try again`, added by #159) passes alone (36 of 36 in its file) and in CI, and failed only under the pod's load — it is main's test and this change does not touch the fill card.
 

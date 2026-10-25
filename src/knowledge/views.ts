@@ -287,7 +287,7 @@ function firstOwnershipPage(view: GraphView, w: Words): GraphView {
   if (ordered.length !== view.elements.length) throw new ViewRefusal(400, `the ${view.spec.type} view has cyclic or missing ownership parents`);
   const elements = ordered.slice(0, NODE_BUDGET);
   const ids = new Set(elements.map(element => element.id));
-  return { ...view, elements, edges: view.edges.filter(edge => ids.has(edge.from) && ids.has(edge.to)), fullElements: ordered, fullEdges: view.edges, marker: w.truncated(elements.length, ordered.length) };
+  return { ...view, elements, edges: view.edges.filter(edge => ids.has(edge.from) && ids.has(edge.to)), fullElements: view.fullElements ?? ordered, fullEdges: view.fullEdges ?? view.edges, marker: [view.marker, w.truncated(elements.length, ordered.length)].filter(Boolean).join(' ') };
 }
 
 /** Fold only an ownership level the graph actually holds. Scoped views reopen that exact parent and its children. */
@@ -406,8 +406,11 @@ async function containerView(ctx: RenderContext, spec: ViewSpec, w: Words): Prom
     edges = edges.filter((edge) => ids.has(edge.from) && ids.has(edge.to));
     elements = members;
     if (outside > 0) notes.push(w.outside(outside));
-    return { spec, title: `${title}: ${spec.scope}`, label: title, elements, edges, notes, empty: null, up: { spec: { type: 'c4-container', subject: '' }, title }, marker };
+    const scoped: GraphView = { spec, title: `${title}: ${spec.scope}`, label: title, elements, edges, notes, empty: null, up: { spec: { type: 'c4-container', subject: '' }, title }, marker };
+    return elements.length > NODE_BUDGET ? firstOwnershipPage(scoped, w) : scoped;
   }
+  const fullElements = elements;
+  const fullEdges = edges;
   const folded = foldInto(elements, folderOf, NODE_BUDGET);
   if (folded !== undefined) {
     const owner = new Map<string, string>();
@@ -431,7 +434,8 @@ async function containerView(ctx: RenderContext, spec: ViewSpec, w: Words): Prom
     edges = [...merged.values()];
     marker = w.folding(folders.length, model.nodes.length);
   }
-  return { spec, title, label: w.containers, elements, edges, notes, empty: null, marker };
+  const result: GraphView = { spec, title, label: w.containers, elements, edges, notes, empty: null, marker, ...(folded === undefined ? {} : { fullElements, fullEdges }) };
+  return elements.length > NODE_BUDGET ? firstOwnershipPage(result, w) : result;
 }
 
 async function contextView(ctx: RenderContext, spec: ViewSpec, w: Words, productTitle: string): Promise<GraphView> {
@@ -485,11 +489,14 @@ async function componentView(ctx: RenderContext, spec: ViewSpec, w: Words): Prom
     nodes = members;
     edges = edges.filter((edge) => ids.has(edge.from) && ids.has(edge.to));
     if (outside > 0) notes.push(w.outside(outside));
-    const elements = nodes.map((node): ViewElement => ({ id: node.id, label: node.label, kind: 'component', detail: w.files(node.files), href: node.href, dashed: false }));
-    return { spec, title: `${title} / ${spec.scope}`, label: w.components, elements, edges: edges.map((edge) => ({ from: edge.from, to: edge.to, label: edge.cycle ? 'cycle' : w.dependsOn, dashed: false })), notes, empty: null, up: { spec: { type: 'c4-component', subject: spec.subject }, title }, marker };
+    const elements = nodes.map((node): ViewElement => ({ id: node.id, label: node.label, kind: 'component', detail: `${w.files(node.files)}${node.cycle ? ` · ${w.cycle}` : ''}`, href: node.href, dashed: false }));
+    const scoped: GraphView = { spec, title: `${title} / ${spec.scope}`, label: w.components, elements, edges: edges.map((edge) => ({ from: edge.from, to: edge.to, label: edge.cycle ? 'cycle' : w.dependsOn, dashed: false })), notes, empty: null, up: { spec: { type: 'c4-component', subject: spec.subject }, title }, marker };
+    return elements.length > NODE_BUDGET ? firstOwnershipPage(scoped, w) : scoped;
   }
   let elements: ViewElement[] = nodes.map((node) => ({ id: node.id, label: node.label, kind: 'component', detail: `${w.files(node.files)}${node.cycle ? ` · ${w.cycle}` : ''}`, href: node.href, dashed: false }));
   let arrows: ViewEdge[] = edges.map((edge) => ({ from: edge.from, to: edge.to, label: edge.cycle ? 'cycle' : w.dependsOn, dashed: false }));
+  const fullElements = elements;
+  const fullEdges = arrows;
   const folded = foldInto(nodes.map((node) => ({ id: node.id })), (item) => topFolder(byKey.get(item.id)!.label), NODE_BUDGET);
   if (folded !== undefined) {
     const owner = new Map<string, string>();
@@ -511,7 +518,8 @@ async function componentView(ctx: RenderContext, spec: ViewSpec, w: Words): Prom
     arrows = [...merged.values()];
     marker = w.folding(folders.length, nodes.length);
   }
-  return { spec, title, label: w.components, elements, edges: arrows, notes, empty: null, up, marker };
+  const result: GraphView = { spec, title, label: w.components, elements, edges: arrows, notes, empty: null, up, marker, ...(folded === undefined ? {} : { fullElements, fullEdges }) };
+  return elements.length > NODE_BUDGET ? firstOwnershipPage(result, w) : result;
 }
 
 // ---- ER ----------------------------------------------------------------------------------------------
@@ -527,17 +535,21 @@ async function erView(ctx: RenderContext, spec: ViewSpec, w: Words, limit: numbe
   const up = { spec: { type: 'c4-container' as const, subject: '' }, title: w.containers };
   let tables: GraphEntity[];
   let total: number;
-  const hiddenNeighbors: string[] = [];
   if (subject.kind === 'code.database') {
-    const found = await ctx.graph.byPrefix('code.table', `code.table:${keyTail(subject.key)}/`, limit);
+    let found = await ctx.graph.byPrefix('code.table', `code.table:${keyTail(subject.key)}/`, limit);
+    if (found.total > found.rows.length) found = await ctx.graph.byPrefix('code.table', `code.table:${keyTail(subject.key)}/`, found.total);
+    if (found.total !== found.rows.length) throw new ViewRefusal(400, `ER database "${subject.key}": expected ${found.total} tables, read ${found.rows.length}`);
     tables = found.rows;
     total = found.total;
   } else {
     // A table is drawn with the tables it points to by foreign key and the tables that point to it.
     tables = [subject];
     for (const direction of ['out', 'in'] as const) {
-      for (const group of await ctx.graph.neighbors(subject, { relations: ['code.foreign-key'], direction, limit: Math.max(20, limit) })) {
-        if (group.total > group.rows.length) hiddenNeighbors.push(`${direction === 'in' ? w.erIncoming : w.erOutgoing}: ${w.truncated(group.rows.length, group.total)}`);
+      let groups = await ctx.graph.neighbors(subject, { relations: ['code.foreign-key'], direction, limit: Math.max(20, limit) });
+      const total = Math.max(0, ...groups.map(group => group.total));
+      if (groups.some(group => group.total > group.rows.length)) groups = await ctx.graph.neighbors(subject, { relations: ['code.foreign-key'], direction, limit: total });
+      for (const group of groups) {
+        if (group.total !== group.rows.length) throw new ViewRefusal(400, `ER table "${subject.key}" ${direction}: expected ${group.total} foreign-key neighbours, read ${group.rows.length}`);
         for (const row of group.rows) if (!tables.some((table) => table.key === row.entity.key)) tables.push(row.entity);
       }
     }
@@ -550,6 +562,7 @@ async function erView(ctx: RenderContext, spec: ViewSpec, w: Words, limit: numbe
   // Keep the relation discriminator and column on each fact: two columns can reference the same table.
   let foreignKeys = await ctx.graph.relationEdges('code.foreign-key', 2000);
   if (foreignKeys.total > foreignKeys.rows.length) foreignKeys = await ctx.graph.relationEdges('code.foreign-key', foreignKeys.total);
+  if (foreignKeys.total !== foreignKeys.rows.length) throw new ViewRefusal(400, `ER foreign keys: expected ${foreignKeys.total} relationships, read ${foreignKeys.rows.length}`);
   const columnsOf = new Map<string, Set<string>>();
   for (const edge of foreignKeys.rows) {
     const column = edge.properties['column'];
@@ -558,12 +571,10 @@ async function erView(ctx: RenderContext, spec: ViewSpec, w: Words, limit: numbe
     columns.add(column);
     columnsOf.set(edge.from.key, columns);
   }
-  // A table whose columns run past the drawn list keeps the count, so the page says what it does not draw.
-  const hiddenColumns: string[] = [];
   for (const table of tables) {
     let columns = await ctx.graph.byPrefix('code.column', `${table.key}/`, 40);
     if (columns.total > columns.rows.length) columns = await ctx.graph.byPrefix('code.column', `${table.key}/`, columns.total);
-    if (columns.total > columns.rows.length) hiddenColumns.push(`${table.label}: ${String(columns.rows.length)} of ${String(columns.total)}`);
+    if (columns.total !== columns.rows.length) throw new ViewRefusal(400, `ER table "${table.key}": expected ${columns.total} columns, read ${columns.rows.length}`);
     const ownColumns = columnsOf.get(table.key) ?? new Set<string>();
     elements.push({
       id: table.key,
@@ -578,11 +589,6 @@ async function erView(ctx: RenderContext, spec: ViewSpec, w: Words, limit: numbe
   const edges: ViewEdge[] = [];
   const seen = new Set<string>();
   for (const table of tables) {
-    const neighbors = new Set<string>();
-    for (const group of await ctx.graph.neighbors(table, { relations: ['code.foreign-key'], direction: 'out', limit: Math.max(40, limit) })) {
-      if (group.total > group.rows.length) hiddenNeighbors.push(`${table.label}: ${w.truncated(group.rows.length, group.total)}`);
-      for (const row of group.rows) if (inView.has(row.entity.key)) neighbors.add(row.entity.key);
-    }
     for (const edge of foreignKeys.rows) {
       if (edge.from.key !== table.key || !inView.has(edge.to.key)) continue;
       const column = edge.properties['column'];
@@ -592,25 +598,23 @@ async function erView(ctx: RenderContext, spec: ViewSpec, w: Words, limit: numbe
       seen.add(key);
       edges.push({ from: table.key, to: edge.to.key, label, dashed: false, ...(edge.discriminator === undefined ? {} : { discriminator: edge.discriminator }) });
     }
-    // A bounded relation lookup may not hold the metadata for a retained neighbor. Disclose that cap below and keep
-    // the known connection rather than inventing its missing column/discriminator.
-    for (const to of neighbors) if (!edges.some((edge) => edge.from === table.key && edge.to === to)) edges.push({ from: table.key, to, label: w.foreignKey, dashed: false });
   }
   edges.sort((a, b) => byCodePoint(`${a.from}|${a.to}|${a.label}`, `${b.from}|${b.to}|${b.label}`));
   const notes = [
     ...(total > tables.length ? [w.truncated(tables.length, total)] : []),
-    ...hiddenNeighbors,
     ...(foreignKeys.total > foreignKeys.rows.length ? [w.truncated(foreignKeys.rows.length, foreignKeys.total)] : []),
-    ...(hiddenColumns.length === 0 ? [] : [w.columnsTruncated(hiddenColumns.join('; '))]),
   ];
   // Mermaid's own ER syntax (decision 0026 names ER as a view type of its own): one entity per table, one row per
   // column with its type and its key, and one relationship per foreign key. An entity's name is a sanitised identifier,
   // made unique, because two schemas may hold a table of one name; the table's own name and its page stay in the list of
   // elements under the picture, which Mermaid's `erDiagram` cannot carry as clicks.
+  const drawnElements = elements.slice(0, limit);
+  const drawnIds = new Set(drawnElements.map(element => element.id));
+  const drawnEdges = edges.filter(edge => drawnIds.has(edge.from) && drawnIds.has(edge.to));
   const lines = ['erDiagram'];
   const mermaidId = new Map<string, string>();
   const used = new Set<string>();
-  for (const element of elements) {
+  for (const element of drawnElements) {
     const base = element.label.replace(/[^A-Za-z0-9_]/g, '_') || 'table';
     let id = base;
     for (let n = 2; used.has(id); n += 1) id = `${base}_${String(n)}`;
@@ -618,14 +622,14 @@ async function erView(ctx: RenderContext, spec: ViewSpec, w: Words, limit: numbe
     mermaidId.set(element.id, id);
   }
   const erText = (value: string): string => value.replace(/["\r\n]/g, char => char === '"' ? '#quot;' : ' ');
-  for (const element of elements) {
+  for (const element of drawnElements) {
     lines.push(`  ${mermaidId.get(element.id)!} {`);
     for (const column of element.columns ?? []) lines.push(`    ${erType(column.type)} ${column.name.replace(/[^A-Za-z0-9_]/g, '_')}${column.key && column.fk ? ' PK,FK' : column.key ? ' PK' : column.fk ? ' FK' : ''}`);
     lines.push('  }');
   }
   // The arrow points from the table that is referenced to the table that holds the key.
-  for (const edge of edges) lines.push(`  ${mermaidId.get(edge.to)!} ||--o{ ${mermaidId.get(edge.from)!} : "${erText(edge.label)}"`);
-  return { spec, title, label: w.er, elements, edges, notes, empty: null, up, marker: null, mermaid: lines.join('\n') };
+  for (const edge of drawnEdges) lines.push(`  ${mermaidId.get(edge.to)!} ||--o{ ${mermaidId.get(edge.from)!} : "${erText(edge.label)}"`);
+  return { spec, title, label: w.er, elements: drawnElements, edges: drawnEdges, ...(elements.length > drawnElements.length ? { fullElements: elements, fullEdges: edges } : {}), notes, empty: null, up, marker: elements.length > drawnElements.length ? w.truncated(drawnElements.length, elements.length) : null, mermaid: lines.join('\n') };
 }
 
 // ---- state -------------------------------------------------------------------------------------------

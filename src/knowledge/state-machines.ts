@@ -70,7 +70,7 @@ function tokens(text: string, startLine: number): Token[] {
     if (char === '"' || char === "'" || char === '`') {
       let end = at + 1;
       while (end < text.length && text[end] !== char) end += text[end] === '\\' ? 2 : 1;
-      out.push({ type: 'string', text: text.slice(at + 1, end), line });
+      out.push({ type: char === '`' && text.slice(at + 1, end).includes('${') ? 'punct' : 'string', text: text.slice(at + 1, end), line });
       for (const c of text.slice(at, end + 1)) if (c === '\n') line += 1;
       at = end + 1;
       continue;
@@ -113,6 +113,7 @@ function parseBrace(list: Token[], open: number): { value: Value; end: number } 
       if (token.type === 'punct') return undefined;
       items.push(token);
       at += 1;
+      if (!isPunct(list[at], ',') && !isPunct(list[at], '}')) return undefined;
       continue;
     }
     let key: Token;
@@ -136,20 +137,33 @@ function parseBrace(list: Token[], open: number): { value: Value; end: number } 
   return undefined;
 }
 
+/** Executable array expressions are not evidence of a destination state. */
+class StateArrayExpression extends Error {
+  constructor(readonly line: number) { super('transition arrays accept only literal or reference items separated by commas; executable expressions are not transitions'); }
+}
+
 function valueAt(list: Token[], at: number): { value: Value; end: number } | undefined {
   const token = list[at];
   if (token === undefined) return undefined;
-  const open = braceAt(list, at);
-  if (open !== undefined) return parseBrace(list, open);
-  if (isPunct(token, '[')) {
+  // A Go slice type starts []Status{; a JavaScript array starts [item and must validate its entire items.
+  const goSlice = isPunct(token, '[') && isPunct(list[at + 1], ']') && list[at + 2]?.type === 'name';
+  if (isPunct(token, '[') && !goSlice) {
     const items: Token[] = [];
     let cursor = at + 1;
     while (cursor < list.length && !isPunct(list[cursor], ']')) {
-      if (list[cursor]!.type !== 'punct') items.push(list[cursor]!);
+      const item = list[cursor]!;
+      if (item.type === 'punct') throw new StateArrayExpression(item.line);
+      items.push(item);
+      cursor += 1;
+      if (isPunct(list[cursor], ']')) break;
+      if (!isPunct(list[cursor], ',')) throw new StateArrayExpression(list[cursor]?.line ?? item.line);
       cursor += 1;
     }
+    if (!isPunct(list[cursor], ']')) throw new StateArrayExpression(token.line);
     return { value: { kind: 'list', items }, end: cursor + 1 };
   }
+  const open = braceAt(list, at);
+  if (open !== undefined) return parseBrace(list, open);
   if (token.type === 'name' || token.type === 'string') return { value: { kind: 'ref', text: token.text, line: token.line }, end: at + 1 };
   return undefined;
 }
@@ -228,7 +242,12 @@ export async function stateMachinesOf(path: string, text: string): Promise<State
     const before = text.slice(0, openAt);
     const startLine = before.split('\n').length;
     const list = tokens(text.slice(openAt), startLine);
-    const parsed = parseBrace(list, 0);
+    let parsed: ReturnType<typeof parseBrace>;
+    try { parsed = parseBrace(list, 0); }
+    catch (error) {
+      if (error instanceof StateArrayExpression) throw new Error(`${path}:${error.line}: ${error.message}`);
+      throw error;
+    }
     if (parsed === undefined || parsed.value.kind !== 'map') continue;
     const root = parsed.value;
     const states = new Map<string, MachineState>();

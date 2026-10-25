@@ -65,8 +65,11 @@ test('21 incoming foreign-key tables cannot disappear behind a false total',asyn
   }} as unknown as GraphReader;
   const ctx={graph,manifest:{kinds:new Map()},repoOfScope:()=>undefined} as unknown as RenderContext;
   const [view]=await buildViews({ctx,lang:'en',productTitle:'Shop'},{type:'er',subject:subject.key});
-  expect(view!.notes.join(' ')).toContain('20 of 21');
-  expect(view!.elements).toHaveLength(21);
+  expect(view!.elements).toHaveLength(12);
+  expect(view!.marker).toBe('Showing 12 of 22.');
+  expect(view!.fullElements!.map(element => element.id)).toEqual([subject.key, ...others.map(table => table.key)]);
+  expect(view!.fullEdges!.map(edge => [edge.from, edge.to, edge.label])).toEqual(others.map(table => [table.key, subject.key, 'customer_id']));
+  expect(view!.notes.join(' ')).not.toContain('20 of 21');
 });
 
 
