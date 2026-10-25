@@ -950,7 +950,7 @@ export class KnowledgeProduct {
    * Starts the product's knowledge over: the reader and the graph store go, and the pages the writer produced (see
    * `reset.ts`). Refused while a fill runs. The wiki then reads as an empty product.
    */
-  async reset(): Promise<{ ok: true; plan: ResetPlan } | { ok: false; message: string }> {
+  async reset(expected?: ResetPlan): Promise<{ ok: true; plan: ResetPlan } | { ok: false; message: string }> {
     if (this.running !== undefined) return { ok: false, message: 'a fill of this product is running; start over after it ends' };
     if (this.resetting) return { ok: false, message: 'this product is already being started over' };
     const product = this.product();
@@ -958,6 +958,7 @@ export class KnowledgeProduct {
     let plan: ResetPlan;
     try {
       plan = planReset(product.folder, this.storeFolder(), this.options.storeRoot);
+      if (expected !== undefined && (['store', 'agentPages', 'keptPages', 'unansweredQuestions', 'keptAnswers'] as const).some((key) => JSON.stringify(expected[key]) !== JSON.stringify(plan[key]))) return { ok: false, message: `${product.folder}:1: reset inputs changed since the preview; request a new preview: nothing was removed` };
     } catch (error) {
       return { ok: false, message: error instanceof Error ? error.message : String(error) };
     }
@@ -1011,7 +1012,7 @@ export class KnowledgeProduct {
     }
     this.resetting = true;
     try {
-      applyReset(product.folder, { store: [], agentPages: plan.agentPages, keptPages: plan.keptPages });
+      applyReset(product.folder, plan, { keepQuestions: true, keepStore: true });
       this.writer = { state: 'idle', agent: null, units: [] };
       this.notify();
     } finally {
@@ -1019,15 +1020,15 @@ export class KnowledgeProduct {
     }
     const started = await this.startFill({ expectAgent: chosen.id });
     if (!started.started) return { ok: false, message: `the pages were removed (${plan.agentPages.join(', ') || 'there were none'}) but the fill did not start: ${started.message}` };
-    return { ok: true, plan: { ...plan, store: [] }, fill: started.fill };
+    return { ok: true, plan: { ...plan, store: [], unansweredQuestions: [] }, fill: started.fill };
   }
 
   /**
    * «Start from scratch»: the pages the agent wrote, the graph and the reader go, the manifest and the templates are put
    * at the current starter set, and a fresh fill starts. Everything is local to this machine and this checkout.
    */
-  async startFresh(): Promise<{ ok: true; plan: ResetPlan; starter: string[]; fill: FillState; fillRefused?: string } | { ok: false; message: string }> {
-    const done = await this.reset();
+  async startFresh(expected?: ResetPlan): Promise<{ ok: true; plan: ResetPlan; starter: string[]; fill: FillState; fillRefused?: string } | { ok: false; message: string }> {
+    const done = await this.reset(expected);
     if (!done.ok) return done;
     const product = this.product();
     if ('message' in product) return { ok: false, message: product.message };
@@ -1071,7 +1072,7 @@ export class KnowledgeProduct {
       danger = this.dangerPlan();
     } catch (error) {
       dangerError = error instanceof Error ? error.message : String(error);
-      danger = { rewrite: { agentPages: [], keptPages: [] }, fresh: { store: [], agentPages: [], keptPages: [], editedStarterFiles: [], replacedStarterFiles: [] } };
+      danger = { rewrite: { agentPages: [], keptPages: [] }, fresh: { store: [], agentPages: [], keptPages: [], unansweredQuestions: [], keptAnswers: [], editedStarterFiles: [], replacedStarterFiles: [] } };
     }
     return {
       product: { name: product.name, id: product.id },

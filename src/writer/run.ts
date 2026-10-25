@@ -19,11 +19,11 @@ import { byCodePoint } from '../model/order.js';
 import type { McpToolDefinition } from '../fill/unit-mcp.js';
 import { parse as parseYaml } from 'yaml';
 import { splitFrontMatter } from '../knowledge/markdown.js';
-import { parseQuestion, QUESTIONS_FOLDER, readCorrections, readQuestions, type Correction, type Question } from '../loop/entities.js';
+import { parseQuestion, parseStatementRef, QUESTIONS_FOLDER, readCorrections, readQuestions, type Correction, type Question } from '../loop/entities.js';
 import { writtenAtOf } from './basis.js';
 import type { DocEntity } from '../knowledge/doc-entities.js';
 import { detectDocumentLanguage, localizedSourcePath, localizedSourcePrompt, parseLocalizedSource, renderLocalizedSource, LOCALIZED_SOURCE_SCHEMA } from './localized-source.js';
-import { includedNotes, type EditBrief } from './edit.js';
+import { includedNotes, type ChangeNote, type EditBrief } from './edit.js';
 import { statementsOf } from './sentences.js';
 import { MAX_SLUG_LENGTH, SLUG } from './format.js';
 import { domainPrompt, productPrompt, type UnitContext } from './prompts.js';
@@ -283,21 +283,20 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
   const corrections: readonly Correction[] = readC.items;
   const entityIds = [...questions.filter((question) => question.status === 'answered').map((question) => question.id), ...corrections.map((correction) => correction.id)].sort(byCodePoint);
   // The questions asked so far, read fresh at each ask (a unit's question is seen by the next), so one subject is asked once.
-  const unreadable = new Set<string>();
   const liveQuestions = async (): Promise<readonly Question[]> => {
-    if (sink.list === undefined) return readQuestions(options.output).items;
+    if (sink.list === undefined) {
+      const read = readQuestions(options.output);
+      if (read.problems.length > 0) throw new Error(read.problems.map((problem) => `${path.resolve(options.output, problem.file)}:${problem.line}: ${problem.message}`).join('\n'));
+      return read.items;
+    }
     const found: Question[] = [];
     for (const file of await sink.list(QUESTIONS_FOLDER)) {
-      try {
-        found.push(parseQuestion(file, await sink.read(file)));
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        if (!unreadable.has(message)) { unreadable.add(message); loopProblems.push(message); }
-      }
+      try { found.push({ ...parseQuestion(path.resolve(options.output, file), await sink.read(file)), file }); }
+      catch (error) { throw new Error(`${path.resolve(options.output, file)}:1: ${error instanceof Error ? error.message : String(error)}`); }
     }
     return found;
   };
-  const extras = { entityIds: async () => entityIds, language, questions: liveQuestions, ...(options.clock === undefined ? {} : { clock: options.clock }) };
+  const extras = { entityIds: async () => entityIds, output: options.output, language, questions: liveQuestions, ...(options.clock === undefined ? {} : { clock: options.clock }) };
   let existingProduct: string | null = null;
   try { existingProduct = await sink.read(PRODUCT_PATH); } catch { existingProduct = null; }
   const domainPages = await existingDomainPages(options.output);
@@ -305,6 +304,25 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
   const askedIds: string[] = [];
   const keptOutcome = (unit: string, path: string): UnitOutcome => ({ unit, status: 'written', path, writeAttempts: 0, calls: 0, refusals: [], domains: [], grounds: [], links: [], filesRead: [], questions: [], merged: [] });
   const neededDomains = domainPages.filter((page) => need.domain(page));
+  // A reset can leave a correction without its page. Match the stable page id when that page is recreated,
+  // before the unit starts; never infer applicability from a fixture name or a similar sentence.
+  const freshCorrections = new Map<string, Set<string>>();
+  const briefFor = (unit: string, file: string, current: string | null): EditBrief | undefined => {
+    const brief = need.brief?.(file);
+    if (current !== null) return brief;
+    const notes: ChangeNote[] = corrections.filter((correction) => correction.status === 'open' && parseStatementRef(correction.about)?.page === unit)
+      .filter((correction) => !brief?.notes.some((note) => note.kind === 'correction' && note.correction === correction.slug))
+      .map((correction) => ({ kind: 'correction', correction: correction.slug, statement: parseStatementRef(correction.about)!.statement, sentence: correction.statement, reason: correction.reason, by: `${correction.by.name} <${correction.by.email}>` }));
+    if (notes.length === 0 && !brief?.notes.some((note) => note.kind === 'correction')) return brief;
+    const combined: EditBrief = { current: null, notes: [...(brief?.notes ?? []), ...notes], omitted: brief?.omitted ?? 0 };
+    const included = new Set(includedNotes(combined));
+    freshCorrections.set(unit, new Set([...included].filter((note) => note.kind === 'correction').map((note) => entityKey('correction', note.correction))));
+    for (const note of combined.notes) if (note.kind === 'correction' && !included.has(note)) {
+      const correction = corrections.find((entry) => entry.slug === note.correction);
+      loopProblems.push(`${path.resolve(options.output, correction?.file ?? `docs/corrections/${note.correction}.md`)}:1: the retained correction for ${unit} exceeds the edit brief budget; it stays open for a later refresh`);
+    }
+    return combined;
+  };
   // The answers and corrections each page's unit is told, so a rewrite that used them can close them.
   const expected = new Map<string, Set<string>>();
   const done = new Map<string, Set<string>>();
@@ -323,7 +341,22 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
   const finish = (unit: string, outcome: UnitOutcome): void => {
     askedIds.push(...outcome.questions);
     if (outcome.status !== 'written' || outcome.writeAttempts === 0) return;
-    for (const [key, units] of expected) if (units.has(unit)) { if (!done.has(key)) done.set(key, new Set()); done.get(key)!.add(unit); }
+    // A fresh page can use a retained answer even when no existing page gave it an edit brief.
+    // Only checked statement grounds count; a link, an open question or an unwritten page does not.
+    for (const key of outcome.grounds) {
+      if (!questions.some((question) => question.id === key && question.status === 'answered')) continue;
+      if (!expected.has(key)) expected.set(key, new Set());
+      expected.get(key)!.add(unit);
+    }
+    for (const [key, units] of expected) if (units.has(unit)) {
+      // A newly recreated page must actually ground its correction, not merely receive the note and write.
+      if (freshCorrections.get(unit)?.has(key) && !outcome.grounds.includes(key)) {
+        const correction = corrections.find((entry) => entry.id === key);
+        loopProblems.push(`${path.resolve(options.output, correction!.file)}:1: the recreated page ${unit} does not ground its retained correction on madarch:${key}; the correction stays open`);
+        continue;
+      }
+      if (!done.has(key)) done.set(key, new Set()); done.get(key)!.add(unit);
+    }
   };
   // The domains the product page declares now, as their pages say, for a product unit that edits.
   const declaredNow = async (): Promise<DomainDeclaration[]> => {
@@ -335,7 +368,7 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
   let declarations: readonly DomainDeclaration[];
   let productPage = '';
   if (need.product) {
-    const brief = need.brief?.(PRODUCT_PATH);
+    const brief = briefFor(productUnit.id, PRODUCT_PATH, existingProduct);
     expect(productUnit.id, brief);
     options.onUnitStart?.({ unit: productUnit.id, path: productUnit.path });
     const productTools = new UnitTools(view, productUnit, sink, [], bounds, basis, extras);
@@ -370,7 +403,7 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
         continue;
       }
       const spec: UnitSpec = { kind: 'domain', id: `domain:${declaration.slug}`, path, domain: declaration, productId: productUnit.id };
-      const brief = need.brief?.(path);
+      const brief = briefFor(spec.id, path, domainPages.includes(path) ? await sink.read(path) : null);
       expect(spec.id, brief);
       options.onUnitStart?.({ unit: spec.id, path: spec.path });
       const tools = new UnitTools(view, spec, sink, declarations, bounds, basis, extras);

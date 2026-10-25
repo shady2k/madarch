@@ -112,6 +112,10 @@ export function editPart(brief: EditBrief, languageName: string): string[] {
       '',
     );
   }
+  if (brief.current === null && brief.notes.some((note) => note.kind === 'correction')) {
+    lines.push('## Retained corrections for this new page',
+      'The earlier page was removed, but these human corrections remain. Do not recreate the statements they corrected. Apply each correction and ground the corrected sentence on `madarch:correction:<slug>` together with its supporting sources.', '');
+  }
   if (brief.notes.length > 0) {
     lines.push('## What changed since the page was written');
     const shown = includedNotes(brief);

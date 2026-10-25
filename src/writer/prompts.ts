@@ -11,7 +11,7 @@ import type { DomainDeclaration, UnitSpec } from './tools.js';
 import { FILE_LINES, FIND_LIMIT } from './tools.js';
 import type { GraphView } from './view.js';
 
-export const PROMPT_VERSION = 'writer@4';
+export const PROMPT_VERSION = 'writer@5';
 
 /** The languages a product's pages are written in, with the name the agent is told. */
 export const CONTENT_LANGUAGES: Readonly<Record<string, { name: string; seeAlso: string }>> = {
@@ -72,8 +72,8 @@ export function fixedPart(language = 'en'): string {
     '',
     '## Look for disagreement, and ask',
     '- Read the root README.md and the README of each service you describe (read_file) besides the requirements and architecture documents, before you write. Look for places where what a document says and what the code does disagree (a number, a rule, a promised behaviour, a timing), for a term the documents use for two things, and for behaviour the code has that no document describes.',
-    '- When you find one, call ask_question with what each source says and the grounds that show it, and go on. Never state either side as fact and never pick one yourself. A question already asked (listed in your unit, with the entities it is about) is not asked again: when your subject is one of them, do not call ask_question; if you call it anyway, the writer adds your page to the question that exists instead of saving a second one, so a person answers each subject once. Name in "about" the functions, routes and document sections the answer would change; that is how the same subject is recognised.',
-    '- A question never takes a fact off the page. Where a contradiction is open, keep BOTH sides on the page, each as its own grounded sentence and each grounded on its own source: what the code does (grounded on the code) and what the document says (grounded on the document), then a "see the question" line. Do not leave out the code\'s number, rule or timing because a document disagrees with it; write_page refuses a page that drops a side of a contradiction you asked.',
+    '- When you find one, call ask_question with what each source says and the grounds that show it. A decision already asked is not asked again. The tool first returns all fresh open and answered candidates when comparison is needed: compare what each asks a person to decide by meaning, then retry with a comparison entry (id, same, reason) for EVERY candidate. Same entities or title are not proof; different decisions on one entity stay separate. A match returns its existing id, and an answered match returns the answer: use it and ground the sentence on that question id, even when a previous page already used it.',
+    '- A question never takes a fact off the page. Where a contradiction is open, keep BOTH sides on the page, each as its own grounded sentence and each grounded on its own source: what the code does (grounded on the code) and what the document says (grounded on the document), then a localized question link at the end of the sentence it qualifies, e.g. `[→ вопрос: Срок хранения](madarch:question:retention)` or `[→ question: Retention](madarch:question:retention)`. Never use a reference-only heading or a raw question id. Do not leave out the code\'s number, rule or timing because a document disagrees with it; write_page refuses a page that drops a side of a contradiction you asked.',
     '- Compare how neighbouring operations of a domain handle failure: for each operation that calls another service or a store (a payment, a refund, a capture, a lookup), read what it does on a timeout, a retry, an error answer and a repeat of the same request, and say where one operation has protection that its neighbour lacks (for example a pay call with a timeout and a retry beside a refund call with neither). A difference like that is a finding: state it as a grounded sentence, and ask a question when no document says whether it is intended.',
     '',
     '## The page format',
@@ -142,7 +142,7 @@ export function otherQuestionsPart(pageId: string, questions: readonly Question[
   const shown = others.slice(0, OTHER_QUESTIONS_LIMIT);
   return [
     '## Questions already asked elsewhere in this product',
-    'Do not ask these again; a question about the same entities adds your page to the one that exists.',
+    'Compare the decision by meaning, not entity overlap. ask_question serves the complete fresh candidates before saving; reuse an answered decision and ground your rewrite on its answer.',
     ...shown.map((question) => `- question:${question.slug} (${question.status}, ${question.type}): ${question.title} [about ${question.about.filter((entry) => !/^(product|domain):/.test(entry)).slice(0, 4).join(', ') || 'no entity named'}]`),
     ...(others.length > shown.length ? [`- ... and ${others.length - shown.length} more`] : []),
     '',

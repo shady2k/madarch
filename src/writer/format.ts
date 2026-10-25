@@ -12,9 +12,10 @@
  */
 import { parse as parseYaml } from 'yaml';
 import { byCodePoint } from '../model/order.js';
+import { headingLinks } from '../knowledge/markdown.js';
 import type { WrittenAt } from '../knowledge/index/page.js';
 import { isNumbered, nameStatements, sentenceKey } from './names.js';
-import { maskInline as maskSentenceText, plainSentence, REFERENCE_RUN, sentencesOf as splitSentences, statementsOf } from './sentences.js';
+import { maskInline, plainSentence, QUESTION_LINK, REFERENCE_RUN, sentencesOf, statementsOf, unmask, withoutQuestionLinks } from './sentences.js';
 
 /** One reason a page is refused: the line (1-based, in the whole file), the rule and a message the agent can act on. */
 export interface Refusal {
@@ -61,6 +62,13 @@ export interface PageExpectation {
    * the answered questions and the corrections of the product (madarch-m38l.7). Any other entity page is refused.
    */
   readonly entities?: readonly string[];
+  /** All fresh question ids, including unanswered questions: links, not necessarily grounds. */
+  readonly questions?: readonly string[];
+  /** The wiki language, when known at the write boundary. */
+  readonly language?: 'en' | 'ru';
+  /** Product-relative file and its full path, when the caller knows them. */
+  readonly file?: string;
+  readonly fullPath?: string;
 }
 
 export interface FrontMatter {
@@ -94,11 +102,6 @@ const WRITER_KEYS = ['written-at'] as const;
 const LINK = /\[([^\]\n]*)\]\(((?:[^()\s]|\([^()\s]*\))*)\)/g;
 const FOOTNOTE_DEFINITION = /^\[\^([A-Za-z0-9_-]+)\]:[ \t]*(.*)$/;
 const FOOTNOTE_REFERENCE = /\[\^([A-Za-z0-9_-]+)\]/g;
-const ABBREVIATION = /\b(?:[Ee]\.g|[Ii]\.e)\.|\b(?:etc|vs|cf|approx)\.(?=\s+[a-z0-9(,;])|(?<![\p{L}\p{N}])(?:[Тт]\.\s?[еквдпн]|и\s+т\.\s?[дп]|напр|[Сс]м|ср|рис|табл|стр|гг|руб|тыс|млн|млрд)\.(?=\s+[\p{Ll}\p{N}(,;])/gu;
-/** A character that stands for a masked dot; the page may not hold it (checked on entry). */
-const DOT = '\u0001';
-/** The most words a "See also" line may carry beside its links before it is read as a statement. */
-const SEE_ALSO_WORDS = 4;
 /** The words that open a connecting "See also" line, in English and in Russian (`См. также`, `Смотрите также`). */
 const SEE_ALSO = /^(?:see also|см\.?\s+также|смотрите также)(?![\p{L}\p{N}])/iu;
 /** The most words a heading may have; a longer one reads as a statement. */
@@ -186,38 +189,6 @@ function plainWords(text: string): string[] {
   return stripped.match(/[\p{L}\p{N}][\p{L}\p{N}'-]*/gu) ?? [];
 }
 
-interface Sentence {
-  readonly text: string;
-  readonly terminated: boolean;
-}
-
-/** Splits masked text into sentences; footnote references right after the terminal punctuation belong to the sentence. */
-function sentencesOf(masked: string): Sentence[] {
-  const out: Sentence[] = [];
-  const pattern = /([^]*?[.!?\u2026][)"'\u201d\u2019\u00bb]*(?:\[\^[A-Za-z0-9_-]+\])*)(?=\s|$)/y;
-  const text = masked.trim();
-  let at = 0;
-  while (at < text.length) {
-    pattern.lastIndex = at;
-    const found = pattern.exec(text);
-    if (found === null) break;
-    out.push({ text: found[1]!.trim(), terminated: true });
-    at = pattern.lastIndex;
-    while (at < text.length && /\s/.test(text[at]!)) at += 1;
-  }
-  const rest = text.slice(at).trim();
-  if (rest !== '') out.push({ text: rest, terminated: false });
-  return out;
-}
-
-/** Masks code spans, link targets and common abbreviations, whose dots are not sentence ends. */
-function maskInline(text: string): string {
-  return text
-    .replace(/`[^`\n]*`/g, (span) => span.replace(/[.!?\u2026]/g, DOT))
-    .replace(LINK, (_whole, label: string, target: string) => `[${label}](${target.replace(/[.!?]/g, DOT)})`)
-    .replace(ABBREVIATION, (whole) => whole.replace(/\./g, DOT));
-}
-
 interface TextUnit {
   readonly line: number;
   readonly text: string;
@@ -270,6 +241,11 @@ function textUnits(body: string, bodyStart: number, refusals: Refusal[]): { unit
 /** The most words a link-only line may carry in its labels before it is read as a statement. */
 const LINK_ONLY_WORDS = 5;
 
+/** A short factual label is still a claim, not navigation. Structural checks below also forbid prose beside links. */
+function assertionLabel(text: string): boolean {
+  return /(?<![\p{L}\p{N}])(?:is|are|was|were|has|have|stores?|keeps?|requires?|supports?|costs?|free|бесплат[\p{L}]*|хран[\p{L}]*|требу[\p{L}]*|поддержива[\p{L}]*|стоит|стоят|явля[\p{L}]*)(?![\p{L}\p{N}])/iu.test(text.replace(LINK, (_whole, label: string) => label));
+}
+
 /**
  * A unit that only connects: a one-sentence "See also" line, or nothing but
  * links and punctuation. The words in link labels count: a statement does not
@@ -279,11 +255,14 @@ function connecting(text: string): boolean {
   const plain = text.replace(FOOTNOTE_REFERENCE, '').trim();
   const labelWords = plainWords([...plain.matchAll(LINK)].map((m) => m[1]!).join(' ')).length;
   if (SEE_ALSO.test(plain)) {
-    const outside = plainWords(plain.replace(SEE_ALSO, '').replace(LINK, '')).length;
-    return sentencesOf(maskInline(plain)).length <= 1 && outside <= SEE_ALSO_WORDS && labelWords <= 2 * SEE_ALSO_WORDS;
+    const rest = plain.replace(SEE_ALSO, '').replace(LINK, '').replace(/[\s,;:.–—-]+/g, ' ').trim();
+    // Only navigation glue is exempt. Word counts alone used to accept short claims such as "delivery is free".
+    const navigation = /^(?:(?:the|and|or|page|pages|section|sections|service|services|и|или|страница|страницы|страницу|раздел|разделы|сервис|сервисы)\s*)*$/iu.test(rest)
+      || (labelWords === 0 && /^(?:the\s+)?(?:[\p{L}\p{N}'-]+\s+){1,3}(?:page|section)$/iu.test(rest));
+    return sentencesOf(maskInline(plain)).length <= 1 && navigation && labelWords <= 2 * LINK_ONLY_WORDS && !assertionLabel(plain);
   }
   const rest = plain.replace(LINK, '').replace(/[\s,;:.\u2013\u2014-]+/g, '');
-  return rest === '' && plain.includes('](') && labelWords <= LINK_ONLY_WORDS;
+  return rest === '' && plain.includes('](') && labelWords <= LINK_ONLY_WORDS && !assertionLabel(plain);
 }
 
 /** Parses the grounds of a footnote definition: links separated by commas and nothing else. */
@@ -343,13 +322,25 @@ async function linkCodeSpans(body: string, resolver: GroundResolver): Promise<st
  * fixes a page in one round rather than one rule at a time.
  */
 export async function checkPage(markdown: string, expected: PageExpectation, resolver: GroundResolver): Promise<PageCheck> {
+  const located = (refusal: Refusal): Refusal => {
+    const location = [expected.file, expected.fullPath].filter((part): part is string => part !== undefined).join(' — ');
+    return location === '' ? refusal : { ...refusal, message: `${location}:${refusal.line}: ${refusal.message}` };
+  };
   const split = splitFrontMatter(markdown.replace(/\r\n/g, '\n'));
-  if ('rule' in split) return { ok: false, refusals: [split] };
+  if ('rule' in split) return { ok: false, refusals: [located(split)] };
   const refusals: Refusal[] = [];
   const front = frontMatterOf(split.front, expected);
   refusals.push(...front.refusals);
   const body = await linkCodeSpans(split.body, resolver);
   const { units, definitions, headings } = textUnits(body, split.bodyStart, refusals);
+  // Work on source lines, not joined paragraphs, so an id on a later line keeps its true location.
+  for (const [index, line] of split.body.split('\n').entries()) {
+    if (FOOTNOTE_DEFINITION.test(line.trim())) continue;
+    const outsideLinks = line.replace(LINK, '');
+    for (const match of outsideLinks.matchAll(/(?<![\p{L}\p{N}_])(?:madarch:)?(?:question|correction|domain|product|doc|engine|code\.[a-z][a-z0-9.-]*):[^\s`<>\[\]()]+/gu)) {
+      refusals.push({ line: split.bodyStart + index, rule: 'raw-entity-id', message: `the raw entity id ${JSON.stringify(match[0])} is not reader-facing prose: use a human-readable Markdown link; place a question link at the end of its sentence as [→ question: …](madarch:question:<slug>) or [→ вопрос: …](madarch:question:<slug>)` });
+    }
+  }
 
   const known = new Map<string, boolean>();
   const resolves = async (target: MadarchTarget): Promise<boolean> => {
@@ -422,7 +413,7 @@ export async function checkPage(markdown: string, expected: PageExpectation, res
       links.push(target.slice('madarch:'.length));
       if (parsed.type === 'page') {
         const slug = parsed.id.startsWith('domain:') ? parsed.id.slice('domain:'.length) : undefined;
-        const own = parsed.id === expected.id || parsed.id === expected.productId || expected.entities?.includes(parsed.id) === true;
+        const own = parsed.id === expected.id || parsed.id === expected.productId || expected.entities?.includes(parsed.id) === true || expected.questions?.includes(parsed.id) === true;
         if (!own && !(slug !== undefined && expected.domains.includes(slug))) {
           refusals.push({ line: unit.line, rule: 'link-outside-graph', message: `the link ${target} names a page that does not exist: the pages are this one (${expected.id}) and the declared domains (${expected.domains.map((d) => `domain:${d}`).join(', ') || 'none declared'})` });
         }
@@ -431,8 +422,17 @@ export async function checkPage(markdown: string, expected: PageExpectation, res
       }
     }
   };
+  for (const link of headingLinks(body, split.bodyStart)) {
+    if (!link.url.startsWith('madarch:')) continue;
+    const target = parseTarget(link.url.slice('madarch:'.length));
+    if (target?.type === 'page' && target.id.startsWith('question:')) refusals.push({ line: link.line, rule: 'question-link-position', message: 'a question link cannot stand in a heading: put it as a localized suffix after the affected grounded sentence' });
+  }
   for (const heading of headings) {
     await checkLinks(heading);
+    const outsideLinks = heading.text.replace(LINK, '').replace(/[`*_\s:,.→–—-]/g, '');
+    if ((outsideLinks === '' && [...heading.text.matchAll(LINK)].length > 0) || /^(?:see\s+(?:also\s+)?question|см\.?\s+(?:также\s+)?вопрос|смотрите\s+вопрос|→\s*(?:question|вопрос))(?![\p{L}\p{N}])/iu.test(heading.text)) {
+      refusals.push({ line: heading.line, rule: 'reference-heading', message: 'a reference-only heading is not a topic: use a descriptive heading and put the human-readable question link at the end of the sentence it concerns ([→ question: …] / [→ вопрос: …])' });
+    }
     if (FOOTNOTE_REFERENCE.test(heading.text)) refusals.push({ line: heading.line, rule: 'heading-footnote', message: 'a heading is connecting text and carries no footnote: put the statement in a sentence below it' });
     FOOTNOTE_REFERENCE.lastIndex = 0;
     const headingWords = plainWords(heading.text).length;
@@ -441,13 +441,34 @@ export async function checkPage(markdown: string, expected: PageExpectation, res
   const used: string[] = [];
   for (const unit of units) {
     await checkLinks(unit);
+    for (const sentence of sentencesOf(maskInline(unit.text))) {
+      const shown = unmask(sentence.text);
+      const questionLinks = [...shown.matchAll(QUESTION_LINK)];
+      if (questionLinks.length === 0) continue;
+      const claim = withoutQuestionLinks(shown);
+      const first = questionLinks[0]!;
+      const suffix = shown.slice(first.index).replace(QUESTION_LINK, '').trim();
+      if (!sentence.terminated || !/[.!?…][)"'”’»]*(?:\[\^[A-Za-z0-9_-]+\])*$/.test(claim) || suffix !== '') {
+        refusals.push({ line: unit.line, rule: 'question-link-position', message: 'put the question link after the terminal punctuation and grounds of the sentence it concerns, not in a heading, a separate paragraph or the middle of a claim' });
+      }
+      for (const link of questionLinks) {
+        const label = link[1]!.trim();
+        const localized = /^→\s*(question|вопрос):\s*(.+)$/u.exec(label);
+        if (localized === null || localized[2]!.trim() === '' || /^(?:madarch:)?question:/.test(localized[2]!.trim())) {
+          refusals.push({ line: unit.line, rule: 'question-link-label', message: 'a question link needs a human-readable title: [→ question: Which decision?](madarch:question:<slug>) / [→ вопрос: Какое решение?](madarch:question:<slug>)' });
+        } else if (expected.language !== undefined && localized[1] !== (expected.language === 'ru' ? 'вопрос' : 'question')) {
+          refusals.push({ line: unit.line, rule: 'question-link-language', message: `the question label must follow the wiki language (${expected.language}): use ${expected.language === 'ru' ? '→ вопрос: …' : '→ question: …'}` });
+        }
+      }
+    }
     for (const match of unit.text.matchAll(FOOTNOTE_REFERENCE)) {
       if (!defined.has(match[1]!)) refusals.push({ line: unit.line, rule: 'undefined-footnote', message: `[^${match[1]}] is used but never defined: add a line "[^${match[1]}]: [name](madarch:<key>)" at the end` });
       used.push(match[1]!);
     }
     if (connecting(unit.text)) continue;
     for (const sentence of sentencesOf(maskInline(unit.text))) {
-      const shown = sentence.text.replaceAll(DOT, '.');
+      const claim = withoutQuestionLinks(sentence.text);
+      const shown = unmask(claim);
       const hasLink = shown.includes('](madarch:');
       if (plainWords(shown).length < 2 && !hasLink) continue;
       const labels = [...shown.matchAll(FOOTNOTE_REFERENCE)].map((m) => m[1]!);
@@ -457,7 +478,7 @@ export async function checkPage(markdown: string, expected: PageExpectation, res
       if (supports.length > 0 && supports.every((target) => named.has(target) && /^madarch:code\.(service|module):/.test(target))) {
         refusals.push({ line: unit.line, rule: 'link-is-not-a-ground', message: `this sentence is grounded only on ${[...new Set(supports)].map((t) => t.slice('madarch:'.length)).join(', ')}, which it already names with a link; a link names an entity and a ground supports the sentence: ground it on the code or the document section that shows what it says` });
       }
-      const grounded = sentence.terminated ? /[.!?\u2026][)"'\u201d\u2019\u00bb]*(?:\[\^[A-Za-z0-9_-]+\])+$/.test(sentence.text) : /(?:\[\^[A-Za-z0-9_-]+\])+$/.test(sentence.text);
+      const grounded = sentence.terminated ? /[.!?\u2026][)"'\u201d\u2019\u00bb]*(?:\[\^[A-Za-z0-9_-]+\])+$/.test(claim) : /(?:\[\^[A-Za-z0-9_-]+\])+$/.test(claim);
       if (!grounded) {
         const quoted = shown.replace(LINK, (_w, label: string) => label);
         refusals.push({ line: unit.line, rule: 'ungrounded-statement', message: `this sentence states something and has no footnote at its end: ${JSON.stringify(quoted.length > 90 ? `${quoted.slice(0, 87)}...` : quoted)}. End it with a footnote reference that lists its grounds, or, if it only connects text, make it a heading or a "See also" line` });
@@ -469,7 +490,7 @@ export async function checkPage(markdown: string, expected: PageExpectation, res
     for (const slug of expected.domains) if (!links.includes(`domain:${slug}`)) refusals.push({ line: split.bodyStart, rule: 'domain-not-linked', message: `the declared domain "${slug}" is not linked from the page: mention it as [name](madarch:domain:${slug})` });
   }
   if (units.length === 0) refusals.push({ line: split.bodyStart, rule: 'empty', message: 'the page states nothing: it has no sentence with grounds' });
-  if (refusals.length > 0 || front.front === undefined) return { ok: false, refusals: refusals.sort((a, b) => a.line - b.line || byCodePoint(a.rule, b.rule)) };
+  if (refusals.length > 0 || front.front === undefined) return { ok: false, refusals: refusals.sort((a, b) => a.line - b.line || byCodePoint(a.rule, b.rule)).map(located) };
   return { ok: true, page: canonical(front.front, body, defined, links, allGrounds, expected.previous, names) };
 }
 
@@ -496,7 +517,7 @@ function sentenceBefore(text: string, from: number, to: number): string {
   for (const match of slice.matchAll(item)) last = match.index + 1;
   start += last;
   const chunk = text.slice(start, to).replace(/^\s*(?:[-*+]|\d+[.)]|>)\s*/, '');
-  const sentences = splitSentences(maskSentenceText(chunk));
+  const sentences = sentencesOf(maskInline(chunk));
   return plainSentence(sentences.length === 0 ? chunk : sentences[sentences.length - 1]!.text);
 }
 

@@ -124,6 +124,8 @@ describe('a question\'s page', () => {
     expect(page.querySelector('[data-testid=question-text]')!.textContent).toBe('Which discount does an order get?');
     expect(page.querySelector('[data-testid=question-why]')!.textContent).toBe('A shopper is told one number and charged another.');
     const sides = [...page.querySelectorAll('[data-testid=question-side]')];
+    expect(sides.every((side) => side.classList.contains('min-w-0'))).toBe(true);
+    expect(sides[0]!.parentElement!.classList.contains('[overflow-wrap:anywhere]')).toBe(true);
     expect(sides.map((side) => side.querySelector('p')!.textContent)).toEqual(['The README says every order gets ten percent.', 'The code applies the percentage its caller passes.']);
     expect(sides[0]!.querySelector('a')!.getAttribute('href')).toBe('/k/doc?path=README.md#discounts');
     expect(sides[1]!.querySelector('[data-testid=code-place]')!.textContent).toBe('src/pricing.ts:1–3');

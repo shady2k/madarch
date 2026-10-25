@@ -87,7 +87,7 @@ export async function startFill(agent?: string | null, language?: string): Promi
 export const eventsAddress = (): string => appPath('/api/events');
 
 /** What starting the product over would remove and keep. */
-export type ResetPlan = { store: string[]; agentPages: string[]; keptPages: string[] };
+export type ResetPlan = { store: string[]; agentPages: string[]; keptPages: string[]; unansweredQuestions: string[]; keptAnswers: string[] };
 
 export const getResetPlan = (signal?: AbortSignal): Promise<ResetPlan> => readJson<ResetPlan>('read what starting over removes', '/api/k/reset', signal);
 
@@ -127,7 +127,7 @@ export const addStarter = (ids: string[]): Promise<{ written: string[] }> => pos
 export const rewritePages = (): Promise<unknown> => post<unknown>('rewrite the pages', '/api/k/rewrite-pages', {});
 
 /** «Start from scratch»: pages, graph, manifest and templates are put at the current set, and a fresh fill starts. */
-export const startFresh = (): Promise<{ fillRefused?: string }> => post<{ fillRefused?: string }>('start from scratch', '/api/k/start-fresh', {});
+export const startFresh = (preview?: ResetPlan): Promise<{ fillRefused?: string }> => post<{ fillRefused?: string }>('start from scratch', '/api/k/start-fresh', preview === undefined ? {} : { preview });
 
 /** The Markdown documents of the product and of its connected repositories. */
 export const getDocuments = (signal?: AbortSignal): Promise<DocumentListing> => readJson<DocumentListing>('list the documents', '/api/k/documents', signal);

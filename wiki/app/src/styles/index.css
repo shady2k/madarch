@@ -1945,7 +1945,7 @@ html {
 .dg-group { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 .dg-caption { color: var(--text-muted); margin-right: 2px; }
 .dg-spacer { flex: 1 1 auto; }
-.dg-chip { min-height: 28px; padding: 0 8px; font-size: 13px; line-height: 1; white-space: nowrap; border: 1px solid var(--border); background: var(--surface-page); }
+.dg-chip { min-height: 28px; padding: 0 8px; font-size: 14px; line-height: 1; white-space: nowrap; border: 1px solid var(--border); background: var(--surface-page); }
 /* A tab that is one click away is a normal tab, not a disabled one: the selected one is marked, the others only sit
    quietly beside it (the owner's review of 2026-10-24 read the strike-through as "unavailable"). */
 .dg-chip[data-state='off'] { opacity: 0.9; }
