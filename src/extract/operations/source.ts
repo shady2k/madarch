@@ -20,6 +20,8 @@ export class TreeText {
 
   readonly tree: TreeReader;
   private libraryCache: LibraryEvaluation | undefined;
+  readonly factGaps = new Map<string, { readonly path: string; readonly reason: string }>();
+  factGap(path: string, reason: string): void { this.factGaps.set(JSON.stringify([path, reason]), {path, reason}); }
 
   libraryFacts(): LibraryEvaluation | undefined {
     if (this.facts === undefined) return undefined;

@@ -190,3 +190,16 @@ test('mutation through an imported live binding poisons export aliases conservat
   expect(result.edges.filter((edge) => edge.type === 'code.uses-logger')).toEqual([]);
   expect(result.gaps.some((gap) => gap.reason.includes('reassigned'))).toBe(true);
 });
+
+
+test('real Go composite options select the exact declared metric name through grammar wrappers',async()=>{
+  const path='lib/metric.go';const source='package sample\nimport prom "github.com/prometheus/client_golang/prometheus"\nvar requests=prom.NewCounter(prom.CounterOpts{Name:"requests_total"})\nfunc run(){requests.Inc()}';
+  const tree=treeOf({[path]:source});const code=await extractCodeWithFacts(tree);const evaluated=evaluateLibraryModels(code.facts);
+  const name=code.facts.expressions.find((entry)=>entry.literal?.value==='requests_total')!;expect(name).toBeDefined();
+  const declaration=evaluated.effects.find((effect)=>effect.kind==='metric-declare');
+  if(declaration===undefined)throw new Error(JSON.stringify({path,facts:code.facts,diagnostics:evaluated.diagnostics}));
+  const selected=declaration.arguments.find((argument)=>argument.name==='name');expect(selected?.expression).toBeDefined();
+  const operations=extractOperations(tree,code.extraction,code.facts);
+  expect(operations.nodes.filter((node)=>node.kind==='code.metric').map((node)=>node.label)).toEqual(['requests_total']);
+  expect(operations.edges.filter((edge)=>edge.type==='code.updates-metric').map((edge)=>edge.from)).toEqual(['code.symbol:lib/metric.go#run']);
+});

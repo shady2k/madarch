@@ -104,9 +104,12 @@ describe('all library registry entries', () => {
       const result = evaluateLibraryModels(fixture.facts());
       const effect = result.effects.find((entry) => entry.modelId === model.id && entry.expression === expression);
       if (effect !== undefined) {
-        expect(effect.span).toEqual(fixture.expressions.find((entry) => entry.id === expression)?.span);
+        const declared = fixture.expressions.find((entry) => entry.id === expression);
+        const imported = fixture.imports.find((entry) => entry.id === effect.origin.importId);
+        if (declared === undefined || imported === undefined) throw new Error(`fixture ${expression} for model ${model.id} in ${fixture.path} has no exact expression/import origin ${effect.origin.importId}`);
+        expect(effect.span).toEqual(declared.span);
         expect(effect.origin.chain).toContain(model.id);
-        expect(effect.origin.importSpan).toEqual(fixture.imports.find((entry) => entry.id === effect.origin.importId)?.span);
+        expect(effect.origin.importSpan).toEqual(imported.span);
         if (model.invoke !== 'read') expect(effect.holder).toBe(`code.symbol:${fixture.path}#arbitraryWorker`);
       }
     });

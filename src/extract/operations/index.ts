@@ -43,6 +43,7 @@ export function extractOperations(tree: TreeReader, code?: Extraction, facts?: C
   } catch (error) {
     records.gap('.', `the operations records cannot be extracted: ${error instanceof Error ? error.message : String(error)}`);
   }
+  for (const gap of t.factGaps.values()) records.gap(gap.path, gap.reason);
   return {
     producer: OPERATIONS_PRODUCER,
     nodes: sortedNodes(records.nodes),

@@ -96,6 +96,9 @@ export interface CodeSymbolFact {
   readonly symbolKind: string;
   readonly callable: boolean;
   readonly span: SourceSpan;
+  readonly bodySpan?: SourceSpan;
+  readonly bodySyntaxKind?: string;
+  readonly receiver?: { readonly bindingId: CodeFactId; readonly name: string; readonly typeName?: string };
 }
 
 export interface CodeFileFact {

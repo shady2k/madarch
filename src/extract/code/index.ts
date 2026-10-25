@@ -320,6 +320,8 @@ export async function extractCodeWithFacts(reader: TreeReader): Promise<CodeExtr
   const exports: CodeExportFact[] = [];
   const expressions: CodeExpressionFact[] = [];
   const calls: CodeCallFact[] = [];
+  const callables = new Map<string, { readonly bodySpan: SourceSpan; readonly bodySyntaxKind: string; readonly receiver?: { readonly bindingId: string; readonly name: string; readonly typeName?: string } }>();
+  const ambiguousCallables = new Set<string>();
   const allPaths = sources.map((source) => source.path);
   for (const file of parsedFiles) {
     const path = file.source.path;
@@ -365,6 +367,10 @@ export async function extractCodeWithFacts(reader: TreeReader): Promise<CodeExtr
     bindings.push(...members.bindings);
     expressions.push(...members.expressions);
     calls.push(...members.calls);
+    for (const callable of members.callables) {
+      if (callables.has(callable.key) || ambiguousCallables.has(callable.key)) { ambiguousCallables.add(callable.key); callables.delete(callable.key); gap(path, `line ${callable.bodySpan.lineStart}: duplicate canonical callable metadata for ${callable.key}`); continue; }
+      callables.set(callable.key, {bodySpan: callable.bodySpan, bodySyntaxKind: callable.bodySyntaxKind, ...(callable.receiver === undefined ? {} : {receiver: callable.receiver})});
+    }
     exports.push(...members.exports.map((entry) => entry.reexport === undefined ? entry : { ...entry, reexport: { ...entry.reexport, ...(resolveSpecifier(path, entry.reexport.specifier, known) === undefined ? {} : { targetPath: resolveSpecifier(path, entry.reexport.specifier, known) }) } }));
     for (const unread of members.gaps) gap(unread.path, unread.reason);
     if (!members.read) gap(path, `line 1: the member/use walk could not read repository path ${path}`);
@@ -890,7 +896,7 @@ export async function extractCodeWithFacts(reader: TreeReader): Promise<CodeExtr
       return { path: file.source.path, language: file.syntax.language ?? file.source.grammar, parsed: file.syntax.parsed,
         ...(manifest === undefined ? {} : { manifest: { path: manifest.span.path, ecosystem: manifest.ecosystem, name: manifest.name } }) };
     }).sort((left, right) => byCodePoint(left.path, right.path)),
-    symbols: files.flatMap((file) => file.symbols.filter((symbol) => !symbol.local).map((symbol) => ({ key: symbol.key, path: file.source.path, name: symbol.name, qualifiedName: symbol.qualifiedName, symbolKind: symbol.symbolKind, callable: symbol.functionLike, span: toSpan(file.source.path, symbol.span) }))).sort((left, right) => byCodePoint(left.key, right.key)),
+    symbols: files.flatMap((file) => file.symbols.filter((symbol) => !symbol.local).map((symbol) => ({ key: symbol.key, path: file.source.path, name: symbol.name, qualifiedName: symbol.qualifiedName, symbolKind: symbol.symbolKind, callable: symbol.functionLike, span: toSpan(file.source.path, symbol.span), ...callables.get(symbol.key) }))).sort((left, right) => byCodePoint(left.key, right.key)),
     imports: imports.sort(byId), exports: exports.sort(byId), bindings: bindings.sort(byId), expressions: expressions.sort(byId),
     calls: calls.sort((left, right) => byCodePoint(left.expression, right.expression)),
     sites: [...sitesByFile].flatMap(([path, sites]) => sites.map((site) => ({ path, span: toSpan(path, site.span), to: site.to, use: site.use, roles: [...site.roles], fanOut: [...site.fanOut], holder: holderAt(symbolsByFile.get(path) ?? [], site.span.startByte)?.keptKey ?? fileKey(path) }))).sort((left, right) => byCodePoint(left.path, right.path) || left.span.byteStart - right.span.byteStart || byCodePoint(left.to, right.to)),

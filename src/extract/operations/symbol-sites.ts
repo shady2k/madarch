@@ -6,6 +6,10 @@ import type { Records } from './accumulate.js';
 import type { TreeText } from './source.js';
 
 export interface FunctionSite {
+  readonly key: string;
+  readonly symbolKind: string;
+  readonly language: string;
+  readonly bodySyntaxKind: string;
   readonly path: string;
   readonly name: string;
   readonly qualifiedName: string;
@@ -23,75 +27,86 @@ export function sourceMask(text: string): string {
     (value) => value.replace(/[^\n]/g, ' '));
 }
 
-function closeBrace(mask: string, start: number): number {
-  let depth = 0;
-  for (let at = start; at < mask.length; at += 1) {
-    if (mask[at] === '{') depth += 1;
-    if (mask[at] === '}' && --depth === 0) return at + 1;
-    // Only closing braces reduce depth.
-    if (mask[at] !== '}') continue;
-  }
-  return mask.length;
-}
-
 export function sourceSpan(t: TreeText, path: string, start: number, end: number): SourceSpan {
   const text = t.text(path);
   return t.spanOfChars(path, start, end, text.slice(0, start).split('\n').length, text.slice(0, Math.max(start, end - 1)).split('\n').length);
 }
 
+/** Canonical callables copied by the shared code pass. No text recognition fallback. */
 export function functionsOf(t: TreeText, path: string): FunctionSite[] {
-  const text = t.text(path);
-  const mask = sourceMask(text);
+  if (t.facts === undefined) { t.factGap(path, 'line 1: callable sites require shared resolved code facts'); return []; }
+  const file = t.facts.files.find((entry) => entry.path === path);
+  if (file?.parsed !== true) { t.factGap(path, 'line 1: callable sites require a successfully parsed file'); return []; }
+  const bytes = t.tree.read(path);
+  const decoder = new TextDecoder('utf-8', {fatal:true});
+  const charAt = (byte: number): number | undefined => {
+    if (!Number.isInteger(byte) || byte < 0 || byte > bytes.length) return undefined;
+    try { return decoder.decode(bytes.subarray(0, byte)).length; } catch { return undefined; }
+  };
   const found: FunctionSite[] = [];
-  const classes = [...mask.matchAll(/\bclass\s+(\w+)[^{]*\{/g)].map((match) => ({ name: match[1] ?? '', start: match.index, end: closeBrace(mask, match.index + match[0].lastIndexOf('{')) }));
-  const pattern = path.endsWith('.go')
-    ? /\bfunc\s+(?:\(\s*(\w+)\s+\*?([\w.]+)\s*\)\s*)?(\w+)\s*\(/g
-    : /\b(?:async\s+)?function\s+(\w+)\s*\(|\b(?:const|let)\s+(\w+)\s*=\s*(?:async\s*)?\([^;]*?\)\s*(?::[^=\n]+)?=>\s*\{|(?:^|\n)\s*(?:(?:public|private|protected|static|async|override)\s+)*(\w+)\s*\([^;{}]*\)\s*(?::[^\n{]+)?\s*\{/g;
-  for (const match of mask.matchAll(pattern)) {
-    const start = match.index;
-    const open = mask.indexOf('{', start + (match[0].endsWith('{') ? match[0].length - 1 : match[0].length));
-    if (open < 0 || mask.slice(start + match[0].length, open).includes(';')) continue;
-    const name = path.endsWith('.go') ? match[3] ?? '' : match[1] ?? match[2] ?? match[3] ?? '';
-    if (['if', 'for', 'while', 'switch', 'catch', 'constructor'].includes(name)) continue;
-    const owner = path.endsWith('.go') ? match[2] : classes.find((held) => held.start < start && start < held.end)?.name;
-    // A bare method form must belong to a class, never an arbitrary call block.
-    if (!path.endsWith('.go') && match[3] !== undefined && owner === undefined) continue;
-    const end = closeBrace(mask, open);
-    // Nested named functions are real owners, not uses of their outer factory.
-    found.push({ path, name, qualifiedName: owner === undefined ? name : `${owner}.${name}`,
-      ...(path.endsWith('.go') && match[1] !== undefined ? { receiver: match[1], receiverType: owner } : {}),
-      start, end, bodyStart: open, span: sourceSpan(t, path, start, end) });
-  }
-  if (t.code !== undefined) {
-    const canonical = t.code.nodes.filter((node) => node.kind === 'code.symbol' && node.span?.path === path && ['function', 'method', 'constructor'].includes(String(node.properties.symbolKind)));
-    return canonical.flatMap((node) => {
-      const span = node.span!;
-      const start = new TextDecoder().decode(t.tree.read(path).subarray(0, span.byteStart)).length;
-      const end = new TextDecoder().decode(t.tree.read(path).subarray(0, span.byteEnd)).length;
-      const held = found.find((site) => site.start <= start && site.end === end);
-      const qualifiedName = String(node.properties.qualifiedName);
-      const open = mask.indexOf('{', start);
-      return [{...(held ?? {}), path, name: String(node.properties.name), qualifiedName, start, end, bodyStart: open < 0 || open >= end ? start : open, span}];
-    });
+  const symbols = t.facts.symbols.filter((entry) => entry.path === path && entry.callable);
+  const counts = new Map<string, number>();
+  for (const symbol of symbols) counts.set(symbol.key, (counts.get(symbol.key) ?? 0) + 1);
+  for (const symbol of symbols) {
+    if (counts.get(symbol.key) !== 1) { t.factGap(path, `line ${symbol.span.lineStart}: duplicate callable identity ${symbol.key}`); continue; }
+    const body = symbol.bodySpan;
+    if (body === undefined || symbol.bodySyntaxKind === undefined) {
+      t.factGap(path, `line ${symbol.span.lineStart}: callable ${symbol.key} has no proved body at bytes ${symbol.span.byteStart}-${symbol.span.byteEnd}`);
+      continue;
+    }
+    const valid = symbol.span.path === path && body.path === path && symbol.span.byteStart <= body.byteStart && body.byteStart <= body.byteEnd && body.byteEnd <= symbol.span.byteEnd;
+    const start = charAt(symbol.span.byteStart); const end = charAt(symbol.span.byteEnd); const bodyStart = charAt(body.byteStart);
+    if (!valid || start === undefined || end === undefined || bodyStart === undefined || charAt(body.byteEnd) === undefined) {
+      t.factGap(path, `line ${symbol.span.lineStart}: callable ${symbol.key} has invalid UTF-8/span boundaries at bytes ${symbol.span.byteStart}-${symbol.span.byteEnd}`);
+      continue;
+    }
+    const receiver = symbol.receiver;
+    const receiverBindings = receiver === undefined ? [] : t.facts.bindings.filter((binding) => binding.id === receiver.bindingId);
+    const receiverBinding = receiverBindings.length === 1 ? receiverBindings[0] : undefined;
+    const receiverValid = receiverBinding !== undefined && receiverBinding.path === path && receiverBinding.name === receiver?.name &&
+      receiverBinding.scope.path === path && receiverBinding.scope.byteStart <= symbol.span.byteStart && symbol.span.byteEnd <= receiverBinding.scope.byteEnd &&
+      symbol.span.byteStart <= receiverBinding.span.byteStart && receiverBinding.span.byteEnd <= body.byteStart;
+    if (receiver !== undefined && !receiverValid) {
+      t.factGap(path, `line ${symbol.span.lineStart}: callable ${symbol.key} has no proved receiver binding`);
+      continue;
+    }
+    found.push({ key: symbol.key, path, name: symbol.name, qualifiedName: symbol.qualifiedName, symbolKind: symbol.symbolKind, language: file.language,
+      start, end, bodyStart, bodySyntaxKind: symbol.bodySyntaxKind, span: symbol.span,
+      ...(receiver === undefined ? {} : {receiver: receiver.name, ...(receiver.typeName === undefined ? {} : {receiverType: receiver.typeName})}) });
   }
   return found;
 }
 
 export function functionAt(t: TreeText, path: string, at: number): FunctionSite | undefined {
-  const site = functionsOf(t, path).filter((site) => site.start <= at && at < site.end).sort((a, b) => a.end - a.start - (b.end - b.start))[0];
-  if (t.code === undefined && site !== undefined) {
-    const before = sourceMask(t.text(path)).slice(site.bodyStart, at);
-    // Without canonical syntax facts an anonymous boundary cannot be attributed to its parent.
-    if (/=>|\bfunc\s*\(|\bfunction\s*\(/.test(before)) return undefined;
+  const sites = functionsOf(t, path);
+  const text = t.text(path);
+  if (!Number.isInteger(at) || at < 0 || at >= text.length || at > 0 && text.charCodeAt(at) >= 0xdc00 && text.charCodeAt(at) <= 0xdfff && text.charCodeAt(at - 1) >= 0xd800 && text.charCodeAt(at - 1) <= 0xdbff) {
+    t.factGap(path, `line 1: callable holder needs an exact source character boundary at ${at}`); return undefined;
+  }
+  const byte = new TextEncoder().encode(text.slice(0, at)).length;
+  // Raw canonical boundaries remain tombstones when a callable's metadata is
+  // missing or ambiguous. Omitting an inner proof must never lend its body to
+  // a valid outer callable.
+  const owners = (t.facts?.symbols ?? []).filter((symbol) => symbol.path === path && symbol.callable && symbol.span.byteStart <= byte && byte < symbol.span.byteEnd)
+    .sort((left, right) => left.span.byteEnd - left.span.byteStart - (right.span.byteEnd - right.span.byteStart));
+  const owner = owners[0];
+  if (owner === undefined) return undefined;
+  if (owners.length > 1 && owner.span.byteStart === owners[1]!.span.byteStart && owner.span.byteEnd === owners[1]!.span.byteEnd) {
+    t.factGap(path, `line ${owner.span.lineStart}: callable holder is ambiguous at character ${at}`); return undefined;
+  }
+  const candidates = sites.filter((site) => site.key === owner.key && site.span.byteStart === owner.span.byteStart && site.span.byteEnd === owner.span.byteEnd);
+  const site = candidates.length === 1 ? candidates[0] : undefined;
+  if (site === undefined || owner.bodySpan === undefined || byte < owner.bodySpan.byteStart || byte >= owner.bodySpan.byteEnd) {
+    t.factGap(path, `line ${owner.span.lineStart}: innermost callable ${owner.key} has no valid body ownership at character ${at}`); return undefined;
   }
   return site;
 }
 
 export function functionNode(records: Records, site: FunctionSite): string {
-  const key = `code.symbol:${site.path}#${site.qualifiedName}`;
-  records.add({ key, kind: 'code.symbol', label: site.name, properties: { name: site.name, qualifiedName: site.qualifiedName, path: site.path, symbolKind: site.receiverType === undefined && !site.qualifiedName.includes('.') ? 'function' : 'method', language: site.path.endsWith('.go') ? 'go' : 'typescript' }, span: site.span });
-  records.edge('code.contains', records.file(site.path), key, {}, site.span);
-  return key;
+  records.add({ key: site.key, kind: 'code.symbol', label: site.name,
+    properties: {name: site.name, qualifiedName: site.qualifiedName, path: site.path, symbolKind: site.symbolKind, language: site.language}, span: site.span });
+  records.edge('code.contains', records.file(site.path), site.key, {}, site.span);
+  return site.key;
 }
 
 export function escaped(value: string): string { return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }

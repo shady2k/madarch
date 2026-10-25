@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import { extractCode, extractCodeWithFacts } from '../src/extract/code/index.js';
 import { decodeNumberToken, decodeStringToken } from '../src/extract/code/literals.js';
-import type { CodeFacts } from '../src/extract/code/facts.js';
+import { freezeCodeFacts, type CodeFacts } from '../src/extract/code/facts.js';
 import type { TreeReader } from '../src/extract/records.js';
 
 function treeOf(files: Readonly<Record<string, string>>): TreeReader {
@@ -130,4 +130,28 @@ test('Go legacy octal and non-ASCII byte escapes are decoded accurately or left 
   expect(facts.expressions.find((expression) => expression.literal?.raw === '0777')?.literal?.value).toBe(511);
   expect(facts.expressions.find((expression) => expression.literal?.raw === '"\\xff"')?.literal?.value).toBeUndefined();
   expect(facts.gaps.some((gap) => gap.path === 'main.go' && gap.reason.includes('literal'))).toBe(true);
+});
+
+
+test('grammar fields called constructor retain their own exact expression identity without prototype collisions',async()=>{
+  const path='lib/construct.ts';const source='class Unit {} export const value=new Unit();';const tree=treeOf({[path]:source});
+  const code=await extractCodeWithFacts(tree);const expressions=new Map(code.facts.expressions.map((entry)=>[entry.id,entry]));
+  const construct=code.facts.calls.find((call)=>call.construct)!;expect(construct).toBeDefined();
+  const expression=expressions.get(construct.expression)!;expect(Object.hasOwn(expression.fields,'constructor')).toBe(true);
+  expect(expression.fields['constructor']).toEqual([construct.callee]);
+  const constructor=expressions.get(construct.callee)!;
+  expect(new TextDecoder().decode(tree.read(path).subarray(constructor.span.byteStart,constructor.span.byteEnd))).toBe('Unit');
+  expect(code.extraction.nodes.some((node)=>node.key==='code.symbol:lib/construct.ts#Unit')).toBe(true);
+});
+
+
+test('copied structural fields preserve constructor, prototype and inherited-method names as own data keys',()=>{
+  const span={path:'lib/generated.ts',byteStart:0,byteEnd:1,lineStart:1,lineEnd:1};
+  const fields:Record<string,string[]> = Object.fromEntries(new Map([['constructor',['ctor']],['__proto__',['proto']],['toString',['display']]]));
+  const facts=freezeCodeFacts({files:[],symbols:[],imports:[],bindings:[],expressions:[{id:'holder',path:span.path,syntaxKind:'generated',span,children:[],fields}],calls:[],sites:[],gaps:[]});
+  const copied=facts.expressions[0]!.fields;
+  for(const [key,expected] of [['constructor','ctor'],['__proto__','proto'],['toString','display']] as const){
+    expect(Object.hasOwn(copied,key)).toBe(true);expect(copied[key]).toEqual([expected]);
+  }
+  expect(Object.getPrototypeOf(copied)).toBe(Object.prototype);expect(Object.isFrozen(copied)).toBe(true);
 });

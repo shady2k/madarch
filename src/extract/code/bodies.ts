@@ -58,13 +58,14 @@ export interface MemberFacts {
   readonly calls: readonly CodeCallFact[];
   readonly exports: readonly CodeExportFact[];
   readonly typeOnlyImports: readonly string[];
+  readonly callables: readonly { readonly key: string; readonly bodySpan: SourceSpan; readonly bodySyntaxKind: string; readonly receiver?: { readonly bindingId: string; readonly name: string; readonly typeName?: string } }[];
   readonly gaps: readonly ExtractionGap[];
   readonly read: boolean;
 }
 
 export async function memberSites(file: SourceFile, program: Program, imports: readonly CodeImportFact[] = [], symbols: readonly FileSymbol[] = []): Promise<MemberFacts> {
   const ctx = program.files.get(file.path);
-  if (ctx === undefined) return { sites: [], accesses: new Map(), suppressed: new Set(), bindings: [], expressions: [], calls: [], exports: [], typeOnlyImports: [], gaps: [], read: false };
+  if (ctx === undefined) return { sites: [], accesses: new Map(), suppressed: new Set(), bindings: [], expressions: [], calls: [], exports: [], typeOnlyImports: [], callables: [], gaps: [], read: false };
   const go = file.language === 'go';
   const read = await readSyntaxTree(file.path, file.bytes, (parsed) => {
     const text = parsed.text;
@@ -86,6 +87,7 @@ export async function memberSites(file: SourceFile, program: Program, imports: r
     const bindings = new Map<string, CodeBindingFact>();
     const expressions = new Map<string, CodeExpressionFact>();
     const calls = new Map<string, CodeCallFact>();
+    const callables: { key: string; bodySpan: SourceSpan; bodySyntaxKind: string; receiver?: { bindingId: string; name: string; typeName?: string } }[] = [];
     const factGaps = new Map<string, ExtractionGap>();
     const lookupBinding = (name: string): string | undefined => {
       for (let i = factScopes.length - 1; i >= 0; i--) {
@@ -122,12 +124,13 @@ export async function memberSites(file: SourceFile, program: Program, imports: r
         : ['number', 'int_literal', 'float_literal'].includes(node.type) ? 'number'
         : ['true', 'false'].includes(node.type) ? 'boolean' : ['null', 'nil'].includes(node.type) ? 'null' : undefined;
       const isMember = node.type === 'member_expression' || node.type === 'selector_expression' || node.type === 'qualified_type';
-      const fields: Record<string, string[]> = {};
+      const fieldEntries = new Map<string, string[]>();
       node.namedChildren.forEach((child, index) => {
         if (child === null) return;
         const field = node.fieldNameForNamedChild(index);
-        if (field !== null) (fields[field] ??= []).push(expressionId(child));
+        if (field !== null) { const held = fieldEntries.get(field) ?? []; held.push(expressionId(child)); fieldEntries.set(field, held); }
       });
+      const fields: Record<string, string[]> = Object.fromEntries(fieldEntries);
       const decoded = literalKind === 'string' ? decodeStringToken(node.type, token) : literalKind === 'boolean' ? token === 'true' : literalKind === 'null' ? null : literalKind === 'number' ? decodeNumberToken(node.type, token, go) : undefined;
       const value = typeof decoded === 'number' && !Number.isFinite(decoded) ? undefined : decoded;
       if (literalKind !== undefined && value === undefined) factGaps.set(id, { path: file.path, reason: `line ${span.lineStart}: unsupported ${node.type} literal at bytes ${span.byteStart}-${span.byteEnd}` });
@@ -384,6 +387,23 @@ export async function memberSites(file: SourceFile, program: Program, imports: r
           const single = node.childForFieldName('parameter');
           if (single !== null) bindPattern(single, 'parameter');
         }
+        const body = node.childForFieldName('body');
+        const at = sourceSpan(node);
+        const owners = symbols.filter((symbol) => symbol.functionLike && !symbol.local && symbol.span.startByte <= at.byteStart && symbol.span.endByte === at.byteEnd);
+        if (body === null) factGaps.set(expressionId(node), {path:file.path, reason:`line ${at.lineStart}: callable declaration has no body at bytes ${at.byteStart}-${at.byteEnd}`});
+        else if (owners.length !== 1) factGaps.set(expressionId(node), {path:file.path, reason:`line ${at.lineStart}: callable has no unique canonical symbol at bytes ${at.byteStart}-${at.byteEnd}`});
+        if (body !== null && owners.length === 1) {
+          const receiverList = go ? node.childForFieldName('receiver') : null;
+          const receiverParameter = receiverList === null ? undefined : named(receiverList).find((parameter) => parameter.type === 'parameter_declaration');
+          const names = receiverParameter?.childrenForFieldName('name').filter((name): name is SyntaxNode => name !== null) ?? [];
+          const receiverName = names.length === 1 ? names[0] : undefined;
+          const receiverBinding = receiverName === undefined ? undefined : lookupBinding(textOf(receiverName, text));
+          const typeNode = receiverParameter?.childForFieldName('type');
+          const directType = typeNode?.type === 'pointer_type' ? named(typeNode)[0] : typeNode;
+          const typeName = directType?.type === 'type_identifier' ? textOf(directType, text) : undefined;
+          callables.push({ key: owners[0]!.key, bodySpan: sourceSpan(body), bodySyntaxKind: body.type,
+            ...(receiverName === undefined || receiverBinding === undefined ? {} : { receiver: { bindingId: receiverBinding, name: textOf(receiverName, text), ...(typeName === undefined ? {} : { typeName }) } }) });
+        }
         visitChildren(node);
         popScope();
         typeParameters.pop();
@@ -625,7 +645,7 @@ export async function memberSites(file: SourceFile, program: Program, imports: r
         factGaps.set(expressionId(statement), { path: file.path, reason: `line ${span.lineStart}: wildcard/namespace re-export has no unambiguous exported-value facts at bytes ${span.byteStart}-${span.byteEnd}` });
       }
     }
-    return { sites, accesses, suppressed, bindings: [...bindings.values()], expressions: [...expressions.values()], calls: [...calls.values()], exports, typeOnlyImports, gaps: [...factGaps.values()] };
+    return { sites, accesses, suppressed, bindings: [...bindings.values()], expressions: [...expressions.values()], calls: [...calls.values()], exports, typeOnlyImports, callables, gaps: [...factGaps.values()] };
   });
-  return read.read ? { ...read.value, read: true } : { sites: [], accesses: new Map(), suppressed: new Set(), bindings: [], expressions: [], calls: [], exports: [], typeOnlyImports: [], gaps: [], read: false };
+  return read.read ? { ...read.value, read: true } : { sites: [], accesses: new Map(), suppressed: new Set(), bindings: [], expressions: [], calls: [], exports: [], typeOnlyImports: [], callables: [], gaps: [], read: false };
 }
