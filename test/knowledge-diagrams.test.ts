@@ -145,7 +145,17 @@ describe('the neighbourhood', () => {
     const hood = block(await page(pay), 'graph').neighborhood;
     expect(hood.center).toBe(pay);
     const callers = hood.edges.filter((edge) => edge.relation === 'code.calls' && edge.to === pay).map((edge) => edge.from);
-    expect(callers.map((id) => id.split('#')[1])).toEqual(expect.arrayContaining(['paymentRoutes', 'paymentsHandlers']));
+    expect(callers).toEqual([
+      recordKey('code.symbol', 'services/payments/src/api/routes.ts#paymentRoutes.callback@10:371'),
+      recordKey('code.symbol', 'services/payments/src/grpc/server.ts#paymentsHandlers.callback@38:1399'),
+    ]);
+    const callback = callers[0]!;
+    const registered = block(await page(route('services/payments/src/api/routes.ts', 'POST:/payments')), 'graph').neighborhood;
+    expect(registered.edges.filter((edge) => edge.relation === 'code.handled-by' && edge.from === registered.center)).toEqual([
+      {from: registered.center, to: callback, relation: 'code.handled-by', count: 1},
+    ]);
+    expect(hood.nodes.find((node) => node.id === callback)?.label).toBe('paymentRoutes callback (line 10)');
+    expect(hood.edges.some((edge) => edge.relation === 'code.calls' && edge.from === recordKey('code.symbol', 'services/payments/src/api/routes.ts#paymentRoutes') && edge.to === pay)).toBe(false);
     expect(hood.edges.some((edge) => edge.relation === 'code.calls' && edge.from === pay)).toBe(true);
     expect(hood.relations).toContainEqual(expect.objectContaining({ relation: 'code.calls', direction: 'in', count: 2 }));
     expect(hood.nodes.filter((node) => node.href === null && node.kind === 'code.symbol')).toEqual([]);

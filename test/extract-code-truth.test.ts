@@ -200,3 +200,15 @@ test('external import identity aggregates distinct real sites, not alias binding
  const readings=dependency.properties.importReadings as {specifier:string;span:{byteStart:number;byteEnd:number;lineStart:number}}[];expect(readings.map((item)=>item.span.lineStart)).toEqual([1,2,3]);for(const item of readings)expect(new TextDecoder().decode(encoder.encode(source).subarray(item.span.byteStart,item.span.byteEnd))).toBe(`'${item.specifier}'`);
  expect(rows.find((item)=>item.properties.specifier==='node:crypto')?.properties.count).toBe(1);expect(rows.find((item)=>item.properties.specifier==='fmt')?.properties.standardLibrary).toBe(true);
 });
+
+test('registered inline callback keeps its byte identity but has a readable label and owns its call', async () => {
+  const text = 'import express from "express"; function target() {} export function routes() {const app=express(); app.post("/pay",()=>target());}';
+  const ex = await extractCode(reader({'main.ts':text}));
+  const start = encoder.encode(text.slice(0,text.indexOf('()=>'))).length;
+  const key = symbolKey('main.ts', `routes.callback@1:${start}`);
+  const callback = ex.nodes.filter((node)=>node.properties.inline===true);
+  expect(callback).toHaveLength(1);
+  expect(callback[0]).toMatchObject({key,label:'routes callback (line 1)',span:{path:'main.ts',byteStart:start,lineStart:1,lineEnd:1}});
+  expect(edges(ex,REL_CALLS,key,symbolKey('main.ts','target'))).toHaveLength(1);
+  expect(edges(ex,REL_CALLS,symbolKey('main.ts','routes'),symbolKey('main.ts','target'))).toEqual([]);
+});

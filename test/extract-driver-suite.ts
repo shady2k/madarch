@@ -572,6 +572,10 @@ export function extractDriverTests(label: string, make: () => { owner: DatabaseO
       const ghost = await env.query<{ producer: string }>(`SELECT v.producer FROM node_version v WHERE v.properties->>'recordKey' = $1 AND v.recorded_to = 'infinity'`, [FILE + 'ghost.txt']);
       expect(ghost.map((row) => row.producer)).toEqual(['code.extract.other']);
       expect(tinyReport.gaps.map((gap) => gap.path)).toContain(FILE + 'ghost.txt');
+      expect(tinyReport.gaps.filter((gap) => gap.path === FILE + 'ghost.txt')).toEqual([{
+        producer: 'code.extract.other', path: FILE + 'ghost.txt',
+        reason: 'code.file:ghost.txt has no node of its owner "code.extract.files" at this commit, so it stays a reference node of this producer',
+      }]);
       expect(tinyReport.gaps.some((gap) => gap.path === fileKey && gap.reason.includes('property "path"'))).toBe(true);
     }, 120_000);
   });

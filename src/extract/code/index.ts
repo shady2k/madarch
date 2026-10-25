@@ -408,7 +408,8 @@ export async function extractCode(reader: TreeReader): Promise<Extraction> {
       if (isExported && file.source.role === 'code') {
         properties['deadExport'] = (referencedFrom.get(symbol.key) ?? 0) === 0 && properties['entryPoint'] === undefined;
       }
-      addNode({ key: symbol.key, kind: KIND_SYMBOL, label: symbol.qualifiedName, properties, span: toSpan(path, symbol.span) });
+      const label = properties['inline'] === true ? symbol.qualifiedName.replace(/\.callback@(\d+):\d+$/, ' callback (line $1)') : symbol.qualifiedName;
+      addNode({ key: symbol.key, kind: KIND_SYMBOL, label, properties, span: toSpan(path, symbol.span) });
       addEdge({ type: REL_CONTAINS, from: fileKey(path), to: symbol.key, discriminator: '', properties: {} });
     }
   }

@@ -218,3 +218,44 @@ The code reader version advances from 3 to 4 because these semantics changed.
 The extractor-set digest therefore triggers the approved rebuild boundary;
 no schema/API change, in-place upgrade or revision allocator is introduced.
 The single new complete pipeline is required before any acceptance claim.
+
+
+### Exact-head CI repairs (2026-10-25)
+
+CI run 40174266326 on 9194a67acea12b3c4f324e5f2e008917c64bc496 found
+four failures. The checks job and test shards 3, 4 and 5 passed; shards 1
+and 2 failed. An earlier report that shard 1 passed was corrected after
+reading the final job JSON. No full-suite pod pass is claimed.
+
+- `test/neutral-repository-names.test.ts` now distinguishes bare typed
+  graph identities from repository address syntax. Explicit URLs and SSH
+  addresses remain checked, including code-prefixed host names. Negative
+  fixtures build actual rejected addresses without making the scanner's
+  own source a forbidden product reference. The scanner still reports
+  each real match with file, line and full path and sorts by code point.
+  A held Go fixture declares its exact upstream module in its own go.mod;
+  only its actual import declarations and module records gain that
+  local evidence. Prose URLs, sibling fixtures and undeclared lookalikes
+  remain rejected. No training history or global library allow-list changes.
+- `src/extract/driver/index.ts` preserves the configured kind owner's
+  authority when diagnosing a missing key. A fallback per-key declaration
+  still owns the actual reference node; it no longer hides that the
+  configured owner lacks the key. The original ghost-gap assertion in
+  `test/extract-driver-suite.ts` stays, with its exact producer/key/reason.
+  Lease, key ownership and publication routing do not change.
+- `test/knowledge-diagrams.test.ts` and `test/knowledge-vertical.test.ts`
+  now assert the two actual registered callback identities, counts, sites,
+  source spans and route handled-by relationship. They reject the invented
+  outer-function direct call. The reader's callback labels are descriptive
+  (`paymentRoutes callback (line 10)`), while stable byte-based graph keys
+  stay unchanged. A small extractor regression checks the label, byte
+  identity, actual call and absent false parent call.
+
+The explicit code-reader and driver/link-normalization versions advance
+from 4 to 5. Their manifest digest triggers the existing graph-rebuild
+boundary. No schema/API or GraphReader/IPC optimization is introduced.
+The previous 1,097/1,584 screenshots are retained diagnostic evidence only
+after this interpretation change. They are not new-byte acceptance.
+The completed JSON walk and four audits remain honestly tied to their
+original frozen source. New complete visual evidence, mutation and final
+review remain pending.

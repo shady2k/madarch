@@ -1,4 +1,5 @@
 import {expect, test} from 'bun:test';
+import {readFileSync} from 'node:fs';
 import {extractOperations} from '../src/extract/operations/index.js';
 const tree = (files: Record<string, string>) => ({paths: Object.keys(files).sort(), read: (path: string) => new TextEncoder().encode(files[path] ?? '')});
 test('metric constructors require actual library identity and updater parameters cannot shadow binding', () => {
@@ -34,12 +35,7 @@ channels:
 
 
 test('Go Prometheus aliases stay grounded while unrelated constructors and parameter shadows do not', () => {
- const ex = extractOperations(tree({'services/api/metrics.go': `package api
-import prom "github.com/prometheus/client_golang/prometheus"
-var requests = prom.NewCounter(prom.CounterOpts{Name: "requests_total"})
-func update() { requests.Inc() }
-func unrelated(requests any) { requests.Inc() }
-`, 'services/api/fake.go':'package api\nfunc NewCounter(options any) any { return options }\nvar fake = NewCounter(Opts{Name:"fake_total"})\n'}));
+ const ex = extractOperations(tree({'services/api/metrics.go': readFileSync(new URL('./fixtures/go-prometheus/metrics.go', import.meta.url), 'utf8'), 'services/api/fake.go':'package api\nfunc NewCounter(options any) any { return options }\nvar fake = NewCounter(Opts{Name:"fake_total"})\n'}));
  expect(ex.nodes.filter((node) => node.kind === 'code.metric').map((node) => node.label)).toEqual(['requests_total']);
  expect(ex.edges.filter((edge) => edge.type === 'code.updates-metric').map((edge) => edge.from)).toEqual(['code.symbol:services/api/metrics.go#update']);
 });

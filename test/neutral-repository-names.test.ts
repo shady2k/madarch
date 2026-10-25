@@ -10,7 +10,8 @@ const ROOT_DOCUMENTS = ['AGENTS.md', 'docs/glossary.md'];
 const HOME = String.fromCharCode(47) + 'home' + String.fromCharCode(47);
 const USERS = String.fromCharCode(47) + 'Users' + String.fromCharCode(47);
 const WINDOWS_USERS = 'C:' + String.fromCharCode(92) + 'Users' + String.fromCharCode(92);
-const SOURCE_PATTERN = /(?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,}(?::\d+)?[:/][A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+/g;
+// The boundary prevents matching a suffix of another address or typed graph key.
+const SOURCE_PATTERN = /(?<![A-Za-z0-9_.-])(?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,}(?::\d+)?[:/][A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+/g;
 const compareCodePoints = (left: string, right: string): number => {
   const a = Array.from(left, (character) => character.codePointAt(0)!);
   const b = Array.from(right, (character) => character.codePointAt(0)!);
@@ -39,6 +40,10 @@ function declaredGoModules(root: string): string[] {
   } catch {
     return [];
   }
+  return modulesDeclaredBy(files);
+}
+
+function modulesDeclaredBy(files: readonly string[]): string[] {
   const modules = new Set<string>();
   for (const file of files) {
     for (const line of readFileSync(file, 'utf8').split('\n')) {
@@ -78,6 +83,39 @@ function sourceIsAllowed(source: string, goModules: readonly string[] = []): boo
   return (host === 'github.com' || host === 'raw.githubusercontent.com') && owner === 'shady2k' && ['madarch', 'madarch-product', 'homebrew-tap'].includes(repo);
 }
 
+// A held Go fixture licenses its own declared imports, not repository URLs in other files or prose.
+function isDeclaredFixtureImport(root: string, file: string, text: string, index: number, source: string): boolean {
+  const fixtureRoot = join(root, 'test/fixtures');
+  if (!file.startsWith(fixtureRoot + '/')) return false;
+  let directory = dirname(file);
+  let modules: string[] = [];
+  while (directory.startsWith(fixtureRoot)) {
+    const manifests = ['go.mod', 'go.sum'].map((name) => join(directory, name)).filter((path) => {
+      try { return statSync(path).isFile(); } catch { return false; }
+    });
+    if (manifests.length > 0) { modules = modulesDeclaredBy(manifests); break; }
+    if (directory === fixtureRoot) break;
+    directory = dirname(directory);
+  }
+  if (!modules.some((module) => source === module || source.startsWith(module + '/') || module.startsWith(source + '/'))) return false;
+  const lineStart = text.lastIndexOf('\n', index - 1) + 1;
+  const line = text.slice(lineStart, text.indexOf('\n', index) === -1 ? text.length : text.indexOf('\n', index));
+  if (/(?:^|\/)go\.(?:mod|sum)$/.test(file)) {
+    return /^(?:\s*(?:module|require)\s+|\s*)[A-Za-z0-9.-]+\/\S+\s+(?:v\d|$)/.test(line);
+  }
+  if (!file.endsWith('.go')) return false;
+  const goCode = text.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (comment) => comment.replace(/[^\n]/g, ' '));
+  for (const declaration of goCode.matchAll(/\bimport\s+(?:\([^)]*\)|(?:[A-Za-z_.][A-Za-z0-9_.]*\s+)?"[^"\n]+")/g)) {
+    const start = declaration.index!;
+    if (index < start || index >= start + declaration[0].length) continue;
+    for (const quoted of declaration[0].matchAll(/"([^"\n]+)"/g)) {
+      const valueStart = start + quoted.index! + 1;
+      if (index === valueStart && quoted[1]!.startsWith(source)) return true;
+    }
+  }
+  return false;
+}
+
 function findings(root = ROOT): string[] {
   const errors: string[] = [];
   const goModules = declaredGoModules(root);
@@ -88,7 +126,10 @@ function findings(root = ROOT): string[] {
     const text = readFileSync(file, 'utf8');
     for (const match of text.matchAll(SOURCE_PATTERN)) {
       const source = match[0];
-      if (sourceIsAllowed(source, goModules)) continue;
+      // A bare typed key is not an address. An explicit URL or SSH prefix remains address syntax.
+      const preceding = text.slice(Math.max(0, match.index! - 128), match.index!);
+      if (/^code\.[A-Za-z][A-Za-z0-9-]*:/.test(source) && !/(?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|[^\s'"`]+@)$/.test(preceding)) continue;
+      if (sourceIsAllowed(source, goModules) || isDeclaredFixtureImport(root, file, text, match.index!, source)) continue;
       const line = text.slice(0, match.index).split('\n').length;
       errors.push(`${relative(root, file)}:${line} (${file}): repository source is not an example or madarch repository: ${source}`);
     }
@@ -131,6 +172,39 @@ describe('neutral repository names', () => {
     }
   });
 
+  test('typed graph keys are not repository addresses, but real addresses on the same lines are checked', () => {
+    const fixtureRoot = mkdtempSync(join(tmpdir(), 'madarch-neutral-repository-names-'));
+    try {
+      for (const path of SCAN_ROOTS) mkdirSync(join(fixtureRoot, path), { recursive: true });
+      for (const path of ROOT_DOCUMENTS) {
+        const document = join(fixtureRoot, path);
+        mkdirSync(dirname(document), { recursive: true });
+        writeFileSync(document, '');
+      }
+      const file = join(fixtureRoot, 'test/graph-identities.ts');
+      const external = ['github.com', ['not', 'acme'].join('-'), 'catalog'].join('/');
+      const domain = ['code.symbol', 'not-acme', 'catalog'].join('/');
+      const sshAddress = ['github.com', 'not-acme/catalog.git'].join(':');
+      const ssh = 'git@' + sshAddress;
+      const colonDomain = ['code.symbol', 'not-acme/catalog'].join(':');
+      writeFileSync(file, [
+        "'code.symbol:services/api/main.ts#run'", "'code.file:scripts/seed.sql'",
+        "'code.package:import/go'", "'code.dependency:nested/package.json'",
+        `Source: https://${external}`, `Source: https://${domain}`, `Source: ${ssh}`,
+        `Source: https://${colonDomain}`, `Source: git@${colonDomain}`,
+      ].join('\n'));
+      expect(findings(fixtureRoot)).toEqual([
+        `test/graph-identities.ts:5 (${file}): repository source is not an example or madarch repository: ${external}`,
+        `test/graph-identities.ts:6 (${file}): repository source is not an example or madarch repository: ${domain}`,
+        `test/graph-identities.ts:7 (${file}): repository source is not an example or madarch repository: ${sshAddress}`,
+        `test/graph-identities.ts:8 (${file}): repository source is not an example or madarch repository: ${colonDomain}`,
+        `test/graph-identities.ts:9 (${file}): repository source is not an example or madarch repository: ${colonDomain}`,
+      ]);
+    } finally {
+      rmSync(fixtureRoot, { recursive: true, force: true });
+    }
+  });
+
   test('a Go module path is allowed only when the training template declares it', () => {
     const fixtureRoot = mkdtempSync(join(tmpdir(), 'madarch-neutral-repository-names-'));
     try {
@@ -155,6 +229,31 @@ describe('neutral repository names', () => {
     } finally {
       rmSync(fixtureRoot, { recursive: true, force: true });
     }
+  });
+
+  test('a held Go fixture declaration licenses only its own actual imports', () => {
+    const fixtureRoot = mkdtempSync(join(tmpdir(), 'madarch-neutral-repository-names-'));
+    try {
+      for (const path of SCAN_ROOTS) mkdirSync(join(fixtureRoot, path), { recursive: true });
+      for (const path of ROOT_DOCUMENTS) {
+        const document = join(fixtureRoot, path);
+        mkdirSync(dirname(document), { recursive: true }); writeFileSync(document, '');
+      }
+      const held = join(fixtureRoot, 'test/fixtures/held-go'); mkdirSync(held, {recursive: true});
+      const source = ['github.com', ['not', 'acme'].join('-'), 'declared'].join('/');
+      const lookalike = source + '-lookalike';
+      writeFileSync(join(held, 'go.mod'), `module example.test/held\nrequire ${source} v1.2.3\n`);
+      const go = join(held, 'main.go');
+      writeFileSync(go, `package held\nimport alias "${source}/sub"\nimport "${lookalike}"\n// Source: https://${source}\n`);
+      const sibling = join(fixtureRoot, 'test/fixtures/sibling/main.go');
+      mkdirSync(dirname(sibling), {recursive: true}); writeFileSync(sibling, `package sibling\nimport "${source}"\n`);
+      const errors = findings(fixtureRoot);
+      expect(errors).toEqual([
+        `test/fixtures/held-go/main.go:3 (${go}): repository source is not an example or madarch repository: ${lookalike}`,
+        `test/fixtures/held-go/main.go:4 (${go}): repository source is not an example or madarch repository: ${source}`,
+        `test/fixtures/sibling/main.go:2 (${sibling}): repository source is not an example or madarch repository: ${source}`,
+      ]);
+    } finally { rmSync(fixtureRoot, {recursive: true, force: true}); }
   });
 
   test('only example and madarch repositories appear in product code and current documents', () => {

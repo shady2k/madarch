@@ -448,7 +448,8 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
       return owner !== undefined && owner !== extraction.producer && present.has(owner) && ownerNode(owner, key) !== undefined ? owner : undefined;
     };
     const ownedKind = (key: string): string | undefined => {
-      const owner = keyOwners.get(key) ?? owners[key.slice(0, key.indexOf(':'))];
+      // A fallback declaration must not hide that the configured kind owner lacks this key.
+      const owner = owners[key.slice(0, key.indexOf(':'))] ?? keyOwners.get(key);
       return owner !== undefined && owner !== extraction.producer && present.has(owner) ? owner : undefined;
     };
     const dangling = new Set<string>();

@@ -678,7 +678,7 @@ if (only === 'truth') {
     await truthReady(page,entry.id,language,scheme);await shoot(page,name);
     completedShots.push(name);persistCompletion();
   });
-  for(const page of capturePages){const context=page.browserContext();await context.close();progressContexts.delete(context);} 
+  for(const page of capturePages){const context=page.browserContext();await context.close();progressContexts.delete(context);}
   const missing=expectedShots.filter((name)=>!completedShots.includes(name)||!existsSync(join(out,`${name}.png`))||!existsSync(join(out,`${name}.measurement.json`)));
   const actual=readdirSync(out).filter((name)=>name.startsWith('truth-')&&name.endsWith('.png')).map((name)=>name.slice(0,-4));
   const extra=actual.filter((name)=>!expectedShots.includes(name));

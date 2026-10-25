@@ -60,3 +60,12 @@ test('extractor catalog uses explicit unique names and positive versions, never 
  expect(catalog(['A']).digest).not.toBe(catalog(['A'],2).digest);
  expect(catalog(['A']).digest).not.toBe(catalog(['A','B']).digest);
 });
+
+
+test('code labels and configured-owner diagnostics advance the persistent extractor interpretation', async () => {
+ const {EXTRACTOR_VERSIONS}=await import('../src/extract/driver/extractors.js');
+ expect(EXTRACTOR_VERSIONS.find((entry)=>entry.name==='extractCode')?.version).toBe(5);
+ expect(EXTRACTOR_VERSIONS.find((entry)=>entry.name==='driver-and-link-normalization')?.version).toBe(5);
+ const prior=EXTRACTOR_VERSIONS.map((entry)=>entry.name==='extractCode'||entry.name==='driver-and-link-normalization'?{...entry,version:4}:entry);
+ expect(extractorManifest(EXTRACTOR_VERSIONS).digest).not.toBe(extractorManifest(prior).digest);
+});
