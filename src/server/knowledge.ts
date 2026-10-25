@@ -177,7 +177,7 @@ export function createKnowledgePart(
       const selection = query.has('at') ? { repo: repo ?? '', at: query.get('at')! } : undefined;
       if (selection !== undefined) {
         const history = await product.historyAt(selection);
-        if (history.coverage !== 'covered') return refused(409, { field: 'at', history, message: `historical structure is ${history.coverage} for ${selection.repo} at ${selection.at}; no current source is substituted` });
+        if (history.coverage !== 'covered') return refused(409, { field: 'at', message: `historical structure is ${history.coverage} for ${selection.repo} at ${selection.at}; no current source is substituted` });
       }
       const read = await product.source(repo === null || repo === '' ? null : repo, path, selection);
       if (read === undefined) return refused(404, { field: 'path', message: `the file ${path} is not in ${repo === null || repo === '' ? 'the product repository' : `the repository ${repo}`} at the commit the graph was filled from` });

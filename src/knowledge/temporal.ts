@@ -1,6 +1,6 @@
 /** Covered historical reads use indexed ancestry, never raw-date sorting or a page-time Git walk. */
 import { byCodePoint } from '../model/order.js';
-import type { HistoryEvidence } from './graph-read.js';
+import type { GraphEntity, HistoryEvidence } from './graph-read.js';
 
 export interface HistorySelection { repo: string; at: string }
 export interface HistoryContext extends HistorySelection {
@@ -32,7 +32,7 @@ export function selectHistory(selection: HistorySelection, evidence: HistoryEvid
   const hasChild = new Set([...parents].filter(([key]) => byKey.has(key)).map(([, parent]) => parent));
   const tips = commits.filter((commit) => !hasChild.has(commit.key));
   if (tips.length !== 1) return base;
-  const chain = [];
+  const chain: GraphEntity[] = [];
   const seen = new Set<string>();
   for (let current = tips[0]; current !== undefined;) {
     if (seen.has(current.key)) return base;

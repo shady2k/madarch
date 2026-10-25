@@ -212,6 +212,14 @@ describe('the fill the reader watches', () => {
     expect((await get('/products/tiny/api/k/source?repo=tiny&path=..%2Fsecret')).status).toBe(400);
     expect((await get('/products/tiny/api/k/source?repo=other&path=src/a.ts')).status).toBe(404);
     expect((await get('/products/tiny/api/k/source?repo=tiny&path=src/none.ts')).status).toBe(404);
+    const historicalGap = await get('/products/tiny/api/k/source?repo=tiny&path=src/a.ts&at=not-a-date');
+    expect(historicalGap.status).toBe(409);
+    expect(historicalGap.body.error).toMatchObject({ field: 'at', message: 'historical structure is unknown for tiny at not-a-date; no current source is substituted' });
+    expect(historicalGap.body.text).toBeUndefined();
+    const unknownRepository = await get('/products/tiny/api/k/source?repo=other&path=src/a.ts&at=2026-03-02');
+    expect(unknownRepository.status).toBe(409);
+    expect(unknownRepository.body.error.message).toContain('unknown for other at 2026-03-02');
+    expect(unknownRepository.body.text).toBeUndefined();
     // The product repository's own files open too, its git folder and dotfiles never.
     const manifest = await get('/products/tiny/api/k/source?path=madarch%2Fkinds.yaml');
     expect(manifest.status).toBe(200);
