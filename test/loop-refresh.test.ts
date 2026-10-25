@@ -449,8 +449,8 @@ describe('retained answers used by fresh pages (madarch-m38l.22)', () => {
           const result = await call(request, 'write_page', { markdown, domains: declarations }); expect(result.isError, JSON.stringify(result.answer)).toBe(false); return;
         }
         if (mode === 'failed' || request.id === 'domain:shipping') return;
-        const ground = mode === 'unrelated' || mode === 'mention' ? 'doc:README.md#tax' : key;
-        const markdown = ['---', 'id: domain:pricing', 'kind: domain', 'title: Pricing', 'relates: []', 'producer: agent', 'sources: [README.md]', '---', '', 'The policy is the rule a person chose.[^policy]', '', ...(mode === 'mention' ? [`See [the answered question](madarch:${key}).`, ''] : []), `[^policy]: [the policy](madarch:${ground})`].join('\n');
+        const ground = mode === 'unrelated' || mode === 'mention' ? 'doc:README.md#overview' : key;
+        const markdown = ['---', 'id: domain:pricing', 'kind: domain', 'title: Pricing', 'relates: []', 'producer: agent', 'sources: [README.md]', '---', '', `The policy is the rule a person chose.[^policy]${mode === 'mention' ? ` [→ question: ${original.title}](madarch:${key})` : ''}`, '', `[^policy]: [the policy](madarch:${ground})`].join('\n');
         const result = await call(request, 'write_page', { markdown }); expect(result.isError, JSON.stringify(result.answer)).toBe(mode === 'open');
       } };
       const closed: unknown[] = [];
@@ -461,7 +461,7 @@ describe('retained answers used by fresh pages (madarch-m38l.22)', () => {
       });
       expect(closed).toEqual(mode === 'grounded' ? [{ kind: 'question', slug: 'retained-answer', pages: ['domain:pricing'] }] : []);
       const kept = readQuestions(output).items[0]!; expect(kept.answer).toEqual(question.answer); expect(kept.resolvedBy).toEqual(mode === 'grounded' ? ['domain:pricing'] : []);
-      if (mode === 'grounded') expect(report.ok).toBe(true);
+      if (mode === 'grounded' || mode === 'unrelated' || mode === 'mention') { expect(report.ok).toBe(true); expect(report.domains.find((domain) => domain.unit === 'domain:pricing')).toMatchObject({ status: 'written', writeAttempts: 1 }); }
       else expect(readFileSync(path.join(output, 'docs/questions/retained-answer.md'), 'utf8')).toBe(source);
     }
   }, 300_000);

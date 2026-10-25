@@ -60,7 +60,7 @@ describe('questions-once reader fixture is bound to the actual answer key', () =
 import { mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import type { Page } from 'puppeteer';
-import { OnceEvidence, assertFindings, assertHashes, assertQuestionDOM, assertRouteIdentity, assertResolution, assertVisibility, deadline, hashFiles, ownedPIDs, resetMissingTargets, resetRepositoryDocument, assertResetStoreRemoved, type OwnedPID, type ShotPlan, type VisibilityMeasurement } from '../scripts/questions-once-evidence.js';
+import { OnceEvidence, assertFindings, assertHashes, assertQuestionDOM, assertRouteIdentity, assertResolution, assertVisibility, expectedEventSource, deadline, hashFiles, ownedPIDs, resetMissingTargets, resetRepositoryDocument, assertResetStoreRemoved, type OwnedPID, type ShotPlan, type VisibilityMeasurement } from '../scripts/questions-once-evidence.js';
 import { noEntityMessage } from '../src/knowledge/resolve.js';
 import { readBody, splitFrontMatter } from '../src/knowledge/markdown.js';
 
@@ -216,11 +216,11 @@ describe('questions-once harness rejects incomplete evidence', () => {
     const folder = mkdtempSync(join(tmpdir(), 'questions-harness-finite-'));
     try {
       const handlers = new Map<string, ((value: any) => void)[]>();
-      const page = { on: (event: string, handler: (value: any) => void) => { handlers.set(event, [...(handlers.get(event) ?? []), handler]); }, url: () => 'http://example.test/k' } as unknown as Page;
+      const page = { on: (event: string, handler: (value: any) => void) => { handlers.set(event, [...(handlers.get(event) ?? []), handler]); }, url: () => 'http://example.test/products/shop/k' } as unknown as Page;
       const emit = (event: string, value: unknown): void => { for (const handler of handlers.get(event) ?? []) handler(value); };
       const request = (url: string, type = 'fetch') => ({ url: () => url, method: () => 'GET', resourceType: () => type, failure: () => ({ errorText: 'net::ERR_ABORTED' }) });
       const evidence = new OnceEvidence(folder, [], {}); evidence.watch(page);
-      const stream = request('http://example.test/api/events', 'eventsource'); emit('request', stream);
+      const stream = request('http://example.test/products/shop/api/events', 'eventsource'); emit('request', stream);
       const finite = request('http://example.test/api/k/block?id=product%3Ashop'); emit('request', finite);
       await expect(evidence.waitFinite(page, 20)).rejects.toThrow('unfinished finite requests');
       const diagnostic = readdirSync(join(folder, 'observations')).map((file) => readFileSync(join(folder, 'observations', file), 'utf8')).join('\n');
@@ -236,6 +236,29 @@ describe('questions-once harness rejects incomplete evidence', () => {
       await evidence.waitFinite(page, 1000); evidence.verifyInputs(); expect(evidence.finish(true)).toBe(false);
       const result = JSON.parse(readFileSync(join(folder, 'result.json'), 'utf8'));
       expect(result.errors.join('\n')).toContain('net::ERR_ABORTED'); expect(result.errors.join('\n')).toContain('glossary');
+    } finally { rmSync(folder, { recursive: true, force: true }); }
+  });
+
+
+  test('only the exact same-origin product GET feed is exempt, and SSE HTTP errors stay errors', async () => {
+    const base = 'http://example.test/products/shop/k/settings';
+    expect(expectedEventSource(base, 'http://example.test/products/shop/api/events', 'GET')).toBe(true);
+    for (const [url, method] of [['http://else.test/products/shop/api/events', 'GET'], ['http://example.test/products/other/api/events', 'GET'], ['http://example.test/products/shop/api/unknown', 'GET'], ['http://example.test/products/shop/api/events?unexpected=1', 'GET'], ['http://example.test/products/shop/api/events', 'POST']]) expect(expectedEventSource(base, url!, method!)).toBe(false);
+    const folder = mkdtempSync(join(tmpdir(), 'questions-harness-stream-'));
+    try {
+      const handlers = new Map<string, ((value: any) => void)[]>();
+      const page = { on: (event: string, handler: (value: any) => void) => { handlers.set(event, [...(handlers.get(event) ?? []), handler]); }, url: () => base, isClosed: () => false, close: async () => {} } as unknown as Page;
+      const emit = (event: string, value: unknown): void => { for (const handler of handlers.get(event) ?? []) handler(value); };
+      const request = (url: string) => ({ url: () => url, method: () => 'GET', resourceType: () => 'eventsource', failure: () => ({ errorText: 'net::ERR_ABORTED' }) });
+      const evidence = new OnceEvidence(folder, [], {}); evidence.watch(page);
+      const unknown = request('http://example.test/products/shop/api/unknown'); emit('request', unknown);
+      await expect(evidence.waitFinite(page, 20)).rejects.toThrow('unfinished finite requests');
+      emit('response', { url: unknown.url, status: () => 500, headers: () => ({ 'content-type': 'text/event-stream' }), request: () => unknown, content: async () => new Uint8Array() }); emit('requestfailed', unknown);
+      const known = request('http://example.test/products/shop/api/events'); emit('request', known);
+      emit('response', { url: known.url, status: () => 500, headers: () => ({ 'content-type': 'text/event-stream' }), request: () => known, content: async () => new Uint8Array() });
+      await evidence.closePage(page); evidence.verifyInputs(); expect(evidence.finish(true)).toBe(false);
+      const errors = JSON.parse(readFileSync(join(folder, 'result.json'), 'utf8')).errors.join('\n');
+      expect(errors).toContain('unexpected EventSource'); expect(errors).toContain('unexpected streaming'); expect(errors).toContain('HTTP 500'); expect(errors).toContain('ERR_ABORTED');
     } finally { rmSync(folder, { recursive: true, force: true }); }
   });
 

@@ -178,7 +178,7 @@ function PlacesSection({ settings }: { settings: ProductSettings }): ReactElemen
   const { t } = useTranslation();
   return (
     <Section id="places" title={t('settings.places.title')} intro={t('settings.places.intro')}>
-      <dl className="m-0 grid grid-cols-[max-content_1fr] gap-x-6 gap-y-1 text-small">
+      <dl className="m-0 grid grid-cols-1 gap-x-6 gap-y-1 text-small sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <dt className="text-secondary">{t('settings.places.folder')}</dt><dd className="m-0 break-all"><code data-testid="places-folder">{settings.folder}</code></dd>
         <dt className="text-secondary">{t('settings.places.store')}</dt><dd className="m-0 break-all"><code data-testid="places-store">{settings.store}</code></dd>
       </dl>

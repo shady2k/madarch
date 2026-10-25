@@ -134,10 +134,19 @@ export class OwnedTree {
 
 export interface ShotPlan { readonly key: string; readonly language: 'en' | 'ru'; readonly stage: string; readonly route: string; readonly ready: string; readonly theme: 'light' | 'dark'; readonly width: 1150 | 390; readonly entity?: string; readonly question?: string; readonly dialog?: boolean; readonly removed?: number; readonly retained?: number }
 
+/** Only this page's same-origin product change feed is intentionally long lived. */
+export function expectedEventSource(pageURL: string, url: string, method: string): boolean {
+  try {
+    const page = new URL(pageURL); const request = new URL(url);
+    const product = /^(\/products\/[^/]+)\/k(?:\/|$)/.exec(page.pathname)?.[1];
+    return product !== undefined && request.origin === page.origin && request.pathname === `${product}/api/events` && request.search === '' && method === 'GET';
+  } catch { return false; }
+}
+
 export function measureVisibility(dialog: boolean) {
         const root = document.querySelector(dialog ? '[data-testid=danger-dialog]' : '[data-testid=knowledge-main]');
         if (!root) throw new Error('measurement root missing');
-        const selectors = 'h1,h2,h3,p,li,button,blockquote,textarea,[data-testid=question-text],[data-testid=question-why],[data-testid=answer-quote]';
+        const selectors = 'h1,h2,h3,p,li,summary,button,blockquote,textarea,[data-testid=question-text],[data-testid=question-why],[data-testid=answer-quote]';
         const rows = [...root.querySelectorAll(selectors)].filter((element) => {
           if ((element.textContent?.trim() ?? '') === '' && element.tagName !== 'TEXTAREA') return false;
           // A closed native disclosure lays out descendants without painting them.
@@ -275,23 +284,28 @@ export class OnceEvidence {
     const finite = new Map<HTTPRequest, { url: string; method: string; type: string }>();
     const streams = new Set<HTTPRequest>(); this.finite.set(page, finite); this.streams.set(page, streams);
     page.on('request', (request) => {
-      if (request.resourceType() === 'eventsource') { streams.add(request); return; }
+      if (request.resourceType() === 'eventsource' && expectedEventSource(page.url(), request.url(), request.method())) { streams.add(request); return; }
+      if (request.resourceType() === 'eventsource') this.errors.push(`${request.url()}: unexpected EventSource endpoint or method`);
       finite.set(request, { url: request.url(), method: request.method(), type: request.resourceType() });
     });
     page.on('requestfinished', (request) => { finite.delete(request); streams.delete(request); });
     page.on('pageerror', (error) => { const message = error instanceof Error ? error.message : String(error); this.errors.push(message); this.observe('pageerror', { url: page.url(), error: message, stack: error instanceof Error ? error.stack : undefined }); });
     page.on('requestfailed', (request) => {
-      finite.delete(request); streams.delete(request);
-      const intentionalStreamClose = this.closing.has(page) && request.resourceType() === 'eventsource' && request.failure()?.errorText === 'net::ERR_ABORTED';
+      const knownStream = streams.has(request); finite.delete(request); streams.delete(request);
+      const intentionalStreamClose = this.closing.has(page) && knownStream && request.failure()?.errorText === 'net::ERR_ABORTED';
       const detail = { url: request.url(), failure: request.failure(), classification: intentionalStreamClose ? 'intentional SSE abort on navigation/close' : 'unexpected failure' };
       if (!intentionalStreamClose) this.errors.push(JSON.stringify(detail)); this.observe('requestfailed', detail);
     });
     page.on('response', (response) => {
       if (!response.url().startsWith('http')) return;
-      if (response.headers()['content-type']?.includes('text/event-stream')) { this.observe('SSE-response', { url: response.url(), status: response.status(), headers: response.headers(), rawBody: 'stream is not a finite page response; status polling is retained separately' }); return; }
+      if (response.status() >= 400) this.errors.push(`${response.url()}: HTTP ${response.status()}`);
+      const streaming = response.headers()['content-type']?.includes('text/event-stream');
+      const knownStream = streams.has(response.request()) && expectedEventSource(page.url(), response.url(), response.request().method());
+      if (streaming && !knownStream) this.errors.push(`${response.url()}: unexpected streaming response`);
+      if (streaming && knownStream && response.status() < 400) { this.observe('SSE-response', { url: response.url(), status: response.status(), headers: response.headers(), rawBody: 'stream is not a finite page response; status polling is retained separately' }); return; }
       this.observe('browser-http-headers', { url: response.url(), status: response.status(), headers: response.headers() });
       const task = this.raw(response.url(), 'browser', async () => ({ status: response.status(), headers: response.headers(), bytes: new Uint8Array(await deadline(`${response.url()}: browser response body`, HTTP_MS, () => response.content(), () => { void this.sessions.get(page)?.send('Page.stopLoading').catch(() => {}); })) }))
-        .then((result) => { if (result.status >= 400) this.errors.push(`${response.url()}: HTTP ${result.status}`); })
+        .then(() => {})
         .catch((error) => { this.errors.push(String(error)); });
       this.pending.add(task); void task.finally(() => this.pending.delete(task));
     });
