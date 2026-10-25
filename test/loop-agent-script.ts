@@ -67,7 +67,7 @@ export const LOOP_QUESTIONS: readonly LoopQuestion[] = [
     item: 'term.payment-token', unit: 'payments', type: 'ambiguous-term',
     text: {
       en: { title: 'Which token does "payment token" mean?', question: 'The architecture document passes a "payment token" from checkout to payments. The code has two tokens: CardToken, a vault reference to a card, and PaymentToken, the proof a provider returns when it captured money. Which one does the document mean?', why: 'The two are not interchangeable, and the glossary defines both.', claims: ['The architecture document says checkout sends the payment token with the amount to payments.', 'The glossary and the code distinguish CardToken from PaymentToken.'] },
-      ru: { title: 'Какой токен имеется в виду под «платёжным токеном»?', question: 'В архитектуре «платёжный токен» уходит из checkout в payments. В коде два токена: CardToken, ссылка на карту в хранилище, и PaymentToken, подтверждение провайдера о списании. Какой из них имеется в виду?', why: 'Они не взаимозаменяемы, а глоссарий определяет оба.', claims: ['Документ по архитектуре говорит, что checkout отправляет платёжный токен вместе с суммой в payments.', 'Глоссарий и код различают CardToken и PaymentToken.'] },
+      ru: { title: 'Какой токен имеется в виду под «платёжным токеном»?', question: 'В архитектуре «платёжный токен» уходит из `checkout` в `payments`. В коде два токена: `CardToken`, ссылка на карту в хранилище, и `PaymentToken`, подтверждение провайдера о списании. Какой из них имеется в виду?', why: 'Они не взаимозаменяемы, а глоссарий определяет оба.', claims: ['Документ по архитектуре говорит, что `checkout` отправляет платёжный токен вместе с суммой в `payments`.', 'Глоссарий и код различают `CardToken` и `PaymentToken`.'] },
     },
     sides: [['doc:docs/architecture.md#payment-flow'], ['doc:docs/glossary.md#cardtoken', 'doc:docs/glossary.md#paymenttoken', 'code.file\u003aservices/payments/src/domain/payment.ts']],
   },
@@ -96,7 +96,8 @@ function keepingSides(markdown: string, questions: readonly LoopQuestion[], lang
   for (const question of questions.filter((held) => held.type === 'contradiction')) {
     question.sides.forEach((grounds, index) => {
       n += 1;
-      body.push(`${question.text[language].claims[index]}[^side-${n}]`, '');
+      const label = language === 'ru' ? 'вопрос' : 'question';
+      body.push(`${question.text[language].claims[index]}[^side-${n}] [→ ${label}: ${question.text[language].title}](madarch:question:${questionSlug(question, language)})`, '');
       notes.push(`[^side-${n}]: ${grounds.map((ground) => `[${ground.replace(/^.*[:#/]/, '')}](madarch:${ground})`).join(', ')}`);
     });
   }
@@ -108,6 +109,10 @@ const ask = (question: LoopQuestion, language: ScriptLanguage) => {
   return {
     call: {
       tool: 'ask_question',
+      compareQuestions: LOOP_QUESTIONS.map((candidate) => ({
+        question: candidate.text[language].question, same: candidate.item === question.item,
+        reason: candidate.item === question.item ? 'The fixture asks the same decision in this answer-key item.' : `The fixture decisions differ: ${question.item} versus ${candidate.item}.`,
+      })),
       arguments: {
         type: question.type, title: text.title, question: text.question, why: text.why,
         sides: question.sides.map((grounds, index) => ({ claim: text.claims[index], grounds: [...grounds] })),
@@ -129,6 +134,14 @@ export function firstRunScript(delays: { product?: number; ordering?: number; pa
       const unit = entry.matches.includes(TEXT[language].orderingSummary) ? 'ordering' : entry.matches.includes(TEXT[language].paymentsSummary) ? 'payments' : undefined;
       if (unit === undefined) return entry;
       const asks = LOOP_QUESTIONS.filter((question) => question.unit === unit).map((question) => ask(question, language));
+      if (unit === 'ordering') {
+        const retention = LOOP_QUESTIONS.find((question) => question.item === 'contradiction.retention')!;
+        if (retention === undefined) throw new Error('the training script needs its retention decision');
+        const paraphrases = language === 'ru'
+          ? ['Когда нужно удалять заказы?', 'Какой срок действует для хранения заказов?']
+          : ['When must order data be removed?', 'Which retention duration applies to orders?'];
+        for (const title of paraphrases) asks.push({ call: { ...ask(retention, language).call, arguments: { ...ask(retention, language).call.arguments, title, question: title } } });
+      }
       // The delay, if any, stays first; the questions come before the page.
       const sleeps = entry.steps.filter((step) => 'sleep' in step);
       const mine = LOOP_QUESTIONS.filter((question) => question.unit === unit);
@@ -171,7 +184,7 @@ export function refreshScript(language: ScriptLanguage, delay = 0) {
   return {
     byPrompt: [{
       matches: `(madarch:question:${slug})`,
-      steps: [...(delay > 0 ? [{ sleep: delay }] : []), { call: { tool: 'write_page', arguments: { markdown: paymentsRefreshed(language) } } }, { end: { stopReason: 'end_turn' } }],
+      steps: [...(delay > 0 ? [{ sleep: delay }] : []), ask(question, language), { call: { tool: 'write_page', arguments: { markdown: paymentsRefreshed(language) } } }, { end: { stopReason: 'end_turn' } }],
     }],
     steps: [{ end: { stopReason: 'end_turn' } }],
   };

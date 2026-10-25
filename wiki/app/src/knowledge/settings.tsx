@@ -198,7 +198,7 @@ function DangerPanel({ kind, settings, onClose, done }: { kind: Danger; settings
   const confirm = (): void => {
     setWorking(true);
     setError(null);
-    (kind === 'rewrite' ? rewritePages().then(() => ({} as { fillRefused?: string })) : startFresh()).then(
+    (kind === 'rewrite' ? rewritePages().then(() => ({} as { fillRefused?: string })) : startFresh(plan.fresh)).then(
       (result) => {
         setWorking(false);
         // The pages and the graph are gone but the fill could not start: say why and keep the panel, with what to do.
@@ -219,6 +219,8 @@ function DangerPanel({ kind, settings, onClose, done }: { kind: Danger; settings
       <ul className="m-0 list-disc ps-5">
         <li data-testid="danger-pages">{pages.length === 0 ? t('knowledge.reset.noPages') : t('knowledge.reset.pages', { count: pages.length, list: pages.join(', ') })}</li>
         {kind === 'fresh' && <li>{t('settings.danger.fresh.graph', { store: settings.store })}</li>}
+        {kind === 'fresh' && <li data-testid="danger-questions">{t('knowledge.reset.questions', { count: plan.fresh.unansweredQuestions.length })}</li>}
+        {kind === 'fresh' && <li data-testid="danger-answers">{t('knowledge.reset.answers', { count: plan.fresh.keptAnswers.length })}</li>}
         {kind === 'fresh' && <li data-testid="danger-starter">{t('settings.danger.fresh.starter', { files: plan.fresh.replacedStarterFiles.length })}</li>}
         <li>{kind === 'fresh' ? t('settings.danger.fresh.fill') : t('settings.danger.rewrite.fill')}</li>
       </ul>

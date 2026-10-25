@@ -149,6 +149,8 @@
     "refresh": "Refresh",
     "refreshNote": "“Refresh” reads the code again from the new commits and checks the links of the pages. The agent then edits only the pages that need it (listed above), keeping every sentence whose grounds did not change; with a new language it translates all pages. Each unit is bound by {{turns}} turns and {{minutes}} minutes.",
     "reset": {
+      "questions": "unanswered agent questions to remove: {{count}}.",
+      "answers": "{{count}} answers stay. People’s corrections stay too.",
       "menu": "Start over…",
       "title": "Start {{product}} over?",
       "removes": "This removes:",

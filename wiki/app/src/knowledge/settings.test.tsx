@@ -60,7 +60,7 @@ const settings = (over: Partial<ProductSettings> = {}): ProductSettings => ({
   chosenAgent: { id: 'claude-code', label: 'Claude Code' }, bounds: BOUNDS, busy: false,
   danger: {
     rewrite: { agentPages: ['docs/product.md', 'docs/domains/payments.md'], keptPages: ['docs/domains/mine.md'] },
-    fresh: { store: ['/x/graph'], agentPages: ['docs/product.md', 'docs/domains/payments.md'], keptPages: ['docs/domains/mine.md'], editedStarterFiles: ['templates/domain.md'], replacedStarterFiles: ['madarch/kinds.yaml', 'templates/domain.md'] },
+    fresh: { unansweredQuestions: ['docs/questions/open.md'], keptAnswers: ['docs/questions/answered.md', 'docs/questions/other.md'], store: ['/x/graph'], agentPages: ['docs/product.md', 'docs/domains/payments.md'], keptPages: ['docs/domains/mine.md'], editedStarterFiles: ['templates/domain.md'], replacedStarterFiles: ['madarch/kinds.yaml', 'templates/domain.md'] },
   },
   ...over,
 });
@@ -177,7 +177,30 @@ describe('the product settings page', () => {
     (dialog.querySelector('[data-testid=danger-confirm]') as HTMLElement).click();
     await until(() => calls.length === 1, 'the start from scratch');
     expect(calls[0]!.url).toContain('/api/k/start-fresh');
+    expect(calls[0]!.body).toEqual({ preview: settings().danger.fresh });
   });
+
+  for (const language of ['en', 'ru'] as const) {
+    for (const counts of [[1, 2], [0, 0]] as const) {
+      test(`start over names exact removed-question and kept-answer counts in ${language}: ${counts.join('/')}`, async () => {
+        await setWikiLanguage(language);
+        const current = settings();
+        current.danger.fresh.unansweredQuestions = Array.from({ length: counts[0] }, (_, i) => `docs/questions/open-${i}.md`);
+        current.danger.fresh.keptAnswers = Array.from({ length: counts[1] }, (_, i) => `docs/questions/answered-${i}.md`);
+        stub([], current);
+        const page = into(createElement(SettingsPage, { version: 0, status: status(), refresh: () => undefined }));
+        await until(() => page.querySelector('[data-testid=danger-fresh-open]') !== null, 'start over');
+        (page.querySelector('[data-testid=danger-fresh-open]') as HTMLElement).click();
+        await until(() => page.querySelector('[data-testid=danger-dialog]') !== null, 'the confirmation');
+        const removed = page.querySelector('[data-testid=danger-questions]')?.textContent ?? '';
+        const kept = page.querySelector('[data-testid=danger-answers]')?.textContent ?? '';
+        expect(removed).toContain(String(counts[0])); expect(kept).toContain(String(counts[1]));
+        expect(removed).toContain(language === 'en' ? 'unanswered agent question' : 'без ответа');
+        expect(kept).toContain(language === 'en' ? 'answers stay' : 'Ответы сохранятся');
+        expect(page.querySelector('[data-testid=danger-dialog]')!.textContent).toContain(language === 'en' ? 'corrections stay' : 'исправления сохранятся');
+      });
+    }
+  }
 
   test('a fresh start whose fill could not start says why and stays', async () => {
     const calls: { url: string; body: unknown }[] = [];

@@ -321,9 +321,9 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
       const nothing = report.units === 0 ? ' Nothing needed the agent: no ground changed, no answer or correction was waiting, and the language is the same.' : '';
       if (report.ok) {
         const message = `${nothing}${loop}${stale}${skipped}`.trim();
-        send({ type: 'writer', state: 'done', ...(message === '' ? {} : { message }), ...(asked === 0 ? {} : { asked }) });
+        send({ type: 'writer', state: 'done', ...(message === '' ? {} : { message }), asked });
       } else {
-        send({ type: 'writer', state: 'failed', code: report.indexErrors.length > 0 ? 'index' : 'units', message: `some pages were not written; each unit above says why.${loop}${stale}${skipped}${indexed}`, ...(asked === 0 ? {} : { asked }) });
+        send({ type: 'writer', state: 'failed', code: report.indexErrors.length > 0 ? 'index' : 'units', message: `some pages were not written; each unit above says why.${loop}${stale}${skipped}${indexed}`, asked });
       }
     } catch (error) {
       await snapshot(true).catch(() => undefined);

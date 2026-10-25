@@ -283,21 +283,20 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
   const corrections: readonly Correction[] = readC.items;
   const entityIds = [...questions.filter((question) => question.status === 'answered').map((question) => question.id), ...corrections.map((correction) => correction.id)].sort(byCodePoint);
   // The questions asked so far, read fresh at each ask (a unit's question is seen by the next), so one subject is asked once.
-  const unreadable = new Set<string>();
   const liveQuestions = async (): Promise<readonly Question[]> => {
-    if (sink.list === undefined) return readQuestions(options.output).items;
+    if (sink.list === undefined) {
+      const read = readQuestions(options.output);
+      if (read.problems.length > 0) throw new Error(read.problems.map((problem) => `${path.resolve(options.output, problem.file)}:${problem.line}: ${problem.message}`).join('\n'));
+      return read.items;
+    }
     const found: Question[] = [];
     for (const file of await sink.list(QUESTIONS_FOLDER)) {
-      try {
-        found.push(parseQuestion(file, await sink.read(file)));
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        if (!unreadable.has(message)) { unreadable.add(message); loopProblems.push(message); }
-      }
+      try { found.push({ ...parseQuestion(path.resolve(options.output, file), await sink.read(file)), file }); }
+      catch (error) { throw new Error(`${path.resolve(options.output, file)}:1: ${error instanceof Error ? error.message : String(error)}`); }
     }
     return found;
   };
-  const extras = { entityIds: async () => entityIds, language, questions: liveQuestions, ...(options.clock === undefined ? {} : { clock: options.clock }) };
+  const extras = { entityIds: async () => entityIds, output: options.output, language, questions: liveQuestions, ...(options.clock === undefined ? {} : { clock: options.clock }) };
   let existingProduct: string | null = null;
   try { existingProduct = await sink.read(PRODUCT_PATH); } catch { existingProduct = null; }
   const domainPages = await existingDomainPages(options.output);

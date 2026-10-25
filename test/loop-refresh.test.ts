@@ -161,19 +161,22 @@ describe('the loop, from the first question to a translation', () => {
         });
         expect(asked.isError).toBe(false);
         expect(asked.answer).toMatchObject({ asked: true, id: `question:${QUESTION_SLUG}`, path: `docs/questions/${QUESTION_SLUG}.md` });
-        const twice = await call(request, 'ask_question', { type: 'contradiction', title: QUESTION_TITLE, question: 'Again?', why: 'Why.', sides: [{ claim: 'A.', grounds: [discountKey] }, { claim: 'B.', grounds: ['doc:README.md#discounts'] }] });
+        const twice = await call(request, 'ask_question', { type: 'contradiction', title: QUESTION_TITLE, question: 'Which discount rule should the shop follow?', why: 'The same sources disagree about the discount.', sides: [{ claim: 'The code applies the percentage its caller passes.', grounds: [discountKey] }, { claim: 'The README says every order gets a ten percent discount.', grounds: ['doc:README.md#discounts'] }], comparison: [{ id: `question:${QUESTION_SLUG}`, same: true, reason: 'The scripted ask repeats the same README-versus-caller discount decision.' }] });
         // The same subject is asked once (madarch-m38l.13): this page is added to the question that exists.
-        expect(twice.isError).toBe(false);
+        expect(twice.isError, JSON.stringify(twice.answer)).toBe(false);
         expect(twice.answer).toMatchObject({ asked: false, merged: true, id: `question:${QUESTION_SLUG}` });
         const written = await call(request, 'write_page', {
           markdown: [
             '---', 'id: domain:pricing', 'kind: domain', 'title: Pricing', 'relates:', '  - code.file\u003asrc/pricing.ts', 'producer: agent', 'sources: [README.md]', '---', '',
             '## How pricing works', '', 'Tax is a flat five percent.[^flat-five-percent-tax]', '', 'Pricing lives in one file.[^pricing-lives-one-file]', '',
+            'The README promises ten percent for every order.[^readme-discount]', '', 'The code applies the percentage its caller passes.[^caller-discount]', '',
             '[^flat-five-percent-tax]: [README](madarch:doc:README.md#tax)',
             '[^pricing-lives-one-file]: [pricing](madarch:code.file\u003asrc/pricing.ts)',
+            '[^readme-discount]: [README](madarch:doc:README.md#discounts)',
+            `[^caller-discount]: [code](madarch:${discountKey})`,
           ].join('\n'),
         });
-        expect(written.isError).toBe(false);
+        expect(written.isError, JSON.stringify(written.answer)).toBe(false);
       },
     };
     const { report, plan } = await refresh(agent);
@@ -192,8 +195,8 @@ describe('the loop, from the first question to a translation', () => {
     expect(question!.sides.map((side) => side.grounds)).toEqual([['doc:README.md#discounts'], [discountKey]]);
     expect(question!.writtenAt).toHaveLength(1);
     // The question is in the graph beside the pages: kind question with two statements, grounded on the README and the code.
-    expect(await indexCounts(owner)).toEqual([{ kind: 'domain', pages: 1, statements: 2 }, { kind: 'product', pages: 1, statements: 2 }, { kind: 'question', pages: 1, statements: 2 }]);
-    expect((await statementsRelyingOn(owner, discountKey)).map((s) => `${s.pageKind}:${s.page}`)).toEqual([`question:question:${QUESTION_SLUG}`]);
+    expect(await indexCounts(owner)).toEqual([{ kind: 'domain', pages: 1, statements: 4 }, { kind: 'product', pages: 1, statements: 2 }, { kind: 'question', pages: 1, statements: 2 }]);
+    expect((await statementsRelyingOn(owner, discountKey)).map((s) => `${s.pageKind}:${s.page}`)).toEqual(['domain:domain:pricing', `question:question:${QUESTION_SLUG}`]);
     expect(listQuestions(productFolder)).toMatchObject({ open: 1, answered: 0, closed: 0 });
   }, 300_000);
 
@@ -386,10 +389,12 @@ describe('the question tool is bounded and checks what it is given', () => {
 
   test('at most six questions per unit, each saved as a file of the product; the seventh is refused in words', async () => {
     const { tools, sink } = await session();
-    for (const word of ['alpha', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot']) expect((await tools.call('ask_question', good(`Question about ${word}`))).isError).toBe(false);
-    const seventh = await tools.call('ask_question', good('Question about golf'));
+    const words = ['alpha', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot'];
+    const comparison = (previous: readonly string[]) => previous.map((word) => ({ id: `question:${slugOf(`Question about ${word}`)}`, same: false, reason: 'Each fixture word names a distinct authored decision for the per-unit bound.' }));
+    for (const [index, word] of words.entries()) expect((await tools.call('ask_question', good(`Question about ${word}`, { question: `Which policy applies to ${word}?`, comparison: comparison(words.slice(0, index)) }))).isError).toBe(false);
+    const seventh = await tools.call('ask_question', good('Question about golf', { question: 'Which policy applies to golf?', comparison: comparison(words) }));
     expect(seventh.isError).toBe(true);
-    expect(JSON.stringify(seventh.answer)).toContain('this unit asked its 6 questions; write your page with what you know and leave the rest out');
+    expect(JSON.stringify(seventh.answer)).toContain('this unit asked its 6 new questions; reuse existing decisions or write your page with what you know');
     expect([...sink.pages.keys()]).toEqual(['alpha', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot'].map((word) => `docs/questions/${slugOf(`Question about ${word}`)}.md`));
     expect(tools.outcome().questions).toHaveLength(6);
     expect(tools.finished).toBe(false);
