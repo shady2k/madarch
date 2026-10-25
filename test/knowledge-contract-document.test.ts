@@ -19,6 +19,15 @@ describe('complete local contract documentation', () => {
     }
     await expect(contractDocument('bad.yaml', read({'bad.yaml': 'x: [broken'}), full)).rejects.toThrow('bad.yaml:1');
   });
+  test('recursive YAML aliases are explicit bounded source errors', async () => {
+    try {
+      await contractDocument('api.yaml', read({'api.yaml': 'openapi: 3.0.3\ninvalid: &recursive {self: *recursive}'}), full);
+      throw new Error('accepted a recursive alias');
+    } catch (error) {
+      expect(error).toBeInstanceOf(ContractReadError);
+      expect((error as ContractReadError).diagnostic).toMatchObject({path: 'api.yaml', fullPath: '/fixture/repos/catalog/api.yaml', code: 'parse'});
+    }
+  });
   test('protobuf documents streaming, nested messages, maps, enums, oneofs and imports', async () => {
     const files = {'api.proto': 'syntax="proto3"; package catalog; import "types.proto"; service Catalog { rpc List(stream Request) returns (stream Response); } message Request { oneof choice { string name = 1; int32 id = 2; } }', 'types.proto': 'syntax="proto3"; package catalog; message Response { map<string, Item> items = 1; message Item { string name = 1; } } enum State { UNKNOWN = 0; READY = 1; }'};
     const result = await protoDocument('api.proto', read(files), full);

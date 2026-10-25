@@ -1,5 +1,5 @@
-import {useState, type ReactElement} from 'react';
-import AsyncApiComponent, {PLUGIN_EVENT_READY, PLUGIN_EVENT_ERROR} from '@asyncapi/react-component';
+import {useEffect, useRef, useState, type ReactElement} from 'react';
+import AsyncApiComponent, {PLUGIN_EVENT_ERROR} from '@asyncapi/react-component';
 import '@asyncapi/react-component/styles/default.min.css';
 import {useTranslation} from 'react-i18next';
 import type {Block} from './types.js';
@@ -9,10 +9,21 @@ export default function ContractAsyncApi({block}: {block: Extract<Block, {type: 
   const {t} = useTranslation();
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  return <div className="contract-asyncapi" data-testid="contract-asyncapi" data-ready={ready && error === null ? 'true' : 'false'}>
+  const frame = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const node = frame.current;
+    if (node === null) return;
+    const inspect = (): void => {
+      if (node.querySelector('.aui-root #contract-async-schema .panel--center') !== null && (node.textContent?.trim().length ?? 0) > 10) setReady(true);
+      const failure = node.querySelector('.aui-root .border-red-500');
+      if (failure !== null) setError(failure.textContent ?? 'AsyncAPI validation error');
+    };
+    const observer = new MutationObserver(inspect); observer.observe(node, {subtree: true, childList: true}); inspect();
+    return () => observer.disconnect();
+  }, []);
+  return <div ref={frame} className="contract-asyncapi" data-testid="contract-asyncapi" data-ready={ready && error === null ? 'true' : 'false'}>
     {error !== null && <p role="alert">{t('knowledge.contractRenderError', {reason: error})} {block.contract}:1 ({block.fullPath ?? block.contract})</p>}
-    <AsyncApiComponent schema={block.document!} config={{show: {sidebar: false, errors: true}, publishLabel: t('knowledge.contractPublish'), subscribeLabel: t('knowledge.contractSubscribe'), sendLabel: t('knowledge.contractSend'), receiveLabel: t('knowledge.contractReceive')}} onPluginEvent={(event, data) => {
-      if (event === PLUGIN_EVENT_READY) setReady(true);
+    <AsyncApiComponent schema={block.document!} config={{schemaID: 'contract-async-schema', show: {sidebar: false, errors: true}, publishLabel: t('knowledge.contractPublish'), subscribeLabel: t('knowledge.contractSubscribe'), sendLabel: t('knowledge.contractSend'), receiveLabel: t('knowledge.contractReceive')}} onPluginEvent={(event, data) => {
       if (event === PLUGIN_EVENT_ERROR) setError(typeof data === 'string' ? data : JSON.stringify(data));
     }} />
   </div>;

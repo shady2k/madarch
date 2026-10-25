@@ -28,3 +28,16 @@ test('ambiguous and absent contract owners do not choose a fallback', async () =
     expect(block).toMatchObject({type: 'problem', file: 'templates/operation.md', line: 2});
   }
 });
+
+test('a valid local referenced Path Item selects the declared method', async () => {
+  const ctx = context('openapi: 3.0.3\npaths:\n  /items: {$ref: "#/components/pathItems/Items"}\ncomponents:\n  pathItems:\n    Items:\n      get: {operationId: listItems, responses: {}}');
+  const block = await definitionBlock(ctx, {source: 'graph', entity: operation}, {}, 'templates/operation.md', 2);
+  expect(block.type).toBe('definition');
+  if (block.type === 'definition') { expect(block.selection).toEqual({method: 'get', path: '/items', operationId: 'listItems'}); expect(block.diagnostics).toBeUndefined(); }
+});
+test('cyclic path items are visible refusal diagnostics, not unbounded resolution', async () => {
+  const ctx = context('openapi: 3.0.3\npaths:\n  /items: {$ref: "#/paths/~1items"}');
+  const block = await definitionBlock(ctx, {source: 'graph', entity: operation}, {}, 'templates/operation.md', 2);
+  expect(block.type).toBe('definition');
+  if (block.type === 'definition') expect(block.diagnostics?.[0]?.detail).toContain('cyclic');
+});

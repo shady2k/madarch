@@ -9,7 +9,7 @@
  */
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
-import { contractDocument, contractFullPath, ContractReadError, object } from './contract-document.js';
+import { contractDocument, contractFullPath, ContractReadError, object, contractObjectAt } from './contract-document.js';
 import { protoDocument } from './proto-document.js';
 import { byCodePoint } from '../model/order.js';
 import type { GraphEntity } from './graph-read.js';
@@ -35,11 +35,12 @@ async function membersOf(ctx: RenderContext, contract: GraphEntity): Promise<{ m
   const declared = await ctx.graph.neighbors(contract, { relations: ['code.declares'], direction: 'out', limit: 500 });
   const renderable = declared.map((group) => ({...group, rows: group.rows.filter((row) => row.entity.kind === 'code.operation' || row.entity.kind === 'code.channel')}));
   const members: DefinitionMember[] = [];
-  const total = declared.reduce((sum, group) => sum + group.total, 0);
-  const shown = declared.reduce((sum, group) => sum + group.rows.length, 0);
+  const omitted = declared.reduce((sum, group) => sum + Math.max(0, group.total - group.rows.length), 0);
+  const shown = renderable.reduce((sum, group) => sum + group.rows.length, 0);
+  const total = shown + omitted;
   const cuts: {channel: string; total: number; shown: number}[] = [];
   if (total > shown) cuts.push({channel: '', total, shown});
-  for (const group of declared) for (const row of group.rows) {
+  for (const group of renderable) for (const row of group.rows) {
     const entity = row.entity;
     const ref = refOfGraph(ctx, entity);
     if (entity.kind === 'code.operation') {
@@ -116,14 +117,17 @@ export async function definitionBlock(ctx: RenderContext, subject: Subject, para
     const method = textOf(operation.properties['method'])?.toLowerCase();
     const route = textOf(operation.properties['path']);
     const paths = document['paths'];
-    const item = object(paths) && route !== undefined ? paths[route] : undefined;
-    const selected = object(item) && method !== undefined ? item[method] : undefined;
+    const item = contractObjectAt(document, object(paths) && route !== undefined ? paths[route] : undefined);
+    const selected = contractObjectAt(document, item !== undefined && method !== undefined ? item[method] : undefined);
     if (!object(selected) || method === undefined || route === undefined) throw new ContractReadError({path, line: operation.span?.lineStart ?? 1, fullPath: fullPath(path), code: 'selection', detail: `operation selection is missing or ambiguous: ${method ?? '?'} ${route ?? '?'}`});
     // Give anonymous operations a stable renderer anchor; duplicate ids must never select another operation.
     const declaredId = selected['operationId'];
     const operationId = typeof declaredId === 'string' && declaredId !== '' ? declaredId : anchorOf('operation', `${method}:${route}`);
     let matches = 0;
-    if (object(paths)) for (const held of Object.values(paths)) if (object(held)) for (const [verb, value] of Object.entries(held)) if (['get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'trace'].includes(verb) && object(value) && value['operationId'] === operationId) matches++;
+    if (object(paths)) for (const held of Object.values(paths)) {
+      const item = contractObjectAt(document, held);
+      if (item !== undefined) for (const [verb, value] of Object.entries(item)) if (['get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'trace'].includes(verb) && contractObjectAt(document, value)?.['operationId'] === operationId) matches++;
+    }
     if (matches > 1) throw new ContractReadError({path, line: operation.span?.lineStart ?? 1, fullPath: fullPath(path), code: 'selection', detail: `ambiguous operationId: ${operationId}`});
     selected['operationId'] = operationId;
     return {...result, document, selection: {method, path: route, operationId}};

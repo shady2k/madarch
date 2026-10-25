@@ -16,8 +16,10 @@ export default function ContractRedoc({block}: {block: Extract<Block, {type: 'de
     target.scrollIntoView({block: 'start'});
     target.dataset['contractSelected'] = 'true';
   }, [loaded, block.selection, t]);
+  const colors = typeof document === 'undefined' ? null : getComputedStyle(document.documentElement);
+  const color = (token: string, fallback: string): string => colors?.getPropertyValue(token).trim() || fallback;
   return <div ref={container} className="contract-redoc" data-testid="contract-redoc" data-ready={loaded && error === null ? 'true' : 'false'}>
     {error !== null && <p role="alert">{t('knowledge.contractRenderError', {reason: error})} {block.contract}:1 ({block.fullPath ?? block.contract})</p>}
-    <RedocStandalone spec={block.document} options={{disableSearch: true, hideDownloadButtons: true, hideHostname: true, hideFab: true, untrustedSpec: true, nativeScrollbars: true, theme: {typography: {fontFamily: 'inherit', headings: {fontFamily: 'inherit'}, code: {fontFamily: 'monospace'}}, sidebar: {width: '0px'}, rightPanel: {width: '35%'}}}} onLoaded={(failure) => { if (failure !== undefined) setError(failure.message); else setLoaded(true); }} />
+    <RedocStandalone spec={block.document} options={{disableSearch: true, hideDownloadButtons: true, hideHostname: true, hideFab: true, untrustedSpec: true, nativeScrollbars: true, theme: {colors: {text: {primary: color('--text', '#2e3034'), secondary: color('--text-secondary', '#5c5e66')}}, typography: {fontFamily: 'inherit', headings: {fontFamily: 'inherit'}, code: {fontFamily: 'monospace'}}, sidebar: {width: '0px', backgroundColor: color('--bg-page', '#ffffff')}, rightPanel: {width: '35%', backgroundColor: color('--surface-code', '#f2f3f4'), textColor: color('--text', '#2e3034')}}}} onLoaded={(failure) => { if (failure !== undefined) setError(failure.message); else setLoaded(true); }} />
   </div>;
 }

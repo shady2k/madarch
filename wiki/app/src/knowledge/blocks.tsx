@@ -576,8 +576,9 @@ function Deferred({ block, pageId, resolutions }: { block: Extract<Block, { type
   const { t, i18n } = useTranslation();
   const [drawn, setDrawn] = useState<Block | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
+  const [opened, setOpened] = useState(false);
   useEffect(() => {
-    if (pageId === undefined) return;
+    if (pageId === undefined || (block.block === 'definition' && !opened)) return;
     const stop = new AbortController();
     setDrawn(null);
     setFailure(null);
@@ -585,7 +586,11 @@ function Deferred({ block, pageId, resolutions }: { block: Extract<Block, { type
       if (!(error instanceof DOMException && error.name === 'AbortError')) setFailure(error instanceof Error ? error.message : String(error));
     });
     return () => stop.abort();
-  }, [pageId, block.line, block.block, i18n.resolvedLanguage]);
+  }, [pageId, block.line, block.block, i18n.resolvedLanguage, opened]);
+  if (block.block === 'definition') return <details data-testid="contract-definition-disclosure" onToggle={(event) => { if (event.currentTarget.open) setOpened(true); }}>
+    <summary className="cursor-pointer text-secondary">{block.title}</summary>
+    {opened && (drawn !== null ? <BlockView block={drawn} resolutions={resolutions} {...(pageId === undefined ? {} : {pageId})} /> : <p role={failure === null ? 'status' : 'alert'}>{failure ?? t('knowledge.contractLoading')}</p>)}
+  </details>;
   if (drawn !== null) return <BlockView block={drawn} resolutions={resolutions} {...(pageId === undefined ? {} : { pageId })} />;
   return (
     <section data-block="diagram" data-diagram="deferred" aria-label={block.title}>

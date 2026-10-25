@@ -36,7 +36,23 @@ export async function contractDocument(path: string, read: (path: string) => Pro
     docs.set(file, value);
     // Register before following references, including circular references between files.
     if (file !== path && !ids.has(file)) ids.set(file, `file${ids.size}`);
+    const active = new Set<object>();
+    const checked = new Set<object>();
+    function checkAliases(node: unknown, at: string[], depth: number): void {
+      if (node === null || typeof node !== 'object') return;
+      const range = (parsed.getIn(at, true) as {range?: readonly number[]} | undefined)?.range;
+      const line = range === undefined ? 1 : lines.linePos(range[0]!).line;
+      if (active.has(node)) refuse(file, 'parse', 'cyclic YAML alias cannot be represented as a JSON definition', line);
+      if (depth > 128) refuse(file, 'limit', 'definition nesting exceeds 128 levels', line);
+      if (checked.has(node)) return;
+      active.add(node);
+      for (const [key, child] of Object.entries(node)) checkAliases(child, [...at, key], depth + 1);
+      active.delete(node); checked.add(node);
+    }
+    checkAliases(value, [], 0);
+    const visited = new Set<object>();
     async function visit(node: unknown, at: string[]): Promise<void> {
+      if (node !== null && typeof node === 'object') { if (visited.has(node)) return; visited.add(node); }
       if (Array.isArray(node)) { for (let i = 0; i < node.length; i++) await visit(node[i], [...at, String(i)]); return; }
       if (!object(node)) return;
       for (const key of Object.keys(node).sort(byCodePoint)) {
@@ -86,4 +102,23 @@ export async function contractDocument(path: string, read: (path: string) => Pro
 
 export function contractFullPath(product: string, repo: string | null, path: string): string {
   return repo === null ? resolve(product, path) : resolve(product, 'repos', repo, path);
+}
+
+/** Resolve a bundled JSON pointer for operation identity only. Cycles are refused, never selected arbitrarily. */
+export function contractObjectAt(document: Record<string, unknown>, value: unknown): Record<string, unknown> | undefined {
+  const seen = new Set<object>();
+  let held = value;
+  while (object(held) && typeof held['$ref'] === 'string') {
+    if (seen.has(held) || seen.size >= 64) throw new Error('cyclic or over-deep operation reference');
+    seen.add(held);
+    const ref = held['$ref'];
+    if (!ref.startsWith('#/')) throw new Error(`unresolved operation reference: ${ref}`);
+    let target: unknown = document;
+    for (const piece of ref.slice(2).split('/')) {
+      const token = decodeURIComponent(piece).replace(/~1/g, '/').replace(/~0/g, '~');
+      target = object(target) || Array.isArray(target) ? (target as Record<string, unknown>)[token] : undefined;
+    }
+    held = target;
+  }
+  return object(held) ? held : undefined;
 }
