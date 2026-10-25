@@ -3,6 +3,8 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { describe, expect, test } from 'bun:test';
+import { isScalar, parseDocument } from 'yaml';
+import { validateLibraryRegistry } from '../src/extract/library-models/validate.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const SCAN_ROOTS = ['src', 'test', 'scripts', 'wiki/app/src', 'examples', 'docs/system'];
@@ -117,6 +119,72 @@ function isDeclaredFixtureImport(root: string, file: string, text: string, index
   return false;
 }
 
+/** Exact public documentation URL for this entry, never a file-wide package pool. */
+function packageDocumentation(reference: string, ecosystem: string, packageName: string): boolean {
+  let url: URL;
+  try { url = new URL(reference); } catch { return false; }
+  if (url.protocol !== 'https:' || url.username !== '' || url.password !== '' || url.port !== '' || url.search !== '') return false;
+  // URL canonicalization removes explicit :443 and dot segments. Check the raw
+  // authority and path too; those spellings must not turn into licensed evidence.
+  const authorityStart = 'https://';
+  if (!reference.startsWith(authorityStart)) return false;
+  const afterScheme = reference.slice(authorityStart.length);
+  const authorityEnd = afterScheme.indexOf('/');
+  if (authorityEnd < 0 || afterScheme.slice(0, authorityEnd) !== url.hostname) return false;
+  if ([...reference].some((character) => character === '\\' || character.codePointAt(0)! <= 32 || character.codePointAt(0) === 127)) return false;
+  const hash = afterScheme.indexOf('#');
+  const rawPath = hash < 0 ? afterScheme.slice(authorityEnd) : afterScheme.slice(authorityEnd, hash);
+  if (rawPath !== url.pathname || rawPath.includes('%') || rawPath.split('/').some((part) => part === '.' || part === '..')) return false;
+  if (hash >= 0) {
+    const anchor = afterScheme.slice(hash + 1);
+    if (anchor === '' || anchor.length > 256 || url.hash !== '#' + anchor || anchor.includes('#') || anchor.includes('?') || anchor.includes('/') || anchor.includes(':') || anchor.includes('%')) return false;
+  }
+  return ecosystem === 'go' && url.hostname === 'pkg.go.dev' && rawPath === `/${packageName}` ||
+    ecosystem === 'node' && url.hostname === 'www.npmjs.com' && rawPath === `/package/${packageName}`;
+}
+
+interface ProvenanceRange { readonly start: number; readonly end: number }
+function provenanceRanges(root: string, file: string, text: string, errors: string[]): readonly ProvenanceRange[] {
+  const path = relative(root, file).split('/');
+  if (path.length < 4 || path[0] !== 'src' || path[1] !== 'extract' || path[2] !== 'library-models' || !file.endsWith('.json')) return [];
+  const located = (offset: number, reason: string): void => {
+    const line = text.slice(0, offset).split('\n').length;
+    errors.push(`${relative(root, file)}:${line} (${file}): library provenance is not licensed: ${reason}`);
+  };
+  let parsed: unknown;
+  try { parsed = JSON.parse(text); } catch (error) { located(0, `invalid JSON: ${String(error)}`); return []; }
+  const document = parseDocument(text, { schema: 'json', uniqueKeys: true, strict: true, keepSourceTokens: true });
+  if (document.errors.length > 0) {
+    for (const error of document.errors) located(error.pos[0], error.message);
+    return [];
+  }
+  try { validateLibraryRegistry(parsed); } catch (error) { located(0, `invalid model registry: ${String(error)}`); return []; }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return [];
+  const registry = parsed as Record<string, unknown>;
+  const ranges: ProvenanceRange[] = [];
+  for (const section of ['models', 'types']) {
+    const entries = registry[section]; if (entries === undefined) continue;
+    if (!Array.isArray(entries)) return [];
+    for (const [index, entry] of entries.entries()) {
+      if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) return [];
+      const fields = entry as Record<string, unknown>;
+      const reference = document.getIn([section, index, 'reference'], true);
+      if (!isScalar(reference) || reference.range === undefined || reference.range === null || reference.type !== 'QUOTE_DOUBLE' ||
+        typeof reference.value !== 'string' || reference.value !== fields.reference) {
+        located(0, `${section}[${index}].reference has no exact JSON scalar location`); return [];
+      }
+      const [start, end] = reference.range;
+      let raw: unknown;
+      try { raw = JSON.parse(text.slice(start, end)); } catch { located(start, 'reference scalar bytes are not JSON'); return []; }
+      if (raw !== reference.value || typeof fields.ecosystem !== 'string' || typeof fields.package !== 'string') {
+        located(start, 'reference scalar disagrees with its entry'); return [];
+      }
+      if (packageDocumentation(reference.value, fields.ecosystem, fields.package)) ranges.push({ start, end });
+    }
+  }
+  return ranges;
+}
+
 function findings(root = ROOT): string[] {
   const errors: string[] = [];
   const goModules = declaredGoModules(root);
@@ -125,6 +193,7 @@ function findings(root = ROOT): string[] {
     .sort(compareCodePoints);
   for (const file of files) {
     const text = readFileSync(file, 'utf8');
+    const provenance = provenanceRanges(root, file, text, errors);
     for (const match of text.matchAll(SOURCE_PATTERN)) {
       const source = match[0];
       // A bare typed key is not an address. URL/SSH typed hosts are never licensed by another allowance.
@@ -132,6 +201,7 @@ function findings(root = ROOT): string[] {
       const typedKey = /^(?:code\.[A-Za-z][A-Za-z0-9-]*|doc):/.test(source);
       const urlOrSsh = /(?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|[^\s'"`]+@)$/.test(prefix);
       if (typedKey && !urlOrSsh) continue;
+      if (!(typedKey && urlOrSsh) && provenance.some((range) => range.start <= match.index && match.index + source.length <= range.end)) continue;
       if (!(typedKey && urlOrSsh) && (sourceIsAllowed(source, goModules) || isDeclaredFixtureImport(root, file, text, match.index, source))) continue;
       const line = text.slice(0, match.index).split('\n').length;
       errors.push(`${relative(root, file)}:${line} (${file}): repository source is not an example or madarch repository: ${source}`);
@@ -275,6 +345,123 @@ describe('neutral repository names', () => {
         `src/example.ts:1 (${file}): repository source is not an example or madarch repository: ${real}`,
         `src/example.ts:2 (${file}): repository source is not an example or madarch repository: ${typed}`,
         `src/example.ts:3 (${file}): repository source is not an example or madarch repository: ${typed}`,
+      ]);
+    } finally { rmSync(fixtureRoot, { recursive: true, force: true }); }
+  });
+
+  test('library provenance licenses only the exact structured reference under its declared folder', () => {
+    const fixtureRoot = mkdtempSync(join(tmpdir(), 'madarch-neutral-provenance-'));
+    try {
+      for (const path of SCAN_ROOTS) mkdirSync(join(fixtureRoot, path), { recursive: true });
+      for (const path of ROOT_DOCUMENTS) { const file = join(fixtureRoot, path); mkdirSync(dirname(file), { recursive: true }); writeFileSync(file, ''); }
+      const packageName = ['example.org', 'unit'].join('/');
+      const reference = ['https:/', 'pkg.go.dev', packageName].join('/');
+      const model = { id: 'unit.model', ecosystem: 'go', package: packageName,
+        target: { kind: 'export', importRoles: ['named'], exportedPaths: [['Make']] },
+        invoke: 'call', returnRole: 'logger', arguments: [], reference,
+        checks: { positive: 'model.positive', negative: 'model.negative' } };
+      const type = { id: 'unit.type', ecosystem: 'go', package: packageName, exportedPath: ['Options'], shape: 'struct',
+        reference: reference + '#Options', checks: { positive: 'type.positive', negative: 'type.negative' } };
+      const registry = { schemaVersion: 1, models: [model], types: [type] };
+      const allowed = join(fixtureRoot, 'src/extract/library-models/nested/models.json');
+      mkdirSync(dirname(allowed), { recursive: true }); writeFileSync(allowed, JSON.stringify(registry, null, 2));
+      expect(findings(fixtureRoot)).toEqual([]);
+      const source = reference.slice('https://'.length);
+      const elsewhere = join(fixtureRoot, 'docs/system/elsewhere.md');
+      const sibling = join(fixtureRoot, 'src/extract/library-models-other/models.json');
+      mkdirSync(dirname(sibling), { recursive: true });
+      writeFileSync(elsewhere, reference + '\n'); writeFileSync(sibling, JSON.stringify(registry));
+      expect(findings(fixtureRoot)).toEqual([
+        `docs/system/elsewhere.md:1 (${elsewhere}): repository source is not an example or madarch repository: ${source}`,
+        `src/extract/library-models-other/models.json:1 (${sibling}): repository source is not an example or madarch repository: ${source}`,
+        `src/extract/library-models-other/models.json:1 (${sibling}): repository source is not an example or madarch repository: ${source}`,
+      ]);
+      rmSync(elsewhere); rmSync(sibling);
+      // Another valid entry with the same host/package cannot license this entry.
+      writeFileSync(allowed, JSON.stringify({ ...registry, models: [
+        { ...model, id: 'wrong', package: packageName + '-other', checks: { positive: 'wrong.positive', negative: 'wrong.negative' } }, model,
+      ] }));
+      expect(findings(fixtureRoot)).toEqual([
+        `src/extract/library-models/nested/models.json:1 (${allowed}): repository source is not an example or madarch repository: ${source}`,
+      ]);
+      // Bare package fields remain errors even when their reference is legitimate.
+      const outsidePackage = ['github.com', 'not-acme', 'unit'].join('/');
+      writeFileSync(allowed, JSON.stringify({ schemaVersion: 1, models: [{ ...model, package: outsidePackage,
+        reference: ['https:/', 'pkg.go.dev', outsidePackage].join('/') }] }));
+      expect(findings(fixtureRoot)).toEqual([
+        `src/extract/library-models/nested/models.json:1 (${allowed}): repository source is not an example or madarch repository: ${outsidePackage}`,
+      ]);
+    } finally { rmSync(fixtureRoot, { recursive: true, force: true }); }
+  });
+
+  test('package documentation uses the whole exact URL and the current ecosystem only', () => {
+    const goHost = ['pkg', 'go', 'dev'].join('.');
+    const nodeHost = ['www', 'npmjs', 'com'].join('.');
+    const goPackage = ['example.org', 'unit', 'sub'].join('/');
+    const nodePackage = '@scope/unit';
+    const go = `https://${goHost}/${goPackage}`;
+    const node = `https://${nodeHost}/package/${nodePackage}`;
+    expect(packageDocumentation(go, 'go', goPackage)).toBe(true);
+    expect(packageDocumentation(go + '#Options', 'go', goPackage)).toBe(true);
+    expect(packageDocumentation(node, 'node', nodePackage)).toBe(true);
+    expect(packageDocumentation(`https://${nodeHost}/package/node:process`, 'node', 'node:process')).toBe(true);
+    const invalid = [
+      go.replace('https:', 'http:'), go.replace(goHost, goHost + '.invalid'),
+      go.replace(goHost, `user@${goHost}`), go.replace(goHost, `user:secret@${goHost}`),
+      go.replace(goHost, goHost + ':443'), go.replace(goHost, goHost + ':8443'),
+      go + '-lookalike', go + '/child', go + '?source=other', go + '#', go + '#https://other.invalid/x',
+      go.replace('/unit/', '/x/../unit/'), go.replace('/unit/', '/%75nit/'),
+      go.replace(goHost, goHost.toUpperCase()), go.replace(goHost + '/', goHost + '\\'),
+      go + '#two#anchors', go + '#' + 'x'.repeat(257),
+    ];
+    for (const reference of invalid) expect(packageDocumentation(reference, 'go', goPackage)).toBe(false);
+    expect(packageDocumentation(go, 'go', goPackage + '-other')).toBe(false);
+    expect(packageDocumentation(go, 'go', goPackage.slice(0, goPackage.lastIndexOf('/')))).toBe(false);
+    expect(packageDocumentation(go, 'node', goPackage)).toBe(false);
+    expect(packageDocumentation(node, 'node', '@scope/unit-other')).toBe(false);
+    expect(packageDocumentation(node, 'go', nodePackage)).toBe(false);
+    expect(packageDocumentation(['https:/', 'pypi.org', 'project', 'unit'].join('/'), 'python', 'unit')).toBe(false);
+    expect(packageDocumentation(['https:/', 'crates.io', 'crates', 'unit'].join('/'), 'rust', 'unit')).toBe(false);
+  });
+
+  test('invalid registry structure and duplicate keys retain located errors and every unlicensed occurrence', () => {
+    const fixtureRoot = mkdtempSync(join(tmpdir(), 'madarch-neutral-invalid-provenance-'));
+    try {
+      for (const path of SCAN_ROOTS) mkdirSync(join(fixtureRoot, path), { recursive: true });
+      for (const path of ROOT_DOCUMENTS) { const file = join(fixtureRoot, path); mkdirSync(dirname(file), { recursive: true }); writeFileSync(file, ''); }
+      const reference = ['https:/', 'www.npmjs.com', 'package', 'unit'].join('/');
+      const source = reference.slice('https://'.length);
+      const model = { id: 'unit', ecosystem: 'node', package: 'unit',
+        target: { kind: 'export', importRoles: ['named'], exportedPaths: [['Make']] },
+        invoke: 'call', returnRole: 'logger', arguments: [], reference,
+        checks: { positive: 'unit.positive', negative: 'unit.negative' } };
+      const file = join(fixtureRoot, 'src/extract/library-models/models.json');
+      mkdirSync(dirname(file), { recursive: true });
+      const registry = { schemaVersion: 1, models: [model] };
+      writeFileSync(file, JSON.stringify(registry)); expect(findings(fixtureRoot)).toEqual([]);
+      const documents = [
+        JSON.stringify({ ...registry, unrelated: reference }),
+        JSON.stringify({ schemaVersion: 1, models: [{ ...model, description: reference }] }),
+        JSON.stringify({ schemaVersion: 1, models: [model, model] }),
+        JSON.stringify({ schemaVersion: 1, models: [model, { ...model, id: 'other',
+          target: { kind: 'export', importRoles: ['named'], exportedPaths: [['Other']] } }] }),
+        `{"schemaVersion":1,"models":[${JSON.stringify(model)}],"models":[${JSON.stringify(model)}]}`,
+        `{"schemaVersion":1,"models":[${JSON.stringify(model)}],` ,
+        JSON.stringify({ note: reference }),
+      ];
+      for (const document of documents) {
+        writeFileSync(file, document);
+        const errors = findings(fixtureRoot);
+        expect(errors.some((error) => error.startsWith(`src/extract/library-models/models.json:1 (${file}): library provenance is not licensed:`))).toBe(true);
+        const expectedOccurrences = document.split(reference).length - 1;
+        expect(errors.filter((error) => error === `src/extract/library-models/models.json:1 (${file}): repository source is not an example or madarch repository: ${source}`)).toHaveLength(expectedOccurrences);
+      }
+      writeFileSync(file, JSON.stringify(registry));
+      const ts = join(fixtureRoot, 'src/extract/library-models/note.ts');
+      writeFileSync(ts, reference + '\n' + reference + '\n');
+      expect(findings(fixtureRoot)).toEqual([
+        `src/extract/library-models/note.ts:1 (${ts}): repository source is not an example or madarch repository: ${source}`,
+        `src/extract/library-models/note.ts:2 (${ts}): repository source is not an example or madarch repository: ${source}`,
       ]);
     } finally { rmSync(fixtureRoot, { recursive: true, force: true }); }
   });
