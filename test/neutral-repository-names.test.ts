@@ -52,6 +52,7 @@ function declaredGoModules(root: string): string[] {
 }
 
 function sourceIsAllowed(source: string, goModules: readonly string[] = []): boolean {
+  if (/^(?:code\.[A-Za-z][A-Za-z0-9-]*|doc):/.test(source)) return true;
   const pattern = /^(?<host>(?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})(?::\d+)?[:/](?<owner>[A-Za-z0-9_.-]+)\/(?<repo>[A-Za-z0-9_.-]+)/;
   const normalized = source.replace(/^[A-Za-z][A-Za-z0-9+.-]*:\/\//, '').replace(/^[^@/]+@/, '');
   // A package tarball host of the public npm registry is not a repository source.
@@ -88,7 +89,10 @@ function findings(root = ROOT): string[] {
     const text = readFileSync(file, 'utf8');
     for (const match of text.matchAll(SOURCE_PATTERN)) {
       const source = match[0];
-      if (sourceIsAllowed(source, goModules)) continue;
+      const prefix = text.slice(Math.max(0, match.index - 64), match.index);
+      const typedKey = /^(?:code\.[A-Za-z][A-Za-z0-9-]*|doc):/.test(source);
+      const urlOrSsh = /(?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|[A-Za-z0-9_.-]+@)$/.test(prefix);
+      if (sourceIsAllowed(source, goModules) && !(typedKey && urlOrSsh)) continue;
       const line = text.slice(0, match.index).split('\n').length;
       errors.push(`${relative(root, file)}:${line} (${file}): repository source is not an example or madarch repository: ${source}`);
     }
@@ -155,6 +159,26 @@ describe('neutral repository names', () => {
     } finally {
       rmSync(fixtureRoot, { recursive: true, force: true });
     }
+  });
+
+  test('bare graph keys are not repositories, but adjacent sources and URL or SSH hosts still are', () => {
+    const fixtureRoot = mkdtempSync(join(tmpdir(), 'madarch-neutral-graph-keys-'));
+    try {
+      for (const path of SCAN_ROOTS) mkdirSync(join(fixtureRoot, path), { recursive: true });
+      for (const path of ROOT_DOCUMENTS) { const file = join(fixtureRoot, path); mkdirSync(dirname(file), { recursive: true }); writeFileSync(file, ''); }
+      const real = ['github.com', 'someone', 'somerepo'].join('/');
+      const typed = ['code.table', 'shop/public.orders'].join(':');
+      const document = ['doc', 'shop/docs/order.md'].join(':');
+      const url = ['https://', typed].join('');
+      const ssh = ['git@', typed].join('');
+      const file = join(fixtureRoot, 'src', 'example.ts');
+      writeFileSync(file, `${typed} ${document} ${real}\n${url}\n${ssh}\n`);
+      expect(findings(fixtureRoot)).toEqual([
+        `src/example.ts:1 (${file}): repository source is not an example or madarch repository: ${real}`,
+        `src/example.ts:2 (${file}): repository source is not an example or madarch repository: ${typed}`,
+        `src/example.ts:3 (${file}): repository source is not an example or madarch repository: ${typed}`,
+      ]);
+    } finally { rmSync(fixtureRoot, { recursive: true, force: true }); }
   });
 
   test('only example and madarch repositories appear in product code and current documents', () => {
