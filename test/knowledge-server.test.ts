@@ -14,6 +14,7 @@ import { join } from 'node:path';
 import { startServer, type StartedServer } from '../src/server/http.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY, makeProduct, recordKey } from './knowledge-fixture.js';
+import type { Block } from '../src/knowledge/model.js';
 
 const sym = (rest: string): string => recordKey('code.symbol', rest);
 
@@ -284,14 +285,21 @@ describe('the fill the reader watches', () => {
         const page = await get(`/products/tiny/api/k/page?${new URLSearchParams({ id, lang, full: '1' })}`);
         expect(page.status).toBe(200);
         expect(page.body.findings).toEqual([]);
-        expect(page.body.blocks.filter((entry: { type: string }) => entry.type === 'problem')).toEqual([]);
-        const details = page.body.blocks.find((entry: { type: string }) => entry.type === 'properties');
+        const blocks: Block[] = page.body.blocks;
+        expect(blocks.filter((entry) => entry.type === 'problem')).toEqual([]);
+        const details = blocks.find((entry): entry is Extract<Block, { type: 'properties' }> => entry.type === 'properties');
+        expect(details).toBeDefined();
+        if (!details) throw new Error(`Landmark page ${id} in ${lang} omitted its properties block`);
         expect(details.title).toBe(lang === 'ru' ? 'Сведения' : 'Details');
         expect(details.rows).toContainEqual({ name: 'commit', value: expectedCommit });
-        const relations = page.body.blocks.find((entry: { type: string }) => entry.type === 'related' && entry.groups.some((group: { relation: string }) => group.relation === 'code.held'));
-        const held = relations.groups.find((group: { relation: string }) => group.relation === 'code.held');
+        const relations = blocks.find((entry): entry is Extract<Block, { type: 'related' }> => entry.type === 'related' && entry.groups.some((group) => group.relation === 'code.held'));
+        expect(relations).toBeDefined();
+        if (!relations) throw new Error(`Landmark page ${id} in ${lang} omitted its held-file relations`);
+        const held = relations.groups.find((group) => group.relation === 'code.held');
+        expect(held).toBeDefined();
+        if (!held) throw new Error(`Landmark page ${id} in ${lang} omitted code.held`);
         expect(held.total).toBe(expectedFiles.length);
-        expect(held.rows.map((row: { entity: { id: string } }) => row.entity.id).sort()).toEqual(expectedFiles);
+        expect(held.rows.map((row) => row.entity.id).sort()).toEqual(expectedFiles);
         for (const row of held.rows) {
           expect(row.entity.href).toBeTruthy();
           expect(row.entity.broken).toBeUndefined();
