@@ -95,9 +95,63 @@ test('folded containers retain late unique cross-folder labels and all internal 
   const internal = { relation: 'code.calls-remote', from: entity('code.symbol', 'services/a/internal.ts#call'), to: entity('code.route', 'services/a/internal.ts#GET:/internal'), properties: { via: 'http' } };
   const [view] = await buildViews({ ctx: context(new FixtureReader([...services, ...targets], [...facts, internal])), lang: 'en', productTitle: 'Fixture' }, { type: 'c4-container', subject: '' });
   expect(view!.elements).toHaveLength(2);
+  expect(view!.elements.map(element => element.drill?.spec)).toEqual([{ type: 'c4-container', subject: '', scope: 'services/a' }, { type: 'c4-container', subject: '', scope: 'services/z' }]);
   expect(view!.fullElements!.map(element => element.id)).toEqual(services.map(service => service.key));
   expect(view!.fullEdges!.map(edge => edge.label)).toContain('gRPC unique-remote-target-20');
   expect(view!.fullEdges!.some(edge => edge.label.includes('unique-remote-target-19'))).toBe(true);
   expect(view!.fullEdges!.some(edge => edge.from === edge.to)).toBe(false);
   expect(view!.fullEdges!.some(edge => edge.from === services[0]!.key && edge.to === services[21]!.key && edge.label === 'gRPC unique-remote-target-20')).toBe(true);
+});
+
+test('the two-hundred-and-first service reaches the full raw list', async () => {
+  const services = Array.from({ length: 201 }, (_, index) => entity('code.service', `api_${String(index).padStart(3, '0')}`, `services/${index}/main.ts`));
+  const [view] = await buildViews({ ctx: context(new FixtureReader(services)), lang: 'en', productTitle: 'Fixture' }, { type: 'c4-container', subject: '' });
+  expect(view!.elements).toHaveLength(40);
+  expect(view!.fullElements!.map(element => element.id)).toEqual(services.map(service => service.key));
+});
+
+test('the four-hundred-and-first module and dependency/cycle rows beyond twenty thousand remain complete', async () => {
+  const service = entity('code.service', 'api', 'services/api/main.ts');
+  const modules = Array.from({ length: 401 }, (_, index) => entity('code.module', `services/api/group/module_${String(index).padStart(3, '0')}`));
+  const dependencies = Array.from({ length: 20001 }, (_, index) => ({ relation: 'code.depends-on', from: modules[index % 400]!, to: modules[400]!, properties: {} }));
+  const cycle = entity('code.cycle', 'late-cycle');
+  const cycles = Array.from({ length: 20001 }, (_, index) => ({ relation: 'code.cycle-member', from: cycle, to: index === 20000 ? modules[400]! : modules[0]!, properties: {} }));
+  const [view] = await buildViews({ ctx: context(new FixtureReader([service, ...modules, cycle], [...dependencies, ...cycles])), lang: 'en', productTitle: 'Fixture' }, { type: 'c4-component', subject: service.key });
+  expect(view!.fullElements!.map(element => element.id)).toEqual(modules.map(module => module.key));
+  expect(view!.fullElements![400]!.detail).toContain('cycle');
+  expect(view!.fullEdges).toHaveLength(20001);
+  expect(view!.fullEdges![20000]).toMatchObject({ from: modules[0]!.key, to: modules[400]!.key, label: 'cycle' });
+});
+
+class IncompleteReader extends FixtureReader {
+  override async list(kind: string, options: { limit: number }) {
+    const found = await super.list(kind, options);
+    return { ...found, total: found.total + 1 };
+  }
+}
+test('a counted service read that remains incomplete refuses instead of claiming a full raw list', async () => {
+  const service = entity('code.service', 'api', 'services/api/main.ts');
+  await expect(buildViews({ ctx: context(new IncompleteReader([service])), lang: 'en', productTitle: 'Fixture' }, { type: 'c4-container', subject: '' })).rejects.toThrow('system services]: expected 2 graph rows, read 1');
+});
+
+test('system relationships beyond five thousand survive the raw projection', async () => {
+  const caller = entity('code.service', 'caller', 'services/caller/main.ts');
+  const targets = Array.from({ length: 5001 }, (_, index) => entity('code.route', `remote/route_${index}.ts#GET:/target_${index}`));
+  const facts = targets.map(to => ({ relation: 'code.calls-remote', from: entity('code.symbol', 'services/caller/main.ts#call'), to, properties: {} }));
+  const [view] = await buildViews({ ctx: context(new FixtureReader([caller, ...targets], facts)), lang: 'en', productTitle: 'Fixture' }, { type: 'c4-container', subject: '' });
+  expect(view!.fullElements).toHaveLength(5002);
+  expect(view!.fullEdges).toHaveLength(5001);
+  expect(view!.fullEdges!.some(edge => edge.to === `external:${targets[5000]!.key}`)).toBe(true);
+});
+
+class IncompleteRelationReader extends FixtureReader {
+  constructor(readonly incomplete: string, entities: GraphEntity[]) { super(entities); }
+  override async relationEdges(relation: string, limit = 2000) {
+    const found = await super.relationEdges(relation, limit);
+    return { ...found, total: relation === this.incomplete ? found.total + 1 : found.total };
+  }
+}
+for (const relation of ['code.depends-on', 'code.cycle-member']) test(`incomplete module ${relation} read refuses`, async () => {
+  const service = entity('code.service', 'api', 'services/api/main.ts');
+  await expect(buildViews({ ctx: context(new IncompleteRelationReader(relation, [service])), lang: 'en', productTitle: 'Fixture' }, { type: 'c4-component', subject: service.key })).rejects.toThrow('expected 1 graph rows, read 0');
 });

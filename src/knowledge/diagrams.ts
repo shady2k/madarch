@@ -701,8 +701,16 @@ export async function serviceLocator(ctx: RenderContext): Promise<{ ownerOf: (pa
 }
 
 /** The containers of the product and the links between them, read from the graph: services, their databases, the topics. */
+/** Complete a counted graph read once; never advertise a capped snapshot as the full list. */
+async function completeRead<T>(what: string, firstLimit: number, read: (limit: number) => Promise<{ rows: T[]; total: number }>): Promise<{ rows: T[]; total: number }> {
+  let found = await read(firstLimit);
+  if (found.total > found.rows.length) found = await read(found.total);
+  if (found.total !== found.rows.length) throw new Error(`src/knowledge/diagrams.ts [${what}]: expected ${found.total} graph rows, read ${found.rows.length}`);
+  return found;
+}
+
 export async function systemModel(ctx: RenderContext): Promise<{ nodes: SystemNode[]; edges: SystemEdge[]; notes: string[] }> {
-  const servicesRead = await ctx.graph.list('code.service', { limit: 200 });
+  const servicesRead = await completeRead('system services', 200, limit => ctx.graph.list('code.service', { limit }));
   const services = servicesRead.rows
     .flatMap((service) => (service.span === undefined ? [] : [{ entity: service, root: dirname(service.span.path) }]))
     .sort((a, b) => b.root.length - a.root.length || byCodePoint(a.root, b.root));
@@ -730,13 +738,13 @@ export async function systemModel(ctx: RenderContext): Promise<{ nodes: SystemNo
   const cut = (relation: string, read: { total: number; rows: unknown[] }): void => {
     if (read.total > read.rows.length) notes.push(`Only ${read.rows.length} of ${read.total} ${relation} links were read; links and services shown may be missing.`);
   };
-  const serves = await ctx.graph.relationEdges('code.serves', 5000);
+  const serves = await completeRead('system code.serves', 5000, limit => ctx.graph.relationEdges('code.serves', limit));
   cut('code.serves', serves);
   for (const edge of serves.rows) {
     const owner = serviceOfPath(pathOfKey(edge.from.key));
     if (owner !== undefined) server.set(edge.to.key, owner);
   }
-  const remote = await ctx.graph.relationEdges('code.calls-remote', 5000);
+  const remote = await completeRead('system code.calls-remote', 5000, limit => ctx.graph.relationEdges('code.calls-remote', limit));
   cut('code.calls-remote', remote);
   for (const edge of remote.rows) {
     const caller = serviceOfPath(pathOfKey(edge.from.key));
@@ -750,7 +758,7 @@ export async function systemModel(ctx: RenderContext): Promise<{ nodes: SystemNo
     addEdge(caller, callee, via, edge.to.label.length > 28 ? `${edge.to.label.slice(0, 27)}…` : edge.to.label);
   }
   for (const [relation, word] of [['code.reads-table', 'reads'], ['code.writes-table', 'writes']] as const) {
-    const found = await ctx.graph.relationEdges(relation, 5000);
+    const found = await completeRead(`system ${relation}`, 5000, limit => ctx.graph.relationEdges(relation, limit));
     cut(relation, found);
     for (const edge of found.rows) {
       const caller = serviceOfPath(pathOfKey(edge.from.key));
@@ -765,7 +773,7 @@ export async function systemModel(ctx: RenderContext): Promise<{ nodes: SystemNo
     }
   }
   for (const [relation, via] of [['code.publishes', 'publishes'], ['code.consumes', 'consumes']] as const) {
-    const found = await ctx.graph.relationEdges(relation, 5000);
+    const found = await completeRead(`system ${relation}`, 5000, limit => ctx.graph.relationEdges(relation, limit));
     cut(relation, found);
     for (const edge of found.rows) {
       if (edge.to.kind !== 'code.channel') continue;
@@ -789,7 +797,7 @@ export async function systemModel(ctx: RenderContext): Promise<{ nodes: SystemNo
 export async function modulesBlockModel(ctx: RenderContext, subject: Subject): Promise<{ service: string; nodes: ModuleNode[]; edges: ModuleEdge[]; cycles: string[][]; notes: string[] } | undefined> {
   if (subject.source !== 'graph' || subject.entity.kind !== 'code.service' || subject.entity.span === undefined) return undefined;
   const root = dirname(subject.entity.span.path);
-  const found = await ctx.graph.byPrefix('code.module', root === '.' ? 'code.module:' : `code.module:${root}`, 400);
+  const found = await completeRead('service modules', 400, limit => ctx.graph.byPrefix('code.module', root === '.' ? 'code.module:' : `code.module:${root}`, limit));
   const inside = found.rows.filter((module) => {
     const path = module.key.slice('code.module:'.length);
     return root === '.' || path === root || path.startsWith(`${root}/`);
@@ -797,8 +805,8 @@ export async function modulesBlockModel(ctx: RenderContext, subject: Subject): P
   const notes: string[] = [];
   if (found.total > found.rows.length) notes.push(`Showing ${found.rows.length} of ${found.total} modules.`);
   const keys = new Set(inside.map((module) => module.key));
-  const dependsOn = await ctx.graph.relationEdges('code.depends-on', 20000);
-  const cycleMembers = await ctx.graph.relationEdges('code.cycle-member', 20000);
+  const dependsOn = await completeRead('module dependencies', 20000, limit => ctx.graph.relationEdges('code.depends-on', limit));
+  const cycleMembers = await completeRead('module cycle memberships', 20000, limit => ctx.graph.relationEdges('code.cycle-member', limit));
   if (dependsOn.total > dependsOn.rows.length) notes.push(`Only ${dependsOn.rows.length} of ${dependsOn.total} module dependencies were read.`);
   if (cycleMembers.total > cycleMembers.rows.length) notes.push(`Only ${cycleMembers.rows.length} of ${cycleMembers.total} cycle memberships were read.`);
   const cycles = new Map<string, string[]>();

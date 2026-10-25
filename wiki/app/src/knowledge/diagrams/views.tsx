@@ -386,6 +386,13 @@ function ViewBody({ view, initial, onDrill, onUp, drilling, depth }: { view: Dia
         ) : (
           <div id={listId} data-testid="view-full-list">
             {view.fullElements !== undefined && <h3>{t('knowledge.views.fullList', { count: view.fullElements.length })}</h3>}
+            {view.fullElements !== undefined && view.elements.some(element => element.drill && !view.fullElements!.some(raw => raw.id === element.id)) && (
+              <ul className="dg-elements" data-testid="view-folded-groups">
+                {view.elements.filter(element => element.drill && !view.fullElements!.some(raw => raw.id === element.id)).map(element => (
+                  <ElementRow key={element.id} element={element} onDrill={onDrill} drilling={drilling} />
+                ))}
+              </ul>
+            )}
             <ul className="dg-elements" data-testid="view-elements">
               {(view.fullElements ?? view.elements).map((element) => {
                 const folded = view.elements.find(candidate => candidate.id === element.id && candidate.standsFor !== undefined);

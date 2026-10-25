@@ -11,3 +11,9 @@ export function requireHint(expected: string, actual: string, language: string):
   const normalize = (value: string): string => value.trim().replace(/\s+/g, ' ');
   if (normalize(actual) !== normalize(expected)) throw new Error(`reading hint ${language}: expected ${JSON.stringify(expected)}, actual ${JSON.stringify(actual)}`);
 }
+
+/** Both directions matter: a DOM-derived plan must not omit a payload view or renderer. */
+export function sameViews(expected: readonly { query: string; renderers: readonly string[] }[], actual: readonly { query: string; renderers: readonly string[] }[], label: string): void {
+  sameKeys(expected.map(view => view.query), actual.map(view => view.query), `${label} view queries`);
+  for (const view of expected) sameKeys(view.renderers, actual.find(candidate => candidate.query === view.query)!.renderers, `${label} ${view.query} renderers`);
+}

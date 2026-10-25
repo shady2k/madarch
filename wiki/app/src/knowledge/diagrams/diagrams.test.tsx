@@ -433,3 +433,19 @@ test('an ER table offers only Mermaid and keeps its page link under the picture'
   expect(container.querySelectorAll('[data-testid=renderer-archify], [data-testid=renderer-likec4]')).toHaveLength(0);
   expect(container.querySelector('[data-testid=view-elements] a')!.getAttribute('href')).toBe('/k/e/code.service%3Apayments');
 });
+
+test('folded synthetic groups keep separate drill controls while the complete raw list stays unchanged', async () => {
+  const raw = Array.from({ length: 42 }, (_, index) => ({ id: `service:${index}`, label: `service-${index}`, kind: 'container', href: `/k/e/service-${index}`, dashed: false }));
+  const groups = ['a', 'z'].map(folder => ({ id: `folder:${folder}`, label: folder, kind: 'container', href: null, dashed: false, standsFor: 21, drill: { spec: { type: 'c4-container' as const, subject: '', scope: folder }, title: folder } }));
+  const view: DiagramView = { ...CONTAINER, elements: groups, fullElements: raw, fullEdges: [], marker: '42 elements fold into 2 folders; open a folder to see its members.' };
+  const asked: string[] = [];
+  Object.defineProperty(globalThis, 'fetch', { configurable: true, writable: true, value: async (input: string) => { asked.push(String(input)); return new Response(JSON.stringify({ views: [COMPONENTS] }), { status: 200 }); } });
+  const container = into(createElement(BlockView, { block: viewsBlock(view), resolutions: {} }));
+  await until(() => container.querySelectorAll('[data-testid=view-folded-groups] [data-testid=view-drill]').length === 2, 'both synthetic folder controls');
+  expect([...container.querySelectorAll('[data-testid=view-elements] > li')].map(row => row.getAttribute('data-element'))).toEqual(raw.map(element => element.id));
+  const button = container.querySelector<HTMLButtonElement>('[data-testid=view-folded-groups] [data-testid=view-drill]');
+  if (!button) throw new Error('the first folded group has no drill control');
+  button.click();
+  await until(() => container.querySelector('[data-testid=view-title]')?.textContent === 'Components: payments', 'folder drill answer');
+  expect(asked.filter(url => url.startsWith('/api/k/view?'))).toEqual(['/api/k/view?type=c4-container&subject=&scope=a&lang=en']);
+});

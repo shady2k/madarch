@@ -19,7 +19,7 @@ import { basename, join, resolve } from 'node:path';
 import puppeteer, { type Page } from 'puppeteer';
 import { resolveBrowserExecutable } from './chromium.js';
 import { archifyFrame, likec4Model } from '../src/knowledge/view-frames.js';
-import { adjacentKeys, requireHint, sameKeys, type AdjacentView } from './diagram-plan.js';
+import { adjacentKeys, requireHint, sameKeys, sameViews, type AdjacentView } from './diagram-plan.js';
 import en from '../wiki/app/src/locales/en.json';
 import ru from '../wiki/app/src/locales/ru.json';
 import { diagramAcceptanceCases } from './diagram-acceptance-cases.js';
@@ -318,18 +318,18 @@ if (runPhase === 'prepare') {
       await page.waitForSelector(entry.wait, { timeout: 90_000 });
       await page.waitForFunction(() => document.querySelectorAll('[data-diagram=deferred]').length === 0, { timeout: 90_000 });
       const originalViews = new Map<string, string[]>();
-      let payloadViews: (AdjacentView & { query: string })[];
+      let payloadViews: (AdjacentView & { query: string; renderers: string[] })[];
       if (entry.name === 'domain-list') {
         const response = await fetch(`${base}/products/${name}/api/k/view?${new URLSearchParams({ type: 'domain-map', subject: 'domain', lang })}`);
         if (!response.ok) throw new Error(`plan domain-map payload HTTP ${response.status}`);
-        payloadViews = (await response.json() as { views: (AdjacentView & { query: string })[] }).views;
+        payloadViews = (await response.json() as { views: (AdjacentView & { query: string; renderers: string[] })[] }).views;
       } else {
         const status = entry.name === 'home' ? await (await fetch(`${base}/products/${name}/api/k/status`)).json() as { home: string | null } : null;
         const id = status?.home ?? decodeURIComponent(entry.url.split('/k/e/')[1] ?? '');
         const response = fixture === undefined ? await fetch(`${base}/products/${name}/api/k/page?${new URLSearchParams({ id, lang, full: '1' })}`) : null;
         if (response && !response.ok) throw new Error(`plan ${entry.name} payload HTTP ${response.status}`);
         const originalBlocks = fixture ?? await response!.json();
-        payloadViews = (originalBlocks as { blocks?: { views?: (AdjacentView & { query: string })[] }[] }).blocks?.flatMap(block => block.views ?? []) ?? [];
+        payloadViews = (originalBlocks as { blocks?: { views?: (AdjacentView & { query: string; renderers: string[] })[] }[] }).blocks?.flatMap(block => block.views ?? []) ?? [];
       }
       for (const view of payloadViews) originalViews.set(view.query, adjacentKeys(view));
       const blocks: PlannedView[][] = [];
@@ -356,6 +356,7 @@ if (runPhase === 'prepare') {
         if (views.some(view => !view.type || view.renderers.length === 0)) throw new Error(`incomplete renderer plan ${entry.name} block${blockAt}`);
         blocks.push(views);
       }
+      sameViews(payloadViews, blocks.flat(), `${entry.name} ${lang} payload/DOM`);
       frozenPlan!.pages.push({ ...entry, ...(fixture === undefined ? {} : { fixture }), lang, blocks });
     } finally { await page.close(); }
   }

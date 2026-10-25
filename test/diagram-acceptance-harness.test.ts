@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { adjacentKeys, requireHint, sameKeys } from '../scripts/diagram-plan.js';
+import { adjacentKeys, requireHint, sameKeys, sameViews } from '../scripts/diagram-plan.js';
 import { diagramAcceptanceCases } from '../scripts/diagram-acceptance-cases.js';
 
 test('fixed acceptance plan refuses missing, duplicate, unexpected and duplicate planned keys', () => {
@@ -54,4 +54,14 @@ test('controller cancels only explicitly owned active requests and keeps unknown
   child.stdin.end();
   expect(await child.exited).toBe(0);
   expect(JSON.parse(await new Response(child.stdout).text())).toEqual([['ours'], ['unknown']]);
+});
+
+test('payload/DOM view-plan comparison rejects missing views and missing or extra renderers in either direction', () => {
+  const payload = [{ query: 'context', renderers: ['likec4', 'mermaid', 'archify'] }, { query: 'container', renderers: ['likec4', 'mermaid', 'archify'] }];
+  expect(() => sameViews(payload, payload, 'home')).not.toThrow();
+  expect(() => sameViews(payload, payload.slice(0, 1), 'home')).toThrow('view queries');
+  expect(() => sameViews(payload.slice(0, 1), payload, 'home')).toThrow('view queries');
+  expect(() => sameViews(payload, [payload[0]!, { ...payload[1]!, renderers: ['mermaid'] }], 'home')).toThrow('renderers');
+  expect(() => sameViews([{ query: 'er', renderers: ['mermaid'] }], [{ query: 'er', renderers: ['mermaid', 'archify'] }], 'table')).toThrow('renderers');
+  expect(() => sameViews(payload, [payload[0]!, payload[0]!], 'home')).toThrow('duplicates');
 });
