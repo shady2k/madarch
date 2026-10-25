@@ -48,3 +48,14 @@ test('API links retain selected repository and date without changing external li
   expect(linked.links[3]).toEqual(values.links[3]);
   expect(values.links[0]!.href).not.toContain('at=');
 });
+
+test('landmark metadata uses completed publications rather than planned trees and exposes noncontinuous bounds', () => {
+  const plan = { head: 'c', snapshots: { first: 'a', last: 'c', 'refs/tags/middle': 'b' }, points: ['a'], limit: 64, omitted: 1,
+    diagnostics: [{ ref: 'refs/tags/branch', object: 'side', reason: 'outside first-parent ancestry' }] };
+  const result = selectHistory({ repo: 'sample', at: '2026-02-02' }, evidence, new Set([3]), plan);
+  expect(result).toMatchObject({ coverage: 'unfilled', commit: 'b', landmarks: { offered: 3, covered: 1, limit: 64, overflow: true, omitted: 1,
+    first: '2026-02-03T00:00:00.000000Z', last: '2026-02-03T00:00:00.000000Z', diagnostics: plan.diagnostics } });
+  expect(result.points.find((one) => one.name === 'first')!.covered).toBe(false);
+  expect(result.points.find((one) => one.name === 'refs/tags/middle')!.covered).toBe(false);
+  expect(selectHistory({ repo: 'sample', at: 'last' }, evidence, new Set([3]), plan).coverage).toBe('covered');
+});

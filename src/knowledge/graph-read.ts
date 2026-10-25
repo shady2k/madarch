@@ -11,6 +11,7 @@
  */
 import type { DatabaseOwner, OuterTransaction } from '../adapters/database-owner.js';
 import { byCodePoint } from '../model/order.js';
+import type { LandmarkPlan } from './history-landmarks.js';
 
 /** Where a node was declared in a file: 1-based lines, half-open bytes. */
 export interface SourceSpan {
@@ -135,6 +136,17 @@ export class GraphReader {
       // Decision 0030: a tree at first-parent place n has generation 2n.
       // Odd generations end old tips or mark history; neither proves a tree was read.
       return new Set(found.rows.map((row) => Number(row.generation)).filter((generation) => generation % 2 === 0).map((generation) => generation / 2));
+    });
+  }
+
+  /** Optional for stores created before repository landmarks existed. */
+  async landmarkPlan(repo: string, scope: string, head: string): Promise<LandmarkPlan | undefined> {
+    return await this.run(async (tx) => {
+      const table = await tx.query<{ present: boolean }>(`SELECT to_regclass('knowledge_history_landmarks') IS NOT NULL AS present`);
+      if (table.rows[0]?.present !== true) return undefined;
+      const found = await tx.query<{ plan: LandmarkPlan }>(
+        'SELECT plan FROM knowledge_history_landmarks WHERE repo = $1 AND scope = $2 AND head = $3', [repo, scope, head]);
+      return found.rows[0]?.plan;
     });
   }
 

@@ -1,6 +1,7 @@
 /** Covered historical reads use indexed ancestry, never raw-date sorting or a page-time Git walk. */
 import { byCodePoint } from '../model/order.js';
 import type { GraphEntity, HistoryEvidence } from './graph-read.js';
+import type { LandmarkCoverage, LandmarkPlan } from './history-landmarks.js';
 
 export interface HistorySelection { repo: string; at: string }
 export interface HistoryContext extends HistorySelection {
@@ -10,6 +11,7 @@ export interface HistoryContext extends HistorySelection {
   until: string | null;
   /** All named points, including those whose trees have not been read. */
   points: { name: string; commit: string; covered: boolean }[];
+  landmarks?: LandmarkCoverage;
 }
 
 /** ISO instants retain microseconds; a date alone means the end of that UTC day. */
@@ -24,7 +26,7 @@ export function historyInstant(value: string): string | undefined {
 }
 
 /** The complete first-parent chain is required: an incomplete index cannot certify a date. */
-export function selectHistory(selection: HistorySelection, evidence: HistoryEvidence, completed: ReadonlySet<number>): HistoryContext {
+export function selectHistory(selection: HistorySelection, evidence: HistoryEvidence, completed: ReadonlySet<number>, landmarks?: LandmarkPlan): HistoryContext {
   const base: HistoryContext = { ...selection, coverage: 'unknown', commit: null, effectiveAt: null, until: null, points: [] };
   const commits = evidence.entities.filter((entity) => entity.kind === 'code.commit' && entity.properties['onFirstParent'] === true);
   const parents = new Map(evidence.edges.filter((edge) => edge.relation === 'code.parent' && edge.properties['position'] === 1).map((edge) => [edge.from, edge.to]));
@@ -43,12 +45,20 @@ export function selectHistory(selection: HistorySelection, evidence: HistoryEvid
   }
   if (chain.length !== commits.length) return base;
   const snapshots = evidence.entities.filter((entity) => entity.kind === 'code.snapshot');
-  base.points = snapshots.map((snapshot) => {
-    const commit = String(snapshot.properties['commit'] ?? '');
-    return { name: snapshot.label, commit, covered: completed.has(chain.findIndex((one) => one.key === `code.commit:${commit}`) + 1) };
-  }).sort((a, b) => byCodePoint(a.name, b.name));
-  const named = snapshots.find((snapshot) => snapshot.label === selection.at || snapshot.key === selection.at);
-  let selected = named === undefined ? chain.findIndex((one) => one.key === selection.at || one.key === `code.commit:${selection.at}`) : chain.findIndex((one) => one.key === `code.commit:${String(named.properties['commit'])}`);
+  if (landmarks !== undefined) {
+    const covered = chain.filter((_, index) => completed.has(index + 1));
+    base.landmarks = { offered: new Set(Object.values(landmarks.snapshots)).size, covered: covered.length,
+      limit: landmarks.limit, overflow: landmarks.omitted > 0, omitted: landmarks.omitted,
+      first: covered[0] === undefined ? null : String(covered[0].properties['effectiveAt']),
+      last: covered[covered.length - 1] === undefined ? null : String(covered[covered.length - 1]!.properties['effectiveAt']),
+      diagnostics: landmarks.diagnostics };
+  }
+  const namedPoints = new Map(snapshots.map((snapshot) => [snapshot.label, String(snapshot.properties['commit'] ?? '')]));
+  for (const [name, commit] of Object.entries(landmarks?.snapshots ?? {})) namedPoints.set(name, commit);
+  base.points = [...namedPoints].map(([name, commit]) => ({ name, commit,
+    covered: completed.has(chain.findIndex((one) => one.key === `code.commit:${commit}`) + 1) })).sort((a, b) => byCodePoint(a.name, b.name));
+  const named = namedPoints.get(selection.at) ?? snapshots.find((snapshot) => snapshot.key === selection.at)?.properties['commit'];
+  let selected = named === undefined ? chain.findIndex((one) => one.key === selection.at || one.key === `code.commit:${selection.at}`) : chain.findIndex((one) => one.key === `code.commit:${String(named)}`);
   if (selected < 0 && named === undefined) {
     const instant = historyInstant(selection.at);
     if (instant === undefined) return base;

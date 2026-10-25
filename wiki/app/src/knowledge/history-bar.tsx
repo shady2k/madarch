@@ -21,6 +21,7 @@ export function HistoryBar({ history, navigation, absent }: { history?: HistoryC
   };
   const link = (href: string, text: string): ReactElement => <a href={appPath(href)} {...linkHandlers(href)}>{text}</a>;
   const points = history?.points ?? navigation?.find((one) => one.repo === repo)?.points ?? [];
+  const landmarks = history?.landmarks ?? navigation?.find((one) => one.repo === repo)?.landmarks;
   return <aside className="mb-4 rounded-[var(--radius-card)] border border-line p-3" data-testid="history-context" data-coverage={history?.coverage ?? 'current'}>
     {history !== undefined && <Alert variant={history.coverage === 'covered' && !absent ? 'default' : 'problem'}>
       <AlertTitle>{t('knowledge.historyDateTitle', { date: history.at, repo: history.repo })}</AlertTitle>
@@ -31,6 +32,12 @@ export function HistoryBar({ history, navigation, absent }: { history?: HistoryC
       <label className="text-small">{t('knowledge.historyChooseDate')}<Input type="date" value={/^\d{4}-\d{2}-\d{2}$/.test(date) ? date : ''} onChange={(event) => setDate(event.target.value)} /></label>
       {date !== '' && link(address(date), t('knowledge.historyOpenDate'))}
     </div>
+    {landmarks !== undefined && <div className="mt-2 text-small" data-testid="history-landmarks">
+      <p>{t('knowledge.historyLandmarkCounts', { covered: landmarks.covered, offered: landmarks.offered, limit: landmarks.limit })}</p>
+      {landmarks.first !== null && <p>{t('knowledge.historyLandmarkBounds', { first: landmarks.first, last: landmarks.last })}</p>}
+      {landmarks.overflow && <p>{t('knowledge.historyLandmarkOmitted', { count: landmarks.omitted })}</p>}
+      {landmarks.diagnostics.length > 0 && <details><summary>{t('knowledge.historyLandmarkUnsupported', { count: landmarks.diagnostics.length })}</summary><ul>{landmarks.diagnostics.map((one) => <li key={one.ref} className="break-all">{one.ref} · {one.object} · {one.reason}</li>)}</ul></details>}
+    </div>}
     {points.length > 0 && <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-small">{points.map((point) => <li key={point.name}>{link(address(point.name), point.name)}{!point.covered && <span> · {t('knowledge.historyPointUnread')}</span>}</li>)}</ul>}
   </aside>;
 }

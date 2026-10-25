@@ -14,6 +14,38 @@ export function projectHistory(evidence: HistoryEvidence, subject: GraphEntity |
   const commits = evidence.entities.filter((entity) => entity.kind === 'code.commit');
   const nonMerge = new Set(commits.filter((commit) => commit.properties['merge'] !== true).map((commit) => commit.key));
   const edges = evidence.edges;
+  const contained = new Map<string, string[]>();
+  for (const edge of edges) if (edge.relation === 'code.contains') {
+    const members = contained.get(edge.from) ?? []; members.push(edge.to); contained.set(edge.from, members);
+  }
+  // Membership is what the code graph declares, not a directory prefix. A
+  // package owns its modules, while a module never acquires a nested module.
+  const membership = (key: string): { files: Set<string>; complete: boolean } => {
+    const files = new Set<string>(); const seen = new Set<string>(); const active = new Set<string>();
+    const pending: { key: string; leaving: boolean }[] = [{ key, leaving: false }];
+    let complete = true;
+    while (pending.length > 0) {
+      const next = pending.pop()!; const current = next.key;
+      if (next.leaving) { active.delete(current); seen.add(current); continue; }
+      if (active.has(current)) { complete = false; continue; }
+      if (seen.has(current)) continue;
+      active.add(current); pending.push({ key: current, leaving: true });
+      const entity = entities.get(current);
+      if (entity?.kind === 'code.file') { files.add(current); continue; }
+      if (entity === undefined) { complete = false; continue; }
+      const children = contained.get(current) ?? [];
+      if (children.length === 0) complete = false;
+      for (const child of children) {
+        const kind = entities.get(child)?.kind;
+        if (kind === undefined) { complete = false; continue; }
+        if (kind === 'code.file'
+          || (entity.kind === 'code.package' && kind === 'code.module')
+          || (entity.kind === 'code.service' && (kind === 'code.package' || kind === 'code.module'))) pending.push({ key: child, leaving: false });
+        else if (child === current || kind !== 'code.package') complete = false;
+      }
+    }
+    return { files, complete };
+  };
   const renamed = edges.filter((edge) => edge.relation === 'code.renamed-to');
   const identities = new Map<string, string>();
   const root = (key: string): string => {
@@ -84,7 +116,19 @@ export function projectHistory(evidence: HistoryEvidence, subject: GraphEntity |
     section('coupling', coupled);
     if (coupled.length > 0) {
       notes.push({ key: 'cochangeNotCause' });
-      if (!edges.some((edge) => edge.relation === 'code.imports' && ((root(edge.from) === identity && coupled.some((one) => one.entity?.id === root(edge.to))) || (root(edge.to) === identity && coupled.some((one) => one.entity?.id === root(edge.from)))))) notes.push({ key: 'noImport' });
+      const coupledIdentities = new Set(coupled.map((one) => one.entity!.id));
+      const ownIdentity = new Set([identity]);
+      const includes = (members: ReturnType<typeof membership>, identities: ReadonlySet<string>): boolean => [...members.files].some((file) => identities.has(root(file)));
+      let imported = false; let unresolved = false;
+      for (const edge of edges) if (edge.relation === 'code.imports') {
+        const from = membership(edge.from); const to = membership(edge.to);
+        const fromOwn = includes(from, ownIdentity); const toOwn = includes(to, ownIdentity);
+        const fromCoupled = includes(from, coupledIdentities); const toCoupled = includes(to, coupledIdentities);
+        if ((fromOwn && toCoupled) || (toOwn && fromCoupled)) imported = true;
+        if ((!from.complete && (toOwn || toCoupled)) || (!to.complete && (fromOwn || fromCoupled))) unresolved = true;
+      }
+      if (!imported && !unresolved) notes.push({ key: 'noImport' });
+      if (!imported && unresolved) notes.push({ key: 'importCoverage' });
     }
     section('renames', renamed.filter((edge) => root(edge.from) === identity).flatMap((edge) => {
       const from = entities.get(edge.from); const to = entities.get(edge.to);
@@ -95,10 +139,10 @@ export function projectHistory(evidence: HistoryEvidence, subject: GraphEntity |
   }
 
   if (subject.kind === 'code.module' || subject.kind === 'code.service' || subject.kind === 'code.package') {
-    const declared = typeof subject.properties['path'] === 'string' ? subject.properties['path'] : subject.key.slice(subject.key.indexOf(':') + 1);
-    const prefix = `${declared.replace(/\/$/, '')}/`;
     const changes = new Set<string>();
-    for (const entity of evidence.entities) if (entity.kind === 'code.file' && (entity.span?.path ?? entity.label).startsWith(prefix)) for (const commit of touched.get(root(entity.key)) ?? []) changes.add(commit);
+    const members = membership(subject.key);
+    for (const file of members.files) for (const commit of touched.get(root(file)) ?? []) changes.add(commit);
+    if (!members.complete) notes.push({ key: 'membershipCoverage' });
     section('commits', commitRows(changes));
     const counts = new Map<string, number>();
     for (const commit of changes) { const author = authorOf.get(commit); if (author !== undefined) counts.set(author, (counts.get(author) ?? 0) + 1); }

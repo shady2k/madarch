@@ -234,7 +234,7 @@ export interface HistoryRow {
 
 /** One note under a history block: why the list is not the whole story, said in the reader's language by the app. */
 export interface HistoryNote {
-  key: 'manyCommits' | 'manyFiles' | 'noCounts' | 'merge' | 'noFiles' | 'partialFiles' | 'symbolsCut' | 'population' | 'observedAuthorship' | 'cochangeNotCause' | 'noImport' | 'dateAnomaly' | 'mergeBranch' | 'unchangedMove';
+  key: 'manyCommits' | 'manyFiles' | 'noCounts' | 'merge' | 'noFiles' | 'partialFiles' | 'symbolsCut' | 'population' | 'observedAuthorship' | 'cochangeNotCause' | 'noImport' | 'importCoverage' | 'membershipCoverage' | 'dateAnomaly' | 'mergeBranch' | 'unchangedMove';
   args?: Record<string, string | number>;
 }
 
@@ -258,7 +258,7 @@ export interface PropertyRow {
 export type Block = BlockShape & { name?: string };
 
 export interface PageModel {
-  historyNavigation?: { repo: string; points: { name: string; commit: string; covered: boolean }[] }[];
+  historyNavigation?: { repo: string; points: { name: string; commit: string; covered: boolean }[]; landmarks?: NonNullable<import('./temporal.js').HistoryContext['landmarks']> }[];
   historicalAbsent?: boolean;
   /** Explicit historical context; no coverage is inferred from a named snapshot alone. */
   history?: import('./temporal.js').HistoryContext;

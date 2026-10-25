@@ -1369,7 +1369,8 @@ export class KnowledgeProduct {
     if (scope === undefined) return { ...selection, coverage: 'unknown', commit: null, effectiveAt: null, until: null, points: [] };
     const evidence = await graph.historyEvidence(scope);
     const completed = await graph.completedTrees(scope, treeReadProducer(TREE_EXTRACTORS, HISTORY_EXTRACTOR));
-    return selectHistory(selection, evidence, completed);
+    const landmarks = await graph.landmarkPlan(selection.repo, scope, this.pins.get(selection.repo)!.head);
+    return selectHistory(selection, evidence, completed, landmarks);
   }
 
   async page(id: string, lang?: string, options: { defer?: boolean; only?: number; history?: HistorySelection } = {}): Promise<PageResult> {
@@ -1381,7 +1382,7 @@ export class KnowledgeProduct {
     if (history !== undefined && await findSubject(context.ctx, id) === undefined) return { ok: true, page: { id, kind: id.slice(0, id.indexOf(':')), title: id, trail: [], blocks: [], resolutions: {}, findings: [], notes: [], history, historicalAbsent: true } };
     const result = await renderPage(context.ctx, id, lang, history === undefined ? options : { ...options, defer: false });
     if (!result.ok) return result;
-    const historyNavigation = history === undefined && id.startsWith('code.') ? await Promise.all([...this.pins.keys()].sort(byCodePoint).map(async (repo) => ({ repo, points: (await this.historyAt({ repo, at: '?' })).points }))) : undefined;
+    const historyNavigation = history === undefined && id.startsWith('code.') ? await Promise.all([...this.pins.keys()].sort(byCodePoint).map(async (repo) => { const indexed = await this.historyAt({ repo, at: '?' }); return { repo, points: indexed.points, ...(indexed.landmarks === undefined ? {} : { landmarks: indexed.landmarks }) }; })) : undefined;
     const page = history === undefined ? result.page : withHistoryLinks(result.page, history);
     return { ok: true, page: { ...page, ...(history === undefined ? { planned: await this.plannedForPage(id), ...(historyNavigation === undefined ? {} : { historyNavigation }) } : { history, blocks: page.blocks.filter((block) => block.type !== 'history') }) } };
   }
