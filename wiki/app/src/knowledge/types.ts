@@ -25,17 +25,17 @@ export type HistoryRow = {
   who?: string;
   text: string;
   entity?: EntityRef;
-  figures: { kind: 'added' | 'removed' | 'symbols' | 'commits' | 'files' | 'module'; value: string }[];
+  figures: { kind: 'added' | 'removed' | 'symbols' | 'commits' | 'files' | 'module' | 'reachable' | 'firstParent' | 'merges' | 'nonMerge' | 'authors' | 'since' | 'until' | 'both' | 'onlyThis' | 'onlyOther' | 'authoredAt' | 'committedAt' | 'effectiveAt' | 'similarity'; value: string }[];
 };
 
 /** One list of a history block: the commits it shows, or the files they touched. */
-export type HistorySection = { role: 'commits' | 'files'; total: number; rows: HistoryRow[] };
+export type HistorySection = { repository?: string; role: 'commits' | 'files' | 'summary' | 'hotspots' | 'authors' | 'coupling' | 'renames' | 'parents' | 'branches' | 'snapshots'; total: number; rows: HistoryRow[] };
 
 /** One row of a properties block (the engine's `PropertyRow`). */
 export type PropertyRow = { name: string; value: string; nameKey?: 'authoredAt' | 'committedAt' | 'subject' | 'merge' | 'language' | 'symbol' | 'method' | 'path'; valueKind?: 'date' };
 
 /** One note under a history block (the engine's `HistoryNote`): a key the app writes in the reader's language. */
-export type HistoryNote = { key: 'manyCommits' | 'manyFiles' | 'noCounts' | 'merge' | 'noFiles' | 'partialFiles'; args?: Record<string, string | number> };
+export type HistoryNote = { key: 'manyCommits' | 'manyFiles' | 'noCounts' | 'merge' | 'noFiles' | 'partialFiles' | 'symbolsCut' | 'population' | 'observedAuthorship' | 'cochangeNotCause' | 'noImport' | 'importCoverage' | 'membershipCoverage' | 'dateAnomaly' | 'mergeBranch' | 'unchangedMove'; args?: Record<string, string | number> };
 
 /** One member of a contract's definition (the engine's `DefinitionMember`). */
 export type DefinitionMember = { anchor: string; label: string; detail?: string; href: string | null; badge?: string; detailTotal?: number };
@@ -137,7 +137,12 @@ export type BrokenWhy =
   | { code: 'no-document'; path: string }
   | { code: 'no-section'; path: string; anchor: string; repos: string };
 
+export type HistoryContext = { repo: string; at: string; coverage: 'covered' | 'unfilled' | 'before' | 'unknown'; commit: string | null; effectiveAt: string | null; until: string | null; landmarks?: { offered: number; covered: number; limit: number; overflow: boolean; omitted: number; first: string | null; last: string | null; diagnostics: { ref: string; object: string; reason: string }[] }; points: { name: string; commit: string; covered: boolean }[] };
+
 export type PageModel = {
+  historyNavigation?: { repo: string; points: { name: string; commit: string; covered: boolean }[]; landmarks?: NonNullable<HistoryContext['landmarks']> }[];
+  historicalAbsent?: boolean;
+  history?: HistoryContext;
   id: string;
   kind: string;
   title: string;
@@ -244,7 +249,7 @@ export type WikiStatus = {
   starterOffers?: number;
 };
 
-export type SourceFile = { repo: string | null; path: string; language: string; commit: string | null; text: string };
+export type SourceFile = { history?: HistoryContext; repo: string | null; path: string; language: string; commit: string | null; text: string };
 
 export type ProductChoice = { name: string; folder: string; own?: boolean };
 

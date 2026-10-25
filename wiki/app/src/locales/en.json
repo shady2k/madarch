@@ -374,7 +374,15 @@
     "historyColFigures": "What changed",
     "historySection": {
       "commits": "Commits",
-      "files": "Files"
+      "files": "Files",
+      "summary": "History summary",
+      "hotspots": "Files that change most",
+      "authors": "Observed contributions",
+      "coupling": "Files that change together",
+      "renames": "Moves with one identity",
+      "parents": "Parents, first parent first",
+      "branches": "Work introduced by this merge",
+      "snapshots": "Named snapshots"
     },
     "historyFigure": {
       "added": "added lines",
@@ -382,7 +390,21 @@
       "symbols": "symbols",
       "commits": "commits",
       "files": "files",
-      "module": "module"
+      "module": "module",
+      "reachable": "reachable commits",
+      "firstParent": "first-parent commits",
+      "merges": "merges",
+      "nonMerge": "non-merge commits",
+      "authors": "authors",
+      "since": "from",
+      "until": "to",
+      "both": "changing both",
+      "onlyThis": "changing this file alone",
+      "onlyOther": "changing the other file alone",
+      "authoredAt": "Author date",
+      "committedAt": "Committer date",
+      "effectiveAt": "Effective date",
+      "similarity": "content similarity"
     },
     "manifestFindingsHelp": "Some kinds or lines of the manifest could not be read. The pages of the other kinds are shown and indexed; the lines are listed under Details.",
     "manifestMissingGroup": "Kind \"{{kind}}\" refers to group \"{{group}}\", which is not in the manifest.",
@@ -426,7 +448,16 @@
       "merge": "This commit changed no file of its own: it is a merge, and the changes came in with the branches it brought together.",
       "noFiles": "This commit changed no file of its own.",
       "partialFiles": "The files below count the commits shown; a commit with more files than this page reads adds only the ones it shows.",
-      "symbolsCut": "The file {{path}} holds more entities than this page counts; its symbol figure covers the first {{shown}}."
+      "symbolsCut": "The file {{path}} holds more entities than this page counts; its symbol figure covers the first {{shown}}.",
+      "population": "All reachable non-merge commits count once, including merged branch work. Merge diffs do not inflate hotspots or coupling.",
+      "observedAuthorship": "These are observed contributions, not recorded organizational ownership. Each commit counts once for this module.",
+      "cochangeNotCause": "Co-change is not an import and does not prove causation. Counts cover the full histories of both file identities.",
+      "noImport": "The indexed import relations show neither direction between these coupled files.",
+      "importCoverage": "Some indexed import targets have no complete file membership. No absence of an import is claimed.",
+      "membershipCoverage": "Containment membership is incomplete. These counts cover only the indexed member files, not a complete module or package.",
+      "dateAnomaly": "The raw committer date is not later than the parent’s ({{parent}}). History follows ancestry and strictly increasing effective time; raw dates are retained.",
+      "mergeBranch": "Branch {{branch}} entered the first-parent line in this merge on {{date}}.",
+      "unchangedMove": "Git identified an unchanged-content move. The old and new paths share one continuous history; the move counts once."
     },
     "property": {
       "authoredAt": "Authored",
@@ -439,7 +470,30 @@
       "path": "Path"
     },
     "pageNotRead": "Could not read the page of {{id}}: {{reason}}",
-    "fillRebuiltExtractors": "Graph rebuilt: extractors changed"
+    "fillRebuiltExtractors": "Graph rebuilt: extractors changed",
+    "historyDateTitle": "{{repo}} at {{date}}",
+    "historyCurrent": "Return to current code",
+    "historyRepository": "Repository",
+    "historyChooseDate": "Date (UTC)",
+    "historyOpenDate": "Open this date",
+    "historyPointUnread": "structure not read",
+    "historyLandmarkCounts": "{{covered}} distinct trees covered; {{offered}} valid landmark trees offered. Earlier-tree limit: {{limit}} (tip separate).",
+    "historyLandmarkBounds": "Covered tree dates run from {{first}} to {{last}}. The dates between them are not necessarily covered.",
+    "historyLandmarkOmitted_one": "{{count}} earlier landmark tree was not indexed because of the limit.",
+    "historyLandmarkOmitted_few": "{{count}} earlier landmark trees were not indexed because of the limit.",
+    "historyLandmarkOmitted_many": "{{count}} earlier landmark trees were not indexed because of the limit.",
+    "historyLandmarkOmitted_other": "{{count}} earlier landmark trees were not indexed because of the limit.",
+    "historyLandmarkUnsupported_one": "{{count}} unsupported Git landmark",
+    "historyLandmarkUnsupported_few": "{{count}} unsupported Git landmarks",
+    "historyLandmarkUnsupported_many": "{{count}} unsupported Git landmarks",
+    "historyLandmarkUnsupported_other": "{{count}} unsupported Git landmarks",
+    "historyCoverage": {
+      "covered": "This tree was read. Structure and source below come from this commit, not from current code.",
+      "unfilled": "The history identifies this commit, but its structure was not read. No current code is substituted.",
+      "before": "This date is before the indexed first-parent history. No historical structure is known.",
+      "unknown": "The indexed evidence cannot resolve this repository and date. No current code is substituted.",
+      "absent": "This tree was read, but this entity is absent at the selected date. It is not replaced by its current version."
+    }
   },
   "loop": {
     "questionsTitle": "Questions",

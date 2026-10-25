@@ -30,6 +30,9 @@ import { parseMessage, type FromWorker, type RepositoryPin, type ToWorker, type 
 import { snapshotNumbers } from './fill-worker.js';
 import { locationOf, type RenderContext } from './blocks.js';
 import { GraphReader } from './graph-read.js';
+import { treeReadProducer } from '../extract/driver/index.js';
+import { TREE_EXTRACTORS, HISTORY_EXTRACTOR } from '../extract/driver/extractors.js';
+import { selectHistory, withHistoryLinks, type HistoryContext, type HistorySelection } from './temporal.js';
 import { readMarkdownEntities, type MarkdownEntity } from './markdown.js';
 import type { AgentOffer, Block, DocumentListing, DocumentPage, DocumentRef, FillState, Neighborhood, PageModel, PlannedMarkView, PlannedSectionView, WikiStatus, WriterState, WriterUnit } from './model.js';
 import { neighborhoodOf } from './diagrams.js';
@@ -1130,16 +1133,19 @@ export class KnowledgeProduct {
   // ---- reads -----------------------------------------------------------------------------
 
   /** The inputs of one page: the manifest and Markdown as they stand now, and the graph. */
-  async context(): Promise<{ ctx: RenderContext; manifest: KindsManifest; findings: Finding[] } | { absent: true; file: string }> {
+  async context(history?: HistoryContext): Promise<{ ctx: RenderContext; manifest: KindsManifest; findings: Finding[] } | { absent: true; file: string }> {
     const product = this.product();
     if ('message' in product) throw new WikiReadError(product.message);
     const read = this.kinds(product.folder);
     if (!read.present) return { absent: true, file: read.file };
     const owner = await this.open();
-    const graph = new GraphReader(owner, this.validAt);
-    const markdownRead = readMarkdownEntities(product.folder, read.manifest);
+    const currentGraph = new GraphReader(owner, this.validAt);
+    const scope = history === undefined ? undefined : this.pins.get(history.repo)?.scope;
+    if (history !== undefined && (history.coverage !== 'covered' || history.effectiveAt === null || scope === undefined)) throw new WikiReadError(`${product.folder}/${KINDS_FILE}:1: historical structure is not covered for ${history.repo} at ${history.at}`);
+    const graph = history === undefined ? currentGraph : currentGraph.at(history.effectiveAt!, scope!);
+    const markdownRead = history === undefined ? readMarkdownEntities(product.folder, read.manifest) : { entities: [], findings: [] };
     const markdown = new Map<string, MarkdownEntity>(markdownRead.entities.map((entity) => [entity.id, entity]));
-    const reading = await this.documentEntities(product.folder, read.manifest);
+    const reading = history === undefined ? await this.documentEntities(product.folder, read.manifest) : { entities: [], sources: [], findings: [] };
     const docEntities = new Map<string, DocEntity>(reading.entities.map((entity) => [entity.id, entity]));
     const language = read.manifest.language ?? 'en';
     const localizedSources = new Map<string, LocalizedDocumentSource>();
@@ -1174,6 +1180,7 @@ export class KnowledgeProduct {
     const repoOfScope = (scope: string): string | undefined => [...this.pins.values()].find((pin) => pin.scope === scope)?.name;
     const readSource = async (repo: string | null, path: string): Promise<string | undefined> => {
       if (repo === null) {
+        if (history !== undefined) return undefined;
         // The product repository's own files, not its git folder or a dotfile (`.env`, `.git/config`) a reader never meant to publish.
         if (!insideFolder(product.folder, path) || path.split('/').some((part) => part.startsWith('.')) || path.startsWith('repos/')) return undefined;
         try {
@@ -1185,14 +1192,16 @@ export class KnowledgeProduct {
           return undefined;
         }
       }
+      if (history !== undefined && repo !== history.repo) return undefined;
       const pin = this.pins.get(repo);
       if (pin === undefined || pin.commit === '') return undefined;
-      return await gitBlob(join(product.folder, 'repos', repo), pin.commit, path);
+      return await gitBlob(join(product.folder, 'repos', repo), history?.commit ?? pin.commit, path);
     };
     const webOf = (repo: string | null, path: string, lineStart: number, lineEnd: number): { host: string; url: string } | undefined => {
       if (repo === null) return undefined;
       const origin = this.originOf(join(product.folder, 'repos', repo));
-      const commit = this.pins.get(repo)?.commit;
+      if (history !== undefined && repo !== history.repo) return undefined;
+      const commit = history?.commit ?? this.pins.get(repo)?.commit;
       if (origin === undefined || commit === undefined || commit === '') return undefined;
       return webLink({ origin, commit, path, lineStart, lineEnd });
     };
@@ -1201,12 +1210,12 @@ export class KnowledgeProduct {
       markdown,
       declared: (kind) => read.manifest.kinds.has(kind),
       readDocument: readSource,
-      repositories: () => [...this.pins.keys()].sort(byCodePoint),
+      repositories: () => history === undefined ? [...this.pins.keys()].sort(byCodePoint) : [history.repo],
       locate: (entity) => (entity.span === undefined ? undefined : locationOf({ repoOfScope, webOf }, entity.scope, entity.span)),
       documentEntity: (repo, path, line) => entityAtLine.get(`${repo ?? ''}\0${path}\0${line}`),
     });
     return {
-      ctx: { productFolder: product.folder, manifest: read.manifest, graph, markdown, docEntities, localizedSources, language, documents: reading.sources, repositories: [...this.pins.keys()].sort(byCodePoint), webOf, index: { relyingOn: (key) => statementsRelyingOn(owner, key), counts: () => indexCounts(owner) }, commitOf: (repo) => this.pins.get(repo)?.commit ?? null, resolver, repoOfScope, readSource },
+      ctx: { productFolder: product.folder, manifest: read.manifest, graph, markdown, docEntities, localizedSources, language, documents: reading.sources, repositories: history === undefined ? [...this.pins.keys()].sort(byCodePoint) : [history.repo], webOf, ...(history === undefined ? { index: { relyingOn: (key: string) => statementsRelyingOn(owner, key), counts: () => indexCounts(owner) } } : {}), commitOf: (repo) => history === undefined ? this.pins.get(repo)?.commit ?? null : repo === history.repo ? history.commit : null, resolver, repoOfScope, readSource },
       manifest: read.manifest,
       findings: [...read.manifest.findings, ...markdownRead.findings, ...reading.findings, ...localizedFindings],
     };
@@ -1358,12 +1367,29 @@ export class KnowledgeProduct {
     return { questionsOpen: questions.open, questionsAnswered: questions.answered, correctionsOpen: readCorrections(this.options.productFolder).items.filter((correction) => correction.status === 'open').length };
   }
 
-  async page(id: string, lang?: string, options: { defer?: boolean; only?: number } = {}): Promise<PageResult> {
-    const context = await this.context();
+  async historyAt(selection: HistorySelection): Promise<HistoryContext> {
+    const owner = await this.open();
+    const graph = new GraphReader(owner, this.validAt);
+    const scope = this.pins.get(selection.repo)?.scope;
+    if (scope === undefined) return { ...selection, coverage: 'unknown', commit: null, effectiveAt: null, until: null, points: [] };
+    const evidence = await graph.historyEvidence(scope);
+    const completed = await graph.completedTrees(scope, treeReadProducer(TREE_EXTRACTORS, HISTORY_EXTRACTOR));
+    const landmarks = await graph.landmarkPlan(selection.repo, scope, this.pins.get(selection.repo)!.head);
+    return selectHistory(selection, evidence, completed, landmarks);
+  }
+
+  async page(id: string, lang?: string, options: { defer?: boolean; only?: number; history?: HistorySelection } = {}): Promise<PageResult> {
+    const history = options.history === undefined ? undefined : await this.historyAt(options.history);
+    // A gap is a visible result, not an empty current page or a reason to fall back to the tip.
+    if (history !== undefined && history.coverage !== 'covered') return { ok: true, page: { id, kind: id.slice(0, id.indexOf(':')), title: id, trail: [], blocks: [], resolutions: {}, findings: [], notes: [], history } };
+    const context = await this.context(history);
     if ('absent' in context) return { ok: false, status: 404, message: `the product has no ${context.file}: the wiki shows the kinds that file declares` };
-    const result = await renderPage(context.ctx, id, lang, options);
+    if (history !== undefined && await findSubject(context.ctx, id) === undefined) return { ok: true, page: { id, kind: id.slice(0, id.indexOf(':')), title: id, trail: [], blocks: [], resolutions: {}, findings: [], notes: [], history, historicalAbsent: true } };
+    const result = await renderPage(context.ctx, id, lang, history === undefined ? options : { ...options, defer: false });
     if (!result.ok) return result;
-    return { ok: true, page: { ...result.page, planned: await this.plannedForPage(id) } };
+    const historyNavigation = history === undefined && id.startsWith('code.') ? await Promise.all([...this.pins.keys()].sort(byCodePoint).map(async (repo) => { const indexed = await this.historyAt({ repo, at: '?' }); return { repo, points: indexed.points, ...(indexed.landmarks === undefined ? {} : { landmarks: indexed.landmarks }) }; })) : undefined;
+    const page = history === undefined ? result.page : withHistoryLinks(result.page, history);
+    return { ok: true, page: { ...page, ...(history === undefined ? { planned: await this.plannedForPage(id), ...(historyNavigation === undefined ? {} : { historyNavigation }) } : { history, blocks: page.blocks.filter((block) => block.type !== 'history') }) } };
   }
 
   /** The planned changes one page stands in: its own entity, and the statements of it a task's grounds reach. */
@@ -1415,8 +1441,8 @@ export class KnowledgeProduct {
   }
 
   /** One block of a page, by the line of its template: what a deferred diagram reads to draw itself. */
-  async block(id: string, line: number, lang?: string): Promise<{ ok: true; block: Block } | { ok: false; status: 404; message: string }> {
-    const result = await this.page(id, lang, { only: line });
+  async block(id: string, line: number, lang?: string, history?: HistorySelection): Promise<{ ok: true; block: Block } | { ok: false; status: 404; message: string }> {
+    const result = await this.page(id, lang, { only: line, ...(history === undefined ? {} : { history }) });
     if (!result.ok) return { ok: false, status: 404, message: result.message };
     const [block] = result.page.blocks;
     return block === undefined ? { ok: false, status: 404, message: `the template of ${id} has no block at line ${line}` } : { ok: true, block };
@@ -1446,13 +1472,15 @@ export class KnowledgeProduct {
    * The neighbours of one entity, for a diagram that opens a node: one hop, optionally one relation and direction, the
    * graph's own cut counted in `more`. A refusal names why (no entity, or no manifest).
    */
-  async neighborhood(id: string, options: { relation?: string; direction?: 'out' | 'in'; limit: number }): Promise<{ ok: true; neighborhood: Neighborhood } | { ok: false; status: 404; message: string }> {
-    const context = await this.context();
+  async neighborhood(id: string, options: { relation?: string; direction?: 'out' | 'in'; limit: number; history?: HistorySelection }): Promise<{ ok: true; neighborhood: Neighborhood } | { ok: false; status: 404; message: string }> {
+    const history = options.history === undefined ? undefined : await this.historyAt(options.history);
+    if (history !== undefined && history.coverage !== 'covered') return { ok: false, status: 404, message: `historical structure is ${history.coverage} for ${history.repo} at ${history.at}; no current structure is substituted` };
+    const context = await this.context(history);
     if ('absent' in context) return { ok: false, status: 404, message: `the product has no ${context.file}: the wiki shows the kinds that file declares` };
     const located = await findSubject(context.ctx, id);
     if (located === undefined) return { ok: false, status: 404, message: noEntityMessage(id, context.ctx.language) };
     const { hood } = await neighborhoodOf(context.ctx, located.subject, { depth: 1, ...(options.relation === undefined ? {} : { relations: [options.relation] }), ...(options.direction === undefined ? {} : { direction: options.direction }), limit: options.limit, maxNodes: options.limit * 4 + 1 });
-    return { ok: true, neighborhood: hood };
+    return { ok: true, neighborhood: history === undefined ? hood : withHistoryLinks(hood, history) };
   }
 
   /**
@@ -1574,12 +1602,14 @@ export class KnowledgeProduct {
   }
 
   /** A file of a repository as the graph was filled from it, for the source view. */
-  async source(repo: string | null, path: string): Promise<{ text: string; commit: string | null } | undefined> {
-    const context = await this.context();
+  async source(repo: string | null, path: string, selection?: HistorySelection): Promise<{ text: string; commit: string | null; history?: HistoryContext } | undefined> {
+    const history = selection === undefined ? undefined : await this.historyAt(selection);
+    if (history !== undefined && (history.coverage !== 'covered' || repo !== history.repo)) return undefined;
+    const context = await this.context(history);
     if ('absent' in context) return undefined;
     const text = await context.ctx.readSource(repo, path);
     if (text === undefined) return undefined;
-    return { text, commit: repo === null ? null : this.pins.get(repo)?.commit ?? null };
+    return { text, commit: history?.commit ?? (repo === null ? null : this.pins.get(repo)?.commit ?? null), ...(history === undefined ? {} : { history }) };
   }
 
   // ---- the loop of questions and corrections (madarch-m38l.7) ---------------------------------

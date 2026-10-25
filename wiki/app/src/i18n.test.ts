@@ -15,6 +15,19 @@ describe('wiki internationalization', () => {
     expect(leafKeys(en).sort()).toEqual(leafKeys(ru).sort());
   });
 
+  test('landmark plurals select correct English and Russian forms while catalogues keep matching keys', async () => {
+    const previous = i18n.resolvedLanguage ?? 'en';
+    await setWikiLanguage('en');
+    expect(i18n.t('knowledge.historyLandmarkOmitted', { count: 1 })).toBe('1 earlier landmark tree was not indexed because of the limit.');
+    expect(i18n.t('knowledge.historyLandmarkOmitted', { count: 2 })).toBe('2 earlier landmark trees were not indexed because of the limit.');
+    expect(i18n.t('knowledge.historyLandmarkUnsupported', { count: 5 })).toBe('5 unsupported Git landmarks');
+    await setWikiLanguage('ru');
+    expect(i18n.t('knowledge.historyLandmarkOmitted', { count: 1 })).toBe('Из-за лимита не прочитан 1 ранний ориентир.');
+    expect(i18n.t('knowledge.historyLandmarkOmitted', { count: 2 })).toBe('Из-за лимита не прочитаны 2 ранних ориентира.');
+    expect(i18n.t('knowledge.historyLandmarkOmitted', { count: 5 })).toBe('Из-за лимита не прочитано 5 ранних ориентиров.');
+    await setWikiLanguage(normalizeLanguage(previous));
+  });
+
   test('browser language tags select Russian only for ru and otherwise English', () => {
     expect(normalizeLanguage('ru-RU')).toBe('ru');
     expect(normalizeLanguage('ru')).toBe('ru');
