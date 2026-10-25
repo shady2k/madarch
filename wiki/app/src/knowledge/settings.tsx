@@ -213,7 +213,7 @@ function DangerPanel({ kind, settings, onClose, done }: { kind: Danger; settings
   const kept = kind === 'fresh' ? plan.fresh.keptPages : plan.rewrite.keptPages;
   const title = kind === 'fresh' ? t('settings.danger.fresh.title') : t('settings.danger.rewrite.title');
   return (
-    <div role="group" aria-label={title} className="mt-3 grid gap-2 rounded-[var(--radius-card)] border border-dashed border-ink bg-[var(--surface-soft)] p-4 text-small text-secondary" data-testid="danger-dialog" data-kind={kind}>
+    <div role="group" aria-label={title} className="mt-3 grid min-w-0 gap-2 rounded-[var(--radius-card)] border border-dashed border-ink bg-[var(--surface-soft)] p-4 text-small text-secondary [overflow-wrap:anywhere]" data-testid="danger-dialog" data-kind={kind}>
       <p className="m-0 font-medium text-ink">{t('settings.danger.local', { folder: settings.folder })}</p>
       <p className="m-0">{t('settings.danger.willDo')}</p>
       <ul className="m-0 list-disc ps-5">

@@ -167,6 +167,8 @@ describe('the product settings page', () => {
     (page.querySelector('[data-testid=danger-fresh-open]') as HTMLElement).click();
     await until(() => page.querySelector('[data-testid=danger-dialog]') !== null, 'the confirmation');
     const dialog = page.querySelector('[data-testid=danger-dialog]')!;
+    expect(dialog.classList.contains('min-w-0')).toBe(true);
+    expect(dialog.classList.contains('[overflow-wrap:anywhere]')).toBe(true);
     expect(dialog.textContent).toContain('Nothing is committed or sent anywhere');
     expect(dialog.querySelector('[data-testid=danger-pages]')!.textContent).toContain('docs/product.md, docs/domains/payments.md');
     expect(dialog.querySelector('[data-testid=danger-agent-edits]')!.textContent).toContain('producer: person');
