@@ -348,6 +348,10 @@ describe('extract operations', () => {
     expect(deployment.properties.image).toBe('registry.example.test/training/orders:1.4.0');
     expect(deployment.properties.containerPorts).toEqual([8080]);
     expect(deployment.properties.probePath).toBe('/healthz');
+    expect(deployment.properties.probePaths).toEqual(['/healthz', '/healthz', '/healthz']);
+    const probes = nodesOfKind('code.probe');
+    expect(probes.map((probe) => probe.properties.probeType)).toEqual(['livenessProbe', 'readinessProbe', 'startupProbe']);
+    expect(probes.map((probe) => probe.properties.periodSeconds)).toEqual([10, 5, 2]);
     const service = node('code.k8s-service:deploy/k8s/orders.yaml#orders');
     expect(service.properties.ports).toEqual([{ name: 'http', port: 80, targetPort: 8080 }]);
     expect(edgesFrom('code.targets', service.key).map((entry) => entry.to)).toEqual([`code.port:${'orders/8080'}`]);

@@ -303,6 +303,8 @@ export interface EntityListing {
 }
 
 export interface FillState {
+  /** The index was rebuilt because its deterministic readers changed. */
+  rebuilt?: 'extractors-changed';
   state: 'idle' | 'running' | 'done' | 'failed';
   /** The repository being read. */
   repository?: string;

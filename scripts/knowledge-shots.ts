@@ -15,10 +15,13 @@
  * Usage: bun scripts/knowledge-shots.ts [--out <folder>] [--work <folder>]
  * The pictures are written to --out (shots/ by default) and listed on standard output.
  */
+import {truthShotKey,verifyTruthShotSet,closeWalkResources,walkConcurrent} from './graph-truth-shot-plan.js';
 import { chmodSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
-import puppeteer, { type Page } from 'puppeteer';
+import {defaultKnowledgeRoot} from '../src/knowledge/product.js';
+import {readProduct} from '../src/product/manifest.js';
+import puppeteer, { type Browser, type BrowserContext, type Page } from 'puppeteer';
 import { resolveBrowserExecutable } from './chromium.js';
 import { agentScript, localizedScript } from '../test/knowledge-agent-script.js';
 import { LOOP_QUESTIONS, firstRunScript } from '../test/loop-agent-script.js';
@@ -79,6 +82,9 @@ const server = {
     await child.exited;
   },
 };
+let browser: Browser | undefined;
+const progressContexts = new Set<BrowserContext>();
+try {
 for (let tries = 0; ; tries += 1) {
   try {
     if ((await fetch(`${server.url}/`)).ok) break;
@@ -88,7 +94,7 @@ for (let tries = 0; ; tries += 1) {
   if (tries > 120) throw new Error(`the background server did not answer on port ${port}`);
   await new Promise((rest) => setTimeout(rest, 500));
 }
-const browser = await puppeteer.launch({ executablePath: resolveBrowserExecutable(), headless: true, protocolTimeout: 900_000, args: ['--no-sandbox'] });
+browser = await puppeteer.launch({ executablePath: resolveBrowserExecutable(), headless: true, protocolTimeout: 900_000, args: ['--no-sandbox'] });
 
 /**
  * What a reader sees, measured as the picture is taken: the visible text of the state, the badge or card that state is
@@ -110,8 +116,16 @@ async function measured(page: Page, name: string): Promise<Record<string, unknow
     };
     return {
       shot,
+      entity:document.querySelector('[data-testid=entity-page]')?.getAttribute('data-entity')??null,
+      language:window.localStorage.getItem('madarch-wiki-language'),
+      languageLabel:document.querySelector('.shell-language')?.getAttribute('aria-label')??null,
+      dark:window.matchMedia('(prefers-color-scheme: dark)').matches,
+      pending:document.querySelectorAll('[data-diagram=deferred], [data-testid=diagram-loading], [data-testid=mermaid-loading]').length,
       text: (document.body.innerText ?? '').replace(/\s+/g, ' ').trim().slice(0, 600),
       title: document.title,
+      fullPageShot:shot.startsWith('truth-'),
+      blocks:document.querySelectorAll('[data-block]').length,
+      blockBoxes:[...document.querySelectorAll('[data-block]')].map((element)=>({type:element.getAttribute('data-block'),box:box(element)})),
       overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
       height: { window: window.innerHeight, document: document.documentElement.scrollHeight },
       badge: box(one('[data-testid=planned-badge]')),
@@ -131,15 +145,23 @@ async function measured(page: Page, name: string): Promise<Record<string, unknow
 
 async function shoot(page: Page, name: string, settle?: () => Promise<unknown>): Promise<void> {
   if (settle !== undefined) await settle();
-  await new Promise((rest) => setTimeout(rest, 400));
+  if (!name.startsWith('truth-')) await new Promise((rest) => setTimeout(rest, 400));
   const file = join(out, `${name}.png`);
-  await page.screenshot({ path: file, fullPage: false });
+  if(written.includes(file)||existsSync(file))throw new Error(`duplicate screenshot identity ${file}`);
+  await page.screenshot({ path: file, fullPage: name.startsWith('truth-') });
   written.push(file);
-  console.log(`MEASURED ${JSON.stringify(await measured(page, name))}`);
+  const measurement=await measured(page,name);
+  writeFileSync(join(out,`${name}.measurement.json`),JSON.stringify(measurement,null,2)+'\n');
+  console.log(`MEASURED ${JSON.stringify(measurement)}`);
 }
 
-async function open(url: string, width: number, height: number, scheme: 'light' | 'dark' = 'light', language: string = lang): Promise<Page> {
-  const page = await browser.newPage();
+async function open(url: string, width: number, height: number, scheme: 'light' | 'dark' = 'light', language: string = lang, isolated = false): Promise<Page> {
+  const started = Date.now();
+  console.log(`WALK_OPEN ${JSON.stringify({at:new Date().toISOString(),url,width,height,scheme,language,isolated})}`);
+  // Each live progress page owns its HTTP pool: eight SSEs must not exhaust Chromium's six connections per origin.
+  const context = isolated ? await browser!.createBrowserContext() : undefined;
+  if (context !== undefined) progressContexts.add(context);
+  const page = await (context ?? browser!).newPage();
   // The interface speaks the language of the walk (the wiki reads its choice from this storage key).
   await page.evaluateOnNewDocument((chosen) => { try { window.localStorage.setItem('madarch-wiki-language', chosen); } catch { /* the walk goes on in the browser's own language */ } }, language);
   await page.setViewport({ width, height });
@@ -164,7 +186,12 @@ async function open(url: string, width: number, height: number, scheme: 'light' 
     });
     page.on('console', (message) => console.error(`${at()} console ${message.type()}: ${message.text().slice(0, 200)}`));
   }
-  await page.goto(`${server.url}${url}`, { waitUntil: 'domcontentloaded' });
+  try {
+    await page.goto(`${server.url}${url}`, { waitUntil: 'domcontentloaded' });
+  } catch (error) {
+    console.error(`WALK_OPEN_FAILED ${JSON.stringify({at:new Date().toISOString(),url,width,scheme,language,isolated,elapsedMs:Date.now()-started,error:String(error)})}`);
+    throw error;
+  }
   return page;
 }
 
@@ -184,9 +211,7 @@ async function waited(page: Page, what: string, work: () => Promise<unknown>): P
     const status = await fetch(`${server.url}${new URL(page.url()).pathname.replace(/\/k.*$/, '')}/api/k/status`).then((response) => response.text()).catch((failure) => String(failure));
     await page.screenshot({ path: join(out, `failed-${what}.png`) }).catch(() => undefined);
     console.error(`${what} did not happen: ${(error as Error).message}\npage: ${body}\nstatus: ${status.slice(0, 1500)}`);
-    await browser.close();
-    await server.stop();
-    process.exit(1);
+    throw error;
   }
 }
 
@@ -241,7 +266,7 @@ if (only === '' || only === 'agent') {
 }
 
 // ---- the filled product ---------------------------------------------------------------------
-if (only === '' || only === 'shop' || only === 'remarks' || only === 'entities') {
+if (only === '' || only === 'shop' || only === 'remarks' || only === 'entities' || only === 'truth') {
   const probe = await open('/products/shop/', 1440, 900);
   await probe.waitForSelector('[data-testid=fill-start], [data-testid=entity-page]', { timeout: 60_000 });
   if ((await probe.$('[data-testid=fill-start]')) !== null) {
@@ -527,6 +552,141 @@ if (only === 'entities') {
 }
 
 
+/** A capture is the requested complete page, not a skeleton or a deferred/failed diagram. */
+async function truthReady(page:Page,id:string,language:string,scheme:'light'|'dark'):Promise<void> {
+  await page.waitForFunction((wanted)=>{
+    const article=document.querySelector('[data-testid=entity-page]');
+    return article?.getAttribute('data-entity')===wanted.id && article.querySelector('h1')!==null &&
+      window.localStorage.getItem('madarch-wiki-language')===wanted.language &&
+      document.querySelector('.shell-language')?.getAttribute('aria-label')===(wanted.language==='ru'?'Язык':'Language') &&
+      window.matchMedia('(prefers-color-scheme: dark)').matches===(wanted.scheme==='dark') &&
+      document.querySelector('[data-testid=page-loading], [data-diagram=deferred], [data-testid=diagram-loading], [data-testid=mermaid-loading]')===null;
+  },{timeout:60_000},{id,language,scheme});
+  const errors=await page.$$eval('[data-testid=page-error], [data-testid=block-problem], [data-testid=diagram-failure], [data-testid=mermaid-error], [data-testid=likec4-error]',(elements)=>elements.map((element)=>element.textContent));
+  if(errors.length)throw new Error(`${id}: incomplete visual page ${JSON.stringify(errors)}`);
+  await page.evaluate(async()=>{await document.fonts.ready;await new Promise<void>((done)=>requestAnimationFrame(()=>requestAnimationFrame(()=>done())));});
+}
+// ---- graph truth acceptance: every code page in both languages, every affected kind rendered ----
+if (only === 'truth') {
+  const product = '/products/shop';
+  // Rebuild progress is a reader-visible surface, not inferred from a final graph screenshot.
+  const identity=readProduct(shop);if(!identity.ok)throw new Error(`cannot read shop identity: ${identity.message}`);
+  const manifest=join(defaultKnowledgeRoot(home),identity.product.id,'graph','extractors.json');
+  if(!existsSync(manifest))throw new Error(`missing persistent extractor manifest ${manifest}`);
+  writeFileSync(manifest,'{}');
+  const progressPages:{page:Page;name:string;language:string;scheme:'light'|'dark'}[]=[];
+  const expectedShots:string[]=[];
+  const completedShots:string[]=[];
+  const persistCompletion=()=>writeFileSync(join(out,'truth-shot-completion.json'),JSON.stringify({complete:false,expected:expectedShots,completed:completedShots},null,2));
+  for(const language of ['en','ru'])for(const width of [1150,390])for(const scheme of ['light','dark'] as const)progressPages.push({page:await open(`${product}/k`,width,1200,scheme,language,true),name:`truth-rebuild-progress-${language}-${width}-${scheme}`,language,scheme});
+  for(const entry of progressPages)expectedShots.push(entry.name);
+  writeFileSync(join(out,'truth-progress-shot-plan.json'),JSON.stringify({expected:[...expectedShots]},null,2));persistCompletion();
+  const began=await fetch(`${server.url}${product}/api/k/fill`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({})});if(began.status!==202)throw new Error(`rebuild did not start ${began.status}: ${await began.text()}`);
+
+  let seenRebuild=false;const rebuildUntil=Date.now()+180_000;
+  for(;;){const state=await(await fetch(`${server.url}${product}/api/k/status`)).json() as {fill:{state:string;rebuilt?:string}};if(state.fill.state==='running'||state.fill.rebuilt!==undefined)seenRebuild=true;if(seenRebuild&&state.fill.state!=='running'){if(state.fill.state!=='done')throw new Error(`rebuild not done ${JSON.stringify(state)}`);break;}if(Date.now()>rebuildUntil)throw new Error('rebuild did not complete');await new Promise((resolve)=>setTimeout(resolve,200));}
+
+  for(const {page,name,language,scheme} of progressPages){
+    await page.waitForFunction(()=>/Graph rebuilt: extractors changed|Граф перестроен: экстракторы изменились/.test(document.body.innerText),{timeout:120_000});
+    await truthReady(page,'product:shop',language,scheme);await shoot(page,name);completedShots.push(name);persistCompletion();
+    const context=page.browserContext();await context.close();progressContexts.delete(context);
+  }
+
+  let requestIndex=0;mkdirSync(join(out,'responses'),{recursive:true});
+  const request = async (path: string): Promise<unknown> => {
+    const file=String(requestIndex++).padStart(6,'0');
+    const response = await fetch(`${server.url}${product}${path}`);
+    const raw=await response.text();
+    writeFileSync(join(out,'responses',`${file}.txt`),raw);writeFileSync(join(out,'responses',`${file}.request.json`),JSON.stringify({path,status:response.status},null,2));
+    let body:unknown;try{body=JSON.parse(raw);}catch{throw new Error(`${path}: HTTP${response.status} nonJSON response retained ${file}.txt`);}
+    if (!response.ok) throw new Error(`${resolve(import.meta.path)}: graph truth API ${path}: HTTP ${response.status}: ${JSON.stringify(body)}`);
+    return body;
+  };
+  const status = await request('/api/k/status') as {kinds: {kind: string}[]};
+  const kinds = [...new Set(status.kinds.map((entry) => entry.kind))].sort();
+  const walked: {kind: string; id: string; language: string; blocks: number; bytes: number; file: string}[] = [];
+  const failures: {kind: string; id: string; language: string; error: string}[] = [];
+  const representatives: {kind: string; id: string}[] = [];
+  const critical: {kind:string;id:string}[]=[];
+  const expectedPages:{kind:string;id:string;language:string}[]=[];
+  mkdirSync(join(out, 'pages'), {recursive: true});
+  for (const kind of kinds) {
+    const rows: {id: string}[] = [];
+    let after: string | null = null;
+    const cursors=new Set<string>();
+    let total: number | undefined;
+    do {
+      const listing = await request(`/api/k/entities?kind=${encode(kind)}&limit=500${after === null ? '' : `&after=${encode(after)}`}`) as {rows: {id: string}[]; total: number; next: string | null};
+      if(!Number.isSafeInteger(listing.total)||listing.total<0||!Array.isArray(listing.rows))throw new Error(`${kind}: malformed listing ${JSON.stringify(listing)}`);
+      total ??= listing.total;
+      if (listing.total !== total) throw new Error(`${kind}: entity count changed during the walk`);
+      rows.push(...listing.rows);
+      if(rows.length>total)throw new Error(`${kind}: rows overflow ${rows.length}>${total}`);
+      if(listing.next!==null&&cursors.has(listing.next))throw new Error(`${kind}: pagination cursor cycle ${listing.next}`);
+      if(listing.next!==null)cursors.add(listing.next);
+      if (listing.next === after && listing.next !== null) throw new Error(`${kind}: pagination did not advance at ${after}`);
+      after = listing.next;
+    } while (after !== null);
+    if (rows.length !== total || new Set(rows.map((row) => row.id)).size !== rows.length) throw new Error(`${kind}: walked ${rows.length} rows, API reports ${total}; duplicate or silently smaller result`);
+    if (rows[0] !== undefined) representatives.push({kind, id: rows[0].id});
+    if(['code.route','code.probe','code.metric'].includes(kind))for(const row of rows)critical.push({kind,id:row.id});
+    if(kind==='code.symbol')for(const row of rows.filter((row)=>/callback@|handler|Handle|publish|consume/i.test(row.id)))critical.push({kind,id:row.id});
+    for(const row of rows)for(const language of ['en','ru'])expectedPages.push({kind,id:row.id,language});
+    writeFileSync(join(out,'truth-api-plan.json'),JSON.stringify({pages:expectedPages,completePlan:false},null,2));
+    const jobs = rows.flatMap((row)=>['en','ru'].map((language)=>({row,language})));
+    const base = expectedPages.length - jobs.length;
+    const results = await walkConcurrent(jobs,4,async({row,language},index)=>{
+      try {
+        const body = await request(`/api/k/page?id=${encode(row.id)}&lang=${language}&full=1`) as {id?:string;blocks?: {type?:string;file?:string;line?:number;message?:string}[]};
+        if(body.id!==row.id)throw new Error(`requested ${row.id}, received ${String(body.id)}`);
+        if (!Array.isArray(body.blocks)) throw new Error(`page has no block list: ${JSON.stringify(body)}`);
+        const problems=body.blocks.filter((block)=>block.type==='problem');
+        if(problems.length)throw new Error(`${row.id}: HTTP200 problem blocks: ${JSON.stringify(problems)}`);
+        const text = JSON.stringify(body, null, 2);
+        const file = `pages/${(base+index).toString().padStart(5, '0')}-${language}.json`;
+        writeFileSync(join(out, file), text+'\n');
+        return {kind, id: row.id, language, blocks: body.blocks.length, bytes: Buffer.byteLength(text), file};
+      } catch (error) {failures.push({kind, id: row.id, language, error: error instanceof Error ? error.message : String(error)});return null;}
+    });
+    for (const row of results) if (row !== null) walked.push(row);
+    console.log(`TRUTH_KIND ${JSON.stringify({at:new Date().toISOString(),kind,expected:jobs.length,walked:results.filter((row)=>row!==null).length})}`);
+  }
+  writeFileSync(join(out,'truth-api-plan.json'),JSON.stringify({pages:expectedPages,completePlan:true},null,2));
+  writeFileSync(join(out, 'truth-api-walk.json'), JSON.stringify({kinds,expected:expectedPages.length,walked,failures,complete:failures.length===0&&walked.length===expectedPages.length}, null, 2)+'\n');
+  if(walked.length+failures.length!==expectedPages.length)throw new Error('page JSON collection count does not match exact plan');
+  if (failures.length > 0) throw new Error(`graph truth: ${failures.length} pages failed; all failures retained in ${join(out, 'truth-api-walk.json')}`);
+  console.log(`TRUTH_API_WALK ${walked.length} language-pages, ${kinds.length} kinds, zero failures`);
+  const shotPages=[...new Map([...representatives,...critical,{kind:'home',id:'product:shop'}].map((entry)=>[entry.id,entry])).values()];
+  const planned=shotPages.flatMap((entry)=>['en','ru'].flatMap((language)=>[1150,390].flatMap((width)=>(['light','dark'] as const).map((scheme)=>({entry,language,width,scheme,name:truthShotKey(entry.kind,entry.id,language,width,scheme)})))));
+  expectedShots.push(...planned.map((shot)=>shot.name));
+  if(new Set(expectedShots).size!==expectedShots.length)throw new Error('screenshot plan identity collision');
+  writeFileSync(join(out,'truth-shot-plan.json'),JSON.stringify({combos:8,pages:shotPages,progress:progressPages.map((entry)=>entry.name),shots:planned,expected:expectedShots,expectedCount:expectedShots.length},null,2));persistCompletion();
+
+  const capturePages:Page[]=[];
+  for(let lane=0;lane<4;lane++){
+    const context=await browser!.createBrowserContext();progressContexts.add(context);
+    const page=await context.newPage();capturePages.push(page);
+    // The next capture installs its language before the app loads; each lane has its own storage.
+  }
+  await walkConcurrent(planned,4,async({entry,language,width,scheme,name},_index,lane)=>{
+    const page=capturePages[lane]!;
+    await page.setViewport({width,height:1200});await page.emulateMediaFeatures([{name:'prefers-color-scheme',value:scheme}]);
+    const initialLanguage=await page.evaluateOnNewDocument((chosen)=>{window.localStorage.setItem('madarch-wiki-language',chosen);},language);
+    console.log(`TRUTH_CAPTURE ${JSON.stringify({at:new Date().toISOString(),lane,id:entry.id,language,width,scheme,name})}`);
+    await page.goto(`${server.url}${at(entry.id)}`,{waitUntil:'domcontentloaded'});
+    await page.removeScriptToEvaluateOnNewDocument(initialLanguage.identifier);
+    await truthReady(page,entry.id,language,scheme);await shoot(page,name);
+    completedShots.push(name);persistCompletion();
+  });
+  for(const page of capturePages){const context=page.browserContext();await context.close();progressContexts.delete(context);} 
+  const missing=expectedShots.filter((name)=>!completedShots.includes(name)||!existsSync(join(out,`${name}.png`))||!existsSync(join(out,`${name}.measurement.json`)));
+  const actual=readdirSync(out).filter((name)=>name.startsWith('truth-')&&name.endsWith('.png')).map((name)=>name.slice(0,-4));
+  const extra=actual.filter((name)=>!expectedShots.includes(name));
+  verifyTruthShotSet(expectedShots,completedShots,actual);
+  if(missing.length||extra.length||completedShots.length!==expectedShots.length||actual.length!==expectedShots.length)throw new Error(`incomplete screenshot matrix ${JSON.stringify({missing,extra,expected:expectedShots.length,actual:actual.length,completed:completedShots.length})}`);
+  writeFileSync(join(out,'truth-shot-completion.json'),JSON.stringify({complete:true,expected:expectedShots,completed:completedShots,actual,expectedCount:expectedShots.length},null,2));
+}
+
 // ---- the scoped tasks of answers (madarch-m38l.14) -------------------------------------------
 // The acceptance walk of a task: an answer that says the code is right and the document is out of date proposes a task
 // scoped to the two README sections the question names, with its impact computed through the graph; confirming it marks
@@ -784,6 +944,16 @@ if (only === 'localized') {
   console.log(`the localized walk wrote ${written.length} pictures into ${out}`);
 }
 
-await browser.close();
-await server.stop();
 console.log(written.join('\n'));
+} catch (error) {
+  // Report the real failure before cleanup; cleanup can fail independently.
+  console.error(`WALK_FAILED ${JSON.stringify({at:new Date().toISOString(),error:error instanceof Error?error.stack:String(error)})}`);
+  process.exitCode = 1;
+} finally {
+  const cleanupFailed = (name:string,error:unknown):void=>{console.error(`WALK_CLEANUP_FAILED ${JSON.stringify({at:new Date().toISOString(),name,error:String(error)})}`);process.exitCode=1;};
+  await closeWalkResources([...progressContexts].map((context,index)=>({name:`progress-context-${index}`,close:()=>context.close()})),15_000,cleanupFailed);
+  await closeWalkResources([
+    {name:'browser',close:async()=>{await browser?.close();},force:()=>{browser?.process()?.kill('SIGKILL');}},
+    {name:'server',close:()=>server.stop(),force:()=>{child.kill('SIGKILL');}},
+  ],15_000,cleanupFailed);
+}

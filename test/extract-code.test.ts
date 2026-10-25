@@ -38,6 +38,7 @@ import {
 } from '../src/extract/code/keys.js';
 import {extractDataModel} from '../src/extract/data-model/extract.js';
 import {extractContracts} from '../src/extract/contracts/index.js';
+import {extractOperations, OPERATIONS_PRODUCER} from '../src/extract/operations/index.js';
 import type {ExtractedEdge, ExtractedNode, Extraction, TreeReader} from '../src/extract/records.js';
 
 const testFolder = path.dirname(fileURLToPath(import.meta.url));
@@ -120,6 +121,7 @@ let ex: Extraction;
 let again: Extraction;
 let dataModel: Extraction;
 let contracts: Extraction;
+let operations: Extraction;
 
 beforeAll(async () => {
   const scratch = await mkdtemp(path.join(tmpdir(), 'madarch-o0eq6-'));
@@ -133,7 +135,8 @@ beforeAll(async () => {
   ex = await extractCode(tree);
   again = await extractCode(tree);
   dataModel = await extractDataModel(tree);
-  contracts = await extractContracts(tree);
+  contracts = await extractContracts(tree, ex);
+  operations = extractOperations(tree);
 }, 280_000);
 
 // ---- lookups ---------------------------------------------------------------
@@ -170,6 +173,22 @@ function expectEdge(type: string, from: string, to: string): ExtractedEdge {
     throw new Error(`no ${type} edge ${from} -> ${to}; ${type} edges from it go to: ${out.join(', ') || '(none)'}`);
   }
   return found[0]!;
+}
+
+/** Follow the actual registered inline owner, never invent a call from its factory. */
+function inlineRouteHandler(file: string, path: string, factory: string): string {
+  const route = `code.route:${file}#POST:${path}`;
+  const handlers = contracts.edges.filter((edge) => edge.type === 'code.handled-by' && edge.from === route);
+  expect(handlers, route).toHaveLength(1);
+  const handler = handlers[0]!.to;
+  const callback = node(handler);
+  expect(callback.properties['inline'], handler).toBe(true);
+  expect(callback.properties['qualifiedName'], handler).toStartWith(`${factory}.callback@`);
+  const registrations = contracts.edges.filter((edge) => edge.type === REL_REFERENCES && edge.from === sym(file, factory) && edge.to === handler);
+  expect(registrations, route).toHaveLength(1);
+  expect(registrations[0]!.properties['role']).toBe('callback-registration');
+  expect(registrations[0]!.span).toEqual(callback.span);
+  return handler;
 }
 
 const dirOf = (p: string): string => p.slice(0, p.lastIndexOf('/'));
@@ -269,7 +288,21 @@ describe('modules', () => {
   });
 
   test('every module and every package of the training repository is a record, and the root packages are the four services', () => {
-    const packages = ex.nodes.filter((n) => n.kind === KIND_PACKAGE).map((n) => n.key);
+    const packages = ex.nodes.filter((n) => n.kind === KIND_PACKAGE && n.properties['external'] !== true).map((n) => n.key);
+    // External imports are now records too, not additional repository roots.
+    const external = ex.nodes.filter((n) => n.kind === KIND_PACKAGE && n.properties['external'] === true);
+    const expectedImports = [
+      ...['context', 'crypto/rand', 'database/sql', 'encoding/csv', 'encoding/hex', 'encoding/json', 'errors', 'fmt', 'log/slog', 'net/http', 'os', 'os/signal', 'path/filepath', 'sort', 'strconv', 'strings', 'sync', 'sync/atomic', 'syscall', 'testing', 'time'].map((name) => `code.package:import/go/${name}`),
+      ...['node:crypto', 'node:http', 'node:net', 'node:path'].map((name) => `code.package:import/node/${name}`),
+    ];
+    expect(external.map((n) => n.key)).toEqual(expectedImports);
+    expect(ex.nodes.filter((n) => n.kind === KIND_PACKAGE)).toHaveLength(29);
+    for (const imported of external) {
+      expect(imported.properties['standardLibrary'], imported.key).toBe(true);
+      expect(imported.properties['versionStatus'], imported.key).toBe('not-applicable');
+      expect(imported.span?.path, imported.key).toBeDefined();
+      expect(edges(REL_IMPORTS, undefined, imported.key).length, imported.key).toBeGreaterThan(0);
+    }
     expect(packages).toEqual(
       ['checkout', 'orders', 'payments', 'promotions'].map((name) => packageKey(`services/${name}`)),
     );
@@ -420,13 +453,15 @@ describe('flow', () => {
     expectEdge(REL_CALLS, sym('services/orders/cmd/orders/main.go', 'run'), sym(REPOSITORY, 'NewOrderRepository'));
   });
 
-  test('flow.payments.chain: createApp mounts authenticate and paymentRoutes, which calls PaymentService.pay, which stores through PrismaPaymentRepository', () => {
+  test('flow.payments.chain: createApp mounts authenticate and paymentRoutes, whose registered callback calls PaymentService.pay, which stores through PrismaPaymentRepository', () => {
     const create = sym(`${PAYMENTS}/app.ts`, 'createApp');
     expectEdge(REL_CALLS, create, sym(`${PAYMENTS}/api/middleware.ts`, 'authenticate'));
     expectEdge(REL_CALLS, create, sym(`${PAYMENTS}/api/routes.ts`, 'paymentRoutes'));
     const routes = sym(`${PAYMENTS}/api/routes.ts`, 'paymentRoutes');
     const pay = sym(`${PAYMENTS}/domain/payment-service.ts`, 'PaymentService.pay');
-    expectEdge(REL_CALLS, routes, pay);
+    const handler = inlineRouteHandler(`${PAYMENTS}/api/routes.ts`, '/payments', 'paymentRoutes');
+    expectEdge(REL_CALLS, handler, pay);
+    expect(edges(REL_CALLS, routes, pay)).toEqual([]);
     const repository = `${PAYMENTS}/store/payment-repository.ts`;
     expectEdge(REL_CALLS, pay, sym(repository, 'PaymentRepository.create'));
     expectEdge(REL_CALLS, pay, sym(repository, 'PrismaPaymentRepository.create'));
@@ -445,9 +480,12 @@ describe('flow', () => {
     expectEdge(REL_REFERENCES, sym(`${PAYMENTS}/domain/payment-service.ts`, 'PaymentServiceDeps.repository'), sym(repository, 'PaymentRepository'));
   });
 
-  test('flow.checkout.chain: checkoutRoutes is mounted by createApp and calls CheckoutService.checkout', () => {
+  test('flow.checkout.chain: checkoutRoutes is mounted by createApp and its registered callback calls CheckoutService.checkout', () => {
     expectEdge(REL_CALLS, sym(`${CHECKOUT}/app.ts`, 'createApp'), sym(`${CHECKOUT}/api/routes.ts`, 'checkoutRoutes'));
-    expectEdge(REL_CALLS, sym(`${CHECKOUT}/api/routes.ts`, 'checkoutRoutes'), sym(`${CHECKOUT}/checkout-service.ts`, 'CheckoutService.checkout'));
+    const handler = inlineRouteHandler(`${CHECKOUT}/api/routes.ts`, '/checkout', 'checkoutRoutes');
+    const checkout = sym(`${CHECKOUT}/checkout-service.ts`, 'CheckoutService.checkout');
+    expectEdge(REL_CALLS, handler, checkout);
+    expect(edges(REL_CALLS, sym(`${CHECKOUT}/api/routes.ts`, 'checkoutRoutes'), checkout)).toEqual([]);
     expect(locationsOf('flow.checkout.chain').length).toBe(3);
   });
 });
@@ -816,8 +854,27 @@ describe('the extraction as a whole', () => {
     expect(new Set(keys).size).toBe(keys.length);
   });
 
-  test('every edge ends at a node of this extraction or of the data-model extractor, and every gap names its path and reason', () => {
-    const known = new Set([...ex.nodes.map((n) => n.key), ...dataModel.nodes.map((n) => n.key)]);
+  test('every edge ends at a node of code, data-model or declared operations provenance, and every gap names its path and reason', () => {
+    expect(operations.producer).toBe(OPERATIONS_PRODUCER);
+    const dependencies = operations.nodes.filter((node) => node.kind === 'code.dependency');
+    expect(dependencies.length).toBeGreaterThan(0);
+    for (const imported of ex.edges.filter((edge) => edge.type === REL_IMPORTS && edge.to.startsWith('code.dependency:'))) {
+      const dependency = dependencies.find((node) => node.key === imported.to);
+      expect(dependency, imported.to).toBeDefined();
+      const span = dependency!.span!;
+      expect(span, imported.to).toBeDefined();
+      expect(imported.to).toBe(`code.dependency:${span.path}#${String(dependency!.properties['name'])}`);
+      const declaration = operations.edges.filter((edge) => edge.type === 'code.declares-dependency' && edge.from === `code.manifest:${span.path}` && edge.to === imported.to);
+      expect(declaration, imported.to).toHaveLength(1);
+      expect(declaration[0]!.span).toEqual(span);
+      const text = new TextDecoder().decode(tree.read(span.path));
+      const line = text.split('\n')[span.lineStart - 1]!;
+      expect(line, imported.to).toContain(String(dependency!.properties['name']));
+      expect(line, imported.to).toContain(String(dependency!.properties['version']));
+      expect(imported.properties['version'], imported.to).toBe(dependency!.properties['version']);
+      expect(ex.nodes.some((node) => node.key === imported.to), imported.to).toBe(false);
+    }
+    const known = new Set([...ex.nodes, ...dataModel.nodes, ...operations.nodes].map((node) => node.key));
     for (const edge of ex.edges) {
       expect(known.has(edge.from), `${edge.type} from ${edge.from}`).toBe(true);
       expect(known.has(edge.to), `${edge.type} to ${edge.to}`).toBe(true);

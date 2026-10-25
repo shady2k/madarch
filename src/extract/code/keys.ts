@@ -35,6 +35,12 @@ export const REL_DEPENDS_ON = 'code.depends-on';
 export const REL_CALLS = 'code.calls';
 /** A symbol mentions a symbol without calling it. */
 export const REL_REFERENCES = 'code.references';
+/** A resolved field, property, variable or constant is read at a use site. */
+export const REL_READS = 'code.reads';
+/** A resolved field, property or variable is written at a use site. */
+export const REL_WRITES = 'code.writes';
+/** A declaration or function uses a resolved repository type. */
+export const REL_USES_TYPE = 'code.uses-type';
 /** A symbol extends (inherits from) a symbol. */
 export const REL_INHERITS = 'code.inherits';
 /** A type implements an interface, by declaration or (Go) by its method set. */
@@ -68,3 +74,6 @@ export const testCaseKey = (path: string, name: string, ordinal: number): string
 
 /** `code.cycle:<level>/<member>+<member>...` -- one import cycle, its members in code point order. */
 export const cycleKey = (level: 'module' | 'file', members: readonly string[]): string => `${KIND_CYCLE}:${level}/${members.join('+')}`;
+
+/** An actual inline registration callback, named from its enclosing declaration and byte position. */
+export const callbackName = (enclosing: string | undefined, route: string, line: number, byte: number): string => `${enclosing ?? route}.callback@${line}:${byte}`;

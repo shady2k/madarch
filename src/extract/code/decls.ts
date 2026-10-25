@@ -235,6 +235,7 @@ export function tsTypeName(node: SyntaxNode | null, text: string): string | unde
     case 'readonly_type':
       return tsTypeName(named(node)[0] ?? null, text);
     case 'type_identifier':
+    case 'nested_type_identifier':
       return textOf(node, text);
     case 'generic_type': {
       const name = node.childForFieldName('name');
@@ -372,6 +373,7 @@ function tsClass(name: string, node: SyntaxNode, text: string, typeText: Map<str
             const annotation = parameter.childForFieldName('type');
             if (annotation !== null) typeText.set(`${name}.${propertyName}`, textOf(annotation, text).replace(/^:\s*/, ''));
           }
+          members.push({ name: written, kind: 'method', qualifiedName, abstract: false });
           break;
         }
         const returns = tsTypeName(member.childForFieldName('return_type'), text);

@@ -17,8 +17,9 @@ import { setPriority } from 'node:os';
 import { promisify } from 'node:util';
 import { createPGliteDatabaseOwner, type DatabaseOwner } from '../adapters/database-owner.js';
 import { fillGraph } from '../extract/driver/index.js';
-import { HISTORY_EXTRACTOR, OWNERS, TREE_EXTRACTORS } from '../extract/driver/extractors.js';
+import { EXTRACTOR_VERSIONS, HISTORY_EXTRACTOR, OWNERS, TREE_EXTRACTORS } from '../extract/driver/extractors.js';
 import { createGraphStore } from '../graph/index.js';
+import {extractorManifest, prepareExtractorStore} from './extractor-store.js';
 import { indexWorkerProduct } from './index/run.js';
 import { markResolved } from '../loop/answer.js';
 import { briefsFor, neededFrom, neededFromPaths, planRefresh } from '../loop/plan.js';
@@ -118,12 +119,17 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
   } catch {
     // a platform that does not let a process lower its own priority runs the fill at the priority it has
   }
-  const { productFolder, graphPath, readRoot, repositories } = start;
+  const {productFolder, readRoot, repositories} = start;
+  const prepared = prepareExtractorStore(start.graphPath, extractorManifest(EXTRACTOR_VERSIONS));
+  let graphPath = prepared.path;
+  let rebuilding = prepared.rebuilt;
+  if (rebuilding) send({type:'rebuild', reason:'extractors-changed'});
   mkdirSync(graphPath.replace(/[/\\][^/\\]*$/, ''), { recursive: true });
-  const owner = createPGliteDatabaseOwner({ path: graphPath, btreeGist: true });
+  let owner = createPGliteDatabaseOwner({ path: graphPath, btreeGist: true });
+  let ownerClosed = false;
   try {
     await owner.ready;
-    const store = createGraphStore(owner);
+    let store = createGraphStore(owner);
     await store.createSchema();
     const pins = new Map<string, RepositoryPin>();
     await owner.transaction('write', async (tx) => {
@@ -140,6 +146,7 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
     });
     let lastSnapshot = 0;
     const snapshot = async (force: boolean): Promise<void> => {
+      if (rebuilding) return; // The reader keeps the old working index until the replacement is complete.
       if (!force && Date.now() - lastSnapshot < start.snapshotMs) return;
       const seq = await takeSnapshot(owner, graphPath, readRoot);
       lastSnapshot = Date.now();
@@ -186,10 +193,11 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
             if (stopping) throw new FillStopped('the fill was stopped');
           },
         });
+        if (stopping) throw new FillStopped('the fill was stopped after history');
         gaps += report.gaps.length;
       }
       await snapshot(true);
-      send({ type: 'fill', state: 'done', gaps });
+      if (!rebuilding) send({ type: 'fill', state: 'done', gaps });
     } catch (error) {
       if (error instanceof FillStopped) {
         await snapshot(true).catch(() => undefined);
@@ -217,13 +225,34 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
       }
     };
     const first = await indexNow();
+    if(stopping) {send({type:'fill',state:'stopped'});return 0;}
     const firstNote = first.error ?? first.unresolved;
     if (firstNote !== undefined) process.stderr.write(`knowledge index: ${firstNote}\n`);
+    if (rebuilding) {
+      if (first.error !== undefined) {send({type:'fill',state:'failed',code:'index',message:first.error}); return 0;}
+      // Close before filesystem replacement. The manifest is committed only with this complete index.
+      try {
+        await owner.close(); ownerClosed = true;
+        if(stopping) {send({type:'fill',state:'stopped'});return 0;}
+        prepared.commit();
+        graphPath = start.graphPath;
+        owner = createPGliteDatabaseOwner({path:graphPath,btreeGist:true}); ownerClosed = false;
+        await owner.ready; store = createGraphStore(owner);
+        if(stopping) {send({type:'fill',state:'stopped'});return 0;}
+        rebuilding = false;
+        await snapshot(true);
+        if(stopping) {send({type:'fill',state:'stopped'});return 0;}
+        send({type:'fill',state:'done',gaps});
+      } catch (error) {
+        send({type:'fill',state:'failed',code:'rebuild',message:`the replacement graph could not be promoted or snapshotted: ${error instanceof Error?error.message:String(error)}`});
+        return 0;
+      }
+    }
     // The reader sees the index only in a snapshot made after it: without an agent stage no later snapshot would carry it.
     await snapshot(true).catch(() => undefined);
 
     // ---- the agent stage --------------------------------------------------------------------
-    if (!start.writer) return 0;
+    if (!start.writer || stopping) return 0;
     if (repositories.length !== 1) {
       send({ type: 'writer', state: 'failed', code: 'repositories', message: `the writer reads one code repository and the product declares ${repositories.length} (${repositories.map((repo) => repo.name).join(', ')}): nothing was written, so no page is a smaller picture of the product` });
       return 0;
@@ -252,10 +281,13 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
       send({ type: 'writer', state: 'failed', code: 'plan', message: `the refresh could not tell which pages need the agent, so it wrote nothing: ${error instanceof Error ? error.message : String(error)}` });
       return 0;
     }
+    if(stopping) return 0;
     const answered = new Promise<{ ok: true } | { ok: false; message: string }>((resolve) => { agentAnswer = resolve; });
+    if(stopping) {agentAnswer=undefined;return 0;}
     send({ type: 'agent-wanted' });
     const agentReady = await answered;
     agentAnswer = undefined;
+    if(stopping) return 0;
     if (!agentReady.ok) {
       send({ type: 'writer', state: 'failed', code: 'agent', message: agentReady.message });
       return 0;
@@ -331,7 +363,8 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
     }
     return 0;
   } finally {
-    await owner.close().catch(() => undefined);
+    try {await owner.close(); ownerClosed = true;} catch (error) {process.stderr.write(`knowledge rebuild: ${graphPath}: owner did not close; staged folder retained: ${String(error)}\n`);}
+    if (ownerClosed) prepared.abort();
   }
 }
 

@@ -8,6 +8,7 @@
  * the walk returns.
  */
 import type {Node as SyntaxNode} from 'web-tree-sitter';
+import {spanFactory} from '../../fill/stages/syntax-extract.js';
 import type {SourceSpan} from '../../extract/records.js';
 
 /** Visits every node of a tree, pre-order. */
@@ -19,15 +20,14 @@ export function walkTree(node: SyntaxNode, visit: (node: SyntaxNode) => void): v
   }
 }
 
+const measurements = new WeakMap<object, ReturnType<typeof spanFactory>>();
 /** The schema's span of a node, measured while the node is alive. */
 export function spanOf(node: SyntaxNode, path: string): SourceSpan {
-  return {
-    path,
-    byteStart: node.startIndex,
-    byteEnd: node.endIndex,
-    lineStart: node.startPosition.row + 1,
-    lineEnd: node.endPosition.row + 1,
-  };
+  const tree = node.tree;
+  let measure = measurements.get(tree);
+  if (measure === undefined) {measure = spanFactory(tree.rootNode.text); measurements.set(tree, measure);}
+  const span = measure(node);
+  return {path, byteStart: span.startByte, byteEnd: span.endByte, lineStart: span.startLine, lineEnd: span.endLine};
 }
 
 /** The name a call's callee ends with (`HandleFunc` of `mux.HandleFunc`), or undefined. */

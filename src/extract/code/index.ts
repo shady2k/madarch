@@ -15,6 +15,8 @@
  * the declarations of the repository, and claimed only where those say it.
  */
 import { byCodePoint } from '../../model/order.js';
+import { isStandardLibrary } from './packages.js';
+import { readGoMod } from '../../fill/stages/manifest-format.js';
 import { extractFileResolution, type ExtractedFileResolution } from '../../fill/stages/resolution-extract.js';
 import { extractFileSyntax, type ExtractedFileSyntax, type SyntaxSpan } from '../../fill/stages/syntax-extract.js';
 import { resolveSpecifier } from '../../fill/stages/syntax-facts.js';
@@ -43,6 +45,9 @@ import {
   REL_INHERITS,
   REL_OCCURRENCE,
   REL_REFERENCES,
+  REL_READS,
+  REL_WRITES,
+  REL_USES_TYPE,
   REL_TESTS,
   symbolKey,
   testCaseKey,
@@ -52,6 +57,10 @@ import { resolveFile } from './resolve.js';
 import { codeLanguageOf, folderOf, roleOf, type SourceFile } from './source.js';
 import { holderAt, indexSymbols, type FileSymbol } from './symbols.js';
 import { readTestDetails } from './tests.js';
+import {readTsFile} from '../contracts/ts-code.js';
+import {readGoFile} from '../contracts/go-code.js';
+import {readSyntaxTree} from '../../fill/stages/syntax-extract.js';
+import {callbackName} from './keys.js';
 
 const decoder = new TextDecoder('utf-8', { fatal: true });
 
@@ -60,7 +69,7 @@ export { CODE_PRODUCER };
 
 /** The span of a whole file, from the text a reader already holds: a manifest's place is the manifest. */
 function fileSpan(path: string, text: string): SourceSpan {
-  return {path, byteStart: 0, byteEnd: text.length, lineStart: 1, lineEnd: text === '' ? 1 : text.split('\n').length};
+  return {path, byteStart: 0, byteEnd: new TextEncoder().encode(text).length, lineStart: 1, lineEnd: text === '' ? 1 : text.split('\n').length};
 }
 
 function toSpan(path: string, span: SyntaxSpan): SourceSpan {
@@ -76,6 +85,7 @@ interface Manifest {
   readonly ecosystem: 'go' | 'node';
   readonly name: string;
   readonly frameworks: readonly string[];
+  readonly dependencies: ReadonlyMap<string, string | null>;
   readonly span: SourceSpan;
 }
 
@@ -92,7 +102,7 @@ interface Site {
   readonly span: SyntaxSpan;
   /** The symbol key the name reaches, already folded to a kept symbol. */
   readonly to: string;
-  readonly use: 'call' | 'reference' | 'extends' | 'implements';
+  readonly use: 'call' | 'reference' | 'type' | 'extends' | 'implements';
   readonly roles: readonly string[];
   readonly fanOut: readonly string[];
 }
@@ -124,21 +134,33 @@ export async function extractCode(reader: TreeReader): Promise<Extraction> {
         continue;
       }
       goModules.push({ folder: folderOf(path), module });
-      manifests.push({ folder: folderOf(path), ecosystem: 'go', name: module, frameworks: ['go-test'], span: fileSpan(path, text) });
+      const dependencies = new Map<string, string | null>();
+      const parsed = readGoMod(text);
+      if (parsed.ok) for (const entry of parsed.value.requires) {
+        const line = text.split('\n')[entry.line - 1] ?? '';
+        dependencies.set(entry.path, line.split(/\s+/u).find((token) => /^v\d/.test(token)) ?? null);
+      }
+      else gap(path, `line ${parsed.gap.line}: ${parsed.gap.detail}`);
+      manifests.push({ folder: folderOf(path), ecosystem: 'go', name: module, frameworks: ['go-test'], dependencies, span: fileSpan(path, text) });
     } else {
       try {
         const parsed = JSON.parse(text) as { name?: unknown; dependencies?: Record<string, unknown>; devDependencies?: Record<string, unknown> };
         const names = new Set([...Object.keys(parsed.dependencies ?? {}), ...Object.keys(parsed.devDependencies ?? {})]);
         const frameworks = ['jest', 'vitest', 'mocha'].filter((name) => names.has(name));
-        manifests.push({ folder: folderOf(path), ecosystem: 'node', name: typeof parsed.name === 'string' ? parsed.name : folderOf(path), frameworks, span: fileSpan(path, text) });
+        const dependencies = new Map<string, string | null>();
+        for (const block of [parsed.dependencies, parsed.devDependencies]) for (const [name, version] of Object.entries(block ?? {})) {
+          if (typeof version === 'string') dependencies.set(name, version);
+        }
+        manifests.push({ folder: folderOf(path), ecosystem: 'node', name: typeof parsed.name === 'string' ? parsed.name : folderOf(path), frameworks, dependencies, span: fileSpan(path, text) });
       } catch (error) {
         gap(path, `the package.json is not JSON: ${describeError(error)}`);
       }
     }
   }
-  const rootOf = (folder: string): Manifest | undefined => {
+  const rootOf = (folder: string, ecosystem?: Manifest['ecosystem']): Manifest | undefined => {
     let best: Manifest | undefined;
     for (const manifest of manifests) {
+      if (ecosystem !== undefined && manifest.ecosystem !== ecosystem) continue;
       if (manifest.folder !== '' && folder !== manifest.folder && !folder.startsWith(`${manifest.folder}/`)) continue;
       if (best === undefined || manifest.folder.length > best.folder.length) best = manifest;
     }
@@ -177,9 +199,40 @@ export async function extractCode(reader: TreeReader): Promise<Extraction> {
     } else if (syntax.unread.length > 0) {
       for (const unread of syntax.unread) gap(source.path, `the file is read as far as the parser went (${unread.reason}): ${unread.what}`);
     }
-    const { decls } = await readDecls(source);
+    const declarations = await readDecls(source);
+    const { decls } = declarations;
+    if (!declarations.read) gap(source.path, `line 1: declarations could not be read from repository path ${source.path}`);
     const topNames = syntax.parsed && source.language === 'typescript' ? new Set(decls.tops.map((top) => top.name)) : undefined;
-    files.push({ source, syntax, resolution, decls, symbols: indexSymbols(source.path, syntax.symbols, topNames) });
+    const symbols = indexSymbols(source.path, syntax.symbols, topNames);
+    if (syntax.parsed) {
+      const registrations = await readSyntaxTree<readonly {method: string; path: string; handler?: {inline: boolean; span: SourceSpan}}[]>(source.path, source.bytes, ({root}) => {
+        if (source.language !== 'typescript') return readGoFile(source.path, root).routes.map((route) => ({method: route.method, path: route.path, handler: {inline: route.inline, span: route.handlerSpan}}));
+        const facts = readTsFile(source.path, root);
+        return [...facts.routes, ...facts.grpcSites.flatMap((site) => site.kind === 'serve' && site.handlerSpan !== undefined
+          ? [{method: 'grpc', path: site.rpc, handler: {inline: true, span: site.handlerSpan}}] : [])];
+      });
+      if (registrations.read) for (const route of [...registrations.value].sort((a, b) => (b.handler?.span.byteEnd ?? 0) - (b.handler?.span.byteStart ?? 0) - ((a.handler?.span.byteEnd ?? 0) - (a.handler?.span.byteStart ?? 0)))) {
+        const handler = route.handler;
+        if (handler === undefined || !handler.inline) continue;
+        const existing = symbols.findIndex((symbol) => symbol.functionLike && symbol.span.startByte === handler.span.byteStart && symbol.span.endByte === handler.span.byteEnd);
+        if (existing >= 0) {const symbol = symbols[existing]!; symbols[existing] = {...symbol, local: false, keptKey: symbol.key}; continue;}
+        const enclosing = holderAt(symbols, handler.span.byteStart);
+        const name = callbackName(enclosing?.qualifiedName, `${route.method}:${route.path}`, handler.span.lineStart, handler.span.byteStart);
+        const key = symbolKey(source.path, name);
+        const prefix = decoder.decode(source.bytes.subarray(0, handler.span.byteStart));
+        const through = decoder.decode(source.bytes.subarray(0, handler.span.byteEnd));
+        const span: SyntaxSpan = {startByte: handler.span.byteStart, endByte: handler.span.byteEnd,
+          startLine: handler.span.lineStart, endLine: handler.span.lineEnd,
+          startColumn: prefix.length - prefix.lastIndexOf('\n') - 1, endColumn: through.length - through.lastIndexOf('\n') - 1};
+        symbols.push({key, qualifiedName: name, name, symbolKind: 'function', span, definitionSpan: span, local: false, keptKey: key, functionLike: true});
+      }
+    }
+    for (const [index, symbol] of symbols.entries()) {
+      if (!symbol.local) continue;
+      const holder = holderAt(symbols, symbol.span.startByte);
+      if (holder !== undefined && holder.qualifiedName.includes('.callback@')) symbols[index] = {...symbol, keptKey: holder.key};
+    }
+    files.push({ source, syntax, resolution, decls, symbols });
   }
   const parsedFiles = files.filter((file) => file.syntax.parsed);
   const fileFacts = new Map(files.map((file) => [file.source.path, file]));
@@ -258,7 +311,22 @@ export async function extractCode(reader: TreeReader): Promise<Extraction> {
       }
     }
     const members = await memberSites(file.source, program);
-    for (const site of members.sites) sites.push({ span: site.span, to: site.to, use: site.use, roles: ['read-access'], fanOut: site.fanOut });
+    if (!members.read) gap(path, `line 1: the member/use walk could not read repository path ${path}`);
+    for (let i = sites.length - 1; i >= 0; i--) if (members.suppressed.has(sites[i]!.span.startByte)) sites.splice(i, 1);
+    for (let i = 0; i < sites.length; i++) {
+      const site = sites[i]!;
+      const roles = members.accesses.get(site.span.startByte);
+      if (roles !== undefined) sites[i] = { ...site, roles };
+    }
+    // Replace only plain-name readings. A typed token may truthfully name both
+    // a constructor call and its class reference; neither erases the other.
+    for (let i = sites.length - 1; i >= 0; i--) {
+      const plain = sites[i]!;
+      if (members.sites.some((site) => site.span.startByte <= plain.span.startByte && plain.span.endByte <= site.span.endByte)) sites.splice(i, 1);
+    }
+    for (const site of members.sites) {
+      sites.push({ span: site.span, to: site.to, use: site.use, roles: site.roles ?? ['read-access'], fanOut: site.fanOut });
+    }
     sitesByFile.set(path, sites);
   }
 
@@ -330,6 +398,7 @@ export async function extractCode(reader: TreeReader): Promise<Extraction> {
         exported: isExported,
         test: file.source.role !== 'code',
       };
+      if (symbol.qualifiedName.includes('.callback@')) properties['inline'] = true;
       if (['class', 'method', 'interface'].includes(symbol.symbolKind)) properties['abstract'] = abstractNames.has(symbol.qualifiedName);
       const written = typeText.get(symbol.qualifiedName);
       if (written !== undefined && ['variable', 'constant', 'field', 'property'].includes(symbol.symbolKind)) properties['typeText'] = written;
@@ -341,6 +410,18 @@ export async function extractCode(reader: TreeReader): Promise<Extraction> {
       }
       addNode({ key: symbol.key, kind: KIND_SYMBOL, label: symbol.qualifiedName, properties, span: toSpan(path, symbol.span) });
       addEdge({ type: REL_CONTAINS, from: fileKey(path), to: symbol.key, discriminator: '', properties: {} });
+    }
+  }
+
+  // Types own their actual declared members, including Go methods declared
+  // in another file of the same package. No same-name fallback is allowed.
+  for (const type of program.types.values()) {
+    const owner = symbolKey(type.file, type.name);
+    if (!symbolByKey.has(owner)) continue;
+    for (const member of type.members.values()) {
+      const target = symbolByKey.get(symbolKey(member.file, member.qualifiedName));
+      if (target === undefined || target.local) continue;
+      addEdge({ type: REL_CONTAINS, from: owner, to: target.key, discriminator: '', properties: {}, span: toSpan(member.file, target.definitionSpan) });
     }
   }
 
@@ -373,8 +454,11 @@ export async function extractCode(reader: TreeReader): Promise<Extraction> {
     const symbols = symbolsByFile.get(path) ?? [];
     for (const site of [...sites].sort((left, right) => left.span.startByte - right.span.startByte || byCodePoint(left.to, right.to))) {
       const holder = holderAt(symbols, site.span.startByte);
-      const from = holder === undefined ? fileKey(path) : holder.key;
-      const target = symbolByKey.get(site.to);
+      const access = site.roles.includes('write-access') || site.roles.includes('read-access');
+      const fieldTarget = symbolByKey.get(site.to);
+      const isValue = fieldTarget !== undefined && ['field', 'property', 'variable', 'constant', 'enum-member'].includes(fieldTarget.symbolKind);
+      const from = holder === undefined || (isValue && access && !holder.functionLike) ? fileKey(path) : holder.key;
+      const target = fieldTarget;
       if (target === undefined) continue;
       const to = target.keptKey;
       if (target.local && (to === from || to.startsWith('code.file:'))) continue;
@@ -390,6 +474,16 @@ export async function extractCode(reader: TreeReader): Promise<Extraction> {
       if (site.use === 'call') fold(REL_CALLS, from, to, site.span, path, false);
       else if (site.use === 'reference') fold(REL_REFERENCES, from, to, site.span, path, false);
       else if (site.use === 'extends') fold(REL_INHERITS, from, to, site.span, path, false);
+      else if (site.use === 'type') {
+        fold(REL_USES_TYPE, from, to, site.span, path, false);
+        // Type uses remain references for existing navigation. The occurrence
+        // retains its precise `type` use, never a value read or a call.
+        fold(REL_REFERENCES, from, to, site.span, path, false);
+      }
+      if (isValue && site.use === 'reference') {
+        if (site.roles.includes('read-access')) fold(REL_READS, from, to, site.span, path, false);
+        if (site.roles.includes('write-access')) fold(REL_WRITES, from, to, site.span, path, false);
+      }
       for (const implementation of site.fanOut) {
         const implTarget = symbolByKey.get(implementation);
         if (implTarget !== undefined && implTarget.keptKey !== from) fold(site.use === 'call' ? REL_CALLS : REL_REFERENCES, from, implTarget.keptKey, site.span, path, true);
@@ -419,10 +513,38 @@ export async function extractCode(reader: TreeReader): Promise<Extraction> {
   }
 
   // ---- modules, packages and imports ------------------------------------------------------------
-  const importCounts = new Map<string, { from: string; to: string; specifier: string; span: SyntaxSpan; path: string; count: number }>();
+  interface ImportReading {specifier:string;span:SourceSpan;properties:Record<string,PropertyValue>}
+  const importCounts = new Map<string, {from:string;to:string;readings:Map<string,ImportReading>}>();
+  const recordImport=(path:string,target:string,imported:ExtractedFileSyntax['imports'][number],properties:Record<string,PropertyValue>):void=>{
+    const id=`${path}\u0000${target}`;const held=importCounts.get(id)??{from:fileKey(path),to:target,readings:new Map<string,ImportReading>()};
+    // Syntax emits one specifier per actual import site, not one per bound name. Defend against duplicate copies only.
+    const reading:ImportReading={specifier:imported.specifier,span:toSpan(path,imported.span),properties};
+    held.readings.set(JSON.stringify([imported.specifier,imported.span.startByte,imported.span.endByte]),reading);
+    importCounts.set(id,held);
+  };
   const moduleEdges = new Map<string, { from: string; to: string; count: number; imports: string[]; span: SyntaxSpan; path: string }>();
   const fileGraph = new Map<string, Set<string>>();
   const moduleGraph = new Map<string, Set<string>>();
+  const externalImport = (file: FileFacts, imported: ExtractedFileSyntax['imports'][number]): void => {
+    const path = file.source.path;
+    const ecosystem = file.source.language === 'go' ? 'go' : 'node';
+    const manifest = rootOf(folderOf(path), ecosystem);
+    const standardLibrary = isStandardLibrary(ecosystem, imported.specifier);
+    const dependency = standardLibrary ? undefined : [...(manifest?.dependencies.keys() ?? [])]
+      .filter((name) => imported.specifier === name || imported.specifier.startsWith(`${name}/`))
+      .sort((left, right) => right.length - left.length || byCodePoint(left, right))[0];
+    // Dependency declarations belong to operations. An import points to that
+    // identity, not to a duplicate declaration emitted by this producer.
+    const target = dependency !== undefined && manifest !== undefined
+      ? `code.dependency:${manifest.span.path}#${dependency}`
+      : `${KIND_PACKAGE}:import/${ecosystem}/${imported.specifier}`;
+    if (dependency === undefined) addNode({
+      key: target, kind: KIND_PACKAGE, label: imported.specifier,
+      properties: { ecosystem, name: imported.specifier, standardLibrary, versionStatus: standardLibrary ? 'not-applicable' : 'not-declared', external: true },
+      span: toSpan(path, imported.span),
+    });
+    recordImport(path,target,imported,{standardLibrary,versionStatus:dependency===undefined?standardLibrary?'not-applicable':'not-declared':'declared',...(dependency===undefined?{}:{version:manifest!.dependencies.get(dependency)??null})});
+  };
   for (const file of parsedFiles) {
     const path = file.source.path;
     for (const imported of file.syntax.imports) {
@@ -432,21 +554,27 @@ export async function extractCode(reader: TreeReader): Promise<Extraction> {
       let toFile: string | undefined;
       if (file.source.language === 'go') {
         const folder = goImportFolder(imported.specifier, goModules, goFolders);
-        if (folder === undefined) continue;
+        if (folder === undefined) {
+          if (goModules.some((module) => imported.specifier === module.module || imported.specifier.startsWith(`${module.module}/`))) {
+            gap(path, `line ${imported.span.startLine}: internal import ${JSON.stringify(imported.specifier)} in repository path ${path} names no package folder`);
+          } else externalImport(file, imported);
+          continue;
+        }
         toFolder = folder;
         toKey = moduleKey(folder);
         label = folder;
       } else {
         toFile = resolveSpecifier(path, imported.specifier, known);
-        if (toFile === undefined) continue;
+        if (toFile === undefined) {
+          if (/^\.{1,2}(?:\/|$)/u.test(imported.specifier)) gap(path, `line ${imported.span.startLine}: internal import ${JSON.stringify(imported.specifier)} in repository path ${path} names no source file`);
+          else externalImport(file, imported);
+          continue;
+        }
         toFolder = folderOf(toFile);
         toKey = fileKey(toFile);
         label = toFile;
       }
-      const id = `${path}\u0000${toKey}`;
-      const held = importCounts.get(id);
-      if (held === undefined) importCounts.set(id, { from: fileKey(path), to: toKey, specifier: imported.specifier, span: imported.span, path, count: 1 });
-      else held.count += 1;
+      recordImport(path,toKey,imported,{});
       if (file.source.role !== 'code') continue;
       if (toFile !== undefined) {
         const fileTargets = fileGraph.get(fileKey(path)) ?? new Set<string>();
@@ -467,14 +595,10 @@ export async function extractCode(reader: TreeReader): Promise<Extraction> {
     }
   }
   for (const entry of importCounts.values()) {
-    addEdge({
-      type: REL_IMPORTS,
-      from: entry.from,
-      to: entry.to,
-      discriminator: '',
-      properties: { specifier: entry.specifier, count: entry.count },
-      span: toSpan(entry.path, entry.span),
-    });
+    const readings=[...entry.readings.values()].sort((a,b)=>a.span.byteStart-b.span.byteStart||a.span.byteEnd-b.span.byteEnd||byCodePoint(a.specifier,b.specifier));
+    const first=readings[0]!;
+    const common=Object.fromEntries(Object.entries(first.properties).filter(([name,value])=>readings.every((reading)=>JSON.stringify(reading.properties[name])===JSON.stringify(value))));
+    addEdge({type:REL_IMPORTS,from:entry.from,to:entry.to,discriminator:'',properties:{...common,specifier:first.specifier,specifiers:[...new Set(readings.map((reading)=>reading.specifier))].sort(byCodePoint),count:readings.length,importReadings:readings.map((reading)=>({...reading,span:{...reading.span}}))},span:first.span});
   }
   for (const entry of moduleEdges.values()) {
     addEdge({

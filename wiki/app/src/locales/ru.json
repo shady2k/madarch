@@ -412,7 +412,8 @@
       "method": "Метод",
       "path": "Путь"
     },
-    "pageNotRead": "Не удалось прочитать страницу {{id}}: {{reason}}"
+    "pageNotRead": "Не удалось прочитать страницу {{id}}: {{reason}}",
+    "fillRebuiltExtractors": "Граф перестроен: экстракторы изменились"
   },
   "loop": {
     "questionsTitle": "Вопросы",

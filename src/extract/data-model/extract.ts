@@ -26,6 +26,9 @@
  * without models, and bytes that are not text.
  */
 import {byCodePoint} from '../../model/order.js';
+import {extractFileSyntax} from '../../fill/stages/syntax-extract.js';
+import {readGoMod} from '../../fill/stages/manifest-format.js';
+import {sourceMask} from '../operations/symbol-sites.js';
 import type {ExtractedEdge, ExtractedNode, Extraction, ExtractionGap, SourceSpan, TreeReader} from '../records.js';
 import {extractFileAccess, type AccessSite, type FileAccess, type FunctionRegion} from './access.js';
 import {indexGoPackage, resolveGoCalls, type GoPackageFile, type ResolvedCall} from './go-calls.js';
@@ -33,6 +36,7 @@ import {DATA_MODEL_PRODUCER, columnKey, databaseKey, fileKey, functionKey, index
 import {parsePrismaSchema, type PrismaModel} from './prisma.js';
 import {parseSqlScript, type SqlColumnDecl, type SqlIndexDecl, type SqlStatement, type SqlTableDecl} from './sql.js';
 import {ByteText} from './text-scan.js';
+import {isMap, isScalar, LineCounter, parseDocument} from 'yaml';
 
 const READS = 'code.reads-table' as const;
 const WRITES = 'code.writes-table' as const;
@@ -86,6 +90,7 @@ interface MergedDatabase {
   readonly name: string;
   readonly tables: Map<string, MergedTable>;
   readonly migrations: MigrationFile[];
+  readonly evidence: {readonly kind: string; readonly span: SourceSpan}[];
 }
 
 /** A table access resolved to its database: the ends an access edge carries. */
@@ -138,6 +143,10 @@ export async function extractDataModel(tree: TreeReader): Promise<Extraction> {
     }
     if (service !== undefined && languageOf(path) !== null) codePaths.push(path);
   }
+
+  // Positive connection or driver evidence may describe a database without
+  // declaring tables. A service directory, by itself, is never such evidence.
+  await collectStorageEvidence(tree, databases, gaps);
 
   // ---- the migrations, in their applied order ------------------------------
   const topLevel = migrations.filter((migration) => !migration.prisma).sort((left, right) => byCodePoint(left.database, right.database) || byCodePoint(left.name, right.name));
@@ -217,9 +226,10 @@ export async function extractDataModel(tree: TreeReader): Promise<Extraction> {
     const access = await extractFileAccess(path, tree.read(path));
     codeFiles.push({path, access, text: read.text});
     for (const gap of access.unread) gaps.push({path: gap.what, reason: `code could not be read: ${gap.reason}`});
-    const database = databaseOf(databases, serviceOf(path)!);
     for (const declaration of access.tableDeclarations) {
-      // A table the code itself creates (the migration runner's schema_migrations).
+      // A service's source files alone say nothing about storage. Only an
+      // actual CREATE declaration provides positive database evidence here.
+      const database = databaseOf(databases, serviceOf(path)!);
       const table = tableOf(database, declaration.table);
       if (table.span === undefined) table.span = declaration.span;
     }
@@ -247,9 +257,7 @@ export async function extractDataModel(tree: TreeReader): Promise<Extraction> {
     }
     const database = databases.get(service);
     if (database?.tables.has(site.table)) return tableKey(database.name, site.table);
-    const elsewhere = [...databases.values()].filter((candidate) => candidate.tables.has(site.table));
-    if (elsewhere.length === 1) return tableKey(elsewhere[0]!.name, site.table);
-    noteGap(file.path, `the table ${site.table} the code names is not declared by exactly one database of the tree`);
+    noteGap(file.path, `line ${site.span.lineStart}: table ${site.table} is not declared by service ${service}'s database; no connection evidence resolves it to a sibling database (${file.path})`);
     return undefined;
   };
 
@@ -411,13 +419,16 @@ export async function extractDataModel(tree: TreeReader): Promise<Extraction> {
   for (const database of [...databases.values()].sort((left, right) => byCodePoint(left.name, right.name))) {
     // The database's place is the first file that declares it — its first migration, its schema, or the folder it
     // stands in — and every migration names its own file (madarch-m38l.16: a node says where it stands).
-    const declaredIn = database.migrations[0]?.path ?? prismaSchemas.get(database.name) ?? firstTablePath(database) ?? serviceFile(tree, database.name);
+    const declaredIn = database.migrations[0]?.path ?? prismaSchemas.get(database.name) ?? firstTablePath(database);
+    const evidence = database.evidence[0];
+    const span = declaredIn === undefined ? evidence?.span : wholeFile(tree, declaredIn);
+    if (span === undefined) throw new Error(`data model: database ${database.name} has no positive storage evidence`);
     nodes.push({
       key: databaseKey(database.name),
       kind: 'code.database',
       label: database.name,
-      properties: {service: database.name, ...(declaredIn === undefined ? {} : {path: declaredIn})},
-      ...(declaredIn === undefined ? {} : {span: wholeFile(tree, declaredIn)}),
+      properties: {service: database.name, path: span.path, evidenceKind: declaredIn === undefined ? evidence!.kind : 'schema', evidence: database.evidence.map((item) => ({kind: item.kind, path: item.span.path, line: item.span.lineStart}))},
+      span,
     });
     for (const migration of database.migrations) {
       nodes.push({
@@ -532,7 +543,7 @@ export async function extractDataModel(tree: TreeReader): Promise<Extraction> {
   };
   for (const database of databases.values()) {
     const dbKey = databaseKey(database.name);
-    structuralEdges.push({type: 'code.uses-database', from: `code.service:${database.name}`, to: dbKey, discriminator: '', properties: {via: 'schema'}});
+    structuralEdges.push({type: 'code.uses-database', from: `code.service:${database.name}`, to: dbKey, discriminator: '', properties: {via: database.migrations.length > 0 || database.tables.size > 0 ? 'schema' : database.evidence[0]?.kind ?? 'connection'}});
     for (const migration of database.migrations) {
       const migrationId = migrationKey(database.name, migration.name);
       edge('code.contains', dbKey, migrationId);
@@ -565,6 +576,7 @@ export async function extractDataModel(tree: TreeReader): Promise<Extraction> {
       }
     }
   }
+  for (const node of nodes) if (node.kind !== 'code.file' && node.span !== undefined) edge('code.contains', fileKey(node.span.path), node.key, node.span);
   const edges: ExtractedEdge[] = [...structuralEdges, ...foreignEdges, ...logicalEdges, ...edgeDrafts.map(toEdge)].sort(edgeOrder);
   return {
     producer: DATA_MODEL_PRODUCER,
@@ -617,7 +629,7 @@ function languageOf(path: string): string | null {
 function databaseOf(databases: Map<string, MergedDatabase>, name: string): MergedDatabase {
   const held = databases.get(name);
   if (held !== undefined) return held;
-  const created: MergedDatabase = {name, tables: new Map(), migrations: []};
+  const created: MergedDatabase = {name, tables: new Map(), migrations: [], evidence: []};
   databases.set(name, created);
   return created;
 }
@@ -633,12 +645,6 @@ function tableOf(database: MergedDatabase, name: string, schema = 'public'): Mer
 }
 
 /** Reads a path's bytes as text; the reason is the gap when they cannot be read. */
-
-/** The file a service's own folder holds, for a database whose schema no single file declares: its manifest, else its first file. */
-function serviceFile(tree: TreeReader, service: string): string | undefined {
-  for (const candidate of [`services/${service}/package.json`, `services/${service}/go.mod`, `services/${service}/prisma/schema.prisma`]) if (tree.paths.includes(candidate)) return candidate;
-  return tree.paths.filter((path) => path.startsWith(`services/${service}/`)).sort(byCodePoint)[0];
-}
 
 /** The file a database without a migration is declared in: the file of its first table, or none. */
 function firstTablePath(database: MergedDatabase): string | undefined {
@@ -658,6 +664,82 @@ function wholeFile(tree: TreeReader, path: string): SourceSpan {
     }
   })();
   return {path, byteStart: 0, byteEnd: bytes, lineStart: 1, lineEnd: lines};
+}
+
+/** Reads only explicit storage declarations; generic config files never imply a database. */
+async function collectStorageEvidence(tree: TreeReader, databases: Map<string, MergedDatabase>, gaps: ExtractionGap[]): Promise<void> {
+  const spanAt = (path: string, text: string, start: number, end: number): SourceSpan => {
+    const bytes = new ByteText(text);
+    return {path, byteStart: bytes.byteAt(start), byteEnd: bytes.byteAt(end), lineStart: bytes.lineOf(bytes.byteAt(start)), lineEnd: bytes.lineOf(bytes.byteAt(end))};
+  };
+  const add = (service: string, kind: string, span: SourceSpan): void => {
+    databaseOf(databases, service).evidence.push({kind, span});
+  };
+  for (const path of [...tree.paths].sort(byCodePoint)) {
+    const service = serviceOf(path);
+    const source = service !== undefined && /(?:\.(?:go|ts|js|json)|\/go\.mod|\.?env(?:\.[^/]*)?)$/.test(path);
+    const compose = /(?:^|\/)(?:docker-)?compose(?:\.[^/.]+)?\.ya?ml$/.test(path);
+    if (!source && !compose) continue;
+    const read = readUtf8(tree, path);
+    if (!read.ok) { gaps.push({path, reason: read.reason}); continue; }
+    const text = read.text;
+    if (service !== undefined && source) {
+      const driver = /^(?:pg|postgres|mysql2?|better-sqlite3|sqlite3|@prisma\/client|github\.com\/(?:jackc\/pgx(?:\/.*)?|lib\/pq|go-sql-driver\/mysql)|modernc\.org\/sqlite)$/;
+      if (/\.(?:go|ts|js)$/.test(path)) {
+        const syntax = await extractFileSyntax(path, tree.read(path));
+        for (const imported of syntax.imports) if (driver.test(imported.specifier)) add(service, 'driver', {
+          path, byteStart: imported.span.startByte, byteEnd: imported.span.endByte, lineStart: imported.span.startLine, lineEnd: imported.span.endLine,
+        });
+        // Only an actual environment read is evidence. A comment, prose string
+        // or same-named local constant is not a connection setting.
+        const mask = sourceMask(text);
+        for (const match of mask.matchAll(/\bprocess\.env\.(?:DATABASE_URL|DB_URL|DB_DSN|POSTGRES_URL|MYSQL_URL)\b/g)) add(service, 'connection-setting', spanAt(path, text, match.index, match.index + match[0].length));
+        const getenv = /\bos\.Getenv\(\s*"(?:DATABASE_URL|DB_URL|DB_DSN|POSTGRES_URL|MYSQL_URL)"\s*\)/g;
+        for (const match of text.matchAll(getenv)) if (mask.slice(match.index, match.index + 2) === 'os') add(service, 'connection-setting', spanAt(path, text, match.index, match.index + match[0].length));
+      } else if (path.endsWith('/package.json')) {
+        try {
+          const manifest = JSON.parse(text) as {dependencies?: Record<string, unknown>; devDependencies?: Record<string, unknown>};
+          for (const name of Object.keys({...manifest.devDependencies, ...manifest.dependencies}).sort(byCodePoint)) if (driver.test(name)) {
+            const at = text.indexOf(JSON.stringify(name)); add(service, 'driver', spanAt(path, text, at, at + name.length + 2));
+          }
+        } catch (error) { gaps.push({path, reason: `line 1: storage evidence cannot read package.json: ${error instanceof Error ? error.message : String(error)}`}); }
+      } else if (path.endsWith('/go.mod')) {
+        const manifest = readGoMod(text);
+        if (manifest.ok) for (const entry of manifest.value.requires) if (driver.test(entry.path)) {
+          const at = text.split('\n').slice(0, entry.line - 1).join('\n').length + (entry.line > 1 ? 1 : 0); add(service, 'driver', spanAt(path, text, at, at + (text.split('\n')[entry.line - 1]?.length ?? 0)));
+        }
+      } else {
+        for (const match of text.matchAll(/^\s*(?:DATABASE_URL|DB_URL|DB_DSN|POSTGRES_URL|MYSQL_URL)\s*=\s*[^#\s][^\n]*/gm)) add(service, 'connection-setting', spanAt(path, text, match.index, match.index + match[0].length));
+      }
+    }
+    if (compose) {
+      const lc = new LineCounter();
+      const doc = parseDocument(text, {lineCounter: lc});
+      if (doc.errors.length > 0) { for (const error of doc.errors) gaps.push({path, reason: `line ${lc.linePos(error.pos[0]).line}: ${error.message}`}); continue; }
+      if (!isMap(doc.contents)) continue;
+      const services = doc.contents.get('services', true);
+      if (!isMap(services)) continue;
+      for (const pair of services.items) {
+        if (!isScalar(pair.key) || typeof pair.key.value !== 'string' || !isMap(pair.value)) continue;
+        const name = pair.key.value;
+        // Associate only product services actually present in this tree, not
+        // an arbitrary compose infrastructure service or image label.
+        if (!tree.paths.some((candidate) => candidate.startsWith(`services/${name}/`))) continue;
+        const env = pair.value.get('environment', true);
+        if (!isMap(env)) continue;
+        for (const item of env.items) {
+          if (!isScalar(item.key) || !/^(?:DATABASE_URL|DB_URL|DB_DSN|POSTGRES_URL|MYSQL_URL)$/.test(String(item.key.value))) continue;
+          if (!isScalar(item.value) || typeof item.value.value !== 'string') continue;
+          const range = item.value.range ?? item.key.range;
+          if (range == null || !Number.isSafeInteger(range[0]) || !Number.isSafeInteger(range[1]) || range[0] < 0 || range[1] <= range[0] || range[1] > text.length) {
+            gaps.push({path, reason: `line 1: deployment connection setting ${String(item.key.value)} of service ${name} has no valid source range; no storage evidence is created`});
+            continue;
+          }
+          add(name, 'deployment-connection', spanAt(path, text, range[0], range[1]));
+        }
+      }
+    }
+  }
 }
 
 function readUtf8(tree: TreeReader, path: string): TextOrGap {
@@ -774,6 +856,7 @@ function applyPrismaModel(
       ...(field.default !== undefined ? {default: field.default} : {}),
       primaryKey: field.primaryKey,
       unique: field.unique,
+      span: field.span,
     });
   }
   if (table.primaryKey.length === 0) {

@@ -62,6 +62,8 @@ import type { GraphId, GraphStore } from '../../graph/index.js';
 import { sha256Hex } from '../../graph/index.js';
 import type { GraphRegistry } from '../../graph/vocabulary.js';
 import type { Extraction, SourceSpan, TreeReader } from '../records.js';
+import { linkExtractions, LINKS_PRODUCER } from './links.js';
+import { endpointRelations } from './relationships.js';
 import { commitTree, resolvePoint, walkDefaultBranch, type CommitFact, type FillPoint } from './git.js';
 
 export type { CommitFact, FillPoint } from './git.js';
@@ -70,7 +72,7 @@ export type { CommitFact, FillPoint } from './git.js';
 export const DRIVER_PRODUCER = 'code.extract.driver';
 
 /** A tree extractor: a pure function over one commit's tree (src/extract/*); it may be async. */
-export type TreeExtractor = (tree: TreeReader) => Extraction | Promise<Extraction>;
+export type TreeExtractor = (tree: TreeReader, code?: Extraction) => Extraction | Promise<Extraction>;
 
 /**
  * The history extractor's shape: it reads the repository's history itself, not
@@ -91,9 +93,10 @@ export interface FillOptions {
    * Node ownership: each kind named here has exactly one owning producer, the
    * only one that publishes versions of nodes of that kind. Another producer's
    * node of the kind is dropped by the driver and its edges end at the owner's
-   * node; see `publishExtraction`. The owners publish first within a commit,
-   * in the order this list holds them (an owner of a later kind may name an
-   * earlier owner's nodes). Kinds not named have no owner and publish as before.
+   * node. The driver resolves per-key declarations and publishes cross-producer
+   * relations after every real endpoint exists, so cyclic producer dependencies
+   * need no evidence-free reference nodes. Kinds not named prefer the first
+   * extractor that actually declares the key.
    */
   readonly owners?: Readonly<Record<string, string>>;
   /** The history records, published once, at the last commit, under their own producer. */
@@ -358,6 +361,7 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
     return found;
   };
   let pointMaps = new Map<string, Map<string, GraphId>>();
+  let keyOwners: ReadonlyMap<string, string> = new Map();
 
   /** Registers the kinds and relation types an extraction newly emits, and the kinds of the ends it opens for another producer's keys. */
   const registerSchema = async (extraction: Extraction, extraKinds: readonly string[] = []): Promise<void> => {
@@ -378,7 +382,7 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
     const extractions: Extraction[] = [];
     for (const extractor of options.extractors) {
       try {
-        extractions.push(await extractor(tree));
+        extractions.push(await extractor(tree, extractions.find((entry) => entry.producer === 'code.extract.code')));
       } catch (error) {
         const name = extractor.name === '' ? 'an unnamed extractor' : `the extractor "${extractor.name}"`;
         throw new Error(`extract driver: ${name} failed over commit ${commit.hash} ("${commit.subject}", generation ${commit.generation}) of ${repository}: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
@@ -440,11 +444,11 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
     /** The owner of a key whose node the owner holds in this commit; a key the owner lacks stays this producer's own reference node. */
     const ownerOf = (key: string): string | undefined => {
       const kind = key.slice(0, key.indexOf(':'));
-      const owner = owners[kind];
+      const owner = keyOwners.get(key) ?? owners[kind];
       return owner !== undefined && owner !== extraction.producer && present.has(owner) && ownerNode(owner, key) !== undefined ? owner : undefined;
     };
     const ownedKind = (key: string): string | undefined => {
-      const owner = owners[key.slice(0, key.indexOf(':'))];
+      const owner = keyOwners.get(key) ?? owners[key.slice(0, key.indexOf(':'))];
       return owner !== undefined && owner !== extraction.producer && present.has(owner) ? owner : undefined;
     };
     const dangling = new Set<string>();
@@ -550,7 +554,7 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
     // then exist under two producers, which the per-producer rule above
     // already allows.
     const ownerKeyMaps = new Map<string, Map<string, GraphId>>();
-    for (const owner of new Set(Object.values(owners))) if (owner !== extraction.producer && present.has(owner)) ownerKeyMaps.set(owner, mode.kind === 'tip' ? await (await keys(owner)).current() : (pointMaps.get(owner) ?? new Map()));
+    for (const owner of new Set([...Object.values(owners), ...keyOwners.values()])) if (owner !== extraction.producer && present.has(owner)) ownerKeyMaps.set(owner, mode.kind === 'tip' ? await (await keys(owner)).current() : (pointMaps.get(owner) ?? new Map()));
     const declared = new Set(effective.nodes.map((node) => node.key));
     const ownedIds = new Map<string, GraphId>();
     const foreignEnds = [...new Set(effective.edges.flatMap((edge) => [edge.from, edge.to]))]
@@ -563,7 +567,6 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
         if (id === undefined) throw new Error(`extract driver: ${where}: the owner "${owner}" holds a node for ${key} in this commit but published no identity for it`);
         ownedIds.set(key, id);
         return false;
-        return true;
       });
     // Every node any extraction declared for a key, the first with a span winning: a reference node takes the place of
     // the node that named it (madarch-m38l.16).
@@ -722,12 +725,19 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
     if (skipRead && await alreadyRead(commit)) {
       return { done: { hash: commit.hash, generation: commit.generation, effectiveTime: commit.effectiveTime, durationMs: Date.now() - commitStarted, publications: 0, gaps: 0 }, present: new Map() };
     }
-    const extractions = await runExtractors(commit, commitTree(repository, commit.hash));
+    const linked = linkExtractions(endpointRelations(await runExtractors(commit, commitTree(repository, commit.hash))), options.owners ?? {});
+    const extractions = linked.extractions;
+    keyOwners = linked.keyOwners;
     const present = new Map(extractions.map((extraction) => [extraction.producer as string, extraction]));
     pointMaps = new Map();
     let publications = 0;
     let gapCount = 0;
-    for (const extraction of [...extractions].sort((a, b) => rank(a.producer) - rank(b.producer))) {
+    for (const extraction of [...extractions].sort((a, b) => a.producer === LINKS_PRODUCER ? 1 : b.producer === LINKS_PRODUCER ? -1 : rank(a.producer) - rank(b.producer))) {
+      if(extraction.producer===LINKS_PRODUCER&&extraction.edges.length===0&&extraction.nodes.length===0) {
+        const published=await query<{present:boolean}>(owner,`SELECT EXISTS(SELECT 1 FROM work_item WHERE producer=$1 AND scope_id=$2::bigint AND published_at IS NOT NULL) AS present`,[LINKS_PRODUCER,repositoryNode]);
+        // There is no old link stream to sweep on first use. Once one exists, an empty publication MUST retire it.
+        if(published[0]?.present!==true) {gapCount+=extraction.gaps.length;continue;}
+      }
       if (await publishExtraction(extraction, present, commit.generation, commit.effectiveTime, digestOf(commit), modeOf(commit), whereOf(commit))) publications += 1;
       gapCount += extraction.gaps.length;
     }

@@ -138,6 +138,7 @@ export type GroupSummary = { group: string; labels: Record<string, string> };
 export type EntityListing = { kind: string; total: number; rows: EntityRef[]; next: string | null };
 
 export type FillState = {
+  rebuilt?: 'extractors-changed';
   state: 'idle' | 'running' | 'done' | 'failed';
   repository?: string;
   phase?: 'code' | 'history' | 'points';

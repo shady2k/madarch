@@ -21,6 +21,8 @@ export interface GoRoute {
   readonly handler: string;
   /** The handler's owner resolved through the field or receiver it comes through (`OrderHandlers.Export`). */
   readonly handlerSymbol: string;
+  readonly handlerSpan: SourceSpan;
+  readonly inline: boolean;
   /** The middleware chain, outermost first, as written. */
   readonly middleware: readonly string[];
   /** Whether the chain carries the auth middleware. */
@@ -45,6 +47,8 @@ export interface GoKafkaSite {
   /** For a consume: the topic expression as written, and the group literal. */
   readonly topic?: string;
   readonly group?: string;
+  readonly readerOwner?: string;
+  readonly readerField?: string;
   readonly span: SourceSpan;
 }
 
@@ -82,6 +86,7 @@ export interface GoFileFacts {
   /** The methods each method of the file calls, by the caller's name. */
   readonly calledMethods: ReadonlyMap<string, readonly string[]>;
   readonly kafkaSites: readonly GoKafkaSite[];
+  readonly kafkaReads: readonly {owner: string; field: string; span: SourceSpan}[];
   /** The middleware a `X := Chain(...)` binding names, and whether it authenticates. */
   readonly chainBindings: ReadonlyMap<string, {names: readonly string[]; auth: boolean}>;
   /** The chain of the router's global wrap, when the file returns `Chain(...)(mux)`. */
@@ -92,6 +97,8 @@ interface RawRoute {
   method: string;
   path: string;
   handlerText: string;
+  handlerSpan: SourceSpan;
+  inline: boolean;
   wrappedBy?: string;
   span: SourceSpan;
 }
@@ -122,7 +129,7 @@ function chainOf(call: SyntaxNode): {names: string[]; auth: boolean} {
 }
 
 /** The handler expression at the bottom of middleware wrappers (`authed(http.HandlerFunc(h))` -> h). */
-function unwrappedHandler(node: SyntaxNode): string {
+function unwrappedHandler(node: SyntaxNode): SyntaxNode {
   let held = node;
   while (held.type === 'call_expression' || held.type === 'parenthesized_expression') {
     if (held.type === 'call_expression') {
@@ -136,8 +143,7 @@ function unwrappedHandler(node: SyntaxNode): string {
     }
   }
   // A literal handler has no name to carry; the property stays small.
-  if (held.type === 'func_literal') return '<function literal>';
-  return held.text;
+  return held;
 }
 
 export function readGoFile(path: string, root: SyntaxNode): GoFileFacts {
@@ -151,6 +157,7 @@ export function readGoFile(path: string, root: SyntaxNode): GoFileFacts {
   const serverAddrs = new Map<string, string>();
   const routes: GoRoute[] = [];
   const kafkaSites: GoKafkaSite[] = [];
+  const kafkaReads: {owner: string; field: string; span: SourceSpan}[] = [];
   const chainBindings = new Map<string, {names: string[]; auth: boolean}>();
   let globalChain: string[] = [];
   let entryPoint = false;
@@ -296,24 +303,49 @@ export function readGoFile(path: string, root: SyntaxNode): GoFileFacts {
         const method = space > 0 ? pattern.slice(0, space) : '';
         const routePath = space > 0 ? pattern.slice(space + 1) : pattern;
         const wrappedBy = handlerNode.type === 'call_expression' ? calleeName(handlerNode) : undefined;
-        rawRoutes.push({method, path: routePath, handlerText: unwrappedHandler(handlerNode), wrappedBy, span: spanOf(node, path)});
+        const handler = unwrappedHandler(handlerNode);
+        rawRoutes.push({method, path: routePath, handlerText: handler.text, handlerSpan: spanOf(handler, path), inline: handler.type === 'func_literal', wrappedBy, span: spanOf(node, path)});
       }
       return;
+    }
+    if (node.type === 'call_expression' && ['FetchMessage', 'ReadMessage'].includes(calleeName(node) ?? '')) {
+      const object = node.childForFieldName('function')?.childForFieldName('operand')?.text;
+      const match = object === undefined ? null : /^([A-Za-z_][\w]*)\.([A-Za-z_][\w]*)$/.exec(object);
+      const owner = match === null ? undefined : receiverNames.get(match[1]!);
+      if (owner !== undefined) kafkaReads.push({owner, field: match![2]!, span: spanOf(node, path)});
     }
     // kafka.Message{...} -- a publish site; kafka.ReaderConfig{...} -- a consume site.
     // The composite is the one node of the tree whose text starts with the type,
     // whatever the parse wraps around it.
     if (/^kafka\.Message\{/.test(node.text)) {
-      kafkaSites.push({kind: 'publish', span: spanOf(node, path)});
+      const topic = /\bTopic:\s*("[^"\n]*"|[A-Za-z_][\w.]*)/.exec(node.text)?.[1];
+      kafkaSites.push({kind: 'publish', ...(topic === undefined ? {} : {topic}), span: spanOf(node, path)});
       return;
     }
     if (/^kafka\.ReaderConfig\{/.test(node.text)) {
-      const topicMatch = /\bTopic:\s*([A-Za-z0-9_.]+)/.exec(node.text);
+      const topicMatch = /\bTopic:\s*("[^"\n]*"|[A-Za-z0-9_.]+)/.exec(node.text);
       const groupMatch = /\bGroupID:\s*"([^"]*)"/.exec(node.text);
+      // Tie a reader config to the returned struct field, so consumption belongs
+      // to the method that actually reads it rather than its constructor.
+      let declaration: SyntaxNode | null = node;
+      let fn: SyntaxNode | null = node;
+      while (declaration !== null && declaration.type !== 'short_var_declaration') declaration = declaration.parent;
+      while (fn !== null && fn.type !== 'function_declaration') fn = fn.parent;
+      const variable = declaration?.childForFieldName('left')?.namedChild(0)?.text;
+      const readerOwner = fn?.childForFieldName('result')?.text.replace(/^\*/, '');
+      let readerField: string | undefined;
+      if (fn !== null && variable !== undefined) walkTree(fn, (inner) => {
+        if (inner.type !== 'keyed_element') return;
+        const value = inner.childForFieldName('value')?.text ?? inner.namedChild(1)?.text;
+        const key = inner.childForFieldName('key')?.text ?? inner.namedChild(0)?.text;
+        if (value === variable) readerField = key;
+      });
       kafkaSites.push({
         kind: 'consume',
         topic: topicMatch?.[1],
         group: groupMatch?.[1],
+        readerOwner,
+        readerField,
         span: spanOf(node, path),
       });
       return;
@@ -355,7 +387,7 @@ export function readGoFile(path: string, root: SyntaxNode): GoFileFacts {
     const owned = owner.includes('.') ? owner.slice(owner.lastIndexOf('.') + 1) : owner;
     const fieldType = structFields.get(owned) ?? receiverNames.get(owned);
     const handlerSymbol = fieldType !== undefined ? `${fieldType}.${raw.handlerText.slice(dot + 1)}` : raw.handlerText;
-    routes.push({method: raw.method, path: raw.path, handler: raw.handlerText, handlerSymbol, middleware, authGroup: auth, span: raw.span});
+    routes.push({method: raw.method, path: raw.path, handler: raw.handlerText, handlerSymbol, handlerSpan: raw.handlerSpan, inline: raw.inline, middleware, authGroup: auth, span: raw.span});
   }
 
   // What main starts, from its own body and the bodies of the zero-argument local functions it calls.
@@ -419,6 +451,7 @@ export function readGoFile(path: string, root: SyntaxNode): GoFileFacts {
     interfaceMethods,
     calledMethods: new Map([...calledMethods].map(([name, called]) => [name, [...called].sort()])),
     kafkaSites,
+    kafkaReads,
     chainBindings,
     globalChain,
   };

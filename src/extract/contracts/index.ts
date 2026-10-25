@@ -20,6 +20,7 @@
  *   results reach `$queryRawUnsafe`, through the file's local bindings.
  */
 import {asyncApiNodes, readAsyncApi} from './asyncapi.js';
+import {contractSymbols} from './symbol-links.js';
 import {readGoFile, resolveGoStarts, duplicatesByStatusComparison, type GoFileFacts} from './go-code.js';
 import {openApiNodes, readOpenApi} from './openapi.js';
 import {protoNodes, readProto} from './proto.js';
@@ -88,13 +89,13 @@ function wholeFileSpan(path: string, text: string): SourceSpan {
   return {path, byteStart: 0, byteEnd: Buffer.byteLength(text, 'utf8'), lineStart: 1, lineEnd: lines};
 }
 
-export async function extractContracts(reader: TreeReader): Promise<Extraction> {
+export async function extractContracts(reader: TreeReader, code?: Extraction): Promise<Extraction> {
   const nodes: ExtractedNode[] = [];
   const edges: ExtractedEdge[] = [];
   const gaps: ExtractionGap[] = [];
 
   // ---- the contracts --------------------------------------------------------
-  const openApiOperations: {method: string; routePath: string; key: string}[] = [];
+  const openApiOperations: {method: string; routePath: string; key: string; servers: readonly string[]; contractPath: string}[] = [];
   const channels: string[] = [];
   const protoRpcs: {protoPath: string; service: string; rpc: string; key: string}[] = [];
   const declarations: {contract: string; member: string; relation: `code.${string}`}[] = [];
@@ -127,7 +128,7 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
       nodes.push(...openApiNodes(contract));
       for (const op of contract.operations) declarations.push({contract: `code.contract:${p}`, member: operationKey(p, `${op.method}:${op.path}`), relation: 'code.declares'});
       for (const op of contract.operations) {
-        openApiOperations.push({method: op.method, routePath: op.path, key: `code.operation:${p}#${op.method}:${op.path}`});
+        openApiOperations.push({method: op.method, routePath: op.path, key: `code.operation:${p}#${op.method}:${op.path}`, servers: op.servers, contractPath: p});
       }
     } else if (format === 'asyncapi') {
       const {contract, gaps: fileGaps} = readAsyncApi(p, text);
@@ -173,6 +174,8 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
     nodes[at] = {...node, properties: {...node.properties, path}, span};
   }
 
+  const symbols = await contractSymbols(reader, nodes, code);
+
   // ---- the code, one walk per file ------------------------------------------
   const goFiles: GoFacts[] = [];
   const tsFiles: TsFacts[] = [];
@@ -199,8 +202,42 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
   // service, and an edge would invent one (madarch-m38l.16).
   const serviceOf = (path: string): string | undefined => /^services\/([^/]+)\//.exec(path)?.[1];
   const folderOf = (path: string): string => path.slice(0, Math.max(0, path.lastIndexOf('/')));
-  const goMethodFiles = new Map<string, string>();
-  for (const file of goFiles) for (const method of file.go.methods) if (!goMethodFiles.has(method)) goMethodFiles.set(method, file.path);
+  // Listening ports are evidence for a contract server's service, not a global path guess.
+  const portsByService = new Map<string, Set<string>>();
+  for (const file of [...goFiles, ...tsFiles]) {
+    const service = serviceOf(file.path);
+    if (service === undefined) continue;
+    const ports = portsByService.get(service) ?? new Set<string>();
+    if ('go' in file) {
+      for (const addr of file.go.serverAddrs.values()) {
+        const literal = file.go.consts.get(addr) ?? addr;
+        const port = /:(\d+)\b/.exec(literal)?.[1];
+        if (port !== undefined) ports.add(port);
+      }
+    } else for (const start of file.ts.started) {
+      if (start.kind === 'http-server' && start.port !== undefined && /^\d+$/.test(start.port)) ports.add(start.port);
+    }
+    portsByService.set(service, ports);
+  }
+  const servicesOfServers = (servers: readonly string[]): Set<string> => {
+    const services = new Set<string>();
+    for (const server of servers) {
+      try {
+        const url = new URL(server);
+        if (portsByService.has(url.hostname)) {services.add(url.hostname); continue;}
+        const byPort = [...portsByService].filter(([, ports]) => url.port !== '' && ports.has(url.port));
+        if (byPort.length === 1 && ['localhost', '127.0.0.1', '0.0.0.0'].includes(url.hostname)) services.add(byPort[0]![0]);
+      } catch { /* Relative or variable server URLs alone do not identify a service. */ }
+    }
+    return services;
+  };
+  const operationPaths = (operation: typeof openApiOperations[number]): string[] => {
+    const paths = operation.servers.flatMap((server) => {
+      try { return [joinPath(new URL(server, 'http://relative.invalid').pathname, operation.routePath)]; } catch { return []; }
+    });
+    return paths.length === 0 ? [operation.routePath] : paths;
+  };
+  const operationMatches = (route: {method: string; path: string}, operation: typeof openApiOperations[number]): boolean => route.method === operation.method && operationPaths(operation).some((path) => pathMatches(route.path, path));
 
   /** The middleware of a service whose function verifies a token with HS256. */
   const authMiddleware = new Map<string, string>();
@@ -252,6 +289,15 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
     edges.push({type, from, to, discriminator: '', properties, ...(span !== undefined ? {span} : {})});
   };
 
+  const interaction = (type: `code.${string}`, path: string, target: string, properties: {[key: string]: PropertyValue}, span: SourceSpan): void => {
+    const source = symbols.enclosing(span);
+    // Preserve the file-level overview as explicitly aggregated evidence. The
+    // canonical interaction starts at a real function, including inline handlers.
+    edges.push({type, from: fileKey(path), to: target, discriminator: String(span.byteStart), properties: {...properties, summary: true}, span});
+    if (source !== undefined) edges.push({type, from: source, to: target, discriminator: String(span.byteStart), properties, span});
+    else gaps.push({path, reason: `contracts: line ${span.lineStart}: ${type} site has no resolved enclosing function (${path})`});
+  };
+
   const constantForService = (service: string, channel: string): {name: string; path: string} | undefined => {
     for (const file of [...goFiles, ...tsFiles]) {
       if (serviceOf(file.path) !== service) continue;
@@ -271,6 +317,12 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
     return undefined;
   };
 
+  const topicValue = (service: string | undefined, expression: string | undefined): string | undefined => {
+    if (expression === undefined) return undefined;
+    const literal = /^['"](.*)['"]$/.exec(expression)?.[1];
+    return literal ?? (service === undefined ? undefined : constValue(service, expression));
+  };
+
   // ---- Go: routes, entry points, Kafka ---------------------------------------
   for (const file of goFiles) {
     const service = serviceOf(file.path);
@@ -283,13 +335,16 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
         handlerSymbol: route.handlerSymbol,
         middleware: route.middleware,
         authGroup: route.authGroup,
+        ...(service === undefined ? {} : {service}),
         ...(route.authGroup && auth !== undefined && route.middleware.some((name) => name.replace(/\(.*/, '') === auth) ? {authAlgorithm: 'HS256'} : {}),
       };
-      const handlerFile = goMethodFiles.get(route.handlerSymbol);
-      if (handlerFile !== undefined) {
-        properties['handlerPath'] = handlerFile;
-        properties['handlerKey'] = `code.symbol:${handlerFile}#${route.handlerSymbol}`;
-      }
+      const handler = symbols.handler(route.handlerSpan, route.inline, `${route.method}:${route.path}`);
+      if (handler !== undefined) {
+        properties['handlerPath'] = handler.slice('code.symbol:'.length, handler.indexOf('#'));
+        properties['handlerKey'] = handler;
+        addEdge('code.handled-by', routeKey(file.path, route.method, route.path), handler, {}, route.handlerSpan);
+        edges.push({type: 'code.references', from: symbols.enclosing(route.span) ?? fileKey(file.path), to: handler, discriminator: String(route.handlerSpan.byteStart), properties: {role: 'callback-registration'}, span: route.handlerSpan});
+      } else gaps.push({path: file.path, reason: `contracts: line ${route.handlerSpan.lineStart}: handler ${route.handler} is not resolved to a function symbol (${file.path})`});
       nodes.push({
         key: routeKey(file.path, route.method, route.path),
         kind: KIND_ROUTE,
@@ -324,7 +379,12 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
 
     for (const site of file.go.kafkaSites) {
       if (site.kind === 'publish') {
-        // The site names no topic: it publishes the rows of the outbox table.
+        const direct = topicValue(service, site.topic);
+        if (direct !== undefined && channels.includes(direct)) {
+          interaction(REL_PUBLISHES, file.path, channelKey(direct), {topic: direct}, site.span);
+          continue;
+        }
+        // The site names no resolved topic: it publishes the rows of the outbox table.
         // A channel is claimed only when the constant that names it is written
         // into that same table -- the writer's file carries the INSERT.
         for (const channel of channels) {
@@ -338,7 +398,7 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
             return text !== undefined && /FROM\s+outbox/.test(text);
           });
           if (!readsOutbox) continue;
-          addEdge(REL_PUBLISHES, fileKey(file.path), channelKey(channel), {
+          interaction(REL_PUBLISHES, file.path, channelKey(channel), {
             topic: channel,
             constant: constant.name,
             constantPath: constant.path,
@@ -348,12 +408,13 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
         continue;
       }
       if (site.topic === undefined) continue;
-      const topic = service === undefined ? undefined : constValue(service, site.topic);
+      const topic = topicValue(service, site.topic);
       if (topic === undefined || !channels.includes(topic)) continue;
       const properties: {[key: string]: PropertyValue} = {topic, ...(site.group !== undefined ? {group: site.group} : {})};
       // The handler the consumer delegates to, its mapping, and its behaviour.
       for (const name of file.go.interfaceMethods) {
-        const methodFile = goFiles.find((held) => held.go.methods.some((method) => method.endsWith(`.${name}`)));
+        const candidates = goFiles.filter((held) => serviceOf(held.path) === service && held.go.methods.some((method) => method.endsWith(`.${name}`)));
+        const methodFile = candidates.length === 1 ? candidates[0] : undefined;
         const methodKey = methodFile?.go.methods.find((method) => method.endsWith(`.${name}`));
         if (methodFile === undefined || methodKey === undefined) continue;
         properties['handler'] = methodKey;
@@ -365,7 +426,12 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
         break;
       }
       if (file.go.unconditionalCommit) properties['offsetCommit'] = 'unconditional';
-      addEdge(REL_CONSUMES, fileKey(file.path), channelKey(topic), properties, site.span);
+      const reads = file.go.kafkaReads.filter((read) => site.readerOwner !== undefined && site.readerField !== undefined && read.owner === site.readerOwner && read.field === site.readerField);
+      if (reads.length > 0) for (const read of reads) interaction(REL_CONSUMES, file.path, channelKey(topic), properties, read.span);
+      else {
+        // Construction proves subscription intent, not execution by a consuming function.
+        addEdge(REL_CONSUMES, fileKey(file.path), channelKey(topic), {...properties, summary: true, configured: true}, site.span);
+      }
     }
   }
 
@@ -387,6 +453,11 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
       const chain = mount !== undefined ? [...appMiddlewares, ...mount.mount.middlewares, ...route.middleware] : route.middleware;
       const path = mount !== undefined ? joinPath(mount.mount.prefix, route.path) : route.path;
       const authName = auth !== undefined ? chain.find((name) => name === auth) : undefined;
+      const handler = route.handler === undefined ? undefined : symbols.handler(route.handler.span, route.handler.inline, `${route.method}:${path}`);
+      if (handler !== undefined) {
+        addEdge('code.handled-by', routeKey(file.path, route.method, path), handler, {}, route.handler!.span);
+        edges.push({type: 'code.references', from: symbols.enclosing(route.span) ?? fileKey(file.path), to: handler, discriminator: String(route.handler!.span.byteStart), properties: {role: 'callback-registration'}, span: route.handler!.span});
+      } else gaps.push({path: file.path, reason: `contracts: line ${route.span.lineStart}: route ${route.method} ${path} has no resolved handler function (${file.path})`});
       nodes.push({
         key: routeKey(file.path, route.method, path),
         kind: KIND_ROUTE,
@@ -394,6 +465,8 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
         properties: {
           method: route.method,
           path,
+          ...(service === undefined ? {} : {service}),
+          ...(handler === undefined ? {} : {handlerKey: handler, handlerPath: handler.slice('code.symbol:'.length, handler.indexOf('#'))}),
           middleware: chain,
           authGroup: authName !== undefined,
           ...(authName !== undefined ? {authAlgorithm: 'HS256'} : {}),
@@ -435,7 +508,10 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
         const match = rpcs.find((rpc) => rpc.rpc.toLowerCase() === site.rpc.toLowerCase());
         if (match === undefined) continue;
         if (site.kind === 'serve') {
-          addEdge(REL_SERVES, fileKey(file.path), match.key, {handler: site.fn !== undefined ? `${site.fn}.${site.rpc}` : site.rpc}, site.span);
+          const handler = site.handlerSpan === undefined ? undefined : symbols.handler(site.handlerSpan, true, `grpc:${site.rpc}`);
+          const properties = {handler: site.fn !== undefined ? `${site.fn}.${site.rpc}` : site.rpc};
+          addEdge(REL_SERVES, fileKey(file.path), match.key, {...properties, summary: true}, site.span);
+          if (handler !== undefined) addEdge(REL_SERVES, handler, match.key, properties, site.span);
         } else {
           const properties: {[key: string]: PropertyValue} = {client: site.fn !== undefined ? site.fn : site.rpc, via: 'grpc'};
           if (site.className !== undefined && site.fn !== undefined) properties['client'] = `${site.className}.${site.fn}`;
@@ -451,38 +527,51 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
               : undefined;
             if (deadlineMs !== undefined) properties['deadlineMs'] = deadlineMs;
           }
-          addEdge(REL_CALLS_REMOTE, fileKey(file.path), match.key, properties, site.span);
+          interaction(REL_CALLS_REMOTE, file.path, match.key, properties, site.span);
         }
       }
     }
 
     // HTTP clients: fetch calls to an operation, or to the one route that serves the path.
     for (const call of ts.fetchCalls) {
-      const routePath = call.urlText.replace(/(^\$\{[^}]*\})+/, '').split('?')[0]!;
+      let routePath = call.urlText.replace(/(^\$\{[^}]*\})+/, '').split('?')[0]!;
+      let origin: string | undefined;
+      try { const url = new URL(call.urlText); routePath = url.pathname; origin = url.origin; } catch { /* A relative/template URL has no literal origin. */ }
       if (!routePath.startsWith('/')) continue;
       const placeholder = routePath.replace(/\$\{[^}]*\}/g, '{}');
-      const operation = openApiOperations.find((op) => op.method === call.method && (op.routePath === placeholder || pathMatches(placeholder, op.routePath)));
+      let operations = openApiOperations.filter((op) => operationMatches({method: call.method, path: placeholder}, op));
+      const text = textOf(reader, file.path) ?? '';
+      if (origin !== undefined) operations = operations.filter((op) => op.servers.some((server) => { try { return new URL(server).origin === origin; } catch { return false; } }));
+      const declaredContracts = operations.filter((op) => text.includes(op.contractPath));
+      if (declaredContracts.length > 0) operations = declaredContracts;
+      const operation = operations.length === 1 ? operations[0] : undefined;
       const properties: {[key: string]: PropertyValue} = {
         ...(call.client !== undefined ? {client: call.client} : {}),
         via: 'http',
         ...(call.tokenForwarded ? {tokenForwarded: true} : {}),
       };
       if (operation !== undefined) {
-        addEdge(REL_CALLS_REMOTE, fileKey(file.path), operation.key, properties, call.span);
+        interaction(REL_CALLS_REMOTE, file.path, operation.key, properties, call.span);
         continue;
       }
-      const serving = allRouteKeys().filter((route) => route.method === call.method && pathMatches(placeholder, route.path));
+      const originScope = origin === undefined ? undefined : servicesOfServers([origin]);
+      const serving = allRouteKeys().filter((route) => route.method === call.method && pathMatches(placeholder, route.path)
+        && (originScope === undefined || (route.service !== undefined && originScope.has(route.service))));
       if (serving.length === 1) {
-        addEdge(REL_CALLS_REMOTE, fileKey(file.path), serving[0]!.key, properties, call.span);
+        interaction(REL_CALLS_REMOTE, file.path, serving[0]!.key, properties, call.span);
       }
     }
 
     // Kafka sends that name a channel.
     for (const send of ts.sends) {
       if (send.channel === undefined || !channels.includes(send.channel)) continue;
+      if (!send.receiverGrounded) {
+        if (send.receiverMessagingEvidence) gaps.push({path: file.path, reason: `contracts: line ${send.span.lineStart}: send names channel ${send.channel} but its receiver is not resolved to an imported KafkaJS producer or an implemented local messaging wrapper; no publisher is claimed (${file.path})`});
+        continue;
+      }
       const constant = service === undefined ? undefined : constantForService(service, send.channel);
       const union = [...ts.typeUnions.values()].find((members) => members.length > 0 && members.every((member) => member.includes('.')));
-      addEdge(REL_PUBLISHES, fileKey(file.path), channelKey(send.channel), {
+      interaction(REL_PUBLISHES, file.path, channelKey(send.channel), {
         topic: send.channel,
         publisher: send.publisher ?? '',
         ...(send.key !== undefined ? {key: send.key} : {}),
@@ -508,9 +597,40 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
     for (const route of routes) edges.push({type: 'code.served-by', from: endpoint.key, to: route.key, discriminator: '', properties: {}, ...(endpoint.span === undefined ? {} : {span: endpoint.span})});
   }
   for (const operation of openApiOperations) {
-    const matching = allRouteKeys().filter((route) => route.method === operation.method && pathMatches(route.path, operation.routePath));
-    if (matching.length !== 1) continue;
-    addEdge(REL_SERVES, matching[0]!.key, operation.key, {});
+    const scope = servicesOfServers(operation.servers);
+    const candidates = allRouteKeys().filter((route) => operationMatches(route, operation));
+    const matching = scope.size > 0 ? candidates.filter((route) => route.service !== undefined && scope.has(route.service)) : candidates;
+    // One server-scoped route per operation is evidence. A duplicated path in
+    // another service must neither suppress this route nor silently win a guess.
+    const groups = new Map<string, typeof matching>();
+    for (const route of matching) {
+      const group = route.service ?? route.file;
+      groups.set(group, [...(groups.get(group) ?? []), route]);
+    }
+    if (scope.size === 0 && groups.size > 1) {
+      gaps.push({path: operation.contractPath, reason: `contracts: line 1: ${operation.method} ${operation.routePath} has multiple serving services and no resolved server scope (${operation.contractPath})`});
+      continue;
+    }
+    for (const routes of groups.values()) {
+      if (routes.length !== 1) {
+        gaps.push({path: operation.contractPath, reason: `contracts: line 1: ${operation.method} ${operation.routePath} has multiple routes in the same server scope (${operation.contractPath})`});
+        continue;
+      }
+      addEdge(REL_SERVES, routes[0]!.key, operation.key, {service: routes[0]!.service ?? ''});
+    }
+  }
+
+  // Every declaration is reachable from the file that provides its evidence.
+  // These edges reference the file owner's identity; no file stub is invented here.
+  for (const node of nodes) {
+    const path = node.span?.path;
+    if (path !== undefined && !edges.some((edge) => edge.type === 'code.contains' && edge.from === fileKey(path) && edge.to === node.key)) addEdge('code.contains', fileKey(path), node.key, {}, node.span);
+  }
+  for (const [index, node] of nodes.entries()) {
+    if (node.kind !== KIND_CHANNEL) continue;
+    const consumers = edges.filter((edge) => edge.type === REL_CONSUMES && edge.to === node.key && edge.from.startsWith('code.symbol:'));
+    const configured = edges.some((edge) => edge.type === REL_CONSUMES && edge.to === node.key);
+    nodes[index] = {...node, properties: {...node.properties, consumerFound: consumers.length > 0, consumerStatus: consumers.length > 0 ? 'found-in-product' : configured ? 'configured-consumer-function-not-resolved' : 'not-found-in-product'}};
   }
 
   nodes.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
@@ -519,10 +639,10 @@ export async function extractContracts(reader: TreeReader): Promise<Extraction> 
   return {producer: CONTRACTS_PRODUCER, nodes, edges, gaps};
 
   /** Every route node emitted so far. */
-  function allRouteKeys(): {method: string; path: string; key: string}[] {
+  function allRouteKeys(): {method: string; path: string; key: string; service?: string; file: string}[] {
     return nodes
       .filter((node) => node.kind === KIND_ROUTE)
-      .map((node) => ({method: node.properties['method'] as string, path: node.properties['path'] as string, key: node.key}));
+      .map((node) => ({method: node.properties['method'] as string, path: node.properties['path'] as string, key: node.key, file: node.span!.path, ...(typeof node.properties['service'] === 'string' ? {service: node.properties['service']} : {})}));
   }
 
 }

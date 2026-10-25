@@ -20,6 +20,8 @@ export interface TsRoute {
   readonly middleware: readonly string[];
   /** The app or router variable the registration goes through (`app`, `router`). */
   readonly routerVar: string;
+  /** The final registration argument, positioned for shared symbol resolution. */
+  readonly handler?: {text: string; inline: boolean; span: SourceSpan};
   /** The router factory that built the router, when the variable is one (`paymentRoutes`). */
   readonly routerFactory?: string;
   readonly span: SourceSpan;
@@ -35,6 +37,9 @@ export interface TsStarted {
 
 /** One Kafka send the file makes. */
 export interface TsSend {
+  /** Direct imported producer or locally proved wrapper; false is an unresolved site, not a publication fact. */
+  readonly receiverGrounded: boolean;
+  readonly receiverMessagingEvidence: boolean;
   /** The channel name the topic expression names, when it names one. */
   readonly channel?: string;
   readonly publisher?: string;
@@ -63,7 +68,7 @@ export interface TsFileFacts {
   readonly fetchCalls: readonly {urlText: string; method: string; tokenForwarded: boolean; client?: string; span: SourceSpan}[];
   /** `const PROTO_PATH = path.resolve(__dirname, '<rel>')`: the relative part. */
   readonly protoRel?: string;
-  readonly grpcSites: readonly {kind: 'serve' | 'call'; rpc: string; fn?: string; className?: string; span: SourceSpan}[];
+  readonly grpcSites: readonly {kind: 'serve' | 'call'; rpc: string; fn?: string; className?: string; handlerSpan?: SourceSpan; span: SourceSpan}[];
   /** The identifier arguments of every call, by callee name (`query` -> [['prisma', 'sql']]). */
   readonly callSiteArgs: ReadonlyMap<string, readonly (readonly string[])[]>;
   /** The deadline hops this file states: the client field and the class that carries it. */
@@ -93,6 +98,193 @@ function urlText(node: SyntaxNode): string | undefined {
   return undefined;
 }
 
+/** Resolve direct imported producer types and locally implemented messaging wrappers.
+ * No receiver is inferred from its spelling. Unsupported aliases or bindings stay unresolved.
+ */
+function messagingReceiver(call: SyntaxNode, root: SyntaxNode): boolean {
+  const named = (node: SyntaxNode): SyntaxNode[] => node.namedChildren.filter((child): child is SyntaxNode => child !== null);
+  const fn = call.childForFieldName('function');
+  const receiver = fn?.type === 'member_expression' ? fn.childForFieldName('object')?.text : undefined;
+  if (receiver === undefined) return false;
+  const imports = new Map<string, string>();
+  for (const statement of named(root)) {
+    if (statement.type !== 'import_statement' || statement.childForFieldName('source')?.text.slice(1, -1) !== 'kafkajs') continue;
+    walkTree(statement, (node) => {
+      if (node.type !== 'import_specifier') return;
+      const name = node.childForFieldName('name');
+      if (name === null || !['Producer', 'Kafka'].includes(name.text)) return;
+      imports.set(node.childForFieldName('alias')?.text ?? name.text, name.text);
+    });
+  }
+  const typeOf = (node: SyntaxNode): string | undefined => node.childForFieldName('type')?.text.replace(/^:\s*/, '').trim();
+  const nameOf = (node: SyntaxNode): string | undefined => node.childForFieldName('pattern')?.text ?? node.childForFieldName('name')?.text;
+  const shadowsImport = (at: SyntaxNode, name: string): boolean => {
+    let scope: SyntaxNode | null = at;
+    while (scope !== null) {
+      const parameters = scope.childForFieldName('type_parameters');
+      if (parameters !== null && named(parameters).some((parameter) => parameter.childForFieldName('name')?.text === name || parameter.text === name)) return true;
+      const values = scope.childForFieldName('parameters');
+      if (values !== null && named(values).some((parameter) => nameOf(parameter) === name)) return true;
+      for (const child of named(scope).flatMap((statement) => statement.type === 'export_statement' ? named(statement) : [statement])) {
+        if (['class_declaration', 'interface_declaration', 'type_alias_declaration', 'enum_declaration', 'function_declaration'].includes(child.type) && child.childForFieldName('name')?.text === name) return true;
+        if (['lexical_declaration', 'variable_declaration'].includes(child.type) && named(child).some((declaration) => declaration.childForFieldName('name')?.text === name)) return true;
+      }
+      scope = scope.parent;
+    }
+    return false;
+  };
+  const producerType = (declaration: SyntaxNode): boolean => {
+    const type = typeOf(declaration);
+    return type !== undefined && imports.get(type) === 'Producer' && !shadowsImport(call, type);
+  };
+  const classOf = (node: SyntaxNode): SyntaxNode | null => {
+    let owner: SyntaxNode | null = node.parent;
+    while (owner !== null && owner.type !== 'class_declaration') owner = owner.parent;
+    return owner;
+  };
+  const fieldsOf = (owner: SyntaxNode): SyntaxNode[] => {
+    const body = owner.childForFieldName('body');
+    if (body === null) return [];
+    const members = named(body);
+    const fields = members.filter((member) => member.type === 'public_field_definition');
+    for (const member of members) {
+      if (member.type !== 'method_definition' || member.childForFieldName('name')?.text !== 'constructor') continue;
+      const parameters = member.childForFieldName('parameters');
+      if (parameters === null) continue;
+      for (const parameter of named(parameters)) {
+        if (parameter.children.some((child) => child !== null && (child.type === 'accessibility_modifier' || child.type === 'readonly'))) fields.push(parameter);
+      }
+    }
+    return fields;
+  };
+  const implementedWrappers = new Set<string>();
+  // A wrapper signature alone is insufficient. A local implementing class must
+  // delegate send to its real Producer field and construct a Kafka producer.
+  for (const owner of named(root).flatMap((statement) => statement.type === 'export_statement' ? named(statement) : [statement])) {
+    if (owner.type !== 'class_declaration') continue;
+    const fields = fieldsOf(owner).filter(producerType);
+    if (fields.length === 0) continue;
+    const body = owner.childForFieldName('body');
+    const send = body === null ? undefined : named(body).find((member) => member.type === 'method_definition' && member.childForFieldName('name')?.text === 'send');
+    if (send === undefined) continue;
+    let delegated = false;
+    const producedBindings: {name: string; method: number}[] = [];
+    const wrapperCalls: {arguments: string[]; method: number}[] = [];
+    const methodOf = (node: SyntaxNode): number | null => {
+      let method: SyntaxNode | null = node.parent;
+      while (method !== null && method.type !== 'method_definition' && method.type !== 'function_declaration') method = method.parent;
+      return method?.startIndex ?? null;
+    };
+    const className = owner.childForFieldName('name')?.text;
+    const constructor = body === null ? undefined : named(body).find((member) => member.type === 'method_definition' && member.childForFieldName('name')?.text === 'constructor');
+    const constructorParameters = constructor?.childForFieldName('parameters');
+    const producerIndexes = constructorParameters == null ? [] : named(constructorParameters).flatMap((parameter, index) => fields.some((field) => field.startIndex === parameter.startIndex) ? [index] : []);
+    walkTree(owner, (node) => {
+      // Reject evidence from a nested class or another receiver's field.
+      if (classOf(node)?.startIndex !== owner.startIndex) return;
+      if (node.type === 'new_expression') {
+        const constructedType = node.childForFieldName('constructor')?.text;
+        const method = methodOf(node);
+        if (constructedType !== undefined && imports.get(constructedType) === 'Kafka' && !shadowsImport(node, constructedType)) {
+          const parent = node.parent;
+          const factoryCall = parent?.type === 'member_expression' && parent.childForFieldName('property')?.text === 'producer' ? parent.parent : null;
+          const binding = factoryCall?.type === 'call_expression' ? factoryCall.parent : null;
+          const name = binding?.type === 'variable_declarator' ? binding.childForFieldName('name')?.text : undefined;
+          if (name !== undefined && method !== null) producedBindings.push({name, method});
+        }
+        if (constructedType === className && method !== null) {
+          const argumentsNode = node.childForFieldName('arguments');
+          if (argumentsNode !== null) wrapperCalls.push({arguments: named(argumentsNode).map((argument) => argument.text), method});
+        }
+      }
+      if (node.type !== 'call_expression' || node.startIndex < send.startIndex || node.endIndex > send.endIndex) return;
+      const target = node.childForFieldName('function');
+      if (target?.type !== 'member_expression' || target.childForFieldName('property')?.text !== 'send') return;
+      const object = target.childForFieldName('object')?.text;
+      if (!fields.some((field) => object === `this.${nameOf(field)}`)) return;
+      const argument = node.childForFieldName('arguments')?.namedChild(0);
+      if (argument?.type !== 'object') return;
+      const keys = named(argument).map((property) => property.type === 'shorthand_property_identifier' ? property.text : property.childForFieldName('key')?.text);
+      delegated ||= keys.includes('topic') && keys.includes('messages');
+    });
+    const constructed = wrapperCalls.some((call) => producerIndexes.some((index) => producedBindings.some((binding) => binding.method === call.method && call.arguments[index] === binding.name)));
+    if (!delegated || !constructed) continue;
+    const heritage = named(owner).find((child) => child.type === 'class_heritage');
+    if (heritage === undefined) continue;
+    for (const clause of named(heritage)) if (clause.type === 'implements_clause') for (const name of named(clause)) implementedWrappers.add(name.text);
+  }
+  const accepts = (declaration: SyntaxNode): boolean => {
+    const type = typeOf(declaration);
+    if (producerType(declaration)) return true;
+    if (type === undefined || !implementedWrappers.has(type)) return false;
+    let scope: SyntaxNode | null = call.parent;
+    while (scope !== null && scope.type !== 'program') {
+      const parameters = scope.childForFieldName('type_parameters');
+      if (parameters !== null && named(parameters).some((parameter) => parameter.childForFieldName('name')?.text === type || parameter.text === type)) return false;
+      if (named(scope).some((child) => ['interface_declaration', 'class_declaration', 'type_alias_declaration'].includes(child.type) && child.childForFieldName('name')?.text === type)) return false;
+      scope = scope.parent;
+    }
+    return true;
+  };
+  if (receiver.startsWith('this.')) {
+    const owner = classOf(call);
+    return owner !== null && fieldsOf(owner).some((field) => nameOf(field) === receiver.slice(5) && accepts(field));
+  }
+  // The nearest binding wins. A local variable or function parameter shadows an
+  // outer producer even if the unrelated binding has the same spelling.
+  let enclosing: SyntaxNode | null = call.parent;
+  while (enclosing !== null) {
+    const parameters = enclosing.childForFieldName('parameters');
+    if (parameters !== null) for (const parameter of named(parameters)) if (nameOf(parameter) === receiver) return accepts(parameter);
+    if (enclosing.type === 'statement_block' || enclosing.type === 'program') for (const statement of named(enclosing)) {
+      if (statement.type !== 'lexical_declaration' && statement.type !== 'variable_declaration') continue;
+      for (const declaration of named(statement)) if (declaration.type === 'variable_declarator' && nameOf(declaration) === receiver) {
+        if (accepts(declaration)) return true;
+        const value = declaration.childForFieldName('value');
+        const target = value?.type === 'call_expression' ? value.childForFieldName('function') : null;
+        if (target?.type !== 'member_expression' || target.childForFieldName('property')?.text !== 'producer') return false;
+        let constructed = target.childForFieldName('object');
+        if (constructed?.type === 'parenthesized_expression') constructed = constructed.namedChild(0);
+        if (constructed?.type !== 'new_expression') return false;
+        const constructor = constructed.childForFieldName('constructor')?.text;
+        return constructor !== undefined && imports.get(constructor) === 'Kafka' && !shadowsImport(constructed, constructor);
+      }
+    }
+    enclosing = enclosing.parent;
+  }
+  return false;
+}
+
+/** A located unresolved site is reported only for an explicit messaging type. */
+function messagingTypeEvidence(call: SyntaxNode, root: SyntaxNode): boolean {
+  const fn = call.childForFieldName('function');
+  const receiver = fn?.type === 'member_expression' ? fn.childForFieldName('object')?.text : undefined;
+  if (receiver === undefined) return false;
+  const names = new Set<string>();
+  walkTree(root, (node) => {
+    if (node.type === 'interface_declaration' && /\bsend\s*\(\s*topic\s*:\s*string\s*,\s*key\s*:\s*string\s*,\s*value\s*:\s*string\s*\)/.test(node.text)) {
+      const name = node.childForFieldName('name')?.text;
+      if (name !== undefined) names.add(name);
+    }
+    if (node.type !== 'import_statement' || node.childForFieldName('source')?.text.slice(1, -1) !== 'kafkajs') return;
+    walkTree(node, (specifier) => {
+      if (specifier.type !== 'import_specifier' || specifier.childForFieldName('name')?.text !== 'Producer') return;
+      names.add(specifier.childForFieldName('alias')?.text ?? 'Producer');
+    });
+  });
+  let scope: SyntaxNode | null = call.parent;
+  while (scope !== null) {
+    const parameters = scope.childForFieldName('parameters');
+    if (parameters !== null) for (const parameter of parameters.namedChildren) {
+      if (parameter === null || (parameter.childForFieldName('pattern')?.text ?? parameter.childForFieldName('name')?.text) !== receiver) continue;
+      const type = parameter.childForFieldName('type')?.text.replace(/^:\s*/, '').trim();
+      return type !== undefined && names.has(type);
+    }
+    scope = scope.parent;
+  }
+  return false;
+}
+
 export function readTsFile(path: string, root: SyntaxNode): TsFileFacts {
   const consts = new Map<string, string>();
   const typeUnions = new Map<string, readonly string[]>();
@@ -105,7 +297,7 @@ export function readTsFile(path: string, root: SyntaxNode): TsFileFacts {
   const sends: TsSend[] = [];
   const fetchCalls: {urlText: string; method: string; tokenForwarded: boolean; client?: string; span: SourceSpan}[] = [];
   let protoRel: string | undefined;
-  const grpcSites: {kind: 'serve' | 'call'; rpc: string; fn?: string; className?: string; span: SourceSpan}[] = [];
+  const grpcSites: {kind: 'serve' | 'call'; rpc: string; fn?: string; className?: string; handlerSpan?: SourceSpan; span: SourceSpan}[] = [];
   let deadlineField: {field: string; className: string} | undefined;
   const newCalls = new Map<string, string[]>();
   const configDefaults = new Map<string, number>();
@@ -219,7 +411,7 @@ export function readTsFile(path: string, root: SyntaxNode): TsFileFacts {
         if (fallback !== null && /^[A-Za-z0-9_]+$/.test(key)) configDefaults.set(key, Number(fallback[1]));
         // A gRPC server handler object's key with a function value.
         if (value.type === 'arrow_function' || value.type === 'function_expression') {
-          grpcSites.push({kind: 'serve', rpc: key, fn: enclosingFunctionName(node), span: spanOf(node, path)});
+          grpcSites.push({kind: 'serve', rpc: key, fn: enclosingFunctionName(node), handlerSpan: spanOf(value, path), span: spanOf(node, path)});
         }
       }
       return;
@@ -256,9 +448,25 @@ export function readTsFile(path: string, root: SyntaxNode): TsFileFacts {
         const args = node.childForFieldName('arguments');
         const topicArg = args?.namedChild(0);
         if (topicArg !== null && topicArg !== undefined) {
-          const channel = topicArg.type === 'identifier' ? consts.get(topicArg.text) : stringValue(topicArg);
+          let channel = topicArg.type === 'identifier' ? consts.get(topicArg.text) : stringValue(topicArg);
           const keyArg = args?.namedChild(1);
+          if (topicArg.type === 'object') {
+            const pairs = topicArg.namedChildren.filter((child): child is SyntaxNode => child !== null && child.type === 'pair');
+            const field = (name: string): SyntaxNode | null => {
+              const explicit = pairs.find((pair) => pair.childForFieldName('key')?.text.replace(/['"]/g, '') === name)?.childForFieldName('value');
+              if (explicit != null) return explicit;
+              return topicArg.namedChildren.find((child) => child !== null && child.type === 'shorthand_property_identifier' && child.text === name) ?? null;
+            };
+            const topic = field('topic');
+            const messages = field('messages');
+            // KafkaJS send takes both a topic and messages. A topic-bearing
+            // object alone, or an unrelated object elsewhere, proves nothing.
+            if (topic === null || messages === null) return;
+            channel = topic.type === 'identifier' || topic.type === 'shorthand_property_identifier' ? consts.get(topic.text) : stringValue(topic);
+          }
           sends.push({
+            receiverGrounded: messagingReceiver(node, root),
+            receiverMessagingEvidence: messagingTypeEvidence(node, root),
             ...(channel !== undefined ? {channel} : {}),
             publisher: enclosingFunctionName(node),
             ...(keyArg !== undefined && keyArg !== null ? {key: keyArg.text} : {}),
@@ -410,6 +618,11 @@ export function readTsFile(path: string, root: SyntaxNode): TsFileFacts {
       path: joinPath(prefix, reg.pathText),
       middleware: chain,
       routerVar: reg.object,
+      ...(parts.at(-1) === undefined ? {} : {handler: {
+        text: parts.at(-1)!.text,
+        inline: ['arrow_function', 'function_expression'].includes(parts.at(-1)!.type),
+        span: spanOf(parts.at(-1)!, path),
+      }}),
       ...(routerFactories.get(reg.object) !== undefined && routerFactories.get(reg.object) !== '' ? {routerFactory: routerFactories.get(reg.object)} : {}),
       span: spanOf(reg.spanNode, path),
     });

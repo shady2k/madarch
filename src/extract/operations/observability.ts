@@ -5,48 +5,100 @@
  * so the contracts extractor may find the same routes without a collision.
  */
 import type { PropertyValue } from '../records.js';
-import { byCodePoint } from '../../model/order.js';
+import { extractMetrics } from './metrics.js';
 import type { Records } from './accumulate.js';
 import { serviceOf, TreeText } from './source.js';
+import { escaped, functionAt, functionNode, functionsOf, relativeSource, sourceMask, sourceSpan } from './symbol-sites.js';
 
-/** The logger modules: one per service, slog in Go and pino in TypeScript. */
+/** Logger declarations and uses resolved through imports, not a global name match. */
 function loggers(t: TreeText, records: Records): void {
+  const declarations: { key: string; path: string; symbol: string; service: string; go: boolean }[] = [];
   for (const path of t.tree.paths) {
-    if (!/^services\/[^/]+\/.*\/logging\//.test(path)) continue;
+    if (!/^services\//.test(path) || !/\.(?:go|ts)$/.test(path)) continue;
+    const text = t.text(path);
+    const mask = sourceMask(text);
     const service = serviceOf(path);
     if (service === undefined) continue;
-    let text: string;
-    try {
-      text = t.text(path);
-    } catch (error) {
-      records.gap(path, `the logger cannot be read: ${error instanceof Error ? error.message : String(error)}`);
-      continue;
+    if (path.endsWith('.go') && /slog\.NewJSONHandler/.test(mask)) {
+      for (const site of functionsOf(t, path)) {
+        if (!/slog\.NewJSONHandler/.test(mask.slice(site.start, site.end))) continue;
+        const key = `code.logger:${path}#${site.qualifiedName}`;
+        records.add({ key, kind: 'code.logger', label: `logger of ${service}`, properties: { service, library: 'slog', json: true }, span: site.span });
+        declarations.push({ key, path, symbol: site.name, service, go: true });
+      }
     }
-    const lines = text.split('\n');
-    if (path.endsWith('.go') && /slog\.NewJSONHandler/.test(text)) {
-      const at = lines.findIndex((line) => /^func New\(/.test(line));
-      if (at < 0) continue;
-      records.add({
-        key: `code.logger:${path}#New`,
-        kind: 'code.logger',
-        label: `logger of ${service}`,
-        properties: { service, library: 'slog', json: true } satisfies { [key: string]: PropertyValue },
-        span: t.spanOfLine(path, at + 1),
-      });
-      records.edge('code.uses-logger', `code.logger:${path}#New`, records.file(path), {}, t.spanOfLine(path, at + 1));
+    if (path.endsWith('.ts')) {
+      // Require the library binding as well as its call. A same-named local pino is not evidence.
+      const imported = /import\s+(\w+)\s+from\s*['"]pino['"]/.exec(text);
+      const binding = imported?.[1];
+      if (binding === undefined || imported === null || mask.slice(imported.index, imported.index + 6) !== 'import') continue;
+      for (const match of text.matchAll(new RegExp(`(?:export\\s+)?const\\s+(\\w+)\\s*=\\s*${escaped(binding)}\\s*\\(`, 'g'))) {
+        if (mask.slice(match.index, match.index + match[0].length).trim() === '') continue;
+        const symbol = match[1] ?? '';
+        const key = `code.logger:${path}#${symbol}`;
+        records.add({ key, kind: 'code.logger', label: `logger of ${service}`, properties: { service, library: 'pino', json: true }, span: sourceSpan(t, path, match.index, match.index + match[0].length) });
+        declarations.push({ key, path, symbol, service, go: false });
+      }
     }
-    if (path.endsWith('.ts') && /\bpino\(/.test(text)) {
-      const at = lines.findIndex((line) => /export\s+const\s+([A-Za-z0-9_]+)\s*=\s*pino\(/.test(line));
-      if (at < 0 || lines[at] === undefined) continue;
-      const symbol = /export\s+const\s+([A-Za-z0-9_]+)\s*=\s*pino\(/.exec(lines[at] ?? '')?.[1] ?? 'logger';
-      records.add({
-        key: `code.logger:${path}#${symbol}`,
-        kind: 'code.logger',
-        label: `logger of ${service}`,
-        properties: { service, library: 'pino', json: true } satisfies { [key: string]: PropertyValue },
-        span: t.spanOfLine(path, at + 1),
-      });
-      records.edge('code.uses-logger', `code.logger:${path}#${symbol}`, records.file(path), {}, t.spanOfLine(path, at + 1));
+  }
+  const use = (key: string, path: string, at: number, end: number): void => {
+    const span = sourceSpan(t, path, at, end);
+    const discriminator = `${span.byteStart}`;
+    records.edge('code.uses-logger', key, records.file(path), {}, span, discriminator);
+    const site = functionAt(t, path, at);
+    if (site !== undefined) records.edge('code.uses-logger', key, functionNode(records, site), {}, span, discriminator);
+  };
+  for (const logger of declarations) {
+    const folder = logger.path.slice(0, logger.path.lastIndexOf('/'));
+    const modPath = `services/${logger.service}/go.mod`;
+    const module = logger.go && t.has(modPath) ? /^module\s+(\S+)/m.exec(t.text(modPath))?.[1] : undefined;
+    const importedPackage = module === undefined ? undefined : `${module}/${folder.slice(`services/${logger.service}/`.length)}`;
+    for (const path of t.tree.paths) {
+      if (serviceOf(path) !== logger.service || !path.endsWith(logger.go ? '.go' : '.ts')) continue;
+      const text = t.text(path);
+      const mask = sourceMask(text);
+      if (logger.go) {
+        const imports = importedPackage === undefined ? [] : [...text.matchAll(new RegExp(`(?:^|\\n)\\s*(?:import\\s+)?(?:(\\w+)\\s+)?"${escaped(importedPackage)}"`, 'g'))];
+        const alias = imports[0] === undefined ? undefined : imports[0][1] ?? /^package\s+(\w+)/m.exec(t.text(logger.path))?.[1];
+        if (alias === undefined) continue;
+        // Calls through the imported logger package are grounded even for context accessors.
+        for (const match of mask.matchAll(new RegExp(`\\b${escaped(alias)}\\.(?:${escaped(logger.symbol)}|FromContext|WithLogger)\\s*\\(`, 'g'))) {
+          const site = functionAt(t, path, match.index);
+          if (site !== undefined && new RegExp(`\\b${escaped(alias)}\\s*(?::=|=)`).test(sourceMask(text.slice(site.start, match.index)))) continue;
+          use(logger.key, path, match.index, match.index + match[0].length);
+          // A factory assigned to a local carries this logger only within that function.
+          const prefix = text.slice(text.lastIndexOf('\n', match.index) + 1, match.index);
+          const local = /(\w+)\s*:=\s*$/.exec(prefix)?.[1];
+          if (local !== undefined && site !== undefined) {
+            const tail = mask.slice(match.index + match[0].length, site.end);
+            for (const called of tail.matchAll(new RegExp(`\\b${escaped(local)}\\.(?:Info|Error|Warn|Debug|With)\\s*\\(`, 'g'))) {
+              const at = match.index + match[0].length + called.index;
+              use(logger.key, path, at, at + called[0].length);
+            }
+          }
+        }
+      } else {
+        const bindings: string[] = [];
+        if (path === logger.path) bindings.push(logger.symbol);
+        for (const imported of text.matchAll(/import\s*\{([^}]+)\}\s*from\s*['"]([^'"]+)['"]/g)) {
+          if (relativeSource(t, path, imported[2] ?? '') !== logger.path) continue;
+          for (const entry of (imported[1] ?? '').split(',')) {
+            const named = /^\s*(\w+)(?:\s+as\s+(\w+))?\s*$/.exec(entry);
+            if (named?.[1] === logger.symbol) bindings.push(named[2] ?? logger.symbol);
+          }
+        }
+        for (const binding of bindings) {
+          for (const match of mask.matchAll(new RegExp(`\\b${escaped(binding)}\\.(?:info|error|warn|debug|trace|fatal|child)\\s*\\(`, 'g'))) {
+            const site = functionAt(t, path, match.index);
+            if (site !== undefined) {
+              const before = mask.slice(site.start, match.index);
+              const parameters = mask.slice(site.start, site.bodyStart);
+              if (new RegExp(`\\b${escaped(binding)}\\s*(?::|,|\\)|=)`).test(parameters) || new RegExp(`\\b(?:const|let|var)\\s+${escaped(binding)}\\b`).test(before)) continue;
+            }
+            use(logger.key, path, match.index, match.index + match[0].length);
+          }
+        }
+      }
     }
   }
 }
@@ -135,49 +187,19 @@ function healthEndpoints(t: TreeText, records: Records): void {
   for (const path of t.tree.paths) {
     if (!/^services\//.test(path) || !(path.endsWith('.go') || path.endsWith('.ts'))) continue;
     const found = path.endsWith('.go') ? goRegistrations(t, path) : tsRegistrations(t, path);
-    for (const endpoint of found.filter((entry) => entry.path === '/healthz')) {
+    for (const endpoint of found.filter((entry) => /^\/(?:healthz?|readyz?|livez?|startupz?)$/.test(entry.path))) {
+      const endpointKey = `code.health-endpoint:${path}#${endpoint.symbol}${endpoint.path === '/healthz' ? '' : endpoint.path}`;
       records.add({
-        key: `code.health-endpoint:${path}#${endpoint.symbol}`,
+        key: endpointKey,
         kind: 'code.health-endpoint',
-        label: `/healthz of ${serviceOf(path) ?? path}`,
+        label: `${endpoint.path} of ${serviceOf(path) ?? path}`,
         properties: { path: endpoint.path, method: endpoint.method, statusOk: endpoint.statusOk, service: serviceOf(path) ?? '' } satisfies { [key: string]: PropertyValue },
         span: t.spanOfLine(path, endpoint.line),
       });
-      records.edge('code.served-by', `code.health-endpoint:${path}#${endpoint.symbol}`, records.file(path), {service: serviceOf(path) ?? ''}, t.spanOfLine(path, endpoint.line));
+      records.edge('code.served-by', endpointKey, records.file(path), {service: serviceOf(path) ?? ''}, t.spanOfLine(path, endpoint.line));
+      const declared = functionsOf(t, path).filter((site) => site.name === endpoint.symbol);
+      if (declared.length === 1 && declared[0] !== undefined) records.edge('code.served-by', endpointKey, functionNode(records, declared[0]), { role: 'handler' }, t.spanOfLine(path, endpoint.line));
     }
-  }
-}
-
-/** The metrics endpoints: the files that write Prometheus counters, with the route their service registers. */
-function metricsEndpoints(t: TreeText, records: Records): void {
-  for (const path of t.tree.paths) {
-    if (!/^services\//.test(path) || !path.endsWith('.go')) continue;
-    let text: string;
-    try {
-      text = t.text(path);
-    } catch (error) {
-      records.gap(path, `the metrics cannot be read: ${error instanceof Error ? error.message : String(error)}`);
-      continue;
-    }
-    if (!/func \([^)]+\) ServeHTTP/.test(text)) continue;
-    const counters = [...text.matchAll(/([a-z][a-z0-9_]*_total)\b/g)].map((match) => match[1] ?? '').filter((name) => name !== '');
-    if (counters.length === 0) continue;
-    const service = serviceOf(path);
-    if (service === undefined) continue;
-    const registered = [...t.tree.paths]
-      .filter((other) => other.startsWith(`services/${service}/`) && other.endsWith('.go'))
-      .some((other) => /["'`][A-Z]* ?\/metrics["'`]/.test(t.text(other)));
-    if (!registered) continue;
-    const receiver = /func \(\w+ \*?([A-Za-z0-9_]+)\) ServeHTTP/.exec(text)?.[1] ?? 'Metrics';
-    const distinct = [...new Set(counters)].sort(byCodePoint);
-    records.add({
-      key: `code.metrics-endpoint:${path}#${receiver}`,
-      kind: 'code.metrics-endpoint',
-      label: `/metrics of ${service}`,
-      properties: { path: '/metrics', format: 'prometheus-text', counters: distinct } satisfies { [key: string]: PropertyValue },
-      span: t.spanOfFile(path),
-    });
-    records.edge('code.served-by', `code.metrics-endpoint:${path}#${receiver}`, records.file(path), {service}, t.spanOfFile(path));
   }
 }
 
@@ -188,6 +210,15 @@ function metricsEndpoints(t: TreeText, records: Records): void {
  * gets no service link, because a link to a service nothing declares would be a node of its own.
  */
 export function linkEndpoints(t: TreeText, records: Records): void {
+  for (const probe of records.nodes.filter((node) => node.kind === 'code.probe' || node.kind === 'code.healthcheck')) {
+    let routePath = probe.properties.path;
+    if (probe.kind === 'code.healthcheck') {
+      const command = Array.isArray(probe.properties.test) ? probe.properties.test.join(' ') : probe.properties.test;
+      routePath = typeof command === 'string' ? /https?:\/\/[^\s/]+(\/[^\s'"]*)/.exec(command)?.[1] : undefined;
+    }
+    const endpoints = records.nodes.filter((node) => node.kind === 'code.health-endpoint' && node.properties.path === routePath && node.properties.service === probe.properties.service);
+    if (endpoints.length === 1 && endpoints[0] !== undefined) records.edge('code.probes', probe.key, endpoints[0].key, { role: 'endpoint' }, probe.span);
+  }
   for (const node of [...records.nodes]) {
     if (node.kind !== 'code.health-endpoint' && node.kind !== 'code.metrics-endpoint') continue;
     const path = node.key.slice(node.key.indexOf(':') + 1, node.key.lastIndexOf('#'));
@@ -203,5 +234,5 @@ export function linkEndpoints(t: TreeText, records: Records): void {
 export function extractObservability(t: TreeText, records: Records): void {
   loggers(t, records);
   healthEndpoints(t, records);
-  metricsEndpoints(t, records);
+  extractMetrics(t, records);
 }

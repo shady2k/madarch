@@ -257,7 +257,8 @@ export class KnowledgeProduct {
       const owner = new RemoteOwner(path, { create: created });
       try {
         await owner.ready;
-        if (this.pins.size === 0) await this.loadPins(owner);
+        // This newly opened snapshot owns a complete pin set even when an idle reader retained old pins.
+        await this.loadPins(owner);
       } catch (error) {
         // A reader that failed to open is given back: a retry must not leave one worker process behind per request.
         await owner.close().catch(() => undefined);
@@ -389,15 +390,16 @@ export class KnowledgeProduct {
   }
 
   private async loadPins(owner: DatabaseOwner): Promise<void> {
-    await owner.transaction('snapshot', async (tx) => {
+    const next = await owner.transaction('snapshot', async (tx) => {
       const rows = await tx.query<Record<string, unknown>>('SELECT repo, scope, head, commit_hash, effective_time, commits, filled_commits FROM knowledge_fill');
-      for (const row of rows.rows) {
-        this.pins.set(String(row['repo']), {
-          name: String(row['repo']), scope: String(row['scope']), head: String(row['head']), commit: String(row['commit_hash']),
-          effectiveTime: String(row['effective_time']), commits: Number(row['commits']), filledCommits: Number(row['filled_commits']),
-        });
-      }
+      return rows.rows.map((row):RepositoryPin=>({name:String(row['repo']),scope:String(row['scope']),head:String(row['head']),commit:String(row['commit_hash']),effectiveTime:String(row['effective_time']),commits:Number(row['commits']),filledCommits:Number(row['filled_commits'])}));
     });
+    this.replacePins(next);
+  }
+
+  private replacePins(pins:readonly RepositoryPin[]):void {
+    this.pins.clear();
+    for(const pin of pins) this.pins.set(pin.name,pin);
   }
 
   /**
@@ -410,19 +412,19 @@ export class KnowledgeProduct {
       if (this.closed) return;
       await this.open();
       const held = this.reader!;
-      if (held.seq >= seq) {
-        for (const pin of pins) this.pins.set(pin.name, pin);
-        return;
-      }
+      // A delayed or already-consumed notice cannot change the active snapshot's pins.
+      if (held.seq >= seq) return;
       const path = join(this.readRoot(), String(seq));
       const owner = new RemoteOwner(path, { create: false });
-      await owner.ready;
-      // The new process answers its first statements slowly; it is warmed with what the old one answered, then the reads move.
-      if (held.owner instanceof RemoteOwner) await owner.warm(held.owner.recent());
+      try {
+        await owner.ready;
+        // The new process answers its first statements slowly; warm before changing either reader or pins.
+        if (held.owner instanceof RemoteOwner) await owner.warm(held.owner.recent());
+      } catch(error) {await owner.close().catch(()=>undefined);throw error;}
       this.reader = { owner, seq, path };
       // What the repositories were filled to is applied with the snapshot it belongs to: a source is read at the commit
       // the graph it is shown beside was filled from.
-      for (const pin of pins) this.pins.set(pin.name, pin);
+      this.replacePins(pins);
       setTimeout(() => {
         void held.owner.close().catch(() => undefined).finally(() => rmSync(held.path, { recursive: true, force: true }));
       }, SNAPSHOT_KEEP_MS).unref();
@@ -601,6 +603,8 @@ export class KnowledgeProduct {
     const now = (): string => (this.options.now?.() ?? new Date()).toISOString();
     const heard = async (message: FromWorker): Promise<void> => {
       switch (message.type) {
+        case 'rebuild':
+          this.fill = {...this.fill, rebuilt: message.reason}; this.notify(); return;
         case 'progress':
           this.fill = { ...this.fill, repository: message.repository, commit: message.commit, commits: message.commits };
           this.notify();
@@ -619,7 +623,7 @@ export class KnowledgeProduct {
         case 'fill':
           // The end of the fill is shown once the last snapshot is being read: a page opened at "done" shows everything.
           await this.swapping.catch(() => undefined);
-          if (message.state === 'done') this.fill = { state: 'done', startedAt: this.fill.startedAt, finishedAt: now(), gaps: message.gaps };
+          if (message.state === 'done') this.fill = { state: 'done', startedAt: this.fill.startedAt, finishedAt: now(), gaps: message.gaps, ...(this.fill.rebuilt === undefined ? {} : {rebuilt:this.fill.rebuilt}) };
           else if (message.state === 'stopped') this.fill = { state: 'idle', message: 'the fill was stopped; it resumes where it stopped' };
           else this.fill = { state: 'failed', startedAt: this.fill.startedAt, finishedAt: now(), message: message.message, ...(message.code === undefined ? {} : { code: message.code }) };
           this.notify();

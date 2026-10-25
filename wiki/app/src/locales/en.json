@@ -412,7 +412,8 @@
       "method": "Method",
       "path": "Path"
     },
-    "pageNotRead": "Could not read the page of {{id}}: {{reason}}"
+    "pageNotRead": "Could not read the page of {{id}}: {{reason}}",
+    "fillRebuiltExtractors": "Graph rebuilt: extractors changed"
   },
   "loop": {
     "questionsTitle": "Questions",

@@ -151,7 +151,7 @@ interface K8sWorkload {
   image: string | null;
   replicas: number | null;
   readonly containerPorts: number[];
-  probePath: string | null;
+  readonly probes: { readonly container: string; readonly probeType: string; readonly properties: { readonly [key: string]: PropertyValue }; readonly span: SourceSpan }[];
   readonly envFrom: string[];
   readonly servicePorts: { name: string | null; port: number; targetPort: number | null }[];
   readonly lineStart: number;
@@ -182,7 +182,7 @@ function k8sWorkloads(t: TreeText, records: Records, path: string): K8sWorkload[
       image: null,
       replicas: null,
       containerPorts: [],
-      probePath: null,
+      probes: [],
       envFrom: [],
       servicePorts: [],
       lineStart: firstLine,
@@ -223,12 +223,35 @@ function k8sWorkloads(t: TreeText, records: Records, path: string): K8sWorkload[
                 }
               }
             }
-            const probes = ['readinessProbe', 'livenessProbe'];
-            for (const probeName of probes) {
-              const probe = container.items.find((pair) => isScalar(pair.key) && pair.key.value === probeName)?.value;
-              const httpGet = isMap(probe) ? probe.items.find((pair) => isScalar(pair.key) && pair.key.value === 'httpGet')?.value : undefined;
-              const probePath = isMap(httpGet) ? scalarText0(httpGet.items.find((pair) => isScalar(pair.key) && pair.key.value === 'path')?.value) : null;
-              if (probePath !== null) workload.probePath = probePath;
+            const containerName = scalarText0(container.items.find((pair) => isScalar(pair.key) && pair.key.value === 'name')?.value) ?? String(containers.items.indexOf(container));
+            for (const probeName of ['readinessProbe', 'livenessProbe', 'startupProbe']) {
+              const pair = container.items.find((item) => isScalar(item.key) && item.key.value === probeName);
+              const probe = pair?.value;
+              if (!isMap(probe)) continue;
+              const value = (key: string): unknown => probe.items.find((item) => isScalar(item.key) && item.key.value === key)?.value;
+              const httpGet = value('httpGet');
+              const tcp = value('tcpSocket');
+              const exec = value('exec');
+              const field = (node: unknown, key: string): unknown => isMap(node) ? node.items.find((item) => isScalar(item.key) && item.key.value === key)?.value : undefined;
+              const portText = scalarText0(field(httpGet, 'port') ?? field(tcp, 'port'));
+              const port = portText !== null && /^\d+$/.test(portText) ? Number(portText) : portText;
+              const command = field(exec, 'command');
+              const properties: { [key: string]: PropertyValue } = {
+                service: name, container: containerName, probeType: probeName,
+                transport: isMap(httpGet) ? 'http' : isMap(tcp) ? 'tcp' : isMap(exec) ? 'exec' : null,
+                path: scalarText0(field(httpGet, 'path')), port,
+                scheme: scalarText0(field(httpGet, 'scheme')),
+                command: isSeq(command) ? command.items.map(scalarText0) : null,
+              };
+              for (const setting of ['initialDelaySeconds', 'periodSeconds', 'timeoutSeconds', 'successThreshold', 'failureThreshold', 'terminationGracePeriodSeconds']) {
+                const raw = scalarText0(value(setting));
+                properties[setting] = raw !== null && /^\d+$/.test(raw) ? Number(raw) : null;
+              }
+              const start = isScalar(pair?.key) ? pair.key.range?.[0] ?? 0 : probe.range?.[0] ?? 0;
+              workload.probes.push({
+                container: containerName, probeType: probeName, properties,
+                span: t.spanOfLines(path, lineCounter.linePos(start).line, lineCounter.linePos(Math.max(start, (probe.range?.[1] ?? start + 1) - 1)).line),
+              });
             }
           }
         }
@@ -293,6 +316,12 @@ export function extractDeploy(t: TreeText, records: Records): void {
         } satisfies { [key: string]: PropertyValue },
         span: t.spanOfLine(path, service.line),
       });
+      if (service.healthcheck !== null) {
+        const { span: healthSpan, ...healthProperties } = service.healthcheck;
+        const healthKey = `code.healthcheck:${path}#${service.name}`;
+        records.add({ key: healthKey, kind: 'code.healthcheck', label: `${service.name} healthcheck`, properties: { ...healthProperties, service: service.name }, span: healthSpan });
+        records.edge('code.probes', healthKey, key, { role: 'service' }, healthSpan);
+      }
       for (const mapping of service.portMappings) {
         records.edge(
           'code.publishes',
@@ -327,11 +356,19 @@ export function extractDeploy(t: TreeText, records: Records): void {
             replicas: workload.replicas,
             image: workload.image,
             containerPorts: [...workload.containerPorts].sort((left, right) => left - right),
-            probePath: workload.probePath,
+            // Preserve the legacy aggregate only when all HTTP probes agree.
+            probePath: [...new Set(workload.probes.map((probe) => probe.properties.path).filter((path) => typeof path === 'string'))].length === 1 ? workload.probes.find((probe) => typeof probe.properties.path === 'string')?.properties.path ?? null : null,
+            probePaths: workload.probes.map((probe) => probe.properties.path ?? null),
             envFrom: workload.envFrom.sort(byCodePoint),
           } satisfies { [key: string]: PropertyValue },
           span,
         });
+        for (const probe of workload.probes) {
+          const probeKey = `code.probe:${path}#${workload.name}/${probe.container}/${probe.probeType}`;
+          records.add({ key: probeKey, kind: 'code.probe', label: `${workload.name} ${probe.probeType}`, properties: probe.properties, span: probe.span });
+          records.edge('code.probes', probeKey, key, { role: 'workload' }, probe.span);
+          if (typeof probe.properties.port === 'number') records.edge('code.targets', probeKey, records.port(workload.name, probe.properties.port, probe.span), {}, probe.span);
+        }
         if (workload.image !== null) {
           const imageKey = imageNode(records, workload.image, span);
           records.edge('code.runs', key, imageKey, {}, span);

@@ -288,7 +288,7 @@ describe('extract contracts (training repository)', () => {
     // The relay publishes the outbox rows and nothing else: no edge to the
     // channel the same service only consumes.
     expect(edgesOf(REL_PUBLISHES).filter((e) => e.to === channelKey('payments.events')).map((e) => e.from))
-      .toEqual([fileKey('services/payments/src/events/publishers.ts')]);
+      .toEqual([fileKey('services/payments/src/events/publishers.ts'), 'code.symbol:services/payments/src/events/publishers.ts#publishPaymentEvent']);
   });
 
   test('contract.asyncapi.payments-events: payments.events published by payments, consumed by orders', () => {
