@@ -106,7 +106,12 @@ export type BrokenWhy =
   | { code: 'no-document'; path: string }
   | { code: 'no-section'; path: string; anchor: string; repos: string };
 
+export type HistoryContext = { repo: string; at: string; coverage: 'covered' | 'unfilled' | 'before' | 'unknown'; commit: string | null; effectiveAt: string | null; until: string | null; points: { name: string; commit: string; covered: boolean }[] };
+
 export type PageModel = {
+  historyNavigation?: { repo: string; points: { name: string; commit: string; covered: boolean }[] }[];
+  historicalAbsent?: boolean;
+  history?: HistoryContext;
   id: string;
   kind: string;
   title: string;
@@ -212,7 +217,7 @@ export type WikiStatus = {
   starterOffers?: number;
 };
 
-export type SourceFile = { repo: string | null; path: string; language: string; commit: string | null; text: string };
+export type SourceFile = { history?: HistoryContext; repo: string | null; path: string; language: string; commit: string | null; text: string };
 
 export type ProductChoice = { name: string; folder: string; own?: boolean };
 

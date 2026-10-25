@@ -114,7 +114,7 @@ export function createKnowledgePart(
       const asked = new URL(request.url).searchParams.get('lang');
       // The diagrams read the graph at length: the page answers at once with a place for each (`deferred`), and the app asks
       // for each by its line (`/api/k/block`). `full=1` asks for the whole page in one answer.
-      const result = await product.page(id, asked === 'ru' || asked === 'en' ? asked : undefined, { defer: new URL(request.url).searchParams.get('full') !== '1' });
+      const result = await product.page(id, asked === 'ru' || asked === 'en' ? asked : undefined, { defer: new URL(request.url).searchParams.get('at') === null && new URL(request.url).searchParams.get('full') !== '1', ...(new URL(request.url).searchParams.has('at') ? { history: { repo: new URL(request.url).searchParams.get('repo') ?? '', at: new URL(request.url).searchParams.get('at')! } } : {}) });
       if (!result.ok) return refused(result.status, { field: 'id', message: result.message });
       return { response: json(200, result.page) };
     }),
@@ -125,7 +125,7 @@ export function createKnowledgePart(
       const line = Number(query.get('line'));
       if (!Number.isInteger(line) || line < 1) return refused(400, { field: 'line', message: `"line" is ${JSON.stringify(query.get('line'))}: the line of the block in the page's template, a whole number from 1` });
       const asked = query.get('lang');
-      const result = await product.block(id, line, asked === 'ru' || asked === 'en' ? asked : undefined);
+      const result = await product.block(id, line, asked === 'ru' || asked === 'en' ? asked : undefined, query.has('at') ? { repo: query.get('repo') ?? '', at: query.get('at')! } : undefined);
       if (!result.ok) return refused(result.status, { field: 'id', message: result.message });
       return { response: json(200, result.block) };
     }),
@@ -162,7 +162,7 @@ export function createKnowledgePart(
       const asked = query.get('limit');
       const limit = asked === null ? 8 : Number(asked);
       if (!Number.isInteger(limit) || limit < 1 || limit > 100) return refused(400, { field: 'limit', accepted: '1 to 100', message: `"limit" is ${JSON.stringify(asked)}: a node opens 1 to 100 neighbours per relation` });
-      const result = await product.neighborhood(id, { ...(query.get('relation') === null ? {} : { relation: query.get('relation')! }), ...(direction === null ? {} : { direction }), limit });
+      const result = await product.neighborhood(id, { ...(query.has('at') ? { history: { repo: query.get('repo') ?? '', at: query.get('at')! } } : {}), ...(query.get('relation') === null ? {} : { relation: query.get('relation')! }), ...(direction === null ? {} : { direction }), limit });
       if (!result.ok) return refused(result.status, { field: 'id', message: result.message });
       return { response: json(200, result.neighborhood) };
     }),
@@ -174,10 +174,15 @@ export function createKnowledgePart(
       if (path.startsWith('/') || path.includes('\0') || path.split('/').includes('..')) {
         return refused(400, { field: 'path', message: `"${path}" is not a path inside a repository` });
       }
-      const read = await product.source(repo === null || repo === '' ? null : repo, path);
+      const selection = query.has('at') ? { repo: repo ?? '', at: query.get('at')! } : undefined;
+      if (selection !== undefined) {
+        const history = await product.historyAt(selection);
+        if (history.coverage !== 'covered') return refused(409, { field: 'at', history, message: `historical structure is ${history.coverage} for ${selection.repo} at ${selection.at}; no current source is substituted` });
+      }
+      const read = await product.source(repo === null || repo === '' ? null : repo, path, selection);
       if (read === undefined) return refused(404, { field: 'path', message: `the file ${path} is not in ${repo === null || repo === '' ? 'the product repository' : `the repository ${repo}`} at the commit the graph was filled from` });
       if (Buffer.byteLength(read.text) > SOURCE_VIEW_BYTES) return refused(413, { field: 'path', message: `the file ${path} is ${Buffer.byteLength(read.text)} bytes, past the ${SOURCE_VIEW_BYTES} the source view shows` });
-      return { response: json(200, { repo: repo === '' ? null : repo, path, language: languageOf(path), commit: read.commit, text: read.text }) };
+      return { response: json(200, { repo: repo === '' ? null : repo, path, language: languageOf(path), commit: read.commit, text: read.text, ...(read.history === undefined ? {} : { history: read.history }) }) };
     }),
     fill: guarded('start the fill', async (request) => {
       const crossSite = foreign(request);

@@ -441,7 +441,20 @@
       "method": "Method",
       "path": "Path"
     },
-    "pageNotRead": "Could not read the page of {{id}}: {{reason}}"
+    "pageNotRead": "Could not read the page of {{id}}: {{reason}}",
+    "historyDateTitle": "{{repo}} at {{date}}",
+    "historyCurrent": "Return to current code",
+    "historyRepository": "Repository",
+    "historyChooseDate": "Date (UTC)",
+    "historyOpenDate": "Open this date",
+    "historyPointUnread": "structure not read",
+    "historyCoverage": {
+      "covered": "This tree was read. Structure and source below come from this commit, not from current code.",
+      "unfilled": "The history identifies this commit, but its structure was not read. No current code is substituted.",
+      "before": "This date is before the indexed first-parent history. No historical structure is known.",
+      "unknown": "The indexed evidence cannot resolve this repository and date. No current code is substituted.",
+      "absent": "This tree was read, but this entity is absent at the selected date. It is not replaced by its current version."
+    }
   },
   "loop": {
     "questionsTitle": "Questions",

@@ -20,6 +20,7 @@ import { Badge } from '@/components/ui/badge.js';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.js';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.js';
 import { getBlock } from './api.js';
+import { historyAddress } from './history-context.js';
 import { highlight } from './highlight.js';
 import { colorize, type ColoredToken } from './shiki.js';
 import { PendingPages } from './pending.js';
@@ -37,7 +38,8 @@ import type { Block, BrokenWhy, CallRow, CodeLocation, EntityRef, PlannedMarkVie
 
 /** A link inside the wiki, opened without a reload: in the tab in front, or in a new tab on a middle or control click. */
 export function KLink({ href, children, className, title }: { href: string; children: ReactNode; className?: string; title?: string }): ReactElement {
-  return <a href={appPath(href)} className={className} title={title} {...linkHandlers(href)}>{children}</a>;
+  const target = historyAddress(href);
+  return <a href={appPath(target)} className={className} title={title} {...linkHandlers(target)}>{children}</a>;
 }
 
 /** `path:line` as a link that opens the source at that line. */
@@ -620,7 +622,7 @@ function History({ block }: { block: Extract<Block, { type: 'history' }> }): Rea
               <TableRow>
                 {section.role === 'commits' && <TableHead>{t('knowledge.historyColWhen')}</TableHead>}
                 {section.role === 'commits' && <TableHead>{t('knowledge.historyColWho')}</TableHead>}
-                <TableHead>{section.role === 'commits' || section.role !== 'files' ? t('knowledge.historyColWhat') : t('knowledge.historyColFile')}</TableHead>
+                <TableHead>{section.role !== 'files' ? t('knowledge.historyColWhat') : t('knowledge.historyColFile')}</TableHead>
                 <TableHead>{t('knowledge.historyColFigures')}</TableHead>
               </TableRow>
             </TableHeader>

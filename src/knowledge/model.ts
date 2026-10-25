@@ -260,6 +260,10 @@ export interface PropertyRow {
 export type Block = BlockShape & { name?: string };
 
 export interface PageModel {
+  historyNavigation?: { repo: string; points: { name: string; commit: string; covered: boolean }[] }[];
+  historicalAbsent?: boolean;
+  /** Explicit historical context; no coverage is inferred from a named snapshot alone. */
+  history?: import('./temporal.js').HistoryContext;
   id: string;
   kind: string;
   /** The page's name: the attribute the manifest's `title` names. */
