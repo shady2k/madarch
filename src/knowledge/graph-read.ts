@@ -445,7 +445,7 @@ export class GraphReader {
          JOIN node_version d ON d.node_id = e.dst_id AND ${this.visible('d')}
          WHERE s.scope_id = $2::bigint AND d.scope_id = $2::bigint AND ${this.visible('e')}
            AND s.properties ? 'recordKey' AND d.properties ? 'recordKey'
-           AND r.key IN ('code.touched', 'code.authored', 'code.parent', 'code.renamed-to', 'code.changed-with', 'code.held', 'code.imports')
+           AND r.key IN ('code.touched', 'code.authored', 'code.parent', 'code.renamed-to', 'code.changed-with', 'code.held', 'code.imports', 'code.contains')
          ORDER BY r.key COLLATE "C", s.properties->>'recordKey' COLLATE "C", d.properties->>'recordKey' COLLATE "C", e.id`,
         [at, scope],
       );
