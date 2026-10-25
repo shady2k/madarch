@@ -184,7 +184,7 @@ export function httpReceiver(t: TreeText, path: string, receiver: string, at: nu
     return false;
   }
   const factories = new Set<string>();
-  for (const imported of text.matchAll(/import\s+(?:(?:\*\s+as\s+)?(\w+)|\{([^}]+)\})\s+from\s*['"]express['"]/g)) {
+  for (const imported of text.matchAll(/import\s+(?:(?:\*\s+as\s+)?(\w+)(?:\s*,\s*\{[^}]*\})?|\{([^}]+)\})\s+from\s*['"]express['"]/g)) {
     if (mask.slice(imported.index, imported.index + 6) !== 'import') continue;
     if (imported[1] !== undefined) {factories.add(imported[1]); factories.add(`${imported[1]}.Router`);}
     for (const entry of (imported[2] ?? '').split(',')) {

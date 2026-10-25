@@ -38,6 +38,7 @@ test('review 5: arbitrary cache get is not HTTP; grounded route remains',async()
  const t=tree('export function read(cache: {get(k:string,f:()=>number):number}) {return cache.get("/healthz",()=>1);}');const code=await extractCode(t);const ex=extractOperations(t,code);
  expect(ex.nodes.filter((n)=>n.kind==='code.health-endpoint')).toEqual([]);expect(normalized(code,ex).filter((e)=>e.properties.role==='handler')).toEqual([]);
  const yes=tree(route+'app.listen(8080);}');expect(extractOperations(yes,await extractCode(yes)).nodes.filter((n)=>n.kind==='code.health-endpoint')).toHaveLength(1);
+ const combined=tree((route+'app.listen(8080);}').replace('import express from', 'import express, {Express} from'));expect(extractOperations(combined,await extractCode(combined)).nodes.filter((n)=>n.kind==='code.health-endpoint')).toHaveLength(1);
 });
 test('review 6: ordinary addr metadata is not listener proof for any probe join',async()=>{
  const t=tree(route+'const metadata={addr:":8080"};}',{'docker-compose.yml':'services:\n api:\n  image: api:1\n  healthcheck:\n   test: ["CMD", "curl", "http://localhost:8080/healthz"]\n'});const code=await extractCode(t);const ex=extractOperations(t,code);const contracts=await extractContracts(t,code);
