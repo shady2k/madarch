@@ -100,9 +100,11 @@ describe('the Mermaid source of a diagram', () => {
     expect(source).not.toContain('flowchart');
     // This graph fixture has table/column facts but no FK facts. Add an explicit renderer-level
     // relationship between its two held tables; never pretend buildDiagram supplied one.
-    const from = factual.elements.find(element => element.label === 'public.orders');
-    const to = factual.elements.find(element => element.label === 'public.payments');
+    const from = factual.elements.find(element => element.id === fx.ordersTable.id);
+    const to = factual.elements.find(element => element.id === fx.paymentsTable.id);
     if (!from || !to) throw new Error('The factual ER fixture must contain both held tables');
+    expect(from.label).toBe('acme-shop:public.orders');
+    expect(to.label).toBe('acme-shop:public.payments');
     expect(factual.edges).toHaveLength(0);
     const factualEdge = { from: from.id, to: to.id, label: 'payment_id', dashed: false };
     const withForeignKey = { ...factual, elements: factual.elements.map(element => element.id === from.id ? { ...element, columns: [...(element.columns ?? []), { ...from.columns![0]!, id: 'renderer-payment-id', label: 'payment_id', dataType: 'bigint FK' }] } : element), edges: [factualEdge] };

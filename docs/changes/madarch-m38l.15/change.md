@@ -241,3 +241,29 @@ The same failed run also found that the walker passed `--port` to `madarch stop`
 whose contract accepts only `--home`. The walker now supplies the port only to
 `start`; cleanup remains required. The failure, partial JSON and later NOTRUN
 matrix/mutation evidence remain retained, not accepted as a complete walk.
+
+
+### Retained acceptance result and factual ER test repair
+
+The immutable `6a8bee4e` run completed real fill/prepare (exit 0, 112.627 s)
+and all 2,980 English/Russian JSON pages (exit 0, 418.200 s). Its native
+receipt is exit 100 after 1,467 s: the queued SkyPilot CLI returned 100 for
+the product's exit 1. The first 1150/light/en screenshot stage failed on the
+LikeC4 pan geometry wait. Remaining matrix stages and mutation were NOT RUN.
+All exact-owned outer cleanup commands returned 0, and final cluster and
+provisioner absence were proved. The raw receipt and first failure are retained.
+
+The only difference from final scanner head `8fc24ef9` was its same-line
+negative fixture. The full 1,687-file staged manifest and actual source/asset
+provenance are retained separately from that test-only patch. The retrospective
+full manifest is labelled retrospective; only the neutral-test text hash was
+captured before that edit. Post-run staged hashes and remote product-source
+hashes have no mismatch. This is not an exact-`8fc24ef9` acceptance claim.
+
+CI at `8fc24ef9` found a renderer test selecting held tables by bare labels.
+The older graph fixture deliberately labels tables with their repository:
+`acme-shop:public.orders` and `acme-shop:public.payments`. The test now selects
+those same held facts by their fixture IDs and explicitly asserts both full
+labels. It preserves the missing-table guard, zero factual relationships,
+native column assertions, explicit renderer-only FK and dashed-assumption
+refusal. No product ER inference or fixture identity changes.
