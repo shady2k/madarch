@@ -57,7 +57,7 @@ describe('questions-once reader fixture is bound to the actual answer key', () =
 });
 
 
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import type { Page } from 'puppeteer';
 import { OnceEvidence, assertFindings, assertHashes, assertQuestionDOM, assertRouteIdentity, assertResolution, assertVisibility, deadline, hashFiles, ownedPIDs, resetMissingTargets, type OwnedPID, type ShotPlan, type VisibilityMeasurement } from '../scripts/questions-once-evidence.js';
@@ -180,6 +180,33 @@ describe('questions-once harness rejects incomplete evidence', () => {
     for (const change of [{ hidden: true }, { width: 0 }, { height: 0 }, { fontSize: 13 }, { clips: ['hidden ancestor'] }, { ownClip: true }, { x: 200 }]) expect(() => assertVisibility({ ...measure, labels: [{ ...label, ...change }] }, shot)).toThrow();
     for (const change of [{ overlaps: ['one'] }, { documentWidth: 500 }, { fonts: 'loading' }, { interLoaded: false }, { dark: false }, { surface: '#ffffff' }, { language: 'en' }, { homeLabel: 'Home' }]) expect(() => assertVisibility({ ...measure, ...change }, shot)).toThrow();
   });
+  test('finite requests must finish even beside an open EventSource, and failures remain errors', async () => {
+    const folder = mkdtempSync(join(tmpdir(), 'questions-harness-finite-'));
+    try {
+      const handlers = new Map<string, ((value: any) => void)[]>();
+      const page = { on: (event: string, handler: (value: any) => void) => { handlers.set(event, [...(handlers.get(event) ?? []), handler]); }, url: () => 'http://example.test/k' } as unknown as Page;
+      const emit = (event: string, value: unknown): void => { for (const handler of handlers.get(event) ?? []) handler(value); };
+      const request = (url: string, type = 'fetch') => ({ url: () => url, method: () => 'GET', resourceType: () => type, failure: () => ({ errorText: 'net::ERR_ABORTED' }) });
+      const evidence = new OnceEvidence(folder, [], {}); evidence.watch(page);
+      const stream = request('http://example.test/api/events', 'eventsource'); emit('request', stream);
+      const finite = request('http://example.test/api/k/block?id=product%3Ashop'); emit('request', finite);
+      await expect(evidence.waitFinite(page, 20)).rejects.toThrow('unfinished finite requests');
+      const diagnostic = readdirSync(join(folder, 'observations')).map((file) => readFileSync(join(folder, 'observations', file), 'utf8')).join('\n');
+      expect(diagnostic).toContain('http://example.test/api/k/block?id=product%3Ashop'); expect(diagnostic).toContain('GET'); expect(diagnostic).toContain('fetch');
+      emit('requestfinished', finite);
+      const late = request('http://example.test/api/k/late', 'other');
+      const started = performance.now();
+      const lateStart = setTimeout(() => emit('request', late), 100);
+      const lateFinish = setTimeout(() => emit('requestfinished', late), 200);
+      try { await evidence.waitFinite(page, 1500); } finally { clearTimeout(lateStart); clearTimeout(lateFinish); }
+      expect(performance.now() - started).toBeGreaterThanOrEqual(650);
+      const failed = request('http://example.test/api/k/glossary'); emit('request', failed); emit('requestfailed', failed);
+      await evidence.waitFinite(page, 1000); evidence.verifyInputs(); expect(evidence.finish(true)).toBe(false);
+      const result = JSON.parse(readFileSync(join(folder, 'result.json'), 'utf8'));
+      expect(result.errors.join('\n')).toContain('net::ERR_ABORTED'); expect(result.errors.join('\n')).toContain('glossary');
+    } finally { rmSync(folder, { recursive: true, force: true }); }
+  });
+
   test('ownership follows the private session and observed reparented children, not an unrelated reused PID', () => {
     const row = (pid: number, parent: number, session: number, born = '10', state = 'S'): OwnedPID => ({ pid, parent, session, born, state });
     const rows = [row(100, 1, 100), row(101, 100, 100), row(102, 101, 102), row(103, 1, 103), row(104, 1, 104, '20'), row(200, 1, 200), row(105, 100, 100, '10', 'Z')];

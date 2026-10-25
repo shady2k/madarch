@@ -4,7 +4,7 @@
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { Browser, Page, CDPSession } from 'puppeteer';
+import type { Browser, Page, CDPSession, HTTPRequest } from 'puppeteer';
 import { noEntityMessage } from '../src/knowledge/resolve.js';
 import { parseStatementRef } from '../src/loop/entities.js';
 
@@ -142,6 +142,8 @@ export class OnceEvidence {
   private eventSerial = 0;
   private readonly pending = new Set<Promise<void>>();
   private readonly completed = new Set<string>();
+  private readonly finite = new Map<Page, Map<HTTPRequest, { url: string; method: string; type: string }>>();
+  private readonly streams = new Map<Page, Set<HTTPRequest>>();
   private readonly errors: string[] = [];
   private readonly closing = new WeakSet<Page>();
   private readonly sessions = new Map<Page, CDPSession>();
@@ -189,9 +191,34 @@ export class OnceEvidence {
     requireWalk(result.status >= 200 && result.status < 300, `${url}: HTTP ${result.status}: ${text}`);
     return body;
   }
+  async waitFinite(page: Page, milliseconds = HTTP_MS): Promise<void> {
+    let cancelled = false;
+    try {
+      await deadline('finite browser requests', milliseconds, async () => {
+        let quietSince = performance.now();
+        while (!cancelled && performance.now() - quietSince < 500) {
+          if ((this.finite.get(page)?.size ?? 0) !== 0) quietSince = performance.now();
+          await new Promise((done) => setTimeout(done, 25));
+        }
+        if (!cancelled) await this.flush();
+      }, () => { cancelled = true; });
+    } catch (error) {
+      const requests = [...(this.finite.get(page)?.values() ?? [])];
+      this.observe('finite-requests-incomplete', { url: page.url(), requests, knownEventSources: this.streams.get(page)?.size ?? 0 });
+      throw new Error(`${String(error)}; unfinished finite requests: ${JSON.stringify(requests)}`);
+    }
+  }
   watch(page: Page): void {
+    const finite = new Map<HTTPRequest, { url: string; method: string; type: string }>();
+    const streams = new Set<HTTPRequest>(); this.finite.set(page, finite); this.streams.set(page, streams);
+    page.on('request', (request) => {
+      if (request.resourceType() === 'eventsource') { streams.add(request); return; }
+      finite.set(request, { url: request.url(), method: request.method(), type: request.resourceType() });
+    });
+    page.on('requestfinished', (request) => { finite.delete(request); streams.delete(request); });
     page.on('pageerror', (error) => { const message = error instanceof Error ? error.message : String(error); this.errors.push(message); this.observe('pageerror', { url: page.url(), error: message, stack: error instanceof Error ? error.stack : undefined }); });
     page.on('requestfailed', (request) => {
+      finite.delete(request); streams.delete(request);
       const intentionalStreamClose = this.closing.has(page) && request.resourceType() === 'eventsource' && request.failure()?.errorText === 'net::ERR_ABORTED';
       const detail = { url: request.url(), failure: request.failure(), classification: intentionalStreamClose ? 'intentional SSE abort on navigation/close' : 'unexpected failure' };
       if (!intentionalStreamClose) this.errors.push(JSON.stringify(detail)); this.observe('requestfailed', detail);
@@ -218,6 +245,7 @@ export class OnceEvidence {
     try { if (session) await deadline('CDP detach', CLEANUP_MS, () => session.detach()); } catch (error) { failures.push(error); }
     try { if (!page.isClosed()) await deadline('browser page close', CLEANUP_MS, () => page.close()); } catch (error) { failures.push(error); }
     this.sessions.delete(page);
+    this.finite.delete(page); this.streams.delete(page);
     try { await this.flush(); } catch (error) { failures.push(error); }
     requireWalk(failures.length === 0, `page cleanup failed: ${failures.map(String).join('; ')}`);
   }
@@ -256,6 +284,7 @@ export class OnceEvidence {
       }
       await page.waitForFunction(() => document.querySelector('[data-testid=page-loading], [data-testid=block-loading], [data-testid=block-deferred], [data-testid=page-error]') === null, { timeout: 180_000 });
       await deadline('document fonts ready', HTTP_MS, () => page.evaluate(() => document.fonts.ready.then(() => undefined)));
+      await this.waitFinite(page);
       const identity = await page.evaluate(() => ({
         entity: document.querySelector('[data-testid=entity-page]')?.getAttribute('data-entity'),
         question: document.querySelector('[data-testid=question-page]')?.getAttribute('data-question'),

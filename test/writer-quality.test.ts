@@ -468,6 +468,75 @@ Orders are retained for ninety days.[^retained]
     }
   });
 
+  test('a complete multi-candidate packet rejects each malformed decision without saving or associating', async () => {
+    const { open, sink } = sessions('en', false);
+    const ordering = open('ordering');
+    await ordering.call('ask_question', ask('How long are orders kept?'));
+    const first = 'question:how-long-orders-kept';
+    await ordering.call('ask_question', ask('Who configures retention?', { comparison: [decision(first, false)] }));
+    const second = 'question:who-configures-retention';
+    const paths = ['docs/questions/how-long-orders-kept.md', 'docs/questions/who-configures-retention.md'];
+    const before = await Promise.all(paths.map((path) => sink.read(path)));
+    const malformed = [
+      [decision(first, false), decision('question:unknown', false)],
+      [decision(first, false), decision(first, false)],
+      [decision(first, false), { id: second, same: 'false', reason: 'A different decision.' }],
+      [decision(first, false), { id: second, reason: 'A different decision.' }],
+      [decision(first, false), { id: second, same: false, reason: 17 }],
+      [decision(first, false), { id: second, same: false }],
+      [decision(first, false), { id: second, same: false, reason: '  ' }],
+    ];
+    for (const comparison of malformed) {
+      const result = await open('payments').call('ask_question', ask('Which refund deadline applies?', { comparison }));
+      expect(result.isError, JSON.stringify(comparison)).toBe(true);
+      expect(result.answer).toMatchObject({ error: { code: 'question-comparison-required' } });
+      expect(await sink.list!('docs/questions')).toEqual(paths);
+      expect(await Promise.all(paths.map((path) => sink.read(path)))).toEqual(before);
+    }
+  });
+
+  test('reusing an ordinary gap does not create a contradiction obligation for its new page', async () => {
+    const { open } = sessions('en', false);
+    await open('ordering').call('ask_question', ask('How long are orders kept?', { type: 'gap', sides: [{ claim: 'The README leaves the duration unclear.', grounds: ['doc:README.md#retention'] }] }));
+    const payments = open('payments');
+    expect((await payments.call('ask_question', ask('Which retention duration applies?', { type: 'gap', sides: [{ claim: 'The code leaves the policy unclear.', grounds: ['code.file:services/orders/retention.ts'] }], comparison: [decision('question:how-long-orders-kept', true)] }))).answer).toMatchObject({ asked: false, merged: true });
+    const written = await payments.call('write_page', { markdown: `${front}
+
+The tax document names the tax policy.[^tax]
+
+[^tax]: [source](madarch:doc:README.md#tax)
+` });
+    expect(written.isError, JSON.stringify(written.answer)).toBe(false);
+  });
+
+  test('an incoming contradiction matched to a gap keeps both incoming sources for the rewrite', async () => {
+    const { open } = sessions('en', false);
+    const created = await open('ordering').call('ask_question', ask('How long are orders kept?', { type: 'gap', sides: [{ claim: 'The tax document leaves the policy unclear.', grounds: ['doc:README.md#tax'] }] }));
+    expect(created.isError, JSON.stringify(created.answer)).toBe(false);
+    const payments = open('payments');
+    const reused = await payments.call('ask_question', ask('Which retention duration applies?', { comparison: [decision('question:how-long-orders-kept', true)] }));
+    expect(reused.answer).toMatchObject({ asked: false, merged: true });
+    const refused = await payments.call('write_page', { markdown: `${front}
+
+The README promises ninety days.[^readme]
+
+[^readme]: [source](madarch:doc:README.md#retention)
+` });
+    expect(refused.isError).toBe(true);
+    expect(refused.answer).toMatchObject({ refused: [{ rule: 'contradiction-side-missing' }] });
+    expect(JSON.stringify(refused.answer)).toContain('code.file:services/orders/retention.ts');
+    const accepted = await payments.call('write_page', { markdown: `${front}
+
+The README promises ninety days.[^readme]
+
+The code deletes orders after six hours.[^code]
+
+[^readme]: [source](madarch:doc:README.md#retention)
+[^code]: [source](madarch:code.file:services/orders/retention.ts)
+` });
+    expect(accepted.isError, JSON.stringify(accepted.answer)).toBe(false);
+  });
+
   test('concurrent units compare the fresh set after the earlier create completes', async () => {
     const { open, questions } = sessions('en', false);
     const [first, second] = await Promise.all([
