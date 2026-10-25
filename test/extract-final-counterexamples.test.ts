@@ -8,7 +8,7 @@ import {linkExtractions} from '../src/extract/driver/links.js';
 import {edgeEvidenceError} from '../scripts/extract-truth-evidence.js';
 import type {Extraction,SourceSpan,TreeReader} from '../src/extract/records.js';
 const path='services/api/main.ts';
-const tree=(source:string,extra:Record<string,string>={}):TreeReader=>{const files={[path]:source,...extra};return {paths:Object.keys(files).sort(),read:(p)=>{if(files[p]===undefined)throw new Error(`missing fixture ${p}`);return new TextEncoder().encode(files[p]);}};};
+const tree=(source:string,extra:Record<string,string>={}):TreeReader=>{const files:Record<string,string>={[path]:source,...extra};return {paths:Object.keys(files).sort(),read:(p)=>{if(files[p]===undefined)throw new Error(`missing fixture ${p}`);return new TextEncoder().encode(files[p]);}};};
 const sym=(name:string)=>`code.symbol:${path}#${name}`;
 const slice=(t:TreeReader,s:SourceSpan|undefined)=>s===undefined?undefined:new TextDecoder().decode(t.read(s.path).subarray(s.byteStart,s.byteEnd));
 const normalized=(...ex:Extraction[])=>linkExtractions(ex,{}).extractions.flatMap((e)=>e.edges);
@@ -56,6 +56,7 @@ test('review 9: external OpenAPI authority never falls back to sole local route'
  const yes=tree(route+'app.listen(8080);}',{'contracts/openapi/api.yaml':api.replace('https://outside.example','http://api:8080')});expect((await extractContracts(yes)).edges.filter((e)=>e.type==='code.serves')).toHaveLength(1);
 });
 test('review 10: all database evidence contributes exact raw and normalized spans',async()=>{
- const t=tree('import pg from "pg";\nexport const url=process.env.DATABASE_URL;\n',{'services/api/package.json':'{"name":"api","dependencies":{"pg":"8.13.0"}}','services/api/migrations/001.sql':'CREATE TABLE entries (id integer PRIMARY KEY);'});const ex=await extractDataModel(t);const ops=extractOperations(t);const raw=ex.edges.filter((e)=>e.type==='code.uses-database');expect(raw.length).toBeGreaterThanOrEqual(4);for(const edge of raw)expect(edgeEvidenceError(t,{type:edge.type,evidence:edge.span??null,properties:edge.properties})).toBeNull();
- const edges=normalized(ex,ops).filter((e)=>e.type==='code.uses-database');expect(edges).toHaveLength(1);const origins=edges[0]?.properties.origins;expect(Array.isArray(origins)).toBe(true);if(!Array.isArray(origins))throw new Error('missing database-use origins');expect(origins).toHaveLength(raw.length);expect(origins.every((o)=>o!==null&&typeof o==='object'&&'sourceSpan' in o&&o.sourceSpan!==null)).toBe(true);
+ const t=tree('import pg from "pg";\nexport const url=process.env.DATABASE_URL;\n',{'services/api/package.json':'{"name":"api","dependencies":{"pg":"8.13.0"}}','services/api/migrations/001.sql':'CREATE TABLE entries (id integer PRIMARY KEY);'});const ex=await extractDataModel(t);const ops=extractOperations(t);const raw=ex.edges.filter((e)=>e.type==='code.uses-database');expect(raw).toHaveLength(1);for(const edge of raw)expect(edgeEvidenceError(t,{type:edge.type,evidence:edge.span??null,properties:edge.properties})).toBeNull();
+ const readings=raw[0]?.properties.origins;expect(Array.isArray(readings)).toBe(true);if(!Array.isArray(readings))throw new Error('missing raw storage readings');expect(readings.length).toBeGreaterThanOrEqual(4);
+ const edges=normalized(ex,ops).filter((e)=>e.type==='code.uses-database');expect(edges).toHaveLength(1);expect(JSON.stringify(edges[0]?.properties)).toContain(JSON.stringify(readings));
 });

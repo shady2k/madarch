@@ -75,6 +75,9 @@ describe.skipIf(skip)('the wiki while a fill runs', () => {
       await Promise.all([ask(paths[2]!), ask(paths[4]!), ask(paths[5]!)]);
       await new Promise((rest) => setTimeout(rest, 60));
     }
+    const terminalStatus = await (await fetch(`${base}/api/k/status`)).json() as {fill: {state: string; message?: string; code?: string; phase?: string}};
+    console.log(`terminal fill before list assertions: ${JSON.stringify(terminalStatus.fill)}`);
+    expect(terminalStatus.fill.state, JSON.stringify(terminalStatus.fill)).toBe('done');
     const during = samples.filter((sample) => sample.running);
     const byPath = new Map<string, number[]>();
     for (const sample of during) byPath.set(sample.path, [...(byPath.get(sample.path) ?? []), sample.ms]);
