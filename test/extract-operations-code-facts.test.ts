@@ -196,10 +196,321 @@ test('real Go composite options select the exact declared metric name through gr
   const path='lib/metric.go';const source='package sample\nimport prom "github.com/prometheus/client_golang/prometheus"\nvar requests=prom.NewCounter(prom.CounterOpts{Name:"requests_total"})\nfunc run(){requests.Inc()}';
   const tree=treeOf({[path]:source});const code=await extractCodeWithFacts(tree);const evaluated=evaluateLibraryModels(code.facts);
   const name=code.facts.expressions.find((entry)=>entry.literal?.value==='requests_total')!;expect(name).toBeDefined();
+  const pair=code.facts.expressions.find((entry)=>entry.syntaxKind==='keyed_element');
+  expect(pair?.fields).toEqual({});
+  expect(pair?.children.map((id)=>code.facts.expressions.find((entry)=>entry.id===id)?.syntaxKind)).toEqual(['literal_element','literal_element']);
   const declaration=evaluated.effects.find((effect)=>effect.kind==='metric-declare');
   if(declaration===undefined)throw new Error(JSON.stringify({path,facts:code.facts,diagnostics:evaluated.diagnostics}));
   const selected=declaration.arguments.find((argument)=>argument.name==='name');expect(selected?.expression).toBeDefined();
   const operations=extractOperations(tree,code.extraction,code.facts);
   expect(operations.nodes.filter((node)=>node.kind==='code.metric').map((node)=>node.label)).toEqual(['requests_total']);
   expect(operations.edges.filter((edge)=>edge.type==='code.updates-metric').map((edge)=>edge.from)).toEqual(['code.symbol:lib/metric.go#run']);
+});
+
+
+test('Go struct selectors require syntax or exact declarative imported type proof', async () => {
+  const path = 'lib/metric.go';
+  const prefix = 'package sample\nimport prom "github.com/prometheus/client_golang/prometheus"\n';
+  for (const options of ['struct { Name string }{Name:"neutral_total"}', 'prom.CounterOpts{Name:"neutral_total"}',
+    'prom.CounterOpts{Help:"neutral", /* value position is structural */ Name:"neutral_total"}']) {
+    const source = prefix + 'var requests = prom.NewCounter(' + options + ')\nfunc run(){requests.Inc()}';
+    const tree = treeOf({[path]:source}); const code = await extractCodeWithFacts(tree);
+    const result = extractOperations(tree,code.extraction,code.facts);
+    expect(result.nodes.filter((entry)=>entry.kind==='code.metric').map((entry)=>entry.label)).toEqual(['neutral_total']);
+    expect(result.edges.filter((entry)=>entry.type==='code.updates-metric').map((entry)=>entry.from)).toEqual(['code.symbol:lib/metric.go#run']);
+  }
+  for (const [declarations,options] of [
+    ['type Labels map[string]string\nconst Name="different"\n','Labels{Name:"neutral_total"}'],
+    ['type Original struct { Name string }\ntype Alias = Original\n','Alias{Name:"neutral_total"}'],
+    ['type Original map[string]string\ntype Alias = Original\nconst Name="different"\n','Alias{Name:"neutral_total"}'],
+    ['', 'prom.UnknownOptions{Name:"neutral_total"}'],
+    ['', 'prom.CounterOpts{Name:"one",Name:"two"}'],
+    ['const Name="different"\n', 'map[string]string{Name:"neutral_total"}'],
+  ]) {
+    const tree=treeOf({[path]:prefix+declarations+'var requests=prom.NewCounter('+options+')\nfunc run(){requests.Inc()}'});
+    const code=await extractCodeWithFacts(tree);const result=extractOperations(tree,code.extraction,code.facts);
+    expect(result.nodes.filter((entry)=>entry.kind==='code.metric')).toEqual([]);
+    expect(result.edges.filter((entry)=>entry.type==='code.updates-metric')).toEqual([]);
+    expect(result.gaps.some((entry)=>entry.path===path&&entry.reason.includes('selector'))).toBe(true);
+  }
+});
+
+test('Go local named struct without its copied declaration proof remains an explicit gap', async () => {
+  const path='lib/metric.go';
+  const tree=treeOf({[path]:'package sample\nimport prom "github.com/prometheus/client_golang/prometheus"\ntype Local struct{Name string}\nvar requests=prom.NewCounter(Local{Name:"local_total"})'});
+  const code=await extractCodeWithFacts(tree);
+  const missingProof={...code.facts,expressions:code.facts.expressions.map((entry)=>entry.compositeType?.bindingId===undefined?entry:{...entry,compositeType:undefined})};
+  const result=extractOperations(tree,code.extraction,missingProof);
+  expect(result.nodes.filter((entry)=>entry.kind==='code.metric')).toEqual([]);
+  expect(result.gaps.some((entry)=>entry.path===path&&entry.reason.includes('struct-shape proof'))).toBe(true);
+});
+
+// This independent positive can pass only through the copied lexical declaration
+// identity. Program's first-wins type table is never proof for this assertion.
+test('Go local named struct has a declaration identity and can select its field', async () => {
+  const path='lib/metric.go';
+  const tree=treeOf({[path]:'package sample\nimport prom "github.com/prometheus/client_golang/prometheus"\ntype Local struct{Name string}\nvar requests=prom.NewCounter(Local{Name:"local_total"})'});
+  const code=await extractCodeWithFacts(tree);const result=extractOperations(tree,code.extraction,code.facts);
+  expect(result.nodes.filter((entry)=>entry.kind==='code.metric').map((entry)=>entry.label)).toEqual(['local_total']);
+});
+
+
+test('Go grammar pair and type proofs reject malformed copied facts without changing raw syntax', async () => {
+  const path='lib/metric.go';
+  const tree=treeOf({[path]:'package sample\nimport prom "github.com/prometheus/client_golang/prometheus"\nvar requests=prom.NewCounter(prom.CounterOpts{Name:"neutral_total"})\nfunc run(){requests.Inc()}'});
+  const {facts}=await extractCodeWithFacts(tree);
+  const pair=facts.expressions.find((entry)=>entry.syntaxKind==='keyed_element');
+  const type=facts.expressions.find((entry)=>entry.syntaxKind==='qualified_type');
+  if(pair===undefined||type===undefined)throw new Error('real Go fixture lacks pair or qualified type');
+  const key=pair.children[0];const value=pair.children[1];
+  if(key===undefined||value===undefined)throw new Error('real Go pair lacks exact two children');
+  expect(pair.fields).toEqual({});
+  const good=evaluateLibraryModels(facts);
+  expect(good.effects.filter((entry)=>entry.kind==='metric-declare')).toHaveLength(1);
+  const change=(id:string,patch:Partial<typeof pair>)=>({...facts,expressions:facts.expressions.map((entry)=>entry.id===id?{...entry,...patch}:entry)});
+  const keyFact=facts.expressions.find((entry)=>entry.id===key);
+  if(keyFact===undefined)throw new Error('real Go fixture lacks key wrapper');
+  const coherent=change(pair.id,{fields:{key:[key],value:[value]}});
+  expect(evaluateLibraryModels(coherent).effects.filter((entry)=>entry.kind==='metric-declare')).toHaveLength(1);
+  const imported=facts.imports[0];
+  if(imported===undefined)throw new Error('real Go fixture lacks import');
+  const variants=[
+    change(pair.id,{children:[key]}),change(pair.id,{children:[key,key]}),change(pair.id,{children:[value,key]}),
+    change(pair.id,{fields:{key:[key]}}),change(pair.id,{fields:{key:[key,key],value:[value]}}),
+    change(pair.id,{fields:{key:[value],value:[key]}}),change(key,{children:[]}),change(key,{children:[key]}),
+    change(key,{span:{...keyFact.span,path:'other.go'}}),change(key,{span:{...keyFact.span,byteEnd:pair.span.byteEnd+1}}),
+    {...facts,expressions:facts.expressions.filter((entry)=>entry.id!==key)},
+    {...facts,expressions:[...facts.expressions,keyFact]},
+    {...facts,imports:[...facts.imports,{...imported,id:'duplicate-import-proof'}]},
+    {...facts,imports:facts.imports.map((entry)=>({...entry,targetPath:'internal/types.go'}))},
+    {...facts,imports:facts.imports.map((entry)=>({...entry,typeOnly:true}))},
+    change(type.id,{member:'CounterOpts',fields:{...type.fields,name:[]}}),
+  ];
+  for(const variant of variants){
+    const result=evaluateLibraryModels(variant);
+    expect(result.effects.filter((entry)=>entry.kind==='metric-declare'||entry.kind==='metric-update')).toEqual([]);
+    expect(result.diagnostics.some((entry)=>entry.path===path&&entry.span.path===path)).toBe(true);
+  }
+});
+
+for(const [type,constructor] of [['CounterOpts','NewCounter'],['GaugeOpts','NewGauge'],['HistogramOpts','NewHistogram']] as const){
+  test(`prometheus.${type}.struct.positive`,async()=>{
+    const path='lib/metric.go';const tree=treeOf({[path]:`package sample\nimport prom "github.com/prometheus/client_golang/prometheus"\nvar metric=prom.${constructor}(prom.${type}{Name:"neutral_total"})`});
+    const code=await extractCodeWithFacts(tree);const result=extractOperations(tree,code.extraction,code.facts);
+    expect(result.nodes.filter((entry)=>entry.kind==='code.metric').map((entry)=>entry.label)).toEqual(['neutral_total']);
+  });
+  test(`prometheus.${type}.struct.negative`,async()=>{
+    const path='lib/metric.go';const tree=treeOf({[path]:`package sample\nimport prom "github.com/prometheus/client_golang/prometheus"\nvar metric=prom.${constructor}(prom.UnknownOpts{Name:"neutral_total"})`});
+    const code=await extractCodeWithFacts(tree);const result=extractOperations(tree,code.extraction,code.facts);
+    expect(result.nodes.filter((entry)=>entry.kind==='code.metric')).toEqual([]);
+    expect(result.gaps.some((entry)=>entry.path===path&&entry.reason.includes('struct-shape proof'))).toBe(true);
+  });
+}
+
+test('Go local type scopes, duplicate types and import type shadows never borrow external shape proof',async()=>{
+  const path='lib/metric.go';const prefix='package sample\nimport prom "github.com/prometheus/client_golang/prometheus"\n';
+  for(const body of [
+    'type Local struct{Name string}\nfunc run(){type Local map[string]string;const Name="different";requests:=prom.NewCounter(Local{Name:"bad_total"});requests.Inc()}',
+    'type Local struct{Name string}\ntype Local map[string]string\nvar metric=prom.NewCounter(Local{Name:"bad_total"})',
+    'func run(){type prom struct{};requests:=prom.NewCounter(prom.CounterOpts{Name:"bad_total"});requests.Inc()}',
+    'func run(prom any){requests:=prom.NewCounter(prom.CounterOpts{Name:"bad_total"});requests.Inc()}',
+  ]){
+    const tree=treeOf({[path]:prefix+body});const code=await extractCodeWithFacts(tree);const result=extractOperations(tree,code.extraction,code.facts);
+    expect(result.nodes.filter((entry)=>entry.kind==='code.metric')).toEqual([]);
+    expect(result.edges.filter((entry)=>entry.type==='code.updates-metric')).toEqual([]);
+    expect(result.gaps.some((entry)=>entry.path===path)).toBe(true);
+  }
+});
+
+
+test('Go copied anonymous struct proof cannot disagree with raw syntax identity',async()=>{
+  const path='lib/metric.go';const tree=treeOf({[path]:'package sample\nimport prom "github.com/prometheus/client_golang/prometheus"\nvar metric=prom.NewCounter(struct{Name string}{Name:"neutral_total"})'});
+  const {facts}=await extractCodeWithFacts(tree);const composite=facts.expressions.find((entry)=>entry.compositeType!==undefined);
+  if(composite?.compositeType===undefined)throw new Error('real parser fixture lacks anonymous struct proof');
+  expect(evaluateLibraryModels(facts).effects.filter((entry)=>entry.kind==='metric-declare')).toHaveLength(1);
+  for(const patch of [
+    {compositeType:undefined},
+    {compositeType:{...composite.compositeType,typeExpression:'missing-type-id'}},
+    {compositeType:{...composite.compositeType,declarationSpan:{...composite.compositeType.declarationSpan,path:'other.go'}}},
+    {compositeType:{...composite.compositeType,declarationSpan:{...composite.compositeType.declarationSpan,byteEnd:composite.span.byteEnd}}},
+  ]){
+    const result=evaluateLibraryModels({...facts,expressions:facts.expressions.map((entry)=>entry.id===composite.id?{...entry,...patch}:entry)});
+    expect(result.effects.filter((entry)=>entry.kind==='metric-declare')).toEqual([]);
+    expect(result.diagnostics.some((entry)=>entry.path===path&&entry.reason.includes('struct-shape proof'))).toBe(true);
+  }
+});
+
+test('Go external struct type identity rejects origin aliases and conflicting import bindings',async()=>{
+  const path='lib/metric.go';const tree=treeOf({[path]:'package sample\nimport prom "github.com/prometheus/client_golang/prometheus"\nvar metric=prom.NewCounter(prom.CounterOpts{Name:"neutral_total"})'});
+  const {facts}=await extractCodeWithFacts(tree);const imported=facts.imports[0];
+  const binding=facts.bindings.find((entry)=>entry.kind==='import');const type=facts.expressions.find((entry)=>entry.syntaxKind==='qualified_type');
+  if(imported===undefined||binding===undefined||type===undefined)throw new Error('real parser type import fixture incomplete');
+  const variants=[
+    {...facts,bindings:[...facts.bindings,{...binding,id:'duplicate-binding'}]},
+    {...facts,imports:facts.imports.map((entry)=>({...entry,targetExpression:'internal-expression'}))},
+    {...facts,imports:facts.imports.map((entry)=>({...entry,targetChain:[]}))},
+    {...facts,imports:facts.imports.map((entry)=>({...entry,span:{...entry.span,byteStart:entry.span.byteStart+1}}))},
+    {...facts,imports:facts.imports.map((entry)=>({...entry,package:{ecosystem:'go' as const,name:'example.test/not-the-import',manifestPath:'go.mod',declaredVersion:'v1'}}))},
+    {...facts,expressions:facts.expressions.map((entry)=>entry.id===type.id?{...entry,member:'UnknownOpts'}:entry)},
+  ];
+  for(const variant of variants){
+    const result=evaluateLibraryModels(variant);expect(result.effects.filter((entry)=>entry.kind==='metric-declare')).toEqual([]);
+    expect(result.diagnostics.some((entry)=>entry.path===path)).toBe(true);
+  }
+});
+
+
+test('Go struct option order and string-list labels stay on the actual declaration',async()=>{
+  const path='lib/metric.go';const source='package sample\nimport prom "github.com/prometheus/client_golang/prometheus"\nvar metric=prom.NewCounterVec(prom.CounterOpts{Help:"neutral",Namespace:"worker",Name:"requests_total"},[]string{"region","zone"})';
+  const tree=treeOf({[path]:source});const code=await extractCodeWithFacts(tree);const result=extractOperations(tree,code.extraction,code.facts);
+  const metric=result.nodes.find((entry)=>entry.kind==='code.metric');
+  expect(metric?.label).toBe('worker_requests_total');expect(metric?.properties.labels).toEqual(['region','zone']);
+  expect(metric?.span).toBeDefined();
+  if(metric?.span===undefined)throw new Error('metric declaration lacks span');
+  expect(new TextDecoder().decode(tree.read(path).subarray(metric.span.byteStart,metric.span.byteEnd))).toBe(source.slice(source.indexOf('var metric')));
+});
+
+
+test('external type schema shape is exact and cannot be borrowed from another package or exported path',async()=>{
+  const path='lib/metric.go';const tree=treeOf({[path]:'package sample\nimport prom "github.com/prometheus/client_golang/prometheus"\nvar metric=prom.NewCounter(prom.CounterOpts{Name:"neutral_total"})'});
+  const {facts}=await extractCodeWithFacts(tree);
+  const {libraryRegistry}=await import('../src/extract/library-models/validate.js');
+  const types=libraryRegistry.types??[];
+  for(const registry of [
+    {...libraryRegistry,types:[]},
+    {...libraryRegistry,types:types.map((entry)=>({...entry,package:'example.test/not-the-import'}))},
+    {...libraryRegistry,types:types.map((entry)=>({...entry,exportedPath:[...entry.exportedPath,'UnknownOpts']}))},
+  ]){
+    const result=evaluateLibraryModels(facts,registry);
+    expect(result.effects.filter((entry)=>entry.kind==='metric-declare')).toEqual([]);
+    expect(result.diagnostics.some((entry)=>entry.path===path&&entry.reason.includes('struct-shape proof'))).toBe(true);
+  }
+});
+
+
+test('Go block type scope starts at its identifier and restores the outer type on exit',async()=>{
+  const path='lib/metric.go';const source='package sample\nimport prom "github.com/prometheus/client_golang/prometheus"\n'+
+    'type Options struct{Name string}\nfunc run(){\n'+
+    'prom.NewCounter(Options{Name:"outer_before"})\n'+
+    '{prom.NewCounter(Options{Name:"inner_before"});type Options map[string]string;const Name="different";prom.NewCounter(Options{Name:"must_not_exist"})}\n'+
+    'prom.NewCounter(Options{Name:"outer_after"})\n}';
+  const tree=treeOf({[path]:source});const code=await extractCodeWithFacts(tree);const result=extractOperations(tree,code.extraction,code.facts);
+  expect(result.nodes.filter((entry)=>entry.kind==='code.metric').map((entry)=>entry.label)).toEqual(['inner_before','outer_after','outer_before']);
+  const typeBindings=code.facts.bindings.filter((entry)=>entry.kind==='type'&&entry.name==='Options');
+  expect(typeBindings).toHaveLength(2);
+  const nested=typeBindings.find((entry)=>entry.typeDeclaration?.shape==='unknown');
+  expect(nested?.typeDeclaration?.scopeStart).toBe(nested?.span.byteStart);
+  expect(result.gaps.some((entry)=>entry.path===path&&entry.reason.includes('struct-shape proof'))).toBe(true);
+});
+
+test('Go file type can be used before its declaration but nested duplicate types do not poison outer scopes',async()=>{
+  const path='lib/metric.go';const source='package sample\nimport prom "github.com/prometheus/client_golang/prometheus"\n'+
+    'var before=prom.NewCounter(Options{Name:"before_declaration"})\ntype Options struct{Name string}\n'+
+    'func run(){ {type Options struct{Name string};type Options map[string]string;prom.NewCounter(Options{Name:"duplicate_bad"})};prom.NewCounter(Options{Name:"after_block"}) }';
+  const tree=treeOf({[path]:source});const code=await extractCodeWithFacts(tree);const result=extractOperations(tree,code.extraction,code.facts);
+  expect(result.nodes.filter((entry)=>entry.kind==='code.metric').map((entry)=>entry.label)).toEqual(['after_block','before_declaration']);
+  expect(result.gaps.some((entry)=>entry.path===path&&entry.reason.includes('ambiguous same-scope Go declaration'))).toBe(true);
+});
+
+test('Go declared type proof fails closed on binding, declaration, shape and scope disagreement',async()=>{
+  const path='lib/metric.go';const tree=treeOf({[path]:'package sample\nimport prom "github.com/prometheus/client_golang/prometheus"\ntype Options struct{Name string}\nvar metric=prom.NewCounter(Options{Name:"neutral_total"})'});
+  const {facts}=await extractCodeWithFacts(tree);const binding=facts.bindings.find((entry)=>entry.kind==='type');
+  const composite=facts.expressions.find((entry)=>entry.compositeType?.bindingId!==undefined);
+  if(binding?.typeDeclaration===undefined||composite?.compositeType===undefined)throw new Error('real parser lacks local type binding proof');
+  expect(evaluateLibraryModels(facts).effects.filter((entry)=>entry.kind==='metric-declare')).toHaveLength(1);
+  const alterBinding=(patch:Partial<typeof binding>)=>({...facts,bindings:facts.bindings.map((entry)=>entry.id===binding.id?{...entry,...patch}:entry)});
+  const variants=[
+    {...facts,bindings:facts.bindings.filter((entry)=>entry.id!==binding.id)},
+    {...facts,bindings:[...facts.bindings,binding]},
+    {...facts,bindings:[...facts.bindings,{...binding,id:'same-scope-duplicate'}]},
+    alterBinding({kind:'local'}),alterBinding({path:'other.go'}),
+    alterBinding({scope:{...binding.scope,byteStart:composite.span.byteEnd}}),
+    alterBinding({typeDeclaration:{...binding.typeDeclaration,shape:'unknown'}}),
+    alterBinding({typeDeclaration:{...binding.typeDeclaration,expression:'missing-declaration'}}),
+    alterBinding({typeDeclaration:{...binding.typeDeclaration,typeExpression:'missing-struct'}}),
+    alterBinding({typeDeclaration:{...binding.typeDeclaration,scopeStart:composite.span.byteEnd}}),
+    {...facts,expressions:facts.expressions.map((entry)=>entry.id===composite.id?{...entry,compositeType:{...composite.compositeType!,declarationExpression:'forged-declaration'}}:entry)},
+  ];
+  for(const variant of variants){const result=evaluateLibraryModels(variant);
+    expect(result.effects.filter((entry)=>entry.kind==='metric-declare')).toEqual([]);
+    expect(result.diagnostics.some((entry)=>entry.path===path)).toBe(true);
+  }
+});
+
+
+test('Go nested block type may shadow a parameter but outer function-body redeclaration is ambiguous',async()=>{
+  const path='lib/metric.go';const prefix='package sample\nimport prom "github.com/prometheus/client_golang/prometheus"\n';
+  const tree=treeOf({[path]:prefix+'func run(Options any){ {type Options struct{Name string};prom.NewCounter(Options{Name:"nested_total"})};prom.NewCounter(Options{Name:"outside_unknown"}) }'});
+  const code=await extractCodeWithFacts(tree);const result=extractOperations(tree,code.extraction,code.facts);
+  expect(result.nodes.filter((entry)=>entry.kind==='code.metric').map((entry)=>entry.label)).toEqual(['nested_total']);
+  expect(result.gaps.some((entry)=>entry.path===path&&entry.reason.includes('struct-shape proof'))).toBe(true);
+  const badTree=treeOf({[path]:prefix+'func run(Options any){type Options struct{Name string};prom.NewCounter(Options{Name:"bad_total"})}'});
+  const badCode=await extractCodeWithFacts(badTree);const bad=extractOperations(badTree,badCode.extraction,badCode.facts);
+  expect(bad.nodes.filter((entry)=>entry.kind==='code.metric')).toEqual([]);
+  expect(bad.gaps.some((entry)=>entry.path===path&&entry.reason.includes('ambiguous same-scope'))).toBe(true);
+});
+
+test('Go copied type scope cannot be widened, moved before its declaration, or used through a forged spelling',async()=>{
+  const path='lib/metric.go';const tree=treeOf({[path]:'package sample\nimport prom "github.com/prometheus/client_golang/prometheus"\nfunc run(){type Options struct{Name string};prom.NewCounter(Options{Name:"neutral_total"})}'});
+  const {facts}=await extractCodeWithFacts(tree);const binding=facts.bindings.find((entry)=>entry.kind==='type');
+  const composite=facts.expressions.find((entry)=>entry.compositeType?.bindingId!==undefined);
+  const type=composite===undefined?undefined:facts.expressions.find((entry)=>entry.id===composite.compositeType?.typeExpression);
+  if(binding?.typeDeclaration===undefined||composite?.compositeType===undefined||type===undefined)throw new Error('real local type scope fixture lacks proof');
+  const variants=[
+    {...facts,bindings:facts.bindings.map((entry)=>entry.id===binding.id?{...entry,typeDeclaration:{...binding.typeDeclaration!,scopeStart:binding.scope.byteStart}}:entry)},
+    {...facts,bindings:facts.bindings.map((entry)=>entry.id===binding.id?{...entry,typeDeclaration:{...binding.typeDeclaration!,scopeExpression:'forged-scope'}}:entry)},
+    {...facts,expressions:facts.expressions.map((entry)=>entry.id===type.id?{...entry,name:'Other'}:entry)},
+    {...facts,expressions:facts.expressions.map((entry)=>entry.id===binding.typeDeclaration?.expression?{...entry,fields:{...entry.fields,name:[type.id]}}:entry)},
+  ];
+  for(const variant of variants){const result=evaluateLibraryModels(variant);expect(result.effects.filter((entry)=>entry.kind==='metric-declare')).toEqual([]);
+    expect(result.diagnostics.some((entry)=>entry.path===path)).toBe(true);}
+});
+
+
+test('Go type parameters and local value shadows cannot borrow a file struct declaration',async()=>{
+  const path='lib/metric.go';const prefix='package sample\nimport prom "github.com/prometheus/client_golang/prometheus"\ntype Options struct{Name string}\n';
+  for(const body of [
+    'func run[Options any](){prom.NewCounter(Options{Name:"bad_total"})}',
+    'func run(){var Options any;prom.NewCounter(Options{Name:"bad_total"})}',
+    'func run(){type Options = struct{Name string};prom.NewCounter(Options{Name:"bad_total"})}',
+    'type Generic[T any] struct{Name string}\nvar metric=prom.NewCounter(Generic[int]{Name:"bad_total"})',
+  ]){
+    const tree=treeOf({[path]:prefix+body});const code=await extractCodeWithFacts(tree);const result=extractOperations(tree,code.extraction,code.facts);
+    expect(result.nodes.filter((entry)=>entry.kind==='code.metric')).toEqual([]);
+    expect(result.gaps.some((entry)=>entry.path===path)).toBe(true);
+  }
+});
+
+
+test('Go forged outer type binding cannot bypass an active inner map declaration',async()=>{
+  const path='lib/metric.go';const tree=treeOf({[path]:'package sample\nimport prom "github.com/prometheus/client_golang/prometheus"\ntype Options struct{Name string}\nfunc run(){type Options map[string]string;const Name="different";prom.NewCounter(Options{Name:"bad_total"})}'});
+  const {facts}=await extractCodeWithFacts(tree);const outer=facts.bindings.find((entry)=>entry.typeDeclaration?.shape==='struct');
+  const composite=facts.expressions.find((entry)=>entry.syntaxKind==='composite_literal'&&(entry.fields.type??[]).some((id)=>facts.expressions.find((type)=>type.id===id)?.name==='Options'));
+  if(outer?.typeDeclaration===undefined||composite===undefined)throw new Error('real shadow fixture lacks declarations');
+  const typeId=composite.fields.type?.[0];if(typeId===undefined)throw new Error('composite type child missing');
+  const forged={...facts,expressions:facts.expressions.map((entry)=>entry.id===typeId?{...entry,bindingId:outer.id}:entry.id===composite.id?
+    {...entry,compositeType:{shape:'struct' as const,typeExpression:typeId,bindingId:outer.id,declarationExpression:outer.typeDeclaration!.expression,declarationSpan:outer.typeDeclaration!.declarationSpan}}:entry)};
+  const result=evaluateLibraryModels(forged);expect(result.effects.filter((entry)=>entry.kind==='metric-declare')).toEqual([]);
+  expect(result.diagnostics.some((entry)=>entry.path===path&&entry.reason.includes('struct-shape proof'))).toBe(true);
+});
+
+
+test('Go short declaration reused local cannot retain its old logger or options initializer',async()=>{
+  const path='lib/reuse.go';const tree=treeOf({[path]:'package sample\nimport "log/slog"\nimport prom "github.com/prometheus/client_golang/prometheus"\nfunc run(replacement any){logger:=slog.Default();logger,next:=replacement,1;logger.Info("not proved");_ = next;options:=prom.CounterOpts{Name:"old_total"};options,other:=replacement,2;prom.NewCounter(options);_ = other}'});
+  const code=await extractCodeWithFacts(tree);const result=extractOperations(tree,code.extraction,code.facts);
+  expect(code.facts.bindings.filter((entry)=>entry.name==='logger'||entry.name==='options').every((entry)=>entry.initializer===undefined)).toBe(true);
+  expect(result.edges.filter((entry)=>entry.type==='code.uses-logger')).toEqual([]);
+  expect(result.nodes.filter((entry)=>entry.kind==='code.metric')).toEqual([]);
+  expect(result.gaps.some((entry)=>entry.path===path)).toBe(true);
+});
+
+
+test('Go forged imported type receiver cannot bypass an active parameter shadow',async()=>{
+  const path='lib/metric.go';const tree=treeOf({[path]:'package sample\nimport prom "github.com/prometheus/client_golang/prometheus"\nvar constructor=prom.NewCounter\nfunc run(prom any){constructor(prom.CounterOpts{Name:"bad_total"})}'});
+  const {facts}=await extractCodeWithFacts(tree);const binding=facts.bindings.find((entry)=>entry.kind==='import');
+  const type=facts.expressions.find((entry)=>entry.syntaxKind==='qualified_type');
+  if(binding===undefined||type?.receiver===undefined)throw new Error('real external shadow fixture lacks receiver');
+  const forged={...facts,expressions:facts.expressions.map((entry)=>entry.id===type.receiver?{...entry,bindingId:binding.id}:entry)};
+  const result=evaluateLibraryModels(forged);expect(result.effects.filter((entry)=>entry.kind==='metric-declare')).toEqual([]);
+  expect(result.diagnostics.some((entry)=>entry.path===path)).toBe(true);
 });

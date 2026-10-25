@@ -18,8 +18,8 @@ import libraryModelSource from '../library-models/models.json' with { type: 'tex
 /** Every tree extractor, in the order the driver runs them per commit. */
 const TREE_READERS = [
  {name:'extractFiles',version:2,extractor:extractFiles},
- {name:'extractCode',version:9,extractor:extractCodeWithFacts},
- {name:'extractOperations',version:7,extractor:extractOperations},
+ {name:'extractCode',version:10,extractor:extractCodeWithFacts},
+ {name:'extractOperations',version:8,extractor:extractOperations},
  {name:'extractContracts',version:6,extractor:extractContracts},
  {name:'extractDataModel',version:4,extractor:extractDataModel},
 ] as const;

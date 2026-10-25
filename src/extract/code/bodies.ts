@@ -83,7 +83,9 @@ export async function memberSites(file: SourceFile, program: Program, imports: r
     };
     const expressionId = (node: SyntaxNode): string => codeFactId(sourceSpan(node), node.type);
     const factScopes: Map<string, string>[] = [new Map()];
+    const goAmbiguousScopes: Set<string>[] = [new Set()];
     const scopeSpans: SourceSpan[] = [sourceSpan(parsed.root)];
+    const scopeNodes: SyntaxNode[] = [parsed.root];
     const bindings = new Map<string, CodeBindingFact>();
     const expressions = new Map<string, CodeExpressionFact>();
     const calls = new Map<string, CodeCallFact>();
@@ -101,8 +103,21 @@ export async function memberSites(file: SourceFile, program: Program, imports: r
       factScopes[0]!.set(imported.local, id);
       bindings.set(id, { id, path: file.path, name: imported.local, kind: 'import', span: imported.span, scope: scopeSpans[0]!, importId: imported.id });
     }
-    const pushScope = (node: SyntaxNode): void => { scopes.push(new Map()); factScopes.push(new Map()); scopeSpans.push(sourceSpan(node)); };
-    const popScope = (): void => { scopes.pop(); factScopes.pop(); scopeSpans.pop(); };
+    const pushScope = (node: SyntaxNode): void => { scopes.push(new Map()); factScopes.push(new Map()); goAmbiguousScopes.push(new Set()); scopeSpans.push(sourceSpan(node)); scopeNodes.push(node); };
+    const popScope = (): void => { scopes.pop(); factScopes.pop(); goAmbiguousScopes.pop(); scopeSpans.pop(); scopeNodes.pop(); };
+    const genericNames: Set<string>[] = [];
+    const compositeProof = (node: SyntaxNode, type: SyntaxNode | null): import('./facts.js').CodeExpressionFact['compositeType'] => {
+      if (!go || node.type !== 'composite_literal' || type === null) return undefined;
+      if (type.type === 'struct_type') return { shape: 'struct', typeExpression: expressionId(type), declarationSpan: sourceSpan(type) };
+      if (type.type !== 'type_identifier' || typeParameters.some((scope) => scope.has(textOf(type,text))) ||
+        genericNames.some((scope) => scope.has(textOf(type,text)))) return undefined;
+      const bindingId = lookupBinding(textOf(type, text));
+      const binding = bindingId === undefined ? undefined : bindings.get(bindingId);
+      const declaration = binding?.typeDeclaration;
+      if (binding?.kind !== 'type' || declaration?.shape !== 'struct' || sourceSpan(type).byteStart < declaration.scopeStart) return undefined;
+      return { shape: 'struct', typeExpression: expressionId(type), declarationSpan: declaration.declarationSpan,
+        bindingId: binding.id, declarationExpression: declaration.expression };
+    };
     const recordExpression = (node: SyntaxNode, resolveBinding = true): void => {
       if (!captured.has(node.id)) return;
       const id = expressionId(node);
@@ -110,7 +125,8 @@ export async function memberSites(file: SourceFile, program: Program, imports: r
       const token = textOf(node, text);
       const isName = ['identifier', 'property_identifier', 'field_identifier', 'shorthand_property_identifier', 'this', 'type_identifier', 'package_identifier'].includes(node.type);
       const lexicalName = !['property_identifier', 'field_identifier'].includes(node.type);
-      const candidateBinding = resolveBinding && lexicalName ? lookupBinding(token) : undefined;
+      const generic = genericNames.some((scope) => scope.has(token));
+      const candidateBinding = resolveBinding && lexicalName && !generic ? lookupBinding(token) : undefined;
       const binding = candidateBinding === undefined ? undefined : bindings.get(candidateBinding);
       const availableBinding = binding !== undefined && binding.kind === 'local' && span.byteStart < binding.span.byteStart ? undefined : candidateBinding;
       if (binding !== undefined && availableBinding === undefined) factGaps.set(id, { path: file.path, reason: `line ${span.lineStart}: lexical binding is not initialized at bytes ${span.byteStart}-${span.byteEnd}` });
@@ -135,11 +151,13 @@ export async function memberSites(file: SourceFile, program: Program, imports: r
       const value = typeof decoded === 'number' && !Number.isFinite(decoded) ? undefined : decoded;
       if (literalKind !== undefined && value === undefined) factGaps.set(id, { path: file.path, reason: `line ${span.lineStart}: unsupported ${node.type} literal at bytes ${span.byteStart}-${span.byteEnd}` });
       if (node.type === 'subscript_expression' || node.type === 'index_expression') factGaps.set(id, { path: file.path, reason: `line ${span.lineStart}: computed member identity needs a resolved literal key at bytes ${span.byteStart}-${span.byteEnd}` });
+      const typeProof = resolveBinding ? compositeProof(node, callee) : undefined;
       expressions.set(id, {
         id, path: file.path, syntaxKind: node.type, span,
         ...(isName ? { name: token, ...(availableBinding === undefined ? {} : { bindingId: availableBinding }) } : {}),
         ...(isMember && object !== null && property !== null ? { receiver: expressionId(object), member: textOf(property, text) } : {}),
         ...(callee !== null && isCall ? { callee: expressionId(callee), arguments: argumentsOf() } : {}),
+        ...(typeProof === undefined ? {} : { compositeType: typeProof }),
         children: named(node).map(expressionId), fields,
         ...(literalKind === undefined ? {} : { literal: { kind: literalKind, raw: token, ...(value === undefined ? {} : { value }) } }),
       });
@@ -162,6 +180,9 @@ export async function memberSites(file: SourceFile, program: Program, imports: r
       if (node === undefined) return;
       const span = sourceSpan(node);
       const id = codeFactId(span, 'binding');
+      if (go && goAmbiguousScopes[goAmbiguousScopes.length - 1]!.has(name)) {
+        recordExpression(node); return;
+      }
       factScopes[factScopes.length - 1]!.set(name, id);
       const previous = bindings.get(id);
       let declarationSpan: SourceSpan | undefined;
@@ -367,6 +388,61 @@ export async function memberSites(file: SourceFile, program: Program, imports: r
       }
     };
 
+    const declareGoType = (spec: SyntaxNode, fileScope: boolean): void => {
+      const name = spec.childForFieldName('name'); const type = spec.childForFieldName('type');
+      if (name === null || type === null) return;
+      const written = textOf(name, text); const scope = scopeSpans[scopeSpans.length - 1]!;
+      if (goAmbiguousScopes[goAmbiguousScopes.length - 1]!.has(written)) return;
+      const span = sourceSpan(name); const id = codeFactId(span, 'type-binding');
+      factScopes[factScopes.length - 1]!.set(written, id);
+      bindings.set(id, { id, path:file.path, name:written, kind:'type', span, scope,
+        typeDeclaration: { expression:expressionId(spec), nameExpression:expressionId(name), typeExpression:expressionId(type),
+          declarationSpan:sourceSpan(spec), scopeExpression:expressionId(scopeNodes[scopeNodes.length-1]!), scopeStart:fileScope ? scope.byteStart : span.byteStart,
+          shape:spec.type === 'type_spec' && type.type === 'struct_type' && spec.childForFieldName('type_parameters') === null ? 'struct' : 'unknown' } });
+    };
+    const prepareGoScope = (node: SyntaxNode, fileScope: boolean): void => {
+      // Only this grammar's direct statement list is transparent. Nested blocks,
+      // functions and arbitrary descendants never contribute declarations here.
+      const direct = named(node).flatMap((child) => child.type === 'statement_list' ? named(child) : [child]);
+      const names = new Map<string, SyntaxNode[]>(); const types: SyntaxNode[] = [];
+      const add = (name: SyntaxNode): void => { const key = textOf(name,text); const held = names.get(key) ?? []; held.push(name); names.set(key,held); };
+      for (const entry of direct) {
+        if (entry.type === 'type_declaration') for (const spec of named(entry)) {
+          if (!['type_spec','type_alias'].includes(spec.type)) continue;
+          const name = spec.childForFieldName('name'); if (name !== null) { add(name); types.push(spec); }
+        }
+        if (['var_declaration','const_declaration'].includes(entry.type)) for (const spec of named(entry).flatMap((child) => child.type === 'var_spec_list' ? named(child) : [child])) {
+          for (const name of spec.childrenForFieldName('name')) if (name !== null) add(name);
+        }
+        if (entry.type === 'short_var_declaration') {
+          const left=entry.childForFieldName('left'); for(const name of left===null?[]:named(left)) if(name.type==='identifier') {
+            const written=textOf(name,text);
+            const previous=names.get(written)??[];
+            const priorType=previous.some((entry)=>entry.parent?.type==='type_spec'||entry.parent?.type==='type_alias');
+            const functionBody=node.parent!==null && FUNCTION_NODES.has(node.parent.type) && node.parent.childForFieldName('body')?.id===node.id;
+            const parameter=functionBody && factScopes.length>1 ? bindings.get(factScopes[factScopes.length-2]!.get(written)??'') : undefined;
+            if(priorType || parameter?.kind!=='parameter' && !names.has(written) && !factScopes[factScopes.length-1]!.has(written))add(name);
+          }
+        }
+        if (fileScope && ['function_declaration','method_declaration'].includes(entry.type)) {
+          const name=entry.childForFieldName('name'); if(name!==null&&entry.type==='function_declaration')add(name);
+        }
+      }
+      const scope = scopeSpans[scopeSpans.length - 1]!;
+      for (const [name, declarations] of names) {
+        const current = factScopes[factScopes.length-1]!.get(name);
+        const parent = factScopes.length>1 ? bindings.get(factScopes[factScopes.length-2]!.get(name) ?? '') : undefined;
+        const parentNode=node.parent;
+        const functionBody=parentNode!==null && FUNCTION_NODES.has(parentNode.type) && parentNode.childForFieldName('body')?.id===node.id;
+        const clash = declarations.length>1 || current!==undefined || functionBody && parent?.kind==='parameter';
+        if (!clash) continue;
+        const span=sourceSpan(declarations[0]!); const id=codeFactId(span,'ambiguous-binding');
+        goAmbiguousScopes[goAmbiguousScopes.length-1]!.add(name);factScopes[factScopes.length-1]!.set(name,id);
+        bindings.set(id,{id,path:file.path,name,kind:'local',span,scope});
+        factGaps.set(id,{path:file.path,reason:`line ${span.lineStart}: ambiguous same-scope Go declaration at bytes ${span.byteStart}-${span.byteEnd}`});
+      }
+      if(fileScope)for(const spec of types)declareGoType(spec,true);
+    };
     const visitChildren = (node: SyntaxNode): void => {
       for (const child of named(node)) visit(child);
     };
@@ -379,6 +455,9 @@ export async function memberSites(file: SourceFile, program: Program, imports: r
         pushScope(node);
         if (!go) reserveFunctionVars(node);
         pushTypeParameters(node);
+        const genericParameters = node.childForFieldName('type_parameters');
+        genericNames.push(new Set(genericParameters === null ? [] : named(genericParameters).flatMap((parameter) =>
+          parameter.childrenForFieldName('name').filter((name): name is SyntaxNode => name !== null).map((name) => textOf(name,text)))));
         if (go) {
           bindParameters(node.childForFieldName('receiver'));
           bindParameters(node.childForFieldName('parameters'));
@@ -406,6 +485,7 @@ export async function memberSites(file: SourceFile, program: Program, imports: r
         }
         visitChildren(node);
         popScope();
+        genericNames.pop();
         typeParameters.pop();
         return;
       }
@@ -422,6 +502,7 @@ export async function memberSites(file: SourceFile, program: Program, imports: r
       if (['statement_block', 'block', 'program', 'source_file'].includes(type)) {
         const nested = type === 'statement_block' || type === 'block';
         if (nested) pushScope(node);
+        if (go) prepareGoScope(node, !nested);
         if (!go) {
           // Lexical declarations shadow for their whole scope, including TDZ.
           for (const entry of named(node)) {
@@ -535,14 +616,48 @@ export async function memberSites(file: SourceFile, program: Program, imports: r
         if (left !== undefined && left !== null) invalidate(left);
         return;
       }
+      if (go && (type === 'type_spec' || type === 'type_alias')) {
+        // The scope starts at the TypeSpec identifier, including its own body.
+        if (factScopes.length > 1) declareGoType(node, false);
+        visitChildren(node); return;
+      }
       if (type === 'short_var_declaration' && go) {
         visitChildren(node);
         const left = node.childForFieldName('left');
         const right = node.childForFieldName('right');
         const targets = left === null ? [] : named(left);
         const values = right === null ? [] : named(right);
+        const scopeNode=scopeNodes[scopeNodes.length-1]!;
+        const functionBody=scopeNode.parent!==null && FUNCTION_NODES.has(scopeNode.parent.type) && scopeNode.parent.childForFieldName('body')?.id===scopeNode.id;
+        const reused=(target:SyntaxNode):CodeBindingFact|undefined=>{
+          const written=textOf(target,text);const current=factScopes[factScopes.length-1]!.get(written);
+          if(current!==undefined)return bindings.get(current);
+          const parent=functionBody&&factScopes.length>1?bindings.get(factScopes[factScopes.length-2]!.get(written)??''):undefined;
+          return parent?.kind==='parameter'?parent:undefined;
+        };
+        const identifiers=targets.filter((target)=>target.type==='identifier'&&textOf(target,text)!=='_');
+        const hasNew=identifiers.some((target)=>reused(target)===undefined);
+        const unique=new Set(identifiers.map((target)=>textOf(target,text))).size===identifiers.length;
+        if(!hasNew || !unique){
+          const at=sourceSpan(node);factGaps.set(expressionId(node),{path:file.path,reason:`line ${at.lineStart}: Go short declaration has no unique new binding at bytes ${at.byteStart}-${at.byteEnd}`});
+          return;
+        }
         targets.forEach((target, index) => {
-          if (target.type !== 'identifier') return;
+          if (target.type !== 'identifier' || textOf(target,text)==='_') return;
+          const previous=reused(target);
+          if(previous!==undefined){
+            // A legal := reuse assigns the existing binding; it does not create
+            // a new local identity or replace a parameter's declaration. Its old
+            // initializer is no longer reaching-definition evidence.
+            if(previous.kind==='local'){
+              const {initializer:discarded,...retained}=previous;
+              void discarded;bindings.set(previous.id,retained);
+            }
+            for(let scope=scopes.length-1;scope>=0;scope--)if(scopes[scope]!.has(previous.name)){
+              scopes[scope]!.set(previous.name,null);break;
+            }
+            recordExpression(target);return;
+          }
           bind(textOf(target, text), values.length === targets.length ? evaluate(values[index]) : index === 0 ? evaluate(values[0]) : undefined, target, 'local', values.length === targets.length ? values[index] : index === 0 ? values[0] : undefined);
         });
         return;

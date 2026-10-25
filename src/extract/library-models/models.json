@@ -3177,5 +3177,49 @@
       "returnRole": "logger",
       "effect": "logger-use"
     }
+  ],
+  "types": [
+    {
+      "id": "prometheus.CounterOpts.struct",
+      "ecosystem": "go",
+      "package": "github.com/prometheus/client_golang/prometheus",
+      "exportedPath": [
+        "CounterOpts"
+      ],
+      "shape": "struct",
+      "reference": "https://pkg.go.dev/github.com/prometheus/client_golang/prometheus#CounterOpts",
+      "checks": {
+        "positive": "prometheus.CounterOpts.struct.positive",
+        "negative": "prometheus.CounterOpts.struct.negative"
+      }
+    },
+    {
+      "id": "prometheus.GaugeOpts.struct",
+      "ecosystem": "go",
+      "package": "github.com/prometheus/client_golang/prometheus",
+      "exportedPath": [
+        "GaugeOpts"
+      ],
+      "shape": "struct",
+      "reference": "https://pkg.go.dev/github.com/prometheus/client_golang/prometheus#GaugeOpts",
+      "checks": {
+        "positive": "prometheus.GaugeOpts.struct.positive",
+        "negative": "prometheus.GaugeOpts.struct.negative"
+      }
+    },
+    {
+      "id": "prometheus.HistogramOpts.struct",
+      "ecosystem": "go",
+      "package": "github.com/prometheus/client_golang/prometheus",
+      "exportedPath": [
+        "HistogramOpts"
+      ],
+      "shape": "struct",
+      "reference": "https://pkg.go.dev/github.com/prometheus/client_golang/prometheus#HistogramOpts",
+      "checks": {
+        "positive": "prometheus.HistogramOpts.struct.positive",
+        "negative": "prometheus.HistogramOpts.struct.negative"
+      }
+    }
   ]
 }

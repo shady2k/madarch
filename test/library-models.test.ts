@@ -42,10 +42,33 @@ class FactsFixture {
   }
   object(properties: ReadonlyMap<string, string>): string {
     const pairs = [...properties].map(([key, value]) => {
-      const property = this.expression(this.go ? 'field_identifier' : 'property_identifier', { name: key });
-      return this.expression(this.go ? 'keyed_element' : 'pair', { children: [property, value], fields: { key: [property], value: [value] } });
+      const property = this.expression(this.go ? 'identifier' : 'property_identifier', { name: key });
+      if (!this.go) return this.expression('pair', { children: [property, value], fields: { key: [property], value: [value] } });
+      const wrappedKey = this.expression('literal_element', { children: [property] });
+      const wrappedValue = this.expression('literal_element', { children: [value] });
+      return this.expression('keyed_element', { children: [wrappedKey, wrappedValue] });
     });
-    return this.expression(this.go ? 'literal_value' : 'object', { children: pairs });
+    const body = this.expression(this.go ? 'literal_value' : 'object', { children: pairs });
+    if (!this.go) return body;
+    const type = this.expression('struct_type');
+    const composite = this.expression('composite_literal', { children: [type, body], fields: { type: [type], body: [body] } });
+    // Synthetic cases use the exact raw grammar shape and coherent spans, not
+    // invented key/value fields. Real-parser cases independently check this ABI.
+    const locate = (id: string, start: number): number => {
+      const index = this.expressions.findIndex((entry) => entry.id === id);
+      const entry = this.expressions[index]; if (entry === undefined) throw new Error(`missing fixture ${id}`);
+      let end = start + 1;
+      for (const child of entry.children) end = locate(child, end) + 1;
+      this.expressions[index] = { ...entry, span: { ...entry.span, byteStart: start, byteEnd: end } };
+      return end;
+    };
+    this.next = locate(composite, this.next) + 10;
+    const typeFact = this.expressions.find((entry) => entry.id === type);
+    const index = this.expressions.findIndex((entry) => entry.id === composite);
+    const expression = this.expressions[index];
+    if (typeFact === undefined || expression === undefined) throw new Error('missing fixture composite');
+    this.expressions[index] = { ...expression, compositeType: { shape: 'struct', typeExpression: type, declarationSpan: typeFact.span } };
+    return composite;
   }
   argumentsFor(model: LibraryModel): readonly string[] {
     const byIndex = new Map<number, Map<string, string>>();
@@ -220,7 +243,7 @@ describe('registry validation and failure transparency', () => {
     expect(() => validateLibraryRegistry({ ...libraryRegistry, models: [{ ...first, arguments: [{ name: 'x', index: -1, path: [], required: true }] }] })).toThrow('nonnegative');
   });
   test('canonical digest verifies content and ignores JSON object-key and model ordering', () => {
-    const reordered: LibraryRegistry = { models: [...libraryRegistry.models].reverse(), schemaVersion: 1 };
+    const reordered: LibraryRegistry = { models: [...libraryRegistry.models].reverse(), types: [...(libraryRegistry.types ?? [])].reverse(), schemaVersion: 1 };
     expect(canonicalLibraryModels(reordered)).toBe(canonicalLibraryModels(libraryRegistry));
     expect(libraryRegistryDigest(reordered)).toBe(libraryModelDigest);
     const changed = { ...libraryRegistry, models: libraryRegistry.models.map((entry) => entry.id === first.id ? { ...entry, reference: `${entry.reference}#new-reference` } : entry) };
@@ -244,10 +267,11 @@ describe('registry validation and failure transparency', () => {
     expect(evaluateLibraryModels({ ...facts, expressions: [...facts.expressions, ...facts.expressions] }).diagnostics.some((entry) => entry.code === 'ambiguous-fact')).toBe(true);
   });
   test('single-child Go key wrapper is structural, cyclic key wrapper is a located gap', () => {
-    const f = new FactsFixture(true); const key = f.expression('field_identifier', { name: 'Name' });
-    const wrapped = f.expression('literal_element', { children: [key] }); const value = f.literal('neutral_total');
-    const pair = f.expression('keyed_element', { children: [wrapped, value], fields: { key: [wrapped], value: [value] } });
-    const options = f.expression('literal_value', { children: [pair] });
+    const f = new FactsFixture(true); const value = f.literal('neutral_total');
+    const options = f.object(new Map([['Name', value]]));
+    const wrapped = f.expressions.find((entry) => entry.syntaxKind === 'literal_element' &&
+      entry.children.some((id) => f.expressions.find((child) => child.id === id)?.name === 'Name'))?.id;
+    if (wrapped === undefined) throw new Error('fixture key wrapper missing');
     const declaration = f.call(f.member(f.imported('github.com/prometheus/client_golang/prometheus'), 'NewCounter'), [options]);
     expect(evaluateLibraryModels(f.facts()).effects.some((entry) => entry.expression === declaration)).toBe(true);
     const facts = f.facts(); const result = evaluateLibraryModels({ ...facts, expressions: facts.expressions.map((entry) => entry.id === wrapped ? { ...entry, children: [wrapped] } : entry) });
@@ -310,5 +334,22 @@ describe('registry validation and failure transparency', () => {
     const key = f.expression('string', { literal: { kind: 'string', raw: "'NOT_DECODED'" } });
     f.expression('subscript_expression', { children: [env, key], fields: { object: [env], index: [key] } });
     expect(evaluateLibraryModels(f.facts()).diagnostics.some((entry) => entry.code === 'dynamic-member')).toBe(true);
+  });
+});
+
+
+describe('closed external type schemas', () => {
+  test('type schemas are ordered, hashed and checked independently of invocation models', () => {
+    const type = { id:'fixture.Options.struct', ecosystem:'go', package:'example.test/options', exportedPath:['Options'], shape:'struct',
+      reference:'https://example.test/options#Options', checks:{positive:'fixture.Options.positive',negative:'fixture.Options.negative'} };
+    const registry = validateLibraryRegistry({schemaVersion:1,models:[],types:[type]});
+    expect(registry.types?.map((entry)=>entry.id)).toEqual(['fixture.Options.struct']);
+    expect(libraryRegistryDigest(registry)).not.toBe(libraryRegistryDigest({schemaVersion:1,models:[],types:[]}));
+    for (const invalid of [
+      {...type, shape:'map'}, {...type, ecosystem:'node'}, {...type, exportedPath:[]}, {...type, reference:'file:///tmp/type'},
+      {...type, executable:'source'}, {...type, checks:{positive:'same',negative:'same'}},
+    ]) expect(()=>validateLibraryRegistry({schemaVersion:1,models:[],types:[invalid]})).toThrow();
+    expect(()=>validateLibraryRegistry({schemaVersion:1,models:[],types:[type,type]})).toThrow('duplicate');
+    expect(()=>validateLibraryRegistry({schemaVersion:1,models:[],types:[type,{...type,id:'other',checks:{positive:'other.p',negative:'other.n'}}]})).toThrow('duplicate');
   });
 });

@@ -38,9 +38,20 @@ export interface LibraryModel {
   readonly reference: string;
   readonly checks: { readonly positive: string; readonly negative: string };
 }
+/** External type shape is data, not a spelling rule in the evaluator. */
+export interface LibraryTypeModel {
+  readonly id: string;
+  readonly ecosystem: 'go';
+  readonly package: string;
+  readonly exportedPath: readonly string[];
+  readonly shape: 'struct';
+  readonly reference: string;
+  readonly checks: { readonly positive: string; readonly negative: string };
+}
 export interface LibraryRegistry {
   readonly schemaVersion: 1;
   readonly models: readonly LibraryModel[];
+  readonly types?: readonly LibraryTypeModel[];
 }
 export interface LibraryOrigin {
   readonly importId: string;

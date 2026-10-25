@@ -155,3 +155,47 @@ test('copied structural fields preserve constructor, prototype and inherited-met
   }
   expect(Object.getPrototypeOf(copied)).toBe(Object.prototype);expect(Object.isFrozen(copied)).toBe(true);
 });
+
+
+test('Go struct proofs retain exact raw type children and local declaration identities; aliases stay unproven', async () => {
+  const path = 'lib/options.go';
+  const {facts} = await extractCodeWithFacts(treeOf({[path]: 'package sample\n' +
+    'type Local struct { Name string }\n' +
+    'var anonymous = struct { Name string }{Name:"one"}\nvar named = Local{Name:"two"}\ntype Alias = Local\nvar alias = Alias{Name:"three"}\n'}));
+  const anonymous = facts.expressions.find((entry) => entry.compositeType !== undefined);
+  expect(anonymous).toBeDefined();
+  const type = facts.expressions.find((entry) => entry.id === anonymous?.compositeType?.typeExpression);
+  expect(type?.syntaxKind).toBe('struct_type');
+  if (anonymous?.compositeType === undefined || type === undefined) throw new Error('anonymous struct type proof missing');
+  expect(anonymous.compositeType.declarationSpan).toEqual(type.span);
+  expect(Object.isFrozen(anonymous?.compositeType)).toBe(true);
+  const named = facts.expressions.find((entry) => entry.compositeType?.bindingId !== undefined);
+  expect(named?.compositeType?.declarationExpression).toBeDefined();
+  const alias = facts.expressions.find((entry) => entry.syntaxKind === 'composite_literal' &&
+    (entry.fields.type ?? []).some((id) => facts.expressions.find((type) => type.id === id)?.name === 'Alias'));
+  expect(alias).toBeDefined();
+  expect(alias?.compositeType).toBeUndefined();
+  const pair = facts.expressions.find((entry) => entry.syntaxKind === 'keyed_element');
+  expect(pair?.fields).toEqual({});
+  expect(pair?.children).toHaveLength(2);
+  expect(pair?.children.map((id) => facts.expressions.find((entry) => entry.id === id)?.syntaxKind)).toEqual(['literal_element', 'literal_element']);
+});
+
+
+test('Go short declaration reuses a function parameter and binds only its new name',async()=>{
+  const path='lib/reuse.go';const source='package sample\nfunc run(x int){x,y:=1,2;_ = x;_ = y}';
+  const {facts}=await extractCodeWithFacts(treeOf({[path]:source}));
+  const parameter=facts.bindings.find((entry)=>entry.kind==='parameter'&&entry.name==='x');
+  expect(parameter).toBeDefined();expect(facts.bindings.filter((entry)=>entry.name==='x')).toHaveLength(1);
+  const y=facts.bindings.filter((entry)=>entry.name==='y');expect(y).toHaveLength(1);expect(y[0]?.kind).toBe('local');
+  const read=facts.expressions.filter((entry)=>entry.name==='x'&&entry.span.byteStart>source.indexOf('x,y'));
+  expect(read.every((entry)=>entry.bindingId===parameter?.id)).toBe(true);
+  expect(facts.gaps).toEqual([]);
+});
+
+test('Go repeated short declaration without a new name is a located gap and invents no binding identity',async()=>{
+  const path='lib/reuse.go';const source='package sample\nfunc run(){x:=1;x:=2;_ = x}';
+  const {facts}=await extractCodeWithFacts(treeOf({[path]:source}));
+  expect(facts.bindings.filter((entry)=>entry.name==='x')).toHaveLength(1);
+  expect(facts.gaps.some((entry)=>entry.path===path&&entry.reason.includes('short declaration has no unique new binding'))).toBe(true);
+});

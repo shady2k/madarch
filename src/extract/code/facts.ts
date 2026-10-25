@@ -39,8 +39,11 @@ export interface CodeBindingFact {
   readonly id: CodeFactId;
   readonly path: string;
   readonly name: string;
-  readonly kind: 'import' | 'parameter' | 'local' | 'receiver';
+  readonly kind: 'import' | 'parameter' | 'local' | 'receiver' | 'type';
   readonly span: SourceSpan;
+  /** A direct Go type declaration copied in the same lexical walk. Aliases are never followed. */
+  readonly typeDeclaration?: { readonly expression: CodeFactId; readonly nameExpression: CodeFactId; readonly typeExpression: CodeFactId;
+    readonly declarationSpan: SourceSpan; readonly scopeExpression: CodeFactId; readonly scopeStart: number; readonly shape: 'struct' | 'unknown' };
   readonly scope: SourceSpan;
   readonly importId?: CodeFactId;
   readonly initializer?: CodeFactId;
@@ -61,6 +64,9 @@ export interface CodeExpressionFact {
   readonly member?: string;
   readonly callee?: CodeFactId;
   readonly arguments?: readonly CodeFactId[];
+  /** Exact Go struct proof: raw anonymous type, or a copied lexical direct declaration identity. */
+  readonly compositeType?: { readonly shape: 'struct'; readonly typeExpression: CodeFactId; readonly declarationSpan: SourceSpan;
+    readonly bindingId?: CodeFactId; readonly declarationExpression?: CodeFactId };
   readonly children: readonly CodeFactId[];
   readonly fields: { readonly [field: string]: readonly CodeFactId[] };
   /** Raw token is retained for evidence; value is absent when decoding is unsupported. */

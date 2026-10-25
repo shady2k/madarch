@@ -91,6 +91,8 @@ export function evaluateLibraryModels(facts: CodeFacts, input: LibraryRegistry =
   for (const binding of facts.bindings) {
     if (binding.importId !== undefined && !imports.has(binding.importId)) report('dangling-fact', binding, `import ${binding.importId} is missing or ambiguous`);
     if (binding.initializer !== undefined) getExpression(binding.initializer, binding);
+    if (binding.typeDeclaration !== undefined) for (const id of [binding.typeDeclaration.expression, binding.typeDeclaration.nameExpression,
+      binding.typeDeclaration.typeExpression,binding.typeDeclaration.scopeExpression]) getExpression(id,binding);
   }
   for (const expression of facts.expressions) {
     if (expression.bindingId !== undefined && !bindings.has(expression.bindingId)) {
@@ -99,7 +101,8 @@ export function evaluateLibraryModels(facts: CodeFacts, input: LibraryRegistry =
     }
     for (const id of new Set([...expression.children, ...Object.values(expression.fields).flat(),
       ...(expression.receiver === undefined ? [] : [expression.receiver]),
-      ...(expression.callee === undefined ? [] : [expression.callee]), ...(expression.arguments ?? [])])) getExpression(id, expression);
+      ...(expression.callee === undefined ? [] : [expression.callee]), ...(expression.arguments ?? []),
+      ...(expression.compositeType===undefined?[]:[expression.compositeType.typeExpression,...(expression.compositeType.declarationExpression===undefined?[]:[expression.compositeType.declarationExpression])])])) getExpression(id, expression);
   }
   for (const call of facts.calls) {
     const expression = getExpression(call.expression, call);
@@ -117,7 +120,8 @@ export function evaluateLibraryModels(facts: CodeFacts, input: LibraryRegistry =
     for (const expression of facts.expressions) {
       const dependencies = [...expression.children, ...Object.values(expression.fields).flat(),
         ...(expression.receiver === undefined ? [] : [expression.receiver]),
-        ...(expression.callee === undefined ? [] : [expression.callee]), ...(expression.arguments ?? [])];
+        ...(expression.callee === undefined ? [] : [expression.callee]), ...(expression.arguments ?? []),
+        ...(expression.compositeType===undefined?[]:[expression.compositeType.typeExpression,...(expression.compositeType.declarationExpression===undefined?[]:[expression.compositeType.declarationExpression])])];
       if (!invalidExpressions.has(expression.id) && dependencies.some((id) => invalidExpressions.has(id))) {
         invalidExpressions.add(expression.id); invalidChanged = true;
       }
@@ -238,7 +242,116 @@ export function evaluateLibraryModels(facts: CodeFacts, input: LibraryRegistry =
     if (['property_identifier', 'field_identifier', 'identifier'].includes(expression.syntaxKind)) return expression.name;
     return undefined;
   };
-  const objectMember = (expression: CodeExpressionFact, key: string, seen: Set<string>): CodeExpressionFact | undefined => {
+  const sameSpan = (left: SourceSpan, right: SourceSpan): boolean => left.path === right.path && left.byteStart === right.byteStart &&
+    left.byteEnd === right.byteEnd && left.lineStart === right.lineStart && left.lineEnd === right.lineEnd;
+  const contains = (outer: CodeExpressionFact, inner: CodeExpressionFact): boolean => outer.path === inner.path &&
+    outer.span.path === outer.path && inner.span.path === inner.path && outer.span.byteStart <= inner.span.byteStart &&
+    inner.span.byteStart < inner.span.byteEnd && inner.span.byteEnd <= outer.span.byteEnd;
+  const pairParts = (pair: CodeExpressionFact): readonly [CodeExpressionFact, CodeExpressionFact] | undefined => {
+    const keys = pair.fields.key; const values = pair.fields.value;
+    if (pair.syntaxKind === 'pair') {
+      const key = singleField(pair, 'key'); const value = singleField(pair, 'value');
+      return key === undefined || value === undefined ? undefined : [key, value];
+    }
+    if (pair.syntaxKind !== 'keyed_element' || files.get(pair.path)?.language !== 'go') return undefined;
+    const explicit = keys !== undefined || values !== undefined;
+    let key: CodeExpressionFact | undefined; let value: CodeExpressionFact | undefined;
+    if (explicit) {
+      if (keys?.length === 1 && values?.length === 1) {
+        key = getExpression(keys[0]!, pair); value = getExpression(values[0]!, pair);
+      }
+    } else if (pair.syntaxKind === 'keyed_element' && files.get(pair.path)?.language === 'go' && pair.children.length === 2) {
+      key = getExpression(pair.children[0]!, pair); value = getExpression(pair.children[1]!, pair);
+      if (key?.syntaxKind !== 'literal_element' || value?.syntaxKind !== 'literal_element' || key.children.length !== 1 || value.children.length !== 1) {
+        key = undefined; value = undefined;
+      }
+    }
+    if (key === undefined || value === undefined || key.syntaxKind !== 'literal_element' || value.syntaxKind !== 'literal_element' ||
+      key.children.length !== 1 || value.children.length !== 1 || key.id === value.id || pair.children.length !== 2 ||
+      pair.children[0] !== key.id || pair.children[1] !== value.id || !contains(pair, key) || !contains(pair, value) || key.span.byteEnd > value.span.byteStart) {
+      report('unsupported-selector', pair, 'keyed element has no complete, ordered and contained key/value proof'); return undefined;
+    }
+    for (const part of [key, value]) if (part.syntaxKind === 'literal_element') {
+      const child = part.children.length === 1 ? getExpression(part.children[0]!, part) : undefined;
+      if (child?.id === part.id) { report('cyclic-origin', part, 'cyclic structural key/value wrapper'); return undefined; }
+      if (child === undefined || !contains(part, child)) {
+        report('unsupported-selector', part, 'literal element has no unique contained expression'); return undefined;
+      }
+    }
+    return [key, value];
+  };
+  const directTypeScope = (spec: CodeExpressionFact): CodeExpressionFact | undefined => {
+    const parents = (child: CodeExpressionFact): CodeExpressionFact[] => facts.expressions.filter((entry)=>entry.children.includes(child.id));
+    const declarations=parents(spec);
+    if(declarations.length!==1 || declarations[0]?.syntaxKind!=='type_declaration')return undefined;
+    const declaration=declarations[0]; const containers=parents(declaration);
+    if(containers.length!==1)return undefined;
+    let scope=containers[0];
+    if(scope?.syntaxKind==='statement_list'){
+      const blocks=parents(scope);if(blocks.length!==1)return undefined;scope=blocks[0];
+    }
+    return scope!==undefined && ['source_file','block'].includes(scope.syntaxKind) && contains(scope,spec)?scope:undefined;
+  };
+  const structComposite = (expression: CodeExpressionFact): boolean => {
+    if(files.get(expression.path)?.language!=='go' || files.get(expression.path)?.parsed!==true)return false;
+    const type = singleField(expression, 'type');
+    if (type === undefined || !contains(expression, type) || expression.children.filter((id) => id === type.id).length !== 1) return false;
+    if (type.syntaxKind === 'struct_type') {
+      const proof = expression.compositeType;
+      return proof?.shape === 'struct' && proof.bindingId===undefined && proof.declarationExpression===undefined && proof.typeExpression === type.id &&
+        sameSpan(proof.declarationSpan, type.span);
+    }
+    if (type.syntaxKind === 'type_identifier') {
+      const proof=expression.compositeType; const binding=type.bindingId===undefined?undefined:bindings.get(type.bindingId);
+      const declaration=binding?.typeDeclaration;
+      if(proof?.shape!=='struct' || proof.bindingId===undefined || binding?.kind!=='type' || declaration?.shape!=='struct' || proof.bindingId!==binding.id ||
+        type.name!==binding.name || proof.declarationExpression!==declaration.expression || proof.typeExpression!==type.id || !sameSpan(proof.declarationSpan,declaration.declarationSpan) ||
+        binding.path!==expression.path || binding.scope.path!==expression.path || type.span.byteStart<declaration.scopeStart ||
+        type.span.byteStart<binding.scope.byteStart || type.span.byteEnd>binding.scope.byteEnd ||
+        facts.bindings.filter((entry)=>entry.path===binding.path&&entry.name===binding.name&&sameSpan(entry.scope,binding.scope)).length!==1) return false;
+      const spec=getExpression(declaration.expression,type); const name=spec===undefined?undefined:singleField(spec,'name');
+      const body=spec===undefined?undefined:singleField(spec,'type'); const scope=getExpression(declaration.scopeExpression,type);
+      if(scope===undefined || !sameSpan(scope.span,binding.scope) || !contains(scope,type) || spec===undefined || !contains(scope,spec) ||
+        directTypeScope(spec)?.id!==scope.id || invalidExpressions.has(spec.id) ||
+        !['source_file','block'].includes(scope.syntaxKind) || declaration.scopeStart!==(scope.syntaxKind==='source_file'?scope.span.byteStart:binding.span.byteStart)) return false;
+      return spec.syntaxKind==='type_spec' && name!==undefined && body?.syntaxKind==='struct_type' &&
+        declaration.nameExpression===name.id && declaration.typeExpression===body.id && name.name===binding.name &&
+        sameSpan(binding.span,name.span) && sameSpan(spec.span,declaration.declarationSpan) && contains(spec,name) && contains(spec,body) &&
+        spec.children.filter((id)=>id===name.id).length===1 && spec.children.filter((id)=>id===body.id).length===1 &&
+        name.span.byteEnd<=body.span.byteStart && declaration.scopeStart>=binding.scope.byteStart &&
+        (spec.fields.type_parameters??[]).length===0 && !facts.bindings.some((candidate)=>candidate.id!==binding.id && candidate.path===type.path &&
+          candidate.name===binding.name && candidate.scope.byteStart>=binding.scope.byteStart && candidate.scope.byteEnd<=binding.scope.byteEnd &&
+          candidate.scope.byteStart<=type.span.byteStart && type.span.byteEnd<=candidate.scope.byteEnd &&
+          type.span.byteStart>=(candidate.typeDeclaration?.scopeStart??candidate.span.byteStart));
+    }
+    if (expression.compositeType !== undefined) return false;
+    if (type.syntaxKind !== 'qualified_type' || type.member === undefined || type.receiver === undefined) return false;
+    const receiver = getExpression(type.receiver, type);
+    const name = singleField(type, 'name');
+    if (receiver?.bindingId === undefined || name === undefined || !contains(type, receiver) || singleField(type, 'package')?.id !== receiver.id ||
+      name.name !== type.member || !contains(type, name) || type.children.length !== 2 ||
+      type.children[0] !== receiver.id || type.children[1] !== name.id || receiver.span.byteEnd > name.span.byteStart) return false;
+    const binding = bindings.get(receiver.bindingId);
+    if (binding?.kind !== 'import' || binding.importId === undefined || writtenBindings.has(binding.id) || binding.path !== expression.path ||
+      binding.scope.path !== expression.path || binding.scope.byteStart > receiver.span.byteStart || binding.scope.byteEnd < receiver.span.byteEnd) return false;
+    const imported = imports.get(binding.importId);
+    if (imported === undefined || imported.typeOnly || imported.targetPath !== undefined || imported.targetExpression !== undefined || imported.targetChain !== undefined ||
+      imported.path !== binding.path || imported.local !== binding.name || receiver.name !== binding.name || imported.imported.form !== 'namespace' ||
+      !sameSpan(imported.span, binding.span) ||
+      facts.imports.filter((entry) => entry.path === imported.path && entry.local === imported.local).length !== 1 ||
+      facts.bindings.filter((entry) => entry.importId === imported.id).length !== 1) return false;
+    if (imported.package !== undefined && (imported.package.ecosystem !== 'go' ||
+      imported.specifier !== imported.package.name && !imported.specifier.startsWith(`${imported.package.name}/`))) return false;
+    if(facts.bindings.some((candidate)=>candidate.id!==binding.id && candidate.path===receiver.path && candidate.name===binding.name &&
+      candidate.scope.byteStart>=binding.scope.byteStart && candidate.scope.byteEnd<=binding.scope.byteEnd &&
+      candidate.scope.byteStart<=receiver.span.byteStart && receiver.span.byteEnd<=candidate.scope.byteEnd &&
+      receiver.span.byteStart>=(candidate.typeDeclaration?.scopeStart??candidate.span.byteStart)))return false;
+    const origin = valueOf(type.id);
+    return origin?.kind === 'export' && origin.imported.id === imported.id &&
+      (registry.types ?? []).filter((entry) => entry.ecosystem === 'go' && entry.package === imported.specifier &&
+        JSON.stringify(entry.exportedPath) === JSON.stringify(origin.exportedPath)).length === 1;
+  };
+  const objectMember = (expression: CodeExpressionFact, key: string, seen: Set<string>, struct = false): CodeExpressionFact | undefined => {
     if (seen.has(expression.id)) { report('cyclic-origin', expression, 'cyclic argument initializer'); return undefined; }
     seen.add(expression.id);
     if (expression.bindingId !== undefined) {
@@ -263,7 +376,12 @@ export function evaluateLibraryModels(facts: CodeFacts, input: LibraryRegistry =
     }
     if (expression.syntaxKind === 'composite_literal') {
       const body = singleField(expression, 'body');
-      return body === undefined ? undefined : objectMember(body, key, seen);
+      if (body === undefined || !contains(expression, body)) return undefined;
+      const provedStruct = structComposite(expression);
+      if (!provedStruct && files.get(expression.path)?.language === 'go') {
+        report('unsupported-selector', expression, 'composite type has no unique struct-shape proof'); return undefined;
+      }
+      return objectMember(body, key, seen, provedStruct);
     }
     if (expression.syntaxKind !== 'object' && expression.syntaxKind !== 'literal_value') return undefined;
     const found: CodeExpressionFact[] = [];
@@ -271,11 +389,20 @@ export function evaluateLibraryModels(facts: CodeFacts, input: LibraryRegistry =
       const child = getExpression(childId, expression);
       if (child === undefined) return undefined;
       if (child.syntaxKind === 'comment') continue;
+      if (files.get(expression.path)?.language === 'go' && !contains(expression, child)) {
+        report('unsupported-selector', child, 'keyed element is outside its composite body'); return undefined;
+      }
       if (child.syntaxKind !== 'pair' && child.syntaxKind !== 'keyed_element') {
         report('unsupported-selector', child, 'object spread, shorthand or non-keyed element is not an exact property proof'); return undefined;
       }
-      const property = singleField(child, 'key'); const selected = singleField(child, 'value');
-      if (property === undefined || selected === undefined) return undefined;
+      const parts = pairParts(child);
+      if (parts === undefined) return undefined;
+      const [property, selected] = parts;
+      let terminal = property;
+      if (terminal.syntaxKind === 'literal_element' && terminal.children.length === 1) terminal = getExpression(terminal.children[0]!, terminal) ?? terminal;
+      if (files.get(expression.path)?.language === 'go' && typeof terminal.literal?.value !== 'string' && !struct) {
+        report('unsupported-selector', property, 'identifier key needs a proven struct type, not a named map or unknown type'); return undefined;
+      }
       const name = staticKey(property);
       if (name === undefined) { report('unsupported-selector', property, 'object key has no grammar-decoded static value'); return undefined; }
       if (name === key) found.push(selected);

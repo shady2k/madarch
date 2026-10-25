@@ -2,7 +2,7 @@
 import { createHash } from 'node:crypto';
 import data from './models.json';
 import { byCodePoint } from '../../model/order.js';
-import type { ArgumentSelector, ImportRole, LibraryEffectKind, LibraryModel, LibraryRegistry, LibraryRole, ModelTarget } from './model.js';
+import type { ArgumentSelector, ImportRole, LibraryEffectKind, LibraryModel, LibraryRegistry, LibraryRole, LibraryTypeModel, ModelTarget } from './model.js';
 
 function object(value: unknown, where: string, keys: readonly string[]): Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${where}: expected object`);
@@ -82,12 +82,31 @@ function model(value: unknown, where: string): LibraryModel {
     checks: Object.freeze({ positive: string(checks.positive, `${where}.checks.positive`), negative: string(checks.negative, `${where}.checks.negative`) }) });
 }
 
+function typeModel(value: unknown, where: string): LibraryTypeModel {
+  const obj = object(value, where, ['id', 'ecosystem', 'package', 'exportedPath', 'shape', 'reference', 'checks']);
+  if (obj.ecosystem !== 'go') throw new Error(`${where}.ecosystem: unsupported type ecosystem`);
+  if (obj.shape !== 'struct') throw new Error(`${where}.shape: unsupported type shape`);
+  const exportedPath = list(obj.exportedPath, `${where}.exportedPath`, string);
+  if (exportedPath.length === 0) throw new Error(`${where}.exportedPath: empty type selector`);
+  const checks = object(obj.checks, `${where}.checks`, ['positive', 'negative']);
+  const reference = string(obj.reference, `${where}.reference`);
+  let address: URL;
+  try { address = new URL(reference); } catch { throw new Error(`${where}.reference: expected absolute HTTPS documentation URL`); }
+  if (address.protocol !== 'https:' || address.hostname === '' || address.username !== '' || address.password !== '') throw new Error(`${where}.reference: expected absolute HTTPS documentation URL`);
+  return Object.freeze({ id: string(obj.id, `${where}.id`), ecosystem: 'go', package: string(obj.package, `${where}.package`),
+    exportedPath, shape: 'struct', reference,
+    checks: Object.freeze({ positive: string(checks.positive, `${where}.checks.positive`), negative: string(checks.negative, `${where}.checks.negative`) }) });
+}
+
 export function validateLibraryRegistry(value: unknown): LibraryRegistry {
-  const obj = object(value, 'registry', ['schemaVersion', 'models']);
+  const obj = object(value, 'registry', ['schemaVersion', 'models', 'types']);
   if (obj.schemaVersion !== 1) throw new Error('registry.schemaVersion: unsupported version');
   const models = list(obj.models, 'registry.models', model);
   unique(models.map((entry) => entry.id), 'registry.models.id');
-  unique(models.flatMap((entry) => [entry.checks.positive, entry.checks.negative]), 'registry.models.checks');
+  const types = obj.types === undefined ? [] : list(obj.types, 'registry.types', typeModel);
+  unique([...models, ...types].map((entry) => entry.id), 'registry.ids');
+  unique([...models, ...types].flatMap((entry) => [entry.checks.positive, entry.checks.negative]), 'registry.checks');
+  unique(types.map((entry) => JSON.stringify([entry.ecosystem, entry.package, entry.exportedPath])), 'registry.types.selectors');
   const selectors = new Set<string>();
   const wildcardReads = new Set(models.flatMap((entry) => entry.invoke === 'read' && entry.target.kind === 'member' && entry.target.member === '*'
     ? [JSON.stringify([entry.ecosystem, entry.package, entry.target.receiverRole])] : []));
@@ -104,7 +123,7 @@ export function validateLibraryRegistry(value: unknown): LibraryRegistry {
     if (entry.invoke === 'read' && entry.target.kind === 'member' && entry.target.member !== '*' && wildcardReads.has(JSON.stringify([entry.ecosystem, entry.package, entry.target.receiverRole]))) throw new Error(`registry.models.${entry.id}: wildcard conflicts with exact read selector`);
     if (entry.target.kind === 'member' && !providers.has(`${entry.ecosystem}:${entry.package}:${entry.target.receiverRole}`)) throw new Error(`registry.models.${entry.id}: receiver role has no provider`);
   }
-  return Object.freeze({ schemaVersion: 1, models: Object.freeze([...models].sort((a, b) => byCodePoint(a.id, b.id))) });
+  return Object.freeze({ schemaVersion: 1, models: Object.freeze([...models].sort((a, b) => byCodePoint(a.id, b.id))), types: Object.freeze([...types].sort((a, b) => byCodePoint(a.id, b.id))) });
 }
 
 /** JSON keys use code-point order; arrays retain declared semantic order. */
