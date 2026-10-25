@@ -87,7 +87,10 @@ export interface CodeSiteFact {
 export interface CodeCallFact {
   readonly expression: CodeFactId;
   readonly path: string;
+  /** Entire invocation, independently retained from its public invocation prefix. */
   readonly span: SourceSpan;
+  /** Callee through the opening argument delimiter, proved by grammar tokens. */
+  readonly invocationSpan?: SourceSpan;
   readonly callee: CodeFactId;
   readonly arguments: readonly CodeFactId[];
   readonly holder: string;
@@ -107,6 +110,17 @@ export interface CodeSymbolFact {
   readonly receiver?: { readonly bindingId: CodeFactId; readonly name: string; readonly typeName?: string };
 }
 
+/** Direct Go struct field declarations copied from the shared lexical AST walk. */
+export interface CodeFieldFact {
+  readonly key: string;
+  readonly path: string;
+  readonly name: string;
+  readonly ownerTypeName: string;
+  readonly ownerDeclaration: CodeFactId;
+  readonly span: SourceSpan;
+  readonly typeExpression: CodeFactId;
+}
+
 export interface CodeFileFact {
   readonly path: string;
   readonly language: SyntaxLanguage;
@@ -118,6 +132,7 @@ export interface CodeFileFact {
 export interface CodeFacts {
   readonly files: readonly CodeFileFact[];
   readonly symbols: readonly CodeSymbolFact[];
+  readonly fields?: readonly CodeFieldFact[];
   readonly imports: readonly CodeImportFact[];
   readonly exports?: readonly CodeExportFact[];
   readonly bindings: readonly CodeBindingFact[];

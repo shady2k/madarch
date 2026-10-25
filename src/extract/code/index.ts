@@ -57,11 +57,7 @@ import { resolveFile } from './resolve.js';
 import { codeLanguageOf, folderOf, roleOf, type SourceFile } from './source.js';
 import { holderAt, indexSymbols, type FileSymbol } from './symbols.js';
 import { readTestDetails } from './tests.js';
-import {readTsFile} from '../contracts/ts-code.js';
-import {readGoFile} from '../contracts/go-code.js';
-import {readSyntaxTree} from '../../fill/stages/syntax-extract.js';
 import {callbackName} from './keys.js';
-import {spanOf, walkTree} from '../contracts/walk.js';
 import { codeFactId, freezeCodeFacts, type CodeBindingFact, type CodeCallFact, type CodeExpressionFact, type CodeExtractionResult, type CodeImportFact, type CodeExportFact } from './facts.js';
 export type { CodeFacts, CodeExtractionResult } from './facts.js';
 
@@ -139,14 +135,13 @@ export async function extractCodeWithFacts(reader: TreeReader): Promise<CodeExtr
     if (base === 'go.mod') {
       const parsed = readGoMod(text);
       if (!parsed.ok) {
-        gap(path, `line ${parsed.gap.line}: ${parsed.gap.detail}`);
+        gap(path, `line ${parsed.gap.line}: ${parsed.gap.code === 'missing-module' ? 'the go.mod names no module: ' : ''}${parsed.gap.detail}`);
         continue;
       }
       const module = parsed.value.module;
       goModules.push({ folder: folderOf(path), module });
-      // The existing manifest reader proves package identity, not a version.
-      // Do not rescan its source line to invent missing structured metadata.
-      const dependencies = new Map<string, string | null>(parsed.value.requires.map((entry) => [entry.path, null]));
+      // The manifest parser owns both tokens; no consumer rescans source lines.
+      const dependencies = new Map<string, string | null>(parsed.value.requires.map((entry) => [entry.path, entry.version]));
       for (const note of parsed.gaps) gap(path, `line ${note.line}: ${note.detail}`);
       manifests.push({ folder: folderOf(path), ecosystem: 'go', name: module, frameworks: ['go-test'], dependencies, span: fileSpan(path, text) });
     } else {
@@ -213,53 +208,20 @@ export async function extractCodeWithFacts(reader: TreeReader): Promise<CodeExtr
     const symbols = indexSymbols(source.path, syntax.symbols, topNames);
     const callbackValues: SourceSpan[] = [];
     if (syntax.parsed) {
-      const registrations = await readSyntaxTree<readonly {method: string; path: string; handler?: {inline: boolean; span: SourceSpan}}[]>(source.path, source.bytes, ({root}) => {
-        if (source.language !== 'typescript') return readGoFile(source.path, root).routes.map((route) => ({method: route.method, path: route.path, handler: {inline: route.inline, span: route.handlerSpan}}));
-        const facts = readTsFile(source.path, root);
-        return [...facts.routes, ...facts.grpcSites.flatMap((site) => site.kind === 'serve' && site.handlerSpan !== undefined
-          ? [{method: 'grpc', path: site.rpc, handler: {inline: true, span: site.handlerSpan}}] : [])];
-      });
-      if (registrations.read) for (const route of [...registrations.value].sort((a, b) => (b.handler?.span.byteEnd ?? 0) - (b.handler?.span.byteStart ?? 0) - ((a.handler?.span.byteEnd ?? 0) - (a.handler?.span.byteStart ?? 0)))) {
-        const handler = route.handler;
-        if (handler === undefined || !handler.inline) continue;
-        const existing = symbols.findIndex((symbol) => symbol.functionLike && symbol.span.startByte === handler.span.byteStart && symbol.span.endByte === handler.span.byteEnd);
-        if (existing >= 0) {const symbol = symbols[existing]!; symbols[existing] = {...symbol, local: false, keptKey: symbol.key}; continue;}
-        const enclosing = holderAt(symbols, handler.span.byteStart);
-        const name = callbackName(enclosing?.qualifiedName, `${route.method}:${route.path}`, handler.span.lineStart, handler.span.byteStart);
-        const key = symbolKey(source.path, name);
-        const prefix = decoder.decode(source.bytes.subarray(0, handler.span.byteStart));
-        const through = decoder.decode(source.bytes.subarray(0, handler.span.byteEnd));
-        const span: SyntaxSpan = {startByte: handler.span.byteStart, endByte: handler.span.byteEnd,
-          startLine: handler.span.lineStart, endLine: handler.span.lineEnd,
-          startColumn: prefix.length - prefix.lastIndexOf('\n') - 1, endColumn: through.length - through.lastIndexOf('\n') - 1};
-        symbols.push({key, qualifiedName: name, name, symbolKind: 'function', span, definitionSpan: span, local: false, keptKey: key, functionLike: true});
-      }
-    }
-    if (syntax.parsed) {
-      // Keep actual function boundaries even when no framework registration names them.
-      // The position is an identity, not a claim about when a callback runs.
-      const boundaries = await readSyntaxTree(source.path, source.bytes, ({root}) => {
-        const found: SourceSpan[] = [];
-        walkTree(root, (node) => {
-          if (['arrow_function', 'function_expression', 'generator_function', 'func_literal'].includes(node.type)) {
-            const span = spanOf(node, source.path);
-            found.push(span);
-            if (node.parent !== null && ['arguments', 'argument_list'].includes(node.parent.type)) callbackValues.push(span);
-          }
-        });
-        return found;
-      });
-      if (boundaries.read) for (const boundary of boundaries.value.sort((a, b) => (b.byteEnd - b.byteStart) - (a.byteEnd - a.byteStart))) {
-        const existing = symbols.findIndex((symbol) => symbol.functionLike && symbol.span.startByte <= boundary.byteStart && symbol.span.endByte === boundary.byteEnd);
-        if (existing >= 0) {const symbol = symbols[existing]!; symbols[existing] = {...symbol, local: false, keptKey: symbol.key}; continue;}
-        const enclosing = holderAt(symbols, boundary.byteStart);
-        const name = callbackName(enclosing?.qualifiedName, 'anonymous', boundary.lineStart, boundary.byteStart);
-        const key = symbolKey(source.path, name);
-        const prefix = decoder.decode(source.bytes.subarray(0, boundary.byteStart));
-        const through = decoder.decode(source.bytes.subarray(0, boundary.byteEnd));
-        const span: SyntaxSpan = {startByte: boundary.byteStart, endByte: boundary.byteEnd, startLine: boundary.lineStart, endLine: boundary.lineEnd,
-          startColumn: prefix.length - prefix.lastIndexOf('\n') - 1, endColumn: through.length - through.lastIndexOf('\n') - 1};
-        symbols.push({key, qualifiedName: name, name, symbolKind: 'function', span, definitionSpan: span, local: false, keptKey: key, functionLike: true});
+      // The syntax pass copied these boundaries while its tree was alive. A
+      // callback key starts at its grammar parameters; its span keeps async.
+      for (const boundary of [...(syntax.callables ?? [])].sort((left, right) =>
+        (right.span.endByte - right.span.startByte) - (left.span.endByte - left.span.startByte) || left.span.startByte - right.span.startByte)) {
+        const span = boundary.span;
+        const existing = symbols.findIndex((symbol) => symbol.functionLike && symbol.span.startByte === span.startByte && symbol.span.endByte === span.endByte);
+        if (existing >= 0) { const symbol = symbols[existing]!; symbols[existing] = {...symbol, local: false, keptKey: symbol.key}; }
+        else {
+          const enclosing = holderAt(symbols, span.startByte);
+          const name = callbackName(enclosing?.qualifiedName, 'anonymous', boundary.identity.startLine, boundary.identity.startByte);
+          const key = symbolKey(source.path, name);
+          symbols.push({key, qualifiedName: name, name, symbolKind: 'function', span, definitionSpan: span, local: false, keptKey: key, functionLike: true});
+        }
+        if (boundary.argument) callbackValues.push(toSpan(source.path, span));
       }
       for (const [index, symbol] of symbols.entries()) if (symbol.functionLike && symbol.local) symbols[index] = {...symbol, local: false, keptKey: symbol.key};
     }
@@ -317,6 +279,7 @@ export async function extractCodeWithFacts(reader: TreeReader): Promise<CodeExtr
   const sitesByFile = new Map<string, Site[]>();
   const imports: CodeImportFact[] = [];
   const bindings: CodeBindingFact[] = [];
+  const fields: NonNullable<import('./facts.js').CodeFacts['fields']>[number][] = [];
   const exports: CodeExportFact[] = [];
   const expressions: CodeExpressionFact[] = [];
   const calls: CodeCallFact[] = [];
@@ -365,6 +328,7 @@ export async function extractCodeWithFacts(reader: TreeReader): Promise<CodeExtr
     const members = await memberSites(file.source, program, fileImports, file.symbols);
     imports.push(...fileImports.map((imported) => members.typeOnlyImports.includes(imported.id) ? { ...imported, typeOnly: true } : imported));
     bindings.push(...members.bindings);
+    fields.push(...members.fields);
     expressions.push(...members.expressions);
     calls.push(...members.calls);
     for (const callable of members.callables) {
@@ -897,6 +861,7 @@ export async function extractCodeWithFacts(reader: TreeReader): Promise<CodeExtr
         ...(manifest === undefined ? {} : { manifest: { path: manifest.span.path, ecosystem: manifest.ecosystem, name: manifest.name } }) };
     }).sort((left, right) => byCodePoint(left.path, right.path)),
     symbols: files.flatMap((file) => file.symbols.filter((symbol) => !symbol.local).map((symbol) => ({ key: symbol.key, path: file.source.path, name: symbol.name, qualifiedName: symbol.qualifiedName, symbolKind: symbol.symbolKind, callable: symbol.functionLike, span: toSpan(file.source.path, symbol.span), ...callables.get(symbol.key) }))).sort((left, right) => byCodePoint(left.key, right.key)),
+    fields: fields.sort((left,right)=>byCodePoint(left.key,right.key) || left.span.byteStart-right.span.byteStart),
     imports: imports.sort(byId), exports: exports.sort(byId), bindings: bindings.sort(byId), expressions: expressions.sort(byId),
     calls: calls.sort((left, right) => byCodePoint(left.expression, right.expression)),
     sites: [...sitesByFile].flatMap(([path, sites]) => sites.map((site) => ({ path, span: toSpan(path, site.span), to: site.to, use: site.use, roles: [...site.roles], fanOut: [...site.fanOut], holder: holderAt(symbolsByFile.get(path) ?? [], site.span.startByte)?.keptKey ?? fileKey(path) }))).sort((left, right) => byCodePoint(left.path, right.path) || left.span.byteStart - right.span.byteStart || byCodePoint(left.to, right.to)),

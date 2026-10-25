@@ -202,3 +202,27 @@ test('Go repeated short declaration without a new name is a located gap and inve
   expect(facts.bindings.filter((entry)=>entry.name==='x')).toHaveLength(1);
   expect(facts.gaps.some((entry)=>entry.path===path&&entry.reason.includes('short declaration has no unique new binding'))).toBe(true);
 });
+
+
+test('Go manifest versions and missing-module reason codes come from the manifest parser metadata', async () => {
+  const tree=treeOf({'go.mod':'module example.test/unit\nrequire (\n example.test/dependency v1.2.3\n)\n','main.go':'package main\nimport "example.test/dependency/sub"\n'});
+  const result=await extractCodeWithFacts(tree);
+  const imported=result.extraction.edges.find((edge)=>edge.type==='code.imports' && edge.to==='code.dependency:go.mod#example.test/dependency');
+  expect(imported?.properties.version).toBe('v1.2.3');
+  expect(result.facts.imports.find((entry)=>entry.specifier==='example.test/dependency/sub')?.package?.declaredVersion).toBe('v1.2.3');
+  const missing=await extractCodeWithFacts(treeOf({'go.mod':'go 1.23\n'}));
+  expect(missing.extraction.gaps.some((gap)=>gap.path==='go.mod' && gap.reason.includes('line 1') && gap.reason.includes('names no module'))).toBe(true);
+});
+
+
+test('direct Go field declarations retain exact owner and qualified type expressions for cross-method evidence', async () => {
+  const path='engine/meter.go';const source='package meter\nimport "sync/atomic"\ntype Meter struct { total atomic.Int64 }\nfunc (m *Meter) Add(){m.total.Add(1)}\nfunc (m *Meter) Read() int64{return m.total.Load()}\n';
+  const {facts}=await extractCodeWithFacts(treeOf({[path]:source}));
+  const fields=facts.fields?.filter((field)=>field.key===`code.symbol:${path}#Meter.total`);expect(fields).toHaveLength(1);
+  const field=fields![0]!;expect(field.ownerTypeName).toBe('Meter');
+  const declaration=facts.expressions.find((expression)=>expression.id===field.ownerDeclaration);expect(declaration?.syntaxKind).toBe('type_spec');
+  const type=facts.expressions.find((expression)=>expression.id===field.typeExpression);expect(type?.member).toBe('Int64');
+  const packageExpression=facts.expressions.find((expression)=>expression.id===type?.receiver);
+  const binding=facts.bindings.find((entry)=>entry.id===packageExpression?.bindingId);expect(facts.imports.find((entry)=>entry.id===binding?.importId)?.specifier).toBe('sync/atomic');
+  const reads=facts.sites.filter((site)=>site.to===field.key);expect(reads.length).toBeGreaterThanOrEqual(2);
+});

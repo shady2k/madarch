@@ -159,6 +159,8 @@ export interface ExtractedFileSyntax {
   /** Whether a syntax tree was made and walked. */
   readonly parsed: boolean;
   readonly symbols: readonly ExtractedSymbol[];
+  /** Raw callable span and the grammar parameter start used by stable callback keys. */
+  readonly callables?: readonly { readonly span: SyntaxSpan; readonly identity: SyntaxSpan; readonly argument: boolean }[];
   readonly comments: readonly ExtractedComment[];
   readonly entryPoints: readonly ExtractedEntryPoint[];
   readonly tests: readonly ExtractedTest[];
@@ -432,6 +434,7 @@ const TEST_FRAMEWORKS: Readonly<Record<string, string>> = {
 /** One file's findings, before they become facts: what the walk found, and what it could not read. */
 interface Findings {
   symbols: readonly ExtractedSymbol[];
+  callables: readonly { readonly span: SyntaxSpan; readonly identity: SyntaxSpan; readonly argument: boolean }[];
   comments: readonly ExtractedComment[];
   entryPoints: readonly ExtractedEntryPoint[];
   tests: readonly ExtractedTest[];
@@ -447,6 +450,7 @@ function walk(path: string, text: string, root: SyntaxNode, language: SyntaxLang
   const lines = lineIndex(text);
   const spanOf = spanFactory(text);
   const symbols: ExtractedSymbol[] = [];
+  const callables: { span: SyntaxSpan; identity: SyntaxSpan; argument: boolean }[] = [];
   const comments: ExtractedComment[] = [];
   const entryPoints: ExtractedEntryPoint[] = [];
   const tests: ExtractedTest[] = [];
@@ -637,6 +641,11 @@ function walk(path: string, text: string, root: SyntaxNode, language: SyntaxLang
   };
 
   const visit = (node: SyntaxNode, container: readonly string[]): void => {
+    if (['arrow_function', 'function_expression', 'generator_function', 'func_literal'].includes(node.type)) {
+      const parameters = node.type === 'arrow_function' ? node.childForFieldName('parameters') ?? node.childForFieldName('parameter') : null;
+      callables.push({ span: spanOf(node), identity: spanOf(parameters ?? node),
+        argument: node.parent !== null && ['arguments', 'argument_list'].includes(node.parent.type) });
+    }
     record(node, container);
     const name = declaredName(node, text) ?? holderName(node, text);
     const containers = go ? GO_CONTAINERS : TS_CONTAINERS;
@@ -648,6 +657,7 @@ function walk(path: string, text: string, root: SyntaxNode, language: SyntaxLang
   visit(root, []);
 
   return {
+    callables: callables.sort((left, right) => left.span.startByte - right.span.startByte || right.span.endByte - left.span.endByte),
     unread: [...unread].sort((left, right) => byCodePoint(left.what, right.what)),
     symbols: [...symbols].sort((left, right) => byCodePoint(left.qualifiedName, right.qualifiedName) || byCodePoint(left.symbolKind, right.symbolKind)),
     comments: [...comments].sort((left, right) => left.span.startByte - right.span.startByte),

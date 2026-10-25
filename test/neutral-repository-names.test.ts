@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { describe, expect, test } from 'bun:test';
 import { isScalar, parseDocument } from 'yaml';
 import { validateLibraryRegistry } from '../src/extract/library-models/validate.js';
+import { validateHttpModels } from '../src/extract/library-models/http-models.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const SCAN_ROOTS = ['src', 'test', 'scripts', 'wiki/app/src', 'examples', 'docs/system'];
@@ -158,7 +159,11 @@ function provenanceRanges(root: string, file: string, text: string, errors: stri
     for (const error of document.errors) located(error.pos[0], error.message);
     return [];
   }
-  try { validateLibraryRegistry(parsed); } catch (error) { located(0, `invalid model registry: ${String(error)}`); return []; }
+  try { validateLibraryRegistry(parsed); } catch (libraryError) {
+    try { validateHttpModels(parsed); } catch (httpError) {
+      located(0, `invalid model registry: ${String(libraryError)}; ${String(httpError)}`); return [];
+    }
+  }
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return [];
   const registry = parsed as Record<string, unknown>;
   const ranges: ProvenanceRange[] = [];
@@ -464,6 +469,36 @@ describe('neutral repository names', () => {
         `src/extract/library-models/note.ts:2 (${ts}): repository source is not an example or madarch repository: ${source}`,
       ]);
     } finally { rmSync(fixtureRoot, { recursive: true, force: true }); }
+  });
+
+  test('HTTP model provenance uses the same exact scalar boundary without licensing package fields', () => {
+    const fixtureRoot = mkdtempSync(join(tmpdir(), 'madarch-neutral-http-provenance-'));
+    try {
+      for (const path of SCAN_ROOTS) mkdirSync(join(fixtureRoot, path), {recursive: true});
+      for (const path of ROOT_DOCUMENTS) { const file = join(fixtureRoot, path); mkdirSync(dirname(file), {recursive: true}); writeFileSync(file, ''); }
+      const packageName = ['example.org', 'http-unit'].join('/');
+      const reference = ['https:/', 'pkg.go.dev', packageName].join('/');
+      const model = {id: 'unit.http', ecosystem: 'go', package: packageName, target: {kind: 'export', paths: [['Make']]}, effect: {kind: 'factory', role: 'mux'}, reference};
+      const file = join(fixtureRoot, 'src/extract/library-models/http-models.json');
+      mkdirSync(dirname(file), {recursive: true});
+      writeFileSync(file, JSON.stringify({schemaVersion: 1, models: [model]}));
+      expect(findings(fixtureRoot)).toEqual([]);
+      const source = reference.slice('https://'.length);
+      const elsewhere = join(fixtureRoot, 'docs/system/http-evidence.md'); writeFileSync(elsewhere, reference);
+      expect(findings(fixtureRoot)).toEqual([
+        `docs/system/http-evidence.md:1 (${elsewhere}): repository source is not an example or madarch repository: ${source}`,
+      ]);
+      rmSync(elsewhere);
+      writeFileSync(file, JSON.stringify({schemaVersion: 1, models: [{...model, arbitrary: reference}]}));
+      const invalid = findings(fixtureRoot);
+      expect(invalid.some((entry) => entry.startsWith(`src/extract/library-models/http-models.json:1 (${file}): library provenance is not licensed:`))).toBe(true);
+      expect(invalid.filter((entry) => entry.endsWith(`repository source is not an example or madarch repository: ${source}`))).toHaveLength(2);
+      const outsidePackage = ['github.com', 'not-acme', 'http-unit'].join('/');
+      writeFileSync(file, JSON.stringify({schemaVersion: 1, models: [{...model, package: outsidePackage, reference: ['https:/', 'pkg.go.dev', outsidePackage].join('/')}]}));
+      expect(findings(fixtureRoot)).toEqual([
+        `src/extract/library-models/http-models.json:1 (${file}): repository source is not an example or madarch repository: ${outsidePackage}`,
+      ]);
+    } finally { rmSync(fixtureRoot, {recursive: true, force: true}); }
   });
 
   test('only example and madarch repositories appear in product code and current documents', () => {

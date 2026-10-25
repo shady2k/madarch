@@ -11,6 +11,7 @@ type OriginValue = {
 } | {
   readonly kind: 'role'; readonly imported: CodeImportFact; readonly role: LibraryRole;
   readonly origin: LibraryOrigin; readonly roleOrigin: string;
+  readonly metricRegistry?: LibraryModel['metricRegistry'];
 } | {
   readonly kind: 'member'; readonly receiver: RoleValue; readonly member: string;
   readonly receiverExpression: string; readonly origin: LibraryOrigin;
@@ -21,10 +22,36 @@ export function evaluateLibraryModels(facts: CodeFacts, input: LibraryRegistry =
   const registry = validateLibraryRegistry(input);
   const effects = new Map<string, LibraryEffect>();
   const diagnostics = new Map<string, LibraryDiagnostic>();
+  // Candidate relevance is diagnostic scope, never positive origin proof. Read
+  // model selectors as data; unrelated repository calls are not unread library use.
+  const candidateRoles = new Map<string, Set<string>>();
+  const candidateExpressions = new Map(facts.expressions.map((expression) => [expression.id, expression]));
+  const candidateImports = new Map(facts.imports.map((imported) => [imported.id, imported]));
+  const candidateBindings = new Map(facts.bindings.map((binding) => [binding.id, binding]));
+  const candidate = (id: string, seen = new Set<string>()): Set<string> => {
+    const cached = candidateRoles.get(id); if (cached !== undefined) return cached;
+    if (seen.has(id)) return new Set(); seen.add(id);
+    const expression = candidateExpressions.get(id); const roles = new Set<string>();
+    if (expression === undefined) return roles;
+    const imported = expression.bindingId === undefined ? undefined : candidateImports.get(candidateBindings.get(expression.bindingId)?.importId ?? '');
+    for (const model of registry.models) {
+      if (model.target.kind === 'member' && model.target.member === expression.member) roles.add(model.returnRole ?? model.target.receiverRole);
+      if (model.target.kind === 'export' && facts.imports.some((one) => one.path === expression.path && one.local === expression.name && one.specifier === model.package)) {
+        roles.add(model.returnRole ?? model.effect ?? 'library');
+      }
+      if (imported !== undefined && imported.specifier === model.package) roles.add(model.returnRole ?? model.effect ?? 'library');
+    }
+    if (expression.callee !== undefined) for (const role of candidate(expression.callee, seen)) roles.add(role);
+    candidateRoles.set(id, roles); return roles;
+  };
+  for (const expression of facts.expressions) candidate(expression.id);
   const report = (code: LibraryDiagnostic['code'], at: CodeExpressionFact | CodeCallFact | CodeBindingFact,
     reason: string, modelId?: string): void => {
     const expression = 'expression' in at ? at.expression : at.id;
-    const item: LibraryDiagnostic = { code, path: at.path, span: at.span, expression, reason,
+    const relevant = candidateRoles.get(expression);
+    if (code === 'unknown-origin' && modelId === undefined && (relevant === undefined || relevant.size === 0)) return;
+    const context = relevant?.has('logger') && 'expression' in at ? 'logger factory or logger use: ' : '';
+    const item: LibraryDiagnostic = { code, path: at.path, span: at.span, expression, reason: context + reason,
       ...(modelId === undefined ? {} : { modelId }) };
     diagnostics.set(JSON.stringify([code, expression, modelId, reason]), item);
   };
@@ -367,6 +394,7 @@ export function evaluateLibraryModels(facts: CodeFacts, input: LibraryRegistry =
       (registry.types ?? []).filter((entry) => entry.ecosystem === 'go' && entry.package === imported.specifier &&
         JSON.stringify(entry.exportedPath) === JSON.stringify(origin.exportedPath)).length === 1;
   };
+  const absentProperty = new Set<string>();
   const objectMember = (expression: CodeExpressionFact, key: string, seen: Set<string>, struct = false): CodeExpressionFact | undefined => {
     if (seen.has(expression.id)) { report('cyclic-origin', expression, 'cyclic argument initializer'); return undefined; }
     seen.add(expression.id);
@@ -383,12 +411,16 @@ export function evaluateLibraryModels(facts: CodeFacts, input: LibraryRegistry =
         report('ambiguous-fact', expression, 'argument binding is outside its declared file or scope'); return undefined;
       }
       const initializer = getExpression(binding.initializer, expression);
-      return initializer === undefined ? undefined : objectMember(initializer, key, seen);
+      const selected = initializer === undefined ? undefined : objectMember(initializer, key, seen);
+      if (initializer !== undefined && absentProperty.has(JSON.stringify([initializer.id,key]))) absentProperty.add(JSON.stringify([expression.id,key]));
+      return selected;
     }
     if (['parenthesized_expression', 'await_expression', 'as_expression', 'satisfies_expression', 'non_null_expression', 'literal_element'].includes(expression.syntaxKind)) {
       const childId = expression.children[0];
       const child = childId === undefined ? undefined : getExpression(childId, expression);
-      return expression.children.length === 1 && child !== undefined ? objectMember(child, key, seen) : undefined;
+      const selected = expression.children.length === 1 && child !== undefined ? objectMember(child, key, seen) : undefined;
+      if (child !== undefined && expression.children.length === 1 && absentProperty.has(JSON.stringify([child.id,key]))) absentProperty.add(JSON.stringify([expression.id,key]));
+      return selected;
     }
     if (expression.syntaxKind === 'composite_literal') {
       const body = singleField(expression, 'body');
@@ -397,7 +429,9 @@ export function evaluateLibraryModels(facts: CodeFacts, input: LibraryRegistry =
       if (!provedStruct && files.get(expression.path)?.language === 'go') {
         report('unsupported-selector', expression, 'composite type has no unique struct-shape proof'); return undefined;
       }
-      return objectMember(body, key, seen, provedStruct);
+      const selected = objectMember(body, key, seen, provedStruct);
+      if (absentProperty.has(JSON.stringify([body.id,key]))) absentProperty.add(JSON.stringify([expression.id,key]));
+      return selected;
     }
     if (expression.syntaxKind !== 'object' && expression.syntaxKind !== 'literal_value') return undefined;
     const found: CodeExpressionFact[] = [];
@@ -424,17 +458,21 @@ export function evaluateLibraryModels(facts: CodeFacts, input: LibraryRegistry =
       if (name === key) found.push(selected);
     }
     if (found.length > 1) { report('ambiguous-fact', expression, `duplicate object property ${key}`); return undefined; }
+    if (found.length === 0) absentProperty.add(JSON.stringify([expression.id,key]));
     return found[0];
   };
   const select = (selector: ArgumentSelector, call: CodeCallFact, model: LibraryModel): SelectedArgument => {
     const id = call.arguments[selector.index];
     let expression = id === undefined ? undefined : getExpression(id, call);
+    let status: 'selected' | 'absent' | 'unresolved' = id === undefined ? 'absent' : expression === undefined ? 'unresolved' : 'selected';
     for (const key of selector.path) {
       if (expression === undefined) break;
-      expression = objectMember(expression, key, new Set());
+      const parent = expression;
+      expression = objectMember(parent, key, new Set());
+      status = expression !== undefined ? 'selected' : absentProperty.has(JSON.stringify([parent.id,key])) ? 'absent' : 'unresolved';
     }
     if (expression === undefined && selector.required) report('unsupported-selector', call, `argument ${selector.name} cannot be selected exactly`, model.id);
-    return { name: selector.name, required: selector.required,
+    return { name: selector.name, required: selector.required, status,
       ...(expression === undefined ? {} : { expression: expression.id, span: expression.span }) };
   };
   const holderAt = (span: SourceSpan): string => {
@@ -453,14 +491,39 @@ export function evaluateLibraryModels(facts: CodeFacts, input: LibraryRegistry =
       : source.kind === 'role' ? source.roleOrigin : expression.id;
     const args = call === undefined ? [] : model.arguments.map((selector) => select(selector, call, model));
     if (args.some((arg) => arg.required && arg.expression === undefined)) return undefined;
+    let presentation: LibraryEffect['presentation'];
+    if (model.presentation !== undefined) {
+      const selected = args.find((argument) => argument.name === model.presentation!.formatArgument);
+      const argumentOrigin = selected?.expression === undefined ? undefined : valueOf(selected.expression);
+      const formats = argumentOrigin === undefined ? [] : argumentOrigin.origin.chain.flatMap((id) => {
+        const declared = registry.models.find((candidate) => candidate.id === id)?.presentation;
+        return declared?.json === undefined ? [] : [declared.json];
+      });
+      const json = model.presentation.json ?? (formats.length === 1 ? formats[0] : undefined);
+      presentation = { library: model.presentation.library, ...(json === undefined ? {} : {json}) };
+    }
+    const argumentLists = expression.fields.arguments ?? [];
+    const argumentList = argumentLists.length === 1 ? expressions.get(argumentLists[0]!) : undefined;
+    const prefix = call?.invocationSpan;
+    const validPrefix = call !== undefined && prefix !== undefined && argumentList !== undefined &&
+      prefix.path === call.path && argumentList.path === call.path && prefix.byteStart === call.span.byteStart &&
+      prefix.byteEnd === argumentList.span.byteStart + 1 && prefix.byteEnd <= call.span.byteEnd &&
+      prefix.lineStart === call.span.lineStart && prefix.lineEnd === argumentList.span.lineStart;
+    if (prefix !== undefined && !validPrefix) report('ambiguous-fact', expression, 'invocation prefix disagrees with its grammar argument list', model.id);
     if (model.effect !== undefined) {
       const effect: LibraryEffect = { kind: model.effect, modelId: model.id, package: model.package,
-        expression: expression.id, span: call?.span ?? expression.span, holder: call?.holder ?? holderAt(expression.span), origin,
+        expression: expression.id, span: call?.span ?? expression.span,
+        ...(!validPrefix || prefix === undefined ? {} : { invocationSpan: prefix }),
+        holder: call?.holder ?? holderAt(expression.span), origin,
         ...(source.kind === 'member' ? { receiverExpression: source.receiverExpression, member: source.member, roleOrigin } : {}),
-        ...(model.returnRole === undefined ? {} : { returnRole: model.returnRole }), arguments: args };
+        ...(model.returnRole === undefined ? {} : { returnRole: model.returnRole }),
+        ...(presentation === undefined ? {} : { presentation }),
+        ...(model.metricRegistry === undefined ? {} : { metricRegistry: model.metricRegistry }),
+        ...(model.textWrite === undefined ? {} : { textWrite: model.textWrite }), arguments: args };
       effects.set(JSON.stringify([model.id, expression.id]), effect);
     }
-    return model.returnRole === undefined ? undefined : { kind: 'role', imported, role: model.returnRole, origin, roleOrigin };
+    return model.returnRole === undefined ? undefined : { kind: 'role', imported, role: model.returnRole, origin, roleOrigin,
+      ...(model.metricRegistry === undefined ? {} : {metricRegistry:model.metricRegistry}) };
   };
   const valueOf = (id: string): OriginValue | undefined => {
     if (valueCache.has(id)) return valueCache.get(id);
@@ -519,7 +582,8 @@ export function evaluateLibraryModels(facts: CodeFacts, input: LibraryRegistry =
   const orderedDiagnostics = [...diagnostics.values()].sort((a, b) => byCodePoint(a.path, b.path) || a.span.byteStart - b.span.byteStart || byCodePoint(a.code, b.code) || byCodePoint(a.reason, b.reason));
   return {
     roles: [...valueCache.entries()].flatMap(([expression, value]) => value?.kind === 'role'
-      ? [{ expression, role: value.role, roleOrigin: value.roleOrigin, origin: value.origin }] : [])
+      ? [{ expression, role: value.role, roleOrigin: value.roleOrigin, origin: value.origin,
+        ...(value.metricRegistry === undefined ? {} : {metricRegistry:value.metricRegistry}) }] : [])
       .sort((a, b) => byCodePoint(a.expression, b.expression)),
     effects: [...effects.values()].sort((a, b) => byCodePoint(a.span.path, b.span.path) || a.span.byteStart - b.span.byteStart || byCodePoint(a.modelId, b.modelId)),
     diagnostics: orderedDiagnostics,

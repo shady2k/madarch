@@ -2,7 +2,7 @@ import {expect, test} from 'bun:test';
 import {readFileSync} from 'node:fs';
 // Test-only CodeFacts fixture owns one shared code pass for each immutable tree.
 import {extractCode} from './extract-code-facts-fixture.js';
-import {extractContracts} from '../src/extract/contracts/index.js';
+import {extractContracts} from './extract-code-facts-fixture.js';
 import {extractOperations} from './extract-code-facts-fixture.js';
 import {linkExtractions} from '../src/extract/driver/links.js';
 import {endpointRelations} from '../src/extract/driver/relationships.js';

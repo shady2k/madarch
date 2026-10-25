@@ -38,7 +38,7 @@ import {
   symbolKey,
 } from '../src/extract/code/keys.js';
 import {extractDataModel} from '../src/extract/data-model/extract.js';
-import {extractContracts} from '../src/extract/contracts/index.js';
+import {extractContracts} from './extract-code-facts-fixture.js';
 import {extractOperations} from './extract-code-facts-fixture.js';
 import {OPERATIONS_PRODUCER} from '../src/extract/operations/index.js';
 import type {ExtractedEdge, ExtractedNode, Extraction, TreeReader} from '../src/extract/records.js';

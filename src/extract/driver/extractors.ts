@@ -14,13 +14,15 @@ import type { HistoryExtractor, TreeExtractor } from './index.js';
 import { codeQueryDigest } from '../code/query.js';
 import { libraryModelDigest } from '../library-models/validate.js';
 import libraryModelSource from '../library-models/models.json' with { type: 'text' };
+import { httpModelDigest } from '../library-models/http-models.js';
+import httpModelSource from '../library-models/http-models.json' with { type: 'text' };
 
 /** Every tree extractor, in the order the driver runs them per commit. */
 const TREE_READERS = [
  {name:'extractFiles',version:2,extractor:extractFiles},
- {name:'extractCode',version:10,extractor:extractCodeWithFacts},
- {name:'extractOperations',version:9,extractor:extractOperations},
- {name:'extractContracts',version:6,extractor:extractContracts},
+ {name:'extractCode',version:11,extractor:extractCodeWithFacts},
+ {name:'extractOperations',version:10,extractor:extractOperations},
+ {name:'extractContracts',version:7,extractor:extractContracts},
  {name:'extractDataModel',version:4,extractor:extractDataModel},
 ] as const;
 export const TREE_EXTRACTORS: readonly TreeExtractor[] = TREE_READERS.map((entry)=>entry.extractor);
@@ -44,6 +46,8 @@ export const EXTRACTOR_VERSIONS = [
  {name:'code-structural-query-assets',version:1,contentDigest:codeQueryDigest()},
  {name:'code-parser-runtime:web-tree-sitter@0.25.10:tree-sitter-wasms@0.1.13',version:1},
  {name:'library-model-data',version:1,contentDigest:libraryModelDigest},
+ {name:'http-model-data',version:1,contentDigest:httpModelDigest},
+ {name:'http-model-source-bytes',version:1,contentDigest:codeQueryDigest([{path:'library-models/http-models.json',source:httpModelSource as unknown as string}])},
  {name:'library-model-source-bytes',version:1,contentDigest:codeQueryDigest([{path:'library-models/models.json',source:libraryModelSource as unknown as string}])},
  {name:'driver-and-link-normalization',version:6},
 ] as const;

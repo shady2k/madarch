@@ -20,7 +20,9 @@
  *   results reach `$queryRawUnsafe`, through the file's local bindings.
  */
 import {TreeText} from '../operations/source.js';
-import {receiverListenerPorts} from '../operations/symbol-sites.js';
+import {routeListenerPorts, structuralHttpRegistrations} from '../operations/route-facts.js';
+import {extractCodeWithFacts} from '../code/index.js';
+import type {CodeFacts} from '../code/facts.js';
 import {asyncApiNodes, readAsyncApi} from './asyncapi.js';
 import {contractSymbols} from './symbol-links.js';
 import {readGoFile, resolveGoStarts, duplicatesByStatusComparison, type GoFileFacts} from './go-code.js';
@@ -91,7 +93,14 @@ function wholeFileSpan(path: string, text: string): SourceSpan {
   return {path, byteStart: 0, byteEnd: Buffer.byteLength(text, 'utf8'), lineStart: 1, lineEnd: lines};
 }
 
-export async function extractContracts(reader: TreeReader, code?: Extraction): Promise<Extraction> {
+export async function extractContracts(reader: TreeReader, code?: Extraction, facts?: CodeFacts): Promise<Extraction> {
+  // Standalone callers own one shared pass. A supplied partial view is never
+  // silently replaced by an independent parse or resolver.
+  if (code === undefined && facts === undefined) {
+    const shared = await extractCodeWithFacts(reader);
+    code = shared.extraction;
+    facts = shared.facts;
+  }
   const nodes: ExtractedNode[] = [];
   const edges: ExtractedEdge[] = [];
   const gaps: ExtractionGap[] = [];
@@ -176,14 +185,12 @@ export async function extractContracts(reader: TreeReader, code?: Extraction): P
     nodes[at] = {...node, properties: {...node.properties, path}, span};
   }
 
-  const symbols = await contractSymbols(reader, nodes, code);
-  const sourceText = new TreeText(reader, code);
+  const sourceText = new TreeText(reader, code, facts);
+  const symbols = await contractSymbols(reader, nodes, code, facts, sourceText);
+  if (facts === undefined) gaps.push({path: '.', reason: 'contracts: line 1: canonical sites and receiver/listener associations require shared resolved code facts'});
+  else gaps.push(...facts.gaps);
   const portsOfRoute = (span: SourceSpan): string[] => {
-    const bytes = reader.read(span.path);
-    const at = new TextDecoder().decode(bytes.subarray(0, span.byteStart)).length;
-    const registration = new TextDecoder().decode(bytes.subarray(span.byteStart, span.byteEnd));
-    const receiver = /^([A-Za-z_$][\w$]*)\s*\./.exec(registration)?.[1];
-    const ports = receiver === undefined ? [] : receiverListenerPorts(sourceText, span.path, receiver, at);
+    const ports = routeListenerPorts(sourceText, span);
     if (ports.length === 0) gaps.push({path: span.path, reason: `contracts: line ${span.lineStart}: route receiver/listener association is unresolved (${span.path})`});
     return ports;
   };
@@ -599,6 +606,25 @@ export async function extractContracts(reader: TreeReader, code?: Extraction): P
     extractSqlFlow(file, nodes, addEdge);
   }
 
+  // Shared structural registrations also cover imported factory aliases the
+  // legacy AST route reader cannot name. Existing enriched routes keep their
+  // middleware and mounted path; no same-name registration is substituted.
+  for (const route of structuralHttpRegistrations(sourceText)) {
+    if (!isSourcePath(route.span.path) || nodes.some((node) => node.kind === KIND_ROUTE && node.span !== undefined && node.span.path === route.span.path && node.span.byteStart === route.span.byteStart && node.span.byteEnd === route.span.byteEnd)) continue;
+    const key = routeKey(route.span.path, route.method, route.path);
+    const service = serviceOf(route.span.path);
+    nodes.push({key, kind: KIND_ROUTE, label: `${route.method} ${route.path}`, properties: {
+      method: route.method, path: route.path, ports: [...route.ports], middleware: [], authGroup: false,
+      ...(service === undefined ? {} : {service}),
+      ...(route.handler === undefined ? {} : {handlerKey: route.handler.key, handlerPath: route.handler.path}),
+    }, span: route.span});
+    if (route.ports.length === 0) gaps.push({path: route.span.path, reason: `contracts: line ${route.span.lineStart}: route receiver/listener association is unresolved (${route.span.path})`});
+    if (route.handler !== undefined) {
+      addEdge('code.handled-by', key, route.handler.key, {}, route.span);
+      edges.push({type: 'code.references', from: symbols.enclosing(route.span) ?? fileKey(route.span.path), to: route.handler.key, discriminator: String(route.span.byteStart), properties: {role: 'callback-registration'}, span: route.span});
+    } else gaps.push({path: route.span.path, reason: `contracts: line ${route.span.lineStart}: route has no resolved handler function (${route.span.path})`});
+  }
+
   // ---- serving links ---------------------------------------------------------
   // A contract operation is served by the one route of the tree that matches its
   // method and path template. Where several match (/healthz of four services,
@@ -655,6 +681,7 @@ export async function extractContracts(reader: TreeReader, code?: Extraction): P
     nodes[index] = {...node, properties: {...node.properties, consumerFound: consumers.length > 0, consumerStatus: consumers.length > 0 ? 'found-in-product' : configured ? 'configured-consumer-function-not-resolved' : 'not-found-in-product'}};
   }
 
+  for (const gap of sourceText.factGaps.values()) gaps.push(gap);
   nodes.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
   edges.sort((a, b) => (`${a.type} ${a.from} ${a.to}` < `${b.type} ${b.from} ${b.to}` ? -1 : 1));
   gaps.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));

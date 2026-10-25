@@ -4,7 +4,7 @@ import {readFileSync} from 'node:fs';
 import {extractCode} from './extract-code-facts-fixture.js';
 import {extractDataModel} from '../src/extract/data-model/extract.js';
 import {extractOperations} from './extract-code-facts-fixture.js';
-import {extractContracts} from '../src/extract/contracts/index.js';
+import {extractContracts} from './extract-code-facts-fixture.js';
 import {linkExtractions} from '../src/extract/driver/links.js';
 import {edgeEvidenceError} from '../scripts/extract-truth-evidence.js';
 import type {Extraction,SourceSpan,TreeReader} from '../src/extract/records.js';

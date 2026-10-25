@@ -353,3 +353,34 @@ describe('closed external type schemas', () => {
     expect(()=>validateLibraryRegistry({schemaVersion:1,models:[],types:[type,{...type,id:'other',checks:{positive:'other.p',negative:'other.n'}}]})).toThrow('duplicate');
   });
 });
+
+
+test('library presentation metadata is closed, argument-bound data included in the registry digest', () => {
+  const model=libraryRegistry.models.find((entry)=>entry.presentation?.formatArgument!==undefined)!;
+  expect(model).toBeDefined();
+  const valid={schemaVersion:1,models:[model]};
+  expect(validateLibraryRegistry(valid).models[0]?.presentation).toEqual(model.presentation);
+  expect(()=>validateLibraryRegistry({schemaVersion:1,models:[{...model,presentation:{...model.presentation,formatArgument:'missing'}}]})).toThrow('declared argument');
+  expect(()=>validateLibraryRegistry({schemaVersion:1,models:[{...model,presentation:{...model.presentation,json:'yes'}}]})).toThrow('expected boolean');
+  expect(()=>validateLibraryRegistry({schemaVersion:1,models:[{...model,presentation:{...model.presentation,unknown:true}}]})).toThrow('unknown field');
+  expect(libraryRegistryDigest(valid)).not.toBe(libraryRegistryDigest({schemaVersion:1,models:[{...model,presentation:{library:'different'}}]}));
+});
+
+
+test('metric registry and text-write metadata is closed and appears on every generated modeled outcome', () => {
+  for(const model of libraryRegistry.models.filter((entry)=>entry.metricRegistry!==undefined || entry.textWrite!==undefined)) {
+    const fixture=new FactsFixture(model.ecosystem==='go');const expression=fixture.invoke(model);const result=evaluateLibraryModels(fixture.facts());
+    const outcome=model.effect===undefined ? result.roles.find((role)=>role.expression===expression) : result.effects.find((effect)=>effect.modelId===model.id && effect.expression===expression);
+    expect(outcome,model.id).toBeDefined();
+    expect(outcome?.metricRegistry).toEqual(model.metricRegistry);
+    if(model.textWrite!==undefined){const effect=result.effects.find((one)=>one.modelId===model.id && one.expression===expression);expect(effect?.textWrite).toEqual(model.textWrite);expect(effect?.arguments.every((argument)=>argument.status==='selected')).toBe(true);}
+  }
+  const metric=libraryRegistry.models.find((entry)=>entry.metricRegistry?.defaultMember===true)!;
+  expect(()=>validateLibraryRegistry({schemaVersion:1,models:[{...metric,metricRegistry:{defaultMember:'yes'}}]})).toThrow();
+  expect(()=>validateLibraryRegistry({schemaVersion:1,models:[{...metric,metricRegistry:{metricsFrom:-1}}]})).toThrow();
+  expect(()=>validateLibraryRegistry({schemaVersion:1,models:[{...metric,metricRegistry:{unknown:true}}]})).toThrow();
+  const text=libraryRegistry.models.find((entry)=>entry.textWrite!==undefined)!;
+  expect(()=>validateLibraryRegistry({schemaVersion:1,models:[{...text,textWrite:{format:'unknown',argumentsFrom:2}}]})).toThrow();
+  expect(()=>validateLibraryRegistry({schemaVersion:1,models:[{...text,textWrite:{format:'plain',argumentsFrom:-1}}]})).toThrow();
+  expect(()=>validateLibraryRegistry({schemaVersion:1,models:[{...text,textWrite:{format:'plain',argumentsFrom:2,unknown:true}}]})).toThrow();
+});

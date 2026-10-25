@@ -22,7 +22,7 @@ import type { SourceFile } from './source.js';
 import { fileKey, symbolKey } from './keys.js';
 import { codeQuery } from './query.js';
 import { decodeNumberToken, decodeStringToken } from './literals.js';
-import { codeFactId, type CodeBindingFact, type CodeCallFact, type CodeExpressionFact, type CodeImportFact, type CodeExportFact } from './facts.js';
+import { codeFactId, type CodeBindingFact, type CodeCallFact, type CodeExpressionFact, type CodeImportFact, type CodeExportFact, type CodeFieldFact } from './facts.js';
 import type { ExtractionGap, SourceSpan } from '../records.js';
 import { holderAt, type FileSymbol } from './symbols.js';
 
@@ -57,6 +57,7 @@ export interface MemberFacts {
   readonly expressions: readonly CodeExpressionFact[];
   readonly calls: readonly CodeCallFact[];
   readonly exports: readonly CodeExportFact[];
+  readonly fields: readonly CodeFieldFact[];
   readonly typeOnlyImports: readonly string[];
   readonly callables: readonly { readonly key: string; readonly bodySpan: SourceSpan; readonly bodySyntaxKind: string; readonly receiver?: { readonly bindingId: string; readonly name: string; readonly typeName?: string } }[];
   readonly gaps: readonly ExtractionGap[];
@@ -65,7 +66,7 @@ export interface MemberFacts {
 
 export async function memberSites(file: SourceFile, program: Program, imports: readonly CodeImportFact[] = [], symbols: readonly FileSymbol[] = []): Promise<MemberFacts> {
   const ctx = program.files.get(file.path);
-  if (ctx === undefined) return { sites: [], accesses: new Map(), suppressed: new Set(), bindings: [], expressions: [], calls: [], exports: [], typeOnlyImports: [], callables: [], gaps: [], read: false };
+  if (ctx === undefined) return { sites: [], accesses: new Map(), suppressed: new Set(), bindings: [], expressions: [], calls: [], exports: [], fields: [], typeOnlyImports: [], callables: [], gaps: [], read: false };
   const go = file.language === 'go';
   const read = await readSyntaxTree(file.path, file.bytes, (parsed) => {
     const text = parsed.text;
@@ -89,6 +90,7 @@ export async function memberSites(file: SourceFile, program: Program, imports: r
     const bindings = new Map<string, CodeBindingFact>();
     const expressions = new Map<string, CodeExpressionFact>();
     const calls = new Map<string, CodeCallFact>();
+    const fields: CodeFieldFact[] = [];
     const callables: { key: string; bodySpan: SourceSpan; bodySyntaxKind: string; receiver?: { bindingId: string; name: string; typeName?: string } }[] = [];
     const factGaps = new Map<string, ExtractionGap>();
     const lookupBinding = (name: string): string | undefined => {
@@ -149,7 +151,10 @@ export async function memberSites(file: SourceFile, program: Program, imports: r
       const fields: Record<string, string[]> = Object.fromEntries(fieldEntries);
       const decoded = literalKind === 'string' ? decodeStringToken(node.type, token) : literalKind === 'boolean' ? token === 'true' : literalKind === 'null' ? null : literalKind === 'number' ? decodeNumberToken(node.type, token, go) : undefined;
       const value = typeof decoded === 'number' && !Number.isFinite(decoded) ? undefined : decoded;
-      if (literalKind !== undefined && value === undefined) factGaps.set(id, { path: file.path, reason: `line ${span.lineStart}: unsupported ${node.type} literal at bytes ${span.byteStart}-${span.byteEnd}` });
+      const dynamicTemplate = node.type === 'template_string' && named(node).some((child) => child.type === 'template_substitution');
+      // A parsed interpolation is a supported dynamic expression, not an unread
+      // literal. Static consumers still receive no value and must report a gap.
+      if (literalKind !== undefined && value === undefined && !dynamicTemplate) factGaps.set(id, { path: file.path, reason: `line ${span.lineStart}: unsupported ${node.type} literal at bytes ${span.byteStart}-${span.byteEnd}` });
       if (node.type === 'subscript_expression' || node.type === 'index_expression') factGaps.set(id, { path: file.path, reason: `line ${span.lineStart}: computed member identity needs a resolved literal key at bytes ${span.byteStart}-${span.byteEnd}` });
       const typeProof = resolveBinding ? compositeProof(node, callee) : undefined;
       expressions.set(id, {
@@ -163,7 +168,13 @@ export async function memberSites(file: SourceFile, program: Program, imports: r
       });
       if (callee !== null && isCall) {
         const holder = holderAt(symbols, span.byteStart);
-        calls.set(id, { expression: id, path: file.path, span, callee: expressionId(callee), arguments: argumentsOf(), holder: holder?.keptKey ?? fileKey(file.path), construct: node.type === 'new_expression' || node.type === 'composite_literal' });
+        const opening = args?.children.find((child) => child?.type === '(');
+        const invocationSpan = opening === undefined || opening === null ? undefined : {
+          path: file.path, byteStart: span.byteStart, byteEnd: sourceSpan(opening).byteEnd,
+          lineStart: span.lineStart, lineEnd: sourceSpan(opening).lineEnd,
+        };
+        calls.set(id, { expression: id, path: file.path, span, ...(invocationSpan === undefined ? {} : { invocationSpan }),
+          callee: expressionId(callee), arguments: argumentsOf(), holder: holder?.keptKey ?? fileKey(file.path), construct: node.type === 'new_expression' || node.type === 'composite_literal' });
       }
     };
 
@@ -617,6 +628,20 @@ export async function memberSites(file: SourceFile, program: Program, imports: r
         return;
       }
       if (go && (type === 'type_spec' || type === 'type_alias')) {
+        const name = node.childForFieldName('name'); const body = node.childForFieldName('type');
+        if (type === 'type_spec' && name !== null && body?.type === 'struct_type') {
+          const ownerTypeName = textOf(name,text);
+          const list = named(body).find((child) => child.type === 'field_declaration_list');
+          for (const field of list === undefined ? [] : named(list)) {
+            const typeNode = field.childForFieldName('type');
+            if (field.type !== 'field_declaration' || typeNode === null) continue;
+            for (const fieldName of field.childrenForFieldName('name')) if (fieldName !== null && fieldName.type === 'field_identifier') {
+              const written = textOf(fieldName,text);
+              fields.push({key:symbolKey(file.path,`${ownerTypeName}.${written}`),path:file.path,name:written,ownerTypeName,
+                ownerDeclaration:expressionId(node),span:sourceSpan(fieldName),typeExpression:expressionId(typeNode)});
+            }
+          }
+        }
         // The scope starts at the TypeSpec identifier, including its own body.
         if (factScopes.length > 1) declareGoType(node, false);
         visitChildren(node); return;
@@ -760,7 +785,7 @@ export async function memberSites(file: SourceFile, program: Program, imports: r
         factGaps.set(expressionId(statement), { path: file.path, reason: `line ${span.lineStart}: wildcard/namespace re-export has no unambiguous exported-value facts at bytes ${span.byteStart}-${span.byteEnd}` });
       }
     }
-    return { sites, accesses, suppressed, bindings: [...bindings.values()], expressions: [...expressions.values()], calls: [...calls.values()], exports, typeOnlyImports, callables, gaps: [...factGaps.values()] };
+    return { sites, accesses, suppressed, bindings: [...bindings.values()], expressions: [...expressions.values()], calls: [...calls.values()], exports, fields, typeOnlyImports, callables, gaps: [...factGaps.values()] };
   });
-  return read.read ? { ...read.value, read: true } : { sites: [], accesses: new Map(), suppressed: new Set(), bindings: [], expressions: [], calls: [], exports: [], typeOnlyImports: [], callables: [], gaps: [], read: false };
+  return read.read ? { ...read.value, read: true } : { sites: [], accesses: new Map(), suppressed: new Set(), bindings: [], expressions: [], calls: [], exports: [], fields: [], typeOnlyImports: [], callables: [], gaps: [], read: false };
 }

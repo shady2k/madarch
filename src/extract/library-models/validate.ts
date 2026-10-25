@@ -31,7 +31,7 @@ function role(value: unknown, where: string): LibraryRole {
 }
 function effect(value: unknown, where: string): LibraryEffectKind {
   switch (value) {
-    case 'metric-declare': case 'metric-update': case 'metric-register': case 'metric-expose':
+    case 'metric-declare': case 'metric-update': case 'metric-register': case 'metric-expose': case 'metric-text-write':
     case 'logger-declare': case 'logger-use': case 'env-read': case 'message-client':
     case 'message-publish': case 'message-consume': return value;
     default: throw new Error(`${where}: unknown effect`);
@@ -64,13 +64,40 @@ function argument(value: unknown, where: string): ArgumentSelector {
   return Object.freeze({ name: string(obj.name, `${where}.name`), index: obj.index, path: list(obj.path, `${where}.path`, string), required: obj.required });
 }
 function model(value: unknown, where: string): LibraryModel {
-  const obj = object(value, where, ['id', 'ecosystem', 'package', 'target', 'invoke', 'returnRole', 'effect', 'arguments', 'reference', 'checks']);
+  const obj = object(value, where, ['id', 'ecosystem', 'package', 'target', 'invoke', 'returnRole', 'effect', 'arguments', 'reference', 'presentation', 'metricRegistry', 'textWrite', 'checks']);
   if (obj.ecosystem !== 'node' && obj.ecosystem !== 'go') throw new Error(`${where}.ecosystem: unknown ecosystem`);
   if (obj.invoke !== 'call' && obj.invoke !== 'construct' && obj.invoke !== 'read') throw new Error(`${where}.invoke: unknown invocation`);
   const checks = object(obj.checks, `${where}.checks`, ['positive', 'negative']);
   const args = list(obj.arguments, `${where}.arguments`, argument);
   unique(args.map((arg) => arg.name), `${where}.arguments`);
   if (obj.effect === undefined && obj.returnRole === undefined) throw new Error(`${where}: model has no effect or return role`);
+  const presentation = obj.presentation === undefined ? undefined : object(obj.presentation, `${where}.presentation`, ['library', 'json', 'formatArgument']);
+  if (presentation !== undefined) {
+    string(presentation.library, `${where}.presentation.library`);
+    if (presentation.json !== undefined && typeof presentation.json !== 'boolean') throw new Error(`${where}.presentation.json: expected boolean`);
+    if (presentation.formatArgument !== undefined && (typeof presentation.formatArgument !== 'string' || !args.some((arg) => arg.name === presentation.formatArgument))) throw new Error(`${where}.presentation.formatArgument: expected declared argument`);
+  }
+  const metricRegistry = obj.metricRegistry === undefined ? undefined : object(obj.metricRegistry, `${where}.metricRegistry`, ['defaultNamespace', 'defaultMember', 'defaultRegistry', 'defaultTarget', 'metricsFrom']);
+  if (metricRegistry !== undefined) {
+    if (metricRegistry.defaultNamespace !== undefined) string(metricRegistry.defaultNamespace, `${where}.metricRegistry.defaultNamespace`);
+    for (const name of ['defaultMember', 'defaultRegistry', 'defaultTarget']) {
+      if (metricRegistry[name] !== undefined && typeof metricRegistry[name] !== 'boolean') throw new Error(`${where}.metricRegistry.${name}: expected boolean`);
+    }
+    if (metricRegistry.metricsFrom !== undefined && (typeof metricRegistry.metricsFrom !== 'number' || !Number.isSafeInteger(metricRegistry.metricsFrom) || metricRegistry.metricsFrom < 0)) throw new Error(`${where}.metricRegistry.metricsFrom: expected nonnegative integer`);
+    if (Object.keys(metricRegistry).length === 0) throw new Error(`${where}.metricRegistry: empty metadata`);
+    if (metricRegistry.defaultMember !== undefined && obj.effect !== 'metric-declare') throw new Error(`${where}.metricRegistry.defaultMember: requires metric declaration`);
+    if (metricRegistry.defaultRegistry !== undefined && obj.returnRole !== 'metric-registry') throw new Error(`${where}.metricRegistry.defaultRegistry: requires registry role`);
+    if ((metricRegistry.defaultTarget !== undefined || metricRegistry.metricsFrom !== undefined) && obj.effect !== 'metric-register' && obj.effect !== 'metric-expose') throw new Error(`${where}.metricRegistry: requires registry effect`);
+    if (metricRegistry.metricsFrom !== undefined && obj.effect !== 'metric-register') throw new Error(`${where}.metricRegistry.metricsFrom: requires registration`);
+  }
+  const textWrite = obj.textWrite === undefined ? undefined : object(obj.textWrite, `${where}.textWrite`, ['format', 'argumentsFrom']);
+  if (textWrite !== undefined) {
+    if (obj.effect !== 'metric-text-write' || obj.invoke !== 'call') throw new Error(`${where}.textWrite: requires text-write call`);
+    if (textWrite.format !== 'plain' && textWrite.format !== 'printf') throw new Error(`${where}.textWrite.format: unknown format`);
+    if (typeof textWrite.argumentsFrom !== 'number' || !Number.isSafeInteger(textWrite.argumentsFrom) || textWrite.argumentsFrom < 0) throw new Error(`${where}.textWrite.argumentsFrom: expected nonnegative integer`);
+    if (!args.some((arg) => arg.name === 'writer' && arg.required) || !args.some((arg) => arg.name === 'text' && arg.required)) throw new Error(`${where}.textWrite: requires writer and text selectors`);
+  }
+  if (obj.effect === 'metric-text-write' && textWrite === undefined) throw new Error(`${where}.textWrite: missing text-write metadata`);
   const selectedTarget = target(obj.target, `${where}.target`);
   if (selectedTarget.kind === 'member' && selectedTarget.member === '*' && obj.invoke !== 'read') throw new Error(`${where}: wildcard only selects static property reads`);
   if (obj.invoke === 'read' && args.length > 0) throw new Error(`${where}: read cannot select call arguments`);
@@ -79,6 +106,16 @@ function model(value: unknown, where: string): LibraryModel {
     ...(obj.returnRole === undefined ? {} : { returnRole: role(obj.returnRole, `${where}.returnRole`) }),
     ...(obj.effect === undefined ? {} : { effect: effect(obj.effect, `${where}.effect`) }), arguments: args,
     reference: string(obj.reference, `${where}.reference`),
+    ...(metricRegistry === undefined ? {} : { metricRegistry: Object.freeze({
+      ...(typeof metricRegistry.defaultNamespace === 'string' ? { defaultNamespace: metricRegistry.defaultNamespace } : {}),
+      ...(typeof metricRegistry.defaultMember === 'boolean' ? { defaultMember: metricRegistry.defaultMember } : {}),
+      ...(typeof metricRegistry.defaultRegistry === 'boolean' ? { defaultRegistry: metricRegistry.defaultRegistry } : {}),
+      ...(typeof metricRegistry.defaultTarget === 'boolean' ? { defaultTarget: metricRegistry.defaultTarget } : {}),
+      ...(typeof metricRegistry.metricsFrom === 'number' ? { metricsFrom: metricRegistry.metricsFrom } : {}) }) }),
+    ...(textWrite === undefined ? {} : { textWrite: Object.freeze({ format: textWrite.format as 'plain' | 'printf', argumentsFrom: textWrite.argumentsFrom as number }) }),
+    ...(presentation === undefined ? {} : { presentation: Object.freeze({ library: string(presentation.library, `${where}.presentation.library`),
+      ...(typeof presentation.json === 'boolean' ? { json: presentation.json } : {}),
+      ...(typeof presentation.formatArgument === 'string' ? { formatArgument: presentation.formatArgument } : {}) }) }),
     checks: Object.freeze({ positive: string(checks.positive, `${where}.checks.positive`), negative: string(checks.negative, `${where}.checks.negative`) }) });
 }
 

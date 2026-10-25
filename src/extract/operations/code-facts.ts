@@ -1,5 +1,29 @@
 /** Read static values and identities from copied code facts, never source text. */
 import type { CodeExpressionFact, CodeFacts } from '../code/facts.js';
+import type { LibraryEffect } from '../library-models/model.js';
+import type { Records } from './accumulate.js';
+import type { TreeText } from './source.js';
+import { functionNode, functionsOf } from './symbol-sites.js';
+
+/** Materialize only a unique validated canonical owner from the shared pass. */
+export function effectOwner(t: TreeText, records: Records, effect: LibraryEffect): string | undefined {
+  if (effect.holder === `code.file:${effect.span.path}`) return records.file(effect.span.path);
+  const sites = functionsOf(t, effect.span.path).filter((site) => site.key === effect.holder &&
+    site.span.byteStart <= effect.span.byteStart && effect.span.byteEnd <= site.span.byteEnd);
+  if (sites.length !== 1) {
+    records.gap(effect.span.path, `line ${effect.span.lineStart}: library effect has no unique canonical callable owner ${effect.holder}`);
+    return undefined;
+  }
+  return functionNode(records, sites[0]!);
+}
+
+/** Keep full invocation evidence while selecting the independently proved prefix. */
+export function effectSpan(effect: LibraryEffect) {
+  const prefix = effect.invocationSpan;
+  return prefix !== undefined && prefix.path === effect.span.path && prefix.byteStart === effect.span.byteStart &&
+    prefix.byteEnd > prefix.byteStart && prefix.byteEnd <= effect.span.byteEnd && prefix.lineStart === effect.span.lineStart &&
+    prefix.lineEnd >= prefix.lineStart && prefix.lineEnd <= effect.span.lineEnd ? prefix : effect.span;
+}
 
 export class CodeFactView {
   readonly expressions: ReadonlyMap<string, CodeExpressionFact>;
@@ -52,7 +76,7 @@ export class CodeFactView {
 
 /** Copied library-model origin retained with each semantic record. */
 export function libraryEvidence(effect: import('../library-models/model.js').LibraryEffect) {
-  return { model: effect.modelId, library: effect.package, origin: {
+  return { model: effect.modelId, library: effect.package, invocationSpan: { ...effect.span }, origin: {
     importId: effect.origin.importId, importSpan: { ...effect.origin.importSpan },
     exportedPath: [...effect.origin.exportedPath], chain: [...effect.origin.chain],
     ...(effect.roleOrigin === undefined ? {} : { roleOrigin: effect.roleOrigin }),

@@ -514,3 +514,87 @@ test('Go forged imported type receiver cannot bypass an active parameter shadow'
   const result=evaluateLibraryModels(forged);expect(result.effects.filter((entry)=>entry.kind==='metric-declare')).toEqual([]);
   expect(result.diagnostics.some((entry)=>entry.path===path)).toBe(true);
 });
+
+
+test('nested async callbacks preserve canonical parameter keys, raw UTF-8 spans and operation owner closure', async () => {
+  const path = 'lib/worker.ts';
+  const source = 'const note="éλ"; import pino from "pino"; import {Counter} from "prom-client"; const logger=pino(); const counter=new Counter({name:"work_total",help:"work"}); function target(){} export function outer(){ setTimeout(async () => { setTimeout(() => {target();logger.info("ready");counter.inc();},0); },0); }';
+  const tree = treeOf({'package.json': JSON.stringify({name:'neutral-unit',dependencies:{pino:'9.0.0','prom-client':'15.0.0'}}),[path]:source});
+  const code = await extractCodeWithFacts(tree);
+  const bytes = new TextEncoder().encode(source);
+  const byteAt = (index: number) => new TextEncoder().encode(source.slice(0,index)).length;
+  const outerAt = source.indexOf('() => {');
+  const innerAt = source.indexOf('() => {target');
+  const outer = `code.symbol:${path}#outer.callback@1:${byteAt(outerAt)}`;
+  const inner = `${outer}.callback@1:${byteAt(innerAt)}`;
+  const parent = code.facts.symbols.find((symbol)=>symbol.key===outer);
+  expect(parent).toBeDefined();
+  expect(new TextDecoder().decode(bytes.subarray(parent!.span.byteStart,parent!.span.byteEnd)).startsWith('async () =>')).toBe(true);
+  expect(code.facts.symbols.find((symbol)=>symbol.key===inner)).toBeDefined();
+  const logCall = code.facts.calls.find((call)=>new TextDecoder().decode(bytes.subarray(call.span.byteStart,call.span.byteEnd))==='logger.info("ready")');
+  expect(logCall?.holder).toBe(inner);
+  expect(new TextDecoder().decode(bytes.subarray(logCall!.invocationSpan!.byteStart,logCall!.invocationSpan!.byteEnd))).toBe('logger.info(');
+  const operations = extractOperations(tree,code.extraction,code.facts);
+  const held = new Set(operations.nodes.map((node)=>node.key));
+  for(const edge of operations.edges) {expect(held.has(edge.from),edge.from).toBe(true);expect(held.has(edge.to),edge.to).toBe(true);}
+  expect(operations.edges.filter((edge)=>edge.type==='code.uses-logger' && edge.to.startsWith('code.symbol:')).map((edge)=>edge.to)).toEqual([inner]);
+  expect(operations.edges.filter((edge)=>edge.type==='code.updates-metric').map((edge)=>edge.from)).toEqual([inner]);
+  expect(code.extraction.edges.some((edge)=>edge.type==='code.calls' && edge.from===`code.symbol:${path}#outer` && edge.to===`code.symbol:${path}#target`)).toBe(false);
+  expect(code.extraction.edges.some((edge)=>edge.type==='code.calls' && edge.from===inner && edge.to===`code.symbol:${path}#target`)).toBe(true);
+});
+
+test('a missing canonical inner owner withholds operation edges instead of materializing an outer guess', async () => {
+  const path='lib/worker.ts';
+  const tree=treeOf({'package.json':JSON.stringify({name:'neutral-unit',dependencies:{pino:'9.0.0'}}),[path]:'import pino from "pino";const logger=pino();export function outer(){setTimeout(()=>logger.info("ready"),0);}'});
+  const code=await extractCodeWithFacts(tree);
+  const call=code.facts.calls.find((one)=>code.facts.expressions.find((expression)=>expression.id===one.callee)?.member==='info');
+  expect(call).toBeDefined();
+  const facts={...code.facts,symbols:code.facts.symbols.map((symbol)=>symbol.key===call!.holder?{...symbol,bodySpan:undefined}:symbol)};
+  const operations=extractOperations(tree,code.extraction,facts);
+  expect(operations.edges.filter((edge)=>edge.type==='code.uses-logger')).toEqual([]);
+  expect(operations.gaps.some((gap)=>gap.path===path && gap.reason.includes('unique canonical callable owner'))).toBe(true);
+});
+
+
+test('single returned logger declarations use their proved callable identity and model output metadata', async () => {
+  const path='engine/logging/logger.go';
+  const tree=treeOf({'engine/go.mod':'module example.test/engine\n',[path]:'package logging\nimport("log/slog";"os")\nfunc Build() *slog.Logger{return slog.New(slog.NewJSONHandler(os.Stdout,nil)).With("unit","value")}\nfunc Fallback() *slog.Logger{return slog.Default()}\n'});
+  const code=await extractCodeWithFacts(tree);const result=extractOperations(tree,code.extraction,code.facts);
+  const made=result.nodes.find((node)=>node.key===`code.logger:${path}#Build`);
+  expect(made).toBeDefined();expect(made?.properties.library).toBe('slog');expect(made?.properties.json).toBe(true);
+  const fallback=result.nodes.find((node)=>node.key===`code.logger:${path}#Fallback`);
+  expect(fallback).toBeDefined();expect(fallback?.properties.json).toBe(false);
+  expect(made?.label).not.toBe(fallback?.label);
+});
+
+
+test('model relevance diagnoses shadowed factories but does not treat unrelated repository calls as missing library proof', async () => {
+  const path='lib/worker.ts';const tree=treeOf({'package.json':JSON.stringify({name:'neutral-unit',dependencies:{pino:'9.0.0'}}),[path]:'import pino from "pino";const logger=pino();export function unrelated(service:{run():void}){service.run();}export function shadow(input:{pino:()=>number}){const {pino}=input;return pino();}export function positive(){logger.info("ready");}'});
+  const code=await extractCodeWithFacts(tree);const evaluated=evaluateLibraryModels(code.facts);
+  expect(evaluated.gaps.some((gap)=>gap.path===path && gap.reason.includes('logger factory'))).toBe(true);
+  const uses=evaluated.effects.filter((effect)=>effect.kind==='logger-use');expect(uses).toHaveLength(1);expect(uses[0]?.holder).toBe(`code.symbol:${path}#positive`);
+  const unrelated=code.facts.symbols.find((symbol)=>symbol.qualifiedName==='unrelated')!;
+  expect(evaluated.diagnostics.filter((entry)=>entry.code==='unknown-origin' && unrelated.span.byteStart<=entry.span.byteStart && entry.span.byteEnd<=unrelated.span.byteEnd)).toEqual([]);
+});
+
+
+test('forged invocation prefix metadata is diagnosed and cannot replace the full call evidence', async () => {
+  const path='lib/worker.ts';const tree=treeOf({'package.json':JSON.stringify({name:'neutral-unit',dependencies:{pino:'9.0.0'}}),[path]:'import pino from "pino";const logger=pino();export function run(){logger.info("ready");}'});
+  const code=await extractCodeWithFacts(tree);
+  const use=code.facts.calls.find((call)=>code.facts.expressions.find((expression)=>expression.id===call.callee)?.member==='info')!;
+  expect(use.invocationSpan).toBeDefined();
+  const facts={...code.facts,calls:code.facts.calls.map((call)=>call===use?{...call,invocationSpan:{...call.span,byteEnd:call.span.byteEnd-1}}:call)};
+  const result=evaluateLibraryModels(facts);
+  expect(result.diagnostics.some((diagnostic)=>diagnostic.reason.includes('invocation prefix disagrees'))).toBe(true);
+  const effect=result.effects.find((one)=>one.kind==='logger-use');expect(effect?.span).toEqual(use.span);expect(effect?.invocationSpan).toBeUndefined();
+});
+
+
+test('a proved absent selector differs from an unresolved dynamic or duplicate property', async () => {
+  const path='lib/worker.ts';const tree=treeOf({'package.json':JSON.stringify({name:'neutral-unit',dependencies:{'prom-client':'15.0.0'}}),[path]:'import {Counter} from "prom-client";export function run(input:any){new Counter({name:"one_total",help:"one"});new Counter({name:"two_total",help:"two",registers:[]});new Counter({...input,name:"three_total",help:"three"});}'});
+  const code=await extractCodeWithFacts(tree);const result=evaluateLibraryModels(code.facts);
+  const declarations=result.effects.filter((effect)=>effect.kind==='metric-declare');expect(declarations.length).toBeGreaterThanOrEqual(2);
+  const registerStatuses=declarations.map((effect)=>effect.arguments.find((argument)=>argument.name==='registers')?.status);
+  expect(registerStatuses).toContain('absent');expect(registerStatuses).toContain('selected');
+  const unresolved=result.diagnostics.some((diagnostic)=>diagnostic.reason.includes('spread'));expect(unresolved).toBe(true);
+});

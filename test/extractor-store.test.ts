@@ -64,11 +64,17 @@ test('extractor catalog uses explicit unique names and positive versions, never 
 
 test('callback ownership, metric bindings, target matching and semantic evidence advance the persistent extractor interpretation', async () => {
  const {EXTRACTOR_VERSIONS}=await import('../src/extract/driver/extractors.js');
- expect(EXTRACTOR_VERSIONS.find((entry)=>entry.name==='extractCode')?.version).toBe(10);
- expect(EXTRACTOR_VERSIONS.find((entry)=>entry.name==='extractOperations')?.version).toBe(9);
- expect(EXTRACTOR_VERSIONS.find((entry)=>entry.name==='extractContracts')?.version).toBe(6);
+ expect(EXTRACTOR_VERSIONS.find((entry)=>entry.name==='extractCode')?.version).toBe(11);
+ expect(EXTRACTOR_VERSIONS.find((entry)=>entry.name==='extractOperations')?.version).toBe(10);
+ expect(EXTRACTOR_VERSIONS.find((entry)=>entry.name==='extractContracts')?.version).toBe(7);
  expect(EXTRACTOR_VERSIONS.find((entry)=>entry.name==='driver-and-link-normalization')?.version).toBe(6);
  expect(EXTRACTOR_VERSIONS.find((entry)=>entry.name==='extractDataModel')?.version).toBe(4);
+ for (const name of ['http-model-data','http-model-source-bytes']) {
+  const asset=EXTRACTOR_VERSIONS.find((entry)=>entry.name===name);
+  expect(asset?.version).toBe(1);
+  expect(asset!==undefined && 'contentDigest' in asset && typeof asset.contentDigest==='string' && asset.contentDigest.length===64).toBe(true);
+  expect(extractorManifest(EXTRACTOR_VERSIONS.filter((entry)=>entry.name!==name)).digest).not.toBe(extractorManifest(EXTRACTOR_VERSIONS).digest);
+ }
  const prior=EXTRACTOR_VERSIONS.map((entry)=>entry.name==='extractCode'||entry.name==='driver-and-link-normalization'?{...entry,version:5}:entry.name==='extractOperations'||entry.name==='extractContracts'?{...entry,version:2}:entry);
  const current=extractorManifest(EXTRACTOR_VERSIONS);
  expect(current.digest).not.toBe(extractorManifest(prior).digest);
