@@ -5,7 +5,19 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import time
+
+def provision_requests(rows, cluster):
+    active = [row for row in rows if row.get('status') in ('PENDING', 'RUNNING') and row.get('name') in ('sky.launch', 'sky.exec')]
+    owned = [row['request_id'] for row in active if row.get('cluster_name') == cluster]
+    unknown = [row['request_id'] for row in active if not row.get('cluster_name')]
+    return owned, unknown
+
+if len(sys.argv) == 2 and sys.argv[1] == '--request-classification-fixture':
+    rows = json.loads(sys.stdin.read())
+    print(json.dumps(provision_requests(rows, 'fixture-cluster')))
+    raise SystemExit(0)
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--phase', choices=['focused', 'acceptance'], required=True)
@@ -59,10 +71,31 @@ try:
             wrapped='[ -f .madarch-sky-exec ] && xargs -0 -r chmod +x < .madarch-sky-exec; start=$(date +%s); ( '+remote+' ); rc=$?; echo "MADARCH_TESTS_EXIT=$rc RUN_SECONDS=$(( $(date +%s) - start ))"; exit $rc'
             code=command('queued-pipeline',['sky-pilot','launch','-y','-c',cluster,'recipes:madarch-avx2','--workdir',str(logs/'stage'),'--cpus','2','--memory','8','--retry-until-up','--env','RUN_CMD='+wrapped],deadline-time.time()-120)
 finally:
+    # Killing the local CLI does not cancel a server-side queued launch. Never cancel another task's request.
+    command('api-before-cleanup',['sky-pilot','api','status','--output','json'],30)
+    try:
+        raw=(args.host_out/'api-before-cleanup.log').read_text(errors='replace')
+        requests=json.loads(raw[raw.index('['):])
+        owned, unknown=provision_requests(requests,cluster)
+        state['ownedActiveRequests']=owned;state['unattributedActiveRequests']=unknown;save()
+        for request_id in owned:
+            command('cancel-request-'+request_id,['sky-pilot','api','cancel','-y',request_id],30)
+    except Exception as error:
+        state['requestClassificationError']=str(error);save()
+    command('cancel-jobs',['sky-pilot','cancel','-y',cluster,'--all'],30)
     command('fetch',['madarch-sky-test','--avx2','--fetch',str(repo),remote_out,str(args.host_out/'fetched')],90)
     command('down',['sky-pilot','down','-y',cluster],90)
     command('after-status',['sky-pilot','status',cluster],60)
-    state['clusterAbsent']=not any(line.startswith(cluster+' ') for line in (args.host_out/'after-status.log').read_text(errors='replace').splitlines())
+    command('api-after-cleanup',['sky-pilot','api','status','--output','json'],30)
+    state['clusterAbsentAtObservation']=not any(line.startswith(cluster+' ') for line in (args.host_out/'after-status.log').read_text(errors='replace').splitlines())
+    try:
+        raw=(args.host_out/'api-after-cleanup.log').read_text(errors='replace')
+        owned, unknown=provision_requests(json.loads(raw[raw.index('['):]),cluster)
+        state['provisionerAbsent']=True if not owned and not unknown else None
+        state['remainingOwnedRequests']=owned;state['remainingUnattributedRequests']=unknown
+    except Exception as error:
+        state['provisionerAbsent']=None;state['requestVerificationError']=str(error)
+    state['clusterAbsent']=state['clusterAbsentAtObservation'] and state['provisionerAbsent'] is True
     state['pipelineExit']=code;state['wallSeconds']=time.time()-started;save()
 print(f'HOST_PIPELINE_EXIT={code} WALL_SECONDS={time.time()-started:.3f}',flush=True)
 raise SystemExit(code)

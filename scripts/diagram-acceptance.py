@@ -92,7 +92,7 @@ try:
     run('walker-bundle', ['bun','build','scripts/diagram-shots.ts','--target=bun','--outdir',str(out / 'walker-bundle')], 60)
     run('app-build', ['bun','run','build'], 180, app)
     binary_dir = out / 'binary'
-    run('fresh-binary-smoke', ['bun','scripts/build-binary.ts','--version','0.2.4','--out',str(binary_dir)], 360)
+    run('fresh-binary-smoke', ['env','-u','MADARCH_OWN_WIKI','bun','scripts/build-binary.ts','--version','0.2.4','--out',str(binary_dir)], 360)
     binary = binary_dir / 'madarch-linux-x64'
     provenance = {}
     for folder in ['src', 'scripts', 'vendor', 'wiki/app/src', 'wiki/app/dist', 'examples/training-repository']:

@@ -41,3 +41,17 @@ test('a visible hint must match its actual matrix language, not merely contain t
   expect(() => requireHint('Read more', ' Read  more ', 'en')).not.toThrow();
   expect(() => requireHint('Читать дальше', 'Read more', 'ru')).toThrow('reading hint ru');
 });
+
+
+test('controller cancels only explicitly owned active requests and keeps unknown provisioners unknown', async () => {
+  const child = Bun.spawn(['python3', 'scripts/diagram-acceptance-launch.py', '--request-classification-fixture'], { stdin: 'pipe', stdout: 'pipe', stderr: 'pipe' });
+  child.stdin.write(JSON.stringify([
+    { request_id: 'ours', name: 'sky.launch', status: 'RUNNING', cluster_name: 'fixture-cluster' },
+    { request_id: 'other', name: 'sky.launch', status: 'RUNNING', cluster_name: 'other-cluster' },
+    { request_id: 'unknown', name: 'sky.launch', status: 'RUNNING', cluster_name: null },
+    { request_id: 'finished', name: 'sky.launch', status: 'SUCCEEDED', cluster_name: 'fixture-cluster' },
+  ]));
+  child.stdin.end();
+  expect(await child.exited).toBe(0);
+  expect(JSON.parse(await new Response(child.stdout).text())).toEqual([['ours'], ['unknown']]);
+});
