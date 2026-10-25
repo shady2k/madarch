@@ -2,7 +2,7 @@ import {Component, lazy, Suspense, type ReactElement, type ReactNode} from 'reac
 import {unified} from 'unified';
 import remarkParse from 'remark-parse';
 import remarkGfm from 'remark-gfm';
-import {parseFragment, type DefaultTreeAdapterTypes} from 'parse5';
+import {parseFragment, html as htmlVocabulary, type DefaultTreeAdapterTypes} from 'parse5';
 import {useTranslation} from 'react-i18next';
 import {Badge} from '@/components/ui/badge.js';
 import {KLink} from './blocks.js';
@@ -41,7 +41,7 @@ export function descriptionImageDiagnostic(descriptions: readonly DescriptionSou
         const html: DefaultTreeAdapterTypes.Node[] = [parseFragment(fragments.join('\n'))];
         while (html.length > 0 && remaining-- > 0) {
           const held = html.pop()!;
-          if ('tagName' in held && (held.tagName === 'img' || (held.tagName === 'image' && held.namespaceURI === 'http://www.w3.org/2000/svg') || (held.tagName === 'source' && held.parentNode !== null && 'tagName' in held.parentNode && held.parentNode.tagName === 'picture'))) image = true;
+          if ('tagName' in held && (held.tagName === 'img' || (held.tagName === 'image' && held.namespaceURI === htmlVocabulary.NS.SVG) || (held.tagName === 'source' && held.parentNode !== null && 'tagName' in held.parentNode && held.parentNode.tagName === 'picture'))) image = true;
           if ('childNodes' in held) for (const child of held.childNodes) html.push(child);
           if ('content' in held) html.push(held.content);
         }

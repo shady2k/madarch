@@ -56,6 +56,7 @@ test('production catalogue SQL pages declared channels and operations without ch
   const owner = createPGliteDatabaseOwner({btreeGist: true});
   try {
     await owner.ready; const store = createGraphStore(owner); await store.createSchema();
+    await store.registerCodeSchema({kinds: ['code.channel', 'code.contract', 'code.operation'], relations: [{key: 'code.declares', discriminated: true}]});
     const scope = await store.newNode(); const owned = {producer: 'neutral.contracts', scope};
     await store.openNode({nodeId: scope, kind: 'code.repository', label: 'neutral', properties: {}, validFrom: '2026-01-01T00:00:00Z', owner: owned});
     const contract = await store.newNode();

@@ -202,15 +202,18 @@ export async function contractDocument(path: string, read: (path: string) => Pro
       return role;
     };
     // Known owning positions win, including Schema arrays and opaque Example.value.
-    for (const candidate of candidates) if (atTarget(candidate) === expected || atTarget(candidate) === 'opaque') return candidate;
+    for (const candidate of candidates.filter((role) => role !== 'media')) if (atTarget(candidate) === expected || atTarget(candidate) === 'opaque') return candidate;
     const memberFits = (held: unknown): boolean => {
       if (!object(held)) return false;
       if (typeof held['$ref'] === 'string') return true;
       if (expected === 'example') return 'value' in held || typeof held['externalValue'] === 'string';
-      if (expected === 'schema') return typeof held['type'] === 'string' || Array.isArray(held['type']) || object(held['properties']) || object(held['items']) || Array.isArray(held['allOf']);
+      if (expected === 'schema') return true; // Annotation-only and empty Schema Objects are valid map members.
       return true;
     };
     const values = Object.entries(document).filter(([key, value]) => !((key === 'description' || key === 'summary') && typeof value === 'string'));
+    // Proven Example Object members take precedence over an arbitrary member named schema.
+    if (expected === 'example' && values.length > 0 && values.every(([, value]) => memberFits(value))) return 'exampleMap';
+    for (const candidate of candidates.filter((role) => role === 'media')) if (atTarget(candidate) === expected || atTarget(candidate) === 'opaque') return candidate;
     if (values.length > 0 && values.every(([, value]) => memberFits(value))) return mapFor(expected);
     if (parts.length > 0 && candidates.length === 0) {
       const [key, ...rest] = parts;
