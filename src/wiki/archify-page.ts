@@ -11,9 +11,11 @@
  * comes back to the caller as bytes.
  */
 import { spawnSync } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { embeddedWikiApp } from '../product-wiki/release-assets.js';
 import type { ArchifyDocument, ArchifyLayoutedView, LayoutPoint } from './archify.js';
 
 /** The madarch checkout the renderer is vendored in. */
@@ -73,29 +75,63 @@ export async function layoutedViews(workspace: string): Promise<Map<string, Arch
  */
 const ARCHIFY_RENDER_TIMEOUT_MS = 120_000;
 
+/** Bun's embedded files support readFile, but not the native copyfile syscall used by cpSync. */
+function materialise(source: string, target: string): void {
+  mkdirSync(target, { recursive: true });
+  for (const entry of readdirSync(source, { withFileTypes: true })) {
+    const from = join(source, entry.name);
+    const to = join(target, entry.name);
+    if (entry.isDirectory()) materialise(from, to);
+    else writeFileSync(to, readFileSync(from));
+  }
+}
+
 /**
  * Renders one archify document with the vendored renderer: document in,
  * self-contained page out. Bounded like every other external tool call here, and a
  * renderer that could not be run at all names why — a refusal that says nothing is
  * a refusal nobody can act on.
  */
-export function renderArchifyPage(document: ArchifyDocument, input: string, output: string): { status: number | null; output: string } {
+export async function renderArchifyPage(document: ArchifyDocument, input: string, output: string, options: { app?: string } = {}): Promise<{ status: number | null; output: string }> {
   writeFileSync(input, JSON.stringify(document));
+  // `options.app` is the tree a compiled binary carries, for a test that stands in for one.
+  const app = options.app ?? embeddedWikiApp();
+  // In a compiled binary the renderer is the vendored file we ship inside the app's assets, run by the Bun runtime the
+  // binary itself is: Bun's own binary re-enters its runtime when BUN_BE_BUN is set, which is the only way an installed
+  // madarch has a JavaScript runner at all (there is no Node.js beside it). Importing the file was no use: the renderer
+  // is a command-line program, and an import returns before it writes anything.
+  const renderer = app === undefined ? undefined : join(app, 'dist', 'archify', 'vendor', 'archify', 'renderers', 'architecture', 'render-architecture.mjs');
+  if (renderer !== undefined && app !== undefined) {
+    if (!existsSync(renderer)) return { status: 1, output: `${renderer}:1: the compiled binary carries no archify renderer` };
+    // BUN_BE_BUN starts a plain runtime, which cannot see its parent's /$bunfs assets. Materialise the complete
+    // vendored tree (templates and schemas included) for that child, then remove it on success and failure alike.
+    const scratch = mkdtempSync(join(tmpdir(), 'madarch-archify-'));
+    try {
+      const vendor = join(scratch, 'archify');
+      materialise(join(app, 'dist', 'archify', 'vendor', 'archify'), vendor);
+      const executable = join(vendor, 'renderers', 'architecture', 'render-architecture.mjs');
+      const run = spawnSync(process.execPath, [executable, input, output], {
+        encoding: 'utf8', timeout: ARCHIFY_RENDER_TIMEOUT_MS, killSignal: 'SIGKILL',
+        env: { ...process.env, BUN_BE_BUN: '1' },
+      });
+      if (run.error !== undefined) {
+        const timedOut = (run.error as NodeJS.ErrnoException).code === 'ETIMEDOUT' || run.signal === 'SIGKILL';
+        return { status: run.status, output: timedOut ? `the archify renderer was killed after ${String(ARCHIFY_RENDER_TIMEOUT_MS / 1000)} s without writing a page` : `${executable}:1: the bundled archify renderer could not be run: ${run.error.message}` };
+      }
+      const said = `${run.stdout ?? ''}${run.stderr ?? ''}`.trim();
+      if (run.status !== 0) return { status: run.status, output: said === '' ? `${executable}:1: the bundled archify renderer said nothing and was ended with status ${String(run.status)}` : said };
+      if (!existsSync(output)) return { status: 1, output: `${executable}:1: the bundled archify renderer ended with status 0 and wrote no page to ${output}` };
+      return { status: 0, output: said };
+    } finally {
+      rmSync(scratch, { recursive: true, force: true });
+    }
+  }
   const run = spawnSync('node', [ARCHIFY_RENDERER, input, output], { encoding: 'utf8', timeout: ARCHIFY_RENDER_TIMEOUT_MS, killSignal: 'SIGKILL' });
   if (run.error !== undefined) {
-    // A renderer that could not be started is a missing toolchain; one that was killed at the bound said nothing and
-    // is reported as what it is.
     const timedOut = (run.error as NodeJS.ErrnoException).code === 'ETIMEDOUT' || run.signal === 'SIGKILL';
-    return {
-      status: run.status,
-      output: timedOut
-        ? `the archify renderer was killed after ${String(ARCHIFY_RENDER_TIMEOUT_MS / 1000)} s without writing a page`
-        : `the archify renderer at ${ARCHIFY_RENDERER} could not be run: ${run.error.message} (it is run with node; install Node.js, https://nodejs.org/)`,
-    };
+    return { status: run.status, output: timedOut ? `the archify renderer was killed after ${String(ARCHIFY_RENDER_TIMEOUT_MS / 1000)} s without writing a page` : `the archify renderer at ${ARCHIFY_RENDERER} could not be run: ${run.error.message} (it is run with node; install Node.js, https://nodejs.org/)` };
   }
   const said = `${run.stdout ?? ''}${run.stderr ?? ''}`.trim();
-  if (run.status !== 0 && said === '') {
-    return { status: run.status, output: `the archify renderer said nothing and was ended with ${run.signal === null ? `status ${String(run.status)}` : `signal ${run.signal}`} after at most ${String(ARCHIFY_RENDER_TIMEOUT_MS / 1000)} s` };
-  }
+  if (run.status !== 0 && said === '') return { status: run.status, output: `the archify renderer said nothing and was ended with ${run.signal === null ? `status ${String(run.status)}` : `signal ${run.signal}`} after at most ${String(ARCHIFY_RENDER_TIMEOUT_MS / 1000)} s` };
   return { status: run.status, output: said };
 }

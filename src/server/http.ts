@@ -576,6 +576,8 @@ export function createHandler(dependencies: {
         { method: 'GET', path: '/api/k/statement', handle: (request: Request) => dependencies.knowledge!.statement(request) },
         { method: 'GET', path: '/api/k/entities', handle: (request: Request) => dependencies.knowledge!.entities(request) },
         { method: 'GET', path: '/api/k/neighborhood', handle: (request: Request) => dependencies.knowledge!.neighborhood(request) },
+        { method: 'GET', path: '/api/k/view', handle: (request: Request) => dependencies.knowledge!.view(request) },
+        { method: 'GET', path: '/api/k/view-frame', handle: (request: Request) => dependencies.knowledge!.viewFrame(request) },
         { method: 'GET', path: '/api/k/source', handle: (request: Request) => dependencies.knowledge!.source(request) },
         { method: 'GET', path: '/api/k/products', handle: (request: Request) => dependencies.knowledge!.products(request) },
         { method: 'POST', path: '/api/k/fill', handle: (request: Request) => dependencies.knowledge!.fill(request) },

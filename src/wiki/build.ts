@@ -358,7 +358,7 @@ export async function buildWiki(repoPath: string, outPath: string, options: Wiki
           if (other !== scope && fullName === node.id) links[componentId(node.id)] = archifyAssetName(other);
         }
       }
-      const rendered = renderArchifyPage(document, join(archifyDir, `${name}.json`), join(archifyDir, name));
+      const rendered = await renderArchifyPage(document, join(archifyDir, `${name}.json`), join(archifyDir, name));
       if (rendered.status !== 0 || !existsSync(join(archifyDir, name))) {
         return { code: 2, message: `the archify page for ${named} could not be rendered:\n${rendered.output}` };
       }
