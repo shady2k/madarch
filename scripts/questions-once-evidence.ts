@@ -111,6 +111,46 @@ export class OwnedTree {
 
 export interface ShotPlan { readonly key: string; readonly language: 'en' | 'ru'; readonly stage: string; readonly route: string; readonly ready: string; readonly theme: 'light' | 'dark'; readonly width: 1150 | 390; readonly entity?: string; readonly question?: string; readonly dialog?: boolean; readonly removed?: number; readonly retained?: number }
 
+export function measureVisibility(dialog: boolean) {
+        const root = document.querySelector(dialog ? '[data-testid=danger-dialog]' : '[data-testid=knowledge-main]');
+        if (!root) throw new Error('measurement root missing');
+        const selectors = 'h1,h2,h3,p,li,button,blockquote,textarea,[data-testid=question-text],[data-testid=question-why],[data-testid=answer-quote]';
+        const rows = [...root.querySelectorAll(selectors)].filter((element) => {
+          if ((element.textContent?.trim() ?? '') === '' && element.tagName !== 'TEXTAREA') return false;
+          // A closed native disclosure lays out descendants without painting them.
+          for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+            if (parent.tagName !== 'DETAILS' || (parent as HTMLDetailsElement).open) continue;
+            const summary = parent.querySelector(':scope > summary');
+            if (summary === null || !summary.contains(element)) return false;
+          }
+          return true;
+        });
+        const labels = rows.map((element) => {
+          const box = element.getBoundingClientRect(); const style = getComputedStyle(element);
+          const clips: unknown[] = []; let hidden = false;
+          for (let parent: Element | null = element; parent; parent = parent.parentElement) {
+            const css = getComputedStyle(parent); hidden ||= css.display === 'none' || css.visibility !== 'visible' || Number(css.opacity) === 0;
+            if (parent === element) continue;
+            const bound = parent.getBoundingClientRect();
+            const xClips = ['hidden', 'clip', 'auto', 'scroll'].includes(css.overflowX);
+            const yClips = ['hidden', 'clip', 'auto', 'scroll'].includes(css.overflowY);
+            if ((xClips && (box.left < bound.left - 1 || box.right > bound.right + 1)) || (yClips && (box.top < bound.top - 1 || box.bottom > bound.bottom + 1))) clips.push({ tag: parent.tagName, testid: parent.getAttribute('data-testid'), overflowX: css.overflowX, overflowY: css.overflowY, bounds: { x: bound.x, y: bound.y, width: bound.width, height: bound.height }, scrollWidth: parent.scrollWidth, scrollHeight: parent.scrollHeight });
+          }
+          const ownClip = ((element as HTMLElement).scrollWidth > element.clientWidth + 1 && ['hidden','clip','auto','scroll'].includes(style.overflowX)) || ((element as HTMLElement).scrollHeight > element.clientHeight + 1 && ['hidden','clip','auto','scroll'].includes(style.overflowY));
+          const special = element.closest('[data-testid=question-row],[data-testid=question-page],[data-testid=danger-dialog]') !== null;
+          return { label: element.textContent, tag: element.tagName, x: box.x, y: box.y, width: box.width, height: box.height, fontSize: Number.parseFloat(style.fontSize), fontFamily: style.fontFamily, lineHeight: style.lineHeight, hidden, ownClip, clips, special };
+        });
+        const overlaps: unknown[] = [];
+        for (let i = 0; i < rows.length; i++) for (let j = i + 1; j < rows.length; j++) {
+          const a = rows[i]!; const b = rows[j]!; if (a.contains(b) || b.contains(a)) continue;
+          const aa = a.getBoundingClientRect(); const bb = b.getBoundingClientRect();
+          const width = Math.min(aa.right, bb.right) - Math.max(aa.left, bb.left); const height = Math.min(aa.bottom, bb.bottom) - Math.max(aa.top, bb.top);
+          if (width > 2 && height > 2) overlaps.push({ first: a.textContent, second: b.textContent, width, height });
+        }
+        const surface = getComputedStyle(document.documentElement).getPropertyValue('--surface-page').trim();
+        return { width: innerWidth, viewportHeight: innerHeight, documentWidth: document.documentElement.scrollWidth, documentHeight: document.documentElement.scrollHeight, labels, overlaps, fonts: document.fonts.status, interLoaded: document.fonts.check('18px Inter'), surface, dark: matchMedia('(prefers-color-scheme: dark)').matches, language: localStorage.getItem('madarch-wiki-language'), homeLabel: document.querySelector('[data-testid=nav-home]')?.textContent?.trim() };
+}
+
 export interface VisibilityMeasurement {
   readonly labels: readonly { readonly hidden: boolean; readonly width: number; readonly height: number; readonly fontSize: number; readonly clips: readonly unknown[]; readonly ownClip: boolean; readonly special: boolean; readonly x: number }[];
   readonly overlaps: readonly unknown[]; readonly documentWidth: number; readonly fonts: string; readonly interLoaded: boolean; readonly dark: boolean; readonly surface: string; readonly language: string | null; readonly homeLabel: string | undefined;
@@ -240,7 +280,10 @@ export class OnceEvidence {
     this.closing.add(page);
     const failures: unknown[] = [];
     const session = this.sessions.get(page);
-    // Stop/close before drain: finite response bodies must not keep their own page alive.
+    // Capture is already complete. Freeze new timers, not network or Node-side evidence.
+    try { if (session) await deadline('pause page timers after capture', CLEANUP_MS, () => session.send('Emulation.setScriptExecutionDisabled', { value: true })); } catch (error) { failures.push(error); }
+    try { await this.waitFinite(page); } catch (error) { failures.push(error); }
+    // Even a bounded drain failure must close the page and stay an error.
     try { if (session) await deadline('CDP stop loading', CLEANUP_MS, () => session.send('Page.stopLoading')); } catch (error) { failures.push(error); }
     try { if (session) await deadline('CDP detach', CLEANUP_MS, () => session.detach()); } catch (error) { failures.push(error); }
     try { if (!page.isClosed()) await deadline('browser page close', CLEANUP_MS, () => page.close()); } catch (error) { failures.push(error); }
@@ -294,36 +337,7 @@ export class OnceEvidence {
         rows: [...document.querySelectorAll('[data-testid=question-row]')].map((row) => ({ slug: row.getAttribute('data-question') ?? '', state: row.getAttribute('data-state') ?? '' })),
       }));
       assertRouteIdentity(new URL(page.url()).pathname, identity, shot, questions);
-      const measurement = await page.evaluate((dialog) => {
-        const root = document.querySelector(dialog ? '[data-testid=danger-dialog]' : '[data-testid=knowledge-main]');
-        if (!root) throw new Error('measurement root missing');
-        const selectors = 'h1,h2,h3,p,li,button,blockquote,textarea,[data-testid=question-text],[data-testid=question-why],[data-testid=answer-quote]';
-        const rows = [...root.querySelectorAll(selectors)].filter((element) => (element.textContent?.trim() ?? '') !== '' || element.tagName === 'TEXTAREA');
-        const labels = rows.map((element) => {
-          const box = element.getBoundingClientRect(); const style = getComputedStyle(element);
-          const clips: unknown[] = []; let hidden = false;
-          for (let parent: Element | null = element; parent; parent = parent.parentElement) {
-            const css = getComputedStyle(parent); hidden ||= css.display === 'none' || css.visibility !== 'visible' || Number(css.opacity) === 0;
-            if (parent === element) continue;
-            const bound = parent.getBoundingClientRect();
-            const xClips = ['hidden', 'clip', 'auto', 'scroll'].includes(css.overflowX);
-            const yClips = ['hidden', 'clip', 'auto', 'scroll'].includes(css.overflowY);
-            if ((xClips && (box.left < bound.left - 1 || box.right > bound.right + 1)) || (yClips && (box.top < bound.top - 1 || box.bottom > bound.bottom + 1))) clips.push({ tag: parent.tagName, testid: parent.getAttribute('data-testid'), overflowX: css.overflowX, overflowY: css.overflowY, bounds: { x: bound.x, y: bound.y, width: bound.width, height: bound.height }, scrollWidth: parent.scrollWidth, scrollHeight: parent.scrollHeight });
-          }
-          const ownClip = ((element as HTMLElement).scrollWidth > element.clientWidth + 1 && ['hidden','clip','auto','scroll'].includes(style.overflowX)) || ((element as HTMLElement).scrollHeight > element.clientHeight + 1 && ['hidden','clip','auto','scroll'].includes(style.overflowY));
-          const special = element.closest('[data-testid=question-row],[data-testid=question-page],[data-testid=danger-dialog]') !== null;
-          return { label: element.textContent, tag: element.tagName, x: box.x, y: box.y, width: box.width, height: box.height, fontSize: Number.parseFloat(style.fontSize), fontFamily: style.fontFamily, lineHeight: style.lineHeight, hidden, ownClip, clips, special };
-        });
-        const overlaps: unknown[] = [];
-        for (let i = 0; i < rows.length; i++) for (let j = i + 1; j < rows.length; j++) {
-          const a = rows[i]!; const b = rows[j]!; if (a.contains(b) || b.contains(a)) continue;
-          const aa = a.getBoundingClientRect(); const bb = b.getBoundingClientRect();
-          const width = Math.min(aa.right, bb.right) - Math.max(aa.left, bb.left); const height = Math.min(aa.bottom, bb.bottom) - Math.max(aa.top, bb.top);
-          if (width > 2 && height > 2) overlaps.push({ first: a.textContent, second: b.textContent, width, height });
-        }
-        const surface = getComputedStyle(document.documentElement).getPropertyValue('--surface-page').trim();
-        return { width: innerWidth, viewportHeight: innerHeight, documentWidth: document.documentElement.scrollWidth, documentHeight: document.documentElement.scrollHeight, labels, overlaps, fonts: document.fonts.status, interLoaded: document.fonts.check('18px Inter'), surface, dark: matchMedia('(prefers-color-scheme: dark)').matches, language: localStorage.getItem('madarch-wiki-language'), homeLabel: document.querySelector('[data-testid=nav-home]')?.textContent?.trim() };
-      }, shot.dialog === true);
+      const measurement = await page.evaluate(measureVisibility, shot.dialog === true);
       this.observe('visibility-measured', { key: shot.key, measurement });
       assertVisibility(measurement, shot);
       requireWalk(!await page.$('[data-testid=page-error], [data-testid=block-problem]'), `${shot.route}: rendered problem block`);

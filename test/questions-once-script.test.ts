@@ -121,7 +121,7 @@ describe('questions-once harness rejects incomplete evidence', () => {
       expect(readFileSync(join(folder, 'raw/0000001.error.json'), 'utf8')).toContain('exceeded 20ms');
     } finally { globalThis.fetch = saved; rmSync(folder, { recursive: true, force: true }); }
   });
-  test('generic deadlines cancel and close the page before draining pending body evidence', async () => {
+  test('generic deadlines cancel and page cleanup drains before close, then flushes terminal evidence', async () => {
     let cancelled = false;
     await expect(deadline('stuck operation', 10, () => new Promise(() => {}), () => { cancelled = true; })).rejects.toThrow('exceeded');
     expect(cancelled).toBe(true);
@@ -130,7 +130,7 @@ describe('questions-once harness rejects incomplete evidence', () => {
       const evidence = new OnceEvidence(folder, [], {});
       evidence.flush = async () => { order.push('drain'); };
       const page = { isClosed: () => false, close: async () => { order.push('close'); } } as unknown as Page;
-      await evidence.closePage(page); expect(order).toEqual(['close', 'drain']);
+      await evidence.closePage(page); expect(order).toEqual(['drain', 'close', 'drain']);
     } finally { rmSync(folder, { recursive: true, force: true }); }
   });
   test('drain failure still closes the page and produces an incomplete terminal record', async () => {
