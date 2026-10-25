@@ -1,7 +1,7 @@
 /** The answer key's eight open.* cases, authored explicitly for the scripted ACP reader walk. */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { LOOP_QUESTIONS, paymentsRefreshed, questionSlug, type LoopQuestion } from './loop-agent-script.js';
+import { LOOP_QUESTIONS, ORDERING_CORRECTED, paymentsRefreshed, questionSlug, type LoopQuestion } from './loop-agent-script.js';
 import { localizedScript, agentScript, TEXT, type ScriptLanguage } from './knowledge-agent-script.js';
 import { ROOT } from './knowledge-fixture.js';
 
@@ -116,10 +116,22 @@ export function onceRefreshScript(language: ScriptLanguage) {
   return { byPrompt: [{ matches: `(madarch:question:${questionSlug(question, language)})`, steps: [ask(question, language), { call: { tool: 'write_page', arguments: { markdown: paymentsRefreshed(language) } } }, { end: { stopReason: 'end_turn' } }] }], steps: [{ end: { stopReason: 'end_turn' } }] };
 }
 /** Refill asks only the kept answer again; removed unanswered decisions are not re-created by this fixture script. */
-export function onceRefillScript(language: ScriptLanguage) {
+export function onceRefillScript(language: ScriptLanguage, correction?: { readonly slug: string; readonly statement: string }) {
   const base = agentScript();
   const question = ONCE_QUESTIONS.find((candidate) => candidate.item === 'open.term')!;
-  const byPrompt = base.byPrompt.map((entry) => entry.matches.includes(TEXT[language].paymentsSummary) ? { ...entry, steps: [ask(question, language), { call: { tool: 'write_page', arguments: { markdown: paymentsRefreshed(language) } } }, { end: { stopReason: 'end_turn' } }] } : entry);
+  const byPrompt = base.byPrompt.map((entry) => {
+    if (entry.matches.includes(TEXT[language].paymentsSummary)) return { ...entry, steps: [ask(question, language), { call: { tool: 'write_page', arguments: { markdown: paymentsRefreshed(language) } } }, { end: { stopReason: 'end_turn' } }] };
+    if (correction === undefined || !entry.matches.includes(TEXT[language].orderingSummary)) return entry;
+    return { ...entry, steps: entry.steps.map((step) => {
+      const call = (step as any).call;
+      if (call?.tool !== 'write_page') return step;
+      const markdown: string = call.arguments.markdown;
+      const original = `${TEXT[language].orderingStatement}[^1]`;
+      if (markdown.split(original).length !== 2) throw new Error('refill fixture must replace exactly the original ordering sentence');
+      const corrected = markdown.replace(original, `${ORDERING_CORRECTED[language]}[^${correction.statement}]`).replace('[^1]:', `[^${correction.statement}]: [the correction](madarch:correction:${correction.slug}),`);
+      return { call: { ...call, arguments: { ...call.arguments, markdown: corrected } } };
+    }) };
+  });
   return { ...base, byPrompt: [...localized(), ...byPrompt] };
 }
 export const onceQuestionIds = (language: ScriptLanguage): string[] => ONCE_QUESTIONS.map((question) => `question:${questionSlug(question, language)}`).sort();

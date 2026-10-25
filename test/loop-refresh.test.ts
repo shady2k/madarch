@@ -19,7 +19,8 @@ import { HISTORY_EXTRACTOR, OWNERS, TREE_EXTRACTORS } from '../src/extract/drive
 import { createGraphStore, type GraphStore } from '../src/graph/index.js';
 import { indexCounts, indexWorkerProduct, statementsRelyingOn } from '../src/knowledge/index/index.js';
 import { answerQuestion, markResolved } from '../src/loop/answer.js';
-import { readQuestions, renderQuestion } from '../src/loop/entities.js';
+import { readCorrections, readQuestions, renderCorrection, renderQuestion } from '../src/loop/entities.js';
+import { applyReset, planReset } from '../src/knowledge/reset.js';
 import { briefsFor, neededFrom, planRefresh } from '../src/loop/plan.js';
 import { listProblems, listQuestions } from '../src/loop/views.js';
 import { createDraft } from '../src/product/draft.js';
@@ -464,5 +465,106 @@ describe('retained answers used by fresh pages (madarch-m38l.22)', () => {
       if (mode === 'grounded' || mode === 'unrelated' || mode === 'mention') { expect(report.ok).toBe(true); expect(report.domains.find((domain) => domain.unit === 'domain:pricing')).toMatchObject({ status: 'written', writeAttempts: 1 }); }
       else expect(readFileSync(path.join(output, 'docs/questions/retained-answer.md'), 'utf8')).toBe(source);
     }
+  }, 300_000);
+});
+
+
+// A pending correction is still input when reset removed the page that used it.
+describe('retained corrections used by recreated pages (madarch-m38l.22)', () => {
+  test('reset reopens the correction and a fresh unit receives and grounds it without changing human fields', async () => {
+    for (const grounded of [true, false]) {
+      const output = path.join(scratch, `correction-refill-${grounded}`);
+      mkdirSync(path.join(output, 'docs/corrections'), { recursive: true });
+      mkdirSync(path.join(output, 'docs/domains'), { recursive: true });
+      const correction = {
+        slug: 'caller-policy', title: 'Caller chooses the discount', status: 'applied' as const,
+        about: 'domain:pricing#discount-policy', statement: 'The service chooses a fixed discount.',
+        reason: 'The caller chooses the discount, not the pricing service.',
+        by: { name: 'Ada Reader', email: 'ada@example.test', verified: 'local, not verified' }, at: '2020-01-02T10:00:00Z',
+        resolvedBy: ['domain:pricing'], resolvedAt: '2020-01-02T11:00:00Z',
+      };
+      const correctionFile = path.join(output, 'docs/corrections/caller-policy.md');
+      writeFileSync(correctionFile, renderCorrection(correction));
+      writeFileSync(path.join(output, 'docs/domains/pricing.md'), '---\nid: domain:pricing\nkind: domain\ntitle: Pricing\nproducer: agent\n---\n\nThe service chooses a fixed discount.[^discount-policy]\n\n[^discount-policy]: [README](madarch:doc:README.md#overview)\n');
+      const preview = planReset(output, path.join(output, 'store'));
+      applyReset(output, preview);
+      const pending = readCorrections(output).items[0]!;
+      expect(pending.status).toBe('open');
+      expect(pending.resolvedBy).toEqual([]);
+      const beforeBody = readFileSync(correctionFile, 'utf8').split('\n---\n')[1];
+      const prompts = new Map<string, string>();
+      const written: ToolAnswer[] = [];
+      const closed: unknown[] = [];
+      const agent: UnitAgent = { run: async (request) => {
+        prompts.set(request.id, request.prompt);
+        if (request.id.startsWith('product:')) {
+          written.push(await call(request, 'write_page', {
+            markdown: ['---', 'id: product:refill-policy', 'kind: product', 'title: Policy', 'relates: []', 'producer: agent', 'sources: [README.md]', '---', '', 'The shop prices orders.[^shop]', '', '- [Pricing](madarch:domain:pricing) covers order pricing.[^domain]', '', '[^shop]: [README](madarch:doc:README.md#overview)', '[^domain]: [pricing](madarch:code.file:src/pricing.ts)'].join('\n'),
+            domains: [{ slug: 'pricing', title: 'Pricing', summary: 'The order pricing rules.', evidence: ['code.file:src/pricing.ts'] }],
+          }));
+        } else {
+          written.push(await call(request, 'write_page', { markdown: ['---', 'id: domain:pricing', 'kind: domain', 'title: Pricing', 'relates: []', 'producer: agent', 'sources: [README.md]', '---', '', 'The caller chooses the discount.[^discount-policy]', '', `[^discount-policy]: [README](madarch:doc:README.md#overview)${grounded ? ', [the correction](madarch:correction:caller-policy)' : ''}`].join('\n') }));
+        }
+      } };
+      const report = await runWriter({ owner, store, repository, output, productName: 'Refill policy', agent, language: 'en', resolved: async (used) => { closed.push(used); await markResolved(output, used); } });
+      // Callback assertions are not evidence: runUnit catches them. Judge the accepted outcomes here.
+      expect(report.ok).toBe(grounded);
+      expect(report.loopProblems).toEqual(grounded ? [] : [`${correctionFile}:1: the recreated page domain:pricing does not ground its retained correction on madarch:correction:caller-policy; the correction stays open`]);
+      expect(written).toHaveLength(2);
+      expect(written.every((result) => !result.isError)).toBe(true);
+      expect(report.domains[0]).toMatchObject({ unit: 'domain:pricing', status: 'written', writeAttempts: 1 });
+      const prompt = prompts.get('domain:pricing')!;
+      expect(prompt).toContain('## Retained corrections for this new page');
+      expect(prompt).toContain('(madarch:correction:caller-policy)');
+      expect(prompt).toContain(correction.statement);
+      expect(prompt).toContain(correction.reason);
+      expect(prompts.get('product:refill-policy')).not.toContain('(madarch:correction:caller-policy)');
+      expect(closed).toEqual(grounded ? [{ kind: 'correction', slug: 'caller-policy', pages: ['domain:pricing'] }] : []);
+      const after = readCorrections(output).items[0]!;
+      expect([after.reason, after.statement, after.by, after.at]).toEqual([pending.reason, pending.statement, pending.by, pending.at]);
+      expect(after.status).toBe(grounded ? 'applied' : 'open');
+      expect(after.resolvedBy).toEqual(grounded ? ['domain:pricing'] : []);
+      expect(readFileSync(correctionFile, 'utf8').split('\n---\n')[1]).toBe(beforeBody);
+      if (grounded) {
+        const markdown = readFileSync(path.join(output, 'docs/domains/pricing.md'), 'utf8');
+        expect(markdown).toContain('The caller chooses the discount.[^discount-policy]');
+        expect(markdown).toContain('(madarch:correction:caller-policy)');
+        const appliedBytes = readFileSync(correctionFile, 'utf8');
+        let rerunUnits = 0;
+        const rerun = await runWriter({ owner, store, repository, output, productName: 'Refill policy', agent: { run: async () => { rerunUnits++; } }, resolved: async (used) => { closed.push(used); } });
+        expect(rerun.ok).toBe(true);
+        expect(rerunUnits).toBe(0);
+        expect(closed).toHaveLength(1);
+        expect(readFileSync(correctionFile, 'utf8')).toBe(appliedBytes);
+      }
+    }
+  }, 300_000);
+  test('notes omitted by the existing prompt budget stay open and report their full file paths', async () => {
+    const output = path.join(scratch, 'correction-refill-budget');
+    mkdirSync(path.join(output, 'docs/corrections'), { recursive: true });
+    for (let index = 0; index < 12; index++) {
+      const slug = `policy-${String.fromCharCode(97 + index)}`;
+      writeFileSync(path.join(output, `docs/corrections/${slug}.md`), renderCorrection({
+        slug, title: slug, status: 'open', about: 'product:budget-shop#policy', statement: 'The original policy is wrong.',
+        reason: `${slug}: ${'A long explanation. '.repeat(190)}`, by: { name: 'Ada', email: 'ada@example.test', verified: 'local, not verified' },
+        at: '2020-01-02T10:00:00Z', resolvedBy: [], resolvedAt: null,
+      }));
+    }
+    const closed: string[] = [];
+    let productPrompt = '';
+    const report = await runWriter({ owner, store, repository, output, productName: 'Budget shop', agent: { run: async (request) => {
+      if (!request.id.startsWith('product:')) return;
+      productPrompt = request.prompt;
+      // No write: even an included note must not close until its page is written with the ground.
+    } }, resolved: async (used) => { closed.push(used.slug); } });
+    const corrections = readCorrections(output).items;
+    const included = corrections.filter((correction) => productPrompt.includes(`(madarch:${correction.id})`));
+    const omitted = corrections.filter((correction) => !included.includes(correction));
+    expect(included.length).toBeGreaterThan(0);
+    expect(omitted.length).toBeGreaterThan(0);
+    expect(productPrompt).toContain('more changes not listed here');
+    expect(closed).toEqual([]);
+    expect(corrections.every((correction) => correction.status === 'open' && correction.resolvedBy.length === 0)).toBe(true);
+    expect(report.loopProblems).toEqual(omitted.map((correction) => `${path.join(output, correction.file)}:1: the retained correction for product:budget-shop exceeds the edit brief budget; it stays open for a later refresh`));
   }, 300_000);
 });

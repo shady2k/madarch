@@ -12,6 +12,7 @@
  */
 import { parse as parseYaml } from 'yaml';
 import { byCodePoint } from '../model/order.js';
+import { headingLinks } from '../knowledge/markdown.js';
 import type { WrittenAt } from '../knowledge/index/page.js';
 import { isNumbered, nameStatements, sentenceKey } from './names.js';
 import { maskInline, plainSentence, QUESTION_LINK, REFERENCE_RUN, sentencesOf, statementsOf, unmask, withoutQuestionLinks } from './sentences.js';
@@ -421,6 +422,11 @@ export async function checkPage(markdown: string, expected: PageExpectation, res
       }
     }
   };
+  for (const link of headingLinks(body, split.bodyStart)) {
+    if (!link.url.startsWith('madarch:')) continue;
+    const target = parseTarget(link.url.slice('madarch:'.length));
+    if (target?.type === 'page' && target.id.startsWith('question:')) refusals.push({ line: link.line, rule: 'question-link-position', message: 'a question link cannot stand in a heading: put it as a localized suffix after the affected grounded sentence' });
+  }
   for (const heading of headings) {
     await checkLinks(heading);
     const outsideLinks = heading.text.replace(LINK, '').replace(/[`*_\s:,.→–—-]/g, '');

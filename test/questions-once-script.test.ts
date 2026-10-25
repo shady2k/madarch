@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ROOT } from './knowledge-fixture.js';
 import { ONCE_QUESTIONS, EXPECTED_FIRST_QUESTIONS, onceFirstScript, onceRefillScript, onceRefreshScript, validateOnceKey } from './questions-once-script.js';
-import { questionSlug } from './loop-agent-script.js';
+import { ORDERING_CORRECTED, questionSlug } from './loop-agent-script.js';
 
 const KEYS = ['open.access', 'open.assumption', 'open.behavior', 'open.contradiction', 'open.meaning', 'open.rationale', 'open.term', 'open.unverifiable'];
 describe('questions-once reader fixture is bound to the actual answer key', () => {
@@ -42,6 +42,15 @@ describe('questions-once reader fixture is bound to the actual answer key', () =
         for (const claim of decision.text[language].claims) expect(written.call.arguments.markdown).toContain(claim);
         for (const ground of decision.sides.flat()) expect(written.call.arguments.markdown).toContain(`](madarch:${ground})`);
       }
+    }
+  });
+  test('refill keeps the corrected sentence and its exact correction ground in both languages', () => {
+    for (const language of ['en', 'ru'] as const) {
+      const script = onceRefillScript(language, { slug: 'declined-order', statement: 'card-authorization' });
+      const ordering = script.byPrompt.find((entry) => entry.matches.includes(language === 'en' ? 'Ordering is what' : 'Заказы:'))!;
+      const write = ordering.steps.find((step: any) => step.call?.tool === 'write_page') as any;
+      expect(write.call.arguments.markdown).toContain(`${ORDERING_CORRECTED[language]}[^card-authorization]`);
+      expect(write.call.arguments.markdown).toContain('[^card-authorization]: [the correction](madarch:correction:declined-order),');
     }
   });
   test('refresh and refill explicitly ask only the retained term answer and ground the payment statement', () => {

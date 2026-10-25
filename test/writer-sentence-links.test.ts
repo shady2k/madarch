@@ -44,6 +44,28 @@ describe('reader-facing entity references', () => {
       expect(await rules(`## ${heading}\n\n${fact}${grounds}`)).toContain('reference-heading');
     });
   }
+  for (const heading of [
+    `## Сроки ${question}`,
+    '## Retention [→ question: Which duration?](madarch:question:delivery)',
+    `## **Сроки ${question}**`,
+    'Сроки [вопрос][duration]\n---\n\n[duration]: madarch:question:delivery',
+    '## Сроки [вопрос][duration]\n\n[duration]: madarch:question:delivery',
+    '## Сроки [Duration][]\n\n[duration]: madarch:question:delivery',
+    '## Сроки [Duration]\n\n[duration]: madarch:question:delivery',
+  ]) {
+    test(`refuses a question link in a descriptive Markdown heading: ${heading}`, async () => {
+      const checked = await verdict(`${heading}\n\n${fact}${grounds}`);
+      expect(checked.ok).toBe(false);
+      if (checked.ok) return;
+      const refusal = checked.refusals.find((entry) => entry.rule === 'question-link-position');
+      expect(refusal?.line).toBe(10);
+      expect(refusal?.message).toContain('/example/product/pages/domain/orders.md');
+      expect(refusal?.message).toContain('heading');
+    });
+  }
+  test('heading-like text in inline code is not a question link', async () => {
+    expect(await rules(`## Сроки \`[вопрос](madarch:question:delivery)\`\n\n${fact}${grounds}`)).not.toContain('question-link-position');
+  });
   test('a services navigation label adds no statement but cannot hide an assertion', async () => {
     expect(await rules(`${fact}\n\nSee also the services: [Delivery](madarch:domain:orders).${grounds}`)).toEqual([]);
     expect(await rules(`${fact}\n\nSee also the services: [Delivery](madarch:domain:orders) are free.${grounds}`)).toContain('ungrounded-statement');
