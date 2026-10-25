@@ -172,13 +172,12 @@ describe('neutral repository names', () => {
       const url = ['https://', typed].join('');
       const ssh = ['git@', typed].join('');
       const file = join(fixtureRoot, 'src', 'example.ts');
-      writeFileSync(file, `${typed} ${document}\n${real}\n${url}\n${ssh}\n`);
-      const errors = findings(fixtureRoot);
-      expect(errors).toHaveLength(3);
-      expect(errors.some(error => error.includes('example.ts:1'))).toBe(false);
-      expect(errors.some(error => error.includes('example.ts:2') && error.includes(real))).toBe(true);
-      expect(errors.some(error => error.includes('example.ts:3'))).toBe(true);
-      expect(errors.some(error => error.includes('example.ts:4'))).toBe(true);
+      writeFileSync(file, `${typed} ${document} ${real}\n${url}\n${ssh}\n`);
+      expect(findings(fixtureRoot)).toEqual([
+        `src/example.ts:1 (${file}): repository source is not an example or madarch repository: ${real}`,
+        `src/example.ts:2 (${file}): repository source is not an example or madarch repository: ${typed}`,
+        `src/example.ts:3 (${file}): repository source is not an example or madarch repository: ${typed}`,
+      ]);
     } finally { rmSync(fixtureRoot, { recursive: true, force: true }); }
   });
 
