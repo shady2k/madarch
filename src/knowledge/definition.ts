@@ -8,16 +8,16 @@
  * says how many lines it holds when the page shows only the first of them.
  */
 import { createHash } from 'node:crypto';
+import { resolve } from 'node:path';
+import { contractDocument, contractFullPath, ContractReadError, object } from './contract-document.js';
+import { protoDocument } from './proto-document.js';
 import { byCodePoint } from '../model/order.js';
 import type { GraphEntity } from './graph-read.js';
 import type { Block, DefinitionMember } from './model.js';
 import { refOfGraph, type RenderContext, type Subject } from './blocks.js';
 
 /** The kinds the definition block reads. */
-export const DEFINITION_KINDS: ReadonlySet<string> = new Set(['code.contract']);
-
-/** The longest contract text the block carries; the block says the whole length beside it. */
-const SPEC_LIMIT = 400;
+export const DEFINITION_KINDS: ReadonlySet<string> = new Set(['code.contract', 'code.operation']);
 
 const textOf = (value: unknown): string | undefined => (typeof value === 'string' && value !== '' ? value : undefined);
 
@@ -83,36 +83,52 @@ async function membersOf(ctx: RenderContext, contract: GraphEntity): Promise<{ m
   return {members: members.sort((left, right) => byCodePoint(`${left.badge ?? ''}|${left.label}`, `${right.badge ?? ''}|${right.label}`)), total, shown, cuts};
 }
 
-/** The definition block: a contract's members and its own text, read from the graph and the repository. */
+/** The deferred definition supplies complete source bytes, never a truncated substitute for a standard renderer. */
 export async function definitionBlock(ctx: RenderContext, subject: Subject, params: Readonly<Record<string, string>>, file: string, line: number): Promise<Block> {
   const title = params['title'] ?? 'Definition';
-  if (subject.source !== 'graph') {
-    return { type: 'problem', block: 'definition', file, line, message: 'the definition block reads a contract of the graph, and this page is not one' };
-  }
-  const contract = subject.entity;
-  if (!DEFINITION_KINDS.has(contract.kind)) {
-    return { type: 'problem', block: 'definition', file, line, message: `the definition block shows an API contract, and this page is a ${contract.kind}: add it to a code.contract template` };
+  if (subject.source !== 'graph' || !DEFINITION_KINDS.has(subject.entity.kind)) return {type: 'problem', block: 'definition', file, line, message: `${file}:${line} (${resolve(ctx.productFolder, file)}): definition requires a contract or operation`};
+  let contract = subject.entity;
+  const operation = contract.kind === 'code.operation' ? contract : undefined;
+  if (operation !== undefined) {
+    const groups = await ctx.graph.neighbors(operation, {relations: ['code.declares'], direction: 'in', limit: 2});
+    const group = groups.find((held) => held.relation === 'code.declares');
+    const owners = group?.rows.filter((held) => held.entity.kind === 'code.contract') ?? [];
+    if (owners.length !== 1 || group?.total !== 1) return {type: 'problem', block: 'definition', file, line, message: `${file}:${line} (${resolve(ctx.productFolder, file)}): operation must have exactly one declaring contract; found ${group?.total ?? 0}`};
+    contract = owners[0]!.entity;
   }
   const path = textOf(contract.properties['path']) ?? contract.key.slice('code.contract:'.length);
   const repo = ctx.repoOfScope(contract.scope) ?? null;
-  const text = await ctx.readSource(repo, path);
-  if (text === undefined) {
-    return { type: 'problem', block: 'definition', file, line, message: `the bytes of ${path} are not readable at the commit the graph was filled from, so the definition cannot be shown` };
-  }
-  const lines = text.split('\n');
-  const shown = lines.slice(0, SPEC_LIMIT).join('\n');
-  const {members, total, shown: membersShown, cuts: memberCuts} = await membersOf(ctx, contract);
+  const format = textOf(contract.properties['format']) ?? 'other';
+  const fullPath = (path: string): string => contractFullPath(ctx.productFolder, repo, path);
   const location = refOfGraph(ctx, contract).location;
-  return {
-    type: 'definition',
-    title,
-    format: textOf(contract.properties['format']) ?? 'other',
-    contract: path,
-    ...(location === undefined ? {} : { location }),
-    members,
-    membersTotal: total,
-    membersShown,
-    memberCuts,
-    spec: { text: shown, lines: lines.length },
-  };
+  const base = {type: 'definition' as const, title, format, contract: path, fullPath: fullPath(path), ...(location === undefined ? {} : {location}), members: [], membersTotal: 0, membersShown: 0, memberCuts: [], spec: {text: '', lines: 0}};
+  try {
+    const read = (path: string): Promise<string | undefined> => ctx.readSource(repo, path);
+    const content = format === 'proto' ? await protoDocument(path, read, fullPath) : await contractDocument(path, read, fullPath);
+    const {members, total, shown, cuts} = await membersOf(ctx, contract);
+    const result = {...base, members, membersTotal: total, membersShown: shown, memberCuts: cuts, spec: {text: content.text, lines: content.text.split('\n').length}};
+    if ('protobuf' in content) return {...result, protobuf: content.protobuf};
+    const document = content.document;
+    if (format !== 'openapi' && format !== 'asyncapi') throw new ContractReadError({path, line: 1, fullPath: fullPath(path), code: 'format', detail: `unsupported contract format: ${format}`});
+    if (format === 'openapi' && !(typeof document['openapi'] === 'string' || document['swagger'] === '2.0')) throw new ContractReadError({path, line: 1, fullPath: fullPath(path), code: 'shape', detail: 'the OpenAPI version is missing'});
+    if (format === 'asyncapi' && typeof document['asyncapi'] !== 'string') throw new ContractReadError({path, line: 1, fullPath: fullPath(path), code: 'shape', detail: 'the AsyncAPI version is missing'});
+    if (operation === undefined || format !== 'openapi') return {...result, document};
+    const method = textOf(operation.properties['method'])?.toLowerCase();
+    const route = textOf(operation.properties['path']);
+    const paths = document['paths'];
+    const item = object(paths) && route !== undefined ? paths[route] : undefined;
+    const selected = object(item) && method !== undefined ? item[method] : undefined;
+    if (!object(selected) || method === undefined || route === undefined) throw new ContractReadError({path, line: operation.span?.lineStart ?? 1, fullPath: fullPath(path), code: 'selection', detail: `operation selection is missing or ambiguous: ${method ?? '?'} ${route ?? '?'}`});
+    // Give anonymous operations a stable renderer anchor; duplicate ids must never select another operation.
+    const declaredId = selected['operationId'];
+    const operationId = typeof declaredId === 'string' && declaredId !== '' ? declaredId : anchorOf('operation', `${method}:${route}`);
+    let matches = 0;
+    if (object(paths)) for (const held of Object.values(paths)) if (object(held)) for (const [verb, value] of Object.entries(held)) if (['get', 'post', 'put', 'patch', 'delete', 'head', 'options', 'trace'].includes(verb) && object(value) && value['operationId'] === operationId) matches++;
+    if (matches > 1) throw new ContractReadError({path, line: operation.span?.lineStart ?? 1, fullPath: fullPath(path), code: 'selection', detail: `ambiguous operationId: ${operationId}`});
+    selected['operationId'] = operationId;
+    return {...result, document, selection: {method, path: route, operationId}};
+  } catch (error) {
+    const diagnostic = error instanceof ContractReadError ? error.diagnostic : {path, line: 1, fullPath: fullPath(path), code: 'parse', detail: String(error)};
+    return {...base, diagnostics: [diagnostic]};
+  }
 }

@@ -412,7 +412,37 @@
       "method": "Method",
       "path": "Path"
     },
-    "pageNotRead": "Could not read the page of {{id}}: {{reason}}"
+    "pageNotRead": "Could not read the page of {{id}}: {{reason}}",
+    "contractLoading": "Loading contract documentation…",
+    "contractRenderError": "Cannot render the definition: {{reason}}",
+    "contractSelectionMissing": "The selected operation was not found in the rendered definition.",
+    "contractPublish": "Publish",
+    "contractSubscribe": "Subscribe",
+    "contractSend": "Send",
+    "contractReceive": "Receive",
+    "contractService": "Service",
+    "contractRequest": "Request",
+    "contractResponse": "Response",
+    "contractStream": "Stream",
+    "contractField": "Field",
+    "contractType": "Type",
+    "contractNumber": "Number",
+    "contractRule": "Rule",
+    "contractEnum": "Enum value",
+    "contractNoFields": "This message has no fields.",
+    "contractDiagnostic": "Definition unavailable: {{reason}}",
+    "contractRendererFailed": "Contract renderer failed at {{path}}:1 ({{fullPath}})",
+    "contractMissingDocument": "The complete definition is missing.",
+    "contractUnassigned": "No declaring contract",
+    "contractOperation": "Operation",
+    "contractImplementedBy": "Implemented by",
+    "contractCalledBy": "Called by",
+    "contractLinksCut": "Showing {{shown}} of {{total}} links ({{relation}}).",
+    "contractFieldRule": {
+      "optional": "optional",
+      "required": "required",
+      "repeated": "repeated"
+    }
   },
   "loop": {
     "questionsTitle": "Questions",

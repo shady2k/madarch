@@ -412,7 +412,37 @@
       "method": "Метод",
       "path": "Путь"
     },
-    "pageNotRead": "Не удалось прочитать страницу {{id}}: {{reason}}"
+    "pageNotRead": "Не удалось прочитать страницу {{id}}: {{reason}}",
+    "contractLoading": "Загрузка документации контракта…",
+    "contractRenderError": "Не удалось показать определение: {{reason}}",
+    "contractSelectionMissing": "Выбранная операция не найдена в отображённом определении.",
+    "contractPublish": "Публикация",
+    "contractSubscribe": "Подписка",
+    "contractSend": "Отправка",
+    "contractReceive": "Получение",
+    "contractService": "Сервис",
+    "contractRequest": "Запрос",
+    "contractResponse": "Ответ",
+    "contractStream": "Поток",
+    "contractField": "Поле",
+    "contractType": "Тип",
+    "contractNumber": "Номер",
+    "contractRule": "Правило",
+    "contractEnum": "Значение перечисления",
+    "contractNoFields": "В этом сообщении нет полей.",
+    "contractDiagnostic": "Определение недоступно: {{reason}}",
+    "contractRendererFailed": "Ошибка отображения контракта {{path}}:1 ({{fullPath}})",
+    "contractMissingDocument": "Полное определение отсутствует.",
+    "contractUnassigned": "Объявляющий контракт не найден",
+    "contractOperation": "Операция",
+    "contractImplementedBy": "Реализуют",
+    "contractCalledBy": "Вызывают",
+    "contractLinksCut": "Показано {{shown}} из {{total}} связей ({{relation}}).",
+    "contractFieldRule": {
+      "optional": "необязательное",
+      "required": "обязательное",
+      "repeated": "повторяющееся"
+    }
   },
   "loop": {
     "questionsTitle": "Вопросы",

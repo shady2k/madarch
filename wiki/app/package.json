@@ -28,7 +28,12 @@
     "remark-parse": "11.0.0",
     "shiki": "4.5.0",
     "tailwindcss": "4.3.3",
-    "unified": "11.0.5"
+    "unified": "11.0.5",
+    "redoc": "2.5.4",
+    "@asyncapi/react-component": "3.2.1",
+    "mobx": "6.15.0",
+    "core-js": "3.46.0",
+    "styled-components": "6.1.19"
   },
   "devDependencies": {
     "@happy-dom/global-registrator": "20.14.5",

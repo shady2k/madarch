@@ -87,7 +87,7 @@ type BlockShape =
   | { type: 'refs'; title: string; total: number; rows: RefRow[] }
   | { type: 'properties'; title: string; rows: PropertyRow[] }
   | { type: 'stated'; title: string; place: { repo: string | null; path: string; lineStart: number; lineEnd: number; href: string; commit: string | null; single?: boolean } }
-  | { type: 'definition'; title: string; format: string; contract: string; location?: CodeLocation; members: DefinitionMember[]; membersTotal: number; membersShown: number; memberCuts: { channel: string; total: number; shown: number }[]; spec: { text: string; lines: number } }
+  | { type: 'definition'; title: string; format: string; contract: string; fullPath?: string; location?: CodeLocation; members: DefinitionMember[]; membersTotal: number; membersShown: number; memberCuts: { channel: string; total: number; shown: number }[]; spec: { text: string; lines: number }; document?: Record<string, unknown>; selection?: { method: string; path: string; operationId: string }; protobuf?: ProtoDocumentation; diagnostics?: ContractDiagnostic[] }
   | { type: 'history'; title: string; sections: HistorySection[]; notes: HistoryNote[] }
   | { type: 'deferred'; block: string; title: string; line: number }
   | { type: 'problem'; block: string; message: string; file: string; line: number };
@@ -135,7 +135,8 @@ export type KindSummary = {
 
 export type GroupSummary = { group: string; labels: Record<string, string> };
 
-export type EntityListing = { kind: string; total: number; rows: EntityRef[]; next: string | null };
+export type OperationMetadata = { contracts: {entity: EntityRef; protocol: string}[]; implementedBy: EntityRef[]; calledBy: EntityRef[]; cuts: {relation: string; shown: number; total: number}[] };
+export type EntityListing = { kind: string; total: number; rows: EntityRef[]; next: string | null; operations?: Record<string, OperationMetadata> };
 
 export type FillState = {
   state: 'idle' | 'running' | 'done' | 'failed';
@@ -460,3 +461,5 @@ export type TaskProposal = {
 };
 
 export type CreatedTask = { task: { slug: string; id: string; file: string; title: string; status: 'open' | 'closed' }; state: 'created'; committed: boolean; note?: string; commit?: string };
+export type ContractDiagnostic = { path: string; line: number; fullPath: string; code: string; detail: string };
+export type ProtoDocumentation = { services: {name: string; methods: {name: string; request: string; response: string; requestStream: boolean; responseStream: boolean}[]}[]; messages: {name: string; fields: {name: string; type: string; id: number; rule: string; oneof?: string}[]; values?: {name: string; id: number}[]}[] };
