@@ -135,6 +135,7 @@ export async function contractDocument(path: string, read: (path: string) => Pro
   type Role = Context | {kind: 'container'; children: ReadonlyMap<string, Role>; fallback: Role};
   const members: Partial<Record<Context, Context>> = {objectMap: 'document', schemaMap: 'schema', mediaMap: 'media', exampleMap: 'example', responseMap: 'response', headerMap: 'header', messageMap: 'message', pathMap: 'pathItem', parameterMap: 'parameter', channelMap: 'channel'};
   const mapFor = (role: Context): Context => role === 'schema' ? 'schemaMap' : role === 'example' ? 'exampleMap' : role === 'media' ? 'mediaMap' : role === 'response' ? 'responseMap' : role === 'header' ? 'headerMap' : role === 'message' ? 'messageMap' : role === 'parameter' ? 'parameterMap' : 'objectMap';
+  const arrayElementRole = (owner: Role): Role => owner === 'schemaArray' ? 'schema' : owner;
   /** The same owning-role transition is used for ordinary children AND JSON pointer steps. */
   function roleTransition(parent: Role, key: string, child: unknown, protocol: Protocol): Role {
     if (typeof parent !== 'string') return parent.children.get(key) ?? parent.fallback;
@@ -154,6 +155,7 @@ export async function contractDocument(path: string, read: (path: string) => Pro
       if (key === 'examples') return 'opaque';
     }
     if (parent === 'message') {
+      if (key === 'oneOf') return 'message';
       if (key === 'headers' || key === 'payload') return 'schema';
       if (key === 'examples') return 'opaque';
     }
@@ -195,7 +197,7 @@ export async function contractDocument(path: string, read: (path: string) => Pro
       let role = root; let held: unknown = document;
       for (const key of parts) {
         const child: unknown = object(held) || Array.isArray(held) ? (held as Record<string, unknown>)[key] : undefined;
-        role = roleTransition(role, key, child, protocol); held = child;
+        role = Array.isArray(held) ? arrayElementRole(role) : roleTransition(role, key, child, protocol); held = child;
       }
       return role;
     };
@@ -229,7 +231,7 @@ export async function contractDocument(path: string, read: (path: string) => Pro
       contexts.add(context); visited.set(node, contexts);
     }
     if (Array.isArray(node)) {
-      for (let i = 0; i < node.length; i++) await visit(file, node[i], [...at, String(i)], roleTransition(context, String(i), node[i], protocol), protocol);
+      for (let i = 0; i < node.length; i++) await visit(file, node[i], [...at, String(i)], arrayElementRole(context), protocol);
       return;
     }
     if (!object(node)) return;
@@ -272,7 +274,7 @@ export async function contractDocument(path: string, read: (path: string) => Pro
         let pointedRole = otherRole;
         for (const token of parts) {
           const next: unknown = object(pointed) || Array.isArray(pointed) ? (pointed as Record<string, unknown>)[token] : undefined;
-          pointedRole = roleTransition(pointedRole, token, next, otherProtocol); pointed = next;
+          pointedRole = Array.isArray(pointed) ? arrayElementRole(pointedRole) : roleTransition(pointedRole, token, next, otherProtocol); pointed = next;
         }
         if (pointed === undefined) refuse(file, 'reference', `unresolved reference: ${reference}`, {code: 'referenceUnresolved', params: {ref: reference}}, line);
         await visit(referred, pointed, parts, pointedRole, otherProtocol);

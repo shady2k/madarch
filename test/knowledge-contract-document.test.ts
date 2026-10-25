@@ -226,3 +226,17 @@ test('nested unknown containers preserve Example maps and inspect outside-target
   const bundled = result.document['x-madarch-references'] as Record<string, typeof external>;
   expect(bundled['file0']?.catalog.type.value).toEqual({$ref: 'https://invalid.example/type'});
 });
+
+
+test('typed array elements retain parameter, schema and AsyncAPI message ownership', async () => {
+  const literal = {$ref: 'https://example.com/literal'};
+  const parameter = {name: 'filter', in: 'query', schema: {type: 'object'}, example: literal, examples: {named: {value: literal}}};
+  const openapi = {openapi: '3.0.3', servers: [{url: 'https://example.com'}], tags: [{name: 'records'}], security: [{token: []}], paths: {'/records': {parameters: [parameter], get: {parameters: [parameter], responses: {'200': {description: 'Records'}}}}}, components: {schemas: {Record: {allOf: [{type: 'object', example: literal}], anyOf: [{type: 'object', default: literal}], oneOf: [{type: 'object', enum: [literal]}], prefixItems: [{type: 'object', const: literal}]}}}};
+  const result = await contractDocument('contracts/service.yaml', read({'contracts/service.yaml': JSON.stringify(openapi)}), full);
+  expect(result.document).toEqual(openapi);
+  const asyncapi = {asyncapi: '2.6.0', channels: {records: {publish: {message: {oneOf: [{name: 'Record', headers: {type: 'object', example: literal}, payload: {type: 'object', default: literal}, examples: [{payload: literal, headers: literal}]}]}}}}};
+  expect((await contractDocument('contracts/events.yaml', read({'contracts/events.yaml': JSON.stringify(asyncapi)}), full)).document).toEqual(asyncapi);
+  const invalid = {...parameter, schema: {$ref: 'https://example.com/actual-schema'}};
+  const actual = {openapi: '3.0.3', paths: {'/records': {get: {parameters: [invalid], responses: {}}}}};
+  await expect(contractDocument('contracts/service.yaml', read({'contracts/service.yaml': JSON.stringify(actual)}), full)).rejects.toThrow('remote or absolute reference is not allowed');
+});
