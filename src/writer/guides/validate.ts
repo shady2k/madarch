@@ -1,0 +1,166 @@
+import { byCodePoint } from '../../model/order.js';
+import { sameGuideContext } from './digest.js';
+import { GUIDE_SCHEMA, type GuideDiagnostic, type GuideDocument, type GuideValidationHost } from './model.js';
+
+const checkedGuides = new WeakSet<object>();
+export function isCheckedGuide(guide: GuideDocument): boolean { return checkedGuides.has(guide); }
+function freeze<T>(value: T): T {
+  if (value !== null && typeof value === 'object') { for (const item of Object.values(value)) freeze(item); Object.freeze(value); }
+  return value;
+}
+const ID = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
+const HASH = /^[a-f0-9]{64}$/;
+const COMMIT = /^[a-f0-9]{40,64}$/;
+const plain = (value: unknown): value is string => typeof value === 'string' && value.trim() !== '' && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(value);
+const object = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value);
+export const safeGuidePath = (value: string, root = false): boolean => (root && value === '.') ||
+  (value.length > 0 && !value.startsWith('/') && !value.includes('\\') && !value.includes('\0') && !value.split('/').some((part) => part === '' || part === '.' || part === '..'));
+const instant = (value: unknown): boolean => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T.+Z$/.test(value) && Number.isFinite(Date.parse(value));
+export type GuideValidation = { readonly ok: true; readonly guide: GuideDocument } | { readonly ok: false; readonly diagnostics: readonly GuideDiagnostic[] };
+
+/** Structural checks precede host evidence checks. Agent-supplied approval fields are refused. */
+export async function validateGuide(input: unknown, host: GuideValidationHost): Promise<GuideValidation> {
+  const diagnostics: GuideDiagnostic[] = [];
+  const error = (path: string, code: string, message: string): void => { diagnostics.push({ file: host.file, line: 1, path, code, message: `${host.file}:1: ${path}: ${message}` }); };
+  const done = (): GuideValidation => ({ ok: false, diagnostics: diagnostics.sort((a, b) => byCodePoint(a.path, b.path) || byCodePoint(a.code, b.code) || byCodePoint(a.message, b.message)) });
+  const text = (value: unknown, path: string): void => {
+    if (!plain(value)) { error(path, 'text', 'expected non-blank text without control characters'); return; }
+    if (value.length > 16000) error(path, 'bound', 'text exceeds 16000 characters');
+    if (typeof host.containsSecret !== 'function') error(path, 'verification-unavailable', 'secret verification is unavailable');
+    else { try { if (host.containsSecret(value)) error(path, 'secret', 'sensitive value is not allowed in the artifact'); }
+      catch { error(path, 'verification-unavailable', 'secret verification failed'); } }
+  };
+  const list = (value: unknown, path: string): void => {
+    if (!Array.isArray(value) || value.length > 100) { error(path, 'list', 'expected at most 100 text entries'); return; }
+    value.forEach((entry, index) => text(entry, `${path}[${index}]`));
+  };
+  const fields = (value: Record<string, unknown>, allowed: readonly string[], path: string): void => {
+    for (const key of Object.keys(value).sort(byCodePoint)) if (!allowed.includes(key)) error(`${path}.${key}`, 'unknown-field', 'field is not part of the guide format');
+  };
+  let encoded: string;
+  try { encoded = JSON.stringify(input); } catch { error('$', 'plain-data', 'expected bounded serializable data'); return done(); }
+  if (typeof encoded !== 'string' || new TextEncoder().encode(encoded).length > 128 * 1024) { error('$', 'bound', 'guide exceeds 131072 bytes or is not serializable'); return done(); }
+  if (!object(input)) { error('$', 'object', 'expected a guide object'); return done(); }
+  fields(input, ['schema', 'id', 'kind', 'locale', 'title', 'context', 'unitVersion', 'inputDigest', 'prerequisites', 'gaps', 'procedures'], '$');
+  if (input['schema'] !== GUIDE_SCHEMA) error('$.schema', 'schema', `expected ${GUIDE_SCHEMA}`);
+  if (!plain(input['id']) || !ID.test(input['id'])) error('$.id', 'identity', 'expected a lower-case hyphenated identity');
+  if (!['administrator-guide', 'user-guide'].includes(String(input['kind']))) error('$.kind', 'kind', 'expected administrator-guide or user-guide');
+  if (!['en', 'ru'].includes(String(input['locale']))) error('$.locale', 'locale', 'expected en or ru');
+  text(input['title'], '$.title'); text(input['unitVersion'], '$.unitVersion');
+  if (input['unitVersion'] !== host.expectedUnitVersion) error('$.unitVersion', 'stale-version', 'unit version differs from host context');
+  if (typeof input['inputDigest'] !== 'string' || !HASH.test(input['inputDigest'])) error('$.inputDigest', 'digest', 'expected a SHA-256 digest');
+  if (input['inputDigest'] !== host.expectedInputDigest) error('$.inputDigest', 'stale-input', 'input digest differs from host context');
+  const context = input['context']; const repositories = new Map<string, string>();
+  if (!object(context)) error('$.context', 'context', 'expected a full pinned temporal context');
+  else {
+    fields(context, ['valid', 'known', 'state', 'repositories'], '$.context');
+    for (const key of ['valid', 'known']) if (!instant(context[key])) error(`$.context.${key}`, 'instant', 'expected a UTC instant');
+    text(context['state'], '$.context.state');
+    if (!Array.isArray(context['repositories']) || context['repositories'].length === 0 || context['repositories'].length > 50) error('$.context.repositories', 'repositories', 'expected 1 to 50 pinned repositories');
+    else context['repositories'].forEach((repository: unknown, index: number) => {
+      const path = `$.context.repositories[${index}]`;
+      if (!object(repository)) { error(path, 'repository', 'expected a named pinned repository'); return; }
+      fields(repository, ['name', 'commit'], path);
+      if (!plain(repository['name']) || !ID.test(repository['name'])) error(`${path}.name`, 'repository', 'expected repository identity');
+      if (!plain(repository['commit']) || !COMMIT.test(repository['commit'])) error(`${path}.commit`, 'commit', 'expected a full commit hash');
+      if (typeof repository['name'] === 'string' && typeof repository['commit'] === 'string') {
+        if (repositories.has(repository['name'])) error(`${path}.name`, 'duplicate', 'repository is named twice');
+        repositories.set(repository['name'], repository['commit']);
+      }
+    });
+  }
+  list(input['prerequisites'], '$.prerequisites'); list(input['gaps'], '$.gaps');
+  const procedures = input['procedures'];
+  if (!Array.isArray(procedures) || procedures.length === 0 || procedures.length > 40) error('$.procedures', 'procedures', 'expected 1 to 40 procedures');
+  else {
+    const procedureIds = new Set<string>();
+    procedures.forEach((procedure: unknown, pi: number) => {
+      const path = `$.procedures[${pi}]`;
+      if (!object(procedure)) { error(path, 'procedure', 'expected a procedure object'); return; }
+      fields(procedure, ['id', 'title', 'goal', 'role', 'prerequisites', 'steps'], path);
+      const id = procedure['id'];
+      if (!plain(id) || !ID.test(id)) error(`${path}.id`, 'identity', 'expected a procedure identity');
+      else { if (procedureIds.has(id)) error(`${path}.id`, 'duplicate', 'procedure identity is repeated'); procedureIds.add(id); }
+      for (const field of ['title', 'goal', 'role']) text(procedure[field], `${path}.${field}`);
+      list(procedure['prerequisites'], `${path}.prerequisites`);
+      const steps = procedure['steps'];
+      if (!Array.isArray(steps) || steps.length === 0 || steps.length > 60) { error(`${path}.steps`, 'steps', 'expected 1 to 60 steps'); return; }
+      const stepIds = new Set<string>();
+      steps.forEach((step: unknown, si: number) => {
+        const sp = `${path}.steps[${si}]`;
+        if (!object(step)) { error(sp, 'step', 'expected a step object'); return; }
+        fields(step, ['id', 'title', 'cwd', 'environment', 'inputs', 'instruction', 'expected', 'grounds'], sp);
+        const sid = step['id'];
+        if (!plain(sid) || !ID.test(sid)) error(`${sp}.id`, 'identity', 'expected a step identity');
+        else { if (stepIds.has(sid)) error(`${sp}.id`, 'duplicate', 'step identity is repeated'); stepIds.add(sid); }
+        text(step['title'], `${sp}.title`); text(step['environment'], `${sp}.environment`);
+        if (typeof step['cwd'] !== 'string' || !safeGuidePath(step['cwd'], true)) error(`${sp}.cwd`, 'path', 'expected a safe repository-relative working directory');
+        const inputs = step['inputs'];
+        if (!Array.isArray(inputs) || inputs.length > 40) error(`${sp}.inputs`, 'inputs', 'expected at most 40 named inputs');
+        else {
+          const names = new Set<string>();
+          inputs.forEach((entry: unknown, ii: number) => {
+            const ip = `${sp}.inputs[${ii}]`;
+            if (!object(entry)) { error(ip, 'input', 'expected an input object'); return; }
+            fields(entry, ['name', 'description', 'secret'], ip);
+            if (!plain(entry['name']) || !/^[A-Z][A-Z0-9_]*$/.test(entry['name'])) error(`${ip}.name`, 'input-name', 'expected uppercase input name');
+            else { if (names.has(entry['name'])) error(`${ip}.name`, 'duplicate', 'input name is repeated'); names.add(entry['name']); }
+            text(entry['description'], `${ip}.description`);
+            if (typeof entry['secret'] !== 'boolean') error(`${ip}.secret`, 'input-secret', 'expected a boolean, never a secret value');
+          });
+        }
+        const instruction = step['instruction'];
+        if (!object(instruction)) error(`${sp}.instruction`, 'instruction', 'expected command or HTTP instruction');
+        else {
+          fields(instruction, ['kind', 'content'], `${sp}.instruction`);
+          if (instruction['kind'] !== 'command' && instruction['kind'] !== 'http') error(`${sp}.instruction.kind`, 'instruction-kind', 'expected command or http');
+          text(instruction['content'], `${sp}.instruction.content`);
+        }
+        const expected = step['expected'];
+        if (!object(expected)) error(`${sp}.expected`, 'expected-result', 'expected a status and observable result');
+        else {
+          fields(expected, ['status', 'observation'], `${sp}.expected`);
+          const status = expected['status'];
+          const http = object(instruction) && instruction['kind'] === 'http';
+          if (typeof status !== 'number' || !Number.isInteger(status) || status < (http ? 100 : 0) || status > (http ? 599 : 255)) error(`${sp}.expected.status`, 'status', http ? 'expected HTTP status 100 to 599' : 'expected command exit 0 to 255');
+          text(expected['observation'], `${sp}.expected.observation`);
+        }
+        const grounds = step['grounds'];
+        if (!Array.isArray(grounds) || grounds.length === 0 || grounds.length > 30) error(`${sp}.grounds`, 'grounds', 'expected 1 to 30 pinned source spans');
+        else grounds.forEach((ground: unknown, gi: number) => {
+          const gp = `${sp}.grounds[${gi}]`;
+          if (!object(ground)) { error(gp, 'ground', 'expected a pinned source span'); return; }
+          fields(ground, ['repository', 'commit', 'path', 'line', 'endLine'], gp);
+          if (typeof ground['repository'] !== 'string' || !repositories.has(ground['repository'])) error(`${gp}.repository`, 'ground-repository', 'repository is not in the pinned context');
+          else if (ground['commit'] !== repositories.get(ground['repository'])) error(`${gp}.commit`, 'ground-commit', 'ground differs from the pinned repository commit');
+          if (typeof ground['path'] !== 'string' || !safeGuidePath(ground['path'])) error(`${gp}.path`, 'ground-path', 'expected a safe source path');
+          const line = ground['line']; const end = ground['endLine'];
+          if (typeof line !== 'number' || !Number.isInteger(line) || line < 1 || typeof end !== 'number' || !Number.isInteger(end) || end < line || end - line > 500) error(`${gp}.line`, 'ground-span', 'expected a non-empty source span of at most 501 lines');
+        });
+      });
+    });
+  }
+  if (diagnostics.length > 0) return done();
+  const guide = freeze(JSON.parse(encoded) as GuideDocument);
+  const allSteps = guide.procedures.flatMap((procedure) => procedure.steps);
+  if (allSteps.length > 240) error('$.procedures', 'bound', 'guide exceeds 240 total steps');
+  if (allSteps.reduce((sum, step) => sum + step.grounds.length, 0) > 1200) error('$.procedures', 'bound', 'guide exceeds 1200 total grounds');
+  if (allSteps.reduce((sum, step) => sum + step.inputs.length, 0) > 480) error('$.procedures', 'bound', 'guide exceeds 480 total inputs');
+  try { if (!sameGuideContext(guide.context, host.expectedContext)) error('$.context', 'stale-context', 'full temporal context differs from the host context'); }
+  catch { error('$.context', 'verification-unavailable', 'host temporal context is unavailable'); }
+  if (typeof host.verifyStep !== 'function') error('$.procedures', 'verification-unavailable', 'host source verification is unavailable');
+  if (diagnostics.length > 0) return done();
+  for (const [pi, procedure] of guide.procedures.entries()) {
+    for (const [si, step] of procedure.steps.entries()) {
+      const path = `$.procedures[${pi}].steps[${si}]`;
+      try {
+        const problems = await host.verifyStep(step, procedure, guide);
+        if (!Array.isArray(problems)) error(path, 'verification-unavailable', 'host did not return a source verification result');
+        else if (problems.length > 0) error(path, 'unsupported-instruction', 'host evidence does not support both the exact instruction and expected result');
+      } catch { error(path, 'verification-unavailable', 'host source verification failed; no checked guide was produced'); }
+    }
+  }
+  if (diagnostics.length > 0) return done();
+  checkedGuides.add(guide);
+  return { ok: true, guide };
+}
