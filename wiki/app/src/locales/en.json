@@ -479,8 +479,12 @@
     "historyLandmarkCounts": "{{covered}} distinct trees covered; {{offered}} valid landmark trees offered. Earlier-tree limit: {{limit}} (tip separate).",
     "historyLandmarkBounds": "Covered tree dates run from {{first}} to {{last}}. The dates between them are not necessarily covered.",
     "historyLandmarkOmitted_one": "{{count}} earlier landmark tree was not indexed because of the limit.",
+    "historyLandmarkOmitted_few": "{{count}} earlier landmark trees were not indexed because of the limit.",
+    "historyLandmarkOmitted_many": "{{count}} earlier landmark trees were not indexed because of the limit.",
     "historyLandmarkOmitted_other": "{{count}} earlier landmark trees were not indexed because of the limit.",
     "historyLandmarkUnsupported_one": "{{count}} unsupported Git landmark",
+    "historyLandmarkUnsupported_few": "{{count}} unsupported Git landmarks",
+    "historyLandmarkUnsupported_many": "{{count}} unsupported Git landmarks",
     "historyLandmarkUnsupported_other": "{{count}} unsupported Git landmarks",
     "historyCoverage": {
       "covered": "This tree was read. Structure and source below come from this commit, not from current code.",

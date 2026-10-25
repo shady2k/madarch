@@ -9,7 +9,11 @@ import type { HistoryContext } from './types.js';
 let root: Root | undefined;
 beforeAll(() => GlobalRegistrator.register({ url: 'http://localhost/k/e/code.file%3Aindex.ts' }));
 afterEach(() => { root?.unmount(); root = undefined; document.body.innerHTML = ''; });
-afterAll(() => GlobalRegistrator.unregister());
+afterAll(async () => {
+  // React schedules passive cleanup after unmount; keep the DOM alive until it drains.
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  GlobalRegistrator.unregister();
+});
 for (const language of ['en', 'ru'] as const) test(`unfilled date and bounded landmark evidence remain explicit in ${language}`, async () => {
   await setWikiLanguage(language);
   const history: HistoryContext = { repo: 'sample', at: '2026-02-02', coverage: 'unfilled', commit: 'abc', effectiveAt: '2026-02-02T00:00:00Z', until: null,
