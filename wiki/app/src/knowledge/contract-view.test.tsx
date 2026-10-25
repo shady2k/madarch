@@ -10,7 +10,11 @@ const originalFetch = globalThis.fetch;
 let root: Root | undefined;
 beforeAll(async () => {GlobalRegistrator.register({url: 'http://localhost/'}); await setWikiLanguage('en');});
 afterEach(() => {root?.unmount(); root = undefined; document.body.innerHTML = ''; globalThis.fetch = originalFetch;});
-afterAll(() => GlobalRegistrator.unregister());
+afterAll(async () => {
+  // React schedules passive cleanup after unmount; keep the DOM until that turn has run.
+  await new Promise((done) => setTimeout(done, 50));
+  GlobalRegistrator.unregister();
+});
 async function until(condition: () => boolean): Promise<void> {const end = Date.now() + 2000; while (!condition()) {if (Date.now() > end) throw new Error('contract-view.test.tsx:14: expected UI did not arrive'); await new Promise((done) => setTimeout(done, 10));}}
 function mount(element: ReturnType<typeof createElement>): HTMLElement {const node = document.createElement('div'); document.body.append(node); root = createRoot(node); root.render(element); return node;}
 test('Definition requests neither bytes nor renderer until the reader opens it', async () => {
