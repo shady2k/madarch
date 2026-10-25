@@ -69,6 +69,11 @@ export type { CommitFact, FillPoint } from './git.js';
 /** The producer of the driver's own record: the repository node. */
 export const DRIVER_PRODUCER = 'code.extract.driver';
 
+/** The complete-tree read marker's producer, shared by the writer and coverage readers. */
+export function treeReadProducer(extractors: readonly { readonly name: string }[], history?: { readonly name: string }): string {
+  return `${DRIVER_PRODUCER}/${sha256Hex(new TextEncoder().encode(`${extractors.map((extractor) => extractor.name).join('\n')}\n${history?.name ?? ''}`)).slice(0, 12)}`;
+}
+
 /** A tree extractor: a pure function over one commit's tree (src/extract/*); it may be async. */
 export type TreeExtractor = (tree: TreeReader) => Extraction | Promise<Extraction>;
 
@@ -682,7 +687,7 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
    * extractors (or none, for the history alone) is a different reading and
    * runs again, publishing only what the first did not.
    */
-  const readProducer = `${DRIVER_PRODUCER}/${sha256Hex(new TextEncoder().encode(`${options.extractors.map((extractor) => extractor.name).join('\n')}\n${options.history === undefined ? '' : options.history.name}`)).slice(0, 12)}`;
+  const readProducer = treeReadProducer(options.extractors, options.history);
   /** Whether the work item of a producer at a place was published, and with which input digest. */
   const publishedAt = async (producer: string, generation: number): Promise<string | undefined> => {
     const rows = await query<{ input_digest: string }>(

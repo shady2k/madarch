@@ -14,11 +14,13 @@
  * A tool never raises: an answer that is a refusal says so with `isError`, so
  * an agent learns what to fix and a session does not die of it.
  */
+import { resolve } from 'node:path';
+import { parseDocument } from 'yaml';
 import { byCodePoint } from '../model/order.js';
 import type { McpToolDefinition } from '../fill/unit-mcp.js';
 import { checkPage, MAX_SLUG_LENGTH, parseTarget, SLUG, type Refusal } from './format.js';
 import type { WrittenAt } from '../knowledge/index/page.js';
-import { MAX_ABOUT, MAX_SIDES, MAX_TEXT, MAX_TITLE, QUESTION_HEADINGS, QUESTION_TYPES, parseStatementRef, questionPath, renderQuestion, type Question, type QuestionLanguage, type QuestionType } from '../loop/entities.js';
+import { MAX_ABOUT, MAX_SIDES, MAX_TEXT, MAX_TITLE, QUESTION_HEADINGS, QUESTION_TYPES, parseQuestion, parseStatementRef, questionPath, renderQuestion, type Question, type QuestionLanguage, type QuestionType } from '../loop/entities.js';
 import { slugOf } from './names.js';
 import { statementsOf } from './sentences.js';
 import { splitFrontMatter } from '../knowledge/markdown.js';
@@ -98,12 +100,16 @@ export const DEFAULT_UNIT_BOUNDS: UnitBounds = { maxWriteAttempts: 5, maxCalls: 
 
 /** The questions one unit may ask (madarch-m38l.7): a person answers each, so the number is bounded. */
 export const MAX_QUESTIONS_PER_UNIT = 6;
+/** A comparison packet is whole or refused, never shortened to fit a tool response. */
+export const MAX_QUESTION_COMPARISON_CHARACTERS = 120_000;
 
 /** What a unit's tools take from the run besides the graph and the sink. */
 export interface UnitExtras {
   /** The ids of the answered questions and the corrections a statement may stand on, read when a page is written. */
   readonly entityIds?: () => Promise<readonly string[]>;
   readonly clock?: () => Date;
+  /** Product repository used to report full paths of failed writes. */
+  readonly output?: string;
   /** The language the pages and the questions' headings are written in. */
   readonly language?: string;
   /** The questions asked so far in the product (earlier runs and earlier units), read fresh at each ask: a question about a subject already asked adds its page to the one that exists. */
@@ -205,8 +211,9 @@ export const WRITER_TOOLS: readonly McpToolDefinition[] = [
   },
   {
     name: 'ask_question',
-    description: `Asks the people a question you could not settle from the graph and the documents, and keeps going. Ask when two sources disagree (a document says one thing, the code another: say what each says, with its ground), when a term is used two ways, or when the code does something no document describes. Do not guess and do not state either side as fact. The question is saved as a file in the product; a person answers it in the wiki and the next refresh gives you the answer. The same subject is asked once: a question of the same type about mostly the same entities (graph keys and document sections, in its about and its sides' grounds) as an earlier one is added to that question as one more page, not saved again. At most ${MAX_QUESTIONS_PER_UNIT} questions per unit; asking does not end your unit, you still write your page, and for a contradiction the page keeps both sides.`,
+    description: `Asks the people a decision you could not settle from the graph and documents. Before saving, compares with ALL open and answered questions by meaning, not title or shared entities. If comparison is needed, returns question-comparison-required with candidates; retry the same proposal with comparison entries for EVERY candidate, each id, same (boolean) and reason (what decision is shared or different). Different decisions about one entity stay separate. A matching answered question returns its answer: use it and ground the rewritten sentence on its id. A matching open question reuses its id and adds your page. Ask at most ${MAX_QUESTIONS_PER_UNIT} new questions per unit; keep both source sides of an open contradiction on the page and link its question at the sentence end. Write title, question, why and side claims in the wiki language.`,
     inputSchema: object({
+      comparison: { type: 'array', description: 'Semantic judgment against every candidate returned by the previous ask. Same means the same decision, even if type, title or grounds differ.', items: object({ id: { type: 'string' }, same: { type: 'boolean' }, reason: { type: 'string', minLength: 1 } }, ['id', 'same', 'reason']) },
       type: { type: 'string', enum: [...QUESTION_TYPES], description: 'contradiction: sources disagree; ambiguous-term: a word means two things; undocumented: code behaviour no document describes; gap: something you could not ground.' },
       title: { type: 'string', description: `The question in one line (${MAX_TITLE} characters at most).` },
       question: { type: 'string', description: 'The question in full: what exactly a person must decide or tell.' },
@@ -249,6 +256,9 @@ function shortProperties(properties: Record<string, unknown>): unknown {
   return json.length <= PROPERTY_CHARACTERS ? shown : { truncated: true, firstCharacters: json.slice(0, PROPERTY_CHARACTERS) };
 }
 
+/** Check and create share one queue for every unit writing to the same product sink. */
+const questionWrites = new WeakMap<PageSink, Promise<void>>();
+
 /** One unit's tool session: counts what it does and enforces its bounds. */
 export class UnitTools {
   private calls = 0;
@@ -261,6 +271,7 @@ export class UnitTools {
   private readonly read: string[] = [];
   private readonly asked: string[] = [];
   private readonly merged: string[] = [];
+  private readonly answersUsed = new Set<string>();
   /** The contradictions this unit raised, with what each side says: its page must keep both sides. */
   private readonly contradictions: { id: string; sides: readonly { claim: string; grounds: readonly string[] }[] }[] = [];
 
@@ -318,7 +329,7 @@ export class UnitTools {
         case 'read_file': return await this.readFile(args);
         case 'write_localized_source': return await this.writeLocalizedSource(args);
         case 'write_page': return await this.writePage(args);
-        case 'ask_question': return await this.askQuestion(args);
+        case 'ask_question': return await this.serialQuestion(args);
         default: return fail('unknown-tool', `"${tool}" is no tool of this unit: the tools are ${WRITER_TOOLS.map((t) => t.name).join(', ')}`);
       }
     } catch (error) {
@@ -444,8 +455,43 @@ export class UnitTools {
     return problems.length > 0 ? { problems } : { domains: out.sort((a, b) => byCodePoint(a.slug, b.slug)) };
   }
 
+  private async existingQuestions(): Promise<readonly Question[]> {
+    if (this.extras.questions !== undefined) return [...await this.extras.questions()].sort((a, b) => byCodePoint(a.id, b.id));
+    if (this.sink.list === undefined) throw new Error(`${this.extras.output === undefined ? this.unit.path : resolve(this.extras.output, this.unit.path)}:1: cannot compare questions: the sink cannot list docs/questions`);
+    const questions: Question[] = [];
+    for (const file of (await this.sink.list('docs/questions')).sort(byCodePoint)) {
+      const fullPath = resolve(this.extras.output ?? process.cwd(), file);
+      try { questions.push({ ...parseQuestion(fullPath, await this.sink.read(file)), file }); }
+      catch (error) { throw new Error(`${fullPath}:1: cannot read a question candidate: ${error instanceof Error ? error.message : String(error)}`); }
+    }
+    return questions;
+  }
+
+  /** Change only page association metadata; never re-render a person's answer or producer. */
+  private async associateQuestion(question: Question, about: readonly string[]): Promise<void> {
+    const source = await this.sink.read(question.file);
+    const current = parseQuestion(question.file, source);
+    if (JSON.stringify(current) !== JSON.stringify(question)) throw new Error(`${resolve(this.extras.output ?? process.cwd(), question.file)}:1: the question changed during comparison; retry against the fresh candidates; nothing was saved`);
+    const header = /^(?:\uFEFF)?---\r?\n([^]*?)\r?\n---(?:\r?\n|$)/.exec(source);
+    if (header === null) throw new Error(`${resolve(this.extras.output ?? process.cwd(), question.file)}:1: cannot update question associations without intact front matter`);
+    const doc = parseDocument(header[1]!);
+    if (doc.errors.length > 0) throw new Error(`${resolve(this.extras.output ?? process.cwd(), question.file)}:2: cannot update malformed question metadata`);
+    doc.set('about', [...about]);
+    const newline = source.includes('\r\n') ? '\r\n' : '\n';
+    const opening = source.slice(0, source.indexOf(newline) + newline.length);
+    const closing = source.indexOf(newline + '---', opening.length);
+    await this.sink.write(question.file, opening + doc.toString({ lineWidth: 0 }).trimEnd().replace(/\n/g, newline) + source.slice(closing));
+  }
+
+  private async serialQuestion(args: Record<string, unknown>): Promise<ToolAnswer> {
+    const earlier = questionWrites.get(this.sink) ?? Promise.resolve();
+    const answer = earlier.then(() => this.askQuestion(args));
+    // Keep the queue usable after a read/write failure; the caller still receives that failure.
+    questionWrites.set(this.sink, answer.then(() => undefined, () => undefined));
+    return await answer;
+  }
+
   private async askQuestion(args: Record<string, unknown>): Promise<ToolAnswer> {
-    if (this.asked.length >= MAX_QUESTIONS_PER_UNIT) return fail('too-many-questions', `this unit asked its ${MAX_QUESTIONS_PER_UNIT} questions; write your page with what you know and leave the rest out`);
     const problems: string[] = [];
     const bad = (message: string): void => { problems.push(message); };
     const type = args['type'];
@@ -518,26 +564,47 @@ export class UnitTools {
     const slug = title === '' ? '' : slugOf(title);
     if (title !== '' && slug === 'statement') bad('"title" has no word to name the question by: say what it is about in words');
     if (problems.length > 0) return fail('bad-question', `the question was not saved: ${problems.join('; ')}`, { problems });
-    // The same subject is asked once: a question of the same type whose entities are those of an earlier one (a Jaccard share of at least SAME_SUBJECT) adds this page to that one.
-    const subject = subjectOf([...about], sides);
     const language = this.extras.language ?? 'en';
-    if (subject.size > 0 && this.extras.questions !== undefined) {
-      const same = (await this.extras.questions()).find((held) => held.type === type && overlap(subjectOf(held.about, held.sides), subject) >= SAME_SUBJECT);
-      if (same !== undefined) {
-        if (same.status === 'answered') {
-          this.merged.push(same.id);
-          return ok({ asked: false, answered: true, id: same.id, answer: same.answer?.text ?? null, note: `This subject was asked and answered (${same.id}). Do not ask it again; once the answer is used in a rewrite, ground the statement on ${same.id}.` });
-        }
-        const widened = [...new Set([...same.about, ...[...about].filter((entry) => parseTarget(entry)?.type === 'page' || parseStatementRef(entry) !== undefined || subject.has(entry))])].sort(byCodePoint);
-        const kept = widened.length > MAX_ABOUT ? [...new Set([...same.about, this.unit.id])].sort(byCodePoint) : widened;
-        if (kept.join('\n') !== [...same.about].join('\n')) await this.sink.write(questionPath(same.slug), renderQuestion({ ...same, about: kept }));
-        if (!this.merged.includes(same.id)) this.merged.push(same.id);
-        if (type === 'contradiction') this.contradictions.push({ id: same.id, sides });
-        return ok({ asked: false, merged: true, id: same.id, note: `The same subject is already asked as ${same.id} ("${same.title}"); your page ${this.unit.id} was added to it, so a person answers it once. Do not ask it again and do not state either side as fact; go on and write what the sources agree on.` });
-      }
+    const proseLanguage = (value: string): string | undefined => detectStatementLanguage(value.replace(/`[^`]*`|[“«][^”»]*[”»]|"[^"\n]*"/g, ''));
+    const wrong = [['title', title], ['question', question], ['why', why], ...sides.map((side, index) => [`sides[${index}].claim`, side.claim])].filter(([, value]) => proseLanguage(value!) !== language);
+    if (wrong.length > 0) return fail('question-language', `write ${wrong.map(([name]) => name).join(', ')} in ${language}; identifiers and explicit source quotations may stay unchanged`);
+    const held = await this.existingQuestions();
+    const seenCandidates = new Set<string>();
+    for (const candidate of held) {
+      if (seenCandidates.has(candidate.id)) return fail('question-candidates-invalid', `${resolve(this.extras.output ?? process.cwd(), candidate.file)}:2: duplicate candidate id ${candidate.id}; no complete comparison is possible and nothing was saved`);
+      seenCandidates.add(candidate.id);
     }
+    if (held.length > 0) {
+      const raw = args['comparison'];
+      const judgments = Array.isArray(raw) ? raw.map(argumentsOf) : [];
+      const ids = new Set(judgments.map((entry) => entry['id']));
+      const complete = judgments.length === held.length && ids.size === held.length && held.every((candidate) => ids.has(candidate.id)) && judgments.every((entry) => typeof entry['same'] === 'boolean' && typeof entry['reason'] === 'string' && entry['reason'].trim() !== '');
+      const candidates = held.map((candidate) => ({ id: candidate.id, type: candidate.type, title: candidate.title, question: candidate.question, why: candidate.why, sides: candidate.sides, status: candidate.status, answer: candidate.answer?.text ?? null }));
+      const characters = JSON.stringify(candidates).length;
+      if (characters > MAX_QUESTION_COMPARISON_CHARACTERS) return fail('question-comparison-limit', `${resolve(this.extras.output ?? process.cwd(), 'docs/questions')}:1: the complete comparison of ${held.length} candidates needs ${characters} characters, above ${MAX_QUESTION_COMPARISON_CHARACTERS}; no candidate was shortened or omitted and no question was saved`, { count: held.length, characters, limit: MAX_QUESTION_COMPARISON_CHARACTERS });
+      if (!complete) return { answer: { error: { code: 'question-comparison-required', message: 'Compare the decision by meaning against every fresh candidate, then retry this question with all comparison entries. Shared entities or title equality alone do not decide equivalence.' }, candidates }, isError: true };
+      const matches = held.filter((candidate) => judgments.some((entry) => entry['id'] === candidate.id && entry['same'] === true));
+      const same = matches.find((candidate) => candidate.status === 'answered') ?? matches[0];
+      if (same !== undefined) {
+        const widened = [...new Set([...same.about, this.unit.id])].sort(byCodePoint);
+        if (widened.length > MAX_ABOUT) return fail('question-association-limit', `${resolve(this.extras.output ?? process.cwd(), same.file)}:2: the question already associates ${same.about.length} places; adding ${this.unit.id} would exceed ${MAX_ABOUT}; nothing was dropped or saved`);
+        if (widened.join('\n') !== same.about.join('\n')) await this.associateQuestion(same, widened);
+        if (!this.merged.includes(same.id)) this.merged.push(same.id);
+        if (same.status === 'answered') {
+          this.answersUsed.add(same.id);
+          return ok({ asked: false, answered: true, id: same.id, answer: same.answer!.text, note: `Use this existing answer in your rewrite and ground the statement on ${same.id}. Do not ask the answered uncertainty again.` });
+        }
+        if (same.type === 'contradiction') this.contradictions.push({ id: same.id, sides: same.sides });
+        else if (type === 'contradiction') this.contradictions.push({ id: same.id, sides });
+        return ok({ asked: false, merged: true, id: same.id, note: `The same decision is already asked as ${same.id}; your page was added. Keep both sides of an open contradiction and link this question at the affected sentence end.` });
+      }
+    } else if (args['comparison'] !== undefined && (!Array.isArray(args['comparison']) || args['comparison'].length !== 0)) {
+      return fail('question-comparison-required', 'The question set changed; there are no candidates now. Retry with an empty comparison.');
+    }
+    if (this.asked.length >= MAX_QUESTIONS_PER_UNIT) return fail('too-many-questions', `this unit asked its ${MAX_QUESTIONS_PER_UNIT} new questions; reuse existing decisions or write your page with what you know`);
     const path = questionPath(slug);
-    const existing = await this.sink.read(path).then(() => true, () => false);
+    // The serialized, fully read candidate set is authoritative; a failed read is never treated as absence.
+    const existing = held.some((candidate) => candidate.file === path);
     if (existing) return fail('question-exists', `a question "${slug}" is already asked (${path}); if it is yours to ask again it is the same question, and if it is another, give it a title that names what is different`);
     const now = (this.extras.clock?.() ?? new Date()).toISOString();
     const markdown = renderQuestion({
@@ -606,9 +673,12 @@ export class UnitTools {
     }
     // The page this one replaces, when there is one: a sentence that stands keeps its footnote name.
     const previous = await this.sink.read(this.unit.path).catch(() => undefined);
-    const entities = await this.extras.entityIds?.();
-    const verdict = await checkPage(markdown, { ...(previous === undefined ? {} : { previous }), ...(entities === undefined ? {} : { entities }), ...(this.basis.length === 0 ? {} : { writtenAt: this.basis }), id: this.unit.id, kind: this.unit.kind, domains: domains.map((d) => d.slug), mustLinkDomains: this.unit.kind === 'product', ...(this.unit.kind === 'domain' && this.unit.productId !== undefined ? { productId: this.unit.productId } : {}) }, this.view);
+    const questions = await this.existingQuestions();
+    const entities = [...new Set([...(await this.extras.entityIds?.() ?? []), ...questions.filter((question) => question.status === 'answered').map((question) => question.id)])];
+    const verdict = await checkPage(markdown, { file: this.unit.path, fullPath: resolve(this.extras.output ?? process.cwd(), this.unit.path), language: this.extras.language === 'ru' ? 'ru' : 'en', questions: questions.map((question) => question.id), ...(previous === undefined ? {} : { previous }), ...(entities === undefined ? {} : { entities }), ...(this.basis.length === 0 ? {} : { writtenAt: this.basis }), id: this.unit.id, kind: this.unit.kind, domains: domains.map((d) => d.slug), mustLinkDomains: this.unit.kind === 'product', ...(this.unit.kind === 'domain' && this.unit.productId !== undefined ? { productId: this.unit.productId } : {}) }, this.view);
     if (!verdict.ok) return this.refuse(verdict.refusals);
+    const unused = [...this.answersUsed].filter((id) => !verdict.page.grounds.includes(id));
+    if (unused.length > 0) return this.refuse(unused.map((id) => ({ line: 1, rule: 'answer-not-used', message: `use the answer returned for ${id} and ground its rewritten sentence on that answered question` })));
     const lost = this.contradictionProblems(verdict.page.grounds);
     if (lost.length > 0) return this.refuse(lost);
     await this.sink.write(this.unit.path, verdict.page.markdown);

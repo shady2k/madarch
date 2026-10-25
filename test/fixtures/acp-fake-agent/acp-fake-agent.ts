@@ -97,7 +97,12 @@ interface ScriptStep {
   say?: string;
   thought?: string;
   usage?: { used?: number; size?: number };
-  call?: { tool?: string; arguments?: unknown };
+  call?: {
+    tool?: string; arguments?: unknown;
+    /** Test-authored semantic decisions, keyed by fixture question prose, never production ids.
+     * The fake reads the current candidate ids and retries once with exactly that set. */
+    compareQuestions?: { question: string; same: boolean; reason: string }[];
+  };
   answer?: unknown;
   /** Answers the unit contract as if every place the prompt's packet listed had been read: the test's own way of
    *  covering exactly what a unit was shown, which is what a cut member list must not read as a whole scope. */
@@ -332,8 +337,23 @@ async function runScript(id: number | string, sessionId: string, text: string): 
       const client = await mcpFor(sessionId);
       if (client === undefined) { chunk(sessionId, JSON.stringify({ error: 'the session was given no stdio MCP server' })); continue; }
       try {
-        const answered = await client.call(String(step.call.tool), step.call.arguments ?? {});
+        let answered = await client.call(String(step.call.tool), step.call.arguments ?? {});
         chunk(sessionId, JSON.stringify({ tool: step.call.tool, isError: answered.isError, text: answered.text }));
+        if (step.call.compareQuestions !== undefined) {
+          if (step.call.tool !== 'ask_question') throw new Error('compareQuestions is only a scripted ask_question retry');
+          const pending = JSON.parse(answered.text) as { error?: { code?: string }; candidates?: { id: string; question: string }[] };
+          if (pending.error?.code === 'question-comparison-required') {
+            if (!Array.isArray(pending.candidates)) throw new Error('comparison refusal contains no candidate list');
+            const comparison = pending.candidates.map((candidate) => {
+              const decisions = step.call!.compareQuestions!.filter((decision) => decision.question === candidate.question);
+              if (decisions.length !== 1 || decisions[0]!.reason.trim() === '') throw new Error(`the script has no unique reasoned semantic decision for candidate ${candidate.id}`);
+              const decision = decisions[0]!;
+              return { id: candidate.id, same: decision.same, reason: decision.reason };
+            });
+            answered = await client.call('ask_question', { ...(step.call.arguments as Record<string, unknown>), comparison });
+            chunk(sessionId, JSON.stringify({ tool: step.call.tool, isError: answered.isError, text: answered.text }));
+          }
+        }
       } catch (error) {
         // A call the server refuses as a protocol error (no such tool) is the agent's to read, not the end of its turn.
         chunk(sessionId, JSON.stringify({ tool: step.call.tool, protocolError: (error as Error).message }));

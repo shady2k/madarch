@@ -211,8 +211,10 @@ export interface DefinitionMember {
 
 /** One list of a history block: the commits it shows, or the files it shows, with the list's own columns. */
 export interface HistorySection {
+  /** Repository label when a product page shows more than one history. */
+  repository?: string;
   /** What the rows are: the commits themselves, or the files they touched. */
-  role: 'commits' | 'files';
+  role: 'commits' | 'files' | 'summary' | 'hotspots' | 'authors' | 'coupling' | 'renames' | 'parents' | 'branches' | 'snapshots';
   /** How many rows the list has in the graph; `rows` holds the first of them. */
   total: number;
   rows: HistoryRow[];
@@ -234,13 +236,13 @@ export interface HistoryRow {
 
 /** One note under a history block: why the list is not the whole story, said in the reader's language by the app. */
 export interface HistoryNote {
-  key: 'manyCommits' | 'manyFiles' | 'noCounts' | 'merge' | 'noFiles' | 'partialFiles' | 'symbolsCut';
+  key: 'manyCommits' | 'manyFiles' | 'noCounts' | 'merge' | 'noFiles' | 'partialFiles' | 'symbolsCut' | 'population' | 'observedAuthorship' | 'cochangeNotCause' | 'noImport' | 'importCoverage' | 'membershipCoverage' | 'dateAnomaly' | 'mergeBranch' | 'unchangedMove';
   args?: Record<string, string | number>;
 }
 
 /** One figure of a history row: added or removed lines, symbols, commits, files, or the module a file belongs to. */
 export interface HistoryFigure {
-  kind: 'added' | 'removed' | 'symbols' | 'commits' | 'files' | 'module';
+  kind: 'added' | 'removed' | 'symbols' | 'commits' | 'files' | 'module' | 'reachable' | 'firstParent' | 'merges' | 'nonMerge' | 'authors' | 'since' | 'until' | 'both' | 'onlyThis' | 'onlyOther' | 'authoredAt' | 'committedAt' | 'effectiveAt' | 'similarity';
   value: string;
 }
 
@@ -258,6 +260,10 @@ export interface PropertyRow {
 export type Block = BlockShape & { name?: string };
 
 export interface PageModel {
+  historyNavigation?: { repo: string; points: { name: string; commit: string; covered: boolean }[]; landmarks?: NonNullable<import('./temporal.js').HistoryContext['landmarks']> }[];
+  historicalAbsent?: boolean;
+  /** Explicit historical context; no coverage is inferred from a named snapshot alone. */
+  history?: import('./temporal.js').HistoryContext;
   id: string;
   kind: string;
   /** The page's name: the attribute the manifest's `title` names. */

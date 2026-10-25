@@ -19,6 +19,7 @@ import { Badge } from '@/components/ui/badge.js';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.js';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.js';
 import { getBlock } from './api.js';
+import { historyAddress } from './history-context.js';
 import { highlight } from './highlight.js';
 import { colorize, type ColoredToken } from './shiki.js';
 import { PendingPages } from './pending.js';
@@ -35,7 +36,8 @@ import type { Block, BrokenWhy, CallRow, CodeLocation, EntityRef, PlannedMarkVie
 
 /** A link inside the wiki, opened without a reload: in the tab in front, or in a new tab on a middle or control click. */
 export function KLink({ href, children, className, title }: { href: string; children: ReactNode; className?: string; title?: string }): ReactElement {
-  return <a href={appPath(href)} className={className} title={title} {...linkHandlers(href)}>{children}</a>;
+  const target = historyAddress(href);
+  return <a href={appPath(target)} className={className} title={title} {...linkHandlers(target)}>{children}</a>;
 }
 
 /** `path:line` as a link that opens the source at that line. */
@@ -587,21 +589,21 @@ function History({ block }: { block: Extract<Block, { type: 'history' }> }): Rea
   const figureText = (figure: { kind: string; value: string }): string => {
     if (figure.kind === 'added') return `+${figure.value}`;
     if (figure.kind === 'removed') return `−${figure.value}`;
-    if (figure.kind === 'module') return `${t('knowledge.historyFigure.module')}: ${figure.value}`;
+    if (['module', 'since', 'until', 'authoredAt', 'committedAt', 'effectiveAt', 'similarity'].includes(figure.kind)) return `${t(`knowledge.historyFigure.${figure.kind}`)}: ${figure.value}`;
     return `${figure.value} ${t(`knowledge.historyFigure.${figure.kind}`)}`;
   };
   return (
     <section data-block="history" aria-label={block.title}>
       <h2>{block.title}</h2>
       {block.sections.length === 0 ? <p className="text-small text-muted" data-testid="history-empty">{t('knowledge.none')}</p> : block.sections.map((section) => (
-        <div key={section.role} data-history-section={section.role} className="mb-4">
-          {block.sections.length > 1 && <h3 className="text-small text-muted">{t(`knowledge.historySection.${section.role}`)}</h3>}
+        <div key={`${section.role}-${block.sections.indexOf(section)}`} data-history-section={section.role} className="mb-4">
+          {block.sections.length > 1 && <h3 className="text-small text-muted">{section.repository === undefined ? '' : `${section.repository}: `}{t(`knowledge.historySection.${section.role}`)}</h3>}
           <Table>
             <TableHeader>
               <TableRow>
                 {section.role === 'commits' && <TableHead>{t('knowledge.historyColWhen')}</TableHead>}
                 {section.role === 'commits' && <TableHead>{t('knowledge.historyColWho')}</TableHead>}
-                <TableHead>{section.role === 'commits' ? t('knowledge.historyColWhat') : t('knowledge.historyColFile')}</TableHead>
+                <TableHead>{section.role !== 'files' ? t('knowledge.historyColWhat') : t('knowledge.historyColFile')}</TableHead>
                 <TableHead>{t('knowledge.historyColFigures')}</TableHead>
               </TableRow>
             </TableHeader>
@@ -611,7 +613,7 @@ function History({ block }: { block: Extract<Block, { type: 'history' }> }): Rea
                   {section.role === 'commits' && <TableCell className="whitespace-nowrap">{row.when ?? <span className="text-muted">–</span>}</TableCell>}
                   {section.role === 'commits' && <TableCell className="whitespace-nowrap">{row.who ?? <span className="text-muted">–</span>}</TableCell>}
                   <TableCell className="max-w-[32rem] break-words">
-                    {row.entity === undefined ? row.text : <EntityName entity={row.entity} />}
+                    {row.entity === undefined ? row.text : <><EntityName entity={row.entity} />{row.text !== row.entity.label && <span className="block break-all text-small text-muted">{row.text}</span>}</>}
                   </TableCell>
                   <TableCell>
                     <span className="flex flex-wrap items-center gap-1">

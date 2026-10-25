@@ -65,6 +65,10 @@ describe('a manifest and templates only madarch wrote', () => {
     expect([...after.roles.keys()].sort()).toEqual(['analyst', 'architect', 'developer', 'operations', 'product', 'tester']);
     for (const kind of STARTER_KINDS) expect(after.kinds.get(kind.name)?.group).toBe(kind.group);
     expect(after.kinds.get('doc.use-case')?.identifier).toEqual(['UC']);
+    expect(after.kinds.get('code.snapshot')).toMatchObject({ source: 'graph', group: 'history', origin: 'history', template: 'templates/item-plain.md' });
+    expect(read(product, 'templates/item-plain.md')).toContain(':::properties');
+    expect(read(product, 'templates/item-plain.md')).toContain(':::graph');
+    expect(read(product, 'templates/item-plain.md')).toContain(':::related');
     expect(after.kinds.get('code.route')?.group).toBe('contracts');
     expect(after.kinds.get('code.contract')?.group).toBe('contracts');
     expect(read(product, 'madarch/kinds.yaml')).toBe(starterManifest('ru'));
@@ -219,6 +223,25 @@ describe('a manifest or a template a person edited is never rewritten', () => {
     expect(manifest.kinds.get('question')?.group).toBe('product');
     expect(starterOffers(text).map((offer) => offer.id)).not.toContain('kind:code.route');
     expect(addStarterItems(product, ['kind:code.route'], record)).toEqual([]);
+  });
+
+  test('a person-owned manifest is offered repository landmarks and gains only the accepted kind and its template', () => {
+    const { product, record } = oldProduct();
+    writeFileSync(join(product, 'madarch', 'kinds.yaml'), `# keep our own manifest\n${read(product, 'madarch/kinds.yaml')}`);
+    git(product, 'commit', '-q', '-am', 'Keep our manifest note');
+    const previous = read(product, 'madarch/kinds.yaml');
+    const offered = upgradeStarterSet(product, record);
+    expect(offered.kept).toContain('madarch/kinds.yaml');
+    expect(read(product, 'madarch/kinds.yaml')).toBe(previous);
+    expect(offered.offers.map((offer) => offer.id)).toContain('kind:code.snapshot');
+    rmSync(join(product, 'templates', 'item-plain.md'), { force: true });
+    const written = addStarterItems(product, ['kind:code.snapshot'], record);
+    expect(written).toEqual(['templates/item-plain.md', 'madarch/kinds.yaml']);
+    expect(read(product, 'madarch/kinds.yaml')).toContain('# keep our own manifest');
+    expect(manifestOf(product).kinds.get('code.snapshot')).toMatchObject({ source: 'graph', group: 'history', origin: 'history', template: 'templates/item-plain.md' });
+    expect(read(product, 'templates/item-plain.md')).toBe(STARTER_FILES.find((entry) => entry.path === 'templates/item-plain.md')!.content);
+    expect(starterOffers(read(product, 'madarch/kinds.yaml')).map((offer) => offer.id)).not.toContain('kind:code.snapshot');
+    expect(addStarterItems(product, ['kind:code.snapshot'], record)).toEqual([]);
   });
 
   test('adding the missing fields of a kind fills only what it lacks, and the roles come with the groups they lead', () => {
