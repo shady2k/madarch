@@ -1,4 +1,5 @@
 import {describe, expect, test} from 'bun:test';
+import {readFileSync} from 'node:fs';
 import {extractCode} from '../src/extract/code/index.js';
 import {extractOperations} from '../src/extract/operations/index.js';
 import {extractContracts} from '../src/extract/contracts/index.js';
@@ -98,7 +99,7 @@ test('no listener proof, unknown health method and remote Kubernetes host cannot
  expect(endpointRelations([probes,listeners])[0]?.edges).toEqual([]);
 });
 test('Go adjacent constructors never borrow later namespace labels or spans',()=>{
- const goPath='services/api/metrics.go';const source='package api\nimport prom "github.com/prometheus/client_golang/prometheus"\nvar requests = prom.NewCounter(prom.CounterOpts{Name:"requests_total"})\nvar latency = prom.NewHistogramVec(prom.HistogramOpts{Name:"latency", Namespace:"other", Subsystem:"sub"}, []string{"method"})\n';
+ const goPath='services/api/metrics.go';const source=readFileSync(new URL('./fixtures/go-prometheus/adjacent.go',import.meta.url),'utf8');
  const input=tree({[goPath]:source});const ex=extractOperations(input);const counter=ex.nodes.find((n)=>n.key===`code.metric:${goPath}#requests_total`);expect(counter?.properties.labels).toEqual([]);expect(slice(input,counter?.span)?.trim()).toBe('var requests = prom.NewCounter(prom.CounterOpts{Name:"requests_total"})');
  expect(ex.nodes.find((n)=>n.key===`code.metric:${goPath}#other_sub_latency`)?.properties.labels).toEqual(['method']);
 });
