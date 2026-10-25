@@ -360,7 +360,7 @@ export type AgentChoices = { agent: { id: string; label: string }; choices: { mo
 
 export type DangerPlan = {
   rewrite: { agentPages: string[]; keptPages: string[] };
-  fresh: { store: string[]; agentPages: string[]; keptPages: string[]; editedStarterFiles: string[]; replacedStarterFiles: string[] };
+  fresh: { store: string[]; agentPages: string[]; keptPages: string[]; unansweredQuestions: string[]; keptAnswers: string[]; editedStarterFiles: string[]; replacedStarterFiles: string[] };
 };
 
 /** The product settings page (madarch-m38l.11): what is set for this product on this machine. */

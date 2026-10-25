@@ -137,6 +137,35 @@ describe('a unit driven over ACP', () => {
     expect(tools.calls.map((call) => call.tool)).toEqual(['write_localized_source', 'write_localized_source']);
   });
 
+  test('only an explicit complete authored comparison enables the fake retry, using current candidate ids', async () => {
+    for (const mode of ['complete', 'missing', 'duplicate', 'blank', 'no-candidates', 'none'] as const) {
+      const folder = scratch();
+      const calls: { tool: string; args: unknown }[] = [];
+      let wrote = false;
+      const tools: ToolClient = {
+        definitions: WRITER_TOOLS, finished: () => wrote,
+        call: async (tool, args) => {
+          calls.push({ tool, args });
+          if (tool === 'write_page') { wrote = true; return { answer: { written: true }, isError: false }; }
+          if ((args as { comparison?: unknown }).comparison !== undefined) return { answer: { asked: false, id: 'question:fresh-fixture-id' }, isError: false };
+          return { answer: { error: { code: 'question-comparison-required' }, ...(mode === 'no-candidates' ? {} : { candidates: [{ id: 'question:fresh-fixture-id', question: 'Which retention duration applies?' }] }) }, isError: true };
+        },
+      };
+      const notes: string[] = [];
+      const authored = { question: 'Which retention duration applies?', same: true, reason: mode === 'blank' ? ' ' : 'Both fixture proposals ask the retention duration.' };
+      const compareQuestions = mode === 'missing' ? [] : mode === 'duplicate' ? [authored, authored] : [authored];
+      const { agent } = agentOf(folder, { steps: [
+        { call: { tool: 'ask_question', arguments: { title: 'How long are orders kept?' }, ...(mode === 'none' ? {} : { compareQuestions }) } },
+        { call: { tool: 'write_page', arguments: { markdown: 'x' } } }, { end: { stopReason: 'end_turn' } },
+      ] }, { progress: (line) => notes.push(line) });
+      await agent.run({ id: 'domain:orders', prompt: 'WRITE', tools });
+      const asks = calls.filter((call) => call.tool === 'ask_question');
+      expect(asks).toHaveLength(mode === 'complete' ? 2 : 1);
+      if (mode === 'complete') expect(asks[1]!.args).toMatchObject({ comparison: [{ id: 'question:fresh-fixture-id', same: true, reason: 'Both fixture proposals ask the retention duration.' }] });
+      if (mode !== 'complete') expect(asks.some((call) => (call.args as { comparison?: unknown }).comparison !== undefined)).toBe(false);
+    }
+  }, 30_000);
+
   test('a turn that crosses the context stop is cancelled and the unit ends there', async () => {
     const folder = scratch();
     const tools = stub();

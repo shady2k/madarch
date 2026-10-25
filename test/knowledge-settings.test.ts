@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { KnowledgeProduct, type FillWorkerHandle } from '../src/knowledge/product.js';
 import { STARTER_FILES, starterManifest } from '../src/knowledge/seed.js';
+import { parseQuestion, renderQuestion } from '../src/loop/entities.js';
 import type { AgentChoices } from '../src/fill/acp-choices.js';
 import { createKnowledgePart } from '../src/server/knowledge.js';
 import { gitEnv } from './git-env.js';
@@ -226,6 +227,57 @@ describe('the two local resets', () => {
     expect(counter.started).toBe(1);
     // Nothing was committed: the reset is a change of files on this machine.
     expect(git(folder, 'log', '--format=%s')).not.toContain('starter');
+  }, 90_000);
+
+  test('the settings and reset routes carry exact counts; rewrite retains questions and fresh removes only unanswered agent questions', async () => {
+    const { folder, store } = oldProduct();
+    const counter = { started: 0 };
+    const held = product(folder, store, { workerFactory: quickWorker(counter) });
+    withPages(folder, store, held);
+    mkdirSync(join(folder, 'docs/questions'), { recursive: true });
+    const at = '2026-10-24T12:00:00Z';
+    const author = { name: 'Reader', email: 'reader@example.test', verified: 'local, not verified' };
+    for (const answered of [false, true]) {
+      const slug = answered ? 'answered' : 'open';
+      writeFileSync(join(folder, `docs/questions/${slug}.md`), renderQuestion({
+        slug, title: 'Which duration?', type: 'gap', status: answered ? 'answered' : 'open', about: ['product:tiny'],
+        askedIn: 'product:tiny', askedAt: at, question: 'Which retention duration applies?', why: 'The duration is not documented.',
+        sides: [{ claim: 'The duration is not documented.', grounds: ['doc:README.md#retention'] }],
+        answer: answered ? { text: 'Keep ninety days.', by: author, at } : null,
+        resolvedBy: answered ? ['product:tiny'] : [], resolvedAt: answered ? at : null, writtenAt: [],
+      }));
+    }
+    const makers = { json: (status: number, body: unknown) => Response.json(body, { status }), refused: (status: number, error: { message: string }) => ({ response: Response.json({ error }, { status }), refusal: error.message }), errorLog: () => undefined };
+    const part = createKnowledgePart(makers as never, held, () => [], {});
+    const preview = await (await part.productSettings(new Request('http://wiki.test/api/k/product-settings'))).response.json() as { danger: { fresh: { unansweredQuestions: string[]; keptAnswers: string[] } } };
+    expect(preview.danger.fresh.unansweredQuestions).toEqual(['docs/questions/open.md']);
+    expect(preview.danger.fresh.keptAnswers).toEqual(['docs/questions/answered.md']);
+    const malformed = await part.startFresh(new Request('http://wiki.test/api/k/start-fresh', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ preview: { unansweredQuestions: 'not a list' } }) }));
+    expect(malformed.response.status).toBe(400);
+    expect(existsSync(join(folder, 'docs/product.md'))).toBe(true);
+    const stale = held.resetPlan();
+    const openFile = join(folder, 'docs/questions/open.md');
+    const openQuestion = parseQuestion(openFile, readFileSync(openFile, 'utf8'));
+    writeFileSync(openFile, renderQuestion({ ...openQuestion, status: 'answered', answer: { text: 'A new answer after preview.', by: author, at } }));
+    const refused = await part.startFresh(new Request('http://wiki.test/api/k/start-fresh', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ preview: stale }) }));
+    expect(refused.response.status).toBe(409);
+    expect(JSON.stringify(await refused.response.json())).toContain('changed since the preview');
+    expect(existsSync(join(folder, 'docs/product.md'))).toBe(true);
+    expect(readFileSync(openFile, 'utf8')).toContain('A new answer after preview.');
+    writeFileSync(openFile, renderQuestion(openQuestion));
+    const rewrite = await part.rewritePages(new Request('http://wiki.test/api/k/rewrite-pages', { method: 'POST' }));
+    expect(rewrite.response.status).toBe(202);
+    expect((await rewrite.response.json() as { plan: { unansweredQuestions: string[] } }).plan.unansweredQuestions).toEqual([]);
+    expect(existsSync(join(folder, 'docs/questions/open.md'))).toBe(true);
+    const file = join(folder, 'docs/questions/answered.md');
+    expect(parseQuestion(file, readFileSync(file, 'utf8')).resolvedBy).toEqual([]);
+    await held.settled();
+    const fresh = await part.startFresh(new Request('http://wiki.test/api/k/start-fresh', { method: 'POST' }));
+    expect(fresh.response.status).toBe(202);
+    expect((await fresh.response.json() as { plan: { unansweredQuestions: string[]; keptAnswers: string[] } }).plan).toMatchObject({ unansweredQuestions: ['docs/questions/open.md'], keptAnswers: ['docs/questions/answered.md'] });
+    expect(existsSync(join(folder, 'docs/questions/open.md'))).toBe(false);
+    expect(parseQuestion(file, readFileSync(file, 'utf8')).answer).toEqual({ text: 'Keep ninety days.', by: author, at });
+    await held.settled();
   }, 90_000);
 
   test('both are refused while a fill runs, in words', async () => {

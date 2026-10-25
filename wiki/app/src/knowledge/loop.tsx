@@ -188,9 +188,9 @@ export function QuestionPage({ slug, version, refresh }: { slug: string; version
       </section>
       <section className="mb-8" data-testid="question-sides">
         <h2>{t('loop.whatSourcesSay')}</h2>
-        <ul className="m-0 grid list-none gap-3 p-0">
+        <ul className="m-0 grid min-w-0 list-none gap-3 p-0 [overflow-wrap:anywhere]">
           {question.sides.map((side, index) => (
-            <li key={index} className="rounded-[var(--radius-card)] border border-line p-3" data-testid="question-side">
+            <li key={index} className="min-w-0 rounded-[var(--radius-card)] border border-line p-3" data-testid="question-side">
               <p className="m-0 text-body">{side.claim}</p>
               <p className="m-0 mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-small text-muted">
                 <span>{t('loop.grounds')}</span>
