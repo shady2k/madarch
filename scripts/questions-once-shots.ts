@@ -8,7 +8,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileS
 import { join, resolve } from 'node:path';
 import puppeteer from 'puppeteer';
 import { resolveBrowserExecutable } from './chromium.js';
-import { OnceEvidence, inventory, requireWalk, compareCodePoint, deadline, hashFiles, assertHashes, resetMissingTargets, resetRepositoryDocument, assertResetStoreRemoved, missingMessage, OwnedTree, HTTP_MS, type ShotPlan, type QuestionDOM, type ResetAbsence, type InputHash } from './questions-once-evidence.js';
+import { OnceEvidence, assertOnceManifest, inventory, requireWalk, compareCodePoint, deadline, hashFiles, assertHashes, resetMissingTargets, resetRepositoryDocument, assertResetStoreRemoved, missingMessage, OwnedTree, HTTP_MS, type ShotPlan, type QuestionDOM, type ResetAbsence, type InputHash } from './questions-once-evidence.js';
 import { ONCE_QUESTIONS, EXPECTED_FIRST_QUESTIONS, onceFirstScript, onceQuestionIds, onceRefillScript, onceRefreshScript, ONCE_KEY_MAPPING, validateOnceKey } from '../test/questions-once-script.js';
 import { ANSWER_TEXT, ORDERING_CORRECTED, questionSlug } from '../test/loop-agent-script.js';
 import { TEXT } from '../test/knowledge-agent-script.js';
@@ -74,13 +74,12 @@ requireWalk(existsSync(appFolder), `${appFolder}: build is required BEFORE this 
 const folderSnapshot = (folder: string): readonly InputHash[] => hashFiles(readdirSync(folder, { recursive: true, withFileTypes: true }).filter((entry) => entry.isFile() && !join(entry.parentPath, entry.name).slice(folder.length + 1).split('/').includes('.git')).map((entry) => join(entry.parentPath, entry.name)));
 const inputs = Object.freeze({ head: runGit(root, 'rev-parse', 'HEAD'), sources: sourceSnapshot(), app: folderSnapshot(appFolder), answerKeyMapping: ONCE_KEY_MAPPING, runtime: process.version });
 const manifestFile = process.env.MADARCH_QUESTIONS_MANIFEST;
-if (manifestFile !== undefined) {
-  const expected = JSON.parse(readFileSync(manifestFile, 'utf8')) as { screenshots: readonly ShotPlan[] };
-  const canonical = (rows: readonly ShotPlan[]): string => JSON.stringify([...rows].sort((a, b) => compareCodePoint(a.key, b.key)).map(({ key, language, theme, width, stage, route, ready }) => ({ key, language, theme, width, stage, route, ready })));
-  requireWalk(canonical(expected.screenshots) === canonical(plan), 'frozen touched-page manifest differs from runtime plan before capture');
-}
+requireWalk(manifestFile !== undefined, 'frozen touched-page manifest is required before capture');
+const expected = JSON.parse(readFileSync(manifestFile, 'utf8'));
+const sourceIdentity = { head: inputs.head, sourceSha256: createHash('sha256').update(readFileSync(import.meta.filename)).digest('hex') };
+assertOnceManifest(expected, plan, sourceIdentity);
 const evidence = new OnceEvidence(out, Object.freeze(plan), inputs);
-evidence.immutable('runtime-manifest-crossmatch.json', { provided: manifestFile !== undefined, matched: manifestFile !== undefined, head: inputs.head, count: plan.length, beforeCapture: true });
+evidence.immutable('runtime-manifest-crossmatch.json', { provided: true, matched: true, ...sourceIdentity, count: plan.length, beforeCapture: true });
 evidence.observe('runtime-bound-plan', { fillMinutes, basis: 'PLAN first estimate only; no measured duration is claimed. Outer runs.mjs exec uses recognized command history when present.', sourceOnlyCheckpoint: false });
 let browser: Awaited<ReturnType<typeof puppeteer.launch>> | undefined;
 let server: ReturnType<typeof Bun.spawn> | undefined;

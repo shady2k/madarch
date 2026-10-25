@@ -134,6 +134,19 @@ export class OwnedTree {
 
 export interface ShotPlan { readonly key: string; readonly language: 'en' | 'ru'; readonly stage: string; readonly route: string; readonly ready: string; readonly theme: 'light' | 'dark'; readonly width: 1150 | 390; readonly entity?: string; readonly question?: string; readonly dialog?: boolean; readonly removed?: number; readonly retained?: number }
 
+/** Compare capture assertions, not explanatory metadata, before creating any evidence. */
+export function assertOnceManifest(expected: { readonly head: string; readonly sourceSha256: string; readonly screenshots: readonly ShotPlan[] }, plan: readonly ShotPlan[], identity: { readonly head: string; readonly sourceSha256: string }): void {
+  requireWalk(typeof expected.head === 'string' && expected.head === identity.head, 'frozen touched-page manifest head differs from runtime source before capture');
+  requireWalk(typeof expected.sourceSha256 === 'string' && expected.sourceSha256 === identity.sourceSha256, 'frozen touched-page manifest sourceSha256 differs from runtime source before capture');
+  const canonical = (rows: readonly ShotPlan[]): string => {
+    requireWalk(Array.isArray(rows), 'frozen touched-page manifest requires screenshots before capture');
+    requireWalk(new Set(rows.map((row) => row.key)).size === rows.length, 'duplicate touched-page manifest observation before capture');
+    return JSON.stringify([...rows].sort((a, b) => compareCodePoint(a.key, b.key)).map(({ key, language, theme, width, stage, route, ready, entity, question, dialog, removed, retained }) => ({ key, language, theme, width, stage, route, ready, entity, question, dialog, removed, retained })));
+  };
+  requireWalk(canonical(expected.screenshots) === canonical(plan), 'frozen touched-page manifest differs from runtime plan before capture');
+}
+
+
 /** Only this page's same-origin product change feed is intentionally long lived. */
 export function expectedEventSource(pageURL: string, url: string, method: string): boolean {
   try {

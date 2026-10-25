@@ -60,7 +60,7 @@ describe('questions-once reader fixture is bound to the actual answer key', () =
 import { mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import type { Page } from 'puppeteer';
-import { OnceEvidence, assertFindings, assertHashes, assertQuestionDOM, assertRouteIdentity, assertResolution, assertVisibility, expectedEventSource, deadline, hashFiles, ownedPIDs, resetMissingTargets, resetRepositoryDocument, assertResetStoreRemoved, type OwnedPID, type ShotPlan, type VisibilityMeasurement } from '../scripts/questions-once-evidence.js';
+import { OnceEvidence, assertOnceManifest, assertFindings, assertHashes, assertQuestionDOM, assertRouteIdentity, assertResolution, assertVisibility, expectedEventSource, deadline, hashFiles, ownedPIDs, resetMissingTargets, resetRepositoryDocument, assertResetStoreRemoved, type OwnedPID, type ShotPlan, type VisibilityMeasurement } from '../scripts/questions-once-evidence.js';
 import { noEntityMessage } from '../src/knowledge/resolve.js';
 import { readBody, splitFrontMatter } from '../src/knowledge/markdown.js';
 
@@ -260,6 +260,34 @@ describe('questions-once harness rejects incomplete evidence', () => {
       const errors = JSON.parse(readFileSync(join(folder, 'result.json'), 'utf8')).errors.join('\n');
       expect(errors).toContain('unexpected EventSource'); expect(errors).toContain('unexpected streaming'); expect(errors).toContain('HTTP 500'); expect(errors).toContain('ERR_ABORTED');
     } finally { rmSync(folder, { recursive: true, force: true }); }
+  });
+
+  test('manifest crossmatch binds every capture field and source identity without counting explanatory metadata', () => {
+    const identity = { head: 'fixture-head', sourceSha256: 'fixture-source-sha256' };
+    const plan: ShotPlan[] = [];
+    for (const language of ['en', 'ru'] as const) for (let stage = 0; stage < 19; stage++) for (const theme of ['light', 'dark'] as const) for (const width of [1150, 390] as const) {
+      plan.push({ key: `${language}-${stage}-${theme}-${width}`, language, stage: `stage-${stage}`, theme, width, route: '/products/shop/k/settings', ready: '[data-testid=danger-dialog]', entity: 'domain:orders', question: 'retained-answer', dialog: true, removed: 7, retained: 1 });
+    }
+    expect(plan).toHaveLength(152);
+    const expected = { ...identity, screenshots: plan.map((row) => ({ ...row, whyTouched: 'Reader assertions changed.' })).reverse() };
+    expect(() => assertOnceManifest(expected, plan, identity)).not.toThrow();
+    const changes: Partial<ShotPlan>[] = [{ key: 'other' }, { language: 'ru' }, { stage: 'other' }, { theme: 'dark' }, { width: 390 }, { route: '/products/other/k/settings' }, { ready: '[data-testid=other]' }, { entity: 'domain:other' }, { question: 'other-answer' }, { dialog: false }, { removed: 8 }, { retained: 2 }];
+    for (const change of changes) {
+      const screenshots = plan.map((row, index) => index === 0 ? { ...row, ...change } : row);
+      expect(() => assertOnceManifest({ ...identity, screenshots }, plan, identity)).toThrow('manifest differs');
+    }
+    for (const field of ['key', 'language', 'stage', 'theme', 'width', 'route', 'ready', 'entity', 'question', 'dialog', 'removed', 'retained']) {
+      const omitted = JSON.parse(JSON.stringify({ ...identity, screenshots: plan }));
+      delete omitted.screenshots[0][field];
+      expect(() => assertOnceManifest(omitted, plan, identity)).toThrow();
+    }
+    for (const field of ['head', 'sourceSha256']) {
+      expect(() => assertOnceManifest({ ...identity, [field]: 'other-source', screenshots: plan }, plan, identity)).toThrow(field);
+      const omitted = JSON.parse(JSON.stringify({ ...identity, screenshots: plan })); delete omitted[field];
+      expect(() => assertOnceManifest(omitted, plan, identity)).toThrow(field);
+    }
+    expect(() => assertOnceManifest({ ...identity, screenshots: [...plan.slice(1), plan[1]!] }, plan, identity)).toThrow('duplicate');
+    expect(() => assertOnceManifest({ ...identity, screenshots: plan.slice(1) }, plan, identity)).toThrow('manifest differs');
   });
 
   test('ownership follows the private session and observed reparented children, not an unrelated reused PID', () => {
