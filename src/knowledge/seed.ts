@@ -33,6 +33,7 @@ const SECTION = {
 };
 
 const PRODUCT = `:::body
+${block('history', 'Repository history', 'История репозиториев')}
 ${block('system', 'The system', 'Система')}
 ${block('treemap', 'Files by size and change', 'Файлы по размеру и изменчивости')}
 ${block('related', 'Relates to', 'Связано с', 'relation="relates"')}
@@ -56,6 +57,8 @@ ${SECTION.pagesAbout('this service', 'этом сервисе')}
 `;
 
 const FILE = `{{path}}
+
+${block('history', 'Change history', 'История изменений')}
 
 ${block('source', 'Source', 'Исходный текст')}
 ${G('Around this file','Вокруг этого файла')}
@@ -89,6 +92,7 @@ ${SECTION.pagesAbout('this package', 'этом пакете')}
 `;
 
 const MODULE = `${SECTION.details}
+${block('history', 'Observed contributions', 'Наблюдаемые изменения')}
 ${G('Around this','Вокруг этого')}
 ${block('modules', 'State machines', 'Конечные автоматы')}
 ${block('related', 'Files', 'Файлы', 'relation="code.contains" depth=2 kind="code.file" limit=80')}
@@ -314,6 +318,7 @@ export const STARTER_KINDS: readonly StarterKind[] = [
   { name: 'code.test-case', template: 'item.md', source: 'graph', group: 'tests', en: ['Test case', 'Test cases'], ru: ['Тест', 'Тесты'], describe: ['A test, and the code it exercises.', 'Тест и код, который он проверяет.'] },
   { name: 'code.commit', template: 'commit.md', source: 'graph', group: 'history', origin: 'history', en: ['Commit', 'Commits'], ru: ['Коммит', 'Коммиты'], describe: ['A change in the repository\'s history, with its author and the files it touched.', 'Изменение в истории репозитория, его автор и затронутые файлы.'] },
   { name: 'code.author', template: 'author.md', source: 'graph', group: 'history', origin: 'history', en: ['Author', 'Authors'], ru: ['Автор', 'Авторы'], describe: ['A person who made commits.', 'Человек, который делал коммиты.'] },
+  { name: 'code.snapshot', template: 'item-plain.md', source: 'graph', group: 'history', origin: 'history', en: ['Repository landmark', 'Repository landmarks'], ru: ['Ориентир репозитория', 'Ориентиры репозитория'], describe: ['A repository landmark read from Git, with its commit and the files held by that tree.', 'Ориентир из Git с его коммитом и файлами этого дерева репозитория.'] },
   { name: 'code.task', template: 'history-task.md', source: 'graph', group: 'history', origin: 'history', en: ['Task', 'Tasks'], ru: ['Задача', 'Задачи'], describe: ['A tracker task that commit messages name.', 'Задача трекера, которую называют сообщения коммитов.'] },
 ];
 

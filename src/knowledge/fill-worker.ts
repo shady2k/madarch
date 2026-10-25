@@ -17,6 +17,7 @@ import { setPriority } from 'node:os';
 import { promisify } from 'node:util';
 import { createPGliteDatabaseOwner, type DatabaseOwner } from '../adapters/database-owner.js';
 import { fillGraph } from '../extract/driver/index.js';
+import { repositoryLandmarks } from './history-landmarks.js';
 import { HISTORY_EXTRACTOR, OWNERS, TREE_EXTRACTORS } from '../extract/driver/extractors.js';
 import { createGraphStore } from '../graph/index.js';
 import { indexWorkerProduct } from './index/run.js';
@@ -130,6 +131,8 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
       await tx.query(`CREATE TABLE IF NOT EXISTS knowledge_fill (
         repo text PRIMARY KEY, scope text NOT NULL, head text NOT NULL, commit_hash text NOT NULL, effective_time text NOT NULL,
         commits int NOT NULL, filled_commits int NOT NULL)`);
+      await tx.query(`CREATE TABLE IF NOT EXISTS knowledge_history_landmarks (
+        repo text PRIMARY KEY, scope text NOT NULL, head text NOT NULL, plan jsonb NOT NULL)`);
       const rows = await tx.query<Record<string, unknown>>('SELECT repo, scope, head, commit_hash, effective_time, commits, filled_commits FROM knowledge_fill');
       for (const row of rows.rows) {
         pins.set(String(row['repo']), {
@@ -162,6 +165,7 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
         const head = (await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repo.path, encoding: 'utf8' })).stdout.trim();
         // A refill walks the history from its first commit again: the source pin only moves forward, past what was already read.
         const base = pins.get(repo.name)?.filledCommits ?? 0;
+        const landmarks = await repositoryLandmarks(repo.path, head);
         const report = await fillGraph({
           owner,
           store,
@@ -170,9 +174,15 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
           extractors: TREE_EXTRACTORS,
           owners: OWNERS,
           history: HISTORY_EXTRACTOR,
-          snapshots: {},
+          snapshots: landmarks.snapshots,
+          points: landmarks.points,
           onStart: async (began) => {
             await pin({ name: repo.name, scope: began.repositoryNode, head: began.head, commit: pins.get(repo.name)?.commit ?? '', effectiveTime: pins.get(repo.name)?.effectiveTime ?? '', commits: began.commits, filledCommits: base });
+            await owner.transaction('write', async (tx) => {
+              await tx.query(`INSERT INTO knowledge_history_landmarks (repo, scope, head, plan) VALUES ($1, $2, $3, $4::jsonb)
+                ON CONFLICT (repo) DO UPDATE SET scope = $2, head = $3, plan = $4::jsonb`,
+              [repo.name, began.repositoryNode, began.head, JSON.stringify(landmarks)]);
+            });
             send({ type: 'progress', repository: repo.name, commit: 0, commits: began.commits });
           },
           onPhase: (phase) => { send({ type: 'phase', repository: repo.name, phase: phase.phase, commits: phase.commits, newCommits: phase.newCommits }); },
@@ -185,8 +195,12 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
             await snapshot(true);
             if (stopping) throw new FillStopped('the fill was stopped');
           },
+          onPoint: async () => {
+            await snapshot(true);
+            if (stopping) throw new FillStopped('the fill was stopped');
+          },
         });
-        gaps += report.gaps.length;
+        gaps += report.gaps.length + landmarks.diagnostics.length + landmarks.omitted;
       }
       await snapshot(true);
       send({ type: 'fill', state: 'done', gaps });

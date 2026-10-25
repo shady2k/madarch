@@ -1,4 +1,5 @@
 import { appPath } from '../app-base.js';
+import { historyQuery } from './history-context.js';
 import { readJson, RequestError } from '../api.js';
 import type { AgentChoices, AgentOffer, AnswerResult, Block, CorrectionResult, CreatedTask, DiagramRenderer, DiagramView, DocumentListing, DocumentPageModel, EntityListing, FillState, Glossary, Neighborhood, PageJournal, PageModel, ProblemListing, ProductChoice, ProductSettings, QuestionDetail, QuestionListing, RefreshPreview, SourceFile, StatementModel, TaskDetail, TaskImpact, TaskListing, TaskProposal, TaskRow, TaskScope, UserSettings, WikiStatus } from './types.js';
 
@@ -6,7 +7,7 @@ import type { AgentChoices, AgentOffer, AnswerResult, Block, CorrectionResult, C
 export const getStatus = (signal?: AbortSignal): Promise<WikiStatus> => readJson<WikiStatus>('read the wiki', '/api/k/status', signal);
 
 /** One entity's page. */
-export const getPage = (id: string, lang: string, signal?: AbortSignal, compose?: (reason: string) => string): Promise<PageModel> => readJson<PageModel>(`read the page of ${id}`, `/api/k/page?id=${encodeURIComponent(id)}&lang=${lang === 'ru' ? 'ru' : 'en'}`, signal, compose);
+export const getPage = (id: string, lang: string, signal?: AbortSignal, compose?: (reason: string) => string): Promise<PageModel> => readJson<PageModel>(`read the page of ${id}`, `/api/k/page?id=${encodeURIComponent(id)}&lang=${lang === 'ru' ? 'ru' : 'en'}${historyQuery()}`, signal, compose);
 
 /** The statement view of one sentence of a page. */
 export const getStatement = (id: string, sentence: string, turn: number, signal?: AbortSignal): Promise<StatementModel> => readJson<StatementModel>('read the statement', `/api/k/statement?id=${encodeURIComponent(id)}&sentence=${encodeURIComponent(sentence)}${turn > 0 ? `&n=${turn}` : ''}`, signal);
@@ -23,7 +24,7 @@ export function getEntities(kind: string, options: { q?: string; after?: string 
 export function getSource(repo: string | null, path: string, signal?: AbortSignal): Promise<SourceFile> {
   const query = new URLSearchParams({ path });
   if (repo !== null) query.set('repo', repo);
-  return readJson<SourceFile>(`read the source of ${path}`, `/api/k/source?${query.toString()}`, signal);
+  return readJson<SourceFile>(`read the source of ${path}`, `/api/k/source?${query.toString()}${historyQuery()}`, signal);
 }
 
 /** The products the selector offers: the home's, or this one alone. */
@@ -168,7 +169,7 @@ export function getNeighborhood(id: string, options: { relation?: string; direct
   const query = new URLSearchParams({ id, limit: String(options.limit ?? 8) });
   if (options.relation !== undefined) query.set('relation', options.relation);
   if (options.direction !== undefined) query.set('direction', options.direction);
-  return readJson<Neighborhood>(`read the neighbours of ${id}`, `/api/k/neighborhood?${query.toString()}`, signal);
+  return readJson<Neighborhood>(`read the neighbours of ${id}`, `/api/k/neighborhood?${query.toString()}${historyQuery()}`, signal);
 }
 
 // ---- the loop of questions and corrections (madarch-m38l.7) ----------------------------------
@@ -208,7 +209,7 @@ export const answerQuestion = (question: string, text: string): Promise<AnswerRe
 export const correctStatement = (statement: string, reason: string): Promise<CorrectionResult> => post<CorrectionResult>('save the correction', '/api/k/correction', { statement, reason });
 
 /** One block of a page, by the line of its template: what a deferred diagram reads to draw itself. */
-export const getBlock = (id: string, line: number, lang: string, signal?: AbortSignal): Promise<Block> => readJson<Block>(`read the block at line ${line} of the page of ${id}`, `/api/k/block?id=${encodeURIComponent(id)}&line=${line}&lang=${lang === 'ru' ? 'ru' : 'en'}`, signal);
+export const getBlock = (id: string, line: number, lang: string, signal?: AbortSignal): Promise<Block> => readJson<Block>(`read the block at line ${line} of the page of ${id}`, `/api/k/block?id=${encodeURIComponent(id)}&line=${line}&lang=${lang === 'ru' ? 'ru' : 'en'}${historyQuery()}`, signal);
 
 /** What the agent did to write one page: the records of the newest run that wrote it, or of the run asked for. */
 export const getJournal = (id: string, run: string | null, signal?: AbortSignal): Promise<PageJournal> => readJson<PageJournal>(`read the journal of ${id}`, `/api/k/journal?id=${encodeURIComponent(id)}${run === null ? '' : `&run=${encodeURIComponent(run)}`}`, signal);

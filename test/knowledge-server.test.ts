@@ -14,18 +14,24 @@ import { join } from 'node:path';
 import { startServer, type StartedServer } from '../src/server/http.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY, makeProduct, recordKey } from './knowledge-fixture.js';
+import type { Block } from '../src/knowledge/model.js';
 
 const sym = (rest: string): string => recordKey('code.symbol', rest);
 
 const env = gitEnv(SAMPLE_IDENTITY);
-const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, env, encoding: 'utf8' });
+const git = (cwd: string, ...args: string[]): string => {
+  const date = args.indexOf('--date');
+  return execFileSync('git', args, { cwd, env: date < 0 ? env : { ...env, GIT_COMMITTER_DATE: args[date + 1]! }, encoding: 'utf8' });
+};
 
 let work: string;
 let home: string;
 let server: StartedServer;
 let repository: string;
+let firstCommit: string;
 
 const A_TS = ['export function leaf(): number {', '  return 1;', '}', '', 'export function root(): number {', '  return leaf() + 1;', '}', ''].join('\n');
+const FIRST_A_TS = A_TS.replace('return 1;', 'return 0;');
 const B_TS = ['import { root } from "./a";', '', 'export function entry(): number {', '  return root();', '}', ''].join('\n');
 
 const get = async (path: string): Promise<{ status: number; body: any }> => {
@@ -45,13 +51,17 @@ beforeAll(async () => {
   repository = join(work, 'repo');
   mkdirSync(join(repository, 'src'), { recursive: true });
   git(repository, 'init', '--quiet', '--initial-branch=main');
-  writeFileSync(join(repository, 'src', 'a.ts'), A_TS);
+  writeFileSync(join(repository, 'src', 'a.ts'), FIRST_A_TS);
   writeFileSync(join(repository, 'package.json'), '{"name":"tiny","dependencies":{}}\n');
   git(repository, 'add', '.');
   git(repository, '-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'Add the leaf and the root', '--date', '2026-03-01T10:00:00Z');
+  firstCommit = git(repository, 'rev-parse', 'HEAD').trim();
+  git(repository, 'tag', 'baseline-read', firstCommit);
+  git(repository, '-c', 'commit.gpgsign=false', 'commit', '--quiet', '--allow-empty', '-m', 'Record an untagged interior point', '--date', '2026-03-02T10:00:00Z');
+  writeFileSync(join(repository, 'src', 'a.ts'), A_TS);
   writeFileSync(join(repository, 'src', 'b.ts'), B_TS);
   git(repository, 'add', '.');
-  git(repository, '-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'Add the entry', '--date', '2026-03-02T10:00:00Z');
+  git(repository, '-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'Add the entry', '--date', '2026-03-03T10:00:00Z');
   home = join(work, 'home');
   mkdirSync(home);
   makeProduct(home, 'tiny', repository, 'tiny');
@@ -212,6 +222,14 @@ describe('the fill the reader watches', () => {
     expect((await get('/products/tiny/api/k/source?repo=tiny&path=..%2Fsecret')).status).toBe(400);
     expect((await get('/products/tiny/api/k/source?repo=other&path=src/a.ts')).status).toBe(404);
     expect((await get('/products/tiny/api/k/source?repo=tiny&path=src/none.ts')).status).toBe(404);
+    const historicalGap = await get('/products/tiny/api/k/source?repo=tiny&path=src/a.ts&at=not-a-date');
+    expect(historicalGap.status).toBe(409);
+    expect(historicalGap.body.error).toMatchObject({ field: 'at', message: 'historical structure is unknown for tiny at not-a-date; no current source is substituted' });
+    expect(historicalGap.body.text).toBeUndefined();
+    const unknownRepository = await get('/products/tiny/api/k/source?repo=other&path=src/a.ts&at=2026-03-02');
+    expect(unknownRepository.status).toBe(409);
+    expect(unknownRepository.body.error.message).toContain('unknown for other at 2026-03-02');
+    expect(unknownRepository.body.text).toBeUndefined();
     // The product repository's own files open too, its git folder and dotfiles never.
     const manifest = await get('/products/tiny/api/k/source?path=madarch%2Fkinds.yaml');
     expect(manifest.status).toBe(200);
@@ -221,6 +239,80 @@ describe('the fill the reader watches', () => {
     // The gitignored checkouts are read as the repository the graph was filled from, at that commit, never as the product's own files.
     expect((await get('/products/tiny/api/k/source?path=repos%2Ftiny%2Fsrc%2Fa.ts')).status).toBe(404);
   });
+
+  test('production fill publishes repository first/tag/last trees for dated pages and exact source', async () => {
+    const key = sym('src/a.ts#root');
+    for (const at of ['2026-03-01', 'refs/tags/baseline-read', 'first']) {
+      const selected = new URLSearchParams({ id: key, repo: 'tiny', at });
+      const page = await get(`/products/tiny/api/k/page?${selected}`);
+      expect(page.status).toBe(200);
+      expect(page.body.history).toMatchObject({ coverage: 'covered', commit: firstCommit });
+      expect(page.body.historicalAbsent).not.toBe(true);
+      const source = await get(`/products/tiny/api/k/source?${new URLSearchParams({ repo: 'tiny', path: 'src/a.ts', at })}`);
+      expect(source.status).toBe(200);
+      expect(source.body).toMatchObject({ text: FIRST_A_TS, commit: firstCommit, history: { coverage: 'covered', landmarks: { offered: 2, covered: 2, limit: 64, omitted: 0, overflow: false } } });
+    }
+    const absent = await get(`/products/tiny/api/k/page?${new URLSearchParams({ id: sym('src/b.ts#entry'), repo: 'tiny', at: '2026-03-01' })}`);
+    expect(absent.body).toMatchObject({ historicalAbsent: true, history: { coverage: 'covered', commit: firstCommit } });
+    const tip = await get(`/products/tiny/api/k/page?${new URLSearchParams({ id: sym('src/b.ts#entry'), repo: 'tiny', at: 'last' })}`);
+    expect(tip.body.history).toMatchObject({ coverage: 'covered', commit: git(repository, 'rev-parse', 'HEAD').trim() });
+    for (const lang of ['en', 'ru']) {
+      const unfilled = await get(`/products/tiny/api/k/page?${new URLSearchParams({ id: key, repo: 'tiny', at: '2026-03-02', lang })}`);
+      expect(unfilled.body).toMatchObject({ blocks: [], history: { coverage: 'unfilled', landmarks: { offered: 2, covered: 2 } } });
+      const sourceGap = await get(`/products/tiny/api/k/source?${new URLSearchParams({ repo: 'tiny', path: 'src/a.ts', at: '2026-03-02' })}`);
+      expect(sourceGap.status).toBe(409); expect(sourceGap.body.text).toBeUndefined();
+    }
+    const before = await get(`/products/tiny/api/k/page?${new URLSearchParams({ id: key, repo: 'tiny', at: '2026-02-28' })}`);
+    expect(before.body.history.coverage).toBe('before');
+  }, 20_000);
+
+  test('repository landmarks have bilingual routed pages with the actual commit and held files', async () => {
+    const listed = await get('/products/tiny/api/k/entities?kind=code.snapshot');
+    expect(listed.status).toBe(200);
+    const names = ['first', 'last', 'refs/tags/baseline-read'];
+    expect(listed.body.total).toBe(names.length);
+    expect(listed.body.rows.map((row: { id: string }) => row.id).sort()).toEqual(names.map((name) => recordKey('code.snapshot', name)).sort());
+    const status = await get('/products/tiny/api/k/status');
+    expect(status.body.kinds.find((kind: { kind: string }) => kind.kind === 'code.snapshot')).toMatchObject({ group: 'history', count: names.length, origins: ['history'], labels: { en: { one: 'Repository landmark', many: 'Repository landmarks' }, ru: { one: 'Ориентир репозитория', many: 'Ориентиры репозитория' } } });
+    const declaration = status.body.kinds.find((kind: { kind: string }) => kind.kind === 'code.snapshot');
+    expect(declaration.descriptions.en).toBe('A repository landmark read from Git, with its commit and the files held by that tree.');
+    expect(declaration.descriptions.ru).toBe('Ориентир из Git с его коммитом и файлами этого дерева репозитория.');
+    for (const name of names) {
+      const id = recordKey('code.snapshot', name);
+      const expectedCommit = name === 'last' ? git(repository, 'rev-parse', 'HEAD').trim() : firstCommit;
+      const expectedFiles = (name === 'last' ? ['package.json', 'src/a.ts', 'src/b.ts'] : ['package.json', 'src/a.ts']).map((path) => recordKey('code.file', path)).sort();
+      for (const lang of ['en', 'ru']) {
+        const page = await get(`/products/tiny/api/k/page?${new URLSearchParams({ id, lang, full: '1' })}`);
+        expect(page.status).toBe(200);
+        expect(page.body.findings).toEqual([]);
+        const blocks: Block[] = page.body.blocks;
+        expect(blocks.filter((entry) => entry.type === 'problem')).toEqual([]);
+        const details = blocks.find((entry): entry is Extract<Block, { type: 'properties' }> => entry.type === 'properties');
+        expect(details).toBeDefined();
+        if (!details) throw new Error(`Landmark page ${id} in ${lang} omitted its properties block`);
+        expect(details.title).toBe(lang === 'ru' ? 'Сведения' : 'Details');
+        expect(details.rows).toContainEqual({ name: 'commit', value: expectedCommit });
+        const relations = blocks.find((entry): entry is Extract<Block, { type: 'related' }> => entry.type === 'related' && entry.groups.some((group) => group.relation === 'code.held'));
+        expect(relations).toBeDefined();
+        if (!relations) throw new Error(`Landmark page ${id} in ${lang} omitted its held-file relations`);
+        const held = relations.groups.find((group) => group.relation === 'code.held');
+        expect(held).toBeDefined();
+        if (!held) throw new Error(`Landmark page ${id} in ${lang} omitted code.held`);
+        expect(held.total).toBe(expectedFiles.length);
+        expect(held.rows.map((row) => row.entity.id).sort()).toEqual(expectedFiles);
+        for (const row of held.rows) {
+          expect(row.entity.href).toBeTruthy();
+          expect(row.entity.broken).toBeUndefined();
+          const target = await get(`/products/tiny/api/k/page?${new URLSearchParams({ id: row.entity.id, lang })}`);
+          expect(target.status).toBe(200);
+          expect(target.body.findings).toEqual([]);
+        }
+        const neighbors = await get(`/products/tiny/api/k/neighborhood?${new URLSearchParams({ id, lang })}`);
+        expect(neighbors.status).toBe(200);
+        expect(neighbors.body.nodes.map((node: { id: string }) => node.id)).toEqual(expect.arrayContaining(expectedFiles));
+      }
+    }
+  }, 30_000);
 
   test('a kind is listed from the graph in key order, filtered by text', async () => {
     const all = await get('/products/tiny/api/k/entities?kind=code.symbol');
