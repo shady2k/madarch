@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/button.js';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.js';
 import { Input } from '@/components/ui/input.js';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.js';
-import { getDocument, getDocuments, getEntities, getPage, getSource, getStatement, correctStatement, startFill } from './api.js';
+import { getViews, getDocument, getDocuments, getEntities, getPage, getSource, getStatement, correctStatement, startFill } from './api.js';
 import { useTabTitle } from './tabs.js';
 import { currentHistory } from './history-context.js';
 import { HistoryBar } from './history-bar.js';
@@ -28,7 +28,8 @@ import { useRead } from './live.js';
 import { blockOpen, useRole } from './roles.js';
 import { PageSkeleton } from './skeleton.js';
 import { Textarea } from '@/components/ui/textarea.js';
-import type { CorrectionResult, DocumentListing, DocumentPageModel, EntityListing, EntityRef, Excerpt, GroundView, Origin, PageModel, SourceFile, StatementModel, WikiStatus } from './types.js';
+import { DiagramsView } from './diagrams/views.js';
+import type { CorrectionResult, DiagramRenderer, DiagramView, DocumentListing, DocumentPageModel, EntityListing, EntityRef, Excerpt, GroundView, Origin, PageModel, SourceFile, StatementModel, WikiStatus } from './types.js';
 
 function message(failure: unknown): string {
   return failure instanceof Error ? failure.message : String(failure);
@@ -100,6 +101,16 @@ export function EntityPage({ id, version }: { id: string; version: number }): Re
   );
 }
 
+/** The map of a kind's pages and the services behind them (the domain context map); nothing is drawn for a kind no service stands behind. */
+function KindMap({ kind, version }: { kind: string; version: number }): ReactElement | null {
+  const { t, i18n } = useTranslation();
+  const lang = i18n.resolvedLanguage ?? 'en';
+  const read = useRead<{ renderer: DiagramRenderer; views: DiagramView[] }>(`map\0${kind}\0${lang}`, version, (signal) => getViews(new URLSearchParams({ type: 'domain-map', subject: kind }).toString(), lang, signal));
+  const view = read.data?.views[0];
+  if (read.data === null || view === undefined || view.empty !== null) return null;
+  return <div className="mb-6" data-testid="kind-map"><DiagramsView block={{ type: 'diagrams', title: t('knowledge.views.kindMap'), renderer: read.data.renderer, views: [view] }} /></div>;
+}
+
 /** A kind's entities: filtered by text, a hundred at a time. */
 export function KindPage({ kind, version }: { kind: string; version: number }): ReactElement {
   const { t } = useTranslation();
@@ -147,6 +158,7 @@ export function KindPage({ kind, version }: { kind: string; version: number }): 
           {listing !== null && <span className="text-small text-muted" data-testid="kind-total">{t('knowledge.total', { count: listing.total })}</span>}
         </div>
       </header>
+      <KindMap kind={kind} version={version} />
       {(error ?? read.error) !== null && <Alert variant="problem" className="mb-4"><AlertDescription><p>{error ?? read.error}</p></AlertDescription></Alert>}
       {listing === null && read.error === null && <PageSkeleton testId="kind-loading" rows />}
       {listing !== null && rows.length === 0 && <p className="text-muted" data-testid="kind-empty">{t('knowledge.nothingOfKind')}</p>}

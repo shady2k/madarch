@@ -58,6 +58,8 @@ export interface NeighborGroup {
 
 /** One edge with the lightweight view of both ends. */
 export interface RelationEdge {
+  /** Distinguishes parallel relations between the same entities. Older synthetic readers may omit it. */
+  discriminator?: string;
   from: { key: string; kind: string; label: string };
   to: { key: string; kind: string; label: string };
   properties: Record<string, unknown>;
@@ -368,18 +370,19 @@ export class GraphReader {
     return await this.run(async (tx, at) => {
       const found = await tx.query<Raw>(
         `SELECT s.properties->>'recordKey' AS from_key, ks.key AS from_kind, s.label AS from_label,
-                d.properties->>'recordKey' AS to_key, kd.key AS to_kind, d.label AS to_label, e.properties AS properties, count(*) OVER ()::int AS total
+                d.properties->>'recordKey' AS to_key, kd.key AS to_kind, d.label AS to_label, e.discriminator, e.properties AS properties, count(*) OVER ()::int AS total
          FROM edge_version e JOIN relation_type r ON r.id = e.relation_type_id
          JOIN node_version s ON s.node_id = e.src_id AND ${this.visible('s')} AND s.properties ? 'recordKey'
          JOIN node_kind ks ON ks.id = s.kind_id
          JOIN node_version d ON d.node_id = e.dst_id AND ${this.visible('d')} AND d.properties ? 'recordKey'
          JOIN node_kind kd ON kd.id = d.kind_id
          WHERE r.key = $2 AND ${this.visible('e')}
-         ORDER BY s.properties->>'recordKey' COLLATE "C", d.properties->>'recordKey' COLLATE "C", e.id
+         ORDER BY s.properties->>'recordKey' COLLATE "C", d.properties->>'recordKey' COLLATE "C", e.discriminator COLLATE "C", e.id
          LIMIT $3::int`,
         [at, relation, String(limit)],
       );
       const rows = found.rows.map((row) => ({
+        discriminator: String(row['discriminator'] ?? ''),
         from: { key: String(row['from_key']), kind: String(row['from_kind']), label: String(row['from_label']) },
         to: { key: String(row['to_key']), kind: String(row['to_kind']), label: String(row['to_label']) },
         properties: (row['properties'] ?? {}) as Record<string, unknown>,

@@ -12,7 +12,7 @@
  *   what decision 0026 gives it ("LikeC4 for C4 and deployment"; no deployment
  *   kind exists in the schema yet, so none is offered).
  * - **archify** draws whatever LikeC4 can lay out: the C4 types, module
- *   dependencies, ER and state. A sequence is not one of them — archify's document
+ *   dependencies and state. ER is Mermaid-only. A sequence is not one of them — archify's document
  *   is components and connections, and a lifeline with an order is neither.
  *
  * The tabs stand in one fixed order (LikeC4, Mermaid, Archify, the order the static
@@ -36,14 +36,14 @@ export type GraphDiagramRenderer = (typeof DIAGRAM_RENDERERS)[number];
 
 /**
  * What each diagram type is drawn by. LikeC4's three are the C4 levels 0026 names
- * for it; archify's six are the ones a set of components and connections can say;
+ * for it; archify draws architecture types, module dependencies and state;
  * Mermaid draws all seven.
  */
 export const DIAGRAM_RENDERERS_OF: Readonly<Record<DiagramType, readonly GraphDiagramRenderer[]>> = {
   'c4-component': ['likec4', 'mermaid', 'archify'],
   'c4-container': ['likec4', 'mermaid', 'archify'],
   'c4-context': ['likec4', 'mermaid', 'archify'],
-  'er': ['mermaid', 'archify'],
+  'er': ['mermaid'],
   'module-dependency': ['mermaid', 'archify'],
   'sequence': ['mermaid'],
   'state': ['mermaid', 'archify'],
@@ -83,6 +83,8 @@ export interface GraphDiagramTab {
   readonly renderer: GraphDiagramRenderer;
   /** Mermaid: the source the app renders. */
   readonly source?: string;
+  /** A located diagnostic when ER cannot represent an assumption without changing its meaning. */
+  readonly message?: string;
   /** Archify and LikeC4: the address of the rendered page the tab frames. */
   readonly src?: string;
 }
@@ -173,7 +175,11 @@ export function graphDiagramOf(diagram: NodeDiagram, options: { readonly node: s
   const tabs: GraphDiagramTab[] = orderedTabs(model.type, options.chosen).map((renderer): GraphDiagramTab => {
     switch (renderer) {
       case 'mermaid':
-        return { renderer, source: mermaidOfDiagram(model) };
+        try { return { renderer, source: mermaidOfDiagram(model) }; }
+        catch (error) {
+          if (model.type !== 'er' || !String(error).includes('[unsupported ER assumption]')) throw error;
+          return { renderer, message: error instanceof Error ? error.message : String(error) };
+        }
       case 'archify':
         return { renderer, src: archifyAddress(options.node, model.type) };
       case 'likec4':

@@ -5,9 +5,9 @@
  * build reads (the process's database, decision 0027) are laid the way the
  * compiled binary reads them (`Bun.main`'s directory), then `bun build
  * --compile` embeds and bundles the entry. The wiki app's
- * dist is built here when it is missing or older than its sources
+ * dist is freshly built here for every release
  * (`src/product-wiki/app.ts` ensureBuilt: the same build the checkout's own
- * `madarch` runs), so a fresh binary always carries the current app; the
+ * `madarch` runs, with any old dist removed first), so a fresh binary always carries the current app; the
  * release workflow and a local run both call this script, so the layout
  * the binary reads is checked here and not in the workflow's steps.
  *
@@ -36,6 +36,8 @@ import { fileURLToPath } from 'node:url';
 import { pgliteAssetFiles } from './pglite-assets.js';
 import { ensureBuilt } from '../src/product-wiki/app.js';
 import { GIT_LEAKS } from '../src/product/git.js';
+import { createHash } from 'node:crypto';
+import { manifestWithRepo } from '../src/product/manifest.js';
 
 const USAGE = 'usage: bun scripts/build-binary.ts --version <x.y.z> [--os linux|darwin|windows] [--arch x64|arm64] [--out <folder>]';
 
@@ -109,11 +111,11 @@ function parseArgs(argv: readonly string[]): BuildOptions | number {
 
 /** Lays the embed tree the binary reads: `wiki-app` (the dist, its stamp out) and `version` (the text). */
 function stageAssets(stage: string, options: BuildOptions): { ok: true } | { ok: false; message: string } {
-  // The embedded app is the current one: a dist that is missing, or older than the sources
-  // its stamp records, is built here, so no one runs a separate build before the binary.
+  // Build the embedded app here, so callers do not need a separate app-build step.
   const appFolder = join(REPO_ROOT, 'wiki', 'app');
-  // A dist with no stamp was built by hand and cannot say which sources it holds: the binary never embeds one, it is built again.
-  if (existsSync(join(appFolder, 'dist', 'index.html')) && !existsSync(join(appFolder, 'dist', '.sources-hash'))) rmSync(join(appFolder, 'dist'), { recursive: true, force: true });
+  // A release never trusts a pre-existing dist (including one built by hand without a source stamp). Build it here
+  // so the bundled renderer assets and the app always come from the same source tree as the binary.
+  rmSync(join(appFolder, 'dist'), { recursive: true, force: true });
   const built = ensureBuilt({ appFolder, env: process.env }, (line) => console.log(line));
   if (!built.ok) return { ok: false, message: built.message };
   const sourceDist = join(appFolder, 'dist');
@@ -122,6 +124,7 @@ function stageAssets(stage: string, options: BuildOptions): { ok: true } | { ok:
   }
   const wikiApp = join(stage, 'wiki-app');
   cpSync(sourceDist, join(wikiApp, 'dist'), { recursive: true });
+  console.log(`embedded wiki index sha256 ${createHash('sha256').update(readFileSync(join(sourceDist, 'index.html'))).digest('hex')}`);
   // The dist of a working checkout carries the app-folder stamp its own
   // sources hash; inside the binary there are no sources to compare with,
   // so the stamp would make every start want a rebuild. The embedded dist
@@ -293,12 +296,49 @@ async function createsAndServes(outfile: string, products: string, port: number,
         // madarch's own wiki came out of the copy the binary carries, with no network asked for.
         const listed = await fetch(new URL('/api/products', facts.url));
         if (!listed.ok || !(await listed.text()).includes('"own":true')) return `the built binary did not serve madarch's own wiki beside the draft (GET /api/products answered ${listed.status})${daemonLog(products)}`;
-        return undefined;
+        return await smokeArchify(facts, products, env);
       }
     } catch { /* the product's API is still coming up */ }
     await new Promise((done) => setTimeout(done, 100));
   }
   return `the built binary created a draft but no product answered at ${facts.url}api/k/product within 30 s: ${said}${daemonLog(products)}`;
+}
+
+/** One tiny repository filled through the binary server, then its own archify frame and rendered output. */
+async function smokeArchify(facts: NewFacts, products: string, env: NodeJS.ProcessEnv): Promise<string | undefined> {
+  if (facts.folder === undefined || facts.url === undefined) return 'the binary smoke has no product folder or URL';
+  const repo = join(facts.folder, 'repos', 'example');
+  mkdirSync(join(repo, 'services', 'payments'), { recursive: true });
+  writeFileSync(join(repo, 'services', 'payments', 'package.json'), '{"name":"payments","version":"1.0.0"}');
+  writeFileSync(join(repo, 'services', 'payments', 'index.ts'), 'export function pay(): number { return 1; }\n');
+  const gitEnv = { ...env };
+  for (const name of GIT_LEAKS) delete gitEnv[name];
+  for (const args of [['init', '--quiet'], ['add', '.'], ['commit', '--quiet', '-m', 'A service']]) {
+    const done = spawnSync('git', args, { cwd: repo, encoding: 'utf8', env: gitEnv, timeout: 10_000 });
+    if (done.status !== 0) return `${repo}:1: the binary smoke's git ${args[0]} failed (exit ${String(done.status)}): ${done.stderr}`;
+  }
+  const manifest = join(facts.folder, 'workspace.yaml');
+  writeFileSync(manifest, manifestWithRepo(readFileSync(manifest, 'utf8'), { name: 'example', linked: true }));
+  const start = await fetch(`${facts.url}api/k/fill`, { method: 'POST' });
+  if (!start.ok) return `the binary smoke's fill at ${facts.url} failed: ${await start.text()}${daemonLog(products)}`;
+  const deadline = Date.now() + 90_000;
+  let filled = false;
+  while (Date.now() < deadline) {
+    const status = await fetch(`${facts.url}api/k/status`);
+    const state = (await status.json()) as { fill: { state: string; message?: string } };
+    if (state.fill.state === 'failed') return `the binary smoke's fill failed: ${state.fill.message}${daemonLog(products)}`;
+    if (state.fill.state === 'done') { filled = true; break; }
+    await new Promise((done) => setTimeout(done, 100));
+  }
+  if (!filled) return `the binary smoke's fill did not end within 90 s${daemonLog(products)}`;
+  const address = `${facts.url}api/k/view-frame?type=c4-container&subject=&renderer=archify&lang=en`;
+  const response = await fetch(address);
+  const html = await response.text();
+  if (!response.ok || !html.includes('<svg') || html.includes('data-frame-error')) {
+    return `the binary smoke's archify frame at ${address} holds no svg (HTTP ${response.status}): ${html.slice(0, 1000)}${daemonLog(products)}`;
+  }
+  console.log('binary archify smoke ok: its server rendered an svg');
+  return undefined;
 }
 
 /** Lists the scratch home: the draft the graph store holds is the one the list names. */

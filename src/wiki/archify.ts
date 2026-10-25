@@ -39,6 +39,15 @@ const TYPE_BY_KIND: Record<string, string> = {
   column: 'backend',
   state: 'backend',
   table: 'database',
+  // The knowledge wiki's views (src/knowledge/views.ts) draw the graph's containers with these looks.
+  database: 'database',
+  channel: 'messagebus',
+  node: 'cloud',
+  image: 'cloud',
+  container: 'backend',
+  component: 'backend',
+  participant: 'backend',
+  product: 'cloud',
 };
 
 /** The one kind that gets an icon: a person is drawn as one. */
@@ -64,6 +73,7 @@ export interface ArchifyLayoutNode {
   readonly id: string;
   readonly kind: string;
   readonly title: string;
+  readonly technology?: string;
   readonly parent: string | null;
   readonly x: number;
   readonly y: number;
@@ -162,7 +172,7 @@ export function archifyDocument(view: ArchifyLayoutedView, options: { output: st
       id: componentId(node.id),
       type: TYPE_BY_KIND[node.kind] ?? 'external',
       label: node.title,
-      sublabel: node.kind,
+      sublabel: node.technology ?? node.kind,
       ...(ICON_BY_KIND[node.kind] === undefined ? {} : { icon: ICON_BY_KIND[node.kind] }),
       pos: [node.x, node.y] as const,
       size: [node.width, node.height] as const,

@@ -40,6 +40,7 @@ ${block('related', 'Relates to', 'Связано с', 'relation="relates"')}
 `;
 
 const DOMAIN = `:::body
+${block('system', 'Architecture of the domain', 'Архитектура домена', 'view="domain"')}
 ${block('sequence', 'End-to-end chain', 'Сквозная цепочка', 'scenario="{{title}}"')}
 ${G('Around this page','Вокруг этой страницы')}
 ${block('related', 'Implemented by', 'Реализуют', 'relation="relates"')}
@@ -48,7 +49,7 @@ ${block('related', 'Implemented by', 'Реализуют', 'relation="relates"')
 const SERVICE = `A {{language}} service. Frameworks: {{frameworks}}. Infrastructure: {{infrastructure}}. Tests: {{testFramework}}.
 
 ${G('Around this service','Вокруг этого сервиса')}
-${block('modules', 'Modules', 'Модули')}
+${block('modules', 'Components and state machines', 'Компоненты и конечные автоматы')}
 ${block('treemap', 'Files by size and change', 'Файлы по размеру и изменчивости')}
 ${block('related', 'Files', 'Файлы', 'relation="code.contains" depth=3 kind="code.file" limit=60')}
 ${block('related', 'Modules', 'Модули', 'relation="code.contains" depth=2 kind="code.module" limit=60')}
@@ -61,6 +62,7 @@ ${block('history', 'Change history', 'История изменений')}
 
 ${block('source', 'Source', 'Исходный текст')}
 ${G('Around this file','Вокруг этого файла')}
+${block('modules', 'State machines', 'Конечные автоматы')}
 ${block('related', 'Declares', 'Объявляет', 'relation="code.contains" direction="out" kind="code.symbol" limit=60')}
 ${block('related', 'Imports', 'Импортирует', 'relation="code.imports" direction="out"')}
 ${block('related', 'Imported by', 'Импортируют', 'relation="code.imports" direction="in"')}
@@ -74,6 +76,7 @@ ${block('source', 'Source', 'Исходный текст')}
 ${block('callers', 'Callers', 'Кто вызывает')}
 ${block('callees', 'Calls', 'Что вызывает')}
 ${G('Around this function','Вокруг этой функции')}
+${block('modules', 'State machines', 'Конечные автоматы')}
 ${block('sequence', 'End-to-end chain', 'Сквозная цепочка', 'scenario="{{label}}"')}
 ${block('related', 'Tests and types', 'Тесты и типы', 'relation="code.tests,code.implements,code.inherits"')}
 ${SECTION.pagesAbout('this function', 'этой функции')}
@@ -81,6 +84,7 @@ ${SECTION.pagesAbout('this function', 'этой функции')}
 
 const PACKAGE = `${SECTION.details}
 ${G('Around this','Вокруг этого')}
+${block('modules', 'State machines', 'Конечные автоматы')}
 ${block('related', 'Modules', 'Модули', 'relation="code.contains" direction="out" kind="code.module" limit=60')}
 ${block('related', 'Files', 'Файлы', 'relation="code.contains" depth=3 kind="code.file" limit=80')}
 ${block('related', 'Relations', 'Связи', 'relation="code.manifest-of" direction="in"')}
@@ -90,6 +94,7 @@ ${SECTION.pagesAbout('this package', 'этом пакете')}
 const MODULE = `${SECTION.details}
 ${block('history', 'Observed contributions', 'Наблюдаемые изменения')}
 ${G('Around this','Вокруг этого')}
+${block('modules', 'State machines', 'Конечные автоматы')}
 ${block('related', 'Files', 'Файлы', 'relation="code.contains" depth=2 kind="code.file" limit=80')}
 ${block('related', 'Symbols', 'Символы', 'relation="code.contains" depth=3 kind="code.symbol" limit=60')}
 ${block('related', 'Depends on', 'Зависит от', 'relation="code.depends-on" direction="out"')}

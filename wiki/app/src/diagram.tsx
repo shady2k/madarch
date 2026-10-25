@@ -40,7 +40,8 @@ export function useColorScheme(): 'light' | 'dark' {
 }
 
 /** Renders one Mermaid source into the box; a failed draw is the named failure. */
-export function MermaidDiagram({ source, title }: { source: string; title?: string }): ReactElement {
+/** `bind` runs on the drawn svg (it makes its nodes links) and may return what undoes it. */
+export function MermaidDiagram({ source, title, bind }: { source: string; title?: string; bind?: (root: HTMLElement) => void | (() => void) }): ReactElement {
   const { t } = useTranslation();
   const [failed, setFailed] = useState<string | null>(null);
   const [svg, setSvg] = useState<string | null>(null);
@@ -56,7 +57,12 @@ export function MermaidDiagram({ source, title }: { source: string; title?: stri
           startOnLoad: false,
           securityLevel: 'strict',
           theme: mermaidThemeOf(scheme),
-          flowchart: { curve: 'linear', useMaxWidth: true, htmlLabels: false },
+          // A diagram is drawn at its natural size and the frame scrolls or pans over it: a picture squeezed into a
+          // narrow column would keep its shape and lose its words (the owner's review of 2026-10-24 read 2-3 px labels).
+          flowchart: { curve: 'linear', useMaxWidth: false, htmlLabels: false },
+          sequence: { useMaxWidth: false },
+          er: { useMaxWidth: false },
+          state: { useMaxWidth: false },
         });
         const id = `wiki-mermaid-${Math.random().toString(36).slice(2)}`;
         const drawn = await mermaid.render(id, source);
@@ -73,6 +79,10 @@ export function MermaidDiagram({ source, title }: { source: string; title?: stri
       alive = false;
     };
   }, [source, scheme]);
+  useEffect(() => {
+    if (svg === null || holder.current === null || bind === undefined) return;
+    return bind(holder.current) ?? undefined;
+  }, [svg, bind]);
   if (failed !== null) {
     return (
       <p className="diagram-error" data-testid="mermaid-error">
