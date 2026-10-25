@@ -175,6 +175,8 @@ describe('questions-once harness rejects incomplete evidence', () => {
     const label = { x: 20, width: 300, height: 24, hidden: false, fontSize: 18, clips: [], ownClip: false, special: true };
     const measure: VisibilityMeasurement = { labels: [label], overlaps: [], documentWidth: 390, fonts: 'loaded', interLoaded: true, dark: true, surface: '#292929', language: 'ru', homeLabel: 'Главная' };
     expect(() => assertVisibility(measure, shot)).not.toThrow();
+    for (const surface of ['#fff', '#FFF', '#ffffff']) expect(() => assertVisibility({ ...measure, dark: false, surface }, { ...shot, theme: 'light' })).not.toThrow();
+    for (const surface of ['#ffe', '#fefefe', '#000', 'white']) expect(() => assertVisibility({ ...measure, dark: false, surface }, { ...shot, theme: 'light' })).toThrow('actual font/theme');
     for (const change of [{ hidden: true }, { width: 0 }, { height: 0 }, { fontSize: 13 }, { clips: ['hidden ancestor'] }, { ownClip: true }, { x: 200 }]) expect(() => assertVisibility({ ...measure, labels: [{ ...label, ...change }] }, shot)).toThrow();
     for (const change of [{ overlaps: ['one'] }, { documentWidth: 500 }, { fonts: 'loading' }, { interLoaded: false }, { dark: false }, { surface: '#ffffff' }, { language: 'en' }, { homeLabel: 'Home' }]) expect(() => assertVisibility({ ...measure, ...change }, shot)).toThrow();
   });

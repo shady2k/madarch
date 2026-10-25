@@ -119,7 +119,8 @@ export function assertVisibility(measurement: VisibilityMeasurement, shot: Pick<
   requireWalk(measurement.labels.length > 0 && measurement.labels.every((row) => !row.hidden && row.width > 0 && row.height > 0 && row.fontSize >= 14 && row.clips.length === 0 && !row.ownClip), `${shot.key}: hidden, clipped or unreadable labels; see visibility-measured`);
   requireWalk(measurement.labels.filter((row) => row.special).every((row) => row.x >= -1 && row.x + row.width <= shot.width + 1), `${shot.key}: changed surface overflows viewport`);
   requireWalk(measurement.overlaps.length === 0 && measurement.documentWidth <= shot.width + 1, `${shot.key}: overlap/horizontal overflow; see visibility-measured`);
-  requireWalk(measurement.fonts === 'loaded' && measurement.interLoaded && measurement.dark === (shot.theme === 'dark') && measurement.surface.toLowerCase() === (shot.theme === 'dark' ? '#292929' : '#ffffff'), `${shot.key}: actual font/theme differs from plan`);
+  const surface = measurement.surface.toLowerCase().replace(/^#([0-9a-f])([0-9a-f])([0-9a-f])$/, '#$1$1$2$2$3$3');
+  requireWalk(measurement.fonts === 'loaded' && measurement.interLoaded && measurement.dark === (shot.theme === 'dark') && surface === (shot.theme === 'dark' ? '#292929' : '#ffffff'), `${shot.key}: actual font/theme differs from plan`);
   requireWalk(measurement.language === shot.language && measurement.homeLabel === (shot.language === 'ru' ? 'Главная' : 'Home'), `${shot.key}: actual language differs from plan`);
 }
 
