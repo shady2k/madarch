@@ -163,6 +163,15 @@ describe('reset keeps human input (madarch-m38l.22)', () => {
     expect(existsSync(join(product, 'docs/domains/mine.md'))).toBe(true); expect(existsSync(join(product, 'repos/code/a.ts'))).toBe(true);
   });
 
+  test('a human correction stays even when an extra producer field says agent', () => {
+    const { product, store } = fixture(); loopFixture(product);
+    const relative = 'docs/corrections/agent-tagged.md'; const file = join(product, relative);
+    const source = renderCorrection({ slug: 'agent-tagged', title: 'Keep the correction', status: 'open', about: 'product:sample#policy', statement: 'The old policy applies.', reason: 'A person corrected this policy.', by: person, at, resolvedBy: [], resolvedAt: null }).replace('producer: person', 'producer: agent');
+    writeFileSync(file, source); expect(parseCorrection(file, source).by).toEqual(person);
+    const plan = planReset(product, store); expect(plan.unansweredQuestions).not.toContain(relative);
+    applyReset(product, plan); expect(readFileSync(file, 'utf8')).toBe(source);
+  });
+
   test('zero question and answer counts are explicit', () => {
     const { product, store } = fixture(); const words = describeReset('sample', planReset(product, store)).join('\n');
     expect(words).toContain('0 unanswered agent questions'); expect(words).toContain('0 answers stay');
