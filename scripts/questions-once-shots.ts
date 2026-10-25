@@ -8,7 +8,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileS
 import { join, resolve } from 'node:path';
 import puppeteer from 'puppeteer';
 import { resolveBrowserExecutable } from './chromium.js';
-import { OnceEvidence, inventory, requireWalk, compareCodePoint, deadline, hashFiles, assertHashes, resetMissingTargets, OwnedTree, HTTP_MS, type ShotPlan, type QuestionDOM, type ResetAbsence, type InputHash } from './questions-once-evidence.js';
+import { OnceEvidence, inventory, requireWalk, compareCodePoint, deadline, hashFiles, assertHashes, resetMissingTargets, resetRepositoryDocument, assertResetStoreRemoved, missingMessage, OwnedTree, HTTP_MS, type ShotPlan, type QuestionDOM, type ResetAbsence, type InputHash } from './questions-once-evidence.js';
 import { ONCE_QUESTIONS, EXPECTED_FIRST_QUESTIONS, onceFirstScript, onceQuestionIds, onceRefillScript, onceRefreshScript, ONCE_KEY_MAPPING, validateOnceKey } from '../test/questions-once-script.js';
 import { ANSWER_TEXT, ORDERING_CORRECTED, questionSlug } from '../test/loop-agent-script.js';
 import { TEXT } from '../test/knowledge-agent-script.js';
@@ -16,7 +16,7 @@ import { SAMPLE_IDENTITY, generateTrainingRepository, makeProduct } from '../tes
 import { gitEnv } from '../test/git-env.js';
 import { readKnowledgePages } from '../src/knowledge/index/index.js';
 import { parseQuestion, parseCorrection } from '../src/loop/entities.js';
-import { readBody, splitFrontMatter } from '../src/knowledge/markdown.js';
+import { readBody, splitFrontMatter, parseTarget } from '../src/knowledge/markdown.js';
 import { noEntityMessage } from '../src/knowledge/resolve.js';
 import { parse as parseYaml } from 'yaml';
 import { isDeepStrictEqual } from 'node:util';
@@ -233,21 +233,35 @@ try {
     await capture('reset-');
     // Freeze exact reset-derived exceptions BEFORE deleting the graph/pages. No empty-stage exemption.
     const removedPages = preview.agentPages.map((file: string) => ({ file, id: parseYaml(splitFrontMatter(readFileSync(join(product, file), 'utf8')).front!).id as string }));
+    const documentProofs: { target: string; repo: string; path: string; sha256: string }[] = [];
+    const documentHashes: InputHash[] = [];
+    const documentSources = (resolutions: Record<string, any>) => Object.entries(resolutions).flatMap(([target, value]) => {
+      const parsed = parseTarget(target.startsWith('madarch:') ? target : `madarch:${target}`);
+      if (parsed.kind !== 'doc' || value.state !== 'ok') return [];
+      const href = new URL(value.href, 'http://fixture.test');
+      const repo = href.pathname === '/k/doc' ? href.searchParams.get('repo') : typeof value.entity === 'string' ? /^doc:@([^/]+)\//.exec(value.entity)?.[1] : undefined;
+      if (!repo) return [];
+      requireWalk(!parsed.path.split('/').includes('..') && !repo.includes('/') && !repo.includes('..'), `invalid document proof path: ${target}`);
+      const hash = resetRepositoryDocument(product, repo, parsed.path); documentHashes.push(hash);
+      const proof = { target, repo, path: parsed.path, sha256: hash.sha256 }; documentProofs.push(proof); return [proof];
+    });
     const absence: Record<string, ResetAbsence[string]> = {};
     for (const [id, file] of [[keptId, answerFile], [`correction:${correctionSlug}`, correctionFile]]) {
       const pageBefore = await get(`/api/k/page?${new URLSearchParams({ id: id!, lang: language, full: '1' })}`);
       requireWalk(pageBefore.id === id && Array.isArray(pageBefore.findings) && pageBefore.findings.length === 0, `${file}: pre-reset page is not clean/exact`);
-      const resolutions = [...resetMissingTargets(preview, removedPages, pageBefore.resolutions)];
+      const resolutions = [...resetMissingTargets(preview, removedPages, pageBefore.resolutions, documentSources(pageBefore.resolutions))];
       if (id === keptId) {
         const detailBefore = await get(`/api/k/question?id=${slug}`);
-        resolutions.push(...resetMissingTargets(preview, removedPages, detailBefore.resolutions));
+        resolutions.push(...resetMissingTargets(preview, removedPages, detailBefore.resolutions, documentSources(detailBefore.resolutions)));
       }
       absence[id!] = Object.freeze({ resolutions: Object.freeze(resolutions), findings: Object.freeze([]) });
     }
-    evidence.immutable(`${language}-reset-expected-missing.json`, { preview, removedPages, retained: absence });
+    evidence.immutable(`${language}-reset-expected-missing.json`, { preview, removedPages, retained: absence, documentProofs, documentHashes });
     const reset = await post('/api/k/reset', { preview });
     requireWalk(JSON.stringify(reset) === JSON.stringify(preview), `${product}: reset result differs from preview`);
+    assertResetStoreRemoved(preview.store);
     for (const path of [...preview.agentPages, ...preview.unansweredQuestions]) requireWalk(!existsSync(join(product, path)), `${join(product, path)}: reset did not remove planned file`);
+    assertHashes(documentHashes, documentHashes.map((row) => hashFiles([row.path])[0]!), 'retained code-repository documents after reset');
     assertHumans();
     const keptQuestion = parseQuestion(answerFile, readFileSync(answerFile, 'utf8'));
     const keptCorrection = parseCorrection(correctionFile, readFileSync(correctionFile, 'utf8'));
@@ -262,7 +276,7 @@ try {
       const resolutions = absence[id!]!.resolutions;
       const findings = body.links.flatMap((link) => {
         const target = resolutions.find((row) => row.target === link.url);
-        return target ? [{ file: relative, line: link.line, message: `${link.ground ? 'a ground' : 'a link'} does not resolve: ${noEntityMessage(target.key)}` }] : [];
+        return target ? [{ file: relative, line: link.line, message: `${link.ground ? 'a ground' : 'a link'} does not resolve: ${missingMessage(target)}` }] : [];
       });
       absence[id!] = Object.freeze({ resolutions, findings: Object.freeze(findings) });
     }

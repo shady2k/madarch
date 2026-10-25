@@ -57,10 +57,10 @@ describe('questions-once reader fixture is bound to the actual answer key', () =
 });
 
 
-import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import type { Page } from 'puppeteer';
-import { OnceEvidence, assertFindings, assertHashes, assertQuestionDOM, assertRouteIdentity, assertResolution, assertVisibility, deadline, hashFiles, ownedPIDs, resetMissingTargets, type OwnedPID, type ShotPlan, type VisibilityMeasurement } from '../scripts/questions-once-evidence.js';
+import { OnceEvidence, assertFindings, assertHashes, assertQuestionDOM, assertRouteIdentity, assertResolution, assertVisibility, deadline, hashFiles, ownedPIDs, resetMissingTargets, resetRepositoryDocument, assertResetStoreRemoved, type OwnedPID, type ShotPlan, type VisibilityMeasurement } from '../scripts/questions-once-evidence.js';
 import { noEntityMessage } from '../src/knowledge/resolve.js';
 import { readBody, splitFrontMatter } from '../src/knowledge/markdown.js';
 
@@ -87,6 +87,38 @@ describe('questions-once harness rejects incomplete evidence', () => {
     expect(() => resetMissingTargets(plan, [], {})).toThrow('exact agent-page plan');
     expect(() => resetMissingTargets(plan, removed, { 'domain:payments': missing('domain:payments') })).toThrow('pre-reset');
   });
+  test('reset document proof allows a held repository symlink but refuses traversal and escaping file links, and every store path must be gone', () => {
+    const root = mkdtempSync(join(tmpdir(), 'questions-reset-source-'));
+    try {
+      const product = join(root, 'product'); const repository = join(root, 'held');
+      mkdirSync(join(product, 'repos'), { recursive: true }); mkdirSync(join(repository, 'docs'), { recursive: true });
+      writeFileSync(join(repository, 'docs/guide.md'), 'A held source.'); symlinkSync(repository, join(product, 'repos/training'));
+      expect(resetRepositoryDocument(product, 'training', 'docs/guide.md').sha256).toBe(hashFiles([join(repository, 'docs/guide.md')])[0]!.sha256);
+      writeFileSync(join(root, 'outside.md'), 'Outside.'); symlinkSync(join(root, 'outside.md'), join(repository, 'docs/escape.md'));
+      expect(() => resetRepositoryDocument(product, 'training', 'docs/escape.md')).toThrow('outside');
+      expect(() => resetRepositoryDocument(product, 'training', '../outside.md')).toThrow('invalid');
+      expect(() => resetRepositoryDocument(product, '../held', 'docs/guide.md')).toThrow('invalid');
+      const store = join(root, 'graph'); mkdirSync(store); expect(() => assertResetStoreRemoved([store])).toThrow('did not remove');
+      rmSync(store, { recursive: true }); expect(() => assertResetStoreRemoved([store])).not.toThrow();
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  test('only pre-resolved repository documents with exact source proof become no-document after graph reset', () => {
+    const target = 'madarch:doc:docs/architecture.md#flow';
+    const value = { state: 'ok', target, kind: 'document', href: '/k/doc?repo=training&path=docs%2Farchitecture.md#flow' };
+    const proof = { target, repo: 'training', path: 'docs/architecture.md', sha256: 'a'.repeat(64) };
+    const allowed = resetMissingTargets(plan, removed, { [target]: value }, [proof]);
+    const broken = { state: 'broken', target, why: { code: 'no-document', path: proof.path }, reason: `no document "${proof.path}" in the product repository or its code repositories` };
+    expect(() => assertResolution(target, broken, allowed)).not.toThrow();
+    for (const wrong of [{ ...proof, repo: 'other' }, { ...proof, path: 'docs/other.md' }, { ...proof, sha256: '' }]) expect(() => resetMissingTargets(plan, removed, { [target]: value }, [wrong])).toThrow();
+    expect(resetMissingTargets({ ...plan, store: [] }, removed, { [target]: value }, [proof])).toEqual([]);
+    expect(resetMissingTargets(plan, removed, { [target]: value })).toEqual([]);
+    for (const wrong of [{ ...broken, reason: 'another reason' }, { ...broken, why: { code: 'no-document', path: 'docs/other.md' } }, { ...broken, why: { code: 'no-entity', key: proof.path } }]) expect(() => assertResolution(target, wrong, allowed)).toThrow();
+    expect(() => assertResolution('madarch:doc:docs/unplanned.md', { ...broken, target: 'madarch:doc:docs/unplanned.md' }, allowed)).toThrow();
+    const glossary = 'madarch:doc:docs/glossary.md#term';
+    expect(resetMissingTargets(plan, removed, { [glossary]: { state: 'ok', target: glossary, kind: 'doc.term', href: '/k/e/doc%3A%40training%2Fdocs%2Fglossary.md%23term', entity: 'doc:@training/docs/glossary.md#term' } }, [{ ...proof, target: glossary, path: 'docs/glossary.md' }])).toEqual([{ target: glossary, key: 'docs/glossary.md', documentPath: 'docs/glossary.md' }]);
+  });
+
   test('expected missing body findings match exact file, line, message and multiplicity', () => {
     const finding = { file: 'docs/questions/kept.md', line: 24, message: `a ground does not resolve: ${noEntityMessage('code.file:src/pay.ts')}` };
     expect(() => assertFindings([finding], [finding])).not.toThrow();

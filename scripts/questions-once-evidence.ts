@@ -2,11 +2,12 @@
 /// <reference lib="dom.iterable" />
 /** Evidence collection for the fixture-owned questions-once walk. This is a harness, not product policy. */
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Browser, Page, CDPSession, HTTPRequest } from 'puppeteer';
 import { noEntityMessage } from '../src/knowledge/resolve.js';
 import { parseStatementRef } from '../src/loop/entities.js';
+import { parseTarget } from '../src/knowledge/markdown.js';
 
 export const compareCodePoint = (a: string, b: string): number => a < b ? -1 : a > b ? 1 : 0;
 export function requireWalk(holds: unknown, message: string): asserts holds {
@@ -32,17 +33,39 @@ export function hashFiles(paths: readonly string[]): readonly InputHash[] {
 export function assertHashes(before: readonly InputHash[], after: readonly InputHash[], label: string): void {
   requireWalk(JSON.stringify(before) === JSON.stringify(after), `${label}: input paths/bytes changed: ${JSON.stringify({ before, after })}`);
 }
-export interface MissingTarget { readonly target: string; readonly key: string }
+export function resetRepositoryDocument(product: string, repo: string, path: string): InputHash {
+  requireWalk(repo !== '' && !repo.includes('/') && !repo.includes('..') && !path.split('/').includes('..'), 'invalid reset repository document path');
+  const root = realpathSync(join(product, 'repos', repo));
+  const file = realpathSync(join(root, path));
+  requireWalk(file.startsWith(root + '/') && existsSync(file), `pre-reset repository document outside its repository or missing: ${file}`);
+  return hashFiles([file])[0]!;
+}
+export function assertResetStoreRemoved(paths: readonly string[]): void {
+  for (const path of paths) requireWalk(!existsSync(path), `${path}: reset did not remove planned store`);
+}
+export interface MissingTarget { readonly target: string; readonly key: string; readonly documentPath?: string }
+export interface ResetDocumentSource { readonly target: string; readonly repo: string; readonly path: string; readonly sha256: string }
+export const missingMessage = (target: MissingTarget): string => target.documentPath === undefined ? noEntityMessage(target.key) : `no document "${target.documentPath}" in the product repository or its code repositories`;
 export interface MissingFinding { readonly file: string; readonly line: number; readonly message: string }
 export interface MissingRecord { readonly resolutions: readonly MissingTarget[]; readonly findings: readonly MissingFinding[] }
 export type ResetAbsence = Readonly<Record<string, MissingRecord>>;
 /** Only targets actually read from retained records, present before reset, and removed by this exact plan. */
-export function resetMissingTargets(plan: { store: readonly string[]; agentPages: readonly string[] }, removed: readonly { file: string; id: string }[], resolutions: Record<string, any>): readonly MissingTarget[] {
+export function resetMissingTargets(plan: { store: readonly string[]; agentPages: readonly string[] }, removed: readonly { file: string; id: string }[], resolutions: Record<string, any>, documents: readonly ResetDocumentSource[] = []): readonly MissingTarget[] {
   requireWalk(removed.length === plan.agentPages.length && plan.agentPages.every((file) => removed.filter((row) => row.file === file).length === 1), 'reset missing-target inputs do not match exact agent-page plan');
   const ids = new Set(removed.map((row) => row.id));
   const graphRemoved = plan.store.some((path) => path.endsWith('/graph'));
   return Object.freeze(Object.entries(resolutions).flatMap(([target, value]) => {
     requireWalk(value?.state === 'ok' && value.target === (target.startsWith('madarch:') ? target : `madarch:${parseStatementRef(target)?.page ?? target}`), `pre-reset target is not resolved: ${target}`);
+    const parsed = parseTarget(target.startsWith('madarch:') ? target : `madarch:${target}`);
+    const document = documents.find((row) => row.target === target);
+    if (document !== undefined) {
+      requireWalk(parsed.kind === 'doc' && parsed.path === document.path && /^[a-f0-9]{64}$/.test(document.sha256), `invalid pre-reset document proof: ${target}`);
+      const href = new URL(value.href, 'http://fixture.test');
+      const sourceMatches = href.pathname === '/k/doc' && href.searchParams.get('repo') === document.repo && href.searchParams.get('path') === document.path;
+      const entityMatches = typeof value.entity === 'string' && value.entity === `doc:@${document.repo}/${document.path}${parsed.anchor === null ? '' : '#' + parsed.anchor}`;
+      requireWalk(sourceMatches || entityMatches, `pre-reset document repository/path does not match: ${target}`);
+      if (graphRemoved) return [Object.freeze({ target, key: document.path, documentPath: document.path })];
+    }
     const key = value.entity;
     return typeof key === 'string' && (ids.has(key) || (graphRemoved && key.startsWith('code.'))) ? [Object.freeze({ target, key })] : [];
   }));
@@ -51,7 +74,7 @@ export function assertResolution(target: string, value: any, allowed: readonly M
   requireWalk(value && ['ok', 'broken'].includes(value.state) && value.target === (target.startsWith('madarch:') ? target : `madarch:${parseStatementRef(target)?.page ?? target}`), `invalid resolution ${target}: ${JSON.stringify(value)}`);
   const expected = allowed.find((row) => row.target === target);
   if (value.state === 'ok') { requireWalk(!expected, `reset target unexpectedly still resolves: ${target}`); return; }
-  requireWalk(expected && value.why?.code === 'no-entity' && value.why.key === expected.key && value.reason === noEntityMessage(expected.key), `unexpected missing target ${target}: ${JSON.stringify(value)}`);
+  requireWalk(expected && (expected.documentPath === undefined ? value.why?.code === 'no-entity' && value.why.key === expected.key : value.why?.code === 'no-document' && value.why.path === expected.documentPath) && value.reason === missingMessage(expected), `unexpected missing target ${target}: ${JSON.stringify(value)}`);
 }
 export function assertFindings(actual: readonly MissingFinding[], expected: readonly MissingFinding[] = []): void {
   const canonical = (rows: readonly MissingFinding[]): string => JSON.stringify(rows.map(({ file, line, message }) => ({ file, line, message })).sort((a, b) => compareCodePoint(JSON.stringify(a), JSON.stringify(b))));
