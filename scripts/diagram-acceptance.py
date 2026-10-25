@@ -101,22 +101,6 @@ try:
                 provenance[str(path.relative_to(root))] = hashlib.sha256(path.read_bytes()).hexdigest()
     provenance['binary'] = hashlib.sha256(binary.read_bytes()).hexdigest()
     (out / 'provenance.json').write_text(json.dumps(provenance, indent=2))
-    scratch = out / 'stryker-tooling'
-    scratch.mkdir()
-    (scratch / 'package.json').write_text('{"private":true}')
-    run('stryker-install', ['bun','add','--exact','@stryker-mutator/core@9','typescript@5'], 120, scratch)
-    config = out / 'stryker.config.json'
-    config.write_text(json.dumps(dict(
-        mutate=['src/knowledge/diagrams/first-view.ts:4-39'],
-        testRunner='command', commandRunner={'command':'bun test src/knowledge/diagrams/first-view.test.ts'},
-        coverageAnalysis='off', concurrency=2, timeoutMS=10000, timeoutFactor=1,
-        reporters=['json','html','clear-text','progress'],
-        jsonReporter={'fileName':str(out / 'mutation.json')},
-        htmlReporter={'fileName':str(out / 'mutation.html')},
-        tempDirName=str(out / 'stryker-sandbox'),
-        thresholds={'high':100,'low':80,'break':80}
-    ), indent=2))
-    run('stryker-changed-range', ['timeout','--signal=TERM','--kill-after=10s','600s','node',str(scratch / 'node_modules/@stryker-mutator/core/bin/stryker.js'),'run',str(config)], 600, app)
     walk = ['bun','scripts/diagram-shots.ts','--out',str(out / 'walk'),'--work',str(out / 'prepared-work'),'--binary',str(binary),'--port','4311']
     evidence_deadline = min(args.deadline - 90, time.time() + args.evidence_seconds)
     def evidence_run(name, command):
@@ -131,6 +115,23 @@ try:
         for tag in ['1150-light','1150-dark','390-light','390-dark']:
             evidence_run(f'walk-{tag}-{lang}', walk+['--phase','matrix','--matrix',f'{tag}-{lang}'])
     evidence_run('walk-aggregate', walk+['--phase','aggregate'])
+    scratch = out / 'stryker-tooling'
+    scratch.mkdir()
+    (scratch / 'package.json').write_text('{"private":true}')
+    run('stryker-install', ['bun','add','--exact','@stryker-mutator/core@9','typescript@5'], 120, scratch)
+    config = out / 'stryker.config.json'
+    config.write_text(json.dumps(dict(
+        mutate=['wiki/app/src/knowledge/diagrams/first-view.ts:4-39'],
+        files=['bunfig.toml','test/run-scratch.ts','test/deadline.ts','wiki/app/src/knowledge/diagrams/first-view.ts','wiki/app/src/knowledge/diagrams/first-view.test.ts'],
+        testRunner='command', commandRunner={'command':'bun test wiki/app/src/knowledge/diagrams/first-view.test.ts'},
+        coverageAnalysis='off', concurrency=2, timeoutMS=10000, timeoutFactor=1,
+        reporters=['json','html','clear-text','progress'],
+        jsonReporter={'fileName':str(out / 'mutation.json')},
+        htmlReporter={'fileName':str(out / 'mutation.html')},
+        tempDirName=str(out / 'stryker-sandbox'),
+        thresholds={'high':100,'low':80,'break':80}
+    ), indent=2))
+    run('stryker-changed-range', ['timeout','--signal=TERM','--kill-after=10s','600s','node',str(scratch / 'node_modules/@stryker-mutator/core/bin/stryker.js'),'run',str(config)], 600, root)
     save('numeric-complete-visual-review-pending')
 finally:
     # Preserve the raw daemon log and stop even when a child hit its hard bound.
