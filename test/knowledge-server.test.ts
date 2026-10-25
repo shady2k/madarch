@@ -265,6 +265,47 @@ describe('the fill the reader watches', () => {
     expect(before.body.history.coverage).toBe('before');
   }, 20_000);
 
+  test('repository landmarks have bilingual routed pages with the actual commit and held files', async () => {
+    const listed = await get('/products/tiny/api/k/entities?kind=code.snapshot');
+    expect(listed.status).toBe(200);
+    const names = ['first', 'last', 'refs/tags/baseline-read'];
+    expect(listed.body.total).toBe(names.length);
+    expect(listed.body.rows.map((row: { id: string }) => row.id).sort()).toEqual(names.map((name) => recordKey('code.snapshot', name)).sort());
+    const status = await get('/products/tiny/api/k/status');
+    expect(status.body.kinds.find((kind: { kind: string }) => kind.kind === 'code.snapshot')).toMatchObject({ group: 'history', count: names.length, origins: ['history'], labels: { en: { one: 'Repository landmark', many: 'Repository landmarks' }, ru: { one: 'Ориентир репозитория', many: 'Ориентиры репозитория' } } });
+    const declaration = status.body.kinds.find((kind: { kind: string }) => kind.kind === 'code.snapshot');
+    expect(declaration.descriptions.en).toBe('A repository landmark read from Git, with its commit and the files held by that tree.');
+    expect(declaration.descriptions.ru).toBe('Ориентир из Git с его коммитом и файлами этого дерева репозитория.');
+    for (const name of names) {
+      const id = recordKey('code.snapshot', name);
+      const expectedCommit = name === 'last' ? git(repository, 'rev-parse', 'HEAD').trim() : firstCommit;
+      const expectedFiles = (name === 'last' ? ['package.json', 'src/a.ts', 'src/b.ts'] : ['package.json', 'src/a.ts']).map((path) => recordKey('code.file', path)).sort();
+      for (const lang of ['en', 'ru']) {
+        const page = await get(`/products/tiny/api/k/page?${new URLSearchParams({ id, lang, full: '1' })}`);
+        expect(page.status).toBe(200);
+        expect(page.body.findings).toEqual([]);
+        expect(page.body.blocks.filter((entry: { type: string }) => entry.type === 'problem')).toEqual([]);
+        const details = page.body.blocks.find((entry: { type: string }) => entry.type === 'properties');
+        expect(details.title).toBe(lang === 'ru' ? 'Сведения' : 'Details');
+        expect(details.rows).toContainEqual({ name: 'commit', value: expectedCommit });
+        const relations = page.body.blocks.find((entry: { type: string }) => entry.type === 'related' && entry.groups.some((group: { relation: string }) => group.relation === 'code.held'));
+        const held = relations.groups.find((group: { relation: string }) => group.relation === 'code.held');
+        expect(held.total).toBe(expectedFiles.length);
+        expect(held.rows.map((row: { entity: { id: string } }) => row.entity.id).sort()).toEqual(expectedFiles);
+        for (const row of held.rows) {
+          expect(row.entity.href).toBeTruthy();
+          expect(row.entity.broken).toBeUndefined();
+          const target = await get(`/products/tiny/api/k/page?${new URLSearchParams({ id: row.entity.id, lang })}`);
+          expect(target.status).toBe(200);
+          expect(target.body.findings).toEqual([]);
+        }
+        const neighbors = await get(`/products/tiny/api/k/neighborhood?${new URLSearchParams({ id, lang })}`);
+        expect(neighbors.status).toBe(200);
+        expect(neighbors.body.nodes.map((node: { id: string }) => node.id)).toEqual(expect.arrayContaining(expectedFiles));
+      }
+    }
+  }, 30_000);
+
   test('a kind is listed from the graph in key order, filtered by text', async () => {
     const all = await get('/products/tiny/api/k/entities?kind=code.symbol');
     expect(all.body.rows.map((row: { id: string }) => row.id)).toEqual([sym('src/a.ts#leaf'), sym('src/a.ts#root'), sym('src/b.ts#entry')]);

@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import type { GraphEntity, HistoryEvidence } from '../src/knowledge/graph-read.js';
 import { projectHistory } from '../src/knowledge/history-evidence.js';
 import { extractCode } from '../src/extract/code/index.js';
+import { fileKey } from '../src/extract/code/keys.js';
 
 const entity = (kind: string, name: string, properties: Record<string, unknown> = {}): GraphEntity => ({ key: `${kind}:${name}`, kind, label: name, properties, scope: '1', nodeIds: [] });
 const ref = (one: GraphEntity) => ({ id: one.key, kind: one.kind, label: one.label, href: `/k/e?id=${encodeURIComponent(one.key)}` });
@@ -155,13 +156,19 @@ describe('complete indexed history projections', () => {
       entities: extracted.nodes.map((one) => ({ key: one.key, kind: one.kind, label: one.label, properties: { ...one.properties }, scope: '1', nodeIds: [], ...(one.span === undefined ? {} : { span: one.span }) })),
       edges: extracted.edges.map((one) => ({ relation: one.type, from: one.from, to: one.to, properties: { ...one.properties } })),
     };
-    const rootPackage = evidence.entities.find((one) => one.kind === 'code.package' && one.key.endsWith(':.'))!;
+    const rootPackage = evidence.entities.find((one) => one.kind === 'code.package' && one.key.endsWith(':.'));
     expect(rootPackage).toBeDefined();
-    const source = evidence.entities.find((one) => one.kind === 'code.file' && one.span?.path === 'a/main.go')!;
-    const target = evidence.entities.find((one) => one.kind === 'code.file' && one.span?.path === 'b/lib.go')!;
-    const rootFile = evidence.entities.find((one) => one.kind === 'code.file' && one.span?.path === 'index.ts')!;
-    const imported = evidence.edges.find((one) => one.relation === 'code.imports' && one.from === source.key)!;
-    expect(evidence.entities.find((one) => one.key === imported.to)!.kind).toBe('code.module');
+    if (!rootPackage) throw new Error('The code extraction fixture omitted its root package');
+    // Code extraction gives files canonical keys; the driver adds file-lister spans only when indexing.
+    const source = evidence.entities.find((one) => one.key === fileKey('a/main.go'));
+    const target = evidence.entities.find((one) => one.key === fileKey('b/lib.go'));
+    const rootFile = evidence.entities.find((one) => one.key === fileKey('index.ts'));
+    expect(source).toBeDefined(); expect(target).toBeDefined(); expect(rootFile).toBeDefined();
+    if (!source || !target || !rootFile) throw new Error('The code extraction fixture omitted a declared file identity');
+    const imported = evidence.edges.find((one) => one.relation === 'code.imports' && one.from === source.key);
+    expect(imported).toBeDefined();
+    if (!imported) throw new Error(`The code extraction fixture omitted the import from ${source.key}`);
+    expect(evidence.entities.find((one) => one.key === imported.to)?.kind).toBe('code.module');
     expect(evidence.edges).toContainEqual({ relation: 'code.contains', from: imported.to, to: target.key, properties: {} });
     for (const name of ['first', 'second']) {
       const commit = entity('code.commit', name, { merge: false }); evidence.entities.push(commit);
