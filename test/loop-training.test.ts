@@ -91,6 +91,7 @@ describe('the agent asks, a person answers, the refresh edits one page', () => {
     // Before the agent started, the wiki was told which pages the run touches: the product page did not exist yet.
     expect(status.writer.plan.pages.map((p: { path: string; reasons: { kind: string }[] }) => [p.path, p.reasons.map((r) => r.kind)])).toEqual([['docs/product.md', ['missing']]]);
     expect(status.writer.asked).toBe(LOOP_QUESTIONS.length);
+    // Two retention paraphrases run through ACP too; the complete listing below still has one file for that decision.
     expect(status.loop).toEqual({ questionsOpen: LOOP_QUESTIONS.length, questionsAnswered: 0, correctionsOpen: 0 });
     expect(readdirSync(join(product, 'docs/questions')).sort()).toEqual(LOOP_QUESTIONS.map((q) => `${questionSlug(q, 'en')}.md`).sort());
     for (const page of ['docs/product.md', 'docs/domains/ordering.md', 'docs/domains/payments.md']) expect(existsSync(join(product, page))).toBe(true);
@@ -145,6 +146,8 @@ describe('the agent asks, a person answers, the refresh edits one page', () => {
     // One unit ran, the payments one; the other pages cost no agent run.
     expect(status.writer.units.filter((unit: { calls?: number }) => (unit.calls ?? 0) > 0).map((unit: { unit: string }) => unit.unit)).toEqual(['domain:payments']);
     expect(status.writer.plan.pages.map((p: { path: string }) => p.path)).toEqual(['docs/domains/payments.md']);
+    expect(status.writer.asked).toBe(0);
+    expect(readdirSync(join(product, 'docs/questions'))).toHaveLength(LOOP_QUESTIONS.length);
     expect(sha(join(product, 'docs/product.md'))).toBe(before.product);
     expect(sha(join(product, 'docs/domains/ordering.md'))).toBe(before.ordering);
     const after = readFileSync(join(product, 'docs/domains/payments.md'), 'utf8');
@@ -239,15 +242,16 @@ describe('an answer scopes a task, marks only what it reaches, fixes those pages
     };
     // The agent's page: the ordering page as it stands, with the sentence the README ground reached now stating the code's rule.
     const kept = before.ordering.split('\n').find((line) => line.startsWith('The root README and the orders README say orders are retained indefinitely.'))!;
-    const marker = /\[\^[\w-]+\]$/.exec(kept)?.[0] ?? '';
-    const written = before.ordering.replace(kept, `Orders that were not shipped are removed ninety days after they were placed, as the retention job does.${marker}`);
+    expect(kept).toBeDefined();
+    const corrected = kept.replace('The root README and the orders README say orders are retained indefinitely.', 'Orders that were not shipped are removed ninety days after they were placed, as the retention job does.');
+    const written = before.ordering.replace(kept, corrected);
     expect(written).not.toBe(before.ordering);
     writeFileSync(scriptFile, JSON.stringify({ byPrompt: [{ matches: `(madarch:task:${taskSlug})`, steps: [{ call: { tool: 'write_page', arguments: { markdown: written } } }, { end: { stopReason: 'end_turn' } }] }], steps: [{ end: { stopReason: 'end_turn' } }] }));
     const started = await post('/api/k/task-run', { id: `task:${taskSlug}` });
     expect(started.status).toBe(202);
     expect(started.body.pages).toEqual(['docs/domains/ordering.md']);
     const status = await settled();
-    expect({ writer: status.writer.state, message: status.writer.message }).toMatchObject({ writer: 'done' });
+    expect({ writer: status.writer.state, message: status.writer.message }, JSON.stringify(status.writer.units)).toMatchObject({ writer: 'done' });
     expect(status.writer.plan.pages.map((page: { path: string; reasons: { kind: string }[] }) => [page.path, page.reasons.map((reason) => reason.kind)])).toEqual([['docs/domains/ordering.md', ['task']]]);
     expect(status.writer.units.filter((unit: { calls?: number }) => (unit.calls ?? 0) > 0).map((unit: { unit: string }) => unit.unit)).toEqual(['domain:ordering']);
     expect(sha(join(product, 'docs/product.md'))).toBe(before.product);

@@ -10,6 +10,8 @@
  * connection.
  */
 import { languageOf } from '../knowledge/blocks.js';
+import type { ResetPlan } from '../knowledge/reset.js';
+import { archifyFailurePage } from '../knowledge/view-frames.js';
 import { LoopRefusal } from '../loop/answer.js';
 import { ProposalRefusal } from '../loop/propose.js';
 import { readScope } from '../loop/tasks.js';
@@ -27,6 +29,8 @@ export interface KnowledgePart {
   statement: (request: Request) => Promise<Handled>;
   entities: (request: Request) => Promise<Handled>;
   neighborhood: (request: Request) => Promise<Handled>;
+  view: (request: Request) => Promise<Handled>;
+  viewFrame: (request: Request) => Promise<Handled>;
   source: (request: Request) => Promise<Handled>;
   fill: (request: Request) => Promise<Handled>;
   agents: (request: Request) => Promise<Handled>;
@@ -166,6 +170,26 @@ export function createKnowledgePart(
       if (!result.ok) return refused(result.status, { field: 'id', message: result.message });
       return { response: json(200, result.neighborhood) };
     }),
+    view: guarded('draw the view', async (request) => {
+      const query = new URL(request.url).searchParams;
+      const asked = query.get('lang');
+      const result = await product.view(query, asked === 'ru' || asked === 'en' ? asked : undefined);
+      if (!result.ok) return refused(result.status, { field: 'type', message: result.message });
+      return { response: json(200, { renderer: result.renderer, views: result.views }) };
+    }),
+    viewFrame: guarded('draw the view frame', async (request) => {
+      const query = new URL(request.url).searchParams;
+      const renderer = query.get('renderer');
+      if (renderer === null) return refused(400, { field: 'renderer', accepted: 'likec4 or archify', message: '"renderer" is required: likec4 or archify' });
+      const asked = query.get('lang');
+      const result = await product.viewFrame(query, renderer, asked === 'ru' || asked === 'en' ? asked : undefined);
+      if (!result.ok) {
+        if (renderer === 'archify' && result.status === 500) return { response: new Response(archifyFailurePage(asked ?? undefined, result.message), { status: result.status, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } }) };
+        return refused(result.status, { field: 'renderer', message: result.message });
+      }
+      const contentType = result.type === 'html' ? 'text/html; charset=utf-8' : result.type === 'json' ? 'application/json; charset=utf-8' : 'text/javascript; charset=utf-8';
+      return { response: new Response(result.body, { status: 200, headers: { 'content-type': contentType, 'cache-control': 'private, max-age=300' } }) };
+    }),
     source: guarded('read the source', async (request) => {
       const query = new URL(request.url).searchParams;
       const path = query.get('path');
@@ -242,7 +266,17 @@ export function createKnowledgePart(
       if (own) return refused(403, { message: "madarch's own wiki is documentation, not a product to start over: its pages are not rewritten here" });
       // A GET asks what a reset would remove and keep; a POST does it.
       if (request.method === 'GET') return { response: json(200, product.resetPlan()) };
-      const done = await product.reset();
+      let expected: ResetPlan | undefined;
+      if (request.headers.get('content-type')?.includes('application/json')) {
+        let body: unknown;
+        try { body = await request.json(); } catch (error) { return refused(400, { message: `the request body is not JSON: ${(error as Error).message}` }); }
+        const preview = (body as { preview?: unknown } | null)?.preview;
+        if (preview !== undefined) {
+          if (preview === null || typeof preview !== 'object' || (['store', 'agentPages', 'keptPages', 'unansweredQuestions', 'keptAnswers'] as const).some((key) => !Array.isArray((preview as Record<string, unknown>)[key]) || ((preview as Record<string, unknown>)[key] as unknown[]).some((entry) => typeof entry !== 'string'))) return refused(400, { message: 'preview is the complete reset plan read from product settings' });
+          expected = preview as ResetPlan;
+        }
+      }
+      const done = await product.reset(expected);
       if (!done.ok) return refused(409, { message: done.message });
       return { response: json(200, done.plan) };
     }),
@@ -346,7 +380,17 @@ export function createKnowledgePart(
       const crossSite = foreign(request);
       if (crossSite !== undefined) return refused(403, { message: crossSite });
       if (own) return refused(403, { message: "madarch's own wiki is documentation, not a product to start from scratch: its pages are not rewritten here" });
-      const done = await product.startFresh();
+      let expected: ResetPlan | undefined;
+      if (request.headers.get('content-type')?.includes('application/json')) {
+        let body: unknown;
+        try { body = await request.json(); } catch (error) { return refused(400, { message: `the request body is not JSON: ${(error as Error).message}` }); }
+        const preview = (body as { preview?: unknown } | null)?.preview;
+        if (preview !== undefined) {
+          if (preview === null || typeof preview !== 'object' || (['store', 'agentPages', 'keptPages', 'unansweredQuestions', 'keptAnswers'] as const).some((key) => !Array.isArray((preview as Record<string, unknown>)[key]) || ((preview as Record<string, unknown>)[key] as unknown[]).some((entry) => typeof entry !== 'string'))) return refused(400, { message: 'preview is the complete reset plan read from product settings' });
+          expected = preview as ResetPlan;
+        }
+      }
+      const done = await product.startFresh(expected);
       if (!done.ok) return refused(409, { message: done.message });
       return { response: json(202, done) };
     }),

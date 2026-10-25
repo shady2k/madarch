@@ -16,6 +16,14 @@
  * The pictures are written to --out (shots/ by default) and listed on standard output.
  */
 import { execFileSync } from 'node:child_process';
+
+// The questions-once acceptance mode always plans the full bilingual/theme/width matrix.
+if (process.argv.includes('--questions-once')) {
+  await import('./questions-once-shots.js');
+  process.exit(0);
+}
+console.warn('Legacy partial walk: NOT the complete madarch-m38l.22 acceptance matrix; use --questions-once for that planned walk.');
+
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import puppeteer, { type Page } from 'puppeteer';

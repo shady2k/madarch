@@ -911,6 +911,8 @@ export function describeReset(name: string, plan: ResetPlan): string[] {
     `Starting ${name} over removes:`,
     `  - the product's graph store, which the next fill builds again from the code${plan.store.length === 0 ? ' (there is none now)' : ''}`,
     ...(plan.agentPages.length === 0 ? ['  - no page: the agent has written none'] : [`  - the ${plan.agentPages.length} page${plan.agentPages.length === 1 ? '' : 's'} the agent wrote: ${plan.agentPages.join(', ')}`]),
+    `  - ${plan.unansweredQuestions.length} unanswered agent question${plan.unansweredQuestions.length === 1 ? '' : 's'}${plan.unansweredQuestions.length === 0 ? '' : `: ${plan.unansweredQuestions.join(', ')}`}`,
+    `${plan.keptAnswers.length} answers stay${plan.keptAnswers.length === 0 ? '' : `: ${plan.keptAnswers.join(', ')}`}. People's corrections stay too.`,
     'It keeps every other file of the product, the code repositories under repos/, and the choice of the agent.',
     ...(plan.keptPages.length === 0 ? [] : [`Pages in those places that a person wrote stay: ${plan.keptPages.join(', ')}.`]),
   ];
@@ -959,7 +961,7 @@ async function resetCommand(name: string | undefined, homeOption: string | undef
   }
   try {
     if (asServer !== undefined) {
-      const done = await fetch(asServer, { method: 'POST' });
+      const done = await fetch(asServer, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ preview: plan }) });
       if (!done.ok) throw new Error(`the background server at ${server} refused: ${await done.text()}`);
     } else {
       applyReset(folder, plan);

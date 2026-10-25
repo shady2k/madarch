@@ -14,6 +14,14 @@
 import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
+
+// The questions-once acceptance mode always plans the full bilingual/theme/width matrix.
+if (process.argv.includes('--questions-once')) {
+  await import('./questions-once-shots.js');
+  process.exit(0);
+}
+console.warn('Legacy partial walk: NOT the complete madarch-m38l.22 acceptance matrix; use --questions-once for that planned walk.');
+
 import puppeteer, { type Page } from 'puppeteer';
 import { resolveBrowserExecutable } from './chromium.js';
 import { SAMPLE_IDENTITY, generateTrainingRepository, makeProduct } from '../test/knowledge-fixture.js';

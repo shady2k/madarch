@@ -9,7 +9,9 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { KnowledgeProduct } from '../src/knowledge/product.js';
-import type { Block, Chain, PageModel } from '../src/knowledge/model.js';
+import type { Block, PageModel } from '../src/knowledge/model.js';
+import type { ViewPayload } from '../src/knowledge/views.js';
+import { stateMachinesOf } from '../src/knowledge/state-machines.js';
 import { ROOT, generateTrainingRepository, makeProduct, recordKey, writeSamplePages } from './knowledge-fixture.js';
 
 const KEY = JSON.parse(readFileSync(join(ROOT, 'examples/training-repository/answer-key.json'), 'utf8')) as { items: { id: string }[] };
@@ -45,9 +47,20 @@ const block = <T extends Block['type']>(model: PageModel, type: T, at = 0): Extr
   if (found === undefined) throw new Error(`the page of ${model.id} has no ${type} block number ${at}: ${model.blocks.map((entry) => entry.type).join(', ')}`);
   return found as Extract<Block, { type: T }>;
 };
-const chainOf = async (id: string): Promise<Chain> => block(await page(id), 'sequence').chains[0]!;
+/** The views of every diagrams block of a page, in the page's order. */
+const viewsOf = (model: PageModel): ViewPayload[] => model.blocks.flatMap((entry) => (entry.type === 'diagrams' ? entry.views : []));
+const ofType = (model: PageModel, type: string): ViewPayload[] => viewsOf(model).filter((view) => view.spec.type === type);
+/** A chain as the sequence view draws it: its steps in order (an unordered one is dashed), the participants (a service, a database, the broker). */
+interface Chain { steps: { n: number; label: string; kind: string; note?: string; order: 'source' | 'unordered'; href: string | null }[]; lanes: string[]; notes: string[]; title: string }
+const chainOfView = (view: ViewPayload): Chain => ({
+  title: view.label,
+  steps: view.edges.map((edge) => ({ n: edge.step!, label: edge.label, kind: edge.kind!, ...(edge.note === undefined ? {} : { note: edge.note }), order: edge.dashed ? 'unordered' as const : 'source' as const, href: edge.href ?? null })),
+  lanes: view.elements.map((element) => element.label),
+  notes: view.notes,
+});
+const chainOf = async (id: string): Promise<Chain> => chainOfView(ofType(await page(id), 'sequence')[0]!);
 const labels = (chain: Chain): string[] => chain.steps.map((step) => step.label);
-const lanes = (chain: Chain): string[] => chain.lanes.map((lane) => lane.label);
+const lanes = (chain: Chain): string[] => chain.lanes;
 const route = (path: string, signature: string): string => recordKey('code.route', `${path}#${signature}`);
 
 describe('the end-to-end chains match the answer key\'s flows', () => {
@@ -65,7 +78,7 @@ describe('the end-to-end chains match the answer key\'s flows', () => {
     expect(at('NewOrder')).toBeGreaterThan(at('Place'));
     expect(steps.findIndex((step) => step === 'OrderRepository.Create')).toBeGreaterThan(at('NewOrder'));
     expect(steps).toEqual(expect.arrayContaining(['writes orders', 'writes order_items', 'writes outbox']));
-    expect(lanes(chain)).toEqual(expect.arrayContaining(['router.go', 'handlers.go', 'order_service.go', 'order.go', 'order_repository.go', 'orders']));
+    expect(lanes(chain)).toEqual(expect.arrayContaining(['client', 'orders', 'orders database']));
     expect(chain.steps.every((step) => step.href !== undefined)).toBe(true);
   });
 
@@ -92,8 +105,7 @@ describe('the end-to-end chains match the answer key\'s flows', () => {
     const consumer = chain.steps.find((step) => step.kind === 'consume' && step.note?.includes('payments.events'));
     expect(consumer).toBeDefined();
     expect(consumer!.order).toBe('unordered');
-    expect(chain.lanes.find((lane) => lane.label === 'payments.events')!.group).toBe('broker');
-    expect(chain.lanes.some((lane) => lane.group === 'orders')).toBe(true);
+    expect(chain.lanes).toEqual(expect.arrayContaining(['broker', 'orders', 'payments']));
   });
 
   test('POST /checkout crosses to promotions and orders over HTTP and to payments over gRPC, each call a step into the route or handler that serves it (checkout.sequence)', async () => {
@@ -104,8 +116,7 @@ describe('the end-to-end chains match the answer key\'s flows', () => {
     const grpc = chain.steps.find((step) => step.kind === 'grpc');
     expect(grpc).toBeDefined();
     expect(grpc!.note).toContain('PaymentsClient.authorize');
-    const groups = chain.lanes.map((lane) => lane.group);
-    for (const service of ['checkout', 'promotions', 'orders', 'payments']) expect(groups).toContain(service);
+    for (const service of ['checkout', 'promotions', 'orders', 'payments']) expect(chain.lanes).toContain(service);
     // The answer key's order of the checkout sequence: promotions, then orders, then payments.
     const at = (kind: string, label?: string): number => chain.steps.findIndex((step) => step.kind === kind && (label === undefined || step.label === label));
     expect(at('http', 'POST /internal/apply')).toBeLessThan(at('http', 'POST /orders'));
@@ -114,13 +125,10 @@ describe('the end-to-end chains match the answer key\'s flows', () => {
 
   test('a function page reaches the route above it, a domain page the routes of its functions, and a function no route reaches starts at itself', async () => {
     const pay = recordKey('code.symbol', 'services/payments/src/domain/payment-service.ts#PaymentService.pay');
-    const fromFunction = block(await page(pay), 'sequence');
-    expect(fromFunction.chains[0]!.entry!.label).toBe('POST /payments');
-    const fromDomain = block(await page('domain:payment'), 'sequence');
-    expect(fromDomain.scenario).toBe('Payment');
-    expect(fromDomain.chains.map((chain) => chain.entry!.label)).toContain('POST /payments');
-    const lonely = block(await page(recordKey('code.symbol', 'scripts/token.mjs#encode')), 'sequence');
-    expect(lonely.chains[0]?.notes[0] ?? lonely.notes[0] ?? 'no chain').toMatch(/no route of the graph reaches this function|no chain/);
+    expect(ofType(await page(pay), 'sequence')[0]!.label).toBe('POST /payments');
+    expect(ofType(await page('domain:payment'), 'sequence').map((view) => view.label)).toContain('POST /payments');
+    const lonely = ofType(await page(recordKey('code.symbol', 'scripts/token.mjs#encode')), 'sequence')[0]!;
+    expect(lonely.notes[0] ?? lonely.empty ?? 'no chain').toMatch(/no route of the graph reaches this function|No route or function/);
   });
 });
 
@@ -130,11 +138,11 @@ describe('the diagrams a page leaves to be read on their own', () => {
     const answered = await product.page(pay, 'en', { defer: true });
     if (!answered.ok) throw new Error(answered.message);
     const deferred = answered.page.blocks.filter((entry) => entry.type === 'deferred');
-    expect(deferred.map((entry) => entry.block)).toEqual(['graph', 'sequence']);
-    expect(answered.page.blocks.some((entry) => entry.type === 'sequence' || entry.type === 'graph')).toBe(false);
-    const drawn = await product.block(pay, deferred[1]!.line, 'en');
+    expect(deferred.map((entry) => entry.block)).toEqual(['graph', 'modules', 'sequence']);
+    expect(answered.page.blocks.some((entry) => entry.type === 'diagrams' || entry.type === 'graph')).toBe(false);
+    const drawn = await product.block(pay, deferred[2]!.line, 'en');
     if (!drawn.ok) throw new Error(drawn.message);
-    expect(drawn.block).toMatchObject({ type: 'sequence' });
+    expect(drawn.block).toMatchObject({ type: 'diagrams' });
     expect(await product.block(pay, 9999, 'en')).toMatchObject({ ok: false, status: 404 });
   });
 });
@@ -191,39 +199,115 @@ describe('the neighbourhood', () => {
   });
 });
 
-describe('the system, module, ER and hotspot views', () => {
-  test('the home page draws the four services, their databases and the topics with HTTP, gRPC, SQL and event links (interaction.*, database.*)', async () => {
-    const system = block(await page('product:shop'), 'system');
-    const labelsOf = (kind: string): string[] => system.nodes.filter((node) => node.kind === kind).map((node) => node.label).sort();
-    expect(labelsOf('service')).toEqual(['checkout', 'orders', 'payments', 'promotions']);
-    expect(labelsOf('topic')).toEqual(expect.arrayContaining(['payments.events']));
+describe('reading explicit transition tables only', () => {
+  test('ignores transition-looking text in comments and ordinary Go nested maps', async () => {
+    expect(await stateMachinesOf('src/order.ts', `/* const transitions = { pending: { paid: 'confirmed' } }; */\nconst permissions = { admin: { scope: 'all' } };`)).toEqual([]);
+    expect(await stateMachinesOf('order.go', `var permissions = map[string]map[string]string{\n  "admin": { "scope": "all" },\n}`)).toEqual([]);
+  });
+});
+
+describe('the drawn views: C4, components, ER, state and deployment, and the hotspot treemap', () => {
+  test('the home page draws the context and the containers: four services, their databases and the topics with HTTP, gRPC, SQL and event links (interaction.*, database.*)', async () => {
+    const home = await page('product:shop');
+    const [context] = ofType(home, 'c4-context');
+    expect(context!.elements.map((element) => element.kind)).toEqual(expect.arrayContaining(['person', 'product']));
+    // The clients are an assumption: the graph holds the routes and not who calls them.
+    expect(context!.edges.find((edge) => edge.from === 'clients')).toMatchObject({ dashed: true });
+    const [system] = ofType(home, 'c4-container');
+    const labelsOf = (kind: string): string[] => system!.elements.filter((element) => element.kind === kind).map((element) => element.label).sort();
+    expect(labelsOf('container')).toEqual(['checkout', 'orders', 'payments', 'promotions']);
+    expect(labelsOf('channel')).toEqual(expect.arrayContaining(['payments.events']));
     expect(labelsOf('database')).toEqual(expect.arrayContaining(['orders', 'payments', 'promotions']));
-    const has = (from: string, to: string, via: string): boolean => system.edges.some((edge) => edge.from === `code.service:${from}` && edge.to.includes(to) && edge.via === via);
-    expect(has('checkout', 'orders', 'http')).toBe(true);
-    expect(has('checkout', 'promotions', 'http')).toBe(true);
-    expect(has('checkout', 'payments', 'grpc')).toBe(true);
-    expect(system.edges.some((edge) => edge.via === 'publishes' && edge.from === 'code.service:payments')).toBe(true);
-    expect(system.edges.some((edge) => edge.via === 'consumes' && edge.to === 'code.service:orders')).toBe(true);
-    expect(system.edges.some((edge) => edge.via === 'sql' && edge.from === 'code.service:orders')).toBe(true);
+    const has = (from: string, to: string, via: string): boolean => system!.edges.some((edge) => edge.from === `code.service:${from}` && edge.to.includes(to) && edge.label.startsWith(via));
+    expect(has('checkout', 'orders', 'HTTP')).toBe(true);
+    expect(has('checkout', 'promotions', 'HTTP')).toBe(true);
+    expect(has('checkout', 'payments', 'gRPC')).toBe(true);
+    expect(system!.edges.some((edge) => edge.label.startsWith('publishes') && edge.from === 'code.service:payments')).toBe(true);
+    expect(system!.edges.some((edge) => edge.label.startsWith('consumes') && edge.to === 'code.service:orders')).toBe(true);
+    expect(system!.edges.some((edge) => edge.label.startsWith('SQL') && edge.from === 'code.service:orders')).toBe(true);
+    // Every graph fact is solid, and a service opens its components, a database its tables.
+    expect(system!.edges.every((edge) => !edge.dashed)).toBe(true);
+    expect(system!.elements.find((element) => element.id === 'code.service:payments')!.drill).toMatchObject({ spec: { type: 'c4-component', subject: 'code.service:payments' } });
+    expect(system!.elements.find((element) => element.kind === 'database')!.drill!.spec.type).toBe('er');
+    expect(system!.renderers).toEqual(['likec4', 'mermaid', 'archify']);
+    const framed = await product.viewFrame(new URLSearchParams(system!.query), 'likec4');
+    expect(framed).toMatchObject({ ok: true, type: 'json' });
+    if (framed.ok) {
+      const payload = JSON.parse(framed.body) as { ok: boolean; model: { _stage: string; views: Record<string, unknown> }; elementLinks: Record<string, string> };
+      expect(payload.model._stage).toBe('layouted');
+      expect(payload.model.views.index).toBeDefined();
+      expect(Object.keys(payload.elementLinks).length).toBeGreaterThan(0);
+    }
+    const archify = await product.viewFrame(new URLSearchParams(system!.query), 'archify');
+    expect(archify).toMatchObject({ ok: true, type: 'html' });
+    if (archify.ok) {
+      expect(archify.body).toContain('<svg');
+      expect(archify.body).toContain("(full ? 9 : 11)");
+      expect(archify.body).toContain("data-node-label");
+      expect(archify.body).toContain("data-boundary-label");
+      expect(archify.body).toContain("addEventListener('resize', fit)");
+      // A reading window scrolls to its chosen content anchor; a non-zero SVG origin is not a zero scroll origin.
+      expect(archify.body).toContain('parent.scrollLeft = Math.max(0, -offsetX); parent.scrollTop = Math.max(0, -offsetY)');
+      expect(archify.body).toContain("svg.setAttribute('data-reading-window-valid', String(found))");
+    }
   });
 
-  test('the payments service shows the import cycle between domain and events as a cycle of modules (payments.cycle.*)', async () => {
+  test('the deployment view draws the compose services and the Kubernetes deployments, and dashes what is matched by name only', async () => {
+    const [deployment] = ofType(await page('product:shop'), 'deployment');
+    expect(deployment).toBeDefined();
+    const names = deployment!.elements.map((element) => element.label);
+    expect(names).toEqual(expect.arrayContaining(['postgres', 'kafka', 'orders', 'docker-compose.yml']));
+    expect(deployment!.elements.find((element) => element.label === 'orders' && element.parent !== undefined)).toBeDefined();
+    expect(deployment!.edges.some((edge) => !edge.dashed && edge.label === 'depends on')).toBe(true);
+    expect(deployment!.edges.filter((edge) => edge.dashed).every((edge) => edge.why !== undefined)).toBe(true);
+  });
+
+  test('the payments service shows the import cycle between domain and events as a cycle of components (payments.cycle.*)', async () => {
     expect(['payments.cycle.domain-to-events', 'payments.cycle.events-to-domain'].every(hasItem)).toBe(true);
-    const modules = block(await page('code.service:payments'), 'modules');
+    const [components] = ofType(await page('code.service:payments'), 'c4-component');
     const domain = recordKey('code.module', 'services/payments/src/domain');
     const events = recordKey('code.module', 'services/payments/src/events');
-    expect(modules.cycles).toEqual([[domain, events]]);
-    expect(modules.nodes.filter((node) => node.cycle).map((node) => node.id).sort()).toEqual([domain, events]);
-    expect(modules.edges.filter((edge) => edge.cycle).map((edge) => `${edge.from}>${edge.to}`).sort()).toEqual([`${domain}>${events}`, `${events}>${domain}`]);
-    expect(modules.nodes.some((node) => !node.cycle)).toBe(true);
+    expect(components!.elements.filter((element) => element.detail?.includes('cycle')).map((element) => element.id).sort()).toEqual([domain, events]);
+    expect(components!.edges.filter((edge) => edge.label === 'cycle').map((edge) => `${edge.from}>${edge.to}`).sort()).toEqual([`${domain}>${events}`, `${events}>${domain}`]);
+    expect(components!.elements.some((element) => !element.detail?.includes('cycle'))).toBe(true);
+    expect(components!.up).toMatchObject({ spec: { type: 'c4-container' } });
   });
 
   test('the database page draws its tables with the foreign keys between them and links each table (database.orders)', async () => {
-    const er = block(await page(recordKey('code.database', 'orders')), 'er');
-    expect(er.mermaid).toContain('customers');
-    expect(er.mermaid).toContain('}o--||');
-    expect(er.links.map((link) => link.label).sort()).toEqual(expect.arrayContaining(['customers', 'order_items', 'orders', 'outbox']));
-    expect(er.links.every((link) => link.href !== null)).toBe(true);
+    const [er] = ofType(await page(recordKey('code.database', 'orders')), 'er');
+    // Mermaid's ER syntax: an entity per table with a row per column, and one relationship line per foreign key.
+    expect(er!.mermaidSource.split('\n')[0]).toBe('erDiagram');
+    const entities = [...er!.mermaidSource.matchAll(/^  (\w+) \{$/gm)].map((entity) => entity[1]);
+    expect(entities).toEqual(expect.arrayContaining(['customers', 'order_items', 'orders', 'outbox']));
+    expect(er!.mermaidSource.match(/^  \w+ \|\|--o\{ \w+ : "[^"]+"$/gm)).toHaveLength(er!.edges.length);
+    expect(er!.mermaidSource).toContain(' PK');
+    // A foreign key marks its own column and names the relationship it makes.
+    expect(er!.mermaidSource).toMatch(/ (FK)$/m);
+    expect(er!.mermaidSource).toMatch(/^  \w+ \|\|--o\{ \w+ : "[a-z_]+"$/m);
+    expect(er!.elements.map((element) => element.label).sort()).toEqual(expect.arrayContaining(['customers', 'order_items', 'orders', 'outbox']));
+    expect(er!.elements.every((element) => element.href !== null)).toBe(true);
+    expect(er!.renderers).toEqual(['mermaid']);
+  });
+
+  test('the order status machine of the orders domain is read from its transition table: states, events, and the line each is written at', async () => {
+    const file = await page(recordKey('code.file', 'services/orders/internal/domain/order.go'));
+    const [machine] = ofType(file, 'state');
+    expect(machine).toBeDefined();
+    expect(machine!.elements.map((element) => element.label)).toEqual(expect.arrayContaining(['pending_payment', 'confirmed', 'cancelled']));
+    const moved = machine!.edges.find((edge) => edge.label === 'payment-captured');
+    expect(moved).toBeDefined();
+    expect(machine!.elements.find((element) => element.id === moved!.to)!.label).toBe('confirmed');
+    expect(machine!.elements.every((element) => element.location !== undefined)).toBe(true);
+    expect(machine!.edges.every((edge) => !edge.dashed)).toBe(true);
+  });
+
+  test('a domain page draws its services (dashed: the agent\'s reading), their data, neighbouring domains and the use cases the text names', async () => {
+    const [domain] = ofType(await page('domain:payment'), 'domain');
+    expect(domain).toBeDefined();
+    expect(domain!.elements.some((element) => element.id === 'code.service:payments')).toBe(true);
+    expect(domain!.edges.find((edge) => edge.to === 'code.service:payments')).toMatchObject({ dashed: true });
+    expect(domain!.elements.some((element) => element.kind === 'database')).toBe(true);
+    expect(domain!.up).toMatchObject({ spec: { type: 'domain-map' } });
   });
 
   test('the treemap gives the files their lines and their churn from history: order_service.go is the hotspot, lock files are left out and said (hotspot, large-file)', async () => {

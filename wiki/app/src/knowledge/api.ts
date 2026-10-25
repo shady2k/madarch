@@ -1,6 +1,6 @@
 import { appPath } from '../app-base.js';
 import { readJson, RequestError } from '../api.js';
-import type { AgentChoices, AgentOffer, AnswerResult, ProductSettings, CorrectionResult, CreatedTask, DocumentListing, FillState, Glossary, UserSettings, DocumentPageModel, Block, EntityListing, Neighborhood, PageModel, ProblemListing, PageJournal, ProductChoice, QuestionDetail, QuestionListing, RefreshPreview, SourceFile, StatementModel, TaskDetail, TaskImpact, TaskListing, TaskProposal, TaskRow, TaskScope, WikiStatus } from './types.js';
+import type { AgentChoices, AgentOffer, AnswerResult, Block, CorrectionResult, CreatedTask, DiagramRenderer, DiagramView, DocumentListing, DocumentPageModel, EntityListing, FillState, Glossary, Neighborhood, PageJournal, PageModel, ProblemListing, ProductChoice, ProductSettings, QuestionDetail, QuestionListing, RefreshPreview, SourceFile, StatementModel, TaskDetail, TaskImpact, TaskListing, TaskProposal, TaskRow, TaskScope, UserSettings, WikiStatus } from './types.js';
 
 /** The wiki's status: manifest, kinds, repositories, fill. */
 export const getStatus = (signal?: AbortSignal): Promise<WikiStatus> => readJson<WikiStatus>('read the wiki', '/api/k/status', signal);
@@ -86,7 +86,7 @@ export async function startFill(agent?: string | null, language?: string): Promi
 export const eventsAddress = (): string => appPath('/api/events');
 
 /** What starting the product over would remove and keep. */
-export type ResetPlan = { store: string[]; agentPages: string[]; keptPages: string[] };
+export type ResetPlan = { store: string[]; agentPages: string[]; keptPages: string[]; unansweredQuestions: string[]; keptAnswers: string[] };
 
 export const getResetPlan = (signal?: AbortSignal): Promise<ResetPlan> => readJson<ResetPlan>('read what starting over removes', '/api/k/reset', signal);
 
@@ -126,7 +126,7 @@ export const addStarter = (ids: string[]): Promise<{ written: string[] }> => pos
 export const rewritePages = (): Promise<unknown> => post<unknown>('rewrite the pages', '/api/k/rewrite-pages', {});
 
 /** «Start from scratch»: pages, graph, manifest and templates are put at the current set, and a fresh fill starts. */
-export const startFresh = (): Promise<{ fillRefused?: string }> => post<{ fillRefused?: string }>('start from scratch', '/api/k/start-fresh', {});
+export const startFresh = (preview?: ResetPlan): Promise<{ fillRefused?: string }> => post<{ fillRefused?: string }>('start from scratch', '/api/k/start-fresh', preview === undefined ? {} : { preview });
 
 /** The Markdown documents of the product and of its connected repositories. */
 export const getDocuments = (signal?: AbortSignal): Promise<DocumentListing> => readJson<DocumentListing>('list the documents', '/api/k/documents', signal);
@@ -212,6 +212,12 @@ export const getBlock = (id: string, line: number, lang: string, signal?: AbortS
 
 /** What the agent did to write one page: the records of the newest run that wrote it, or of the run asked for. */
 export const getJournal = (id: string, run: string | null, signal?: AbortSignal): Promise<PageJournal> => readJson<PageJournal>(`read the journal of ${id}`, `/api/k/journal?id=${encodeURIComponent(id)}${run === null ? '' : `&run=${encodeURIComponent(run)}`}`, signal);
+/** The views a specification asks for (a drill-down or a way up replaces a diagram in place). */
+export const getViews = (query: string, lang: string, signal?: AbortSignal): Promise<{ renderer: DiagramRenderer; views: DiagramView[] }> => readJson<{ renderer: DiagramRenderer; views: DiagramView[] }>('read the diagram view', `/api/k/view?${query}&lang=${lang === 'ru' ? 'ru' : 'en'}`, signal);
+
+/** Where the frame of a view in the LikeC4 or archify renderer is served (the app's base is added). */
+export const viewFrameAddress = (query: string, renderer: 'likec4' | 'archify', lang: string): string => appPath(`/api/k/view-frame?${query}&renderer=${renderer}&lang=${lang === 'ru' ? 'ru' : 'en'}`);
+
 /** The product's tasks, open first, each with what its change reaches through the graph. */
 export const getTasks = (signal?: AbortSignal): Promise<TaskListing> => readJson('list the tasks', '/api/k/tasks', signal);
 

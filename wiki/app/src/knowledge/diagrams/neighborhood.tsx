@@ -14,11 +14,16 @@ import { useKindName } from '../kind-names.js';
 import type { Block, Neighborhood } from '../types.js';
 import { fit, layoutNeighborhood, mergeHood, NODE_H, NODE_W, relationWord, slotOf, type PlacedNode } from './layout.js';
 import { useDiagramLink } from './open.js';
+import { Fullscreenable } from './fullscreen.js';
 import { PanZoom } from './pan-zoom.js';
 
 type GraphBlock = Extract<Block, { type: 'graph' }>;
 
 export function NeighborhoodGraph({ block }: { block: GraphBlock }): ReactElement {
+  return <Fullscreenable><NeighborhoodGraphBody block={block} /></Fullscreenable>;
+}
+
+function NeighborhoodGraphBody({ block }: { block: GraphBlock }): ReactElement {
   const { t } = useTranslation();
   const kindName = useKindName();
   const link = useDiagramLink();

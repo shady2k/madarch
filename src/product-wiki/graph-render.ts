@@ -87,7 +87,7 @@ export async function graphArchifyPage(model: DiagramModel, options: { readonly 
   } catch (error) {
     return { ok: false, message: `the ${model.type} diagram's archify document could not be built: ${error instanceof Error ? error.message : String(error)}` };
   }
-  const rendered = renderArchifyPage(document, join(cache.root, 'document.json'), join(cache.root, 'rendered.html'));
+  const rendered = await renderArchifyPage(document, join(cache.root, 'document.json'), join(cache.root, 'rendered.html'));
   if (rendered.status !== 0 || !existsSync(join(cache.root, 'rendered.html'))) {
     return { ok: false, message: `the ${model.type} diagram's archify page could not be rendered: ${rendered.output}` };
   }

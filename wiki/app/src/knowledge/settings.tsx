@@ -178,7 +178,7 @@ function PlacesSection({ settings }: { settings: ProductSettings }): ReactElemen
   const { t } = useTranslation();
   return (
     <Section id="places" title={t('settings.places.title')} intro={t('settings.places.intro')}>
-      <dl className="m-0 grid grid-cols-[max-content_1fr] gap-x-6 gap-y-1 text-small">
+      <dl className="m-0 grid grid-cols-1 gap-x-6 gap-y-1 text-small sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <dt className="text-secondary">{t('settings.places.folder')}</dt><dd className="m-0 break-all"><code data-testid="places-folder">{settings.folder}</code></dd>
         <dt className="text-secondary">{t('settings.places.store')}</dt><dd className="m-0 break-all"><code data-testid="places-store">{settings.store}</code></dd>
       </dl>
@@ -198,7 +198,7 @@ function DangerPanel({ kind, settings, onClose, done }: { kind: Danger; settings
   const confirm = (): void => {
     setWorking(true);
     setError(null);
-    (kind === 'rewrite' ? rewritePages().then(() => ({} as { fillRefused?: string })) : startFresh()).then(
+    (kind === 'rewrite' ? rewritePages().then(() => ({} as { fillRefused?: string })) : startFresh(plan.fresh)).then(
       (result) => {
         setWorking(false);
         // The pages and the graph are gone but the fill could not start: say why and keep the panel, with what to do.
@@ -213,12 +213,14 @@ function DangerPanel({ kind, settings, onClose, done }: { kind: Danger; settings
   const kept = kind === 'fresh' ? plan.fresh.keptPages : plan.rewrite.keptPages;
   const title = kind === 'fresh' ? t('settings.danger.fresh.title') : t('settings.danger.rewrite.title');
   return (
-    <div role="group" aria-label={title} className="mt-3 grid gap-2 rounded-[var(--radius-card)] border border-dashed border-ink bg-[var(--surface-soft)] p-4 text-small text-secondary" data-testid="danger-dialog" data-kind={kind}>
+    <div role="group" aria-label={title} className="mt-3 grid min-w-0 gap-2 rounded-[var(--radius-card)] border border-dashed border-ink bg-[var(--surface-soft)] p-4 text-small text-secondary [overflow-wrap:anywhere]" data-testid="danger-dialog" data-kind={kind}>
       <p className="m-0 font-medium text-ink">{t('settings.danger.local', { folder: settings.folder })}</p>
       <p className="m-0">{t('settings.danger.willDo')}</p>
       <ul className="m-0 list-disc ps-5">
         <li data-testid="danger-pages">{pages.length === 0 ? t('knowledge.reset.noPages') : t('knowledge.reset.pages', { count: pages.length, list: pages.join(', ') })}</li>
         {kind === 'fresh' && <li>{t('settings.danger.fresh.graph', { store: settings.store })}</li>}
+        {kind === 'fresh' && <li data-testid="danger-questions">{t('knowledge.reset.questions', { count: plan.fresh.unansweredQuestions.length })}</li>}
+        {kind === 'fresh' && <li data-testid="danger-answers">{t('knowledge.reset.answers', { count: plan.fresh.keptAnswers.length })}</li>}
         {kind === 'fresh' && <li data-testid="danger-starter">{t('settings.danger.fresh.starter', { files: plan.fresh.replacedStarterFiles.length })}</li>}
         <li>{kind === 'fresh' ? t('settings.danger.fresh.fill') : t('settings.danger.rewrite.fill')}</li>
       </ul>

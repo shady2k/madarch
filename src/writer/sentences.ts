@@ -11,7 +11,10 @@ export const FOOTNOTE_DEFINITION = /^\[\^([\p{L}\p{N}_-]+)\]:[ \t]*(.*)$/u;
 export const FOOTNOTE_REFERENCE = /\[\^([\p{L}\p{N}_-]+)\]/gu;
 /** A run of adjacent footnote references: the end of one sentence. */
 export const REFERENCE_RUN = /(?:\[\^[\p{L}\p{N}_-]+\])+/gu;
-const ABBREVIATION = /\b(?:[Ee]\.g|[Ii]\.e)\.|\b(?:etc|vs|cf|approx)\.(?=\s+[a-z0-9(,;])|(?<![\p{L}\p{N}])(?:[Тт]\.\s?[еквдпн]|и\s+т\.\s?[дп]|напр|[Сс]м|ср|рис|табл|стр|гг|руб|тыс|млн|млрд)\.(?=\s+[\p{Ll}\p{N}(,;])/gu;
+const ABBREVIATION = /\b(?:[Ee]\.g|[Ii]\.e)\.|\b(?:etc|vs|cf|approx)\.(?=\s+[a-z0-9(,;])|(?<![\p{L}\p{N}])(?:[Сс]м\.|[Тт]\.\s?[еквдпн]\.)|(?<![\p{L}\p{N}])(?:и\s+т\.\s?[дп]|напр|ср|рис|табл|стр|гг|руб|тыс|млн|млрд)\.(?=\s+[\p{Ll}\p{N}(,;])/gu;
+/** Question references qualify a sentence; they are not part of its factual text or its grounds. */
+export const QUESTION_LINK = /\[([^\]\n]*)\]\((madarch:question:[^()\s]+)\)/g;
+export const withoutQuestionLinks = (text: string): string => text.replace(QUESTION_LINK, '').trim();
 /** Characters that stand for a masked sentence end inside code spans, link targets and abbreviations; each remembers which one it hides. */
 const MASK: Record<string, string> = { '.': '\u0001', '!': '\u0002', '?': '\u0003', '\u2026': '\u0004' };
 const UNMASK: Record<string, string> = { '\u0001': '.', '\u0002': '!', '\u0003': '?', '\u0004': '\u2026' };
@@ -28,14 +31,14 @@ export interface Sentence {
 export function maskInline(text: string): string {
   return text
     .replace(/`[^`\n]*`/g, maskEnds)
-    .replace(LINK, (_whole, label: string, target: string) => `[${label}](${maskEnds(target)})`)
+    .replace(LINK, (whole, label: string, target: string) => target.startsWith('madarch:question:') ? maskEnds(whole) : `[${label}](${maskEnds(target)})`)
     .replace(ABBREVIATION, (whole) => whole.replace(/\./g, MASK['.']!));
 }
 
 /** Splits masked text into sentences; footnote references right after the terminal punctuation belong to the sentence. */
 export function sentencesOf(masked: string): Sentence[] {
   const out: Sentence[] = [];
-  const pattern = /([^]*?[.!?…][)"'”’»]*(?:\[\^[\p{L}\p{N}_-]+\])*)(?=\s|$)/uy;
+  const pattern = /([^]*?[.!?…][)"'”’»]*(?:\[\^[\p{L}\p{N}_-]+\])*(?:[ \t]+\[[^\]\n]*\]\(madarch:question:[^()\s]+\))*)(?=\s|$)/uy;
   const text = masked.trim();
   let at = 0;
   while (at < text.length) {
@@ -101,7 +104,7 @@ export function groundLinks(text: string): { label: string; target: string }[] {
 
 /** A sentence as a reader sees it: references removed, links as their labels, markup dropped, blanks collapsed. */
 export function plainSentence(text: string): string {
-  return unmask(text)
+  return withoutQuestionLinks(unmask(text))
     .replace(LINK, (_whole, label: string) => label)
     .replace(REFERENCE_RUN, '')
     .replace(/[`*_]/g, '')

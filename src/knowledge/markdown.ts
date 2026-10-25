@@ -270,6 +270,26 @@ function isConnecting(paragraph: Node, sentenceText: string): boolean {
   return onlyLinks;
 }
 
+/** Links inside Markdown headings, including reference links resolved by the same parsed document. */
+export function headingLinks(body: string, bodyLine: number): FoundLink[] {
+  const tree = parser.parse(body) as unknown as Node;
+  const definitions = new Map<string, string>();
+  const collect = (node: Node): void => {
+    if (node.type === 'definition' && node.identifier !== undefined && node.url !== undefined && !definitions.has(node.identifier)) definitions.set(node.identifier, node.url);
+    for (const child of node.children ?? []) collect(child);
+  };
+  collect(tree);
+  const links: FoundLink[] = [];
+  const walk = (node: Node, inHeading: boolean): void => {
+    const heading = inHeading || node.type === 'heading';
+    const url = node.type === 'link' ? node.url : node.type === 'linkReference' && node.identifier !== undefined ? definitions.get(node.identifier) : undefined;
+    if (heading && url !== undefined) links.push({ url, line: bodyLine - 1 + (node.position?.start.line ?? 1), ground: false });
+    for (const child of node.children ?? []) walk(child, heading);
+  };
+  walk(tree, false);
+  return links;
+}
+
 /** Reads a body: its `madarch:` links, its footnote problems and its ungrounded statements. Lines are the file's. */
 export function readBody(body: string, file: string, bodyLine: number): BodyReading {
   const tree = parser.parse(body) as unknown as Node;

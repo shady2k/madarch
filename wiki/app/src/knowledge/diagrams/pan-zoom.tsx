@@ -8,6 +8,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type Pointer
 import { MinusIcon, PlusIcon, ScanIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button.js';
+import { fullscreenHeight, useFullscreen } from './fullscreen.js';
 
 interface View {
   scale: number;
@@ -39,17 +40,18 @@ export function PanZoom({ width, height, focus, floor = 0.85, label, children, t
   const drag = useRef<{ x: number; y: number; vx: number; vy: number; moved: boolean; id: number } | null>(null);
   const fitted = useRef(false);
 
-  const frameHeight = Math.min(600, Math.max(180, Math.ceil(height + 16)));
+  const full = useFullscreen();
+  const frameHeight = full ? fullscreenHeight(150) : Math.min(600, Math.max(180, Math.ceil(height + 16)));
 
   const fit = useCallback((w: number): View => {
-    const scale = Math.min(1, Math.max(floor, Math.min((w - 16) / Math.max(1, width), (frameHeight - 16) / Math.max(1, height))));
+    const scale = Math.min(full ? 1.8 : 1, Math.max(floor, Math.min((w - 16) / Math.max(1, width), (frameHeight - 16) / Math.max(1, height))));
     const spare = w - width * scale;
     // Wider than the frame: the first view starts at the left edge (where the reading starts), or centred on the focus.
     const x = spare >= 0 ? spare / 2 : focus === undefined ? 8 : Math.min(8, Math.max(spare - 8, w / 2 - focus.x * scale));
     const spareY = frameHeight - height * scale;
     const y = spareY >= 0 ? spareY / 2 : Math.min(8, Math.max(spareY - 8, frameHeight / 2 - (focus?.y ?? height / 2) * scale));
     return { scale, x, y };
-  }, [width, height, focus?.x, focus?.y, floor, frameHeight]);
+  }, [width, height, focus?.x, focus?.y, floor, frameHeight, full]);
 
   useLayoutEffect(() => {
     const element = frame.current;
@@ -69,6 +71,14 @@ export function PanZoom({ width, height, focus, floor = 0.85, label, children, t
       setView(fit(box.w));
     }
   }, [box.w, fit]);
+
+  // Going into or out of full screen starts the view over: the window has another size.
+  const wasFull = useRef(full);
+  useEffect(() => {
+    if (wasFull.current === full || box.w === 0) return;
+    wasFull.current = full;
+    setView(fit(box.w));
+  }, [full, box.w, fit]);
 
   const zoom = (factor: number, cx: number, cy: number): void => {
     setView((held) => {

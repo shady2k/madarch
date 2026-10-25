@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { layered, layoutNeighborhood, layoutTreemap, mergeHood, NODE_H, NODE_W, textWidth, fit } from './layout.js';
+import { layoutNeighborhood, layoutTreemap, mergeHood, NODE_H, NODE_W, textWidth, fit } from './layout.js';
 import type { Neighborhood } from '../types.js';
 
 const node = (id: string, hops = 1) => ({ id, kind: 'code.symbol', label: id, href: `/k/e/${id}`, hops });
@@ -73,20 +73,6 @@ describe('the neighbourhood layout', () => {
     expect(merged.edges).toHaveLength(HOOD.edges.length + 1);
     const answered = mergeHood(HOOD, { center: 'c', nodes: [node('c', 0), node('callee9')], edges: [{ from: 'c', to: 'callee9', relation: 'code.calls', count: 1 }], more: [], relations: [] }, { node: 'c', relation: 'code.calls', direction: 'out' });
     expect(answered.more).toEqual([]);
-  });
-});
-
-describe('the layered graph', () => {
-  test('layers follow the edges left to right and a cycle is cut at one edge that is told as backward', () => {
-    const nodes = ['a', 'b', 'c', 'd'].map((id) => ({ id, w: 100, h: 30 }));
-    const { placed, back } = layered(nodes, [{ from: 'a', to: 'b' }, { from: 'b', to: 'c' }, { from: 'c', to: 'b' }, { from: 'a', to: 'd' }], { gapX: 40, gapY: 10 });
-    expect(placed.get('a')!.layer).toBe(0);
-    expect(placed.get('b')!.layer).toBe(1);
-    expect(placed.get('c')!.layer).toBe(2);
-    expect(placed.get('d')!.layer).toBe(1);
-    expect([...back]).toEqual(['c|b']);
-    const column = [...placed.values()].filter((box) => box.layer === 1).sort((a, b) => a.y - b.y);
-    expect(column[0]!.y + column[0]!.h).toBeLessThanOrEqual(column[1]!.y);
   });
 });
 
