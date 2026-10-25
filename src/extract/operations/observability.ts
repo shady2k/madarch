@@ -9,11 +9,11 @@ import type { PropertyValue } from '../records.js';
 import { extractMetrics } from './metrics.js';
 import type { Records } from './accumulate.js';
 import { serviceOf, TreeText } from './source.js';
-import { bindingShadowed, closeDelimiter, escaped, functionAt, functionNode, functionsOf, relativeSource, sourceMask, sourceSpan } from './symbol-sites.js';
+import { bindingShadowed, closeDelimiter, escaped, functionAt, functionNode, functionsOf, goImportAlias, httpReceiver, relativeSource, sourceMask, sourceSpan } from './symbol-sites.js';
 
 /** Logger declarations and uses resolved through imports, not a global name match. */
 function loggers(t: TreeText, records: Records): void {
-  const declarations: { key: string; path: string; symbol: string; service: string; go: boolean }[] = [];
+  const declarations: { key: string; path: string; symbol: string; service: string; go: boolean; definition?: number }[] = [];
   for (const path of t.tree.paths) {
     if (!/^services\//.test(path) || !/\.(?:go|ts)$/.test(path)) continue;
     const text = t.text(path);
@@ -35,11 +35,11 @@ function loggers(t: TreeText, records: Records): void {
       if (binding === undefined || imported === null || mask.slice(imported.index, imported.index + 6) !== 'import') continue;
       for (const match of text.matchAll(new RegExp(`(?:export\\s+)?const\\s+(\\w+)\\s*=\\s*${escaped(binding)}\\s*\\(`, 'g'))) {
         if (mask.slice(match.index, match.index + match[0].length).trim() === '') continue;
-        if (bindingShadowed(mask, binding, match.index)) continue;
+        if (bindingShadowed(mask, binding, match.index)) {records.gap(path, `line ${sourceSpan(t, path, match.index, match.index + match[0].length).lineStart}: logger factory ${binding} is shadowed or its binding pattern is unsupported (${path})`); continue;}
         const symbol = match[1] ?? '';
         const key = `code.logger:${path}#${symbol}`;
         records.add({ key, kind: 'code.logger', label: `logger of ${service}`, properties: { service, library: 'pino', json: true }, span: sourceSpan(t, path, match.index, match.index + match[0].length) });
-        declarations.push({ key, path, symbol, service, go: false });
+        declarations.push({ key, path, symbol, service, go: false, definition: match.index + match[0].indexOf('const') });
       }
     }
   }
@@ -92,12 +92,7 @@ function loggers(t: TreeText, records: Records): void {
         }
         for (const binding of bindings) {
           for (const match of mask.matchAll(new RegExp(`\\b${escaped(binding)}\\.(?:info|error|warn|debug|trace|fatal|child)\\s*\\(`, 'g'))) {
-            const site = functionAt(t, path, match.index);
-            if (site !== undefined) {
-              const before = mask.slice(site.start, match.index);
-              const parameters = mask.slice(site.start, site.bodyStart);
-              if (new RegExp(`\\b${escaped(binding)}\\s*(?::|,|\\)|=)`).test(parameters) || new RegExp(`\\b(?:const|let|var)\\s+${escaped(binding)}\\b`).test(before)) continue;
-            }
+            if (bindingShadowed(mask, binding, match.index, path === logger.path ? logger.definition : undefined)) continue;
             use(logger.key, path, match.index, match.index + match[0].length);
           }
         }
@@ -116,9 +111,9 @@ interface Endpoint {
 }
 function registrations(t: TreeText, path: string): Endpoint[] {
   const text = t.text(path); const mask = sourceMask(text); const found: Endpoint[] = [];
-  const pattern = /\.(get|post|put|delete|all|Handle|HandleFunc)\(\s*['"]([^'"]+)['"]\s*,/g;
+  const pattern = /\b([A-Za-z_$][\w$]*)\.(get|post|put|delete|all|Handle|HandleFunc)\(\s*['"]([^'"]+)['"]\s*,/g;
   for (const match of text.matchAll(pattern)) {
-    if (mask[match.index] !== '.') continue;
+    if (!httpReceiver(t, path, match[1] ?? '', match.index)) continue;
     const open = match.index + match[0].indexOf('(');
     const end = closeDelimiter(mask, open); if (end === undefined) continue;
     const handlerStart = match.index + match[0].length;
@@ -136,8 +131,8 @@ function registrations(t: TreeText, path: string): Endpoint[] {
       const candidates = sites.filter((site) => site.name === handlerText.split('.').pop());
       if (candidates.length === 1) handler = candidates[0];
     }
-    const raw = match[2] ?? ''; const go = (match[1] ?? '').startsWith('Handle');
-    const method = go ? /^([A-Z]+) /.exec(raw)?.[1] ?? '' : (match[1] ?? '').toUpperCase();
+    const raw = match[3] ?? ''; const go = (match[2] ?? '').startsWith('Handle');
+    const method = go ? /^([A-Z]+) /.exec(raw)?.[1] ?? '' : (match[2] ?? '').toUpperCase();
     const routePath = go ? raw.replace(/^[A-Z]+ /, '') : raw;
     found.push({method, path: routePath, span: sourceSpan(t, path, match.index, end), ...(handler === undefined ? {} : {handler}), statusOk: handler !== undefined && /['"]ok['"]/.test(text.slice(handler.start, handler.end))});
   }
@@ -145,13 +140,32 @@ function registrations(t: TreeText, path: string): Endpoint[] {
 }
 
 /** Literal listeners in this service; no healthcheck option supplies a server port. */
-function listenerPorts(t:TreeText, service:string|undefined):string[] {
- const ports=new Set<string>();
- for(const path of t.tree.paths.filter((path)=>serviceOf(path)===service&&/\.(?:ts|go)$/.test(path))) {
-  const text=t.text(path);const mask=sourceMask(text);
-  for(const match of text.matchAll(/\.listen\(\s*(\d+)\b|\b(?:Addr|addr)\s*:\s*["']:(\d+)["']|ListenAndServe\(\s*["']:(\d+)["']/g)) if(mask[match.index]!== ' ') ports.add(match[1]??match[2]??match[3]!);
- }
- return [...ports].sort();
+function listenerPorts(t: TreeText, service: string | undefined): string[] {
+  const ports = new Set<string>();
+  for (const path of t.tree.paths.filter((path) => serviceOf(path) === service && /\.(?:ts|go)$/.test(path))) {
+    const text = t.text(path); const mask = sourceMask(text);
+    if (path.endsWith('.ts')) {
+      for (const match of mask.matchAll(/\b(\w+)\.listen\(\s*(\d+)\b/g)) if (httpReceiver(t, path, match[1] ?? '', match.index)) ports.add(match[2]!);
+      continue;
+    }
+    const alias = goImportAlias(text, 'net/http');
+    if (alias === undefined) continue;
+    for (const match of text.matchAll(new RegExp(`\\b${escaped(alias)}\\.ListenAndServe\\(\\s*"[^"]*:(\\d+)"`, 'g'))) if (mask.slice(match.index, match.index + alias.length) === alias && !bindingShadowed(mask, alias, match.index)) ports.add(match[1]!);
+    for (const declaration of mask.matchAll(new RegExp(`\\b(\\w+)\\s*:=\\s*&?${escaped(alias)}\\.Server\\s*\\{`, 'g'))) {
+      const open = declaration.index + declaration[0].lastIndexOf('{'); const end = closeDelimiter(mask, open, '{', '}');
+      if (end === undefined || bindingShadowed(mask, alias, declaration.index)) continue;
+      const server = declaration[1]!;
+      const calls = [...mask.matchAll(new RegExp(`\\b${escaped(server)}\\.ListenAndServe\\s*\\(`, 'g'))];
+      if (!calls.some((call) => !bindingShadowed(mask, server, call.index, declaration.index))) continue;
+      const body = text.slice(open, end); const bodyMask = mask.slice(open, end);
+      const addr = /\bAddr\s*:\s*("[^"]+"|\w+)/.exec(body);
+      if (addr === null || !/^Addr/.test(bodyMask.slice(addr.index))) continue;
+      const value = addr[1]!; const constant = value.startsWith('"') ? value : new RegExp(`\\b${escaped(value)}\\s*=\\s*("[^"]+")`).exec(text)?.[1];
+      const port = constant === undefined ? undefined : /:(\d+)"$/.exec(constant)?.[1];
+      if (port !== undefined) ports.add(port);
+    }
+  }
+  return [...ports].sort();
 }
 
 /** The health endpoints: every registration of /healthz, keyed by its file and symbol. */

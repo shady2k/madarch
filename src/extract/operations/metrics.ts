@@ -3,7 +3,7 @@ import type { PropertyValue, SourceSpan } from '../records.js';
 import { byCodePoint } from '../../model/order.js';
 import type { Records } from './accumulate.js';
 import { serviceOf, type TreeText } from './source.js';
-import { bindingShadowed, closeDelimiter, escaped, functionAt, functionNode, functionsOf, relativeSource, sourceMask, sourceSpan, type FunctionSite } from './symbol-sites.js';
+import { bindingShadowed, closeDelimiter, escaped, functionAt, functionNode, functionsOf, relativeSource, sourceMask, sourceSpan, withoutComments, type FunctionSite } from './symbol-sites.js';
 
 interface Metric {
   readonly path: string;
@@ -19,6 +19,43 @@ interface Metric {
 }
 
 
+
+/** Direct properties of the first constructor options object. Strings/comments
+ * and nested values cannot contribute keys to this map. */
+function optionValues(text: string, mask: string, open: number, stop: number): Map<string, string> {
+  const values = new Map<string, string>();
+  const brace = mask.indexOf('{', open + 1);
+  if (brace < 0 || brace >= stop) return values;
+  const prefix = mask.slice(open + 1, brace).trim();
+  if (prefix !== '' && !/^[\w.]+$/.test(prefix)) return values;
+  const end = closeDelimiter(mask, brace, '{', '}');
+  if (end === undefined || end > stop) return values;
+  let at = brace + 1;
+  while (at < end - 1) {
+    while (at < end - 1 && /[\s,]/.test(mask[at]!)) at++;
+    const key = /^([A-Za-z_]\w*)\s*:/.exec(mask.slice(at, end - 1));
+    if (key === null) break;
+    at += key[0].length;
+    const start = at; const stack: string[] = [];
+    for (; at < end - 1; at++) {
+      const character = mask[at]!;
+      if ('{[('.includes(character)) stack.push(character);
+      else if ('}])'.includes(character)) stack.pop();
+      else if (character === ',' && stack.length === 0) break;
+    }
+    values.set(key[1]!, withoutComments(text.slice(start, at)).trim());
+  }
+  return values;
+}
+
+function literalStrings(value: string): string[] {
+  const values: string[] = [];
+  for (const token of value.matchAll(/\/\*[\s\S]*?\*\/|\/\/[^\n]*|'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"/g)) {
+    if (token[0].startsWith('//') || token[0].startsWith('/*')) continue;
+    values.push(token[0].slice(1, -1));
+  }
+  return values;
+}
 /** Explicit constructors, and the text-format definitions the training service writes. */
 function definitions(t: TreeText, path: string): Metric[] {
   const text = t.text(path);
@@ -61,13 +98,22 @@ function definitions(t: TreeText, path: string): Metric[] {
     const stop = closeDelimiter(mask, open);
     if (stop === undefined) continue;
     const body = text.slice(match.index, stop);
-    const name = /\b(?:Name|name)\s*:\s*['"]([^'"]+)['"]/.exec(body)?.[1];
+    const options = optionValues(text, mask, open, stop);
+    const literal = (key: string): string | undefined => /^['"]([^'"]+)['"]$/.exec(options.get(key) ?? '')?.[1];
+    const name = literal('Name') ?? literal('name');
     if (name === undefined) continue;
-    const namespace = /\bNamespace\s*:\s*"([^"]+)"/.exec(body)?.[1];
-    const subsystem = /\bSubsystem\s*:\s*"([^"]+)"/.exec(body)?.[1];
-    const labelBody = /\blabelNames\s*:\s*\[([^\]]*)\]/.exec(body)?.[1] ?? /\[\]string\s*\{([^}]*)\}/.exec(body)?.[1] ?? '';
-    const labels = [...labelBody.matchAll(/['"]([^'"]+)['"]/g)].map((held) => held[1] ?? '').sort(byCodePoint);
-    found.push({ path, name: [namespace, subsystem, name].filter(Boolean).join('_'), metricType: metricType.toLowerCase(), labels, binding: match[1] ?? '', span: sourceSpan(t, path, match.index, stop), textWriter: false, defaultRegistry: path.endsWith('.ts') ? !/\bregisters\s*:/.test(body) : autoRegistered.has(constructor), bindingAt: match.index + match[0].indexOf(match[1] ?? '') });
+    const namespace = literal('Namespace');
+    const subsystem = literal('Subsystem');
+    let labelBody = options.get('labelNames') ?? '';
+    if (path.endsWith('.go')) {
+      const optionsOpen = mask.indexOf('{', open + 1); const optionsEnd = closeDelimiter(mask, optionsOpen, '{', '}');
+      if (optionsEnd !== undefined) {
+        const labels = /,\s*\[\]string\s*\{/.exec(mask.slice(optionsEnd, stop));
+        if (labels !== null) {const start = optionsEnd + labels.index + labels[0].lastIndexOf('{'); const end = closeDelimiter(mask, start, '{', '}'); if (end !== undefined) labelBody = text.slice(start + 1, end - 1);}
+      }
+    }
+    const labels = literalStrings(labelBody).sort(byCodePoint);
+    found.push({ path, name: [namespace, subsystem, name].filter(Boolean).join('_'), metricType: metricType.toLowerCase(), labels, binding: match[1] ?? '', span: sourceSpan(t, path, match.index, stop), textWriter: false, defaultRegistry: path.endsWith('.ts') ? !options.has('registers') : autoRegistered.has(constructor), bindingAt: match.index + match[0].indexOf(match[1] ?? '') });
   }
   const typeDirectives = new Map<string, string>();
   for (const match of text.matchAll(/# TYPE\s+([a-zA-Z_:][\w:]*)\s+(counter|gauge|histogram)\b/g)) typeDirectives.set(match[1] ?? '', match[2] ?? '');

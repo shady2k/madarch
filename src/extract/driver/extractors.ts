@@ -15,10 +15,10 @@ import type { HistoryExtractor, TreeExtractor } from './index.js';
 /** Every tree extractor, in the order the driver runs them per commit. */
 const TREE_READERS = [
  {name:'extractFiles',version:2,extractor:extractFiles},
- {name:'extractCode',version:6,extractor:extractCode},
- {name:'extractOperations',version:3,extractor:extractOperations},
- {name:'extractContracts',version:3,extractor:extractContracts},
- {name:'extractDataModel',version:2,extractor:extractDataModel},
+ {name:'extractCode',version:7,extractor:extractCode},
+ {name:'extractOperations',version:4,extractor:extractOperations},
+ {name:'extractContracts',version:4,extractor:extractContracts},
+ {name:'extractDataModel',version:3,extractor:extractDataModel},
 ] as const;
 export const TREE_EXTRACTORS: readonly TreeExtractor[] = TREE_READERS.map((entry)=>entry.extractor);
 

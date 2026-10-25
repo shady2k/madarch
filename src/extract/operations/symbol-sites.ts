@@ -135,6 +135,23 @@ export function bindingShadowed(mask: string, name: string, at: number, definiti
     const parameters = mask.slice(match.index + 1, end - 1);
     const expression = new RegExp(`(?:^|,)\\s*(?:(?:public|private|protected|readonly)\\s+)*${escaped(name)}(?:\\s*[:=,)]|\\s+[*\\w\\[\\]]+|\\s*$)`);
     if (expression.test(parameters)) return true;
+    // Only the binding side of an object/array parameter introduces names. A
+    // property's key is not its renamed binding, and type members are not bindings.
+    for (const parameter of parameters.split(/,(?![^{}\[\]]*[}\]])/)) {
+      const trimmed = parameter.trim();
+      if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) continue;
+      const opening = trimmed[0]!;
+      const stop = closeDelimiter(trimmed, 0, opening, opening === '{' ? '}' : ']');
+      if (stop === undefined) return true;
+      const pattern = trimmed.slice(1, stop - 1);
+      for (const part of pattern.split(',')) {
+        const binding = part.trim().replace(/^\.\.\./, '');
+        if (binding === '') continue;
+        const pair = /^(?:[\w$]+\s*:\s*)?([\w$]+)(?:\s*=.*)?$/.exec(binding);
+        if (pair === null) return true; // Unsupported nested pattern proves no import identity.
+        if (pair[1] === name) return true;
+      }
+    }
   }
   // Go short declarations are bindings too. Keep ordinary assignment distinct.
   for (const match of mask.matchAll(new RegExp(`\\b${escaped(name)}\\s*:=`, 'g'))) if (match.index !== definition && isEnclosing(match.index)) return true;
@@ -149,6 +166,58 @@ export function closeDelimiter(mask: string, start: number, open = '(', close = 
   for (let at = start; at < mask.length; at++) {
     if (mask[at] === open) depth++;
     else if (mask[at] === close && --depth === 0) return at + 1;
+  }
+  return undefined;
+}
+
+/** Resolve supported HTTP receiver bindings at their use, not by method spelling. */
+export function httpReceiver(t: TreeText, path: string, receiver: string, at: number): boolean {
+  const text = t.text(path); const mask = sourceMask(text);
+  if (!/^[A-Za-z_$][\w$]*$/.test(receiver)) return false;
+  if (path.endsWith('.go')) {
+    const alias = goImportAlias(text, 'net/http');
+    if (alias === undefined) return false;
+    if (receiver === alias) return !bindingShadowed(mask, alias, at);
+    for (const declaration of mask.matchAll(new RegExp(`\\b${escaped(receiver)}\\s*:=\\s*${escaped(alias)}\\.NewServeMux\\s*\\(`, 'g'))) {
+      if (declaration.index < at && !bindingShadowed(mask, receiver, at, declaration.index) && !bindingShadowed(mask, alias, declaration.index)) return true;
+    }
+    return false;
+  }
+  const factories = new Set<string>();
+  for (const imported of text.matchAll(/import\s+(?:(?:\*\s+as\s+)?(\w+)|\{([^}]+)\})\s+from\s*['"]express['"]/g)) {
+    if (mask.slice(imported.index, imported.index + 6) !== 'import') continue;
+    if (imported[1] !== undefined) {factories.add(imported[1]); factories.add(`${imported[1]}.Router`);}
+    for (const entry of (imported[2] ?? '').split(',')) {
+      const named = /^\s*Router(?:\s+as\s+(\w+))?\s*$/.exec(entry);
+      if (named !== null) factories.add(named[1] ?? 'Router');
+    }
+  }
+  for (const declaration of mask.matchAll(new RegExp(`\\b(?:const|let)\\s+${escaped(receiver)}\\s*=\\s*([\\w.]+)\\s*\\(`, 'g'))) {
+    const factory = declaration[1] ?? '';
+    if (declaration.index >= at || !factories.has(factory) || bindingShadowed(mask, receiver, at, declaration.index)) continue;
+    if (!bindingShadowed(mask, factory.split('.')[0]!, declaration.index)) return true;
+  }
+  return false;
+}
+
+/** Comments masked without changing literal values or source offsets. */
+export function withoutComments(text: string): string {
+  return text.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*|'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|`(?:\\.|[^`\\])*`/g,
+    (token) => token.startsWith('//') || token.startsWith('/*') ? token.replace(/[^\n]/g, ' ') : token);
+}
+
+/** A Go import clause, not a comment/string mentioning an import path. */
+export function goImportAlias(text: string, module: string): string | undefined {
+  const mask = sourceMask(text);
+  const clean = withoutComments(text);
+  for (const declaration of clean.matchAll(/\bimport\s+(?:\([\s\S]*?\)|(?:\w+\s+)?"[^"\n]+")/g)) {
+    if (mask.slice(declaration.index, declaration.index + 6) !== 'import') continue;
+    for (const spec of declaration[0].slice(6).matchAll(/(?:(\w+)\s+)?"([^"\n]+)"/g)) {
+      if (spec[2] !== module) continue;
+      const before = declaration[0].slice(0, spec.index);
+      if (/\/\/[^\n]*$/.test(before)) continue;
+      return spec[1] ?? module.slice(module.lastIndexOf('/') + 1);
+    }
   }
   return undefined;
 }

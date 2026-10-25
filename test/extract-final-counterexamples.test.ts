@@ -57,6 +57,13 @@ test('review 9: external OpenAPI authority never falls back to sole local route'
 });
 test('review 10: all database evidence contributes exact raw and normalized spans',async()=>{
  const t=tree('import pg from "pg";\nexport const url=process.env.DATABASE_URL;\n',{'services/api/package.json':'{"name":"api","dependencies":{"pg":"8.13.0"}}','services/api/migrations/001.sql':'CREATE TABLE entries (id integer PRIMARY KEY);'});const ex=await extractDataModel(t);const ops=extractOperations(t);const raw=ex.edges.filter((e)=>e.type==='code.uses-database');expect(raw).toHaveLength(1);for(const edge of raw)expect(edgeEvidenceError(t,{type:edge.type,evidence:edge.span??null,properties:edge.properties})).toBeNull();
- const readings=raw[0]?.properties.origins;expect(Array.isArray(readings)).toBe(true);if(!Array.isArray(readings))throw new Error('missing raw storage readings');expect(readings.length).toBeGreaterThanOrEqual(4);
+ const readings=raw[0]?.properties.origins;expect(Array.isArray(readings)).toBe(true);if(!Array.isArray(readings))throw new Error('missing raw storage readings');expect(readings.length).toBeGreaterThanOrEqual(4);for(const reading of readings){if(reading===null||typeof reading!=='object'||Array.isArray(reading))throw new Error('invalid storage origin');expect(edgeEvidenceError(t,{type:'code.uses-database',evidence:reading.sourceSpan,properties:{}})).toBeNull();}
  const edges=normalized(ex,ops).filter((e)=>e.type==='code.uses-database');expect(edges).toHaveLength(1);expect(JSON.stringify(edges[0]?.properties)).toContain(JSON.stringify(readings));
+});
+
+test('inline argument callback is a reference value, never a parent call',async()=>{
+ const source='function retry(f:()=>void){f();} function target(){} export function outer(){retry(()=>target());}';
+ const t=tree(source);const ex=await extractCode(t);const byte=source.indexOf('()=>target()');const callback=sym(`outer.callback@1:${byte}`);
+ const reference=ex.edges.find((e)=>e.type==='code.references'&&e.from===sym('outer')&&e.to===callback);expect(reference?.properties.role).toBe('callback-value');expect(slice(t,reference?.span)).toBe('()=>target()');
+ expect(ex.edges.find((e)=>e.type==='code.calls'&&e.from===callback&&e.to===sym('target'))).toBeDefined();expect(ex.edges.some((e)=>e.type==='code.calls'&&e.from===sym('outer')&&e.to===sym('target'))).toBe(false);
 });

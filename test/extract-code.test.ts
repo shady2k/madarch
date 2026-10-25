@@ -417,10 +417,24 @@ describe('flow', () => {
     const location = locationsOf('flow.orders.repository')[0]!;
     const create = sym(location.path, declared(location.symbol!));
     expect(create).toBe(sym(REPOSITORY, 'OrderRepository.Create'));
-    expectEdge(REL_CALLS, create, sym(`${ORDERS}/store/outbox.go`, 'OutboxWriter.Write'));
-    expectEdge(REL_CALLS, create, sym(REPOSITORY, 'insertOrder'));
-    expectEdge(REL_CALLS, create, sym(REPOSITORY, 'insertItems'));
+    const source = new TextDecoder().decode(tree.read(REPOSITORY));
+    const declaration = source.indexOf('func (r *OrderRepository) Create');
+    const callbackAt = source.indexOf('func(tx *sql.Tx) error {', declaration);
+    expect(callbackAt).toBeGreaterThan(declaration);
+    const byteStart = new TextEncoder().encode(source.slice(0, callbackAt)).length;
+    const line = source.slice(0, callbackAt).split('\n').length;
+    const callback = sym(REPOSITORY, `OrderRepository.Create.callback@${line}:${byteStart}`);
+    expect(node(callback).span?.byteStart).toBe(byteStart);
+    for (const target of [sym(`${ORDERS}/store/outbox.go`, 'OutboxWriter.Write'), sym(REPOSITORY, 'insertOrder'), sym(REPOSITORY, 'insertItems')]) {
+      const call = expectEdge(REL_CALLS, callback, target);
+      expect(call.span?.path).toBe(REPOSITORY);
+      expect(call.span!.byteStart).toBeGreaterThan(byteStart);
+      expect(has(REL_CALLS, create, target)).toBe(false);
+    }
     expectEdge(REL_CALLS, create, sym(REPOSITORY, 'OrderRepository.inTx'));
+    const reference = expectEdge(REL_REFERENCES, create, callback);
+    expect(reference.properties.role).toBe('callback-value');
+    expect(reference.span?.byteStart).toBe(byteStart);
     // The service reaches this implementation through the interface.
     const viaInterface = edges(REL_CALLS, sym(SERVICE, 'Service.Place'), create);
     expect(viaInterface[0]?.properties['via']).toBe('interface');

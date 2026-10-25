@@ -95,7 +95,7 @@ export async function extractContracts(reader: TreeReader, code?: Extraction): P
   const gaps: ExtractionGap[] = [];
 
   // ---- the contracts --------------------------------------------------------
-  const openApiOperations: {method: string; routePath: string; key: string; servers: readonly string[]; contractPath: string}[] = [];
+  const openApiOperations: {method: string; routePath: string; key: string; servers: readonly string[]; contractPath: string; span: SourceSpan}[] = [];
   const channels: string[] = [];
   const protoRpcs: {protoPath: string; service: string; rpc: string; key: string}[] = [];
   const declarations: {contract: string; member: string; relation: `code.${string}`}[] = [];
@@ -128,7 +128,7 @@ export async function extractContracts(reader: TreeReader, code?: Extraction): P
       nodes.push(...openApiNodes(contract));
       for (const op of contract.operations) declarations.push({contract: `code.contract:${p}`, member: operationKey(p, `${op.method}:${op.path}`), relation: 'code.declares'});
       for (const op of contract.operations) {
-        openApiOperations.push({method: op.method, routePath: op.path, key: `code.operation:${p}#${op.method}:${op.path}`, servers: op.servers, contractPath: p});
+        openApiOperations.push({method: op.method, routePath: op.path, key: `code.operation:${p}#${op.method}:${op.path}`, servers: op.servers, contractPath: p, span: op.span});
       }
     } else if (format === 'asyncapi') {
       const {contract, gaps: fileGaps} = readAsyncApi(p, text);
@@ -601,6 +601,11 @@ export async function extractContracts(reader: TreeReader, code?: Extraction): P
   }
   for (const operation of openApiOperations) {
     const scope = servicesOfServers(operation.servers);
+    const unresolvedAuthority = operation.servers.some((server) => /^(?:[A-Za-z][A-Za-z0-9+.-]*:)?\/\//.test(server) && servicesOfServers([server]).size === 0);
+    if (unresolvedAuthority) {
+      gaps.push({path: operation.contractPath, reason: `contracts: line ${operation.span.lineStart}: ${operation.method} ${operation.routePath} has an explicit server authority that resolves to no local service (${operation.contractPath})`});
+      continue;
+    }
     const candidates = allRouteKeys().filter((route) => operationMatches(route, operation));
     const matching = scope.size > 0 ? candidates.filter((route) => route.service !== undefined && scope.has(route.service)) : candidates;
     // One server-scoped route per operation is evidence. A duplicated path in

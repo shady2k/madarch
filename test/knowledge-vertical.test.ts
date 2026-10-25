@@ -144,6 +144,10 @@ describe('the function page', () => {
     const [chain] = block(await page(PAY), 'sequence').chains;
     expect(chain!.lanes.map((lane) => lane.label)).toContain('payment-service.ts');
     expect(chain!.steps.map((step) => step.label)).toContain('withTimeout');
+    const callback = chain!.steps.find((step) => step.note?.includes('callback value passed here'));
+    expect(callback).toBeDefined();
+    expect(callback?.order).toBe('unordered');
+    expect(callback?.site?.path).toBe('services/payments/src/domain/payment-service.ts');
   });
 });
 

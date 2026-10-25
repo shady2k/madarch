@@ -207,7 +207,7 @@ interface Located {
 
 interface Event {
   at: number;
-  kind: 'call' | 'read' | 'write' | 'remote' | 'publish';
+  kind: 'call' | 'callback' | 'read' | 'write' | 'remote' | 'publish';
   target: GraphEntity;
   props: Record<string, unknown>;
   span?: SourceSpan;
@@ -354,11 +354,12 @@ export class ChainBuilder {
     const events: Event[] = [];
     const inRange = (span: SourceSpan | undefined): boolean => within === undefined || (span !== undefined && span.lineStart >= within.lineStart && span.lineEnd <= within.lineEnd);
     const relations: [string, Event['kind']][] = [['code.calls', 'call'], ['code.reads-table', 'read'], ['code.writes-table', 'write']];
-    if (within !== undefined) relations.push(['code.references', 'call']);
+    relations.push(['code.references', within === undefined ? 'callback' : 'call']);
     for (const [relation, kind] of relations) {
       const found = await this.ctx.graph.edgesOf(symbol, relation, 'out', 300);
       for (const edge of found.rows) {
         if (!inRange(edge.span)) continue;
+        if (kind === 'callback' && edge.properties['role'] !== 'callback-value') continue;
         if (kind === 'call' && (edge.other.kind !== 'code.symbol' || edge.other.properties['test'] === true)) continue;
         if (relation === 'code.references' && !['function', 'method', 'class'].includes(String(edge.other.properties['symbolKind']))) continue;
         events.push({ at: edge.span?.byteStart ?? Number.MAX_SAFE_INTEGER, kind, target: edge.other, props: edge.properties, ...(edge.span === undefined ? {} : { span: edge.span }) });
@@ -421,7 +422,9 @@ export class ChainBuilder {
     }
     const order: ChainStep['order'] = unordered ? 'unordered' : 'source';
     for (const event of await this.eventsOf(symbol, within)) {
-      if (event.kind === 'call') {
+      if (event.kind === 'callback') {
+        this.pendingUnordered.push({symbol: event.target, from: fromLane.id, ...(event.span === undefined ? {} : {span: event.span}), reason: 'callback value passed here; invocation order is not established'});
+      } else if (event.kind === 'call') {
         const target = event.target;
         if (target.span === undefined) continue;
         const toLane = await this.laneOfFile(target.span.path, undefined);

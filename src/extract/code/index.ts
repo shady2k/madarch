@@ -96,6 +96,7 @@ interface FileFacts {
   readonly resolution: ExtractedFileResolution;
   readonly decls: FileDecls;
   readonly symbols: FileSymbol[];
+  readonly callbackValues: readonly SourceSpan[];
 }
 
 /** A resolved name: where it stands, what it names, and how. */
@@ -205,6 +206,7 @@ export async function extractCode(reader: TreeReader): Promise<Extraction> {
     if (!declarations.read) gap(source.path, `line 1: declarations could not be read from repository path ${source.path}`);
     const topNames = syntax.parsed && source.language === 'typescript' ? new Set(decls.tops.map((top) => top.name)) : undefined;
     const symbols = indexSymbols(source.path, syntax.symbols, topNames);
+    const callbackValues: SourceSpan[] = [];
     if (syntax.parsed) {
       const registrations = await readSyntaxTree<readonly {method: string; path: string; handler?: {inline: boolean; span: SourceSpan}}[]>(source.path, source.bytes, ({root}) => {
         if (source.language !== 'typescript') return readGoFile(source.path, root).routes.map((route) => ({method: route.method, path: route.path, handler: {inline: route.inline, span: route.handlerSpan}}));
@@ -234,7 +236,11 @@ export async function extractCode(reader: TreeReader): Promise<Extraction> {
       const boundaries = await readSyntaxTree(source.path, source.bytes, ({root}) => {
         const found: SourceSpan[] = [];
         walkTree(root, (node) => {
-          if (['arrow_function', 'function_expression', 'generator_function', 'func_literal'].includes(node.type)) found.push(spanOf(node, source.path));
+          if (['arrow_function', 'function_expression', 'generator_function', 'func_literal'].includes(node.type)) {
+            const span = spanOf(node, source.path);
+            found.push(span);
+            if (node.parent !== null && ['arguments', 'argument_list'].includes(node.parent.type)) callbackValues.push(span);
+          }
         });
         return found;
       });
@@ -255,9 +261,9 @@ export async function extractCode(reader: TreeReader): Promise<Extraction> {
     for (const [index, symbol] of symbols.entries()) {
       if (!symbol.local) continue;
       const holder = holderAt(symbols, symbol.span.startByte);
-      if (holder !== undefined && holder.qualifiedName.includes('.callback@')) symbols[index] = {...symbol, keptKey: holder.key};
+      if (holder !== undefined) symbols[index] = {...symbol, keptKey: holder.key};
     }
-    files.push({ source, syntax, resolution, decls, symbols });
+    files.push({ source, syntax, resolution, decls, symbols, callbackValues });
   }
   const parsedFiles = files.filter((file) => file.syntax.parsed);
   const fileFacts = new Map(files.map((file) => [file.source.path, file]));
@@ -437,6 +443,15 @@ export async function extractCode(reader: TreeReader): Promise<Extraction> {
       addNode({ key: symbol.key, kind: KIND_SYMBOL, label, properties, span: toSpan(path, symbol.span) });
       addEdge({ type: REL_CONTAINS, from: fileKey(path), to: symbol.key, discriminator: '', properties: {} });
     }
+  }
+
+  // Passing an anonymous function as an argument references its actual value.
+  // It does not prove invocation or scheduling by the enclosing function.
+  for (const file of parsedFiles) for (const span of file.callbackValues) {
+    const callback = file.symbols.find((symbol) => !symbol.local && symbol.functionLike && symbol.span.startByte === span.byteStart && symbol.span.endByte === span.byteEnd);
+    if (callback === undefined) continue;
+    const parent = holderAt(file.symbols.filter((symbol) => symbol.key !== callback.key), span.byteStart);
+    addEdge({type: REL_REFERENCES, from: parent?.key ?? fileKey(file.source.path), to: callback.key, discriminator: String(span.byteStart), properties: {role: 'callback-value'}, span});
   }
 
   // Types own their actual declared members, including Go methods declared

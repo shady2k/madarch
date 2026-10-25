@@ -29,6 +29,7 @@ import {byCodePoint} from '../../model/order.js';
 import {extractFileSyntax} from '../../fill/stages/syntax-extract.js';
 import {readGoMod} from '../../fill/stages/manifest-format.js';
 import {sourceMask} from '../operations/symbol-sites.js';
+import {extractCode} from '../code/index.js';
 import type {ExtractedEdge, ExtractedNode, Extraction, ExtractionGap, SourceSpan, TreeReader} from '../records.js';
 import {extractFileAccess, type AccessSite, type FileAccess, type FunctionRegion} from './access.js';
 import {indexGoPackage, resolveGoCalls, type GoPackageFile, type ResolvedCall} from './go-calls.js';
@@ -114,7 +115,9 @@ type TextOrGap = {readonly ok: true; readonly text: string} | {readonly ok: fals
 /**
  * Extracts the data model and the table access of one repository tree.
  */
-export async function extractDataModel(tree: TreeReader): Promise<Extraction> {
+export async function extractDataModel(tree: TreeReader, suppliedCode?: Extraction): Promise<Extraction> {
+  const code = suppliedCode ?? await extractCode(tree);
+  const canonicalFunctions = code.nodes.filter((node) => node.kind === 'code.symbol' && node.span !== undefined && ['function', 'method', 'constructor'].includes(String(node.properties.symbolKind)));
   const databases = new Map<string, MergedDatabase>();
   const gaps: ExtractionGap[] = [];
   const migrations: MigrationFile[] = [];
@@ -267,8 +270,13 @@ export async function extractDataModel(tree: TreeReader): Promise<Extraction> {
       const to = resolveSite(file, site);
       if (to === undefined) continue;
       const type = site.verb === 'read' ? READS : WRITES;
-      // A site no function region holds belongs to the file itself.
-      const from = site.region === '' ? fileKey(file.path) : functionKey(file.path, site.region);
+      const owner = canonicalFunctions.filter((node) => node.span!.path === file.path && node.span!.byteStart <= site.span.byteStart && site.span.byteEnd <= node.span!.byteEnd)
+        .sort((a, b) => (a.span!.byteEnd - a.span!.byteStart) - (b.span!.byteEnd - b.span!.byteStart))[0];
+      if (owner === undefined && site.region !== '') {
+        noteGap(file.path, `line ${site.span.lineStart}: table access has no canonical positioned function owner (${file.path})`);
+        continue;
+      }
+      const from = owner?.key ?? fileKey(file.path);
       const key = `${type} ${from} ${to}`;
       const held = immediate.get(key);
       if (held !== undefined) {
@@ -276,12 +284,13 @@ export async function extractDataModel(tree: TreeReader): Promise<Extraction> {
         continue;
       }
       immediate.set(key, {type, from, to, via: site.via, sites: [{...site.span}]});
-      if (site.region !== '') {
+      const regionName = owner === undefined ? '' : String(owner.properties.qualifiedName);
+      if (regionName !== '') {
         const directory = file.path.slice(0, file.path.lastIndexOf('/') + 1);
         const packageAccesses = regionAccesses.get(directory) ?? new Map<string, ResolvedAccess[]>();
-        const accesses = packageAccesses.get(site.region) ?? [];
+        const accesses = packageAccesses.get(regionName) ?? [];
         accesses.push({verb: site.verb, to, via: site.via});
-        packageAccesses.set(site.region, accesses);
+        packageAccesses.set(regionName, accesses);
         regionAccesses.set(directory, packageAccesses);
       }
     }
@@ -488,6 +497,8 @@ export async function extractDataModel(tree: TreeReader): Promise<Extraction> {
     const separator = key.indexOf('#');
     const filePath = key.slice('code.symbol:'.length, separator);
     const qualifiedName = key.slice(separator + 1);
+    const canonical = canonicalFunctions.find((node) => node.key === key);
+    if (canonical !== undefined) {nodes.push(canonical); continue;}
     const region = codeFiles.map((file) => file.access).find((access) => access.path === filePath)?.regions.find((candidate) => candidate.qualifiedName === qualifiedName);
     nodes.push({
       key: functionKey(filePath, qualifiedName),
@@ -543,7 +554,20 @@ export async function extractDataModel(tree: TreeReader): Promise<Extraction> {
   };
   for (const database of databases.values()) {
     const dbKey = databaseKey(database.name);
-    structuralEdges.push({type: 'code.uses-database', from: `code.service:${database.name}`, to: dbKey, discriminator: '', properties: {via: database.migrations.length > 0 || database.tables.size > 0 ? 'schema' : database.evidence[0]?.kind ?? 'connection'}});
+    const readings = [...database.evidence];
+    for (const migration of database.migrations) {
+      const read = readUtf8(tree, migration.path);
+      if (read.ok) for (const statement of parseSqlScript(migration.path, read.text).statements) {
+        if (statement.kind === 'other') continue;
+        const span = statement.kind === 'create-table' ? statement.table.span : statement.kind === 'alter-table-add-column' ? statement.column.span : statement.kind === 'create-index' ? statement.index.span : statement.span;
+        readings.push({kind: 'schema', span});
+      }
+    }
+    const prismaPath = prismaSchemas.get(database.name);
+    if (prismaPath !== undefined) for (const table of database.tables.values()) if (table.span?.path === prismaPath) readings.push({kind: 'schema', span: table.span});
+    for (const table of database.tables.values()) if (table.span !== undefined && !readings.some((reading) => reading.span.path === table.span!.path && reading.span.byteStart === table.span!.byteStart && reading.span.byteEnd === table.span!.byteEnd)) readings.push({kind: 'schema', span: table.span});
+    if (readings.length === 0) throw new Error(`data model: database ${database.name} has no contributing storage reading`);
+    structuralEdges.push({type: 'code.uses-database', from: `code.service:${database.name}`, to: dbKey, discriminator: '', properties: {via: readings.some((reading) => reading.kind === 'schema') ? 'schema' : readings[0]!.kind, origins: readings.map((reading) => ({sourceProducer: DATA_MODEL_PRODUCER, originalDiscriminator: '', sourceSpan: {...reading.span}, properties: {via: reading.kind}}))}, span: readings[0]!.span});
     for (const migration of database.migrations) {
       const migrationId = migrationKey(database.name, migration.name);
       edge('code.contains', dbKey, migrationId);
