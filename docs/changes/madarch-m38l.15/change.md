@@ -54,10 +54,20 @@ None.
 - Diagram specifications are checked against the graph before rendering. The graph supplies facts; assumptions and unordered sequence steps are dashed and have a reason.
 - View types include C4 context/container/component, domain map/domain, sequence, ER, state and deployment. The product's `diagram:` choice takes precedence over `MADARCH_WIKI_DIAGRAM`; LikeC4 is the default and a renderer unavailable for a type is not offered.
 - Mermaid source is rendered in the app. LikeC4 and archify frames are generated from the same view model. Elements link to wiki pages and code locations; drill-down and up links keep the reader in the view.
-- The existing treemap and neighborhood remain. Oversized diagrams fold at a higher level with drill-down.
+- The existing treemap and neighborhood remain. Oversized diagrams fold at a real higher ownership level with drill-down. When that cannot keep a picture within forty elements, it shows the first forty with truthful counts and a working link to the adjacent list of all raw members and relationships; no synthetic owner is created.
+- Coordinator decisions, 2026-10-25T00:47:08Z: database/table ER views offer only Mermaid `erDiagram`. All columns, PK/FK combinations, parallel foreign keys and their column labels remain. Table links are under the picture. No Archify/LikeC4 ER or vendored renderer change is included.
+- Coordinator decision, 2026-10-25T04:30:05Z: at desktop widths (1150 px and wider), fullscreen shows the whole visible diagram with node titles at least 9 px. If the actual diagram is too dense, visible paged expansion with truthful "+N more" per group keeps the shown part within that overview; no node-title floor is lowered. At phone width (390 px), fullscreen may remain a top-left reading window at 9 px, with pan/zoom, a visible continuation hint and the complete adjacent member/fact list. Phone whole-fit is not required. Other first-view, no-cut, exact-plan and renderer guards remain unchanged. Desktop fit of the current fixtures is not measured yet; no speculative paging/layout change is claimed as implemented.
 - The generated training repository and fixture data are the only test inputs; no test names an outside product repository.
 
 ## Acceptance evidence
+
+SOURCE-ONLY UNVERIFIED checkpoint, 2026-10-25: all runtime evidence below predates
+the current source repairs and is historical, not acceptance of this candidate.
+The original final walk stopped at its recorded 1500-second bound with 2980 JSON
+observations, 1490 IDs and 524 PNGs, without final measures. That failed evidence
+is retained. Fresh native checks, mutation, complete matrix and coordinator visual
+inspection remain required. The source checkpoint does not reduce review-5 floors
+or claim any new runtime pass.
 
 Checks. `bun run check` (root) and `bun run check` in `wiki/app` pass on c682bdef; `node .shady2k/documents.mjs check --phase feature --change madarch-m38l.15 --candidate worktree --target origin/main` passes. GitHub CI on c682bdef is green: the `checks` job (the app's own install, type check, its 168 tests in 12 files and its build, plus the postgres legs, `views:check` and `contract:check`) and all five test shards. The app suite on an AVX2 pod ran 167 of 168 in one process; the one failure (`the agent stage > a stage that ended with a failure says so and offers to try again`, added by #159) passes alone (36 of 36 in its file) and in CI, and failed only under the pod's load — it is main's test and this change does not touch the fill card.
 
@@ -129,4 +139,79 @@ fit as an overview. A title may not straddle a frame edge. Mermaid bounds includ
 every drawn primitive so a long edge label is not lost outside the root viewBox.
 The f walk records whole-fit, actual scale, smallest title pixels, fully visible
 title names and cut titles/edge labels for both normal and full-screen observations.
-Validation of these revised rules is pending; the earlier e numbers do not accept them.
+The coordinator's 2026-10-25T04:30:05Z clarification supersedes the unconditional
+fullscreen whole-fit rule only at phone width: 390 px can use the readable top-left
+9 px window, with measured continuation hint, pan/zoom and a complete adjacent list.
+The 1150 px fullscreen whole-overview guard remains strict. The walker and pure
+first-view fixtures now distinguish those contracts in source; runtime verification
+is pending. Validation of these revised rules is pending; the earlier e numbers
+do not accept them.
+
+
+### Independent source review follow-up (pending verification)
+
+Nine source findings on frozen `af921eab` are being repaired in the existing scope.
+First-view search must retain the earliest content node; an impossible reading window
+is an explicit bilingual limitation, never a later cluster counted as the beginning.
+Domain-map ownership stays grouped. ER columns and incoming/outgoing truncation counts
+survive renderer conversion. Renderer failures keep HTTP 500, their escaped diagnostic,
+and an explicit fallback reason. Asynchronous model reads clear stale layout and show
+network/JSON errors. Literal examples cannot create executable state-machine facts.
+Embedded archify exposes its touch zoom controls. The next walk atomically checkpoints
+each observation and records JSON, page, renderer and measurement failures in a manifest;
+any such failure makes its final exit nonzero. The authenticated archify message listener
+binds during the DOM commit, before an immediately responding iframe can report its
+failure. Its regression rejects both a wrong source and a wrong origin before requiring
+the selected iframe's full diagnostic to remain visible after fallback. The failed
+passive-effect version is retained in the retry log; runtime confirmation of this
+commit-time repair is pending. No runtime, visual or final-head acceptance of these
+edits has been recorded. The earlier f walk and evidence remain frozen.
+
+### Fixed acceptance pipeline (source implementation, not yet run)
+
+`python3 scripts/diagram-acceptance-launch.py` (host lease-only launcher) and
+`scripts/diagram-acceptance.py --out <new scratch folder> --deadline <absolute Unix time>` (pod) is one stop-first-failure
+pipeline with an owner-approved 5400-second overall ceiling, including remote readiness and cleanup when invoked
+through the native run ledger. Owner 2026-10-25T07:39:10Z grants a task-owned
+2 CPU / 8 GB AVX2 pod and a 2700-second combined JSON/matrix evidence allowance.
+The full test suite runs in CI; only focused tests run on the pod. It runs root/app checks, focused UI/backend and filled
+render tests, app build and fresh binary smoke/provenance, scoped Stryker 9 with
+TypeScript 5 under 600 seconds, then the concrete walker phases. Each command keeps
+its own exit, elapsed time and full raw log. No skipped stage counts as a pass.
+
+The walker prepares and fills once. It freezes exact entity IDs in both languages
+and each page/block/view-query/renderer/normal/fullscreen screenshot identity before
+acceptance shots. The eight fixed matrices cover en/ru, light/dark and 1150/390 for
+all eleven training pages. Three explicitly named synthetic pages additionally render
+64 ER columns (combined PK/FK and parallel column labels), 45 roots and 45 children
+through real view builders and the app. They replace no training page. Their JSON
+payloads and source-generated LikeC4/Archify fixture frames are frozen in the immutable plan; those three explicit synthetic cases intercept only their own page/frame requests. The eleven training pages still use the compiled binary's unmodified routes. An exact-set aggregator rejects missing,
+duplicate or unplanned identities, incomplete cleanup, changed inputs or failed strict
+numeric guards. The coordinator must still inspect the complete fetched picture tree.
+
+The stopped graph snapshot is restored before each phase at its original absolute
+store path and compared file-by-file before the daemon starts. No phase regenerates
+the repository or calls fill/reset. This allows PGlite physical read housekeeping
+without mistaking a hash of an unused backup for proof of the served graph. Role
+settings are seeded before initial server startup. Failed attempts remain separate.
+The original 1500-second walk timeout and its 524 partial pictures remain FAILED;
+this fixed phase implementation is new source, not evidence that it completed.
+
+
+### Successor runtime diagnosis and harness evidence limits
+
+The 2026-10-25 queued run passed root/app type checks and the focused app tests,
+then failed `test/graph-diagrams-render.test.ts:102`: its factual ER fixture
+contains tables and columns, but no foreign-key relationship. The test wrongly
+required `factual.edges[0]`. The repair keeps the native no-relation case, supplies
+an explicit renderer-level relationship between the two held tables with its FK
+column metadata, checks the solid native ER label/endpoints/columns, and retains
+the dashed-assumption refusal. No FK fact is fabricated in the product fill or
+shared graph fixture. Fresh verification is pending.
+
+The acceptance harness now freezes adjacent-list identities from original API
+payloads and compares actual member/sequence rows, not counts alone. It compares
+the visible reading hint to the exact English or Russian catalogue text. After
+baseline pictures it exercises actual zoom controls and a pan gesture and records
+scale/position before and after, with bounded readiness predicates. These checks
+are source changes pending verification, not claims of working interaction.

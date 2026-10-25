@@ -346,3 +346,9 @@ describe('src/wiki/archify.ts', () => {
     expect(() => archifyDocument(blank, { output: 'v.html' })).toThrow(/"n"/);
   });
 });
+
+
+test('ER column technology is retained instead of being replaced with the table kind', () => {
+  const view = {id:'er',title:'Tables',nodes:[{id:'orders',kind:'table',title:'orders',technology:'id uuid PK, customer_id uuid FK',parent:null,x:0,y:0,width:500,height:180}],edges:[]};
+  expect(archifyDocument(view,{output:'er.html'}).components[0]!.sublabel).toBe('id uuid PK, customer_id uuid FK');
+});

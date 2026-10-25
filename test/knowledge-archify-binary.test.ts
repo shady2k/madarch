@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ArchifyDocument } from '../src/wiki/archify.js';
+import { renderArchifyPage } from '../src/wiki/archify-page.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const VENDOR = join(ROOT, 'vendor', 'archify');
@@ -59,4 +60,22 @@ process.exitCode = result.status ?? 1;
     expect(html).toContain('<svg');
     expect(html.length).toBeGreaterThan(10_000);
   }, 120_000);
+});
+
+
+test('a missing embedded renderer names its full path and line', async () => {
+  const app=join(work,'missing-app');
+  const result=await renderArchifyPage(document,join(work,'missing.json'),join(work,'missing.html'),{app});
+  expect(result.status).toBe(1);
+  expect(result.output).toContain(join(app,'dist','archify','vendor','archify','renderers','architecture','render-architecture.mjs')+':1:');
+});
+
+test('renderer exit 1 retains the renderer diagnostic rather than claiming a drawing', async () => {
+  const app=join(work,'failing-app');
+  const renderer=join(app,'dist','archify','vendor','archify','renderers','architecture','render-architecture.mjs');
+  mkdirSync(dirname(renderer),{recursive:true});
+  writeFileSync(renderer,'console.error(import.meta.path + ":1: invalid diagram fixture"); process.exit(1);');
+  const result=await renderArchifyPage(document,join(work,'failure.json'),join(work,'failure.html'),{app});
+  expect(result.status).toBe(1); expect(result.output).toContain(':1: invalid diagram fixture');
+  expect(existsSync(join(work,'failure.html'))).toBe(false);
 });

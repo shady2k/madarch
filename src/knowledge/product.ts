@@ -87,19 +87,6 @@ const dedupeScopes = (scopes: readonly TaskScope[]): TaskScope[] => {
  * The page an archify frame answers when the renderer could not draw: one sentence in the reader's language, and a
  * message to the app, which then shows the same view under a renderer that did draw.
  */
-function archifyFailurePage(lang: string | undefined): string {
-  const sentence = lang === 'ru'
-    ? 'Эту диаграмму не удалось нарисовать в archify. Показан рендерер, который её нарисовал.'
-    : 'This diagram could not be drawn by archify. The renderer that drew it is shown instead.';
-  return `<!DOCTYPE html>
-<html lang="${lang === 'ru' ? 'ru' : 'en'}"><head><meta charset="utf-8"><title>archify</title></head>
-<body data-frame-error="archify" style="margin:0;font:14px/1.5 system-ui,sans-serif;padding:12px;color:#333">
-<p>${sentence}</p>
-<script>parent.postMessage({ madarch: 'failed', renderer: 'archify' }, '*');</script>
-</body></html>
-`;
-}
-
 /** A read the wiki cannot make and can say why: its message is for the reader, who sees it in place of the page. */
 export class WikiReadError extends Error {}
 
@@ -1489,12 +1476,7 @@ export class KnowledgeProduct {
     }
     if (renderer === 'archify') {
       const frame = await archifyFrame(view, env);
-      // A frame is a page: a failure inside it is one plain sentence a reader can read, in their language, and the page
-      // tells the app so it can fall back to a renderer that drew. The reason itself stays in the server's log.
-      if (!frame.ok) {
-        console.error(`the archify frame of the ${view.spec.type} view failed: ${frame.message}`);
-        return { ok: true, body: archifyFailurePage(lang), type: 'html' };
-      }
+      if (!frame.ok) return { ok: false, status: 500, message: frame.message };
       return { ok: true, body: frame.html, type: 'html' };
     }
     return { ok: false, status: 400, message: `"renderer" is ${JSON.stringify(renderer)}: the renderers with a frame are likec4 and archify` };

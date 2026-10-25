@@ -752,13 +752,18 @@ their columns and foreign keys; the `sequence` block the chain from a route thro
 the services, tables and topics; the `graph` and `treemap` blocks the neighbourhood
 and the files by size and change. Every view shall offer a switcher over every
 renderer that draws its type: LikeC4 for C4 and deployment, archify and Mermaid
-wherever they can, and the first tab shall be the manifest's `diagram:` setting,
+wherever they can, except database/table ER views which shall offer only Mermaid
+`erDiagram`, keeping every column, PK/FK annotation and parallel foreign-key label,
+with table links under the picture; and the first tab shall be the manifest's `diagram:` setting,
 else `MADARCH_WIKI_DIAGRAM`, else LikeC4. A solid line shall be a fact the graph
 holds and a dashed line an assumption (an agent's reading, a match by name only, a
 step the graph holds no order for), in every renderer, and the wiki shall say why a
 line is dashed. A view past forty elements shall fold into the folders above its
-elements, each folded element opening the view of what it stands for, a container
-shall open its components and a database its tables, and a view that was opened
+elements, each folded element opening the view of what it stands for. If no real
+ownership level keeps the picture within forty elements, it shall draw an ordinary
+first forty, state the exact shown and total counts, and link to an adjacent full
+list retaining every raw member, relationship label and recorded owner. No
+synthetic ownership shall be invented. A container shall open its components and a database its tables, and a view that was opened
 shall offer the way back. Every diagram shall have a full-screen button, and in
 full screen it shall keep its zoom and its links.
 

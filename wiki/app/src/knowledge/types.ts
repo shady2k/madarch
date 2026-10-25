@@ -93,6 +93,8 @@ export type DiagramView = {
   label: string;
   elements: ViewElement[];
   edges: ViewEdge[];
+  fullElements?: ViewElement[];
+  fullEdges?: ViewEdge[];
   notes: string[];
   empty: string | null;
   up?: { spec: ViewSpec; title: string };

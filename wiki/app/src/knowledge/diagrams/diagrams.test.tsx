@@ -8,12 +8,14 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test
 import { GlobalRegistrator } from '@happy-dom/global-registrator';
 import { createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { flushSync } from 'react-dom';
 import { setWikiLanguage } from '../../i18n.js';
 import { BlockView } from '../blocks.js';
 import { DiagramOpenProvider } from './open.js';
 import { frontTab, resetTabs } from '../tabs.js';
 import type { Block, DiagramView, Neighborhood } from '../types.js';
 import { bindMermaid, mermaidPicture } from './views.js';
+import { diagramTitleNodes } from '../../../../../src/knowledge/diagram-titles.js';
 
 beforeAll(async () => {
   GlobalRegistrator.register({ url: 'http://localhost/' });
@@ -346,4 +348,88 @@ describe('the treemap', () => {
       delete (HTMLElement.prototype as { clientWidth?: unknown }).clientWidth;
     }
   });
+});
+
+
+test('asynchronous network and malformed JSON failures leave a visible LikeC4 error', async () => {
+  (globalThis as {fetch?:unknown}).fetch = async () => { throw new Error('connection reset'); };
+  const container = into(createElement(BlockView,{block:viewsBlock(CONTAINER),resolutions:{}}));
+  await until(() => container.querySelector('[role=alert]')?.textContent?.includes('connection reset'), 'the network error');
+  expect(container.querySelector('.dg-likec4-view')).toBeNull();
+  expect(container.querySelector('[data-testid=view]')!.getAttribute('data-renderer')).toBe('likec4');
+});
+
+test('malformed JSON is reported instead of a blank diagram', async () => {
+  (globalThis as {fetch?:unknown}).fetch = async () => new Response('{invalid',{status:200});
+  const container = into(createElement(BlockView,{block:viewsBlock(CONTAINER),resolutions:{}}));
+  await until(() => Boolean(container.querySelector('[role=alert]')?.textContent), 'the JSON error');
+  expect(container.querySelector('.dg-likec4-view')).toBeNull();
+});
+
+test('Mermaid gives the bilingual reading hint', async () => {
+  await setWikiLanguage('ru');
+  const container = into(createElement(BlockView,{block:viewsBlock(SEQUENCE),resolutions:{}}));
+  await until(() => container.querySelector('[data-testid=zoom-box] .dg-view-hint') !== null, 'the Mermaid hint');
+  expect(container.querySelector('[data-testid=zoom-box] .dg-view-hint')!.textContent).not.toContain('knowledge.views.');
+  expect(container.querySelector('[data-testid=zoom-box] .dg-view-hint')!.textContent).toContain('на телефоне — окно для чтения');
+  await setWikiLanguage('en');
+  await until(() => container.querySelector('[data-testid=zoom-box] .dg-view-hint')!.textContent?.includes('phone full screen keeps a reading window'), 'the English phone fullscreen hint');
+});
+
+
+test('only the selected archify iframe can request fallback, and its reason remains visible', async () => {
+  const container=into(createElement(BlockView,{block:{...viewsBlock(CONTAINER),renderer:'archify'} as Block,resolutions:{}}));
+  await until(()=>container.querySelector('iframe')!==null,'the archify iframe');
+  const frame=container.querySelector('iframe')!;
+  flushSync(() => window.dispatchEvent(new window.MessageEvent('message',{origin:location.origin,source:window,data:{madarch:'failed',renderer:'archify',message:'forged failure'}})));
+  expect(container.querySelector('[data-testid=renderer-fallback]')).toBeNull();
+  flushSync(() => window.dispatchEvent(new window.MessageEvent('message',{origin:'https://elsewhere.invalid',source:frame.contentWindow,data:{madarch:'failed',renderer:'archify',message:'wrong-origin failure'}})));
+  expect(container.querySelector('[data-testid=renderer-fallback]')).toBeNull();
+  window.dispatchEvent(new window.MessageEvent('message',{origin:location.origin,source:frame.contentWindow,data:{madarch:'failed',renderer:'archify',message:'/tmp/view/document.json:1: renderer exit 1'}}));
+  await until(()=>container.querySelector('[data-testid=renderer-fallback]')!==null,'the explicit fallback');
+  expect(container.querySelector('[data-testid=renderer-fallback]')!.textContent).toContain('/tmp/view/document.json:1: renderer exit 1');
+});
+
+
+test('renderer title definitions include group names, exclude ER attributes and associate whole nodes', () => {
+  const root = document.createElement('div');
+  root.innerHTML = '<svg><g class="node" id="table"><g class="name"><text>orders</text></g><g class="attribute"><text>customer_id UUID FK</text></g><rect width="400" height="600"/></g><g class="cluster"><g class="cluster-label"><text>Billing</text></g></g></svg>';
+  const er = diagramTitleNodes(root, 'mermaid', 'er');
+  expect(er).toHaveLength(1);
+  expect((er[0]!.title as Element).textContent).toBe('orders');
+  expect((er[0]!.node as Element).id).toBe('table');
+  root.querySelector('g.name')!.setAttribute('class', 'nodeLabel');
+  const grouped = diagramTitleNodes(root, 'mermaid', 'domain-map');
+  expect(grouped.map(pair => (pair.title as Element).textContent)).toContain('Billing');
+  root.innerHTML = '<svg><rect data-graph-role="structural-frame" data-composition-frame-id="2"/><g data-composition-frame-id="2"><text data-boundary-label="">Deployment</text></g><g id="node-api"><rect/><text data-node-label="">api</text></g></svg>';
+  const archify = diagramTitleNodes(root, 'archify', 'deployment');
+  expect(archify).toHaveLength(2);
+  expect((archify[0]!.node as Element).getAttribute('data-graph-role')).toBe('structural-frame');
+  root.innerHTML = '<div class="react-flow__node"><div class="likec4-compound-title">Compose</div></div>';
+  const likec4 = diagramTitleNodes(root, 'likec4', 'deployment');
+  expect(likec4).toHaveLength(1);
+  expect((likec4[0]!.node as Element).className).toBe('react-flow__node');
+});
+
+
+test('an oversized picture links to all raw members and relationships in the adjacent list', async () => {
+  const elements = Array.from({ length: 45 }, (_, index) => ({ id: `member:${index}`, label: `member-${index}`, kind: 'node', href: `/k/e/${index}`, dashed: false }));
+  const view: DiagramView = { ...CONTAINER, elements: elements.slice(0, 40), fullElements: elements, fullEdges: [{ from: 'member:43', to: 'member:44', label: 'not lost', dashed: false }], marker: 'Showing 40 of 45.' };
+  const container = into(createElement(BlockView, { block: viewsBlock(view), resolutions: {} }));
+  await until(() => container.querySelector('[data-testid=view-full-list-link]') !== null, 'the full-list link');
+  const link = container.querySelector('[data-testid=view-full-list-link]')!;
+  const target = container.querySelector('[data-testid=view-full-list]')!;
+  expect(link.getAttribute('href')).toBe(`#${target.id}`);
+  expect(container.querySelectorAll('[data-testid=view-element]')).toHaveLength(45);
+  expect(container.querySelector('[data-testid=view]')!.getAttribute('data-adjacent-list-count')).toBe('45');
+  expect(target.textContent).toContain('member-44');
+  expect(container.querySelector('[data-testid=view-full-relationships]')!.textContent).toContain('member-43 → member-44: not lost');
+});
+
+test('an ER table offers only Mermaid and keeps its page link under the picture', async () => {
+  const view: DiagramView = { ...CONTAINER, spec: { type: 'er', subject: 'orders' }, renderers: ['mermaid'], mermaidSource: 'erDiagram\n orders {\n uuid id PK\n }' };
+  const container = into(createElement(BlockView, { block: viewsBlock(view), resolutions: {} }));
+  await until(() => container.querySelector('[data-testid=renderer-mermaid]') !== null, 'the Mermaid ER tab');
+  expect(container.querySelectorAll('[data-testid=renderer-archify], [data-testid=renderer-likec4]')).toHaveLength(0);
+  expect(container.querySelector('[data-testid=view-elements] a')!.getAttribute('href')).toBe('/k/e/code.service%3Apayments');
 });

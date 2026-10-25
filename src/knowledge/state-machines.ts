@@ -15,6 +15,9 @@
  * written at, so a diagram links back to the code.
  */
 
+import type { Node as SyntaxNode } from 'web-tree-sitter';
+import { readSyntaxTree } from '../fill/stages/syntax-extract.js';
+
 export interface MachineState {
   /** The name as written in the table. */
   name: string;
@@ -151,12 +154,31 @@ function valueAt(list: Token[], at: number): { value: Value; end: number } | und
   return undefined;
 }
 
+/** Mask comments and string literals without moving offsets or lines. Declarations are matched only in code. */
+function declarationText(text: string, go = false): string {
+  const chars = text.split('');
+  for (let at = 0; at < text.length;) {
+    const start = at;
+    const char = text[at];
+    if (text.startsWith('//', at)) { while (at < text.length && text[at] !== '\n') at++; }
+    else if (text.startsWith('/*', at)) { const end = text.indexOf('*/', at + 2); at = end < 0 ? text.length : end + 2; }
+    else if (char === '"' || char === "'" || char === '`') {
+      at++;
+      while (at < text.length && text[at] !== char) at += text[at] === '\\' && !(go && char === '`') ? 2 : 1;
+      at = Math.min(text.length, at + 1);
+    } else { at++; continue; }
+    for (let i = start; i < at; i++) if (text[i] !== '\n' && text[i] !== '\r') chars[i] = ' ';
+  }
+  return chars.join('');
+}
+
 /** Go constants and TypeScript `as const` members that hold a string: name to value. */
-function constantsOf(text: string): Map<string, string> {
+function constantsOf(text: string, declarations: string): Map<string, string> {
   const known = new Map<string, string>();
-  for (const match of text.matchAll(/^[ \t]*(?:const\s+)?([A-Za-z_]\w*)(?:\s+[A-Za-z_][\w.]*)?\s*=\s*"([^"\n]*)"/gm)) known.set(match[1]!, match[2]!);
+  const inCode = (match: RegExpMatchArray): boolean => declarations.slice(match.index!, match.index! + match[0].indexOf(match[1]!) + match[1]!.length).trim() !== '';
+  for (const match of text.matchAll(/^[ \t]*(?:const\s+)?([A-Za-z_]\w*)(?:\s+[A-Za-z_][\w.]*)?\s*=\s*"([^"\n]*)"/gm)) { if (inCode(match)) known.set(match[1]!, match[2]!); }
   // TypeScript objects of string members: `Captured: 'captured'`.
-  for (const match of text.matchAll(/^[ \t]*([A-Za-z_]\w*)\s*:\s*['"]([^'"\n]*)['"]\s*,?\s*$/gm)) if (!known.has(match[1]!)) known.set(match[1]!, match[2]!);
+  for (const match of text.matchAll(/^[ \t]*([A-Za-z_]\w*)\s*:\s*['"]([^'"\n]*)['"]\s*,?\s*$/gm)) if (inCode(match) && !known.has(match[1]!)) known.set(match[1]!, match[2]!);
   return known;
 }
 
@@ -166,13 +188,35 @@ const bare = (name: string): string => name.slice(name.lastIndexOf('.') + 1);
  * The state machines a source file writes down as transition tables, in the order the file has them. The language is
  * read off the path: `.go` for the Go form, `.ts`, `.tsx`, `.js` and `.mjs` for the TypeScript form.
  */
-export function stateMachinesOf(path: string, text: string): StateMachine[] {
+export async function stateMachinesOf(path: string, text: string): Promise<StateMachine[]> {
   const go = path.endsWith('.go');
   const script = /\.(?:ts|tsx|js|jsx|mjs|cjs)$/.test(path);
   if (!go && !script) return [];
-  const constants = constantsOf(text);
-  // Keep offsets and line numbers while removing comments so declarations in comments cannot become facts.
-  const scanText = text.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, (comment) => comment.replace(/[^\n]/g, ' '));
+  // The existing grammar understands nested template interpolation, regex literals and JSX. Mask a whole literal,
+  // not only its next quote, and keep UTF-16 offsets/newlines so facts still point to their original source lines.
+  let scanText = declarationText(text, go);
+  if (script) {
+    const parsed = await readSyntaxTree(path, new TextEncoder().encode(text), ({ root, complete }) => {
+      if (!complete) {
+        const locate = (node: SyntaxNode): SyntaxNode | undefined => node.type === 'ERROR' || node.isMissing ? node : node.namedChildren.flatMap(child => child === null ? [] : [locate(child)]).find(child => child !== undefined);
+        const invalid = locate(root);
+        throw new Error(`${path}:${(invalid?.startPosition.row ?? root.startPosition.row) + 1}: the state declaration reader cannot classify an incomplete syntax tree`);
+      }
+      const chars = text.split('');
+      const visit = (node: SyntaxNode): void => {
+        if (['comment', 'string', 'template_string', 'regex', 'jsx_text'].includes(node.type)) {
+          for (let at = node.startIndex; at < node.endIndex; at++) if (text[at] !== '\n' && text[at] !== '\r') chars[at] = ' ';
+          return;
+        }
+        for (const child of node.namedChildren) if (child !== null) visit(child);
+      };
+      visit(root);
+      return chars.join('');
+    });
+    if (!parsed.read) throw new Error(`${path} [state declaration parse]: the state declaration reader could not parse the source: ${JSON.stringify(parsed.unread)}`);
+    scanText = parsed.value;
+  }
+  const constants = constantsOf(text, scanText);
   const found: StateMachine[] = [];
   const header = go
     ? /(?:^|\n)[ \t]*(?:var\s+)?([A-Za-z_]\w*)\s*(?::=|=)\s*map\[([\w.*]+)\]map\[[\w.*]+\]([\w.*]+)\s*\{/g
@@ -183,7 +227,7 @@ export function stateMachinesOf(path: string, text: string): StateMachine[] {
     const openAt = match.index! + match[0].lastIndexOf('{');
     const before = text.slice(0, openAt);
     const startLine = before.split('\n').length;
-    const list = tokens(scanText.slice(openAt), startLine);
+    const list = tokens(text.slice(openAt), startLine);
     const parsed = parseBrace(list, 0);
     if (parsed === undefined || parsed.value.kind !== 'map') continue;
     const root = parsed.value;

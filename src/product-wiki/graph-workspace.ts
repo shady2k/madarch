@@ -129,9 +129,9 @@ export function diagramWorkspace(model: DiagramModel, options: { readonly pageAd
     if (edge.dashed) lines.push(`${line} {`, '    style {', '      line dashed', '    }', '  }');
     else lines.push(line);
   }
-  // `include *` is the one include LikeC4 1.59's grammar accepts (measured: `include **` is refused with
-  // "Expecting token of type '}' but found `*`"), and it draws the whole model, nested elements included.
-  lines.push('}', '', 'views {', `  view ${VIEW_ID} {`, `    title ${text(model.title)}`, '    include *', '  }', '}', '');
+  // A bare wildcard includes top-level elements only. Include each holder's children as well so ownership stays drawn.
+  const includes = ['*', ...[...holders].map((id) => `${ids.get(id)!}.*`).sort(byCodePoint)];
+  lines.push('}', '', 'views {', `  view ${VIEW_ID} {`, `    title ${text(model.title)}`, `    include ${includes.join(', ')}`, '  }', '}', '');
   return { workspace: lines.join('\n'), viewId: VIEW_ID, elementIds: ids, componentIds };
 }
 

@@ -190,9 +190,9 @@ describe('the neighbourhood', () => {
 });
 
 describe('reading explicit transition tables only', () => {
-  test('ignores transition-looking text in comments and ordinary Go nested maps', () => {
-    expect(stateMachinesOf('src/order.ts', `/* const transitions = { pending: { paid: 'confirmed' } }; */\nconst permissions = { admin: { scope: 'all' } };`)).toEqual([]);
-    expect(stateMachinesOf('order.go', `var permissions = map[string]map[string]string{\n  "admin": { "scope": "all" },\n}`)).toEqual([]);
+  test('ignores transition-looking text in comments and ordinary Go nested maps', async () => {
+    expect(await stateMachinesOf('src/order.ts', `/* const transitions = { pending: { paid: 'confirmed' } }; */\nconst permissions = { admin: { scope: 'all' } };`)).toEqual([]);
+    expect(await stateMachinesOf('order.go', `var permissions = map[string]map[string]string{\n  "admin": { "scope": "all" },\n}`)).toEqual([]);
   });
 });
 
@@ -233,9 +233,12 @@ describe('the drawn views: C4, components, ER, state and deployment, and the hot
     if (archify.ok) {
       expect(archify.body).toContain('<svg');
       expect(archify.body).toContain("(full ? 9 : 11)");
-      expect(archify.body).toContain("svg.querySelectorAll('text[data-node-label]')");
+      expect(archify.body).toContain("data-node-label");
+      expect(archify.body).toContain("data-boundary-label");
       expect(archify.body).toContain("addEventListener('resize', fit)");
-      expect(archify.body).toContain('parent.scrollLeft = 0; parent.scrollTop = 0');
+      // A reading window scrolls to its chosen content anchor; a non-zero SVG origin is not a zero scroll origin.
+      expect(archify.body).toContain('parent.scrollLeft = Math.max(0, -offsetX); parent.scrollTop = Math.max(0, -offsetY)');
+      expect(archify.body).toContain("svg.setAttribute('data-reading-window-valid', String(found))");
     }
   });
 
@@ -273,7 +276,7 @@ describe('the drawn views: C4, components, ER, state and deployment, and the hot
     expect(er!.mermaidSource).toMatch(/^  \w+ \|\|--o\{ \w+ : "[a-z_]+"$/m);
     expect(er!.elements.map((element) => element.label).sort()).toEqual(expect.arrayContaining(['customers', 'order_items', 'orders', 'outbox']));
     expect(er!.elements.every((element) => element.href !== null)).toBe(true);
-    expect(er!.renderers).toEqual(['mermaid', 'archify']);
+    expect(er!.renderers).toEqual(['mermaid']);
   });
 
   test('the order status machine of the orders domain is read from its transition table: states, events, and the line each is written at', async () => {

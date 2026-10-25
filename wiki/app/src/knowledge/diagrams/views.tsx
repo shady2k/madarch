@@ -9,7 +9,7 @@
  * element with its page and its code, and says why an arrow is dashed. A click on an element in any renderer opens
  * its page in a tab of the wiki.
  */
-import { useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { ReactLikeC4, LikeC4ModelProvider, useDiagram, useOnDiagramEvent } from 'likec4/react';
 import { LikeC4Model } from 'likec4/model';
 import { useTranslation } from 'react-i18next';
@@ -23,13 +23,11 @@ import type { Block, DiagramRenderer, DiagramView, ViewElement } from '../types.
 import { DiagramOpenContext } from './open.js';
 import { Fullscreenable, useFullscreen } from './fullscreen.js';
 import { firstView } from './first-view.js';
+import { diagramTitleNodes } from '../../../../../src/knowledge/diagram-titles.js';
 
 type DiagramsBlock = Extract<Block, { type: 'diagrams' }>;
 
 const RENDERER_NAME: Record<DiagramRenderer, string> = { likec4: 'LikeC4', mermaid: 'Mermaid', archify: 'archify' };
-
-/** Mermaid's own entity names for an ER table (the server writes the same). */
-const erName = (label: string): string => label.replace(/[^A-Za-z0-9_]/g, '_');
 
 /**
  * Makes the nodes of a drawn Mermaid svg links: the server names the boxes of a flowchart `n<position>` (a sequence's
@@ -43,8 +41,6 @@ export function bindMermaid(root: HTMLElement, elements: readonly ViewElement[],
   elements.forEach((element, index) => {
     if (element.href === null) return;
     const href = element.href;
-    // An ER picture is a flowchart like the C4 ones now (its tables are nodes with their columns on the box), so it
-    // finds its boxes the way every flowchart does.
     const selectors = type === 'state' ? [`[id^="state-s${index}-"]`]
       : type === 'sequence' ? [`[name="n${index}"]`]
         : [`[id^="flowchart-n${index}-"]`];
@@ -75,7 +71,7 @@ const LIKE_C4_SIZE = { minZoom: 0.05, maxZoom: 2.5, initialZoom: 1, fitView: fal
  * names the address the server sent beside the model. It renders nothing — it is mounted inside the diagram so the
  * event reaches it.
  */
-function NodeClicks({ links, onOpen, host, full }: { links: Readonly<Record<string, string>>; onOpen: (href: string) => void; host: React.RefObject<HTMLDivElement | null>; full: boolean }): null {
+function NodeClicks({ links, onOpen, host, full, onReadable }: { links: Readonly<Record<string, string>>; onOpen: (href: string) => void; host: React.RefObject<HTMLDivElement | null>; full: boolean; onReadable: (readable: boolean) => void }): null {
   const diagram = useDiagram();
   // LikeC4 1.59 passes minZoom to React Flow but not its actor. Its actor fits again after initialization at 0.05.
   // Set the actor's own input too, then centre from its bounds (including non-zero origins), in the measured frame.
@@ -89,10 +85,13 @@ function NodeClicks({ links, onOpen, host, full }: { links: Readonly<Record<stri
       const matrix = new DOMMatrix(getComputedStyle(viewport).transform);
       const origin = element.getBoundingClientRect();
       const nodes = [...root.querySelectorAll<HTMLElement>('.react-flow__node')].map((node) => node.getBoundingClientRect());
-      const titles = [...root.querySelectorAll<HTMLElement>('[data-likec4-node-title]')].map((node) => {
+      const local = (node: Element) => {
         const r = node.getBoundingClientRect();
-        return { x: (r.x - origin.x - matrix.e) / matrix.a, y: (r.y - origin.y - matrix.f) / matrix.a, width: r.width / matrix.a, height: r.height / matrix.a, font: parseFloat(getComputedStyle(node).fontSize) };
-      });
+        return { x: (r.x - origin.x - matrix.e) / matrix.a, y: (r.y - origin.y - matrix.f) / matrix.a, width: r.width / matrix.a, height: r.height / matrix.a };
+      };
+      let titlePairs: ReturnType<typeof diagramTitleNodes>;
+      try { titlePairs = diagramTitleNodes(root, 'likec4', ''); } catch (error) { console.error(error); onReadable(false); return; }
+      const titles = titlePairs.map(({ title, node }) => ({ ...local(title as Element), font: parseFloat(getComputedStyle(title as Element).fontSize), node: local(node as Element) }));
       if (!titles.length || !nodes.length) return;
       const x = (Math.min(...nodes.map((r) => r.left)) - origin.x - matrix.e) / matrix.a;
       const y = (Math.min(...nodes.map((r) => r.top)) - origin.y - matrix.f) / matrix.a;
@@ -105,6 +104,7 @@ function NodeClicks({ links, onOpen, host, full }: { links: Readonly<Record<stri
       element.setAttribute('data-first-viewport', JSON.stringify(fit));
       element.setAttribute('data-whole-fit', String(fit.whole));
       element.setAttribute('data-reading-window-valid', String(fit.readable));
+      onReadable(fit.readable);
 
     };
     window.setTimeout(apply, 200);
@@ -117,18 +117,21 @@ function NodeClicks({ links, onOpen, host, full }: { links: Readonly<Record<stri
 }
 
 /** The frame of a LikeC4 or archify document; a click inside it arrives as a message and opens the page. */
-function Frame({ view, renderer, lang, onOpen, onFailure }: { view: DiagramView; renderer: 'likec4' | 'archify'; lang: string; onOpen: (href: string) => void; onFailure?: (renderer: 'likec4' | 'archify') => void }): ReactElement {
+function Frame({ view, renderer, lang, onOpen, onFailure }: { view: DiagramView; renderer: 'likec4' | 'archify'; lang: string; onOpen: (href: string) => void; onFailure?: (renderer: 'likec4' | 'archify', message: string) => void }): ReactElement {
   const { t } = useTranslation();
   const full = useFullscreen();
   const ref = useRef<HTMLIFrameElement | null>(null);
   const host = useRef<HTMLDivElement | null>(null);
   const [loaded, setLoaded] = useState(renderer === 'likec4');
-  const [layout, setLayout] = useState<{ model: unknown; elementLinks: Record<string, string> } | null>(null);
+  const [readable, setReadable] = useState(true);
+  useEffect(() => { setReadable(true); }, [view.query, full]);
+  const [layout, setLayout] = useState<{ query: string; model: ReturnType<typeof LikeC4Model.create>; elementLinks: Record<string, string> } | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   useEffect(() => {
     if (renderer !== 'likec4') return;
     let alive = true;
     setLoaded(false);
+    setLayout(null);
     setFailure(null);
     // A read that cannot start at all (a document without `fetch`, a page offline) says why beside the diagram: an
     // error thrown out of an effect takes the whole page down, and the tabs and the list stay readable without a picture.
@@ -146,29 +149,37 @@ function Frame({ view, renderer, lang, onOpen, onFailure }: { view: DiagramView;
         const said = (await response.json().catch(() => ({}))) as { message?: string };
         throw Object.assign(new Error(said.message ?? `HTTP ${response.status}`), { refused: true });
       }
-      return await response.json() as { ok: true; model: unknown; elementLinks: Record<string, string> };
-    }).then((answer) => { if (alive) { setLayout({ model: answer.model, elementLinks: answer.elementLinks }); setLoaded(true); } }).catch((error: unknown) => {
+      const answer = await response.json() as { ok?: boolean; model?: unknown; elementLinks?: Record<string, string> };
+      if (answer.ok !== true || answer.model === null || typeof answer.model !== 'object' || !answer.elementLinks || typeof answer.elementLinks !== 'object') throw new Error(t('knowledge.views.invalidModel'));
+      return { model: answer.model, elementLinks: answer.elementLinks };
+    }).then((answer) => { if (alive) { setLayout({ query: `${view.query}|${lang}`, model: LikeC4Model.create(answer.model as never), elementLinks: answer.elementLinks }); setLoaded(true); } }).catch((error: unknown) => {
       if (!alive) return;
       console.error(`the LikeC4 model of ${view.query} could not be read: ${error instanceof Error ? error.message : String(error)}`);
+      setLayout(null);
+      setFailure(error instanceof Error ? error.message : String(error));
       setLoaded(true);
       // Only a renderer's own refusal hands the view on. A document without `fetch` (a test, a page offline) leaves the
       // reader's renderer selected: nothing about it says it cannot draw.
       if ((error as { refused?: boolean }).refused === true) {
         setFailure(error instanceof Error ? error.message : String(error));
-        onFailure?.('likec4');
+        onFailure?.('likec4', error instanceof Error ? error.message : String(error));
       }
     });
     return () => { alive = false; };
   }, [renderer, view.query, lang]);
-  useEffect(() => {
+  // Bind during the DOM commit: a cached iframe can report failure before passive effects run.
+  useLayoutEffect(() => {
     if (renderer !== 'archify') return;
     setLoaded(false);
+    setFailure(null);
     const listen = (event: MessageEvent): void => {
-      if (event.source !== ref.current?.contentWindow) return;
-      const data = event.data as { madarch?: string; href?: unknown; renderer?: unknown } | null;
+      if (event.source !== ref.current?.contentWindow || event.origin !== location.origin) return;
+      const data = event.data as { madarch?: string; href?: unknown; renderer?: unknown; message?: unknown; readable?: unknown } | null;
       // A frame that could not draw says so: the app says it in one sentence and switches to a renderer that drew.
-      if (data?.madarch === 'failed') {
-        onFailure?.(renderer);
+      if (data?.madarch === 'reading-window') { setReadable(data.readable === true); return; }
+      if (data?.madarch === 'failed' && data.renderer === renderer && typeof data.message === 'string') {
+        setFailure(data.message);
+        onFailure?.(renderer, data.message);
         return;
       }
       if (data?.madarch !== 'open' || typeof data.href !== 'string') return;
@@ -178,13 +189,13 @@ function Frame({ view, renderer, lang, onOpen, onFailure }: { view: DiagramView;
     window.addEventListener('message', listen);
     return () => window.removeEventListener('message', listen);
   }, [onOpen, onFailure, renderer, view.query]);
-  const likeC4 = layout as { model?: { projectId?: string }; elementLinks?: Record<string, string> } | null;
-  const likeC4Model = useMemo(() => likeC4?.model ? LikeC4Model.create(likeC4.model as never) : null, [likeC4?.model]);
+  const likeC4 = layout?.query === `${view.query}|${lang}` ? layout : null;
+  const likeC4Model = likeC4?.model ?? null;
   const content = renderer === 'likec4' && likeC4Model
     ? (
       <LikeC4ModelProvider likec4model={likeC4Model}>
         <ReactLikeC4 key={`${view.query}|${full}`} className="dg-likec4-view" viewId="index" pannable zoomable controls {...LIKE_C4_SIZE}>
-          <NodeClicks links={likeC4?.elementLinks ?? {}} onOpen={onOpen} host={host} full={full} />
+          <NodeClicks links={likeC4?.elementLinks ?? {}} onOpen={onOpen} host={host} full={full} onReadable={setReadable} />
         </ReactLikeC4>
       </LikeC4ModelProvider>
     )
@@ -192,6 +203,7 @@ function Frame({ view, renderer, lang, onOpen, onFailure }: { view: DiagramView;
   return (
     <div ref={host} className="dg-frame-box" data-testid={`view-frame-${renderer}`}>
       <p className="dg-view-hint">{t('knowledge.views.readingHint')}</p>
+      {!readable && <p className="diagram-error" role="alert" data-testid="reading-window-limit">{t('knowledge.views.readingLimit')}</p>}
       {!loaded && <p className="m-0 p-3 text-small text-muted" data-testid="view-frame-loading">{t(renderer === 'likec4' ? 'knowledge.views.loadingLikec4' : 'knowledge.views.loadingArchify')}</p>}
       {renderer === 'likec4' && (failure ? <p className="diagram-error" role="alert">{failure}</p> : content)}
       {renderer === 'archify' && <iframe ref={ref} key={`${view.query}|${renderer}`} title={`${RENDERER_NAME[renderer]}: ${view.title}`} src={`${viewFrameAddress(view.query, renderer, lang)}&fullscreen=${full ? '1' : '0'}`} loading="lazy" className={loaded ? 'dg-iframe' : 'dg-iframe dg-iframe-loading'} onLoad={() => setLoaded(true)} data-renderer={renderer} />}
@@ -208,6 +220,8 @@ function ElementRow({ element, onDrill, drilling }: { element: ViewElement; onDr
         {element.dashed && <Badge className="ml-1.5">{t('knowledge.views.assumption')}</Badge>}
       </span>
       {element.detail !== undefined && <span className="dg-element-detail">{element.detail}</span>}
+      {element.parent !== undefined && <span className="dg-element-detail">{t('knowledge.views.owner', { id: element.parent })}</span>}
+      {element.columns !== undefined && <ul className="dg-element-detail" data-testid="view-columns">{element.columns.map((column, index) => <li key={index}>{column.name} {column.type ?? 'text'}{column.key ? ' PK' : ''}{column.fk ? ' FK' : ''}</li>)}</ul>}
       {element.location !== undefined && <span className="dg-element-place"><CodePlace location={element.location} /></span>}
       {element.drill !== undefined && (
         <button type="button" className="dg-drill" onClick={() => onDrill(element)} disabled={drilling} data-testid="view-drill" aria-label={t('knowledge.views.drillLabel', { name: element.label, view: element.drill.title })}>
@@ -229,6 +243,7 @@ function ZoomBox({ children }: { children: ReactElement }): ReactElement {
   const full = useFullscreen();
   const [scale, setScale] = useState(1);
   const holder = useRef<HTMLDivElement | null>(null);
+  const [readable, setReadable] = useState(true);
   useEffect(() => {
     const root = holder.current;
     if (!root) return;
@@ -248,10 +263,18 @@ function ZoomBox({ children }: { children: ReactElement }): ReactElement {
       const width = Math.max(bounds.x + bounds.width, ...all.map((r) => r.right)) - x + 12;
       const height = Math.max(bounds.y + bounds.height, ...all.map((r) => r.bottom)) - y + 12;
       svg.setAttribute('viewBox', `${x} ${y} ${width} ${height}`);
-      const titles = [...svg.querySelectorAll<SVGGraphicsElement>('.nodeLabel, .node .label text, .node text, .entityTitleText, text.actor, .state-title')].map((node) => {
+      const local = (node: Element) => {
         const r = node.getBoundingClientRect(), inverse = svg.getScreenCTM()!.inverse();
         const a = new DOMPoint(r.left, r.top).matrixTransform(inverse), b = new DOMPoint(r.right, r.bottom).matrixTransform(inverse);
-        return { x: a.x, y: a.y, width: b.x - a.x, height: b.y - a.y, font: parseFloat(getComputedStyle(node).fontSize) };
+        return { x: a.x, y: a.y, width: b.x - a.x, height: b.y - a.y };
+      };
+      const type = root.closest('[data-testid=view]')?.getAttribute('data-view') ?? '';
+      let titlePairs: ReturnType<typeof diagramTitleNodes>;
+      try { titlePairs = diagramTitleNodes(svg, 'mermaid', type); } catch (error) { console.error(error); setReadable(false); return; }
+      const titles = titlePairs.map(({ title, node }) => {
+        const element = title as Element;
+        const leaves = [...element.querySelectorAll('text, foreignObject p')];
+        return { ...local(element), font: Math.min(...(leaves.length ? leaves : [element]).map(leaf => parseFloat(getComputedStyle(leaf).fontSize))), node: local(node as Element) };
       });
       const edgeLabels = [...svg.querySelectorAll<SVGGraphicsElement>('g.edgeLabel, text.messageText, text.transition, .relationshipLabel')].map((node) => {
         const r = node.getBoundingClientRect(), inverse = svg.getScreenCTM()!.inverse();
@@ -268,6 +291,7 @@ function ZoomBox({ children }: { children: ReactElement }): ReactElement {
       svg.setAttribute('data-initial-scale', String(fitted.zoom * scale));
       root.scrollLeft = Math.max(0, -(fitted.x + x * fitted.zoom)); root.scrollTop = Math.max(0, -(fitted.y + y * fitted.zoom));
       svg.setAttribute('data-reading-window-valid', String(fitted.readable));
+      setReadable(fitted.readable);
     };
     const mutation = new MutationObserver(() => { mutation.disconnect(); fit(); mutation.observe(root, { childList: true, subtree: true }); });
     mutation.observe(root, { childList: true, subtree: true });
@@ -279,6 +303,8 @@ function ZoomBox({ children }: { children: ReactElement }): ReactElement {
   return (
     <div ref={holder} className={full ? 'dg-zoombox dg-zoombox-full' : 'dg-zoombox'} data-testid="zoom-box" data-scale={scale}
       onWheel={(event) => { if (event.ctrlKey || event.metaKey) { event.preventDefault(); set(scale * (event.deltaY < 0 ? 1.12 : 1 / 1.12)); } }}>
+      <p className="dg-view-hint">{t('knowledge.views.readingHint')}</p>
+      {!readable && <p className="diagram-error" role="alert" data-testid="reading-window-limit">{t('knowledge.views.readingLimit')}</p>}
       <div className="dg-zoom-buttons">
         <button type="button" className="dg-chip" onClick={() => set(scale / 1.25)} aria-label={t('knowledge.views.zoomOut')} data-testid="zoom-out"><MinusIcon aria-hidden="true" className="size-3.5" /></button>
         <button type="button" className="dg-chip" onClick={() => set(scale * 1.25)} aria-label={t('knowledge.views.zoomIn')} data-testid="zoom-in"><PlusIcon aria-hidden="true" className="size-3.5" /></button>
@@ -295,19 +321,20 @@ function ViewBody({ view, initial, onDrill, onUp, drilling, depth }: { view: Dia
   const lang = i18n.resolvedLanguage ?? 'en';
   const open = useContext(DiagramOpenContext);
   const [chosen, setChosen] = useState<DiagramRenderer | null>(null);
-  const [fellBack, setFellBack] = useState<DiagramRenderer | null>(null);
+  const [fellBack, setFellBack] = useState<{ renderer: DiagramRenderer; message: string } | null>(null);
   const renderer = chosen !== null && view.renderers.includes(chosen) ? chosen : view.renderers.includes(initial) ? initial : view.renderers[0]!;
   // A frame that could not draw hands the view to a renderer that did, and the page says so once, in one sentence.
-  const onFailure = (failed: 'likec4' | 'archify'): void => {
+  const onFailure = (failed: 'likec4' | 'archify', message: string): void => {
     const next = view.renderers.find((name) => name !== failed && name !== renderer) ?? view.renderers.find((name) => name !== failed);
-    setFellBack(failed);
+    setFellBack({ renderer: failed, message });
     if (next !== undefined) setChosen(next);
   };
   const bind = useMemo(() => (root: HTMLElement) => bindMermaid(root, view.elements, view.spec.type, open), [view, open]);
   const stepped = view.edges.some((edge) => edge.step !== undefined);
-  const dashed = view.edges.filter((edge) => edge.dashed);
+  const listId = useId();
+  const dashed = (view.fullEdges ?? view.edges).filter((edge) => edge.dashed);
   return (
-    <div data-testid="view" data-view={view.spec.type} data-renderer={renderer} data-depth={depth}>
+    <div data-testid="view" data-view={view.spec.type} data-view-query={view.query} data-renderer={renderer} data-depth={depth} data-adjacent-list-count={stepped ? view.edges.length : (view.fullElements ?? view.elements).length}>
       <div className="dg-toolbar" role="group" aria-label={view.title}>
         {view.up !== undefined && (
           <button type="button" className="dg-chip" onClick={onUp} disabled={drilling} data-testid="view-up">
@@ -327,7 +354,7 @@ function ViewBody({ view, initial, onDrill, onUp, drilling, depth }: { view: Dia
       {view.empty !== null ? <p className="m-0 p-3 text-small text-muted" data-testid="diagram-empty">{view.empty}</p> : (
         <div className="dg-picture" data-testid="view-picture">
           {renderer === 'mermaid' ? <ZoomBox><MermaidDiagram source={view.mermaidSource} title={view.title} bind={bind} /></ZoomBox> : <Frame view={view} renderer={renderer} lang={lang} onOpen={open} onFailure={onFailure} />}
-          {fellBack !== null && <p className="dg-why" data-testid="renderer-fallback">{t('knowledge.views.rendererFailed', { renderer: RENDERER_NAME[fellBack] })}</p>}
+          {fellBack !== null && <p className="dg-why" data-testid="renderer-fallback">{t('knowledge.views.rendererFailed', { renderer: RENDERER_NAME[fellBack.renderer] })} {fellBack.message}</p>}
         </div>
       )}
       {view.empty === null && (
@@ -336,10 +363,10 @@ function ViewBody({ view, initial, onDrill, onUp, drilling, depth }: { view: Dia
           <span className="dg-legend-line"><svg width="34" height="8" aria-hidden="true"><line x1="1" y1="4" x2="33" y2="4" stroke="currentColor" strokeWidth="2" strokeDasharray="5 4" /></svg>{t('knowledge.views.assumed')}</span>
         </div>
       )}
-      {view.marker !== null && <p className="dg-note" data-testid="view-marker">{view.marker}</p>}
+      {view.marker !== null && <p className="dg-note" data-testid="view-marker">{view.marker} {view.fullElements !== undefined && <a href={`#${listId}`} data-testid="view-full-list-link">{t('knowledge.views.fullList', { count: view.fullElements.length })}</a>}</p>}
       {dashed.length > 0 && (
         <ul className="dg-why" data-testid="view-why">
-          {[...new Set(dashed.map((edge) => `${edge.label}: ${edge.why ?? ''}`))].slice(0, 6).map((line) => <li key={line}>{line}</li>)}
+          {[...new Set(dashed.map((edge) => `${edge.label}: ${edge.why ?? ''}`))].map((line) => <li key={line}>{line}</li>)}
         </ul>
       )}
       {view.notes.map((note) => <p key={note} className="dg-note" data-testid="view-note">{note}</p>)}
@@ -347,7 +374,7 @@ function ViewBody({ view, initial, onDrill, onUp, drilling, depth }: { view: Dia
         stepped ? (
           <ol className="dg-steps" data-testid="view-steps">
             {view.edges.map((edge) => (
-              <li key={edge.step} data-dashed={edge.dashed ? 'true' : undefined} data-testid="view-step">
+              <li key={edge.step} data-adjacent-key={JSON.stringify([edge.step ?? null, edge.from, edge.to, edge.label, edge.href ?? null])} data-dashed={edge.dashed ? 'true' : undefined} data-testid="view-step">
                 <span className="dg-step-n">{edge.step}</span>
                 {edge.href === null || edge.href === undefined ? <span>{edge.label}</span> : <KLink href={edge.href}>{edge.label}</KLink>}
                 {edge.location !== undefined && <span className="dg-element-place"><CodePlace location={edge.location} /></span>}
@@ -357,9 +384,18 @@ function ViewBody({ view, initial, onDrill, onUp, drilling, depth }: { view: Dia
             ))}
           </ol>
         ) : (
-          <ul className="dg-elements" data-testid="view-elements">
-            {view.elements.filter((element) => element.kind !== 'node').map((element) => <ElementRow key={element.id} element={element} onDrill={onDrill} drilling={drilling} />)}
-          </ul>
+          <div id={listId} data-testid="view-full-list">
+            {view.fullElements !== undefined && <h3>{t('knowledge.views.fullList', { count: view.fullElements.length })}</h3>}
+            <ul className="dg-elements" data-testid="view-elements">
+              {(view.fullElements ?? view.elements).map((element) => {
+                const folded = view.elements.find(candidate => candidate.id === element.id && candidate.standsFor !== undefined);
+                return <ElementRow key={element.id} element={folded?.drill ? { ...element, drill: folded.drill } : element} onDrill={onDrill} drilling={drilling} />;
+              })}
+            </ul>
+            {view.fullEdges !== undefined && <ul className="dg-why" data-testid="view-full-relationships">
+              {view.fullEdges.map((edge, index) => <li key={index}>{(view.fullElements ?? view.elements).find(element => element.id === edge.from)?.label ?? edge.from} → {(view.fullElements ?? view.elements).find(element => element.id === edge.to)?.label ?? edge.to}: {edge.label}{edge.why ? ` (${edge.why})` : ''}</li>)}
+            </ul>}
+          </div>
         )
       )}
     </div>

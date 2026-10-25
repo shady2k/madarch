@@ -1,3 +1,4 @@
+import { diagramTitleNodes } from '../src/knowledge/diagram-titles.js';
 /** Browser-side evidence for one renderer, scoped to one views block (or its own archify document). */
 export const DIAGRAM_MEASURES = String.raw`(async (options) => {
   const fail = (message) => { throw new Error(message); };
@@ -62,9 +63,6 @@ export const DIAGRAM_MEASURES = String.raw`(async (options) => {
     svg = root && root.querySelector('svg');
     if (!svg) fail('.diagram-container svg is absent');
     viewportNode = root;
-    const nodes = [...svg.querySelectorAll('g[id^="node-"]')];
-    titleNodes = nodes.map(n => n.querySelector('text[data-node-label]'));
-    if (titleNodes.some(n => !n)) fail('an archify node group has no text[data-node-label]');
     edges = [...svg.querySelectorAll('[data-edge-label] text')];
     contentNodes = [svg];
   } else if (options.renderer === 'likec4') {
@@ -72,7 +70,6 @@ export const DIAGRAM_MEASURES = String.raw`(async (options) => {
     if (!root) fail('LikeC4 frame is absent');
     viewportNode = deep(root, '.react-flow')[0];
     if (!viewportNode) fail('LikeC4 .react-flow viewport is absent');
-    titleNodes = deep(root, '[data-likec4-node-title], .likec4-compound-title');
     edges = deep(root, '.likec4-edge-label');
     contentNodes = deep(root, '.react-flow__node, .react-flow__edge, .likec4-edge-label');
   } else if (options.renderer === 'mermaid') {
@@ -80,30 +77,12 @@ export const DIAGRAM_MEASURES = String.raw`(async (options) => {
     svg = root && root.querySelector('svg');
     viewportNode = block.querySelector('[data-testid=zoom-box]');
     if (!svg || !viewportNode) fail('Mermaid svg or zoom viewport is absent');
-    const type = block.querySelector('[data-testid=view]').getAttribute('data-view');
-    if (type === 'sequence') {
-      // Each actor header/footer is one title, even when Mermaid splits it into several text lines.
-      titleNodes = unique([...svg.querySelectorAll('text.actor')].filter(n => !n.closest('.actorPopupMenu')).map(n => n.parentElement));
-    } else if (type === 'er') {
-      titleNodes = [...svg.querySelectorAll('g.node')].map(n => n.querySelector('g.name') || n.querySelector('g.label, .nodeLabel'));
-      if (titleNodes.some(n => !n)) fail('an ER node has no name/title label');
-    } else {
-      const nodes = [...svg.querySelectorAll('g.node, g.cluster')];
-      titleNodes = nodes.map(n => {
-        const title = n.querySelector('.nodeLabel, .cluster-label, .state-title, g.label');
-        if (!title && (n.textContent || '').trim()) fail('a Mermaid node has text but no supported title selector: ' + n.id);
-        return title;
-      }).filter(Boolean);
-    }
     edges = [...svg.querySelectorAll('g.edgeLabel, text.messageText, text.transition, .relationshipLabel')];
     contentNodes = [svg];
   } else fail('unknown renderer ' + options.renderer);
-  titleNodes = unique(titleNodes);
-  if (options.renderer === 'likec4') {
-    for (const node of deep(root, '.react-flow__node')) {
-      if (!deep(node, '[data-likec4-node-title], .likec4-compound-title').length) fail('a LikeC4 node has no title selector: ' + node.getAttribute('data-id'));
-    }
-  }
+  const type = options.renderer === 'mermaid' ? block.querySelector('[data-testid=view]').getAttribute('data-view') : '';
+  const titlePairs = (${diagramTitleNodes.toString()})(root, options.renderer, type);
+  titleNodes = titlePairs.map(pair => pair.title);
   if (!titleNodes.length) fail('renderer-specific node-title selector found no titles');
   if (!contentNodes.length) fail('renderer content bounds are absent');
   const viewportOf = () => {
@@ -146,8 +125,9 @@ export const DIAGRAM_MEASURES = String.raw`(async (options) => {
     const clip = clippedViewport(node, viewport);
     const localTruncation = leaves.some(n => n instanceof HTMLElement && (n.scrollWidth > n.clientWidth + 1 || n.scrollHeight > n.clientHeight + 1));
     const full = rect && clip && inside(rect, clip) && !localTruncation;
-    const partial = rect && clip && intersects(rect, clip) && !full;
-    return { name: (node instanceof SVGElement ? leaves.map(n => n.textContent || '').join(' ') : node.textContent || '').trim(), index, rect, smallestPx: Math.min(...sizes), full: Boolean(full), partial: Boolean(partial), localTruncation };
+    const nodeRect = plain(titlePairs[index].node.getBoundingClientRect());
+    const partial = clip && intersects(nodeRect, clip) && !full;
+    return { name: (node instanceof SVGElement ? leaves.map(n => n.textContent || '').join(' ') : node.textContent || '').trim(), index, rect, nodeRect, smallestPx: Math.min(...sizes), full: Boolean(full), partial: Boolean(partial), localTruncation };
   });
   if (titleEntries.some(t => !t.name)) fail('a node-title selector produced an empty title');
   const visible = titleEntries.filter(t => t.full).map(t => t.name);
@@ -180,6 +160,9 @@ export const DIAGRAM_MEASURES = String.raw`(async (options) => {
     smallestTitlePx: Math.min(...titleEntries.map(t => t.smallestPx)),
     titlesVisibleInFull: { count: visible.length, names: visible }, clippedTitles: clipped, clippedTitleCount: clipped.length,
     totalTitles: titleEntries.length, titles: titleEntries, viewport, contentBounds,
+    firstContentTitleVisible: [...titleEntries].sort((a, b) => a.rect.top - b.rect.top || a.rect.left - b.rect.left)[0].full,
+    panAvailable: options.renderer === 'likec4' ? deep(root, '.react-flow__pane').length > 0 : /(auto|scroll)/.test(getComputedStyle(viewportNode).overflowX + getComputedStyle(viewportNode).overflowY),
+    zoomAvailable: options.renderer === 'likec4' ? deep(root, 'button').some(button => /zoom/i.test((button.getAttribute('aria-label') || '') + (button.getAttribute('title') || ''))) : options.renderer === 'archify' ? Boolean(document.querySelector('.diagram-nav [data-view="in"]') && document.querySelector('.diagram-nav [data-view="out"]')) : Boolean(block.querySelector('[data-testid=zoom-in]') && block.querySelector('[data-testid=zoom-out]')),
     clippedEdgeLabels: edgeEntries.filter(e => e.clipped).map(e => e.name), clippedEdgeLabelCount: edgeEntries.filter(e => e.clipped).length,
     rightClippedEdgeLabels: edgeEntries.filter(e => e.rightClipped).map(e => e.name), totalEdgeLabels: edgeEntries.length,
     texts: labelEntries.length, minFontPx: labelEntries.length ? Math.min(...labelEntries.map(e => e.size)) : null,

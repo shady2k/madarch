@@ -52,7 +52,7 @@ export const RENDERERS_OF: Readonly<Record<ViewType, readonly Renderer[]>> = {
   deployment: ['likec4', 'mermaid', 'archify'],
   domain: ['likec4', 'mermaid', 'archify'],
   'domain-map': ['likec4', 'mermaid', 'archify'],
-  er: ['mermaid', 'archify'],
+  er: ['mermaid'],
   state: ['mermaid', 'archify'],
   sequence: ['mermaid'],
 };
@@ -144,6 +144,8 @@ export interface ViewElement {
 }
 
 export interface ViewEdge {
+  /** A graph relation discriminator, retained when parallel facts share both ends. */
+  discriminator?: string;
   from: string;
   to: string;
   label: string;
@@ -167,6 +169,9 @@ export interface GraphView {
   label: string;
   elements: ViewElement[];
   edges: ViewEdge[];
+  /** All raw members and facts, retained beside a budgeted picture without invented ownership. */
+  fullElements?: ViewElement[];
+  fullEdges?: ViewEdge[];
   notes: string[];
   /** Why nothing is drawn, when nothing is. */
   empty: string | null;
@@ -194,13 +199,15 @@ const WORDS = {
     context: 'Context', containers: 'Containers', components: 'Components', deployment: 'Deployment', er: 'Tables', state: 'States', sequence: 'Chain',
     unorderedWhy: 'the graph holds no order for this step', nameMatchWhy: 'matched by name only', portMatchWhy: 'matched by name and port only',
     caller: 'Caller', foreignKey: 'foreign key', routesTo: 'routes to', builds: 'builds', dependsOn: 'depends on', builtBy: 'built by', replicas: (n: number) => `${n} replica${n === 1 ? '' : 's'}`,
-    folded: (n: number, g: string) => `${n} in ${g}`, truncated: (shown: number, total: number) => `Showing ${shown} of ${total}.`,
+    folded: (n: number, g: string) => `${n} in ${g}`, truncated: (shown: number, total: number) => `Showing ${shown} of ${total}.`, erIncoming: 'Incoming foreign keys', erOutgoing: 'Outgoing foreign keys',
     columnsTruncated: (list: string) => `Some columns are not drawn: ${list}.`,
     files: (n: number) => `${n} ${n === 1 ? 'file' : 'files'}`, cycle: 'cycle',
     noServices: 'The graph holds no service yet.', noModules: (root: string) => `The graph holds no module under ${root}.`, noTables: 'The graph holds no table here.',
     noMachines: 'No transition table was found in the code of this page.', noDeploy: 'The graph holds no compose service, Kubernetes deployment or Dockerfile.',
     noEntry: 'No route or function of the graph starts a chain here.', outside: (n: number) => `${n} links to elements outside this folder are not drawn.`,
     folding: (shown: number, total: number) => `${total} elements fold into ${shown} folders; open a folder to see its members.`,
+    ownershipFolding: (shown: number, total: number) => `${total} elements are represented by ${shown} ownership groups; open a group to see its members.`,
+    foldedLinks: (n: number) => `${n} relationships inside folded groups are shown when those groups are opened.`,
     stepsFolded: (n: number) => `${n} further steps are not drawn.`,
     entriesFolded: (shown: number, total: number) => `${total} entry points start a chain here; the ${shown} first are drawn, and each one opens on its own page.`,
     filesNotSearched: (n: number) => `${n} further files of this page were not searched for a transition table.`,
@@ -213,13 +220,15 @@ const WORDS = {
     context: 'Контекст', containers: 'Контейнеры', components: 'Компоненты', deployment: 'Развёртывание', er: 'Таблицы', state: 'Состояния', sequence: 'Цепочка',
     unorderedWhy: 'граф не знает порядка этого шага', nameMatchWhy: 'сопоставлено только по имени', portMatchWhy: 'сопоставлено только по имени и порту',
     caller: 'Вызывающий', foreignKey: 'внешний ключ', routesTo: 'направляет на', builds: 'собирает', dependsOn: 'зависит от', builtBy: 'собран из', replicas: (n: number) => `реплик: ${n}`,
-    folded: (n: number, g: string) => `${n} в ${g}`, truncated: (shown: number, total: number) => `Показано ${shown} из ${total}.`,
+    folded: (n: number, g: string) => `${n} в ${g}`, truncated: (shown: number, total: number) => `Показано ${shown} из ${total}.`, erIncoming: 'Входящие внешние ключи', erOutgoing: 'Исходящие внешние ключи',
     columnsTruncated: (list: string) => `Часть столбцов не нарисована: ${list}.`,
     files: (n: number) => `${n} ${russianPlural(n, 'файл', 'файла', 'файлов')}`, cycle: 'цикл',
     noServices: 'В графе пока нет ни одного сервиса.', noModules: (root: string) => `В графе нет модулей в ${root}.`, noTables: 'В графе здесь нет таблиц.',
     noMachines: 'В коде этой страницы не найдено таблицы переходов.', noDeploy: 'В графе нет ни сервисов compose, ни развёртываний Kubernetes, ни Dockerfile.',
     noEntry: 'Ни один маршрут или функция графа не начинает здесь цепочку.', outside: (n: number) => `Связи с элементами за пределами этой папки (${n}) не нарисованы.`,
     folding: (shown: number, total: number) => `${total} элементов свёрнуты в ${shown} папок; откройте папку, чтобы увидеть её содержимое.`,
+    ownershipFolding: (shown: number, total: number) => `${total} элементов представлены группами владения (${shown}); откройте группу, чтобы увидеть её содержимое.`,
+    foldedLinks: (n: number) => `Связи внутри свёрнутых групп (${n}) показаны при открытии этих групп.`,
     stepsFolded: (n: number) => `Ещё ${n} шагов не нарисованы.`,
     entriesFolded: (shown: number, total: number) => `Здесь ${total} точек входа начинают цепочку; нарисованы первые ${shown}, каждая открывается на своей странице.`,
     filesNotSearched: (n: number) => `Ещё ${n} файлов этой страницы не проверялись на таблицу переходов.`,
@@ -262,6 +271,71 @@ function foldInto<T extends { id: string }>(items: readonly T[], folderOf: (item
   return folders.size <= 1 ? undefined : { folders };
 }
 
+/** A bounded first picture with every raw member and relationship available in the adjacent full list. */
+function firstOwnershipPage(view: GraphView, w: Words): GraphView {
+  const ordered: ViewElement[] = [];
+  const visited = new Set<string>();
+  const visit = (parent: string | undefined): void => {
+    for (const element of view.elements.filter(item => item.parent === parent).sort((a, b) => byCodePoint(a.id, b.id))) {
+      if (visited.has(element.id)) throw new ViewRefusal(400, `the ${view.spec.type} view repeats ownership element "${element.id}"`);
+      visited.add(element.id);
+      ordered.push(element);
+      visit(element.id);
+    }
+  };
+  visit(undefined);
+  if (ordered.length !== view.elements.length) throw new ViewRefusal(400, `the ${view.spec.type} view has cyclic or missing ownership parents`);
+  const elements = ordered.slice(0, NODE_BUDGET);
+  const ids = new Set(elements.map(element => element.id));
+  return { ...view, elements, edges: view.edges.filter(edge => ids.has(edge.from) && ids.has(edge.to)), fullElements: ordered, fullEdges: view.edges, marker: w.truncated(elements.length, ordered.length) };
+}
+
+/** Fold only an ownership level the graph actually holds. Scoped views reopen that exact parent and its children. */
+function foldOwnership(view: GraphView, w: Words): GraphView {
+  const all = view.elements;
+  if (view.spec.scope !== undefined) {
+    const holder = all.find(element => element.id === view.spec.scope);
+    if (!holder) throw new ViewRefusal(404, `the ${view.spec.type} scope "${view.spec.scope}" is not an ownership group in this view`);
+    const ids = new Set([holder.id]);
+    const collect = (id: string): void => { for (const child of all.filter(element => element.parent === id)) { ids.add(child.id); collect(child.id); } };
+    collect(holder.id);
+    const outside = view.edges.filter(edge => ids.has(edge.from) !== ids.has(edge.to)).length;
+    const scoped = { ...view, elements: all.filter(element => ids.has(element.id)), edges: view.edges.filter(edge => ids.has(edge.from) && ids.has(edge.to)), notes: [...view.notes, ...(outside > 0 ? [w.outside(outside)] : [])], up: { spec: { type: view.spec.type, subject: view.spec.subject }, title: view.label }, marker: null };
+    // The reopened holder is the root of this picture; its recorded parent may be outside the scope.
+    const rooted = { ...scoped, elements: scoped.elements.map(element => element.id === holder.id ? { ...element, parent: undefined } : element) };
+    const result = ids.size > NODE_BUDGET ? firstOwnershipPage(rooted, w) : rooted;
+    return result.fullElements === undefined ? result : { ...result, fullElements: scoped.elements };
+  }
+  if (all.length <= NODE_BUDGET) return view;
+  const roots = all.filter(element => element.parent === undefined);
+  // Unrelated roots and one oversized group still get an ordinary first picture, never a fabricated owner.
+  if (roots.length > NODE_BUDGET || roots.length === all.length || roots.length === 1) return firstOwnershipPage(view, w);
+  const owner = new Map<string, string>();
+  const represented = (id: string): number => {
+    owner.set(id, id);
+    let count = 1;
+    for (const child of all.filter(element => element.parent === id)) {
+      count += represented(child.id);
+      for (const [member, root] of owner) if (root === child.id) owner.set(member, id);
+    }
+    return count;
+  };
+  const elements = roots.map(root => {
+    const count = represented(root.id);
+    return count === 1 ? root : { ...root, standsFor: count, detail: w.folded(count, root.label), drill: { spec: { type: view.spec.type, subject: view.spec.subject, scope: root.id }, title: root.label } };
+  });
+  const merged = new Map<string, ViewEdge>();
+  let internal = 0;
+  for (const edge of view.edges) {
+    const from = owner.get(edge.from)!, to = owner.get(edge.to)!;
+    if (from === to) { internal++; continue; }
+    // Distinct labels/assumption reasons remain distinct. Only identical copied facts combine in the overview.
+    const key = JSON.stringify([from, to, edge.label, edge.dashed, edge.why ?? null]);
+    merged.set(key, { ...edge, from, to });
+  }
+  return { ...view, elements, fullElements: all, fullEdges: view.edges, edges: [...merged.values()].sort((a, b) => byCodePoint(JSON.stringify(a), JSON.stringify(b))), notes: [...view.notes, ...(internal > 0 ? [w.foldedLinks(internal)] : [])], marker: w.ownershipFolding(elements.length, all.length) };
+}
+
 /** The shape renderers read, from a view. */
 export function shapeOf(view: GraphView): ShapeDiagram {
   const elements: ShapeElement[] = view.elements.map((element) => ({
@@ -273,7 +347,7 @@ export function shapeOf(view: GraphView): ShapeDiagram {
     ...(element.href === null ? {} : { page: { id: element.id, href: element.href } }),
     ...(element.parent === undefined ? {} : { parent: element.parent }),
     ...(element.columns === undefined ? {} : {
-      columns: element.columns.map((column) => ({ id: `${element.id}/${column.name}`, label: column.name, ...(column.type === undefined ? {} : { dataType: column.type }), evidence: 'fact' as const, dashed: false, page: { id: element.id, href: element.href ?? '' } })),
+      columns: element.columns.map((column) => ({ id: `${element.id}/${column.name}`, label: column.name, dataType: `${column.type ?? 'text'}${column.key ? ' PK' : ''}${column.fk ? ' FK' : ''}`, evidence: 'fact' as const, dashed: false, page: { id: element.id, href: element.href ?? '' } })),
     }),
   }));
   return {
@@ -453,6 +527,7 @@ async function erView(ctx: RenderContext, spec: ViewSpec, w: Words, limit: numbe
   const up = { spec: { type: 'c4-container' as const, subject: '' }, title: w.containers };
   let tables: GraphEntity[];
   let total: number;
+  const hiddenNeighbors: string[] = [];
   if (subject.kind === 'code.database') {
     const found = await ctx.graph.byPrefix('code.table', `code.table:${keyTail(subject.key)}/`, limit);
     tables = found.rows;
@@ -461,7 +536,10 @@ async function erView(ctx: RenderContext, spec: ViewSpec, w: Words, limit: numbe
     // A table is drawn with the tables it points to by foreign key and the tables that point to it.
     tables = [subject];
     for (const direction of ['out', 'in'] as const) {
-      for (const group of await ctx.graph.neighbors(subject, { relations: ['code.foreign-key'], direction, limit: 20 })) for (const row of group.rows) if (!tables.some((table) => table.key === row.entity.key)) tables.push(row.entity);
+      for (const group of await ctx.graph.neighbors(subject, { relations: ['code.foreign-key'], direction, limit: Math.max(20, limit) })) {
+        if (group.total > group.rows.length) hiddenNeighbors.push(`${direction === 'in' ? w.erIncoming : w.erOutgoing}: ${w.truncated(group.rows.length, group.total)}`);
+        for (const row of group.rows) if (!tables.some((table) => table.key === row.entity.key)) tables.push(row.entity);
+      }
     }
     total = tables.length;
   }
@@ -469,21 +547,24 @@ async function erView(ctx: RenderContext, spec: ViewSpec, w: Words, limit: numbe
   if (tables.length === 0) return empty(spec, title, w.er, w.noTables, up);
   const inView = new Set(tables.map((table) => table.key));
   const elements: ViewElement[] = [];
-  // The foreign key's own column, by the two ends of its relation: Mermaid's ER syntax marks a key on the row it belongs
-  // to and names the relationship by that column.
-  const foreignKeys = await ctx.graph.relationEdges('code.foreign-key', 2000);
-  const columnOf = new Map<string, string>();
+  // Keep the relation discriminator and column on each fact: two columns can reference the same table.
+  let foreignKeys = await ctx.graph.relationEdges('code.foreign-key', 2000);
+  if (foreignKeys.total > foreignKeys.rows.length) foreignKeys = await ctx.graph.relationEdges('code.foreign-key', foreignKeys.total);
+  const columnsOf = new Map<string, Set<string>>();
   for (const edge of foreignKeys.rows) {
     const column = edge.properties['column'];
-    if (typeof column === 'string' && column !== '') columnOf.set(`${edge.from.key}\u0000${edge.to.key}`, column);
+    if (typeof column !== 'string' || column === '') continue;
+    const columns = columnsOf.get(edge.from.key) ?? new Set<string>();
+    columns.add(column);
+    columnsOf.set(edge.from.key, columns);
   }
   // A table whose columns run past the drawn list keeps the count, so the page says what it does not draw.
   const hiddenColumns: string[] = [];
   for (const table of tables) {
-    const columns = await ctx.graph.byPrefix('code.column', `${table.key}/`, 40);
+    let columns = await ctx.graph.byPrefix('code.column', `${table.key}/`, 40);
+    if (columns.total > columns.rows.length) columns = await ctx.graph.byPrefix('code.column', `${table.key}/`, columns.total);
     if (columns.total > columns.rows.length) hiddenColumns.push(`${table.label}: ${String(columns.rows.length)} of ${String(columns.total)}`);
-    const ownColumns = new Set<string>();
-    for (const [ends, column] of columnOf) if (ends.startsWith(`${table.key}\u0000`)) ownColumns.add(column);
+    const ownColumns = columnsOf.get(table.key) ?? new Set<string>();
     elements.push({
       id: table.key,
       label: table.label,
@@ -497,19 +578,29 @@ async function erView(ctx: RenderContext, spec: ViewSpec, w: Words, limit: numbe
   const edges: ViewEdge[] = [];
   const seen = new Set<string>();
   for (const table of tables) {
-    for (const group of await ctx.graph.neighbors(table, { relations: ['code.foreign-key'], direction: 'out', limit: 40 })) {
-      for (const row of group.rows) {
-        if (!inView.has(row.entity.key)) continue;
-        const key = `${table.key}|${row.entity.key}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        edges.push({ from: table.key, to: row.entity.key, label: columnOf.get(`${table.key}\u0000${row.entity.key}`) ?? w.foreignKey, dashed: false });
-      }
+    const neighbors = new Set<string>();
+    for (const group of await ctx.graph.neighbors(table, { relations: ['code.foreign-key'], direction: 'out', limit: Math.max(40, limit) })) {
+      if (group.total > group.rows.length) hiddenNeighbors.push(`${table.label}: ${w.truncated(group.rows.length, group.total)}`);
+      for (const row of group.rows) if (inView.has(row.entity.key)) neighbors.add(row.entity.key);
     }
+    for (const edge of foreignKeys.rows) {
+      if (edge.from.key !== table.key || !inView.has(edge.to.key)) continue;
+      const column = edge.properties['column'];
+      const label = typeof column === 'string' && column !== '' ? column : w.foreignKey;
+      const key = JSON.stringify([edge.from.key, edge.to.key, edge.discriminator ?? edge.properties['constraint'] ?? label]);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      edges.push({ from: table.key, to: edge.to.key, label, dashed: false, ...(edge.discriminator === undefined ? {} : { discriminator: edge.discriminator }) });
+    }
+    // A bounded relation lookup may not hold the metadata for a retained neighbor. Disclose that cap below and keep
+    // the known connection rather than inventing its missing column/discriminator.
+    for (const to of neighbors) if (!edges.some((edge) => edge.from === table.key && edge.to === to)) edges.push({ from: table.key, to, label: w.foreignKey, dashed: false });
   }
-  edges.sort((a, b) => byCodePoint(`${a.from}|${a.to}`, `${b.from}|${b.to}`));
+  edges.sort((a, b) => byCodePoint(`${a.from}|${a.to}|${a.label}`, `${b.from}|${b.to}|${b.label}`));
   const notes = [
     ...(total > tables.length ? [w.truncated(tables.length, total)] : []),
+    ...hiddenNeighbors,
+    ...(foreignKeys.total > foreignKeys.rows.length ? [w.truncated(foreignKeys.rows.length, foreignKeys.total)] : []),
     ...(hiddenColumns.length === 0 ? [] : [w.columnsTruncated(hiddenColumns.join('; '))]),
   ];
   // Mermaid's own ER syntax (decision 0026 names ER as a view type of its own): one entity per table, one row per
@@ -526,13 +617,14 @@ async function erView(ctx: RenderContext, spec: ViewSpec, w: Words, limit: numbe
     used.add(id);
     mermaidId.set(element.id, id);
   }
+  const erText = (value: string): string => value.replace(/["\r\n]/g, char => char === '"' ? '#quot;' : ' ');
   for (const element of elements) {
     lines.push(`  ${mermaidId.get(element.id)!} {`);
-    for (const column of element.columns ?? []) lines.push(`    ${erType(column.type)} ${column.name.replace(/[^A-Za-z0-9_]/g, '_')}${column.key ? ' PK' : ''}${column.fk && !column.key ? ' FK' : ''}`);
+    for (const column of element.columns ?? []) lines.push(`    ${erType(column.type)} ${column.name.replace(/[^A-Za-z0-9_]/g, '_')}${column.key && column.fk ? ' PK,FK' : column.key ? ' PK' : column.fk ? ' FK' : ''}`);
     lines.push('  }');
   }
   // The arrow points from the table that is referenced to the table that holds the key.
-  for (const edge of edges) lines.push(`  ${mermaidId.get(edge.to)!} ||--o{ ${mermaidId.get(edge.from)!} : "${edge.label}"`);
+  for (const edge of edges) lines.push(`  ${mermaidId.get(edge.to)!} ||--o{ ${mermaidId.get(edge.from)!} : "${erText(edge.label)}"`);
   return { spec, title, label: w.er, elements, edges, notes, empty: null, up, marker: null, mermaid: lines.join('\n') };
 }
 
@@ -569,7 +661,7 @@ export async function stateViews(ctx: RenderContext, subject: GraphEntity, w: Wo
   const read = async (): Promise<void> => {
     for (let file = queue.shift(); file !== undefined; file = queue.shift()) {
       const text = await ctx.readSource(file.repo, file.path);
-      if (text !== undefined) results.set(`${file.repo ?? ''}|${file.path}`, stateMachinesOf(file.path, text));
+      if (text !== undefined) results.set(`${file.repo ?? ''}|${file.path}`, await stateMachinesOf(file.path, text));
     }
   };
   await Promise.all(Array.from({ length: 8 }, read));
@@ -663,10 +755,18 @@ async function sequenceViews(ctx: RenderContext, spec: ViewSpec, subject: Subjec
 
 async function deploymentView(ctx: RenderContext, spec: ViewSpec, w: Words): Promise<GraphView> {
   const title = w.deployment;
-  const compose = await ctx.graph.list('code.compose-service', { limit: 200 });
-  const deployments = await ctx.graph.list('code.k8s-deployment', { limit: 200 });
-  const kubeServices = await ctx.graph.list('code.k8s-service', { limit: 200 });
-  const dockerfiles = await ctx.graph.list('code.dockerfile', { limit: 200 });
+  const allOfKind = async (kind: string) => {
+    const first = await ctx.graph.list(kind, { limit: 200 });
+    return first.total > first.rows.length ? await ctx.graph.list(kind, { limit: first.total }) : first;
+  };
+  const allRelations = async (relation: string) => {
+    const first = await ctx.graph.relationEdges(relation, 2000);
+    return first.total > first.rows.length ? await ctx.graph.relationEdges(relation, first.total) : first;
+  };
+  const compose = await allOfKind('code.compose-service');
+  const deployments = await allOfKind('code.k8s-deployment');
+  const kubeServices = await allOfKind('code.k8s-service');
+  const dockerfiles = await allOfKind('code.dockerfile');
   if (compose.rows.length + deployments.rows.length + kubeServices.rows.length + dockerfiles.rows.length === 0) return empty(spec, title, w.deployment, w.noDeploy);
   const elements: ViewElement[] = [];
   const edges: ViewEdge[] = [];
@@ -702,7 +802,7 @@ async function deploymentView(ctx: RenderContext, spec: ViewSpec, w: Words): Pro
     add({ id: dockerfile.key, label: pathOf(dockerfile), kind: 'image', detail: 'Dockerfile', href: hrefOf(ctx, dockerfile), ...place(dockerfile), dashed: false });
   }
   const links = async (relation: string, make: (edge: { from: string; to: string; properties: Record<string, unknown> }) => ViewEdge | undefined): Promise<void> => {
-    const found = await ctx.graph.relationEdges(relation, 2000);
+    const found = await allRelations(relation);
     if (found.total > found.rows.length) notes.push(w.truncated(found.rows.length, found.total) + ` (${relation})`);
     for (const row of found.rows) {
       if (!have.has(row.from.key)) continue;
@@ -713,23 +813,23 @@ async function deploymentView(ctx: RenderContext, spec: ViewSpec, w: Words): Pro
   await links('code.depends-on', (edge) => (edge.from.startsWith('code.compose-service:') && edge.to.startsWith('code.compose-service:') ? { from: edge.from, to: edge.to, label: w.dependsOn, dashed: false } : undefined));
   await links('code.builds', (edge) => ({ from: edge.from, to: edge.to, label: w.builds, dashed: false }));
   // A deployment meets its Dockerfile through its image: the extractor matches them by the image's name only.
-  const runs = await ctx.graph.relationEdges('code.runs', 2000);
-  const builtBy = await ctx.graph.relationEdges('code.built-by', 2000);
+  const runs = await allRelations('code.runs');
+  const builtBy = await allRelations('code.built-by');
   const dockerOfImage = new Map(builtBy.rows.map((row) => [row.from.key, row.to.key]));
   for (const row of runs.rows) {
     const dockerfile = dockerOfImage.get(row.to.key);
     if (dockerfile !== undefined && have.has(row.from.key) && have.has(dockerfile)) edges.push({ from: row.from.key, to: dockerfile, label: w.builtBy, dashed: true, why: w.nameMatchWhy });
   }
   // A Kubernetes Service reaches the deployment that exposes the port it targets; the port node is named after the service.
-  const targets = await ctx.graph.relationEdges('code.targets', 2000);
-  const exposes = await ctx.graph.relationEdges('code.exposes', 2000);
+  const targets = await allRelations('code.targets');
+  const exposes = await allRelations('code.exposes');
   const exposers = new Map<string, string[]>();
   for (const row of exposes.rows) exposers.set(row.to.key, [...(exposers.get(row.to.key) ?? []), row.from.key]);
   for (const row of targets.rows) {
     for (const deployment of exposers.get(row.to.key) ?? []) if (have.has(row.from.key) && have.has(deployment)) edges.push({ from: row.from.key, to: deployment, label: w.routesTo, dashed: true, why: w.portMatchWhy });
   }
   edges.sort((a, b) => byCodePoint(`${a.from}|${a.to}|${a.label}`, `${b.from}|${b.to}|${b.label}`));
-  return { spec, title, label: w.deployment, elements, edges, notes, empty: null, marker: null };
+  return foldOwnership({ spec, title, label: w.deployment, elements, edges, notes, empty: null, marker: null }, w);
 }
 
 // ---- domains -----------------------------------------------------------------------------------------
@@ -796,7 +896,7 @@ async function domainMapView(ctx: RenderContext, spec: ViewSpec, w: Words): Prom
     }
   }
   edges.sort((a, b) => byCodePoint(`${a.from}>${a.to}>${a.label}`, `${b.from}>${b.to}>${b.label}`));
-  return { spec, title, label: w.domains, elements, edges, notes: [w.implementedWhy], empty: null, marker: null };
+  return foldOwnership({ spec, title, label: w.domains, elements, edges, notes: [w.implementedWhy], empty: null, marker: null }, w);
 }
 
 async function domainView(ctx: RenderContext, spec: ViewSpec, w: Words): Promise<GraphView> {

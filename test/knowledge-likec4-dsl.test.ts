@@ -17,7 +17,7 @@ const nested = (type: string): GraphView => ({
   ],
   edges: [
     { from: 'c', to: 'd', label: 'SQL', dashed: false },
-    { from: 'b', to: 'c', label: 'implemented by', dashed: true, why: 'the agent read it' },
+    { from: 'c', to: 'd', label: 'might read', dashed: true, why: 'the agent read it' },
   ],
   notes: [],
   empty: null,
@@ -29,7 +29,7 @@ const VIEW_TYPES = ['c4-context', 'c4-container', 'c4-component', 'sequence', 'e
 describe('the LikeC4 workspace of every view type', () => {
   for (const type of VIEW_TYPES) {
     test(`the ${type} view's DSL parses with LikeC4's own language services`, async () => {
-      // The production path: the knowledge views are written by `workspaceOf`, which flattens the elements.
+      // The production path preserves real domain/deployment ownership; relationships name leaves, not ancestors.
       const held = workspaceOf(nested(type));
       expect(held.workspace).not.toContain('include **');
       let likec4: Awaited<ReturnType<typeof LikeC4.fromSource>> | undefined;
@@ -46,3 +46,17 @@ describe('the LikeC4 workspace of every view type', () => {
     }, 60_000);
   }
 });
+
+
+test('LikeC4 refuses an actual ancestor-to-child relation rather than flattening ownership', async () => {
+  const view = nested('domain-map');
+  view.edges = [{ from: 'b', to: 'c', label: 'invalid ownership arrow', dashed: false }];
+  const held = workspaceOf(view);
+  let model: Awaited<ReturnType<typeof LikeC4.fromSource>> | undefined;
+  try {
+    await expect((async () => {
+      model = await LikeC4.fromSource(held.workspace, { logger: false, printErrors: false, throwIfInvalid: true });
+      await model.diagrams();
+    })()).rejects.toThrow();
+  } finally { await model?.[Symbol.asyncDispose]?.(); }
+}, 60_000);

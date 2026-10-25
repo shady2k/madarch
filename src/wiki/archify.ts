@@ -73,6 +73,7 @@ export interface ArchifyLayoutNode {
   readonly id: string;
   readonly kind: string;
   readonly title: string;
+  readonly technology?: string;
   readonly parent: string | null;
   readonly x: number;
   readonly y: number;
@@ -171,7 +172,7 @@ export function archifyDocument(view: ArchifyLayoutedView, options: { output: st
       id: componentId(node.id),
       type: TYPE_BY_KIND[node.kind] ?? 'external',
       label: node.title,
-      sublabel: node.kind,
+      sublabel: node.technology ?? node.kind,
       ...(ICON_BY_KIND[node.kind] === undefined ? {} : { icon: ICON_BY_KIND[node.kind] }),
       pos: [node.x, node.y] as const,
       size: [node.width, node.height] as const,

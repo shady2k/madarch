@@ -10,6 +10,7 @@
  * connection.
  */
 import { languageOf } from '../knowledge/blocks.js';
+import { archifyFailurePage } from '../knowledge/view-frames.js';
 import { LoopRefusal } from '../loop/answer.js';
 import { ProposalRefusal } from '../loop/propose.js';
 import { readScope } from '../loop/tasks.js';
@@ -181,7 +182,10 @@ export function createKnowledgePart(
       if (renderer === null) return refused(400, { field: 'renderer', accepted: 'likec4 or archify', message: '"renderer" is required: likec4 or archify' });
       const asked = query.get('lang');
       const result = await product.viewFrame(query, renderer, asked === 'ru' || asked === 'en' ? asked : undefined);
-      if (!result.ok) return refused(result.status, { field: 'renderer', message: result.message });
+      if (!result.ok) {
+        if (renderer === 'archify' && result.status === 500) return { response: new Response(archifyFailurePage(asked ?? undefined, result.message), { status: result.status, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' } }) };
+        return refused(result.status, { field: 'renderer', message: result.message });
+      }
       const contentType = result.type === 'html' ? 'text/html; charset=utf-8' : result.type === 'json' ? 'application/json; charset=utf-8' : 'text/javascript; charset=utf-8';
       return { response: new Response(result.body, { status: 200, headers: { 'content-type': contentType, 'cache-control': 'private, max-age=300' } }) };
     }),

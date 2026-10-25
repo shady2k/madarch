@@ -5,16 +5,16 @@
  * assumption or an unresolved end stays dashed, and a table keeps its columns.
  *
  * The box-and-arrow types (C4 context, container and component, module
- * dependencies, ER and state) are drawn as a `flowchart LR`, and a sequence as a
- * `sequenceDiagram`:
+ * dependencies and state) are drawn as a `flowchart LR`, a sequence as a
+ * `sequenceDiagram`, and factual ER models as `erDiagram`:
  *
  * - Mermaid's `erDiagram` draws a table's columns as attributes and carries no
  *   dashed style at all, and its `stateDiagram-v2` has no dashed transition.
  *   0026's bar is that assumptions and unresolved ends are drawn dashed in every
  *   renderer, and both of those syntaxes would draw an agent's reading as a fact,
- *   so the ER model is drawn with each table a node carrying the columns it
- *   holds, and a machine with each state a node and each transition an arrow
- *   named by its event.
+ *   so an ER assumption is refused with a located diagnostic and its raw list
+ *   retained by the answer builder. A machine uses each state as a node and
+ *   each transition as an arrow named by its event.
  * - A sequence keeps Mermaid's own sequence syntax, because it is the one that
  *   carries the scenario's order and its lifelines — and it draws a dashed arrow
  *   (`-->>`) as readily as a solid one, so a step the graph does not assert
@@ -24,9 +24,19 @@
  * bytes on every machine, the node ids are the elements' own positions in the
  * model's code point order, and nothing here reads the clock.
  */
+import { fileURLToPath } from 'node:url';
 import type { ShapeDiagram as DiagramModel, ShapeEdge as DiagramEdge, ShapeElement as DiagramElement } from './diagram-shape.js';
 
 /** Mermaid's straight-line flowchart setting, the one the wiki's own Mermaid pages carry (views/mermaid). */
+const ER_SOURCE = fileURLToPath(import.meta.url);
+
+/** Keep the actual throwing call site, including its source line when the runtime supplies it. */
+function erDiagnostic(message: string): Error {
+  const error = new Error(message);
+  const site = error.stack?.split('\n').find(line => line.includes(ER_SOURCE) && !line.includes('erDiagnostic'))?.trim();
+  return new Error(`${site ?? `${ER_SOURCE} (call-site line unavailable)`}: ${message}`);
+}
+
 const STRAIGHT = '%%{init: {"flowchart": {"curve": "linear"}}}%%';
 
 /**
@@ -75,6 +85,30 @@ interface Node {
 export function mermaidOfDiagram(model: DiagramModel): string {
   const nodes = nodesOf(model);
   const byId = new Map(nodes.map((node) => [node.element.id, node.id]));
+  if (model.type === 'er') {
+    const unresolved = nodes.find(({ element }) => element.dashed);
+    if (unresolved) throw erDiagnostic(`[unsupported ER assumption]: ${unresolved.element.id}: ${unresolved.element.label}; read the raw element list instead`);
+    const lines = ['erDiagram'];
+    for (const { element, id } of nodes) {
+      lines.push(`  ${id}["${text(element.label)}"] {`);
+      for (const column of element.columns ?? []) {
+        const rawType = column.dataType ?? 'text';
+        const keys = ['PK', 'FK', 'UK'].filter(key => new RegExp(`\\b${key}\\b`).test(rawType));
+        const dataType = rawType.replace(/\b(PK|FK|UK)\b/g, '').replace(/[^A-Za-z0-9_]/g, '_').replace(/^_+|_+$/g, '') || 'text';
+        const name = column.label.replace(/[^A-Za-z0-9_]/g, '_') || 'column';
+        lines.push(`    ${dataType} ${name}${keys.length ? ` ${keys.join(',')}` : ''} "${text(`${column.label} ${rawType}`)}"`);
+      }
+      lines.push('  }');
+    }
+    for (const edge of model.edges) {
+      const from = byId.get(edge.from), to = byId.get(edge.to);
+      if (!from || !to) throw erDiagnostic(`[ER relationship]: missing endpoint ${edge.from} → ${edge.to}`);
+      // Mermaid ER dashes mean non-identifying, not an assumption. Never turn a guess into an FK fact.
+      if (edge.dashed) throw erDiagnostic(`[unsupported ER assumption]: ${edge.from} → ${edge.to}: ${edge.label}; read the raw relationship list instead`);
+      lines.push(`  ${from} ||--o{ ${to} : "${text(edge.label)}"`);
+    }
+    return `${lines.join('\n')}\n`;
+  }
   const arrows = model.edges.map((edge) => arrowOf(model, edge, byId));
   const dashed = nodes.filter((node) => node.element.dashed).map((node) => node.id);
   if (model.type === 'sequence') {
