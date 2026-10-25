@@ -27,6 +27,7 @@ import { DiagramsView } from './diagrams/views.js';
 import { NeighborhoodGraph } from './diagrams/neighborhood.js';
 import { TreemapView } from './diagrams/treemap.js';
 import { useKindName } from './kind-names.js';
+import {ContractDiagnosticView} from './contract-diagnostic.js';
 import { addressOfDocument, addressOfStatement, addressOfTask, K_PROBLEMS } from './routes.js';
 import { currentAddress, linkHandlers, openInNewTab, syncFrontTabAddress } from './tabs.js';
 import { remarkStatements, type MNode } from './statements.js';
@@ -658,7 +659,7 @@ function Problem({ block }: { block: Extract<Block, { type: 'problem' }> }): Rea
     <Alert variant="problem" className="my-4" data-testid="block-problem">
       <AlertTitle>{t('knowledge.blockProblem', { block: block.block })}</AlertTitle>
       <AlertDescription>
-        <p>{block.message}</p>
+        {block.block === 'definition' && block.diagnostic !== undefined ? <ContractDiagnosticView diagnostic={block.diagnostic} /> : <p>{block.message}</p>}
         <p className="font-mono text-[0.875em] text-muted">{block.file}:{block.line}</p>
       </AlertDescription>
     </Alert>

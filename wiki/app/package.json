@@ -34,7 +34,8 @@
     "@asyncapi/react-component": "3.2.1",
     "mobx": "6.15.0",
     "core-js": "3.46.0",
-    "styled-components": "6.1.19"
+    "styled-components": "6.1.19",
+    "parse5": "8.0.1"
   },
   "devDependencies": {
     "@happy-dom/global-registrator": "20.14.5",

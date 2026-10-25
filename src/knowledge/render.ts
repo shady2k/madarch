@@ -236,7 +236,7 @@ export async function listEntities(ctx: RenderContext, kind: string, options: { 
     const more = from >= 0 && from + options.limit < all.length;
     return { kind, total: all.length, rows: rows.map((entity) => refOfMarkdown(ctx, entity)), next: more && last !== undefined ? last.id : null };
   }
-  const found = await ctx.graph.list(kind, { ...(options.q === undefined ? {} : { q: options.q }), ...(options.after === undefined ? {} : { after: options.after }), limit: options.limit });
+  const found = await (kind === 'code.operation' ? ctx.graph.listOperations.bind(ctx.graph) : ctx.graph.list.bind(ctx.graph, kind))({ ...(options.q === undefined ? {} : { q: options.q }), ...(options.after === undefined ? {} : { after: options.after }), limit: options.limit });
   const operations = kind === 'code.operation' ? Object.fromEntries(await Promise.all(found.rows.map(async (entity) => [entity.key, await operationMetadata(ctx, entity)] as const))) : undefined;
   return { kind, total: found.total, rows: found.rows.map((entity: GraphEntity) => refOfGraph(ctx, entity)), next: found.next, ...(operations === undefined ? {} : {operations}) };
 }

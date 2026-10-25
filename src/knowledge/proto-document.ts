@@ -1,7 +1,7 @@
 import { posix } from 'node:path';
 import protobuf from 'protobufjs';
 import { byCodePoint } from '../model/order.js';
-import { ContractReadError } from './contract-document.js';
+import { ContractReadError, type ContractReason } from './contract-document.js';
 
 export type ProtoField = { name: string; type: string; id: number; rule: string; oneof?: string };
 export type ProtoMessage = { name: string; fields: ProtoField[]; values?: {name: string; id: number}[] };
@@ -13,32 +13,32 @@ export async function protoDocument(path: string, read: (path: string) => Promis
   const loaded = new Set<string>();
   const texts = new Map<string, string>();
   let bytes = 0;
-  const refuse = (file: string, code: string, detail: string, line = 1): never => { throw new ContractReadError({path: file, line, fullPath: fullPath(file), code, detail}); };
+  const refuse = (file: string, code: string, detail: string, reason: ContractReason, line = 1): never => { throw new ContractReadError({path: file, line, fullPath: fullPath(file), code, detail, reason, technicalDetail: detail}); };
   async function load(file: string, depth: number): Promise<void> {
     if (loaded.has(file)) return;
-    if (loaded.size >= 64 || depth > 32) refuse(file, 'limit', 'protobuf imports exceed 64 files or 32 levels');
+    if (loaded.size >= 64 || depth > 32) refuse(file, 'limit', 'protobuf imports exceed 64 files or 32 levels', {code: 'protoImportBudget', params: {maxFiles: 64, maxDepth: 32}});
     const text = await read(file);
-    if (text === undefined) refuse(file, 'missing', 'protobuf import is not readable at the pinned revision');
+    if (text === undefined) refuse(file, 'missing', 'protobuf import is not readable at the pinned revision', {code: 'protoImportMissing'});
     const held = text!;
     bytes += Buffer.byteLength(held);
-    if (bytes > 4 * 1024 * 1024) refuse(file, 'limit', 'protobuf definitions exceed the 4 MiB documentation budget');
+    if (bytes > 4 * 1024 * 1024) refuse(file, 'limit', 'protobuf definitions exceed the 4 MiB documentation budget', {code: 'protoByteBudget', params: {maxBytes: 4 * 1024 * 1024}});
     loaded.add(file); texts.set(file, held);
     let parsed: protobuf.IParserResult;
     try { parsed = protobuf.parse(held, root, {keepCase: true}); }
     catch (error) {
       const detail = String(error);
-      refuse(file, 'parse', detail, Number(/line (\d+)/u.exec(detail)?.[1] ?? 1));
+      refuse(file, 'parse', detail, {code: 'protoParse'}, Number(/line (\d+)/u.exec(detail)?.[1] ?? 1));
     }
     for (const dependency of [...(parsed!.imports ?? []), ...(parsed!.weakImports ?? [])].sort(byCodePoint)) {
       const line = held.slice(0, held.indexOf(dependency)).split('\n').length;
-      if (/^[a-z][a-z0-9+.-]*:|^[/\\]/iu.test(dependency) || dependency.includes('\\')) refuse(file, 'reference', `invalid protobuf import: ${dependency}`, line);
+      if (/^[a-z][a-z0-9+.-]*:|^[/\\]/iu.test(dependency) || dependency.includes('\\')) refuse(file, 'reference', `invalid protobuf import: ${dependency}`, {code: 'protoImportInvalid', params: {ref: dependency}}, line);
       const target = posix.normalize(posix.join(posix.dirname(file), dependency));
-      if (target === '..' || target.startsWith('../')) refuse(file, 'reference', `protobuf import leaves the repository: ${dependency}`, line);
+      if (target === '..' || target.startsWith('../')) refuse(file, 'reference', `protobuf import leaves the repository: ${dependency}`, {code: 'protoImportEscapesRepository', params: {ref: dependency}}, line);
       await load(target, depth + 1);
     }
   }
   await load(path, 0);
-  try { root.resolveAll(); } catch (error) { refuse(path, 'reference', String(error)); }
+  try { root.resolveAll(); } catch (error) { refuse(path, 'reference', String(error), {code: 'protoResolve'}); }
   const result: ProtoDocumentation = {services: [], messages: []};
   function walk(namespace: protobuf.NamespaceBase): void {
     for (const member of [...namespace.nestedArray].sort((a, b) => byCodePoint(a.fullName, b.fullName))) {
