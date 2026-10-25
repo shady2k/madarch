@@ -62,6 +62,7 @@ import type { GraphId, GraphStore } from '../../graph/index.js';
 import { sha256Hex } from '../../graph/index.js';
 import type { GraphRegistry } from '../../graph/vocabulary.js';
 import type { Extraction, SourceSpan, TreeReader } from '../records.js';
+import type { CodeExtractionResult, CodeFacts } from '../code/facts.js';
 import { linkExtractions, LINKS_PRODUCER } from './links.js';
 import { endpointRelations } from './relationships.js';
 import { commitTree, resolvePoint, walkDefaultBranch, type CommitFact, type FillPoint } from './git.js';
@@ -72,7 +73,7 @@ export type { CommitFact, FillPoint } from './git.js';
 export const DRIVER_PRODUCER = 'code.extract.driver';
 
 /** A tree extractor: a pure function over one commit's tree (src/extract/*); it may be async. */
-export type TreeExtractor = (tree: TreeReader, code?: Extraction) => Extraction | Promise<Extraction>;
+export type TreeExtractor = (tree: TreeReader, code?: Extraction, facts?: CodeFacts) => Extraction | CodeExtractionResult | Promise<Extraction | CodeExtractionResult>;
 
 /**
  * The history extractor's shape: it reads the repository's history itself, not
@@ -380,9 +381,14 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
   /** Runs the extractors over one commit's tree, naming the commit and the repository when one fails. */
   const runExtractors = async (commit: CommitFact, tree: TreeReader): Promise<Extraction[]> => {
     const extractions: Extraction[] = [];
+    let facts: CodeFacts | undefined;
     for (const extractor of options.extractors) {
       try {
-        extractions.push(await extractor(tree, extractions.find((entry) => entry.producer === 'code.extract.code')));
+        const result = await extractor(tree, extractions.find((entry) => entry.producer === 'code.extract.code'), facts);
+        if ('extraction' in result) {
+          facts = result.facts;
+          extractions.push(result.extraction);
+        } else extractions.push(result);
       } catch (error) {
         const name = extractor.name === '' ? 'an unnamed extractor' : `the extractor "${extractor.name}"`;
         throw new Error(`extract driver: ${name} failed over commit ${commit.hash} ("${commit.subject}", generation ${commit.generation}) of ${repository}: ${error instanceof Error ? error.message : String(error)}`, { cause: error });

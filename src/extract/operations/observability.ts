@@ -7,97 +7,34 @@
 import {endpointTarget, matchesEndpoint} from '../endpoint-target.js';
 import type { PropertyValue } from '../records.js';
 import { extractMetrics } from './metrics.js';
+import { libraryEvidence } from './code-facts.js';
 import type { Records } from './accumulate.js';
 import { serviceOf, TreeText } from './source.js';
-import { bindingShadowed, closeDelimiter, escaped, functionAt, functionNode, functionsOf, httpReceiver, receiverListenerPorts, relativeSource, sourceMask, sourceSpan } from './symbol-sites.js';
+import { closeDelimiter, functionNode, functionsOf, httpReceiver, receiverListenerPorts, sourceMask, sourceSpan } from './symbol-sites.js';
 
-/** Logger declarations and uses resolved through imports, not a global name match. */
+/** Logger effects require resolved package/receiver provenance from shared facts. */
 function loggers(t: TreeText, records: Records): void {
-  const declarations: { key: string; path: string; symbol: string; service: string; go: boolean; definition?: number }[] = [];
-  for (const path of t.tree.paths) {
-    if (!/^services\//.test(path) || !/\.(?:go|ts)$/.test(path)) continue;
-    const text = t.text(path);
-    const mask = sourceMask(text);
-    const service = serviceOf(path);
-    if (service === undefined) continue;
-    if (path.endsWith('.go') && /slog\.NewJSONHandler/.test(mask)) {
-      for (const site of functionsOf(t, path)) {
-        if (!/slog\.NewJSONHandler/.test(mask.slice(site.start, site.end))) continue;
-        const key = `code.logger:${path}#${site.qualifiedName}`;
-        records.add({ key, kind: 'code.logger', label: `logger of ${service}`, properties: { service, library: 'slog', json: true }, span: site.span });
-        declarations.push({ key, path, symbol: site.name, service, go: true });
-      }
-    }
-    if (path.endsWith('.ts')) {
-      // Require the library binding as well as its call. A same-named local pino is not evidence.
-      const imported = /import\s+(\w+)\s+from\s*['"]pino['"]/.exec(text);
-      const binding = imported?.[1];
-      if (binding === undefined || imported === null || mask.slice(imported.index, imported.index + 6) !== 'import') continue;
-      for (const match of text.matchAll(new RegExp(`(?:export\\s+)?const\\s+(\\w+)\\s*=\\s*${escaped(binding)}\\s*\\(`, 'g'))) {
-        if (mask.slice(match.index, match.index + match[0].length).trim() === '') continue;
-        if (bindingShadowed(mask, binding, match.index)) {records.gap(path, `line ${sourceSpan(t, path, match.index, match.index + match[0].length).lineStart}: logger factory ${binding} is shadowed or its binding pattern is unsupported (${path})`); continue;}
-        const symbol = match[1] ?? '';
-        const key = `code.logger:${path}#${symbol}`;
-        records.add({ key, kind: 'code.logger', label: `logger of ${service}`, properties: { service, library: 'pino', json: true }, span: sourceSpan(t, path, match.index, match.index + match[0].length) });
-        declarations.push({ key, path, symbol, service, go: false, definition: match.index + match[0].indexOf('const') });
-      }
-    }
+  if (t.facts === undefined) { records.gap('.', 'logger extraction requires the shared resolved code facts'); return; }
+  const facts = t.facts;
+  const evaluated = t.libraryFacts()!;
+  const declarations = new Map<string, string>();
+  for (const effect of evaluated.effects.filter((effect) => effect.kind === 'logger-declare')) {
+    const bindings = facts.bindings.filter((binding) => binding.initializer === effect.expression);
+    const binding = bindings.length === 1 ? bindings[0] : undefined;
+    const identity = binding?.name ?? `${effect.holder.slice(effect.holder.lastIndexOf('#') + 1)}@${effect.span.byteStart}`;
+    const key = `code.logger:${effect.span.path}#${identity}`;
+    const service = facts.files.find((file) => file.path === effect.span.path)?.manifest?.name ?? '';
+    records.add({ key, kind: 'code.logger', label: `logger of ${service || effect.span.path}`,
+      properties: { service, ...libraryEvidence(effect) }, span: effect.span });
+    declarations.set(effect.expression, key);
   }
-  const use = (key: string, path: string, at: number, end: number): void => {
-    const span = sourceSpan(t, path, at, end);
-    const discriminator = `${span.byteStart}`;
-    records.edge('code.uses-logger', key, records.file(path), {}, span, discriminator);
-    const site = functionAt(t, path, at);
-    if (site !== undefined) records.edge('code.uses-logger', key, functionNode(records, site), {}, span, discriminator);
-    else records.gap(path, `line ${span.lineStart}: logger use has no resolved function (${path})`);
-  };
-  for (const logger of declarations) {
-    const folder = logger.path.slice(0, logger.path.lastIndexOf('/'));
-    const modPath = `services/${logger.service}/go.mod`;
-    const module = logger.go && t.has(modPath) ? /^module\s+(\S+)/m.exec(t.text(modPath))?.[1] : undefined;
-    const importedPackage = module === undefined ? undefined : `${module}/${folder.slice(`services/${logger.service}/`.length)}`;
-    for (const path of t.tree.paths) {
-      if (serviceOf(path) !== logger.service || !path.endsWith(logger.go ? '.go' : '.ts')) continue;
-      const text = t.text(path);
-      const mask = sourceMask(text);
-      if (logger.go) {
-        const imports = importedPackage === undefined ? [] : [...text.matchAll(new RegExp(`(?:^|\\n)\\s*(?:import\\s+)?(?:(\\w+)\\s+)?"${escaped(importedPackage)}"`, 'g'))];
-        const alias = imports[0] === undefined ? undefined : imports[0][1] ?? /^package\s+(\w+)/m.exec(t.text(logger.path))?.[1];
-        if (alias === undefined) continue;
-        // Calls through the imported logger package are grounded even for context accessors.
-        for (const match of mask.matchAll(new RegExp(`\\b${escaped(alias)}\\.(?:${escaped(logger.symbol)}|FromContext|WithLogger)\\s*\\(`, 'g'))) {
-          const site = functionAt(t, path, match.index);
-          if (site !== undefined && new RegExp(`\\b${escaped(alias)}\\s*(?::=|=)`).test(sourceMask(text.slice(site.start, match.index)))) continue;
-          use(logger.key, path, match.index, match.index + match[0].length);
-          // A factory assigned to a local carries this logger only within that function.
-          const prefix = text.slice(text.lastIndexOf('\n', match.index) + 1, match.index);
-          const local = /(\w+)\s*:=\s*$/.exec(prefix)?.[1];
-          if (local !== undefined && site !== undefined) {
-            const tail = mask.slice(match.index + match[0].length, site.end);
-            for (const called of tail.matchAll(new RegExp(`\\b${escaped(local)}\\.(?:Info|Error|Warn|Debug|With)\\s*\\(`, 'g'))) {
-              const at = match.index + match[0].length + called.index;
-              use(logger.key, path, at, at + called[0].length);
-            }
-          }
-        }
-      } else {
-        const bindings: string[] = [];
-        if (path === logger.path) bindings.push(logger.symbol);
-        for (const imported of text.matchAll(/import\s*\{([^}]+)\}\s*from\s*['"]([^'"]+)['"]/g)) {
-          if (relativeSource(t, path, imported[2] ?? '') !== logger.path) continue;
-          for (const entry of (imported[1] ?? '').split(',')) {
-            const named = /^\s*(\w+)(?:\s+as\s+(\w+))?\s*$/.exec(entry);
-            if (named?.[1] === logger.symbol) bindings.push(named[2] ?? logger.symbol);
-          }
-        }
-        for (const binding of bindings) {
-          for (const match of mask.matchAll(new RegExp(`\\b${escaped(binding)}\\.(?:info|error|warn|debug|trace|fatal|child)\\s*\\(`, 'g'))) {
-            if (bindingShadowed(mask, binding, match.index, path === logger.path ? logger.definition : undefined)) {records.gap(path, `line ${sourceSpan(t, path, match.index, match.index + match[0].length).lineStart}: logger binding ${binding} is shadowed or its binding pattern is unsupported (${path})`); continue;}
-            use(logger.key, path, match.index, match.index + match[0].length);
-          }
-        }
-      }
-    }
+  for (const effect of evaluated.effects.filter((effect) => effect.kind === 'logger-use')) {
+    const logger = effect.roleOrigin === undefined ? undefined : declarations.get(effect.roleOrigin);
+    if (logger === undefined) { records.gap(effect.span.path, `line ${effect.span.lineStart}: logger use has no resolved declaration [${effect.modelId}]`); continue; }
+    const discriminator = String(effect.span.byteStart);
+    records.edge('code.uses-logger', logger, records.file(effect.span.path), libraryEvidence(effect), effect.span, discriminator);
+    if (effect.holder !== `code.file:${effect.span.path}`) records.edge('code.uses-logger', logger, effect.holder, libraryEvidence(effect), effect.span, discriminator);
+    else records.gap(effect.span.path, `line ${effect.span.lineStart}: logger use is outside a callable [${effect.modelId}]`);
   }
 }
 

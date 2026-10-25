@@ -19,7 +19,12 @@ import { readSyntaxTree, spanFactory, type SyntaxSpan } from '../../fill/stages/
 import { goTypeName, tsTypeName } from './decls.js';
 import type { Program, Ty, TopInfo } from './program.js';
 import type { SourceFile } from './source.js';
-import { symbolKey } from './keys.js';
+import { fileKey, symbolKey } from './keys.js';
+import { codeQuery } from './query.js';
+import { decodeNumberToken, decodeStringToken } from './literals.js';
+import { codeFactId, type CodeBindingFact, type CodeCallFact, type CodeExpressionFact, type CodeImportFact, type CodeExportFact } from './facts.js';
+import type { ExtractionGap, SourceSpan } from '../records.js';
+import { holderAt, type FileSymbol } from './symbols.js';
 
 export interface MemberSite {
   readonly span: SyntaxSpan;
@@ -44,9 +49,22 @@ const FUNCTION_NODES: ReadonlySet<string> = new Set([
   'generator_function_declaration', 'method_declaration', 'method_definition',
 ]);
 
-export async function memberSites(file: SourceFile, program: Program): Promise<{ readonly sites: readonly MemberSite[]; readonly accesses: ReadonlyMap<number, readonly string[]>; readonly suppressed: ReadonlySet<number>; readonly read: boolean }> {
+export interface MemberFacts {
+  readonly sites: readonly MemberSite[];
+  readonly accesses: ReadonlyMap<number, readonly string[]>;
+  readonly suppressed: ReadonlySet<number>;
+  readonly bindings: readonly CodeBindingFact[];
+  readonly expressions: readonly CodeExpressionFact[];
+  readonly calls: readonly CodeCallFact[];
+  readonly exports: readonly CodeExportFact[];
+  readonly typeOnlyImports: readonly string[];
+  readonly gaps: readonly ExtractionGap[];
+  readonly read: boolean;
+}
+
+export async function memberSites(file: SourceFile, program: Program, imports: readonly CodeImportFact[] = [], symbols: readonly FileSymbol[] = []): Promise<MemberFacts> {
   const ctx = program.files.get(file.path);
-  if (ctx === undefined) return { sites: [], accesses: new Map(), suppressed: new Set(), read: false };
+  if (ctx === undefined) return { sites: [], accesses: new Map(), suppressed: new Set(), bindings: [], expressions: [], calls: [], exports: [], typeOnlyImports: [], gaps: [], read: false };
   const go = file.language === 'go';
   const read = await readSyntaxTree(file.path, file.bytes, (parsed) => {
     const text = parsed.text;
@@ -56,6 +74,77 @@ export async function memberSites(file: SourceFile, program: Program): Promise<{
     const suppressed = new Set<number>();
     const scopes: Map<string, Ty | null>[] = [new Map()];
     const typeParameters: Set<string>[] = [];
+    const captures = parsed.captures(codeQuery(parsed.language));
+    const captured = new Set(captures.map((capture) => capture.node.id));
+    const sourceSpan = (node: SyntaxNode): SourceSpan => {
+      const span = spanOf(node);
+      return { path: file.path, byteStart: span.startByte, byteEnd: span.endByte, lineStart: span.startLine, lineEnd: span.endLine };
+    };
+    const expressionId = (node: SyntaxNode): string => codeFactId(sourceSpan(node), node.type);
+    const factScopes: Map<string, string>[] = [new Map()];
+    const scopeSpans: SourceSpan[] = [sourceSpan(parsed.root)];
+    const bindings = new Map<string, CodeBindingFact>();
+    const expressions = new Map<string, CodeExpressionFact>();
+    const calls = new Map<string, CodeCallFact>();
+    const factGaps = new Map<string, ExtractionGap>();
+    const lookupBinding = (name: string): string | undefined => {
+      for (let i = factScopes.length - 1; i >= 0; i--) {
+        const bound = factScopes[i]!.get(name);
+        if (bound !== undefined) return bound;
+      }
+      return undefined;
+    };
+    for (const imported of imports) {
+      const id = codeFactId(imported.span, 'binding');
+      factScopes[0]!.set(imported.local, id);
+      bindings.set(id, { id, path: file.path, name: imported.local, kind: 'import', span: imported.span, scope: scopeSpans[0]!, importId: imported.id });
+    }
+    const pushScope = (node: SyntaxNode): void => { scopes.push(new Map()); factScopes.push(new Map()); scopeSpans.push(sourceSpan(node)); };
+    const popScope = (): void => { scopes.pop(); factScopes.pop(); scopeSpans.pop(); };
+    const recordExpression = (node: SyntaxNode, resolveBinding = true): void => {
+      if (!captured.has(node.id)) return;
+      const id = expressionId(node);
+      const span = sourceSpan(node);
+      const token = textOf(node, text);
+      const isName = ['identifier', 'property_identifier', 'field_identifier', 'shorthand_property_identifier', 'this', 'type_identifier', 'package_identifier'].includes(node.type);
+      const lexicalName = !['property_identifier', 'field_identifier'].includes(node.type);
+      const candidateBinding = resolveBinding && lexicalName ? lookupBinding(token) : undefined;
+      const binding = candidateBinding === undefined ? undefined : bindings.get(candidateBinding);
+      const availableBinding = binding !== undefined && binding.kind === 'local' && span.byteStart < binding.span.byteStart ? undefined : candidateBinding;
+      if (binding !== undefined && availableBinding === undefined) factGaps.set(id, { path: file.path, reason: `line ${span.lineStart}: lexical binding is not initialized at bytes ${span.byteStart}-${span.byteEnd}` });
+      const object = node.childForFieldName(node.type === 'qualified_type' ? 'package' : go ? 'operand' : 'object');
+      const property = node.childForFieldName(node.type === 'qualified_type' ? 'name' : go ? 'field' : 'property');
+      const callee = node.childForFieldName(node.type === 'new_expression' ? 'constructor' : node.type === 'composite_literal' ? 'type' : 'function');
+      const args = node.childForFieldName(node.type === 'composite_literal' ? 'body' : 'arguments');
+      const isCall = ['call_expression', 'new_expression', 'composite_literal'].includes(node.type);
+      const argumentsOf = (): string[] => node.type === 'composite_literal' ? args === null ? [] : [expressionId(args)] : (args === null ? [] : named(args)).filter((arg) => arg.type !== 'comment').map(expressionId);
+      const literalKind = ['string', 'template_string', 'interpreted_string_literal', 'raw_string_literal'].includes(node.type) ? 'string'
+        : ['number', 'int_literal', 'float_literal'].includes(node.type) ? 'number'
+        : ['true', 'false'].includes(node.type) ? 'boolean' : ['null', 'nil'].includes(node.type) ? 'null' : undefined;
+      const isMember = node.type === 'member_expression' || node.type === 'selector_expression' || node.type === 'qualified_type';
+      const fields: Record<string, string[]> = {};
+      node.namedChildren.forEach((child, index) => {
+        if (child === null) return;
+        const field = node.fieldNameForNamedChild(index);
+        if (field !== null) (fields[field] ??= []).push(expressionId(child));
+      });
+      const decoded = literalKind === 'string' ? decodeStringToken(node.type, token) : literalKind === 'boolean' ? token === 'true' : literalKind === 'null' ? null : literalKind === 'number' ? decodeNumberToken(node.type, token, go) : undefined;
+      const value = typeof decoded === 'number' && !Number.isFinite(decoded) ? undefined : decoded;
+      if (literalKind !== undefined && value === undefined) factGaps.set(id, { path: file.path, reason: `line ${span.lineStart}: unsupported ${node.type} literal at bytes ${span.byteStart}-${span.byteEnd}` });
+      if (node.type === 'subscript_expression' || node.type === 'index_expression') factGaps.set(id, { path: file.path, reason: `line ${span.lineStart}: computed member identity needs a resolved literal key at bytes ${span.byteStart}-${span.byteEnd}` });
+      expressions.set(id, {
+        id, path: file.path, syntaxKind: node.type, span,
+        ...(isName ? { name: token, ...(availableBinding === undefined ? {} : { bindingId: availableBinding }) } : {}),
+        ...(isMember && object !== null && property !== null ? { receiver: expressionId(object), member: textOf(property, text) } : {}),
+        ...(callee !== null && isCall ? { callee: expressionId(callee), arguments: argumentsOf() } : {}),
+        children: named(node).map(expressionId), fields,
+        ...(literalKind === undefined ? {} : { literal: { kind: literalKind, raw: token, ...(value === undefined ? {} : { value }) } }),
+      });
+      if (callee !== null && isCall) {
+        const holder = holderAt(symbols, span.byteStart);
+        calls.set(id, { expression: id, path: file.path, span, callee: expressionId(callee), arguments: argumentsOf(), holder: holder?.keptKey ?? fileKey(file.path), construct: node.type === 'new_expression' || node.type === 'composite_literal' });
+      }
+    };
 
     const lookup = (name: string): Ty | null | undefined => {
       for (let i = scopes.length - 1; i >= 0; i--) {
@@ -64,9 +153,41 @@ export async function memberSites(file: SourceFile, program: Program): Promise<{
       }
       return undefined;
     };
-    const bind = (name: string, ty: Ty | undefined): void => {
+    const bind = (name: string, ty: Ty | undefined, node?: SyntaxNode, kind: CodeBindingFact['kind'] = 'local', initializer?: SyntaxNode | null): void => {
       if (name === '_') return;
       scopes[scopes.length - 1]!.set(name, ty ?? null);
+      if (node === undefined) return;
+      const span = sourceSpan(node);
+      const id = codeFactId(span, 'binding');
+      factScopes[factScopes.length - 1]!.set(name, id);
+      const previous = bindings.get(id);
+      let declarationSpan: SourceSpan | undefined;
+      if (initializer !== undefined && initializer !== null) {
+        const end = sourceSpan(initializer);
+        const parent = node.parent;
+        const declaration = parent?.type === 'variable_declarator' ? parent.parent : parent?.type === 'var_spec' || parent?.type === 'const_spec' ? parent.parent : undefined;
+        const start = declaration !== undefined && declaration !== null && ['lexical_declaration', 'variable_declaration', 'var_declaration', 'const_declaration'].includes(declaration.type) ? sourceSpan(declaration) : span;
+        declarationSpan = { path: file.path, byteStart: start.byteStart, byteEnd: end.byteEnd, lineStart: start.lineStart, lineEnd: end.lineEnd };
+      }
+      bindings.set(id, { id, path: file.path, name, kind, span, scope: previous?.scope ?? scopeSpans[scopeSpans.length - 1]!, ...(initializer === undefined || initializer === null ? {} : { initializer: expressionId(initializer) }), ...(declarationSpan === undefined ? {} : { declarationSpan }) });
+      recordExpression(node);
+    };
+    const bindPattern = (node: SyntaxNode, kind: CodeBindingFact['kind']): void => {
+      if (node.type === 'identifier' || node.type === 'shorthand_property_identifier_pattern') { bind(textOf(node, text), undefined, node, kind); return; }
+      if (node.type === 'pair_pattern') { const value = node.childForFieldName('value'); if (value !== null) bindPattern(value, kind); return; }
+      if (node.type === 'assignment_pattern' || node.type === 'object_assignment_pattern') { const left = node.childForFieldName('left'); if (left !== null) bindPattern(left, kind); return; }
+      if (['object_pattern', 'array_pattern', 'rest_pattern'].includes(node.type)) for (const child of named(node)) bindPattern(child, kind);
+    };
+    const reserveFunctionVars = (root: SyntaxNode): void => {
+      const visit = (node: SyntaxNode): void => {
+        if (node !== root && (FUNCTION_NODES.has(node.type) || ['class', 'class_declaration', 'abstract_class_declaration'].includes(node.type))) return;
+        if (node.type === 'variable_declaration') for (const declarator of named(node)) {
+          const name = declarator.childForFieldName('name');
+          if (name !== null) bindPattern(name, 'local');
+        }
+        for (const child of named(node)) visit(child);
+      };
+      visit(root);
     };
     const asType = (id: string | undefined): Ty | undefined => (id === undefined ? undefined : { t: 'type', id });
     const typeFrom = (written: string | undefined): Ty | undefined =>
@@ -231,12 +352,14 @@ export async function memberSites(file: SourceFile, program: Program): Promise<{
         if (go) {
           if (parameter.type !== 'parameter_declaration' && parameter.type !== 'variadic_parameter_declaration') continue;
           const ty = typeFrom(goTypeName(parameter.childForFieldName('type'), text));
-          for (const name of parameter.childrenForFieldName('name')) if (name !== null) bind(textOf(name, text), ty);
+          for (const name of parameter.childrenForFieldName('name')) if (name !== null) bind(textOf(name, text), ty, name, 'parameter');
         } else {
+          if (['identifier', 'object_pattern', 'array_pattern', 'rest_pattern', 'assignment_pattern'].includes(parameter.type)) { bindPattern(parameter, 'parameter'); continue; }
           if (parameter.type !== 'required_parameter' && parameter.type !== 'optional_parameter') continue;
           const pattern = parameter.childForFieldName('pattern');
-          if (pattern === null || pattern.type !== 'identifier') continue;
-          bind(textOf(pattern, text), typeFrom(tsTypeName(parameter.childForFieldName('type'), text)));
+          if (pattern === null) continue;
+          if (pattern.type === 'identifier') bind(textOf(pattern, text), typeFrom(tsTypeName(parameter.childForFieldName('type'), text)), pattern, 'parameter');
+          else bindPattern(pattern, 'parameter');
         }
       }
     };
@@ -247,9 +370,11 @@ export async function memberSites(file: SourceFile, program: Program): Promise<{
 
     const visit = (node: SyntaxNode): void => {
       const type = node.type;
+      recordExpression(node);
       if (type === 'identifier' || type === 'shorthand_property_identifier') accesses.set(spanOf(node).startByte, accessRoles(node));
       if (FUNCTION_NODES.has(type)) {
-        scopes.push(new Map());
+        pushScope(node);
+        if (!go) reserveFunctionVars(node);
         pushTypeParameters(node);
         if (go) {
           bindParameters(node.childForFieldName('receiver'));
@@ -257,46 +382,62 @@ export async function memberSites(file: SourceFile, program: Program): Promise<{
         } else {
           bindParameters(node.childForFieldName('parameters'));
           const single = node.childForFieldName('parameter');
-          if (single !== null && single.type === 'identifier') bind(textOf(single, text), undefined);
+          if (single !== null) bindPattern(single, 'parameter');
         }
         visitChildren(node);
-        scopes.pop();
+        popScope();
         typeParameters.pop();
         return;
       }
       if (type === 'class_declaration' || type === 'abstract_class_declaration' || type === 'class') {
-        scopes.push(new Map());
+        pushScope(node);
         pushTypeParameters(node);
         const name = node.childForFieldName('name');
-        if (name !== null) bind('this', asType(program.resolveTypeText(textOf(name, text), file.path)));
+        if (name !== null) bind('this', asType(program.resolveTypeText(textOf(name, text), file.path)), name, 'receiver');
         visitChildren(node);
-        scopes.pop();
+        popScope();
         typeParameters.pop();
         return;
       }
-      if (['statement_block', 'block'].includes(type)) {
-        scopes.push(new Map());
+      if (['statement_block', 'block', 'program', 'source_file'].includes(type)) {
+        const nested = type === 'statement_block' || type === 'block';
+        if (nested) pushScope(node);
         if (!go) {
-          // Lexical bindings shadow the outer name throughout this block,
-          // including their temporal dead zone before the declaration.
-          for (const statement of named(node)) {
+          // Lexical declarations shadow for their whole scope, including TDZ.
+          for (const entry of named(node)) {
+            const statement = entry.type === 'export_statement' ? entry.childForFieldName('declaration') ?? entry : entry;
             if (statement.type === 'lexical_declaration' || statement.type === 'variable_declaration') {
               for (const declarator of named(statement)) {
                 const name = declarator.childForFieldName('name');
-                if (name?.type === 'identifier') bind(textOf(name, text), undefined);
+                if (name !== null) bindPattern(name, 'local');
               }
             } else if (['function_declaration', 'class_declaration'].includes(statement.type)) {
               const name = statement.childForFieldName('name');
-              if (name !== null) bind(textOf(name, text), undefined);
+              if (name !== null) bind(textOf(name, text), undefined, name);
             }
           }
         }
+        // The existing type resolver never predeclared the file scope. The
+        // fact-only TDZ reservation must not change its top-level type lookup.
+        if (!nested && !go) scopes[0]!.clear();
         visitChildren(node);
-        scopes.pop();
+        if (nested) popScope();
+        return;
+      }
+      if (type === 'catch_clause') {
+        pushScope(node);
+        const parameter = node.childForFieldName('parameter');
+        if (parameter !== null) bindPattern(parameter, 'parameter');
+        visitChildren(node);
+        popScope();
         return;
       }
       if (type === 'new_expression') {
         const constructor = node.childForFieldName('constructor');
+        if (constructor !== null) {
+          recordExpression(constructor);
+          for (const child of named(constructor)) recordExpression(child);
+        }
         const made = evaluate(constructor);
         const owner = made?.t === 'type' ? program.types.get(made.id) : undefined;
         if (constructor !== null && owner?.kind === 'class') {
@@ -326,6 +467,10 @@ export async function memberSites(file: SourceFile, program: Program): Promise<{
       }
       if (type === 'call_expression') {
         const callee = node.childForFieldName('function');
+        if (callee !== null) {
+          recordExpression(callee);
+          for (const child of named(callee)) recordExpression(child);
+        }
         for (const child of named(node)) {
           if (callee !== null && child.id === callee.id && (callee.type === 'selector_expression' || callee.type === 'member_expression')) {
             memberSite(callee, 'call');
@@ -344,6 +489,7 @@ export async function memberSites(file: SourceFile, program: Program): Promise<{
         return;
       }
       if (type === 'qualified_type' && go) {
+        for (const child of named(node)) recordExpression(child);
         const pkg = node.childForFieldName('package');
         const name = node.childForFieldName('name');
         const binding = pkg === null ? undefined : ctx.imports.get(textOf(pkg, text));
@@ -351,6 +497,22 @@ export async function memberSites(file: SourceFile, program: Program): Promise<{
           const top = program.top(binding.scope, textOf(name, text));
           if (top !== undefined) sites.push({ span: spanOf(name), to: symbolKey(top.file, top.name), use: 'type', fanOut: [] });
         }
+        return;
+      }
+      if (['assignment_expression', 'augmented_assignment_expression', 'assignment_statement', 'update_expression', 'inc_statement', 'dec_statement'].includes(type)) {
+        visitChildren(node);
+        const left = node.childForFieldName('left') ?? node.childForFieldName('argument') ?? named(node)[0];
+        const invalidate = (target: SyntaxNode): void => {
+          if (target.type === 'identifier') {
+            const id = lookupBinding(textOf(target, text));
+            const binding = id === undefined ? undefined : bindings.get(id);
+            if (binding !== undefined) {
+              const { initializer: _initializer, importId: _importId, ...unknown } = binding;
+              bindings.set(binding.id, unknown);
+            }
+          } else if (target.type === 'expression_list' || target.type === 'array_pattern' || target.type === 'object_pattern') for (const child of named(target)) invalidate(child);
+        };
+        if (left !== undefined && left !== null) invalidate(left);
         return;
       }
       if (type === 'short_var_declaration' && go) {
@@ -361,7 +523,7 @@ export async function memberSites(file: SourceFile, program: Program): Promise<{
         const values = right === null ? [] : named(right);
         targets.forEach((target, index) => {
           if (target.type !== 'identifier') return;
-          bind(textOf(target, text), values.length === targets.length ? evaluate(values[index]) : index === 0 ? evaluate(values[0]) : undefined);
+          bind(textOf(target, text), values.length === targets.length ? evaluate(values[index]) : index === 0 ? evaluate(values[0]) : undefined, target, 'local', values.length === targets.length ? values[index] : index === 0 ? values[0] : undefined);
         });
         return;
       }
@@ -371,7 +533,7 @@ export async function memberSites(file: SourceFile, program: Program): Promise<{
         const value = node.childForFieldName('value');
         const values = value === null ? [] : named(value);
         node.childrenForFieldName('name').forEach((name, index) => {
-          if (name !== null) bind(textOf(name, text), declared ?? evaluate(values[index]));
+          if (name !== null) bind(textOf(name, text), declared ?? evaluate(values[index]), name, 'local', values[index]);
         });
         return;
       }
@@ -382,20 +544,88 @@ export async function memberSites(file: SourceFile, program: Program): Promise<{
         const annotation = node.childForFieldName('type');
         const value = node.childForFieldName('value');
         const ty = annotation !== null ? typeFrom(tsTypeName(annotation, text)) : evaluate(value);
-        if (name.type === 'identifier') bind(textOf(name, text), ty);
+        if (name.type === 'identifier') bind(textOf(name, text), ty, name, 'local', value);
         else if (name.type === 'object_pattern' && ty !== undefined && ty.t === 'type') {
+          bindPattern(name, 'local');
           for (const entry of named(name)) {
             if (entry.type !== 'shorthand_property_identifier_pattern') continue;
             const field = program.findMember(ty.id, textOf(entry, text));
-            if (field !== undefined && field.member.kind === 'field') bind(textOf(entry, text), typeFrom2(field.member.type, field.member.file));
+            if (field !== undefined && field.member.kind === 'field') bind(textOf(entry, text), typeFrom2(field.member.type, field.member.file), entry);
           }
-        }
+        } else bindPattern(name, 'local');
         return;
       }
       visitChildren(node);
     };
+    // Copy every structural child, including nodes deliberately skipped by the
+    // member resolver. Missing semantic binding is unknown, not an outer name.
+    for (const capture of captures) {
+      recordExpression(capture.node, false);
+      if (capture.node.type === 'ERROR' || capture.node.isMissing) {
+        const span = sourceSpan(capture.node);
+        factGaps.set(expressionId(capture.node), { path: file.path, reason: `line ${span.lineStart}: syntax ${capture.node.isMissing ? 'missing node' : 'error'} at bytes ${span.byteStart}-${span.byteEnd}` });
+      }
+    }
     visit(parsed.root);
-    return { sites, accesses, suppressed };
+    const typeOnlyImports: string[] = [];
+    if (!go) for (const statement of named(parsed.root).filter((node) => node.type === 'import_statement')) {
+      const wholeType = statement.children.some((child) => child !== null && child.type === 'type');
+      for (const imported of imports) {
+        const statementSpan = sourceSpan(statement);
+        if (imported.span.byteStart < statementSpan.byteStart || imported.span.byteEnd > statementSpan.byteEnd) continue;
+        const selected = captures.map((capture) => capture.node).find((node) => node.type === 'import_specifier' && sourceSpan(node).byteStart <= imported.span.byteStart && sourceSpan(node).byteEnd >= imported.span.byteEnd);
+        if (wholeType || selected?.children.some((child) => child !== null && child.type === 'type')) typeOnlyImports.push(imported.id);
+      }
+    }
+    const exports: CodeExportFact[] = [];
+    if (!go) for (const statement of named(parsed.root).filter((node) => node.type === 'export_statement')) {
+      if (statement.children.some((child) => child !== null && child.type === 'type')) continue;
+      const declaration = statement.childForFieldName('declaration');
+      const value = statement.childForFieldName('value');
+      const source = statement.childForFieldName('source');
+      const specifier = source === null ? undefined : decodeStringToken(source.type, textOf(source, text));
+      const isDefault = statement.children.some((child) => child !== null && child.type === 'default');
+      const append = (name: string, at: SyntaxNode, expression?: string, localBinding?: string, reexport?: CodeExportFact['reexport']): void => {
+        const span = sourceSpan(at);
+        exports.push({ id: codeFactId(span, `export:${name}`), path: file.path, name, span,
+          ...(expression === undefined ? {} : { expression }), ...(localBinding === undefined ? {} : { localBinding }), ...(reexport === undefined ? {} : { reexport }) });
+      };
+      if (isDefault) {
+        const exported = value ?? declaration;
+        if (exported !== null) {
+          const binding = exported.type === 'identifier' ? lookupBinding(textOf(exported, text)) : undefined;
+          append('default', statement, exported.type === 'identifier' ? undefined : expressionId(exported), binding);
+        }
+        continue;
+      }
+      if (declaration !== null) {
+        if (['lexical_declaration', 'variable_declaration'].includes(declaration.type)) for (const binding of bindings.values()) {
+          if (binding.kind !== 'local' || binding.scope.byteStart !== scopeSpans[0]!.byteStart || binding.scope.byteEnd !== scopeSpans[0]!.byteEnd) continue;
+          if (binding.span.byteStart < sourceSpan(declaration).byteStart || binding.span.byteEnd > sourceSpan(declaration).byteEnd) continue;
+          append(binding.name, declaration, undefined, binding.id);
+        }
+        // Functions/classes have their own canonical expression, not a value binding.
+        const name = declaration.childForFieldName('name');
+        if (name !== null && !['lexical_declaration', 'variable_declaration'].includes(declaration.type)) append(textOf(name, text), declaration, expressionId(declaration));
+      }
+      for (const clause of named(statement).filter((node) => node.type === 'export_clause')) for (const item of named(clause)) {
+        if (item.type !== 'export_specifier' || item.children.some((child) => child !== null && child.type === 'type')) continue;
+        const name = item.childForFieldName('name');
+        const alias = item.childForFieldName('alias');
+        if (name === null) continue;
+        const exportedName = alias === null ? textOf(name, text) : alias.type === 'string' ? decodeStringToken(alias.type, textOf(alias, text)) : textOf(alias, text);
+        const localName = name.type === 'string' ? decodeStringToken(name.type, textOf(name, text)) : textOf(name, text);
+        if (typeof exportedName !== 'string' || typeof localName !== 'string') continue;
+        if (source !== null) {
+          if (typeof specifier === 'string') append(exportedName, item, undefined, undefined, { specifier, name: localName });
+        } else append(exportedName, item, undefined, lookupBinding(localName));
+      }
+      if (source !== null && !named(statement).some((node) => node.type === 'export_clause')) {
+        const span = sourceSpan(statement);
+        factGaps.set(expressionId(statement), { path: file.path, reason: `line ${span.lineStart}: wildcard/namespace re-export has no unambiguous exported-value facts at bytes ${span.byteStart}-${span.byteEnd}` });
+      }
+    }
+    return { sites, accesses, suppressed, bindings: [...bindings.values()], expressions: [...expressions.values()], calls: [...calls.values()], exports, typeOnlyImports, gaps: [...factGaps.values()] };
   });
-  return read.read ? { ...read.value, read: true } : { sites: [], accesses: new Map(), suppressed: new Set(), read: false };
+  return read.read ? { ...read.value, read: true } : { sites: [], accesses: new Map(), suppressed: new Set(), bindings: [], expressions: [], calls: [], exports: [], typeOnlyImports: [], gaps: [], read: false };
 }

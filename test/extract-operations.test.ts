@@ -13,8 +13,9 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { extractOperations } from '../src/extract/operations/index.js';
-import {extractCode} from '../src/extract/code/index.js';
+// Test-only CodeFacts fixture owns one shared code pass for each immutable tree.
+import { extractOperations } from './extract-code-facts-fixture.js';
+import {extractCode} from './extract-code-facts-fixture.js';
 import type { Extraction, ExtractedEdge, ExtractedNode, SourceSpan, TreeReader } from '../src/extract/records.js';
 import { byCodePoint } from '../src/model/order.js';
 
@@ -102,7 +103,7 @@ beforeAll(async () => {
   tree = readTree(repo);
   spanText = (span: SourceSpan) => new TextDecoder().decode(tree.read(span.path).subarray(span.byteStart, span.byteEnd));
   textOf = textOfOf(tree);
-  extraction = extractOperations(tree, await extractCode(tree));
+  extraction = await extractOperations(tree, await extractCode(tree));
   nodes = new Map(extraction.nodes.map((entry) => [entry.key, entry]));
 }, 120_000);
 
@@ -149,7 +150,7 @@ function assertAnchored(id: string): void {
 
 describe('extract operations', () => {
   test('the extraction is deterministic over one tree', async () => {
-    expect(extractOperations(tree, await extractCode(tree))).toEqual(extraction);
+    expect(await extractOperations(tree, await extractCode(tree))).toEqual(extraction);
   });
 
   test('every edge ends at nodes the extraction holds, and keys carry no run', () => {

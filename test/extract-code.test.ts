@@ -14,7 +14,8 @@ import {mkdtemp, readFile, readdir, rm, stat} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {extractCode} from '../src/extract/code/index.js';
+// Test-only CodeFacts fixture owns one shared code pass for each immutable tree.
+import {extractCode} from './extract-code-facts-fixture.js';
 import {
   fileKey,
   KIND_CYCLE,
@@ -38,7 +39,8 @@ import {
 } from '../src/extract/code/keys.js';
 import {extractDataModel} from '../src/extract/data-model/extract.js';
 import {extractContracts} from '../src/extract/contracts/index.js';
-import {extractOperations, OPERATIONS_PRODUCER} from '../src/extract/operations/index.js';
+import {extractOperations} from './extract-code-facts-fixture.js';
+import {OPERATIONS_PRODUCER} from '../src/extract/operations/index.js';
 import type {ExtractedEdge, ExtractedNode, Extraction, TreeReader} from '../src/extract/records.js';
 
 const testFolder = path.dirname(fileURLToPath(import.meta.url));
@@ -136,7 +138,7 @@ beforeAll(async () => {
   again = await extractCode(tree);
   dataModel = await extractDataModel(tree);
   contracts = await extractContracts(tree, ex);
-  operations = extractOperations(tree);
+  operations = await extractOperations(tree);
 }, 280_000);
 
 // ---- lookups ---------------------------------------------------------------
@@ -849,13 +851,13 @@ describe('dead-export', () => {
 // Each of these key facets is not a deterministic reading of the code structure; the item itself is asserted above
 // for what is, and the facet is named here with its reason.
 describe('named todo: facets of the key items that the code structure does not decide', () => {
-  test.todo('flow.orders.route / flow.orders.middleware: that POST /orders is inside the auth group is the contracts extractor\'s route record (authGroup); here the chain Chain -> RequireAuth is calls only', () => {});
-  test.todo('flow.orders.repository: that the insert, the items and the outbox write run in one database transaction is a property of the data-model extractor\'s table accesses, not of the call graph', () => {});
-  test.todo('pattern.repository: the exceptions with direct database access (legacy report, migration runner, outbox writer, relay) are table-access records of the data-model extractor', () => {});
-  test.todo('pattern.singleton / pattern.strategy / pattern.adapter / pattern.factory / pattern.state-machine: the pattern names are interpretations; the extractor stores their structural evidence (implements, references, once, transitions) and the wiki names the pattern', () => {});
-  test.todo('tests.checkout-e2e: that the gRPC stub speaks the real proto and the orders stub prices with 8% tax is behaviour of the test, not structure; only "reaches no code of other services" is stored', () => {});
-  test.todo('tests.pay: the per-case behaviours (doubling waits, decline after three failures) are in the case names the catalogue stores; the subject is the PaymentService class because the cases build it through a helper whose result type the reader does not infer', () => {});
-  test.todo('architecture.composition-root: that dependencies are injected through constructors and the composition root is the only place that builds them is a judgement over the calls; the calls of run() and main() are asserted', () => {});
+  test.todo('flow.orders.route / flow.orders.middleware: that POST /orders is inside the auth group is the contracts extractor\'s route record (authGroup); here the chain Chain -> RequireAuth is calls only', async () => {});
+  test.todo('flow.orders.repository: that the insert, the items and the outbox write run in one database transaction is a property of the data-model extractor\'s table accesses, not of the call graph', async () => {});
+  test.todo('pattern.repository: the exceptions with direct database access (legacy report, migration runner, outbox writer, relay) are table-access records of the data-model extractor', async () => {});
+  test.todo('pattern.singleton / pattern.strategy / pattern.adapter / pattern.factory / pattern.state-machine: the pattern names are interpretations; the extractor stores their structural evidence (implements, references, once, transitions) and the wiki names the pattern', async () => {});
+  test.todo('tests.checkout-e2e: that the gRPC stub speaks the real proto and the orders stub prices with 8% tax is behaviour of the test, not structure; only "reaches no code of other services" is stored', async () => {});
+  test.todo('tests.pay: the per-case behaviours (doubling waits, decline after three failures) are in the case names the catalogue stores; the subject is the PaymentService class because the cases build it through a helper whose result type the reader does not infer', async () => {});
+  test.todo('architecture.composition-root: that dependencies are injected through constructors and the composition root is the only place that builds them is a judgement over the calls; the calls of run() and main() are asserted', async () => {});
 });
 
 // ---- the whole extraction ---------------------------------------------------------------

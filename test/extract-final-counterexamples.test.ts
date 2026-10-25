@@ -1,8 +1,9 @@
 import {expect, test} from 'bun:test';
 import {readFileSync} from 'node:fs';
-import {extractCode} from '../src/extract/code/index.js';
+// Test-only CodeFacts fixture owns one shared code pass for each immutable tree.
+import {extractCode} from './extract-code-facts-fixture.js';
 import {extractDataModel} from '../src/extract/data-model/extract.js';
-import {extractOperations} from '../src/extract/operations/index.js';
+import {extractOperations} from './extract-code-facts-fixture.js';
 import {extractContracts} from '../src/extract/contracts/index.js';
 import {linkExtractions} from '../src/extract/driver/links.js';
 import {edgeEvidenceError} from '../scripts/extract-truth-evidence.js';
@@ -26,26 +27,26 @@ test('review 2: promoted named function locals never become outer-function reads
  expect(ex.nodes.find((n)=>n.key===sym('outer.inner'))).toBeDefined();expect(ex.edges.filter((e)=>e.from===sym('outer.inner')&&e.to===sym('outer')&&['code.occurrence','code.references','code.reads'].includes(e.type))).toEqual([]);
  expect(ex.edges.find((e)=>e.type==='code.calls'&&e.from===sym('outer')&&e.to===sym('outer.inner'))).toBeDefined();
 });
-test('review 3: destructured pino parameter is not imported logger factory',()=>{
- const t=tree('import pino from "pino";\nconst actual=pino();\nexport function unrelated({pino}: {pino: () => number}) { const fake=pino(); return fake; }');const ex=extractOperations(t);
+test('review 3: destructured pino parameter is not imported logger factory',async()=>{
+ const t=tree('import pino from "pino";\nconst actual=pino();\nexport function unrelated({pino}: {pino: () => number}) { const fake=pino(); return fake; }');const ex=await extractOperations(t);
  expect(ex.nodes.filter((n)=>n.kind==='code.logger').map((n)=>n.key)).toEqual([`code.logger:${path}#actual`]);
 });
 test('review 4: callback does not bypass enclosing logger parameter shadow',async()=>{
- const t=tree('import pino from "pino";\nconst logger=pino();\nexport function setup(logger: {info(s: string): void}) { setTimeout(() => logger.info("other"), 0); }\nexport function positive(){logger.info("real");}');const code=await extractCode(t);const ex=extractOperations(t,code);
+ const t=tree('import pino from "pino";\nconst logger=pino();\nexport function setup(logger: {info(s: string): void}) { setTimeout(() => logger.info("other"), 0); }\nexport function positive(){logger.info("real");}');const code=await extractCode(t);const ex=await extractOperations(t,code);
  const uses=ex.edges.filter((e)=>e.type==='code.uses-logger');expect(uses).toHaveLength(2);expect(uses.filter((e)=>e.to.startsWith('code.symbol:')).map((e)=>e.to)).toEqual([sym('positive')]);expect(uses.every((e)=>slice(t,e.span)==='logger.info(')).toBe(true);
 });
 test('review 5: arbitrary cache get is not HTTP; grounded route remains',async()=>{
- const t=tree('export function read(cache: {get(k:string,f:()=>number):number}) {return cache.get("/healthz",()=>1);}');const code=await extractCode(t);const ex=extractOperations(t,code);
+ const t=tree('export function read(cache: {get(k:string,f:()=>number):number}) {return cache.get("/healthz",()=>1);}');const code=await extractCode(t);const ex=await extractOperations(t,code);
  expect(ex.nodes.filter((n)=>n.kind==='code.health-endpoint')).toEqual([]);expect(normalized(code,ex).filter((e)=>e.properties.role==='handler')).toEqual([]);
- const yes=tree(route+'app.listen(8080);}');expect(extractOperations(yes,await extractCode(yes)).nodes.filter((n)=>n.kind==='code.health-endpoint')).toHaveLength(1);
- const combined=tree((route+'app.listen(8080);}').replace('import express from', 'import express, {Express} from'));expect(extractOperations(combined,await extractCode(combined)).nodes.filter((n)=>n.kind==='code.health-endpoint')).toHaveLength(1);
+ const yes=tree(route+'app.listen(8080);}');expect((await extractOperations(yes,await extractCode(yes))).nodes.filter((n)=>n.kind==='code.health-endpoint')).toHaveLength(1);
+ const combined=tree((route+'app.listen(8080);}').replace('import express from', 'import express, {Express} from'));expect((await extractOperations(combined,await extractCode(combined))).nodes.filter((n)=>n.kind==='code.health-endpoint')).toHaveLength(1);
 });
 test('review 6: ordinary addr metadata is not listener proof for any probe join',async()=>{
- const t=tree(route+'const metadata={addr:":8080"};}',{'docker-compose.yml':'services:\n api:\n  image: api:1\n  healthcheck:\n   test: ["CMD", "curl", "http://localhost:8080/healthz"]\n'});const code=await extractCode(t);const ex=extractOperations(t,code);const contracts=await extractContracts(t,code);
+ const t=tree(route+'const metadata={addr:":8080"};}',{'docker-compose.yml':'services:\n api:\n  image: api:1\n  healthcheck:\n   test: ["CMD", "curl", "http://localhost:8080/healthz"]\n'});const code=await extractCode(t);const ex=await extractOperations(t,code);const contracts=await extractContracts(t,code);
  expect(ex.nodes.filter((n)=>n.kind==='code.health-endpoint').map((n)=>n.properties.ports)).toEqual([[]]);expect(ex.edges.filter((e)=>e.type==='code.probes')).toEqual([]);expect(normalized(code,ex,contracts).filter((e)=>e.type==='code.probes')).toEqual([]);
 });
-test('review 7: actual top-level metric options exclude comments strings and nested properties',()=>{
- const constructor='const requests = new Counter({ /* name: "removed_total", labelNames: ["obsolete"] */ nested: {name:"nested_total",labelNames:["nested"]}, help: "name: \\\"string_total\\\"", name: "requests_total", labelNames: ["method"] })';const t=tree('import {Counter} from "prom-client";\nexport '+constructor+';');const ex=extractOperations(t);const metrics=ex.nodes.filter((n)=>n.kind==='code.metric');expect(metrics.map((n)=>n.key)).toEqual([`code.metric:${path}#requests_total`]);expect(metrics[0]?.properties.labels).toEqual(['method']);expect(slice(t,metrics[0]?.span)?.trim()).toBe(constructor);
+test('review 7: actual top-level metric options exclude comments strings and nested properties',async()=>{
+ const constructor='const requests = new Counter({ /* name: "removed_total", labelNames: ["obsolete"] */ nested: {name:"nested_total",labelNames:["nested"]}, help: "name: \\\"string_total\\\"", name: "requests_total", labelNames: ["method"] })';const t=tree('import {Counter} from "prom-client";\nexport '+constructor+';');const ex=await extractOperations(t);const metrics=ex.nodes.filter((n)=>n.kind==='code.metric');expect(metrics.map((n)=>n.key)).toEqual([`code.metric:${path}#requests_total`]);expect(metrics[0]?.properties.labels).toEqual(['method']);expect(slice(t,metrics[0]?.span)?.trim()).toBe(constructor);
 });
 test('review 8: constructing Go message proves no publish; writer invocation does',async()=>{
  const goPath='services/api/messages.go';const source=readFileSync(new URL('./fixtures/go-kafka/messages.go',import.meta.url),'utf8');const t=tree('',{[goPath]:source,'services/api/go.mod':readFileSync(new URL('./fixtures/go-kafka/go.mod',import.meta.url),'utf8'),'contracts/asyncapi/events.yaml':'asyncapi: 2.6.0\ninfo: {title: Events, version: 1.0.0}\nchannels:\n events:\n  publish: {message: {name: Changed}}\n'});const ex=await extractContracts(t,await extractCode(t));
@@ -57,7 +58,7 @@ test('review 9: external OpenAPI authority never falls back to sole local route'
  const yes=tree(route+'app.listen(8080);}',{'contracts/openapi/api.yaml':api.replace('https://outside.example','http://api:8080')});expect((await extractContracts(yes)).edges.filter((e)=>e.type==='code.serves')).toHaveLength(1);
 });
 test('review 10: all database evidence contributes exact raw and normalized spans',async()=>{
- const t=tree('import pg from "pg";\nexport const url=process.env.DATABASE_URL;\n',{'services/api/package.json':'{"name":"api","dependencies":{"pg":"8.13.0"}}','services/api/migrations/001.sql':'CREATE TABLE entries (id integer PRIMARY KEY);'});const ex=await extractDataModel(t);const ops=extractOperations(t);const raw=ex.edges.filter((e)=>e.type==='code.uses-database');expect(raw).toHaveLength(1);for(const edge of raw)expect(edgeEvidenceError(t,{type:edge.type,evidence:edge.span??null,properties:edge.properties})).toBeNull();
+ const t=tree('import pg from "pg";\nexport const url=process.env.DATABASE_URL;\n',{'services/api/package.json':'{"name":"api","dependencies":{"pg":"8.13.0"}}','services/api/migrations/001.sql':'CREATE TABLE entries (id integer PRIMARY KEY);'});const ex=await extractDataModel(t);const ops=await extractOperations(t);const raw=ex.edges.filter((e)=>e.type==='code.uses-database');expect(raw).toHaveLength(1);for(const edge of raw)expect(edgeEvidenceError(t,{type:edge.type,evidence:edge.span??null,properties:edge.properties})).toBeNull();
  const readings=raw[0]?.properties.origins;expect(Array.isArray(readings)).toBe(true);if(!Array.isArray(readings))throw new Error('missing raw storage readings');expect(readings.length).toBeGreaterThanOrEqual(4);for(const reading of readings){if(reading===null||typeof reading!=='object'||Array.isArray(reading))throw new Error('invalid storage origin');expect(edgeEvidenceError(t,{type:'code.uses-database',evidence:reading.sourceSpan,properties:{}})).toBeNull();}
  const edges=normalized(ex,ops).filter((e)=>e.type==='code.uses-database');expect(edges).toHaveLength(1);expect(JSON.stringify(edges[0]?.properties)).toContain(JSON.stringify(readings));
 });

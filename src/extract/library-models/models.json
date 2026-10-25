@@ -1,0 +1,3181 @@
+{
+  "schemaVersion": 1,
+  "models": [
+    {
+      "id": "kafka-go.NewReader",
+      "ecosystem": "go",
+      "package": "github.com/segmentio/kafka-go",
+      "target": {
+        "kind": "export",
+        "importRoles": [
+          "namespace"
+        ],
+        "exportedPaths": [
+          [
+            "NewReader"
+          ]
+        ]
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "configuration",
+          "index": 0,
+          "path": [],
+          "required": true
+        }
+      ],
+      "reference": "https://pkg.go.dev/github.com/segmentio/kafka-go",
+      "checks": {
+        "positive": "kafka-go.NewReader.positive",
+        "negative": "kafka-go.NewReader.negative"
+      },
+      "returnRole": "message-consumer",
+      "effect": "message-client"
+    },
+    {
+      "id": "kafka-go.Reader.FetchMessage",
+      "ecosystem": "go",
+      "package": "github.com/segmentio/kafka-go",
+      "target": {
+        "kind": "member",
+        "receiverRole": "message-consumer",
+        "member": "FetchMessage"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "context",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/github.com/segmentio/kafka-go",
+      "checks": {
+        "positive": "kafka-go.Reader.FetchMessage.positive",
+        "negative": "kafka-go.Reader.FetchMessage.negative"
+      },
+      "effect": "message-consume"
+    },
+    {
+      "id": "kafka-go.Reader.ReadMessage",
+      "ecosystem": "go",
+      "package": "github.com/segmentio/kafka-go",
+      "target": {
+        "kind": "member",
+        "receiverRole": "message-consumer",
+        "member": "ReadMessage"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "context",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/github.com/segmentio/kafka-go",
+      "checks": {
+        "positive": "kafka-go.Reader.ReadMessage.positive",
+        "negative": "kafka-go.Reader.ReadMessage.negative"
+      },
+      "effect": "message-consume"
+    },
+    {
+      "id": "kafka-go.Writer",
+      "ecosystem": "go",
+      "package": "github.com/segmentio/kafka-go",
+      "target": {
+        "kind": "export",
+        "importRoles": [
+          "namespace"
+        ],
+        "exportedPaths": [
+          [
+            "Writer"
+          ]
+        ]
+      },
+      "invoke": "construct",
+      "arguments": [],
+      "reference": "https://pkg.go.dev/github.com/segmentio/kafka-go",
+      "checks": {
+        "positive": "kafka-go.Writer.positive",
+        "negative": "kafka-go.Writer.negative"
+      },
+      "returnRole": "message-producer",
+      "effect": "message-client"
+    },
+    {
+      "id": "kafka-go.Writer.WriteMessages",
+      "ecosystem": "go",
+      "package": "github.com/segmentio/kafka-go",
+      "target": {
+        "kind": "member",
+        "receiverRole": "message-producer",
+        "member": "WriteMessages"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "context",
+          "index": 0,
+          "path": [],
+          "required": false
+        },
+        {
+          "name": "messages",
+          "index": 1,
+          "path": [],
+          "required": true
+        }
+      ],
+      "reference": "https://pkg.go.dev/github.com/segmentio/kafka-go",
+      "checks": {
+        "positive": "kafka-go.Writer.WriteMessages.positive",
+        "negative": "kafka-go.Writer.WriteMessages.negative"
+      },
+      "effect": "message-publish"
+    },
+    {
+      "id": "kafkajs.Kafka",
+      "ecosystem": "node",
+      "package": "kafkajs",
+      "target": {
+        "kind": "export",
+        "importRoles": [
+          "named",
+          "namespace",
+          "default"
+        ],
+        "exportedPaths": [
+          [
+            "Kafka"
+          ],
+          [
+            "default",
+            "Kafka"
+          ]
+        ]
+      },
+      "invoke": "construct",
+      "arguments": [
+        {
+          "name": "options",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://www.npmjs.com/package/kafkajs",
+      "checks": {
+        "positive": "kafkajs.Kafka.positive",
+        "negative": "kafkajs.Kafka.negative"
+      },
+      "returnRole": "kafka-client",
+      "effect": "message-client"
+    },
+    {
+      "id": "kafkajs.Kafka.consumer",
+      "ecosystem": "node",
+      "package": "kafkajs",
+      "target": {
+        "kind": "member",
+        "receiverRole": "kafka-client",
+        "member": "consumer"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "options",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://www.npmjs.com/package/kafkajs",
+      "checks": {
+        "positive": "kafkajs.Kafka.consumer.positive",
+        "negative": "kafkajs.Kafka.consumer.negative"
+      },
+      "returnRole": "message-consumer"
+    },
+    {
+      "id": "kafkajs.Kafka.producer",
+      "ecosystem": "node",
+      "package": "kafkajs",
+      "target": {
+        "kind": "member",
+        "receiverRole": "kafka-client",
+        "member": "producer"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "options",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://www.npmjs.com/package/kafkajs",
+      "checks": {
+        "positive": "kafkajs.Kafka.producer.positive",
+        "negative": "kafkajs.Kafka.producer.negative"
+      },
+      "returnRole": "message-producer"
+    },
+    {
+      "id": "kafkajs.consumer.subscribe",
+      "ecosystem": "node",
+      "package": "kafkajs",
+      "target": {
+        "kind": "member",
+        "receiverRole": "message-consumer",
+        "member": "subscribe"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "subscription",
+          "index": 0,
+          "path": [],
+          "required": true
+        }
+      ],
+      "reference": "https://www.npmjs.com/package/kafkajs",
+      "checks": {
+        "positive": "kafkajs.consumer.subscribe.positive",
+        "negative": "kafkajs.consumer.subscribe.negative"
+      },
+      "effect": "message-consume"
+    },
+    {
+      "id": "kafkajs.producer.send",
+      "ecosystem": "node",
+      "package": "kafkajs",
+      "target": {
+        "kind": "member",
+        "receiverRole": "message-producer",
+        "member": "send"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "topic",
+          "index": 0,
+          "path": [
+            "topic"
+          ],
+          "required": true
+        },
+        {
+          "name": "messages",
+          "index": 0,
+          "path": [
+            "messages"
+          ],
+          "required": true
+        }
+      ],
+      "reference": "https://www.npmjs.com/package/kafkajs",
+      "checks": {
+        "positive": "kafkajs.producer.send.positive",
+        "negative": "kafkajs.producer.send.negative"
+      },
+      "effect": "message-publish"
+    },
+    {
+      "id": "kafkajs.producer.sendBatch",
+      "ecosystem": "node",
+      "package": "kafkajs",
+      "target": {
+        "kind": "member",
+        "receiverRole": "message-producer",
+        "member": "sendBatch"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "topicMessages",
+          "index": 0,
+          "path": [
+            "topicMessages"
+          ],
+          "required": true
+        }
+      ],
+      "reference": "https://www.npmjs.com/package/kafkajs",
+      "checks": {
+        "positive": "kafkajs.producer.sendBatch.positive",
+        "negative": "kafkajs.producer.sendBatch.negative"
+      },
+      "effect": "message-publish"
+    },
+    {
+      "id": "node-process.env",
+      "ecosystem": "node",
+      "package": "node:process",
+      "target": {
+        "kind": "export",
+        "importRoles": [
+          "named",
+          "namespace",
+          "default"
+        ],
+        "exportedPaths": [
+          [
+            "env"
+          ],
+          [
+            "default",
+            "env"
+          ]
+        ]
+      },
+      "invoke": "read",
+      "arguments": [],
+      "reference": "https://www.npmjs.com/package/node:process",
+      "checks": {
+        "positive": "node-process.env.positive",
+        "negative": "node-process.env.negative"
+      },
+      "returnRole": "environment"
+    },
+    {
+      "id": "node-process.env.read",
+      "ecosystem": "node",
+      "package": "node:process",
+      "target": {
+        "kind": "member",
+        "receiverRole": "environment",
+        "member": "*"
+      },
+      "invoke": "read",
+      "arguments": [],
+      "reference": "https://www.npmjs.com/package/node:process",
+      "checks": {
+        "positive": "node-process.env.read.positive",
+        "negative": "node-process.env.read.negative"
+      },
+      "effect": "env-read"
+    },
+    {
+      "id": "os.Getenv",
+      "ecosystem": "go",
+      "package": "os",
+      "target": {
+        "kind": "export",
+        "importRoles": [
+          "namespace"
+        ],
+        "exportedPaths": [
+          [
+            "Getenv"
+          ]
+        ]
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "name",
+          "index": 0,
+          "path": [],
+          "required": true
+        }
+      ],
+      "reference": "https://pkg.go.dev/os",
+      "checks": {
+        "positive": "os.Getenv.positive",
+        "negative": "os.Getenv.negative"
+      },
+      "effect": "env-read"
+    },
+    {
+      "id": "os.LookupEnv",
+      "ecosystem": "go",
+      "package": "os",
+      "target": {
+        "kind": "export",
+        "importRoles": [
+          "namespace"
+        ],
+        "exportedPaths": [
+          [
+            "LookupEnv"
+          ]
+        ]
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "name",
+          "index": 0,
+          "path": [],
+          "required": true
+        }
+      ],
+      "reference": "https://pkg.go.dev/os",
+      "checks": {
+        "positive": "os.LookupEnv.positive",
+        "negative": "os.LookupEnv.negative"
+      },
+      "effect": "env-read"
+    },
+    {
+      "id": "pino.default",
+      "ecosystem": "node",
+      "package": "pino",
+      "target": {
+        "kind": "export",
+        "importRoles": [
+          "default",
+          "namespace"
+        ],
+        "exportedPaths": [
+          [
+            "default"
+          ]
+        ]
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "options",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://www.npmjs.com/package/pino",
+      "checks": {
+        "positive": "pino.default.positive",
+        "negative": "pino.default.negative"
+      },
+      "returnRole": "logger",
+      "effect": "logger-declare"
+    },
+    {
+      "id": "pino.logger.child",
+      "ecosystem": "node",
+      "package": "pino",
+      "target": {
+        "kind": "member",
+        "receiverRole": "logger",
+        "member": "child"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "value",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://www.npmjs.com/package/pino",
+      "checks": {
+        "positive": "pino.logger.child.positive",
+        "negative": "pino.logger.child.negative"
+      },
+      "returnRole": "logger",
+      "effect": "logger-use"
+    },
+    {
+      "id": "pino.logger.debug",
+      "ecosystem": "node",
+      "package": "pino",
+      "target": {
+        "kind": "member",
+        "receiverRole": "logger",
+        "member": "debug"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "value",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://www.npmjs.com/package/pino",
+      "checks": {
+        "positive": "pino.logger.debug.positive",
+        "negative": "pino.logger.debug.negative"
+      },
+      "effect": "logger-use"
+    },
+    {
+      "id": "pino.logger.error",
+      "ecosystem": "node",
+      "package": "pino",
+      "target": {
+        "kind": "member",
+        "receiverRole": "logger",
+        "member": "error"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "value",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://www.npmjs.com/package/pino",
+      "checks": {
+        "positive": "pino.logger.error.positive",
+        "negative": "pino.logger.error.negative"
+      },
+      "effect": "logger-use"
+    },
+    {
+      "id": "pino.logger.fatal",
+      "ecosystem": "node",
+      "package": "pino",
+      "target": {
+        "kind": "member",
+        "receiverRole": "logger",
+        "member": "fatal"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "value",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://www.npmjs.com/package/pino",
+      "checks": {
+        "positive": "pino.logger.fatal.positive",
+        "negative": "pino.logger.fatal.negative"
+      },
+      "effect": "logger-use"
+    },
+    {
+      "id": "pino.logger.info",
+      "ecosystem": "node",
+      "package": "pino",
+      "target": {
+        "kind": "member",
+        "receiverRole": "logger",
+        "member": "info"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "value",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://www.npmjs.com/package/pino",
+      "checks": {
+        "positive": "pino.logger.info.positive",
+        "negative": "pino.logger.info.negative"
+      },
+      "effect": "logger-use"
+    },
+    {
+      "id": "pino.logger.trace",
+      "ecosystem": "node",
+      "package": "pino",
+      "target": {
+        "kind": "member",
+        "receiverRole": "logger",
+        "member": "trace"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "value",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://www.npmjs.com/package/pino",
+      "checks": {
+        "positive": "pino.logger.trace.positive",
+        "negative": "pino.logger.trace.negative"
+      },
+      "effect": "logger-use"
+    },
+    {
+      "id": "pino.logger.warn",
+      "ecosystem": "node",
+      "package": "pino",
+      "target": {
+        "kind": "member",
+        "receiverRole": "logger",
+        "member": "warn"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "value",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://www.npmjs.com/package/pino",
+      "checks": {
+        "positive": "pino.logger.warn.positive",
+        "negative": "pino.logger.warn.negative"
+      },
+      "effect": "logger-use"
+    },
+    {
+      "id": "process.env",
+      "ecosystem": "node",
+      "package": "process",
+      "target": {
+        "kind": "export",
+        "importRoles": [
+          "named",
+          "namespace",
+          "default"
+        ],
+        "exportedPaths": [
+          [
+            "env"
+          ],
+          [
+            "default",
+            "env"
+          ]
+        ]
+      },
+      "invoke": "read",
+      "arguments": [],
+      "reference": "https://www.npmjs.com/package/process",
+      "checks": {
+        "positive": "process.env.positive",
+        "negative": "process.env.negative"
+      },
+      "returnRole": "environment"
+    },
+    {
+      "id": "process.env.read",
+      "ecosystem": "node",
+      "package": "process",
+      "target": {
+        "kind": "member",
+        "receiverRole": "environment",
+        "member": "*"
+      },
+      "invoke": "read",
+      "arguments": [],
+      "reference": "https://www.npmjs.com/package/process",
+      "checks": {
+        "positive": "process.env.read.positive",
+        "negative": "process.env.read.negative"
+      },
+      "effect": "env-read"
+    },
+    {
+      "id": "prom-client.Counter",
+      "ecosystem": "node",
+      "package": "prom-client",
+      "target": {
+        "kind": "export",
+        "importRoles": [
+          "named",
+          "namespace",
+          "default"
+        ],
+        "exportedPaths": [
+          [
+            "Counter"
+          ],
+          [
+            "default",
+            "Counter"
+          ]
+        ]
+      },
+      "invoke": "construct",
+      "arguments": [
+        {
+          "name": "options",
+          "index": 0,
+          "path": [],
+          "required": false
+        },
+        {
+          "name": "name",
+          "index": 0,
+          "path": [
+            "name"
+          ],
+          "required": true
+        },
+        {
+          "name": "labels",
+          "index": 0,
+          "path": [
+            "labelNames"
+          ],
+          "required": false
+        },
+        {
+          "name": "registers",
+          "index": 0,
+          "path": [
+            "registers"
+          ],
+          "required": false
+        },
+        {
+          "name": "help",
+          "index": 0,
+          "path": [
+            "help"
+          ],
+          "required": false
+        }
+      ],
+      "reference": "https://www.npmjs.com/package/prom-client",
+      "checks": {
+        "positive": "prom-client.Counter.positive",
+        "negative": "prom-client.Counter.negative"
+      },
+      "returnRole": "metric-counter",
+      "effect": "metric-declare"
+    },
+    {
+      "id": "prom-client.Counter.inc",
+      "ecosystem": "node",
+      "package": "prom-client",
+      "target": {
+        "kind": "member",
+        "receiverRole": "metric-counter",
+        "member": "inc"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "value",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://www.npmjs.com/package/prom-client",
+      "checks": {
+        "positive": "prom-client.Counter.inc.positive",
+        "negative": "prom-client.Counter.inc.negative"
+      },
+      "effect": "metric-update"
+    },
+    {
+      "id": "prom-client.Counter.labels",
+      "ecosystem": "node",
+      "package": "prom-client",
+      "target": {
+        "kind": "member",
+        "receiverRole": "metric-counter",
+        "member": "labels"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "labels",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://www.npmjs.com/package/prom-client",
+      "checks": {
+        "positive": "prom-client.Counter.labels.positive",
+        "negative": "prom-client.Counter.labels.negative"
+      },
+      "returnRole": "metric-counter"
+    },
+    {
+      "id": "prom-client.Gauge",
+      "ecosystem": "node",
+      "package": "prom-client",
+      "target": {
+        "kind": "export",
+        "importRoles": [
+          "named",
+          "namespace",
+          "default"
+        ],
+        "exportedPaths": [
+          [
+            "Gauge"
+          ],
+          [
+            "default",
+            "Gauge"
+          ]
+        ]
+      },
+      "invoke": "construct",
+      "arguments": [
+        {
+          "name": "options",
+          "index": 0,
+          "path": [],
+          "required": false
+        },
+        {
+          "name": "name",
+          "index": 0,
+          "path": [
+            "name"
+          ],
+          "required": true
+        },
+        {
+          "name": "labels",
+          "index": 0,
+          "path": [
+            "labelNames"
+          ],
+          "required": false
+        },
+        {
+          "name": "registers",
+          "index": 0,
+          "path": [
+            "registers"
+          ],
+          "required": false
+        },
+        {
+          "name": "help",
+          "index": 0,
+          "path": [
+            "help"
+          ],
+          "required": false
+        }
+      ],
+      "reference": "https://www.npmjs.com/package/prom-client",
+      "checks": {
+        "positive": "prom-client.Gauge.positive",
+        "negative": "prom-client.Gauge.negative"
+      },
+      "returnRole": "metric-gauge",
+      "effect": "metric-declare"
+    },
+    {
+      "id": "prom-client.Gauge.dec",
+      "ecosystem": "node",
+      "package": "prom-client",
+      "target": {
+        "kind": "member",
+        "receiverRole": "metric-gauge",
+        "member": "dec"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "value",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://www.npmjs.com/package/prom-client",
+      "checks": {
+        "positive": "prom-client.Gauge.dec.positive",
+        "negative": "prom-client.Gauge.dec.negative"
+      },
+      "effect": "metric-update"
+    },
+    {
+      "id": "prom-client.Gauge.inc",
+      "ecosystem": "node",
+      "package": "prom-client",
+      "target": {
+        "kind": "member",
+        "receiverRole": "metric-gauge",
+        "member": "inc"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "value",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://www.npmjs.com/package/prom-client",
+      "checks": {
+        "positive": "prom-client.Gauge.inc.positive",
+        "negative": "prom-client.Gauge.inc.negative"
+      },
+      "effect": "metric-update"
+    },
+    {
+      "id": "prom-client.Gauge.labels",
+      "ecosystem": "node",
+      "package": "prom-client",
+      "target": {
+        "kind": "member",
+        "receiverRole": "metric-gauge",
+        "member": "labels"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "labels",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://www.npmjs.com/package/prom-client",
+      "checks": {
+        "positive": "prom-client.Gauge.labels.positive",
+        "negative": "prom-client.Gauge.labels.negative"
+      },
+      "returnRole": "metric-gauge"
+    },
+    {
+      "id": "prom-client.Gauge.set",
+      "ecosystem": "node",
+      "package": "prom-client",
+      "target": {
+        "kind": "member",
+        "receiverRole": "metric-gauge",
+        "member": "set"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "value",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://www.npmjs.com/package/prom-client",
+      "checks": {
+        "positive": "prom-client.Gauge.set.positive",
+        "negative": "prom-client.Gauge.set.negative"
+      },
+      "effect": "metric-update"
+    },
+    {
+      "id": "prom-client.Histogram",
+      "ecosystem": "node",
+      "package": "prom-client",
+      "target": {
+        "kind": "export",
+        "importRoles": [
+          "named",
+          "namespace",
+          "default"
+        ],
+        "exportedPaths": [
+          [
+            "Histogram"
+          ],
+          [
+            "default",
+            "Histogram"
+          ]
+        ]
+      },
+      "invoke": "construct",
+      "arguments": [
+        {
+          "name": "options",
+          "index": 0,
+          "path": [],
+          "required": false
+        },
+        {
+          "name": "name",
+          "index": 0,
+          "path": [
+            "name"
+          ],
+          "required": true
+        },
+        {
+          "name": "labels",
+          "index": 0,
+          "path": [
+            "labelNames"
+          ],
+          "required": false
+        },
+        {
+          "name": "registers",
+          "index": 0,
+          "path": [
+            "registers"
+          ],
+          "required": false
+        },
+        {
+          "name": "help",
+          "index": 0,
+          "path": [
+            "help"
+          ],
+          "required": false
+        }
+      ],
+      "reference": "https://www.npmjs.com/package/prom-client",
+      "checks": {
+        "positive": "prom-client.Histogram.positive",
+        "negative": "prom-client.Histogram.negative"
+      },
+      "returnRole": "metric-histogram",
+      "effect": "metric-declare"
+    },
+    {
+      "id": "prom-client.Histogram.labels",
+      "ecosystem": "node",
+      "package": "prom-client",
+      "target": {
+        "kind": "member",
+        "receiverRole": "metric-histogram",
+        "member": "labels"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "labels",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://www.npmjs.com/package/prom-client",
+      "checks": {
+        "positive": "prom-client.Histogram.labels.positive",
+        "negative": "prom-client.Histogram.labels.negative"
+      },
+      "returnRole": "metric-histogram"
+    },
+    {
+      "id": "prom-client.Histogram.observe",
+      "ecosystem": "node",
+      "package": "prom-client",
+      "target": {
+        "kind": "member",
+        "receiverRole": "metric-histogram",
+        "member": "observe"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "value",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://www.npmjs.com/package/prom-client",
+      "checks": {
+        "positive": "prom-client.Histogram.observe.positive",
+        "negative": "prom-client.Histogram.observe.negative"
+      },
+      "effect": "metric-update"
+    },
+    {
+      "id": "prom-client.Registry",
+      "ecosystem": "node",
+      "package": "prom-client",
+      "target": {
+        "kind": "export",
+        "importRoles": [
+          "named",
+          "namespace",
+          "default"
+        ],
+        "exportedPaths": [
+          [
+            "Registry"
+          ],
+          [
+            "default",
+            "Registry"
+          ]
+        ]
+      },
+      "invoke": "construct",
+      "arguments": [],
+      "reference": "https://www.npmjs.com/package/prom-client",
+      "checks": {
+        "positive": "prom-client.Registry.positive",
+        "negative": "prom-client.Registry.negative"
+      },
+      "returnRole": "metric-registry"
+    },
+    {
+      "id": "prom-client.Registry.metrics",
+      "ecosystem": "node",
+      "package": "prom-client",
+      "target": {
+        "kind": "member",
+        "receiverRole": "metric-registry",
+        "member": "metrics"
+      },
+      "invoke": "call",
+      "arguments": [],
+      "reference": "https://www.npmjs.com/package/prom-client",
+      "checks": {
+        "positive": "prom-client.Registry.metrics.positive",
+        "negative": "prom-client.Registry.metrics.negative"
+      },
+      "effect": "metric-expose"
+    },
+    {
+      "id": "prom-client.Registry.registerMetric",
+      "ecosystem": "node",
+      "package": "prom-client",
+      "target": {
+        "kind": "member",
+        "receiverRole": "metric-registry",
+        "member": "registerMetric"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "metric",
+          "index": 0,
+          "path": [],
+          "required": true
+        }
+      ],
+      "reference": "https://www.npmjs.com/package/prom-client",
+      "checks": {
+        "positive": "prom-client.Registry.registerMetric.positive",
+        "negative": "prom-client.Registry.registerMetric.negative"
+      },
+      "effect": "metric-register"
+    },
+    {
+      "id": "prom-client.register",
+      "ecosystem": "node",
+      "package": "prom-client",
+      "target": {
+        "kind": "export",
+        "importRoles": [
+          "named",
+          "namespace",
+          "default"
+        ],
+        "exportedPaths": [
+          [
+            "register"
+          ],
+          [
+            "default",
+            "register"
+          ]
+        ]
+      },
+      "invoke": "read",
+      "arguments": [],
+      "reference": "https://www.npmjs.com/package/prom-client",
+      "checks": {
+        "positive": "prom-client.register.positive",
+        "negative": "prom-client.register.negative"
+      },
+      "returnRole": "metric-registry"
+    },
+    {
+      "id": "prometheus.Counter.Add",
+      "ecosystem": "go",
+      "package": "github.com/prometheus/client_golang/prometheus",
+      "target": {
+        "kind": "member",
+        "receiverRole": "metric-counter",
+        "member": "Add"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "value",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/github.com/prometheus/client_golang/prometheus",
+      "checks": {
+        "positive": "prometheus.Counter.Add.positive",
+        "negative": "prometheus.Counter.Add.negative"
+      },
+      "effect": "metric-update"
+    },
+    {
+      "id": "prometheus.Counter.Inc",
+      "ecosystem": "go",
+      "package": "github.com/prometheus/client_golang/prometheus",
+      "target": {
+        "kind": "member",
+        "receiverRole": "metric-counter",
+        "member": "Inc"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "value",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/github.com/prometheus/client_golang/prometheus",
+      "checks": {
+        "positive": "prometheus.Counter.Inc.positive",
+        "negative": "prometheus.Counter.Inc.negative"
+      },
+      "effect": "metric-update"
+    },
+    {
+      "id": "prometheus.Counter.With",
+      "ecosystem": "go",
+      "package": "github.com/prometheus/client_golang/prometheus",
+      "target": {
+        "kind": "member",
+        "receiverRole": "metric-counter-vector",
+        "member": "With"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "labels",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/github.com/prometheus/client_golang/prometheus",
+      "checks": {
+        "positive": "prometheus.Counter.With.positive",
+        "negative": "prometheus.Counter.With.negative"
+      },
+      "returnRole": "metric-counter"
+    },
+    {
+      "id": "prometheus.Counter.WithLabelValues",
+      "ecosystem": "go",
+      "package": "github.com/prometheus/client_golang/prometheus",
+      "target": {
+        "kind": "member",
+        "receiverRole": "metric-counter-vector",
+        "member": "WithLabelValues"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "labels",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/github.com/prometheus/client_golang/prometheus",
+      "checks": {
+        "positive": "prometheus.Counter.WithLabelValues.positive",
+        "negative": "prometheus.Counter.WithLabelValues.negative"
+      },
+      "returnRole": "metric-counter"
+    },
+    {
+      "id": "prometheus.Gauge.Add",
+      "ecosystem": "go",
+      "package": "github.com/prometheus/client_golang/prometheus",
+      "target": {
+        "kind": "member",
+        "receiverRole": "metric-gauge",
+        "member": "Add"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "value",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/github.com/prometheus/client_golang/prometheus",
+      "checks": {
+        "positive": "prometheus.Gauge.Add.positive",
+        "negative": "prometheus.Gauge.Add.negative"
+      },
+      "effect": "metric-update"
+    },
+    {
+      "id": "prometheus.Gauge.Dec",
+      "ecosystem": "go",
+      "package": "github.com/prometheus/client_golang/prometheus",
+      "target": {
+        "kind": "member",
+        "receiverRole": "metric-gauge",
+        "member": "Dec"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "value",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/github.com/prometheus/client_golang/prometheus",
+      "checks": {
+        "positive": "prometheus.Gauge.Dec.positive",
+        "negative": "prometheus.Gauge.Dec.negative"
+      },
+      "effect": "metric-update"
+    },
+    {
+      "id": "prometheus.Gauge.Inc",
+      "ecosystem": "go",
+      "package": "github.com/prometheus/client_golang/prometheus",
+      "target": {
+        "kind": "member",
+        "receiverRole": "metric-gauge",
+        "member": "Inc"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "value",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/github.com/prometheus/client_golang/prometheus",
+      "checks": {
+        "positive": "prometheus.Gauge.Inc.positive",
+        "negative": "prometheus.Gauge.Inc.negative"
+      },
+      "effect": "metric-update"
+    },
+    {
+      "id": "prometheus.Gauge.Set",
+      "ecosystem": "go",
+      "package": "github.com/prometheus/client_golang/prometheus",
+      "target": {
+        "kind": "member",
+        "receiverRole": "metric-gauge",
+        "member": "Set"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "value",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/github.com/prometheus/client_golang/prometheus",
+      "checks": {
+        "positive": "prometheus.Gauge.Set.positive",
+        "negative": "prometheus.Gauge.Set.negative"
+      },
+      "effect": "metric-update"
+    },
+    {
+      "id": "prometheus.Gauge.Sub",
+      "ecosystem": "go",
+      "package": "github.com/prometheus/client_golang/prometheus",
+      "target": {
+        "kind": "member",
+        "receiverRole": "metric-gauge",
+        "member": "Sub"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "value",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/github.com/prometheus/client_golang/prometheus",
+      "checks": {
+        "positive": "prometheus.Gauge.Sub.positive",
+        "negative": "prometheus.Gauge.Sub.negative"
+      },
+      "effect": "metric-update"
+    },
+    {
+      "id": "prometheus.Gauge.With",
+      "ecosystem": "go",
+      "package": "github.com/prometheus/client_golang/prometheus",
+      "target": {
+        "kind": "member",
+        "receiverRole": "metric-gauge-vector",
+        "member": "With"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "labels",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/github.com/prometheus/client_golang/prometheus",
+      "checks": {
+        "positive": "prometheus.Gauge.With.positive",
+        "negative": "prometheus.Gauge.With.negative"
+      },
+      "returnRole": "metric-gauge"
+    },
+    {
+      "id": "prometheus.Gauge.WithLabelValues",
+      "ecosystem": "go",
+      "package": "github.com/prometheus/client_golang/prometheus",
+      "target": {
+        "kind": "member",
+        "receiverRole": "metric-gauge-vector",
+        "member": "WithLabelValues"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "labels",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/github.com/prometheus/client_golang/prometheus",
+      "checks": {
+        "positive": "prometheus.Gauge.WithLabelValues.positive",
+        "negative": "prometheus.Gauge.WithLabelValues.negative"
+      },
+      "returnRole": "metric-gauge"
+    },
+    {
+      "id": "prometheus.Histogram.Observe",
+      "ecosystem": "go",
+      "package": "github.com/prometheus/client_golang/prometheus",
+      "target": {
+        "kind": "member",
+        "receiverRole": "metric-histogram",
+        "member": "Observe"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "value",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/github.com/prometheus/client_golang/prometheus",
+      "checks": {
+        "positive": "prometheus.Histogram.Observe.positive",
+        "negative": "prometheus.Histogram.Observe.negative"
+      },
+      "effect": "metric-update"
+    },
+    {
+      "id": "prometheus.Histogram.With",
+      "ecosystem": "go",
+      "package": "github.com/prometheus/client_golang/prometheus",
+      "target": {
+        "kind": "member",
+        "receiverRole": "metric-histogram-vector",
+        "member": "With"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "labels",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/github.com/prometheus/client_golang/prometheus",
+      "checks": {
+        "positive": "prometheus.Histogram.With.positive",
+        "negative": "prometheus.Histogram.With.negative"
+      },
+      "returnRole": "metric-histogram"
+    },
+    {
+      "id": "prometheus.Histogram.WithLabelValues",
+      "ecosystem": "go",
+      "package": "github.com/prometheus/client_golang/prometheus",
+      "target": {
+        "kind": "member",
+        "receiverRole": "metric-histogram-vector",
+        "member": "WithLabelValues"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "labels",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/github.com/prometheus/client_golang/prometheus",
+      "checks": {
+        "positive": "prometheus.Histogram.WithLabelValues.positive",
+        "negative": "prometheus.Histogram.WithLabelValues.negative"
+      },
+      "returnRole": "metric-histogram"
+    },
+    {
+      "id": "prometheus.MustRegister",
+      "ecosystem": "go",
+      "package": "github.com/prometheus/client_golang/prometheus",
+      "target": {
+        "kind": "export",
+        "importRoles": [
+          "namespace"
+        ],
+        "exportedPaths": [
+          [
+            "MustRegister"
+          ]
+        ]
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "metric",
+          "index": 0,
+          "path": [],
+          "required": true
+        }
+      ],
+      "reference": "https://pkg.go.dev/github.com/prometheus/client_golang/prometheus",
+      "checks": {
+        "positive": "prometheus.MustRegister.positive",
+        "negative": "prometheus.MustRegister.negative"
+      },
+      "effect": "metric-register"
+    },
+    {
+      "id": "prometheus.NewCounter",
+      "ecosystem": "go",
+      "package": "github.com/prometheus/client_golang/prometheus",
+      "target": {
+        "kind": "export",
+        "importRoles": [
+          "namespace"
+        ],
+        "exportedPaths": [
+          [
+            "NewCounter"
+          ]
+        ]
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "options",
+          "index": 0,
+          "path": [],
+          "required": false
+        },
+        {
+          "name": "name",
+          "index": 0,
+          "path": [
+            "Name"
+          ],
+          "required": true
+        },
+        {
+          "name": "namespace",
+          "index": 0,
+          "path": [
+            "Namespace"
+          ],
+          "required": false
+        },
+        {
+          "name": "subsystem",
+          "index": 0,
+          "path": [
+            "Subsystem"
+          ],
+          "required": false
+        },
+        {
+          "name": "labels",
+          "index": 1,
+          "path": [],
+          "required": false
+        },
+        {
+          "name": "help",
+          "index": 0,
+          "path": [
+            "Help"
+          ],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/github.com/prometheus/client_golang/prometheus",
+      "checks": {
+        "positive": "prometheus.NewCounter.positive",
+        "negative": "prometheus.NewCounter.negative"
+      },
+      "returnRole": "metric-counter",
+      "effect": "metric-declare"
+    },
+    {
+      "id": "prometheus.NewCounterVec",
+      "ecosystem": "go",
+      "package": "github.com/prometheus/client_golang/prometheus",
+      "target": {
+        "kind": "export",
+        "importRoles": [
+          "namespace"
+        ],
+        "exportedPaths": [
+          [
+            "NewCounterVec"
+          ]
+        ]
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "options",
+          "index": 0,
+          "path": [],
+          "required": false
+        },
+        {
+          "name": "name",
+          "index": 0,
+          "path": [
+            "Name"
+          ],
+          "required": true
+        },
+        {
+          "name": "namespace",
+          "index": 0,
+          "path": [
+            "Namespace"
+          ],
+          "required": false
+        },
+        {
+          "name": "subsystem",
+          "index": 0,
+          "path": [
+            "Subsystem"
+          ],
+          "required": false
+        },
+        {
+          "name": "labels",
+          "index": 1,
+          "path": [],
+          "required": false
+        },
+        {
+          "name": "help",
+          "index": 0,
+          "path": [
+            "Help"
+          ],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/github.com/prometheus/client_golang/prometheus",
+      "checks": {
+        "positive": "prometheus.NewCounterVec.positive",
+        "negative": "prometheus.NewCounterVec.negative"
+      },
+      "returnRole": "metric-counter-vector",
+      "effect": "metric-declare"
+    },
+    {
+      "id": "prometheus.NewGauge",
+      "ecosystem": "go",
+      "package": "github.com/prometheus/client_golang/prometheus",
+      "target": {
+        "kind": "export",
+        "importRoles": [
+          "namespace"
+        ],
+        "exportedPaths": [
+          [
+            "NewGauge"
+          ]
+        ]
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "options",
+          "index": 0,
+          "path": [],
+          "required": false
+        },
+        {
+          "name": "name",
+          "index": 0,
+          "path": [
+            "Name"
+          ],
+          "required": true
+        },
+        {
+          "name": "namespace",
+          "index": 0,
+          "path": [
+            "Namespace"
+          ],
+          "required": false
+        },
+        {
+          "name": "subsystem",
+          "index": 0,
+          "path": [
+            "Subsystem"
+          ],
+          "required": false
+        },
+        {
+          "name": "labels",
+          "index": 1,
+          "path": [],
+          "required": false
+        },
+        {
+          "name": "help",
+          "index": 0,
+          "path": [
+            "Help"
+          ],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/github.com/prometheus/client_golang/prometheus",
+      "checks": {
+        "positive": "prometheus.NewGauge.positive",
+        "negative": "prometheus.NewGauge.negative"
+      },
+      "returnRole": "metric-gauge",
+      "effect": "metric-declare"
+    },
+    {
+      "id": "prometheus.NewGaugeVec",
+      "ecosystem": "go",
+      "package": "github.com/prometheus/client_golang/prometheus",
+      "target": {
+        "kind": "export",
+        "importRoles": [
+          "namespace"
+        ],
+        "exportedPaths": [
+          [
+            "NewGaugeVec"
+          ]
+        ]
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "options",
+          "index": 0,
+          "path": [],
+          "required": false
+        },
+        {
+          "name": "name",
+          "index": 0,
+          "path": [
+            "Name"
+          ],
+          "required": true
+        },
+        {
+          "name": "namespace",
+          "index": 0,
+          "path": [
+            "Namespace"
+          ],
+          "required": false
+        },
+        {
+          "name": "subsystem",
+          "index": 0,
+          "path": [
+            "Subsystem"
+          ],
+          "required": false
+        },
+        {
+          "name": "labels",
+          "index": 1,
+          "path": [],
+          "required": false
+        },
+        {
+          "name": "help",
+          "index": 0,
+          "path": [
+            "Help"
+          ],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/github.com/prometheus/client_golang/prometheus",
+      "checks": {
+        "positive": "prometheus.NewGaugeVec.positive",
+        "negative": "prometheus.NewGaugeVec.negative"
+      },
+      "returnRole": "metric-gauge-vector",
+      "effect": "metric-declare"
+    },
+    {
+      "id": "prometheus.NewHistogram",
+      "ecosystem": "go",
+      "package": "github.com/prometheus/client_golang/prometheus",
+      "target": {
+        "kind": "export",
+        "importRoles": [
+          "namespace"
+        ],
+        "exportedPaths": [
+          [
+            "NewHistogram"
+          ]
+        ]
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "options",
+          "index": 0,
+          "path": [],
+          "required": false
+        },
+        {
+          "name": "name",
+          "index": 0,
+          "path": [
+            "Name"
+          ],
+          "required": true
+        },
+        {
+          "name": "namespace",
+          "index": 0,
+          "path": [
+            "Namespace"
+          ],
+          "required": false
+        },
+        {
+          "name": "subsystem",
+          "index": 0,
+          "path": [
+            "Subsystem"
+          ],
+          "required": false
+        },
+        {
+          "name": "labels",
+          "index": 1,
+          "path": [],
+          "required": false
+        },
+        {
+          "name": "help",
+          "index": 0,
+          "path": [
+            "Help"
+          ],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/github.com/prometheus/client_golang/prometheus",
+      "checks": {
+        "positive": "prometheus.NewHistogram.positive",
+        "negative": "prometheus.NewHistogram.negative"
+      },
+      "returnRole": "metric-histogram",
+      "effect": "metric-declare"
+    },
+    {
+      "id": "prometheus.NewHistogramVec",
+      "ecosystem": "go",
+      "package": "github.com/prometheus/client_golang/prometheus",
+      "target": {
+        "kind": "export",
+        "importRoles": [
+          "namespace"
+        ],
+        "exportedPaths": [
+          [
+            "NewHistogramVec"
+          ]
+        ]
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "options",
+          "index": 0,
+          "path": [],
+          "required": false
+        },
+        {
+          "name": "name",
+          "index": 0,
+          "path": [
+            "Name"
+          ],
+          "required": true
+        },
+        {
+          "name": "namespace",
+          "index": 0,
+          "path": [
+            "Namespace"
+          ],
+          "required": false
+        },
+        {
+          "name": "subsystem",
+          "index": 0,
+          "path": [
+            "Subsystem"
+          ],
+          "required": false
+        },
+        {
+          "name": "labels",
+          "index": 1,
+          "path": [],
+          "required": false
+        },
+        {
+          "name": "help",
+          "index": 0,
+          "path": [
+            "Help"
+          ],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/github.com/prometheus/client_golang/prometheus",
+      "checks": {
+        "positive": "prometheus.NewHistogramVec.positive",
+        "negative": "prometheus.NewHistogramVec.negative"
+      },
+      "returnRole": "metric-histogram-vector",
+      "effect": "metric-declare"
+    },
+    {
+      "id": "prometheus.Register",
+      "ecosystem": "go",
+      "package": "github.com/prometheus/client_golang/prometheus",
+      "target": {
+        "kind": "export",
+        "importRoles": [
+          "namespace"
+        ],
+        "exportedPaths": [
+          [
+            "Register"
+          ]
+        ]
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "metric",
+          "index": 0,
+          "path": [],
+          "required": true
+        }
+      ],
+      "reference": "https://pkg.go.dev/github.com/prometheus/client_golang/prometheus",
+      "checks": {
+        "positive": "prometheus.Register.positive",
+        "negative": "prometheus.Register.negative"
+      },
+      "effect": "metric-register"
+    },
+    {
+      "id": "prometheus.auto.Counter.Add",
+      "ecosystem": "go",
+      "package": "github.com/prometheus/client_golang/prometheus/promauto",
+      "target": {
+        "kind": "member",
+        "receiverRole": "metric-counter",
+        "member": "Add"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "value",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/github.com/prometheus/client_golang/prometheus/promauto",
+      "checks": {
+        "positive": "prometheus.auto.Counter.Add.positive",
+        "negative": "prometheus.auto.Counter.Add.negative"
+      },
+      "effect": "metric-update"
+    },
+    {
+      "id": "prometheus.auto.Counter.Inc",
+      "ecosystem": "go",
+      "package": "github.com/prometheus/client_golang/prometheus/promauto",
+      "target": {
+        "kind": "member",
+        "receiverRole": "metric-counter",
+        "member": "Inc"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "value",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/github.com/prometheus/client_golang/prometheus/promauto",
+      "checks": {
+        "positive": "prometheus.auto.Counter.Inc.positive",
+        "negative": "prometheus.auto.Counter.Inc.negative"
+      },
+      "effect": "metric-update"
+    },
+    {
+      "id": "prometheus.auto.Counter.With",
+      "ecosystem": "go",
+      "package": "github.com/prometheus/client_golang/prometheus/promauto",
+      "target": {
+        "kind": "member",
+        "receiverRole": "metric-counter-vector",
+        "member": "With"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "labels",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/github.com/prometheus/client_golang/prometheus/promauto",
+      "checks": {
+        "positive": "prometheus.auto.Counter.With.positive",
+        "negative": "prometheus.auto.Counter.With.negative"
+      },
+      "returnRole": "metric-counter"
+    },
+    {
+      "id": "prometheus.auto.Counter.WithLabelValues",
+      "ecosystem": "go",
+      "package": "github.com/prometheus/client_golang/prometheus/promauto",
+      "target": {
+        "kind": "member",
+        "receiverRole": "metric-counter-vector",
+        "member": "WithLabelValues"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "labels",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/github.com/prometheus/client_golang/prometheus/promauto",
+      "checks": {
+        "positive": "prometheus.auto.Counter.WithLabelValues.positive",
+        "negative": "prometheus.auto.Counter.WithLabelValues.negative"
+      },
+      "returnRole": "metric-counter"
+    },
+    {
+      "id": "prometheus.auto.Gauge.Add",
+      "ecosystem": "go",
+      "package": "github.com/prometheus/client_golang/prometheus/promauto",
+      "target": {
+        "kind": "member",
+        "receiverRole": "metric-gauge",
+        "member": "Add"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "value",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/github.com/prometheus/client_golang/prometheus/promauto",
+      "checks": {
+        "positive": "prometheus.auto.Gauge.Add.positive",
+        "negative": "prometheus.auto.Gauge.Add.negative"
+      },
+      "effect": "metric-update"
+    },
+    {
+      "id": "prometheus.auto.Gauge.Dec",
+      "ecosystem": "go",
+      "package": "github.com/prometheus/client_golang/prometheus/promauto",
+      "target": {
+        "kind": "member",
+        "receiverRole": "metric-gauge",
+        "member": "Dec"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "value",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/github.com/prometheus/client_golang/prometheus/promauto",
+      "checks": {
+        "positive": "prometheus.auto.Gauge.Dec.positive",
+        "negative": "prometheus.auto.Gauge.Dec.negative"
+      },
+      "effect": "metric-update"
+    },
+    {
+      "id": "prometheus.auto.Gauge.Inc",
+      "ecosystem": "go",
+      "package": "github.com/prometheus/client_golang/prometheus/promauto",
+      "target": {
+        "kind": "member",
+        "receiverRole": "metric-gauge",
+        "member": "Inc"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "value",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/github.com/prometheus/client_golang/prometheus/promauto",
+      "checks": {
+        "positive": "prometheus.auto.Gauge.Inc.positive",
+        "negative": "prometheus.auto.Gauge.Inc.negative"
+      },
+      "effect": "metric-update"
+    },
+    {
+      "id": "prometheus.auto.Gauge.Set",
+      "ecosystem": "go",
+      "package": "github.com/prometheus/client_golang/prometheus/promauto",
+      "target": {
+        "kind": "member",
+        "receiverRole": "metric-gauge",
+        "member": "Set"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "value",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/github.com/prometheus/client_golang/prometheus/promauto",
+      "checks": {
+        "positive": "prometheus.auto.Gauge.Set.positive",
+        "negative": "prometheus.auto.Gauge.Set.negative"
+      },
+      "effect": "metric-update"
+    },
+    {
+      "id": "prometheus.auto.Gauge.Sub",
+      "ecosystem": "go",
+      "package": "github.com/prometheus/client_golang/prometheus/promauto",
+      "target": {
+        "kind": "member",
+        "receiverRole": "metric-gauge",
+        "member": "Sub"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "value",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/github.com/prometheus/client_golang/prometheus/promauto",
+      "checks": {
+        "positive": "prometheus.auto.Gauge.Sub.positive",
+        "negative": "prometheus.auto.Gauge.Sub.negative"
+      },
+      "effect": "metric-update"
+    },
+    {
+      "id": "prometheus.auto.Gauge.With",
+      "ecosystem": "go",
+      "package": "github.com/prometheus/client_golang/prometheus/promauto",
+      "target": {
+        "kind": "member",
+        "receiverRole": "metric-gauge-vector",
+        "member": "With"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "labels",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/github.com/prometheus/client_golang/prometheus/promauto",
+      "checks": {
+        "positive": "prometheus.auto.Gauge.With.positive",
+        "negative": "prometheus.auto.Gauge.With.negative"
+      },
+      "returnRole": "metric-gauge"
+    },
+    {
+      "id": "prometheus.auto.Gauge.WithLabelValues",
+      "ecosystem": "go",
+      "package": "github.com/prometheus/client_golang/prometheus/promauto",
+      "target": {
+        "kind": "member",
+        "receiverRole": "metric-gauge-vector",
+        "member": "WithLabelValues"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "labels",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/github.com/prometheus/client_golang/prometheus/promauto",
+      "checks": {
+        "positive": "prometheus.auto.Gauge.WithLabelValues.positive",
+        "negative": "prometheus.auto.Gauge.WithLabelValues.negative"
+      },
+      "returnRole": "metric-gauge"
+    },
+    {
+      "id": "prometheus.auto.Histogram.Observe",
+      "ecosystem": "go",
+      "package": "github.com/prometheus/client_golang/prometheus/promauto",
+      "target": {
+        "kind": "member",
+        "receiverRole": "metric-histogram",
+        "member": "Observe"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "value",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/github.com/prometheus/client_golang/prometheus/promauto",
+      "checks": {
+        "positive": "prometheus.auto.Histogram.Observe.positive",
+        "negative": "prometheus.auto.Histogram.Observe.negative"
+      },
+      "effect": "metric-update"
+    },
+    {
+      "id": "prometheus.auto.Histogram.With",
+      "ecosystem": "go",
+      "package": "github.com/prometheus/client_golang/prometheus/promauto",
+      "target": {
+        "kind": "member",
+        "receiverRole": "metric-histogram-vector",
+        "member": "With"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "labels",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/github.com/prometheus/client_golang/prometheus/promauto",
+      "checks": {
+        "positive": "prometheus.auto.Histogram.With.positive",
+        "negative": "prometheus.auto.Histogram.With.negative"
+      },
+      "returnRole": "metric-histogram"
+    },
+    {
+      "id": "prometheus.auto.Histogram.WithLabelValues",
+      "ecosystem": "go",
+      "package": "github.com/prometheus/client_golang/prometheus/promauto",
+      "target": {
+        "kind": "member",
+        "receiverRole": "metric-histogram-vector",
+        "member": "WithLabelValues"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "labels",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/github.com/prometheus/client_golang/prometheus/promauto",
+      "checks": {
+        "positive": "prometheus.auto.Histogram.WithLabelValues.positive",
+        "negative": "prometheus.auto.Histogram.WithLabelValues.negative"
+      },
+      "returnRole": "metric-histogram"
+    },
+    {
+      "id": "prometheus.auto.NewCounter",
+      "ecosystem": "go",
+      "package": "github.com/prometheus/client_golang/prometheus/promauto",
+      "target": {
+        "kind": "export",
+        "importRoles": [
+          "namespace"
+        ],
+        "exportedPaths": [
+          [
+            "NewCounter"
+          ]
+        ]
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "options",
+          "index": 0,
+          "path": [],
+          "required": false
+        },
+        {
+          "name": "name",
+          "index": 0,
+          "path": [
+            "Name"
+          ],
+          "required": true
+        },
+        {
+          "name": "namespace",
+          "index": 0,
+          "path": [
+            "Namespace"
+          ],
+          "required": false
+        },
+        {
+          "name": "subsystem",
+          "index": 0,
+          "path": [
+            "Subsystem"
+          ],
+          "required": false
+        },
+        {
+          "name": "labels",
+          "index": 1,
+          "path": [],
+          "required": false
+        },
+        {
+          "name": "help",
+          "index": 0,
+          "path": [
+            "Help"
+          ],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/github.com/prometheus/client_golang/prometheus/promauto",
+      "checks": {
+        "positive": "prometheus.auto.NewCounter.positive",
+        "negative": "prometheus.auto.NewCounter.negative"
+      },
+      "returnRole": "metric-counter",
+      "effect": "metric-declare"
+    },
+    {
+      "id": "prometheus.auto.NewCounterVec",
+      "ecosystem": "go",
+      "package": "github.com/prometheus/client_golang/prometheus/promauto",
+      "target": {
+        "kind": "export",
+        "importRoles": [
+          "namespace"
+        ],
+        "exportedPaths": [
+          [
+            "NewCounterVec"
+          ]
+        ]
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "options",
+          "index": 0,
+          "path": [],
+          "required": false
+        },
+        {
+          "name": "name",
+          "index": 0,
+          "path": [
+            "Name"
+          ],
+          "required": true
+        },
+        {
+          "name": "namespace",
+          "index": 0,
+          "path": [
+            "Namespace"
+          ],
+          "required": false
+        },
+        {
+          "name": "subsystem",
+          "index": 0,
+          "path": [
+            "Subsystem"
+          ],
+          "required": false
+        },
+        {
+          "name": "labels",
+          "index": 1,
+          "path": [],
+          "required": false
+        },
+        {
+          "name": "help",
+          "index": 0,
+          "path": [
+            "Help"
+          ],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/github.com/prometheus/client_golang/prometheus/promauto",
+      "checks": {
+        "positive": "prometheus.auto.NewCounterVec.positive",
+        "negative": "prometheus.auto.NewCounterVec.negative"
+      },
+      "returnRole": "metric-counter-vector",
+      "effect": "metric-declare"
+    },
+    {
+      "id": "prometheus.auto.NewGauge",
+      "ecosystem": "go",
+      "package": "github.com/prometheus/client_golang/prometheus/promauto",
+      "target": {
+        "kind": "export",
+        "importRoles": [
+          "namespace"
+        ],
+        "exportedPaths": [
+          [
+            "NewGauge"
+          ]
+        ]
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "options",
+          "index": 0,
+          "path": [],
+          "required": false
+        },
+        {
+          "name": "name",
+          "index": 0,
+          "path": [
+            "Name"
+          ],
+          "required": true
+        },
+        {
+          "name": "namespace",
+          "index": 0,
+          "path": [
+            "Namespace"
+          ],
+          "required": false
+        },
+        {
+          "name": "subsystem",
+          "index": 0,
+          "path": [
+            "Subsystem"
+          ],
+          "required": false
+        },
+        {
+          "name": "labels",
+          "index": 1,
+          "path": [],
+          "required": false
+        },
+        {
+          "name": "help",
+          "index": 0,
+          "path": [
+            "Help"
+          ],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/github.com/prometheus/client_golang/prometheus/promauto",
+      "checks": {
+        "positive": "prometheus.auto.NewGauge.positive",
+        "negative": "prometheus.auto.NewGauge.negative"
+      },
+      "returnRole": "metric-gauge",
+      "effect": "metric-declare"
+    },
+    {
+      "id": "prometheus.auto.NewGaugeVec",
+      "ecosystem": "go",
+      "package": "github.com/prometheus/client_golang/prometheus/promauto",
+      "target": {
+        "kind": "export",
+        "importRoles": [
+          "namespace"
+        ],
+        "exportedPaths": [
+          [
+            "NewGaugeVec"
+          ]
+        ]
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "options",
+          "index": 0,
+          "path": [],
+          "required": false
+        },
+        {
+          "name": "name",
+          "index": 0,
+          "path": [
+            "Name"
+          ],
+          "required": true
+        },
+        {
+          "name": "namespace",
+          "index": 0,
+          "path": [
+            "Namespace"
+          ],
+          "required": false
+        },
+        {
+          "name": "subsystem",
+          "index": 0,
+          "path": [
+            "Subsystem"
+          ],
+          "required": false
+        },
+        {
+          "name": "labels",
+          "index": 1,
+          "path": [],
+          "required": false
+        },
+        {
+          "name": "help",
+          "index": 0,
+          "path": [
+            "Help"
+          ],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/github.com/prometheus/client_golang/prometheus/promauto",
+      "checks": {
+        "positive": "prometheus.auto.NewGaugeVec.positive",
+        "negative": "prometheus.auto.NewGaugeVec.negative"
+      },
+      "returnRole": "metric-gauge-vector",
+      "effect": "metric-declare"
+    },
+    {
+      "id": "prometheus.auto.NewHistogram",
+      "ecosystem": "go",
+      "package": "github.com/prometheus/client_golang/prometheus/promauto",
+      "target": {
+        "kind": "export",
+        "importRoles": [
+          "namespace"
+        ],
+        "exportedPaths": [
+          [
+            "NewHistogram"
+          ]
+        ]
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "options",
+          "index": 0,
+          "path": [],
+          "required": false
+        },
+        {
+          "name": "name",
+          "index": 0,
+          "path": [
+            "Name"
+          ],
+          "required": true
+        },
+        {
+          "name": "namespace",
+          "index": 0,
+          "path": [
+            "Namespace"
+          ],
+          "required": false
+        },
+        {
+          "name": "subsystem",
+          "index": 0,
+          "path": [
+            "Subsystem"
+          ],
+          "required": false
+        },
+        {
+          "name": "labels",
+          "index": 1,
+          "path": [],
+          "required": false
+        },
+        {
+          "name": "help",
+          "index": 0,
+          "path": [
+            "Help"
+          ],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/github.com/prometheus/client_golang/prometheus/promauto",
+      "checks": {
+        "positive": "prometheus.auto.NewHistogram.positive",
+        "negative": "prometheus.auto.NewHistogram.negative"
+      },
+      "returnRole": "metric-histogram",
+      "effect": "metric-declare"
+    },
+    {
+      "id": "prometheus.auto.NewHistogramVec",
+      "ecosystem": "go",
+      "package": "github.com/prometheus/client_golang/prometheus/promauto",
+      "target": {
+        "kind": "export",
+        "importRoles": [
+          "namespace"
+        ],
+        "exportedPaths": [
+          [
+            "NewHistogramVec"
+          ]
+        ]
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "options",
+          "index": 0,
+          "path": [],
+          "required": false
+        },
+        {
+          "name": "name",
+          "index": 0,
+          "path": [
+            "Name"
+          ],
+          "required": true
+        },
+        {
+          "name": "namespace",
+          "index": 0,
+          "path": [
+            "Namespace"
+          ],
+          "required": false
+        },
+        {
+          "name": "subsystem",
+          "index": 0,
+          "path": [
+            "Subsystem"
+          ],
+          "required": false
+        },
+        {
+          "name": "labels",
+          "index": 1,
+          "path": [],
+          "required": false
+        },
+        {
+          "name": "help",
+          "index": 0,
+          "path": [
+            "Help"
+          ],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/github.com/prometheus/client_golang/prometheus/promauto",
+      "checks": {
+        "positive": "prometheus.auto.NewHistogramVec.positive",
+        "negative": "prometheus.auto.NewHistogramVec.negative"
+      },
+      "returnRole": "metric-histogram-vector",
+      "effect": "metric-declare"
+    },
+    {
+      "id": "promhttp.Handler",
+      "ecosystem": "go",
+      "package": "github.com/prometheus/client_golang/prometheus/promhttp",
+      "target": {
+        "kind": "export",
+        "importRoles": [
+          "namespace"
+        ],
+        "exportedPaths": [
+          [
+            "Handler"
+          ]
+        ]
+      },
+      "invoke": "call",
+      "arguments": [],
+      "reference": "https://pkg.go.dev/github.com/prometheus/client_golang/prometheus/promhttp",
+      "checks": {
+        "positive": "promhttp.Handler.positive",
+        "negative": "promhttp.Handler.negative"
+      },
+      "effect": "metric-expose"
+    },
+    {
+      "id": "slog.Default",
+      "ecosystem": "go",
+      "package": "log/slog",
+      "target": {
+        "kind": "export",
+        "importRoles": [
+          "namespace"
+        ],
+        "exportedPaths": [
+          [
+            "Default"
+          ]
+        ]
+      },
+      "invoke": "call",
+      "arguments": [],
+      "reference": "https://pkg.go.dev/log/slog",
+      "checks": {
+        "positive": "slog.Default.positive",
+        "negative": "slog.Default.negative"
+      },
+      "returnRole": "logger",
+      "effect": "logger-declare"
+    },
+    {
+      "id": "slog.New",
+      "ecosystem": "go",
+      "package": "log/slog",
+      "target": {
+        "kind": "export",
+        "importRoles": [
+          "namespace"
+        ],
+        "exportedPaths": [
+          [
+            "New"
+          ]
+        ]
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "handler",
+          "index": 0,
+          "path": [],
+          "required": true
+        }
+      ],
+      "reference": "https://pkg.go.dev/log/slog",
+      "checks": {
+        "positive": "slog.New.positive",
+        "negative": "slog.New.negative"
+      },
+      "returnRole": "logger",
+      "effect": "logger-declare"
+    },
+    {
+      "id": "slog.NewJSONHandler",
+      "ecosystem": "go",
+      "package": "log/slog",
+      "target": {
+        "kind": "export",
+        "importRoles": [
+          "namespace"
+        ],
+        "exportedPaths": [
+          [
+            "NewJSONHandler"
+          ]
+        ]
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "writer",
+          "index": 0,
+          "path": [],
+          "required": false
+        },
+        {
+          "name": "options",
+          "index": 1,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/log/slog",
+      "checks": {
+        "positive": "slog.NewJSONHandler.positive",
+        "negative": "slog.NewJSONHandler.negative"
+      },
+      "returnRole": "logger-handler"
+    },
+    {
+      "id": "slog.NewTextHandler",
+      "ecosystem": "go",
+      "package": "log/slog",
+      "target": {
+        "kind": "export",
+        "importRoles": [
+          "namespace"
+        ],
+        "exportedPaths": [
+          [
+            "NewTextHandler"
+          ]
+        ]
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "writer",
+          "index": 0,
+          "path": [],
+          "required": false
+        },
+        {
+          "name": "options",
+          "index": 1,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/log/slog",
+      "checks": {
+        "positive": "slog.NewTextHandler.positive",
+        "negative": "slog.NewTextHandler.negative"
+      },
+      "returnRole": "logger-handler"
+    },
+    {
+      "id": "slog.logger.Debug",
+      "ecosystem": "go",
+      "package": "log/slog",
+      "target": {
+        "kind": "member",
+        "receiverRole": "logger",
+        "member": "Debug"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "value",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/log/slog",
+      "checks": {
+        "positive": "slog.logger.Debug.positive",
+        "negative": "slog.logger.Debug.negative"
+      },
+      "effect": "logger-use"
+    },
+    {
+      "id": "slog.logger.DebugContext",
+      "ecosystem": "go",
+      "package": "log/slog",
+      "target": {
+        "kind": "member",
+        "receiverRole": "logger",
+        "member": "DebugContext"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "value",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/log/slog",
+      "checks": {
+        "positive": "slog.logger.DebugContext.positive",
+        "negative": "slog.logger.DebugContext.negative"
+      },
+      "effect": "logger-use"
+    },
+    {
+      "id": "slog.logger.Error",
+      "ecosystem": "go",
+      "package": "log/slog",
+      "target": {
+        "kind": "member",
+        "receiverRole": "logger",
+        "member": "Error"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "value",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/log/slog",
+      "checks": {
+        "positive": "slog.logger.Error.positive",
+        "negative": "slog.logger.Error.negative"
+      },
+      "effect": "logger-use"
+    },
+    {
+      "id": "slog.logger.ErrorContext",
+      "ecosystem": "go",
+      "package": "log/slog",
+      "target": {
+        "kind": "member",
+        "receiverRole": "logger",
+        "member": "ErrorContext"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "value",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/log/slog",
+      "checks": {
+        "positive": "slog.logger.ErrorContext.positive",
+        "negative": "slog.logger.ErrorContext.negative"
+      },
+      "effect": "logger-use"
+    },
+    {
+      "id": "slog.logger.Info",
+      "ecosystem": "go",
+      "package": "log/slog",
+      "target": {
+        "kind": "member",
+        "receiverRole": "logger",
+        "member": "Info"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "value",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/log/slog",
+      "checks": {
+        "positive": "slog.logger.Info.positive",
+        "negative": "slog.logger.Info.negative"
+      },
+      "effect": "logger-use"
+    },
+    {
+      "id": "slog.logger.InfoContext",
+      "ecosystem": "go",
+      "package": "log/slog",
+      "target": {
+        "kind": "member",
+        "receiverRole": "logger",
+        "member": "InfoContext"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "value",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/log/slog",
+      "checks": {
+        "positive": "slog.logger.InfoContext.positive",
+        "negative": "slog.logger.InfoContext.negative"
+      },
+      "effect": "logger-use"
+    },
+    {
+      "id": "slog.logger.Warn",
+      "ecosystem": "go",
+      "package": "log/slog",
+      "target": {
+        "kind": "member",
+        "receiverRole": "logger",
+        "member": "Warn"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "value",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/log/slog",
+      "checks": {
+        "positive": "slog.logger.Warn.positive",
+        "negative": "slog.logger.Warn.negative"
+      },
+      "effect": "logger-use"
+    },
+    {
+      "id": "slog.logger.WarnContext",
+      "ecosystem": "go",
+      "package": "log/slog",
+      "target": {
+        "kind": "member",
+        "receiverRole": "logger",
+        "member": "WarnContext"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "value",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/log/slog",
+      "checks": {
+        "positive": "slog.logger.WarnContext.positive",
+        "negative": "slog.logger.WarnContext.negative"
+      },
+      "effect": "logger-use"
+    },
+    {
+      "id": "slog.logger.With",
+      "ecosystem": "go",
+      "package": "log/slog",
+      "target": {
+        "kind": "member",
+        "receiverRole": "logger",
+        "member": "With"
+      },
+      "invoke": "call",
+      "arguments": [
+        {
+          "name": "value",
+          "index": 0,
+          "path": [],
+          "required": false
+        }
+      ],
+      "reference": "https://pkg.go.dev/log/slog",
+      "checks": {
+        "positive": "slog.logger.With.positive",
+        "negative": "slog.logger.With.negative"
+      },
+      "returnRole": "logger",
+      "effect": "logger-use"
+    }
+  ]
+}

@@ -41,7 +41,7 @@ import jsGrammar from 'tree-sitter-wasms/out/tree-sitter-javascript.wasm' with {
 import tsGrammar from 'tree-sitter-wasms/out/tree-sitter-typescript.wasm' with { type: 'file' };
 import tsxGrammar from 'tree-sitter-wasms/out/tree-sitter-tsx.wasm' with { type: 'file' };
 import treeSitterRuntime from 'web-tree-sitter/tree-sitter.wasm' with { type: 'file' };
-import { Language, Parser, type Node as SyntaxNode } from 'web-tree-sitter';
+import { Language, Parser, Query, type Node as SyntaxNode } from 'web-tree-sitter';
 import { byCodePoint } from '../../model/order.js';
 import type { CommentForm, CoverageGap, CoverageGapReason, EntryPointForm, SymbolKind } from '../facts.js';
 
@@ -231,6 +231,8 @@ export interface ParsedSyntaxTree {
   readonly root: SyntaxNode;
   /** Whether the parser read the file whole: a tree with an error node read as far as the parser could go. */
   readonly complete: boolean;
+  /** Captured nodes are borrowed only inside this parsed-tree callback. */
+  readonly captures: (source: string) => readonly { readonly name: string; readonly node: SyntaxNode }[];
 }
 
 /**
@@ -272,7 +274,20 @@ export async function readSyntaxTree<T>(path: string, bytes: Uint8Array, walk: (
     try {
       const root = tree.rootNode;
       const complete = !root.hasError;
-      const value = walk({ path, language, text, root, complete });
+      const captures = (source: string): readonly { readonly name: string; readonly node: SyntaxNode }[] => {
+        // A query is structural only. Disallow every predicate, including custom
+        // predicates that would otherwise be silently ignored by the web binding.
+        if (source.includes('#')) throw new Error('syntax query predicates are not permitted');
+        const query = new Query(grammar, source);
+        try {
+          const found = query.captures(root, { matchLimit: 65_536 });
+          if (query.didExceedMatchLimit()) throw new Error('syntax query exceeded its match limit');
+          return found;
+        } finally {
+          query.delete();
+        }
+      };
+      const value = walk({ path, language, text, root, complete, captures });
       return { read: true, value, language, complete };
     } finally {
       tree.delete();

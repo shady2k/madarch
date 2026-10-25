@@ -64,7 +64,7 @@ test('extractor catalog uses explicit unique names and positive versions, never 
 
 test('callback ownership, metric bindings, target matching and semantic evidence advance the persistent extractor interpretation', async () => {
  const {EXTRACTOR_VERSIONS}=await import('../src/extract/driver/extractors.js');
- expect(EXTRACTOR_VERSIONS.find((entry)=>entry.name==='extractCode')?.version).toBe(7);
+ expect(EXTRACTOR_VERSIONS.find((entry)=>entry.name==='extractCode')?.version).toBe(8);
  expect(EXTRACTOR_VERSIONS.find((entry)=>entry.name==='extractOperations')?.version).toBe(6);
  expect(EXTRACTOR_VERSIONS.find((entry)=>entry.name==='extractContracts')?.version).toBe(6);
  expect(EXTRACTOR_VERSIONS.find((entry)=>entry.name==='driver-and-link-normalization')?.version).toBe(6);
@@ -73,4 +73,37 @@ test('callback ownership, metric bindings, target matching and semantic evidence
  const current=extractorManifest(EXTRACTOR_VERSIONS);
  expect(current.digest).not.toBe(extractorManifest(prior).digest);
  console.info('extractor-catalog',JSON.stringify(current));
+});
+
+
+test('interpretation asset digests are retained, validated and independent of catalogue order', () => {
+ const a = 'a'.repeat(64); const b = 'b'.repeat(64);
+ const before = extractorManifest([{name:'reader',version:1},{name:'queries',version:1,contentDigest:a}]);
+ expect(before.extractors.find((entry)=>entry.name==='queries')?.contentDigest).toBe(a);
+ expect(before.digest).toBe(extractorManifest([{name:'queries',version:1,contentDigest:a},{name:'reader',version:1}]).digest);
+ expect(before.digest).not.toBe(extractorManifest([{name:'reader',version:1},{name:'queries',version:1,contentDigest:b}]).digest);
+ for (const invalid of ['', 'A'.repeat(64), 'g'.repeat(64), 'a'.repeat(63)]) expect(()=>extractorManifest([{name:'reader',version:1,contentDigest:invalid}])).toThrow('content digest');
+});
+
+test('known query and model byte changes invalidate a derived graph without changing Markdown', async () => {
+ const {codeQueryDigest} = await import('../src/extract/code/query.js');
+ const {libraryRegistry,libraryRegistryDigest} = await import('../src/extract/library-models/validate.js');
+ const root=mkdtempSync(join(tmpdir(),'madarch-parser-assets-'));const graph=join(root,'graph');
+ const markdown=join(root,'page.md');writeFileSync(markdown,'# Reader\n\nKept λ.\n');const bytes=readFileSync(markdown);
+ const queries=[{path:'one.scm',source:'(identifier) @name\n'}];
+ const digest=codeQueryDigest(queries);
+ const same=codeQueryDigest([...queries]);
+ const changed=codeQueryDigest([{...queries[0]!,source:'(identifier) @binding\n'}]);
+ expect(digest).toBe(same);expect(changed).not.toBe(digest);
+ const model=structuredClone(libraryRegistry);
+ const changedModel={...model,models:model.models.map((entry,index)=>index===0?{...entry,reference:entry.reference+'#known-change'}:entry)};
+ expect(libraryRegistryDigest(model)).not.toBe(libraryRegistryDigest(changedModel));
+ const manifest=(contentDigest:string)=>extractorManifest([{name:'reader',version:1,contentDigest}]);
+ try {
+  const first=prepareExtractorStore(graph,manifest(digest));expect(first.rebuilt).toBe(true);first.commit();
+  const repeat=prepareExtractorStore(graph,manifest(same));expect(repeat.rebuilt).toBe(false);repeat.abort();
+  const next=prepareExtractorStore(graph,manifest(changed));expect(next.rebuilt).toBe(true);next.commit();
+  expect(prepareExtractorStore(graph,manifest(changed)).rebuilt).toBe(false);
+  expect(readFileSync(markdown)).toEqual(bytes);
+ } finally {rmSync(root,{recursive:true,force:true});}
 });

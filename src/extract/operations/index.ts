@@ -5,6 +5,7 @@
  * a file that cannot be read is a gap, never a silence.
  */
 import type { Extraction, TreeReader } from '../records.js';
+import type { CodeFacts } from '../code/facts.js';
 import { extractBuild } from './build.js';
 import { Records, sortedEdges, sortedGaps, sortedNodes } from './accumulate.js';
 import { extractDependencies } from './dependencies.js';
@@ -20,10 +21,12 @@ import { TreeText } from './source.js';
 export const OPERATIONS_PRODUCER = 'code.extract.operations';
 
 /** Extracts the operations records of one tree. */
-export function extractOperations(tree: TreeReader, code?: Extraction): Extraction {
-  const t = new TreeText(tree, code);
+export function extractOperations(tree: TreeReader, code?: Extraction, facts?: CodeFacts): Extraction {
+  const t = new TreeText(tree, code, facts);
   const records = new Records(t);
   try {
+    const library = t.libraryFacts();
+    if (library !== undefined) for (const gap of library.gaps) records.gap(gap.path, gap.reason);
     const envReads = extractEnv(t, records);
     extractDependencies(t, records);
     extractDeploy(t, records);

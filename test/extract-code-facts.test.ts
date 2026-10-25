@@ -1,0 +1,133 @@
+import { expect, test } from 'bun:test';
+import { extractCode, extractCodeWithFacts } from '../src/extract/code/index.js';
+import { decodeNumberToken, decodeStringToken } from '../src/extract/code/literals.js';
+import type { CodeFacts } from '../src/extract/code/facts.js';
+import type { TreeReader } from '../src/extract/records.js';
+
+function treeOf(files: Readonly<Record<string, string>>): TreeReader {
+  return { paths: Object.keys(files).sort(), read: (path) => {
+    const source = files[path];
+    if (source === undefined) throw new Error(`missing fixture path ${path}`);
+    return new TextEncoder().encode(source);
+  } };
+}
+
+function member(facts: CodeFacts, name: string) {
+  return facts.expressions.filter((expression) => expression.member === name);
+}
+
+test('one code pass exposes frozen source facts without changing the extraction API', async () => {
+  const tree = treeOf({
+    'package.json': JSON.stringify({ name: 'fixture', dependencies: { pino: '9.0.0' } }),
+    'lib/entry.ts': 'import factory from "pino"; export const logger = factory(); export function run(){ logger.info("ok"); }',
+  });
+  const result = await extractCodeWithFacts(tree);
+  expect(result.extraction).toEqual(await extractCode(tree));
+  expect(Object.isFrozen(result.facts)).toBe(true);
+  expect(Object.isFrozen(result.facts.expressions)).toBe(true);
+  expect(result.facts.imports[0]?.package).toEqual({ ecosystem: 'node', name: 'pino', manifestPath: 'package.json', declaredVersion: '9.0.0' });
+  expect(result.facts.expressions.every((expression) => Object.isFrozen(expression) && Object.isFrozen(expression.fields))).toBe(true);
+  const ids = result.facts.expressions.map((expression) => expression.id);
+  expect(new Set(ids).size).toBe(ids.length);
+  expect(Object.isFrozen(result.facts.bindings[0]?.span)).toBe(true);
+});
+
+test('a full receiver chain cannot borrow a standalone logger or counter binding', async () => {
+  const { facts } = await extractCodeWithFacts(treeOf({
+    'package.json': '{"name":"fixture","dependencies":{"pino":"9.0.0","prom-client":"15.0.0"}}',
+    'src/main.ts': [
+      'import makeLog from "pino";',
+      'import {Counter} from "prom-client";',
+      'const logger = makeLog(); const requests = new Counter({name:"work_total",help:"work"});',
+      'export function run(other: any){ logger.info("yes"); other.logger.info("no"); requests.inc(); other.requests.inc(); }',
+    ].join('\n'),
+  }));
+  const expressions = new Map(facts.expressions.map((expression) => [expression.id, expression]));
+  const info = member(facts, 'info');
+  expect(info).toHaveLength(2);
+  const roots = info.map((expression) => expressions.get(expression.receiver!));
+  expect(roots.some((expression) => expression?.name === 'logger' && expression.bindingId !== undefined)).toBe(true);
+  expect(roots.some((expression) => expression?.member === 'logger' && expression.receiver !== undefined && expression.bindingId === undefined)).toBe(true);
+  const inc = member(facts, 'inc');
+  expect(inc).toHaveLength(2);
+  expect(inc.map((expression) => expressions.get(expression.receiver!)).some((expression) => expression?.member === 'requests')).toBe(true);
+});
+
+test('destructured parameters and temporal-dead-zone locals do not reuse imports', async () => {
+  const { facts } = await extractCodeWithFacts(treeOf({
+    'package.json': '{"name":"fixture","dependencies":{"pino":"9.0.0"}}',
+    'src/main.ts': 'import logger from "pino"; export function run({logger}: any){ logger.info("local"); (()=>logger.info("nested"))(); } export function next(){ logger.info("tdz"); const logger = other; }',
+  }));
+  const expressions = new Map(facts.expressions.map((expression) => [expression.id, expression]));
+  const bindings = new Map(facts.bindings.map((binding) => [binding.id, binding]));
+  for (const expression of member(facts, 'info')) {
+    const receiver = expressions.get(expression.receiver!);
+    if (receiver?.bindingId !== undefined) expect(bindings.get(receiver.bindingId)?.kind).not.toBe('import');
+    else expect(receiver?.name).toBe('logger'); // TDZ: unknown, never outer import.
+  }
+});
+
+test('copied facts retain UTF-8 spans and canonical callback owners after AST disposal', async () => {
+  const path = 'src/work.ts';
+  const source = 'const label = "éλ"; export function outer(){ setTimeout(()=>{ console.log(label); }, 1); }';
+  const { facts } = await extractCodeWithFacts(treeOf({ 'package.json': '{"name":"fixture"}', [path]: source }));
+  const call = facts.calls.find((call) => facts.expressions.find((expression) => expression.id === call.callee)?.member === 'log');
+  expect(call).toBeDefined();
+  expect(call!.holder).not.toBe('code.symbol:src/work.ts#outer');
+  const bytes = new TextEncoder().encode(source);
+  expect(new TextDecoder().decode(bytes.subarray(call!.span.byteStart, call!.span.byteEnd))).toBe('console.log(label)');
+  const expressionIds = new Set(facts.expressions.map((expression) => expression.id));
+  for (const expression of facts.expressions) for (const child of expression.children) expect(expressionIds.has(child)).toBe(true);
+});
+
+test('JavaScript, TSX and Go query assets return facts or explicit syntax diagnostics', async () => {
+  const { facts } = await extractCodeWithFacts(treeOf({
+    'package.json': '{"name":"fixture"}',
+    'web/view.tsx': 'export function View(){ return <div>{String(1)}</div>; }',
+    'web/entry.js': 'export function start(){ return globalThis.run(); }',
+    'engine/go.mod': 'module example.invalid/engine\n\ngo 1.23\n',
+    'engine/main.go': 'package engine\nimport "log/slog"\nfunc Run(){ slog.Info("ready") }\n',
+    'web/bad.ts': 'export function broken( {',
+  }));
+  expect(new Set(facts.files.map((file) => file.language))).toEqual(new Set(['tsx', 'javascript', 'go', 'typescript']));
+  expect(facts.calls.some((call) => call.path === 'web/view.tsx')).toBe(true);
+  expect(facts.calls.some((call) => call.path === 'engine/main.go')).toBe(true);
+  expect(facts.gaps.some((gap) => gap.path === 'web/bad.ts')).toBe(true);
+});
+
+test('literal decoding follows grammar tokens and refuses dynamic template values', () => {
+  expect(decodeStringToken('string', '"a\\n\\u03bb"')).toBe('a\nλ');
+  expect(decodeStringToken('string', "'it\\'s'")).toBe("it's");
+  expect(decodeStringToken('raw_string_literal', '`raw\\n`')).toBe('raw\\n');
+  expect(decodeStringToken('interpreted_string_literal', '"\\141"')).toBe('a');
+  expect(decodeStringToken('template_string', '`hello ${name}`')).toBeUndefined();
+  expect(decodeStringToken('identifier', '"not a token"')).toBeUndefined();
+});
+
+test('function-hoisted var and reassignment cannot retain imported receiver origins', async () => {
+  const { facts } = await extractCodeWithFacts(treeOf({
+    'package.json': '{"name":"fixture","dependencies":{"pino":"9.0.0"}}',
+    'src/main.ts': 'import logger from "pino"; export function run(){ logger.info("before"); if (true) { var logger = other; } } export function change(){ logger = replacement; logger.info("after"); }',
+  }));
+  const expressions = new Map(facts.expressions.map((expression) => [expression.id, expression]));
+  const bindings = new Map(facts.bindings.map((binding) => [binding.id, binding]));
+  for (const expression of member(facts, 'info')) {
+    const receiver = expressions.get(expression.receiver!);
+    const binding = receiver?.bindingId === undefined ? undefined : bindings.get(receiver.bindingId);
+    expect(binding?.importId).toBeUndefined();
+  }
+});
+
+test('Go legacy octal and non-ASCII byte escapes are decoded accurately or left unknown', async () => {
+  expect(decodeNumberToken('int_literal', '0777', true)).toBe(511);
+  expect(decodeNumberToken('int_literal', '0o777', true)).toBe(511);
+  expect(decodeStringToken('interpreted_string_literal', '"\\xff"')).toBeUndefined();
+  expect(decodeStringToken('interpreted_string_literal', '"\\377"')).toBeUndefined();
+  const { facts } = await extractCodeWithFacts(treeOf({
+    'go.mod': 'module example.invalid/unit\n\ngo 1.23\n',
+    'main.go': 'package unit\nvar mode = 0777\nvar invalid = "\\xff"\n',
+  }));
+  expect(facts.expressions.find((expression) => expression.literal?.raw === '0777')?.literal?.value).toBe(511);
+  expect(facts.expressions.find((expression) => expression.literal?.raw === '"\\xff"')?.literal?.value).toBeUndefined();
+  expect(facts.gaps.some((gap) => gap.path === 'main.go' && gap.reason.includes('literal'))).toBe(true);
+});

@@ -2,16 +2,18 @@
 import {existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync} from 'node:fs';
 import {basename, dirname, isAbsolute, join, resolve} from 'node:path';
 import {canonicalJsonDigest} from '../model/canonical.js';
-export interface ExtractorVersion {readonly name: string; readonly version: number}
+import {byCodePoint} from '../model/order.js';
+export interface ExtractorVersion {readonly name: string; readonly version: number; readonly contentDigest?: string}
 export interface ExtractorManifest {readonly format: 1; readonly extractors: readonly ExtractorVersion[]; readonly digest: string}
 const FILE = 'extractors.json';
 export function extractorManifest(extractors: readonly ExtractorVersion[]): ExtractorManifest {
  const names = new Set<string>();
  for (const entry of extractors) {
   if (entry.name === '' || names.has(entry.name) || !Number.isSafeInteger(entry.version) || entry.version < 1) throw new Error(`extractor manifest: invalid or duplicate name/version ${entry.name}:${entry.version}`);
+  if (entry.contentDigest !== undefined && (typeof entry.contentDigest !== 'string' || entry.contentDigest.length !== 64 || [...entry.contentDigest].some((digit) => !'0123456789abcdef'.includes(digit)))) throw new Error(`extractor manifest: invalid content digest for ${entry.name}`);
   names.add(entry.name);
  }
- const entries = extractors.map((entry) => ({name:entry.name,version:entry.version}));
+ const entries = extractors.map((entry) => ({name:entry.name,version:entry.version,...(entry.contentDigest === undefined ? {} : {contentDigest:entry.contentDigest})})).sort((left,right)=>byCodePoint(left.name,right.name));
  return {format:1,extractors:entries,digest:canonicalJsonDigest(entries)};
 }
 /** A committed manifest is part of the graph folder, so the graph and its interpretation switch together. */

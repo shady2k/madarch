@@ -4,18 +4,21 @@
  * repository itself. A new extractor is added here when it lands; the driver
  * needs no other change.
  */
-import { CODE_PRODUCER, extractCode } from '../code/index.js';
+import { CODE_PRODUCER, extractCodeWithFacts } from '../code/index.js';
 import { extractContracts } from '../contracts/index.js';
 import { extractDataModel } from '../data-model/extract.js';
 import { extractHistory } from '../history/index.js';
 import { extractOperations, OPERATIONS_PRODUCER } from '../operations/index.js';
 import { extractFiles, FILES_PRODUCER } from './files.js';
 import type { HistoryExtractor, TreeExtractor } from './index.js';
+import { codeQueryDigest } from '../code/query.js';
+import { libraryModelDigest } from '../library-models/validate.js';
+import libraryModelSource from '../library-models/models.json' with { type: 'text' };
 
 /** Every tree extractor, in the order the driver runs them per commit. */
 const TREE_READERS = [
  {name:'extractFiles',version:2,extractor:extractFiles},
- {name:'extractCode',version:7,extractor:extractCode},
+ {name:'extractCode',version:8,extractor:extractCodeWithFacts},
  {name:'extractOperations',version:6,extractor:extractOperations},
  {name:'extractContracts',version:6,extractor:extractContracts},
  {name:'extractDataModel',version:4,extractor:extractDataModel},
@@ -38,5 +41,9 @@ export const OWNERS: Readonly<Record<string, string>> = { 'code.file': FILES_PRO
 /** The persistent index is rebuilt when any named reader's interpretation changes. */
 export const EXTRACTOR_VERSIONS = [
  ...TREE_READERS.map(({name,version})=>({name,version})), {name:'extractHistory',version:1},
+ {name:'code-structural-query-assets',version:1,contentDigest:codeQueryDigest()},
+ {name:'code-parser-runtime:web-tree-sitter@0.25.10:tree-sitter-wasms@0.1.13',version:1},
+ {name:'library-model-data',version:1,contentDigest:libraryModelDigest},
+ {name:'library-model-source-bytes',version:1,contentDigest:codeQueryDigest([{path:'library-models/models.json',source:libraryModelSource as unknown as string}])},
  {name:'driver-and-link-normalization',version:6},
 ] as const;
