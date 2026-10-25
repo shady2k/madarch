@@ -566,8 +566,8 @@ export async function extractDataModel(tree: TreeReader, suppliedCode?: Extracti
     const prismaPath = prismaSchemas.get(database.name);
     if (prismaPath !== undefined) for (const table of database.tables.values()) if (table.span?.path === prismaPath) readings.push({kind: 'schema', span: table.span});
     for (const table of database.tables.values()) if (table.span !== undefined && !readings.some((reading) => reading.span.path === table.span!.path && reading.span.byteStart === table.span!.byteStart && reading.span.byteEnd === table.span!.byteEnd)) readings.push({kind: 'schema', span: table.span});
-    if (readings.length === 0) throw new Error(`data model: database ${database.name} has no contributing storage reading`);
-    structuralEdges.push({type: 'code.uses-database', from: `code.service:${database.name}`, to: dbKey, discriminator: '', properties: {via: readings.some((reading) => reading.kind === 'schema') ? 'schema' : readings[0]!.kind, origins: readings.map((reading) => ({sourceProducer: DATA_MODEL_PRODUCER, originalDiscriminator: '', sourceSpan: {...reading.span}, properties: {via: reading.kind}}))}, span: readings[0]!.span});
+    if (readings.length === 0) gaps.push({path: database.migrations[0]?.path ?? `services/${database.name}`, reason: `line 1: database ${database.name} has no contributing storage reading; service use is unresolved`});
+    else structuralEdges.push({type: 'code.uses-database', from: `code.service:${database.name}`, to: dbKey, discriminator: '', properties: {via: readings.some((reading) => reading.kind === 'schema') ? 'schema' : readings[0]!.kind, origins: readings.map((reading) => ({sourceProducer: DATA_MODEL_PRODUCER, originalDiscriminator: '', sourceSpan: {...reading.span}, properties: {via: reading.kind}}))}, span: readings[0]!.span});
     for (const migration of database.migrations) {
       const migrationId = migrationKey(database.name, migration.name);
       edge('code.contains', dbKey, migrationId);

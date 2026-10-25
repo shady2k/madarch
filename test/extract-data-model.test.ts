@@ -191,6 +191,8 @@ describe('data-model extractor (training repository, answer key)', () => {
     const gap = read.gaps.find((candidate) => candidate.path === broken);
     expect(gap, `no gap for ${broken}`).toBeDefined();
     expect(gap!.reason).toContain('no table or column statement');
+    expect(read.edges.filter((edge) => edge.type === 'code.uses-database')).toEqual([]);
+    expect(read.gaps.some((candidate) => candidate.path === broken && candidate.reason.includes('line 1:') && candidate.reason.includes('no contributing storage reading'))).toBe(true);
   });
 });
 
@@ -325,8 +327,10 @@ describe('table-access items (answer key)', () => {
     const repositoryPath = 'services/orders/internal/store/order_repository.go';
     const writers = edgesOf('code.writes-table').filter((edge) => edge.to === table).map((edge) => edge.from);
     expect(writers).toContain(functionKey(repositoryPath, 'OrderRepository.Create'));
-    expect(writers).toContain(functionKey(repositoryPath, 'OrderRepository.Save'));
-    expect(writers).toContain(functionKey(repositoryPath, 'OrderRepository.Delete'));
+    for (const callback of ['OrderRepository.Save.callback@57:1448', 'OrderRepository.Delete.callback@237:7918']) {
+      expect(writers).toContain(functionKey(repositoryPath, callback));
+    }
+    for (const outer of ['OrderRepository.Save', 'OrderRepository.Delete']) expect(writers).not.toContain(functionKey(repositoryPath, outer));
     expect(writers).toContain(functionKey(repositoryPath, 'insertOrder'));
     for (const writer of writers) {
       expect(writer.startsWith(`code.symbol:${repositoryPath}#`) || writer.startsWith('code.file:'), writer).toBe(true);

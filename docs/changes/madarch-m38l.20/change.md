@@ -284,9 +284,18 @@ repair keeps the current design and fixes these mechanisms only:
   aliases, with the same lexical shadow guard as named-only imports.
 
 Operations and contracts reader versions advance from 4 to 5. Code remains
-7, data 3 and driver/link normalization 6. The existing extractor-set digest
+7 and driver/link normalization 6. The CI repair below advances data to 4. The existing extractor-set digest
 forces a clean derived-graph rebuild; no schema/API, allocator or reader IPC
 change is introduced. Boundary regressions and held positives accompany the
 repair. The recovered immutable `0c21224e` baseline's ten actual failures
 remain baseline evidence, not a final-head pass. Exact-head CI, final review
 and the finite 11-page by eight-combination capture remain separate checks.
+
+The terminal b217e5aa CI shard 1 also exposed one adjacent missing-reading
+failure: an unreadable or unsupported migration had no storage evidence and
+threw during relation assembly. It now keeps a located gap and withholds
+`code.uses-database`, without a fake span. The data reader therefore advances
+to 4. Save/Delete writer assertions name their exact actual transaction
+callbacks and explicitly reject fabricated direct parent writes. Existing
+sequence expectations remain unchanged; the handled-by route entry repair
+addresses their missing handler traversal at its source.

@@ -65,10 +65,12 @@ test('extractor catalog uses explicit unique names and positive versions, never 
 test('callback ownership, metric bindings, target matching and semantic evidence advance the persistent extractor interpretation', async () => {
  const {EXTRACTOR_VERSIONS}=await import('../src/extract/driver/extractors.js');
  expect(EXTRACTOR_VERSIONS.find((entry)=>entry.name==='extractCode')?.version).toBe(7);
- expect(EXTRACTOR_VERSIONS.find((entry)=>entry.name==='extractOperations')?.version).toBe(4);
- expect(EXTRACTOR_VERSIONS.find((entry)=>entry.name==='extractContracts')?.version).toBe(4);
+ expect(EXTRACTOR_VERSIONS.find((entry)=>entry.name==='extractOperations')?.version).toBe(5);
+ expect(EXTRACTOR_VERSIONS.find((entry)=>entry.name==='extractContracts')?.version).toBe(5);
  expect(EXTRACTOR_VERSIONS.find((entry)=>entry.name==='driver-and-link-normalization')?.version).toBe(6);
- expect(EXTRACTOR_VERSIONS.find((entry)=>entry.name==='extractDataModel')?.version).toBe(3);
+ expect(EXTRACTOR_VERSIONS.find((entry)=>entry.name==='extractDataModel')?.version).toBe(4);
  const prior=EXTRACTOR_VERSIONS.map((entry)=>entry.name==='extractCode'||entry.name==='driver-and-link-normalization'?{...entry,version:5}:entry.name==='extractOperations'||entry.name==='extractContracts'?{...entry,version:2}:entry);
- expect(extractorManifest(EXTRACTOR_VERSIONS).digest).not.toBe(extractorManifest(prior).digest);
+ const current=extractorManifest(EXTRACTOR_VERSIONS);
+ expect(current.digest).not.toBe(extractorManifest(prior).digest);
+ console.info('extractor-catalog',JSON.stringify(current));
 });
