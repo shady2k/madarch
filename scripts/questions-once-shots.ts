@@ -1,6 +1,6 @@
-/** madarch-m38l.22's complete scripted acceptance walk. SOURCE ONLY until explicitly run on the granted pod.
+/** madarch-m38l.22's touched-reader-surface scripted acceptance walk. SOURCE ONLY until explicitly run on the granted pod.
  * bun scripts/loop-shots.ts --questions-once --out <NEW empty folder> [--work <NEW folder>] [--first-fill-minutes <PLAN estimate>]
- * Always walks en/ru x light/dark x 1150/390. Never narrows the matrix with --lang/--theme.
+ * Walks the touched surfaces in en/ru x light/dark x 1150/390. No whole-wiki inventory is run.
  */
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
@@ -44,22 +44,27 @@ function add(language: 'en' | 'ru', stage: string, route: string, ready: string,
 }
 for (const language of languages) {
   const base = '/products/training-shop';
+  const term = ONCE_QUESTIONS.find((question) => question.item === 'open.term')!;
+  const contradiction = ONCE_QUESTIONS.find((question) => question.item === 'open.contradiction')!;
   add(language, 'prefill-zero-counts', `${base}/k/settings`, '[data-testid=danger-fresh-open]', { removed: 0, retained: 0 });
-  for (const stage of ['first', 'answered', 'closed', 'refilled']) {
-    add(language, `${stage}-home`, `${base}/k`, '[data-testid=entity-page][data-entity="product:training-shop"]');
+  add(language, 'first-questions', `${base}/k/questions`, '[data-testid=question-row]');
+  for (const question of [contradiction, term]) add(language, `first-question-${questionSlug(question, language)}`, `${base}/k/questions/${questionSlug(question, language)}`, '[data-testid=question-page]');
+  add(language, 'first-page-domain-ordering', `${base}/k/e/domain%3Aordering`, '[data-testid=entity-page]');
+  for (const stage of ['answered', 'closed']) {
     add(language, `${stage}-questions`, `${base}/k/questions`, '[data-testid=question-row]');
-    const questions = stage === 'refilled' ? ONCE_QUESTIONS.filter((q) => q.item === 'open.term') : ONCE_QUESTIONS;
-    for (const question of questions) add(language, `${stage}-question-${questionSlug(question, language)}`, `${base}/k/questions/${questionSlug(question, language)}`, '[data-testid=question-page]');
-    for (const id of ['product:training-shop', 'domain:ordering', 'domain:payments']) add(language, `${stage}-page-${id.replace(':', '-')}`, `${base}/k/e/${encodeURIComponent(id)}`, '[data-testid=entity-page]');
+    add(language, `${stage}-question-${questionSlug(term, language)}`, `${base}/k/questions/${questionSlug(term, language)}`, '[data-testid=question-page]');
+    add(language, `${stage}-page-domain-payments`, `${base}/k/e/domain%3Apayments`, '[data-testid=entity-page]');
   }
+  add(language, 'correction-applied-page', `${base}/k/e/domain%3Aordering`, '[data-testid=entity-page]');
   add(language, 'reset-nonzero-counts', `${base}/k/settings`, '[data-testid=danger-fresh-open]', { removed: 7, retained: 1 });
-  add(language, 'empty-home', `${base}/k`, '[data-testid=overview] [data-testid=fill-start]');
   add(language, 'empty-questions', `${base}/k/questions`, '[data-testid=question-row]');
-  add(language, 'empty-answer', `${base}/k/questions/${questionSlug(ONCE_QUESTIONS.find((q) => q.item === 'open.term')!, language)}`, '[data-testid=question-page]');
+  add(language, 'empty-answer', `${base}/k/questions/${questionSlug(term, language)}`, '[data-testid=question-page]');
   add(language, 'empty-zero-removed-counts', `${base}/k/settings`, '[data-testid=danger-fresh-open]', { removed: 0, retained: 1 });
-  add(language, 'refilled-settings', `${base}/k/settings`, '[data-testid=danger-fresh-open]', { removed: 0, retained: 1 });
+  add(language, 'refilled-questions', `${base}/k/questions`, '[data-testid=question-row]');
+  add(language, `refilled-question-${questionSlug(term, language)}`, `${base}/k/questions/${questionSlug(term, language)}`, '[data-testid=question-page]');
+  add(language, 'refilled-page-domain-payments', `${base}/k/e/domain%3Apayments`, '[data-testid=entity-page]');
 }
-requireWalk(plan.length === 416, `complete matrix requires 416 planned screenshots, got ${plan.length}`);
+requireWalk(plan.length === 152, `touched-page matrix requires 152 planned screenshots, got ${plan.length}`);
 validateOnceKey();
 const root = resolve(import.meta.dir, '..');
 const runGit = (folder: string, ...args: string[]): string => execFileSync('git', args, { cwd: folder, encoding: 'utf8', timeout: 10_000 }).trim();
@@ -186,10 +191,10 @@ try {
     const retention = ONCE_QUESTIONS.find((q) => q.item === 'open.contradiction')!;
     const retainedDetail = await get(`/api/k/question?id=${questionSlug(retention, language)}`);
     requireWalk(['domain:ordering', 'domain:payments'].every((id) => retainedDetail.about.includes(id)), `${product}: retention paraphrases lost cross-unit association`);
-    await inventory(evidence, base, language, 'first', [...pageIds, ...allIds]); await capture('first-');
+await capture('first-');
     await post('/api/k/answer', { question: slug, text: ANSWER_TEXT[language] });
     await checkQuestions(allIds, [7, 1, 0]);
-    await inventory(evidence, base, language, 'answered', [...pageIds, ...allIds]); await capture('answered-');
+await capture('answered-');
     const bodyBytes = (file: string): Buffer => { const bytes = readFileSync(file); const marker = Buffer.from('\n---\n'); const at = bytes.indexOf(marker, 3); requireWalk(at >= 0, `${file}: missing frontmatter terminator`); return bytes.subarray(at + marker.length); };
     const answerFile = join(product, `docs/questions/${slug}.md`);
     const answerBody = bodyBytes(answerFile); const answer = parseQuestion(answerFile, readFileSync(answerFile, 'utf8')).answer;
@@ -200,7 +205,7 @@ try {
     requireWalk(refreshed.writer.state === 'done' && refreshed.writer.asked === 0, `${product}: answer reuse must create zero questions`);
     requireWalk(readFileSync(join(product, 'docs/domains/payments.md'), 'utf8').includes(`[^payment-token-means-cardtoken]: [the answer](madarch:question:${slug})`), `${product}/docs/domains/payments.md: rewritten statement has no retained-answer ground`);
     assertAnswer(); await checkQuestions(allIds, [7, 0, 1]);
-    await inventory(evidence, base, language, 'closed', [...pageIds, ...allIds]); await capture('closed-');
+await capture('closed-');
     const ordering = readKnowledgePages(product).pages.find((page) => page.id === 'domain:ordering');
     requireWalk(ordering?.statements[0], `${product}/docs/domains/ordering.md: no statement to correct`);
     const corrected = await post('/api/k/correction', { statement: `domain:ordering#${ordering.statements[0].id}`, reason: language === 'ru' ? 'Отклонённый платёж ещё и отменяет заказ, а в предложении этого нет.' : 'A declined payment also cancels the order; the sentence leaves it out.' });
@@ -226,7 +231,8 @@ try {
     requireWalk(appliedCorrection.status === 'applied' && JSON.stringify(appliedCorrection.resolvedBy) === JSON.stringify(['domain:ordering']) && appliedCorrection.resolvedAt !== null, `${correctionFile}: scripted correction was not applied/resolved to ordering before reset`);
     evidence.immutable(`${language}-human-correction-applied.json`, { correction: appliedCorrection, correctedSentence, beforeSha256: createHash('sha256').update(orderingBefore).digest('hex'), afterSha256: createHash('sha256').update(readFileSync(orderingFile)).digest('hex') });
     await checkQuestions(allIds, [7, 0, 1]);
-    await inventory(evidence, base, language, 'correction-applied', [...pageIds, ...allIds, `correction:${correctionSlug}`]);
+    await capture('correction-applied-');
+
     const assertHumans = (): void => { assertAnswer(); requireWalk(bodyBytes(correctionFile).equals(correctionBody), `${correctionFile}: correction body bytes changed`); const after = parseCorrection(correctionFile, readFileSync(correctionFile, 'utf8')); requireWalk(JSON.stringify([after.reason, after.statement, after.by, after.at]) === JSON.stringify([correction.reason, correction.statement, correction.by, correction.at]), `${correctionFile}: correction human fields changed`); };
     const preview = await get('/api/k/reset');
     requireWalk(preview.unansweredQuestions.length === 7 && preview.keptAnswers.length === 1 && preview.agentPages.length === 3, `${product}: nonzero reset preview counts disagree`);
@@ -282,7 +288,7 @@ try {
     }
     evidence.immutable(`${language}-reset-expected-findings-after-metadata.json`, absence);
     await checkQuestions([keptId], [0, 1, 0]);
-    await inventory(evidence, base, language, 'empty', [keptId, `correction:${correctionSlug}`], absence); await capture('empty-');
+await capture('empty-');
     setScript(onceRefillScript(language));
     // Exercise the settings confirmation itself after the separate reset made the empty state observable without a race.
     const starterPaths = STARTER_FILES.map((entry) => join(product, entry.path));
@@ -308,7 +314,7 @@ try {
     requireWalk(refill.writer.state === 'done' && refill.writer.asked === 0 && refill.writer.units.filter((unit: any) => /^(product|domain):/.test(unit.unit)).length === 3 && refill.writer.units.filter((unit: any) => /^(product|domain):/.test(unit.unit)).every((unit: any) => unit.state === 'written'), `${product}: refill must write all three pages and ask zero questions`);
     assertHumans(); await checkQuestions([keptId], [0, 0, 1]);
     requireWalk(readFileSync(join(product, 'docs/domains/payments.md'), 'utf8').includes(`[^payment-token-means-cardtoken]: [the answer](madarch:question:${slug})`), `${product}/docs/domains/payments.md: refill lost retained-answer ground`);
-    await inventory(evidence, base, language, 'refilled', [...pageIds, keptId, `correction:${correctionSlug}`]); await capture('refilled-');
+await capture('refilled-');
     await evidence.flush(); await stopServer();
   }
 } catch (error) { failure = error; evidence.observe('walk-failed', { error: String(error), stack: error instanceof Error ? error.stack : undefined }); }

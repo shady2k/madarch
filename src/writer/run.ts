@@ -322,6 +322,13 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
   const finish = (unit: string, outcome: UnitOutcome): void => {
     askedIds.push(...outcome.questions);
     if (outcome.status !== 'written' || outcome.writeAttempts === 0) return;
+    // A fresh page can use a retained answer even when no existing page gave it an edit brief.
+    // Only checked statement grounds count; a link, an open question or an unwritten page does not.
+    for (const key of outcome.grounds) {
+      if (!questions.some((question) => question.id === key && question.status === 'answered')) continue;
+      if (!expected.has(key)) expected.set(key, new Set());
+      expected.get(key)!.add(unit);
+    }
     for (const [key, units] of expected) if (units.has(unit)) { if (!done.has(key)) done.set(key, new Set()); done.get(key)!.add(unit); }
   };
   // The domains the product page declares now, as their pages say, for a product unit that edits.

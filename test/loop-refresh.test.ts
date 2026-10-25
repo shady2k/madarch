@@ -19,7 +19,7 @@ import { HISTORY_EXTRACTOR, OWNERS, TREE_EXTRACTORS } from '../src/extract/drive
 import { createGraphStore, type GraphStore } from '../src/graph/index.js';
 import { indexCounts, indexWorkerProduct, statementsRelyingOn } from '../src/knowledge/index/index.js';
 import { answerQuestion, markResolved } from '../src/loop/answer.js';
-import { readQuestions } from '../src/loop/entities.js';
+import { readQuestions, renderQuestion } from '../src/loop/entities.js';
 import { briefsFor, neededFrom, planRefresh } from '../src/loop/plan.js';
 import { listProblems, listQuestions } from '../src/loop/views.js';
 import { createDraft } from '../src/product/draft.js';
@@ -430,4 +430,39 @@ describe('the question tool is bounded and checks what it is given', () => {
     const refused = await tools.call('ask_question', good('?!'));
     expect(problemsOf(refused.answer)).toContain('"title" has no word to name the question by');
   });
+});
+
+// A reset removes generated pages, so a retained answer can first reach a newly created page outside the edit plan.
+describe('retained answers used by fresh pages (madarch-m38l.22)', () => {
+  test('only successful grounded answered uses close; planned unfinished pages still prevent closure', async () => {
+    const original = readQuestions(productFolder).items.find((question) => question.status === 'answered')!;
+    expect(original.answer).not.toBeNull();
+    for (const mode of ['grounded', 'unrelated', 'mention', 'failed', 'open', 'partial'] as const) {
+      const output = path.join(scratch, `closure-${mode}`); mkdirSync(path.join(output, 'docs/questions'), { recursive: true });
+      const question = { ...original, slug: 'retained-answer', status: mode === 'open' ? 'open' as const : 'answered' as const, answer: mode === 'open' ? null : original.answer, resolvedBy: [], resolvedAt: null };
+      const source = renderQuestion(question); writeFileSync(path.join(output, 'docs/questions/retained-answer.md'), source);
+      const key = 'question:retained-answer';
+      const declarations = [{ slug: 'pricing', title: 'Pricing', summary: 'The order pricing rules.', evidence: ['code.file:src/pricing.ts'] }, ...(mode === 'partial' ? [{ slug: 'shipping', title: 'Shipping', summary: 'The delivery rules.', evidence: ['code.file:src/pricing.ts'] }] : [])];
+      const agent: UnitAgent = { run: async (request) => {
+        if (request.id.startsWith('product:')) {
+          const markdown = ['---', 'id: product:closure-shop', 'kind: product', 'title: Closure shop', 'relates: []', 'producer: agent', 'sources: [README.md]', '---', '', 'The shop prices orders.[^shop]', '', '## Domains', '', ...declarations.map((domain) => `- [${domain.title}](madarch:domain:${domain.slug}) covers order rules.[^shop]`), '', '[^shop]: [README](madarch:doc:README.md#overview)'].join('\n');
+          const result = await call(request, 'write_page', { markdown, domains: declarations }); expect(result.isError, JSON.stringify(result.answer)).toBe(false); return;
+        }
+        if (mode === 'failed' || request.id === 'domain:shipping') return;
+        const ground = mode === 'unrelated' || mode === 'mention' ? 'doc:README.md#tax' : key;
+        const markdown = ['---', 'id: domain:pricing', 'kind: domain', 'title: Pricing', 'relates: []', 'producer: agent', 'sources: [README.md]', '---', '', 'The policy is the rule a person chose.[^policy]', '', ...(mode === 'mention' ? [`See [the answered question](madarch:${key}).`, ''] : []), `[^policy]: [the policy](madarch:${ground})`].join('\n');
+        const result = await call(request, 'write_page', { markdown }); expect(result.isError, JSON.stringify(result.answer)).toBe(mode === 'open');
+      } };
+      const closed: unknown[] = [];
+      const answer = original.answer!;
+      const report = await runWriter({ owner, store, repository, output, productName: 'Closure shop', agent, language: 'en',
+        ...(mode === 'partial' ? { needed: () => ({ product: true, domain: () => true, brief: (file: string) => file.startsWith('docs/domains/') ? { current: null, notes: [{ kind: 'answer' as const, question: 'retained-answer', title: original.title, answer: answer.text, by: answer.by.name, at: answer.at, sides: original.sides }], omitted: 0 } : undefined }) } : {}),
+        resolved: async (used) => { closed.push(used); await markResolved(output, used); },
+      });
+      expect(closed).toEqual(mode === 'grounded' ? [{ kind: 'question', slug: 'retained-answer', pages: ['domain:pricing'] }] : []);
+      const kept = readQuestions(output).items[0]!; expect(kept.answer).toEqual(question.answer); expect(kept.resolvedBy).toEqual(mode === 'grounded' ? ['domain:pricing'] : []);
+      if (mode === 'grounded') expect(report.ok).toBe(true);
+      else expect(readFileSync(path.join(output, 'docs/questions/retained-answer.md'), 'utf8')).toBe(source);
+    }
+  }, 300_000);
 });
