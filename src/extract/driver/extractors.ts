@@ -23,6 +23,8 @@ import { messagingModelDigest } from '../library-models/messaging-models.js';
 import messagingModelSource from '../library-models/messaging-models.json' with { type: 'text' };
 import { environmentModelDigest } from '../library-models/environment-models.js';
 import environmentModelSource from '../library-models/environment-models.json' with { type: 'text' };
+import { grpcDeadlineModelDigest } from '../library-models/grpc-deadline-models.js';
+import grpcDeadlineModelSource from '../library-models/grpc-deadline-models.json' with { type: 'text' };
 import { outboxModelDigest } from '../library-models/outbox-models.js';
 import outboxModelSource from '../library-models/outbox-models.json' with { type: 'text' };
 import { shellCommandModelDigest } from '../library-models/shell-command-models.js';
@@ -33,8 +35,8 @@ const TREE_READERS = [
  {name:'extractFiles',version:2,extractor:extractFiles},
  {name:'extractCode',version:13,extractor:extractCodeWithFacts},
  {name:'extractOperations',version:14,extractor:extractOperations},
- {name:'extractContracts',version:12,extractor:extractContracts},
- {name:'extractDataModel',version:6,extractor:extractDataModel},
+ {name:'extractContracts',version:13,extractor:extractContracts},
+ {name:'extractDataModel',version:7,extractor:extractDataModel},
 ] as const;
 export const TREE_EXTRACTORS: readonly TreeExtractor[] = TREE_READERS.map((entry)=>entry.extractor);
 
@@ -66,6 +68,8 @@ export const EXTRACTOR_VERSIONS = [
  {name:'messaging-model-source-bytes',version:1,contentDigest:codeQueryDigest([{path:'library-models/messaging-models.json',source:messagingModelSource as unknown as string}])},
  {name:'environment-model-data',version:1,contentDigest:environmentModelDigest},
  {name:'environment-model-source-bytes',version:1,contentDigest:codeQueryDigest([{path:'library-models/environment-models.json',source:environmentModelSource as unknown as string}])},
+ {name:'grpc-deadline-model-data',version:1,contentDigest:grpcDeadlineModelDigest},
+ {name:'grpc-deadline-model-source-bytes',version:1,contentDigest:codeQueryDigest([{path:'library-models/grpc-deadline-models.json',source:grpcDeadlineModelSource as unknown as string}])},
  {name:'outbox-model-data',version:1,contentDigest:outboxModelDigest},
  {name:'outbox-model-source-bytes',version:1,contentDigest:codeQueryDigest([{path:'library-models/outbox-models.json',source:outboxModelSource as unknown as string}])},
  {name:'sql-parser-runtime:libpg-query@18.2.1',version:1},

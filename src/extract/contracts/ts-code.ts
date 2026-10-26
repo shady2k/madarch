@@ -15,6 +15,7 @@ import type {CodeBindingFact, CodeCallFact, CodeExpressionFact} from '../code/fa
 import type {TreeText} from '../operations/source.js';
 import {libraryRegistry} from '../library-models/validate.js';
 import {messagingTypes} from '../library-models/messaging-models.js';
+import {grpcDeadlineModel, type GrpcDeadlineModel} from '../library-models/grpc-deadline-models.js';
 
 /** One route registered on an Express app or router, as the file states it (mounts joined later). */
 export interface TsRoute {
@@ -63,12 +64,6 @@ export interface TsFileFacts {
   readonly grpcSites: readonly {kind: 'serve' | 'call'; rpc: string; fn?: string; className?: string; handlerSpan?: SourceSpan; span: SourceSpan}[];
   /** The identifier arguments of every call, by callee name (`query` -> [['prisma', 'sql']]). */
   readonly callSiteArgs: ReadonlyMap<string, readonly (readonly string[])[]>;
-  /** The deadline hops this file states: the client field and the class that carries it. */
-  readonly deadlineField?: {field: string; className: string};
-  /** `new <Class>(...)` and the text of each argument (`PaymentsClient` -> ['config.paymentsAddr', ...]). */
-  readonly newCalls: ReadonlyMap<string, readonly string[]>;
-  /** Config properties with a literal fallback: `paymentsDeadlineMs` -> 8000. */
-  readonly configDefaults: ReadonlyMap<string, number>;
   readonly inputs: readonly {name: string; fn?: string; span: SourceSpan}[];
   /** The query parameters each function returns under its own name (`readFilters` -> order, status, ...). */
   readonly returnedQueryProps: ReadonlyMap<string, readonly string[]>;
@@ -102,9 +97,6 @@ export function readTsFile(path: string, root: SyntaxNode): TsFileFacts {
   const fetchCalls: {urlText: string; method: string; tokenForwarded: boolean; client?: string; span: SourceSpan}[] = [];
   let protoRel: string | undefined;
   const grpcSites: {kind: 'serve' | 'call'; rpc: string; fn?: string; className?: string; handlerSpan?: SourceSpan; span: SourceSpan}[] = [];
-  let deadlineField: {field: string; className: string} | undefined;
-  const newCalls = new Map<string, string[]>();
-  const configDefaults = new Map<string, number>();
   const inputs: {name: string; fn?: string; span: SourceSpan}[] = [];
   const stringSplicers: {fn: string; spliced: string[]; span: SourceSpan}[] = [];
   const bindings = new Map<string, {calls: Set<string>; vars: Set<string>}>();
@@ -182,27 +174,6 @@ export function readTsFile(path: string, root: SyntaxNode): TsFileFacts {
         // The app of the file is the one variable `express()` builds; it stands
         // inside the app factory, not at the top level.
         if (value.type === 'call_expression' && calleeName(value) === 'express') appVar = name;
-        // The client field a deadline comes from: `const deadline = ... this.<field>`.
-        if (name === 'deadline' && deadlineField === undefined) {
-          const match = /this\.([A-Za-z0-9_]+)/.exec(value.text);
-          if (match !== null) {
-            const className = classOfField(root, match[1]!);
-            if (className !== undefined) deadlineField = {field: match[1]!, className};
-          }
-        }
-      }
-      return;
-    }
-    if (node.type === 'new_expression') {
-      const className = node.childForFieldName('constructor')?.text;
-      const args = node.childForFieldName('arguments');
-      if (className !== undefined && args !== null) {
-        const argTexts: string[] = [];
-        for (let i = 0; i < args.childCount; i++) {
-          const arg = args.child(i);
-          if (arg !== null && arg.type !== ',' && arg.type !== '(' && arg.type !== ')') argTexts.push(arg.text);
-        }
-        newCalls.set(className, argTexts);
       }
       return;
     }
@@ -210,9 +181,6 @@ export function readTsFile(path: string, root: SyntaxNode): TsFileFacts {
       const key = node.childForFieldName('key')?.text;
       const value = node.childForFieldName('value');
       if (key !== undefined && value !== null) {
-        // A config property with a literal fallback: `paymentsDeadlineMs: Number(env.X ?? 8000)`.
-        const fallback = /\?\?\s*(\d+)/.exec(value.text);
-        if (fallback !== null && /^[A-Za-z0-9_]+$/.test(key)) configDefaults.set(key, Number(fallback[1]));
         // A gRPC server handler object's key with a function value.
         if (value.type === 'arrow_function' || value.type === 'function_expression') {
           grpcSites.push({kind: 'serve', rpc: key, fn: enclosingFunctionName(node), handlerSpan: spanOf(value, path), span: spanOf(node, path)});
@@ -475,9 +443,6 @@ export function readTsFile(path: string, root: SyntaxNode): TsFileFacts {
     protoRel,
     grpcSites,
     callSiteArgs,
-    deadlineField,
-    newCalls,
-    configDefaults,
     inputs,
     returnedQueryProps: returnedQueryProps(root),
     stringSplicers,
@@ -608,25 +573,6 @@ function qualifiedClient(node: SyntaxNode): string | undefined {
     held = held.parent;
   }
   return undefined;
-}
-
-/** The class whose constructor carries a parameter property of this name. */
-function classOfField(root: SyntaxNode, field: string): string | undefined {
-  let found: string | undefined;
-  walkTree(root, (node) => {
-    if (found !== undefined || node.type !== 'class_declaration') return;
-    const body = node.childForFieldName('body');
-    if (body === null) return;
-    walkTree(body, (inner) => {
-      if (found !== undefined) return;
-      const isParameterProperty = inner.type === 'required_parameter' && /private|readonly|public/.test(inner.text);
-      const isProperty = (inner.type === 'property_definition' || inner.type === 'field_definition') && /private|readonly|public/.test(inner.text);
-      if ((isParameterProperty || isProperty) && new RegExp(`\\b${field}\\b`).test(inner.text)) {
-        found = node.childForFieldName('name')?.text;
-      }
-    });
-  });
-  return found;
 }
 
 function enclosingFunctionName(node: SyntaxNode): string | undefined {
@@ -1096,4 +1042,196 @@ export function structuralPublishers(source: TreeText): {sites: StructuralPublic
     }
   }
   return {sites,gaps};
+}
+
+/** A deadline proved for one exact gRPC call, never for a same-name client. */
+export interface StructuralGrpcDeadline {
+  readonly deadlineMs: number;
+  readonly evidence: readonly SourceSpan[];
+}
+
+/**
+ * Bounded proof: options property -> Date(clock + this.parameterProperty) ->
+ * the unique canonical construction -> its actual config binding -> one
+ * direct object return -> numeric nullish fallback. No source text is read.
+ */
+export function structuralGrpcDeadline(source: TreeText, siteSpan: SourceSpan, model: GrpcDeadlineModel = grpcDeadlineModel): StructuralGrpcDeadline | undefined {
+  const facts = source.facts;
+  if (facts === undefined || source.code === undefined) return undefined;
+  const unique = <T>(values: readonly T[]): T | undefined => values.length === 1 ? values[0] : undefined;
+  const contains = (outer: SourceSpan, inner: SourceSpan): boolean => outer.path === inner.path && outer.byteStart <= inner.byteStart && inner.byteEnd <= outer.byteEnd;
+  const same = (a: SourceSpan, b: SourceSpan): boolean => contains(a, b) && contains(b, a);
+  const index = <T>(values: readonly T[], key: (value: T) => string): Map<string, T> => {
+    const result = new Map<string, T>(); const duplicates = new Set<string>();
+    for (const value of values) {
+      const id = key(value);
+      if (result.has(id) || duplicates.has(id)) { result.delete(id); duplicates.add(id); }
+      else result.set(id, value);
+    }
+    return result;
+  };
+  const expressions = index(facts.expressions, value => value.id);
+  const bindings = index(facts.bindings, value => value.id);
+  const imports = index(facts.imports, value => value.id);
+  const calls = index(facts.calls, value => value.expression);
+  const symbols = index(facts.symbols, value => value.key);
+  const parsed = new Set(facts.files.filter(file => file.parsed && file.language === 'typescript').map(file => file.path));
+  const expression = (id: string | undefined): CodeExpressionFact | undefined => {
+    const value = id === undefined ? undefined : expressions.get(id);
+    return value !== undefined && value.path === value.span.path && parsed.has(value.path) ? value : undefined;
+  };
+  const children = (node: CodeExpressionFact): CodeExpressionFact[] | undefined => {
+    const result: CodeExpressionFact[] = []; let end = node.span.byteStart;
+    for (const id of node.children) {
+      const child = expression(id);
+      if (child === undefined || !contains(node.span, child.span) || child.span.byteStart < end) return undefined;
+      end = child.span.byteEnd;
+      if (child.syntaxKind !== 'comment') result.push(child);
+    }
+    return result;
+  };
+  const field = (node: CodeExpressionFact, name: string): CodeExpressionFact | undefined => {
+    const id = unique(node.fields[name] ?? []); const child = expression(id);
+    return child !== undefined && node.children.includes(child.id) && contains(node.span, child.span) ? child : undefined;
+  };
+  const written = new Set<string>(); const writtenMembers = new Set<string>();
+  const mark = (node: CodeExpressionFact): void => {
+    if (node.bindingId !== undefined) written.add(node.bindingId);
+    if (node.member !== undefined) writtenMembers.add(node.member);
+    for (const child of children(node) ?? []) mark(child);
+  };
+  for (const node of expressions.values()) {
+    if (['assignment_expression', 'augmented_assignment_expression'].includes(node.syntaxKind)) {
+      const left = field(node, 'left'); if (left !== undefined) mark(left);
+    }
+    if (node.syntaxKind === 'update_expression') mark(node);
+  }
+  const bindingOf = (node: CodeExpressionFact): CodeBindingFact | undefined => {
+    const binding = node.bindingId === undefined ? undefined : bindings.get(node.bindingId);
+    return binding !== undefined && binding.path === node.path && contains(binding.scope, node.span) && !written.has(binding.id)
+      && (binding.kind !== 'local' || binding.span.byteStart <= node.span.byteStart) ? binding : undefined;
+  };
+  const unwrap = (raw: CodeExpressionFact | undefined, seen = new Set<string>()): CodeExpressionFact | undefined => {
+    if (raw === undefined || seen.has(raw.id) || seen.size >= 40) return undefined;
+    seen.add(raw.id);
+    if (raw.bindingId !== undefined) {
+      const binding = bindingOf(raw); if (binding === undefined) return undefined;
+      if (binding.kind === 'local' && binding.initializer !== undefined) return unwrap(expression(binding.initializer), seen);
+      if (binding.kind === 'import') {
+        const imported = binding.importId === undefined ? undefined : imports.get(binding.importId);
+        const target = expression(imported?.targetExpression);
+        if (imported?.typeOnly || imported?.targetPath === undefined || target?.path !== imported.targetPath) return undefined;
+        return unwrap(target, seen);
+      }
+    }
+    if (raw.syntaxKind === 'parenthesized_expression') return unwrap(unique(children(raw) ?? []), seen);
+    return raw;
+  };
+  const validCall = (call: CodeCallFact): boolean => {
+    const node = expression(call.expression); const callee = expression(call.callee);
+    return node !== undefined && callee !== undefined && same(node.span, call.span) && node.callee === call.callee
+      && node.children.includes(callee.id) && contains(node.span, callee.span)
+      && JSON.stringify(node.arguments) === JSON.stringify(call.arguments)
+      && call.arguments.every(id => { const argument = expression(id); return argument !== undefined && contains(node.span, argument.span); });
+  };
+  const callOf = (node: CodeExpressionFact | undefined): CodeCallFact | undefined => {
+    const call = node === undefined ? undefined : calls.get(node.id); return call !== undefined && validCall(call) ? call : undefined;
+  };
+  const callEdges = new Set(source.code.edges.filter(edge => edge.type === 'code.calls').map(edge => JSON.stringify([edge.from, edge.to])));
+  const targetOf = (call: CodeCallFact): string | undefined => {
+    const callee = expression(call.callee); if (callee === undefined) return undefined;
+    const sites = facts.sites.filter(site => site.use === 'call' && site.holder === call.holder && contains(callee.span, site.span));
+    const key = unique([...new Set(sites.map(site => site.to))]);
+    const symbol = key === undefined ? undefined : symbols.get(key);
+    if (symbol === undefined || !callEdges.has(JSON.stringify([call.holder, symbol.key])) || sites.some(site => site.fanOut.length > 0)) return undefined;
+    if (symbol.path !== call.path) {
+      const binding = bindingOf(callee); const imported = binding?.importId === undefined ? undefined : imports.get(binding.importId);
+      if (binding?.kind !== 'import' || imported?.typeOnly || imported?.targetPath !== symbol.path || imported.targetExpression === undefined) return undefined;
+    }
+    return symbol.key;
+  };
+  // Unbound globals are builtins only when no lexical declaration shadows them.
+  const builtin = (node: CodeExpressionFact | undefined, name: string): boolean => {
+    if (node?.syntaxKind !== 'identifier' || node.name !== name || node.bindingId !== undefined) return false;
+    if (facts.bindings.some(binding => binding.name === name && contains(binding.scope, node.span))) return false;
+    return !facts.expressions.some(declaration => {
+      if (!['function_declaration', 'class_declaration', 'abstract_class_declaration', 'interface_declaration', 'type_alias_declaration', 'enum_declaration'].includes(declaration.syntaxKind) || field(declaration, 'name')?.name !== name) return false;
+      const parents = facts.expressions.filter(parent => parent.children.includes(declaration.id));
+      const parent = unique(parents); if (parent === undefined) return true;
+      const scope = parent.syntaxKind === 'export_statement' ? unique(facts.expressions.filter(outer => outer.children.includes(parent.id))) : parent;
+      return scope === undefined || contains(scope.span, node.span);
+    });
+  };
+  const property = (object: CodeExpressionFact | undefined, key: string): CodeExpressionFact | undefined => {
+    if (object?.syntaxKind !== 'object' || writtenMembers.has(key)) return undefined;
+    const entries = children(object); if (entries === undefined) return undefined;
+    const matches: CodeExpressionFact[] = [];
+    for (const entry of entries) {
+      if (entry.syntaxKind === 'shorthand_property_identifier') {
+        if (entry.name === key) matches.push(entry);
+      } else if (entry.syntaxKind === 'pair') {
+        const name = field(entry, 'key');
+        if (name?.syntaxKind !== 'property_identifier' && name?.literal?.kind !== 'string') return undefined;
+        if ((name.name ?? name.literal?.value) === key) {
+          const value = field(entry, 'value'); if (value === undefined) return undefined; matches.push(value);
+        }
+      } else return undefined;
+    }
+    return unwrap(unique(matches));
+  };
+  const site = unique([...calls.values()].filter(call => same(call.span, siteSpan)));
+  if (site === undefined || site.construct || !validCall(site)) return undefined;
+  const options = unwrap(expression(site.arguments[model.optionsArgument]));
+  const deadline = property(options, model.deadlineProperty);
+  const date = callOf(deadline);
+  if (date === undefined || !date.construct || !builtin(expression(date.callee), model.dateConstructor) || date.arguments.length !== 1) return undefined;
+  const sum = unwrap(expression(date.arguments[0]));
+  if (sum?.syntaxKind !== 'binary_expression' || sum.operator !== '+') return undefined;
+  const clock = callOf(unwrap(field(sum, 'left'))); const duration = unwrap(field(sum, 'right'));
+  const clockCallee = clock === undefined ? undefined : expression(clock.callee);
+  if (clock === undefined || clock.construct || clock.arguments.length !== 0 || clockCallee?.member !== model.clockMember
+    || !builtin(expression(clockCallee.receiver), model.dateConstructor)) return undefined;
+  const receiver = expression(duration?.receiver); const owner = receiver === undefined ? undefined : bindingOf(receiver);
+  if (duration?.syntaxKind !== 'member_expression' || duration.member === undefined || writtenMembers.has(duration.member) || receiver?.syntaxKind !== 'this' || owner?.kind !== 'receiver') return undefined;
+  const cls = unique([...expressions.values()].filter(node => ['class_declaration', 'abstract_class_declaration'].includes(node.syntaxKind)
+    && same(field(node, 'name')?.span ?? node.span, owner.span) && contains(node.span, receiver.span)));
+  const body = cls === undefined ? undefined : field(cls, 'body');
+  const ctor = body === undefined ? undefined : unique((children(body) ?? []).filter(node => node.syntaxKind === 'method_definition' && field(node, 'name')?.name === 'constructor'));
+  const parameters = ctor === undefined ? undefined : field(ctor, 'parameters');
+  const params = parameters === undefined ? undefined : children(parameters);
+  if (cls === undefined || ctor === undefined || params === undefined) return undefined;
+  const ordinals = params.flatMap((param, at) => {
+    const name = field(param, 'pattern');
+    return name?.name === duration.member && (children(param) ?? []).some(modifier => ['accessibility_modifier', 'readonly'].includes(modifier.syntaxKind)) ? [at] : [];
+  });
+  const ordinal = unique(ordinals);
+  const ctorSymbol = unique([...symbols.values()].filter(symbol => symbol.callable && symbol.path === ctor.path && symbol.span.byteEnd === ctor.span.byteEnd && contains(symbol.span, ctor.span)));
+  if (ordinal === undefined || ctorSymbol === undefined) return undefined;
+  const constructions = [...calls.values()].filter(call => call.construct && validCall(call) && targetOf(call) === ctorSymbol.key);
+  const construction = unique(constructions);
+  if (construction === undefined) return undefined;
+  const configMember = unwrap(expression(construction.arguments[ordinal]));
+  if (configMember?.syntaxKind !== 'member_expression' || configMember.member === undefined || writtenMembers.has(configMember.member)) return undefined;
+  let config = unwrap(expression(configMember.receiver));
+  const configCall = callOf(config);
+  if (configCall !== undefined) {
+    // Only the actual canonical zero-argument config call's direct return is
+    // supported. There is no general call-argument or factory passthrough.
+    const target = targetOf(configCall); const symbol = target === undefined ? undefined : symbols.get(target);
+    if (configCall.construct || configCall.arguments.length !== 0 || symbol?.bodySpan === undefined) return undefined;
+    const fn = unique([...expressions.values()].filter(node => node.syntaxKind === 'function_declaration' && symbol.span.byteEnd === node.span.byteEnd && contains(symbol.span, node.span) && same(field(node, 'body')?.span ?? node.span, symbol.bodySpan!)));
+    const fnBody = fn === undefined ? undefined : field(fn, 'body'); const statements = fnBody === undefined ? undefined : children(fnBody);
+    const statement = statements === undefined ? undefined : unique(statements);
+    if (statement?.syntaxKind !== 'return_statement') return undefined;
+    config = unwrap(unique(children(statement) ?? []));
+  }
+  const configured = property(config, configMember.member);
+  const conversion = callOf(configured);
+  if (conversion === undefined || conversion.construct || conversion.arguments.length !== 1 || !builtin(expression(conversion.callee), model.numberConversion)) return undefined;
+  const fallback = unwrap(expression(conversion.arguments[0]));
+  if (fallback?.syntaxKind !== 'binary_expression' || fallback.operator !== '??' || field(fallback, 'left') === undefined) return undefined;
+  const number = field(fallback, 'right');
+  const value = number?.literal?.value;
+  if (number?.literal?.kind !== 'number' || typeof value !== 'number' || !Number.isFinite(value) || value < 0) return undefined;
+  return {deadlineMs: value, evidence: [site.span, deadline!.span, duration.span, ctor.span, construction.span, configMember.span, configured!.span, number.span]};
 }

@@ -14,6 +14,7 @@ import { validateMessagingModels } from '../src/extract/library-models/messaging
 import { validateShellCommandModels } from '../src/extract/library-models/shell-command-models.js';
 import { validateEnvironmentModels } from '../src/extract/library-models/environment-models.js';
 import { validateOutboxModels } from '../src/extract/library-models/outbox-models.js';
+import { validateGrpcDeadlineModel } from '../src/extract/library-models/grpc-deadline-models.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const SCAN_ROOTS = ['src', 'test', 'scripts', 'wiki/app/src', 'examples', 'docs/system'];
@@ -267,7 +268,7 @@ function provenanceRanges(root: string, file: string, text: string, errors: stri
     for (const error of document.errors) located(error.pos[0], error.message);
     return [];
   }
-  const validators = [validateLibraryRegistry, validateHttpModels, validateMetricSemanticModels, validateMessagingModels, validateShellCommandModels, validateEnvironmentModels, validateOutboxModels];
+  const validators = [validateLibraryRegistry, validateHttpModels, validateMetricSemanticModels, validateMessagingModels, validateShellCommandModels, validateEnvironmentModels, validateOutboxModels, validateGrpcDeadlineModel];
   const validationErrors: string[] = [];
   let validated = false;
   for (const validate of validators) {
@@ -277,6 +278,20 @@ function provenanceRanges(root: string, file: string, text: string, errors: stri
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return [];
   const registry = parsed as Record<string, unknown>;
   const ranges: ProvenanceRange[] = [];
+  if ('deadlineProperty' in registry && 'optionsArgument' in registry) {
+    const model = validateGrpcDeadlineModel(registry);
+    for (const [key, expected] of [['package', model.package], ['reference', model.reference]] as const) {
+      const scalar = document.getIn([key], true);
+      if (!isScalar(scalar) || scalar.type !== 'QUOTE_DOUBLE' || scalar.range == null || scalar.value !== expected) {
+        located(0, `${key}: no exact JSON scalar location`); return [];
+      }
+      const [start, end] = scalar.range;
+      try { if (JSON.parse(text.slice(start, end)) !== expected) { located(start, 'scalar bytes disagree'); return []; } }
+      catch { located(start, 'scalar bytes are not JSON'); return []; }
+      if (key === 'package' || packageDocumentation(expected, 'node', model.package)) ranges.push({start, end});
+    }
+    return ranges;
+  }
   if ('receivers' in registry && 'outbox' in registry) {
     // Receiver-linked operation evidence names that exact modeled package.
     // It does not license another scalar, host, or documentation path.

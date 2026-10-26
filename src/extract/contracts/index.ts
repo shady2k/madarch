@@ -22,7 +22,8 @@
 import {TreeText} from '../operations/source.js';
 import {routeListenerPorts, structuralHttpRegistrations} from '../operations/route-facts.js';
 import {codeFactsOf, extractCodeWithFacts} from '../code/index.js';
-import type {CodeFacts} from '../code/facts.js';
+import type {CodeExpressionFact, CodeFacts} from '../code/facts.js';
+import {decodeStringToken} from '../code/literals.js';
 import {asyncApiNodes, readAsyncApi} from './asyncapi.js';
 import {inferOutboxPublications} from './outbox.js';
 import {contractSymbols} from './symbol-links.js';
@@ -54,7 +55,7 @@ import {
   sqlBuildKey,
   sqlSinkKey,
 } from './schema.js';
-import {joinPath, readTsFile, structuralPublishers, type TsFileFacts} from './ts-code.js';
+import {joinPath, readTsFile, structuralGrpcDeadline, structuralPublishers, type TsFileFacts} from './ts-code.js';
 import {readSyntaxTree} from '../../fill/stages/syntax-extract.js';
 import type {ExtractedEdge, ExtractedNode, Extraction, ExtractionGap, PropertyValue, SourceSpan, TreeReader} from '../../extract/records.js';
 
@@ -514,17 +515,10 @@ export async function extractContracts(reader: TreeReader, code?: Extraction, fa
         } else {
           const properties: {[key: string]: PropertyValue} = {client: site.fn !== undefined ? site.fn : site.rpc, via: 'grpc'};
           if (site.className !== undefined && site.fn !== undefined) properties['client'] = `${site.className}.${site.fn}`;
-          // The deadline chain: field -> class -> `new <Class>(..., config.<name>)` -> the config default.
-          if (ts.deadlineField !== undefined) {
-            const constructedSomewhere = tsFiles
-              .map((other) => other.ts.newCalls.get(ts.deadlineField!.className))
-              .find((args) => args !== undefined);
-            const secondArg = constructedSomewhere?.[1];
-            const configName = secondArg !== undefined ? /\.([A-Za-z0-9_]+)$/.exec(secondArg)?.[1] : undefined;
-            const deadlineMs = configName !== undefined
-              ? tsFiles.map((other) => other.ts.configDefaults.get(configName)).find((value) => value !== undefined)
-              : undefined;
-            if (deadlineMs !== undefined) properties['deadlineMs'] = deadlineMs;
+          const deadline = structuralGrpcDeadline(sourceText, site.span);
+          if (deadline !== undefined) {
+            properties['deadlineMs'] = deadline.deadlineMs;
+            properties['deadlineEvidence'] = deadline.evidence.map(span => ({...span}));
           }
           interaction(REL_CALLS_REMOTE, file.path, match.key, properties, site.span);
         }
@@ -533,16 +527,23 @@ export async function extractContracts(reader: TreeReader, code?: Extraction, fa
 
     // HTTP clients: fetch calls to an operation, or to the one route that serves the path.
     for (const call of ts.fetchCalls) {
-      let routePath = call.urlText.replace(/(^\$\{[^}]*\})+/, '').split('?')[0]!;
+      const urlText = httpCallUrl(facts, call.span);
+      if (urlText === undefined) {
+        gaps.push({path: file.path, reason: `contracts: line ${call.span.lineStart}: HTTP URL is unresolved in shared parsed facts; no remote target claimed (${file.path})`});
+        continue;
+      }
+      let placeholder = urlText.split('?')[0]!;
       let origin: string | undefined;
-      try { const url = new URL(call.urlText); routePath = url.pathname; origin = url.origin; } catch { /* A relative/template URL has no literal origin. */ }
-      if (!routePath.startsWith('/')) continue;
-      const placeholder = routePath.replace(/\$\{[^}]*\}/g, '{}');
-      let operations = openApiOperations.filter((op) => operationMatches({method: call.method, path: placeholder}, op));
-      const text = textOf(reader, file.path) ?? '';
-      if (origin !== undefined) operations = operations.filter((op) => op.servers.some((server) => { try { return new URL(server).origin === origin; } catch { return false; } }));
-      const declaredContracts = operations.filter((op) => text.includes(op.contractPath));
-      if (declaredContracts.length > 0) operations = declaredContracts;
+      try { const url = new URL(urlText); placeholder = url.pathname; origin = url.origin; } catch { /* A relative URL has no resolved origin. */ }
+      if (!placeholder.startsWith('/')) {
+        gaps.push({path: file.path, reason: `contracts: line ${call.span.lineStart}: HTTP URL path is unresolved; no remote target claimed (${file.path})`});
+        continue;
+      }
+      const candidates = openApiOperations.filter((op) => operationMatches({method: call.method, path: placeholder}, op));
+      const operations = origin === undefined ? candidates : candidates.filter((op) => op.servers.some((server) => { try { return new URL(server).origin === origin; } catch { return false; } }));
+      // A contract path in a comment, ordinary string or unrelated import is
+      // not client provenance. Only the parsed call's URL and declared servers
+      // select an operation here; generated clients need the same exact proof.
       const operation = operations.length === 1 ? operations[0] : undefined;
       const properties: {[key: string]: PropertyValue} = {
         ...(call.client !== undefined ? {client: call.client} : {}),
@@ -551,6 +552,13 @@ export async function extractContracts(reader: TreeReader, code?: Extraction, fa
       };
       if (operation !== undefined) {
         interaction(REL_CALLS_REMOTE, file.path, operation.key, properties, call.span);
+        continue;
+      }
+      if (candidates.length > 0) {
+        const reason = operations.length > 1 ? 'ambiguous contract selection' : 'no contract server matches the resolved URL origin';
+        gaps.push({path: file.path, reason: `contracts: line ${call.span.lineStart}: HTTP ${call.method} ${placeholder}: ${reason}; no remote target claimed (${file.path}); candidates: ${candidates.map(op => op.key).sort().join(', ')}`});
+        // A local route cannot bypass unresolved contract selection and imply
+        // one of the candidate contracts through its serving relation.
         continue;
       }
       const originScope = origin === undefined ? undefined : servicesOfServers([origin]);
@@ -727,6 +735,70 @@ function normalizePath(path: string): string {
     out.push(part);
   }
   return out.join('/');
+}
+
+/** Resolve one URL argument from copied grammar facts, never source-text patterns. */
+function httpCallUrl(facts: CodeFacts | undefined, span: SourceSpan): string | undefined {
+  if (facts === undefined) return undefined;
+  const one = <T>(values: readonly T[]): T | undefined => values.length === 1 ? values[0] : undefined;
+  const expressions = new Map(facts.expressions.map(node => [node.id, node]));
+  const calls = facts.calls.filter(call => call.path === span.path && call.span.byteStart === span.byteStart && call.span.byteEnd === span.byteEnd);
+  const call = one(calls);
+  const argument = call === undefined ? undefined : expressions.get(call.arguments[0] ?? '');
+  const changed = new Set<string>();
+  const mark = (id: string): void => {
+    const node = expressions.get(id); if (node === undefined) return;
+    if (node.bindingId !== undefined) changed.add(node.bindingId);
+    for (const child of node.children) mark(child);
+  };
+  for (const node of facts.expressions) {
+    if (!['assignment_expression', 'augmented_assignment_expression', 'update_expression'].includes(node.syntaxKind)) continue;
+    for (const id of node.fields.left ?? node.children) mark(id);
+  }
+  const resolve = (node: CodeExpressionFact, seen = new Set<string>()): string | undefined => {
+    if (seen.has(node.id) || seen.size >= 40) return undefined;
+    seen = new Set([...seen, node.id]);
+    if (node.literal?.kind === 'string' && typeof node.literal.value === 'string') return node.literal.value;
+    if (node.syntaxKind === 'parenthesized_expression') {
+      const child = one(node.children.flatMap(id => { const child = expressions.get(id); return child === undefined || child.syntaxKind === 'comment' ? [] : [child]; }));
+      return child === undefined ? undefined : resolve(child, seen);
+    }
+    if (node.bindingId !== undefined) {
+      const binding = one(facts.bindings.filter(binding => binding.id === node.bindingId));
+      if (binding === undefined || changed.has(binding.id) || node.path !== binding.scope.path || node.span.byteStart < binding.scope.byteStart || node.span.byteEnd > binding.scope.byteEnd) return undefined;
+      const imported = binding.importId === undefined ? undefined : one(facts.imports.filter(imported => imported.id === binding.importId && !imported.typeOnly));
+      const target = binding.kind === 'import' ? imported?.targetExpression : binding.initializer;
+      const value = target === undefined ? undefined : expressions.get(target);
+      return value === undefined ? undefined : resolve(value, seen);
+    }
+    if (node.syntaxKind !== 'template_string' || node.literal?.kind !== 'string') return undefined;
+    const raw = Buffer.from(node.literal.raw, 'utf8');
+    if (raw.length !== node.span.byteEnd - node.span.byteStart) return undefined;
+    const substitutions = node.children.flatMap(id => {
+      const child = expressions.get(id);
+      return child?.syntaxKind === 'template_substitution' ? [child] : [];
+    }).sort((a, b) => a.span.byteStart - b.span.byteStart);
+    if (substitutions.length === 0) return undefined;
+    let at = 1; let value = '';
+    for (const substitution of substitutions) {
+      const start = substitution.span.byteStart - node.span.byteStart;
+      const end = substitution.span.byteEnd - node.span.byteStart;
+      if (substitution.path !== node.path || start < at || end > raw.length - 1) return undefined;
+      const fragment = decodeStringToken('template_string', '`' + raw.subarray(at, start).toString('utf8') + '`');
+      if (fragment === undefined) return undefined;
+      value += fragment;
+      const child = one(substitution.children.flatMap(id => { const child = expressions.get(id); return child === undefined || child.syntaxKind === 'comment' ? [] : [child]; }));
+      const resolved = child === undefined ? undefined : resolve(child, seen);
+      // A leading dynamic base supplies no origin. Keep the parsed suffix
+      // as a relative path; unknown substitutions inside that path stay gaps.
+      if (resolved === undefined) { if (value !== '') return undefined; }
+      else value += resolved;
+      at = end;
+    }
+    const tail = decodeStringToken('template_string', '`' + raw.subarray(at, raw.length - 1).toString('utf8') + '`');
+    return tail === undefined ? undefined : value + tail;
+  };
+  return argument === undefined ? undefined : resolve(argument);
 }
 
 /** The SQL path of one TypeScript file: nodes for the reads, the builders on the way to the sink, and the sink, with the edges between them. */

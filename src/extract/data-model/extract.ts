@@ -26,6 +26,7 @@
  * without models, and bytes that are not text.
  */
 import {byCodePoint} from '../../model/order.js';
+import {parsePostgres, type ParseResult} from '../../parsers/postgres.js';
 import {extractFileSyntax} from '../../fill/stages/syntax-extract.js';
 import {readGoMod} from '../../fill/stages/manifest-format.js';
 import {parseEnv} from 'node:util';
@@ -391,18 +392,40 @@ export async function extractDataModel(tree: TreeReader, suppliedCode?: Extracti
       gaps.push({path, reason: read.reason});
       continue;
     }
-    const writes = scanScriptWrites(path, read.text);
-    const recognized = /\b(CREATE|ALTER|INSERT|UPDATE|DELETE|SELECT)\b/i.test(read.text);
-    if (writes.length === 0 && !recognized && read.text.trim() !== '') {
-      gaps.push({path, reason: 'no CREATE, ALTER, INSERT, UPDATE, DELETE or SELECT statement could be read'});
+    const script = await scanScriptWrites(path, read.text);
+    if (script.gap !== undefined) {
+      gaps.push(script.gap);
+      continue;
     }
-    for (const write of writes) {
-      const owners = [...databases.values()].filter((candidate) => candidate.tables.has(write.table));
-      if (owners.length !== 1) {
-        noteGap(path, `the table ${write.table} the script fills is not declared by exactly one database of the tree`);
+    if (!script.recognized && read.text.trim() !== '') {
+      gaps.push({path, reason: `${path}:1: no PostgreSQL statement could be read`});
+    }
+    for (const write of script.writes) {
+      const owners = [...databases.values()].flatMap((database) => [...database.tables.values()]
+        .filter((table) => table.name === write.table
+          && (write.schema === undefined || table.schema === write.schema)
+          && (write.catalog === undefined || database.name === write.catalog))
+        .map((table) => ({database, table})));
+      // The existing migration model can merge same-named tables. Do not let
+      // that lossy representation turn an ambiguous seed into a claimed write.
+      const collapsed = owners.some(({database}) => {
+        const schemas = new Set<string>();
+        for (const migration of database.migrations) {
+          const source = readUtf8(tree, migration.path);
+          if (!source.ok) continue;
+          for (const statement of parseSqlScript(migration.path, source.text).statements) {
+            if (statement.kind === 'create-table' && statement.table.name === write.table) schemas.add(statement.table.schema);
+          }
+        }
+        return schemas.size > 1;
+      });
+      if (owners.length !== 1 || collapsed) {
+        const identity = [write.catalog, write.schema, write.table].filter((part) => part !== undefined).join('.');
+        noteGap(path, `${path}:${write.span.lineStart}: the table ${identity} the script fills is not declared by exactly one database of the tree`);
         continue;
       }
-      edgeDrafts.push({type: WRITES, from: fileKey(path), to: tableKey(owners[0]!.name, write.table), via: 'sql', sites: [write.span]});
+      const owner = owners[0]!;
+      edgeDrafts.push({type: WRITES, from: fileKey(path), to: tableKey(owner.database.name, owner.table.name, owner.table.schema), via: 'sql', sites: [write.span]});
       endpointKeys.add(fileKey(path));
     }
   }
@@ -1041,25 +1064,55 @@ function indexColumnsHeld(table: MergedTable, columns: readonly string[]): boole
   return [...table.indexes.values()].some((held) => [...held.columns].sort(byCodePoint).join(',') === wanted);
 }
 
-/** The writes one seed script holds: one per INSERT statement, at its own span. */
-function scanScriptWrites(path: string, text: string): readonly {readonly table: string; readonly span: SourceSpan}[] {
+interface ScriptWrite {
+  readonly table: string;
+  readonly schema?: string;
+  readonly catalog?: string;
+  readonly span: SourceSpan;
+}
+
+interface ScriptWrites {
+  readonly writes: readonly ScriptWrite[];
+  readonly recognized: boolean;
+  readonly gap?: ExtractionGap;
+}
+
+/** PostgreSQL owns statement boundaries, identifiers and UTF-8 byte offsets. */
+async function scanScriptWrites(path: string, text: string): Promise<ScriptWrites> {
+  if (text.trim() === '') return {writes: [], recognized: false};
   const bytes = new ByteText(text);
-  const writes: {table: string; span: SourceSpan}[] = [];
-  for (const match of text.matchAll(/\bINSERT\s+INTO\s+"?(\w+)"?/gi)) {
-    const start = match.index ?? 0;
-    let end = text.indexOf(';', start);
-    if (end === -1) end = text.length;
-    const trimmed = text.slice(start, end).trimEnd();
+  let parsed: ParseResult;
+  try {
+    parsed = await parsePostgres(text);
+  } catch (error) {
+    // libpg-query exposes a zero-based character cursor, unlike RawStmt's
+    // UTF-8 byte locations. Never use PostgreSQL's internal C file/line here.
+    const details = error instanceof Error && 'sqlDetails' in error ? error.sqlDetails : undefined;
+    const cursor = typeof details === 'object' && details !== null && 'cursorPosition' in details
+      && typeof details.cursorPosition === 'number' ? details.cursorPosition : 0;
+    const prefix = Array.from(text).slice(0, Math.max(0, cursor)).join('');
+    const line = bytes.lineOf(new TextEncoder().encode(prefix).length);
+    const message = error instanceof Error ? error.message : String(error);
+    return {writes: [], recognized: false, gap: {path, reason: `${path}:${line}: PostgreSQL parse failed: ${message}`}};
+  }
+  const writes: ScriptWrite[] = [];
+  for (const raw of parsed.stmts ?? []) {
+    const statement = raw.stmt;
+    if (statement === undefined || !('InsertStmt' in statement)) continue;
+    const target = statement.InsertStmt.relation;
+    if (target?.relname === undefined) {
+      return {writes: [], recognized: false, gap: {path, reason: `${path}:${bytes.lineOf(raw.stmt_location ?? 0)}: PostgreSQL INSERT has no target relation`}};
+    }
+    const byteStart = raw.stmt_location ?? 0;
+    // PostgreSQL omits zero fields. A zero length means the rest of the input,
+    // including trailing comments; a positive length excludes the semicolon.
+    const byteEnd = (raw.stmt_len ?? 0) > 0 ? byteStart + raw.stmt_len! : bytes.byteLength;
     writes.push({
-      table: match[1]!,
-      span: {
-        path,
-        byteStart: bytes.byteAt(start),
-        byteEnd: bytes.byteAt(start + trimmed.trimEnd().length),
-        lineStart: bytes.lineOf(bytes.byteAt(start)),
-        lineEnd: bytes.lineOf(bytes.byteAt(start + trimmed.trimEnd().length)),
-      },
+      table: target.relname,
+      ...(target.schemaname === undefined ? {} : {schema: target.schemaname}),
+      ...(target.catalogname === undefined ? {} : {catalog: target.catalogname}),
+      span: {path, byteStart, byteEnd, lineStart: bytes.lineOf(byteStart), lineEnd: bytes.lineOf(byteEnd)},
     });
   }
-  return writes;
+  return {writes, recognized: (parsed.stmts ?? []).some((raw) => raw.stmt !== undefined)};
 }
