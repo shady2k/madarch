@@ -34,6 +34,8 @@ function setup() {
     ['checks/document-format.mjs', '.shady2k/checks/document-format.mjs'],
     // check-commits.mjs reads a task's criterion through check.mjs, which reads time-format.mjs (setup 0.51.0).
     ['checks/check.mjs', '.shady2k/checks/check.mjs'], ['checks/time-format.mjs', '.shady2k/checks/time-format.mjs'],
+    // Since setup 0.56.0 the checks read their arguments and paths through argv.mjs and regular-file.mjs.
+    ['checks/argv.mjs', '.shady2k/checks/argv.mjs'], ['checks/regular-file.mjs', '.shady2k/checks/regular-file.mjs'],
     ['../.githooks/pre-push', '.githooks/pre-push']];
   for (const [from, to] of files) {
     mkdirSync(dirname(join(root, to)), { recursive: true });
