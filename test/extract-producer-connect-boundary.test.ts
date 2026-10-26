@@ -156,13 +156,23 @@ test('neither direct nor awaited connect completion can become a publishing prod
   expect(result.roles.filter(role => connect.some(effect => effect.expression === role.expression) ||
     role.expression === completed?.initializer)).toEqual([]);
   expect(result.effects.filter(effect => effect.kind === 'message-publish')).toEqual([]);
+  // connect has no return role. Its awaited completion is not a producer
+  // candidate, so that local use need not carry an unknown-origin diagnostic.
   for (const invocation of [
     "completed.send({topic: 'notifications', messages: []})",
     "sender.connect().send({topic: 'notifications', messages: []})",
   ]) {
     const call = callOf(facts, source, invocation);
+    const receiver = facts.expressions.find(expression => expression.id === call.callee)?.receiver;
+    expect(receiver).toBeDefined();
+    expect(result.roles.filter(role => role.expression === receiver)).toEqual([]);
     expect(result.effects.filter(effect => effect.expression === call.expression)).toEqual([]);
-    expect(result.diagnostics.some(entry => entry.expression === call.expression && entry.code === 'unknown-origin' &&
-      entry.path === path && entry.span.lineStart === call.span.lineStart)).toBe(true);
   }
+  // The direct chain retains the imported receiver's diagnostic relevance,
+  // but connect still supplies no role that could authorize the send.
+  const direct = callOf(facts, source, "sender.connect().send({topic: 'notifications', messages: []})");
+  expect(result.diagnostics.filter(entry => entry.expression === direct.expression)).toEqual([{
+    code: 'unknown-origin', path, span: direct.span, expression: direct.expression,
+    reason: 'callee has no proven imported origin or receiver role',
+  }]);
 });

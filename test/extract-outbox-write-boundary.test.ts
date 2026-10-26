@@ -49,6 +49,41 @@ func (r *Relay) Flush(ctx context.Context, actualTopic string) {
     r.publisher.Publish(ctx, row.topic)
   }
 }`;
+// Multi-column transaction/Scan/error cleanup/append/range/adapter flow.
+// In particular, the failed-Scan branch discards Close's result before append.
+const fullBatch = header.replace('type pending struct { topic string; attempts int }', 'type pending struct { id int64; key string; topic string; payload []byte; attempts int }') + `
+type Publisher interface { Publish(context.Context, string, string, []byte) error }
+type KafkaPublisher struct { writer *kafka.Writer }
+func (p *KafkaPublisher) Publish(ctx context.Context, topic, key string, payload []byte) error {
+  return p.writer.WriteMessages(ctx, kafka.Message{Topic: topic, Key: []byte(key), Value: payload})
+}
+type Relay struct { publisher Publisher; db *sql.DB }
+func (r *Relay) Flush(ctx context.Context) (int, error) {
+  tx, err := r.db.BeginTx(ctx, nil)
+  if err != nil { return 0, err }
+  defer func() { _ = tx.Rollback() }()
+  rows, err := tx.QueryContext(ctx,
+    \`SELECT id, aggregate_id, topic, payload FROM outbox WHERE published_at IS NULL ORDER BY id LIMIT $1 FOR UPDATE SKIP LOCKED\`, 100)
+  if err != nil { return 0, err }
+  var batch []pending
+  for rows.Next() {
+    var row pending
+    if err := rows.Scan(&row.id, &row.key, &row.topic, &row.payload); err != nil {
+      _ = rows.Close()
+      return 0, err
+    }
+    batch = append(batch, row)
+  }
+  if err := rows.Close(); err != nil { return 0, err }
+  var published []int64
+  for _, row := range batch {
+    if err := r.publisher.Publish(ctx, row.topic, row.key, row.payload); err != nil {
+      return 0, err
+    }
+    published = append(published, row.id)
+  }
+  return len(published), tx.Commit()
+}`;
 const run = async (source: string) => {
   const files: Record<string, string> = {
     'go.mod': 'module example.test/dispatch\n\ngo 1.23\n',
@@ -105,6 +140,7 @@ for (const [label, source] of [
 
 for (const [label, source] of [
   ['the canonical Go range value', batch()],
+  ['the full transaction and multi-column Scan cleanup flow', fullBatch],
   ['a range source unrelated field write', batch('row.attempts++')],
   ['a range value unrelated field write', batch('', 'row.attempts++')],
 ] as const) test(`outbox batch proof preserves ${label}`, async () => {

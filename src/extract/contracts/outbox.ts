@@ -134,6 +134,9 @@ export async function inferOutboxPublications(
       const written = left === undefined ? children(write) : left.flatMap(id => {const held = expr(id); return held === undefined ? [] : [held];});
       if (written.length === 0) return true;
       return written.flatMap(targets).some(target => {
+        // Go's blank identifier discards a result; it writes no storage.
+        // Other unknown lvalues still invalidate the projection proof.
+        if (target.syntaxKind === 'identifier' && target.name === '_' && target.bindingId === undefined && facts.files.some(file => file.path === target.path && file.parsed && file.language === 'go')) return false;
         const changed = projection(target);
         // Unsupported lvalues cannot certify that this value survived.
         if (changed === undefined) return true;
