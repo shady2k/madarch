@@ -1,9 +1,7 @@
 /** Guide-only preparation on the existing temporal graph and pinned Git snapshot. */
 import { resolve, posix } from 'node:path';
 import { parseEnv } from 'node:util';
-import { readComposeFile } from '../../extract/operations/compose.js';
-import { TreeText } from '../../extract/operations/source.js';
-import { Records } from '../../extract/operations/accumulate.js';
+import { readComposeDocument } from '../../extract/operations/compose.js';
 import type { DatabaseOwner } from '../../adapters/database-owner.js';
 import { createGitSnapshotSource, type SnapshotSource } from '../../fill/snapshot.js';
 import { resolveLens } from '../../graph/reads.js';
@@ -248,22 +246,17 @@ export async function configurationReferences(path: string, text: string, readPi
         }
       }
     }
-    const services = field(root, 'services');
-    if (isMap(services)) {
-      // The shared operations reader owns the Compose environment shapes.
-      const tree = new TreeText({ paths: [path], read: () => new TextEncoder().encode(text) });
-      const records = new Records(tree);
-      for (const service of readComposeFile(tree, records, path)) for (const variable of service.environment) if (variable.value !== null) values.push({ name: variable.name, path, value: variable.value });
-      if (records.gaps.length > 0) throw new Error('guide environment policy: Compose environment declarations could not be read');
-      for (const service of services.items) {
-        const envFiles = field(service.value, 'env_file');
-        for (const entry of isSeq(envFiles) ? envFiles.items : envFiles === undefined ? [] : [envFiles]) {
-          const file = isMap(entry) ? field(entry, 'path') : entry;
-          if (!isScalar(file) || typeof file.value !== 'string') throw new Error('guide environment policy: an env_file declaration is unsupported');
-          const relative = posix.normalize(posix.join(posix.dirname(path), file.value));
-          if (posix.isAbsolute(file.value) || relative === '..' || relative.startsWith('../')) throw new Error('guide environment policy: env_file escapes the pinned repository');
-          envFile(relative, await readPinned(relative));
-        }
+  }
+  const compose = readComposeDocument(text, path);
+  if (compose.present) {
+    if (compose.gaps.length > 0) throw new GuidePreparationError({ stage: 'source-policy', code: 'invalid', file: 'src/writer/guides/writer.ts', line: 254 });
+    for (const service of compose.services) {
+      for (const variable of service.environment) if (variable.value !== null) values.push({ name: variable.name, path, value: variable.value });
+      for (const file of service.envFiles) {
+        const relative = posix.normalize(posix.join(posix.dirname(path), file));
+        if (posix.isAbsolute(file) || relative === '..' || relative.startsWith('../')) throw new GuidePreparationError({ stage: 'source-policy', code: 'unavailable', file: 'src/writer/guides/writer.ts', line: 260 });
+        try { envFile(relative, await readPinned(relative)); }
+        catch { throw new GuidePreparationError({ stage: 'source-policy', code: 'unavailable', file: 'src/writer/guides/writer.ts', line: 262 }); }
       }
     }
   }

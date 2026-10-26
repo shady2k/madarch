@@ -1,7 +1,7 @@
 /** Authority follows environment/secret-store schemas, never arbitrary configuration scalar names. */
 import {expect,test} from 'bun:test';
 import {configurationReferences} from '../src/writer/guides/writer.js';
-import {readComposeFile} from '../src/extract/operations/compose.js';
+import {readComposeDocument,readComposeFile} from '../src/extract/operations/compose.js';
 import {TreeText} from '../src/extract/operations/source.js';
 import {Records} from '../src/extract/operations/accumulate.js';
 const read = async (_path:string):Promise<string>=>{throw new Error('unpinned file');};
@@ -78,4 +78,49 @@ test('whole Compose resolution refuses dangling service or unrelated aliases, cy
   expect(readComposeFile(tree,records,'compose.yaml')).toEqual([]);expect(records.gaps.length).toBeGreaterThan(0);expect(records.gaps[0]!.reason).toContain('line ');
   await expect(configurationReferences('compose.yaml',source,read)).rejects.toThrow();
  }
+});
+
+test('the shared resolved Compose probe owns inherited env_file paths for aliases and merge keys',async()=>{
+ const anchor='x-files: &files [runtime.env]\nx-service: &runtime\n  environment: {TOKEN: private/credential}\n  env_file: *files\n';
+ for(const service of ['*runtime','{<<: *runtime}']){
+  const source=anchor+`services:\n  api: ${service}\n`;
+  const opened:string[]=[];const refs=await configurationReferences('ops/compose.yaml',source,async(file)=>{opened.push(file);return 'EXTRA=private/extra\n';});
+  expect(opened).toEqual(['ops/runtime.env']);expect(refs).toEqual([{name:'TOKEN',path:'ops/compose.yaml',value:'private/credential'},{name:'EXTRA',path:'ops/runtime.env',value:'private/extra'}]);
+  const probe=readComposeDocument(source,'ops/compose.yaml');expect(probe.present).toBe(true);
+  if(!probe.present)throw new Error('Compose document was not recognized');
+  expect(probe.gaps).toEqual([]);expect(probe.services[0]!.envFiles).toEqual(['runtime.env']);
+ }
+});
+test('the shared probe resolves a services alias and refuses a dangling services alias before any authority escapes',async()=>{
+ const source='x-services: &services\n  api:\n    environment: {TOKEN: private/credential}\n    env_file: {path: runtime.env}\nservices: *services\n';
+ const opened:string[]=[];expect(await configurationReferences('compose.yaml',source,async(file)=>{opened.push(file);return 'EXTRA=private/extra\n';})).toEqual([{name:'TOKEN',path:'compose.yaml',value:'private/credential'},{name:'EXTRA',path:'runtime.env',value:'private/extra'}]);
+ expect(opened).toEqual(['runtime.env']);
+ const invalid=readComposeDocument('services: *missing\n','compose.yaml');expect(invalid.present).toBe(true);
+ if(!invalid.present)throw new Error('invalid Compose document was treated as ordinary YAML');
+ expect(invalid.services).toEqual([]);expect(invalid.gaps.length).toBeGreaterThan(0);
+ await expect(configurationReferences('compose.yaml','services: *missing\n',read)).rejects.toThrow();
+ expect(readComposeDocument('minimum: 0\n','schema.yaml')).toEqual({present:false,reason:'no-services'});
+});
+
+test('ordinary multi-document Kubernetes YAML is not Compose authority',async()=>{
+ const source='kind: Deployment\nmetadata: {name: api}\n---\nkind: Service\nmetadata: {name: api}\n';
+ expect(readComposeDocument(source,'deploy/k8s/api.yaml')).toEqual({present:false,reason:'no-services'});
+ expect(await configurationReferences('deploy/k8s/api.yaml',source,read)).toEqual([]);
+});
+test('the authority probe selects a Compose document while extraction keeps its single-document diagnostic',async()=>{
+ for(const source of ['services:\n  api:\n    environment: {TOKEN: private/credential}\n---\nkind: Service\n','kind: Service\n---\nservices:\n  api:\n    environment: {TOKEN: private/credential}\n']){
+  const probe=readComposeDocument(source,'compose.yaml');expect(probe.present).toBe(true);
+  if(!probe.present)throw new Error('Compose document was not recognized');
+  expect(probe.gaps).toEqual([]);expect(probe.services[0]!.environment[0]!.value).toBe('private/credential');
+  expect(await configurationReferences('compose.yaml',source,read)).toEqual([{name:'TOKEN',path:'compose.yaml',value:'private/credential'}]);
+  const tree=new TreeText({paths:['compose.yaml'],read:()=>new TextEncoder().encode(source)});const records=new Records(tree);
+  expect(readComposeFile(tree,records,'compose.yaml')).toEqual([]);expect(records.gaps.some(gap=>gap.reason.includes('Source contains multiple documents'))).toBe(true);
+ }
+});
+test('an explicit nonmapping services key remains recognized and fails closed',async()=>{
+ const source='services: ordinary-text\n---\nkind: Service\n';
+ const probe=readComposeDocument(source,'compose.yaml');expect(probe.present).toBe(true);
+ if(!probe.present)throw new Error('invalid Compose document was not recognized');
+ expect(probe.services).toEqual([]);expect(probe.gaps.length).toBeGreaterThan(0);
+ await expect(configurationReferences('compose.yaml',source,read)).rejects.toThrow();
 });

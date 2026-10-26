@@ -4,10 +4,10 @@
  * stands on. The reader is strict — YAML it refuses is a gap naming its line,
  * never a service read in part.
  */
-import { LineCounter, isAlias, isMap, isScalar, isSeq, parseDocument } from 'yaml';
+import { LineCounter, isAlias, isMap, isScalar, isSeq, parseAllDocuments, parseDocument, type Document } from 'yaml';
 import { byCodePoint } from '../../model/order.js';
-import type { SourceSpan } from '../records.js';
-import type { Records } from './accumulate.js';
+import type { ExtractionGap, SourceSpan } from '../records.js';
+import { Records } from './accumulate.js';
 import { TreeText } from './source.js';
 
 /** One variable of one service's environment, as the file binds it. */
@@ -29,6 +29,8 @@ export interface ComposeService {
   /** The host and container ports of one mapping, when it is one of the two-part forms. */
   readonly portMappings: readonly { readonly host: string; readonly container: string }[];
   readonly environment: readonly ComposeVariable[];
+  /** Pinned environment files named by the fully resolved service declaration. */
+  readonly envFiles: readonly string[];
   readonly dependsOn: readonly string[];
 }
 
@@ -36,10 +38,36 @@ function scalarText(node: unknown): string | null {
   return isScalar(node) && node.value !== null ? String(node.value) : null;
 }
 
+export type ComposeDocumentReading =
+  | { readonly present: false; readonly reason: 'not-mapping' | 'no-services' }
+  | { readonly present: true; readonly services: readonly ComposeService[]; readonly gaps: readonly ExtractionGap[] };
+
+/** Probes the complete resolved document without classifying ordinary YAML as Compose. */
+export function readComposeDocument(text: string, path: string): ComposeDocumentReading {
+  const lineCounter = new LineCounter();
+  const documents = parseAllDocuments(text, { lineCounter, keepSourceTokens: true, merge: true });
+  const document = documents.find((candidate) => isMap(candidate.contents) && candidate.contents.items.some((pair) => isScalar(pair.key) && pair.key.value === 'services'));
+  if (document === undefined) return { present: false, reason: documents.some((candidate) => isMap(candidate.contents)) ? 'no-services' : 'not-mapping' };
+  const tree = new TreeText({ paths: [path], read: () => new TextEncoder().encode(text) });
+  const records = new Records(tree);
+  const state: { absent?: 'not-mapping' | 'no-services' } = {};
+  const services = readResolvedCompose(tree, records, path, state, document, lineCounter);
+  return { present: true, services, gaps: records.gaps };
+}
+
 /** Reads one compose file; a file the reader refuses is a gap and no services. */
 export function readComposeFile(t: TreeText, records: Records, path: string): readonly ComposeService[] {
+  // Extraction keeps its historical single-document diagnostics. The authority
+  // probe selects a Compose document separately; both use this resolved reader.
   const lineCounter = new LineCounter();
   const document = parseDocument(t.text(path), { lineCounter, keepSourceTokens: true, merge: true });
+  const state: { absent?: 'not-mapping' | 'no-services' } = {};
+  const services = readResolvedCompose(t, records, path, state, document, lineCounter);
+  if (state.absent !== undefined) records.gap(path, state.absent === 'not-mapping' ? 'the file is no mapping: a compose file maps service names to their declarations' : 'the file declares no services mapping');
+  return services;
+}
+
+function readResolvedCompose(t: TreeText, records: Records, path: string, state: { absent?: 'not-mapping' | 'no-services' }, document: Document, lineCounter: LineCounter): readonly ComposeService[] {
   for (const error of document.errors) {
     records.gap(path, `line ${lineCounter.linePos(error.pos?.[0] ?? 0).line}: ${error.message}`);
   }
@@ -103,13 +131,15 @@ export function readComposeFile(t: TreeText, records: Records, path: string): re
   const items = (node: unknown): readonly unknown[] => isSeq(node) ? sequences.get(node)! : [];
   const field = (node: unknown, name: string): unknown => pairs(node).find((entry) => isScalar(entry.key) && entry.key.value === name)?.value;
   if (!isMap(contents)) {
-    records.gap(path, 'the file is no mapping: a compose file maps service names to their declarations');
+    state.absent = 'not-mapping';
     return [];
   }
   const services = field(contents, 'services');
+  if (services === undefined) { state.absent = 'no-services'; return []; }
   if (!isMap(services)) {
-    records.gap(path, 'the file declares no services mapping');
-    return [];
+    const key = pairs(contents).find((entry) => isScalar(entry.key) && entry.key.value === 'services')?.key;
+    const line = lineCounter.linePos(isScalar(key) ? key.range?.[0] ?? 0 : 0).line;
+    records.gap(path, `line ${line}: the file declares no services mapping`); return [];
   }
   const read: ComposeService[] = [];
   for (const pair of pairs(services)) {
@@ -158,6 +188,16 @@ export function readComposeFile(t: TreeText, records: Records, path: string): re
         environment.push({ name, value: at < 0 ? null : text.slice(at + 1), span: t.spanOfLine(path, line) });
       }
     }
+    const envFiles: string[] = [];
+    const filesNode = field(pair.value, 'env_file');
+    for (const entry of isSeq(filesNode) ? items(filesNode) : filesNode === undefined ? [] : [filesNode]) {
+      const file = isMap(entry) ? field(entry, 'path') : entry;
+      if (!isScalar(file) || typeof file.value !== 'string') {
+        records.gap(path, `line ${serviceLine}: the environment file declaration is unsupported`);
+        return [];
+      }
+      envFiles.push(file.value);
+    }
     const dependsOn: string[] = [];
     const dependsNode = field(pair.value, 'depends_on');
     if (isSeq(dependsNode)) {
@@ -173,7 +213,7 @@ export function readComposeFile(t: TreeText, records: Records, path: string): re
     environment.sort((left, right) => byCodePoint(left.name, right.name));
     dependsOn.sort(byCodePoint);
     ports.sort(byCodePoint);
-    read.push({ name, line: serviceLine, image, build, ports, portMappings, environment, dependsOn });
+    read.push({ name, line: serviceLine, image, build, ports, portMappings, environment, envFiles, dependsOn });
   }
   read.sort((left, right) => byCodePoint(left.name, right.name));
   return read;
