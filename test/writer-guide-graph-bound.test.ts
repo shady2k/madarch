@@ -42,14 +42,14 @@ test('complete graph pages retain more than 1200 nodes and guide-only byte overf
   const agent:UnitAgent={run:async(request)=>{
    seen.push(request.id);
    if(request.id==='product:numbers'){
-    const asked=await request.tools.call('ask_question',{type:'meaning',title:'Meaning of the computed number',question:'What does the computed number mean to a reader?',why:'The code gives a numeric value but does not explain its business meaning.',sides:[{claim:'The source defines a numeric value.',grounds:[key]}]});expect(asked.isError).toBe(false);
-    const written=await request.tools.call('write_page',{markdown:page('product','product:numbers','The product computes a number.[^1]\n\n## Domains\n\n- [Numbers](madarch:domain:numbers) describe the computed number.[^1]'),domains:[{slug:'numbers',title:'Numbers',summary:'Numbers describe the values the source computes.',evidence:[key]}]});expect(written.isError).toBe(false);
+    const asked=await request.tools.call('ask_question',{type:'ambiguous-term',title:'Meaning of the computed number',question:'What does the computed number mean to a reader?',why:'The code gives a numeric value but does not explain its business meaning.',sides:[{claim:'The source defines a numeric value.',grounds:[key]}]});expect(asked.isError,JSON.stringify(asked)).toBe(false);
+    const written=await request.tools.call('write_page',{markdown:page('product','product:numbers','The product computes a number.[^1]\n\n## Domains\n\n- [Numbers](madarch:domain:numbers) describe the computed number.[^1]'),domains:[{slug:'numbers',title:'Numbers',summary:'Numbers describe the values the source computes.',evidence:[key]}]});expect(written.isError,JSON.stringify(written)).toBe(false);
    }else if(request.id==='domain:numbers'){
-    const written=await request.tools.call('write_page',{markdown:page('domain','domain:numbers','The source defines a numeric value.[^1]')});expect(written.isError).toBe(false);
+    const written=await request.tools.call('write_page',{markdown:page('domain','domain:numbers','The source defines a numeric value.[^1]')});expect(written.isError,JSON.stringify(written)).toBe(false);
    }else throw new Error(`guide overflow must not call the agent: ${request.id}`);
   }};
   const report=await runWriter({owner,store,repository,output,productName:'Numbers',agent,guides,sink});
-  expect(report.product.status).toBe('written');expect(report.domains.map((unit)=>unit.status)).toEqual(['written']);expect(report.questions).toHaveLength(1);expect(sink.pages.has('docs/product.md')).toBe(true);expect(sink.pages.has('docs/domains/numbers.md')).toBe(true);
+  expect(report.product.status,JSON.stringify(report,null,2)).toBe('written');expect(report.domains.map((unit)=>unit.status)).toEqual(['written']);expect(report.questions).toHaveLength(1);expect(sink.pages.has('docs/product.md')).toBe(true);expect(sink.pages.has('docs/domains/numbers.md')).toBe(true);
   expect(seen).toEqual(['product:numbers','domain:numbers']);expect(report.guides).toHaveLength(2);expect(report.guides.every((unit)=>unit.status==='failed'&&unit.refusals.some((reason)=>reason.rule==='guide-preparation'))).toBe(true);expect(report.ok).toBe(false);
  }finally{await owner.close();rmSync(folder,{recursive:true,force:true});}
 },120_000);
