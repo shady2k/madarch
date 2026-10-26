@@ -159,7 +159,7 @@ test('ordinary configuration metadata is withheld source input but not secret au
 });
 
 test('classified token matching preserves internal punctuation but refuses prefix and suffix partial matches',()=>{
- const candidates=['private"credential','private-runtime-key','private\\credential','key_value'];
+ const candidates=['private"credential','private/credential','private-runtime-key','private\\credential','key_value'];
  for(const value of candidates){
   expect(containsGuideSecret(value,[value])).toBe(true);
   expect(containsGuideSecret(`'${value}';`,[value])).toBe(true);

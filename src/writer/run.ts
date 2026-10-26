@@ -31,6 +31,7 @@ import { DEFAULT_UNIT_BOUNDS, UnitTools, type DomainDeclaration, type PageSink, 
 import { GraphView, ingestContent, type ContentReport } from './view.js';
 import { GUIDE_OUTPUTS, registeredGuideOutput, type GuideWriterHost } from './guides/host-contract.js';
 import { guidePageCount, currentGuidePath } from './guides/prepared.js';
+import { formatGuidePreparationError, type GuidePreparationStage } from './guides/preparation-error.js';
 import { guidePrompt } from './prompts.js';
 
 export const PRODUCT_PATH = 'docs/product.md';
@@ -465,22 +466,26 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
     for (const kind of ['administrator-guide', 'user-guide'] as const) {
       let output = { id: GUIDE_OUTPUTS[kind].id as string, path: 'madarch/kinds.yaml' };
       let outcome: UnitOutcome;
+      let preparationStage: GuidePreparationStage = 'registry';
       try {
         output = registeredGuideOutput(options.output, kind);
         options.onUnitStart?.({ unit: output.id, path: output.path });
+        preparationStage = 'preparation';
         const prepared = await options.guides.prepare(kind, language === 'ru' ? 'ru' : 'en');
+        preparationStage = 'current-proof';
         const currentPath=currentGuidePath(prepared);
         if(currentPath!==undefined){
           if(currentPath!==output.path)throw new Error('guide current proof is bound to another registered path');
           outcome=keptOutcome(output.id,output.path);guides.push(outcome);options.onUnit?.(outcome);continue;
         }
+        preparationStage = 'unit';
         const spec: UnitSpec = { kind, id: output.id, path: output.path, prepared };
         const guideBounds = { ...bounds, maxCalls: bounds.maxCalls + guidePageCount(prepared) };
         const tools = new UnitTools(view, spec, sink, [], guideBounds, basis, extras);
         outcome = await runUnit(options.agent, tools, guidePrompt(kind, language === 'ru' ? 'ru' : 'en', prepared.prompt));
         if (outcome.status === 'not-written') outcome = { ...outcome, status: 'failed', refusals: [{ line: 1, rule: 'guide-missing', message: `${path.resolve(options.output, output.path)}:1: $.guide: the unit ended without a verified guide` }] };
-      } catch {
-        outcome = { ...keptOutcome(output.id, output.path), status: 'failed', refusals: [{ line: 1, rule: 'guide-preparation', message: `${path.resolve(options.output, output.path)}:1: $.guide: the complete pinned guide context could not be prepared; nothing was certified` }] };
+      } catch (failure) {
+        outcome = { ...keptOutcome(output.id, output.path), status: 'failed', refusals: [formatGuidePreparationError(failure, { file: path.resolve(options.output, output.path), stage: preparationStage })] };
       }
       guides.push(outcome);
       options.onUnit?.(outcome);

@@ -1,6 +1,7 @@
 /** Per-prepared-unit pagination: no scheduler and no second publication authority. */
 import type { GuidePreparedUnit } from './host-contract.js';
 import { guideDigest } from './digest.js';
+import { GuidePreparationError } from './preparation-error.js';
 
 export const GUIDE_PACKET_BYTES = 16 * 1024;
 export interface GuideContextPage {
@@ -18,7 +19,10 @@ const pages = new WeakMap<GuidePreparedUnit, Pages>();
 export function registerGuidePages(unit: GuidePreparedUnit, inputDigest: string, entries: readonly unknown[]): void {
   const packets: unknown[][] = [];let packet: unknown[] = [];
   for (const entry of entries) {
-    if (Buffer.byteLength(JSON.stringify([entry])) > GUIDE_PACKET_BYTES) throw new Error('guide prepared-context entry exceeds the packet bound; it was not shortened');
+    if (Buffer.byteLength(JSON.stringify([entry])) > GUIDE_PACKET_BYTES) {
+      const fact = entry !== null && typeof entry === 'object' && 'type' in entry && entry.type === 'fact' && 'value' in entry && entry.value !== null && typeof entry.value === 'object' && 'id' in entry.value && typeof entry.value.id === 'string' ? entry.value.id : undefined;
+      throw Object.assign(new GuidePreparationError({stage:'context-packets',code:'bound',file:'src/writer/guides/prepared.ts',line:22,...(fact===undefined?{}:{fact})}),{message:'guide prepared-context entry exceeds the packet bound; it was not shortened'});
+    }
     if (packet.length > 0 && Buffer.byteLength(JSON.stringify([...packet,entry])) > GUIDE_PACKET_BYTES) { packets.push(packet);packet=[]; }
     packet.push(entry);
   }

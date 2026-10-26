@@ -19,6 +19,7 @@ import { guidePacketPolicy, containsGuideSecret, distinctiveGuideValue, type Gui
 import { gitEnv } from './git-env.js';
 
 const SECRET = 'private-runtime-key';
+const PUNCTUATED_SECRETS = ['private"credential', 'private/credential'] as const;
 const COMMAND = 'node -e "console.log(7)"';
 const PARAGRAPH = `Run \`${COMMAND}\` from the repository root in an isolated fixture environment. Expected exit status: 0. Expected output: 7.`;
 
@@ -30,7 +31,8 @@ test('production fill authority withholds named settings but refuses distinctive
     writeFileSync(join(folder, 'services', 'api', 'config.ts'), `export const configured = process.env.SIGNING_KEY ?? "${SECRET}";\n`);
     writeFileSync(join(folder, 'docker-compose.yml'), `services:\n  api:\n    build:\n      context: .\n    environment:\n      SIGNING_KEY: ${SECRET}\n      ORDINARY_COUNT: "0"\n`);
     writeFileSync(join(folder, 'tsconfig.json'), JSON.stringify({ compilerOptions: { moduleResolution: 'node' }, observation: 'Ready', type: 'object' }));
-    writeFileSync(join(folder, 'README.md'), `# Readiness\n\n${PARAGRAPH}\n`);
+    writeFileSync(join(folder, 'settings.json'), JSON.stringify({ quotedSetting: PUNCTUATED_SECRETS[0], pathSetting: PUNCTUATED_SECRETS[1] }));
+    writeFileSync(join(folder, 'README.md'), `# Readiness\n\n${PARAGRAPH}\n\nQuoted configuration example: '${PUNCTUATED_SECRETS[0]}'.\n\nPath configuration example: '${PUNCTUATED_SECRETS[1]}'.\n`);
     const env = gitEnv({ GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.test', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.test' });
     const git = (...args: string[]) => execFileSync('git', args, { cwd: folder, env, encoding: 'utf8' }).trim();
     git('init', '--quiet', '--initial-branch=main'); git('add', '.'); git('-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'Record configuration and readiness');
@@ -49,6 +51,13 @@ test('production fill authority withholds named settings but refuses distinctive
     const entries: unknown[] = [];
     while (cursor !== null) { const page: GuideContextPage = readGuidePageContext(unit, cursor)!; entries.push(...page.entries); cursor = page.next; }
     expect(JSON.stringify(entries)).not.toContain(SECRET);
+    const noPrivateValues = (value: unknown): void => {
+      if (typeof value === 'string') for (const secret of PUNCTUATED_SECRETS) expect(value).not.toContain(secret);
+      else if (Array.isArray(value)) value.forEach(noPrivateValues);
+      else if (value !== null && typeof value === 'object') for (const [key, child] of Object.entries(value)) { noPrivateValues(key); noPrivateValues(child); }
+    };
+    noPrivateValues(entries); // Decoded values, including internal quote/slash, never reach prepared agent context.
+
     expect(JSON.stringify(entries)).toContain('value of');
     expect(JSON.stringify(entries)).toContain('SIGNING_KEY');
     expect(JSON.stringify(entries)).toContain('ordinary configuration values');
@@ -61,6 +70,16 @@ test('production fill authority withholds named settings but refuses distinctive
     if (refused.ok) throw new Error('production authority accepted a distinctive configuration token');
     expect(refused.diagnostics.some((diagnostic) => diagnostic.path === '$.procedures[0].steps[1].cwd' && diagnostic.code === 'secret')).toBe(true);
     expect(JSON.stringify(refused)).not.toContain(SECRET);
+    for (const secret of PUNCTUATED_SECRETS) {
+      const privateTitle = structuredClone(raw);
+      privateTitle.procedures[0]!.steps[1]!.cwd = '.';
+      privateTitle.title = `Read '${secret}'`;
+      const titleRefused = await validateGuide(privateTitle, unit.validation);
+      expect(titleRefused.ok).toBe(false); expect(verifierCalls).toBe(0);
+      if (titleRefused.ok) throw new Error('production authority accepted a distinctive title value');
+      expect(titleRefused.diagnostics.some((diagnostic) => diagnostic.path === '$.title' && diagnostic.code === 'secret')).toBe(true);
+      expect(JSON.stringify(titleRefused)).not.toContain(secret);
+    }
     const suffix = structuredClone(raw); suffix.procedures[0]!.steps[1]!.cwd = `repos/sample/${SECRET}-suffix`;
     expect((await validateGuide(suffix, unit.validation)).ok).toBe(true); expect(verifierCalls).toBe(2);
   } finally { await owner.close(); rmSync(folder, { recursive: true, force: true }); }

@@ -28,6 +28,7 @@ import { KINDS_FILE, parseKinds } from '../../knowledge/kinds.js';
 import { splitFrontMatter } from '../../knowledge/markdown.js';
 import { QUESTION_KIND, CORRECTION_KIND, parseQuestion, parseCorrection } from '../../loop/entities.js';
 import { parseTask } from '../../loop/tasks.js';
+import { GuidePreparationError, type GuidePreparationStage } from './preparation-error.js';
 
 export const GUIDE_UNIT_VERSION = 'guide-writer@1';
 const MAX_PREPARED_BYTES = 8 * 1024 * 1024;
@@ -97,7 +98,7 @@ export async function readGuideGraph(wiring: Pick<GuideWriterWiring, 'owner' | '
       const rows:Record<string,unknown>[]=[];
       for(let offset=0;;offset+=MAX_GRAPH_ROWS){
         const page=(await tx.query<Record<string,unknown>>(sql,[...params,offset])).rows;
-        for(const row of page){bytes+=Buffer.byteLength(JSON.stringify(row));if(bytes>MAX_PREPARED_BYTES)throw new Error('guide preparation: complete graph membership exceeds its byte bound; no smaller graph was returned');rows.push(row);}
+        for(const row of page){bytes+=Buffer.byteLength(JSON.stringify(row));if(bytes>MAX_PREPARED_BYTES)throw Object.assign(new GuidePreparationError({stage:'graph-membership',code:'bound',file:'src/writer/guides/writer.ts',line:101,fact:typeof row['id']==='string'?row['id']:undefined}),{message:'guide preparation: complete graph membership exceeds its byte bound; no smaller graph was returned'});rows.push(row);}
         if(page.length<MAX_GRAPH_ROWS)return rows;
       }
     };
@@ -286,6 +287,9 @@ export function guidePacketPolicy(evidence: GuidePreparedEvidence, knownValues: 
     return Object.entries(value).some(([name, child]) => containsSecret(name) || contains(child));
   };
   const namedReferences = [...new Set(references.map((reference) => `‹value of ${reference.path}:${reference.name}›`).filter((name) => !containsSecret(name)))].sort(byCodePoint);
+  // Every redacted row links one complete shared catalogue. Repeating the catalogue
+  // in each row makes a small configuration file overflow a context packet.
+  const referenceSetDigest = guideDigest(namedReferences);
   const configPaths = new Set((evidence.configReferences ?? []).map((reference) => reference.path));
   const facts = evidence.facts.map((fact) => {
     if (fact === null || typeof fact !== 'object') return fact;
@@ -295,7 +299,7 @@ export function guidePacketPolicy(evidence: GuidePreparedEvidence, knownValues: 
     const place = properties !== null && typeof properties === 'object' ? properties as Record<string, unknown> : undefined;
     const span = place?.['span'];
     const fromConfig = typeof place?.['path'] === 'string' && configPaths.has(place['path']) || span !== null && typeof span === 'object' && configPaths.has(String((span as Record<string, unknown>)['path']));
-    return valueRows.has(fact) || fromConfig || contains(row) ? { ...(row['id'] === undefined || contains(row['id']) ? {} : { id: row['id'] }), ...(row['kind'] === undefined ? {} : { kind: row['kind'] }), ...(row['relation'] === undefined ? {} : { relation: row['relation'] }), withheld: 'configuration values withheld by source policy', references: namedReferences } : row;
+    return valueRows.has(fact) || fromConfig || contains(row) ? { ...(row['id'] === undefined || contains(row['id']) ? {} : { id: row['id'] }), ...(row['kind'] === undefined ? {} : { kind: row['kind'] }), ...(row['relation'] === undefined ? {} : { relation: row['relation'] }), withheld: 'configuration values withheld by source policy', referenceSetDigest, referenceCount: namedReferences.length } : row;
   });
   const spans = evidence.spans.filter((span) => !span.literalReadGap && !configPaths.has(span.ground.path) && !assignments.some((assignment) => assignment.path === span.ground.path && assignment.line <= span.ground.endLine && assignment.endLine >= span.ground.line) && !contains(span.text) && !contains(span.sourceLiterals ?? []))
     .map(({ sourceLiterals: _privateLiterals, literalReadGap: _readGap, ...span }) => span);
@@ -462,7 +466,7 @@ export async function prepareGuideEvidence(wiring: Pick<GuideWriterWiring, 'owne
   }
   gaps.push('Source evidence does not certify execution. Procedures without instruction and expected-result proof remain gaps.');
   const evidence:GuidePreparedEvidence={context,facts,spans,gaps,configValues,configReferences,policy:{version:'withhold-config-values@1',withheldValues:configValues.length,classifiedSources}};
-  if(Buffer.byteLength(JSON.stringify(evidence))>MAX_PREPARED_BYTES)throw new Error('guide preparation: complete source context exceeds its byte bound; no smaller input was returned');
+  if(Buffer.byteLength(JSON.stringify(evidence))>MAX_PREPARED_BYTES)throw new GuidePreparationError({stage:'source-evidence',code:'bound',file:'src/writer/guides/writer.ts',line:469});
   return evidence;
 }
 
@@ -502,21 +506,28 @@ export async function createGuideWriter(baseWiring: GuideWriterWiring): Promise<
   // Preparation belongs to the guide unit. A refused complete graph must not stop unrelated narrative units.
   return {
     async prepare(kind: GuideKind, locale: GuideLocale): Promise<GuidePreparedUnit> {
+      let stage: GuidePreparationStage = 'context';
+      try {
       let wiring = baseWiring;
       let context = await resolveGuideContext(wiring);
+      stage = 'current-proof';
       const previous = await wiring.owner.run(async (tx) => (await tx.query<{context:GuideContext;membership:string}>(`SELECT v.properties->'context' AS context,v.properties->>'readMembership' AS membership FROM node_version v JOIN node_kind k ON k.id=v.kind_id JOIN work_item w ON w.id=v.opened_by WHERE v.scope_id=$1::bigint AND k.key='guide-artifact' AND w.published_at IS NOT NULL AND w.published_digest IS NOT NULL ORDER BY w.generation DESC,v.id DESC LIMIT 1`,[wiring.scope])).rows[0]);
       if(previous!==undefined && previous.context.valid===context.valid && await sourceContextSnapshots(wiring.snapshots,previous.context)!==undefined) {
         const current=await readGuideGraph(wiring,previous.context,true);
         if(guideDigest([...current.nodes,...current.edges])===previous.membership)context=previous.context;
       }
+      stage = 'source-membership';
       const sourceSnapshots=await sourceContextSnapshots(wiring.snapshots,context);
       if(sourceSnapshots===undefined)throw new Error('guide current source membership is incompatible with its prepared context');
       wiring={...wiring,snapshots:sourceSnapshots};
+      stage = 'source-evidence';
       const privateEvidence = await prepareGuideEvidence(wiring, context);
+      stage = 'source-policy';
       const protectedInput = guidePacketPolicy(privateEvidence, wiring.sensitiveValues, wiring.containsSecret);
       const evidence = protectedInput.evidence;
       wiring = { ...wiring, sensitiveValues: protectedInput.sensitiveValues };
 
+      stage = 'registry';
       const output = registeredGuideOutput(wiring.output, kind);
       const inputDigest = guideDigest({ kind, locale, version: GUIDE_UNIT_VERSION, evidence });
       const verified = new Set<string>();
@@ -530,6 +541,7 @@ export async function createGuideWriter(baseWiring: GuideWriterWiring): Promise<
         },
       };
       const publication: GuidePublicationOwner = { ...wiring, registeredPath: output.path, kind, locale, context, inputDigest, unitVersion: GUIDE_UNIT_VERSION, evidence, readMembership: guideDigest(privateEvidence.facts), verified };
+      stage = 'publication-owner';
       const publishChecked = await createGuidePublication(publication);
       const prepared: GuidePreparedUnit = {
         prompt: '',
@@ -539,7 +551,11 @@ export async function createGuideWriter(baseWiring: GuideWriterWiring): Promise<
           return await publishChecked(request);
         },
       };
-      const entries:unknown[]=[{type:'coverage',context,policy:evidence.policy,facts:evidence.facts.length,spans:evidence.spans.length,gaps:evidence.gaps.length}];
+      stage = 'context-packets';
+      const { references = [], ...coveragePolicy } = evidence.policy;
+      const entries:unknown[]=[{type:'coverage',context,policy:{...coveragePolicy,referenceCount:references.length,referenceSetDigest:guideDigest(references)},facts:evidence.facts.length,spans:evidence.spans.length,gaps:evidence.gaps.length}];
+      // Keep all named references, once each, as independent bounded entries.
+      for(const reference of references)entries.push({type:'setting-reference',reference});
       for(const fact of evidence.facts)entries.push({type:'fact',value:fact});
       for(const span of evidence.spans){
         const lines=span.text.split('\n');
@@ -553,6 +569,7 @@ export async function createGuideWriter(baseWiring: GuideWriterWiring): Promise<
       }
       for(const gap of evidence.gaps)entries.push({type:'gap',message:gap});
       registerGuidePages(prepared,inputDigest,entries);
+      stage = 'current-proof';
       const held = await wiring.owner.run(async(tx)=>(await tx.query<{properties:Record<string,unknown>}>(
         `SELECT v.properties FROM node_version v JOIN node_kind k ON k.id=v.kind_id JOIN work_item w ON w.id=v.opened_by WHERE v.producer=$1 AND v.scope_id=$2::bigint AND k.key='guide-artifact' AND v.properties->>'locale'=$3 AND w.published_at IS NOT NULL AND w.published_digest IS NOT NULL ORDER BY w.generation DESC,v.id DESC LIMIT 1`,[`writer.${kind}`,wiring.scope,locale])).rows[0]?.properties);
       if(held!==undefined&&held['path']===output.path&&typeof held['artifact']==='string'){
@@ -571,6 +588,10 @@ export async function createGuideWriter(baseWiring: GuideWriterWiring): Promise<
       }
       Object.defineProperty(prepared,'prompt',{value:JSON.stringify({schema:GUIDE_SCHEMA,id:output.id,kind,locale,unitVersion:GUIDE_UNIT_VERSION,inputDigest,context,firstCursor:firstGuideCursor(prepared),instruction:'Read every prepared context packet using read_prepared_context and follow next to null before write_guide. Source parts retain exact ranges; source verification requires their complete named prepared span. Missing evidence is a visible gap.',shape:{title:'localized title',prerequisites:[],gaps:[],procedures:[]}}),enumerable:true});
       return prepared;
+      } catch (failure) {
+        if (failure instanceof GuidePreparationError) throw failure;
+        throw new GuidePreparationError({ stage, code: 'failed', file: 'src/writer/guides/writer.ts', line: 505 });
+      }
     },
   };
 }
