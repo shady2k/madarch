@@ -667,6 +667,52 @@ export async function memberSites(file: SourceFile, program: Program, imports: r
         if (factScopes.length > 1) declareGoType(node, false);
         visitChildren(node); return;
       }
+      if (type === 'range_clause' && go) {
+        const left = node.childForFieldName('left');
+        const right = node.childForFieldName('right');
+        const targets = left === null ? [] : named(left);
+        const operators = node.children.filter((child): child is SyntaxNode => child !== null && [':=', '='].includes(child.type));
+        const operator = operators.length === 1 ? operators[0]!.type : undefined;
+        // The collection is evaluated before the range declarations enter scope.
+        // In `for _, item := range item`, this is the outer item, not itself.
+        if (right !== null) visit(right);
+        if (left !== null) recordExpression(left);
+        if (left === null && operator === undefined && right !== null && !node.hasError && !node.isMissing) return;
+        const identifiers = targets.filter((target) => target.type === 'identifier' && textOf(target, text) !== '_');
+        const complete = node.parent?.type === 'for_statement' && scopeNodes[scopeNodes.length - 1]!.id === node.parent.id &&
+          !node.hasError && !node.isMissing && right !== null && !right.isMissing && !right.hasError &&
+          left?.type === 'expression_list' && targets.length >= 1 && targets.length <= 2 &&
+          targets.every((target) => target.type === 'identifier' && !target.isMissing) &&
+          identifiers.length > 0 && new Set(identifiers.map((target) => textOf(target, text))).size === identifiers.length;
+        if (operator === ':=') {
+          const fresh = identifiers.every((target) => !factScopes[factScopes.length - 1]!.has(textOf(target, text)));
+          targets.forEach((target, ordinal) => {
+            if (target.type !== 'identifier' || textOf(target, text) === '_') { visit(target); return; }
+            // Even unsupported declarations shadow outer bindings. Only exact,
+            // complete grammar records can supply a selection proof.
+            bind(textOf(target, text), undefined, target);
+            const id = lookupBinding(textOf(target, text)); const binding = id === undefined ? undefined : bindings.get(id);
+            if (complete && fresh && binding !== undefined && (ordinal === 0 || ordinal === 1)) {
+              bindings.set(binding.id, { ...binding, goRange: { clauseExpression: expressionId(node),
+                collectionExpression: expressionId(right!), ordinal, role: ordinal === 0 ? 'key' : 'value' } });
+            }
+          });
+        } else {
+          // `=` writes existing identities; it never declares range item locals.
+          if (left !== null) visit(left);
+          if (operator === '=') for (const target of identifiers) {
+            const id = lookupBinding(textOf(target, text)); const binding = id === undefined ? undefined : bindings.get(id);
+            if (binding?.kind !== 'local') continue;
+            const { initializer: discardedInitializer, goRange: discardedRange, ...retained } = binding;
+            void discardedInitializer; void discardedRange; bindings.set(binding.id, retained);
+          }
+        }
+        if (!complete || operator === undefined) {
+          const at = sourceSpan(node);
+          factGaps.set(expressionId(node), { path: file.path, reason: `line ${at.lineStart}: unsupported Go range binding at bytes ${at.byteStart}-${at.byteEnd}` });
+        }
+        return;
+      }
       if (type === 'short_var_declaration' && go) {
         visitChildren(node);
         const left = node.childForFieldName('left');

@@ -24,6 +24,7 @@ import {routeListenerPorts, structuralHttpRegistrations} from '../operations/rou
 import {codeFactsOf, extractCodeWithFacts} from '../code/index.js';
 import type {CodeFacts} from '../code/facts.js';
 import {asyncApiNodes, readAsyncApi} from './asyncapi.js';
+import {inferOutboxPublications} from './outbox.js';
 import {contractSymbols} from './symbol-links.js';
 import {readGoFile, resolveGoStarts, duplicatesByStatusComparison, type GoFileFacts} from './go-code.js';
 import {openApiNodes, readOpenApi} from './openapi.js';
@@ -587,18 +588,15 @@ export async function extractContracts(reader: TreeReader, code?: Extraction, fa
       }, site.span);
       continue;
     }
-    if (!site.span.path.endsWith('.go')) continue;
-    // Existing outbox evidence remains an explicitly named indirect path, and
-    // only a grounded writer call can reach this join.
-    for (const channel of channels) {
-      const constant = service === undefined ? undefined : constantForService(service, channel);
-      if (constant === undefined) continue;
-      const constantText = textOf(reader, constant.path);
-      if (constantText === undefined || !/INTO\s+outbox/.test(constantText)) continue;
-      const readsOutbox = [...goFiles, ...tsFiles].some(held => serviceOf(held.path) === service && /FROM\s+outbox/.test(textOf(reader, held.path) ?? ''));
-      if (!readsOutbox) continue;
-      interaction(REL_PUBLISHES, site.span.path, channelKey(channel), {topic: channel, constant: constant.name, constantPath: constant.path, via: 'outbox', evidence}, site.span);
-    }
+  }
+  const outbox = await inferOutboxPublications(facts, code, publications.sites);
+  gaps.push(...outbox.gaps);
+  for (const site of outbox.sites) {
+    if (!channels.includes(site.channel)) continue;
+    interaction(REL_PUBLISHES, site.span.path, channelKey(site.channel), {
+      topic: site.channel, via: 'outbox', evidence: site.evidence.map(span => ({...span})),
+      ...(site.constant === undefined ? {} : {constant: site.constant, constantPath: site.constantPath ?? ''}),
+    }, site.span);
   }
 
   // Shared structural registrations also cover imported factory aliases the

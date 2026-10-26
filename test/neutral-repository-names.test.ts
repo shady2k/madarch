@@ -13,6 +13,7 @@ import { validateMetricSemanticModels } from '../src/extract/library-models/metr
 import { validateMessagingModels } from '../src/extract/library-models/messaging-models.js';
 import { validateShellCommandModels } from '../src/extract/library-models/shell-command-models.js';
 import { validateEnvironmentModels } from '../src/extract/library-models/environment-models.js';
+import { validateOutboxModels } from '../src/extract/library-models/outbox-models.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const SCAN_ROOTS = ['src', 'test', 'scripts', 'wiki/app/src', 'examples', 'docs/system'];
@@ -266,7 +267,7 @@ function provenanceRanges(root: string, file: string, text: string, errors: stri
     for (const error of document.errors) located(error.pos[0], error.message);
     return [];
   }
-  const validators = [validateLibraryRegistry, validateHttpModels, validateMetricSemanticModels, validateMessagingModels, validateShellCommandModels, validateEnvironmentModels];
+  const validators = [validateLibraryRegistry, validateHttpModels, validateMetricSemanticModels, validateMessagingModels, validateShellCommandModels, validateEnvironmentModels, validateOutboxModels];
   const validationErrors: string[] = [];
   let validated = false;
   for (const validate of validators) {
@@ -276,6 +277,35 @@ function provenanceRanges(root: string, file: string, text: string, errors: stri
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return [];
   const registry = parsed as Record<string, unknown>;
   const ranges: ProvenanceRange[] = [];
+  if ('receivers' in registry && 'outbox' in registry) {
+    // Receiver-linked operation evidence names that exact modeled package.
+    // It does not license another scalar, host, or documentation path.
+    const model = validateOutboxModels(registry);
+    const license = (path: readonly (string | number)[], expected: string): void => {
+      const scalar = document.getIn(path, true);
+      if (!isScalar(scalar) || scalar.type !== 'QUOTE_DOUBLE' || scalar.range == null || scalar.value !== expected) {
+        located(0, `${path.join('.')}: no exact JSON scalar location`); return;
+      }
+      const [start, end] = scalar.range;
+      try {
+        if (JSON.parse(text.slice(start, end)) !== expected) { located(start, 'scalar bytes disagree'); return; }
+      } catch { located(start, 'scalar bytes are not JSON'); return; }
+      ranges.push({start, end});
+    };
+    for (const [index, receiver] of model.receivers.entries()) {
+      license(['receivers', index, 'package'], receiver.package);
+      if (packageDocumentation(receiver.reference, receiver.ecosystem, receiver.package)) license(['receivers', index, 'reference'], receiver.reference);
+    }
+    for (const section of ['operations', 'factories'] as const) {
+      for (const [index, operation] of model[section].entries()) {
+        const receivers = operation.receiverIds.map(id => model.receivers.find(receiver => receiver.id === id));
+        const first = receivers[0];
+        if (first !== undefined && receivers.every(receiver => receiver?.ecosystem === first.ecosystem && receiver.package === first.package)
+          && packageDocumentation(operation.reference, first.ecosystem, first.package)) license([section, index, 'reference'], operation.reference);
+      }
+    }
+    return ranges;
+  }
   for (const section of ['models', 'types']) {
     const entries = registry[section]; if (entries === undefined) continue;
     if (!Array.isArray(entries)) return [];
@@ -786,6 +816,38 @@ describe('neutral repository names', () => {
         `test/namespaces.ts:1 (${ts}): repository source is not an example or madarch repository: ${namespace.slice('https://'.length)}`,
       ]);
     } finally { rmSync(fixtureRoot, { recursive: true, force: true }); }
+  });
+
+  test('outbox operation evidence licenses only its exact validated receiver package', async () => {
+    const fixtureRoot = mkdtempSync(join(tmpdir(), 'madarch-neutral-outbox-provenance-'));
+    try {
+      for (const path of SCAN_ROOTS) mkdirSync(join(fixtureRoot, path), {recursive: true});
+      for (const path of ROOT_DOCUMENTS) { const file = join(fixtureRoot, path); mkdirSync(dirname(file), {recursive: true}); writeFileSync(file, ''); }
+      const packageName = ['database', 'sql'].join('/');
+      const reference = ['https:/', 'pkg.go.dev', packageName].join('/');
+      const registry = {schemaVersion: 1, outbox: {table: 'outbox', topicColumn: 'topic'},
+        receivers: [{id: 'db', ecosystem: 'go', package: packageName, packageName: 'sql', exportedPath: ['DB'], pointer: true, reference: reference + '#DB'}],
+        operations: [{id: 'query', receiverIds: ['db'], member: 'Query', sql: 0, values: 1, reference: reference + '#DB.Query'}],
+        scan: {member: 'Scan', receiver: 'query-result', arguments: 'destinations'},
+        append: {ecosystem: 'go', builtin: 'append', collection: 0, element: 1}, factories: []};
+      const file = join(fixtureRoot, 'src/extract/library-models/outbox-models.json');
+      mkdirSync(dirname(file), {recursive: true}); writeFileSync(file, JSON.stringify(registry));
+      expect(await findings(fixtureRoot)).toEqual([]);
+      const outside = join(fixtureRoot, 'docs/system/sql-evidence.md'); writeFileSync(outside, reference);
+      expect(await findings(fixtureRoot)).toEqual([
+        `docs/system/sql-evidence.md:1 (${outside}): repository source is not an example or madarch repository: ${reference.slice('https://'.length)}`,
+      ]);
+      rmSync(outside);
+      const other = ['https:/', 'pkg.go.dev', 'database', 'other'].join('/');
+      writeFileSync(file, JSON.stringify({...registry, operations: [{...registry.operations[0], reference: other}]}));
+      expect(await findings(fixtureRoot)).toEqual([
+        `src/extract/library-models/outbox-models.json:1 (${file}): repository source is not an example or madarch repository: ${other.slice('https://'.length)}`,
+      ]);
+      writeFileSync(file, JSON.stringify({...registry, operations: [{...registry.operations[0], receiverIds: ['unknown']}]}));
+      const errors = await findings(fixtureRoot);
+      expect(errors.some(error => error.includes('invalid model registry'))).toBe(true);
+      expect(errors.filter(error => error.includes('repository source is not an example'))).toHaveLength(2);
+    } finally { rmSync(fixtureRoot, {recursive: true, force: true}); }
   });
 
   test('only example and madarch repositories appear in product code and current documents', async () => {

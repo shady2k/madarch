@@ -23,15 +23,17 @@ import { messagingModelDigest } from '../library-models/messaging-models.js';
 import messagingModelSource from '../library-models/messaging-models.json' with { type: 'text' };
 import { environmentModelDigest } from '../library-models/environment-models.js';
 import environmentModelSource from '../library-models/environment-models.json' with { type: 'text' };
+import { outboxModelDigest } from '../library-models/outbox-models.js';
+import outboxModelSource from '../library-models/outbox-models.json' with { type: 'text' };
 import { shellCommandModelDigest } from '../library-models/shell-command-models.js';
 import shellCommandModelSource from '../library-models/shell-command-models.json' with { type: 'text' };
 
 /** Every tree extractor, in the order the driver runs them per commit. */
 const TREE_READERS = [
  {name:'extractFiles',version:2,extractor:extractFiles},
- {name:'extractCode',version:12,extractor:extractCodeWithFacts},
- {name:'extractOperations',version:13,extractor:extractOperations},
- {name:'extractContracts',version:10,extractor:extractContracts},
+ {name:'extractCode',version:13,extractor:extractCodeWithFacts},
+ {name:'extractOperations',version:14,extractor:extractOperations},
+ {name:'extractContracts',version:11,extractor:extractContracts},
  {name:'extractDataModel',version:6,extractor:extractDataModel},
 ] as const;
 export const TREE_EXTRACTORS: readonly TreeExtractor[] = TREE_READERS.map((entry)=>entry.extractor);
@@ -64,6 +66,9 @@ export const EXTRACTOR_VERSIONS = [
  {name:'messaging-model-source-bytes',version:1,contentDigest:codeQueryDigest([{path:'library-models/messaging-models.json',source:messagingModelSource as unknown as string}])},
  {name:'environment-model-data',version:1,contentDigest:environmentModelDigest},
  {name:'environment-model-source-bytes',version:1,contentDigest:codeQueryDigest([{path:'library-models/environment-models.json',source:environmentModelSource as unknown as string}])},
+ {name:'outbox-model-data',version:1,contentDigest:outboxModelDigest},
+ {name:'outbox-model-source-bytes',version:1,contentDigest:codeQueryDigest([{path:'library-models/outbox-models.json',source:outboxModelSource as unknown as string}])},
+ {name:'sql-parser-runtime:libpg-query@18.2.1',version:1},
  {name:'shell-command-model-data',version:1,contentDigest:shellCommandModelDigest},
  {name:'shell-command-model-source-bytes',version:1,contentDigest:codeQueryDigest([{path:'library-models/shell-command-models.json',source:shellCommandModelSource as unknown as string}])},
  {name:'driver-and-link-normalization',version:7},

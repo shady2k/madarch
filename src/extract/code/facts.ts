@@ -47,6 +47,9 @@ export interface CodeBindingFact {
   readonly scope: SourceSpan;
   readonly importId?: CodeFactId;
   readonly initializer?: CodeFactId;
+  /** Go range selection, not a value origin: ordinal zero is a key/index, never the collection value. */
+  readonly goRange?: { readonly clauseExpression: CodeFactId; readonly collectionExpression: CodeFactId;
+    readonly ordinal: 0 | 1; readonly role: 'key' | 'value' };
   /** Exact declaration through initializer, excluding export prefix/trailing separator. */
   readonly declarationSpan?: SourceSpan;
 }
