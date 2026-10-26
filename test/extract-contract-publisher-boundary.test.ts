@@ -331,3 +331,93 @@ export function emit(transport: Wire) {
     expect(result.gaps.filter(gap => gap.reason.includes('receiver') || gap.reason.includes('producer binding')), diagnostic(input, shared, result)).toEqual([]);
   });
 }
+
+
+for (const [label, declarations, options, expected] of [
+  ['unknown spread overwrites an earlier topic', '', "{topic: 'notifications', messages: [], ...overrides}", undefined],
+  ['explicit topic restores an unknown spread', '', "{...overrides, messages: [], topic: 'notifications'}", 'notifications'],
+  ['known spread overwrites an earlier topic', "const known = {topic: 'other'};", "{topic: 'notifications', messages: [], ...known}", 'other'],
+  ['known unrelated spread preserves an earlier topic', 'const known = {messages: []};', "{topic: 'notifications', ...known}", 'notifications'],
+  ['nested known spreads retain their final topic', "const base = {topic: 'other'}; const known = {...base, topic: 'notifications'};", '{messages: [], ...known}', 'notifications'],
+  ['nested unknown spread invalidates an earlier topic', "const known = {topic: 'notifications', ...overrides};", '{messages: [], ...known}', undefined],
+  ['nested explicit topic restores an unknown spread', "const known = {...overrides, topic: 'notifications'};", '{messages: [], ...known}', 'notifications'],
+  ['unknown spread overwrites a known spread', "const known = {topic: 'notifications'};", '{messages: [], ...known, ...overrides}', undefined],
+  ['later known spread restores an unknown spread', "const known = {topic: 'notifications'};", '{messages: [], ...overrides, ...known}', 'notifications'],
+  ['explicit duplicate keys use the final value', '', "{topic: 'other', messages: [], topic: 'notifications'}", 'notifications'],
+  ['shorthand topic restores an unknown spread', "const topic = 'notifications';", '{messages: [], ...overrides, topic}', 'notifications'],
+  ['spread shorthand retains its lexical initializer', "const topic = 'notifications'; const known = {topic};", '{messages: [], ...known}', 'notifications'],
+  ['unresolved computed key can overwrite the topic', '', "{topic: 'notifications', messages: [], [dynamicKey]: 'other'}", undefined],
+  ['known unrelated computed key preserves the topic', '', "{topic: 'notifications', ['messages']: []}", 'notifications'],
+  ['explicit topic restores an unresolved computed key', '', "{[dynamicKey]: 'other', messages: [], topic: 'notifications'}", 'notifications'],
+  ['method property overwrites the topic', '', "{topic: 'notifications', messages: [], topic() { return 'other'; }}", undefined],
+  ['nested decoy topic cannot supply a direct topic', "const known = {messages: [{topic: 'notifications'}]};", '{...known}', undefined],
+  ['cyclic spread cannot supply a topic', 'const known = {...known};', '{messages: [], ...known}', undefined],
+] as const) {
+  test(`TypeScript publisher object properties are evaluated in order: ${label}`, async () => {
+    const path = 'services/dispatch/ordered.ts';
+    const invocation = `transport.send(${options})`;
+    const input = tree({'contracts/asyncapi/notices.yaml': `${contract}  other:\n    publish: {message: {name: Other}}\n`,
+      [path]: `import type {Producer} from 'kafkajs';
+export async function emit(transport: Producer, overrides: {topic: string}, dynamicKey: string) {
+  ${declarations}
+  /* π 📨 */ await ${invocation};
+}`});
+    const shared = await extractCodeWithFacts(input);
+    const result = await extractContracts(input, shared.extraction, shared.facts);
+    const structural = structuralPublishers(new TreeText(input, shared.extraction, shared.facts));
+    expect(publications(result).map(edge => ({from: edge.from, to: edge.to})), diagnostic(input, shared, result)).toEqual(expected === undefined ? [] : [
+      {from: `code.symbol:${path}#emit`, to: `code.channel:${expected}`},
+    ]);
+    // An unresolved selector still retains the entire raw call, not a prefix
+    // or a silently smaller positive claim from a surviving earlier property.
+    expect(structural.sites, diagnostic(input, shared, result)).toHaveLength(1);
+    const site = structural.sites[0];
+    if (site === undefined) throw new Error(`${import.meta.path}: missing full publisher candidate (${path}:4)`);
+    expect(site.channel).toBe(expected);
+    expect(site.span.path).toBe(path);
+    expect(site.span.lineStart).toBe(4);
+    expect(new TextDecoder().decode(input.read(path).subarray(site.span.byteStart, site.span.byteEnd))).toBe(invocation);
+    expect(site.evidence).toEqual([site.span]);
+    if (expected === undefined) {
+      expect(result.edges.filter(edge => edge.type === 'code.publishes')).toEqual([]);
+      expect(result.gaps.some(gap => gap.path === path && gap.reason.includes('line 4:') && gap.reason.includes('topic is unresolved') && gap.reason.includes(`(${path})`)), diagnostic(input, shared, result)).toBe(true);
+    } else {
+      expect(publications(result)[0]?.span).toEqual(site.span);
+      expect(result.gaps, diagnostic(input, shared, result)).toEqual([]);
+    }
+  });
+}
+
+test('ordered publisher spread selection fails closed for missing, duplicate or reordered AST facts', async () => {
+  const path = 'services/dispatch/ordered.ts';
+  const input = tree({'contracts/asyncapi/notices.yaml': contract,
+    [path]: `import type {Producer} from 'kafkajs';
+export async function emit(transport: Producer) {
+  const known = {topic: 'notifications'};
+  /* π 📨 */ await transport.send({messages: [], ...known});
+}`});
+  const shared = await extractCodeWithFacts(input);
+  expect(publications(await extractContracts(input, shared.extraction, shared.facts))).toHaveLength(1);
+  const call = shared.facts.calls.find(entry => entry.path === path && entry.span.lineStart === 4);
+  const options = shared.facts.expressions.find(entry => entry.id === call?.arguments[0]);
+  const spread = shared.facts.expressions.find(entry => options?.children.includes(entry.id) && entry.syntaxKind === 'spread_element');
+  const declaration = shared.facts.bindings.find(entry => entry.path === path && entry.name === 'known');
+  const known = shared.facts.expressions.find(entry => entry.id === declaration?.initializer);
+  if (call === undefined || options?.syntaxKind !== 'object' || spread === undefined || known?.syntaxKind !== 'object') {
+    throw new Error(`${import.meta.path}: missing ordered object/spread proof (${path}:4)`);
+  }
+  for (const id of [spread.id, ...spread.children, known.id, ...known.children]) {
+    const missing = freezeCodeFacts({...shared.facts, expressions: shared.facts.expressions.filter(entry => entry.id !== id)});
+    const result = await extractContracts(input, shared.extraction, missing);
+    expect(result.edges.filter(edge => edge.type === 'code.publishes'), `${import.meta.path}: missing ${id} must not publish (${path}:4)`).toEqual([]);
+    expect(result.gaps.some(gap => gap.path === path && gap.reason.includes('line 4:') && gap.reason.includes('topic is unresolved'))).toBe(true);
+  }
+  const duplicate = freezeCodeFacts({...shared.facts, expressions: [...shared.facts.expressions, spread]});
+  const reversed = freezeCodeFacts({...shared.facts, expressions: shared.facts.expressions.map(entry => entry === options ? {...entry, children: [...entry.children].reverse()} : entry)});
+  for (const facts of [duplicate, reversed]) {
+    const result = await extractContracts(input, shared.extraction, facts);
+    expect(result.edges.filter(edge => edge.type === 'code.publishes')).toEqual([]);
+    expect(result.gaps.some(gap => gap.path === path && gap.reason.includes('line 4:') && gap.reason.includes('topic is unresolved'))).toBe(true);
+  }
+  expect(Object.isFrozen(shared.facts)).toBe(true);
+});

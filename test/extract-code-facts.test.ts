@@ -237,3 +237,73 @@ test('direct Go field declarations retain exact owner and qualified type express
   const binding=facts.bindings.find((entry)=>entry.id===packageExpression?.bindingId);expect(facts.imports.find((entry)=>entry.id===binding?.importId)?.specifier).toBe('sync/atomic');
   const reads=facts.sites.filter((site)=>site.to===field.key);expect(reads.length).toBeGreaterThanOrEqual(2);
 });
+
+
+test('Go full import paths keep same-basename packages distinct and explicit aliases win', async () => {
+  const path = 'cmd/run/main.go';
+  const first = 'example.test/catalog/components/adapter';
+  const second = 'example.test/catalog/other/adapter';
+  const external = 'example.test/remote/adapter';
+  for (const aliased of [false, true]) {
+    const left = aliased ? 'chosenLeft' : 'source';
+    const right = aliased ? 'chosenRight' : 'target';
+    const {facts} = await extractCodeWithFacts(treeOf({
+      'go.mod': 'module example.test/catalog\n',
+      'components/adapter/one.go': 'package source\ntype Worker struct{}\nfunc New() *Worker{return &Worker{}}\nfunc(w *Worker) Run(){}',
+      'other/adapter/two.go': 'package target\ntype Worker struct{}\nfunc New() *Worker{return &Worker{}}\nfunc(w *Worker) Run(){}',
+      [path]: `package main\nimport (${aliased ? `${left} ` : ''}"${first}";${aliased ? `${right} ` : ''}"${second}";"${external}")\nfunc main(){a:=${left}.New();a.Run();b:=${right}.New();b.Run();adapter.New();${aliased ? 'source.New();target.New();' : ''}}\n`,
+    }));
+    const imported = facts.imports.filter((entry) => entry.path === path);
+    expect(imported.map((entry) => [entry.specifier, entry.local]).sort()).toEqual([
+      [first, left], [second, right], [external, 'adapter'],
+    ].sort());
+    const bindings = new Map(facts.bindings.map((entry) => [entry.id, entry]));
+    for (const [specifier, local] of [[first, left], [second, right], [external, 'adapter']]) {
+      const expected = imported.find((entry) => entry.specifier === specifier);
+      const references = facts.expressions.filter((entry) => entry.path === path && entry.name === local && entry.bindingId !== undefined);
+      expect(references.length).toBeGreaterThan(0);
+      expect(references.every((entry) => bindings.get(entry.bindingId!)?.importId === expected?.id)).toBe(true);
+    }
+    expect(facts.sites.filter((site) => site.path === path && site.use === 'call').map((site) => site.to).sort()).toEqual([
+      'code.symbol:components/adapter/one.go#New',
+      'code.symbol:components/adapter/one.go#Worker.Run',
+      'code.symbol:other/adapter/two.go#New',
+      'code.symbol:other/adapter/two.go#Worker.Run',
+    ].sort());
+    expect(facts.gaps.filter((gap) => gap.path === path && gap.reason.includes('declared package identity'))).toEqual([]);
+  }
+});
+
+test('Go conflicting local namespaces fail closed for distinct internal and external import paths', async () => {
+  const path = 'cmd/run/main.go';
+  for (const rival of ['example.test/catalog/other/adapter', 'example.test/remote/shared']) for (const alias of ['', 'chosen ']) {
+    const local = alias === '' ? 'shared' : 'chosen';
+    const {facts} = await extractCodeWithFacts(treeOf({
+      'go.mod': 'module example.test/catalog\n',
+      'components/adapter/one.go': 'package shared\nfunc New() int{return 1}',
+      'other/adapter/two.go': 'package shared\nfunc New() int{return 2}',
+      [path]: `package main\nimport (${alias}"example.test/catalog/components/adapter";${alias}"${rival}")\nfunc main(){${local}.New()}\n`,
+    }));
+    expect(facts.imports.filter((entry) => entry.path === path)).toEqual([]);
+    expect(facts.bindings.filter((entry) => entry.path === path && entry.kind === 'import')).toEqual([]);
+    expect(facts.sites.filter((site) => site.path === path && site.use === 'call')).toEqual([]);
+    expect(facts.gaps.filter((gap) => gap.path === path && gap.reason.includes('declared package identity'))).toHaveLength(2);
+  }
+});
+
+test('a mixed-clause Go folder cannot contaminate a same-basename external import', async () => {
+  const path = 'cmd/run/main.go';
+  for (const alias of ['', 'chosen ']) {
+    const {facts} = await extractCodeWithFacts(treeOf({
+      'go.mod': 'module example.test/catalog\n',
+      'components/adapter/one.go': 'package first\nfunc New() int{return 1}',
+      'components/adapter/two.go': 'package second\nfunc Other() int{return 2}',
+      [path]: `package main\nimport (${alias}"example.test/catalog/components/adapter";"example.test/remote/adapter")\nfunc main(){first.New();second.New();chosen.New();adapter.New()}\n`,
+    }));
+    expect(facts.imports.filter((entry) => entry.path === path).map((entry) => [entry.specifier, entry.local])).toEqual([
+      ['example.test/remote/adapter', 'adapter'],
+    ]);
+    expect(facts.sites.filter((site) => site.path === path && site.use === 'call')).toEqual([]);
+    expect(facts.gaps.filter((gap) => gap.path === path && gap.reason.includes('declared package identity'))).toHaveLength(1);
+  }
+});

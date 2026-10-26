@@ -260,7 +260,7 @@ export async function extractCodeWithFacts(reader: TreeReader): Promise<CodeExtr
     for (const entry of file.resolution.imports) {
       if (file.source.language === 'go') {
         const folder = goImportFolder(entry.specifier, goModules, goFolders);
-        if (folder !== undefined) imports.set(entry.local, { kind: 'package', scope: folder });
+        if (folder !== undefined) imports.set(entry.specifier, { kind: 'package', scope: folder });
         continue;
       }
       const target = resolveSpecifier(file.source.path, entry.specifier, known);

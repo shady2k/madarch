@@ -777,11 +777,65 @@ export function structuralPublishers(source: TreeText): {sites: StructuralPublic
     return value;
   };
   const literal = (value: Value): string | undefined => { const held = unwrap(value); const node = held === undefined ? undefined : expression(held.id); return node?.literal?.kind === 'string' && typeof node.literal.value === 'string' ? node.literal.value : undefined; };
+  type Property = {kind: 'absent'} | {kind: 'unknown'} | {kind: 'value'; value: Value};
+  // Object spread copies properties in source order. An unresolved spread may
+  // overwrite an earlier key; only a later proved property can restore it.
+  // Absence is distinct from uncertainty so a known unrelated spread is inert.
+  const objectProperty = (value: Value, key: string, seen = new Set<string>()): Property => {
+    const held = unwrap(value);
+    if (held === undefined || seen.has(held.id) || seen.size >= 80) return {kind: 'unknown'};
+    const node = expression(held.id);
+    if (node?.syntaxKind !== 'object') return {kind: 'unknown'};
+    const next = new Set(seen); next.add(held.id);
+    const entries: CodeExpressionFact[] = [];
+    let end = node.span.byteStart;
+    for (const id of node.children) {
+      const entry = expression(id);
+      // Never turn a partial or reordered fact view into a smaller object.
+      if (entry === undefined || !contains(node.span, entry.span) || entry.span.byteStart < end) return {kind: 'unknown'};
+      entries.push(entry); end = entry.span.byteEnd;
+    }
+    let result: Property = {kind: 'absent'};
+    for (const entry of entries) {
+      if (entry.syntaxKind === 'comment') continue;
+      if (entry.syntaxKind === 'spread_element') {
+        const operands = entry.children.map(expression);
+        const operand = unique(operands);
+        const spread: Property = operand === undefined || !contains(entry.span, operand.span)
+          ? {kind: 'unknown'} : objectProperty({id: operand.id, env: held.env}, key, next);
+        if (spread.kind !== 'absent') result = spread;
+        continue;
+      }
+      if (entry.syntaxKind === 'shorthand_property_identifier') {
+        if (entry.name === undefined) result = {kind: 'unknown'};
+        else if (entry.name === key) result = {kind: 'value', value: {id: entry.id, env: held.env}};
+        continue;
+      }
+      if (entry.syntaxKind !== 'pair' && entry.syntaxKind !== 'method_definition') { result = {kind: 'unknown'}; continue; }
+      const name = field(entry, entry.syntaxKind === 'pair' ? 'key' : 'name');
+      let named = name?.name ?? (typeof name?.literal?.value === 'string' ? name.literal.value : undefined);
+      if (name?.syntaxKind === 'computed_property_name') {
+        const operands = name.children.map(expression); const operand = unique(operands);
+        named = operand === undefined || !contains(name.span, operand.span) ? undefined : literal({id: operand.id, env: held.env});
+      }
+      if (named === undefined) { result = {kind: 'unknown'}; continue; }
+      if (named !== key) continue;
+      const selected = entry.syntaxKind === 'pair' ? field(entry, 'value') : undefined;
+      result = selected === undefined ? {kind: 'unknown'} : {kind: 'value', value: {id: selected.id, env: held.env}};
+    }
+    return result;
+  };
   const select = (value: Value, path: readonly string[]): Value | undefined => {
     let held: Value | undefined = value;
     for (const key of path) {
       held = held === undefined ? undefined : unwrap(held); const node: CodeExpressionFact | undefined = held === undefined ? undefined : expression(held.id);
       if (node === undefined || held === undefined) return undefined;
+      if (node.syntaxKind === 'object') {
+        const selected = objectProperty(held, key);
+        if (selected.kind !== 'value') return undefined;
+        held = selected.value;
+        continue;
+      }
       let object: CodeExpressionFact = node;
       if (node.syntaxKind === 'composite_literal') { const body = field(node, 'body'); if (body === undefined) return undefined; object = body; }
       const candidates: CodeExpressionFact[] = children(object).flatMap((entry): CodeExpressionFact[] => {
