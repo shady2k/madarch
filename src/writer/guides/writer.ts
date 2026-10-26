@@ -233,14 +233,15 @@ export function distinctiveGuideValue(value: string): boolean {
 /** Delimit fields/path components; hyphens and underscores remain inside a token. */
 const tokenBoundary = (character: string): boolean => character.trim() === '' || '/\\"\'()[]{}<>;,'.includes(character);
 export function containsGuideSecret(text: string, sensitiveValues: readonly string[] | undefined): boolean {
-  const values = new Set((sensitiveValues ?? []).filter((value) => value.length > 0));
-  if (values.has(text)) return true;
-  let token = '';
-  for (const character of text) {
-    if (tokenBoundary(character)) { if (values.has(token)) return true; token = ''; }
-    else token += character;
+  for (const value of new Set((sensitiveValues ?? []).filter((candidate) => candidate.length > 0))) {
+    // The candidate is one complete classified value. Its OWN punctuation must not split it
+    // (for example a decoded quote); only the characters OUTSIDE the candidate define a token.
+    for (let start = text.indexOf(value); start >= 0; start = text.indexOf(value, start + 1)) {
+      const end = start + value.length;
+      if ((start === 0 || tokenBoundary(text[start - 1]!)) && (end === text.length || tokenBoundary(text[end]!))) return true;
+    }
   }
-  return values.has(token);
+  return false;
 }
 export function guidePacketPolicy(evidence: GuidePreparedEvidence, knownValues: readonly string[] = [], hostChecker?: (text: string) => boolean): { readonly evidence: GuidePreparedEvidence; readonly sensitiveValues: readonly string[]; readonly containsSecret: (text: string) => boolean } {
   const known = [...new Set(knownValues.filter((value) => value.length > 0))];

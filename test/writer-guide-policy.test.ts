@@ -157,3 +157,15 @@ test('ordinary configuration metadata is withheld source input but not secret au
  const refused=await validateGuide({...raw,title:'private-runtime-key'}, {...host,containsSecret:(text)=>containsGuideSecret(text,known.sensitiveValues)});
  expect(refused.ok).toBe(false);expect(verified).toBe(1);expect(JSON.stringify(refused)).not.toContain('private-runtime-key');
 });
+
+test('classified token matching preserves internal punctuation but refuses prefix and suffix partial matches',()=>{
+ const candidates=['private"credential','private-runtime-key','private\\credential','key_value'];
+ for(const value of candidates){
+  expect(containsGuideSecret(value,[value])).toBe(true);
+  expect(containsGuideSecret(`'${value}';`,[value])).toBe(true);
+  expect(containsGuideSecret(`repos/sample/${value}`,[value])).toBe(true);
+  expect(containsGuideSecret(`prefix${value}`,[value])).toBe(false);
+  expect(containsGuideSecret(`${value}-suffix`,[value])).toBe(false);
+  expect(containsGuideSecret(`repos/sample/${value}-suffix`,[value])).toBe(false);
+ }
+});
