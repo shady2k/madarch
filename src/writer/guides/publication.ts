@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { lstat, mkdir, readFile, rename, writeFile, unlink } from 'node:fs/promises';
 import { dirname, join, resolve, sep } from 'node:path';
 import type { GuideContext, GuideDiagnostic, GuideKind, GuideLocale } from './model.js';
-import { GUIDE_OUTPUTS, type GuidePublicationRequest, type GuidePublicationResult } from './host-contract.js';
+import { registeredGuideOutput, type GuidePublicationRequest, type GuidePublicationResult } from './host-contract.js';
 import { isCheckedGuide } from './validate.js';
 import { renderGuideArtifact } from './artifact.js';
 import { guideDigest, guideStepDigest, sameGuideContext } from './digest.js';
@@ -12,6 +12,8 @@ import { byCodePoint } from '../../model/order.js';
 
 export interface GuidePublicationOwner extends GuideWriterWiring {
   readonly kind: GuideKind;
+  /** Registry path captured when the prepared unit was created. */
+  readonly registeredPath?: string;
   readonly locale: GuideLocale;
   readonly context: GuideContext;
   readonly inputDigest: string;
@@ -23,7 +25,8 @@ export interface GuidePublicationOwner extends GuideWriterWiring {
 const ARTIFACT_KIND = 'guide-artifact';
 const producerOf = (kind: GuideKind): string => `writer.${kind}`;
 export async function createGuidePublication(owner: GuidePublicationOwner): Promise<(request: GuidePublicationRequest) => Promise<GuidePublicationResult>> {
-  const output = GUIDE_OUTPUTS[owner.kind];
+  const output = registeredGuideOutput(owner.output, owner.kind);
+  if (owner.registeredPath !== undefined && owner.registeredPath !== output.path) throw new Error('guide product registry changed during preparation');
   const full = resolve(owner.output, output.path);
   const error = (code: string): GuidePublicationResult => {
     const diagnostic: GuideDiagnostic = { file: full, line: 1, path: '$.publication', code, message: `${full}:1: $.publication: checked publication refused (${code}); no generated ownership is inferred from front matter` };
@@ -31,6 +34,9 @@ export async function createGuidePublication(owner: GuidePublicationOwner): Prom
   };
   await owner.store.registerVocabulary({ kinds: [ARTIFACT_KIND], relations: [] });
   return async (request) => {
+    let registered: ReturnType<typeof registeredGuideOutput>;
+    try { registered = registeredGuideOutput(owner.output, owner.kind); } catch { return error('registry-changed'); }
+    if (registered.path !== output.path || registered.id !== output.id) return error('registry-changed');
     const guide = request.guide;
     if (!isCheckedGuide(guide) || guide.id !== output.id || guide.kind !== owner.kind || guide.locale !== owner.locale || guide.inputDigest !== owner.inputDigest || guide.unitVersion !== owner.unitVersion || !sameGuideContext(guide.context, owner.context) || request.expectedInputDigest !== owner.inputDigest || request.expectedUnitVersion !== owner.unitVersion || !sameGuideContext(request.expectedContext, owner.context)) return error('authority-mismatch');
     if (request.artifact !== renderGuideArtifact(guide)) return error('canonical-artifact');
@@ -38,14 +44,14 @@ export async function createGuidePublication(owner: GuidePublicationOwner): Prom
     const producer = producerOf(owner.kind);
     const payload = { path: output.path, artifact: request.artifact, context: owner.context, inputDigest: owner.inputDigest, unitVersion: owner.unitVersion, locale: owner.locale, evidenceDigest: guideDigest(owner.evidence), evidence: owner.evidence, readMembership: owner.readMembership, verifiedSteps: [...owner.verified].sort(byCodePoint), status: 'proposed' };
     const digest = guideDigest(payload);
-    const previous = await owner.owner.run(async (tx) => (await tx.query<{ artifact: string; payload: string; generation: string }>(
-      `SELECT v.properties->>'artifact' AS artifact, v.properties->>'guidePayload' AS payload, w.generation::text AS generation FROM node_version v JOIN node_kind k ON k.id=v.kind_id JOIN work_item w ON w.id=v.opened_by WHERE v.producer=$1 AND v.scope_id=$2::bigint AND k.key=$3 AND w.published_at IS NOT NULL AND w.published_digest IS NOT NULL ORDER BY w.generation DESC, v.id DESC LIMIT 1`, [producer, owner.scope, ARTIFACT_KIND],
+    const previous = await owner.owner.run(async (tx) => (await tx.query<{ artifact: string; path: string; payload: string; generation: string }>(
+      `SELECT v.properties->>'artifact' AS artifact, v.properties->>'path' AS path, v.properties->>'guidePayload' AS payload, w.generation::text AS generation FROM node_version v JOIN node_kind k ON k.id=v.kind_id JOIN work_item w ON w.id=v.opened_by WHERE v.producer=$1 AND v.scope_id=$2::bigint AND k.key=$3 AND w.published_at IS NOT NULL AND w.published_digest IS NOT NULL ORDER BY w.generation DESC, v.id DESC LIMIT 1`, [producer, owner.scope, ARTIFACT_KIND],
     )).rows[0]);
     // A generated marker is never ownership. Only prior actually published bytes authorize replacement.
     let before: string | undefined;
     try { const stat = await lstat(full); if (!stat.isFile() || stat.isSymbolicLink()) return error('unsafe-target'); before = await readFile(full,'utf8'); }
     catch (failure) { if ((failure as NodeJS.ErrnoException).code !== 'ENOENT') throw failure; }
-    if (before !== undefined && before !== previous?.artifact) return error('authored-conflict');
+    if (before !== undefined && (previous?.path !== output.path || before !== previous.artifact)) return error('authored-conflict');
     let generation: number;
     let replay = previous?.payload === digest;
     if (replay) generation = Number(previous!.generation);
@@ -88,7 +94,7 @@ export async function createGuidePublication(owner: GuidePublicationOwner): Prom
       if (!(await lstat(full)).isFile() || (await lstat(full)).isSymbolicLink()) return error('unsafe-target');
       working = await readFile(full, 'utf8');
     } catch (failure) { if ((failure as NodeJS.ErrnoException).code !== 'ENOENT') throw failure; }
-    if (working !== undefined && working !== request.artifact && working !== previous?.artifact) return error('authored-conflict');
+    if (working !== undefined && working !== request.artifact && (previous?.path !== output.path || working !== previous.artifact)) return error('authored-conflict');
     if (working === request.artifact) return { ok: true, path: output.path, unchanged: true };
     const temporary = join(dirname(full), `.guide-${randomUUID()}.writing`);
     await writeFile(temporary, request.artifact, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
@@ -97,6 +103,7 @@ export async function createGuidePublication(owner: GuidePublicationOwner): Prom
         await tx.query('LOCK TABLE work_item IN SHARE ROW EXCLUSIVE MODE');
         const latest = (await tx.query<{ generation: string }>('SELECT generation::text AS generation FROM work_item WHERE producer=$1 AND scope_id=$2::bigint AND published_at IS NOT NULL AND published_digest IS NOT NULL ORDER BY generation DESC LIMIT 1', [producer, owner.scope])).rows[0];
         if (Number(latest?.generation) !== generation) return false;
+        if (registeredGuideOutput(owner.output, owner.kind).path !== output.path) return false;
         let now: string | undefined;
         try { now = await readFile(full, 'utf8'); } catch (failure) { if ((failure as NodeJS.ErrnoException).code !== 'ENOENT') throw failure; }
         if (now !== working) return false;

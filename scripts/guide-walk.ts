@@ -4,6 +4,7 @@
  * Run --probe-only first; a separate --walk consumes that result on the SAME pod.
  * No probe failure installs tools, changes privileges, or substitutes a service.
  */
+import { parsePostgres } from '../src/parsers/postgres.js';
 import { spawn } from 'node:child_process';
 import { createHash, createHmac, randomUUID } from 'node:crypto';
 import type { GuideContext, GuideDocument, GuideReceipt } from '../src/writer/guides/model.js';
@@ -266,7 +267,7 @@ export async function checkSourceManifest(file: string, root = ROOT): Promise<{ 
     return files;
   };
   for (const path of await templatePaths('examples/training-repository/template')) if (!seen.has(path)) throw new Error(`${file}:1: $.files: omitted fixture source ${path}`);
-  for (const required of ['scripts/guide-walk.ts', 'src/writer/guides/model.ts', 'src/writer/guides/digest.ts', 'src/model/order.ts', 'examples/training-repository/generate.mjs', 'examples/training-repository/history.mjs']) if (!seen.has(required)) throw new Error(`${file}:1: $.files: missing source ${required}`);
+  for (const required of ['scripts/guide-walk.ts', 'src/parsers/postgres.ts', 'src/writer/guides/model.ts', 'src/writer/guides/digest.ts', 'src/model/order.ts', 'examples/training-repository/generate.mjs', 'examples/training-repository/history.mjs']) if (!seen.has(required)) throw new Error(`${file}:1: $.files: missing source ${required}`);
   return { revision: manifest.revision, sourceDigest: digest(manifest) };
 }
 export async function probe(out: string, sourceFile: string): Promise<Manifest> {
@@ -410,6 +411,146 @@ export type GuideOracle =
 export interface NativeAdmission { procedure: string; step: string; commandDigest: string; expectedDigest: string; action: string; oracle: GuideOracle; timeoutMs?: number;
   capture?: readonly { input: string; path: readonly string[] }[] }
 export interface NativeGuidePlan { product: string; repository: string; commit: string; environment: string; guideFile: string; inputs?: Readonly<Record<string, string>>; admissions: readonly NativeAdmission[] }
+export type PostgreSqlAstParser = (sql: string) => Promise<unknown>;
+function astObject(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+/** Closed supported raw-node subset of @pgsql/types 18.0.0 types.d.ts. These
+ * are PostgreSQL grammar fields, not SQL text heuristics. Unsupported grammar
+ * or future fields fail explicitly; no smaller verification is substituted.
+ * This does NOT certify arbitrary SELECT function effects. Execution remains
+ * inside a PostgreSQL READ ONLY transaction as an independent boundary.
+ */
+const ORACLE_AST_FIELDS: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+  "SelectStmt": {"distinctClause": "nodes", "targetList": "nodes", "fromClause": "nodes", "whereClause": "node", "groupClause": "nodes", "groupDistinct": "boolean", "havingClause": "node", "windowClause": "nodes", "valuesLists": "nodes", "sortClause": "nodes", "limitOffset": "node", "limitCount": "node", "limitOption": "enum:LimitOption", "lockingClause": "nodes", "withClause": "direct:WithClause", "op": "enum:SetOperation", "all": "boolean", "larg": "direct:SelectStmt", "rarg": "direct:SelectStmt"},
+  "CommonTableExpr": {"ctename": "string", "aliascolnames": "nodes", "ctematerialized": "enum:CTEMaterialize", "ctequery": "node", "search_clause": "direct:CTESearchClause", "cycle_clause": "direct:CTECycleClause", "location": "number", "cterecursive": "boolean", "cterefcount": "number", "ctecolnames": "nodes", "ctecoltypes": "nodes", "ctecoltypmods": "nodes", "ctecolcollations": "nodes"},
+  "WithClause": {"ctes": "nodes", "recursive": "boolean", "location": "number"},
+  "ResTarget": {"name": "string", "indirection": "nodes", "val": "node", "location": "number"},
+  "ColumnRef": {"fields": "nodes", "location": "number"},
+  "A_Const": {"ival": "direct:Integer", "fval": "direct:Float", "boolval": "direct:Boolean", "sval": "direct:String", "bsval": "direct:BitString", "isnull": "boolean", "location": "number"},
+  "FuncCall": {"funcname": "nodes", "args": "nodes", "agg_order": "nodes", "agg_filter": "node", "over": "direct:WindowDef", "agg_within_group": "boolean", "agg_star": "boolean", "agg_distinct": "boolean", "func_variadic": "boolean", "funcformat": "enum:CoercionForm", "location": "number"},
+  "A_Expr": {"kind": "enum:A_Expr_Kind", "name": "nodes", "lexpr": "node", "rexpr": "node", "rexpr_list_start": "number", "rexpr_list_end": "number", "location": "number"},
+  "TypeCast": {"arg": "node", "typeName": "direct:TypeName", "location": "number"},
+  "TypeName": {"names": "nodes", "typeOid": "number", "setof": "boolean", "pct_type": "boolean", "typmods": "nodes", "typemod": "number", "arrayBounds": "nodes", "location": "number"},
+  "RangeVar": {"catalogname": "string", "schemaname": "string", "relname": "string", "inh": "boolean", "relpersistence": "string", "alias": "direct:Alias", "location": "number"},
+  "RangeSubselect": {"lateral": "boolean", "subquery": "node", "alias": "direct:Alias"},
+  "JoinExpr": {"jointype": "enum:JoinType", "isNatural": "boolean", "larg": "node", "rarg": "node", "usingClause": "nodes", "join_using_alias": "direct:Alias", "quals": "node", "alias": "direct:Alias", "rtindex": "number"},
+  "SortBy": {"node": "node", "sortby_dir": "enum:SortByDir", "sortby_nulls": "enum:SortByNulls", "useOp": "nodes", "location": "number"},
+  "BoolExpr": {"boolop": "enum:BoolExprType", "args": "nodes", "location": "number"},
+  "String": {"sval": "string"},
+  "Integer": {"ival": "number"},
+  "Float": {"fval": "string"},
+  "Boolean": {"boolval": "boolean"},
+  "BitString": {"bsval": "string"},
+  "A_Star": {},
+  "NullTest": {"arg": "node", "nulltesttype": "enum:NullTestType", "argisrow": "boolean", "location": "number"},
+  "BooleanTest": {"arg": "node", "booltesttype": "enum:BoolTestType", "location": "number"},
+  "SubLink": {"subLinkType": "enum:SubLinkType", "subLinkId": "number", "testexpr": "node", "operName": "nodes", "subselect": "node", "location": "number"},
+  "CaseExpr": {"casetype": "number", "casecollid": "number", "arg": "node", "args": "nodes", "defresult": "node", "location": "number"},
+  "CaseWhen": {"expr": "node", "result": "node", "location": "number"},
+  "CoalesceExpr": {"coalescetype": "number", "coalescecollid": "number", "args": "nodes", "location": "number"},
+  "List": {"items": "nodes"},
+  "SQLValueFunction": {"op": "enum:SQLValueFunctionOp", "type": "number", "typmod": "number", "location": "number"},
+  "RowExpr": {"args": "nodes", "row_typeid": "number", "row_format": "enum:CoercionForm", "colnames": "nodes", "location": "number"},
+  "A_ArrayExpr": {"elements": "nodes", "list_start": "number", "list_end": "number", "location": "number"},
+  "ParamRef": {"number": "number", "location": "number"},
+  "MinMaxExpr": {"minmaxtype": "number", "minmaxcollid": "number", "inputcollid": "number", "op": "enum:MinMaxOp", "args": "nodes", "location": "number"},
+  "CollateClause": {"arg": "node", "collname": "nodes", "location": "number"},
+  "GroupingSet": {"kind": "enum:GroupingSetKind", "content": "nodes", "location": "number"},
+  "WindowDef": {"name": "string", "refname": "string", "partitionClause": "nodes", "orderClause": "nodes", "frameOptions": "number", "startOffset": "node", "endOffset": "node", "location": "number"},
+  "Alias": {"aliasname": "string", "colnames": "nodes"},
+  "NamedArgExpr": {"arg": "node", "name": "string", "argnumber": "number", "location": "number"},
+  "SetToDefault": {"typeId": "number", "typeMod": "number", "collation": "number", "location": "number"},
+  "RangeFunction": {"lateral": "boolean", "ordinality": "boolean", "is_rowsfrom": "boolean", "functions": "nodes", "alias": "direct:Alias", "coldeflist": "nodes"},
+  "GroupingFunc": {"args": "nodes", "refs": "nodes", "agglevelsup": "number", "location": "number"},
+  "A_Indirection": {"arg": "node", "indirection": "nodes"},
+  "A_Indices": {"is_slice": "boolean", "lidx": "node", "uidx": "node"},
+  "CTESearchClause": {"search_col_list": "nodes", "search_breadth_first": "boolean", "search_seq_column": "string", "location": "number"},
+  "CTECycleClause": {"cycle_col_list": "nodes", "cycle_mark_column": "string", "cycle_mark_value": "node", "cycle_mark_default": "node", "cycle_path_column": "string", "location": "number", "cycle_mark_type": "number", "cycle_mark_typmod": "number", "cycle_mark_collation": "number", "cycle_mark_neop": "number"},
+};
+const ORACLE_AST_ENUMS: Readonly<Record<string, readonly string[]>> = {
+  "LimitOption": ["LIMIT_OPTION_DEFAULT", "LIMIT_OPTION_COUNT", "LIMIT_OPTION_WITH_TIES"],
+  "SetOperation": ["SETOP_NONE", "SETOP_UNION", "SETOP_INTERSECT", "SETOP_EXCEPT"],
+  "CTEMaterialize": ["CTEMaterializeDefault", "CTEMaterializeAlways", "CTEMaterializeNever"],
+  "CoercionForm": ["COERCE_EXPLICIT_CALL", "COERCE_EXPLICIT_CAST", "COERCE_IMPLICIT_CAST", "COERCE_SQL_SYNTAX"],
+  "A_Expr_Kind": ["AEXPR_OP", "AEXPR_OP_ANY", "AEXPR_OP_ALL", "AEXPR_DISTINCT", "AEXPR_NOT_DISTINCT", "AEXPR_NULLIF", "AEXPR_IN", "AEXPR_LIKE", "AEXPR_ILIKE", "AEXPR_SIMILAR", "AEXPR_BETWEEN", "AEXPR_NOT_BETWEEN", "AEXPR_BETWEEN_SYM", "AEXPR_NOT_BETWEEN_SYM"],
+  "JoinType": ["JOIN_INNER", "JOIN_LEFT", "JOIN_FULL", "JOIN_RIGHT", "JOIN_SEMI", "JOIN_ANTI", "JOIN_RIGHT_SEMI", "JOIN_RIGHT_ANTI", "JOIN_UNIQUE_OUTER", "JOIN_UNIQUE_INNER"],
+  "SortByDir": ["SORTBY_DEFAULT", "SORTBY_ASC", "SORTBY_DESC", "SORTBY_USING"],
+  "SortByNulls": ["SORTBY_NULLS_DEFAULT", "SORTBY_NULLS_FIRST", "SORTBY_NULLS_LAST"],
+  "BoolExprType": ["AND_EXPR", "OR_EXPR", "NOT_EXPR"],
+  "NullTestType": ["IS_NULL", "IS_NOT_NULL"],
+  "BoolTestType": ["IS_TRUE", "IS_NOT_TRUE", "IS_FALSE", "IS_NOT_FALSE", "IS_UNKNOWN", "IS_NOT_UNKNOWN"],
+  "SubLinkType": ["EXISTS_SUBLINK", "ALL_SUBLINK", "ANY_SUBLINK", "ROWCOMPARE_SUBLINK", "EXPR_SUBLINK", "MULTIEXPR_SUBLINK", "ARRAY_SUBLINK", "CTE_SUBLINK"],
+  "SQLValueFunctionOp": ["SVFOP_CURRENT_DATE", "SVFOP_CURRENT_TIME", "SVFOP_CURRENT_TIME_N", "SVFOP_CURRENT_TIMESTAMP", "SVFOP_CURRENT_TIMESTAMP_N", "SVFOP_LOCALTIME", "SVFOP_LOCALTIME_N", "SVFOP_LOCALTIMESTAMP", "SVFOP_LOCALTIMESTAMP_N", "SVFOP_CURRENT_ROLE", "SVFOP_CURRENT_USER", "SVFOP_USER", "SVFOP_SESSION_USER", "SVFOP_CURRENT_CATALOG", "SVFOP_CURRENT_SCHEMA"],
+  "MinMaxOp": ["IS_GREATEST", "IS_LEAST"],
+  "GroupingSetKind": ["GROUPING_SET_EMPTY", "GROUPING_SET_SIMPLE", "GROUPING_SET_ROLLUP", "GROUPING_SET_CUBE", "GROUPING_SET_SETS"],
+};
+export function assertReadOnlySelectAst(parsed: unknown): void {
+  const fail = (message: string): never => { throw new Error(`SQL oracle PostgreSQL AST: ${message}`); };
+  const fields = (value: unknown, shape: Readonly<Record<string, string>>, path: string): Record<string, unknown> => {
+    const object = astObject(value); if (!object) return fail(`${path}: expected object`);
+    for (const [key, item] of Object.entries(object)) {
+      const rule = shape[key]; if (rule === undefined) return fail(`${path}.${key}: unsupported field`);
+      if (rule === 'raw-statements') { if (!Array.isArray(item)) fail(`${path}.${key}: expected statement array`); }
+      else if (rule === 'node') node(item, `${path}.${key}`);
+      else if (rule === 'nodes') { if (!Array.isArray(item)) fail(`${path}.${key}: expected node array`); for (const [index, child] of (item as unknown[]).entries()) node(child, `${path}.${key}[${index}]`); }
+      else if (rule.startsWith('direct:')) direct(rule.slice(7), item, `${path}.${key}`);
+      else if (rule.startsWith('enum:')) { if (typeof item !== 'string' || !ORACLE_AST_ENUMS[rule.slice(5)]?.includes(item)) fail(`${path}.${key}: invalid PostgreSQL enum`); }
+      else if (typeof item !== rule || (rule === 'number' && !Number.isFinite(item))) fail(`${path}.${key}: expected ${rule}`);
+    }
+    return object;
+  };
+  const direct = (kind: string, value: unknown, path: string): void => {
+    const shape = ORACLE_AST_FIELDS[kind]; if (shape === undefined) return fail(`${path}: unsupported node ${kind}`);
+    const candidate = astObject(value);
+    if (kind === 'SelectStmt' && candidate?.['intoClause'] !== undefined) fail(`${path}: SELECT INTO forbidden`);
+    if (kind === 'SelectStmt' && candidate?.['lockingClause'] !== undefined
+      && (!Array.isArray(candidate['lockingClause']) || candidate['lockingClause'].length > 0)) fail(`${path}: SELECT locking forbidden`);
+    const object = fields(value, shape, path);
+    const requiredNodeFields: Readonly<Record<string, readonly string[]>> = {
+      ResTarget: ['val'], ColumnRef: ['fields'], FuncCall: ['funcname'], TypeCast: ['arg', 'typeName'],
+      TypeName: ['names'], RangeVar: ['relname'], RangeSubselect: ['subquery'], JoinExpr: ['larg', 'rarg'],
+      SortBy: ['node'], CommonTableExpr: ['ctename', 'ctequery'], WithClause: ['ctes'],
+      A_Expr: ['name'], BoolExpr: ['args'], SubLink: ['subselect'], NullTest: ['arg'], BooleanTest: ['arg'],
+    };
+    for (const field of requiredNodeFields[kind] ?? []) if (object[field] === undefined) fail(`${path}.${field}: required field missing`);
+    if (kind === 'SelectStmt') {
+      const hasTargets = Array.isArray(object['targetList']) && object['targetList'].length > 0;
+      const hasValues = Array.isArray(object['valuesLists']) && object['valuesLists'].length > 0;
+      const hasSetOperands = astObject(object['larg']) && astObject(object['rarg']);
+      if (!hasTargets && !hasValues && !hasSetOperands) fail(`${path}: SELECT has no targets, values or set operands`);
+      if (object['intoClause'] !== undefined) fail(`${path}: SELECT INTO forbidden`);
+      if (object['lockingClause'] !== undefined && (object['lockingClause'] as unknown[]).length !== 0) fail(`${path}: SELECT locking forbidden`);
+    }
+    if (kind === 'CommonTableExpr') {
+      const query = astObject(object['ctequery']);
+      if (!query || Object.keys(query).length !== 1 || !astObject(query['SelectStmt'])) fail(`${path}: CTE must contain SelectStmt`);
+    }
+  };
+  const node = (value: unknown, path: string): void => {
+    const object = astObject(value); if (!object || Object.keys(object).length !== 1) return fail(`${path}: expected exactly one known node tag`);
+    const entry = Object.entries(object)[0]!; direct(entry[0], entry[1], `${path}.${entry[0]}`);
+  };
+  const root = fields(parsed, { version: 'number', stmts: 'raw-statements' }, '$');
+  if (typeof root['version'] !== 'number' || root['version'] < 180000 || root['version'] >= 190000) fail('expected pinned PostgreSQL 18 AST version');
+  const statements = root['stmts'];
+  if (!Array.isArray(statements) || statements.length !== 1) return fail('requires exactly one SELECT statement');
+  const raw = fields(statements[0], { stmt: 'node', stmt_location: 'number', stmt_len: 'number' }, '$.stmts[0]');
+  const statement = astObject(raw['stmt']);
+  if (!statement || Object.keys(statement).length !== 1 || !astObject(statement['SelectStmt'])) fail('root must be SelectStmt');
+}
+export async function parseReadOnlyOracle(query: string, parse: PostgreSqlAstParser = parsePostgres): Promise<string> {
+  assertReadOnlySelectAst(await parse(query));
+  return query;
+}
+/** psql applies READ ONLY inside its single transaction before the oracle.
+ * AST admission (before this command is built) is still required: this is a
+ * database-enforced second boundary, not a substitute for syntax admission.
+ */
+export function readOnlyOracleCommand(database: 'orders' | 'payments', query: string): readonly string[] {
+  return ['docker', 'compose', 'exec', '-T', 'postgres', 'psql', '-X', '--quiet', '--single-transaction',
+    '-v', 'ON_ERROR_STOP=1', '-U', 'training', '-d', database, '-At', '-c', 'SET TRANSACTION READ ONLY', '-c', query];
+}
 export function compareJsonFields(actual: unknown, expected: Readonly<Record<string, unknown>>): boolean {
   if (actual === null || typeof actual !== 'object' || Array.isArray(actual) || Object.keys(expected).length === 0) return false;
   const object = actual as Record<string, unknown>;
@@ -495,9 +636,8 @@ async function walkAdmittedGuides(operator: Operator, file: string): Promise<voi
       switch (admission.oracle.kind) {
         case 'json-fields': observationMatches = compareJsonFields(parsed, JSON.parse(replaceInputs(JSON.stringify(admission.oracle.fields))) as Record<string, unknown>); observed = JSON.stringify(parsed ?? { unavailable: true }); break;
         case 'sql-equals': {
-          const query = replaceInputs(admission.oracle.query).trim();
-          if (!query.toUpperCase().startsWith('SELECT ') || query.slice(0, -1).includes(';')) throw new Error(`${file}:1: $: oracle SQL must be a single read-only SELECT`);
-          const result = await command(['docker', 'compose', 'exec', '-T', 'postgres', 'psql', '-X', '-v', 'ON_ERROR_STOP=1', '-U', 'training', '-d', admission.oracle.database, '-At', '-c', query], operator.fixture, operator.env, operator.budget(15_000));
+          const query = await parseReadOnlyOracle(replaceInputs(admission.oracle.query));
+          const result = await command(readOnlyOracleCommand(admission.oracle.database, query), operator.fixture, operator.env, operator.budget(15_000));
           observationMatches = result.status === 0 && !result.overflow && !result.timedOut && result.stdout.trim() === replaceInputs(admission.oracle.value);
           observed = JSON.stringify({ ownExit: actualStatus, databaseExit: result.status, actualDatabase: redact(result.stdout, operator.secrets) }); break;
         }

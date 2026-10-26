@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { CAPABILITY_PROBE, assertStatus, canonical, digest, exportGuideExecution, matchesCapturedEvidence,
-  parseOptions, redact, redactStructured, compareJsonFields, requireGuidePair, resolveGuideCwd, safeOutputRoot, type WalkEvidence, type WalkInvocation } from '../scripts/guide-walk.js';
+  parseOptions, redact, redactStructured, compareJsonFields, assertReadOnlySelectAst, parseReadOnlyOracle, readOnlyOracleCommand, requireGuidePair, resolveGuideCwd, safeOutputRoot, type WalkEvidence, type WalkInvocation } from '../scripts/guide-walk.js';
 import { guideDigest, guideStepDigest } from '../src/writer/guides/digest.js';
 import { GUIDE_SCHEMA, type GuideDocument } from '../src/writer/guides/model.js';
 
@@ -136,5 +136,73 @@ describe('native guide mapping and typed observations', () => {
     expect(compareJsonFields({ count: '1' }, { count: 1 })).toBe(false);
     expect(compareJsonFields({ status: 'confirmed' }, {})).toBe(false);
     expect(compareJsonFields(null, { status: 'confirmed' })).toBe(false);
+  });
+});
+
+describe('database read-only oracle defense', () => {
+  test('sets READ ONLY inside one fail-fast transaction without transaction tags in observed rows', () => {
+    const argv = readOnlyOracleCommand('orders', 'SELECT 1 AS value');
+    expect(argv).toContain('--single-transaction');
+    expect(argv).toContain('--quiet');
+    expect(argv).toContain('ON_ERROR_STOP=1');
+    expect(argv.slice(-4)).toEqual(['-c', 'SET TRANSACTION READ ONLY', '-c', 'SELECT 1 AS value']);
+  });
+});
+
+describe('real PostgreSQL parser SQL oracle admission', () => {
+  test('allows a single read-only query, comments/literals, nested query and CTE', async () => {
+    const queries = [
+      'SELECT 1 AS value',
+      'SELECT * FROM orders',
+      "SELECT 'INTO ; DELETE FOR UPDATE' AS value; -- words are literal data",
+      'SELECT count(*) AS count FROM orders WHERE status = \'confirmed\'',
+      'WITH rows AS (SELECT 1 AS value) SELECT value FROM rows;',
+      'WITH RECURSIVE rows AS (SELECT 1 AS value UNION ALL SELECT value + 1 FROM rows WHERE value < 3) SELECT value FROM rows',
+      'SELECT value FROM (SELECT 1 AS value) AS rows ORDER BY value',
+    ];
+    for (const query of queries) expect(await parseReadOnlyOracle(query)).toBe(query);
+  }, 20_000);
+  test('rejects actual PostgreSQL INTO, locking, mutation CTEs and multiple statements', async () => {
+    const queries = [
+      'SELECT 1 AS value INTO guide_probe',
+      'SELECT * INTO TEMP guide_probe FROM orders',
+      'SELECT * FROM orders FOR UPDATE',
+      'SELECT * FROM orders FOR SHARE',
+      'SELECT * FROM orders FOR KEY SHARE',
+      'SELECT * FROM orders FOR NO KEY UPDATE',
+      'WITH rows AS (SELECT * FROM orders FOR UPDATE) SELECT * FROM rows',
+      'WITH changed AS (DELETE FROM orders RETURNING id) SELECT id FROM changed',
+      "WITH changed AS (UPDATE orders SET status = 'cancelled' RETURNING id) SELECT id FROM changed",
+      "WITH changed AS (INSERT INTO orders (id) VALUES ('probe') RETURNING id) SELECT id FROM changed",
+      'SELECT 1; SELECT 2', 'BEGIN; SELECT 1; COMMIT', 'DELETE FROM orders', '', 'not SQL',
+    ];
+    for (const query of queries) await expect(parseReadOnlyOracle(query)).rejects.toThrow();
+  }, 20_000);
+  test('unknown nodes, unknown fields and malformed known AST structures fail closed', async () => {
+    const { parsePostgres } = await import('../src/parsers/postgres.js');
+    const actual = await parsePostgres('SELECT 1 AS value');
+    expect(() => assertReadOnlySelectAst(actual)).not.toThrow();
+    const root = actual as unknown as { stmts: { stmt: { SelectStmt: Record<string, unknown> } }[] };
+    const select = root.stmts[0]!.stmt.SelectStmt;
+    for (const invalid of [
+      { ...actual, futureRootField: true },
+      { version: 180004, stmts: [{ stmt: { UnknownStmt: {} } }] },
+      { version: 180004, stmts: [{ stmt: { SelectStmt: { ...select, futureSelectField: true } } }] },
+      { version: 180004, stmts: [{ stmt: { SelectStmt: { ...select, whereClause: { UnknownExpr: {} } } } }] },
+      { version: 180004, stmts: [{ stmt: { SelectStmt: { ...select, targetList: 'not an array' } } }] },
+      { version: 180004, stmts: [{ stmt: { SelectStmt: { ...select, whereClause: { A_Const: {}, ColumnRef: {} } } } }] },
+      { version: 180004, stmts: [{ stmt: { SelectStmt: {} } }] },
+      { version: 180004, stmts: [{ stmt: { SelectStmt: { ...select, targetList: [{ ResTarget: { val: { A_Star: { is_slice: true } } } }] } } }] },
+      { version: 180004, stmts: [{ stmt: { SelectStmt: { ...select, whereClause: { ColumnRef: {} } } } }] },
+      { version: 180004, stmts: [{ stmt: { SelectStmt: { ...select, whereClause: { ColumnRef: { fields: [{ String: { sval: 'id' } }], unknown: true } } } } }] },
+      { version: 180004, stmts: [] },
+      { version: 180004, stmts: [root.stmts[0], root.stmts[0]] },
+    ]) expect(() => assertReadOnlySelectAst(invalid)).toThrow();
+  }, 20_000);
+  test('real parser syntax failures propagate before any database command', async () => {
+    await expect(parseReadOnlyOracle('SELECT FROM (')).rejects.toThrow();
+    let received = '';
+    await expect(parseReadOnlyOracle('actual input', async (query) => { received = query; throw new Error('native parser failure'); })).rejects.toThrow('native parser failure');
+    expect(received).toBe('actual input');
   });
 });

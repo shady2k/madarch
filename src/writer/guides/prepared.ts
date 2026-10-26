@@ -37,3 +37,8 @@ export function readGuidePageContext(unit:GuidePreparedUnit,cursor:unknown):Guid
 }
 
 export function guidePageCount(unit:GuidePreparedUnit):number{return pages.get(unit)?.packets.length??0;}
+
+// Set by the production host only after it checks complete current evidence, durable proof and exact materialized bytes.
+const current = new WeakMap<GuidePreparedUnit,string>();
+export function markGuideCurrent(unit:GuidePreparedUnit,path:string):void {current.set(unit,path);}
+export function currentGuidePath(unit:GuidePreparedUnit):string|undefined {return current.get(unit);}

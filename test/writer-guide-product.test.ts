@@ -13,7 +13,7 @@ import { KnowledgeProduct, storeFolderOf } from '../src/knowledge/product.js';
 import { createKnowledgePart } from '../src/server/knowledge.js';
 import { createGuideWriter, guideProductPin } from '../src/writer/guides/writer.js';
 import { firstGuideCursor, readGuidePageContext } from '../src/writer/guides/prepared.js';
-import { GUIDE_OUTPUTS } from '../src/writer/guides/host-contract.js';
+import { GUIDE_OUTPUTS, registeredGuideOutput } from '../src/writer/guides/host-contract.js';
 import { GUIDE_SCHEMA, type GuideGround } from '../src/writer/guides/model.js';
 import { validateGuide } from '../src/writer/guides/validate.js';
 import { renderGuideArtifact } from '../src/writer/guides/artifact.js';
@@ -51,8 +51,12 @@ test('default product reader uses real published proof, survives generated-only 
     const workspace = join(folder, 'workspace.yaml');
     writeFileSync(workspace, manifestWithRepo(readFileSync(workspace, 'utf8'), { name: 'sample', linked: true }));
     symlinkSync(repository, join(folder, 'repos', 'sample'));
-    mkdirSync(join(folder, 'docs'), { recursive: true });
-    writeFileSync(join(folder, 'docs', 'vision.md'), vision);
+    const kindsFile = join(folder, 'madarch', 'kinds.yaml');
+    writeFileSync(kindsFile, readFileSync(kindsFile, 'utf8').replace('file: docs/guides/administrator.md', 'file: docs/help/admin.md').replace('file: docs/guides/user.md', 'file: docs/manual/reader.md'));
+    expect(registeredGuideOutput(folder, 'administrator-guide').path).toBe('docs/help/admin.md');
+    expect(registeredGuideOutput(folder, 'user-guide').path).toBe('docs/manual/reader.md');
+    mkdirSync(join(folder, 'docs', 'help'), { recursive: true });
+    writeFileSync(join(folder, 'docs', 'help', 'workflow.md'), vision);
     commit(folder, 'Record product source');
     const storeRoot = join(work, 'stores');
     const graphPath = join(storeFolderOf(storeRoot, draft.id, workspace), 'graph');
@@ -97,6 +101,7 @@ test('default product reader uses real published proof, survives generated-only 
       if (!checked.ok) throw new Error(JSON.stringify(checked.diagnostics));
       const published = await prepared.publishChecked({ guide: checked.guide, artifact: renderGuideArtifact(checked.guide), expectedContext: prepared.validation.expectedContext, expectedInputDigest: prepared.validation.expectedInputDigest, expectedUnitVersion: prepared.validation.expectedUnitVersion });
       expect(published.ok).toBe(true);
+      if (published.ok) expect(published.path).toBe(registeredGuideOutput(folder, kind).path);
     }
     await owner.close(); owner = undefined; // Only one PGlite owner is live at a time; reads use the real remote owner.
     product = new KnowledgeProduct({ productFolder: folder, storeRoot }); // No guide authority injection.
@@ -106,9 +111,11 @@ test('default product reader uses real published proof, survives generated-only 
       expect(block.data.coverage).toBe('procedures'); expect(block.data.walk.status).toBe('not-walked');
       expect(block.data.sourceViewWarning).toContain('not an immutable snapshot');
       expect(block.data.markdown.startsWith('---')).toBe(false);
+      const document = await product.document(null, registeredGuideOutput(folder, kind).path);
+      expect(document?.markdown).toBe(block.data.markdown);
       const listing = await product.list(kind, { limit: 10 });
       expect(JSON.stringify(listing)).toContain(GUIDE_OUTPUTS[kind].id);
-      expect((await product.documents()).documents.some((entry) => entry.path === GUIDE_OUTPUTS[kind].path)).toBe(true);
+      expect((await product.documents()).documents.some((entry) => entry.path === registeredGuideOutput(folder, kind).path)).toBe(true);
     }
     const api = createKnowledgePart({ json: (status, value) => new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } }), refused: (status, value) => ({ response: new Response(JSON.stringify(value), { status }) }), errorLog: () => {} }, product, () => []);
     const request = (format = '') => new Request(`http://example.test/api/k/page?id=administrator-guide:main${format}`);
@@ -119,7 +126,7 @@ test('default product reader uses real published proof, survives generated-only 
     const generatedHead = commit(folder, 'Keep generated guides');
     expect(generatedHead).not.toBe(guideBlock(page).data.guide.context.repositories.find((pin) => pin.name === 'product')?.commit);
     expect(guideBlock(await currentPage('administrator-guide:main')).data.walk.status).toBe('not-walked');
-    writeFileSync(join(folder, 'docs', 'vision.md'), `${vision}\nA new unsupported workflow.\n`);
+    writeFileSync(join(folder, 'docs', 'help', 'workflow.md'), `${vision}\nA new unsupported workflow.\n`);
     const dirty = await currentPage('administrator-guide:main');
     expect(dirty.blocks.some((block) => block.type === 'guide')).toBe(false);
     expect(dirty.blocks.some((block) => block.type === 'problem')).toBe(true);

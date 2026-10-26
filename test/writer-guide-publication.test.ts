@@ -11,10 +11,12 @@ import { guideDigest, guideStepDigest } from '../src/writer/guides/digest.js';
 import { readGuideGraph, type GuidePreparedEvidence } from '../src/writer/guides/writer.js';
 import type { SnapshotSource } from '../src/fill/snapshot.js';
 import { GUIDE_SCHEMA } from '../src/writer/guides/model.js';
+import { seedStarterSet } from '../src/knowledge/seed.js';
 
 test('real guide work-item publication rejects moved membership, superseded materialization and authored edits',async()=>{
  const folder=await mkdtemp(join(tmpdir(),'guide-publication-'));const database=await createPGliteDatabaseOwner({btreeGist:true});
  try{
+  seedStarterSet(folder);
   const store=createGraphStore(database);await store.createSchema();const scope=await store.newNode();
   await store.openNode({nodeId:scope,kind:'code.repository',label:'sample',properties:{},validFrom:'2026-01-01T00:00:00Z',owner:{producer:'fixture',scope}});
   const context={valid:'2026-04-01T00:00:00.000000Z',known:new Date().toISOString(),state:'0',repositories:[{name:'sample',commit:'a'.repeat(40)}]};

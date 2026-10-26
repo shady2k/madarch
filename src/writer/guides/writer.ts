@@ -7,7 +7,7 @@ import type { GraphStore } from '../../graph/index.js';
 import type { UnitAgent } from '../run.js';
 import type { GuideContext, GuideDocument, GuideGround, GuideKind, GuideLocale, GuideProcedure, GuideStep, GuideValidationHost } from './model.js';
 import { GUIDE_SCHEMA } from './model.js';
-import { GUIDE_OUTPUTS, type GuidePreparedUnit, type GuideWriterHost } from './host-contract.js';
+import { registeredGuideOutput, type GuidePreparedUnit, type GuideWriterHost } from './host-contract.js';
 import { guideDigest, guideStepDigest, sameGuideContext } from './digest.js';
 import { byCodePoint } from '../../model/order.js';
 import { createGuidePublication, type GuidePublicationOwner } from './publication.js';
@@ -19,7 +19,9 @@ import { runGit } from '../../product/git.js';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import remarkParse from 'remark-parse';
-import { firstGuideCursor, guidePagesComplete, registerGuidePages } from './prepared.js';
+import { firstGuideCursor, guidePagesComplete, registerGuidePages, markGuideCurrent } from './prepared.js';
+import { parseGuideArtifact } from './artifact.js';
+import { ENVIRONMENT_VALUE_RECORDS } from '../../extract/operations/env.js';
 
 export const GUIDE_UNIT_VERSION = 'guide-writer@1';
 const MAX_PREPARED_BYTES = 8 * 1024 * 1024;
@@ -76,10 +78,18 @@ export async function readGuideGraph(wiring: Pick<GuideWriterWiring, 'owner' | '
       if (row === undefined) throw new Error('guide graph: recorded-time coordinate is unavailable');
       known = row.known;
     }
-    const params = [context.valid,known,context.state,wiring.scope,MAX_GRAPH_ROWS+1];
-    const nodes = (await tx.query<Record<string,unknown>>(`SELECT v.node_id::text AS id,k.key AS kind,v.label,v.properties,v.payload_digest FROM node_version v JOIN node_kind k ON k.id=v.kind_id WHERE ${visible('v')} AND k.key LIKE 'code.%' ORDER BY k.key COLLATE "C",v.node_id,v.id LIMIT $5`,params)).rows;
-    const edges = (await tx.query<Record<string,unknown>>(`SELECT v.edge_id::text AS id,r.key AS relation,v.src_id::text AS src,v.dst_id::text AS dst,v.properties,v.payload_digest FROM edge_version v JOIN relation_type r ON r.id=v.relation_type_id WHERE ${visible('v')} AND r.key LIKE 'code.%' AND EXISTS(SELECT 1 FROM node_version s WHERE s.node_id=v.src_id AND ${visible('s')}) AND EXISTS(SELECT 1 FROM node_version d WHERE d.node_id=v.dst_id AND ${visible('d')}) ORDER BY r.key COLLATE "C",v.edge_id,v.id LIMIT $5`,params)).rows;
-    if(nodes.length>MAX_GRAPH_ROWS || edges.length>MAX_GRAPH_ROWS) throw new Error('guide preparation: complete node or edge membership exceeds its bound; no smaller graph was returned');
+    const params = [context.valid,known,context.state,wiring.scope,MAX_GRAPH_ROWS];
+    let bytes=0;
+    const complete=async(sql:string):Promise<Record<string,unknown>[]>=>{
+      const rows:Record<string,unknown>[]=[];
+      for(let offset=0;;offset+=MAX_GRAPH_ROWS){
+        const page=(await tx.query<Record<string,unknown>>(sql,[...params,offset])).rows;
+        for(const row of page){bytes+=Buffer.byteLength(JSON.stringify(row));if(bytes>MAX_PREPARED_BYTES)throw new Error('guide preparation: complete graph membership exceeds its byte bound; no smaller graph was returned');rows.push(row);}
+        if(page.length<MAX_GRAPH_ROWS)return rows;
+      }
+    };
+    const nodes = await complete(`SELECT v.node_id::text AS id,k.key AS kind,v.label,v.properties,v.payload_digest FROM node_version v JOIN node_kind k ON k.id=v.kind_id WHERE ${visible('v')} AND k.key LIKE 'code.%' ORDER BY k.key COLLATE "C",v.node_id,v.id LIMIT $5 OFFSET $6`);
+    const edges = await complete(`SELECT v.edge_id::text AS id,r.key AS relation,v.src_id::text AS src,v.dst_id::text AS dst,v.properties,v.payload_digest FROM edge_version v JOIN relation_type r ON r.id=v.relation_type_id WHERE ${visible('v')} AND r.key LIKE 'code.%' AND EXISTS(SELECT 1 FROM node_version s WHERE s.node_id=v.src_id AND ${visible('s')}) AND EXISTS(SELECT 1 FROM node_version d WHERE d.node_id=v.dst_id AND ${visible('d')}) ORDER BY r.key COLLATE "C",v.edge_id,v.id LIMIT $5 OFFSET $6`);
     return {nodes,edges};
   };
   return transaction === undefined ? await wiring.owner.transaction('snapshot', read) : await read(transaction);
@@ -104,15 +114,23 @@ export function guidePacketPolicy(evidence: GuidePreparedEvidence, knownValues: 
   for (const item of evidence.facts) {
     if (item === null || typeof item !== 'object') continue;
     const fact = item as Record<string, unknown>;
-    if (fact['kind'] !== 'code.env-definition' && fact['kind'] !== 'code.env-read') continue;
+    const declaration = Object.values(ENVIRONMENT_VALUE_RECORDS).find((record) =>
+      (record.record === 'node' ? fact['kind'] : fact['relation']) === record.key);
+    if (declaration === undefined) continue;
     const properties = fact['properties'];
     if (properties === null || typeof properties !== 'object') continue;
-    for (const field of ['value', 'default']) { const value = (properties as Record<string, unknown>)[field]; if (typeof value === 'string' && value.length > 0) values.add(value); }
+    const value = (properties as Record<string, unknown>)[declaration.field];
+    if (typeof value === 'string' && value.length > 0) values.add(value);
     classifiedSources.push(`graph:${String(fact['id'])}`);
   }
   for (const value of evidence.configValues ?? []) if (value.length > 0) values.add(value);
   const sensitiveValues = [...values];
-  const contains = (value: unknown): boolean => containsGuideSecret(JSON.stringify(value), sensitiveValues);
+  const contains = (value: unknown): boolean => {
+    if (typeof value === 'string') return containsGuideSecret(value, sensitiveValues);
+    if (Array.isArray(value)) return value.some(contains);
+    if (value === null || typeof value !== 'object') return false;
+    return Object.entries(value).some(([name, child]) => containsGuideSecret(name, sensitiveValues) || contains(child));
+  };
   const facts = evidence.facts.map((fact) => {
     if (fact === null || typeof fact !== 'object') return fact;
     const row = fact as Record<string, unknown>;
@@ -136,8 +154,9 @@ function generatedGuideSource(text: string): boolean {
 }
 async function productDocumentMembership(snapshot: import('../../fill/snapshot.js').SnapshotReader):Promise<string> {
   const documents=[];
+  const guidePaths=new Set((['administrator-guide','user-guide'] as const).map((kind)=>registeredGuideOutput(snapshot.root,kind).path));
   for(const entry of snapshot.files()){
-    const path=String(entry.path);if(!guideProductDocument(path))continue;
+    const path=String(entry.path);if(!guideProductDocument(path)||guidePaths.has(path))continue;
     const text=await snapshot.readText(path);if(generatedGuideSource(text))continue;
     documents.push({path,digest:guideDigest(text)});
   }
@@ -160,7 +179,7 @@ async function sourceContextSnapshots(snapshots:SnapshotSource,context:GuideCont
 }
 
 export function guideProductDocument(path:string):boolean {
-  return (path.endsWith('.md')||path.endsWith('.markdown')) && !path.split('/').some((part)=>part.startsWith('.')) && !path.startsWith('repos/') && !path.startsWith('docs/guides/') && !path.startsWith('docs/guide-walks/') && !path.startsWith('docs/sources/') && path!=='AGENTS.md' && path!=='CLAUDE.md';
+  return (path.endsWith('.md')||path.endsWith('.markdown')) && !path.split('/').some((part)=>part.startsWith('.')) && !path.startsWith('repos/') && !path.startsWith('docs/guide-walks/') && !path.startsWith('docs/sources/') && path!=='AGENTS.md' && path!=='CLAUDE.md';
 }
 /** Each span belongs to this scope's one actual repository pin; no cross-repository path matching. */
 export async function prepareGuideEvidence(wiring: Pick<GuideWriterWiring, 'owner' | 'scope' | 'snapshots'>, context: GuideContext): Promise<GuidePreparedEvidence> {
@@ -219,9 +238,10 @@ export async function prepareGuideEvidence(wiring: Pick<GuideWriterWiring, 'owne
     const product=await wiring.snapshots.open(productPin.id);
     const pinned=context.repositories.find((pin)=>pin.name===productPin.id);
     if(pinned===undefined||pinned.commit!==product.commit)throw new Error('guide product-document pin changed');
+    const guidePaths=new Set((['administrator-guide','user-guide'] as const).map((kind)=>registeredGuideOutput(product.root,kind).path));
     for(const entry of product.files()){
       const path=String(entry.path);
-      if(!guideProductDocument(path))continue;
+      if(!guideProductDocument(path)||guidePaths.has(path))continue;
       let text:string;
       try{text=await product.readText(path);}catch{gaps.push(`${productPin.id}/${path}:1: pinned product document is unavailable`);continue;}
       // Generated narrative/localized content is not new source authority.
@@ -274,23 +294,26 @@ export async function verifyGuideStep(agent: UnitAgent, evidence: GuidePreparedE
   return verdict?.instruction === true && verdict.expected === true ? [] : ['The source judgement did not support both the exact instruction and expected result.'];
 }
 
-export async function createGuideWriter(wiring: GuideWriterWiring): Promise<GuideWriterHost> {
-  let context = await resolveGuideContext(wiring);
-  const previous = await wiring.owner.run(async (tx) => (await tx.query<{context:GuideContext;membership:string}>(`SELECT v.properties->'context' AS context,v.properties->>'readMembership' AS membership FROM node_version v JOIN node_kind k ON k.id=v.kind_id JOIN work_item w ON w.id=v.opened_by WHERE v.scope_id=$1::bigint AND k.key='guide-artifact' AND w.published_at IS NOT NULL AND w.published_digest IS NOT NULL ORDER BY w.generation DESC,v.id DESC LIMIT 1`,[wiring.scope])).rows[0]);
-  if(previous!==undefined && previous.context.valid===context.valid && await sourceContextSnapshots(wiring.snapshots,previous.context)!==undefined) {
-    const current=await readGuideGraph(wiring,previous.context,true);
-    if(guideDigest([...current.nodes,...current.edges])===previous.membership)context=previous.context;
-  }
-  const sourceSnapshots=await sourceContextSnapshots(wiring.snapshots,context);
-  if(sourceSnapshots===undefined)throw new Error('guide current source membership is incompatible with its prepared context');
-  wiring={...wiring,snapshots:sourceSnapshots};
-  const privateEvidence = await prepareGuideEvidence(wiring, context);
-  const protectedInput = guidePacketPolicy(privateEvidence, wiring.sensitiveValues);
-  const evidence = protectedInput.evidence;
-  wiring = { ...wiring, sensitiveValues: protectedInput.sensitiveValues };
+export async function createGuideWriter(baseWiring: GuideWriterWiring): Promise<GuideWriterHost> {
+  // Preparation belongs to the guide unit. A refused complete graph must not stop unrelated narrative units.
   return {
     async prepare(kind: GuideKind, locale: GuideLocale): Promise<GuidePreparedUnit> {
-      const output = GUIDE_OUTPUTS[kind];
+      let wiring = baseWiring;
+      let context = await resolveGuideContext(wiring);
+      const previous = await wiring.owner.run(async (tx) => (await tx.query<{context:GuideContext;membership:string}>(`SELECT v.properties->'context' AS context,v.properties->>'readMembership' AS membership FROM node_version v JOIN node_kind k ON k.id=v.kind_id JOIN work_item w ON w.id=v.opened_by WHERE v.scope_id=$1::bigint AND k.key='guide-artifact' AND w.published_at IS NOT NULL AND w.published_digest IS NOT NULL ORDER BY w.generation DESC,v.id DESC LIMIT 1`,[wiring.scope])).rows[0]);
+      if(previous!==undefined && previous.context.valid===context.valid && await sourceContextSnapshots(wiring.snapshots,previous.context)!==undefined) {
+        const current=await readGuideGraph(wiring,previous.context,true);
+        if(guideDigest([...current.nodes,...current.edges])===previous.membership)context=previous.context;
+      }
+      const sourceSnapshots=await sourceContextSnapshots(wiring.snapshots,context);
+      if(sourceSnapshots===undefined)throw new Error('guide current source membership is incompatible with its prepared context');
+      wiring={...wiring,snapshots:sourceSnapshots};
+      const privateEvidence = await prepareGuideEvidence(wiring, context);
+      const protectedInput = guidePacketPolicy(privateEvidence, wiring.sensitiveValues);
+      const evidence = protectedInput.evidence;
+      wiring = { ...wiring, sensitiveValues: protectedInput.sensitiveValues };
+
+      const output = registeredGuideOutput(wiring.output, kind);
       const inputDigest = guideDigest({ kind, locale, version: GUIDE_UNIT_VERSION, evidence });
       const verified = new Set<string>();
       const validation: GuideValidationHost = {
@@ -302,7 +325,7 @@ export async function createGuideWriter(wiring: GuideWriterWiring): Promise<Guid
           return result;
         },
       };
-      const publication: GuidePublicationOwner = { ...wiring, kind, locale, context, inputDigest, unitVersion: GUIDE_UNIT_VERSION, evidence, readMembership: guideDigest(privateEvidence.facts), verified };
+      const publication: GuidePublicationOwner = { ...wiring, registeredPath: output.path, kind, locale, context, inputDigest, unitVersion: GUIDE_UNIT_VERSION, evidence, readMembership: guideDigest(privateEvidence.facts), verified };
       const publishChecked = await createGuidePublication(publication);
       const prepared: GuidePreparedUnit = {
         prompt: '',
@@ -326,6 +349,22 @@ export async function createGuideWriter(wiring: GuideWriterWiring): Promise<Guid
       }
       for(const gap of evidence.gaps)entries.push({type:'gap',message:gap});
       registerGuidePages(prepared,inputDigest,entries);
+      const held = await wiring.owner.run(async(tx)=>(await tx.query<{properties:Record<string,unknown>}>(
+        `SELECT v.properties FROM node_version v JOIN node_kind k ON k.id=v.kind_id JOIN work_item w ON w.id=v.opened_by WHERE v.producer=$1 AND v.scope_id=$2::bigint AND k.key='guide-artifact' AND v.properties->>'locale'=$3 AND w.published_at IS NOT NULL AND w.published_digest IS NOT NULL ORDER BY w.generation DESC,v.id DESC LIMIT 1`,[`writer.${kind}`,wiring.scope,locale])).rows[0]?.properties);
+      if(held!==undefined&&held['path']===output.path&&typeof held['artifact']==='string'){
+        let working:string|undefined;
+        try{working=await readFile(resolve(wiring.output,output.path),'utf8');}catch(failure){if((failure as NodeJS.ErrnoException).code!=='ENOENT')throw failure;}
+        if(working!==undefined&&working!==held['artifact'])throw new Error('guide externally edited artifact differs from its actual published bytes');
+        if(working!==undefined&&held['inputDigest']===inputDigest&&held['unitVersion']===GUIDE_UNIT_VERSION&&sameGuideContext(held['context'] as GuideContext,context)&&held['readMembership']===guideDigest(privateEvidence.facts)&&held['evidenceDigest']===guideDigest(evidence)){
+          const durableProof=new Set(Array.isArray(held['verifiedSteps'])?held['verifiedSteps'] as string[]:[]);
+          const checked=await parseGuideArtifact(validation.file,working,{
+            ...validation,
+            verifyStep:async(step,procedure,guide)=>durableProof.has(guideDigest({document:guideDigest(guide),step:guideStepDigest(guide,procedure.id,step)}))?[]:['The exact source interpretation is not durably published.'],
+          });
+          if(!checked.ok)throw new Error('guide durable current proof did not validate');
+          markGuideCurrent(prepared,output.path);
+        }
+      }
       Object.defineProperty(prepared,'prompt',{value:JSON.stringify({schema:GUIDE_SCHEMA,id:output.id,kind,locale,unitVersion:GUIDE_UNIT_VERSION,inputDigest,context,firstCursor:firstGuideCursor(prepared),instruction:'Read every prepared context packet using read_prepared_context and follow next to null before write_guide. Source parts retain exact ranges; source verification requires their complete named prepared span. Missing evidence is a visible gap.',shape:{title:'localized title',prerequisites:[],gaps:[],procedures:[]}}),enumerable:true});
       return prepared;
     },
@@ -385,7 +424,9 @@ export function createGuideReadFactories(wiring: {
       if (guideDigest(policy.evidence) !== guideDigest(evidence) || guideDigest({kind:request.kind,locale:request.locale,version:GUIDE_UNIT_VERSION,evidence}) !== held['inputDigest'] || held['unitVersion'] !== GUIDE_UNIT_VERSION) throw new Error('guide prepared input policy, version or evidence changed');
       const sensitiveValues = policy.sensitiveValues;
       const verified = new Set(Array.isArray(held['verifiedSteps']) ? held['verifiedSteps'] as string[] : []);
-      const file = resolve(wiring.output, GUIDE_OUTPUTS[request.kind].path);
+      const output = registeredGuideOutput(wiring.output, request.kind);
+      if (held['path'] !== output.path) throw new Error('guide published path differs from the current product registry');
+      const file = resolve(wiring.output, output.path);
       const productSource=(await sourceSnapshots.pins()).find((pin)=>pin.form==='product');
       return {
         ...(productSource===undefined?{}:{productRepositoryId:productSource.id}),

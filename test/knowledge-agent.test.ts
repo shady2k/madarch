@@ -19,6 +19,7 @@ import { startServer, type StartedServer } from '../src/server/http.js';
 import type { UnitAgent, UnitRequest } from '../src/writer/index.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY, makeProduct, recordKey } from './knowledge-fixture.js';
+import { SCRIPTED_GUIDE_PATH, SCRIPTED_GUIDE_SOURCE, verifyScriptedGuide, writeScriptedGuide } from './scripted-guide-agent.js';
 
 const env = gitEnv(SAMPLE_IDENTITY);
 const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, env, encoding: 'utf8' });
@@ -63,8 +64,16 @@ const agentFolder = (id: string): string => acpAgentFolder(ACP_ADAPTERS.find((en
 /** The scripted agent: the product unit writes at once; the domain unit waits for the test's gate, then writes (or is refused). */
 const agent: UnitAgent & { close(): Promise<void> } = {
   async run(request: UnitRequest): Promise<void> {
+    if (request.id.startsWith('guide-proof:')) {
+      await verifyScriptedGuide(request.prompt, (tool, args) => request.tools.call(tool, args));
+      return;
+    }
     seen.push(request.id);
     prompts.push(request.prompt);
+    if (request.id === 'administrator-guide:main' || request.id === 'user-guide:main') {
+      await writeScriptedGuide(request.prompt, (tool, args) => request.tools.call(tool, args));
+      return;
+    }
     if (request.id.startsWith('localized-source:')) {
       const written = await request.tools.call('write_localized_source', { statement: 'Счет, в котором хранится результат завершенного вычисления.' });
       if (written.isError) throw new Error(`the localized source was refused: ${JSON.stringify(written.answer)}`);
@@ -110,6 +119,8 @@ beforeAll(async () => {
   git(repository, 'init', '--quiet', '--initial-branch=main');
   writeFileSync(join(repository, 'src', 'a.ts'), A_TS);
   writeFileSync(join(repository, 'package.json'), '{"name":"tiny","dependencies":{}}\n');
+  mkdirSync(join(repository, 'docs'));
+  writeFileSync(join(repository, SCRIPTED_GUIDE_PATH), SCRIPTED_GUIDE_SOURCE);
   git(repository, 'add', '.');
   git(repository, '-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'Add the leaf and the root', '--date', '2026-03-01T10:00:00Z');
   home = join(work, 'home');
@@ -261,8 +272,20 @@ describe('one press with an agent chosen', () => {
     expect(events.join('')).toContain('event: change');
     release();
     const done = await until('the stage', async () => (await get('/api/k/status')).body, (value) => value.writer.state !== 'running');
-    expect(done.writer).toMatchObject({ state: 'done', units: [{ unit: 'product:tiny', state: 'written' }, { unit: 'domain:numbers', state: 'written' }, { unit: 'localized-source:doc:docs/glossary.md#x', state: 'not-written', refusals: [{ rule: 'source-language' }] }] });
-    expect(seen).toEqual(['product:tiny', 'domain:numbers']);
+    expect(done.writer).toMatchObject({ state: 'done', units: [{ unit: 'product:tiny', state: 'written' }, { unit: 'domain:numbers', state: 'written' }, { unit: 'localized-source:doc:docs/glossary.md#x', state: 'not-written', refusals: [{ rule: 'source-language' }] }, { unit: 'administrator-guide:main', state: 'written' }, { unit: 'user-guide:main', state: 'written' }] });
+    expect(seen).toEqual(['product:tiny', 'domain:numbers', 'administrator-guide:main', 'user-guide:main']);
+    for (const id of ['administrator-guide:main', 'user-guide:main']) {
+      const guidePage = await get(`/api/k/page?id=${encodeURIComponent(id)}`);
+      expect(guidePage.status).toBe(200);
+      const guide = guidePage.body.blocks.find((block: { type: string }) => block.type === 'guide');
+      expect(guide.data.guide.id).toBe(id);
+      expect(guide.data.guide.procedures[0].steps[0].instruction.content).toBe('node -e "console.log(7)"');
+      expect(guide.data.guide.procedures[0].steps[0].grounds.some((ground: { path: string }) => ground.path === SCRIPTED_GUIDE_PATH)).toBe(true);
+      expect(guide.data.walk.status).toBe('not-walked');
+      expect(guide.data.guide.gaps.length).toBeGreaterThan(0);
+      expect(guide.data.coverage).toBe('procedures');
+    }
+
     const domain = await get('/api/k/page?id=domain%3Anumbers');
     expect(domain.status).toBe(200);
     expect(domain.body.blocks.find((block: { type: string }) => block.type === 'body').markdown).toContain('The root function adds one');
@@ -287,12 +310,17 @@ describe('one press with an agent chosen', () => {
     // The manifest holds the language now, and every unit's prompt tells the agent to write in it.
     expect(readFileSync(join(home, 'tiny', 'madarch', 'kinds.yaml'), 'utf8')).toContain('language: ru');
     const done = await until('the Russian run', async () => (await get('/api/k/status')).body, (value) => value.language === 'ru' && value.writer.state === 'done' && value.fill.state === 'done');
-    expect(done.writer.units.map((unit: { state: string }) => unit.state)).toEqual(['written', 'written', 'written', 'not-written']);
+    expect(done.writer.units.map((unit: { state: string }) => unit.state)).toEqual(['written', 'written', 'written', 'not-written', 'written', 'written']);
     const skipped = done.writer.units.find((unit: { unit: string }) => unit.unit === 'localized-source:doc:docs/glossary.md#x');
     expect(skipped).toMatchObject({ state: 'not-written', refusals: [{ rule: 'source-language' }] });
-    expect(seen).toEqual(['product:tiny', 'domain:numbers', expect.stringMatching(/^localized-source:doc:docs\/glossary\.md#/)]);
-    expect(prompts.filter((_, index) => !seen[index]!.startsWith('localized-source:')).every((prompt) => prompt.includes('Write every sentence and every heading of the page, and its title, in Russian'))).toBe(true);
+    expect(seen).toEqual(['product:tiny', 'domain:numbers', expect.stringMatching(/^localized-source:doc:docs\/glossary\.md#/), 'administrator-guide:main', 'user-guide:main']);
+    expect(prompts.filter((_, index) => !seen[index]!.startsWith('localized-source:') && !seen[index]!.endsWith('-guide:main')).every((prompt) => prompt.includes('Write every sentence and every heading of the page, and its title, in Russian'))).toBe(true);
+    expect(prompts.filter((_, index) => seen[index]!.endsWith('-guide:main')).every((prompt) => prompt.includes(' in Russian from this complete bounded prepared context.'))).toBe(true);
     expect(prompts.at(-1)).toContain('in Russian');
+    for (const id of ['administrator-guide:main', 'user-guide:main']) {
+      const page = await get(`/api/k/page?id=${encodeURIComponent(id)}`);
+      expect(page.body.blocks.find((block: { type: string }) => block.type === 'guide').data.guide.locale).toBe('ru');
+    }
     expect(readFileSync(join(home, 'tiny', 'docs', 'domains', 'numbers.md'), 'utf8')).toContain('Как считаются числа');
     const localizedPath = join(home, 'tiny', 'docs', 'sources', 'doc.term', createHash('sha256').update('doc:docs/glossary.md#tiny-account').digest('hex') + '.md');
     expect(readFileSync(localizedPath, 'utf8')).toContain('Счет, в котором хранится результат завершенного вычисления.');

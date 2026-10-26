@@ -220,7 +220,7 @@ describe('the starter set madarch new seeds', () => {
     // The starter set of both changes: the document task page and the history task page are two templates of one name
     // (`task.md` for the document, `history-task.md` for the graph's task), so both stand in the list (madarch-m38l.16).
     expect(STARTER_FILES.map((file) => file.path)).toEqual(['madarch/kinds.yaml', ...[
-      'product', 'domain', 'service', 'package', 'module', 'file', 'symbol', 'route', 'item', 'item-plain', 'contract', 'operation',
+      'product', 'domain', 'guide', 'service', 'package', 'module', 'file', 'symbol', 'route', 'item', 'item-plain', 'contract', 'operation',
       'history-task', 'commit', 'author', 'database', 'table', 'entity-text', 'term', 'question', 'correction', 'task',
     ].map((name) => `templates/${name}.md`)]);
     for (const file of STARTER_FILES) expect(readFileSync(join(draft.folder, file.path), 'utf8')).toBe(file.content);

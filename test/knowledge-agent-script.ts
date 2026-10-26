@@ -151,6 +151,9 @@ export function agentScript(delays: { product?: number; ordering?: number; payme
   };
   return {
     byPrompt: [
+      { matches: 'Write the administrator-guide in ', steps: [{ guide: 'write' as const }, { end: { stopReason: 'end_turn' } }] },
+      { matches: 'Write the user-guide in ', steps: [{ guide: 'write' as const }, { end: { stopReason: 'end_turn' } }] },
+      { matches: 'Judge this proposed procedure step against the exact pinned source and graph facts.', steps: [{ guide: 'verify' as const }, { end: { stopReason: 'end_turn' } }] },
       ...unit('en'),
       ...unit('ru'),
       { matches: 'and its title, in Russian', steps: productSteps('ru') },

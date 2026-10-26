@@ -66,6 +66,7 @@
  */
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { createInterface } from 'node:readline';
+import { verifyScriptedGuide, writeScriptedGuide } from '../../scripted-guide-agent.js';
 
 const argv = process.argv.slice(2);
 const option = (name: string): string | undefined => {
@@ -93,6 +94,8 @@ function modelFields(): Record<string, unknown> {
 
 /** One step of a `script` scenario's steps, as the file spells them (`--script <file>`). */
 interface ScriptStep {
+  /** Explicit fixture action; still calls the real prepared-context, proof and publication tools. */
+  guide?: 'write' | 'verify';
   sleep?: number;
   say?: string;
   thought?: string;
@@ -323,6 +326,18 @@ async function runScript(id: number | string, sessionId: string, text: string): 
     return;
   }
   for (const step of steps) {
+    if (step.guide !== undefined) {
+      const client = await mcpFor(sessionId);
+      if (client === undefined) throw new Error('The guide fixture was given no MCP tool port.');
+      const call = async (tool: string, args: Record<string, unknown>) => {
+        const result = await client.call(tool, args);
+        chunk(sessionId, JSON.stringify({ tool, isError: result.isError, text: result.text }));
+        return { isError: result.isError, answer: JSON.parse(result.text) as unknown };
+      };
+      if (step.guide === 'write') await writeScriptedGuide(text, call);
+      else await verifyScriptedGuide(text, call);
+      continue;
+    }
     if (step.thought !== undefined) {
       notify('session/update', { sessionId, update: { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: step.thought } } });
       continue;

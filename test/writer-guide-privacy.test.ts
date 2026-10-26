@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import { recordOf } from '../src/writer/journal.js';
 
 test('guide journal privacy suppresses tool names, arguments, results and refusal details',()=>{
- const privateValue='fixture-private-value';
+ const privateValue='private"credential';
  const context={run:'run-test',unit:'administrator-guide:main',agent:'scripted',model:null,session:null,privateGuide:true};
  const record=recordOf(context,{kind:'refusal',tool:privateValue,arguments:{value:privateValue},response:privateValue,isError:true,outcome:'rejected',reason:privateValue,startedAt:new Date('2026-04-01T00:00:00Z'),durationMs:0});
  expect(JSON.stringify(record)).not.toContain(privateValue);expect(record.arguments).toEqual({redacted:true});expect(record.response).toBe('[guide result withheld]');

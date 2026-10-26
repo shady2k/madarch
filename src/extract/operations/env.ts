@@ -13,6 +13,14 @@ import type { Records } from './accumulate.js';
 import { readComposeFile } from './compose.js';
 import { serviceOf, TreeText } from './source.js';
 
+/** Value-bearing graph declarations shared with readers of the emitted records. */
+export const ENVIRONMENT_VALUE_RECORDS = {
+  variable: { record: 'node', key: 'code.env-var', field: 'default' },
+  definition: { record: 'node', key: 'code.env-definition', field: 'value' },
+  read: { record: 'edge', key: 'code.reads-env', field: 'default' },
+  defines: { record: 'edge', key: 'code.defines', field: 'value' },
+} as const;
+
 /** One read of one variable, as the source names it. */
 export interface EnvRead {
   readonly service: string;
@@ -285,17 +293,17 @@ export function extractEnv(t: TreeText, records: Records): Map<string, EnvRead[]
     if (first === undefined) continue;
     records.add({
       key: `code.env-var:${variable}`,
-      kind: 'code.env-var',
+      kind: ENVIRONMENT_VALUE_RECORDS.variable.key,
       label: variable.slice(variable.indexOf('/') + 1),
-      properties: { required, default: defaults[0] ?? null } satisfies { [key: string]: PropertyValue },
+      properties: { required, [ENVIRONMENT_VALUE_RECORDS.variable.field]: defaults[0] ?? null } satisfies { [key: string]: PropertyValue },
       span: t.spanOfLine(first.path, first.line),
     });
     for (const read of sites) {
       records.edge(
-        'code.reads-env',
+        ENVIRONMENT_VALUE_RECORDS.read.key,
         records.file(read.path),
         `code.env-var:${variable}`,
-        { symbol: read.symbol, required: read.required, default: read.default },
+        { symbol: read.symbol, required: read.required, [ENVIRONMENT_VALUE_RECORDS.read.field]: read.default },
         t.spanOfLine(read.path, read.line),
       );
     }
@@ -308,9 +316,9 @@ export function extractEnv(t: TreeText, records: Records): Map<string, EnvRead[]
     const label = [definition.name, definition.scope, where].filter((part): part is string => typeof part === 'string' && part !== '').join(' · ');
     records.add({
       key: definition.key,
-      kind: 'code.env-definition',
+      kind: ENVIRONMENT_VALUE_RECORDS.definition.key,
       label,
-      properties: { value: definition.value, ...(definition.scope === null ? {} : {scope: definition.scope}) },
+      properties: { [ENVIRONMENT_VALUE_RECORDS.definition.field]: definition.value, ...(definition.scope === null ? {} : {scope: definition.scope}) },
       span: definition.span,
     });
     // The file that gives the variable its value is the definition's own place in the code, whether or not the code
@@ -319,7 +327,7 @@ export function extractEnv(t: TreeText, records: Records): Map<string, EnvRead[]
     if (definition.scope === null) continue;
     const variable = `${definition.scope}/${definition.name}`;
     if (!byVariable.has(variable)) continue;
-    records.edge('code.defines', definition.key, `code.env-var:${variable}`, { value: definition.value }, definition.span);
+    records.edge(ENVIRONMENT_VALUE_RECORDS.defines.key, definition.key, `code.env-var:${variable}`, { [ENVIRONMENT_VALUE_RECORDS.defines.field]: definition.value }, definition.span);
   }
   return byVariable;
 }

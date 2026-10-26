@@ -29,8 +29,8 @@ import { MAX_SLUG_LENGTH, SLUG } from './format.js';
 import { domainPrompt, productPrompt, type UnitContext } from './prompts.js';
 import { DEFAULT_UNIT_BOUNDS, UnitTools, type DomainDeclaration, type PageSink, type ToolAnswer, type UnitBounds, type UnitOutcome, type UnitSpec } from './tools.js';
 import { GraphView, ingestContent, type ContentReport } from './view.js';
-import { GUIDE_OUTPUTS, type GuideWriterHost } from './guides/host-contract.js';
-import { guidePageCount } from './guides/prepared.js';
+import { GUIDE_OUTPUTS, registeredGuideOutput, type GuideWriterHost } from './guides/host-contract.js';
+import { guidePageCount, currentGuidePath } from './guides/prepared.js';
 import { guidePrompt } from './prompts.js';
 
 export const PRODUCT_PATH = 'docs/product.md';
@@ -463,11 +463,17 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
   const guides: UnitOutcome[] = [];
   if (options.guides !== undefined) {
     for (const kind of ['administrator-guide', 'user-guide'] as const) {
-      const output = GUIDE_OUTPUTS[kind];
-      options.onUnitStart?.({ unit: output.id, path: output.path });
+      let output = { id: GUIDE_OUTPUTS[kind].id as string, path: 'madarch/kinds.yaml' };
       let outcome: UnitOutcome;
       try {
+        output = registeredGuideOutput(options.output, kind);
+        options.onUnitStart?.({ unit: output.id, path: output.path });
         const prepared = await options.guides.prepare(kind, language === 'ru' ? 'ru' : 'en');
+        const currentPath=currentGuidePath(prepared);
+        if(currentPath!==undefined){
+          if(currentPath!==output.path)throw new Error('guide current proof is bound to another registered path');
+          outcome=keptOutcome(output.id,output.path);guides.push(outcome);options.onUnit?.(outcome);continue;
+        }
         const spec: UnitSpec = { kind, id: output.id, path: output.path, prepared };
         const guideBounds = { ...bounds, maxCalls: bounds.maxCalls + guidePageCount(prepared) };
         const tools = new UnitTools(view, spec, sink, [], guideBounds, basis, extras);

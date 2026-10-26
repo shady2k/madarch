@@ -1154,9 +1154,10 @@ export class KnowledgeProduct {
     const markdownRead = history === undefined ? readMarkdownEntities(product.folder, { ...read.manifest, kinds: ordinaryKinds }) : { entities: [], findings: [] };
     if (history === undefined) for (const [kind, output] of Object.entries(GUIDE_OUTPUTS)) {
       const declaration = read.manifest.kinds.get(kind);
-      if (declaration?.source !== 'markdown' || declaration.file !== output.path) continue;
+      if (declaration?.source !== 'markdown' || declaration.file === undefined) continue;
+      if (!existsSync(join(product.folder, declaration.file))) continue;
       const title = declaration.labels?.[read.manifest.language === 'ru' ? 'ru' : 'en']?.one ?? kind;
-      markdownRead.entities.push({ id: output.id, kind, title, relates: [], producer: 'agent', sources: [], body: '', bodyLine: 1, file: output.path, front: {} });
+      markdownRead.entities.push({ id: output.id, kind, title, relates: [], producer: 'agent', sources: [], body: '', bodyLine: 1, file: declaration.file, front: {} });
     }
     const markdown = new Map<string, MarkdownEntity>(markdownRead.entities.map((entity) => [entity.id, entity]));
     const reading = history === undefined ? await this.documentEntities(product.folder, read.manifest) : { entities: [], sources: [], findings: [] };
@@ -1410,7 +1411,8 @@ export class KnowledgeProduct {
 
   /** Strict guide data and fresh walk evidence are assembled once for every read format. */
   private async guidePage(kind: GuideKind, locale: GuideLocale, ctx: RenderContext, history?: HistoryContext): Promise<PageResult> {
-    const output = GUIDE_OUTPUTS[kind];
+    const declaration = ctx.manifest.kinds.get(kind);
+    const output = { id: GUIDE_OUTPUTS[kind].id, path: declaration?.file ?? 'madarch/kinds.yaml' };
     const file = resolve(ctx.productFolder, output.path);
     const title = ctx.manifest.kinds.get(kind)?.labels?.[locale]?.one ?? kind;
     const base: PageModel = { id: output.id, kind, title, trail: [], blocks: [], resolutions: {}, findings: [], notes: [], ...(history === undefined ? { planned: await this.plannedForPage(output.id) } : { history }) };
@@ -1418,8 +1420,7 @@ export class KnowledgeProduct {
       const message = `${file}:1: $.guide: ${locale === 'ru' ? ru : en}`;
       return { ok: true, page: { ...base, blocks: [{ type: 'problem', block: 'guide', file, line: 1, message }], findings: [{ file, line: 1, message }] } };
     };
-    const declaration = ctx.manifest.kinds.get(kind);
-    if (declaration?.source !== 'markdown' || declaration.file !== output.path) return gap('the registered guide output is not declared by this product', 'Этот продукт не объявляет зарегистрированное руководство');
+    if (declaration?.source !== 'markdown' || declaration.file === undefined) return gap('the registered guide output is not declared by this product', 'Этот продукт не объявляет зарегистрированное руководство');
     if (history !== undefined) return gap('historical guide input proof is unavailable; current content was not substituted', 'Нет подтверждённых входных данных руководства на эту дату; текущая версия не подставлена');
     try {
       if ((this.options.guideContextFor === undefined) !== (this.options.guideHostFor === undefined)) return gap('guide context and verification authority must be supplied together', 'Контекст и проверяющая сторона руководства должны быть заданы вместе');
@@ -1625,17 +1626,18 @@ export class KnowledgeProduct {
       const texts = await readRepoDocuments(repo.name, repo.path, commit === undefined || commit === '' ? 'HEAD' : commit, listed);
       for (const name of listed) documents.push({ repo: repo.name, path: name, title: documentTitle(texts.get(name) ?? '', name) });
     }
-    for (const [kind, output] of Object.entries(GUIDE_OUTPUTS)) {
+    for (const kind of Object.keys(GUIDE_OUTPUTS)) {
       const declared = manifest.kinds.get(kind);
-      if (declared?.source !== 'markdown' || declared.file !== output.path) continue;
-      if (!documents.some((document) => document.repo === null && document.path === output.path)) documents.push({ repo: null, path: output.path, title: declared.labels?.[manifest.language === 'ru' ? 'ru' : 'en']?.one ?? kind });
+      if (declared?.source !== 'markdown' || declared.file === undefined || !existsSync(join(product.folder, declared.file))) continue;
+      if (!documents.some((document) => document.repo === null && document.path === declared.file)) documents.push({ repo: null, path: declared.file, title: declared.labels?.[manifest.language === 'ru' ? 'ru' : 'en']?.one ?? kind });
     }
     return { documents, truncated };
   }
 
   /** One document as a page; `undefined` when the repository has no such document. */
   async document(repo: string | null, path: string): Promise<DocumentPage | undefined> {
-    const guideKind = repo === null ? (Object.keys(GUIDE_OUTPUTS) as GuideKind[]).find((kind) => GUIDE_OUTPUTS[kind].path === path) : undefined;
+    const registry = readKinds(this.options.productFolder);
+    const guideKind = repo === null && registry.present ? (Object.keys(GUIDE_OUTPUTS) as GuideKind[]).find((kind) => registry.manifest.kinds.get(kind)?.source === 'markdown' && registry.manifest.kinds.get(kind)?.file === path) : undefined;
     if (guideKind !== undefined) {
       const assembled = await this.page(GUIDE_OUTPUTS[guideKind].id);
       if (!assembled.ok) return undefined;
