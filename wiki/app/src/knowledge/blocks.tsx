@@ -8,7 +8,7 @@
  * mention of an entity that has a page is a link to the page; a reference that
  * does not resolve is shown as broken, with its reason.
  */
-import { createContext, createElement, useContext, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
+import { lazy, Suspense, createContext, createElement, useContext, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useTranslation } from 'react-i18next';
@@ -27,6 +27,7 @@ import { DiagramsView } from './diagrams/views.js';
 import { NeighborhoodGraph } from './diagrams/neighborhood.js';
 import { TreemapView } from './diagrams/treemap.js';
 import { useKindName } from './kind-names.js';
+import {ContractDiagnosticView} from './contract-diagnostic.js';
 import { addressOfDocument, addressOfStatement, addressOfTask, K_PROBLEMS } from './routes.js';
 import { currentAddress, linkHandlers, openInNewTab, syncFrontTabAddress } from './tabs.js';
 import { remarkStatements, type MNode } from './statements.js';
@@ -554,8 +555,9 @@ function Deferred({ block, pageId, resolutions }: { block: Extract<Block, { type
   const { t, i18n } = useTranslation();
   const [drawn, setDrawn] = useState<Block | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
+  const [opened, setOpened] = useState(false);
   useEffect(() => {
-    if (pageId === undefined) return;
+    if (pageId === undefined || (block.block === 'definition' && !opened)) return;
     const stop = new AbortController();
     setDrawn(null);
     setFailure(null);
@@ -563,7 +565,11 @@ function Deferred({ block, pageId, resolutions }: { block: Extract<Block, { type
       if (!(error instanceof DOMException && error.name === 'AbortError')) setFailure(error instanceof Error ? error.message : String(error));
     });
     return () => stop.abort();
-  }, [pageId, block.line, block.block, i18n.resolvedLanguage]);
+  }, [pageId, block.line, block.block, i18n.resolvedLanguage, opened]);
+  if (block.block === 'definition') return <details data-testid="contract-definition-disclosure" onToggle={(event) => { if (event.currentTarget.open) setOpened(true); }}>
+    <summary className="cursor-pointer text-secondary">{block.title}</summary>
+    {opened && (drawn !== null ? <BlockView block={drawn} resolutions={resolutions} {...(pageId === undefined ? {} : {pageId})} /> : <p role={failure === null ? 'status' : 'alert'}>{failure ?? t('knowledge.contractLoading')}</p>)}
+  </details>;
   if (drawn !== null) return <BlockView block={drawn} resolutions={resolutions} {...(pageId === undefined ? {} : { pageId })} />;
   return (
     <section data-block="diagram" data-diagram="deferred" aria-label={block.title}>
@@ -641,41 +647,10 @@ function History({ block }: { block: Extract<Block, { type: 'history' }> }): Rea
  * their messages of an AsyncAPI document, or the services and rpcs of a protobuf file, each at an anchor a link can open
  * the page at, beside the contract's own text. The block arrives deferred, so a reader pays for it only when they open it.
  */
-function Definition({ block }: { block: Extract<Block, { type: 'definition' }> }): ReactElement {
-  const { t } = useTranslation();
-  const formatName = block.format === 'openapi' ? t('knowledge.definitionOpenApi') : block.format === 'asyncapi' ? t('knowledge.definitionAsyncApi') : block.format === 'proto' ? t('knowledge.definitionProto') : block.format;
-  return (
-    <section data-block="definition" aria-label={block.title}>
-      <h2>{block.title}</h2>
-      <p className="m-0 flex flex-wrap items-center gap-2">
-        <Badge data-testid="definition-format">{formatName}</Badge>
-        {block.location === undefined ? <span className="font-mono text-[0.875em]">{block.contract}</span> : <KLink href={block.location.href} className="font-mono text-[0.875em] text-secondary">{block.contract}</KLink>}
-      </p>
-      {block.memberCuts.map((cut, index) => <p key={`${cut.channel}:${index}`} className="mt-2 text-small text-muted">{cut.channel === '' ? t('knowledge.definitionMembersCut', { shown: cut.shown, total: cut.total }) : t('knowledge.definitionChannelCut', { channel: cut.channel, shown: cut.shown, total: cut.total })}</p>)}
-      {block.members.length === 0 ? <p className="mt-2 text-small text-muted" data-testid="definition-empty">{t('knowledge.definitionEmpty')}</p> : (
-        <Table className="mt-3">
-          <TableHeader>
-            <TableRow><TableHead>{t('knowledge.definitionMember')}</TableHead><TableHead>{t('knowledge.definitionDetail')}</TableHead></TableRow>
-          </TableHeader>
-          <TableBody>
-            {block.members.map((member) => (
-              <TableRow key={member.anchor} id={member.anchor} data-member={member.anchor}>
-                <TableCell className="max-w-[28rem] break-words">
-                  {member.href === null ? <span className="font-mono text-[0.875em]">{member.label}</span> : <KLink href={member.href} className="font-mono text-[0.875em]">{member.label}</KLink>}
-                </TableCell>
-                <TableCell className="max-w-[32rem] break-words">{member.detail ?? <span className="text-muted">–</span>}</TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      )}
-      <details className="mt-5">
-        <summary className="cursor-pointer text-small text-muted">{t('knowledge.definitionSource')}</summary>
-        <pre className="mt-2 max-h-[32rem] overflow-auto rounded-md border p-3 text-small"><code>{block.spec.text}</code></pre>
-        {block.spec.lines > block.spec.text.split('\n').length && <p className="text-small text-muted">{t('knowledge.definitionCut', { shown: block.spec.text.split('\n').length, total: block.spec.lines })}</p>}
-      </details>
-    </section>
-  );
+const ContractView = lazy(() => import('./contract-view.js'));
+function Definition({block}: {block: Extract<Block, {type: 'definition'}>}): ReactElement {
+  const {t} = useTranslation();
+  return <Suspense fallback={<p role="status">{t('knowledge.contractLoading')}</p>}><ContractView block={block} /></Suspense>;
 }
 
 function Problem({ block }: { block: Extract<Block, { type: 'problem' }> }): ReactElement {
@@ -684,7 +659,7 @@ function Problem({ block }: { block: Extract<Block, { type: 'problem' }> }): Rea
     <Alert variant="problem" className="my-4" data-testid="block-problem">
       <AlertTitle>{t('knowledge.blockProblem', { block: block.block })}</AlertTitle>
       <AlertDescription>
-        <p>{block.message}</p>
+        {block.block === 'definition' && block.diagnostic !== undefined ? <ContractDiagnosticView diagnostic={block.diagnostic} /> : <p>{block.message}</p>}
         <p className="font-mono text-[0.875em] text-muted">{block.file}:{block.line}</p>
       </AlertDescription>
     </Alert>
