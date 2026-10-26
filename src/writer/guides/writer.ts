@@ -1,5 +1,9 @@
 /** Guide-only preparation on the existing temporal graph and pinned Git snapshot. */
-import { resolve } from 'node:path';
+import { resolve, posix } from 'node:path';
+import { parseEnv } from 'node:util';
+import { readComposeFile } from '../../extract/operations/compose.js';
+import { TreeText } from '../../extract/operations/source.js';
+import { Records } from '../../extract/operations/accumulate.js';
 import type { DatabaseOwner } from '../../adapters/database-owner.js';
 import { createGitSnapshotSource, type SnapshotSource } from '../../fill/snapshot.js';
 import { resolveLens } from '../../graph/reads.js';
@@ -45,7 +49,7 @@ export interface GuidePreparedEvidence {
   readonly facts: readonly unknown[];
   readonly spans: readonly GuideEvidenceSpan[];
   readonly gaps: readonly string[];
-  readonly policy: { readonly version: 'withhold-config-values@1'; readonly withheldValues: number; readonly classifiedSources: readonly string[]; readonly sourceCandidateValues?: number; readonly hostSensitiveValues?: number; readonly ordinaryRefusalExcluded?: number; readonly references?: readonly string[] };
+  readonly policy: { readonly version: 'withhold-config-values@1'; readonly withheldValues: number; readonly classifiedSources: readonly string[]; readonly sourceCandidateValues?: number; readonly hostSensitiveValues?: number; readonly ordinaryRefusalExcluded?: number; readonly wholeWordValues?: number; readonly references?: readonly string[] };
   /** Private source policy values; removed before publication or an agent sees the packet. */
   readonly configValues?: readonly string[];
   readonly configReferences?: readonly { readonly name: string; readonly path: string; readonly value: string }[];
@@ -206,43 +210,84 @@ async function sourceLiteralValues(path:string,text:string):Promise<{values:read
 }
 
 /** Conservative parsed-config policy: literal configuration values are withheld, not guessed public defaults. */
-function configurationReferences(path: string, text: string): readonly { name: string; path: string; value: string }[] {
-  if (!path.endsWith('.yaml') && !path.endsWith('.yml') && !path.endsWith('.json')) return [];
-  const documents = parseAllDocuments(text, { uniqueKeys: true });
-  if (documents.some((document) => document.errors.length > 0)) throw new Error('guide config policy: a configuration document could not be parsed');
-  const values: { name: string; path: string; value: string }[] = [];
-  const visit = (node: unknown, name: string): void => {
-    if (isMap(node)) { for (const [index, pair] of node.items.entries()) visit(pair.value, `${name}.${isScalar(pair.key) ? String(pair.key.value) : `$key[${index}]`}`); }
-    else if (isSeq(node)) { for (const [index, item] of node.items.entries()) visit(item, `${name}[${index}]`); }
-    else if (isScalar(node) && node.value !== null && node.value !== undefined) values.push({ name, path, value: String(node.value) });
+type GuideConfigurationReference = { readonly name: string; readonly path: string; readonly value: string };
+/** Environment settings and explicit secret stores, not arbitrary structured configuration. */
+export async function configurationReferences(path: string, text: string, readPinned: (path: string) => Promise<string>): Promise<readonly GuideConfigurationReference[]> {
+  const values: GuideConfigurationReference[] = [];
+  const envFile = (file: string, content: string): void => {
+    for (const [name, value] of Object.entries(parseEnv(content))) {
+      if (typeof value !== 'string') throw new GuidePreparationError({ stage: 'source-policy', code: 'unsupported', file: 'src/writer/guides/writer.ts', line: 218 });
+      values.push({ name, path: file, value });
+    }
   };
-  for (const [index, document] of documents.entries()) visit(document.contents, `$document[${index}]`);
-  return values;
-}
-const alpha = (character: string): boolean => character.toLowerCase() !== character.toUpperCase();
-const numeral = (character: string): boolean => character >= '0' && character <= '9';
-/** A lexical shape, not a setting-name heuristic: plain words and numbers are ambiguous public language. */
-export function distinctiveGuideValue(value: string): boolean {
-  let letters = false; let numbers = false; let structure = false;
-  for (const character of value) {
-    if (alpha(character)) letters = true;
-    else if (numeral(character)) numbers = true;
-    else if (character.trim() !== '') structure = true;
-  }
-  return letters && numbers || (letters || numbers) && structure;
-}
-/** Delimit fields/path components; hyphens and underscores remain inside a token. */
-const tokenBoundary = (character: string): boolean => character.trim() === '' || '/\\"\'()[]{}<>;,'.includes(character);
-export function containsGuideSecret(text: string, sensitiveValues: readonly string[] | undefined): boolean {
-  for (const value of new Set((sensitiveValues ?? []).filter((candidate) => candidate.length > 0))) {
-    // The candidate is one complete classified value. Its OWN punctuation must not split it
-    // (for example a decoded quote); only the characters OUTSIDE the candidate define a token.
-    for (let start = text.indexOf(value); start >= 0; start = text.indexOf(value, start + 1)) {
-      const end = start + value.length;
-      if ((start === 0 || tokenBoundary(text[start - 1]!)) && (end === text.length || tokenBoundary(text[end]!))) return true;
+  const basename = posix.basename(path);
+  if (basename === '.env' || basename.startsWith('.env.')) { envFile(path, text); return values; }
+  if (!path.endsWith('.yaml') && !path.endsWith('.yml') && !path.endsWith('.json')) return values;
+  const documents = parseAllDocuments(text, { uniqueKeys: true });
+  if (documents.some((document) => document.errors.length > 0)) throw new Error('guide environment policy: a structured document could not be parsed');
+  const field = (node: unknown, name: string): unknown => isMap(node) ? node.items.find((pair) => isScalar(pair.key) && pair.key.value === name)?.value : undefined;
+  for (const document of documents) {
+    const root = document.contents;
+    const kind = field(root, 'kind');
+    if (isScalar(kind) && (kind.value === 'Secret' || kind.value === 'ConfigMap')) {
+      for (const area of ['data', 'stringData', 'binaryData']) {
+        const data = field(root, area); if (data === undefined) continue;
+        const invalid = (): never => { throw new GuidePreparationError({ stage: 'source-policy', code: 'invalid', file: 'src/writer/guides/writer.ts', line: 229 }); };
+        if (!isMap(data)) return invalid();
+        for (const pair of data.items) {
+          if (!isScalar(pair.key) || typeof pair.key.value !== 'string' || !isScalar(pair.value) || typeof pair.value.value !== 'string') return invalid();
+          const name = pair.key.value, value = pair.value.value;
+          values.push({ name, path, value });
+          if ((kind.value === 'Secret' && area === 'data') || area === 'binaryData') {
+            const bytes = Buffer.from(value, 'base64');
+            if (bytes.toString('base64') !== value) invalid();
+            let decoded: string;
+            try { decoded = new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch { return invalid(); }
+            if (decoded !== '') values.push({ name, path, value: decoded });
+          }
+        }
+      }
+    }
+    const services = field(root, 'services');
+    if (isMap(services)) {
+      // The shared operations reader owns the Compose environment shapes.
+      const tree = new TreeText({ paths: [path], read: () => new TextEncoder().encode(text) });
+      const records = new Records(tree);
+      for (const service of readComposeFile(tree, records, path)) for (const variable of service.environment) if (variable.value !== null) values.push({ name: variable.name, path, value: variable.value });
+      if (records.gaps.length > 0) throw new Error('guide environment policy: Compose environment declarations could not be read');
+      for (const service of services.items) {
+        const envFiles = field(service.value, 'env_file');
+        for (const entry of isSeq(envFiles) ? envFiles.items : envFiles === undefined ? [] : [envFiles]) {
+          const file = isMap(entry) ? field(entry, 'path') : entry;
+          if (!isScalar(file) || typeof file.value !== 'string') throw new Error('guide environment policy: an env_file declaration is unsupported');
+          const relative = posix.normalize(posix.join(posix.dirname(path), file.value));
+          if (posix.isAbsolute(file.value) || relative === '..' || relative.startsWith('../')) throw new Error('guide environment policy: env_file escapes the pinned repository');
+          envFile(relative, await readPinned(relative));
+        }
+      }
     }
   }
-  return false;
+  return values;
+}
+
+const alpha = (character: string): boolean => character.toLowerCase() !== character.toUpperCase();
+const numeral = (character: string): boolean => character >= '0' && character <= '9';
+/** Final matching rule: short single-class words use Unicode word segmentation; all other values are substrings. */
+export function distinctiveGuideValue(value: string): boolean {
+  return value.length >= 16 || [...value].some((character) => !alpha(character) && !numeral(character)) || [...value].some(alpha) && [...value].some(numeral);
+}
+const guideWords = new Intl.Segmenter(undefined, { granularity: 'word' });
+function guideValueRanges(text: string, values: readonly string[]): { start: number; end: number; value: string }[] {
+  const ranges: { start: number; end: number; value: string }[] = [];
+  for (const value of new Set(values.filter((candidate) => candidate.length > 0))) {
+    if (distinctiveGuideValue(value)) {
+      for (let start = text.indexOf(value); start >= 0; start = text.indexOf(value, start + 1)) ranges.push({ start, end: start + value.length, value });
+    } else for (const segment of guideWords.segment(text)) if (segment.isWordLike && segment.segment === value) ranges.push({ start: segment.index, end: segment.index + segment.segment.length, value });
+  }
+  return ranges.sort((a, b) => a.start - b.start || b.end - a.end);
+}
+export function containsGuideSecret(text: string, sensitiveValues: readonly string[] | undefined): boolean {
+  return guideValueRanges(text, sensitiveValues ?? []).length > 0;
 }
 export function guidePacketPolicy(evidence: GuidePreparedEvidence, knownValues: readonly string[] = [], hostChecker?: (text: string) => boolean): { readonly evidence: GuidePreparedEvidence; readonly sensitiveValues: readonly string[]; readonly containsSecret: (text: string) => boolean } {
   const known = [...new Set(knownValues.filter((value) => value.length > 0))];
@@ -274,11 +319,10 @@ export function guidePacketPolicy(evidence: GuidePreparedEvidence, knownValues: 
   }
   for (const value of evidence.configValues ?? []) values.add(value);
   for (const reference of references) values.add(reference.value);
-  const distinctive = [...values].filter((value) => value.length > 0 && distinctiveGuideValue(value));
-  const sensitiveValues = [...new Set([...known, ...distinctive])];
+  const sensitiveValues = [...new Set([...known, ...values].filter((value) => value.length > 0))];
   const containsSecret = (text: string): boolean => {
     if (hostChecker !== undefined) { const checked = hostChecker(text); if (typeof checked !== 'boolean') throw new Error('host secret authority is unavailable'); if (checked) return true; }
-    return known.some((value) => text.includes(value)) || containsGuideSecret(text, distinctive);
+    return known.some((value) => text.includes(value)) || containsGuideSecret(text, [...values]);
   };
   const contains = (value: unknown): boolean => {
     if (typeof value === 'string') return containsSecret(value);
@@ -286,28 +330,80 @@ export function guidePacketPolicy(evidence: GuidePreparedEvidence, knownValues: 
     if (value === null || typeof value !== 'object') return false;
     return Object.entries(value).some(([name, child]) => containsSecret(name) || contains(child));
   };
-  const namedReferences = [...new Set(references.map((reference) => `‹value of ${reference.path}:${reference.name}›`).filter((name) => !containsSecret(name)))].sort(byCodePoint);
-  // Every redacted row links one complete shared catalogue. Repeating the catalogue
-  // in each row makes a small configuration file overflow a context packet.
+  const referenceOf = new Map<string, string>();
+  const referenceEntries: string[] = [];
+  for (const [index, reference] of references.entries()) {
+    let label = `‹value of ${reference.name}›`;
+    if (containsSecret(label)) { label = `‹R${index}›`; if (containsSecret(label)) throw new Error('guide source policy cannot name a withheld setting safely'); }
+    referenceEntries.push(label); if (!referenceOf.has(reference.value)) referenceOf.set(reference.value, label);
+  }
+  for (const [index, value] of [...values].entries()) {
+    if (referenceOf.has(value)) continue;
+    const label = `‹R${references.length + index}›`;
+    if (containsSecret(label)) throw new Error('guide source policy cannot name a withheld setting safely');
+    referenceOf.set(value, label); referenceEntries.push(label);
+  }
+  const namedReferences = [...new Set(referenceEntries)].sort(byCodePoint);
   const referenceSetDigest = guideDigest(namedReferences);
-  const configPaths = new Set((evidence.configReferences ?? []).map((reference) => reference.path));
+  let note = ' [configuration content withheld]';
+  if (containsSecret(note)) { note = ' [WITHHELD]'; if (containsSecret(note)) throw new Error('guide source policy cannot state withholding safely'); }
+  const redact = (text: string): string => {
+    const ranges = guideValueRanges(text, [...values]);
+    if (known.some((value) => text.includes(value)) || hostChecker?.(text) === true) {
+      const replacement = `‹host-controlled setting›${note}`;
+      if (containsSecret(replacement)) throw new Error('guide source policy cannot describe host-controlled content safely');
+      return replacement;
+    }
+    if (ranges.length === 0) return text;
+    let result = ''; let offset = 0;
+    for (let index = 0; index < ranges.length; index++) {
+      const range = ranges[index]!;
+      if (range.start < offset) continue;
+      let end = range.end;
+      while (index + 1 < ranges.length && ranges[index + 1]!.start < end) { index++; end = Math.max(end, ranges[index]!.end); }
+      result += text.slice(offset, range.start) + referenceOf.get(range.value)!;
+      offset = end;
+    }
+    result += text.slice(offset);
+    result += note;
+    if (containsSecret(result)) {
+      // Removing one match can expose a new whole-word boundary. Keep a named
+      // reference for every original matching value rather than releasing a residue.
+      result = [...new Set(ranges.map((range) => referenceOf.get(range.value)!))].join(' ') + note;
+      if (containsSecret(result)) throw new Error('guide source policy cannot describe withheld content safely');
+    }
+    return result;
+  };
+  const publicValue = (value: unknown): unknown => {
+    if (typeof value === 'string') return redact(value);
+    if (Array.isArray(value)) return value.map(publicValue);
+    if (value === null || typeof value !== 'object') return value;
+    return Object.fromEntries(Object.entries(value).map(([name, child]) => [redact(name), publicValue(child)]));
+  };
   const facts = evidence.facts.map((fact) => {
     if (fact === null || typeof fact !== 'object') return fact;
     const row = fact as Record<string, unknown>;
-    // Keep the original only in private dependency membership; no escaped value or payload digest reaches the packet.
-    const properties = row['properties'];
-    const place = properties !== null && typeof properties === 'object' ? properties as Record<string, unknown> : undefined;
-    const span = place?.['span'];
-    const fromConfig = typeof place?.['path'] === 'string' && configPaths.has(place['path']) || span !== null && typeof span === 'object' && configPaths.has(String((span as Record<string, unknown>)['path']));
-    return valueRows.has(fact) || fromConfig || contains(row) ? { ...(row['id'] === undefined || contains(row['id']) ? {} : { id: row['id'] }), ...(row['kind'] === undefined ? {} : { kind: row['kind'] }), ...(row['relation'] === undefined ? {} : { relation: row['relation'] }), withheld: 'configuration values withheld by source policy', referenceSetDigest, referenceCount: namedReferences.length } : row;
+    const fromConfig = false; // Only actual value-bearing declarations or matched content are withheld, not neighbouring ordinary fields.
+    return valueRows.has(fact) || fromConfig ? publicValue({ ...(row['id'] === undefined ? {} : { id: row['id'] }), ...(row['kind'] === undefined ? {} : { kind: row['kind'] }), ...(row['relation'] === undefined ? {} : { relation: row['relation'] }), withheld: 'configuration values withheld by source policy', referenceSetDigest, referenceCount: namedReferences.length }) : publicValue(row);
   });
-  const spans = evidence.spans.filter((span) => !span.literalReadGap && !configPaths.has(span.ground.path) && !assignments.some((assignment) => assignment.path === span.ground.path && assignment.line <= span.ground.endLine && assignment.endLine >= span.ground.line) && !contains(span.text) && !contains(span.sourceLiterals ?? []))
-    .map(({ sourceLiterals: _privateLiterals, literalReadGap: _readGap, ...span }) => span);
-  const withheld = evidence.spans.length - spans.length;
-  const ordinary = [...values].filter((value) => !distinctiveGuideValue(value)).length;
-  const gaps = [...evidence.gaps, `${values.size} configuration values were withheld at their source occurrences; ${namedReferences.length} named setting references remain.`, ...(withheld === 0 ? [] : [`${withheld} source spans contain configuration values or lack complete literal parsing and were withheld; no public or development-default status was inferred.`]), `${ordinary} ordinary configuration values are withheld but excluded from output refusal because their lexical shape is indistinguishable from public words or numbers.`];
+  const withheldSpans = evidence.spans.filter((span) => span.literalReadGap || assignments.some((assignment) => assignment.path === span.ground.path && assignment.line <= span.ground.endLine && assignment.endLine >= span.ground.line) || containsSecret(span.text) || containsSecret(span.ground.path) || contains(span.sourceLiterals ?? []));
+  const spans = evidence.spans.filter((span) => !withheldSpans.includes(span)).map(({ sourceLiterals: _privateLiterals, literalReadGap: _readGap, ...span }) => span);
+  // A redacted excerpt cannot prove an executable instruction. Retain each withheld item as
+  // named context, while only exact unchanged spans remain eligible as pinned source proof.
+  for (const span of withheldSpans) {
+    const hiddenLiterals = (span.sourceLiterals ?? []).filter(containsSecret);
+    // An escaped source spelling need not contain its decoded authority value.
+    // Never copy that spelling, or unsupported literal syntax, into public context.
+    const text = span.literalReadGap || hiddenLiterals.length > 0
+      ? [...new Set(hiddenLiterals.flatMap((literal) => guideValueRanges(literal, [...values]).map((range) => referenceOf.get(range.value)!)))].join(' ') || '‹withheld source setting›'
+      : span.text;
+    facts.push(publicValue({ type: 'withheld-source', source: span.ground, text, note: 'configuration content withheld; this excerpt is not executable source proof' }));
+  }
+  const wholeWord = [...values].filter((value) => value.length > 0 && !distinctiveGuideValue(value)).length;
+  const rawGaps = [...evidence.gaps, `${values.size} configuration values were withheld at their source occurrences; ${namedReferences.length} named setting references remain.`, ...(withheldSpans.length === 0 ? [] : [`${withheldSpans.length} source spans contain configuration values or lack complete literal parsing and were withheld; no public or development-default status was inferred.`]), `${wholeWord} configuration values use whole-word matching; all remaining values use substring matching.`];
+  const gaps = rawGaps.map(redact);
   const { configValues: _privateValues, configReferences: _privateReferences, ...publicEvidence } = evidence;
-  return { evidence: { ...publicEvidence, facts, spans, gaps, policy: { version: 'withhold-config-values@1', withheldValues: values.size, classifiedSources: [...new Set(classifiedSources)].sort(byCodePoint), sourceCandidateValues: values.size, hostSensitiveValues: known.length, ordinaryRefusalExcluded: ordinary, references: namedReferences } }, sensitiveValues, containsSecret };
+  return { evidence: { ...publicEvidence, facts, spans, gaps, policy: { version: 'withhold-config-values@1', withheldValues: values.size, classifiedSources: [...new Set(classifiedSources.map(redact))].sort(byCodePoint), sourceCandidateValues: values.size, hostSensitiveValues: known.length, ordinaryRefusalExcluded: 0, wholeWordValues: wholeWord, references: namedReferences } }, sensitiveValues, containsSecret };
 }
 
 /** A Markdown entity is derived/loop state only when the product's pinned
@@ -394,13 +490,13 @@ export async function prepareGuideEvidence(wiring: Pick<GuideWriterWiring, 'owne
   const membership=await readGuideGraph(wiring,context);
   const facts:readonly unknown[]=[...membership.nodes,...membership.edges];
   const spans:GuideEvidenceSpan[]=[];const seen=new Set<string>();const gaps:string[]=[];
-  const configValues: string[] = [];const configReferences: { name: string; path: string; value: string }[] = [];const blockedConfigPaths=new Set<string>();const classifiedSources: string[] = [];
+  const configValues: string[] = [];const configReferences: { name: string; path: string; value: string }[] = [];const classifiedSources: string[] = [];
   for (const fact of membership.nodes) {
     if(fact['kind']!=='code.file'||fact['properties']===null||typeof fact['properties']!=='object')continue;
     const path=(fact['properties'] as Record<string,unknown>)['path'];
-    if(typeof path!=='string'||(!path.endsWith('.yaml')&&!path.endsWith('.yml')&&!path.endsWith('.json')))continue;
-    try {const text=await reader.readText(path);const references=configurationReferences(path,text);configReferences.push(...references);configValues.push(...references.map((reference)=>reference.value));classifiedSources.push(`${repository.name}/${path}`);}
-    catch{gaps.push(`${repository.name}/${path}:1: configuration policy could not parse the complete pinned file; all its source spans were withheld`);blockedConfigPaths.add(path);}
+    if(typeof path!=='string'||(!path.endsWith('.yaml')&&!path.endsWith('.yml')&&!path.endsWith('.json')&&posix.basename(path)!=='.env'&&!posix.basename(path).startsWith('.env.')))continue;
+    try {const text=await reader.readText(path);const references=await configurationReferences(path,text,(file)=>reader.readText(file));configReferences.push(...references);configValues.push(...references.map((reference)=>reference.value));classifiedSources.push(`${repository.name}/${path}`);}
+    catch(failure){if(failure instanceof GuidePreparationError)throw failure;throw new GuidePreparationError({stage:'source-policy',code:'unavailable',file:'src/writer/guides/writer.ts',line:429});}
   }
   // Document paragraphs/lists/code blocks retain parser source ranges. No heading-name heuristic selects roles.
   for (const fact of membership.nodes) {
@@ -428,7 +524,6 @@ export async function prepareGuideEvidence(wiring: Pick<GuideWriterWiring, 'owne
     const place=span as Record<string,unknown>;
     if(typeof place['path']!=='string'||!Number.isInteger(place['lineStart'])||!Number.isInteger(place['lineEnd'])){gaps.push(`Graph node ${String(fact['id'])}: source span is malformed`);continue;}
     const ground={repository:repository.name,commit:repository.commit,path:place['path'],line:Number(place['lineStart']),endLine:Number(place['lineEnd'])};
-    if(blockedConfigPaths.has(ground.path))continue;
     if(ground.endLine-ground.line+1>MAX_SOURCE_LINES){gaps.push(`${repository.name}/${ground.path}:${ground.line}: source span exceeds ${MAX_SOURCE_LINES} lines; it was not partially supplied`);continue;}
     const key=guideDigest(ground);if(seen.has(key))continue;seen.add(key);
     let text:string;

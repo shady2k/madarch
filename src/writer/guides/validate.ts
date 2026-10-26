@@ -69,8 +69,8 @@ export async function validateGuide(input: unknown, host: GuideValidationHost): 
   let encoded: string;
   try { encoded = JSON.stringify(input); } catch { error('$', 'plain-data', 'expected bounded serializable data'); return done(); }
   if (typeof encoded !== 'string' || new TextEncoder().encode(encoded).length > 128 * 1024) { error('$', 'bound', 'guide exceeds 131072 bytes or is not serializable'); return done(); }
-  // Inspect the parsed data tree, not JSON-escaped bytes. Every string and member name can reach
-  // the source verifier (step, procedure and full guide), so no verifier runs until ALL are safe.
+  // Inspect the parsed data tree, not JSON-escaped bytes. Authored strings and unknown member names
+  // are checked before any verifier; exact host-bound typed proof metadata is not authored text.
   // Use the same plain snapshot for inspection and validation; getters/toJSON cannot swap later inputs.
   input = JSON.parse(encoded) as unknown;
   if (typeof host.containsSecret !== 'function') { error('$', 'verification-unavailable', 'secret verification is unavailable'); return done(); }
@@ -82,17 +82,70 @@ export async function validateGuide(input: unknown, host: GuideValidationHost): 
       return false;
     } catch { error(path, 'verification-unavailable', 'secret verification failed'); return true; }
   };
+  // Only schema-typed, host-bound proof coordinates are metadata. Authored text and unknown
+  // member names still pass the complete pre-verifier check; fixed schema keys are not prose.
+  const proofMetadata = new Set<string>();
+  const schemaKeys = new Map<string, ReadonlySet<string>>();
+  const keysAt = (path: string, keys: readonly string[]): void => { schemaKeys.set(path, new Set(keys)); };
+  if (object(input)) {
+    keysAt('$', ['schema', 'id', 'kind', 'locale', 'title', 'context', 'unitVersion', 'inputDigest', 'prerequisites', 'gaps', 'procedures']);
+    if (input['schema'] === GUIDE_SCHEMA) proofMetadata.add('$.schema');
+    if (input['kind'] === 'administrator-guide' || input['kind'] === 'user-guide') proofMetadata.add('$.kind');
+    if (input['locale'] === 'en' || input['locale'] === 'ru') proofMetadata.add('$.locale');
+    if (plain(input['unitVersion']) && input['unitVersion'] === host.expectedUnitVersion) proofMetadata.add('$.unitVersion');
+    if (typeof input['inputDigest'] === 'string' && hexadecimal(input['inputDigest'], 64) && input['inputDigest'] === host.expectedInputDigest) proofMetadata.add('$.inputDigest');
+    const heldContext = input['context'];
+    const hostPins = host.expectedContext.repositories;
+    if (object(heldContext)) {
+      keysAt('$.context', ['valid', 'known', 'state', 'repositories']);
+      for (const field of ['valid', 'known'] as const) if (instant(heldContext[field]) && heldContext[field] === host.expectedContext[field]) proofMetadata.add(`$.context.${field}`);
+      if (typeof heldContext['state'] === 'string' && heldContext['state'].length > 0 && [...heldContext['state']].every(digit) && heldContext['state'] === host.expectedContext.state) proofMetadata.add('$.context.state');
+      if (Array.isArray(heldContext['repositories'])) heldContext['repositories'].forEach((repository: unknown, index: number) => {
+        if (!object(repository)) return;
+        keysAt(`$.context.repositories[${index}]`, ['name', 'commit']);
+        if (!hostPins.some((pin) => pin.name === repository['name'] && pin.commit === repository['commit'])) return;
+        if (plain(repository['name']) && identity(repository['name'])) proofMetadata.add(`$.context.repositories[${index}].name`);
+        if (typeof repository['commit'] === 'string' && hexadecimal(repository['commit'], 40, 64)) proofMetadata.add(`$.context.repositories[${index}].commit`);
+      });
+    }
+    const heldProcedures = input['procedures'];
+    if (Array.isArray(heldProcedures)) heldProcedures.forEach((procedure: unknown, pi: number) => {
+      if (!object(procedure)) return;
+      keysAt(`$.procedures[${pi}]`, ['id', 'title', 'goal', 'role', 'prerequisites', 'steps']);
+      if (!Array.isArray(procedure['steps'])) return;
+      procedure['steps'].forEach((step: unknown, si: number) => {
+        if (!object(step)) return;
+        const stepPath = `$.procedures[${pi}].steps[${si}]`;
+        keysAt(stepPath, ['id', 'title', 'cwd', 'environment', 'inputs', 'instruction', 'expected', 'grounds']);
+        if (object(step['instruction'])) {
+          keysAt(`${stepPath}.instruction`, ['kind', 'content']);
+          if (step['instruction']['kind'] === 'command' || step['instruction']['kind'] === 'http') proofMetadata.add(`${stepPath}.instruction.kind`);
+        }
+        if (object(step['expected'])) keysAt(`${stepPath}.expected`, ['status', 'observation']);
+        if (Array.isArray(step['inputs'])) step['inputs'].forEach((entry: unknown, ii: number) => { if (object(entry)) keysAt(`${stepPath}.inputs[${ii}]`, ['name', 'description', 'secret']); });
+        if (!Array.isArray(step['grounds'])) return;
+        step['grounds'].forEach((ground: unknown, gi: number) => {
+          if (!object(ground)) return;
+          const path = `$.procedures[${pi}].steps[${si}].grounds[${gi}]`;
+          keysAt(path, ['repository', 'commit', 'path', 'line', 'endLine']);
+          if (!hostPins.some((pin) => pin.name === ground['repository'] && pin.commit === ground['commit'])) return;
+          proofMetadata.add(`${path}.repository`);
+          if (typeof ground['commit'] === 'string' && hexadecimal(ground['commit'], 40, 64)) proofMetadata.add(`${path}.commit`);
+        });
+      });
+    });
+  }
   const knownFields = new Set(['schema', 'id', 'kind', 'locale', 'title', 'context', 'unitVersion', 'inputDigest', 'prerequisites', 'gaps', 'procedures', 'valid', 'known', 'state', 'repositories', 'name', 'commit', 'goal', 'role', 'steps', 'cwd', 'environment', 'inputs', 'instruction', 'expected', 'grounds', 'description', 'secret', 'content', 'status', 'observation', 'repository', 'path', 'line', 'endLine']);
   const pending: { value: unknown; path: string }[] = [{ value: input, path: '$' }];
   while (pending.length > 0) {
     const held = pending.pop()!;
-    if (typeof held.value === 'string') { sensitive(held.value, held.path); continue; }
+    if (typeof held.value === 'string') { if (!proofMetadata.has(held.path)) sensitive(held.value, held.path); continue; }
     if (Array.isArray(held.value)) {
       held.value.forEach((value, index) => pending.push({ value, path: `${held.path}[${index}]` }));
     } else if (object(held.value)) {
       for (const [index, key] of Object.keys(held.value).sort(byCodePoint).entries()) {
         // Never put a sensitive member name into a diagnostic, including an ancestor of a value.
-        if (sensitive(key, `${held.path}.$keys[${index}]`)) continue;
+        if (!schemaKeys.get(held.path)?.has(key) && sensitive(key, `${held.path}.$keys[${index}]`)) continue;
         const named = knownFields.has(key);
         pending.push({ value: held.value[key], path: named ? `${held.path}.${key}` : `${held.path}.$members[${index}]` });
       }

@@ -20,8 +20,8 @@ test('actual prepared guide paginates every named configuration reference with c
  const folder=mkdtempSync(join(tmpdir(),'guide-reference-pages-'));const owner=createPGliteDatabaseOwner({btreeGist:true});
  try{
   const configuration=Object.fromEntries(Array.from({length:1000},(_,index)=>[`ordinary_setting_${index}`,'Ready']));
-  const expected=Object.keys(configuration).map((name)=>`‹value of settings.json:$document[0].${name}›`).sort(byCodePoint);
-  writeFileSync(join(folder,'settings.json'),JSON.stringify(configuration,null,2));
+  const expected=Object.keys(configuration).map((name)=>`‹value of ${name}›`).sort(byCodePoint);
+  writeFileSync(join(folder,'settings.json'),JSON.stringify({kind:'ConfigMap',data:configuration},null,2));
   writeFileSync(join(folder,'README.md'),'# Readiness\n\nRead the public status from the repository root\n');
   const env=gitEnv({GIT_AUTHOR_NAME:'Fixture',GIT_AUTHOR_EMAIL:'fixture@example.test',GIT_COMMITTER_NAME:'Fixture',GIT_COMMITTER_EMAIL:'fixture@example.test'});
   const git=(...args:string[])=>execFileSync('git',args,{cwd:folder,env,encoding:'utf8'}).trim();

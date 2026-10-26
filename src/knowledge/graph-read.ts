@@ -110,11 +110,13 @@ export class GraphReader {
     private readonly validAt: () => Promise<string> | string,
     /** A dated read belongs to one repository; keys from another scope cannot leak into it. */
     private readonly scope?: string,
+    /** A page lends its one snapshot to every graph read, including dated views. */
+    private readonly transaction?: OuterTransaction,
   ) {}
 
   /** A reader of one repository's facts at an explicit, covered instant. */
   at(instant: string, scope: string): GraphReader {
-    return new GraphReader(this.owner, () => instant, BigInt(scope).toString());
+    return new GraphReader(this.owner, () => instant, BigInt(scope).toString(), this.transaction);
   }
 
   private visible(alias: string): string {
@@ -152,6 +154,7 @@ export class GraphReader {
 
   private async run<T>(work: (tx: OuterTransaction, at: string) => Promise<T>): Promise<T> {
     const at = await this.validAt();
+    if (this.transaction !== undefined) return await work(this.transaction, at);
     return await this.owner.transaction('snapshot', (tx) => work(tx, at));
   }
 

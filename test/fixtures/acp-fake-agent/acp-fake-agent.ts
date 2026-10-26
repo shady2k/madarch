@@ -327,15 +327,21 @@ async function runScript(id: number | string, sessionId: string, text: string): 
   }
   for (const step of steps) {
     if (step.guide !== undefined) {
-      const client = await mcpFor(sessionId);
-      if (client === undefined) throw new Error('The guide fixture was given no MCP tool port.');
-      const call = async (tool: string, args: Record<string, unknown>) => {
-        const result = await client.call(tool, args);
-        chunk(sessionId, JSON.stringify({ tool, isError: result.isError, text: result.text }));
-        return { isError: result.isError, answer: JSON.parse(result.text) as unknown };
-      };
-      if (step.guide === 'write') await writeScriptedGuide(text, call);
-      else await verifyScriptedGuide(text, call);
+      try {
+        const client = await mcpFor(sessionId);
+        if (client === undefined) throw new Error('The guide fixture was given no MCP tool port.');
+        const call = async (tool: string, args: Record<string, unknown>) => {
+          const result = await client.call(tool, args);
+          chunk(sessionId, JSON.stringify({ tool, isError: result.isError, text: result.text }));
+          return { isError: result.isError, answer: JSON.parse(result.text) as unknown };
+        };
+        if (step.guide === 'write') await writeScriptedGuide(text, call);
+        else await verifyScriptedGuide(text, call);
+      } catch {
+        // A refused guide fails its prompt, not the shared adapter process or the next guide's session.
+        send({ jsonrpc: '2.0', id, error: { code: -32603, message: 'The scripted guide request failed; no guide was certified; details withheld.' } });
+        return;
+      }
       continue;
     }
     if (step.thought !== undefined) {

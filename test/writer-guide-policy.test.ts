@@ -45,7 +45,8 @@ test('parsed facts and source spans with escaped sensitive characters are withhe
  expect(result.sensitiveValues).toContain(privateValue);
  expect(result.evidence.spans).toEqual([]);
  expect(result.evidence.gaps.join(' ')).toContain('1 source spans');
- expect(result.evidence.facts.slice(0,3).every((value)=>Object.hasOwn(value as object,'withheld'))).toBe(true);
+ expect(result.evidence.facts[0]).toHaveProperty('withheld');
+ expect(JSON.stringify(result.evidence.facts.slice(1,3))).toContain('configuration content withheld');
  expect(result.evidence.facts[3]).toEqual({id:'public',kind:'code.route',label:'Status'});
 });
 
@@ -143,29 +144,84 @@ test('real pinned tree-sitter source literals decode escapes before protected co
 },60_000);
 
 
-test('ordinary configuration metadata is withheld source input but not secret authority for guide prose',async()=>{
+test('ordinary configuration metadata is withheld and every whole-word output match refuses',async()=>{
  const context={valid:'2026-01-01T00:00:00Z',known:'2026-01-02T00:00:00Z',state:'0',repositories:[{name:'sample',commit:'a'.repeat(40)}]};
  const evidence:GuidePreparedEvidence={context,facts:[{id:'node',kind:'code.env-var',properties:{default:'0'}}],spans:[],gaps:[],configValues:['number','object','Ready'],policy:{version:'withhold-config-values@1',withheldValues:0,classifiedSources:['sample/package.json']}};
  const result=guidePacketPolicy(evidence);
- expect(result.sensitiveValues).toEqual([]);expect(result.evidence.configValues).toBeUndefined();expect(result.evidence.policy.sourceCandidateValues).toBe(4);expect(result.evidence.policy.hostSensitiveValues).toBe(0);
+ expect(new Set(result.sensitiveValues)).toEqual(new Set(['number','object','Ready','0']));expect(result.evidence.configValues).toBeUndefined();expect(result.evidence.policy.sourceCandidateValues).toBe(4);expect(result.evidence.policy.hostSensitiveValues).toBe(0);
  expect(result.evidence.facts[0]).toHaveProperty('withheld');
  const raw={schema:GUIDE_SCHEMA,id:'user-guide:main',kind:'user-guide',locale:'en',title:'Read a number object',context,unitVersion:'1',inputDigest:guideDigest(context),prerequisites:[],gaps:[],procedures:[{id:'read',title:'Read a number object',goal:'Read readiness',role:'Reader',prerequisites:[],steps:[{id:'ready',title:'Read readiness',cwd:'.',environment:'isolated',inputs:[],instruction:{kind:'command',content:'status'},expected:{status:0,observation:'Ready'},grounds:[{repository:'sample',commit:'a'.repeat(40),path:'README.md',line:1,endLine:1}]}]}]};
  let verified=0;
  const host={file:'/product/docs/guides/user.md',expectedContext:context,expectedInputDigest:raw.inputDigest,expectedUnitVersion:'1',containsSecret:(text:string)=>containsGuideSecret(text,result.sensitiveValues),verifyStep:async()=>{verified++;return [];}};
- expect((await validateGuide(raw,host)).ok).toBe(true);expect(verified).toBe(1);
+ expect((await validateGuide(raw,host)).ok).toBe(false);expect(verified).toBe(0);
  const known=guidePacketPolicy(evidence,['private-runtime-key']);
  const refused=await validateGuide({...raw,title:'private-runtime-key'}, {...host,containsSecret:(text)=>containsGuideSecret(text,known.sensitiveValues)});
- expect(refused.ok).toBe(false);expect(verified).toBe(1);expect(JSON.stringify(refused)).not.toContain('private-runtime-key');
+ expect(refused.ok).toBe(false);expect(verified).toBe(0);expect(JSON.stringify(refused)).not.toContain('private-runtime-key');
 });
 
-test('classified token matching preserves internal punctuation but refuses prefix and suffix partial matches',()=>{
+test('final substring matching includes punctuation and prefix and suffix contexts',()=>{
  const candidates=['private"credential','private/credential','private-runtime-key','private\\credential','key_value'];
  for(const value of candidates){
   expect(containsGuideSecret(value,[value])).toBe(true);
+  for(const punctuation of ['.','!','?',',',';',')',"'",'"']) expect(containsGuideSecret(`${value}${punctuation}`,[value])).toBe(true);
   expect(containsGuideSecret(`'${value}';`,[value])).toBe(true);
   expect(containsGuideSecret(`repos/sample/${value}`,[value])).toBe(true);
-  expect(containsGuideSecret(`prefix${value}`,[value])).toBe(false);
-  expect(containsGuideSecret(`${value}-suffix`,[value])).toBe(false);
-  expect(containsGuideSecret(`repos/sample/${value}-suffix`,[value])).toBe(false);
+  expect(containsGuideSecret(`prefix${value}`,[value])).toBe(true);
+  expect(containsGuideSecret(`${value}-suffix`,[value])).toBe(true);
+  expect(containsGuideSecret(`repos/sample/${value}-suffix`,[value])).toBe(true);
  }
+});
+
+test('engine source gaps with classified path values retain missing-proof positions without leaking identifiers',async()=>{
+ const value='private/source-path';
+ const context={valid:'2026-01-01T00:00:00Z',known:'2026-01-02T00:00:00Z',state:'0',repositories:[{name:'sample',commit:'a'.repeat(40)}]};
+ const evidence:GuidePreparedEvidence={context,facts:[],spans:[],gaps:[`sample/${value}/config.ts:7: exact pinned bytes are unavailable; no replacement source was supplied`,'A separate source proof remains unavailable.'],configValues:[value],policy:{version:'withhold-config-values@1',withheldValues:0,classifiedSources:[]}};
+ const policy=guidePacketPolicy(evidence);
+ expect(policy.evidence.gaps[0]).toContain('‹R0›');
+ expect(policy.evidence.gaps[0]).toContain('[configuration content withheld]');
+ expect(policy.evidence.gaps[1]).toBe(evidence.gaps[1]);
+ expect(policy.evidence.gaps.length).toBeGreaterThanOrEqual(evidence.gaps.length);
+ expect(policy.evidence.gaps.every((gap)=>!policy.containsSecret(gap))).toBe(true);
+ expect(JSON.stringify(policy.evidence.gaps)).not.toContain(value);
+ expect(policy.containsSecret(`sample/${value}/config.ts`)).toBe(true); // No gap/output exemption weakened the authority.
+ const raw={schema:GUIDE_SCHEMA,id:'user-guide:main',kind:'user-guide',locale:'en',title:'Source evidence gaps',context,unitVersion:'1',inputDigest:guideDigest(context),prerequisites:[],gaps:policy.evidence.gaps,procedures:[]};
+ let calls=0;
+ const host={file:'/product/docs/guides/user.md',expectedContext:context,expectedInputDigest:raw.inputDigest,expectedUnitVersion:'1',containsSecret:policy.containsSecret,verifyStep:async()=>{calls++;return [];}};
+ expect((await validateGuide(raw,host)).ok).toBe(true);expect(calls).toBe(0);
+ const injected=await validateGuide({...raw,gaps:[...raw.gaps,`sample/${value}/config.ts`]},host);
+ expect(injected.ok).toBe(false);expect(calls).toBe(0);
+ if(!injected.ok)expect(injected.diagnostics.some((problem)=>problem.code==='secret'&&problem.path===`$.gaps[${raw.gaps.length}]`)).toBe(true);
+});
+
+test('final short environment values use segmented words and authored zero refuses while typed state remains metadata',async()=>{
+ for(const value of ['localhost','Ready','0']) expect(containsGuideSecret(value,[value])).toBe(true);
+ expect(containsGuideSecret('Readiness 10',['localhost','Ready','0'])).toBe(false);
+ expect(containsGuideSecret('Go localhost. Ready! 0;',['localhost','Ready','0'])).toBe(true);
+ const context={valid:'2026-01-01T00:00:00Z',known:'2026-01-02T00:00:00Z',state:'0',repositories:[{name:'sample',commit:'a'.repeat(40)}]};
+ const raw={schema:GUIDE_SCHEMA,id:'user-guide:main',kind:'user-guide',locale:'en',title:'Source evidence gaps',context,unitVersion:'1',inputDigest:guideDigest(context),prerequisites:[],gaps:['Missing source proof.'],procedures:[]};
+ let calls=0;const refused=await validateGuide(raw,{file:'/product/docs/guides/user.md',expectedContext:context,expectedInputDigest:raw.inputDigest,expectedUnitVersion:'1',containsSecret:(text)=>containsGuideSecret(text,['0']),verifyStep:async()=>{calls++;return [];}});
+ expect(refused.ok).toBe(true);expect(calls).toBe(0);
+ const authored=await validateGuide({...raw,title:'0'}, {file:'/product/docs/guides/user.md',expectedContext:context,expectedInputDigest:raw.inputDigest,expectedUnitVersion:'1',containsSecret:(text)=>containsGuideSecret(text,['0']),verifyStep:async()=>{calls++;return [];}});
+ expect(authored.ok).toBe(false);expect(calls).toBe(0);
+ if(!authored.ok)expect(authored.diagnostics.some((problem)=>problem.code==='secret'&&problem.path==='$.title')).toBe(true);
+});
+
+test('typed source identity and structural keys that equal environment values do not withhold clean exact source text',()=>{
+ const identity='example-identity';
+ const context={valid:'2026-01-01T00:00:00Z',known:'2026-01-02T00:00:00Z',state:'0',repositories:[{name:identity,commit:'a'.repeat(40)}]};
+ const ground={repository:identity,commit:'a'.repeat(40),path:'docs/readiness.md',line:3,endLine:3};
+ const text='Run the checked readiness command from the repository root.';
+ const clean={ground,text,digest:guideDigest({ground,text})};
+ const privateText={...clean,text:'Use private/credential.',sourceLiterals:[]};
+ const escaped={...clean,text:'const configured = "private\\\"credential";',sourceLiterals:['private"credential']};
+ const hiddenPath={...clean,ground:{...ground,path:'docs/private/credential/readiness.md'}};
+ const facts=[identity,'ground','text',clean.digest].map((value,index)=>({id:String(index+1),kind:'code.env-definition',properties:{value}}));
+ const evidence:GuidePreparedEvidence={context,facts,spans:[clean,privateText,escaped,hiddenPath],gaps:[],configReferences:[{name:'TOKEN',path:'compose.yaml',value:'private/credential'},{name:'QUOTED',path:'compose.yaml',value:'private"credential'}],policy:{version:'withhold-config-values@1',withheldValues:0,classifiedSources:[]}};
+ const policy=guidePacketPolicy(evidence);
+ expect(policy.containsSecret(identity)).toBe(true);expect(policy.containsSecret('ground')).toBe(true);expect(policy.containsSecret(clean.digest)).toBe(true);
+ expect(policy.evidence.spans).toEqual([clean]);
+ expect(policy.evidence.spans[0]!.digest).toBe(clean.digest);
+ expect(policy.evidence.spans[0]!.ground).toEqual(ground);
+ const publicContext=JSON.stringify(policy.evidence.facts);
+ expect(publicContext).not.toContain('private/credential');expect(publicContext).not.toContain('private\\\"credential');
 });

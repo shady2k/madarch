@@ -29,9 +29,10 @@ test('production fill authority withholds named settings but refuses distinctive
   try {
     mkdirSync(join(folder, 'services', 'api'), { recursive: true });
     writeFileSync(join(folder, 'services', 'api', 'config.ts'), `export const configured = process.env.SIGNING_KEY ?? "${SECRET}";\n`);
-    writeFileSync(join(folder, 'docker-compose.yml'), `services:\n  api:\n    build:\n      context: .\n    environment:\n      SIGNING_KEY: ${SECRET}\n      ORDINARY_COUNT: "0"\n`);
+    writeFileSync(join(folder, 'docker-compose.yml'), `services:\n  api:\n    build:\n      context: .\n    environment:\n      SIGNING_KEY: ${SECRET}\n`);
     writeFileSync(join(folder, 'tsconfig.json'), JSON.stringify({ compilerOptions: { moduleResolution: 'node' }, observation: 'Ready', type: 'object' }));
-    writeFileSync(join(folder, 'settings.json'), JSON.stringify({ quotedSetting: PUNCTUATED_SECRETS[0], pathSetting: PUNCTUATED_SECRETS[1] }));
+    writeFileSync(join(folder, 'settings.json'), JSON.stringify({ minimum: 0, moduleResolution: 'node' }));
+    writeFileSync(join(folder, 'secret-store.json'), JSON.stringify({ kind: 'Secret', stringData: { quotedSetting: PUNCTUATED_SECRETS[0], pathSetting: PUNCTUATED_SECRETS[1] } }));
     writeFileSync(join(folder, 'README.md'), `# Readiness\n\n${PARAGRAPH}\n\nQuoted configuration example: '${PUNCTUATED_SECRETS[0]}'.\n\nPath configuration example: '${PUNCTUATED_SECRETS[1]}'.\n`);
     const env = gitEnv({ GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.test', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.test' });
     const git = (...args: string[]) => execFileSync('git', args, { cwd: folder, env, encoding: 'utf8' }).trim();
@@ -60,7 +61,10 @@ test('production fill authority withholds named settings but refuses distinctive
 
     expect(JSON.stringify(entries)).toContain('value of');
     expect(JSON.stringify(entries)).toContain('SIGNING_KEY');
-    expect(JSON.stringify(entries)).toContain('ordinary configuration values');
+    expect(JSON.stringify(entries)).toContain('whole-word matching');
+    expect(unit.validation.containsSecret?.('node')).toBe(false);
+    expect(unit.validation.containsSecret?.('0')).toBe(false);
+    expect(unit.validation.containsSecret?.('.')).toBe(false);
     const source = entries.find((entry) => entry !== null && typeof entry === 'object' && (entry as { type?: string }).type === 'source' && (entry as { text?: string }).text === PARAGRAPH) as { ground: unknown } | undefined;
     expect(source).toBeDefined(); // Ordinary config '.' / 'node' must NOT remove the original readiness paragraph.
     const step = { id: 'status', title: 'Read a number object', cwd: '.', environment: 'isolated', inputs: [], instruction: { kind: 'command', content: COMMAND }, expected: { status: 0, observation: 'Ready' }, grounds: [source!.ground] };
@@ -81,16 +85,18 @@ test('production fill authority withholds named settings but refuses distinctive
       expect(JSON.stringify(titleRefused)).not.toContain(secret);
     }
     const suffix = structuredClone(raw); suffix.procedures[0]!.steps[1]!.cwd = `repos/sample/${SECRET}-suffix`;
-    expect((await validateGuide(suffix, unit.validation)).ok).toBe(true); expect(verifierCalls).toBe(2);
+    expect((await validateGuide(suffix, unit.validation)).ok).toBe(false); expect(verifierCalls).toBe(0);
+    const safe = structuredClone(raw); safe.procedures[0]!.steps[1]!.cwd = '.';
+    expect((await validateGuide(safe, unit.validation)).ok).toBe(true); expect(verifierCalls).toBe(2);
   } finally { await owner.close(); rmSync(folder, { recursive: true, force: true }); }
 }, 20_000);
 
 test('distinctiveness is lexical, exact-token refusal retains the host checker and counts ordinary limitations', () => {
-  for (const ordinary of ['0', 'Ready', 'object', 'number', '.']) expect(distinctiveGuideValue(ordinary)).toBe(false);
-  for (const distinctive of [SECRET, 'a1', 'key_value', 'private"credential']) expect(distinctiveGuideValue(distinctive)).toBe(true);
+  for (const ordinary of ['0', 'Ready', 'object', 'number']) expect(distinctiveGuideValue(ordinary)).toBe(false);
+  for (const distinctive of [SECRET, 'a1', '.', 'key_value', 'private"credential']) expect(distinctiveGuideValue(distinctive)).toBe(true);
   expect(containsGuideSecret(`repos/sample/${SECRET}`, [SECRET])).toBe(true);
-  expect(containsGuideSecret(`repos/sample/${SECRET}-suffix`, [SECRET])).toBe(false);
-  expect(containsGuideSecret(`prefix${SECRET}`, [SECRET])).toBe(false);
+  expect(containsGuideSecret(`repos/sample/${SECRET}-suffix`, [SECRET])).toBe(true);
+  expect(containsGuideSecret(`prefix${SECRET}`, [SECRET])).toBe(true);
   const context = { valid: '2026-01-01T00:00:00Z', known: '2026-01-02T00:00:00Z', state: '0', repositories: [{ name: 'sample', commit: 'a'.repeat(40) }] };
   const evidence: GuidePreparedEvidence = { context, facts: [], spans: [], gaps: [], configValues: ['0', 'Ready', 'object', SECRET], policy: { version: 'withhold-config-values@1', withheldValues: 0, classifiedSources: [] } };
   const policy = guidePacketPolicy(evidence, [], (text) => text.includes('host-controlled'));
@@ -98,7 +104,9 @@ test('distinctiveness is lexical, exact-token refusal retains the host checker a
   expect(hostKnown.containsSecret('caféé')).toBe(true); // Explicit host-known authority stays strict.
   expect(policy.containsSecret('prefix-host-controlled-suffix')).toBe(true); // Callback authority is never weakened by the lexical policy.
   expect(policy.containsSecret(`repos/${SECRET}`)).toBe(true);
-  expect(policy.containsSecret('Ready object 0')).toBe(false);
-  expect(policy.evidence.policy.ordinaryRefusalExcluded).toBe(3);
-  expect(policy.evidence.gaps.some((gap) => gap.includes('3 ordinary configuration values'))).toBe(true);
+  expect(policy.containsSecret('Ready object 0')).toBe(true);
+  expect(policy.containsSecret('Readiness objects 10')).toBe(false);
+  expect(policy.evidence.policy.ordinaryRefusalExcluded).toBe(0);
+  expect(policy.evidence.policy.wholeWordValues).toBe(3);
+  expect(policy.evidence.gaps.some((gap) => gap.includes('3 configuration values use whole-word matching'))).toBe(true);
 });

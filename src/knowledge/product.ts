@@ -25,7 +25,7 @@ import { execFile, execFileSync } from 'node:child_process';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
-import type { DatabaseOwner } from '../adapters/database-owner.js';
+import type { DatabaseOwner, OuterTransaction } from '../adapters/database-owner.js';
 import { RemoteOwner } from './remote-owner.js';
 import { byCodePoint } from '../model/order.js';
 import { readProduct, type ProductIdentity } from '../product/manifest.js';
@@ -190,6 +190,85 @@ async function gitBlob(repository: string, commit: string, path: string): Promis
   } catch {
     return undefined;
   }
+}
+
+interface PageSnapshot {
+  owner: DatabaseOwner;
+  transaction: OuterTransaction;
+  validAt: string;
+  pins: ReadonlyMap<string, RepositoryPin>;
+}
+
+/** Owner-based index readers may run statements, but cannot open a nested snapshot on the same pipe. */
+export function pageSnapshotOwner(owner: DatabaseOwner, transaction: OuterTransaction): DatabaseOwner {
+  return new Proxy(owner, {
+    get(target, key) {
+      if (key === 'transaction') return () => { throw new Error('a page snapshot cannot open a nested transaction; use its shared transaction'); };
+      if (key === 'run') return async (work: (tx: OuterTransaction) => Promise<unknown>) => await work(transaction);
+      const value = Reflect.get(target, key);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+}
+
+/** Shares history reads only after the last temporal change in an immutable reader snapshot. */
+export function createSnapshotHistoryReader() {
+  type HistoryData = {
+    evidence: Awaited<ReturnType<GraphReader['historyEvidence']>>;
+    completed: Awaited<ReturnType<GraphReader['completedTrees']>>;
+    landmarks: Awaited<ReturnType<GraphReader['landmarkPlan']>>;
+  };
+  type Entry = { boundary: Promise<number | null>; data?: Promise<HistoryData> };
+  const snapshots = new WeakMap<DatabaseOwner, Map<string, Entry>>();
+  return async (owner: DatabaseOwner, pin: Pick<RepositoryPin, 'name' | 'scope' | 'head'>, validAt: string, selection: HistorySelection): Promise<HistoryContext> => {
+    // Pin fields belong to this owner; never reread mutable caller state after an await.
+    const { name, scope, head } = pin;
+    const capturedMillis = Date.parse(validAt);
+    let entries = snapshots.get(owner);
+    if (entries === undefined) { entries = new Map(); snapshots.set(owner, entries); }
+    const key = JSON.stringify([name, scope, head]);
+    let entry = entries.get(key);
+    if (entry === undefined) {
+      const held: Entry = { boundary: owner.transaction('snapshot', async (tx) => {
+        // All current node/edge versions are a conservative superset of history's inputs.
+        // Round UP: an ISO millisecond must not cross a submillisecond boundary early.
+        const result = await tx.query<{ boundary_epoch_millis: string | null }>(`
+          SELECT ceil(extract(epoch FROM max(boundary)) * 1000)::text AS boundary_epoch_millis
+          FROM (
+            SELECT valid_from, valid_to FROM node_version WHERE scope_id = $1::bigint AND recorded_to = 'infinity'
+            UNION ALL
+            SELECT valid_from, valid_to FROM edge_version WHERE scope_id = $1::bigint AND recorded_to = 'infinity'
+          ) versions CROSS JOIN LATERAL (VALUES (valid_from), (valid_to)) bounds(boundary)
+          WHERE isfinite(boundary)`, [scope]);
+        const boundary = result.rows[0]?.boundary_epoch_millis;
+        // An absent/malformed result cannot certify the terminal interval.
+        return boundary === null ? null : typeof boundary === 'string' && /^-?\d+$/.test(boundary) && Number.isSafeInteger(Number(boundary)) ? Number(boundary) : Infinity;
+      }) };
+      entry = held;
+      entries.set(key, held);
+      void held.boundary.catch(() => { if (entries.get(key) === held) entries.delete(key); });
+    }
+    const boundary = await entry.boundary;
+    const terminal = Number.isFinite(capturedMillis) && (boundary === null || capturedMillis >= boundary);
+    const load = async (): Promise<HistoryData> => {
+      // Every statement uses this call's captured time, never a moving wall clock.
+      const graph = new GraphReader(owner, () => validAt);
+      const evidence = await graph.historyEvidence(scope);
+      const completed = await graph.completedTrees(scope, treeReadProducer(TREE_EXTRACTORS, HISTORY_EXTRACTOR));
+      const landmarks = await graph.landmarkPlan(name, scope, head);
+      return { evidence, completed, landmarks };
+    };
+    let pending: Promise<HistoryData>;
+    if (!terminal) pending = load();
+    else {
+      pending = entry.data ??= load();
+      const held = entry;
+      void pending.catch(() => { if (held.data === pending) delete held.data; });
+    }
+    const { evidence, completed, landmarks } = await pending;
+    // Selection is never cached. A caller cannot mutate the retained landmark proof.
+    return selectHistory(selection, evidence, completed, landmarks === undefined ? undefined : structuredClone(landmarks));
+  };
 }
 
 export class KnowledgeProduct {
@@ -1139,14 +1218,16 @@ export class KnowledgeProduct {
   // ---- reads -----------------------------------------------------------------------------
 
   /** The inputs of one page: the manifest and Markdown as they stand now, and the graph. */
-  async context(history?: HistoryContext): Promise<{ ctx: RenderContext; manifest: KindsManifest; findings: Finding[] } | { absent: true; file: string }> {
+  async context(history?: HistoryContext, snapshot?: PageSnapshot): Promise<{ ctx: RenderContext; manifest: KindsManifest; findings: Finding[] } | { absent: true; file: string }> {
     const product = this.product();
     if ('message' in product) throw new WikiReadError(product.message);
     const read = this.kinds(product.folder);
     if (!read.present) return { absent: true, file: read.file };
-    const owner = await this.open();
-    const currentGraph = new GraphReader(owner, this.validAt);
-    const scope = history === undefined ? undefined : this.pins.get(history.repo)?.scope;
+    const owner = snapshot?.owner ?? await this.open();
+    const currentGraph = new GraphReader(owner, snapshot === undefined ? this.validAt : () => snapshot.validAt, undefined, snapshot?.transaction);
+    const scope = history === undefined ? undefined : (snapshot?.pins ?? this.pins).get(history.repo)?.scope;
+    const indexOwner = snapshot === undefined ? owner : pageSnapshotOwner(owner, snapshot.transaction);
+    const pins = snapshot?.pins ?? this.pins;
     if (history !== undefined && (history.coverage !== 'covered' || history.effectiveAt === null || scope === undefined)) throw new WikiReadError(`${product.folder}/${KINDS_FILE}:1: historical structure is not covered for ${history.repo} at ${history.at}`);
     const graph = history === undefined ? currentGraph : currentGraph.at(history.effectiveAt!, scope!);
     // Guide payloads enter their strict host verifier, never the generic YAML materializer.
@@ -1192,7 +1273,7 @@ export class KnowledgeProduct {
       localizedSources.set(entity.id, single ? { ...parsed.source, sourceDocument: parsed.source.sourceDocument.replace(new RegExp(`^repos/${entity.repo?.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/`), '') } : parsed.source);
     }
     const entityAtLine = new Map<string, DocEntity>(reading.entities.map((entity) => [`${entity.repo ?? ''}\0${entity.path}\0${entity.line}`, entity]));
-    const repoOfScope = (scope: string): string | undefined => [...this.pins.values()].find((pin) => pin.scope === scope)?.name;
+    const repoOfScope = (scope: string): string | undefined => [...pins.values()].find((pin) => pin.scope === scope)?.name;
     const readSource = async (repo: string | null, path: string): Promise<string | undefined> => {
       if (repo === null) {
         if (history !== undefined) return undefined;
@@ -1208,7 +1289,7 @@ export class KnowledgeProduct {
         }
       }
       if (history !== undefined && repo !== history.repo) return undefined;
-      const pin = this.pins.get(repo);
+      const pin = pins.get(repo);
       if (pin === undefined || pin.commit === '') return undefined;
       return await gitBlob(join(product.folder, 'repos', repo), history?.commit ?? pin.commit, path);
     };
@@ -1216,7 +1297,7 @@ export class KnowledgeProduct {
       if (repo === null) return undefined;
       const origin = this.originOf(join(product.folder, 'repos', repo));
       if (history !== undefined && repo !== history.repo) return undefined;
-      const commit = history?.commit ?? this.pins.get(repo)?.commit;
+      const commit = history?.commit ?? pins.get(repo)?.commit;
       if (origin === undefined || commit === undefined || commit === '') return undefined;
       return webLink({ origin, commit, path, lineStart, lineEnd });
     };
@@ -1225,12 +1306,12 @@ export class KnowledgeProduct {
       markdown,
       declared: (kind) => read.manifest.kinds.has(kind),
       readDocument: readSource,
-      repositories: () => history === undefined ? [...this.pins.keys()].sort(byCodePoint) : [history.repo],
+      repositories: () => history === undefined ? [...pins.keys()].sort(byCodePoint) : [history.repo],
       locate: (entity) => (entity.span === undefined ? undefined : locationOf({ repoOfScope, webOf }, entity.scope, entity.span)),
       documentEntity: (repo, path, line) => entityAtLine.get(`${repo ?? ''}\0${path}\0${line}`),
     });
     return {
-      ctx: { productFolder: product.folder, manifest: read.manifest, graph, markdown, docEntities, localizedSources, language, documents: reading.sources, repositories: history === undefined ? [...this.pins.keys()].sort(byCodePoint) : [history.repo], webOf, ...(history === undefined ? { index: { relyingOn: (key: string) => statementsRelyingOn(owner, key), counts: () => indexCounts(owner) } } : {}), commitOf: (repo) => history === undefined ? this.pins.get(repo)?.commit ?? null : repo === history.repo ? history.commit : null, resolver, repoOfScope, readSource },
+      ctx: { productFolder: product.folder, manifest: read.manifest, graph, markdown, docEntities, localizedSources, language, documents: reading.sources, repositories: history === undefined ? [...pins.keys()].sort(byCodePoint) : [history.repo], webOf, ...(history === undefined ? { index: { relyingOn: (key: string) => statementsRelyingOn(indexOwner, key), counts: () => indexCounts(indexOwner) } } : {}), commitOf: (repo) => history === undefined ? pins.get(repo)?.commit ?? null : repo === history.repo ? history.commit : null, resolver, repoOfScope, readSource },
       manifest: read.manifest,
       findings: [...read.manifest.findings, ...markdownRead.findings, ...reading.findings, ...localizedFindings],
     };
@@ -1382,31 +1463,42 @@ export class KnowledgeProduct {
     return { questionsOpen: questions.open, questionsAnswered: questions.answered, correctionsOpen: readCorrections(this.options.productFolder).items.filter((correction) => correction.status === 'open').length };
   }
 
+  private readonly readSnapshotHistory = createSnapshotHistoryReader();
+
   async historyAt(selection: HistorySelection): Promise<HistoryContext> {
     const owner = await this.open();
-    const graph = new GraphReader(owner, this.validAt);
-    const scope = this.pins.get(selection.repo)?.scope;
-    if (scope === undefined) return { ...selection, coverage: 'unknown', commit: null, effectiveAt: null, until: null, points: [] };
-    const evidence = await graph.historyEvidence(scope);
-    const completed = await graph.completedTrees(scope, treeReadProducer(TREE_EXTRACTORS, HISTORY_EXTRACTOR));
-    const landmarks = await graph.landmarkPlan(selection.repo, scope, this.pins.get(selection.repo)!.head);
-    return selectHistory(selection, evidence, completed, landmarks);
+    if (this.reader?.owner !== owner) return await this.historyAt(selection);
+    const pin = this.pins.get(selection.repo);
+    if (pin === undefined) return { ...selection, coverage: 'unknown', commit: null, effectiveAt: null, until: null, points: [] };
+    return await this.readSnapshotHistory(owner, pin, this.validAt(), selection);
   }
 
   async page(id: string, lang?: string, options: { defer?: boolean; only?: number; history?: HistorySelection } = {}): Promise<PageResult> {
     const history = options.history === undefined ? undefined : await this.historyAt(options.history);
     // A gap is a visible result, not an empty current page or a reason to fall back to the tip.
     if (history !== undefined && history.coverage !== 'covered') return { ok: true, page: { id, kind: id.slice(0, id.indexOf(':')), title: id, trail: [], blocks: [], resolutions: {}, findings: [], notes: [], history } };
-    const context = await this.context(history);
-    if ('absent' in context) return { ok: false, status: 404, message: `the product has no ${context.file}: the wiki shows the kinds that file declares` };
     const guideKind = (Object.keys(GUIDE_OUTPUTS) as GuideKind[]).find((kind) => GUIDE_OUTPUTS[kind].id === id);
-    if (guideKind !== undefined) return await this.guidePage(guideKind, lang === 'ru' ? 'ru' : lang === 'en' ? 'en' : context.ctx.language === 'ru' ? 'ru' : 'en', context.ctx, history);
-    if (history !== undefined && await findSubject(context.ctx, id) === undefined) return { ok: true, page: { id, kind: id.slice(0, id.indexOf(':')), title: id, trail: [], blocks: [], resolutions: {}, findings: [], notes: [], history, historicalAbsent: true } };
-    const result = await renderPage(context.ctx, id, lang, history === undefined ? options : { ...options, defer: false });
-    if (!result.ok) return result;
+    if (guideKind !== undefined) {
+      // Guide authority can open its own transactions. It never enters the page batch.
+      const context = await this.context(history);
+      if ('absent' in context) return { ok: false, status: 404, message: `the product has no ${context.file}: the wiki shows the kinds that file declares` };
+      return await this.guidePage(guideKind, lang === 'ru' ? 'ru' : lang === 'en' ? 'en' : context.ctx.language === 'ru' ? 'ru' : 'en', context.ctx, history);
+    }
+    // These operations can open their own snapshots; finish them before holding the reader pipe.
     const historyNavigation = history === undefined && id.startsWith('code.') ? await Promise.all([...this.pins.keys()].sort(byCodePoint).map(async (repo) => { const indexed = await this.historyAt({ repo, at: '?' }); return { repo, points: indexed.points, ...(indexed.landmarks === undefined ? {} : { landmarks: indexed.landmarks }) }; })) : undefined;
-    const page = history === undefined ? result.page : withHistoryLinks(result.page, history);
-    return { ok: true, page: { ...page, ...(history === undefined ? { planned: await this.plannedForPage(id), ...(historyNavigation === undefined ? {} : { historyNavigation }) } : { history, blocks: page.blocks.filter((block) => block.type !== 'history') }) } };
+    const planned = history === undefined ? await this.plannedForPage(id) : undefined;
+    const owner = await this.open();
+    const validAt = this.validAt();
+    const pins = new Map(this.pins);
+    return await owner.transaction('snapshot', async (transaction) => {
+      const context = await this.context(history, { owner, transaction, validAt, pins });
+      if ('absent' in context) return { ok: false, status: 404, message: `the product has no ${context.file}: the wiki shows the kinds that file declares` };
+      if (history !== undefined && await findSubject(context.ctx, id) === undefined) return { ok: true, page: { id, kind: id.slice(0, id.indexOf(':')), title: id, trail: [], blocks: [], resolutions: {}, findings: [], notes: [], history, historicalAbsent: true } };
+      const result = await renderPage(context.ctx, id, lang, history === undefined ? options : { ...options, defer: false });
+      if (!result.ok) return result;
+      const page = history === undefined ? result.page : withHistoryLinks(result.page, history);
+      return { ok: true, page: { ...page, ...(history === undefined ? { planned, ...(historyNavigation === undefined ? {} : { historyNavigation }) } : { history, blocks: page.blocks.filter((block) => block.type !== 'history') }) } };
+    });
   }
 
   /** Strict guide data and fresh walk evidence are assembled once for every read format. */
