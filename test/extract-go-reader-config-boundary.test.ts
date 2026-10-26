@@ -182,23 +182,26 @@ const commitOf = async (source: string) => {
   return [...new Set(consumed(result).map(edge => edge.properties['offsetCommit'] ?? 'none'))];
 };
 
-test('the commit is unconditional only as a statement of the loop\'s own block', async () => {
-  // Coordinator decision 2026-10-25T11:10Z: the claim holds only when the commit
-  // call is the whole of a statement directly in the loop's block, and the loop is
-  // a statement of the function's own body. A commit in an if -- its condition,
-  // initializer or block -- in a nested loop, in a closure, in an assignment or in
-  // a condition runs on a decision of its own and stays conditional.
+test('the commit is unconditional where nothing decides whether it runs', async () => {
+  // Coordinator correction 2026-10-25T15:10Z: the claim holds when the commit call
+  // is the whole of a statement directly in the loop's block and the loop is a
+  // statement of the function's own body, when it is the init statement of a
+  // top-level if or switch, or when it is the first operand a top-level condition
+  // evaluates. A branch body, a later operand of && or ||, a nested loop, a select,
+  // a closure or a larger expression runs on a decision and stays conditional.
   expect(await commitOf(consumerLoop('  c.reader.CommitMessages(ctx, message)'))).toEqual(['unconditional']);
   // The training repository's own shape (services/orders/internal/consumer/payments.go):
-  // the commit stands in an if initializer, so this file answers conditional.
+  // an if initializer always executes, so the commit is unconditional.
   const initializer = '  if err := c.reader.CommitMessages(ctx, message); err != nil {\n   return\n  }';
-  expect(await commitOf(consumerLoop(initializer))).toEqual(['none']);
+  expect(await commitOf(consumerLoop(initializer))).toEqual(['unconditional']);
+  expect(await commitOf(consumerLoop('  if c.reader.CommitMessages(ctx, message) == nil {\n   return\n  }'))).toEqual(['unconditional']);
+  expect(await commitOf(consumerLoop('  if c.reader.CommitMessages(ctx, message) != nil || other() {\n   return\n  }'))).toEqual(['unconditional']);
   for (const statement of [
     '  if err != nil {\n   c.reader.CommitMessages(ctx, message)\n  }',
     '  for i := 0; i < 1; i++ {\n   c.reader.CommitMessages(ctx, message)\n  }',
     '  func() { c.reader.CommitMessages(ctx, message) }()',
     '  _ = c.reader.CommitMessages(ctx, message)',
-    '  if c.reader.CommitMessages(ctx, message) == nil {\n   return\n  }',
+    '  if ok() || c.reader.CommitMessages(ctx, message) != nil {\n   return\n  }',
   ]) expect(await commitOf(consumerLoop(statement)), statement).toEqual(['none']);
 });
 

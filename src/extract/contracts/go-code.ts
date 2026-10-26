@@ -475,7 +475,60 @@ export function readGoFile(path: string, root: SyntaxNode, source?: TreeText): G
       }
       let applies = false;
       let commits = false;
+      // The commit call, when this expression is that call on the loop's reader:
+      // the reader the loop reads, or any proved one when the read is elsewhere.
+      const commitOf = (candidate: SyntaxNode | null): SyntaxNode | undefined => {
+        let held = candidate;
+        // An if's initializer is the statement it runs first: `err := commit(...)`
+        // names the call on its right side, and a bare expression statement is it.
+        if (held !== null && held.type === 'expression_statement') { const only = namedCode(held); held = only.length === 1 ? only[0]! : held; }
+        if (held !== null && (held.type === 'short_var_declaration' || held.type === 'assignment_statement')) {
+          const right = held.childForFieldName('right');
+          const values = right === null ? [] : namedCode(right);
+          if (values.length !== 1) return undefined;
+          held = singleValueOf(values[0]!) ?? values[0]!;
+        }
+        const value = singleValueOf(held);
+        if (value === undefined || value.type !== 'call_expression' || calleeName(value) !== offsetCommitMember) return undefined;
+        const commit = readerCallOf(value);
+        if (commit === undefined || commit.member !== offsetCommitMember) return undefined;
+        return readers.size === 0 || readers.has(`${commit.owner}.${commit.field}`) ? value : undefined;
+      };
+      // The first operand a condition evaluates: itself, or the left side of the
+      // `&&`/`||` chain that decides what runs after it.
+      const firstEvaluated = (condition: SyntaxNode): SyntaxNode => {
+        let held: SyntaxNode = condition;
+        for (;;) {
+          const value = singleValueOf(held) ?? held;
+          if (value.type === 'parenthesized_expression') { const only = namedCode(value); if (only.length !== 1) return held; held = only[0]!; continue; }
+          const operator = value.type === 'binary_expression' ? value.childForFieldName('operator')?.text : undefined;
+          // A short-circuit's right side may never run; every other operator
+          // evaluates its left operand first, and both of its operands.
+          const left = value.childForFieldName('left'); if (left === null) return value;
+          // In every binary form the left operand is evaluated first.
+          void operator;
+          held = left;
+        }
+      };
       for (const statement of statements) {
+        // `if err := r.CommitMessages(ctx, m); err != nil { … }` and
+        // `if r.CommitMessages(ctx, m) == nil { … }`: an initializer always runs,
+        // and a condition's first operand always runs, so both commit
+        // unconditionally; a branch body, a later operand, a loop, a select or a
+        // closure runs on a decision and stays conditional.
+        if (statement.type === 'if_statement' || statement.type === 'expression_switch_statement' || statement.type === 'type_switch_statement') {
+          const initializer = statement.childForFieldName(statement.type === 'if_statement' ? 'initializer' : 'initializer');
+          if (initializer !== null && commitOf(initializer) !== undefined) commits = true;
+          const condition = statement.type === 'if_statement' ? statement.childForFieldName('condition')
+            : statement.childForFieldName('value') ?? statement.childForFieldName('condition');
+          if (condition !== null) {
+            const first = firstEvaluated(condition);
+            const both = first.type === 'binary_expression' ? singleValueOf(first.childForFieldName('right')) ?? undefined : undefined;
+            const shortCircuit = first.type === 'binary_expression' && ['&&', '||'].includes(first.childForFieldName('operator')?.text ?? '');
+            if (commitOf(first) !== undefined || (!shortCircuit && commitOf(both ?? null) !== undefined)) commits = true;
+          }
+          continue;
+        }
         if (statement.type !== 'expression_statement') continue;
         // One call and nothing else: a call held in an assignment, a comparison
         // or any larger expression is no statement of its own.
@@ -484,11 +537,7 @@ export function readGoFile(path: string, root: SyntaxNode, source?: TreeText): G
         if (call === null) continue;
         const name = calleeName(call);
         if (name === offsetCommitMember) {
-          const commit = readerCallOf(call);
-          if (commit === undefined || commit.member !== offsetCommitMember) continue;
-          // The reader the loop reads; when the read stands in a function of
-          // its own, any consumer reader proved from this file's receiver.
-          if (readers.size === 0 || readers.has(`${commit.owner}.${commit.field}`)) commits = true;
+          if (commitOf(call) !== undefined) commits = true;
           continue;
         }
         // A read is no application of a handler.
