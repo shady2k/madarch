@@ -15,6 +15,7 @@ import { FILES_PRODUCER } from '../extract/driver/files.js';
 import { DRIVER_PRODUCER } from '../extract/driver/index.js';
 import type { GraphId, GraphStore } from '../graph/index.js';
 import { sha256Hex } from '../graph/digest.js';
+import { GraphReader } from '../knowledge/graph-read.js';
 import { byCodePoint } from '../model/order.js';
 import { anchorLines, documentAnchors, slugOf } from '../knowledge/anchors.js';
 import type { GroundResolver, MadarchTarget } from './format.js';
@@ -64,6 +65,15 @@ export class GraphView implements GroundResolver {
     const at = rows[0]?.['at'];
     if (typeof at !== 'string') throw new Error(`src/writer/view.ts: the graph holds no file listing of producer "${FILES_PRODUCER}": fill the graph with the extract driver before the writer runs`);
     return new GraphView(owner, store, at);
+  }
+
+  /**
+   * The pinned snapshot reader at this view's instant (decision 0028): the reads a unit's answers need
+   * beyond a keyed node — edge sites, key prefixes, whole relations — read at the same valid time as
+   * every other answer of the fill, never from the working tree.
+   */
+  reader(): GraphReader {
+    return new GraphReader(this.owner, () => this.at);
   }
 
   private async query<Row extends object = Raw>(sql: string, values: readonly unknown[] = []): Promise<Row[]> {

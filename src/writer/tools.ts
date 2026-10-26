@@ -25,6 +25,8 @@ import { slugOf } from './names.js';
 import { statementsOf } from './sentences.js';
 import { splitFrontMatter } from '../knowledge/markdown.js';
 import type { GraphView } from './view.js';
+import { AnswerRefusal, CONTEXT_PURPOSES, EVIDENCE_SHOWN, FLOW_DEPTH, FLOW_STEPS, FLOW_TARGETS, PAGES_SHOWN, QUESTIONS_SHOWN, UNRESOLVED_SHOWN, getContext, getDocumentSections, getPage, getSymbol, searchPages, searchQuestions, traceFlow, SnapshotReads, type AnswerResult, type ContextPurpose, type FlowTarget, type GraphReads, type SourceRead } from './answers.js';
+import { betweenCounters, NO_COUNTERS, type CallCounters } from './journal.js';
 import { detectStatementLanguage, LOCALIZED_SOURCE_SCHEMA, parseLocalizedSource, renderLocalizedSource } from './localized-source.js';
 import type { GuidePreparedUnit } from './guides/host-contract.js';
 import { validateGuide } from './guides/validate.js';
@@ -120,6 +122,8 @@ export interface UnitExtras {
   readonly language?: string;
   /** The questions asked so far in the product (earlier runs and earlier units), read fresh at each ask: a question about a subject already asked adds its page to the one that exists. */
   readonly questions?: () => Promise<readonly Question[]>;
+  /** The graph reads the answers make: the pinned snapshot reader of the fill's view unless a caller gives its own. */
+  readonly reads?: GraphReads;
 }
 
 export const MAX_DOMAINS = 12;
@@ -132,6 +136,11 @@ const PROPERTY_CHARACTERS = 2000;
 export interface ToolAnswer {
   readonly answer: unknown;
   readonly isError: boolean;
+  /**
+   * What this call read, could not resolve and produced (decision 0032, section 2). It never reaches
+   * the agent — only `answer` does — and is what the journal records beside the call.
+   */
+  readonly counters?: CallCounters;
 }
 
 export interface UnitOutcome {
@@ -197,6 +206,66 @@ export const WRITER_TOOLS: readonly McpToolDefinition[] = [
       startLine: { type: 'integer', minimum: 1 },
       endLine: { type: 'integer', minimum: 1 },
     }, ['path']),
+  },
+  {
+    name: 'get_symbol',
+    description: 'One declaration by name, with its code: the candidates when the name is not unique, and then its signature, its exact source span, the declaration that owns it, its callers, its callees, its references and the tests that exercise it. Ask this before reading a file: it answers about the function itself.',
+    inputSchema: object({
+      name: { type: 'string', description: 'A function, method, class or constant: "refund", "PaymentService.refund", or a key as find_nodes shows it.' },
+      service: { type: 'string', description: 'Only the declarations of this service: "orders", "code.service:orders" or its label.' },
+    }, ['name']),
+  },
+  {
+    name: 'get_context',
+    description: 'One entity\'s context in one call: what holds it, what it is made of, what calls, reads, writes and serves it, and the document sections that name it. The purpose decided what is read and how much.',
+    inputSchema: object({
+      entity: { type: 'string', description: 'A graph key as find_nodes shows it, like "code.service:orders".' },
+      purpose: { type: 'string', enum: [...CONTEXT_PURPOSES], description: 'What you are about to write with it: domain, scenario, rule, decision, implementation or overview.' },
+    }, ['entity', 'purpose']),
+  },
+  {
+    name: 'trace_flow',
+    description: 'A flow from a route or a function: the function that serves it, what it calls in the order the file reads, and the tables it reads or writes and the channels it publishes. A step\'s depth is how many calls away it is, never an order; a step whose site the graph does not hold says so.',
+    inputSchema: object({
+      entry: { type: 'string', description: 'A route ("POST /pay", or its key) or a function (its name, or its key).' },
+      targets: { type: 'array', items: { type: 'string', enum: [...FLOW_TARGETS] }, description: 'What the flow is traced to: tables, events, calls into other services. All of them when absent.' },
+      depth: { type: 'integer', minimum: 1, maximum: 8, description: `How many calls away the walk goes; ${FLOW_DEPTH} when absent.` },
+      maxSteps: { type: 'integer', minimum: 1, maximum: 200, description: `How many steps the answer holds; ${FLOW_STEPS} when absent.` },
+    }, ['entry']),
+  },
+  {
+    name: 'get_document_sections',
+    description: 'The sections of the product\'s documents whose heading or text holds the words you ask for, each as the ground doc:<path>#<anchor>, with its heading, its lines and an excerpt: the way to a use case, a rule or a decision, numbered or not.',
+    inputSchema: object({
+      intent: { type: 'string', description: 'The question, or the words the section must hold.' },
+      scope: { type: 'string', description: 'Only the documents under this path, or one document, such as "docs/requirements.md".' },
+    }, ['intent']),
+  },
+  {
+    name: 'search_pages',
+    description: 'The pages of the product already written — the product page, the domain pages and the questions — whose title or text holds the words you ask for, with the lines that hold them.',
+    inputSchema: object({
+      text: { type: 'string', description: 'The words to look for.' },
+      kind: { type: 'string', description: 'Only the pages of this kind: "product", "domain" or "question".' },
+      limit: { type: 'integer', minimum: 1, maximum: 20 },
+    }, ['text']),
+  },
+  {
+    name: 'get_page',
+    description: 'One page of the product: the Markdown as written, or its front matter and its statements, each with the grounds behind it. A page id such as "domain:payments", or a path such as "docs/domains/payments.md".',
+    inputSchema: object({
+      page: { type: 'string', description: 'A page id or a repository path.' },
+      format: { type: 'string', enum: ['md', 'json'], description: '"md" when absent.' },
+    }, ['page']),
+  },
+  {
+    name: 'search_questions',
+    description: 'The questions the people were asked, with their status and what each is about. Open ones by default, the answered ones when asked for. Read this before you ask a question.',
+    inputSchema: object({
+      text: { type: 'string', description: 'Only the questions whose title, text or subjects hold these words.' },
+      includeAnswered: { type: 'boolean', description: 'Also the answered questions, with their answer; false when absent.' },
+      limit: { type: 'integer', minimum: 1, maximum: 60 },
+    }),
   },
   {
     name: 'write_page',
@@ -265,6 +334,30 @@ function shortProperties(properties: Record<string, unknown>): unknown {
 /** Check and create share one queue for every unit writing to the same product sink. */
 const questionWrites = new WeakMap<PageSink, Promise<void>>();
 
+/**
+ * The source one unit has been shown, by file and line: the bytes of a file the unit is shown twice
+ * are counted as repeated, so a unit that rereads a whole file instead of asking a question is
+ * visible in the journal (decision 0032, section 2). A read is counted by its lines, because every
+ * tool that shows source shows whole lines of it.
+ */
+class SourceLedger {
+  private readonly byPath = new Map<string, { start: number; end: number }[]>();
+  served = 0;
+  repeated = 0;
+
+  note(read: SourceRead): void {
+    const held = this.byPath.get(read.path) ?? [];
+    const total = Math.max(0, read.endLine - read.startLine + 1);
+    let repeatedLines = 0;
+    for (let line = read.startLine; line <= read.endLine; line += 1) if (held.some((range) => line >= range.start && line <= range.end)) repeatedLines += 1;
+    const perLine = total === 0 ? 0 : read.bytes / total;
+    this.repeated += Math.round(perLine * repeatedLines);
+    this.served += Math.round(perLine * (total - repeatedLines));
+    held.push({ start: read.startLine, end: read.endLine });
+    this.byPath.set(read.path, held);
+  }
+}
+
 /** One unit's tool session: counts what it does and enforces its bounds. */
 export class UnitTools {
   private calls = 0;
@@ -280,6 +373,12 @@ export class UnitTools {
   private readonly answersUsed = new Set<string>();
   /** The contradictions this unit raised, with what each side says: its page must keep both sides. */
   private readonly contradictions: { id: string; sides: readonly { claim: string; grounds: readonly string[] }[] }[] = [];
+  /** The source this unit was shown, and the evidence, the joins and the output its calls made. */
+  private readonly ledger = new SourceLedger();
+  private readonly evidenceSeen = new Set<string>();
+  private unresolvedJoins = 0;
+  private readonly produced = { pages: 0, statements: 0, grounds: 0, links: 0, questions: 0 };
+  private snapshot: GraphReads | undefined;
 
   constructor(
     private readonly view: GraphView,
@@ -328,7 +427,65 @@ export class UnitTools {
 
   async call(tool: string, argumentsValue: unknown): Promise<ToolAnswer> {
     this.calls += 1;
-    if (this.calls > this.bounds.maxCalls) return fail('call-limit', `this unit has made its ${this.bounds.maxCalls} tool calls; nothing more is answered`);
+    if (this.calls > this.bounds.maxCalls) return { ...fail('call-limit', `this unit has made its ${this.bounds.maxCalls} tool calls; nothing more is answered`), counters: NO_COUNTERS };
+    const before = this.counters();
+    const answer = await this.dispatch(tool, argumentsValue);
+    return { ...answer, counters: betweenCounters(before, this.counters()) };
+  }
+
+  /** What this unit has read, could not resolve and produced so far: the journal's totals are the sum of its calls' deltas. */
+  counters(): CallCounters {
+    return {
+      sourceBytes: { served: this.ledger.served, repeated: this.ledger.repeated },
+      evidence: this.evidenceSeen.size,
+      unresolvedJoins: this.unresolvedJoins,
+      produced: { ...this.produced },
+    };
+  }
+
+  /** The repository, the revision and the instant every answer is read at: an answer that names none is a claim without a basis. */
+  private source(): Record<string, unknown> {
+    return {
+      repositories: this.basis.map((one) => ({ repository: one.repository, commit: one.commit })),
+      at: this.view.at,
+    };
+  }
+
+  private reads(): GraphReads {
+    if (this.extras.reads !== undefined) return this.extras.reads;
+    if (this.snapshot === undefined) this.snapshot = new SnapshotReads(this.view);
+    return this.snapshot;
+  }
+
+  /** One answer of the graph-reading tools: its evidence, its unresolved joins and its cuts are counted and said. */
+  private async answered(work: () => Promise<AnswerResult>): Promise<ToolAnswer> {
+    let result: AnswerResult;
+    try {
+      result = await work();
+    } catch (error) {
+      if (error instanceof AnswerRefusal) {
+        // A join the tool was asked for and could not make is counted; an argument of no shape is the unit's mistake.
+        if (error.code !== 'bad-argument') this.unresolvedJoins += 1;
+        return fail(error.code, error.message);
+      }
+      throw error;
+    }
+    for (const read of result.reads) this.ledger.note(read);
+    for (const target of result.evidence) this.evidenceSeen.add(target);
+    this.unresolvedJoins += result.unresolved.length;
+    // One evidence target once: the file a symbol stands in is often its owner as well.
+    const evidence = [...new Set(result.evidence)].sort(byCodePoint);
+    const shown = evidence.slice(0, EVIDENCE_SHOWN);
+    return ok({
+      source: this.source(),
+      ...result.body,
+      evidence: shown,
+      ...(result.unresolved.length === 0 ? {} : { unresolved: result.unresolved.slice(0, UNRESOLVED_SHOWN) }),
+      truncated: result.truncated || shown.length < evidence.length,
+    });
+  }
+
+  private async dispatch(tool: string, argumentsValue: unknown): Promise<ToolAnswer> {
     const args = argumentsOf(argumentsValue);
     try {
       if ((this.unit.kind === 'administrator-guide' || this.unit.kind === 'user-guide') && tool !== 'write_guide' && tool !== 'read_prepared_context') return fail('wrong-unit', 'this guide unit accepts only write_guide; its prepared source context is the complete bounded input');
@@ -344,6 +501,13 @@ export class UnitTools {
         case 'get_node': return await this.getNode(args);
         case 'neighbors': return await this.neighbors(args);
         case 'read_file': return await this.readFile(args);
+        case 'get_symbol': return await this.getSymbolAnswer(args);
+        case 'get_context': return await this.getContextAnswer(args);
+        case 'trace_flow': return await this.traceFlowAnswer(args);
+        case 'get_document_sections': return await this.getDocumentSectionsAnswer(args);
+        case 'search_pages': return await this.searchPagesAnswer(args);
+        case 'get_page': return await this.getPageAnswer(args);
+        case 'search_questions': return await this.searchQuestionsAnswer(args);
         case 'write_localized_source': return await this.writeLocalizedSource(args);
         case 'write_page': return await this.writePage(args);
         case 'ask_question': return await this.serialQuestion(args);
@@ -378,6 +542,7 @@ export class UnitTools {
       if (published.path !== unit.path) return this.refuse([{ line: 1, rule: 'guide-publication-path', message: `${unit.prepared.validation.file}:1: $.path: publication returned another path` }]);
       this.status = 'written';
       this.refusals = [];
+      this.produced.pages += 1;
       return ok({ written: true, path: unit.path, unchanged: published.unchanged });
     } catch {
       // A source, agent or publication exception may contain sensitive source bytes.
@@ -447,7 +612,70 @@ export class UnitTools {
     this.refusals = [];
     this.status = 'written';
     this.written = { grounds: [`doc:${this.unit.entity.path}#${this.unit.entity.anchor}`], links: [] };
+    this.produced.pages += 1;
+    this.produced.statements += 1;
+    this.produced.grounds += 1;
     return ok({ written: true, id: this.unit.entity.id, path: this.unit.path });
+  }
+
+  private async getSymbolAnswer(args: Record<string, unknown>): Promise<ToolAnswer> {
+    const name = text(args['name'], 'name');
+    if (isFailure(name)) return name;
+    if (args['service'] !== undefined && typeof args['service'] !== 'string') return fail('bad-argument', '"service" is a text');
+    return await this.answered(() => getSymbol(this.reads(), { name, ...(args['service'] === undefined ? {} : { service: args['service'] as string }) }));
+  }
+
+  private async getContextAnswer(args: Record<string, unknown>): Promise<ToolAnswer> {
+    const entity = text(args['entity'], 'entity');
+    if (isFailure(entity)) return entity;
+    const purpose = args['purpose'];
+    if (typeof purpose !== 'string' || !(CONTEXT_PURPOSES as readonly string[]).includes(purpose)) return fail('bad-argument', `"purpose" is one of ${CONTEXT_PURPOSES.join(', ')}`);
+    return await this.answered(() => getContext(this.reads(), { entity, purpose: purpose as ContextPurpose }));
+  }
+
+  private async traceFlowAnswer(args: Record<string, unknown>): Promise<ToolAnswer> {
+    const entry = text(args['entry'], 'entry');
+    if (isFailure(entry)) return entry;
+    const rawTargets = args['targets'];
+    if (rawTargets !== undefined && (!Array.isArray(rawTargets) || rawTargets.some((one) => !(FLOW_TARGETS as readonly unknown[]).includes(one)))) return fail('bad-argument', `"targets" is a list of ${FLOW_TARGETS.join(', ')}`);
+    const depth = count(args['depth'], 'depth', 1, 8, FLOW_DEPTH);
+    if (isFailure(depth)) return depth;
+    const maxSteps = count(args['maxSteps'], 'maxSteps', 1, 200, FLOW_STEPS);
+    if (isFailure(maxSteps)) return maxSteps;
+    const targets = (rawTargets === undefined ? [...FLOW_TARGETS] : [...new Set(rawTargets as FlowTarget[])].sort(byCodePoint));
+    return await this.answered(() => traceFlow(this.reads(), { entry, targets, depth, maxSteps }));
+  }
+
+  private async getDocumentSectionsAnswer(args: Record<string, unknown>): Promise<ToolAnswer> {
+    const intent = text(args['intent'], 'intent');
+    if (isFailure(intent)) return intent;
+    if (args['scope'] !== undefined && typeof args['scope'] !== 'string') return fail('bad-argument', '"scope" is a text');
+    return await this.answered(() => getDocumentSections(this.reads(), { intent, ...(args['scope'] === undefined ? {} : { scope: args['scope'] as string }) }));
+  }
+
+  private async searchPagesAnswer(args: Record<string, unknown>): Promise<ToolAnswer> {
+    const wanted = text(args['text'], 'text');
+    if (isFailure(wanted)) return wanted;
+    if (args['kind'] !== undefined && typeof args['kind'] !== 'string') return fail('bad-argument', '"kind" is a text, such as "product" or "domain"');
+    const limit = count(args['limit'], 'limit', 1, 20, PAGES_SHOWN);
+    if (isFailure(limit)) return limit;
+    return await this.answered(() => searchPages(this.sink, { text: wanted, ...(args['kind'] === undefined ? {} : { kind: args['kind'] as string }), limit }));
+  }
+
+  private async getPageAnswer(args: Record<string, unknown>): Promise<ToolAnswer> {
+    const page = text(args['page'], 'page');
+    if (isFailure(page)) return page;
+    const format = args['format'] ?? 'md';
+    if (format !== 'md' && format !== 'json') return fail('bad-argument', '"format" is "md" or "json"');
+    return await this.answered(() => getPage(this.sink, { page, format }));
+  }
+
+  private async searchQuestionsAnswer(args: Record<string, unknown>): Promise<ToolAnswer> {
+    if (args['text'] !== undefined && typeof args['text'] !== 'string') return fail('bad-argument', '"text" is a text');
+    if (args['includeAnswered'] !== undefined && typeof args['includeAnswered'] !== 'boolean') return fail('bad-argument', '"includeAnswered" is true or false');
+    const limit = count(args['limit'], 'limit', 1, 60, QUESTIONS_SHOWN);
+    if (isFailure(limit)) return limit;
+    return await this.answered(() => searchQuestions(async () => await this.existingQuestions(), { ...(args['text'] === undefined ? {} : { text: args['text'] as string }), includeAnswered: args['includeAnswered'] === true, limit }));
   }
 
   private async readFile(args: Record<string, unknown>): Promise<ToolAnswer> {
@@ -468,8 +696,12 @@ export class UnitTools {
     const end = Math.min(requestedEnd, lines.length, start + FILE_LINES - 1);
     if (!this.read.includes(path)) this.read.push(path);
     const shown = lines.slice(start - 1, end).map((line, i) => `${start + i}: ${line.length > LINE_CHARACTERS ? `${line.slice(0, LINE_CHARACTERS)} [line cut at ${LINE_CHARACTERS} characters]` : line}`);
+    // The source this unit was shown, so a second read of the same lines is counted as repeated bytes.
+    this.ledger.note({ path, startLine: start, endLine: end, bytes: lines.slice(start - 1, end).reduce((sum, line) => sum + Buffer.byteLength(line, 'utf8') + 1, 0) });
+    this.evidenceSeen.add(path);
     const anchors = /\.(md|markdown)$/i.test(path) ? await this.view.anchorsOf(path) : null;
-    return ok({ path, totalLines: lines.length, startLine: start, endLine: end, next: end < lines.length ? end + 1 : null, text: shown.join('\n'), ...(anchors === null ? {} : { sectionAnchors: [...anchors].sort(byCodePoint) }) });
+    // read_file answers with the same basis as the other reads: the repository and the pinned revision the text is from.
+    return ok({ source: this.source(), path, totalLines: lines.length, startLine: start, endLine: end, next: end < lines.length ? end + 1 : null, text: shown.join('\n'), ...(anchors === null ? {} : { sectionAnchors: [...anchors].sort(byCodePoint) }) });
   }
 
   private async validateDomains(value: unknown): Promise<{ domains: DomainDeclaration[] } | { problems: Refusal[] }> {
@@ -662,6 +894,7 @@ export class UnitTools {
     });
     await this.sink.write(path, markdown);
     this.asked.push(`question:${slug}`);
+    this.produced.questions += 1;
     if (type === 'contradiction') this.contradictions.push({ id: `question:${slug}`, sides });
     return ok({ asked: true, id: `question:${slug}`, path, note: 'Saved for the people to answer. Do not state either side as fact on your page; go on and write what the sources agree on. When the question is a contradiction, keep what the code does and what the document says on your page, each as its own grounded sentence, and point to the question.' });
   }
@@ -734,6 +967,11 @@ export class UnitTools {
     this.refusals = [];
     this.declared = this.unit.kind === 'product' ? domains : [];
     this.written = { grounds: verdict.page.grounds, links: verdict.page.links };
+    this.produced.pages += 1;
+    const written = splitFrontMatter(verdict.page.markdown);
+    this.produced.statements += statementsOf(written.body, written.bodyLine).length;
+    this.produced.grounds += verdict.page.grounds.length;
+    this.produced.links += verdict.page.links.length;
     return ok({ written: true, path: this.unit.path, grounds: verdict.page.grounds.length, links: verdict.page.links.length, ...(this.unit.kind === 'product' ? { domains: domains.map((d) => d.slug) } : {}) });
   }
 }

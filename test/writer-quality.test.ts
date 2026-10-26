@@ -7,7 +7,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { checkPage, type GroundResolver, type MadarchTarget, type PageExpectation } from '../src/writer/format.js';
-import { fixedPart, otherQuestionsPart, productPrompt } from '../src/writer/prompts.js';
+import { domainPrompt, fixedPart, otherQuestionsPart, productPrompt } from '../src/writer/prompts.js';
 import { memorySink } from '../src/writer/run.js';
 import { overlap, subjectOf, UnitTools, type UnitSpec } from '../src/writer/tools.js';
 import type { GraphView } from '../src/writer/view.js';
@@ -290,9 +290,17 @@ describe('a contradiction keeps both of its sides on the page', () => {
     expect(written.isError, JSON.stringify(written.answer)).toBe(false);
   });
 
-  test('the prompt asks for both sides, once per subject, links and the comparison of neighbouring operations', () => {
+  test('the prompt asks for both sides, once per subject, links and the comparison of neighbouring operations', async () => {
     const text = fixedPart('en');
-    for (const part of ['keep BOTH sides on the page', 'is not asked again', 'A link is not a ground', 'as links to their graph entities, never as code spans', 'Compare how neighbouring operations of a domain handle failure', 'replaced by the entity\'s own name']) expect(text).toContain(part);
+    for (const part of ['keep BOTH sides on the page', 'is not asked again', 'A link is not a ground', 'as links to their graph entities, never as code spans', 'replaced by the entity\'s own name']) expect(text).toContain(part);
+    // The comparison of neighbouring operations is a domain page's work (decision 0032, section 2): it is told to the
+    // domain unit, and the shared part tells nothing of a timeout or a retry.
+    expect(text).not.toContain('Compare how neighbouring operations');
+    expect(text).not.toContain('timeout');
+    const view = { at: 'abc', overview: async () => ({ kinds: [], relations: [], documents: [] }), find: async () => ({ nodes: [], next: null }) } as unknown as GraphView;
+    const domain = await domainPrompt(view, { kind: 'domain', id: 'domain:payments', path: 'docs/domains/payments.md', domain: { slug: 'payments', title: 'Payments', summary: 'Taken by the payments service.', evidence: ['code.service:payments'] } }, '', [], 'en');
+    expect(domain).toContain('Compare how neighbouring operations of this domain handle failure');
+    expect(domain).toContain('timeout');
   });
 });
 
