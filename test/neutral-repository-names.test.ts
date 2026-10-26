@@ -826,10 +826,14 @@ describe('neutral repository names', () => {
       const packageName = ['database', 'sql'].join('/');
       const reference = ['https:/', 'pkg.go.dev', packageName].join('/');
       const registry = {schemaVersion: 1, outbox: {table: 'outbox', topicColumn: 'topic'},
-        receivers: [{id: 'db', ecosystem: 'go', package: packageName, packageName: 'sql', exportedPath: ['DB'], pointer: true, reference: reference + '#DB'}],
+        receivers: [
+          {id: 'db', ecosystem: 'go', package: packageName, packageName: 'sql', exportedPath: ['DB'], pointer: true, reference: reference + '#DB'},
+          {id: 'tx', ecosystem: 'go', package: packageName, packageName: 'sql', exportedPath: ['Tx'], pointer: true, reference: reference + '#Tx'},
+        ],
         operations: [{id: 'query', receiverIds: ['db'], member: 'Query', sql: 0, values: 1, reference: reference + '#DB.Query'}],
         scan: {member: 'Scan', receiver: 'query-result', arguments: 'destinations'},
-        append: {ecosystem: 'go', builtin: 'append', collection: 0, element: 1}, factories: []};
+        append: {ecosystem: 'go', builtin: 'append', collection: 0, element: 1},
+        factories: [{member: 'BeginTx', receiverIds: ['db'], returns: 'tx', reference: reference + '#DB.BeginTx'}]};
       const file = join(fixtureRoot, 'src/extract/library-models/outbox-models.json');
       mkdirSync(dirname(file), {recursive: true}); writeFileSync(file, JSON.stringify(registry));
       expect(await findings(fixtureRoot)).toEqual([]);
@@ -846,7 +850,7 @@ describe('neutral repository names', () => {
       writeFileSync(file, JSON.stringify({...registry, operations: [{...registry.operations[0], receiverIds: ['unknown']}]}));
       const errors = await findings(fixtureRoot);
       expect(errors.some(error => error.includes('invalid model registry'))).toBe(true);
-      expect(errors.filter(error => error.includes('repository source is not an example'))).toHaveLength(2);
+      expect(errors.filter(error => error.includes('repository source is not an example'))).toHaveLength(4);
     } finally { rmSync(fixtureRoot, {recursive: true, force: true}); }
   });
 
