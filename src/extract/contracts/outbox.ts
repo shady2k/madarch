@@ -116,34 +116,20 @@ export async function inferOutboxPublications(
   // A write kills only the same storage projection (or one of its parents).
   // The copied grammar and lexical binding IDs own this check, not row names.
   type Projection = {binding: string; members: readonly string[]};
-  /**
-   * The storage a binding shares with another through a pointer: `a := &row`,
-   * `b := a`, `c := *p` all name `row`'s storage, while a value copy (`a := row`)
-   * names its own. The copied facts decide this; nothing is matched by name.
-   */
-  const storageAlias = (node: CodeExpressionFact): CodeExpressionFact | undefined => {
-    const seen = new Set<string>();
-    let current: CodeExpressionFact | undefined = node;
-    let pointer = false;
-    while (current !== undefined && current.bindingId !== undefined) {
-      const binding = bindings.get(current.bindingId);
-      if (binding === undefined || seen.has(binding.id) || seen.size >= 32) return undefined;
-      const initial = expr(binding.initializer);
-      if (initial === undefined) return pointer ? current : undefined;
-      seen.add(binding.id);
-      if (initial.syntaxKind === 'unary_expression') pointer = true;
-      current = unwrap(initial);
-    }
-    return pointer ? current : undefined;
-  };
   const projection = (raw: CodeExpressionFact): Projection | undefined => {
-    const unwrapped = unwrap(raw);
-    const node = storageAlias(unwrapped) ?? unwrapped;
+    const node = unwrap(raw);
     if (node.bindingId !== undefined) return {binding: node.bindingId, members: []};
     const receiver = expr(node.receiver);
     const parent = receiver === undefined ? undefined : projection(receiver);
     return parent === undefined || node.member === undefined ? undefined : {binding: parent.binding, members: [...parent.members, node.member]};
   };
+  /** A binding whose storage a pointer could share: any address-of of it or of one of its fields. */
+  const addressTaken = (binding: string, path: string): boolean => [...expressions.values()].some((node) => {
+    if (node.path !== path || node.syntaxKind !== 'unary_expression') return false;
+    return (node.fields['operand'] ?? node.fields['expression'] ?? node.children).flatMap((id) => {
+      const held = expr(id); return held === undefined ? [] : [held];
+    }).some((operand) => operand.bindingId === binding || children(operand).some((child) => child.bindingId === binding));
+  });
   const writeKinds = new Set(['assignment_expression', 'augmented_assignment_expression', 'assignment_statement', 'short_var_declaration', 'update_expression', 'inc_statement', 'dec_statement']);
   const untouched = (value: CodeExpressionFact, after: SourceSpan, before: SourceSpan): boolean => {
     const selected = projection(value);
@@ -330,7 +316,10 @@ export async function inferOutboxPublications(
         if (value.member !== topic.member || value.receiver === undefined || topic.receiver === undefined) return false;
         const row = expr(value.receiver); const scannedRow = expr(topic.receiver);
         if (row === undefined || scannedRow === undefined) return false;
-        if (row.bindingId !== undefined && row.bindingId === scannedRow.bindingId) return untouched(topic, scanned.span, call.span);
+        // A pointer could share the row's storage: no positive claim survives that.
+        if (row.bindingId !== undefined && row.bindingId === scannedRow.bindingId) {
+          return !addressTaken(row.bindingId, call.path) && untouched(topic, scanned.span, call.span);
+        }
         // Same property projection on an exactly transferred row value needs
         // no independent field-name lookup or guessed owner type.
         // Range transfers require the copied item binding and its exact scope.
@@ -365,7 +354,23 @@ export async function inferOutboxPublications(
               return (write.fields.left ?? []).flatMap(id => {const held = expr(id); return held === undefined ? [] : [held];})
                 .some(target => {const changed = projection(target); return changed !== undefined && changed.binding === collection.bindingId;});
             });
-            return appended && survivesToRange;
+            // The batch is only ever extended by appending to itself; any other
+            // assignment, indexed write or address-of it loses the proof.
+            const collectionBinding = collection.bindingId!;
+            const extendedOnly = !addressTaken(collectionBinding, append.path) && ![...expressions.values()].some((write) => {
+              if (!writeKinds.has(write.syntaxKind) || write.path !== append.path) return false;
+              const left = (write.fields.left ?? []).flatMap((id) => {const held = expr(id); return held === undefined ? [] : [held];});
+              const touches = write.fields.left === undefined ? children(write).some((child) => child.bindingId === collection.bindingId)
+                : left.some((target) => target.bindingId === collection.bindingId || children(target).some((child) => child.bindingId === collection.bindingId));
+              if (!touches) return false;
+              if (write.syntaxKind !== 'assignment_statement' || left.length !== 1 || left[0]!.bindingId !== collection.bindingId || left[0]!.children.length > 0) return true;
+              const right = expr((write.fields.right ?? [])[0]);
+              const appendedCall = right === undefined ? undefined : calls.find((candidate) => candidate.expression === right.id);
+              const callee = appendedCall === undefined ? undefined : expr(appendedCall.callee);
+              const first = appendedCall === undefined ? undefined : expr(appendedCall.arguments[outboxModels.append.collection]);
+              return !(callee?.name === outboxModels.append.builtin && callee.bindingId === undefined && first?.bindingId === collection.bindingId);
+            });
+            return appended && survivesToRange && extendedOnly;
           });
         });
       };

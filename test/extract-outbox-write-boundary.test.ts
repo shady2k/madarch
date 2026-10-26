@@ -118,6 +118,8 @@ for (const [label, source] of [
   ['pointer alias chain write of the scanned row', fixture('alias := &row\nsecond := alias\nsecond.topic = actualTopic')],
   ['batch rebuilt before the range', batch('', '', '', 'batch = nil')],
   ['batch rebuilt from a new literal before the range', batch('', '', '', 'batch = []pending{{topic: actualTopic}}')],
+  ['batch indexed field write before the range', batch('', '', '', 'batch[0].topic = actualTopic')],
+  ['batch in a parallel assignment before the range', batch('', '', '', 'batch, other = otherBatch, otherBatch')],
 ] as const) test(`outbox proof stops at ${label}`, async () => {
   const value = await run(source);
   expect(publications(value), diagnostic(value)).toEqual([]);
