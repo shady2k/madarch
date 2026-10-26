@@ -97,7 +97,7 @@ function parseScope(file: string, value: unknown, ix: number): TaskScope {
   throw new Error(`${file}:2: scope[${ix}] is a section { path, anchor }, lines { path, start, end }, file { path }, symbol or statement { key }`);
 }
 
-function parseTask(file: string, source: string): PlannedTask {
+export function parseTask(file: string, source: string): PlannedTask {
   const { front } = splitFrontMatter(source.replace(/\r\n/g, '\n'));
   if (front === null) throw new Error(`${file}:1: the task has no front matter`);
   let raw: unknown; try { raw = parseYaml(front); } catch (e) { throw new Error(`${file}:2: task front matter is not YAML: ${(e as Error).message.split('\n')[0]}`); }

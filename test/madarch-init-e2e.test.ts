@@ -108,8 +108,18 @@ describe('the one press', () => {
       status = (await get('api/k/status')).body;
     }
     expect(status.fill.state, JSON.stringify(status.fill)).toBe('done');
-    expect(status.writer, JSON.stringify(status.writer)).toMatchObject({ state: 'done', units: [{ unit: 'product:training-shop', state: 'written' }, { unit: 'domain:ordering', state: 'written' }, { unit: 'domain:payments', state: 'written' }] });
+    expect(status.writer, JSON.stringify(status.writer)).toMatchObject({ state: 'done', units: [{ unit: 'product:training-shop', state: 'written' }, { unit: 'domain:ordering', state: 'written' }, { unit: 'domain:payments', state: 'written' }, { unit: 'administrator-guide:main', state: 'written' }, { unit: 'user-guide:main', state: 'written' }] });
     expect(status.home).toBe('product:training-shop');
+    for (const id of ['administrator-guide:main', 'user-guide:main']) {
+      const page = await get(`api/k/page?id=${encodeURIComponent(id)}`);
+      expect(page.status).toBe(200);
+      const guide = page.body.blocks.find((block: { type: string }) => block.type === 'guide');
+      expect(guide).toBeDefined();
+      expect(guide.data.guide.procedures).toEqual([]);
+      expect(guide.data.guide.gaps.length).toBeGreaterThan(0);
+      expect(guide.data.coverage).toBe('gap-only');
+      expect(guide.data.walk.status).toBe('not-walked');
+    }
 
     const pageOf = async (id: string) => (await get(`api/k/page?id=${encodeURIComponent(id)}`));
     const homePage = await pageOf('product:training-shop');
@@ -153,6 +163,14 @@ describe('the one press', () => {
       after = (await get('api/k/status')).body;
     }
     expect(after.writer, JSON.stringify(after.writer)).toMatchObject({ state: 'done' });
+    for (const id of ['administrator-guide:main', 'user-guide:main']) {
+      const page = await pageOf(id);
+      expect(page.status).toBe(200);
+      const guide = page.body.blocks.find((block: { type: string }) => block.type === 'guide');
+      expect(guide?.data.guide.locale).toBe('ru');
+      expect(guide?.data.coverage).toBe('gap-only');
+      expect(guide?.data.walk.status).toBe('not-walked');
+    }
     const paymentsRu = await pageOf('domain:payments');
     const paymentsRuBody = paymentsRu.body.blocks.find((block: { type: string }) => block.type === 'body');
     expect(paymentsRuBody.markdown).toContain('Платёж проходит через одного из двух провайдеров');

@@ -12,13 +12,20 @@
  * graph's spans were read from, and a restarted server still knows.
  */
 import { glossaryTerms, termLinks, type GlossaryTerm } from './glossary.js';
+import { GUIDE_OUTPUTS } from '../writer/guides/host-contract.js';
+import type { GuideContextFor, GuideHostFor } from '../writer/guides/host.js';
+import type { GuideKind, GuideLocale } from '../writer/guides/model.js';
+import { readGuidePage } from '../writer/guides/read.js';
+import { createGuideReadFactories, guideProductPin } from '../writer/guides/writer.js';
+import { createGraphStore } from '../graph/index.js';
+import { createGitSnapshotSource } from '../fill/snapshot.js';
 import { detectDocumentLanguage, localizedSourcePath, parseLocalizedSource, type LocalizedDocumentSource } from '../writer/localized-source.js';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { execFile, execFileSync } from 'node:child_process';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
-import type { DatabaseOwner } from '../adapters/database-owner.js';
+import type { DatabaseOwner, OuterTransaction } from '../adapters/database-owner.js';
 import { RemoteOwner } from './remote-owner.js';
 import { byCodePoint } from '../model/order.js';
 import { readProduct, type ProductIdentity } from '../product/manifest.js';
@@ -162,6 +169,9 @@ export interface KnowledgeProductOptions {
   env?: DraftEnv;
   /** Starts the chosen agent for the writer; the production one starts the agent's ACP adapter. Tests inject a scripted agent. */
   agentFactory?: AgentFactory;
+  /** Host authority shared with the guide writer; never derived from guide front matter. */
+  guideContextFor?: GuideContextFor;
+  guideHostFor?: GuideHostFor;
   /** Where the knowledge wiki says what it could not do; the host's error log. */
   errorLog?: (line: string) => void;
   /** Starts the fill worker; tests inject one. */
@@ -180,6 +190,85 @@ async function gitBlob(repository: string, commit: string, path: string): Promis
   } catch {
     return undefined;
   }
+}
+
+interface PageSnapshot {
+  owner: DatabaseOwner;
+  transaction: OuterTransaction;
+  validAt: string;
+  pins: ReadonlyMap<string, RepositoryPin>;
+}
+
+/** Owner-based index readers may run statements, but cannot open a nested snapshot on the same pipe. */
+export function pageSnapshotOwner(owner: DatabaseOwner, transaction: OuterTransaction): DatabaseOwner {
+  return new Proxy(owner, {
+    get(target, key) {
+      if (key === 'transaction') return () => { throw new Error('a page snapshot cannot open a nested transaction; use its shared transaction'); };
+      if (key === 'run') return async (work: (tx: OuterTransaction) => Promise<unknown>) => await work(transaction);
+      const value = Reflect.get(target, key);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+}
+
+/** Shares history reads only after the last temporal change in an immutable reader snapshot. */
+export function createSnapshotHistoryReader() {
+  type HistoryData = {
+    evidence: Awaited<ReturnType<GraphReader['historyEvidence']>>;
+    completed: Awaited<ReturnType<GraphReader['completedTrees']>>;
+    landmarks: Awaited<ReturnType<GraphReader['landmarkPlan']>>;
+  };
+  type Entry = { boundary: Promise<number | null>; data?: Promise<HistoryData> };
+  const snapshots = new WeakMap<DatabaseOwner, Map<string, Entry>>();
+  return async (owner: DatabaseOwner, pin: Pick<RepositoryPin, 'name' | 'scope' | 'head'>, validAt: string, selection: HistorySelection): Promise<HistoryContext> => {
+    // Pin fields belong to this owner; never reread mutable caller state after an await.
+    const { name, scope, head } = pin;
+    const capturedMillis = Date.parse(validAt);
+    let entries = snapshots.get(owner);
+    if (entries === undefined) { entries = new Map(); snapshots.set(owner, entries); }
+    const key = JSON.stringify([name, scope, head]);
+    let entry = entries.get(key);
+    if (entry === undefined) {
+      const held: Entry = { boundary: owner.transaction('snapshot', async (tx) => {
+        // All current node/edge versions are a conservative superset of history's inputs.
+        // Round UP: an ISO millisecond must not cross a submillisecond boundary early.
+        const result = await tx.query<{ boundary_epoch_millis: string | null }>(`
+          SELECT ceil(extract(epoch FROM max(boundary)) * 1000)::text AS boundary_epoch_millis
+          FROM (
+            SELECT valid_from, valid_to FROM node_version WHERE scope_id = $1::bigint AND recorded_to = 'infinity'
+            UNION ALL
+            SELECT valid_from, valid_to FROM edge_version WHERE scope_id = $1::bigint AND recorded_to = 'infinity'
+          ) versions CROSS JOIN LATERAL (VALUES (valid_from), (valid_to)) bounds(boundary)
+          WHERE isfinite(boundary)`, [scope]);
+        const boundary = result.rows[0]?.boundary_epoch_millis;
+        // An absent/malformed result cannot certify the terminal interval.
+        return boundary === null ? null : typeof boundary === 'string' && /^-?\d+$/.test(boundary) && Number.isSafeInteger(Number(boundary)) ? Number(boundary) : Infinity;
+      }) };
+      entry = held;
+      entries.set(key, held);
+      void held.boundary.catch(() => { if (entries.get(key) === held) entries.delete(key); });
+    }
+    const boundary = await entry.boundary;
+    const terminal = Number.isFinite(capturedMillis) && (boundary === null || capturedMillis >= boundary);
+    const load = async (): Promise<HistoryData> => {
+      // Every statement uses this call's captured time, never a moving wall clock.
+      const graph = new GraphReader(owner, () => validAt);
+      const evidence = await graph.historyEvidence(scope);
+      const completed = await graph.completedTrees(scope, treeReadProducer(TREE_EXTRACTORS, HISTORY_EXTRACTOR));
+      const landmarks = await graph.landmarkPlan(name, scope, head);
+      return { evidence, completed, landmarks };
+    };
+    let pending: Promise<HistoryData>;
+    if (!terminal) pending = load();
+    else {
+      pending = entry.data ??= load();
+      const held = entry;
+      void pending.catch(() => { if (held.data === pending) delete held.data; });
+    }
+    const { evidence, completed, landmarks } = await pending;
+    // Selection is never cached. A caller cannot mutate the retained landmark proof.
+    return selectHistory(selection, evidence, completed, landmarks === undefined ? undefined : structuredClone(landmarks));
+  };
 }
 
 export class KnowledgeProduct {
@@ -1129,17 +1218,28 @@ export class KnowledgeProduct {
   // ---- reads -----------------------------------------------------------------------------
 
   /** The inputs of one page: the manifest and Markdown as they stand now, and the graph. */
-  async context(history?: HistoryContext): Promise<{ ctx: RenderContext; manifest: KindsManifest; findings: Finding[] } | { absent: true; file: string }> {
+  async context(history?: HistoryContext, snapshot?: PageSnapshot): Promise<{ ctx: RenderContext; manifest: KindsManifest; findings: Finding[] } | { absent: true; file: string }> {
     const product = this.product();
     if ('message' in product) throw new WikiReadError(product.message);
     const read = this.kinds(product.folder);
     if (!read.present) return { absent: true, file: read.file };
-    const owner = await this.open();
-    const currentGraph = new GraphReader(owner, this.validAt);
-    const scope = history === undefined ? undefined : this.pins.get(history.repo)?.scope;
+    const owner = snapshot?.owner ?? await this.open();
+    const currentGraph = new GraphReader(owner, snapshot === undefined ? this.validAt : () => snapshot.validAt, undefined, snapshot?.transaction);
+    const scope = history === undefined ? undefined : (snapshot?.pins ?? this.pins).get(history.repo)?.scope;
+    const indexOwner = snapshot === undefined ? owner : pageSnapshotOwner(owner, snapshot.transaction);
+    const pins = snapshot?.pins ?? this.pins;
     if (history !== undefined && (history.coverage !== 'covered' || history.effectiveAt === null || scope === undefined)) throw new WikiReadError(`${product.folder}/${KINDS_FILE}:1: historical structure is not covered for ${history.repo} at ${history.at}`);
     const graph = history === undefined ? currentGraph : currentGraph.at(history.effectiveAt!, scope!);
-    const markdownRead = history === undefined ? readMarkdownEntities(product.folder, read.manifest) : { entities: [], findings: [] };
+    // Guide payloads enter their strict host verifier, never the generic YAML materializer.
+    const ordinaryKinds = new Map([...read.manifest.kinds].filter(([kind]) => !Object.hasOwn(GUIDE_OUTPUTS, kind)));
+    const markdownRead = history === undefined ? readMarkdownEntities(product.folder, { ...read.manifest, kinds: ordinaryKinds }) : { entities: [], findings: [] };
+    if (history === undefined) for (const [kind, output] of Object.entries(GUIDE_OUTPUTS)) {
+      const declaration = read.manifest.kinds.get(kind);
+      if (declaration?.source !== 'markdown' || declaration.file === undefined) continue;
+      if (!existsSync(join(product.folder, declaration.file))) continue;
+      const title = declaration.labels?.[read.manifest.language === 'ru' ? 'ru' : 'en']?.one ?? kind;
+      markdownRead.entities.push({ id: output.id, kind, title, relates: [], producer: 'agent', sources: [], body: '', bodyLine: 1, file: declaration.file, front: {} });
+    }
     const markdown = new Map<string, MarkdownEntity>(markdownRead.entities.map((entity) => [entity.id, entity]));
     const reading = history === undefined ? await this.documentEntities(product.folder, read.manifest) : { entities: [], sources: [], findings: [] };
     const docEntities = new Map<string, DocEntity>(reading.entities.map((entity) => [entity.id, entity]));
@@ -1173,7 +1273,7 @@ export class KnowledgeProduct {
       localizedSources.set(entity.id, single ? { ...parsed.source, sourceDocument: parsed.source.sourceDocument.replace(new RegExp(`^repos/${entity.repo?.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/`), '') } : parsed.source);
     }
     const entityAtLine = new Map<string, DocEntity>(reading.entities.map((entity) => [`${entity.repo ?? ''}\0${entity.path}\0${entity.line}`, entity]));
-    const repoOfScope = (scope: string): string | undefined => [...this.pins.values()].find((pin) => pin.scope === scope)?.name;
+    const repoOfScope = (scope: string): string | undefined => [...pins.values()].find((pin) => pin.scope === scope)?.name;
     const readSource = async (repo: string | null, path: string): Promise<string | undefined> => {
       if (repo === null) {
         if (history !== undefined) return undefined;
@@ -1189,7 +1289,7 @@ export class KnowledgeProduct {
         }
       }
       if (history !== undefined && repo !== history.repo) return undefined;
-      const pin = this.pins.get(repo);
+      const pin = pins.get(repo);
       if (pin === undefined || pin.commit === '') return undefined;
       return await gitBlob(join(product.folder, 'repos', repo), history?.commit ?? pin.commit, path);
     };
@@ -1197,7 +1297,7 @@ export class KnowledgeProduct {
       if (repo === null) return undefined;
       const origin = this.originOf(join(product.folder, 'repos', repo));
       if (history !== undefined && repo !== history.repo) return undefined;
-      const commit = history?.commit ?? this.pins.get(repo)?.commit;
+      const commit = history?.commit ?? pins.get(repo)?.commit;
       if (origin === undefined || commit === undefined || commit === '') return undefined;
       return webLink({ origin, commit, path, lineStart, lineEnd });
     };
@@ -1206,12 +1306,12 @@ export class KnowledgeProduct {
       markdown,
       declared: (kind) => read.manifest.kinds.has(kind),
       readDocument: readSource,
-      repositories: () => history === undefined ? [...this.pins.keys()].sort(byCodePoint) : [history.repo],
+      repositories: () => history === undefined ? [...pins.keys()].sort(byCodePoint) : [history.repo],
       locate: (entity) => (entity.span === undefined ? undefined : locationOf({ repoOfScope, webOf }, entity.scope, entity.span)),
       documentEntity: (repo, path, line) => entityAtLine.get(`${repo ?? ''}\0${path}\0${line}`),
     });
     return {
-      ctx: { productFolder: product.folder, manifest: read.manifest, graph, markdown, docEntities, localizedSources, language, documents: reading.sources, repositories: history === undefined ? [...this.pins.keys()].sort(byCodePoint) : [history.repo], webOf, ...(history === undefined ? { index: { relyingOn: (key: string) => statementsRelyingOn(owner, key), counts: () => indexCounts(owner) } } : {}), commitOf: (repo) => history === undefined ? this.pins.get(repo)?.commit ?? null : repo === history.repo ? history.commit : null, resolver, repoOfScope, readSource },
+      ctx: { productFolder: product.folder, manifest: read.manifest, graph, markdown, docEntities, localizedSources, language, documents: reading.sources, repositories: history === undefined ? [...pins.keys()].sort(byCodePoint) : [history.repo], webOf, ...(history === undefined ? { index: { relyingOn: (key: string) => statementsRelyingOn(indexOwner, key), counts: () => indexCounts(indexOwner) } } : {}), commitOf: (repo) => history === undefined ? pins.get(repo)?.commit ?? null : repo === history.repo ? history.commit : null, resolver, repoOfScope, readSource },
       manifest: read.manifest,
       findings: [...read.manifest.findings, ...markdownRead.findings, ...reading.findings, ...localizedFindings],
     };
@@ -1363,29 +1463,85 @@ export class KnowledgeProduct {
     return { questionsOpen: questions.open, questionsAnswered: questions.answered, correctionsOpen: readCorrections(this.options.productFolder).items.filter((correction) => correction.status === 'open').length };
   }
 
+  private readonly readSnapshotHistory = createSnapshotHistoryReader();
+
   async historyAt(selection: HistorySelection): Promise<HistoryContext> {
     const owner = await this.open();
-    const graph = new GraphReader(owner, this.validAt);
-    const scope = this.pins.get(selection.repo)?.scope;
-    if (scope === undefined) return { ...selection, coverage: 'unknown', commit: null, effectiveAt: null, until: null, points: [] };
-    const evidence = await graph.historyEvidence(scope);
-    const completed = await graph.completedTrees(scope, treeReadProducer(TREE_EXTRACTORS, HISTORY_EXTRACTOR));
-    const landmarks = await graph.landmarkPlan(selection.repo, scope, this.pins.get(selection.repo)!.head);
-    return selectHistory(selection, evidence, completed, landmarks);
+    if (this.reader?.owner !== owner) return await this.historyAt(selection);
+    const pin = this.pins.get(selection.repo);
+    if (pin === undefined) return { ...selection, coverage: 'unknown', commit: null, effectiveAt: null, until: null, points: [] };
+    return await this.readSnapshotHistory(owner, pin, this.validAt(), selection);
   }
 
   async page(id: string, lang?: string, options: { defer?: boolean; only?: number; history?: HistorySelection } = {}): Promise<PageResult> {
     const history = options.history === undefined ? undefined : await this.historyAt(options.history);
     // A gap is a visible result, not an empty current page or a reason to fall back to the tip.
     if (history !== undefined && history.coverage !== 'covered') return { ok: true, page: { id, kind: id.slice(0, id.indexOf(':')), title: id, trail: [], blocks: [], resolutions: {}, findings: [], notes: [], history } };
-    const context = await this.context(history);
-    if ('absent' in context) return { ok: false, status: 404, message: `the product has no ${context.file}: the wiki shows the kinds that file declares` };
-    if (history !== undefined && await findSubject(context.ctx, id) === undefined) return { ok: true, page: { id, kind: id.slice(0, id.indexOf(':')), title: id, trail: [], blocks: [], resolutions: {}, findings: [], notes: [], history, historicalAbsent: true } };
-    const result = await renderPage(context.ctx, id, lang, history === undefined ? options : { ...options, defer: false });
-    if (!result.ok) return result;
+    const guideKind = (Object.keys(GUIDE_OUTPUTS) as GuideKind[]).find((kind) => GUIDE_OUTPUTS[kind].id === id);
+    if (guideKind !== undefined) {
+      // Guide authority can open its own transactions. It never enters the page batch.
+      const context = await this.context(history);
+      if ('absent' in context) return { ok: false, status: 404, message: `the product has no ${context.file}: the wiki shows the kinds that file declares` };
+      return await this.guidePage(guideKind, lang === 'ru' ? 'ru' : lang === 'en' ? 'en' : context.ctx.language === 'ru' ? 'ru' : 'en', context.ctx, history);
+    }
+    // These operations can open their own snapshots; finish them before holding the reader pipe.
     const historyNavigation = history === undefined && id.startsWith('code.') ? await Promise.all([...this.pins.keys()].sort(byCodePoint).map(async (repo) => { const indexed = await this.historyAt({ repo, at: '?' }); return { repo, points: indexed.points, ...(indexed.landmarks === undefined ? {} : { landmarks: indexed.landmarks }) }; })) : undefined;
-    const page = history === undefined ? result.page : withHistoryLinks(result.page, history);
-    return { ok: true, page: { ...page, ...(history === undefined ? { planned: await this.plannedForPage(id), ...(historyNavigation === undefined ? {} : { historyNavigation }) } : { history, blocks: page.blocks.filter((block) => block.type !== 'history') }) } };
+    const planned = history === undefined ? await this.plannedForPage(id) : undefined;
+    const owner = await this.open();
+    const validAt = this.validAt();
+    const pins = new Map(this.pins);
+    return await owner.transaction('snapshot', async (transaction) => {
+      const context = await this.context(history, { owner, transaction, validAt, pins });
+      if ('absent' in context) return { ok: false, status: 404, message: `the product has no ${context.file}: the wiki shows the kinds that file declares` };
+      if (history !== undefined && await findSubject(context.ctx, id) === undefined) return { ok: true, page: { id, kind: id.slice(0, id.indexOf(':')), title: id, trail: [], blocks: [], resolutions: {}, findings: [], notes: [], history, historicalAbsent: true } };
+      const result = await renderPage(context.ctx, id, lang, history === undefined ? options : { ...options, defer: false });
+      if (!result.ok) return result;
+      const page = history === undefined ? result.page : withHistoryLinks(result.page, history);
+      return { ok: true, page: { ...page, ...(history === undefined ? { planned, ...(historyNavigation === undefined ? {} : { historyNavigation }) } : { history, blocks: page.blocks.filter((block) => block.type !== 'history') }) } };
+    });
+  }
+
+  /** Strict guide data and fresh walk evidence are assembled once for every read format. */
+  private async guidePage(kind: GuideKind, locale: GuideLocale, ctx: RenderContext, history?: HistoryContext): Promise<PageResult> {
+    const declaration = ctx.manifest.kinds.get(kind);
+    const output = { id: GUIDE_OUTPUTS[kind].id, path: declaration?.file ?? 'madarch/kinds.yaml' };
+    const file = resolve(ctx.productFolder, output.path);
+    const title = ctx.manifest.kinds.get(kind)?.labels?.[locale]?.one ?? kind;
+    const base: PageModel = { id: output.id, kind, title, trail: [], blocks: [], resolutions: {}, findings: [], notes: [], ...(history === undefined ? { planned: await this.plannedForPage(output.id) } : { history }) };
+    const gap = (en: string, ru: string): PageResult => {
+      const message = `${file}:1: $.guide: ${locale === 'ru' ? ru : en}`;
+      return { ok: true, page: { ...base, blocks: [{ type: 'problem', block: 'guide', file, line: 1, message }], findings: [{ file, line: 1, message }] } };
+    };
+    if (declaration?.source !== 'markdown' || declaration.file === undefined) return gap('the registered guide output is not declared by this product', 'Этот продукт не объявляет зарегистрированное руководство');
+    if (history !== undefined) return gap('historical guide input proof is unavailable; current content was not substituted', 'Нет подтверждённых входных данных руководства на эту дату; текущая версия не подставлена');
+    try {
+      if ((this.options.guideContextFor === undefined) !== (this.options.guideHostFor === undefined)) return gap('guide context and verification authority must be supplied together', 'Контекст и проверяющая сторона руководства должны быть заданы вместе');
+      const productPin = guideProductPin(ctx.productFolder, [...this.pins.keys()]);
+      const repositories = [...this.pins.values()].map((pin) => ({ name: pin.name, commit: pin.commit })).concat({ name: productPin.id, commit: productPin.commit }).sort((a, b) => byCodePoint(a.name, b.name));
+      const valid = [...this.pins.values()].map((pin) => pin.effectiveTime).sort(byCodePoint).pop();
+      if (valid === undefined || repositories.some((pin) => pin.commit === '')) return gap('the repositories have no complete pinned input', 'Нет полных закреплённых входных данных репозиториев');
+      if ([...this.pins.values()].some((pin) => !this.repositories().some((repository) => repository.name === pin.name && repository.present))) return gap('a pinned source repository is unavailable', 'Закреплённый исходный репозиторий недоступен');
+      const owner = await this.open();
+      const defaults = createGuideReadFactories({ owner, store: createGraphStore(owner), output: ctx.productFolder,
+        snapshots: createGitSnapshotSource([...([...this.pins.values()].map((pin) => ({ id: pin.name, form: 'code' as const, root: this.repositories().find((repository) => repository.name === pin.name)?.path ?? join(ctx.productFolder, 'repos', pin.name), commit: pin.commit }))), productPin]),
+        scopeOf: (repository) => this.pins.get(repository)?.scope,
+      });
+      const contextFor = this.options.guideContextFor ?? defaults.guideContextFor;
+      const hostFor = this.options.guideHostFor ?? defaults.guideHostFor;
+      const current = await contextFor({ kind, locale, valid, repositories });
+      const currentCode = current?.repositories.filter((repository) => repository.name !== productPin.id).sort((a, b) => byCodePoint(a.name, b.name));
+      const requestedCode = repositories.filter((repository) => repository.name !== productPin.id);
+      if (current === undefined || !current.repositories.some((repository) => repository.name === productPin.id) || JSON.stringify(currentCode) !== JSON.stringify(requestedCode)) return gap('the current prepared input proof is unavailable or stale', 'Подтверждение текущих подготовленных данных недоступно или устарело');
+      const host = await hostFor({ kind, locale, context: current });
+      const root = realpathSync(ctx.productFolder);
+      const actual = realpathSync(file);
+      if (!insideFolder(root, relative(root, actual)) || !statSync(actual).isFile() || statSync(actual).size > 2 * 1024 * 1024) return gap('guide artifact is unsafe or exceeds 2097152 bytes; nothing was truncated', 'Файл руководства небезопасен или превышает 2097152 байта; данные не сокращены');
+      const read = await readGuidePage({ file, source: readFileSync(actual, 'utf8'), kind, locale, host });
+      if (!read.ok) return { ok: true, page: { ...base, findings: [...read.diagnostics], blocks: read.diagnostics.map((diagnostic) => ({ type: 'problem', block: 'guide', file: diagnostic.file, line: diagnostic.line, message: diagnostic.message })) } };
+      return { ok: true, page: { ...base, title: read.data.guide.title, findings: [...read.diagnostics], blocks: [{ type: 'guide', data: read.data }] } };
+    } catch {
+      return gap('guide artifact or source verification is unavailable; no success was inferred', 'Файл руководства или проверка источников недоступны; успех не предполагается');
+    }
   }
 
   /** The planned changes one page stands in: its own entity, and the statements of it a task's grounds reach. */
@@ -1562,11 +1718,25 @@ export class KnowledgeProduct {
       const texts = await readRepoDocuments(repo.name, repo.path, commit === undefined || commit === '' ? 'HEAD' : commit, listed);
       for (const name of listed) documents.push({ repo: repo.name, path: name, title: documentTitle(texts.get(name) ?? '', name) });
     }
+    for (const kind of Object.keys(GUIDE_OUTPUTS)) {
+      const declared = manifest.kinds.get(kind);
+      if (declared?.source !== 'markdown' || declared.file === undefined || !existsSync(join(product.folder, declared.file))) continue;
+      if (!documents.some((document) => document.repo === null && document.path === declared.file)) documents.push({ repo: null, path: declared.file, title: declared.labels?.[manifest.language === 'ru' ? 'ru' : 'en']?.one ?? kind });
+    }
     return { documents, truncated };
   }
 
   /** One document as a page; `undefined` when the repository has no such document. */
   async document(repo: string | null, path: string): Promise<DocumentPage | undefined> {
+    const registry = readKinds(this.options.productFolder);
+    const guideKind = repo === null && registry.present ? (Object.keys(GUIDE_OUTPUTS) as GuideKind[]).find((kind) => registry.manifest.kinds.get(kind)?.source === 'markdown' && registry.manifest.kinds.get(kind)?.file === path) : undefined;
+    if (guideKind !== undefined) {
+      const assembled = await this.page(GUIDE_OUTPUTS[guideKind].id);
+      if (!assembled.ok) return undefined;
+      const only = assembled.page.blocks.length === 1 ? assembled.page.blocks[0] : undefined;
+      if (only?.type !== 'guide') return { repo: null, path, title: assembled.page.title, markdown: assembled.page.findings.map((finding) => finding.message).join('\n'), resolutions: {}, anchors: {}, commit: null, planned: [] };
+      return { repo: null, path, title: assembled.page.title, markdown: only.data.markdown, resolutions: assembled.page.resolutions, anchors: {}, commit: null, planned: [] };
+    }
     if (!DOCUMENT_PATH.test(path)) return undefined;
     const context = await this.context();
     if ('absent' in context) return undefined;
@@ -1908,7 +2078,7 @@ export function defaultKnowledgeRoot(home: string): string {
 export class KnowledgeHost {
   private readonly products = new Map<string, KnowledgeProduct>();
 
-  constructor(private readonly storeRoot: string, private readonly now?: () => Date, private readonly extra: Pick<KnowledgeProductOptions, 'env' | 'agentFactory' | 'errorLog' | 'workerFactory' | 'snapshotMs' | 'choicesQuery'> = {}) {}
+  constructor(private readonly storeRoot: string, private readonly now?: () => Date, private readonly extra: Pick<KnowledgeProductOptions, 'env' | 'agentFactory' | 'errorLog' | 'workerFactory' | 'snapshotMs' | 'choicesQuery' | 'guideContextFor' | 'guideHostFor'> = {}) {}
 
   of(productFolder: string): KnowledgeProduct {
     const key = resolve(productFolder);

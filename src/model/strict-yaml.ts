@@ -1,4 +1,4 @@
-import { isAlias, isMap, isPair, isScalar, isSeq, type Document, type LineCounter } from 'yaml';
+import { CST, Parser, isAlias, isMap, isPair, isScalar, isSeq, type Document, type LineCounter } from 'yaml';
 import type { ModelError } from './errors.js';
 import { segmentsToPath, type PathSegment } from './yaml-position.js';
 
@@ -23,22 +23,35 @@ export function checkStrictYaml(doc: Document, lineCounter: LineCounter, file: s
 
   const lineOf = (range: Range): number => (range ? lineCounter.linePos(range[0]).line : 1);
 
-  /**
-   * The node an anchor decorates has its own range start *after* the
-   * `&name` marker (the marker belongs to the enclosing sequence or
-   * mapping item, which the walk does not expose here), so the node's own
-   * range would point one line too late. The marker itself is found by
-   * scanning backwards in the source for the last `&name` before the
-   * node it decorates.
-   */
+  // Marker offsets come from YAML CST properties, not text that may be quoted or commented.
+  // Parse lazily so callers need not retain source tokens on their composed document.
+  let anchorOffsets: Map<string, number[]> | undefined;
   const anchorLine = (name: string, beforeOffset: number): number => {
-    const pattern = new RegExp(`&${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'g');
-    let offset = -1;
-    let match: RegExpExecArray | null;
-    while ((match = pattern.exec(text)) && match.index < beforeOffset) {
-      offset = match.index;
+    if (anchorOffsets === undefined) {
+      anchorOffsets = new Map();
+      const retain = (tokens: readonly CST.SourceToken[]): void => {
+        for (const token of tokens) if (token.type === 'anchor') {
+          const key = token.source.slice(1);
+          const offsets = anchorOffsets!.get(key);
+          if (offsets === undefined) anchorOffsets!.set(key, [token.offset]);
+          else offsets.push(token.offset);
+        }
+      };
+      for (const token of new Parser().parse(text)) if (token.type === 'document') {
+        CST.visit(token, (item) => { retain(item.start); if (item.sep !== undefined) retain(item.sep); });
+      }
+      for (const offsets of anchorOffsets.values()) offsets.sort((a, b) => a - b);
     }
-    return offset >= 0 ? lineCounter.linePos(offset).line : lineOf([beforeOffset, beforeOffset, beforeOffset]);
+    const offsets = anchorOffsets.get(name) ?? [];
+    let low = 0;
+    let high = offsets.length;
+    while (low < high) {
+      const middle = Math.floor((low + high) / 2);
+      if (offsets[middle]! <= beforeOffset) low = middle + 1;
+      else high = middle;
+    }
+    const offset = offsets[low - 1];
+    return offset === undefined ? lineOf([beforeOffset, beforeOffset, beforeOffset]) : lineCounter.linePos(offset).line;
   };
 
   const visitNode = (node: unknown, segments: PathSegment[]): void => {
@@ -92,7 +105,9 @@ export function checkStrictYaml(doc: Document, lineCounter: LineCounter, file: s
       }
       for (const item of node.items) {
         if (!isScalar(item.key)) continue;
-        visitNode(item.value, [...segments, String(item.key.value)]);
+        const path = [...segments, String(item.key.value)];
+        visitNode(item.key, path);
+        visitNode(item.value, path);
       }
       return;
     }

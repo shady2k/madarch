@@ -20,6 +20,7 @@ import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY, ROOT, generateTrainingRepository, makeProduct } from './knowledge-fixture.js';
 import { slugOf } from '../src/writer/names.js';
 import { ANSWER_TEXT, LOOP_QUESTIONS, firstRunScript, questionSlug, refreshScript } from './loop-agent-script.js';
+import { SCRIPTED_GUIDE_PATH, SCRIPTED_GUIDE_SOURCE } from './scripted-guide-agent.js';
 
 const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, env: gitEnv(SAMPLE_IDENTITY), encoding: 'utf8' }).trim();
 const sha = (path: string): string => createHash('sha256').update(readFileSync(path)).digest('hex');
@@ -54,6 +55,9 @@ const settled = (): Promise<any> => until('the fill and the agent stage to end',
 beforeAll(async () => {
   work = mkdtempSync(join(tmpdir(), 'madarch-loop-training-'));
   const repository = generateTrainingRepository(join(work, 'repo'));
+  writeFileSync(join(repository, SCRIPTED_GUIDE_PATH), SCRIPTED_GUIDE_SOURCE);
+  git(repository, 'add', '--', SCRIPTED_GUIDE_PATH);
+  git(repository, '-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'Document the held readiness fixture');
   const home = join(work, 'home');
   mkdirSync(home);
   product = makeProduct(home, 'training-shop', repository);
@@ -94,7 +98,19 @@ describe('the agent asks, a person answers, the refresh edits one page', () => {
     // Two retention paraphrases run through ACP too; the complete listing below still has one file for that decision.
     expect(status.loop).toEqual({ questionsOpen: LOOP_QUESTIONS.length, questionsAnswered: 0, correctionsOpen: 0 });
     expect(readdirSync(join(product, 'docs/questions')).sort()).toEqual(LOOP_QUESTIONS.map((q) => `${questionSlug(q, 'en')}.md`).sort());
-    for (const page of ['docs/product.md', 'docs/domains/ordering.md', 'docs/domains/payments.md']) expect(existsSync(join(product, page))).toBe(true);
+    for (const page of ['docs/product.md', 'docs/domains/ordering.md', 'docs/domains/payments.md', 'docs/guides/administrator.md', 'docs/guides/user.md']) expect(existsSync(join(product, page))).toBe(true);
+    for (const id of ['administrator-guide:main', 'user-guide:main']) {
+      const guidePage = await get(`/api/k/page?id=${encodeURIComponent(id)}`);
+      expect(guidePage.status).toBe(200);
+      const guide = guidePage.body.blocks.find((block: { type: string }) => block.type === 'guide');
+      expect(guide.data.guide.id).toBe(id);
+      expect(guide.data.guide.procedures[0].steps[0].instruction.content).toBe('node -e "console.log(7)"');
+      expect(guide.data.guide.procedures[0].steps[0].grounds.some((ground: { path: string }) => ground.path === SCRIPTED_GUIDE_PATH)).toBe(true);
+      expect(guide.data.walk.status).toBe('not-walked');
+      expect(guide.data.guide.gaps.length).toBeGreaterThan(0);
+      expect(guide.data.coverage).toBe('procedures');
+    }
+
   }, 3_000_000);
 
   test('every question is about the places the answer key names for its item, grounded in them, and none is a guess: each ground resolves', async () => {
