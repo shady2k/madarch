@@ -187,6 +187,8 @@ export async function extractContracts(reader: TreeReader, code?: Extraction, fa
 
   const sourceText = new TreeText(reader, code, facts);
   const symbols = await contractSymbols(reader, nodes, code, facts, sourceText);
+  const httpRegistrations = structuralHttpRegistrations(sourceText);
+  const httpRegistrationAt = (span: SourceSpan) => {const matches = httpRegistrations.filter(route => route.span.path === span.path && route.span.byteStart === span.byteStart && route.span.byteEnd === span.byteEnd); return matches.length === 1 ? matches[0] : undefined;};
   if (facts === undefined) gaps.push({path: '.', reason: 'contracts: line 1: canonical sites and receiver/listener associations require shared resolved code facts'});
   else gaps.push(...facts.gaps);
   const portsOfRoute = (span: SourceSpan): string[] => {
@@ -359,7 +361,8 @@ export async function extractContracts(reader: TreeReader, code?: Extraction, fa
         ...(service === undefined ? {} : {service}),
         ...(route.authGroup && auth !== undefined && route.middleware.some((name) => name.replace(/\(.*/, '') === auth) ? {authAlgorithm: 'HS256'} : {}),
       };
-      const handler = symbols.handler(route.handlerSpan, route.inline, `${route.method}:${route.path}`);
+      const registration = httpRegistrationAt(route.span);
+      const handler = registration === undefined ? symbols.handler(route.handlerSpan, route.inline, `${route.method}:${route.path}`) : registration.handler?.key;
       if (handler !== undefined) {
         properties['handlerPath'] = handler.slice('code.symbol:'.length, handler.indexOf('#'));
         properties['handlerKey'] = handler;
@@ -609,7 +612,7 @@ export async function extractContracts(reader: TreeReader, code?: Extraction, fa
   // Shared structural registrations also cover imported factory aliases the
   // legacy AST route reader cannot name. Existing enriched routes keep their
   // middleware and mounted path; no same-name registration is substituted.
-  for (const route of structuralHttpRegistrations(sourceText)) {
+  for (const route of httpRegistrations) {
     if (!isSourcePath(route.span.path) || nodes.some((node) => node.kind === KIND_ROUTE && node.span !== undefined && node.span.path === route.span.path && node.span.byteStart === route.span.byteStart && node.span.byteEnd === route.span.byteEnd)) continue;
     const key = routeKey(route.span.path, route.method, route.path);
     const service = serviceOf(route.span.path);

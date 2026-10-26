@@ -4,8 +4,8 @@ import type {SourceSpan} from '../records.js';
 import {byCodePoint} from '../../model/order.js';
 import {functionsOf,type FunctionSite} from './symbol-sites.js';
 import type {TreeText} from './source.js';
-import {httpModels,type HttpModel,type HttpRole} from '../library-models/http-models.js';
-export interface HttpRegistrationFact {readonly span:SourceSpan;readonly path:string;readonly method:string;readonly handler?:FunctionSite;readonly receiverExpression:string;readonly ports:readonly string[]}
+import {httpModels,type HttpModel,type HttpRole,type HttpParameterType} from '../library-models/http-models.js';
+export interface HttpRegistrationFact {readonly span:SourceSpan;readonly path:string;readonly method:string;readonly handler?:FunctionSite;readonly handlerExpression?:string;readonly receiverExpression:string;readonly ports:readonly string[]}
 const contains=(a:SourceSpan,b:SourceSpan):boolean=>a.path===b.path&&a.byteStart<=b.byteStart&&b.byteEnd<=a.byteEnd;
 const same=(a:SourceSpan,b:SourceSpan):boolean=>contains(a,b)&&contains(b,a);
 const unique=<T>(items:readonly T[]):T|undefined=>items.length===1?items[0]:undefined;
@@ -71,9 +71,58 @@ class HttpFacts {
   }
   const value=this.unwrap(callee.id);return value===undefined?undefined:unique(this.sites(value.path).filter(site=>same(site.span,value.span)));
  }
+ /** Resolve a direct declared Go type, never a spelling or alias. */
+ private declaredType(raw:CodeExpressionFact):{binding:CodeBindingFact;pointer:boolean}|undefined{
+  const pointer=raw.syntaxKind==='pointer_type';const type=pointer?unique(this.children(raw)??[]):raw;
+  if(type?.syntaxKind!=='type_identifier')return undefined;const binding=this.binding(type);const proof=binding?.typeDeclaration;
+  if(binding?.kind!=='type'||proof?.shape!=='struct')return undefined;
+  const declaration=this.expression(proof.expression);const name=this.expression(proof.nameExpression);const body=this.expression(proof.typeExpression);const scope=this.expression(proof.scopeExpression);
+  if(declaration?.syntaxKind!=='type_spec'||name===undefined||body?.syntaxKind!=='struct_type'||scope===undefined||!same(declaration.span,proof.declarationSpan)||!same(scope.span,binding.scope)||!contains(scope.span,type.span)||type.span.byteStart<proof.scopeStart||!same(name.span,binding.span)||this.field(declaration,'name')?.id!==name.id||this.field(declaration,'type')?.id!==body.id||!contains(declaration.span,name.span)||!contains(declaration.span,body.span))return undefined;
+  return {binding,pointer};
+ }
+ private parameterType(binding:CodeBindingFact):CodeExpressionFact|undefined{
+  const parameter=unique([...this.expressions.values()].filter(expression=>expression.syntaxKind==='parameter_declaration'&&contains(expression.span,binding.span)&&(expression.fields.name??[]).some(id=>{const name=this.expression(id);return name?.bindingId===binding.id&&same(name.span,binding.span);})));
+  return parameter===undefined?undefined:this.field(parameter,'type');
+ }
+ private receiverType(site:FunctionSite):{binding:CodeBindingFact;pointer:boolean}|undefined{
+  const symbol=unique((this.t.facts?.symbols??[]).filter(symbol=>symbol.key===site.key));const receiver=symbol?.receiver;
+  const binding=receiver===undefined?undefined:this.bindings.get(receiver.bindingId);
+  if(binding===undefined||!['receiver','parameter'].includes(binding.kind)||binding.path!==site.path||!contains(binding.scope,site.span)||receiver?.name!==binding.name)return undefined;
+  const type=this.parameterType(binding);return type===undefined?undefined:this.declaredType(type);
+ }
+ /** Field sites must prove both the exact declaration and its receiver type. */
+ private valueType(id:string,seen=new Set<string>()):{binding:CodeBindingFact;pointer:boolean}|undefined{
+  if(seen.has(id)||seen.size>80)return undefined;seen.add(id);const value=this.unwrap(id);if(value===undefined)return undefined;
+  const binding=this.binding(value);
+  if(binding?.kind==='parameter'||binding?.kind==='receiver'){const type=this.parameterType(binding);return type===undefined?undefined:this.declaredType(type);}
+  if(value.receiver!==undefined&&value.member!==undefined){
+   const property=this.field(value,'field');if(property===undefined||property.name!==value.member)return undefined;
+   const sites=(this.t.facts?.sites??[]).filter(site=>site.use==='reference'&&same(site.span,property.span));const target=unique([...new Set(sites.map(site=>site.to))]);
+   const field=target===undefined?undefined:unique((this.t.facts?.fields??[]).filter(field=>field.key===target));
+   const owner=this.valueType(value.receiver,seen);const raw=field===undefined?undefined:this.expression(field.typeExpression);const declaration=field===undefined?undefined:this.expression(field.ownerDeclaration);
+   const symbol=field===undefined?undefined:unique((this.t.facts?.symbols??[]).filter(symbol=>symbol.key===field.key&&!symbol.callable));
+   if(field===undefined||owner===undefined||raw===undefined||declaration?.syntaxKind!=='type_spec'||symbol===undefined||symbol.path!==field.path||!contains(symbol.span,field.span)||field.name!==value.member||field.ownerDeclaration!==owner.binding.typeDeclaration?.expression||!contains(declaration.span,field.span)||!contains(declaration.span,raw.span))return undefined;
+   const fieldDeclaration=unique([...this.expressions.values()].filter(expression=>expression.syntaxKind==='field_declaration'&&contains(declaration.span,expression.span)&&contains(expression.span,field.span)&&this.field(expression,'type')?.id===raw.id&&(expression.fields.name??[]).some(id=>{const name=this.expression(id);return name!==undefined&&same(name.span,field.span);} )));
+   return fieldDeclaration===undefined?undefined:this.declaredType(raw);
+  }
+  return undefined;
+ }
+ private importedType(raw:CodeExpressionFact,packageName:string,expected:HttpParameterType):boolean{
+  const pointer=raw.syntaxKind==='pointer_type';const type=pointer?unique(this.children(raw)??[]):raw;
+  if(pointer!==expected.pointer||type===undefined)return false;const origin=this.external(type.id);
+  return origin?.package===packageName&&JSON.stringify(origin.path)===JSON.stringify(expected.path);
+ }
+ private signature(site:FunctionSite,model:HttpModel,method:boolean):boolean{
+  const effect=model.effect;if(effect.kind!=='handler'||site.language!=='go')return false;
+  const declaration=unique([...this.expressions.values()].filter(expression=>same(expression.span,site.span)&&(method?expression.syntaxKind===effect.declarationKind:effect.functionDeclarationKinds.includes(expression.syntaxKind))));
+  if(declaration===undefined||(declaration.fields.result??[]).length!==0)return false;
+  const list=this.field(declaration,'parameters');const parameters=list===undefined?undefined:this.children(list);
+  if(parameters===undefined||parameters.length!==effect.parameters.length)return false;
+  return parameters.every((parameter,index)=>{const type=this.field(parameter,'type');return parameter.syntaxKind==='parameter_declaration'&&(parameter.fields.name??[]).length<=1&&type!==undefined&&this.importedType(type,model.package,effect.parameters[index]!);});
+ }
  /** A Go method receiver must have the exact direct constructor result type. */
  private methodReceiver(callee:CodeExpressionFact,site:FunctionSite):boolean{
-  if(callee.receiver===undefined)return false;const receiver=this.unwrap(callee.receiver);if(receiver===undefined)return false;
+  if(callee.receiver===undefined)return false;const actual=this.valueType(callee.receiver);const expected=this.receiverType(site);if(actual!==undefined&&expected!==undefined)return actual.binding.id===expected.binding.id&&(!expected.pointer||actual.pointer);const receiver=this.unwrap(callee.receiver);if(receiver===undefined)return false;
   const call=this.call(receiver.id);const constructor=call===undefined?undefined:this.expression(call.callee);if(constructor===undefined)return false;
   const target=this.target(constructor);if(target===undefined||target.receiverType!==undefined)return false;
   let result=this.returned(target);if(result?.syntaxKind==='unary_expression')result=this.field(result,'operand');
@@ -98,11 +147,19 @@ class HttpFacts {
  }
  private exportedModels(id:string):readonly HttpModel[]{const imported=this.external(id);const expression=this.expression(id);const language=this.t.facts?.files.find(file=>file.path===expression?.path)?.language;const ecosystem=language===undefined?undefined:language==='go'?'go':'node';return imported===undefined?[]:httpModels.filter(model=>model.target.kind==='export'&&model.ecosystem===ecosystem&&model.package===imported.package&&model.target.paths.some(path=>JSON.stringify(path)===JSON.stringify(imported.path)));}
  private origin(id:string,seen=new Set<string>()):{id:string;package:string;role:HttpRole}|undefined{
-  if(seen.has(id)||seen.size>80)return undefined;seen.add(id);const value=this.unwrap(id);if(value===undefined)return undefined;const call=this.call(value.id);const callee=call===undefined?undefined:this.expression(call.callee);if(call===undefined||callee===undefined)return undefined;
+  if(seen.has(id)||seen.size>80)return undefined;seen.add(id);const value=this.unwrap(id);if(value===undefined)return undefined;const registry=unique(this.exportedModels(value.id).filter(model=>model.effect.kind==='registry'));if(registry?.effect.kind==='registry')return this.defaultOrigin(registry.package,registry.effect.role,value.path);const call=this.call(value.id);const callee=call===undefined?undefined:this.expression(call.callee);if(call===undefined||callee===undefined)return undefined;
   const model=unique(this.exportedModels(callee.id).filter(model=>model.effect.kind==='factory'));
   if(model?.effect.kind==='factory')return {id:value.id,package:model.package,role:model.effect.role};
   const target=this.target(callee);const result=target===undefined?undefined:this.returned(target);return result===undefined?undefined:this.origin(result.id,seen);
  }
+ /** A process-global registry is only joined within its proved source unit; no process graph is inferred. */
+ private defaultOrigin(packageName:string,role:HttpRole,path:string):{id:string;package:string;role:HttpRole}{return {id:JSON.stringify(['http-default-registry',packageName,role,path]),package:packageName,role};}
+ private defaultModelOrigin(model:HttpModel,path:string):{id:string;package:string;role:HttpRole}|undefined{return 'defaultReceiver' in model.effect&&model.effect.defaultReceiver!==undefined?this.defaultOrigin(model.package,model.effect.defaultReceiver,path):undefined;}
+ private listenerOrigin(handler:string|undefined,model:HttpModel,path:string):{id:string;package:string;role:HttpRole}|undefined{
+  if(handler===undefined)return this.defaultModelOrigin(model,path);const value=this.unwrap(handler);
+  return value?.literal?.kind==='null'?this.defaultModelOrigin(model,path):this.origin(handler);
+ }
+ private registrationOrigin(call:CodeCallFact,model:HttpModel):{id:string;package:string;role:HttpRole}|undefined{return this.defaultModelOrigin(model,call.path)??(this.member(call)?.receiver===undefined?undefined:this.origin(this.member(call)!.receiver!));}
  private models(call:CodeCallFact):readonly HttpModel[]{
   const exported=this.exportedModels(call.callee);const member=this.member(call);const receiver=member?.receiver===undefined?undefined:this.origin(member.receiver);
   return [...exported,...(receiver===undefined?[]:httpModels.filter(model=>model.target.kind==='member'&&model.package===receiver.package&&model.target.roles.includes(receiver.role)&&model.target.members.includes(member?.member??'')))];
@@ -116,51 +173,71 @@ class HttpFacts {
   for(const pair of pairs){if(pair.syntaxKind!=='keyed_element')return undefined;const parts=this.children(pair);if(parts?.length!==2)return undefined;const keyWrapper=parts[0]!;const valueWrapper=parts[1]!;const key=unique(this.children(keyWrapper)??[]);const value=unique(this.children(valueWrapper)??[]);if(keyWrapper.syntaxKind!=='literal_element'||valueWrapper.syntaxKind!=='literal_element'||key?.name===undefined||value===undefined||result.has(key.name))return undefined;result.set(key.name,value);}return result;
  }
  /** Traverse only explicit mount edges between proved receiver identities. */
- ports(receiver:string):string[]{
-  const wanted=this.origin(receiver);if(wanted===undefined)return [];const reachable=new Set([wanted.id]);const listeners:{origin:string;port:string}[]=[];const mounts:{child:string;parent:string}[]=[];
+ ports(receiver:string,wanted=this.origin(receiver)):string[]{
+  if(wanted===undefined)return [];const reachable=new Set([wanted.id]);const listeners:{origin:string;port:string}[]=[];const mounts:{child:string;parent:string}[]=[];
   for(const raw of this.calls.values()){
    const call=this.call(raw.expression);if(call===undefined)continue;const member=this.member(call);const receiverOrigin=member?.receiver===undefined?undefined:this.origin(member.receiver);
    for(const model of this.models(call)){
     const effect=model.effect;
     if(effect.kind==='listen'){
      const address=call.arguments[effect.portArgument];const handler=effect.handlerArgument===undefined?undefined:call.arguments[effect.handlerArgument];
-     const origin=effect.handlerArgument===undefined?receiverOrigin:handler===undefined?undefined:this.origin(handler);
+     const origin=effect.handlerArgument===undefined?receiverOrigin:handler===undefined?undefined:this.listenerOrigin(handler,model,call.path);
      const port=address===undefined?undefined:this.port(address,effect.portFormat==='address');if(origin!==undefined&&port!==undefined)listeners.push({origin:origin.id,port});
     }
     if(effect.kind==='mount'&&receiverOrigin!==undefined)for(const argument of call.arguments.slice(effect.argumentsFrom)){const child=this.origin(argument);if(child!==undefined)mounts.push({child:child.id,parent:receiverOrigin.id});}
    }
    if(member?.receiver!==undefined){const server=this.server(member.receiver);const effect=server?.model.effect;
-    if(server!==undefined&&effect?.kind==='server'&&member.member===effect.listenMember){const fields=this.serverFields(server.value);const address=fields?.get(effect.addressField);const handler=fields?.get(effect.handlerField);const port=address===undefined?undefined:this.port(address.id,true);const origin=handler===undefined?undefined:this.origin(handler.id);if(port!==undefined&&origin!==undefined)listeners.push({origin:origin.id,port});}
+    if(server!==undefined&&effect?.kind==='server'&&member.member===effect.listenMember){const fields=this.serverFields(server.value);const address=fields?.get(effect.addressField);const handler=fields?.get(effect.handlerField);const port=address===undefined?undefined:this.port(address.id,true);const origin=fields===undefined?undefined:this.listenerOrigin(handler?.id,server.model,server.value.path);if(port!==undefined&&origin!==undefined)listeners.push({origin:origin.id,port});}
    }
   }
   let changed=true;while(changed){changed=false;for(const mount of mounts)if(reachable.has(mount.child)&&!reachable.has(mount.parent)){reachable.add(mount.parent);changed=true;}}
   return [...new Set(listeners.filter(listener=>reachable.has(listener.origin)).map(listener=>listener.port))].sort(byCodePoint);
  }
- private handler(id:string):FunctionSite|undefined{
-  const value=this.expression(id);if(value===undefined)return undefined;
-  const inline=unique(this.sites(value.path).filter(site=>same(site.span,value.span)));if(inline!==undefined)return inline;
-  const targets=[...new Set((this.t.facts?.sites??[]).filter(site=>site.use!=='type'&&contains(value.span,site.span)).map(site=>site.to))];
-  return targets.length===1?this.canonical(targets[0]!):undefined;
+ private handler(id:string,seen=new Set<string>()):FunctionSite|undefined{
+  if(seen.has(id)||seen.size>80)return undefined;seen.add(id);const value=this.unwrap(id);if(value===undefined)return undefined;
+  const language=this.t.facts?.files.find(file=>file.path===value.path)?.language;
+  const signatures=httpModels.filter(model=>model.effect.kind==='handler'&&model.ecosystem===language);
+  let direct=this.target(value);
+  if(direct===undefined&&['identifier','selector_expression','member_expression'].includes(value.syntaxKind)){
+   const property=value.receiver===undefined?value:this.field(value,value.syntaxKind==='selector_expression'?'field':'property');
+   const keys=property===undefined?[]:[...new Set((this.t.facts?.sites??[]).filter(site=>site.use==='reference'&&same(site.span,property.span)).map(site=>site.to))];
+   const candidate=keys.length===1?this.canonical(keys[0]!):undefined;const binding=value.bindingId===undefined?undefined:this.binding(value);
+   const imported=binding?.kind==='import'&&binding.importId!==undefined?this.imports.get(binding.importId):undefined;
+   const bound=value.bindingId===undefined||binding!==undefined&&binding.kind!=='parameter'&&binding.kind!=='receiver'&&(binding.kind!=='import'||imported!==undefined&&this.importedTarget(imported)!==undefined);
+   if(candidate!==undefined&&bound&&(candidate.receiverType===undefined||this.methodReceiver(value,candidate)))direct=candidate;
+  }
+  if(direct!==undefined){if(language!=='go')return direct;return signatures.some(model=>this.signature(direct,model,direct.receiver!==undefined))?direct:undefined;}
+  const call=this.call(value.id);
+  if(call!==undefined){const adapter=unique(this.exportedModels(call.callee).filter(model=>model.effect.kind==='handler-adapter'));if(adapter?.effect.kind==='handler-adapter'&&call.arguments.length===1){const argument=call.arguments[adapter.effect.argument];return argument===undefined?undefined:this.handler(argument,seen);}}
+  if(language!=='go')return undefined;const type=this.valueType(value.id);if(type===undefined)return undefined;
+  const candidates:FunctionSite[]=[];
+  for(const model of signatures){if(model.effect.kind!=='handler')continue;for(const symbol of this.t.facts?.symbols??[]){
+   if(!symbol.callable||symbol.name!==model.effect.member)continue;const site=this.canonical(symbol.key);if(site===undefined)continue;
+   const receiver=this.receiverType(site);if(receiver===undefined||receiver.binding.id!==type.binding.id||receiver.pointer&&!type.pointer||!this.signature(site,model,true))continue;candidates.push(site);
+  }}
+  return unique(candidates);
  }
  registrations():HttpRegistrationFact[]{
   const result:HttpRegistrationFact[]=[];
   for(const raw of this.calls.values()){
    const call=this.call(raw.expression);if(call===undefined)continue;const member=this.member(call);
    const model=unique(this.models(call).filter(model=>model.effect.kind==='route'));if(model?.effect.kind!=='route')continue;const effect=model.effect;
-   const receiver=member?.receiver;if(receiver===undefined)continue;
+   const receiver=member?.receiver;if(receiver===undefined)continue;const origin=this.registrationOrigin(call,model);
    const first=call.arguments[effect.pathArgument];const literal=first===undefined?undefined:this.value(first);if(typeof literal!=='string')continue;
    let path=literal;let method=(member?.member??'').toUpperCase();
    if(effect.method==='pattern'){const split=literal.indexOf(' ');method=split<0?'':literal.slice(0,split);path=split<0?literal:literal.slice(split+1);}
    if(!path.startsWith('/'))continue;
    const handlerId=effect.handlerArgument===-1?call.arguments.at(-1):call.arguments[effect.handlerArgument];const handler=handlerId===undefined?undefined:this.handler(handlerId);
-   result.push({span:call.span,path,method,receiverExpression:receiver,ports:this.ports(receiver),...(handler===undefined?{}:{handler})});
+   const ports=origin===undefined?[]:this.ports(receiver,origin);if(this.defaultModelOrigin(model,call.path)!==undefined&&ports.length===0)this.t.factGap(call.path,`line ${call.span.lineStart}: default registry receiver/listener proof is limited to its declaring file; cross-file process ownership is unsupported (${call.path})`);
+   result.push({span:call.span,path,method,receiverExpression:receiver,ports,...(handlerId===undefined?{}:{handlerExpression:handlerId}),...(handler===undefined?{}:{handler})});
   }
   return result.sort((a,b)=>byCodePoint(a.span.path,b.span.path)||a.span.byteStart-b.span.byteStart);
  }
  routePorts(span:SourceSpan):string[]{
   const call=unique([...this.calls.values()].filter(call=>same(call.span,span)));if(call===undefined)return [];
   const valid=this.call(call.expression);const member=valid===undefined?undefined:this.member(valid);
-  return member?.receiver===undefined?[]:this.ports(member.receiver);
+  const model=valid===undefined?undefined:unique(this.models(valid).filter(model=>model.effect.kind==='route'));const origin=valid===undefined||model===undefined?undefined:this.registrationOrigin(valid,model);
+  return member?.receiver===undefined||origin===undefined?[]:this.ports(member.receiver,origin);
  }
 }
 export function structuralHttpRegistrations(t:TreeText):readonly HttpRegistrationFact[]{

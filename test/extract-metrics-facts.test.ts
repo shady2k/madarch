@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 import { extractOperations } from './extract-code-facts-fixture.js';
 import type { TreeReader } from '../src/extract/records.js';
+import { metricSemanticModels, validateMetricSemanticModels } from '../src/extract/library-models/metric-semantic-models.js';
 const path = 'services/api/main.ts';
 const tree = (source: string): TreeReader => ({ paths: [path], read: () => new TextEncoder().encode(source) });
 const targets = (result: Awaited<ReturnType<typeof extractOperations>>) => result.edges.filter((edge) => edge.type === 'code.exposes-metric').map((edge) => edge.to);
@@ -78,4 +79,216 @@ func export(w io.Writer) { printer := Printer{}; printer.Fprint(w, "# TYPE decoy
   const input: TreeReader = { paths: ['services/api/telemetry.go'], read: () => new TextEncoder().encode(source) };
   const result = await extractOperations(input);
   expect(result.nodes.filter((node) => node.kind === 'code.metric')).toEqual([]);
+});
+
+const goTree = (source: string): TreeReader => ({ paths: ['services/api/telemetry.go'], read: () => new TextEncoder().encode(source) });
+const goMetric = 'code.metric:services/api/telemetry.go#work_items_total';
+
+test('registered typed HTTP object handler exposes a typed atomic observation and its modeled mutations', async () => {
+  const result = await extractOperations(goTree(`package api
+import printer "fmt"
+import web "net/http"
+import cell "sync/atomic"
+type Collector struct { count cell.Int64 }
+func (c *Collector) Increase() { c.count.Add(1) }
+func (c *Collector) Reset() { c.count.Store(0) }
+func (c *Collector) Observe() int64 { return c.count.Load() }
+func (c *Collector) ServeHTTP(w web.ResponseWriter, r *web.Request) {
+ printer.Fprint(w, "# TYPE work_items_total counter\\n")
+ printer.Fprintf(w, "work_items_total %d\\n", c.count.Load())
+}
+func Register() { mux := web.NewServeMux(); mux.Handle("/inspect", &Collector{}) }`));
+  const metric = result.nodes.find((node) => node.key === goMetric);
+  expect(metric?.properties.backingDeclaration).toBe('code.symbol:services/api/telemetry.go#Collector.count');
+  expect(metric?.properties.backingTypeExpression).toBeString();
+  expect(metric?.properties.definitionFormat).toBe('prometheus-text');
+  expect(result.edges.filter((edge) => edge.type === 'code.updates-metric' && edge.to === goMetric).map((edge) => edge.from)).toEqual([
+    'code.symbol:services/api/telemetry.go#Collector.Increase', 'code.symbol:services/api/telemetry.go#Collector.Reset',
+  ]);
+  const updates = result.edges.filter((edge) => edge.type === 'code.updates-metric' && edge.to === goMetric);
+  expect(updates.every((edge) => edge.properties.receiverModel === 'go.atomic.int64')).toBe(true);
+  const endpoint = result.nodes.find((node) => node.key === 'code.metrics-endpoint:services/api/telemetry.go#Collector');
+  expect(endpoint?.properties.path).toBe('/inspect');
+  expect(endpoint?.properties.handler).toBe('code.symbol:services/api/telemetry.go#Collector.ServeHTTP');
+  expect(endpoint?.properties.counters).toEqual(['work_items_total']);
+  expect(targets(result)).toEqual([goMetric]);
+  expect(result.edges.filter((edge) => edge.type === 'code.served-by' && edge.properties.role === 'handler').map((edge) => edge.to))
+    .toContain('code.symbol:services/api/telemetry.go#Collector.ServeHTTP');
+});
+
+test('atomic-shaped local methods and nested scalar arguments do not prove backing observations', async () => {
+  for (const sample of ['c.count.Load()', 'identity(c.scalar)']) {
+    const result = await extractOperations(goTree(`package api
+import "fmt"
+import "net/http"
+type Cell struct { value int64 }
+func (c *Cell) Add(n int64) { c.value += n }
+func (c *Cell) Load() int64 { return c.value }
+type Collector struct { count Cell; scalar int64 }
+func identity(n int64) int64 { return 0 }
+func (c *Collector) Increase() { c.count.Add(1); c.scalar++ }
+func (c *Collector) Export(w http.ResponseWriter, r *http.Request) {
+ fmt.Fprintf(w, "# TYPE work_items_total counter\\nwork_items_total %d\\n", ${sample})
+}
+func Register() { mux := http.NewServeMux(); c := &Collector{}; mux.HandleFunc("/inspect", c.Export) }`));
+    expect(result.nodes.find((node) => node.key === goMetric)?.properties.backingDeclaration).toBeUndefined();
+    expect(result.edges.filter((edge) => edge.type === 'code.updates-metric' && edge.to === goMetric)).toEqual([]);
+    expect(targets(result)).toEqual([]);
+    expect(result.gaps.some((gap) => gap.reason.includes('sample value has no unique resolved backing declaration'))).toBe(true);
+  }
+});
+
+test('unregistered text, timer text and a different writer stay private despite genuine atomic type', async () => {
+  for (const body of [
+    `func (c *Collector) Export(w web.ResponseWriter, r *web.Request) {
+ printer.Fprintf(w, "# TYPE work_items_total counter\\nwork_items_total %d\\n", c.count.Load())
+}
+func Register() {}`,
+    `func (c *Collector) Export(w web.ResponseWriter, r *web.Request) {
+ later := func() { printer.Fprintf(w, "# TYPE work_items_total counter\\nwork_items_total %d\\n", c.count.Load()) }; later()
+}
+func Register() { mux := web.NewServeMux(); c := &Collector{}; mux.HandleFunc("/inspect", c.Export) }`,
+    `func (c *Collector) Export(w web.ResponseWriter, r *web.Request) {
+ var destination io.Writer
+ printer.Fprintf(destination, "# TYPE work_items_total counter\\nwork_items_total %d\\n", c.count.Load())
+}
+func Register() { mux := web.NewServeMux(); c := &Collector{}; mux.HandleFunc("/inspect", c.Export) }`,
+  ]) {
+    const result = await extractOperations(goTree(`package api
+import printer "fmt"
+import web "net/http"
+import cell "sync/atomic"
+import "io"
+type Collector struct { count cell.Int64 }
+func (c *Collector) Increase() { c.count.Add(1) }
+${body}`));
+    expect(result.nodes.filter((node) => node.kind === 'code.metrics-endpoint')).toEqual([]);
+    expect(targets(result)).toEqual([]);
+  }
+});
+
+test('TYPE and sample on distinct parameter writers do not form one exposition family', async () => {
+  const result = await extractOperations(goTree(`package api
+import "fmt"
+import "net/http"
+import "sync/atomic"
+type Collector struct { count atomic.Int64 }
+func (c *Collector) Increase() { c.count.Add(1) }
+func (c *Collector) Export(w http.ResponseWriter, other http.ResponseWriter) {
+ fmt.Fprint(w, "# TYPE work_items_total counter\\n")
+ fmt.Fprintf(other, "work_items_total %d\\n", c.count.Load())
+}`));
+  expect(result.nodes.filter((node) => node.kind === 'code.metric')).toEqual([]);
+  expect(result.edges.filter((edge) => edge.type === 'code.updates-metric')).toEqual([]);
+  expect(targets(result)).toEqual([]);
+});
+
+test('atomic aliases and generic type parameters do not borrow external cell semantics', async () => {
+  for (const [declaration, receiver] of [
+    ['type Cell = atomic.Int64\ntype Collector struct { count Cell }', '*Collector'],
+    ['type Collector[Cell any] struct { count Cell }', '*Collector[Cell]'],
+  ]) {
+    const result = await extractOperations(goTree(`package api
+import "fmt"
+import "io"
+import "sync/atomic"
+${declaration}
+func (c ${receiver}) Increase() { c.count.Add(1) }
+func (c ${receiver}) Export(w io.Writer) {
+ fmt.Fprintf(w, "# TYPE work_items_total counter\\nwork_items_total %d\\n", c.count.Load())
+}`));
+    expect(result.nodes.find((node) => node.key === goMetric)?.properties.backingDeclaration).toBeUndefined();
+    expect(result.edges.filter((edge) => edge.type === 'code.updates-metric' && edge.to === goMetric)).toEqual([]);
+    expect(targets(result)).toEqual([]);
+  }
+});
+
+test('a genuine cell read is not an update and wrong-arity or opaque cell calls are not mutations', async () => {
+  const result = await extractOperations(goTree(`package api
+import "fmt"
+import "io"
+import "sync/atomic"
+type Collector struct { count atomic.Int64 }
+func (c *Collector) Observe() int64 { return c.count.Load() }
+func (c *Collector) Invalid() { c.count.Add(); c.count.Unknown(1) }
+func (c *Collector) Export(w io.Writer) {
+ fmt.Fprintf(w, "# TYPE work_items_total counter\\nwork_items_total %d\\n", c.count.Load())
+}`));
+  expect(result.nodes.find((node) => node.key === goMetric)?.properties.backingDeclaration).toBe('code.symbol:services/api/telemetry.go#Collector.count');
+  expect(result.edges.filter((edge) => edge.type === 'code.updates-metric' && edge.to === goMetric)).toEqual([]);
+  expect(targets(result)).toEqual([]);
+  expect(result.gaps.some((gap) => gap.reason.includes('backing declaration has no resolved write effect'))).toBe(true);
+});
+
+test('metric receiver semantics use a closed immutable data vocabulary', () => {
+  const model = metricSemanticModels.find((entry) => entry.role === 'metric-cell')!;
+  expect(Object.isFrozen(metricSemanticModels)).toBe(true);
+  expect(Object.isFrozen(model)).toBe(true);
+  const registry = (entry: unknown) => ({ schemaVersion: 1, models: [entry] });
+  expect(() => validateMetricSemanticModels(registry({ ...model, evaluate: 'arbitrary' }))).toThrow('unknown field');
+  expect(() => validateMetricSemanticModels(registry({ ...model, ecosystem: 'unknown' }))).toThrow('unsupported ecosystem');
+  expect(() => validateMetricSemanticModels(registry({ ...model, role: 'unknown' }))).toThrow('unknown role');
+  expect(() => validateMetricSemanticModels(registry({ ...model, writes: [{ member: 'Change', arguments: -1 }] }))).toThrow('invalid argument count');
+  expect(() => validateMetricSemanticModels({ schemaVersion: 1, models: [model, model] })).toThrow('duplicate selector');
+});
+
+test('a registered named handler keeps its actual callable endpoint key', async () => {
+  const result = await extractOperations(goTree(`package api
+import "fmt"
+import "net/http"
+import "sync/atomic"
+type Totals struct { count atomic.Int64 }
+var totals Totals
+func Increase() { totals.count.Add(1) }
+func Publish(w http.ResponseWriter, r *http.Request) {
+ fmt.Fprintf(w, "# TYPE work_items_total counter\\nwork_items_total %d\\n", totals.count.Load())
+}
+func Register() { http.HandleFunc("/inspect", Publish) }`));
+  const endpoint = result.nodes.find((node) => node.key === 'code.metrics-endpoint:services/api/telemetry.go#Publish');
+  expect(endpoint?.properties.counters).toEqual(['work_items_total']);
+  expect(targets(result)).toEqual([goMetric]);
+  expect(result.edges.filter((edge) => edge.type === 'code.updates-metric' && edge.to === goMetric).map((edge) => edge.from))
+    .toEqual(['code.symbol:services/api/telemetry.go#Increase']);
+});
+
+test('indexed map samples keep the direct map declaration and exact index evidence', async () => {
+  const result = await extractOperations(goTree(`package api
+import "fmt"
+import "io"
+type Collector struct { counts map[string]int64; category string }
+func (c *Collector) Increase() { c.counts[c.category]++ }
+func (c *Collector) Export(w io.Writer) {
+ fmt.Fprintf(w, "# TYPE work_items_total counter\\nwork_items_total %d\\n", c.counts[c.category])
+}`));
+  const metric = result.nodes.find((node) => node.key === goMetric);
+  expect(metric?.properties.backingDeclaration).toBe('code.symbol:services/api/telemetry.go#Collector.counts');
+  expect(result.edges.filter((edge) => edge.type === 'code.updates-metric' && edge.to === goMetric).map((edge) => edge.from))
+    .toEqual(['code.symbol:services/api/telemetry.go#Collector.Increase']);
+  const samples = metric?.properties.samples as { valueExpression: string; valueSpan: unknown; indexedBaseDeclaration: string;
+    indexExpression: string; indexSpan: unknown; indexKeyExpression: string; indexKeySpan: unknown }[];
+  expect(samples).toHaveLength(1);
+  expect(samples[0]?.indexedBaseDeclaration).toBe('code.symbol:services/api/telemetry.go#Collector.counts');
+  expect(samples[0]?.indexExpression).toBe(samples[0]?.valueExpression);
+  expect(samples[0]?.indexSpan).toEqual(samples[0]?.valueSpan);
+  expect(samples[0]?.indexKeyExpression).toBeString();
+  expect(samples[0]?.indexKeySpan).toBeDefined();
+  expect(targets(result)).toEqual([]);
+});
+
+test('indexing a slice or a named map type does not borrow direct map backing proof', async () => {
+  for (const type of ['[]int64', 'Counts']) {
+    const result = await extractOperations(goTree(`package api
+import "fmt"
+import "io"
+type Counts map[int]int64
+type Collector struct { counts ${type}; position int }
+func (c *Collector) Increase() { c.counts[c.position]++ }
+func (c *Collector) Export(w io.Writer) {
+ fmt.Fprintf(w, "# TYPE work_items_total counter\\nwork_items_total %d\\n", c.counts[c.position])
+}`));
+    expect(result.nodes.find((node) => node.key === goMetric)?.properties.backingDeclaration).toBeUndefined();
+    expect(result.edges.filter((edge) => edge.type === 'code.updates-metric' && edge.to === goMetric)).toEqual([]);
+    expect(targets(result)).toEqual([]);
+    expect(result.gaps.some((gap) => gap.reason.includes('sample value has no unique resolved backing declaration'))).toBe(true);
+  }
 });

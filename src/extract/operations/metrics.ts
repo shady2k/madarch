@@ -1,6 +1,7 @@
 /** Individual metrics from resolved library effects; no source scanning. */
 import { byCodePoint } from '../../model/order.js';
-import type { CodeExpressionFact } from '../code/facts.js';
+import type { CodeExpressionFact, CodeFieldFact } from '../code/facts.js';
+import { metricSemanticModels, type MetricSemanticModel } from '../library-models/metric-semantic-models.js';
 import { structuralHttpRegistrations } from './route-facts.js';
 import { parsePrometheusText, type PrometheusTextResult } from './prometheus-text.js';
 import type { PropertyValue } from '../records.js';
@@ -193,18 +194,98 @@ export function extractMetrics(t: TreeText, records: Records): void {
 /** Text declarations require modeled writer provenance and complete literal grammar. */
 function extractTextMetrics(t: TreeText, records: Records, view: CodeFactView, effects: readonly LibraryEffect[]): void {
   const facts = view.facts;
+  const contains = (outer: import('../records.js').SourceSpan, inner: import('../records.js').SourceSpan): boolean =>
+    outer.path === inner.path && outer.byteStart <= inner.byteStart && inner.byteEnd <= outer.byteEnd;
+  const unique = <T>(items: readonly T[]): T | undefined => items.length === 1 ? items[0] : undefined;
+  const expression = (id: string): CodeExpressionFact | undefined => {
+    const value = unique(facts.expressions.filter((entry) => entry.id === id));
+    return value !== undefined && value.path === value.span.path && facts.files.some((file) => file.path === value.path && file.language === 'go' && file.parsed) ? value : undefined;
+  };
+  const field = (value: CodeExpressionFact, name: string): CodeExpressionFact | undefined => {
+    const id = unique(value.fields[name] ?? []); const child = id === undefined ? undefined : expression(id);
+    return child !== undefined && value.children.includes(child.id) && contains(value.span, child.span) ? child : undefined;
+  };
+  // Only a direct qualified external type is accepted. No aliases, embedded fields or type-name lookup.
+  const typeModel = (id: string): MetricSemanticModel | undefined => {
+    const type = expression(id); if (type?.syntaxKind !== 'qualified_type' || type.receiver === undefined || type.member === undefined) return undefined;
+    const receiver = field(type, 'package'); const name = field(type, 'name');
+    if (receiver?.id !== type.receiver || name?.name !== type.member || receiver.bindingId === undefined) return undefined;
+    const binding = unique(facts.bindings.filter((entry) => entry.id === receiver.bindingId));
+    const imported = binding?.importId === undefined ? undefined : unique(facts.imports.filter((entry) => entry.id === binding.importId));
+    if (binding?.kind !== 'import' || binding.path !== type.path || receiver.name !== binding.name || !contains(binding.scope, type.span) || imported === undefined || imported.path !== type.path || imported.local !== binding.name ||
+      imported.typeOnly || imported.targetPath !== undefined || imported.imported.form !== 'namespace') return undefined;
+    return unique(metricSemanticModels.filter((model) => model.package === imported.specifier && model.exportedPath.length === 1 && model.exportedPath[0] === type.member));
+  };
+  const checkedCall = (id: string) => {
+    const value = expression(id); const call = unique(facts.calls.filter((entry) => entry.expression === id));
+    if (value === undefined || call === undefined || value.syntaxKind !== 'call_expression' || call.path !== value.path ||
+      !contains(value.span, call.span) || !contains(call.span, value.span) || value.callee !== call.callee || !value.children.includes(call.callee) ||
+      JSON.stringify(value.arguments ?? []) !== JSON.stringify(call.arguments) || call.arguments.some((id) => {
+        const argument = expression(id); return argument === undefined || !contains(call.span, argument.span);
+      })) return undefined;
+    const callee = expression(call.callee);
+    if (callee?.receiver === undefined || callee.member === undefined || !callee.children.includes(callee.receiver) || !contains(call.span, callee.span)) return undefined;
+    const receiver = expression(callee.receiver);
+    return receiver !== undefined && contains(callee.span, receiver.span) ? { call, callee, receiver } : undefined;
+  };
+  const writerIsHttp = (id: string, holder: string): boolean => {
+    const binding = unique(facts.bindings.filter((entry) => entry.id === id && entry.kind === 'parameter'));
+    const owner = unique(facts.symbols.filter((entry) => entry.key === holder && entry.callable));
+    if (binding === undefined || owner?.bodySpan === undefined || binding.path !== owner.path || !contains(owner.span, binding.span) || binding.span.byteEnd > owner.bodySpan.byteStart) return false;
+    const parameter = unique(facts.expressions.filter((entry) => entry.syntaxKind === 'parameter_declaration' && contains(entry.span, binding.span) &&
+      (entry.fields.name ?? []).some((id) => { const name = expression(id); return name?.bindingId === binding.id; })));
+    const type = parameter === undefined ? undefined : field(parameter, 'type');
+    return type !== undefined && typeModel(type.id)?.role === 'http-response-writer';
+  };
   type Fragment = { readonly effect: LibraryEffect; readonly literal: CodeExpressionFact; readonly parsed: PrometheusTextResult;
     readonly arguments: readonly string[]; readonly writer: string };
   const fields = new Map((facts.fields ?? []).filter((field) => {
-    const owner = view.expressions.get(field.ownerDeclaration);
-    const type = view.expressions.get(field.typeExpression);
+    const owner = expression(field.ownerDeclaration);
+    const type = expression(field.typeExpression);
     if (owner?.syntaxKind !== 'type_spec' || type === undefined || owner.path !== field.path || type.path !== field.path ||
-      owner.span.byteStart > field.span.byteStart || field.span.byteEnd > owner.span.byteEnd ||
-      owner.span.byteStart > type.span.byteStart || type.span.byteEnd > owner.span.byteEnd) return false;
-    return (facts.fields ?? []).filter((other) => other.key === field.key).length === 1 &&
-      facts.symbols.some((symbol) => symbol.key === field.key && symbol.path === field.path && !symbol.callable);
+      !contains(owner.span, field.span) || !contains(owner.span, type.span)) return false;
+    const declaration = unique(facts.expressions.filter((entry) => entry.syntaxKind === 'field_declaration' &&
+      contains(owner.span, entry.span) && contains(entry.span, field.span) && entry.children.includes(type.id) &&
+      (entry.fields.type ?? []).length === 1 && entry.fields.type![0] === type.id));
+    return declaration !== undefined && (facts.fields ?? []).filter((other) => other.key === field.key).length === 1 &&
+      facts.symbols.filter((symbol) => symbol.key === field.key && symbol.path === field.path && !symbol.callable).length === 1;
   }).map((field) => [field.key, field]));
   const groups = new Map<string, Fragment[]>();
+  const directBacking = (id: string, holder: string): CodeFieldFact | undefined => {
+    let value = expression(id);
+    const seen = new Set<string>();
+    while (value?.syntaxKind === 'parenthesized_expression' && !seen.has(value.id)) {
+      seen.add(value.id); const child = unique(value.children); value = child === undefined ? undefined : expression(child);
+    }
+    if (value?.syntaxKind !== 'selector_expression' || value.receiver === undefined || value.member === undefined) return undefined;
+    const member = field(value, 'field'); if (member === undefined) return undefined;
+    const targets = [...new Set(facts.sites.filter((site) => site.holder === holder && site.use === 'reference' &&
+      contains(member.span, site.span) && contains(site.span, member.span)).map((site) => site.to))];
+    const target = targets.length === 1 ? fields.get(targets[0]!) : undefined;
+    if (target === undefined || target.name !== value.member) return undefined;
+    // Shared reference resolution proves the declaration; AST shape proves this is a direct value, not a nested argument.
+    return target;
+  };
+  const scalarBacking = (id: string, holder: string): { readonly field: CodeFieldFact; readonly index?: CodeExpressionFact; readonly key?: CodeExpressionFact } | undefined => {
+    const value = expression(id);
+    if (value?.syntaxKind !== 'index_expression') {
+      const direct = directBacking(id, holder); return direct === undefined ? undefined : { field: direct };
+    }
+    // A map observation owns its base declaration, never a declaration referenced by its key.
+    const operand = field(value, 'operand'); const key = field(value, 'index');
+    const backing = operand === undefined ? undefined : directBacking(operand.id, holder);
+    if (key === undefined || backing === undefined || expression(backing.typeExpression)?.syntaxKind !== 'map_type') return undefined;
+    return { field: backing, index: value, key };
+  };
+  const cellAccess = (id: string, role: 'read' | 'write'): { field: CodeFieldFact; model: MetricSemanticModel; call: NonNullable<ReturnType<typeof checkedCall>>['call'] } | undefined => {
+    const invocation = checkedCall(id); if (invocation === undefined) return undefined;
+    const backing = directBacking(invocation.receiver.id, invocation.call.holder);
+    const model = backing === undefined ? undefined : typeModel(backing.typeExpression);
+    if (backing === undefined || model?.role !== 'metric-cell') return undefined;
+    const operations = role === 'read' ? model.reads : model.writes;
+    return operations.some((operation) => operation.member === invocation.callee.member && operation.arguments === invocation.call.arguments.length)
+      ? { field: backing, model, call: invocation.call } : undefined;
+  };
   const literalOf = (id: string, seen = new Set<string>()): CodeExpressionFact | undefined => {
     if (seen.has(id)) return undefined; seen.add(id);
     const expression = view.expressions.get(id); if (expression === undefined) return undefined;
@@ -255,6 +336,9 @@ function extractTextMetrics(t: TreeText, records: Records, view: CodeFactView, e
     const fragments = groups.get(key) ?? [];
     fragments.push({ effect, literal, parsed, arguments: args, writer: writerOrigin }); groups.set(key, fragments);
   }
+  const routes = structuralHttpRegistrations(t);
+  const exposures = new Map<string, { readonly route: (typeof routes)[number]; readonly effect: LibraryEffect; readonly writer: string; readonly metrics: Set<string> }>();
+  const rejectedExposures = new Set<string>();
   for (const [group, fragments] of groups) {
     if (rejected.has(group)) continue;
     const declarations = fragments.flatMap((fragment) => fragment.parsed.declarations.map((declaration) => ({ fragment, declaration })));
@@ -275,20 +359,22 @@ function extractTextMetrics(t: TreeText, records: Records, view: CodeFactView, e
       }
       const backing = selected.map((entry) => {
         const argument = entry.sample.valueArgument === undefined ? undefined : entry.fragment.arguments[entry.sample.valueArgument];
-        const expression = argument === undefined ? undefined : view.expressions.get(argument);
-        if (expression === undefined) return undefined;
-        const targets = [...new Set(facts.sites.filter((site) => site.holder === entry.fragment.effect.holder && site.use === 'reference' &&
-          site.span.path === expression.path && expression.span.byteStart <= site.span.byteStart && site.span.byteEnd <= expression.span.byteEnd)
-          .map((site) => site.to).filter((key) => fields.has(key)))];
-        return targets.length === 1 ? targets[0] : undefined;
+        if (argument === undefined) return undefined;
+        const direct = scalarBacking(argument, entry.fragment.effect.holder);
+        const read = cellAccess(argument, 'read');
+        // Reading an opaque external cell as a scalar is not a modeled observation.
+        return direct !== undefined && typeModel(direct.field.typeExpression)?.role !== 'metric-cell' ? direct.field.key
+          : read?.call.holder === entry.fragment.effect.holder ? read.field.key : undefined;
       });
       const backingKeys = [...new Set(backing)];
       const backingKey = backingKeys.length === 1 && backingKeys[0] !== undefined ? backingKeys[0] : undefined;
       const backingSymbol = backingKey === undefined ? undefined : fields.get(backingKey);
       const key = `code.metric:${evidence.effect.span.path}#${name}`;
+      const observationModel = backingSymbol === undefined ? undefined : typeModel(backingSymbol.typeExpression);
       records.add({ key, kind: 'code.metric', label: name, properties: {
         name, metricType: types[0]!.declaration.value, labels, definitionFormat: 'prometheus-text',
         help: helps[0]?.declaration.value ?? '', writerBinding: evidence.writer,
+        ...(observationModel?.role === 'metric-cell' ? { observationModel: observationModel.id, observationTypeReference: observationModel.reference } : {}),
         ...(backingSymbol === undefined ? {} : { backingDeclaration: backingSymbol.key, backingDeclarationSpan: { ...backingSymbol.span },
           backingOwnerDeclaration: backingSymbol.ownerDeclaration, backingTypeExpression: backingSymbol.typeExpression }),
         service: facts.files.find((file) => file.path === evidence.effect.span.path)?.manifest?.name ?? '',
@@ -297,13 +383,23 @@ function extractTextMetrics(t: TreeText, records: Records, view: CodeFactView, e
           decodedStart: entry.declaration.start, decodedEnd: entry.declaration.end, decodedLine: entry.declaration.line,
           ...libraryEvidence(entry.fragment.effect),
         })),
-        samples: selected.map((entry) => ({ literalExpression: entry.fragment.literal.id, literalSpan: { ...entry.fragment.literal.span },
-          decodedStart: entry.sample.start, decodedEnd: entry.sample.end, decodedLine: entry.sample.line,
-          formatArguments: [...entry.fragment.arguments],
-          ...(entry.sample.valueArgument === undefined ? {} : { valueExpression: entry.fragment.arguments[entry.sample.valueArgument]! }),
-          labelExpressions: entry.sample.labelArguments.map((argument) => entry.fragment.arguments[argument]!),
-          ...libraryEvidence(entry.fragment.effect),
-        })), ...libraryEvidence(evidence.effect),
+        samples: selected.map((entry) => {
+          const argument = entry.sample.valueArgument === undefined ? undefined : entry.fragment.arguments[entry.sample.valueArgument];
+          const value = argument === undefined ? undefined : expression(argument);
+          const backing = argument === undefined ? undefined : scalarBacking(argument, entry.fragment.effect.holder);
+          return { literalExpression: entry.fragment.literal.id, literalSpan: { ...entry.fragment.literal.span },
+            decodedStart: entry.sample.start, decodedEnd: entry.sample.end, decodedLine: entry.sample.line,
+            formatArguments: [...entry.fragment.arguments],
+            ...(argument === undefined ? {} : { valueExpression: argument }),
+            ...(value === undefined ? {} : { valueSpan: { ...value.span } }),
+            ...(backing?.index === undefined || backing.key === undefined ? {} : {
+              indexedBaseDeclaration: backing.field.key, indexExpression: backing.index.id, indexSpan: { ...backing.index.span },
+              indexKeyExpression: backing.key.id, indexKeySpan: { ...backing.key.span },
+            }),
+            labelExpressions: entry.sample.labelArguments.map((argument) => entry.fragment.arguments[argument]!),
+            ...libraryEvidence(entry.fragment.effect),
+          };
+        }), ...libraryEvidence(evidence.effect),
       } satisfies { [key: string]: PropertyValue }, span: evidence.literal.span });
       if (backingSymbol === undefined) {
         gap('sample value has no unique resolved backing declaration; update and HTTP exposure are withheld');
@@ -317,8 +413,49 @@ function extractTextMetrics(t: TreeText, records: Records, view: CodeFactView, e
           backingDeclarationSpan: { ...backingSymbol.span }, backingOwnerDeclaration: backingSymbol.ownerDeclaration,
           backingTypeExpression: backingSymbol.typeExpression, writeRoles: [...site.roles], ...libraryEvidence(evidence.effect) }, site.span, String(site.span.byteStart));
       }
-      if (writes.length === 0) gap('backing declaration has no resolved write effect; external receiver mutation is not inferred from method spelling');
-      gap('writer parameter HTTP response type and registered handler value are not resolved; HTTP exposure is withheld');
+      const cellWrites = facts.calls.flatMap((call) => {
+        const access = cellAccess(call.expression, 'write');
+        return access?.field.key === backingSymbol.key ? [access] : [];
+      });
+      for (const access of cellWrites) {
+        const ownerEffect: LibraryEffect = { ...evidence.effect, holder: access.call.holder, span: access.call.span, invocationSpan: access.call.invocationSpan };
+        const owner = effectOwner(t, records, ownerEffect); if (owner === undefined) continue;
+        records.edge('code.updates-metric', owner, key, { backingDeclaration: backingSymbol.key,
+          backingDeclarationSpan: { ...backingSymbol.span }, backingOwnerDeclaration: backingSymbol.ownerDeclaration,
+          backingTypeExpression: backingSymbol.typeExpression, receiverModel: access.model.id, receiverTypeReference: access.model.reference,
+          receiverExpression: expression(access.call.callee)!.receiver!, ...libraryEvidence(evidence.effect) }, effectSpan(ownerEffect), String(access.call.span.byteStart));
+      }
+      if (writes.length === 0 && cellWrites.length === 0) gap('backing declaration has no resolved write effect; external receiver mutation is not inferred from method spelling');
+      const registrations = routes.filter((route) => route.handler?.key === evidence.effect.holder);
+      if (!writerIsHttp(evidence.writer, evidence.effect.holder) || registrations.length === 0) {
+        gap('writer parameter HTTP response type and registered handler value are not resolved; HTTP exposure is withheld'); continue;
+      }
+      for (const route of registrations) {
+        const identity = route.handler!.receiverType ?? route.handler!.qualifiedName;
+        const endpointKey = `code.metrics-endpoint:${route.handler!.path}#${identity}`;
+        const exposure = exposures.get(endpointKey) ?? { route, effect: evidence.effect, writer: evidence.writer, metrics: new Set<string>() };
+        if (exposure.route.handler?.key !== route.handler!.key || exposure.route.path !== route.path || exposure.route.method !== route.method || exposure.writer !== evidence.writer) {
+          rejectedExposures.add(endpointKey); gap('handler has incompatible HTTP registrations or response writer identities; HTTP exposure is withheld'); continue;
+        }
+        exposure.metrics.add(key); exposures.set(endpointKey, exposure);
+      }
     }
+  }
+  for (const [key, exposure] of exposures) {
+    if (rejectedExposures.has(key)) continue;
+    const { route, effect, writer } = exposure;
+    const owner = effectOwner(t, records, effect); if (owner === undefined) continue;
+    const service = facts.files.find((file) => file.path === route.handler!.path)?.manifest?.name ?? '';
+    const metrics = [...exposure.metrics].sort(byCodePoint);
+    const names = metrics.map((metric) => records.nodes.find((node) => node.key === metric)?.properties.name)
+      .filter((name): name is string => typeof name === 'string').sort(byCodePoint);
+    records.add({ key, kind: 'code.metrics-endpoint', label: `${route.path} of ${service || route.handler!.path}`,
+      properties: { path: route.path, method: route.method, ports: [...route.ports], service, format: 'prometheus-text', counters: names,
+        receiverExpression: route.receiverExpression, writerBinding: writer, handler: route.handler!.key,
+        ...(route.handlerExpression === undefined ? {} : { handlerExpression: route.handlerExpression }),
+        ...libraryEvidence(effect) }, span: route.handler!.span });
+    records.edge('code.served-by', key, records.file(route.handler!.path), { service }, route.span);
+    records.edge('code.served-by', key, owner, { role: 'handler' }, route.span);
+    for (const metric of metrics) records.edge('code.exposes-metric', key, metric, { writerBinding: writer, ...libraryEvidence(effect) }, effectSpan(effect));
   }
 }

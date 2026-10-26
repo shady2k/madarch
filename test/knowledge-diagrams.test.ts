@@ -114,7 +114,7 @@ describe('the end-to-end chains match the answer key\'s flows', () => {
     const kinds = chain.steps.map((step) => [step.kind, step.label]);
     expect(kinds).toEqual(expect.arrayContaining([['http', 'POST /internal/apply'], ['http', 'POST /orders']]));
     const grpc = chain.steps.find((step) => step.kind === 'grpc');
-    expect(grpc).toBeDefined();
+    expect(grpc, `checkout.sequence: no gRPC step in the rendered chain; visible steps and fold/depth notes: ${JSON.stringify(chain, null, 2)}`).toBeDefined();
     expect(grpc!.note).toContain('PaymentsClient.authorize');
     for (const service of ['checkout', 'promotions', 'orders', 'payments']) expect(chain.lanes).toContain(service);
     // The answer key's order of the checkout sequence: promotions, then orders, then payments.

@@ -6,6 +6,7 @@ import { describe, expect, test } from 'bun:test';
 import { isScalar, parseDocument } from 'yaml';
 import { validateLibraryRegistry } from '../src/extract/library-models/validate.js';
 import { validateHttpModels } from '../src/extract/library-models/http-models.js';
+import { validateMetricSemanticModels } from '../src/extract/library-models/metric-semantic-models.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const SCAN_ROOTS = ['src', 'test', 'scripts', 'wiki/app/src', 'examples', 'docs/system'];
@@ -161,7 +162,9 @@ function provenanceRanges(root: string, file: string, text: string, errors: stri
   }
   try { validateLibraryRegistry(parsed); } catch (libraryError) {
     try { validateHttpModels(parsed); } catch (httpError) {
-      located(0, `invalid model registry: ${String(libraryError)}; ${String(httpError)}`); return [];
+      try { validateMetricSemanticModels(parsed); } catch (metricError) {
+        located(0, `invalid model registry: ${String(libraryError)}; ${String(httpError)}; ${String(metricError)}`); return [];
+      }
     }
   }
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return [];
@@ -497,6 +500,32 @@ describe('neutral repository names', () => {
       writeFileSync(file, JSON.stringify({schemaVersion: 1, models: [{...model, package: outsidePackage, reference: ['https:/', 'pkg.go.dev', outsidePackage].join('/')}]}));
       expect(findings(fixtureRoot)).toEqual([
         `src/extract/library-models/http-models.json:1 (${file}): repository source is not an example or madarch repository: ${outsidePackage}`,
+      ]);
+    } finally { rmSync(fixtureRoot, {recursive: true, force: true}); }
+  });
+
+  test('metric semantic provenance keeps the exact reference-only boundary', () => {
+    const fixtureRoot = mkdtempSync(join(tmpdir(), 'madarch-neutral-metric-semantics-'));
+    try {
+      for (const path of SCAN_ROOTS) mkdirSync(join(fixtureRoot, path), {recursive: true});
+      for (const path of ROOT_DOCUMENTS) { const file = join(fixtureRoot, path); mkdirSync(dirname(file), {recursive: true}); writeFileSync(file, ''); }
+      const packageName = ['example.org', 'metric-unit'].join('/');
+      const reference = ['https:/', 'pkg.go.dev', packageName].join('/');
+      const model = {id: 'unit.writer', ecosystem: 'go', package: packageName, exportedPath: ['Writer'], role: 'http-response-writer', reference};
+      const file = join(fixtureRoot, 'src/extract/library-models/metric-semantic-models.json');
+      mkdirSync(dirname(file), {recursive: true}); writeFileSync(file, JSON.stringify({schemaVersion: 1, models: [model]}));
+      expect(findings(fixtureRoot)).toEqual([]);
+      const elsewhere = join(fixtureRoot, 'docs/system/metric-evidence.md'); writeFileSync(elsewhere, reference);
+      expect(findings(fixtureRoot)).toEqual([
+        `docs/system/metric-evidence.md:1 (${elsewhere}): repository source is not an example or madarch repository: ${reference.slice('https://'.length)}`,
+      ]);
+      rmSync(elsewhere);
+      writeFileSync(file, JSON.stringify({schemaVersion: 1, models: [{...model, arbitrary: reference}]}));
+      expect(findings(fixtureRoot).some((entry) => entry.startsWith(`src/extract/library-models/metric-semantic-models.json:1 (${file}): library provenance is not licensed:`))).toBe(true);
+      const outsidePackage = ['github.com', 'not-acme', 'metric-unit'].join('/');
+      writeFileSync(file, JSON.stringify({schemaVersion: 1, models: [{...model, package: outsidePackage, reference: ['https:/', 'pkg.go.dev', outsidePackage].join('/')}]}));
+      expect(findings(fixtureRoot)).toEqual([
+        `src/extract/library-models/metric-semantic-models.json:1 (${file}): repository source is not an example or madarch repository: ${outsidePackage}`,
       ]);
     } finally { rmSync(fixtureRoot, {recursive: true, force: true}); }
   });

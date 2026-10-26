@@ -1,0 +1,185 @@
+{
+  "schemaVersion": 1,
+  "models": [
+    {
+      "id": "go.http.response-writer",
+      "ecosystem": "go",
+      "package": "net/http",
+      "exportedPath": [
+        "ResponseWriter"
+      ],
+      "role": "http-response-writer",
+      "reference": "https://pkg.go.dev/net/http#ResponseWriter"
+    },
+    {
+      "id": "go.atomic.int32",
+      "ecosystem": "go",
+      "package": "sync/atomic",
+      "exportedPath": [
+        "Int32"
+      ],
+      "role": "metric-cell",
+      "reads": [
+        {
+          "member": "Load",
+          "arguments": 0
+        }
+      ],
+      "writes": [
+        {
+          "member": "Add",
+          "arguments": 1
+        },
+        {
+          "member": "Store",
+          "arguments": 1
+        },
+        {
+          "member": "Swap",
+          "arguments": 1
+        },
+        {
+          "member": "CompareAndSwap",
+          "arguments": 2
+        }
+      ],
+      "reference": "https://pkg.go.dev/sync/atomic#Int32"
+    },
+    {
+      "id": "go.atomic.int64",
+      "ecosystem": "go",
+      "package": "sync/atomic",
+      "exportedPath": [
+        "Int64"
+      ],
+      "role": "metric-cell",
+      "reads": [
+        {
+          "member": "Load",
+          "arguments": 0
+        }
+      ],
+      "writes": [
+        {
+          "member": "Add",
+          "arguments": 1
+        },
+        {
+          "member": "Store",
+          "arguments": 1
+        },
+        {
+          "member": "Swap",
+          "arguments": 1
+        },
+        {
+          "member": "CompareAndSwap",
+          "arguments": 2
+        }
+      ],
+      "reference": "https://pkg.go.dev/sync/atomic#Int64"
+    },
+    {
+      "id": "go.atomic.uint32",
+      "ecosystem": "go",
+      "package": "sync/atomic",
+      "exportedPath": [
+        "Uint32"
+      ],
+      "role": "metric-cell",
+      "reads": [
+        {
+          "member": "Load",
+          "arguments": 0
+        }
+      ],
+      "writes": [
+        {
+          "member": "Add",
+          "arguments": 1
+        },
+        {
+          "member": "Store",
+          "arguments": 1
+        },
+        {
+          "member": "Swap",
+          "arguments": 1
+        },
+        {
+          "member": "CompareAndSwap",
+          "arguments": 2
+        }
+      ],
+      "reference": "https://pkg.go.dev/sync/atomic#Uint32"
+    },
+    {
+      "id": "go.atomic.uint64",
+      "ecosystem": "go",
+      "package": "sync/atomic",
+      "exportedPath": [
+        "Uint64"
+      ],
+      "role": "metric-cell",
+      "reads": [
+        {
+          "member": "Load",
+          "arguments": 0
+        }
+      ],
+      "writes": [
+        {
+          "member": "Add",
+          "arguments": 1
+        },
+        {
+          "member": "Store",
+          "arguments": 1
+        },
+        {
+          "member": "Swap",
+          "arguments": 1
+        },
+        {
+          "member": "CompareAndSwap",
+          "arguments": 2
+        }
+      ],
+      "reference": "https://pkg.go.dev/sync/atomic#Uint64"
+    },
+    {
+      "id": "go.atomic.uintptr",
+      "ecosystem": "go",
+      "package": "sync/atomic",
+      "exportedPath": [
+        "Uintptr"
+      ],
+      "role": "metric-cell",
+      "reads": [
+        {
+          "member": "Load",
+          "arguments": 0
+        }
+      ],
+      "writes": [
+        {
+          "member": "Add",
+          "arguments": 1
+        },
+        {
+          "member": "Store",
+          "arguments": 1
+        },
+        {
+          "member": "Swap",
+          "arguments": 1
+        },
+        {
+          "member": "CompareAndSwap",
+          "arguments": 2
+        }
+      ],
+      "reference": "https://pkg.go.dev/sync/atomic#Uintptr"
+    }
+  ]
+}
