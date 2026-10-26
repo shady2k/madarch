@@ -15,27 +15,30 @@ import { structuralHttpRegistrations } from './route-facts.js';
 /** Logger effects require resolved package/receiver provenance from shared facts. */
 function loggers(t: TreeText, records: Records): void {
   if (t.facts === undefined) { records.gap('.', 'logger extraction requires the shared resolved code facts'); return; }
-  const facts = t.facts;
   const evaluated = t.libraryFacts()!;
+  const declared = evaluated.effects.filter((effect) => effect.kind === 'logger-declare');
+  const peersByHolder = new Map<string, number>();
+  for (const effect of declared) peersByHolder.set(effect.holder, (peersByHolder.get(effect.holder) ?? 0) + 1);
+  // The expression index belongs to the view: a duplicated id keeps its last
+  // entry exactly as the per-declaration map this replaced did.
+  const expressionById = (id: string) => t.expressionsById.all(id).at(-1);
   const declarations = new Map<string, string>();
-  for (const effect of evaluated.effects.filter((effect) => effect.kind === 'logger-declare')) {
-    const bindings = facts.bindings.filter((binding) => binding.initializer === effect.expression);
+  for (const effect of declared) {
+    const bindings = t.bindingsByInitializer.all(effect.expression);
     const binding = bindings.length === 1 ? bindings[0] : undefined;
-    const holder = facts.symbols.filter((symbol) => symbol.key === effect.holder && symbol.callable && symbol.path === effect.span.path &&
+    const holder = t.symbolsByKey.all(effect.holder).filter((symbol) => symbol.callable && symbol.path === effect.span.path &&
       symbol.span.byteStart <= effect.span.byteStart && effect.span.byteEnd <= symbol.span.byteEnd);
-    const expressionIndex = new Map(facts.expressions.map((expression) => [expression.id, expression]));
     const descends = (id: string, target: string, seen = new Set<string>()): boolean => {
       if (id === target) return true;
       if (seen.has(id)) return false; seen.add(id);
-      return expressionIndex.get(id)?.children.some((child) => descends(child, target, seen)) ?? false;
+      return expressionById(id)?.children.some((child) => descends(child, target, seen)) ?? false;
     };
-    const returned = holder.length === 1 && facts.expressions.some((expression) => expression.path === effect.span.path && expression.syntaxKind === 'return_statement' &&
+    const returned = holder.length === 1 && t.expressionsByPath.all(effect.span.path).some((expression) => expression.syntaxKind === 'return_statement' &&
       holder[0]!.span.byteStart <= expression.span.byteStart && expression.span.byteEnd <= holder[0]!.span.byteEnd &&
       expression.span.byteStart <= effect.span.byteStart && effect.span.byteEnd <= expression.span.byteEnd && descends(expression.id, effect.expression));
-    const peers = evaluated.effects.filter((one) => one.kind === 'logger-declare' && one.holder === effect.holder);
-    const identity = binding?.name ?? (returned && peers.length === 1 ? holder[0]!.qualifiedName : `${effect.holder.slice(effect.holder.lastIndexOf('#') + 1)}@${effect.span.byteStart}`);
+    const identity = binding?.name ?? (returned && peersByHolder.get(effect.holder) === 1 ? holder[0]!.qualifiedName : `${effect.holder.slice(effect.holder.lastIndexOf('#') + 1)}@${effect.span.byteStart}`);
     const key = `code.logger:${effect.span.path}#${identity}`;
-    const manifest = facts.files.find((file) => file.path === effect.span.path)?.manifest;
+    const manifest = t.filesByPath.all(effect.span.path)[0]?.manifest;
     const service = serviceOf(effect.span.path) ?? manifest?.name ?? '';
     records.add({ key, kind: 'code.logger', label: `logger ${identity} of ${service || effect.span.path}`,
       properties: { service, ...libraryEvidence(effect),
@@ -66,7 +69,7 @@ function healthEndpoints(t: TreeText, records: Records): void {
     const endpointKey = `code.health-endpoint:${path}#${identity}${endpoint.path === '/healthz' ? '' : endpoint.path}`;
     const ports = [...endpoint.ports];
     if (ports.length === 0) records.gap(path, `line ${endpoint.span.lineStart}: health receiver/listener association is unresolved (${path})`);
-    const statusOk = endpoint.handler !== undefined && (t.facts?.expressions ?? []).some((expression) => expression.path === path &&
+    const statusOk = endpoint.handler !== undefined && t.expressionsByPath.all(path).some((expression) =>
       endpoint.handler!.span.byteStart <= expression.span.byteStart && expression.span.byteEnd <= endpoint.handler!.span.byteEnd && expression.literal?.value === 'ok');
     records.add({key: endpointKey, kind: 'code.health-endpoint', label: `${endpoint.path} of ${serviceOf(path) ?? path}`,
       properties: {path:endpoint.path, method:endpoint.method, ports, statusOk, service:serviceOf(path) ?? ''}, span:endpoint.span});

@@ -1,6 +1,7 @@
 /** Small positioned source joins for the synchronous operations extractor.
  * Only declarations present in the source become shared code.symbol nodes.
  */
+import type { CodeSymbolFact } from '../code/facts.js';
 import type { SourceSpan } from '../records.js';
 import type { Records } from './accumulate.js';
 import type { TreeText } from './source.js';
@@ -32,23 +33,34 @@ export function sourceSpan(t: TreeText, path: string, start: number, end: number
   return t.spanOfChars(path, start, end, text.slice(0, start).split('\n').length, text.slice(0, Math.max(start, end - 1)).split('\n').length);
 }
 
-/** Canonical callables copied by the shared code pass. No text recognition fallback. */
+/**
+ * Canonical callables copied by the shared code pass. No text recognition
+ * fallback. One path's sites are proved once per view, so every later question
+ * about that path reads the same proof and adds no second diagnostic.
+ */
 export function functionsOf(t: TreeText, path: string): FunctionSite[] {
-  if (t.facts === undefined) { t.factGap(path, 'line 1: callable sites require shared resolved code facts'); return []; }
-  const file = t.facts.files.find((entry) => entry.path === path);
-  if (file?.parsed !== true) { t.factGap(path, 'line 1: callable sites require a successfully parsed file'); return []; }
-  const bytes = t.tree.read(path);
-  const decoder = new TextDecoder('utf-8', {fatal:true});
+  const proved = t.callableSites(path);
+  if (proved !== undefined) return [...proved];
+  if (t.facts === undefined) {
+    t.factGap(path, 'line 1: callable sites require shared resolved code facts');
+    return [...t.rememberCallableSites(path, [])];
+  }
+  const file = t.filesByPath.all(path)[0];
+  if (file?.parsed !== true) {
+    t.factGap(path, 'line 1: callable sites require a successfully parsed file');
+    return [...t.rememberCallableSites(path, [])];
+  }
+  const boundaries = t.charBoundaries(path);
   const charAt = (byte: number): number | undefined => {
-    if (!Number.isInteger(byte) || byte < 0 || byte > bytes.length) return undefined;
-    try { return decoder.decode(bytes.subarray(0, byte)).length; } catch { return undefined; }
+    if (!Number.isInteger(byte) || byte < 0 || byte >= boundaries.length) return undefined;
+    const at = boundaries[byte];
+    return at === undefined || at < 0 ? undefined : at;
   };
   const found: FunctionSite[] = [];
-  const facts = t.facts;
   const sameSpan = (left: SourceSpan, right: SourceSpan): boolean => left.path === path && right.path === path &&
     left.byteStart === right.byteStart && left.byteEnd === right.byteEnd && left.lineStart === right.lineStart && left.lineEnd === right.lineEnd;
-  const expressions = facts.expressions.filter((entry) => entry.path === path && entry.span.path === path);
-  const declarationOnlyInterfaceMethod = (symbol: (typeof facts.symbols)[number]): boolean => {
+  const expressions = t.expressionsByPath.all(path).filter((entry) => entry.span.path === path);
+  const declarationOnlyInterfaceMethod = (symbol: CodeSymbolFact): boolean => {
     if (symbol.symbolKind !== 'method' || symbol.bodySpan !== undefined || symbol.bodySyntaxKind !== undefined) return false;
     const kinds = file.language === 'go' ? ['method_spec'] : ['method_signature'];
     const methods = expressions.filter((entry) => kinds.includes(entry.syntaxKind) && sameSpan(entry.span, symbol.span));
@@ -67,10 +79,10 @@ export function functionsOf(t: TreeText, path: string): FunctionSite[] {
       entry.fields[file.language === 'go' ? 'type' : 'body']![0] === container.id && entry.children.filter((id) => id === container.id).length === 1);
     if (owners.length !== 1) return false;
     const owner = owners[0]!;
-    return facts.symbols.filter((entry) => entry.path === path && entry.symbolKind === 'interface' && sameSpan(entry.span, owner.span) &&
+    return t.symbolsByPath.all(path).filter((entry) => entry.symbolKind === 'interface' && sameSpan(entry.span, owner.span) &&
       symbol.qualifiedName === `${entry.qualifiedName}.${symbol.name}`).length === 1;
   };
-  const declarationOnlyAbstractMethod = (symbol: (typeof facts.symbols)[number]): boolean => {
+  const declarationOnlyAbstractMethod = (symbol: CodeSymbolFact): boolean => {
     if (!['typescript', 'tsx'].includes(file.language) || symbol.symbolKind !== 'method' ||
       symbol.bodySpan !== undefined || symbol.bodySyntaxKind !== undefined) return false;
     const contains = (outer: SourceSpan, inner: SourceSpan): boolean => outer.path === path && inner.path === path &&
@@ -100,13 +112,13 @@ export function functionsOf(t: TreeText, path: string): FunctionSite[] {
     const ownerNames = owner.fields.name ?? [];
     const ownerName = ownerNames.length === 1 ? unique(ownerNames[0]!) : undefined;
     if (ownerName?.name === undefined || owner.children.filter((id) => id === ownerName.id).length !== 1 || !contains(owner.span, ownerName.span)) return false;
-    const classes = facts.symbols.filter((entry) => entry.path === path && entry.symbolKind === 'class' && sameSpan(entry.span, owner.span));
+    const classes = t.symbolsByPath.all(path).filter((entry) => entry.symbolKind === 'class' && sameSpan(entry.span, owner.span));
     const canonical = classes.length === 1 ? classes[0] : undefined;
     return canonical !== undefined && !canonical.callable && canonical.name === ownerName.name &&
       symbol.qualifiedName === `${canonical.qualifiedName}.${symbol.name}` &&
-      facts.symbols.filter((entry) => entry.key === canonical.key).length === 1;
+      t.symbolsByKey.all(canonical.key).length === 1;
   };
-  const symbols = facts.symbols.filter((entry) => entry.path === path && entry.callable);
+  const symbols = t.symbolsByPath.all(path).filter((entry) => entry.callable);
   const counts = new Map<string, number>();
   for (const symbol of symbols) counts.set(symbol.key, (counts.get(symbol.key) ?? 0) + 1);
   for (const symbol of symbols) {
@@ -126,7 +138,7 @@ export function functionsOf(t: TreeText, path: string): FunctionSite[] {
       continue;
     }
     const receiver = symbol.receiver;
-    const receiverBindings = receiver === undefined ? [] : t.facts.bindings.filter((binding) => binding.id === receiver.bindingId);
+    const receiverBindings = receiver === undefined ? [] : t.bindingsById.all(receiver.bindingId);
     const receiverBinding = receiverBindings.length === 1 ? receiverBindings[0] : undefined;
     const receiverValid = receiverBinding !== undefined && receiverBinding.path === path && receiverBinding.name === receiver?.name &&
       receiverBinding.scope.path === path && receiverBinding.scope.byteStart <= symbol.span.byteStart && symbol.span.byteEnd <= receiverBinding.scope.byteEnd &&
@@ -139,7 +151,7 @@ export function functionsOf(t: TreeText, path: string): FunctionSite[] {
       start, end, bodyStart, bodySyntaxKind: symbol.bodySyntaxKind, span: symbol.span,
       ...(receiver === undefined ? {} : {receiver: receiver.name, ...(receiver.typeName === undefined ? {} : {receiverType: receiver.typeName})}) });
   }
-  return found;
+  return [...t.rememberCallableSites(path, found)];
 }
 
 export function functionAt(t: TreeText, path: string, at: number): FunctionSite | undefined {
@@ -152,7 +164,7 @@ export function functionAt(t: TreeText, path: string, at: number): FunctionSite 
   // Raw canonical boundaries remain tombstones when a callable's metadata is
   // missing or ambiguous. Omitting an inner proof must never lend its body to
   // a valid outer callable.
-  const owners = (t.facts?.symbols ?? []).filter((symbol) => symbol.path === path && symbol.callable && symbol.span.byteStart <= byte && byte < symbol.span.byteEnd)
+  const owners = t.symbolsByPath.all(path).filter((symbol) => symbol.callable && symbol.span.byteStart <= byte && byte < symbol.span.byteEnd)
     .sort((left, right) => left.span.byteEnd - left.span.byteStart - (right.span.byteEnd - right.span.byteStart));
   const owner = owners[0];
   if (owner === undefined) return undefined;

@@ -89,14 +89,14 @@ function typeReference(node: SyntaxNode): boolean {
 }
 
 /**
- * The names an import statement declares, and the name it reads from the source
- * module, are declarations rather than references, so they never resolve to a
- * local binding of this file.
+ * `import { Payment as PaymentRow }` declares PaymentRow only, so the name it
+ * reads from the source module is a declaration of that module, not a reference
+ * to a local binding of this file.
  */
-function importName(node: SyntaxNode): boolean {
-  let parent = node.parent;
-  while (parent !== null && ['import_specifier', 'named_imports', 'import_clause', 'namespace_import'].includes(parent.type)) parent = parent.parent;
-  return parent !== null && parent.type === 'import_statement';
+function importedAliasName(node: SyntaxNode): boolean {
+  const parent = node.parent;
+  if (parent === null || parent.type !== 'import_specifier') return false;
+  return parent.childForFieldName('alias') !== null && parent.childForFieldName('name')?.id === node.id;
 }
 
 export interface MemberFacts {
@@ -180,7 +180,7 @@ export async function memberSites(file: SourceFile, program: Program, imports: r
       const isName = ['identifier', 'property_identifier', 'field_identifier', 'shorthand_property_identifier', 'this', 'type_identifier', 'package_identifier'].includes(node.type);
       const lexicalName = !['property_identifier', 'field_identifier'].includes(node.type);
       const generic = genericNames.some((scope) => scope.has(token));
-      const candidateBinding = resolveBinding && lexicalName && !generic ? lookupBinding(token) : undefined;
+      const candidateBinding = resolveBinding && lexicalName && !generic && !importedAliasName(node) ? lookupBinding(token) : undefined;
       const binding = candidateBinding === undefined ? undefined : bindings.get(candidateBinding);
       // A reference from a nested function body runs after the outer declaration
       // is evaluated, so only a reference in the same function body before its
@@ -867,16 +867,11 @@ export async function memberSites(file: SourceFile, program: Program, imports: r
     }
     visit(parsed.root);
     const typeOnlyImports: string[] = [];
-    // An ordinary import used only in structural type positions needs no runtime
-    // export. Keep its lexical facts and graph sites; never infer a value from
-    // an erased interface/alias. A typeof query still requires a value identity.
-    const structuralTypeUses = new Set<string>();
-    if (!go) for (const { node } of captures) {
-      if (node.type !== 'type_identifier') continue;
-      let parent = node.parent;
-      while (parent !== null && parent.type !== 'type_query') parent = parent.parent;
-      if (parent === null) structuralTypeUses.add(expressionId(node));
-    }
+    // An ordinary import used only in type positions needs no runtime export.
+    // Keep its lexical facts and graph sites; never infer a value from an erased
+    // interface/alias. A typeof query still requires a value identity.
+    const typeReferences = new Set<string>();
+    if (!go) for (const { node } of captures) if (typeReference(node)) typeReferences.add(expressionId(node));
     if (!go) for (const statement of named(parsed.root).filter((node) => node.type === 'import_statement')) {
       const wholeType = statement.children.some((child) => child !== null && child.type === 'type');
       for (const imported of imports) {
@@ -886,8 +881,10 @@ export async function memberSites(file: SourceFile, program: Program, imports: r
         const bindingId = codeFactId(imported.span, 'binding');
         const uses = [...expressions.values()].filter((expression) => expression.bindingId === bindingId &&
           (expression.span.byteStart < statementSpan.byteStart || expression.span.byteEnd > statementSpan.byteEnd));
-        const onlyStructuralTypes = uses.length > 0 && uses.every((expression) => structuralTypeUses.has(expression.id));
-        if (wholeType || selected?.children.some((child) => child !== null && child.type === 'type') || onlyStructuralTypes) typeOnlyImports.push(imported.id);
+        // A use is type-only when every recorded use is a type reference; an
+        // unused import keeps no proof either way and stays a runtime join.
+        const onlyTypeReferences = uses.length > 0 && uses.every((expression) => typeReferences.has(expression.id));
+        if (wholeType || selected?.children.some((child) => child !== null && child.type === 'type') || onlyTypeReferences) typeOnlyImports.push(imported.id);
       }
     }
     const exports: CodeExportFact[] = [];

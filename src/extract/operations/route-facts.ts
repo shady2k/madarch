@@ -17,7 +17,7 @@ class HttpFacts {
  private readonly imports=new Map<string,CodeImportFact>();
  private readonly calls=new Map<string,CodeCallFact>();
  private readonly written=new Set<string>();
- private readonly validSites=new Map<string,readonly FunctionSite[]>();
+ private readonly byPath=new Map<string,readonly CodeExpressionFact[]>();
  private readonly origins=new Map<string,HttpOrigin|undefined>();
  private readonly callModels=new Map<string,readonly HttpModel[]>();
  private readonly listenerPorts=new Map<string,readonly string[]>();
@@ -29,8 +29,16 @@ class HttpFacts {
    if(['assignment_expression','augmented_assignment_expression','assignment_statement'].includes(expression.syntaxKind))for(const id of expression.fields.left??[])mark(id);
    else if(['update_expression','inc_statement','dec_statement'].includes(expression.syntaxKind))for(const id of expression.children)mark(id);
   }
+  // This interpreter's own expressions of one path. An id that arrived twice is
+  // already dropped from `this.expressions`, so this index drops it too: a
+  // rebuilt-from-facts map would hand every `unique()` proof a second row.
+  const paths=new Map<string,CodeExpressionFact[]>();
+  for(const expression of this.expressions.values()){const held=paths.get(expression.path);if(held===undefined)paths.set(expression.path,[expression]);else held.push(expression);}
+  for(const held of paths.values())Object.freeze(held);
+  for(const [path,held] of paths)this.byPath.set(path,held);
  }
- private expression(id:string):CodeExpressionFact|undefined{const x=this.expressions.get(id);return x!==undefined&&x.path===x.span.path&&this.t.facts?.files.some(file=>file.path===x.path&&file.parsed)?x:undefined;}
+ private pathExpressions(path:string):readonly CodeExpressionFact[]{return this.byPath.get(path)??[];}
+ private expression(id:string):CodeExpressionFact|undefined{const x=this.expressions.get(id);return x!==undefined&&x.path===x.span.path&&this.t.filesByPath.all(x.path).some(file=>file.parsed)?x:undefined;}
  private field(x:CodeExpressionFact,name:string):CodeExpressionFact|undefined{const id=unique(x.fields[name]??[]);const child=id===undefined?undefined:this.expression(id);return child!==undefined&&x.children.includes(child.id)&&contains(x.span,child.span)?child:undefined;}
  private children(x:CodeExpressionFact):CodeExpressionFact[]|undefined{const children=x.children.map(id=>this.expression(id));return children.some(child=>child===undefined||!contains(x.span,child.span))?undefined:(children as CodeExpressionFact[]).filter(child=>child.syntaxKind!=='comment');}
  private binding(x:CodeExpressionFact):CodeBindingFact|undefined{const binding=x.bindingId===undefined?undefined:this.bindings.get(x.bindingId);return binding!==undefined&&binding.path===x.path&&contains(binding.scope,x.span)&&!this.written.has(binding.id)&&(binding.kind!=='local'||binding.span.byteStart<=x.span.byteStart)?binding:undefined;}
@@ -63,9 +71,10 @@ class HttpFacts {
   if(binding?.kind!=='import'||imported===undefined||imported.targetPath!==undefined||imported.typeOnly||imported.path!==x.path)return undefined;
   return {package:imported.specifier,path:imported.imported.form==='named'?[imported.imported.name]:imported.imported.form==='default'?['default']:[]};
  }
- private sites(path:string):readonly FunctionSite[]{let sites=this.validSites.get(path);if(sites===undefined){sites=functionsOf(this.t,path);this.validSites.set(path,sites);}return sites;}
- private canonical(key:string):FunctionSite|undefined{const symbol=unique((this.t.facts?.symbols??[]).filter(x=>x.key===key&&x.callable));return symbol===undefined?undefined:unique(this.sites(symbol.path).filter(site=>site.key===key&&same(site.span,symbol.span)));}
- private owner(span:SourceSpan):FunctionSite|undefined{const raw=(this.t.facts?.symbols??[]).filter(x=>x.callable&&x.path===span.path&&x.span.byteStart<=span.byteStart&&span.byteStart<x.span.byteEnd).sort((a,b)=>a.span.byteEnd-a.span.byteStart-(b.span.byteEnd-b.span.byteStart));const first=raw[0];if(first===undefined||raw[1]!==undefined&&same(first.span,raw[1].span)||first.bodySpan===undefined||!contains(first.bodySpan,span))return undefined;return this.canonical(first.key);}
+ /** One path's callable sites as the view proved them; no second cache of its own. */
+ private sites(path:string):readonly FunctionSite[]{return this.t.callableSites(path)??functionsOf(this.t,path);}
+ private canonical(key:string):FunctionSite|undefined{const symbol=unique(this.t.symbolsByKey.all(key).filter(x=>x.callable));return symbol===undefined?undefined:unique(this.sites(symbol.path).filter(site=>site.key===key&&same(site.span,symbol.span)));}
+ private owner(span:SourceSpan):FunctionSite|undefined{const raw=this.t.symbolsByPath.all(span.path).filter(x=>x.callable&&x.span.byteStart<=span.byteStart&&span.byteStart<x.span.byteEnd).sort((a,b)=>a.span.byteEnd-a.span.byteStart-(b.span.byteEnd-b.span.byteStart));const first=raw[0];if(first===undefined||raw[1]!==undefined&&same(first.span,raw[1].span)||first.bodySpan===undefined||!contains(first.bodySpan,span))return undefined;return this.canonical(first.key);}
  private target(callee:CodeExpressionFact):FunctionSite|undefined{
   const property=callee.receiver===undefined?callee:this.field(callee,callee.syntaxKind==='selector_expression'?'field':'property');
   const targets=property===undefined?[]:[...new Set((this.t.facts?.sites??[]).filter(site=>site.use==='call'&&same(property.span,site.span)).map(site=>site.to))];const sites=targets.map(key=>this.canonical(key)).filter((site):site is FunctionSite=>site!==undefined);
@@ -81,8 +90,8 @@ class HttpFacts {
  private sameGoPackage(left:string,right:string):boolean{
   if(left.slice(0,left.lastIndexOf('/')+1)!==right.slice(0,right.lastIndexOf('/')+1))return false;
   const packageOf=(path:string):string|undefined=>{
-   const file=unique((this.t.facts?.files??[]).filter(file=>file.path===path));if(file?.language!=='go'||!file.parsed)return undefined;
-   const root=unique([...this.expressions.values()].filter(expression=>expression.path===path&&expression.syntaxKind==='source_file'));
+   const file=unique(this.t.filesByPath.all(path));if(file?.language!=='go'||!file.parsed)return undefined;
+   const root=unique(this.pathExpressions(path).filter(expression=>expression.syntaxKind==='source_file'));
    const clause=root===undefined?undefined:unique((this.children(root)??[]).filter(expression=>expression.syntaxKind==='package_clause'));
    const name=clause===undefined?undefined:unique(this.children(clause)??[]);return name?.syntaxKind==='package_identifier'?name.name:undefined;
   };
@@ -108,7 +117,7 @@ class HttpFacts {
   return {binding,pointer};
  }
  private parameterType(binding:CodeBindingFact):CodeExpressionFact|undefined{
-  const parameter=unique([...this.expressions.values()].filter(expression=>expression.syntaxKind==='parameter_declaration'&&contains(expression.span,binding.span)&&(expression.fields.name??[]).some(id=>{const name=this.expression(id);return name?.bindingId===binding.id&&same(name.span,binding.span);})));
+  const parameter=unique(this.pathExpressions(binding.path).filter(expression=>expression.syntaxKind==='parameter_declaration'&&contains(expression.span,binding.span)&&(expression.fields.name??[]).some(id=>{const name=this.expression(id);return name?.bindingId===binding.id&&same(name.span,binding.span);})));
   return parameter===undefined?undefined:this.field(parameter,'type');
  }
  private receiverType(site:FunctionSite):{binding:CodeBindingFact;pointer:boolean}|undefined{
@@ -138,7 +147,7 @@ class HttpFacts {
    const owner=this.valueType(value.receiver,seen);const raw=field===undefined?undefined:this.expression(field.typeExpression);const declaration=field===undefined?undefined:this.expression(field.ownerDeclaration);
    const symbol=field===undefined?undefined:unique((this.t.facts?.symbols??[]).filter(symbol=>symbol.key===field.key&&!symbol.callable));
    if(field===undefined||owner===undefined||raw===undefined||declaration?.syntaxKind!=='type_spec'||symbol===undefined||symbol.path!==field.path||!contains(symbol.span,field.span)||field.name!==value.member||field.ownerDeclaration!==owner.binding.typeDeclaration?.expression||!contains(declaration.span,field.span)||!contains(declaration.span,raw.span))return undefined;
-   const fieldDeclaration=unique([...this.expressions.values()].filter(expression=>expression.syntaxKind==='field_declaration'&&contains(declaration.span,expression.span)&&contains(expression.span,field.span)&&this.field(expression,'type')?.id===raw.id&&(expression.fields.name??[]).some(id=>{const name=this.expression(id);return name!==undefined&&same(name.span,field.span);} )));
+   const fieldDeclaration=unique(this.pathExpressions(declaration.path).filter(expression=>expression.syntaxKind==='field_declaration'&&contains(declaration.span,expression.span)&&contains(expression.span,field.span)&&this.field(expression,'type')?.id===raw.id&&(expression.fields.name??[]).some(id=>{const name=this.expression(id);return name!==undefined&&same(name.span,field.span);} )));
    return fieldDeclaration===undefined?undefined:this.declaredType(raw);
   }
   return undefined;
@@ -150,7 +159,7 @@ class HttpFacts {
  }
  private signature(site:FunctionSite,model:HttpModel,method:boolean):boolean{
   const effect=model.effect;if(effect.kind!=='handler'||site.language!=='go')return false;
-  const declaration=unique([...this.expressions.values()].filter(expression=>same(expression.span,site.span)&&(method?expression.syntaxKind===effect.declarationKind:effect.functionDeclarationKinds.includes(expression.syntaxKind))));
+  const declaration=unique(this.pathExpressions(site.span.path).filter(expression=>same(expression.span,site.span)&&(method?expression.syntaxKind===effect.declarationKind:effect.functionDeclarationKinds.includes(expression.syntaxKind))));
   if(declaration===undefined||(declaration.fields.result??[]).length!==0)return false;
   const list=this.field(declaration,'parameters');const parameters=list===undefined?undefined:this.children(list);
   if(parameters===undefined||parameters.length!==effect.parameters.length)return false;

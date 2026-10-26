@@ -3,12 +3,15 @@ import type { CodeExpressionFact, CodeFacts } from '../code/facts.js';
 import type { LibraryEffect } from '../library-models/model.js';
 import type { Records } from './accumulate.js';
 import type { TreeText } from './source.js';
-import { functionNode, functionsOf } from './symbol-sites.js';
+import { functionNode, functionsOf, type FunctionSite } from './symbol-sites.js';
 
 /** Materialize only a unique validated canonical owner from the shared pass. */
 export function effectOwner(t: TreeText, records: Records, effect: LibraryEffect): string | undefined {
   if (effect.holder === `code.file:${effect.span.path}`) return records.file(effect.span.path);
-  const sites = functionsOf(t, effect.span.path).filter((site) => site.key === effect.holder &&
+  // The view proves one path's callable sites once, so every effect standing in
+  // that path reads that one proof instead of proving the path again.
+  const proved: readonly FunctionSite[] = t.callableSites(effect.span.path) ?? functionsOf(t, effect.span.path);
+  const sites = proved.filter((site) => site.key === effect.holder &&
     site.span.byteStart <= effect.span.byteStart && effect.span.byteEnd <= site.span.byteEnd);
   if (sites.length !== 1) {
     records.gap(effect.span.path, `line ${effect.span.lineStart}: library effect has no unique canonical callable owner ${effect.holder}`);
