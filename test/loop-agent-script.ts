@@ -182,7 +182,7 @@ export function refreshScript(language: ScriptLanguage, delay = 0) {
   const question = LOOP_QUESTIONS.find((candidate) => candidate.item === 'term.payment-token')!;
   const slug = questionSlug(question, language);
   return {
-    byPrompt: [{
+    byPrompt: [...agentScript().byPrompt.filter((entry) => entry.matches.startsWith('Write the ') || entry.matches.startsWith('Judge this proposed procedure step')), {
       matches: `(madarch:question:${slug})`,
       steps: [...(delay > 0 ? [{ sleep: delay }] : []), ask(question, language), { call: { tool: 'write_page', arguments: { markdown: paymentsRefreshed(language) } } }, { end: { stopReason: 'end_turn' } }],
     }],
@@ -207,6 +207,7 @@ export function groundRefreshScript(language: ScriptLanguage, delay = 0) {
   const ordering = domain(language, 'ordering', ORDERS_SERVICE, ['doc:docs/requirements.md#uc-2', PAY]).replace(t.orderingStatement, ORDERING_CORRECTED[language]);
   return {
     byPrompt: [
+      ...agentScript().byPrompt.filter((entry) => entry.matches.startsWith('Write the ') || entry.matches.startsWith('Judge this proposed procedure step')),
       { matches: 'You write the product page', steps: [...wait, { call: { tool: 'write_page', arguments: { markdown: productPage(language), domains: [
         { slug: 'ordering', title: t.ordering, summary: t.orderingSummary, evidence: [ORDERS_SERVICE, 'doc:docs/requirements.md#uc-1'] },
         { slug: 'payments', title: t.payments, summary: t.paymentsSummary, evidence: [PAYMENTS_SERVICE, 'doc:docs/requirements.md#uc-2'] },

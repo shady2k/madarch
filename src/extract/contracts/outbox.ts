@@ -364,12 +364,21 @@ export async function inferOutboxPublications(
               if (!writeKinds.has(write.syntaxKind) || write.path !== append.path) return false;
               // Only a write before the range can change what it walks.
               if (write.span.byteStart >= clause.span.byteStart) return false;
-              const left = (write.fields.left ?? []).flatMap((id) => {const held = expr(id); return held === undefined ? [] : [held];});
+              // Go wraps each side of an assignment in an expression_list: one
+              // element is a plain assignment, several are a parallel one.
+              const sole = (ids: readonly string[] | undefined): CodeExpressionFact | undefined => {
+                if (ids === undefined) return undefined;
+                const held = ids.flatMap((id) => {const node = expr(id); return node === undefined ? [] : [node];});
+                if (held.length !== 1) return undefined;
+                const node = unwrap(held[0]!);
+                return node.syntaxKind === 'expression_list' && children(node).length !== 1 ? undefined : unwrap(node);
+              };
+              const left = sole(write.fields.left);
               const touches = write.fields.left === undefined ? children(write).some((child) => child.bindingId === collection.bindingId)
-                : left.some((target) => target.bindingId === collection.bindingId || children(target).some((child) => child.bindingId === collection.bindingId));
+                : (left === undefined ? false : left.bindingId === collection.bindingId || children(left).some((child) => child.bindingId === collection.bindingId));
               if (!touches) return false;
-              if (write.syntaxKind !== 'assignment_statement' || left.length !== 1 || left[0]!.bindingId !== collection.bindingId || left[0]!.children.length > 0) return true;
-              const right = expr((write.fields.right ?? [])[0]);
+              if (write.syntaxKind !== 'assignment_statement' || left === undefined || left.bindingId !== collection.bindingId) return true;
+              const right = sole(write.fields.right);
               const appendedCall = right === undefined ? undefined : calls.find((candidate) => candidate.expression === right.id);
               const callee = appendedCall === undefined ? undefined : expr(appendedCall.callee);
               const first = appendedCall === undefined ? undefined : expr(appendedCall.arguments[outboxModels.append.collection]);

@@ -671,6 +671,7 @@ function Problem({ block }: { block: Extract<Block, { type: 'problem' }> }): Rea
 export function BlockView({ block, resolutions, pageId }: { block: Block; resolutions: Readonly<Record<string, Resolution>>; pageId?: string }): ReactElement | null {
   const { t } = useTranslation();
   switch (block.type) {
+    case 'guide': return <section data-block="guide" data-walk-status={block.data.walk.status}><KMarkdown text={block.data.markdown} resolutions={resolutions} /></section>;
     case 'markdown': return <KMarkdown text={block.markdown} resolutions={resolutions} />;
     case 'term': return <TermBlockView block={block} pageId={pageId ?? ''} resolutions={resolutions} />;
     case 'body': return <Body block={block} resolutions={resolutions} {...(pageId === undefined ? {} : { pageId })} />;

@@ -181,6 +181,7 @@ export interface TreemapFile {
 }
 
 type BlockShape =
+  | { type: 'guide'; data: import('../writer/guides/read.js').GuidePageData }
   | { type: 'markdown'; markdown: string }
   | { type: 'term'; title: string; definition: string; synonyms: string[]; code: string[]; usedIn: string | null; ambiguous: string | null; localized?: { statement: string; original: string; sourceDocument: string; sourceLine: number; sourceEndLine: number } }
   | { type: 'body'; markdown: string; file: string; statements: number; ungrounded: { text: string; line: number }[]; localized?: { statement: string; original: string; sourceDocument: string; sourceLine: number; sourceEndLine: number } }

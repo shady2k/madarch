@@ -55,6 +55,8 @@ export interface JournalRecord {
 }
 
 export interface JournalContext {
+  /** Guide sessions never journal untrusted source, arguments, results or protocol refusal details. */
+  readonly privateGuide?: boolean;
   readonly run: string;
   readonly unit: string;
   readonly agent: string;
@@ -84,6 +86,7 @@ export interface Journal {
 }
 
 export function recordOf(context: JournalContext, entry: JournalEntry): JournalRecord {
+  if (context.privateGuide) entry = { ...entry, tool: 'guide-tool', arguments: { redacted: true }, response: entry.response === null ? null : '[guide result withheld]', reason: entry.reason === null ? null : '[guide refusal details withheld]' };
   const response = entry.response;
   const bytes = response === null ? 0 : Buffer.byteLength(response, 'utf8');
   const truncated = response !== null && response.length > MAX_RESPONSE_CHARACTERS;

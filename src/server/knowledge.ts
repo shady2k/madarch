@@ -18,6 +18,7 @@ import { readScope } from '../loop/tasks.js';
 import { WikiReadError, type KnowledgeProduct } from '../knowledge/product.js';
 import type { Handled, ReplyMaker } from './http.js';
 import { CHOOSABLE_ROLES, readSettings, writeRole } from '../knowledge/settings.js';
+import { guidePageMarkdown } from '../writer/guides/read.js';
 import type { DraftEnv } from '../product/home.js';
 
 export interface KnowledgePart {
@@ -120,6 +121,13 @@ export function createKnowledgePart(
       // for each by its line (`/api/k/block`). `full=1` asks for the whole page in one answer.
       const result = await product.page(id, asked === 'ru' || asked === 'en' ? asked : undefined, { defer: new URL(request.url).searchParams.get('at') === null && new URL(request.url).searchParams.get('full') !== '1', ...(new URL(request.url).searchParams.has('at') ? { history: { repo: new URL(request.url).searchParams.get('repo') ?? '', at: new URL(request.url).searchParams.get('at')! } } : {}) });
       if (!result.ok) return refused(result.status, { field: 'id', message: result.message });
+      const format = new URL(request.url).searchParams.get('format');
+      if (format !== null && format !== 'json' && format !== 'markdown') return refused(400, { field: 'format', message: 'format is json or markdown / формат: json или markdown' });
+      if (format === 'markdown') {
+        const projected = guidePageMarkdown(result.page);
+        if (!projected.ok) return refused(422, { field: 'format', message: projected.message });
+        return { response: new Response(projected.markdown, { headers: { 'content-type': 'text/markdown; charset=utf-8' } }) };
+      }
       return { response: json(200, result.page) };
     }),
     block: guarded('draw the block', async (request) => {

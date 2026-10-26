@@ -114,16 +114,18 @@ export async function serveTools(client: ToolClient, token: string, observer?: T
         }
         const known = new Set(client.definitions.map((tool) => tool.name));
         const call = async (tool: string, args: unknown): Promise<ToolAnswer> => {
+          const privateGuide = client.definitions.some((definition) => definition.name === 'write_guide' || definition.name === 'verify_guide_step');
+          const journalArguments = privateGuide ? { redacted: 'guide source and input payload' } : args;
           const startedAt = new Date();
           const began = performance.now();
           let answer: ToolAnswer;
           try {
             answer = await client.call(tool, args);
           } catch (error) {
-            observer?.served({ tool, arguments: args, answer: undefined, error: error instanceof Error ? error.message : String(error), startedAt, durationMs: performance.now() - began });
+            observer?.served({ tool, arguments: journalArguments, answer: undefined, error: privateGuide ? 'guide tool failed; sensitive details withheld' : error instanceof Error ? error.message : String(error), startedAt, durationMs: performance.now() - began });
             throw error;
           }
-          observer?.served({ tool, arguments: args, answer, startedAt, durationMs: performance.now() - began });
+          observer?.served({ tool, arguments: journalArguments, answer: privateGuide ? { isError: answer.isError, answer: { redacted: 'guide tool result', isError: answer.isError } } : answer, startedAt, durationMs: performance.now() - began });
           return answer;
         };
         // A tools/call for a name this unit does not have is a protocol error the endpoint answers itself: no call, but a refusal on record.
@@ -132,7 +134,8 @@ export async function serveTools(client: ToolClient, token: string, observer?: T
           if (typeof held !== 'object' || held === null || held.method !== 'tools/call' || held.id === undefined) continue;
           const name = held.params?.name;
           if (typeof name === 'string' && name !== '' && known.has(name)) continue;
-          observer?.rejected({ tool: typeof name === 'string' ? name : null, arguments: held.params?.arguments ?? null, message: `${JSON.stringify(name ?? null)} is no tool of this unit: the tools are ${[...known].join(', ')}`, startedAt: new Date() });
+          const privateGuide = client.definitions.some((definition) => definition.name === 'write_guide' || definition.name === 'verify_guide_step');
+          observer?.rejected({ tool: privateGuide ? 'unrecognized-guide-tool' : typeof name === 'string' ? name : null, arguments: privateGuide ? { redacted: 'guide request' } : held.params?.arguments ?? null, message: privateGuide ? 'a request outside this guide unit was refused; sensitive details withheld' : `${JSON.stringify(name ?? null)} is no tool of this unit: the tools are ${[...known].join(', ')}`, startedAt: new Date() });
         }
         const options = { tools: client.definitions, call, info: { name: 'madarch-writer', version: '1' } };
         if (Array.isArray(parsed)) {
@@ -158,12 +161,15 @@ export function acpUnitAgent(options: AcpAgentOptions): UnitAgent & { close(): P
   // The journal's context for each session, so a refusal the agent's connection reports is filed under the unit that made it.
   const contexts = new Map<string, JournalContext>();
   let latest: JournalContext | undefined;
+  let privateInFlight = 0;
   const refusedRequest = (refusal: AcpRefusal): void => {
     const journal = options.journal;
     if (journal === undefined) return;
-    const context = (refusal.sessionId === null ? undefined : contexts.get(refusal.sessionId)) ?? latest;
+    const identified = refusal.sessionId === null ? undefined : contexts.get(refusal.sessionId);
+    const fallback = latest;
+    const context = identified ?? (fallback === undefined ? undefined : privateInFlight > 0 ? { ...fallback, privateGuide: true } : fallback);
     if (context === undefined) return;
-    journal.record(context, { kind: 'refusal', tool: refusal.method, arguments: refusal.params, response: refusal.message, isError: true, outcome: 'rejected', reason: refusal.message, startedAt: new Date(), durationMs: 0 });
+    journal.record(context, { kind: 'refusal', tool: context.privateGuide ? 'guide-protocol-refusal' : refusal.method, arguments: context.privateGuide ? { redacted: true } : refusal.params, response: context.privateGuide ? 'guide protocol request refused; details withheld' : refusal.message, isError: true, outcome: 'rejected', reason: context.privateGuide ? 'guide protocol request refused; details withheld' : refusal.message, startedAt: new Date(), durationMs: 0 });
   };
 
   const connect = async (): Promise<AcpConnection> => {
@@ -185,11 +191,17 @@ export function acpUnitAgent(options: AcpAgentOptions): UnitAgent & { close(): P
 
   return {
     async run(request: UnitRequest): Promise<void> {
-      const acp = await connect();
+      const privateGuide = request.tools.definitions.some((definition) => definition.name === 'write_guide' || definition.name === 'verify_guide_step');
+      // Bind privacy before connecting or creating a session; those operations can themselves refuse.
+      const preSession: JournalContext | undefined = options.journal === undefined ? undefined : { run: options.journal.run, unit: request.id, agent: options.spec.id, model: null, session: null, ...(privateGuide ? { privateGuide: true } : {}) };
+      if (preSession !== undefined) latest = preSession;
+      if (privateGuide) privateInFlight += 1;
+      let acp: AcpConnection;
+      try { acp = await connect(); } catch (failure) { if (privateGuide) privateInFlight -= 1; throw failure; }
       const token = randomBytes(24).toString('hex');
       let context: JournalContext | undefined;
       const journal = options.journal;
-      const now = (): JournalContext => context ?? { run: journal!.run, unit: request.id, agent: options.spec.id, model: null, session: null };
+      const now = (): JournalContext => context ?? preSession ?? { run: journal!.run, unit: request.id, agent: options.spec.id, model: null, session: null };
       const endpoint = await serveTools(request.tools, token, journal === undefined ? undefined : {
         served: (call) => journal.record(now(), entryOfCall(call)),
         rejected: (call) => journal.record(now(), { kind: 'refusal', tool: call.tool ?? '(no tool named)', arguments: call.arguments, response: call.message, isError: true, outcome: 'rejected', reason: call.message, startedAt: call.startedAt, durationMs: 0 }),
@@ -201,7 +213,7 @@ export function acpUnitAgent(options: AcpAgentOptions): UnitAgent & { close(): P
         const session = await acp.newSession({ cwd: scratch!, mcpServers: [{ name: 'madarch-writer', type: 'http', url: endpoint.url, headers: { Authorization: `Bearer ${token}` } }] });
         if (options.preferences !== undefined) await applyPreferences(session, options.preferences, options.progress);
         if (journal !== undefined) {
-          context = { run: journal.run, unit: request.id, agent: options.spec.id, model: choicesOf(session).model?.current ?? session.model, session: session.sessionId };
+          context = { run: journal.run, unit: request.id, agent: options.spec.id, model: choicesOf(session).model?.current ?? session.model, session: session.sessionId, ...(privateGuide ? { privateGuide: true } : {}) };
           contexts.set(session.sessionId, context);
           latest = context;
         }
@@ -236,6 +248,7 @@ export function acpUnitAgent(options: AcpAgentOptions): UnitAgent & { close(): P
         }
         if (stop !== undefined) options.progress?.(`${request.id} stopped: ${guard.describe({ kind: 'stop', cause: stop, state: guard.state() })}`);
       } finally {
+        if (privateGuide) privateInFlight -= 1;
         await endpoint.close();
       }
     },

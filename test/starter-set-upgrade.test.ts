@@ -272,7 +272,7 @@ describe('ensureLoopKinds', () => {
     return product;
   };
 
-  test('a manifest with no groups gets the two kinds without a group, so neither becomes a finding', () => {
+  test('a manifest with no groups gets guide and loop kinds without a group, so none becomes a finding', () => {
     const product = bare('# mine\nkinds:\n  product:\n    template: templates/product.md\n    source: markdown\n    file: docs/product.md\n');
     expect(ensureLoopKinds(product)).toContain('madarch/kinds.yaml');
     const text = read(product, 'madarch/kinds.yaml');
@@ -280,7 +280,11 @@ describe('ensureLoopKinds', () => {
     expect(text).not.toContain('group:');
     const manifest = manifestOf(product);
     expect(manifest.findings).toEqual([]);
-    expect([...manifest.kinds.keys()]).toEqual(['product', 'question', 'correction']);
+    expect([...manifest.kinds.keys()]).toEqual(['product', 'administrator-guide', 'user-guide', 'question', 'correction']);
+    for (const name of ['administrator-guide', 'user-guide']) {
+      expect(manifest.kinds.get(name)?.template).toBe('templates/guide.md');
+      expect(manifest.kinds.get(name)?.group).toBeUndefined();
+    }
   });
 
   test('a manifest that declares the product group gets the kinds in it', () => {

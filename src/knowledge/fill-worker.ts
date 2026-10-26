@@ -32,6 +32,14 @@ import { parseMessage, type FromWorker, type RepositoryPin, type ToWorker, type 
 import { readKinds } from './kinds.js';
 import { DOCUMENT_LIMIT, listedDocument, productDocumentPaths, readProductDocument, readRepoDocuments, repoDocumentPaths } from './doc-sources.js';
 import { readDocEntities, type DocumentSource } from './doc-entities.js';
+import { createGitSnapshotSource } from '../fill/snapshot.js';
+import { createGuideWriter, guideProductPin, type GuideWriterWiring } from '../writer/guides/writer.js';
+
+/** The fill's guide factory derives withholding/refusal authority from its actual pinned evidence.
+ * A host checker, when supplied, stays additive; no caller passes an empty substitute authority. */
+export async function createFillGuideWriter(wiring: GuideWriterWiring) {
+  return await createGuideWriter(wiring);
+}
 
 const execFileAsync = promisify(execFile);
 
@@ -338,7 +346,14 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
         }
       }
       const documentEntities = kinds.present ? readDocEntities(documentSources, kinds.manifest).entities : [];
+      const guidePin = pins.get(repo.name);
+      if (guidePin === undefined || guidePin.commit === '' || guidePin.effectiveTime === '') throw new Error('guide preparation requires the completed repository pin');
+      const guideSnapshots = createGitSnapshotSource([{ id: repo.name, form: 'code', root: repo.path, commit: guidePin.commit }, guideProductPin(productFolder,[repo.name])]);
+      const guides = await createFillGuideWriter({ owner, store, snapshots: guideSnapshots, output: productFolder, scope: guidePin.scope, valid: guidePin.effectiveTime, agent: remote,
+        afterWrite: async (path) => { const indexed = await indexNow(); if (indexed.error !== undefined) throw new Error(indexed.error); send({ type: 'page', path }); },
+      });
       const report = await runWriter({
+        guides,
         owner, store, repository: repo.path, ...(pins.get(repo.name)?.head === undefined ? {} : { ref: pins.get(repo.name)!.head }), output: productFolder, productName: start.productName, agent: remote, sink,
         language: start.language, languageChanged: start.languageChanged, documentEntities, repositoryName: repo.name,
         needed,
