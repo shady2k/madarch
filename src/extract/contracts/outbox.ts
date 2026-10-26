@@ -124,8 +124,11 @@ export async function inferOutboxPublications(
     return parent === undefined || node.member === undefined ? undefined : {binding: parent.binding, members: [...parent.members, node.member]};
   };
   /** A binding whose storage a pointer could share: any address-of of it or of one of its fields. */
-  const addressTaken = (binding: string, path: string): boolean => [...expressions.values()].some((node) => {
+  const addressTaken = (binding: string, path: string, written?: SourceSpan): boolean => [...expressions.values()].some((node) => {
     if (node.path !== path || node.syntaxKind !== 'unary_expression') return false;
+    // The Scan call itself takes the row's fields by address to fill them: that
+    // is the read this proof starts from, not another holder of the storage.
+    if (written !== undefined && contains(written, node.span)) return false;
     return (node.fields['operand'] ?? node.fields['expression'] ?? node.children).flatMap((id) => {
       const held = expr(id); return held === undefined ? [] : [held];
     }).some((operand) => operand.bindingId === binding || children(operand).some((child) => child.bindingId === binding));
@@ -318,7 +321,7 @@ export async function inferOutboxPublications(
         if (row === undefined || scannedRow === undefined) return false;
         // A pointer could share the row's storage: no positive claim survives that.
         if (row.bindingId !== undefined && row.bindingId === scannedRow.bindingId) {
-          return !addressTaken(row.bindingId, call.path) && untouched(topic, scanned.span, call.span);
+          return !addressTaken(row.bindingId, call.path, scanned.span) && untouched(topic, scanned.span, call.span);
         }
         // Same property projection on an exactly transferred row value needs
         // no independent field-name lookup or guessed owner type.
@@ -359,6 +362,8 @@ export async function inferOutboxPublications(
             const collectionBinding = collection.bindingId!;
             const extendedOnly = !addressTaken(collectionBinding, append.path) && ![...expressions.values()].some((write) => {
               if (!writeKinds.has(write.syntaxKind) || write.path !== append.path) return false;
+              // Only a write before the range can change what it walks.
+              if (write.span.byteStart >= clause.span.byteStart) return false;
               const left = (write.fields.left ?? []).flatMap((id) => {const held = expr(id); return held === undefined ? [] : [held];});
               const touches = write.fields.left === undefined ? children(write).some((child) => child.bindingId === collection.bindingId)
                 : left.some((target) => target.bindingId === collection.bindingId || children(target).some((child) => child.bindingId === collection.bindingId));
