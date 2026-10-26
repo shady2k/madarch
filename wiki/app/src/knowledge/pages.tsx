@@ -1,3 +1,4 @@
+import { Operations } from './operations.js';
 /**
  * The views of the knowledge wiki: one entity's page, a kind's entities, a
  * source file at a line, the empty product's way forward, and the fill's card.
@@ -13,8 +14,10 @@ import { Button } from '@/components/ui/button.js';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.js';
 import { Input } from '@/components/ui/input.js';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.js';
-import { getDocument, getDocuments, getEntities, getPage, getSource, getStatement, correctStatement, startFill } from './api.js';
+import { getViews, getDocument, getDocuments, getEntities, getPage, getSource, getStatement, correctStatement, startFill } from './api.js';
 import { useTabTitle } from './tabs.js';
+import { currentHistory } from './history-context.js';
+import { HistoryBar } from './history-bar.js';
 import { AgentChoice, WriterCard, useAgentChoice } from './writer.js';
 import { FailureNote } from './errors.js';
 import { BlockView, CodeLines, CodePlace, EntityName, Findings, KLink, KMarkdown, PlannedBadge, PlannedContext, brokenWords, groupLabel, scrollToAnchor, sentenceKey, type PlannedMarks } from './blocks.js';
@@ -26,7 +29,8 @@ import { useRead } from './live.js';
 import { blockOpen, useRole } from './roles.js';
 import { PageSkeleton } from './skeleton.js';
 import { Textarea } from '@/components/ui/textarea.js';
-import type { CorrectionResult, DocumentListing, DocumentPageModel, EntityListing, EntityRef, Excerpt, GroundView, Origin, PageModel, SourceFile, StatementModel, WikiStatus } from './types.js';
+import { DiagramsView } from './diagrams/views.js';
+import type { CorrectionResult, DiagramRenderer, DiagramView, DocumentListing, DocumentPageModel, EntityListing, EntityRef, Excerpt, GroundView, Origin, PageModel, SourceFile, StatementModel, WikiStatus } from './types.js';
 
 function message(failure: unknown): string {
   return failure instanceof Error ? failure.message : String(failure);
@@ -52,7 +56,8 @@ export function EntityPage({ id, version }: { id: string; version: number }): Re
   const { t, i18n } = useTranslation();
   const kindName = useKindName();
   const language = (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en';
-  const { data: page, error } = useRead<PageModel>(`${id}\0${language}`, version, (signal) => getPage(id, language, signal, (reason) => t('knowledge.pageNotRead', { id, reason })));
+  const selectedHistory = currentHistory();
+  const { data: page, error } = useRead<PageModel>(`${id}\0${language}\0${JSON.stringify(selectedHistory)}`, version, (signal) => getPage(id, language, signal, (reason) => t('knowledge.pageNotRead', { id, reason })));
   const { role, roles } = useRole();
   useTabTitle(page?.title ?? (error !== null ? t('knowledge.noSuchPage') : null));
   if (page === null && error === null) return <PageSkeleton testId="page-loading" />;
@@ -72,6 +77,7 @@ export function EntityPage({ id, version }: { id: string; version: number }): Re
   return (
     <article data-testid="entity-page" data-entity={page.id} data-kind={page.kind} data-planned={page.planned?.entity === null || page.planned?.entity === undefined ? 'false' : page.planned.entity.how}>
       <header className="mb-6">
+        <HistoryBar history={page.history} navigation={page.historyNavigation} absent={page.historicalAbsent} />
         <Trail trail={page.trail} />
         <div className="mb-2 flex items-center gap-2">
           <Badge data-testid="page-kind">{kindName(page.kind, 'one')}</Badge>
@@ -96,6 +102,16 @@ export function EntityPage({ id, version }: { id: string; version: number }): Re
   );
 }
 
+/** The map of a kind's pages and the services behind them (the domain context map); nothing is drawn for a kind no service stands behind. */
+function KindMap({ kind, version }: { kind: string; version: number }): ReactElement | null {
+  const { t, i18n } = useTranslation();
+  const lang = i18n.resolvedLanguage ?? 'en';
+  const read = useRead<{ renderer: DiagramRenderer; views: DiagramView[] }>(`map\0${kind}\0${lang}`, version, (signal) => getViews(new URLSearchParams({ type: 'domain-map', subject: kind }).toString(), lang, signal));
+  const view = read.data?.views[0];
+  if (read.data === null || view === undefined || view.empty !== null) return null;
+  return <div className="mb-6" data-testid="kind-map"><DiagramsView block={{ type: 'diagrams', title: t('knowledge.views.kindMap'), renderer: read.data.renderer, views: [view] }} /></div>;
+}
+
 /** A kind's entities: filtered by text, a hundred at a time. */
 export function KindPage({ kind, version }: { kind: string; version: number }): ReactElement {
   const { t } = useTranslation();
@@ -103,6 +119,7 @@ export function KindPage({ kind, version }: { kind: string; version: number }): 
   const [query, setQuery] = useState('');
   const [asked, setAsked] = useState('');
   const [more, setMore] = useState<EntityRef[]>([]);
+  const [operationMore, setOperationMore] = useState<NonNullable<EntityListing['operations']>>({});
   const [next, setNext] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -115,6 +132,7 @@ export function KindPage({ kind, version }: { kind: string; version: number }): 
   // A fresh listing starts the rows over: what "load more" appended belonged to the one before.
   useEffect(() => {
     setMore([]);
+    setOperationMore({});
     setNext(listing?.next ?? null);
   }, [listing]);
   const listingRef = useRef<EntityListing | null>(null);
@@ -128,6 +146,7 @@ export function KindPage({ kind, version }: { kind: string; version: number }): 
         // A commit that reread the listing meanwhile makes this page of rows a stale one.
         if (listingRef.current !== mine) return;
         setMore((held) => [...held, ...answer.rows]);
+        setOperationMore((held) => ({...held, ...answer.operations}));
         setNext(answer.next);
       },
       (failure: unknown) => setError(message(failure)),
@@ -143,10 +162,12 @@ export function KindPage({ kind, version }: { kind: string; version: number }): 
           {listing !== null && <span className="text-small text-muted" data-testid="kind-total">{t('knowledge.total', { count: listing.total })}</span>}
         </div>
       </header>
+      <KindMap kind={kind} version={version} />
       {(error ?? read.error) !== null && <Alert variant="problem" className="mb-4"><AlertDescription><p>{error ?? read.error}</p></AlertDescription></Alert>}
       {listing === null && read.error === null && <PageSkeleton testId="kind-loading" rows />}
       {listing !== null && rows.length === 0 && <p className="text-muted" data-testid="kind-empty">{t('knowledge.nothingOfKind')}</p>}
-      {rows.length > 0 && (
+      {rows.length > 0 && kind === 'code.operation' && <Operations rows={rows} metadata={{...listing?.operations, ...operationMore}} />}
+      {rows.length > 0 && kind !== 'code.operation' && (
         <Table>
           <TableHeader>
             <TableRow><TableHead>{t('knowledge.colName')}</TableHead><TableHead>{t('knowledge.colPlace')}</TableHead></TableRow>
@@ -172,9 +193,12 @@ export function SourcePage({ repo, path, line }: { repo: string | null; path: st
   const [file, setFile] = useState<SourceFile | null>(null);
   const [error, setError] = useState<string | null>(null);
   const box = useRef<HTMLDivElement | null>(null);
+  const selectedHistory = JSON.stringify(currentHistory());
   useTabTitle(path.slice(path.lastIndexOf('/') + 1));
   useEffect(() => {
     const controller = new AbortController();
+    setFile(null);
+    setError(null);
     getSource(repo, path, controller.signal).then(
       (answer) => {
         setFile(answer);
@@ -185,7 +209,7 @@ export function SourcePage({ repo, path, line }: { repo: string | null; path: st
       },
     );
     return () => controller.abort();
-  }, [repo, path]);
+  }, [repo, path, selectedHistory]);
   useEffect(() => {
     if (file === null || line === null) return;
     box.current?.querySelector(`#L${line}`)?.scrollIntoView?.({ block: 'center' });
@@ -202,6 +226,7 @@ export function SourcePage({ repo, path, line }: { repo: string | null; path: st
   const total = file.text.endsWith('\n') ? file.text.split('\n').length - 1 : file.text.split('\n').length;
   return (
     <section data-testid="source-page" data-path={path}>
+      <HistoryBar history={file.history} />
       <header className="mb-4">
         <div className="mb-2 flex flex-wrap items-center gap-2">
           <Badge>{file.repo ?? t('knowledge.productRepository')}</Badge>

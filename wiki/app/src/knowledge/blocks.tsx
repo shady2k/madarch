@@ -8,26 +8,26 @@
  * mention of an entity that has a page is a link to the page; a reference that
  * does not resolve is shown as broken, with its reason.
  */
-import { createContext, createElement, useContext, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
+import { lazy, Suspense, createContext, createElement, useContext, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useTranslation } from 'react-i18next';
 import { ExternalLinkIcon, FileCode2Icon } from 'lucide-react';
 import { appPath } from '../app-base.js';
-import { MermaidDiagram } from '../diagram.js';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert.js';
 import { Badge } from '@/components/ui/badge.js';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card.js';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.js';
 import { getBlock } from './api.js';
+import { historyAddress } from './history-context.js';
 import { highlight } from './highlight.js';
 import { colorize, type ColoredToken } from './shiki.js';
 import { PendingPages } from './pending.js';
-import { ModulesView, SystemView } from './diagrams/system.js';
+import { DiagramsView } from './diagrams/views.js';
 import { NeighborhoodGraph } from './diagrams/neighborhood.js';
-import { SequenceView } from './diagrams/chain.js';
 import { TreemapView } from './diagrams/treemap.js';
 import { useKindName } from './kind-names.js';
+import {ContractDiagnosticView} from './contract-diagnostic.js';
 import { addressOfDocument, addressOfStatement, addressOfTask, K_PROBLEMS } from './routes.js';
 import { currentAddress, linkHandlers, openInNewTab, syncFrontTabAddress } from './tabs.js';
 import { remarkStatements, type MNode } from './statements.js';
@@ -37,7 +37,8 @@ import type { Block, BrokenWhy, CallRow, CodeLocation, EntityRef, PlannedMarkVie
 
 /** A link inside the wiki, opened without a reload: in the tab in front, or in a new tab on a middle or control click. */
 export function KLink({ href, children, className, title }: { href: string; children: ReactNode; className?: string; title?: string }): ReactElement {
-  return <a href={appPath(href)} className={className} title={title} {...linkHandlers(href)}>{children}</a>;
+  const target = historyAddress(href);
+  return <a href={appPath(target)} className={className} title={title} {...linkHandlers(target)}>{children}</a>;
 }
 
 /** `path:line` as a link that opens the source at that line. */
@@ -476,33 +477,11 @@ function Source({ block }: { block: Extract<Block, { type: 'source' }> }): React
 
 // ---- diagrams -----------------------------------------------------------------------------------
 
-function Diagram({ title, mermaid, caption, empty, links = [] }: { title: string; mermaid: string; caption: string | null; empty: string; links?: readonly EntityRef[] }): ReactElement {
-  if (mermaid === '') {
-    return (
-      <section data-block="diagram" aria-label={title}>
-        <h2>{title}</h2>
-        <p className="text-small text-muted" data-testid="diagram-empty">{empty}</p>
-      </section>
-    );
-  }
-  return (
-    <section data-block="diagram" aria-label={title}>
-      <h2>{title}</h2>
-      <figure className="m-0">
-        <MermaidDiagram source={mermaid} title={title} />
-        {links.length > 0 && <ul className="dg-links" data-testid="diagram-links">{links.map((entity) => <li key={entity.id}><EntityName entity={entity} /></li>)}</ul>}
-        {caption !== null && <figcaption className="mt-1.5 text-small text-muted">{caption}</figcaption>}
-      </figure>
-    </section>
-  );
-}
-
-
 /** An instant as the wiki writes dates: the day and the time in the reader's language, the raw text where it is no date. */
 function when(value: string, language: string): string {
   const instant = new Date(value);
   if (Number.isNaN(instant.getTime())) return value;
-  return new Intl.DateTimeFormat(language, {dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC'}).format(instant);
+  return new Intl.DateTimeFormat(language, { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' }).format(instant);
 }
 
 function Properties({ block }: { block: Extract<Block, { type: 'properties' }> }): ReactElement | null {
@@ -576,8 +555,9 @@ function Deferred({ block, pageId, resolutions }: { block: Extract<Block, { type
   const { t, i18n } = useTranslation();
   const [drawn, setDrawn] = useState<Block | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
+  const [opened, setOpened] = useState(false);
   useEffect(() => {
-    if (pageId === undefined) return;
+    if (pageId === undefined || (block.block === 'definition' && !opened)) return;
     const stop = new AbortController();
     setDrawn(null);
     setFailure(null);
@@ -585,7 +565,11 @@ function Deferred({ block, pageId, resolutions }: { block: Extract<Block, { type
       if (!(error instanceof DOMException && error.name === 'AbortError')) setFailure(error instanceof Error ? error.message : String(error));
     });
     return () => stop.abort();
-  }, [pageId, block.line, block.block, i18n.resolvedLanguage]);
+  }, [pageId, block.line, block.block, i18n.resolvedLanguage, opened]);
+  if (block.block === 'definition') return <details data-testid="contract-definition-disclosure" onToggle={(event) => { if (event.currentTarget.open) setOpened(true); }}>
+    <summary className="cursor-pointer text-secondary">{block.title}</summary>
+    {opened && (drawn !== null ? <BlockView block={drawn} resolutions={resolutions} {...(pageId === undefined ? {} : {pageId})} /> : <p role={failure === null ? 'status' : 'alert'}>{failure ?? t('knowledge.contractLoading')}</p>)}
+  </details>;
   if (drawn !== null) return <BlockView block={drawn} resolutions={resolutions} {...(pageId === undefined ? {} : { pageId })} />;
   return (
     <section data-block="diagram" data-diagram="deferred" aria-label={block.title}>
@@ -606,21 +590,21 @@ function History({ block }: { block: Extract<Block, { type: 'history' }> }): Rea
   const figureText = (figure: { kind: string; value: string }): string => {
     if (figure.kind === 'added') return `+${figure.value}`;
     if (figure.kind === 'removed') return `−${figure.value}`;
-    if (figure.kind === 'module') return `${t('knowledge.historyFigure.module')}: ${figure.value}`;
+    if (['module', 'since', 'until', 'authoredAt', 'committedAt', 'effectiveAt', 'similarity'].includes(figure.kind)) return `${t(`knowledge.historyFigure.${figure.kind}`)}: ${figure.value}`;
     return `${figure.value} ${t(`knowledge.historyFigure.${figure.kind}`)}`;
   };
   return (
     <section data-block="history" aria-label={block.title}>
       <h2>{block.title}</h2>
       {block.sections.length === 0 ? <p className="text-small text-muted" data-testid="history-empty">{t('knowledge.none')}</p> : block.sections.map((section) => (
-        <div key={section.role} data-history-section={section.role} className="mb-4">
-          {block.sections.length > 1 && <h3 className="text-small text-muted">{t(`knowledge.historySection.${section.role}`)}</h3>}
+        <div key={`${section.role}-${block.sections.indexOf(section)}`} data-history-section={section.role} className="mb-4">
+          {block.sections.length > 1 && <h3 className="text-small text-muted">{section.repository === undefined ? '' : `${section.repository}: `}{t(`knowledge.historySection.${section.role}`)}</h3>}
           <Table>
             <TableHeader>
               <TableRow>
                 {section.role === 'commits' && <TableHead>{t('knowledge.historyColWhen')}</TableHead>}
                 {section.role === 'commits' && <TableHead>{t('knowledge.historyColWho')}</TableHead>}
-                <TableHead>{section.role === 'commits' ? t('knowledge.historyColWhat') : t('knowledge.historyColFile')}</TableHead>
+                <TableHead>{section.role !== 'files' ? t('knowledge.historyColWhat') : t('knowledge.historyColFile')}</TableHead>
                 <TableHead>{t('knowledge.historyColFigures')}</TableHead>
               </TableRow>
             </TableHeader>
@@ -630,7 +614,7 @@ function History({ block }: { block: Extract<Block, { type: 'history' }> }): Rea
                   {section.role === 'commits' && <TableCell className="whitespace-nowrap">{row.when ?? <span className="text-muted">–</span>}</TableCell>}
                   {section.role === 'commits' && <TableCell className="whitespace-nowrap">{row.who ?? <span className="text-muted">–</span>}</TableCell>}
                   <TableCell className="max-w-[32rem] break-words">
-                    {row.entity === undefined ? row.text : <EntityName entity={row.entity} />}
+                    {row.entity === undefined ? row.text : <><EntityName entity={row.entity} />{row.text !== row.entity.label && <span className="block break-all text-small text-muted">{row.text}</span>}</>}
                   </TableCell>
                   <TableCell>
                     <span className="flex flex-wrap items-center gap-1">
@@ -663,41 +647,10 @@ function History({ block }: { block: Extract<Block, { type: 'history' }> }): Rea
  * their messages of an AsyncAPI document, or the services and rpcs of a protobuf file, each at an anchor a link can open
  * the page at, beside the contract's own text. The block arrives deferred, so a reader pays for it only when they open it.
  */
-function Definition({ block }: { block: Extract<Block, { type: 'definition' }> }): ReactElement {
-  const { t } = useTranslation();
-  const formatName = block.format === 'openapi' ? t('knowledge.definitionOpenApi') : block.format === 'asyncapi' ? t('knowledge.definitionAsyncApi') : block.format === 'proto' ? t('knowledge.definitionProto') : block.format;
-  return (
-    <section data-block="definition" aria-label={block.title}>
-      <h2>{block.title}</h2>
-      <p className="m-0 flex flex-wrap items-center gap-2">
-        <Badge data-testid="definition-format">{formatName}</Badge>
-        {block.location === undefined ? <span className="font-mono text-[0.875em]">{block.contract}</span> : <KLink href={block.location.href} className="font-mono text-[0.875em] text-secondary">{block.contract}</KLink>}
-      </p>
-      {block.memberCuts.map((cut, index) => <p key={`${cut.channel}:${index}`} className="mt-2 text-small text-muted">{cut.channel === '' ? t('knowledge.definitionMembersCut', { shown: cut.shown, total: cut.total }) : t('knowledge.definitionChannelCut', { channel: cut.channel, shown: cut.shown, total: cut.total })}</p>)}
-      {block.members.length === 0 ? <p className="mt-2 text-small text-muted" data-testid="definition-empty">{t('knowledge.definitionEmpty')}</p> : (
-        <Table className="mt-3">
-          <TableHeader>
-            <TableRow><TableHead>{t('knowledge.definitionMember')}</TableHead><TableHead>{t('knowledge.definitionDetail')}</TableHead></TableRow>
-          </TableHeader>
-          <TableBody>
-            {block.members.map((member) => (
-              <TableRow key={member.anchor} id={member.anchor} data-member={member.anchor}>
-                <TableCell className="max-w-[28rem] break-words">
-                  {member.href === null ? <span className="font-mono text-[0.875em]">{member.label}</span> : <KLink href={member.href} className="font-mono text-[0.875em]">{member.label}</KLink>}
-                </TableCell>
-                <TableCell className="max-w-[32rem] break-words">{member.detail ?? <span className="text-muted">–</span>}</TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      )}
-      <details className="mt-5">
-        <summary className="cursor-pointer text-small text-muted">{t('knowledge.definitionSource')}</summary>
-        <pre className="mt-2 max-h-[32rem] overflow-auto rounded-md border p-3 text-small"><code>{block.spec.text}</code></pre>
-        {block.spec.lines > block.spec.text.split('\n').length && <p className="text-small text-muted">{t('knowledge.definitionCut', { shown: block.spec.text.split('\n').length, total: block.spec.lines })}</p>}
-      </details>
-    </section>
-  );
+const ContractView = lazy(() => import('./contract-view.js'));
+function Definition({block}: {block: Extract<Block, {type: 'definition'}>}): ReactElement {
+  const {t} = useTranslation();
+  return <Suspense fallback={<p role="status">{t('knowledge.contractLoading')}</p>}><ContractView block={block} /></Suspense>;
 }
 
 function Problem({ block }: { block: Extract<Block, { type: 'problem' }> }): ReactElement {
@@ -706,7 +659,7 @@ function Problem({ block }: { block: Extract<Block, { type: 'problem' }> }): Rea
     <Alert variant="problem" className="my-4" data-testid="block-problem">
       <AlertTitle>{t('knowledge.blockProblem', { block: block.block })}</AlertTitle>
       <AlertDescription>
-        <p>{block.message}</p>
+        {block.block === 'definition' && block.diagnostic !== undefined ? <ContractDiagnosticView diagnostic={block.diagnostic} /> : <p>{block.message}</p>}
         <p className="font-mono text-[0.875em] text-muted">{block.file}:{block.line}</p>
       </AlertDescription>
     </Alert>
@@ -729,13 +682,10 @@ export function BlockView({ block, resolutions, pageId }: { block: Block; resolu
     case 'callees': return <Calls block={block} />;
     case 'source': return <Source block={block} />;
     case 'graph': return <NeighborhoodGraph block={block} />;
-    case 'sequence': return <SequenceView block={block} />;
-    case 'system': return <SystemView block={block} />;
-    case 'modules': return <ModulesView block={block} />;
+    case 'diagrams': return <DiagramsView block={block} />;
     case 'treemap': return <TreemapView block={block} />;
     case 'history': return <History block={block} />;
     case 'definition': return <Definition block={block} />;
-    case 'er': return <Diagram title={block.title} mermaid={block.mermaid} empty={t('knowledge.noTables')} caption={block.tables > block.shownTables ? t('knowledge.showing', { shown: block.shownTables, total: block.tables }) : null} links={block.links} />;
     case 'deferred': return <Deferred block={block} resolutions={resolutions} {...(pageId === undefined ? {} : { pageId })} />;
     case 'problem': return <Problem block={block} />;
   }

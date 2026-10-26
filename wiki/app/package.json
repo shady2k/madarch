@@ -5,7 +5,7 @@
   "version": "0.0.0",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && bun ../../scripts/build-wiki-archify.ts",
     "check": "tsc --noEmit",
     "test": "bun test"
   },
@@ -19,6 +19,7 @@
     "decode-named-character-reference": "1.2.0",
     "i18next": "^26.4.3",
     "lucide-react": "1.55.0",
+    "likec4": "1.59.4",
     "mermaid": "12.0.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
@@ -28,7 +29,13 @@
     "remark-parse": "11.0.0",
     "shiki": "4.5.0",
     "tailwindcss": "4.3.3",
-    "unified": "11.0.5"
+    "unified": "11.0.5",
+    "redoc": "2.5.4",
+    "@asyncapi/react-component": "3.2.1",
+    "mobx": "6.15.0",
+    "core-js": "3.46.0",
+    "styled-components": "6.1.19",
+    "parse5": "8.0.1"
   },
   "devDependencies": {
     "@happy-dom/global-registrator": "20.14.5",

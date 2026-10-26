@@ -25,17 +25,17 @@ export type HistoryRow = {
   who?: string;
   text: string;
   entity?: EntityRef;
-  figures: { kind: 'added' | 'removed' | 'symbols' | 'commits' | 'files' | 'module'; value: string }[];
+  figures: { kind: 'added' | 'removed' | 'symbols' | 'commits' | 'files' | 'module' | 'reachable' | 'firstParent' | 'merges' | 'nonMerge' | 'authors' | 'since' | 'until' | 'both' | 'onlyThis' | 'onlyOther' | 'authoredAt' | 'committedAt' | 'effectiveAt' | 'similarity'; value: string }[];
 };
 
 /** One list of a history block: the commits it shows, or the files they touched. */
-export type HistorySection = { role: 'commits' | 'files'; total: number; rows: HistoryRow[] };
+export type HistorySection = { repository?: string; role: 'commits' | 'files' | 'summary' | 'hotspots' | 'authors' | 'coupling' | 'renames' | 'parents' | 'branches' | 'snapshots'; total: number; rows: HistoryRow[] };
 
 /** One row of a properties block (the engine's `PropertyRow`). */
 export type PropertyRow = { name: string; value: string; nameKey?: 'authoredAt' | 'committedAt' | 'subject' | 'merge' | 'language' | 'symbol' | 'method' | 'path'; valueKind?: 'date' };
 
 /** One note under a history block (the engine's `HistoryNote`): a key the app writes in the reader's language. */
-export type HistoryNote = { key: 'manyCommits' | 'manyFiles' | 'noCounts' | 'merge' | 'noFiles' | 'partialFiles'; args?: Record<string, string | number> };
+export type HistoryNote = { key: 'manyCommits' | 'manyFiles' | 'noCounts' | 'merge' | 'noFiles' | 'partialFiles' | 'symbolsCut' | 'population' | 'observedAuthorship' | 'cochangeNotCause' | 'noImport' | 'importCoverage' | 'membershipCoverage' | 'dateAnomaly' | 'mergeBranch' | 'unchangedMove'; args?: Record<string, string | number> };
 
 /** One member of a contract's definition (the engine's `DefinitionMember`). */
 export type DefinitionMember = { anchor: string; label: string; detail?: string; href: string | null; badge?: string; detailTotal?: number };
@@ -69,28 +69,59 @@ export type ModuleNode = { id: string; label: string; files: number; href: strin
 export type ModuleEdge = { from: string; to: string; cycle: boolean };
 export type TreemapFile = { id: string; path: string; href: string | null; lines: number; churn: number };
 
+export type DiagramRenderer = 'likec4' | 'mermaid' | 'archify';
+export type ViewType = 'c4-context' | 'c4-container' | 'c4-component' | 'sequence' | 'er' | 'state' | 'deployment';
+export type ViewSpec = { type: ViewType; subject: string; scope?: string; entry?: string };
+export type ViewElement = {
+  id: string;
+  label: string;
+  kind: string;
+  detail?: string;
+  href: string | null;
+  location?: CodeLocation;
+  dashed: boolean;
+  parent?: string;
+  drill?: { spec: ViewSpec; title: string };
+  columns?: { name: string; type?: string; key?: boolean; fk?: boolean }[];
+  standsFor?: number;
+};
+export type ViewEdge = { from: string; to: string; label: string; dashed: boolean; why?: string; step?: number; kind?: string; note?: string; href?: string | null; location?: CodeLocation };
+/** One view of a diagrams block: the model, the renderers that draw it (the chosen one first) and the query that asks the server for it again. */
+export type DiagramView = {
+  spec: ViewSpec;
+  title: string;
+  label: string;
+  elements: ViewElement[];
+  edges: ViewEdge[];
+  fullElements?: ViewElement[];
+  fullEdges?: ViewEdge[];
+  notes: string[];
+  empty: string | null;
+  up?: { spec: ViewSpec; title: string };
+  marker: string | null;
+  renderers: DiagramRenderer[];
+  mermaidSource: string;
+  query: string;
+};
 
 type BlockShape =
   | { type: 'markdown'; markdown: string }
   | { type: 'term'; title: string; definition: string; synonyms: string[]; code: string[]; usedIn: string | null; ambiguous: string | null; localized?: { statement: string; original: string; sourceDocument: string; sourceLine: number; sourceEndLine: number } }
   | { type: 'body'; markdown: string; file: string; statements: number; ungrounded: { text: string; line: number }[]; localized?: { statement: string; original: string; sourceDocument: string; sourceLine: number; sourceEndLine: number } }
   | { type: 'graph'; title: string; neighborhood: Neighborhood; depth: number; shown: number; total: number }
-  | { type: 'system'; title: string; nodes: SystemNode[]; edges: SystemEdge[]; notes: string[] }
-  | { type: 'modules'; title: string; service: string; nodes: ModuleNode[]; edges: ModuleEdge[]; cycles: string[][]; notes: string[] }
+  | { type: 'diagrams'; title: string; renderer: DiagramRenderer; views: DiagramView[] }
   | { type: 'treemap'; title: string; scope: string; files: TreemapFile[]; maxChurn: number; total: number; notes: string[] }
   | { type: 'related'; title: string; groups: RelatedGroup[] }
   | { type: 'callers'; title: string; total: number; rows: CallRow[] }
   | { type: 'callees'; title: string; total: number; rows: CallRow[] }
   | { type: 'source'; title: string; location: CodeLocation; language: string; text: string; truncated: boolean }
-  | { type: 'er'; title: string; mermaid: string; tables: number; shownTables: number; links: EntityRef[] }
-  | { type: 'sequence'; title: string; scenario: string; chains: Chain[]; entries: number; notes: string[] }
   | { type: 'refs'; title: string; total: number; rows: RefRow[] }
   | { type: 'properties'; title: string; rows: PropertyRow[] }
   | { type: 'stated'; title: string; place: { repo: string | null; path: string; lineStart: number; lineEnd: number; href: string; commit: string | null; single?: boolean } }
-  | { type: 'definition'; title: string; format: string; contract: string; location?: CodeLocation; members: DefinitionMember[]; membersTotal: number; membersShown: number; memberCuts: { channel: string; total: number; shown: number }[]; spec: { text: string; lines: number } }
+  | { type: 'definition'; title: string; format: string; contract: string; fullPath?: string; location?: CodeLocation; members: DefinitionMember[]; membersTotal: number; membersShown: number; memberCuts: { channel: string; total: number; shown: number }[]; spec: { text: string; lines: number }; document?: Record<string, unknown>; descriptions?: {text: string; path: string; line: number; fullPath: string}[]; selection?: { method: string; path: string; operationId: string }; protobuf?: ProtoDocumentation; diagnostics?: ContractDiagnostic[] }
   | { type: 'history'; title: string; sections: HistorySection[]; notes: HistoryNote[] }
   | { type: 'deferred'; block: string; title: string; line: number }
-  | { type: 'problem'; block: string; message: string; file: string; line: number };
+  | { type: 'problem'; block: string; message: string; file: string; line: number; diagnostic?: ContractDiagnostic };
 
 /** One block of a page; `name` is the template's block it was made from (`implementedby` and `linkedfrom` both draw as `refs`), which the manifest's roles name. */
 export type Block = BlockShape & { name?: string };
@@ -106,7 +137,12 @@ export type BrokenWhy =
   | { code: 'no-document'; path: string }
   | { code: 'no-section'; path: string; anchor: string; repos: string };
 
+export type HistoryContext = { repo: string; at: string; coverage: 'covered' | 'unfilled' | 'before' | 'unknown'; commit: string | null; effectiveAt: string | null; until: string | null; landmarks?: { offered: number; covered: number; limit: number; overflow: boolean; omitted: number; first: string | null; last: string | null; diagnostics: { ref: string; object: string; reason: string }[] }; points: { name: string; commit: string; covered: boolean }[] };
+
 export type PageModel = {
+  historyNavigation?: { repo: string; points: { name: string; commit: string; covered: boolean }[]; landmarks?: NonNullable<HistoryContext['landmarks']> }[];
+  historicalAbsent?: boolean;
+  history?: HistoryContext;
   id: string;
   kind: string;
   title: string;
@@ -135,7 +171,8 @@ export type KindSummary = {
 
 export type GroupSummary = { group: string; labels: Record<string, string> };
 
-export type EntityListing = { kind: string; total: number; rows: EntityRef[]; next: string | null };
+export type OperationMetadata = { contracts: {entity: EntityRef; protocol: string; directions?: ('publish' | 'subscribe')[]; directionStatus?: 'known' | 'unavailable'; producedBy?: EntityRef[]; consumedBy?: EntityRef[]}[]; implementedBy: EntityRef[]; calledBy: EntityRef[]; cuts: {relation: string; shown: number; total: number}[] };
+export type EntityListing = { kind: string; total: number; rows: EntityRef[]; next: string | null; operations?: Record<string, OperationMetadata> };
 
 export type FillState = {
   state: 'idle' | 'running' | 'done' | 'failed';
@@ -212,7 +249,7 @@ export type WikiStatus = {
   starterOffers?: number;
 };
 
-export type SourceFile = { repo: string | null; path: string; language: string; commit: string | null; text: string };
+export type SourceFile = { history?: HistoryContext; repo: string | null; path: string; language: string; commit: string | null; text: string };
 
 export type ProductChoice = { name: string; folder: string; own?: boolean };
 
@@ -329,7 +366,7 @@ export type AgentChoices = { agent: { id: string; label: string }; choices: { mo
 
 export type DangerPlan = {
   rewrite: { agentPages: string[]; keptPages: string[] };
-  fresh: { store: string[]; agentPages: string[]; keptPages: string[]; editedStarterFiles: string[]; replacedStarterFiles: string[] };
+  fresh: { store: string[]; agentPages: string[]; keptPages: string[]; unansweredQuestions: string[]; keptAnswers: string[]; editedStarterFiles: string[]; replacedStarterFiles: string[] };
 };
 
 /** The product settings page (madarch-m38l.11): what is set for this product on this machine. */
@@ -460,3 +497,44 @@ export type TaskProposal = {
 };
 
 export type CreatedTask = { task: { slug: string; id: string; file: string; title: string; status: 'open' | 'closed' }; state: 'created'; committed: boolean; note?: string; commit?: string };
+export type ContractReason =
+  | {code: 'definitionMissing'}
+  | {code: 'contractReadBudget'; params: {maxFiles: number; maxBytes: number}}
+  | {code: 'yamlParse'}
+  | {code: 'yamlConversion'}
+  | {code: 'definitionObjectRequired'}
+  | {code: 'yamlAliasCycle'}
+  | {code: 'definitionNesting'; params: {maxLevels: number}}
+  | {code: 'definitionRepresentationBudget'; params: {maxBytes: number}}
+  | {code: 'referenceAnchorUnsupported'; params: {ref: string}}
+  | {code: 'referenceRemoteOrAbsolute'; params: {ref: string}}
+  | {code: 'referenceEncodingInvalid'; params: {ref: string}}
+  | {code: 'referenceEscapesRepository'; params: {ref: string}}
+  | {code: 'pointerEncodingInvalid'; params: {ref: string}}
+  | {code: 'referenceUnresolved'; params: {ref: string}}
+  | {code: 'externalExample'; params: {ref: string}}
+  | {code: 'externalLogo'; params: {ref: string}}
+  | {code: 'descriptionImage'}
+  | {code: 'descriptionMarkupBudget'; params: {maxNodes: number}}
+  | {code: 'reservedBundleField'; params: {field: string}}
+  | {code: 'operationReferenceBudgetOrCycle'; params: {maxReferences: number}}
+  | {code: 'operationReferenceUnresolved'; params: {ref: string}}
+  | {code: 'protoImportBudget'; params: {maxFiles: number; maxDepth: number}}
+  | {code: 'protoImportMissing'}
+  | {code: 'protoByteBudget'; params: {maxBytes: number}}
+  | {code: 'protoParse'}
+  | {code: 'protoImportInvalid'; params: {ref: string}}
+  | {code: 'protoImportEscapesRepository'; params: {ref: string}}
+  | {code: 'protoResolve'}
+  | {code: 'definitionSubjectUnsupported'}
+  | {code: 'declaringContractCount'; params: {count: number}}
+  | {code: 'contractFormatUnsupported'; params: {format: string}}
+  | {code: 'contractVersionMissing'; params: {format: string}}
+  | {code: 'operationSelectionMissing'; params: {method: string; path: string}}
+  | {code: 'operationIdAmbiguous'; params: {operationId: string; count: number}}
+  | {code: 'unknownDefinitionFailure'}
+  | {code: 'rendererFailure'}
+  | {code: 'rendererValidationFailure'}
+  | {code: 'selectionNotRendered'};
+export type ContractDiagnostic = { path: string; line: number; fullPath: string; code: string; detail: string; reason?: ContractReason; technicalDetail?: string };
+export type ProtoDocumentation = { services: {name: string; methods: {name: string; request: string; response: string; requestStream: boolean; responseStream: boolean}[]}[]; messages: {name: string; fields: {name: string; type: string; id: number; rule: string; oneof?: string}[]; values?: {name: string; id: number}[]}[] };

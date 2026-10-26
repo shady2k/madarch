@@ -19,7 +19,8 @@ import { HISTORY_EXTRACTOR, OWNERS, TREE_EXTRACTORS } from '../src/extract/drive
 import { createGraphStore, type GraphStore } from '../src/graph/index.js';
 import { indexCounts, indexWorkerProduct, statementsRelyingOn } from '../src/knowledge/index/index.js';
 import { answerQuestion, markResolved } from '../src/loop/answer.js';
-import { readQuestions } from '../src/loop/entities.js';
+import { readCorrections, readQuestions, renderCorrection, renderQuestion } from '../src/loop/entities.js';
+import { applyReset, planReset } from '../src/knowledge/reset.js';
 import { briefsFor, neededFrom, planRefresh } from '../src/loop/plan.js';
 import { listProblems, listQuestions } from '../src/loop/views.js';
 import { createDraft } from '../src/product/draft.js';
@@ -161,19 +162,22 @@ describe('the loop, from the first question to a translation', () => {
         });
         expect(asked.isError).toBe(false);
         expect(asked.answer).toMatchObject({ asked: true, id: `question:${QUESTION_SLUG}`, path: `docs/questions/${QUESTION_SLUG}.md` });
-        const twice = await call(request, 'ask_question', { type: 'contradiction', title: QUESTION_TITLE, question: 'Again?', why: 'Why.', sides: [{ claim: 'A.', grounds: [discountKey] }, { claim: 'B.', grounds: ['doc:README.md#discounts'] }] });
+        const twice = await call(request, 'ask_question', { type: 'contradiction', title: QUESTION_TITLE, question: 'Which discount rule should the shop follow?', why: 'The same sources disagree about the discount.', sides: [{ claim: 'The code applies the percentage its caller passes.', grounds: [discountKey] }, { claim: 'The README says every order gets a ten percent discount.', grounds: ['doc:README.md#discounts'] }], comparison: [{ id: `question:${QUESTION_SLUG}`, same: true, reason: 'The scripted ask repeats the same README-versus-caller discount decision.' }] });
         // The same subject is asked once (madarch-m38l.13): this page is added to the question that exists.
-        expect(twice.isError).toBe(false);
+        expect(twice.isError, JSON.stringify(twice.answer)).toBe(false);
         expect(twice.answer).toMatchObject({ asked: false, merged: true, id: `question:${QUESTION_SLUG}` });
         const written = await call(request, 'write_page', {
           markdown: [
             '---', 'id: domain:pricing', 'kind: domain', 'title: Pricing', 'relates:', '  - code.file\u003asrc/pricing.ts', 'producer: agent', 'sources: [README.md]', '---', '',
             '## How pricing works', '', 'Tax is a flat five percent.[^flat-five-percent-tax]', '', 'Pricing lives in one file.[^pricing-lives-one-file]', '',
+            'The README promises ten percent for every order.[^readme-discount]', '', 'The code applies the percentage its caller passes.[^caller-discount]', '',
             '[^flat-five-percent-tax]: [README](madarch:doc:README.md#tax)',
             '[^pricing-lives-one-file]: [pricing](madarch:code.file\u003asrc/pricing.ts)',
+            '[^readme-discount]: [README](madarch:doc:README.md#discounts)',
+            `[^caller-discount]: [code](madarch:${discountKey})`,
           ].join('\n'),
         });
-        expect(written.isError).toBe(false);
+        expect(written.isError, JSON.stringify(written.answer)).toBe(false);
       },
     };
     const { report, plan } = await refresh(agent);
@@ -192,8 +196,8 @@ describe('the loop, from the first question to a translation', () => {
     expect(question!.sides.map((side) => side.grounds)).toEqual([['doc:README.md#discounts'], [discountKey]]);
     expect(question!.writtenAt).toHaveLength(1);
     // The question is in the graph beside the pages: kind question with two statements, grounded on the README and the code.
-    expect(await indexCounts(owner)).toEqual([{ kind: 'domain', pages: 1, statements: 2 }, { kind: 'product', pages: 1, statements: 2 }, { kind: 'question', pages: 1, statements: 2 }]);
-    expect((await statementsRelyingOn(owner, discountKey)).map((s) => `${s.pageKind}:${s.page}`)).toEqual([`question:question:${QUESTION_SLUG}`]);
+    expect(await indexCounts(owner)).toEqual([{ kind: 'domain', pages: 1, statements: 4 }, { kind: 'product', pages: 1, statements: 2 }, { kind: 'question', pages: 1, statements: 2 }]);
+    expect((await statementsRelyingOn(owner, discountKey)).map((s) => `${s.pageKind}:${s.page}`)).toEqual(['domain:domain:pricing', `question:question:${QUESTION_SLUG}`]);
     expect(listQuestions(productFolder)).toMatchObject({ open: 1, answered: 0, closed: 0 });
   }, 300_000);
 
@@ -386,10 +390,12 @@ describe('the question tool is bounded and checks what it is given', () => {
 
   test('at most six questions per unit, each saved as a file of the product; the seventh is refused in words', async () => {
     const { tools, sink } = await session();
-    for (const word of ['alpha', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot']) expect((await tools.call('ask_question', good(`Question about ${word}`))).isError).toBe(false);
-    const seventh = await tools.call('ask_question', good('Question about golf'));
+    const words = ['alpha', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot'];
+    const comparison = (previous: readonly string[]) => previous.map((word) => ({ id: `question:${slugOf(`Question about ${word}`)}`, same: false, reason: 'Each fixture word names a distinct authored decision for the per-unit bound.' }));
+    for (const [index, word] of words.entries()) expect((await tools.call('ask_question', good(`Question about ${word}`, { question: `Which policy applies to ${word}?`, comparison: comparison(words.slice(0, index)) }))).isError).toBe(false);
+    const seventh = await tools.call('ask_question', good('Question about golf', { question: 'Which policy applies to golf?', comparison: comparison(words) }));
     expect(seventh.isError).toBe(true);
-    expect(JSON.stringify(seventh.answer)).toContain('this unit asked its 6 questions; write your page with what you know and leave the rest out');
+    expect(JSON.stringify(seventh.answer)).toContain('this unit asked its 6 new questions; reuse existing decisions or write your page with what you know');
     expect([...sink.pages.keys()]).toEqual(['alpha', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot'].map((word) => `docs/questions/${slugOf(`Question about ${word}`)}.md`));
     expect(tools.outcome().questions).toHaveLength(6);
     expect(tools.finished).toBe(false);
@@ -425,4 +431,140 @@ describe('the question tool is bounded and checks what it is given', () => {
     const refused = await tools.call('ask_question', good('?!'));
     expect(problemsOf(refused.answer)).toContain('"title" has no word to name the question by');
   });
+});
+
+// A reset removes generated pages, so a retained answer can first reach a newly created page outside the edit plan.
+describe('retained answers used by fresh pages (madarch-m38l.22)', () => {
+  test('only successful grounded answered uses close; planned unfinished pages still prevent closure', async () => {
+    const original = readQuestions(productFolder).items.find((question) => question.status === 'answered')!;
+    expect(original.answer).not.toBeNull();
+    for (const mode of ['grounded', 'unrelated', 'mention', 'failed', 'open', 'partial'] as const) {
+      const output = path.join(scratch, `closure-${mode}`); mkdirSync(path.join(output, 'docs/questions'), { recursive: true });
+      const question = { ...original, slug: 'retained-answer', status: mode === 'open' ? 'open' as const : 'answered' as const, answer: mode === 'open' ? null : original.answer, resolvedBy: [], resolvedAt: null };
+      const source = renderQuestion(question); writeFileSync(path.join(output, 'docs/questions/retained-answer.md'), source);
+      const key = 'question:retained-answer';
+      const declarations = [{ slug: 'pricing', title: 'Pricing', summary: 'The order pricing rules.', evidence: ['code.file:src/pricing.ts'] }, ...(mode === 'partial' ? [{ slug: 'shipping', title: 'Shipping', summary: 'The delivery rules.', evidence: ['code.file:src/pricing.ts'] }] : [])];
+      const agent: UnitAgent = { run: async (request) => {
+        if (request.id.startsWith('product:')) {
+          const markdown = ['---', 'id: product:closure-shop', 'kind: product', 'title: Closure shop', 'relates: []', 'producer: agent', 'sources: [README.md]', '---', '', 'The shop prices orders.[^shop]', '', '## Domains', '', ...declarations.map((domain) => `- [${domain.title}](madarch:domain:${domain.slug}) covers order rules.[^shop]`), '', '[^shop]: [README](madarch:doc:README.md#overview)'].join('\n');
+          const result = await call(request, 'write_page', { markdown, domains: declarations }); expect(result.isError, JSON.stringify(result.answer)).toBe(false); return;
+        }
+        if (mode === 'failed' || request.id === 'domain:shipping') return;
+        const ground = mode === 'unrelated' || mode === 'mention' ? 'doc:README.md#overview' : key;
+        const markdown = ['---', 'id: domain:pricing', 'kind: domain', 'title: Pricing', 'relates: []', 'producer: agent', 'sources: [README.md]', '---', '', `The policy is the rule a person chose.[^policy]${mode === 'mention' ? ` [→ question: ${original.title}](madarch:${key})` : ''}`, '', `[^policy]: [the policy](madarch:${ground})`].join('\n');
+        const result = await call(request, 'write_page', { markdown }); expect(result.isError, JSON.stringify(result.answer)).toBe(mode === 'open');
+      } };
+      const closed: unknown[] = [];
+      const answer = original.answer!;
+      const report = await runWriter({ owner, store, repository, output, productName: 'Closure shop', agent, language: 'en',
+        ...(mode === 'partial' ? { needed: () => ({ product: true, domain: () => true, brief: (file: string) => file.startsWith('docs/domains/') ? { current: null, notes: [{ kind: 'answer' as const, question: 'retained-answer', title: original.title, answer: answer.text, by: answer.by.name, at: answer.at, sides: original.sides }], omitted: 0 } : undefined }) } : {}),
+        resolved: async (used) => { closed.push(used); await markResolved(output, used); },
+      });
+      expect(closed).toEqual(mode === 'grounded' ? [{ kind: 'question', slug: 'retained-answer', pages: ['domain:pricing'] }] : []);
+      const kept = readQuestions(output).items[0]!; expect(kept.answer).toEqual(question.answer); expect(kept.resolvedBy).toEqual(mode === 'grounded' ? ['domain:pricing'] : []);
+      if (mode === 'grounded' || mode === 'unrelated' || mode === 'mention') { expect(report.ok).toBe(true); expect(report.domains.find((domain) => domain.unit === 'domain:pricing')).toMatchObject({ status: 'written', writeAttempts: 1 }); }
+      else expect(readFileSync(path.join(output, 'docs/questions/retained-answer.md'), 'utf8')).toBe(source);
+    }
+  }, 300_000);
+});
+
+
+// A pending correction is still input when reset removed the page that used it.
+describe('retained corrections used by recreated pages (madarch-m38l.22)', () => {
+  test('reset reopens the correction and a fresh unit receives and grounds it without changing human fields', async () => {
+    for (const grounded of [true, false]) {
+      const output = path.join(scratch, `correction-refill-${grounded}`);
+      mkdirSync(path.join(output, 'docs/corrections'), { recursive: true });
+      mkdirSync(path.join(output, 'docs/domains'), { recursive: true });
+      const correction = {
+        slug: 'caller-policy', title: 'Caller chooses the discount', status: 'applied' as const,
+        about: 'domain:pricing#discount-policy', statement: 'The service chooses a fixed discount.',
+        reason: 'The caller chooses the discount, not the pricing service.',
+        by: { name: 'Ada Reader', email: 'ada@example.test', verified: 'local, not verified' }, at: '2020-01-02T10:00:00Z',
+        resolvedBy: ['domain:pricing'], resolvedAt: '2020-01-02T11:00:00Z',
+      };
+      const correctionFile = path.join(output, 'docs/corrections/caller-policy.md');
+      writeFileSync(correctionFile, renderCorrection(correction));
+      writeFileSync(path.join(output, 'docs/domains/pricing.md'), '---\nid: domain:pricing\nkind: domain\ntitle: Pricing\nproducer: agent\n---\n\nThe service chooses a fixed discount.[^discount-policy]\n\n[^discount-policy]: [README](madarch:doc:README.md#overview)\n');
+      const preview = planReset(output, path.join(output, 'store'));
+      applyReset(output, preview);
+      const pending = readCorrections(output).items[0]!;
+      expect(pending.status).toBe('open');
+      expect(pending.resolvedBy).toEqual([]);
+      const beforeBody = readFileSync(correctionFile, 'utf8').split('\n---\n')[1];
+      const prompts = new Map<string, string>();
+      const written: ToolAnswer[] = [];
+      const closed: unknown[] = [];
+      const agent: UnitAgent = { run: async (request) => {
+        prompts.set(request.id, request.prompt);
+        if (request.id.startsWith('product:')) {
+          written.push(await call(request, 'write_page', {
+            markdown: ['---', 'id: product:refill-policy', 'kind: product', 'title: Policy', 'relates: []', 'producer: agent', 'sources: [README.md]', '---', '', 'The shop prices orders.[^shop]', '', '- [Pricing](madarch:domain:pricing) covers order pricing.[^domain]', '', '[^shop]: [README](madarch:doc:README.md#overview)', '[^domain]: [pricing](madarch:code.file:src/pricing.ts)'].join('\n'),
+            domains: [{ slug: 'pricing', title: 'Pricing', summary: 'The order pricing rules.', evidence: ['code.file:src/pricing.ts'] }],
+          }));
+        } else {
+          written.push(await call(request, 'write_page', { markdown: ['---', 'id: domain:pricing', 'kind: domain', 'title: Pricing', 'relates: []', 'producer: agent', 'sources: [README.md]', '---', '', 'The caller chooses the discount.[^discount-policy]', '', `[^discount-policy]: [README](madarch:doc:README.md#overview)${grounded ? ', [the correction](madarch:correction:caller-policy)' : ''}`].join('\n') }));
+        }
+      } };
+      const report = await runWriter({ owner, store, repository, output, productName: 'Refill policy', agent, language: 'en', resolved: async (used) => { closed.push(used); await markResolved(output, used); } });
+      // Callback assertions are not evidence: runUnit catches them. Judge the accepted outcomes here.
+      expect(report.ok).toBe(grounded);
+      expect(report.loopProblems).toEqual(grounded ? [] : [`${correctionFile}:1: the recreated page domain:pricing does not ground its retained correction on madarch:correction:caller-policy; the correction stays open`]);
+      expect(written).toHaveLength(2);
+      expect(written.every((result) => !result.isError)).toBe(true);
+      expect(report.domains[0]).toMatchObject({ unit: 'domain:pricing', status: 'written', writeAttempts: 1 });
+      const prompt = prompts.get('domain:pricing')!;
+      expect(prompt).toContain('## Retained corrections for this new page');
+      expect(prompt).toContain('(madarch:correction:caller-policy)');
+      expect(prompt).toContain(correction.statement);
+      expect(prompt).toContain(correction.reason);
+      expect(prompts.get('product:refill-policy')).not.toContain('(madarch:correction:caller-policy)');
+      expect(closed).toEqual(grounded ? [{ kind: 'correction', slug: 'caller-policy', pages: ['domain:pricing'] }] : []);
+      const after = readCorrections(output).items[0]!;
+      expect([after.reason, after.statement, after.by, after.at]).toEqual([pending.reason, pending.statement, pending.by, pending.at]);
+      expect(after.status).toBe(grounded ? 'applied' : 'open');
+      expect(after.resolvedBy).toEqual(grounded ? ['domain:pricing'] : []);
+      expect(readFileSync(correctionFile, 'utf8').split('\n---\n')[1]).toBe(beforeBody);
+      if (grounded) {
+        const markdown = readFileSync(path.join(output, 'docs/domains/pricing.md'), 'utf8');
+        expect(markdown).toContain('The caller chooses the discount.[^discount-policy]');
+        expect(markdown).toContain('(madarch:correction:caller-policy)');
+        const appliedBytes = readFileSync(correctionFile, 'utf8');
+        let rerunUnits = 0;
+        const rerun = await runWriter({ owner, store, repository, output, productName: 'Refill policy', agent: { run: async () => { rerunUnits++; } }, resolved: async (used) => { closed.push(used); } });
+        expect(rerun.ok).toBe(true);
+        expect(rerunUnits).toBe(0);
+        expect(closed).toHaveLength(1);
+        expect(readFileSync(correctionFile, 'utf8')).toBe(appliedBytes);
+      }
+    }
+  }, 300_000);
+  test('notes omitted by the existing prompt budget stay open and report their full file paths', async () => {
+    const output = path.join(scratch, 'correction-refill-budget');
+    mkdirSync(path.join(output, 'docs/corrections'), { recursive: true });
+    for (let index = 0; index < 12; index++) {
+      const slug = `policy-${String.fromCharCode(97 + index)}`;
+      writeFileSync(path.join(output, `docs/corrections/${slug}.md`), renderCorrection({
+        slug, title: slug, status: 'open', about: 'product:budget-shop#policy', statement: 'The original policy is wrong.',
+        reason: `${slug}: ${'A long explanation. '.repeat(190)}`, by: { name: 'Ada', email: 'ada@example.test', verified: 'local, not verified' },
+        at: '2020-01-02T10:00:00Z', resolvedBy: [], resolvedAt: null,
+      }));
+    }
+    const closed: string[] = [];
+    let productPrompt = '';
+    const report = await runWriter({ owner, store, repository, output, productName: 'Budget shop', agent: { run: async (request) => {
+      if (!request.id.startsWith('product:')) return;
+      productPrompt = request.prompt;
+      // No write: even an included note must not close until its page is written with the ground.
+    } }, resolved: async (used) => { closed.push(used.slug); } });
+    const corrections = readCorrections(output).items;
+    const included = corrections.filter((correction) => productPrompt.includes(`(madarch:${correction.id})`));
+    const omitted = corrections.filter((correction) => !included.includes(correction));
+    expect(included.length).toBeGreaterThan(0);
+    expect(omitted.length).toBeGreaterThan(0);
+    expect(productPrompt).toContain('more changes not listed here');
+    expect(closed).toEqual([]);
+    expect(corrections.every((correction) => correction.status === 'open' && correction.resolvedBy.length === 0)).toBe(true);
+    expect(report.loopProblems).toEqual(omitted.map((correction) => `${path.join(output, correction.file)}:1: the retained correction for product:budget-shop exceeds the edit brief budget; it stays open for a later refresh`));
+  }, 300_000);
 });

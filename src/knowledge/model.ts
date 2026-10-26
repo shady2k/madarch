@@ -1,3 +1,5 @@
+import type { ProtoDocumentation } from './proto-document.js';
+import type { ContractDiagnostic } from './contract-document.js';
 /**
  * The page model the server answers and the app draws (decision 0029): a page
  * is a list of blocks, each already read from the graph or the Markdown, so the
@@ -6,6 +8,7 @@
 import type { RefreshPlan } from '../loop/plan.js';
 import type { Finding } from './kinds.js';
 import type { Resolution } from './resolve.js';
+import type { DiagramsBlockShape } from './views.js';
 
 /** Where a piece of code is: the file in a repository and its lines. */
 export interface CodeLocation {
@@ -176,22 +179,19 @@ type BlockShape =
   | { type: 'term'; title: string; definition: string; synonyms: string[]; code: string[]; usedIn: string | null; ambiguous: string | null; localized?: { statement: string; original: string; sourceDocument: string; sourceLine: number; sourceEndLine: number } }
   | { type: 'body'; markdown: string; file: string; statements: number; ungrounded: { text: string; line: number }[]; localized?: { statement: string; original: string; sourceDocument: string; sourceLine: number; sourceEndLine: number } }
   | { type: 'graph'; title: string; neighborhood: Neighborhood; depth: number; shown: number; total: number }
-  | { type: 'system'; title: string; nodes: SystemNode[]; edges: SystemEdge[]; notes: string[] }
-  | { type: 'modules'; title: string; service: string; nodes: ModuleNode[]; edges: ModuleEdge[]; cycles: string[][]; notes: string[] }
+  | DiagramsBlockShape
   | { type: 'treemap'; title: string; scope: string; files: TreemapFile[]; maxChurn: number; total: number; notes: string[] }
   | { type: 'related'; title: string; groups: RelatedGroup[] }
   | { type: 'callers'; title: string; total: number; rows: CallRow[] }
   | { type: 'callees'; title: string; total: number; rows: CallRow[] }
   | { type: 'source'; title: string; location: CodeLocation; language: string; text: string; truncated: boolean }
-  | { type: 'er'; title: string; mermaid: string; tables: number; shownTables: number; links: EntityRef[] }
-  | { type: 'sequence'; title: string; scenario: string; chains: Chain[]; entries: number; notes: string[] }
   | { type: 'refs'; title: string; total: number; rows: RefRow[] }
   | { type: 'properties'; title: string; rows: PropertyRow[] }
   | { type: 'stated'; title: string; place: { repo: string | null; path: string; lineStart: number; lineEnd: number; href: string; commit: string | null; single?: boolean } }
   | { type: 'deferred'; block: string; title: string; line: number }
-  | { type: 'definition'; title: string; format: string; contract: string; location?: CodeLocation; members: DefinitionMember[]; membersTotal: number; membersShown: number; memberCuts: { channel: string; total: number; shown: number }[]; spec: { text: string; lines: number } }
+  | { type: 'definition'; title: string; format: string; contract: string; fullPath?: string; location?: CodeLocation; members: DefinitionMember[]; membersTotal: number; membersShown: number; memberCuts: { channel: string; total: number; shown: number }[]; spec: { text: string; lines: number }; document?: Record<string, unknown>; descriptions?: {text: string; path: string; line: number; fullPath: string}[]; selection?: { method: string; path: string; operationId: string }; protobuf?: ProtoDocumentation; diagnostics?: ContractDiagnostic[] }
   | { type: 'history'; title: string; sections: HistorySection[]; notes: HistoryNote[] }
-  | { type: 'problem'; block: string; message: string; file: string; line: number };
+  | { type: 'problem'; block: string; message: string; file: string; line: number; diagnostic?: ContractDiagnostic };
 
 
 /** One member of a contract's definition: an operation, a channel, or an rpc, with the anchor the page opens at. */
@@ -211,8 +211,10 @@ export interface DefinitionMember {
 
 /** One list of a history block: the commits it shows, or the files it shows, with the list's own columns. */
 export interface HistorySection {
+  /** Repository label when a product page shows more than one history. */
+  repository?: string;
   /** What the rows are: the commits themselves, or the files they touched. */
-  role: 'commits' | 'files';
+  role: 'commits' | 'files' | 'summary' | 'hotspots' | 'authors' | 'coupling' | 'renames' | 'parents' | 'branches' | 'snapshots';
   /** How many rows the list has in the graph; `rows` holds the first of them. */
   total: number;
   rows: HistoryRow[];
@@ -234,13 +236,13 @@ export interface HistoryRow {
 
 /** One note under a history block: why the list is not the whole story, said in the reader's language by the app. */
 export interface HistoryNote {
-  key: 'manyCommits' | 'manyFiles' | 'noCounts' | 'merge' | 'noFiles' | 'partialFiles' | 'symbolsCut';
+  key: 'manyCommits' | 'manyFiles' | 'noCounts' | 'merge' | 'noFiles' | 'partialFiles' | 'symbolsCut' | 'population' | 'observedAuthorship' | 'cochangeNotCause' | 'noImport' | 'importCoverage' | 'membershipCoverage' | 'dateAnomaly' | 'mergeBranch' | 'unchangedMove';
   args?: Record<string, string | number>;
 }
 
 /** One figure of a history row: added or removed lines, symbols, commits, files, or the module a file belongs to. */
 export interface HistoryFigure {
-  kind: 'added' | 'removed' | 'symbols' | 'commits' | 'files' | 'module';
+  kind: 'added' | 'removed' | 'symbols' | 'commits' | 'files' | 'module' | 'reachable' | 'firstParent' | 'merges' | 'nonMerge' | 'authors' | 'since' | 'until' | 'both' | 'onlyThis' | 'onlyOther' | 'authoredAt' | 'committedAt' | 'effectiveAt' | 'similarity';
   value: string;
 }
 
@@ -258,6 +260,10 @@ export interface PropertyRow {
 export type Block = BlockShape & { name?: string };
 
 export interface PageModel {
+  historyNavigation?: { repo: string; points: { name: string; commit: string; covered: boolean }[]; landmarks?: NonNullable<import('./temporal.js').HistoryContext['landmarks']> }[];
+  historicalAbsent?: boolean;
+  /** Explicit historical context; no coverage is inferred from a named snapshot alone. */
+  history?: import('./temporal.js').HistoryContext;
   id: string;
   kind: string;
   /** The page's name: the attribute the manifest's `title` names. */
@@ -296,6 +302,7 @@ export interface KindSummary {
 }
 
 export interface EntityListing {
+  operations?: Record<string, import('./operation-catalogue.js').OperationMetadata>;
   kind: string;
   total: number;
   rows: EntityRef[];
