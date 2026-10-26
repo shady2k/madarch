@@ -26,6 +26,10 @@ export interface ArgumentSelector {
   readonly path: readonly string[];
   readonly required: boolean;
 }
+/** Closed source selectors resolve only to a validated default-registry package. */
+export interface MetricRegistrySourceMetadata extends MetricRegistryMetadata {
+  readonly defaultNamespaceFrom?: string;
+}
 /** Registry semantics are documented library data, not package spelling rules. */
 export interface MetricRegistryMetadata {
   /** Shared namespace for a default registry exposed by cooperating packages. */

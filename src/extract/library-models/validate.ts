@@ -2,7 +2,9 @@
 import { createHash } from 'node:crypto';
 import data from './models.json';
 import { byCodePoint } from '../../model/order.js';
-import type { ArgumentSelector, ImportRole, LibraryEffectKind, LibraryModel, LibraryRegistry, LibraryRole, LibraryTypeModel, ModelTarget } from './model.js';
+import type { ArgumentSelector, ImportRole, LibraryEffectKind, LibraryModel, LibraryRegistry, LibraryRole, LibraryTypeModel, MetricRegistrySourceMetadata, ModelTarget } from './model.js';
+
+type SourceLibraryModel = Omit<LibraryModel, 'metricRegistry'> & { readonly metricRegistry?: MetricRegistrySourceMetadata };
 
 function object(value: unknown, where: string, keys: readonly string[]): Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${where}: expected object`);
@@ -63,7 +65,7 @@ function argument(value: unknown, where: string): ArgumentSelector {
   if (typeof obj.required !== 'boolean') throw new Error(`${where}.required: expected boolean`);
   return Object.freeze({ name: string(obj.name, `${where}.name`), index: obj.index, path: list(obj.path, `${where}.path`, string), required: obj.required });
 }
-function model(value: unknown, where: string): LibraryModel {
+function model(value: unknown, where: string): SourceLibraryModel {
   const obj = object(value, where, ['id', 'ecosystem', 'package', 'target', 'invoke', 'returnRole', 'effect', 'arguments', 'reference', 'presentation', 'metricRegistry', 'textWrite', 'checks']);
   if (obj.ecosystem !== 'node' && obj.ecosystem !== 'go') throw new Error(`${where}.ecosystem: unknown ecosystem`);
   if (obj.invoke !== 'call' && obj.invoke !== 'construct' && obj.invoke !== 'read') throw new Error(`${where}.invoke: unknown invocation`);
@@ -77,9 +79,11 @@ function model(value: unknown, where: string): LibraryModel {
     if (presentation.json !== undefined && typeof presentation.json !== 'boolean') throw new Error(`${where}.presentation.json: expected boolean`);
     if (presentation.formatArgument !== undefined && (typeof presentation.formatArgument !== 'string' || !args.some((arg) => arg.name === presentation.formatArgument))) throw new Error(`${where}.presentation.formatArgument: expected declared argument`);
   }
-  const metricRegistry = obj.metricRegistry === undefined ? undefined : object(obj.metricRegistry, `${where}.metricRegistry`, ['defaultNamespace', 'defaultMember', 'defaultRegistry', 'defaultTarget', 'metricsFrom']);
+  const metricRegistry = obj.metricRegistry === undefined ? undefined : object(obj.metricRegistry, `${where}.metricRegistry`, ['defaultNamespace', 'defaultNamespaceFrom', 'defaultMember', 'defaultRegistry', 'defaultTarget', 'metricsFrom']);
   if (metricRegistry !== undefined) {
     if (metricRegistry.defaultNamespace !== undefined) string(metricRegistry.defaultNamespace, `${where}.metricRegistry.defaultNamespace`);
+    if (metricRegistry.defaultNamespaceFrom !== undefined) string(metricRegistry.defaultNamespaceFrom, `${where}.metricRegistry.defaultNamespaceFrom`);
+    if (metricRegistry.defaultNamespace !== undefined && metricRegistry.defaultNamespaceFrom !== undefined) throw new Error(`${where}.metricRegistry: conflicting namespace selectors`);
     for (const name of ['defaultMember', 'defaultRegistry', 'defaultTarget']) {
       if (metricRegistry[name] !== undefined && typeof metricRegistry[name] !== 'boolean') throw new Error(`${where}.metricRegistry.${name}: expected boolean`);
     }
@@ -108,6 +112,7 @@ function model(value: unknown, where: string): LibraryModel {
     reference: string(obj.reference, `${where}.reference`),
     ...(metricRegistry === undefined ? {} : { metricRegistry: Object.freeze({
       ...(typeof metricRegistry.defaultNamespace === 'string' ? { defaultNamespace: metricRegistry.defaultNamespace } : {}),
+      ...(typeof metricRegistry.defaultNamespaceFrom === 'string' ? { defaultNamespaceFrom: metricRegistry.defaultNamespaceFrom } : {}),
       ...(typeof metricRegistry.defaultMember === 'boolean' ? { defaultMember: metricRegistry.defaultMember } : {}),
       ...(typeof metricRegistry.defaultRegistry === 'boolean' ? { defaultRegistry: metricRegistry.defaultRegistry } : {}),
       ...(typeof metricRegistry.defaultTarget === 'boolean' ? { defaultTarget: metricRegistry.defaultTarget } : {}),
@@ -135,6 +140,45 @@ function typeModel(value: unknown, where: string): LibraryTypeModel {
     checks: Object.freeze({ positive: string(checks.positive, `${where}.checks.positive`), negative: string(checks.negative, `${where}.checks.negative`) }) });
 }
 
+/** A package owns a default registry only through an exported registry or registration API. */
+function defaultRegistryAnchor(entry: SourceLibraryModel): boolean {
+  return entry.target.kind === 'export' && (
+    (entry.invoke === 'read' && entry.returnRole === 'metric-registry' && entry.metricRegistry?.defaultRegistry === true)
+    || (entry.invoke === 'call' && entry.effect === 'metric-register' && entry.metricRegistry?.defaultTarget === true));
+}
+
+/** Resolve only exact model IDs; selectors never load packages or execute repository code. */
+function resolveMetricNamespaces(models: readonly SourceLibraryModel[]): readonly LibraryModel[] {
+  const byId = new Map(models.map((entry) => [entry.id, entry]));
+  const resolved = new Map<string, string>();
+  const visiting = new Set<string>();
+  const namespace = (entry: SourceLibraryModel): string => {
+    const where = `registry.models.${entry.id}.metricRegistry.defaultNamespaceFrom`;
+    const cached = resolved.get(entry.id);
+    if (cached !== undefined) return cached;
+    if (visiting.has(entry.id)) throw new Error(`${where}: cyclic registry reference`);
+    visiting.add(entry.id);
+    const from = entry.metricRegistry?.defaultNamespaceFrom;
+    const anchor = from === undefined ? undefined : byId.get(from);
+    if (anchor === undefined) throw new Error(`${where}: dangling registry reference`);
+    // A self-reference is the explicit package selector, not an inferred default.
+    if (anchor.id !== entry.id && anchor.metricRegistry?.defaultNamespaceFrom !== undefined) namespace(anchor);
+    if (!defaultRegistryAnchor(anchor)) throw new Error(`${where}: reference is not a default registry anchor`);
+    if (anchor.ecosystem !== entry.ecosystem) throw new Error(`${where}: registry ecosystem disagrees`);
+    if (anchor.metricRegistry?.defaultNamespaceFrom !== anchor.id
+      && anchor.metricRegistry?.defaultNamespace !== anchor.package) throw new Error(`${where}: reference must select a direct default registry anchor`);
+    visiting.delete(entry.id);
+    resolved.set(entry.id, anchor.package);
+    return anchor.package;
+  };
+  return Object.freeze(models.map((entry): LibraryModel => {
+    if (entry.metricRegistry?.defaultNamespaceFrom === undefined) return entry;
+    const defaultNamespace = namespace(entry);
+    const {defaultNamespaceFrom: _from, ...metadata} = entry.metricRegistry;
+    return Object.freeze({...entry, metricRegistry: Object.freeze({...metadata, defaultNamespace})});
+  }));
+}
+
 export function validateLibraryRegistry(value: unknown): LibraryRegistry {
   const obj = object(value, 'registry', ['schemaVersion', 'models', 'types']);
   if (obj.schemaVersion !== 1) throw new Error('registry.schemaVersion: unsupported version');
@@ -160,7 +204,7 @@ export function validateLibraryRegistry(value: unknown): LibraryRegistry {
     if (entry.invoke === 'read' && entry.target.kind === 'member' && entry.target.member !== '*' && wildcardReads.has(JSON.stringify([entry.ecosystem, entry.package, entry.target.receiverRole]))) throw new Error(`registry.models.${entry.id}: wildcard conflicts with exact read selector`);
     if (entry.target.kind === 'member' && !providers.has(`${entry.ecosystem}:${entry.package}:${entry.target.receiverRole}`)) throw new Error(`registry.models.${entry.id}: receiver role has no provider`);
   }
-  return Object.freeze({ schemaVersion: 1, models: Object.freeze([...models].sort((a, b) => byCodePoint(a.id, b.id))), types: Object.freeze([...types].sort((a, b) => byCodePoint(a.id, b.id))) });
+  return Object.freeze({ schemaVersion: 1, models: Object.freeze([...resolveMetricNamespaces(models)].sort((a, b) => byCodePoint(a.id, b.id))), types: Object.freeze([...types].sort((a, b) => byCodePoint(a.id, b.id))) });
 }
 
 /** JSON keys use code-point order; arrays retain declared semantic order. */

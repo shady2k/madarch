@@ -844,7 +844,7 @@
       "effect": "metric-declare",
       "metricRegistry": {
         "defaultMember": true,
-        "defaultNamespace": "prom-client"
+        "defaultNamespaceFrom": "prom-client.register"
       }
     },
     {
@@ -968,7 +968,7 @@
       "effect": "metric-declare",
       "metricRegistry": {
         "defaultMember": true,
-        "defaultNamespace": "prom-client"
+        "defaultNamespaceFrom": "prom-client.register"
       }
     },
     {
@@ -1142,7 +1142,7 @@
       "effect": "metric-declare",
       "metricRegistry": {
         "defaultMember": true,
-        "defaultNamespace": "prom-client"
+        "defaultNamespaceFrom": "prom-client.register"
       }
     },
     {
@@ -1299,7 +1299,7 @@
       "returnRole": "metric-registry",
       "metricRegistry": {
         "defaultRegistry": true,
-        "defaultNamespace": "prom-client"
+        "defaultNamespaceFrom": "prom-client.register"
       }
     },
     {
@@ -1685,7 +1685,7 @@
       "metricRegistry": {
         "defaultTarget": true,
         "metricsFrom": 0,
-        "defaultNamespace": "github.com/prometheus/client_golang/prometheus"
+        "defaultNamespaceFrom": "prometheus.MustRegister"
       }
     },
     {
@@ -2141,7 +2141,7 @@
       "metricRegistry": {
         "defaultTarget": true,
         "metricsFrom": 0,
-        "defaultNamespace": "github.com/prometheus/client_golang/prometheus"
+        "defaultNamespaceFrom": "prometheus.MustRegister"
       }
     },
     {
@@ -2565,7 +2565,7 @@
       "effect": "metric-declare",
       "metricRegistry": {
         "defaultMember": true,
-        "defaultNamespace": "github.com/prometheus/client_golang/prometheus"
+        "defaultNamespaceFrom": "prometheus.MustRegister"
       }
     },
     {
@@ -2639,7 +2639,7 @@
       "effect": "metric-declare",
       "metricRegistry": {
         "defaultMember": true,
-        "defaultNamespace": "github.com/prometheus/client_golang/prometheus"
+        "defaultNamespaceFrom": "prometheus.MustRegister"
       }
     },
     {
@@ -2713,7 +2713,7 @@
       "effect": "metric-declare",
       "metricRegistry": {
         "defaultMember": true,
-        "defaultNamespace": "github.com/prometheus/client_golang/prometheus"
+        "defaultNamespaceFrom": "prometheus.MustRegister"
       }
     },
     {
@@ -2787,7 +2787,7 @@
       "effect": "metric-declare",
       "metricRegistry": {
         "defaultMember": true,
-        "defaultNamespace": "github.com/prometheus/client_golang/prometheus"
+        "defaultNamespaceFrom": "prometheus.MustRegister"
       }
     },
     {
@@ -2861,7 +2861,7 @@
       "effect": "metric-declare",
       "metricRegistry": {
         "defaultMember": true,
-        "defaultNamespace": "github.com/prometheus/client_golang/prometheus"
+        "defaultNamespaceFrom": "prometheus.MustRegister"
       }
     },
     {
@@ -2935,7 +2935,7 @@
       "effect": "metric-declare",
       "metricRegistry": {
         "defaultMember": true,
-        "defaultNamespace": "github.com/prometheus/client_golang/prometheus"
+        "defaultNamespaceFrom": "prometheus.MustRegister"
       }
     },
     {
@@ -2963,7 +2963,7 @@
       "effect": "metric-expose",
       "metricRegistry": {
         "defaultTarget": true,
-        "defaultNamespace": "github.com/prometheus/client_golang/prometheus"
+        "defaultNamespaceFrom": "prometheus.MustRegister"
       }
     },
     {
