@@ -4,7 +4,7 @@
  * stands on. The reader is strict — YAML it refuses is a gap naming its line,
  * never a service read in part.
  */
-import { LineCounter, isMap, isScalar, isSeq, parseDocument } from 'yaml';
+import { LineCounter, isAlias, isMap, isScalar, isSeq, parseDocument } from 'yaml';
 import { byCodePoint } from '../../model/order.js';
 import type { SourceSpan } from '../records.js';
 import type { Records } from './accumulate.js';
@@ -54,6 +54,44 @@ export function readComposeFile(t: TreeText, records: Records, path: string): re
     records.gap(path, 'the file declares no services mapping');
     return [];
   }
+  const refuseEnvironment = (node: unknown): never => {
+    const offset = node !== null && typeof node === 'object' && 'range' in node && Array.isArray(node.range) && typeof node.range[0] === 'number' ? node.range[0] : 0;
+    records.gap(path, `line ${lineCounter.linePos(offset).line}: the environment alias or merged mapping cannot be resolved completely`);
+    throw new Error('environment mapping refused');
+  };
+  const resolveAlias = (node: unknown): unknown => {
+    const seen = new Set<unknown>();
+    while (isAlias(node)) {
+      if (seen.has(node)) return refuseEnvironment(node);
+      seen.add(node);
+      let target: unknown;
+      try { target = node.resolve(document); } catch { return refuseEnvironment(node); }
+      if (target === undefined) return refuseEnvironment(node);
+      node = target;
+    }
+    return node;
+  };
+  type EnvironmentPair = { readonly key: unknown; readonly value: unknown };
+  const environmentPairs = (source: unknown, active = new Set<unknown>()): readonly EnvironmentPair[] => {
+    const mapping = resolveAlias(source);
+    if (!isMap(mapping) || active.has(mapping)) return refuseEnvironment(source);
+    const next = new Set(active); next.add(mapping);
+    const merged = new Map<string, EnvironmentPair>();
+    const explicit = new Map<string, EnvironmentPair>();
+    for (const entry of mapping.items) {
+      if (!isScalar(entry.key) || typeof entry.key.value !== 'string') continue;
+      if (entry.key.value === '<<') {
+        const source = resolveAlias(entry.value);
+        for (const item of isSeq(source) ? source.items : [source]) {
+          for (const pair of environmentPairs(item, next)) {
+            if (isScalar(pair.key) && typeof pair.key.value === 'string' && !merged.has(pair.key.value)) merged.set(pair.key.value, pair);
+          }
+        }
+      } else explicit.set(entry.key.value, entry);
+    }
+    for (const [name, pair] of explicit) merged.set(name, pair);
+    return [...merged.values()];
+  };
   const read: ComposeService[] = [];
   for (const pair of services.items) {
     if (!isScalar(pair.key) || typeof pair.key.value !== 'string') continue;
@@ -83,23 +121,26 @@ export function readComposeFile(t: TreeText, records: Records, path: string): re
       }
     }
     const environment: ComposeVariable[] = [];
-    const envNode = isMap(pair.value) ? pair.value.items.find((item) => isScalar(item.key) && item.key.value === 'environment')?.value : undefined;
-    if (isMap(envNode)) {
-      for (const variable of envNode.items) {
-        if (!isScalar(variable.key) || typeof variable.key.value !== 'string') continue;
-        const line = lineCounter.linePos(variable.key.range?.[0] ?? 0).line;
-        environment.push({ name: variable.key.value, value: scalarText(variable.value), span: t.spanOfLine(path, line) });
+    try {
+      const envNode = resolveAlias(isMap(pair.value) ? pair.value.items.find((item) => isScalar(item.key) && item.key.value === 'environment')?.value : undefined);
+      if (isMap(envNode)) {
+        for (const variable of environmentPairs(envNode)) {
+          if (!isScalar(variable.key) || typeof variable.key.value !== 'string') continue;
+          const line = lineCounter.linePos(variable.key.range?.[0] ?? 0).line;
+          environment.push({ name: variable.key.value, value: scalarText(resolveAlias(variable.value)), span: t.spanOfLine(path, line) });
+        }
+      } else if (isSeq(envNode)) {
+        for (const source of envNode.items) {
+          const item = resolveAlias(source);
+          const text = scalarText(item);
+          if (text === null) continue;
+          const at = text.indexOf('=');
+          const name = at < 0 ? text : text.slice(0, at);
+          const line = lineCounter.linePos((item as { range?: number[] }).range?.[0] ?? 0).line;
+          environment.push({ name, value: at < 0 ? null : text.slice(at + 1), span: t.spanOfLine(path, line) });
+        }
       }
-    } else if (isSeq(envNode)) {
-      for (const item of envNode.items) {
-        const text = scalarText(item);
-        if (text === null) continue;
-        const at = text.indexOf('=');
-        const name = at < 0 ? text : text.slice(0, at);
-        const line = lineCounter.linePos((item as { range?: number[] }).range?.[0] ?? 0).line;
-        environment.push({ name, value: at < 0 ? null : text.slice(at + 1), span: t.spanOfLine(path, line) });
-      }
-    }
+    } catch { return []; }
     const dependsOn: string[] = [];
     const dependsNode = isMap(pair.value) ? pair.value.items.find((item) => isScalar(item.key) && item.key.value === 'depends_on')?.value : undefined;
     if (isSeq(dependsNode)) {
