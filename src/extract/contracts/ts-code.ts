@@ -1097,7 +1097,12 @@ export function structuralGrpcDeadline(source: TreeText, siteSpan: SourceSpan, m
   const written = new Set<string>(); const writtenMembers = new Set<string>();
   const mark = (node: CodeExpressionFact): void => {
     if (node.bindingId !== undefined) written.add(node.bindingId);
-    if (node.member !== undefined) writtenMembers.add(node.member);
+    if (node.member !== undefined) {
+      writtenMembers.add(node.member);
+      // A property write does not rebind its receiver. Keep its member
+      // invalidation without marking the receiver or property key as assigned.
+      return;
+    }
     for (const child of children(node) ?? []) mark(child);
   };
   for (const node of expressions.values()) {

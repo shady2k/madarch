@@ -527,11 +527,19 @@ export async function extractContracts(reader: TreeReader, code?: Extraction, fa
 
     // HTTP clients: fetch calls to an operation, or to the one route that serves the path.
     for (const call of ts.fetchCalls) {
-      const urlText = httpCallUrl(facts, call.span);
-      if (urlText === undefined) {
+      const urlParts = httpCallUrl(facts, call.span);
+      if (urlParts === undefined) {
         gaps.push({path: file.path, reason: `contracts: line ${call.span.lineStart}: HTTP URL is unresolved in shared parsed facts; no remote target claimed (${file.path})`});
         continue;
       }
+      // Internal unknowns are not resolved text. Only a whole-segment lexical
+      // parameter can be compared with an explicit contract path parameter.
+      const parameterPath = urlParts.length > 1 ? httpParameterPath(urlParts) : undefined;
+      if (urlParts.length > 1 && parameterPath === undefined) {
+        gaps.push({path: file.path, reason: `contracts: line ${call.span.lineStart}: HTTP URL is unresolved in shared parsed facts; no remote target claimed (${file.path})`});
+        continue;
+      }
+      const urlText = urlParts[0]!;
       let placeholder = urlText.split('?')[0]!;
       let origin: string | undefined;
       try { const url = new URL(urlText); placeholder = url.pathname; origin = url.origin; } catch { /* A relative URL has no resolved origin. */ }
@@ -539,12 +547,23 @@ export async function extractContracts(reader: TreeReader, code?: Extraction, fa
         gaps.push({path: file.path, reason: `contracts: line ${call.span.lineStart}: HTTP URL path is unresolved; no remote target claimed (${file.path})`});
         continue;
       }
-      const candidates = openApiOperations.filter((op) => operationMatches({method: call.method, path: placeholder}, op));
-      const operations = origin === undefined ? candidates : candidates.filter((op) => op.servers.some((server) => { try { return new URL(server).origin === origin; } catch { return false; } }));
+      const compatibleParameterPath = (path: string, requireParameters: boolean): boolean => {
+        if (parameterPath === undefined) return false;
+        const segments = path.split('/');
+        return segments.length === parameterPath.length && parameterPath.every((segment, index) =>
+          segment === undefined ? !requireParameters || httpPathParameter(segments[index]!) : segment === segments[index]);
+      };
+      // Count concrete competitors too: an unknown parameter value could call
+      // their path. A wildcard must not silently select the template instead.
+      const candidates = openApiOperations.filter((op) => op.method === call.method && (parameterPath === undefined
+        ? operationMatches({method: call.method, path: placeholder}, op)
+        : operationPaths(op).some(path => compatibleParameterPath(path, false))));
+      const scopedCandidates = origin === undefined ? candidates : candidates.filter((op) => op.servers.some((server) => { try { return new URL(server).origin === origin; } catch { return false; } }));
+      const operations = scopedCandidates.filter(op => parameterPath === undefined || operationPaths(op).some(path => compatibleParameterPath(path, true)));
       // A contract path in a comment, ordinary string or unrelated import is
       // not client provenance. Only the parsed call's URL and declared servers
       // select an operation here; generated clients need the same exact proof.
-      const operation = operations.length === 1 ? operations[0] : undefined;
+      const operation = operations.length === 1 && scopedCandidates.length === 1 ? operations[0] : undefined;
       const properties: {[key: string]: PropertyValue} = {
         ...(call.client !== undefined ? {client: call.client} : {}),
         via: 'http',
@@ -555,10 +574,14 @@ export async function extractContracts(reader: TreeReader, code?: Extraction, fa
         continue;
       }
       if (candidates.length > 0) {
-        const reason = operations.length > 1 ? 'ambiguous contract selection' : 'no contract server matches the resolved URL origin';
+        const reason = scopedCandidates.length > 1 ? 'ambiguous contract selection' : parameterPath !== undefined && scopedCandidates.length === 1 ? 'HTTP URL is unresolved: no explicit contract path parameter matches' : 'no contract server matches the resolved URL origin';
         gaps.push({path: file.path, reason: `contracts: line ${call.span.lineStart}: HTTP ${call.method} ${placeholder}: ${reason}; no remote target claimed (${file.path}); candidates: ${candidates.map(op => op.key).sort().join(', ')}`});
         // A local route cannot bypass unresolved contract selection and imply
         // one of the candidate contracts through its serving relation.
+        continue;
+      }
+      if (parameterPath !== undefined) {
+        gaps.push({path: file.path, reason: `contracts: line ${call.span.lineStart}: HTTP URL is unresolved: no unique explicit contract path parameter matches; no remote target claimed (${file.path})`});
         continue;
       }
       const originScope = origin === undefined ? undefined : servicesOfServers([origin]);
@@ -737,8 +760,31 @@ function normalizePath(path: string): string {
   return out.join('/');
 }
 
-/** Resolve one URL argument from copied grammar facts, never source-text patterns. */
-function httpCallUrl(facts: CodeFacts | undefined, span: SourceSpan): string | undefined {
+/** A full contract path parameter, not a prefix wildcard or a source spelling. */
+function httpPathParameter(segment: string): boolean {
+  return segment.startsWith('{') && segment.endsWith('}') && segment.length > 2
+    && ![...segment.slice(1, -1)].some(char => char === '{' || char === '}' || char === '/' || char === '?' || char === '#');
+}
+
+/** Alternating literal parts delimit AST-proved, unresolved whole path segments. */
+function httpParameterPath(parts: readonly string[]): readonly (string | undefined)[] | undefined {
+  if (parts.length < 2 || parts.some(part => part.includes('?') || part.includes('#'))) return undefined;
+  let prefix = parts[0]!;
+  try { prefix = new URL(prefix).pathname; } catch { /* A relative path has no origin. */ }
+  if (!prefix.startsWith('/') || !prefix.endsWith('/')) return undefined;
+  const segments: (string | undefined)[] = prefix.split('/').slice(0, -1);
+  for (const [index, tail] of parts.slice(1).entries()) {
+    if (tail !== '' && !tail.startsWith('/')) return undefined;
+    if (index < parts.length - 2 && !tail.endsWith('/')) return undefined;
+    segments.push(undefined);
+    const suffix = tail === '' ? [] : tail.slice(1).split('/');
+    segments.push(...(index < parts.length - 2 ? suffix.slice(0, -1) : suffix));
+  }
+  return segments;
+}
+
+/** Resolve URL literals and parameter boundaries from copied grammar facts, never source-text patterns. */
+function httpCallUrl(facts: CodeFacts | undefined, span: SourceSpan): readonly string[] | undefined {
   if (facts === undefined) return undefined;
   const one = <T>(values: readonly T[]): T | undefined => values.length === 1 ? values[0] : undefined;
   const expressions = new Map(facts.expressions.map(node => [node.id, node]));
@@ -755,10 +801,16 @@ function httpCallUrl(facts: CodeFacts | undefined, span: SourceSpan): string | u
     if (!['assignment_expression', 'augmented_assignment_expression', 'update_expression'].includes(node.syntaxKind)) continue;
     for (const id of node.fields.left ?? node.children) mark(id);
   }
-  const resolve = (node: CodeExpressionFact, seen = new Set<string>()): string | undefined => {
+  const parameter = (node: CodeExpressionFact | undefined): boolean => {
+    if (node?.syntaxKind !== 'identifier' || node.bindingId === undefined) return false;
+    const binding = one(facts.bindings.filter(binding => binding.id === node.bindingId));
+    return binding?.kind === 'parameter' && !changed.has(binding.id) && binding.path === node.path
+      && binding.scope.path === node.path && node.span.byteStart >= binding.scope.byteStart && node.span.byteEnd <= binding.scope.byteEnd;
+  };
+  const resolve = (node: CodeExpressionFact, seen = new Set<string>()): readonly string[] | undefined => {
     if (seen.has(node.id) || seen.size >= 40) return undefined;
     seen = new Set([...seen, node.id]);
-    if (node.literal?.kind === 'string' && typeof node.literal.value === 'string') return node.literal.value;
+    if (node.literal?.kind === 'string' && typeof node.literal.value === 'string') return [node.literal.value];
     if (node.syntaxKind === 'parenthesized_expression') {
       const child = one(node.children.flatMap(id => { const child = expressions.get(id); return child === undefined || child.syntaxKind === 'comment' ? [] : [child]; }));
       return child === undefined ? undefined : resolve(child, seen);
@@ -779,7 +831,7 @@ function httpCallUrl(facts: CodeFacts | undefined, span: SourceSpan): string | u
       return child?.syntaxKind === 'template_substitution' ? [child] : [];
     }).sort((a, b) => a.span.byteStart - b.span.byteStart);
     if (substitutions.length === 0) return undefined;
-    let at = 1; let value = '';
+    let at = 1; let value = ''; const parts: string[] = [];
     for (const substitution of substitutions) {
       const start = substitution.span.byteStart - node.span.byteStart;
       const end = substitution.span.byteEnd - node.span.byteStart;
@@ -789,14 +841,21 @@ function httpCallUrl(facts: CodeFacts | undefined, span: SourceSpan): string | u
       value += fragment;
       const child = one(substitution.children.flatMap(id => { const child = expressions.get(id); return child === undefined || child.syntaxKind === 'comment' ? [] : [child]; }));
       const resolved = child === undefined ? undefined : resolve(child, seen);
-      // A leading dynamic base supplies no origin. Keep the parsed suffix
-      // as a relative path; unknown substitutions inside that path stay gaps.
-      if (resolved === undefined) { if (value !== '') return undefined; }
-      else value += resolved;
+      // An initial dynamic base supplies no origin. An internal lexical
+      // parameter retains its boundary, never its name as a made-up literal.
+      // Arbitrary expressions and unresolved bindings cannot supply a segment.
+      if (resolved === undefined) {
+        if (start === 1 && parts.length === 0 && value === '') { /* Relative suffix only. */ }
+        else if (parameter(child)) { parts.push(value); value = ''; }
+        else return undefined;
+      } else {
+        if (resolved.length !== 1) return undefined;
+        value += resolved[0]!;
+      }
       at = end;
     }
     const tail = decodeStringToken('template_string', '`' + raw.subarray(at, raw.length - 1).toString('utf8') + '`');
-    return tail === undefined ? undefined : value + tail;
+    return tail === undefined ? undefined : [...parts, value + tail];
   };
   return argument === undefined ? undefined : resolve(argument);
 }

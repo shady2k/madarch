@@ -62,6 +62,21 @@ INSERT INTO "public"."réserves" (id) VALUES ('a;b')`;
     expect(spans.map((span) => decoder.decode(encoder.encode(script).slice(span.byteStart, span.byteEnd)))).toEqual([first, second]);
   });
 
+  test('a non-INSERT statement advances the raw boundary without borrowing its bytes', async () => {
+    const before = `/* café 😀 */ SELECT $noise$INSERT INTO entries VALUES ('fake;');$noise$`;
+    const insert = `
+-- résumé
+INSERT INTO entries (id) VALUES ('real;😀') -- trailing evidence
+`;
+    const script = `${before};${insert}`;
+    const result = await extract(script);
+    expect(seedGaps(result)).toEqual([]);
+    expect(writes(result)).toHaveLength(1);
+    const span = sites(writes(result)[0]!)[0]!;
+    expect(span).toEqual({path: scriptPath, byteStart: encoder.encode(`${before};`).length, byteEnd: encoder.encode(script).length, lineStart: 1, lineEnd: 4});
+    expect(decoder.decode(encoder.encode(script).slice(span.byteStart, span.byteEnd))).toBe(insert);
+  });
+
   test('an unterminated-by-semicolon final INSERT cites the full remaining statement', async () => {
     const script = `INSERT INTO entries (id) VALUES ('café')  -- trailing evidence
 `;

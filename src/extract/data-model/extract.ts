@@ -1096,17 +1096,22 @@ async function scanScriptWrites(path: string, text: string): Promise<ScriptWrite
     return {writes: [], recognized: false, gap: {path, reason: `${path}:${line}: PostgreSQL parse failed: ${message}`}};
   }
   const writes: ScriptWrite[] = [];
+  let nextByteStart = 0;
   for (const raw of parsed.stmts ?? []) {
+    // RawStmt starts at the first SQL token, not its leading comments. Keep
+    // those raw bytes, but calculate the end from the parser's own location.
+    const byteStart = nextByteStart;
+    // PostgreSQL omits zero fields. A zero length means the rest of the input,
+    // including trailing comments; a positive length excludes the semicolon.
+    const byteEnd = (raw.stmt_len ?? 0) > 0 ? (raw.stmt_location ?? 0) + raw.stmt_len! : bytes.byteLength;
+    // Advance for every AST statement, even a SELECT that emits no write.
+    nextByteStart = Math.min(byteEnd + 1, bytes.byteLength);
     const statement = raw.stmt;
     if (statement === undefined || !('InsertStmt' in statement)) continue;
     const target = statement.InsertStmt.relation;
     if (target?.relname === undefined) {
       return {writes: [], recognized: false, gap: {path, reason: `${path}:${bytes.lineOf(raw.stmt_location ?? 0)}: PostgreSQL INSERT has no target relation`}};
     }
-    const byteStart = raw.stmt_location ?? 0;
-    // PostgreSQL omits zero fields. A zero length means the rest of the input,
-    // including trailing comments; a positive length excludes the semicolon.
-    const byteEnd = (raw.stmt_len ?? 0) > 0 ? byteStart + raw.stmt_len! : bytes.byteLength;
     writes.push({
       table: target.relname,
       ...(target.schemaname === undefined ? {} : {schema: target.schemaname}),

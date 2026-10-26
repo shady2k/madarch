@@ -60,6 +60,56 @@ test('gRPC deadline follows the exact constructor ordinal and config return bind
   }
 });
 
+test('a constructor property write preserves the receiver used by a Promise deadline', async () => {
+  const answer = await proof({
+    [clientPath]: [
+      'interface Stub { estimate(request: unknown, options: unknown, callback: () => void): void; }',
+      'declare function connect(address: string): Stub;',
+      'export class RateClient {',
+      '  private readonly stub: Stub;',
+      '  constructor(address: string, private readonly waitMs: number) { this.stub = connect(address); }',
+      '  estimate() {',
+      '    const deadline = new Date(Date.now() + this.waitMs);',
+      `    return new Promise<void>((resolve) => { ${invocation}; resolve(); });`,
+      '  }',
+      '}',
+    ].join('\n'),
+    [bootstrapPath]: [
+      'import {RateClient} from "./client";',
+      'import {readSettings} from "./settings";',
+      'const settings = readSettings();',
+      'const remote = new RateClient("localhost:50051", settings.delay);',
+    ].join('\n'),
+  });
+  expect(answer.result?.deadlineMs).toBe(7300);
+  expect(answer.result?.evidence.some(span => span.path === bootstrapPath)).toBe(true);
+  expect(answer.result?.evidence.some(span => span.path === configPath)).toBe(true);
+});
+
+test('writing the duration property still invalidates the deadline proof', async () => {
+  for (const write of ['this.waitMs = 1', 'this.waitMs += 1', 'this.waitMs++']) {
+    const answer = await proof({[clientPath]: [
+      'export class RateClient {',
+      '  private readonly stub: any;',
+      '  constructor(private waitMs: number, address: string) {}',
+      `  estimate() { ${write}; const deadline = new Date(Date.now() + this.waitMs); ${invocation}; }`,
+      '}',
+    ].join('\n')});
+    expect(answer.result).toBeUndefined();
+  }
+});
+
+test('reassigning the config binding still invalidates the deadline proof', async () => {
+  const answer = await proof({[bootstrapPath]: [
+    'import {RateClient} from "./client";',
+    'import {readSettings} from "./settings";',
+    'let settings = readSettings();',
+    'settings = {delay: 1};',
+    'const remote = new RateClient(settings.delay, "localhost:50051");',
+  ].join('\n')});
+  expect(answer.result).toBeUndefined();
+});
+
 test('comments and prose cannot supply a config fallback', async () => {
   for (const value of ['"Number(env.RATE_WAIT ?? 7300)"', 'unknown /* ?? 7300 */']) {
     const answer = await proof({[configPath]: `export function readSettings() { return {delay: ${value}}; }`});
