@@ -229,28 +229,45 @@ async function testImportRanges(root: string, file: string, text: string, packag
   return ranges;
 }
 
-/** Exact public documentation URL for this entry, never a file-wide package pool. */
-function packageDocumentation(reference: string, ecosystem: string, packageName: string): boolean {
+/** Canonical HTTPS documentation syntax, not an allowance for a host or a file. */
+function documentationUrl(reference: string): URL | undefined {
   let url: URL;
-  try { url = new URL(reference); } catch { return false; }
-  if (url.protocol !== 'https:' || url.username !== '' || url.password !== '' || url.port !== '' || url.search !== '') return false;
+  try { url = new URL(reference); } catch { return undefined; }
+  if (url.protocol !== 'https:' || url.username !== '' || url.password !== '' || url.port !== '' || url.search !== '') return undefined;
   // URL canonicalization removes explicit :443 and dot segments. Check the raw
   // authority and path too; those spellings must not turn into licensed evidence.
   const authorityStart = 'https://';
-  if (!reference.startsWith(authorityStart)) return false;
+  if (!reference.startsWith(authorityStart)) return undefined;
   const afterScheme = reference.slice(authorityStart.length);
   const authorityEnd = afterScheme.indexOf('/');
-  if (authorityEnd < 0 || afterScheme.slice(0, authorityEnd) !== url.hostname) return false;
-  if ([...reference].some((character) => character === '\\' || character.codePointAt(0)! <= 32 || character.codePointAt(0) === 127)) return false;
+  if (authorityEnd < 0 || afterScheme.slice(0, authorityEnd) !== url.hostname) return undefined;
+  if ([...reference].some((character) => character === '\\' || character.codePointAt(0)! <= 32 || character.codePointAt(0) === 127)) return undefined;
   const hash = afterScheme.indexOf('#');
   const rawPath = hash < 0 ? afterScheme.slice(authorityEnd) : afterScheme.slice(authorityEnd, hash);
-  if (rawPath !== url.pathname || rawPath.includes('%') || rawPath.split('/').some((part) => part === '.' || part === '..')) return false;
+  if (rawPath !== url.pathname || rawPath.includes('%') || rawPath.split('/').some((part) => part === '.' || part === '..')) return undefined;
   if (hash >= 0) {
     const anchor = afterScheme.slice(hash + 1);
-    if (anchor === '' || anchor.length > 256 || url.hash !== '#' + anchor || anchor.includes('#') || anchor.includes('?') || anchor.includes('/') || anchor.includes(':') || anchor.includes('%')) return false;
+    if (anchor === '' || anchor.length > 256 || url.hash !== '#' + anchor || anchor.includes('#') || anchor.includes('?') || anchor.includes('/') || anchor.includes(':') || anchor.includes('%')) return undefined;
   }
-  return ecosystem === 'go' && url.hostname === 'pkg.go.dev' && rawPath === `/${packageName}` ||
-    ecosystem === 'node' && url.hostname === 'www.npmjs.com' && rawPath === `/package/${packageName}`;
+  return url;
+}
+
+/** Registry documentation still has to name this entry's exact package. */
+function packageDocumentation(reference: string, ecosystem: string, packageName: string): boolean {
+  const url = documentationUrl(reference);
+  return url !== undefined && (ecosystem === 'go' && url.hostname === 'pkg.go.dev' && url.pathname === `/${packageName}` ||
+    ecosystem === 'node' && url.hostname === 'www.npmjs.com' && url.pathname === `/package/${packageName}`);
+}
+
+/** Only a validated entry's provenance scalar can cite its own documentation. */
+function provenanceDocumentation(reference: string, ecosystem?: string, packageName?: string): boolean {
+  const url = documentationUrl(reference);
+  if (url === undefined) return false;
+  // A registry URL must not borrow a different entry's package identity.
+  if (url.hostname === 'pkg.go.dev' || url.hostname === 'www.npmjs.com') {
+    return ecosystem !== undefined && packageName !== undefined && packageDocumentation(reference, ecosystem, packageName);
+  }
+  return true;
 }
 
 interface ProvenanceRange { readonly start: number; readonly end: number }
@@ -288,7 +305,7 @@ function provenanceRanges(root: string, file: string, text: string, errors: stri
       const [start, end] = scalar.range;
       try { if (JSON.parse(text.slice(start, end)) !== expected) { located(start, 'scalar bytes disagree'); return []; } }
       catch { located(start, 'scalar bytes are not JSON'); return []; }
-      if (key === 'package' || packageDocumentation(expected, 'node', model.package)) ranges.push({start, end});
+      if (key === 'package' || provenanceDocumentation(expected, 'node', model.package)) ranges.push({start, end});
     }
     return ranges;
   }
@@ -309,14 +326,14 @@ function provenanceRanges(root: string, file: string, text: string, errors: stri
     };
     for (const [index, receiver] of model.receivers.entries()) {
       license(['receivers', index, 'package'], receiver.package);
-      if (packageDocumentation(receiver.reference, receiver.ecosystem, receiver.package)) license(['receivers', index, 'reference'], receiver.reference);
+      if (provenanceDocumentation(receiver.reference, receiver.ecosystem, receiver.package)) license(['receivers', index, 'reference'], receiver.reference);
     }
     for (const section of ['operations', 'factories'] as const) {
       for (const [index, operation] of model[section].entries()) {
         const receivers = operation.receiverIds.map(id => model.receivers.find(receiver => receiver.id === id));
         const first = receivers[0];
         if (first !== undefined && receivers.every(receiver => receiver?.ecosystem === first.ecosystem && receiver.package === first.package)
-          && packageDocumentation(operation.reference, first.ecosystem, first.package)) license([section, index, 'reference'], operation.reference);
+          && provenanceDocumentation(operation.reference, first.ecosystem, first.package)) license([section, index, 'reference'], operation.reference);
       }
     }
     return ranges;
@@ -338,8 +355,11 @@ function provenanceRanges(root: string, file: string, text: string, errors: stri
       if (raw !== reference.value) {
         located(start, 'reference scalar disagrees with its entry'); return [];
       }
-      // Some validated schemas model environment semantics, not a public package.
-      // Their original evidence stays visible to the normal URL check.
+      // The validated schema marks this scalar as provenance, including entries
+      // (such as environment semantics) that do not model a package identifier.
+      if (provenanceDocumentation(reference.value,
+        typeof fields.ecosystem === 'string' ? fields.ecosystem : undefined,
+        typeof fields.package === 'string' ? fields.package : undefined)) ranges.push({start, end});
       if (typeof fields.ecosystem !== 'string' || typeof fields.package !== 'string') continue;
       const packageScalar = document.getIn([section, index, 'package'], true);
       if (!isScalar(packageScalar) || packageScalar.type !== 'QUOTE_DOUBLE' || packageScalar.range == null || packageScalar.value !== fields.package) {
@@ -350,7 +370,6 @@ function provenanceRanges(root: string, file: string, text: string, errors: stri
       try { rawPackage = JSON.parse(text.slice(packageStart, packageEnd)); } catch { located(packageStart, 'package scalar bytes are not JSON'); return []; }
       if (rawPackage !== fields.package) { located(packageStart, 'package scalar disagrees with its entry'); return []; }
       ranges.push({ start: packageStart, end: packageEnd });
-      if (packageDocumentation(reference.value, fields.ecosystem, fields.package)) ranges.push({ start, end });
     }
   }
   return ranges;
@@ -565,6 +584,49 @@ describe('neutral repository names', () => {
         reference: ['https:/', 'pkg.go.dev', outsidePackage].join('/') }] }));
       expect(await findings(fixtureRoot)).toEqual([]);
     } finally { rmSync(fixtureRoot, { recursive: true, force: true }); }
+  });
+
+  test('documentation URLs license only parsed provenance fields of validated model entries', async () => {
+    const fixtureRoot = mkdtempSync(join(tmpdir(), 'madarch-neutral-documentation-'));
+    try {
+      for (const path of SCAN_ROOTS) mkdirSync(join(fixtureRoot, path), {recursive: true});
+      for (const path of ROOT_DOCUMENTS) { const file = join(fixtureRoot, path); mkdirSync(dirname(file), {recursive: true}); writeFileSync(file, ''); }
+      for (const name of ['environment-models.json', 'shell-command-models.json']) {
+        const original = readFileSync(join(ROOT, 'src/extract/library-models', name), 'utf8');
+        const registry = JSON.parse(original) as {schemaVersion: number; models: Array<{id: string; reference: string}>};
+        const file = join(fixtureRoot, 'src/extract/library-models/nested', name);
+        mkdirSync(dirname(file), {recursive: true}); writeFileSync(file, original);
+        // All six original citations stay verbatim, without a domain or filename allow-list.
+        expect(await findings(fixtureRoot)).toEqual([]);
+        for (const [index, model] of registry.models.entries()) {
+          const source = SOURCE_PATTERN.exec(model.reference)?.[0];
+          SOURCE_PATTERN.lastIndex = 0;
+          expect(source).toBeDefined();
+          // id is another valid string field. Reusing a provenance URL there
+          // must not borrow the reference scalar's allowance on the same line.
+          const changed = {...registry, models: registry.models.map((entry, at) => at === index ? {...entry, id: model.reference} : entry)};
+          writeFileSync(file, JSON.stringify(changed));
+          expect(await findings(fixtureRoot)).toEqual([
+            `${relative(fixtureRoot, file)}:1 (${file}): repository source is not an example or madarch repository: ${source}`,
+          ]);
+          writeFileSync(file, original);
+          const outside = join(fixtureRoot, 'docs/system/provenance.json');
+          writeFileSync(outside, JSON.stringify({reference: model.reference}));
+          expect(await findings(fixtureRoot)).toEqual([
+            `docs/system/provenance.json:1 (${outside}): repository source is not an example or madarch repository: ${source}`,
+          ]);
+          rmSync(outside);
+        }
+        // JSON structure and the closed schema, not a textual reference label,
+        // establish provenance. Invalid data still reports every raw occurrence.
+        const first = registry.models[0]!;
+        writeFileSync(file, JSON.stringify({...registry, models: [{...first, unrelated: first.reference}]}));
+        const invalid = await findings(fixtureRoot);
+        expect(invalid.some(error => error.includes('library provenance is not licensed: invalid model registry:'))).toBe(true);
+        expect(invalid.filter(error => error.includes('repository source is not an example or madarch repository:'))).toHaveLength(2);
+        rmSync(file);
+      }
+    } finally { rmSync(fixtureRoot, {recursive: true, force: true}); }
   });
 
   test('package documentation uses the whole exact URL and the current ecosystem only', async () => {
@@ -801,7 +863,7 @@ describe('neutral repository names', () => {
     } finally { rmSync(fixtureRoot, { recursive: true, force: true }); }
   });
 
-  test('literal defaultNamespace values stay findings and package-free schemas keep their original evidence', async () => {
+  test('literal defaultNamespace values stay findings while package-free provenance is licensed', async () => {
     const fixtureRoot = mkdtempSync(join(tmpdir(), 'madarch-neutral-namespaces-'));
     try {
       for (const path of SCAN_ROOTS) mkdirSync(join(fixtureRoot, path), { recursive: true });
@@ -826,7 +888,6 @@ describe('neutral repository names', () => {
         { id: 'unit', variable: 'UNIT_CONNECTION', effect: 'database-connection', reference: evidence },
       ] }));
       expect(await findings(fixtureRoot)).toEqual([
-        `src/extract/library-models/environment-models.json:1 (${environment}): repository source is not an example or madarch repository: ${evidence.slice('https://'.length)}`,
         `src/extract/library-models/models.json:1 (${registry}): repository source is not an example or madarch repository: ${namespace.slice('https://'.length)}`,
         `test/namespaces.ts:1 (${ts}): repository source is not an example or madarch repository: ${namespace.slice('https://'.length)}`,
       ]);
