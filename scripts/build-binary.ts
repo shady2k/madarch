@@ -27,7 +27,7 @@
  * the input (the wiki app's dist) cannot be used; every refusal names what
  * is wrong.
  */
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, statSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync, statSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { createServer as netServer } from 'node:net';
 import { dirname, join, resolve } from 'node:path';
@@ -50,6 +50,11 @@ interface BuildOptions {
 
 /** The repo's own checkout root, where the built wiki app and the entry stand. */
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+
+/** Canonicalize the owned scratch root once; derived-store symlink guards stay strict below it. */
+export function createBuildScratch(temporaryBase: string = tmpdir()): string {
+  return realpathSync(mkdtempSync(join(temporaryBase, 'madarch-build-binary-')));
+}
 
 function parseArgs(argv: readonly string[]): BuildOptions | number {
   const parsed: BuildOptions = { version: '', os: '', arch: '', out: 'dist' };
@@ -371,7 +376,7 @@ function stopsTheServer(outfile: string, products: string): string | undefined {
 async function main(argv: readonly string[]): Promise<number> {
   const options = parseArgs(argv);
   if (typeof options === 'number') return options;
-  const stage = mkdtempSync(join(tmpdir(), 'madarch-build-binary-'));
+  const stage = createBuildScratch();
   try {
     const staged = stageAssets(stage, options);
     if (!staged.ok) {
@@ -424,4 +429,4 @@ async function main(argv: readonly string[]): Promise<number> {
   }
 }
 
-process.exitCode = await main(process.argv.slice(2));
+if (import.meta.main) process.exitCode = await main(process.argv.slice(2));
