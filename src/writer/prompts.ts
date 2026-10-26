@@ -9,9 +9,10 @@ import type { Question } from '../loop/entities.js';
 import { editPart, type EditBrief } from './edit.js';
 import type { DomainDeclaration, UnitSpec } from './tools.js';
 import { FILE_LINES, FIND_LIMIT } from './tools.js';
+import { CONTEXT_PURPOSES, FLOW_TARGETS } from './answers.js';
 import type { GraphView } from './view.js';
 
-export const PROMPT_VERSION = 'writer@5';
+export const PROMPT_VERSION = 'writer@6';
 
 /** The languages a product's pages are written in, with the name the agent is told. */
 export const CONTENT_LANGUAGES: Readonly<Record<string, { name: string; seeAlso: string }>> = {
@@ -66,7 +67,17 @@ export function fixedPart(language = 'en'): string {
     'You are one unit of madarch\'s knowledge writer. You write ONE Markdown page about a product, from what the product\'s graph and documents say, and nothing else.',
     '',
     '## How you work',
-    `- You have no access to the repository, the disk or the web. You read only through this session's tools: overview, find_nodes, get_node, neighbors, read_file (${FILE_LINES} lines per call). Every answer is bounded; a page of ${FIND_LIMIT} says "next" when more follow. Another tool, ask_question, asks the people (see below).`,
+    `- You have no access to the repository, the disk or the web. You read only through this session's tools, and every answer is bounded and says so when it cut. The graph is given to you first: the subgraph your unit is handed is below, and it is evidence you may ground on.`,
+    '- Ask for what you need, not for a file:',
+    '  - get_symbol(name, service?): one function, method, class or constant by name, with its signature, its exact lines, the declaration that owns it, its callers, its callees, its references and the tests that exercise it. The way to a function is this tool, not read_file.',
+    '  - get_context(entity, purpose): one entity\'s context in one call — what holds it, what it is made of, what calls, reads, writes and serves it, and the document sections that name it — for the purpose you are writing (' + CONTEXT_PURPOSES.join(', ') + ').',
+    '  - trace_flow(entry, targets?, depth?, maxSteps?): from a route or a function to the function that serves it, what it calls, and the tables, events and calls into other services it reaches (' + FLOW_TARGETS.join(', ') + '). Its depth is how many calls away a step is, not an order; only a step\'s site in the file is an order.',
+    '  - get_document_sections(intent, scope?): the documents\' own sections by the words you ask for, each as the ground `doc:<path>#<anchor>`. A use case, a rule or a decision is found here, numbered or not.',
+    '  - search_pages(text, kind?) and get_page(page, format?): the pages already written, as Markdown or as their front matter and statements with the grounds behind each.',
+    '  - search_questions(text?, includeAnswered?): what the people were already asked. Read it before you ask anything.',
+    `  - overview, find_nodes (${FIND_LIMIT} at a time, "next" when more follow), get_node, neighbors: the graph's inventory and its edges.`,
+    `  - read_file (${FILE_LINES} lines per call): a file's own text, for an exact quote of what you have already found. It is not the way to find out what a function does.`,
+    '- Every answer of these tools names the repository and the revision it was read at, the evidence it rests on, and every list it cut: a list whose answer says "truncated" is not the whole, so ask again for the part you need.',
     '- You write only through write_page. It checks the whole page and writes it, or writes nothing and lists every problem with its line. Fix the problems and call it again; your attempts are bounded.',
     '- Stop when write_page answers written: true. Do not write anything else.',
     '',
@@ -74,7 +85,6 @@ export function fixedPart(language = 'en'): string {
     '- Read the root README.md and the README of each service you describe (read_file) besides the requirements and architecture documents, before you write. Look for places where what a document says and what the code does disagree (a number, a rule, a promised behaviour, a timing), for a term the documents use for two things, and for behaviour the code has that no document describes.',
     '- When you find one, call ask_question with what each source says and the grounds that show it. A decision already asked is not asked again. The tool first returns all fresh open and answered candidates when comparison is needed: compare what each asks a person to decide by meaning, then retry with a comparison entry (id, same, reason) for EVERY candidate. Same entities or title are not proof; different decisions on one entity stay separate. A match returns its existing id, and an answered match returns the answer: use it and ground the sentence on that question id, even when a previous page already used it.',
     '- A question never takes a fact off the page. Where a contradiction is open, keep BOTH sides on the page, each as its own grounded sentence and each grounded on its own source: what the code does (grounded on the code) and what the document says (grounded on the document), then a localized question link at the end of the sentence it qualifies, e.g. `[→ вопрос: Срок хранения](madarch:question:retention)` or `[→ question: Retention](madarch:question:retention)`. Never use a reference-only heading or a raw question id. Do not leave out the code\'s number, rule or timing because a document disagrees with it; write_page refuses a page that drops a side of a contradiction you asked.',
-    '- Compare how neighbouring operations of a domain handle failure: for each operation that calls another service or a store (a payment, a refund, a capture, a lookup), read what it does on a timeout, a retry, an error answer and a repeat of the same request, and say where one operation has protection that its neighbour lacks (for example a pay call with a timeout and a retry beside a refund call with neither). A difference like that is a finding: state it as a grounded sentence, and ask a question when no document says whether it is intended.',
     '',
     '## The page format',
     '- A file starts with YAML front matter: id, kind, title, relates (graph keys this page is about), producer (always agent), sources (document paths you read, or ids such as UC-2 found in them).',
@@ -94,28 +104,56 @@ export function fixedPart(language = 'en'): string {
   ].join('\n');
 }
 
-async function servicesText(view: GraphView): Promise<string> {
-  const services = await view.find({ kind: 'code.service', limit: FIND_LIMIT });
-  if (services.nodes.length === 0) return '(the graph holds no code.service node)';
-  return services.nodes
-    .map((n) => {
-      const p = n.properties;
-      const list = (value: unknown): string => (Array.isArray(value) && value.length > 0 ? value.join(', ') : 'none');
-      return `- ${n.key}: language ${String(p['language'] ?? 'unknown')}; frameworks ${list(p['frameworks'])}; infrastructure ${list(p['infrastructure'])}`;
-    })
-    .join('\n');
+/** What one service is, in the line a unit reads: its key, its language, its frameworks and its infrastructure. */
+const serviceLine = (node: { key: string; properties: Record<string, unknown> }): string => {
+  const p = node.properties;
+  const list = (value: unknown): string => (Array.isArray(value) && value.length > 0 ? value.join(', ') : 'none');
+  return `- ${node.key}: language ${String(p['language'] ?? 'unknown')}; frameworks ${list(p['frameworks'])}; infrastructure ${list(p['infrastructure'])}`;
+};
+
+/** How many keys of one kind a unit is handed before it has to ask. */
+export const PREPARED_LIMIT = 12;
+
+/** One kind's page of the subgraph a unit is given: its keys with their labels, and what was left out. */
+async function keysOf(view: GraphView, kind: string, what: string, line: (node: { key: string; label: string; properties: Record<string, unknown> }) => string = (node) => `- ${node.key}: ${node.label.length > 80 ? `${node.label.slice(0, 79)}…` : node.label}`): Promise<string[]> {
+  const page = await view.find({ kind, limit: PREPARED_LIMIT });
+  if (page.nodes.length === 0) return [`(the graph holds no ${kind} node)`];
+  return [
+    ...page.nodes.map((node) => line(node)),
+    ...(page.next === null ? [] : [`- ... more in key order; find_nodes with after ${page.next} reads the next ${PREPARED_LIMIT}`]),
+    `  ${what}`,
+  ];
 }
 
-async function overviewText(view: GraphView): Promise<string> {
-  const o = await view.overview();
+/**
+ * The subgraph a unit is handed before it asks anything (decision 0032, section 2): its services, the
+ * routes a reader comes in by, the stores and channels, and the documents, each named by its key, so
+ * graph-first is what the unit holds and not a count of the calls it makes. Bounded, in key order, and
+ * what was left out is said with the key to go on from.
+ */
+export async function preparedContextPart(view: GraphView): Promise<string[]> {
+  const overview = await view.overview();
   return [
+    '## The subgraph you are given',
     `Graph at the last filled commit (${view.at}).`,
-    'Node kinds: ' + o.kinds.map((k) => `${k.kind} ${k.count}`).join(', ') + '.',
-    'Documents:',
-    ...(o.documents.length === 0 ? ['(none)'] : o.documents.map((d) => `- ${d}`)),
+    'Node kinds: ' + (overview.kinds.length === 0 ? '(none)' : overview.kinds.map((k) => `${k.kind} ${k.count}`).join(', ')) + '.',
     'Services:',
-    await servicesText(view),
-  ].join('\n');
+    ...await keysOf(view, 'code.service', 'A service key is evidence; get_context of it, for a purpose, reads what it is made of.', serviceLine),
+    '',
+    'Routes, the entry points a reader comes in by (trace_flow goes from one to the tables and events it reaches):',
+    ...await keysOf(view, 'code.route', 'A route key is evidence; the function each route reaches is get_symbol or trace_flow.'),
+    '',
+    'Tables:',
+    ...await keysOf(view, 'code.table', 'Ask trace_flow which function reads or writes a table.'),
+    '',
+    'Channels (the events of the product):',
+    ...await keysOf(view, 'code.channel', 'Ask trace_flow which function publishes on a channel.'),
+    '',
+    'Documents:',
+    ...(overview.documents.length === 0 ? ['(none)'] : overview.documents.slice(0, PREPARED_LIMIT).map((path) => `- ${path}`)),
+    ...(overview.documents.length > PREPARED_LIMIT ? [`- ... ${overview.documents.length - PREPARED_LIMIT} more documents in code point order; find_nodes of kind code.file lists them`] : []),
+    '',
+  ];
 }
 
 /** What a unit is told beside the graph: the edit it is asked to make, and the questions asked about its page. */
@@ -163,8 +201,7 @@ export async function productPrompt(view: GraphView, unit: Extract<UnitSpec, { k
     ...questionsPart(unit.id, context.questions),
     ...otherQuestionsPart(unit.id, context.questions),
     ...(context.brief === undefined ? [] : editPart(context.brief, CONTENT_LANGUAGES[language]?.name ?? language)),
-    '## What the graph holds',
-    await overviewText(view),
+    ...await preparedContextPart(view),
   ].join('\n');
 }
 
@@ -190,11 +227,14 @@ export async function domainPrompt(view: GraphView, unit: Extract<UnitSpec, { ki
     ...questionsPart(unit.id, context.questions),
     ...otherQuestionsPart(unit.id, context.questions),
     ...(context.brief === undefined ? [] : editPart(context.brief, CONTENT_LANGUAGES[language]?.name ?? language)),
+    '## What this domain says about failure',
+    '- Compare how neighbouring operations of this domain handle failure: for each operation that calls another service or a store, trace_flow it and read what it does on a timeout, a retry, an error answer and a repeat of the same request, then say where one operation has protection that its neighbour lacks (a pay call with a timeout and a retry beside a refund call with neither, say). A difference like that is a finding: state it as a grounded sentence, and ask a question when no document says whether it is intended.',
+    '- This comparison belongs to a domain page; it is not repeated on the product page.',
+    '',
     '## The product page, for context',
     excerpt,
     '',
-    '## What the graph holds',
-    await overviewText(view),
+    ...await preparedContextPart(view),
   ].join('\n');
 }
 

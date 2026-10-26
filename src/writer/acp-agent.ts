@@ -79,6 +79,8 @@ export function entryOfCall(call: Parameters<ToolObserver['served']>[0]): Journa
     reason: call.error ?? (isError ? reasonOf(answer?.answer) : null),
     startedAt: call.startedAt,
     durationMs: call.durationMs,
+    // What the call read, could not resolve and produced travels with the answer: a count of calls says nothing of them.
+    ...(answer?.counters === undefined ? {} : { counters: answer.counters }),
   };
 }
 
