@@ -29,6 +29,9 @@ import { MAX_SLUG_LENGTH, SLUG } from './format.js';
 import { domainPrompt, productPrompt, type UnitContext } from './prompts.js';
 import { DEFAULT_UNIT_BOUNDS, UnitTools, type DomainDeclaration, type PageSink, type ToolAnswer, type UnitBounds, type UnitOutcome, type UnitSpec } from './tools.js';
 import { GraphView, ingestContent, type ContentReport } from './view.js';
+import { GUIDE_OUTPUTS, type GuideWriterHost } from './guides/host-contract.js';
+import { guidePageCount } from './guides/prepared.js';
+import { guidePrompt } from './prompts.js';
 
 export const PRODUCT_PATH = 'docs/product.md';
 export const DOMAINS_FOLDER = 'docs/domains';
@@ -53,6 +56,8 @@ export interface UnitAgent {
 }
 
 export interface WriterOptions {
+  /** Checked guide preparation/publication supplied by the production owner; absent preserves legacy callers. */
+  readonly guides?: GuideWriterHost;
   readonly owner: DatabaseOwner;
   readonly store: GraphStore;
   /** The code repository the graph was filled from (its path, as the driver was given it). */
@@ -100,6 +105,8 @@ export interface WriterReport {
   readonly domains: readonly UnitOutcome[];
   /** Localized source statements written for document entities. */
   readonly localizedSources: readonly UnitOutcome[];
+  /** The two guide units, when the run wires their checked production host. */
+  readonly guides: readonly UnitOutcome[];
   /** The number of agent units that ran. */
   readonly units: number;
   readonly ok: boolean;
@@ -218,7 +225,7 @@ async function runUnit(agent: UnitAgent, tools: UnitTools, prompt: string): Prom
     await agent.run({ id: tools.unit.id, prompt, tools: client });
   } catch (error) {
     const outcome = tools.outcome();
-    const message = error instanceof Error ? error.message : String(error);
+    const message = tools.unit.kind === 'administrator-guide' || tools.unit.kind === 'user-guide' ? 'guide agent failed; sensitive details withheld' : error instanceof Error ? error.message : String(error);
     return { ...outcome, status: outcome.status === 'written' ? 'written' : 'failed', refusals: [...outcome.refusals, { line: 0, rule: 'agent', message: `the agent failed: ${message}` }] };
   }
   return tools.outcome();
@@ -453,6 +460,26 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
     options.onUnit?.(outcome);
     localizedSources.push(outcome);
   }
+  const guides: UnitOutcome[] = [];
+  if (options.guides !== undefined) {
+    for (const kind of ['administrator-guide', 'user-guide'] as const) {
+      const output = GUIDE_OUTPUTS[kind];
+      options.onUnitStart?.({ unit: output.id, path: output.path });
+      let outcome: UnitOutcome;
+      try {
+        const prepared = await options.guides.prepare(kind, language === 'ru' ? 'ru' : 'en');
+        const spec: UnitSpec = { kind, id: output.id, path: output.path, prepared };
+        const guideBounds = { ...bounds, maxCalls: bounds.maxCalls + guidePageCount(prepared) };
+        const tools = new UnitTools(view, spec, sink, [], guideBounds, basis, extras);
+        outcome = await runUnit(options.agent, tools, guidePrompt(kind, language === 'ru' ? 'ru' : 'en', prepared.prompt));
+        if (outcome.status === 'not-written') outcome = { ...outcome, status: 'failed', refusals: [{ line: 1, rule: 'guide-missing', message: `${path.resolve(options.output, output.path)}:1: $.guide: the unit ended without a verified guide` }] };
+      } catch {
+        outcome = { ...keptOutcome(output.id, output.path), status: 'failed', refusals: [{ line: 1, rule: 'guide-preparation', message: `${path.resolve(options.output, output.path)}:1: $.guide: the complete pinned guide context could not be prepared; nothing was certified` }] };
+      }
+      guides.push(outcome);
+      options.onUnit?.(outcome);
+    }
+  }
   if (options.resolved !== undefined) {
     for (const [key, units] of [...expected].sort(([a], [b]) => byCodePoint(a, b))) {
       const written = done.get(key);
@@ -466,7 +493,7 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
     }
   }
   const stale = (await existingDomainPages(options.output)).filter((page) => !domains.some((d) => d.path === page));
-  return { content, product, domains, localizedSources, units: (need.product ? 1 : 0) + domains.filter((d) => d.writeAttempts > 0 || d.calls > 0 || d.status !== 'written').length + localizedSources.filter((d) => d.calls > 0 || d.status === 'failed').length, ok: product.status === 'written' && domains.every((d) => d.status === 'written') && localizedSources.every((outcome) => { if (outcome.status === 'failed') return false; const entity = localizedEntities.find((candidate) => `localized-source:${candidate.id}` === outcome.unit); const sourceLanguage = entity === undefined ? undefined : detectDocumentLanguage(entity.text); return sourceLanguage === undefined || sourceLanguage === language || outcome.status === 'written'; }) && indexErrors.length === 0 && loopProblems.length === 0, stale, indexErrors, loopProblems, questions: askedIds };
+  return { content, product, domains, localizedSources, guides, units: guides.length + (need.product ? 1 : 0) + domains.filter((d) => d.writeAttempts > 0 || d.calls > 0 || d.status !== 'written').length + localizedSources.filter((d) => d.calls > 0 || d.status === 'failed').length, ok: guides.every((unit) => unit.status === 'written') && product.status === 'written' && domains.every((d) => d.status === 'written') && localizedSources.every((outcome) => { if (outcome.status === 'failed') return false; const entity = localizedEntities.find((candidate) => `localized-source:${candidate.id}` === outcome.unit); const sourceLanguage = entity === undefined ? undefined : detectDocumentLanguage(entity.text); return sourceLanguage === undefined || sourceLanguage === language || outcome.status === 'written'; }) && indexErrors.length === 0 && loopProblems.length === 0, stale, indexErrors, loopProblems, questions: askedIds };
 }
 
 export type { DomainDeclaration };

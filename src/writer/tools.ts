@@ -26,6 +26,10 @@ import { statementsOf } from './sentences.js';
 import { splitFrontMatter } from '../knowledge/markdown.js';
 import type { GraphView } from './view.js';
 import { detectStatementLanguage, LOCALIZED_SOURCE_SCHEMA, parseLocalizedSource, renderLocalizedSource } from './localized-source.js';
+import type { GuidePreparedUnit } from './guides/host-contract.js';
+import { validateGuide } from './guides/validate.js';
+import { renderGuideArtifact } from './guides/artifact.js';
+import { firstGuideCursor, guidePagesComplete, readGuidePageContext } from './guides/prepared.js';
 
 /** A domain the product page declares. */
 export interface DomainDeclaration {
@@ -39,6 +43,8 @@ export interface DomainDeclaration {
 export type UnitSpec =
   | { readonly kind: 'product'; readonly id: string; readonly path: string; readonly name: string }
   | { readonly kind: 'domain'; readonly id: string; readonly path: string; readonly domain: DomainDeclaration; readonly productId?: string }
+  | { readonly kind: 'administrator-guide'; readonly id: string; readonly path: string; readonly prepared: GuidePreparedUnit }
+  | { readonly kind: 'user-guide'; readonly id: string; readonly path: string; readonly prepared: GuidePreparedUnit }
   | { readonly kind: 'localized-source'; readonly id: string; readonly path: string; readonly entity: import('../knowledge/doc-entities.js').DocEntity; readonly sourceLanguage: 'en' | 'ru'; readonly language: 'en' | 'ru' };
 
 /** Where checked pages go; the filesystem's is in `run.ts`. */
@@ -288,6 +294,10 @@ export class UnitTools {
   ) {}
 
   get tools(): readonly McpToolDefinition[] {
+    if (this.unit.kind === 'administrator-guide' || this.unit.kind === 'user-guide') return [
+      ...(firstGuideCursor(this.unit.prepared) === undefined ? [] : [{ name: 'read_prepared_context', description: 'Read the next complete secret-safe prepared context packet. Start with the prompt cursor; follow next until null. No source entry is silently cut.', inputSchema: object({ cursor: { type: 'string' } }, ['cursor']) }]),
+      { name: 'write_guide', description: 'Submit the complete structured guide after reading every prepared context packet. This tool never executes instructions.', inputSchema: object({ guide: { type: 'object', additionalProperties: true } }, ['guide']) },
+    ];
     if (this.unit.kind === 'localized-source') return [
       { name: 'write_localized_source', description: `Write one grounded ${this.unit.language === 'ru' ? 'Russian' : 'English'} statement for this document entity. Use only the supplied source excerpt.`, inputSchema: object({ statement: { type: 'string' } }, ['statement']) },
     ];
@@ -321,7 +331,14 @@ export class UnitTools {
     if (this.calls > this.bounds.maxCalls) return fail('call-limit', `this unit has made its ${this.bounds.maxCalls} tool calls; nothing more is answered`);
     const args = argumentsOf(argumentsValue);
     try {
+      if ((this.unit.kind === 'administrator-guide' || this.unit.kind === 'user-guide') && tool !== 'write_guide' && tool !== 'read_prepared_context') return fail('wrong-unit', 'this guide unit accepts only write_guide; its prepared source context is the complete bounded input');
       switch (tool) {
+        case 'read_prepared_context': {
+          if (this.unit.kind !== 'administrator-guide' && this.unit.kind !== 'user-guide') return fail('wrong-unit', 'prepared context belongs to guide units');
+          const page=readGuidePageContext(this.unit.prepared,args['cursor']);
+          return page===undefined?fail('prepared-cursor','the prepared-context cursor is invalid, out of order, or beyond the final packet'):ok(page);
+        }
+        case 'write_guide': return await this.writeGuide(args);
         case 'overview': return await this.overview();
         case 'find_nodes': return await this.findNodes(args);
         case 'get_node': return await this.getNode(args);
@@ -333,8 +350,35 @@ export class UnitTools {
         default: return fail('unknown-tool', `"${tool}" is no tool of this unit: the tools are ${WRITER_TOOLS.map((t) => t.name).join(', ')}`);
       }
     } catch (error) {
+      if (this.unit.kind === 'administrator-guide' || this.unit.kind === 'user-guide') return fail('tool-failed', 'guide tool failed; sensitive details withheld (src/writer/tools.ts)');
       return fail('tool-failed', `${tool} failed: ${error instanceof Error ? error.message : String(error)} (src/writer/tools.ts)`);
     }
+  }
+
+  private async writeGuide(args: Record<string, unknown>): Promise<ToolAnswer> {
+    const unit = this.unit;
+    if (unit.kind !== 'administrator-guide' && unit.kind !== 'user-guide') return fail('wrong-unit', 'write_guide belongs only to guide units');
+    if (this.writing) return fail('busy', 'one guide publication is already being checked');
+    if (this.status === 'written') return fail('already-written', 'this guide was already published');
+    if (this.writeAttempts >= this.bounds.maxWriteAttempts) return fail('no-attempts', 'this guide exhausted its checked write attempts');
+    this.writeAttempts += 1;
+    if (!guidePagesComplete(unit.prepared)) return this.refuse([{ line: 1, rule: 'guide-context-incomplete', message: `${unit.prepared.validation.file}:1: $.context: required prepared packets remain unread; no partial guide was published` }]);
+    this.writing = true;
+    try {
+      const checked = await validateGuide(args['guide'], unit.prepared.validation);
+      if (!checked.ok) return this.refuse(checked.diagnostics.map((problem) => ({ line: problem.line, rule: problem.code, message: unit.prepared.validation.containsSecret(problem.message) ? `${unit.prepared.validation.file}:${problem.line}: $.guide: validation refused (${problem.code}); sensitive field details withheld` : problem.message })));
+      const guide = checked.guide;
+      if (guide.kind !== unit.kind || guide.id !== unit.id) return this.refuse([{ line: 1, rule: 'guide-identity', message: `${unit.prepared.validation.file}:1: $.id: guide identity and kind differ from the unit` }]);
+      const published = await unit.prepared.publishChecked({ guide, artifact: renderGuideArtifact(guide), expectedContext: unit.prepared.validation.expectedContext, expectedInputDigest: unit.prepared.validation.expectedInputDigest, expectedUnitVersion: unit.prepared.validation.expectedUnitVersion });
+      if (!published.ok) return this.refuse(published.diagnostics.map((problem) => ({ line: problem.line, rule: problem.code, message: problem.message })));
+      if (published.path !== unit.path) return this.refuse([{ line: 1, rule: 'guide-publication-path', message: `${unit.prepared.validation.file}:1: $.path: publication returned another path` }]);
+      this.status = 'written';
+      this.refusals = [];
+      return ok({ written: true, path: unit.path, unchanged: published.unchanged });
+    } catch {
+      // A source, agent or publication exception may contain sensitive source bytes.
+      return this.refuse([{ line: 1, rule: 'guide-host', message: `${unit.prepared.validation.file}:1: $.guide: source verification or publication failed; no success is certified` }]);
+    } finally { this.writing = false; }
   }
 
   private async overview(): Promise<ToolAnswer> {
@@ -659,7 +703,7 @@ export class UnitTools {
   }
 
   private async writePageNow(args: Record<string, unknown>): Promise<ToolAnswer> {
-    if (this.unit.kind === 'localized-source') return fail('wrong-unit', 'write_page is unavailable to a localized document-source unit');
+    if (this.unit.kind === 'localized-source' || this.unit.kind === 'administrator-guide' || this.unit.kind === 'user-guide') return fail('wrong-unit', 'write_page is unavailable to this unit');
     if (this.status === 'written') return fail('already-written', `this unit already wrote ${this.unit.path}`);
     if (this.writeAttempts >= this.bounds.maxWriteAttempts) return fail('no-attempts', `this unit made ${this.bounds.maxWriteAttempts} refused writes and has failed; nothing more is accepted`);
     this.writeAttempts += 1;

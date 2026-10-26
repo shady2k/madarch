@@ -8,14 +8,46 @@ function freeze<T>(value: T): T {
   if (value !== null && typeof value === 'object') { for (const item of Object.values(value)) freeze(item); Object.freeze(value); }
   return value;
 }
-const ID = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
-const HASH = /^[a-f0-9]{64}$/;
-const COMMIT = /^[a-f0-9]{40,64}$/;
-const plain = (value: unknown): value is string => typeof value === 'string' && value.trim() !== '' && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(value);
+const lower = (character: string): boolean => character >= 'a' && character <= 'z';
+const digit = (character: string): boolean => character >= '0' && character <= '9';
+const upper = (character: string): boolean => character >= 'A' && character <= 'Z';
+const identity = (value: string): boolean => {
+  if (value.length === 0 || !lower(value[0]!)) return false;
+  let hyphen = false;
+  for (let index = 1; index < value.length; index++) {
+    const character = value[index]!;
+    if (character === '-') { if (hyphen) return false; hyphen = true; }
+    else { if (!lower(character) && !digit(character)) return false; hyphen = false; }
+  }
+  return !hyphen;
+};
+const hexadecimal = (value: string, minimum: number, maximum = minimum): boolean => {
+  if (value.length < minimum || value.length > maximum) return false;
+  for (const character of value) if (!digit(character) && !(character >= 'a' && character <= 'f')) return false;
+  return true;
+};
+const inputName = (value: string): boolean => {
+  if (value.length === 0 || !upper(value[0]!)) return false;
+  for (const character of value) if (!upper(character) && !digit(character) && character !== '_') return false;
+  return true;
+};
+const plain = (value: unknown): value is string => {
+  if (typeof value !== 'string' || value.trim() === '') return false;
+  for (const character of value) {
+    const code = character.charCodeAt(0);
+    if (code <= 8 || code === 11 || code === 12 || code >= 14 && code <= 31) return false;
+  }
+  return true;
+};
 const object = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value);
 export const safeGuidePath = (value: string, root = false): boolean => (root && value === '.') ||
   (value.length > 0 && !value.startsWith('/') && !value.includes('\\') && !value.includes('\0') && !value.split('/').some((part) => part === '' || part === '.' || part === '..'));
-const instant = (value: unknown): boolean => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T.+Z$/.test(value) && Number.isFinite(Date.parse(value));
+const instant = (value: unknown): boolean => {
+  if (typeof value !== 'string' || value.length < 13 || value[4] !== '-' || value[7] !== '-' || value[10] !== 'T' || !value.endsWith('Z')) return false;
+  for (const index of [0, 1, 2, 3, 5, 6, 8, 9]) if (!digit(value[index]!)) return false;
+  for (const character of value.slice(11, -1)) if (character === '\n' || character === '\r' || character === '\u2028' || character === '\u2029') return false;
+  return Number.isFinite(Date.parse(value));
+};
 export type GuideValidation = { readonly ok: true; readonly guide: GuideDocument } | { readonly ok: false; readonly diagnostics: readonly GuideDiagnostic[] };
 
 /** Structural checks precede host evidence checks. Agent-supplied approval fields are refused. */
@@ -43,12 +75,12 @@ export async function validateGuide(input: unknown, host: GuideValidationHost): 
   if (!object(input)) { error('$', 'object', 'expected a guide object'); return done(); }
   fields(input, ['schema', 'id', 'kind', 'locale', 'title', 'context', 'unitVersion', 'inputDigest', 'prerequisites', 'gaps', 'procedures'], '$');
   if (input['schema'] !== GUIDE_SCHEMA) error('$.schema', 'schema', `expected ${GUIDE_SCHEMA}`);
-  if (!plain(input['id']) || !ID.test(input['id'])) error('$.id', 'identity', 'expected a lower-case hyphenated identity');
+  if (!plain(input['id']) || (!identity(input['id']) && !((input['kind'] === 'administrator-guide' || input['kind'] === 'user-guide') && input['id'] === `${input['kind']}:main`))) error('$.id', 'identity', 'expected a lower-case hyphenated identity or the registered guide identity');
   if (!['administrator-guide', 'user-guide'].includes(String(input['kind']))) error('$.kind', 'kind', 'expected administrator-guide or user-guide');
   if (!['en', 'ru'].includes(String(input['locale']))) error('$.locale', 'locale', 'expected en or ru');
   text(input['title'], '$.title'); text(input['unitVersion'], '$.unitVersion');
   if (input['unitVersion'] !== host.expectedUnitVersion) error('$.unitVersion', 'stale-version', 'unit version differs from host context');
-  if (typeof input['inputDigest'] !== 'string' || !HASH.test(input['inputDigest'])) error('$.inputDigest', 'digest', 'expected a SHA-256 digest');
+  if (typeof input['inputDigest'] !== 'string' || !hexadecimal(input['inputDigest'], 64)) error('$.inputDigest', 'digest', 'expected a SHA-256 digest');
   if (input['inputDigest'] !== host.expectedInputDigest) error('$.inputDigest', 'stale-input', 'input digest differs from host context');
   const context = input['context']; const repositories = new Map<string, string>();
   if (!object(context)) error('$.context', 'context', 'expected a full pinned temporal context');
@@ -61,8 +93,8 @@ export async function validateGuide(input: unknown, host: GuideValidationHost): 
       const path = `$.context.repositories[${index}]`;
       if (!object(repository)) { error(path, 'repository', 'expected a named pinned repository'); return; }
       fields(repository, ['name', 'commit'], path);
-      if (!plain(repository['name']) || !ID.test(repository['name'])) error(`${path}.name`, 'repository', 'expected repository identity');
-      if (!plain(repository['commit']) || !COMMIT.test(repository['commit'])) error(`${path}.commit`, 'commit', 'expected a full commit hash');
+      if (!plain(repository['name']) || !identity(repository['name'])) error(`${path}.name`, 'repository', 'expected repository identity');
+      if (!plain(repository['commit']) || !hexadecimal(repository['commit'], 40, 64)) error(`${path}.commit`, 'commit', 'expected a full commit hash');
       if (typeof repository['name'] === 'string' && typeof repository['commit'] === 'string') {
         if (repositories.has(repository['name'])) error(`${path}.name`, 'duplicate', 'repository is named twice');
         repositories.set(repository['name'], repository['commit']);
@@ -71,7 +103,8 @@ export async function validateGuide(input: unknown, host: GuideValidationHost): 
   }
   list(input['prerequisites'], '$.prerequisites'); list(input['gaps'], '$.gaps');
   const procedures = input['procedures'];
-  if (!Array.isArray(procedures) || procedures.length === 0 || procedures.length > 40) error('$.procedures', 'procedures', 'expected 1 to 40 procedures');
+  // A gap-only artifact records absent source proof; it does not fulfill guide coverage or certify a walk.
+  if (!Array.isArray(procedures) || procedures.length > 40 || procedures.length === 0 && (!Array.isArray(input['gaps']) || input['gaps'].length === 0)) error('$.procedures', 'procedures', 'expected 1 to 40 procedures, or an explicit gap when no procedure is evidenced');
   else {
     const procedureIds = new Set<string>();
     procedures.forEach((procedure: unknown, pi: number) => {
@@ -79,7 +112,7 @@ export async function validateGuide(input: unknown, host: GuideValidationHost): 
       if (!object(procedure)) { error(path, 'procedure', 'expected a procedure object'); return; }
       fields(procedure, ['id', 'title', 'goal', 'role', 'prerequisites', 'steps'], path);
       const id = procedure['id'];
-      if (!plain(id) || !ID.test(id)) error(`${path}.id`, 'identity', 'expected a procedure identity');
+      if (!plain(id) || !identity(id)) error(`${path}.id`, 'identity', 'expected a procedure identity');
       else { if (procedureIds.has(id)) error(`${path}.id`, 'duplicate', 'procedure identity is repeated'); procedureIds.add(id); }
       for (const field of ['title', 'goal', 'role']) text(procedure[field], `${path}.${field}`);
       list(procedure['prerequisites'], `${path}.prerequisites`);
@@ -91,7 +124,7 @@ export async function validateGuide(input: unknown, host: GuideValidationHost): 
         if (!object(step)) { error(sp, 'step', 'expected a step object'); return; }
         fields(step, ['id', 'title', 'cwd', 'environment', 'inputs', 'instruction', 'expected', 'grounds'], sp);
         const sid = step['id'];
-        if (!plain(sid) || !ID.test(sid)) error(`${sp}.id`, 'identity', 'expected a step identity');
+        if (!plain(sid) || !identity(sid)) error(`${sp}.id`, 'identity', 'expected a step identity');
         else { if (stepIds.has(sid)) error(`${sp}.id`, 'duplicate', 'step identity is repeated'); stepIds.add(sid); }
         text(step['title'], `${sp}.title`); text(step['environment'], `${sp}.environment`);
         if (typeof step['cwd'] !== 'string' || !safeGuidePath(step['cwd'], true)) error(`${sp}.cwd`, 'path', 'expected a safe repository-relative working directory');
@@ -103,7 +136,7 @@ export async function validateGuide(input: unknown, host: GuideValidationHost): 
             const ip = `${sp}.inputs[${ii}]`;
             if (!object(entry)) { error(ip, 'input', 'expected an input object'); return; }
             fields(entry, ['name', 'description', 'secret'], ip);
-            if (!plain(entry['name']) || !/^[A-Z][A-Z0-9_]*$/.test(entry['name'])) error(`${ip}.name`, 'input-name', 'expected uppercase input name');
+            if (!plain(entry['name']) || !inputName(entry['name'])) error(`${ip}.name`, 'input-name', 'expected uppercase input name');
             else { if (names.has(entry['name'])) error(`${ip}.name`, 'duplicate', 'input name is repeated'); names.add(entry['name']); }
             text(entry['description'], `${ip}.description`);
             if (typeof entry['secret'] !== 'boolean') error(`${ip}.secret`, 'input-secret', 'expected a boolean, never a secret value');

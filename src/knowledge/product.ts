@@ -12,6 +12,13 @@
  * graph's spans were read from, and a restarted server still knows.
  */
 import { glossaryTerms, termLinks, type GlossaryTerm } from './glossary.js';
+import { GUIDE_OUTPUTS } from '../writer/guides/host-contract.js';
+import type { GuideContextFor, GuideHostFor } from '../writer/guides/host.js';
+import type { GuideKind, GuideLocale } from '../writer/guides/model.js';
+import { readGuidePage } from '../writer/guides/read.js';
+import { createGuideReadFactories, guideProductPin } from '../writer/guides/writer.js';
+import { createGraphStore } from '../graph/index.js';
+import { createGitSnapshotSource } from '../fill/snapshot.js';
 import { detectDocumentLanguage, localizedSourcePath, parseLocalizedSource, type LocalizedDocumentSource } from '../writer/localized-source.js';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { execFile, execFileSync } from 'node:child_process';
@@ -162,6 +169,9 @@ export interface KnowledgeProductOptions {
   env?: DraftEnv;
   /** Starts the chosen agent for the writer; the production one starts the agent's ACP adapter. Tests inject a scripted agent. */
   agentFactory?: AgentFactory;
+  /** Host authority shared with the guide writer; never derived from guide front matter. */
+  guideContextFor?: GuideContextFor;
+  guideHostFor?: GuideHostFor;
   /** Where the knowledge wiki says what it could not do; the host's error log. */
   errorLog?: (line: string) => void;
   /** Starts the fill worker; tests inject one. */
@@ -1139,7 +1149,15 @@ export class KnowledgeProduct {
     const scope = history === undefined ? undefined : this.pins.get(history.repo)?.scope;
     if (history !== undefined && (history.coverage !== 'covered' || history.effectiveAt === null || scope === undefined)) throw new WikiReadError(`${product.folder}/${KINDS_FILE}:1: historical structure is not covered for ${history.repo} at ${history.at}`);
     const graph = history === undefined ? currentGraph : currentGraph.at(history.effectiveAt!, scope!);
-    const markdownRead = history === undefined ? readMarkdownEntities(product.folder, read.manifest) : { entities: [], findings: [] };
+    // Guide payloads enter their strict host verifier, never the generic YAML materializer.
+    const ordinaryKinds = new Map([...read.manifest.kinds].filter(([kind]) => !Object.hasOwn(GUIDE_OUTPUTS, kind)));
+    const markdownRead = history === undefined ? readMarkdownEntities(product.folder, { ...read.manifest, kinds: ordinaryKinds }) : { entities: [], findings: [] };
+    if (history === undefined) for (const [kind, output] of Object.entries(GUIDE_OUTPUTS)) {
+      const declaration = read.manifest.kinds.get(kind);
+      if (declaration?.source !== 'markdown' || declaration.file !== output.path) continue;
+      const title = declaration.labels?.[read.manifest.language === 'ru' ? 'ru' : 'en']?.one ?? kind;
+      markdownRead.entities.push({ id: output.id, kind, title, relates: [], producer: 'agent', sources: [], body: '', bodyLine: 1, file: output.path, front: {} });
+    }
     const markdown = new Map<string, MarkdownEntity>(markdownRead.entities.map((entity) => [entity.id, entity]));
     const reading = history === undefined ? await this.documentEntities(product.folder, read.manifest) : { entities: [], sources: [], findings: [] };
     const docEntities = new Map<string, DocEntity>(reading.entities.map((entity) => [entity.id, entity]));
@@ -1380,12 +1398,57 @@ export class KnowledgeProduct {
     if (history !== undefined && history.coverage !== 'covered') return { ok: true, page: { id, kind: id.slice(0, id.indexOf(':')), title: id, trail: [], blocks: [], resolutions: {}, findings: [], notes: [], history } };
     const context = await this.context(history);
     if ('absent' in context) return { ok: false, status: 404, message: `the product has no ${context.file}: the wiki shows the kinds that file declares` };
+    const guideKind = (Object.keys(GUIDE_OUTPUTS) as GuideKind[]).find((kind) => GUIDE_OUTPUTS[kind].id === id);
+    if (guideKind !== undefined) return await this.guidePage(guideKind, lang === 'ru' ? 'ru' : lang === 'en' ? 'en' : context.ctx.language === 'ru' ? 'ru' : 'en', context.ctx, history);
     if (history !== undefined && await findSubject(context.ctx, id) === undefined) return { ok: true, page: { id, kind: id.slice(0, id.indexOf(':')), title: id, trail: [], blocks: [], resolutions: {}, findings: [], notes: [], history, historicalAbsent: true } };
     const result = await renderPage(context.ctx, id, lang, history === undefined ? options : { ...options, defer: false });
     if (!result.ok) return result;
     const historyNavigation = history === undefined && id.startsWith('code.') ? await Promise.all([...this.pins.keys()].sort(byCodePoint).map(async (repo) => { const indexed = await this.historyAt({ repo, at: '?' }); return { repo, points: indexed.points, ...(indexed.landmarks === undefined ? {} : { landmarks: indexed.landmarks }) }; })) : undefined;
     const page = history === undefined ? result.page : withHistoryLinks(result.page, history);
     return { ok: true, page: { ...page, ...(history === undefined ? { planned: await this.plannedForPage(id), ...(historyNavigation === undefined ? {} : { historyNavigation }) } : { history, blocks: page.blocks.filter((block) => block.type !== 'history') }) } };
+  }
+
+  /** Strict guide data and fresh walk evidence are assembled once for every read format. */
+  private async guidePage(kind: GuideKind, locale: GuideLocale, ctx: RenderContext, history?: HistoryContext): Promise<PageResult> {
+    const output = GUIDE_OUTPUTS[kind];
+    const file = resolve(ctx.productFolder, output.path);
+    const title = ctx.manifest.kinds.get(kind)?.labels?.[locale]?.one ?? kind;
+    const base: PageModel = { id: output.id, kind, title, trail: [], blocks: [], resolutions: {}, findings: [], notes: [], ...(history === undefined ? { planned: await this.plannedForPage(output.id) } : { history }) };
+    const gap = (en: string, ru: string): PageResult => {
+      const message = `${file}:1: $.guide: ${locale === 'ru' ? ru : en}`;
+      return { ok: true, page: { ...base, blocks: [{ type: 'problem', block: 'guide', file, line: 1, message }], findings: [{ file, line: 1, message }] } };
+    };
+    const declaration = ctx.manifest.kinds.get(kind);
+    if (declaration?.source !== 'markdown' || declaration.file !== output.path) return gap('the registered guide output is not declared by this product', 'Этот продукт не объявляет зарегистрированное руководство');
+    if (history !== undefined) return gap('historical guide input proof is unavailable; current content was not substituted', 'Нет подтверждённых входных данных руководства на эту дату; текущая версия не подставлена');
+    try {
+      if ((this.options.guideContextFor === undefined) !== (this.options.guideHostFor === undefined)) return gap('guide context and verification authority must be supplied together', 'Контекст и проверяющая сторона руководства должны быть заданы вместе');
+      const productPin = guideProductPin(ctx.productFolder, [...this.pins.keys()]);
+      const repositories = [...this.pins.values()].map((pin) => ({ name: pin.name, commit: pin.commit })).concat({ name: productPin.id, commit: productPin.commit }).sort((a, b) => byCodePoint(a.name, b.name));
+      const valid = [...this.pins.values()].map((pin) => pin.effectiveTime).sort(byCodePoint).pop();
+      if (valid === undefined || repositories.some((pin) => pin.commit === '')) return gap('the repositories have no complete pinned input', 'Нет полных закреплённых входных данных репозиториев');
+      if ([...this.pins.values()].some((pin) => !this.repositories().some((repository) => repository.name === pin.name && repository.present))) return gap('a pinned source repository is unavailable', 'Закреплённый исходный репозиторий недоступен');
+      const owner = await this.open();
+      const defaults = createGuideReadFactories({ owner, store: createGraphStore(owner), output: ctx.productFolder,
+        snapshots: createGitSnapshotSource([...([...this.pins.values()].map((pin) => ({ id: pin.name, form: 'code' as const, root: this.repositories().find((repository) => repository.name === pin.name)?.path ?? join(ctx.productFolder, 'repos', pin.name), commit: pin.commit }))), productPin]),
+        scopeOf: (repository) => this.pins.get(repository)?.scope,
+      });
+      const contextFor = this.options.guideContextFor ?? defaults.guideContextFor;
+      const hostFor = this.options.guideHostFor ?? defaults.guideHostFor;
+      const current = await contextFor({ kind, locale, valid, repositories });
+      const currentCode = current?.repositories.filter((repository) => repository.name !== productPin.id).sort((a, b) => byCodePoint(a.name, b.name));
+      const requestedCode = repositories.filter((repository) => repository.name !== productPin.id);
+      if (current === undefined || !current.repositories.some((repository) => repository.name === productPin.id) || JSON.stringify(currentCode) !== JSON.stringify(requestedCode)) return gap('the current prepared input proof is unavailable or stale', 'Подтверждение текущих подготовленных данных недоступно или устарело');
+      const host = await hostFor({ kind, locale, context: current });
+      const root = realpathSync(ctx.productFolder);
+      const actual = realpathSync(file);
+      if (!insideFolder(root, relative(root, actual)) || !statSync(actual).isFile() || statSync(actual).size > 2 * 1024 * 1024) return gap('guide artifact is unsafe or exceeds 2097152 bytes; nothing was truncated', 'Файл руководства небезопасен или превышает 2097152 байта; данные не сокращены');
+      const read = await readGuidePage({ file, source: readFileSync(actual, 'utf8'), kind, locale, host });
+      if (!read.ok) return { ok: true, page: { ...base, findings: [...read.diagnostics], blocks: read.diagnostics.map((diagnostic) => ({ type: 'problem', block: 'guide', file: diagnostic.file, line: diagnostic.line, message: diagnostic.message })) } };
+      return { ok: true, page: { ...base, title: read.data.guide.title, findings: [...read.diagnostics], blocks: [{ type: 'guide', data: read.data }] } };
+    } catch {
+      return gap('guide artifact or source verification is unavailable; no success was inferred', 'Файл руководства или проверка источников недоступны; успех не предполагается');
+    }
   }
 
   /** The planned changes one page stands in: its own entity, and the statements of it a task's grounds reach. */
@@ -1562,11 +1625,24 @@ export class KnowledgeProduct {
       const texts = await readRepoDocuments(repo.name, repo.path, commit === undefined || commit === '' ? 'HEAD' : commit, listed);
       for (const name of listed) documents.push({ repo: repo.name, path: name, title: documentTitle(texts.get(name) ?? '', name) });
     }
+    for (const [kind, output] of Object.entries(GUIDE_OUTPUTS)) {
+      const declared = manifest.kinds.get(kind);
+      if (declared?.source !== 'markdown' || declared.file !== output.path) continue;
+      if (!documents.some((document) => document.repo === null && document.path === output.path)) documents.push({ repo: null, path: output.path, title: declared.labels?.[manifest.language === 'ru' ? 'ru' : 'en']?.one ?? kind });
+    }
     return { documents, truncated };
   }
 
   /** One document as a page; `undefined` when the repository has no such document. */
   async document(repo: string | null, path: string): Promise<DocumentPage | undefined> {
+    const guideKind = repo === null ? (Object.keys(GUIDE_OUTPUTS) as GuideKind[]).find((kind) => GUIDE_OUTPUTS[kind].path === path) : undefined;
+    if (guideKind !== undefined) {
+      const assembled = await this.page(GUIDE_OUTPUTS[guideKind].id);
+      if (!assembled.ok) return undefined;
+      const only = assembled.page.blocks.length === 1 ? assembled.page.blocks[0] : undefined;
+      if (only?.type !== 'guide') return { repo: null, path, title: assembled.page.title, markdown: assembled.page.findings.map((finding) => finding.message).join('\n'), resolutions: {}, anchors: {}, commit: null, planned: [] };
+      return { repo: null, path, title: assembled.page.title, markdown: only.data.markdown, resolutions: assembled.page.resolutions, anchors: {}, commit: null, planned: [] };
+    }
     if (!DOCUMENT_PATH.test(path)) return undefined;
     const context = await this.context();
     if ('absent' in context) return undefined;
@@ -1908,7 +1984,7 @@ export function defaultKnowledgeRoot(home: string): string {
 export class KnowledgeHost {
   private readonly products = new Map<string, KnowledgeProduct>();
 
-  constructor(private readonly storeRoot: string, private readonly now?: () => Date, private readonly extra: Pick<KnowledgeProductOptions, 'env' | 'agentFactory' | 'errorLog' | 'workerFactory' | 'snapshotMs' | 'choicesQuery'> = {}) {}
+  constructor(private readonly storeRoot: string, private readonly now?: () => Date, private readonly extra: Pick<KnowledgeProductOptions, 'env' | 'agentFactory' | 'errorLog' | 'workerFactory' | 'snapshotMs' | 'choicesQuery' | 'guideContextFor' | 'guideHostFor'> = {}) {}
 
   of(productFolder: string): KnowledgeProduct {
     const key = resolve(productFolder);

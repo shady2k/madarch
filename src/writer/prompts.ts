@@ -197,3 +197,15 @@ export async function domainPrompt(view: GraphView, unit: Extract<UnitSpec, { ki
     await overviewText(view),
   ].join('\n');
 }
+
+/** Guide-specific instructions never loosen ordinary narrative-page format rules. */
+export function guidePrompt(kind: 'administrator-guide' | 'user-guide', locale: 'en' | 'ru', prepared: string): string {
+  return [
+    `Write the ${kind} in ${CONTENT_LANGUAGES[locale]!.name} from this complete bounded prepared context.`,
+    'Submit the complete structured guide with write_guide. Do not submit Markdown or execute any command.',
+    'Each instruction AND expected status and observation need the exact pinned grounds that support them. Unsupported procedures are explicit gaps, never invented commands or guarantees.',
+    'Use only named secret inputs, never their values. Never claim a walkthrough: independent operator evidence is checked separately.',
+    'A truncated or unavailable context is not complete evidence; refuse or retain its gaps rather than silently returning a smaller success.',
+    prepared,
+  ].join('\n\n');
+}

@@ -4,17 +4,41 @@ import { byCodePoint } from '../../model/order.js';
 import { checkStrictYaml } from '../../model/strict-yaml.js';
 import { lineForPath, type PathSegment } from '../../model/yaml-position.js';
 import { GUIDE_SCHEMA, type GuideDiagnostic, type GuideDocument, type GuideValidationHost } from './model.js';
-import { renderGuideMarkdown } from './render.js';
+import { renderGuideBodyMarkdown } from './render.js';
 import { validateGuide, type GuideValidation } from './validate.js';
 
 const MAX_ARTIFACT_BYTES = 512 * 1024;
 const metadataKeys = ['schema', 'id', 'kind', 'title', 'wiki-language', 'producer', 'guide'];
-const bodyOf = (rendered: string): string => rendered.slice(rendered.indexOf('\n---\n', 4) + 5);
-const segments = (path: string): PathSegment[] => [...path.matchAll(/(?:^|\.)([^.\[\]]+)|\[(\d+)\]/g)].map((match) => match[2] === undefined ? match[1]! : Number(match[2]));
+/** Read the diagnostic field/index notation without interpreting authored YAML or Markdown. */
+const segments = (path: string): PathSegment[] => {
+  const result: PathSegment[] = [];
+  let index = path.startsWith('$') ? 1 : 0;
+  if (path[index] === '.') index++;
+  const first = index;
+  while (index < path.length) {
+    if (path[index] === '[') {
+      let end = index + 1;
+      while (end < path.length && path[end]! >= '0' && path[end]! <= '9') end++;
+      if (end > index + 1 && path[end] === ']') {
+        result.push(Number(path.slice(index + 1, end)));
+        index = end + 1;
+        continue;
+      }
+    }
+    const start = path[index] === '.' ? index + 1 : index;
+    if ((index === first || path[index] === '.') && start < path.length && path[start] !== '.' && path[start] !== '[' && path[start] !== ']') {
+      let end = start + 1;
+      while (end < path.length && path[end] !== '.' && path[end] !== '[' && path[end] !== ']') end++;
+      result.push(path.slice(start, end));
+      index = end;
+    } else index++;
+  }
+  return result;
+};
 
 /** Canonical durable body always says not walked. Fresh receipt overlays are read-time only. */
 export function renderGuideArtifact(guide: GuideDocument): string {
-  const body = bodyOf(renderGuideMarkdown(guide));
+  const body = renderGuideBodyMarkdown(guide);
   const front = stringify({ schema: GUIDE_SCHEMA, id: guide.id, kind: guide.kind, title: guide.title,
     'wiki-language': guide.locale, producer: 'agent', guide }).trimEnd();
   return `---\n${front}\n---\n${body}`;
@@ -34,7 +58,7 @@ export async function parseGuideArtifact(file: string, source: string, host: Omi
   if (end < 0) { error(1, '$', 'artifact-format', 'guide front matter is not closed'); return failed(); }
   const yaml = lines.slice(1, end).join('\n');
   const lineCounter = new LineCounter();
-  const document = parseDocument(yaml, { uniqueKeys: false, lineCounter, strict: true });
+  const document = parseDocument(yaml, { uniqueKeys: false, lineCounter, strict: true, keepSourceTokens: true });
   for (const problem of document.errors) error((problem.linePos?.[0]?.line ?? lineCounter.linePos(problem.pos[0]).line) + 1, '$', 'yaml', 'invalid guide YAML');
   // Existing strict-YAML rules reject duplicates, anchors, aliases, merge keys and tags before toJS.
   for (const problem of checkStrictYaml(document, lineCounter, file, yaml)) error(problem.line + 1, problem.path === '' ? '$' : `$.${problem.path}`, 'strict-yaml', 'unsupported or duplicate YAML construct');
@@ -43,7 +67,7 @@ export async function parseGuideArtifact(file: string, source: string, host: Omi
   try { raw = document.toJS({ maxAliasCount: 0 }); } catch { error(2, '$', 'yaml', 'guide YAML cannot be materialized safely'); return failed(); }
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) { error(2, '$', 'artifact-format', 'guide front matter must be a mapping'); return failed(); }
   const meta = raw as Record<string, unknown>;
-  const lineAt = (path: string): number => lineForPath(document, lineCounter, segments(path.replace(/^\$\.?/, ''))) + 1;
+  const lineAt = (path: string): number => lineForPath(document, lineCounter, segments(path)) + 1;
   for (const key of Object.keys(meta).sort(byCodePoint)) if (!metadataKeys.includes(key)) error(lineAt(`$.${key}`), `$.${key}`, 'unknown-field', 'field is not part of the guide artifact');
   for (const key of metadataKeys) if (!(key in meta)) error(2, `$.${key}`, 'missing-field', 'required guide metadata is absent');
   if (meta['schema'] !== GUIDE_SCHEMA) error(lineAt('$.schema'), '$.schema', 'schema', `expected ${GUIDE_SCHEMA}`);

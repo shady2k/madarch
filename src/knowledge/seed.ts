@@ -208,6 +208,7 @@ ${SECTION.pagesAbout('this operation', 'этой операции')}
 export const TEMPLATES: Readonly<Record<string, string>> = {
   'product.md': PRODUCT,
   'domain.md': DOMAIN,
+  'guide.md': '# {{title}}\n',
   'service.md': SERVICE,
   'package.md': PACKAGE,
   'module.md': MODULE,
@@ -267,6 +268,8 @@ export const ROLES: readonly { name: string; lead: string[]; open: string[] }[] 
 export const STARTER_KINDS: readonly StarterKind[] = [
   { name: 'product', template: 'product.md', source: 'markdown', group: 'product', en: ['Product', 'Products'], ru: ['Продукт', 'Продукты'], describe: ['What the product is, for whom, and its architecture: the home page the agent writes.', 'Что это за продукт, для кого и как устроен: главная страница, которую пишет агент.'], extra: ['file: docs/product.md'] },
   { name: 'domain', template: 'domain.md', source: 'markdown', group: 'product', en: ['Domain', 'Domains'], ru: ['Домен', 'Домены'], describe: ['A part of the business the product serves, such as payment or ordering: how it works and what implements it.', 'Часть бизнеса, которую обслуживает продукт, например оплата или заказы: как она работает и что её реализует.'], extra: ['folder: docs/domains'] },
+  { name: 'administrator-guide', template: 'guide.md', source: 'markdown', group: 'product', origin: 'agent', en: ['Administrator guide', 'Administrator guide'], ru: ['Руководство администратора', 'Руководство администратора'], describe: ['Grounded setup and operations, with independent walkthrough status.', 'Запуск и эксплуатация с основаниями в исходниках и независимым статусом прохождения.'], extra: ['file: docs/guides/administrator.md'] },
+  { name: 'user-guide', template: 'guide.md', source: 'markdown', group: 'product', origin: 'agent', en: ['User guide', 'User guide'], ru: ['Руководство пользователя', 'Руководство пользователя'], describe: ['Supported tasks and API procedures, with known gaps.', 'Поддерживаемые задачи и API-процедуры с известными пробелами.'], extra: ['file: docs/guides/user.md'] },
   { name: 'question', template: 'question.md', source: 'markdown', group: 'product', origin: 'agent', en: ['Question', 'Questions'], ru: ['Вопрос', 'Вопросы'], describe: ['Something the agent could not settle from the code and the documents; a person answers it.', 'То, что агент не смог решить по коду и документам; отвечает человек.'], extra: ['folder: docs/questions'] },
   { name: 'correction', template: 'correction.md', source: 'markdown', group: 'product', origin: 'person', en: ['Correction', 'Corrections'], ru: ['Поправка', 'Поправки'], describe: ['A person\'s note that a statement is wrong, and why; the agent takes it into account at the next refresh.', 'Заметка человека о том, что утверждение неверно, и почему; агент учтёт её при следующем обновлении.'], extra: ['folder: docs/corrections'] },
   { name: 'task', template: 'task.md', source: 'markdown', group: 'product', origin: 'person', en: ['Task', 'Tasks'], ru: ['Задача', 'Задачи'], describe: ['A scoped change the person plans, with the pages and statements it affects.', 'Запланированное изменение с указанной областью и затронутыми страницами и утверждениями.'], extra: ['folder: docs/tasks'] },
@@ -436,7 +439,7 @@ export function ensureLoopKinds(productFolder: string): string[] {
   }
   const document = parseDocument(text);
   if (document.errors.length > 0) throw new Error(`${file}:${document.errors[0]!.linePos?.[0].line ?? 1}: the manifest cannot be read, so the question and correction kinds are not added: ${document.errors[0]!.message.split('\n')[0]}`);
-  const wanted = STARTER_KINDS.filter((kind) => kind.name === 'question' || kind.name === 'correction');
+  const wanted = STARTER_KINDS.filter((kind) => kind.name === 'question' || kind.name === 'correction' || kind.name === 'administrator-guide' || kind.name === 'user-guide');
   let changed = false;
   for (const kind of wanted) {
     if (document.hasIn(['kinds', kind.name])) continue;
@@ -445,7 +448,7 @@ export function ensureLoopKinds(productFolder: string): string[] {
     document.setIn(['kinds', kind.name], document.createNode(parsed.toJSON()));
     changed = true;
   }
-  for (const name of ['question.md', 'correction.md']) {
+  for (const name of ['question.md', 'correction.md', 'guide.md']) {
     const target = join(productFolder, 'templates', name);
     if (existsSync(target)) continue;
     mkdirSync(dirname(target), { recursive: true });

@@ -7,13 +7,19 @@ import { isCheckedGuide, safeGuidePath } from './validate.js';
 const verifiedWalks = new WeakMap<object, GuideDocument>();
 export function isGuideWalkResult(result: GuideWalkResult, guide: GuideDocument): boolean { return verifiedWalks.get(result) === guide; }
 
+/** Authentication and observed-result matching are different facts. */
+export type GuideExecutionVerification =
+  | { readonly kind: 'unverified'; readonly reason: string }
+  | { readonly kind: 'verified'; readonly observationMatches: boolean };
+
 /** Host capability. Its evidence reader is never exposed through an agent tool. */
 export interface GuideWalkHost {
   readonly file: string;
+  readonly locale?: 'en' | 'ru';
   containsSecret(text: string): boolean;
   /** Independently retained operator evidence must match command/input digests, environment,
    * prerequisites, actual status and observed result. Author strings are not credentials. */
-  verifyExecution(receipt: GuideReceipt, step: GuideStep, procedure: GuideProcedure, guide: GuideDocument): Promise<boolean>;
+  verifyExecution(receipt: GuideReceipt, step: GuideStep, procedure: GuideProcedure, guide: GuideDocument): Promise<GuideExecutionVerification>;
 }
 export interface GuideWalkResult {
   readonly guide: string;
@@ -63,11 +69,13 @@ export async function guideWalkStatus(guide: GuideDocument, receipts: readonly u
       let contextMatches = false;
       try { contextMatches = sameGuideContext(receipt.context, guide.context); } catch { /* Invalid context is not a match. */ }
       const prerequisitesDigest = guideDigest({ guide: guide.prerequisites, procedure: procedure.prerequisites });
-      if (!contextMatches || receipt.unitVersion !== guide.unitVersion || receipt.inputDigest !== guide.inputDigest || receipt.commandDigest !== guideStepDigest(guide, procedure.id, step) || receipt.cwd !== step.cwd || receipt.prerequisitesDigest !== prerequisitesDigest) error(path, 'stale-receipt', 'receipt does not match the exact checked command, input, prerequisites and context');
+      if (!contextMatches || receipt.unitVersion !== guide.unitVersion || receipt.inputDigest !== guide.inputDigest || receipt.commandDigest !== guideStepDigest(guide, procedure.id, step) || receipt.cwd !== step.cwd || receipt.environment !== step.environment || receipt.prerequisitesDigest !== prerequisitesDigest) error(path, 'stale-receipt', 'receipt does not match the exact checked command, input, prerequisites and context');
       else {
         try {
-          if (await host.verifyExecution(receipt, step, procedure, guide) === true) status = receipt.actualStatus === step.expected.status ? 'passed' : 'failed';
-          else error(path, 'unverified-execution', 'independent evidence did not confirm execution and expected observation');
+          const verification = await host.verifyExecution(receipt, step, procedure, guide);
+          if (verification?.kind === 'verified' && typeof verification.observationMatches === 'boolean') {
+            status = receipt.actualStatus === step.expected.status && verification.observationMatches ? 'passed' : 'failed';
+          } else error(path, 'unverified-execution', 'independent evidence did not authenticate the execution');
         } catch { error(path, 'verification-unavailable', 'independent execution evidence could not be checked'); }
       }
     }
