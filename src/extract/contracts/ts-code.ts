@@ -777,22 +777,24 @@ export function structuralPublishers(source: TreeText): {sites: StructuralPublic
     return value;
   };
   const literal = (value: Value): string | undefined => { const held = unwrap(value); const node = held === undefined ? undefined : expression(held.id); return node?.literal?.kind === 'string' && typeof node.literal.value === 'string' ? node.literal.value : undefined; };
-  type Property = {kind: 'absent'} | {kind: 'unknown'} | {kind: 'value'; value: Value};
+  type Property = {kind: 'absent'} | {kind: 'unknown'; present: boolean} | {kind: 'value'; value: Value};
+  const propertyPresent = (property: Property): boolean => property.kind === 'value' || property.kind === 'unknown' && property.present;
   // Object spread copies properties in source order. An unresolved spread may
-  // overwrite an earlier key; only a later proved property can restore it.
-  // Absence is distinct from uncertainty so a known unrelated spread is inert.
+  // overwrite an earlier value, but cannot delete an already proved own key.
+  // Required selectors prove presence, not a payload's runtime type or value;
+  // only a resolved literal topic can supply a publication's channel.
   const objectProperty = (value: Value, key: string, seen = new Set<string>()): Property => {
     const held = unwrap(value);
-    if (held === undefined || seen.has(held.id) || seen.size >= 80) return {kind: 'unknown'};
+    if (held === undefined || seen.has(held.id) || seen.size >= 80) return {kind: 'unknown', present: false};
     const node = expression(held.id);
-    if (node?.syntaxKind !== 'object') return {kind: 'unknown'};
+    if (node?.syntaxKind !== 'object') return {kind: 'unknown', present: false};
     const next = new Set(seen); next.add(held.id);
     const entries: CodeExpressionFact[] = [];
     let end = node.span.byteStart;
     for (const id of node.children) {
       const entry = expression(id);
       // Never turn a partial or reordered fact view into a smaller object.
-      if (entry === undefined || !contains(node.span, entry.span) || entry.span.byteStart < end) return {kind: 'unknown'};
+      if (entry === undefined || !contains(node.span, entry.span) || entry.span.byteStart < end) return {kind: 'unknown', present: false};
       entries.push(entry); end = entry.span.byteEnd;
     }
     let result: Property = {kind: 'absent'};
@@ -802,26 +804,27 @@ export function structuralPublishers(source: TreeText): {sites: StructuralPublic
         const operands = entry.children.map(expression);
         const operand = unique(operands);
         const spread: Property = operand === undefined || !contains(entry.span, operand.span)
-          ? {kind: 'unknown'} : objectProperty({id: operand.id, env: held.env}, key, next);
-        if (spread.kind !== 'absent') result = spread;
+          ? {kind: 'unknown', present: false} : objectProperty({id: operand.id, env: held.env}, key, next);
+        if (spread.kind === 'unknown') result = {kind: 'unknown', present: spread.present || propertyPresent(result)};
+        else if (spread.kind === 'value') result = spread;
         continue;
       }
       if (entry.syntaxKind === 'shorthand_property_identifier') {
-        if (entry.name === undefined) result = {kind: 'unknown'};
+        if (entry.name === undefined) result = {kind: 'unknown', present: propertyPresent(result)};
         else if (entry.name === key) result = {kind: 'value', value: {id: entry.id, env: held.env}};
         continue;
       }
-      if (entry.syntaxKind !== 'pair' && entry.syntaxKind !== 'method_definition') { result = {kind: 'unknown'}; continue; }
+      if (entry.syntaxKind !== 'pair' && entry.syntaxKind !== 'method_definition') { result = {kind: 'unknown', present: false}; continue; }
       const name = field(entry, entry.syntaxKind === 'pair' ? 'key' : 'name');
       let named = name?.name ?? (typeof name?.literal?.value === 'string' ? name.literal.value : undefined);
       if (name?.syntaxKind === 'computed_property_name') {
         const operands = name.children.map(expression); const operand = unique(operands);
         named = operand === undefined || !contains(name.span, operand.span) ? undefined : literal({id: operand.id, env: held.env});
       }
-      if (named === undefined) { result = {kind: 'unknown'}; continue; }
+      if (named === undefined) { result = {kind: 'unknown', present: propertyPresent(result)}; continue; }
       if (named !== key) continue;
       const selected = entry.syntaxKind === 'pair' ? field(entry, 'value') : undefined;
-      result = selected === undefined ? {kind: 'unknown'} : {kind: 'value', value: {id: selected.id, env: held.env}};
+      result = selected === undefined ? {kind: 'unknown', present: false} : {kind: 'value', value: {id: selected.id, env: held.env}};
     }
     return result;
   };
@@ -858,6 +861,15 @@ export function structuralPublishers(source: TreeText): {sites: StructuralPublic
       held = {id: chosen.id, env: held.env};
     }
     return held;
+  };
+  const hasSelector = (value: Value, path: readonly string[]): boolean => {
+    if (select(value, path) !== undefined) return true;
+    const key = path.at(-1); if (key === undefined) return false;
+    const parent = select(value, path.slice(0, -1));
+    const held = parent === undefined ? undefined : unwrap(parent);
+    if (held === undefined || expression(held.id)?.syntaxKind !== 'object') return false;
+    const selected = objectProperty(held, key);
+    return selected.kind === 'unknown' && selected.present;
   };
   const externalType = (raw: CodeExpressionFact): {package: string; path: readonly string[]; pointer: boolean} | undefined => {
     let node: CodeExpressionFact | undefined = raw; let pointer = false;
@@ -1000,7 +1012,12 @@ export function structuralPublishers(source: TreeText): {sites: StructuralPublic
     if (model === undefined) return [];
     for (const selector of model.arguments.filter(selector => selector.required)) {
       const arg = call.arguments[selector.index];
-      if (arg === undefined || select({id: arg, env}, selector.path) === undefined) { gap(call, `publisher required argument ${selector.name} is unresolved`); return []; }
+      if (arg === undefined || !hasSelector({id: arg, env}, selector.path)) {
+        gap(call, `publisher required argument ${selector.name} is unresolved`);
+        // Keep the complete proved invocation as an unresolved candidate. A
+        // missing required proof must never inherit another selector's channel.
+        return [{evidence: [call.span]}];
+      }
     }
     const topic = model.arguments.find(selector => selector.name === 'topic');
     if (topic === undefined) { gap(call, 'publisher model has no supported topic selector'); return []; }

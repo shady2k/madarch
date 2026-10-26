@@ -33,7 +33,7 @@ const TREE_READERS = [
  {name:'extractFiles',version:2,extractor:extractFiles},
  {name:'extractCode',version:13,extractor:extractCodeWithFacts},
  {name:'extractOperations',version:14,extractor:extractOperations},
- {name:'extractContracts',version:11,extractor:extractContracts},
+ {name:'extractContracts',version:12,extractor:extractContracts},
  {name:'extractDataModel',version:6,extractor:extractDataModel},
 ] as const;
 export const TREE_EXTRACTORS: readonly TreeExtractor[] = TREE_READERS.map((entry)=>entry.extractor);

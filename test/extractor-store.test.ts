@@ -66,7 +66,7 @@ test('callback ownership, metric bindings, target matching and semantic evidence
  const {EXTRACTOR_VERSIONS}=await import('../src/extract/driver/extractors.js');
  expect(EXTRACTOR_VERSIONS.find((entry)=>entry.name==='extractCode')?.version).toBe(13);
  expect(EXTRACTOR_VERSIONS.find((entry)=>entry.name==='extractOperations')?.version).toBe(14);
- expect(EXTRACTOR_VERSIONS.find((entry)=>entry.name==='extractContracts')?.version).toBe(11);
+ expect(EXTRACTOR_VERSIONS.find((entry)=>entry.name==='extractContracts')?.version).toBe(12);
  expect(EXTRACTOR_VERSIONS.find((entry)=>entry.name==='driver-and-link-normalization')?.version).toBe(7);
  expect(EXTRACTOR_VERSIONS.find((entry)=>entry.name==='extractDataModel')?.version).toBe(6);
  for (const name of ['http-model-data','http-model-source-bytes','metric-semantic-model-data','metric-semantic-model-source-bytes','messaging-model-data','messaging-model-source-bytes','environment-model-data','environment-model-source-bytes','shell-command-model-data','shell-command-model-source-bytes','outbox-model-data','outbox-model-source-bytes']) {
