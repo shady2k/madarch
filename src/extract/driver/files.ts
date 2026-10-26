@@ -6,11 +6,15 @@
 import { createHash } from 'node:crypto';
 import type { ExtractedNode, ExtractedEdge, Extraction, TreeReader } from '../records.js';
 import { byCodePoint } from '../../model/order.js';
+import { gitAttributesFacts } from './gitattributes.js';
 
 export const FILES_PRODUCER = 'code.extract.files' as const;
 
 export function extractFiles(tree: TreeReader): Extraction {
   const sections: ExtractedNode[] = [];
+  // What the repository itself declares generated or vendored, read from its
+  // `.gitattributes`: a file keeps its node and gains the mark, and never a name list.
+  const attributes = gitAttributesFacts(tree);
   const edges: ExtractedEdge[] = [];
   for (const path of tree.paths.filter((entry) => /\.md$/i.test(entry))) {
     const text = new TextDecoder().decode(tree.read(path));
@@ -62,15 +66,20 @@ export function extractFiles(tree: TreeReader): Extraction {
       // path, because five READMEs and four Dockerfiles carry one basename (madarch-m38l.16).
       const text = new TextDecoder('utf-8').decode(bytes);
       const lines = text === '' ? 1 : text.split('\n').length;
+      // The size a reader is shown: the lines the file holds, so one closing
+      // newline does not add an empty last line (the span keeps its own count).
+      const size = text === '' ? 0 : text.split('\n').length - (text.endsWith('\n') ? 1 : 0);
+      const declared = attributes.generated.get(filePath);
       return {
         key: `code.file:${filePath}`,
         kind: 'code.file' as const,
         label: filePath,
-        properties: { path: filePath, sha256: createHash('sha256').update(bytes).digest('hex') },
+        properties: { path: filePath, sha256: createHash('sha256').update(bytes).digest('hex'), lines: size,
+          ...(declared === undefined ? {} : { generated: true, generatedBy: declared }) },
         span: { path: filePath, byteStart: 0, byteEnd: bytes.length, lineStart: 1, lineEnd: lines },
       };
     }), ...sections].sort((a, b) => byCodePoint(a.key, b.key)),
     edges,
-    gaps: [],
+    gaps: attributes.gaps.map((gap) => ({ path: gap.path, reason: `line ${gap.line}: ${gap.detail}` })),
   };
 }

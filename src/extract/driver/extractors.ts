@@ -32,7 +32,7 @@ import shellCommandModelSource from '../library-models/shell-command-models.json
 
 /** Every tree extractor, in the order the driver runs them per commit. */
 const TREE_READERS = [
- {name:'extractFiles',version:2,extractor:extractFiles},
+ {name:'extractFiles',version:3,extractor:extractFiles},
  {name:'extractCode',version:15,extractor:extractCodeWithFacts},
  {name:'extractOperations',version:16,extractor:extractOperations},
  {name:'extractContracts',version:16,extractor:extractContracts},

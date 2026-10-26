@@ -833,6 +833,18 @@ export async function modulesBlockModel(ctx: RenderContext, subject: Subject): P
 
 // ---- the treemap --------------------------------------------------------------------------------
 
+/** The dependency extractor's lock-file node: a path it files as one is not code anyone edits. */
+const LOCKFILE_KIND = 'code.lockfile' as const;
+const LOCKFILE_PREFIX = `${LOCKFILE_KIND}:`;
+const lockPathOf = (key: string): string => key.slice(LOCKFILE_PREFIX.length);
+
+/** The lines of a file whose row carries no count: its bytes at the graph's commit, or undefined when unreadable. */
+async function linesOfSource(ctx: RenderContext, scope: string, path: string): Promise<number | undefined> {
+  const text = await ctx.readSource(ctx.repoOfScope(scope) ?? null, path);
+  if (text === undefined) return undefined;
+  return text === '' ? 0 : text.split('\n').length - (text.endsWith('\n') ? 1 : 0);
+}
+
 export async function treemapBlock(ctx: RenderContext, subject: Subject, params: Readonly<Record<string, string>>): Promise<Block> {
   const title = params['title'] ?? 'Files by size and change';
   const limit = toInt(params['limit'], 400, 10, 1500);
@@ -842,32 +854,46 @@ export async function treemapBlock(ctx: RenderContext, subject: Subject, params:
   const found = await ctx.graph.byPrefix('code.file', scope === '' ? 'code.file:' : `code.file:${scope}/`, limit);
   const notes: string[] = [];
   if (found.total > found.rows.length) notes.push(`Showing the first ${found.rows.length} of ${found.total} files by path.`);
-  // Generated files (lock files) are not code anyone edits: they would fill the picture and carry no hotspot.
-  const generated = (path: string): boolean => /(^|\/)(package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb?|go\.sum|Cargo\.lock|poetry\.lock|composer\.lock)$/.test(path);
+  // A file is left out of the picture only where the graph proves it is not code anyone edits: the dependency
+  // extractor's `code.lockfile` node for that exact path, or the file's own `generated` fact (a repository that
+  // declares it generated or vendored). No file name is special here, so the picture and the note name none.
+  const locks = await completeRead('treemap lock files', 200, (requested) => ctx.graph.byPrefix(LOCKFILE_KIND, scope === '' ? LOCKFILE_PREFIX : `${LOCKFILE_PREFIX}${scope}/`, requested));
+  const lockPaths = new Set(locks.rows.map((lock) => lockPathOf(lock.key)));
   const churn = await ctx.graph.inDegrees('code.touched', found.rows.map((file) => file.key));
   let lockfiles = 0;
+  let declared = 0;
   const files: TreemapFile[] = [];
   let unread = 0;
   const queue = [...found.rows];
   const read = async (): Promise<void> => {
     for (let file = queue.shift(); file !== undefined; file = queue.shift()) {
       const path = String(file.properties['path'] ?? pathOfKey(file.key));
-      if (generated(path)) {
+      if (lockPaths.has(path)) {
         lockfiles += 1;
         continue;
       }
-      const repo = ctx.repoOfScope(file.scope) ?? null;
-      const text = await ctx.readSource(repo, path);
-      if (text === undefined) {
+      if (file.properties['generated'] === true) {
+        declared += 1;
+        continue;
+      }
+      // The file's size is its fact: the tree lister files every path with the lines it holds, so a row that carries
+      // that count is measured without reading a byte. Only a row that lacks it falls back to the bytes, and a file
+      // those bytes cannot answer for is said, never drawn as empty.
+      const counted = file.properties['lines'];
+      const lines = typeof counted === 'number' && Number.isSafeInteger(counted) && counted >= 0
+        ? counted : await linesOfSource(ctx, file.scope, path);
+      if (lines === undefined) {
         unread += 1;
         continue;
       }
-      const lines = text === '' ? 0 : text.split('\n').length - (text.endsWith('\n') ? 1 : 0);
       files.push({ id: file.key, path, href: refOfGraph(ctx, file).href, lines, churn: churn.get(file.key) ?? 0 });
     }
   };
   await Promise.all(Array.from({ length: 8 }, read));
-  if (lockfiles > 0) notes.push(`${lockfiles} lock file${lockfiles === 1 ? ' is' : 's are'} generated and not drawn.`);
+  const hidden: string[] = [];
+  if (lockfiles > 0) hidden.push(`${lockfiles} lock file${lockfiles === 1 ? '' : 's'}`);
+  if (declared > 0) hidden.push(`${declared} repository-declared generated or vendored file${declared === 1 ? '' : 's'}`);
+  if (hidden.length > 0) notes.push(`${hidden.join(' and ')} ${lockfiles + declared === 1 ? 'is' : 'are'} not drawn.`);
   if (unread > 0) notes.push(`${unread} file${unread === 1 ? ' was' : 's were'} not readable at the commit the graph was filled from and ${unread === 1 ? 'is' : 'are'} not drawn.`);
   files.sort((a, b) => byCodePoint(a.path, b.path));
   return { type: 'treemap', title, scope, files, maxChurn: files.reduce((max, file) => Math.max(max, file.churn), 0), total: found.total, notes };
