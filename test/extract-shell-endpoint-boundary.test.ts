@@ -60,3 +60,22 @@ test('the quoting kind decides what a word holds, and a quote of the other kind 
  expect(literalShellArgv(`curl -H "$(cat token)" ${url}`)).toBeUndefined();
  expect(literalShellArgv(`curl '${url}`)).toBeUndefined();
 });
+
+test('Bash reads a backslash by its quoting, so a continued line joins the word and what it cannot decode stays a gap',()=>{
+ // A backslash before a newline is a line continuation in an unquoted and in a double-quoted word:
+ // it contributes nothing, so heal + a newline + thz is one word, healthz.
+ expect(literalShellArgv('curl "http://localhost:8080/heal\\\nthz"')).toEqual(['curl','http://localhost:8080/healthz']);
+ expect(endpointTarget(probe('curl "http://localhost:8080/heal\\\nthz"'))?.path).toBe('/healthz');
+ // Inside double quotes only \$ \` \" \\ are escapes: an escaped quote stays inside the word, and
+ // a backslash before an ordinary character keeps both of its characters.
+ expect(literalShellArgv('curl -H "X-Name: \\"quoted value\\"" '+url)).toEqual(['curl','-H','X-Name: "quoted value"',url]);
+ expect(literalShellArgv('curl -H "X-Name:a\\ b" '+url)).toEqual(['curl','-H','X-Name:a\\ b',url]);
+ // Outside quotes a backslash before a character gives that character.
+ expect(literalShellArgv('curl http://localhost:8080/heal\\thz')).toEqual(['curl','http://localhost:8080/healthz']);
+ // Single quotes make nothing an escape: the backslash and the character after it stay as written.
+ expect(literalShellArgv(`curl -H 'X-Name:a\\ b' ${url}`)).toEqual(['curl','-H','X-Name:a\\ b',url]);
+ // A word that expands, that uses an ANSI-C quote, or that has no closing quote is a located gap.
+ for(const shell of ['curl "http://localhost:8080/${PORT}/healthz"','curl "http://localhost:8080/healthz',"curl -H $'X-Name:a\\tb' "+url,'curl -H "X-Name:\\']){
+  expect(literalShellArgv(shell),shell).toBeUndefined();
+ }
+});

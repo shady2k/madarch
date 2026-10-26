@@ -536,7 +536,7 @@ export function receiverListenerPorts(t: TreeText, path: string, receiver: strin
         const module = t.has(modPath) ? /^module\s+(\S+)/m.exec(t.text(modPath))?.[1] : undefined;
         const folder = path.slice(0, path.lastIndexOf('/'));
         const relative = folder.slice(`services/${service}`.length);
-        const alias = module === undefined ? undefined : goImportAlias(t, other, `${module}${relative}`);
+        const alias = module === undefined ? undefined : importedModule(t, other, `${module}${relative}`)?.local;
         if (alias !== undefined && owner?.receiverType === undefined) factoryCalls.add(`${alias}.${factory}`);
         // A returned mux on a method belongs only to instances made by a
         // constructor whose declared result and returned literal prove its type.
@@ -604,8 +604,9 @@ export function receiverListenerPorts(t: TreeText, path: string, receiver: strin
       }
       continue;
     }
-    const alias = goImportAlias(t, other, 'net/http');
-    if (alias === undefined) continue;
+    const httpPackage = importedModule(t, other, 'net/http');
+    if (httpPackage === undefined || !httpPackage.namespace) continue;
+    const alias = httpPackage.local;
     const literalPort = (value: string): string | undefined => {
       const literal = value.startsWith('"') ? value : new RegExp(`\\b${escaped(value)}\\s*=\\s*("[^"\\n]+")`).exec(source)?.[1];
       return literal === undefined ? undefined : /:(\d+)"$/.exec(literal)?.[1];
@@ -634,18 +635,38 @@ export function withoutComments(t: TreeText, path: string): string {
   return masksOf(t, path).uncommented;
 }
 
-/** A Go import clause, not a comment/string mentioning an import path. */
-export function goImportAlias(t: TreeText, path: string, module: string): string | undefined {
-  const mask = sourceMask(t, path);
-  const clean = withoutComments(t, path);
-  for (const declaration of clean.matchAll(/\bimport\s+(?:\([\s\S]*?\)|(?:\w+\s+)?"[^"\n]+")/g)) {
-    if (mask.slice(declaration.index, declaration.index + 6) !== 'import') continue;
-    for (const spec of declaration[0].slice(6).matchAll(/(?:(\w+)\s+)?"([^"\n]+)"/g)) {
-      if (spec[2] !== module) continue;
-      const before = declaration[0].slice(0, spec.index);
-      if (/\/\/[^\n]*$/.test(before)) continue;
-      return spec[1] ?? module.slice(module.lastIndexOf('/') + 1);
-    }
+/**
+ * What one module's import binds in one path, as the facts bind it: the local
+ * name it gives the module, the specifier as written, and whether that name
+ * stands for the whole module — a Go package or a `* as ns` — rather than for
+ * one of the module's own names. The local name is the facts': the alias the
+ * import writes, else the package name the resolution read, else the
+ * specifier's last segment. A Go import written with a raw string names the
+ * same module a quoted one does, because the grammar delimited both tokens.
+ */
+export interface ImportedModule {
+  readonly local: string;
+  readonly specifier: string;
+  readonly namespace: boolean;
+}
+
+/**
+ * The one import the facts hold for one module in one path, and the name it
+ * binds. One module answers one import: two facts for the module, none, and a
+ * type-only import that binds no value all answer nothing rather than a guess.
+ * A place (`at`, a character offset) asks the same question where a name is
+ * used, and there the facts' own binding must be this import — so a parameter,
+ * a local or a receiver of the same name answers no module at its own use.
+ */
+export function importedModule(t: TreeText, path: string, module: string, at?: number): ImportedModule | undefined {
+  const imported = one(t.importsByPath.all(path).filter((entry) => entry.span.path === path && entry.specifier === module &&
+    entry.typeOnly !== true));
+  if (imported === undefined) return undefined;
+  if (at !== undefined) {
+    const text = t.text(path);
+    if (!Number.isInteger(at) || at < 0 || at > text.length) return undefined;
+    const binding = bindingAt(t, path, imported.local, new TextEncoder().encode(text.slice(0, at)).length);
+    if (binding === undefined || binding.kind !== 'import' || binding.importId !== imported.id) return undefined;
   }
-  return undefined;
+  return { local: imported.local, specifier: imported.specifier, namespace: imported.imported.form === 'namespace' };
 }

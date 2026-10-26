@@ -3,7 +3,7 @@ import {extractCodeWithFacts} from '../src/extract/code/index.js';
 import type {CodeFacts} from '../src/extract/code/facts.js';
 import {Records} from '../src/extract/operations/accumulate.js';
 import {TreeText} from '../src/extract/operations/source.js';
-import {functionAt, functionNode, functionsOf, httpReceiver, sourceMask} from '../src/extract/operations/symbol-sites.js';
+import {functionAt, functionNode, functionsOf, httpReceiver, importedModule, sourceMask} from '../src/extract/operations/symbol-sites.js';
 import type {TreeReader} from '../src/extract/records.js';
 
 const treeOf = (files: Readonly<Record<string,string>>): TreeReader => ({paths:Object.keys(files).sort(),read:(path)=>{
@@ -196,4 +196,56 @@ test('a receiver initialized by a call the facts do not tie to the library answe
   expect(httpReceiver(context,path,'missing',source.indexOf('router.get'))).toBe(false);
   expect(httpReceiver(context,path,'router',-1)).toBe(false);
   expect(httpReceiver(context,path,'router',source.length+1)).toBe(false);
+});
+
+test('a plain Go import answers the package name the facts give and keeps it at its own use',async()=>{
+  const path='engine/plain.go';
+  const source=['package engine','import "net/http"','func serve(){ http.ListenAndServe(":8080", nil) }',''].join('\n');
+  const context=await contextOf(path,source);
+  expect(importedModule(context,path,'net/http')).toEqual({local:'http',specifier:'net/http',namespace:true});
+  expect(importedModule(context,path,'net/http',source.indexOf('http.ListenAndServe'))).toEqual({local:'http',specifier:'net/http',namespace:true});
+  expect(importedModule(context,path,'net/http',-1)).toBeUndefined();
+  expect(importedModule(context,path,'net/http',source.length+1)).toBeUndefined();
+});
+
+test('a Go import written with a raw string names the module a quoted one does',async()=>{
+  const path='engine/raw.go';
+  const source=['package engine','import `net/http`','func serve(){ http.ListenAndServe(":8080", nil) }',''].join('\n');
+  const context=await contextOf(path,source);
+  expect(importedModule(context,path,'net/http')).toEqual({local:'http',specifier:'net/http',namespace:true});
+});
+
+test('an aliased Go import answers the alias it writes',async()=>{
+  const path='engine/aliased.go';
+  const source=['package engine','import traffic "net/http"','func serve(){ traffic.ListenAndServe(":8080", nil) }',''].join('\n');
+  const context=await contextOf(path,source);
+  expect(importedModule(context,path,'net/http')).toEqual({local:'traffic',specifier:'net/http',namespace:true});
+});
+
+test('a parameter of the imported name answers no module where the parameter is the meaning',async()=>{
+  const path='engine/shadowed.go';
+  const source=['package engine','import "net/http"','func serve(http string){ _ = http }',''].join('\n');
+  const context=await contextOf(path,source);
+  expect(importedModule(context,path,'net/http')).toEqual({local:'http',specifier:'net/http',namespace:true});
+  expect(importedModule(context,path,'net/http',source.indexOf('_ = http')+4)).toBeUndefined();
+});
+
+test('a type-only import answers no module, since its name binds no value',async()=>{
+  const path='lib/type-only.ts';
+  const source=['import type { Router } from "express";','export const routes = 1;',''].join('\n');
+  const context=await contextOf(path,source);
+  expect(importedModule(context,path,'express')).toBeUndefined();
+});
+
+test('two modules with one package name answer no local, while an alias tells them apart',async()=>{
+  const path='engine/logs.go';
+  const plain=['package engine','import (','  "example.com/x/log"','  "example.com/y/log"',')',''].join('\n');
+  const ambiguous=await contextOf(path,plain);
+  expect(importedModule(ambiguous,path,'example.com/x/log')).toBeUndefined();
+  expect(importedModule(ambiguous,path,'example.com/y/log')).toBeUndefined();
+  const aliased=['package engine','import (','  xlog "example.com/x/log"','  "example.com/y/log"',')',''].join('\n');
+  const told=await contextOf(path,aliased);
+  expect(importedModule(told,path,'example.com/x/log')?.local).toBe('xlog');
+  expect(importedModule(told,path,'example.com/y/log')?.local).toBe('log');
+  expect(importedModule(told,path,'example.com/z/log')).toBeUndefined();
 });
