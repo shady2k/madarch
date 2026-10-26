@@ -364,12 +364,16 @@ export class UnitTools {
     this.writeAttempts += 1;
     if (!guidePagesComplete(unit.prepared)) return this.refuse([{ line: 1, rule: 'guide-context-incomplete', message: `${unit.prepared.validation.file}:1: $.context: required prepared packets remain unread; no partial guide was published` }]);
     this.writing = true;
+    let phase: 'guide-validation' | 'guide-render' | 'guide-publication' = 'guide-validation';
     try {
       const checked = await validateGuide(args['guide'], unit.prepared.validation);
-      if (!checked.ok) return this.refuse(checked.diagnostics.map((problem) => ({ line: problem.line, rule: problem.code, message: unit.prepared.validation.containsSecret(problem.message) ? `${unit.prepared.validation.file}:${problem.line}: $.guide: validation refused (${problem.code}); sensitive field details withheld` : problem.message })));
+      if (!checked.ok) return this.refuse(checked.diagnostics.map((problem) => ({ line: problem.line, rule: problem.code, message: `${unit.prepared.validation.file}:${problem.line}: ${problem.path}: validation refused (${problem.code}); authored values withheld` })));
       const guide = checked.guide;
       if (guide.kind !== unit.kind || guide.id !== unit.id) return this.refuse([{ line: 1, rule: 'guide-identity', message: `${unit.prepared.validation.file}:1: $.id: guide identity and kind differ from the unit` }]);
-      const published = await unit.prepared.publishChecked({ guide, artifact: renderGuideArtifact(guide), expectedContext: unit.prepared.validation.expectedContext, expectedInputDigest: unit.prepared.validation.expectedInputDigest, expectedUnitVersion: unit.prepared.validation.expectedUnitVersion });
+      phase = 'guide-render';
+      const artifact = renderGuideArtifact(guide);
+      phase = 'guide-publication';
+      const published = await unit.prepared.publishChecked({ guide, artifact, expectedContext: unit.prepared.validation.expectedContext, expectedInputDigest: unit.prepared.validation.expectedInputDigest, expectedUnitVersion: unit.prepared.validation.expectedUnitVersion });
       if (!published.ok) return this.refuse(published.diagnostics.map((problem) => ({ line: problem.line, rule: problem.code, message: problem.message })));
       if (published.path !== unit.path) return this.refuse([{ line: 1, rule: 'guide-publication-path', message: `${unit.prepared.validation.file}:1: $.path: publication returned another path` }]);
       this.status = 'written';
@@ -377,7 +381,7 @@ export class UnitTools {
       return ok({ written: true, path: unit.path, unchanged: published.unchanged });
     } catch {
       // A source, agent or publication exception may contain sensitive source bytes.
-      return this.refuse([{ line: 1, rule: 'guide-host', message: `${unit.prepared.validation.file}:1: $.guide: source verification or publication failed; no success is certified` }]);
+      return this.refuse([{ line: 1, rule: phase, message: `${unit.prepared.validation.file}:1: $.guide: ${phase} failed; authored values and host exception details withheld; no success is certified` }]);
     } finally { this.writing = false; }
   }
 

@@ -58,20 +58,47 @@ export async function validateGuide(input: unknown, host: GuideValidationHost): 
   const text = (value: unknown, path: string): void => {
     if (!plain(value)) { error(path, 'text', 'expected non-blank text without control characters'); return; }
     if (value.length > 16000) error(path, 'bound', 'text exceeds 16000 characters');
-    if (typeof host.containsSecret !== 'function') error(path, 'verification-unavailable', 'secret verification is unavailable');
-    else { try { if (host.containsSecret(value)) error(path, 'secret', 'sensitive value is not allowed in the artifact'); }
-      catch { error(path, 'verification-unavailable', 'secret verification failed'); } }
   };
   const list = (value: unknown, path: string): void => {
     if (!Array.isArray(value) || value.length > 100) { error(path, 'list', 'expected at most 100 text entries'); return; }
     value.forEach((entry, index) => text(entry, `${path}[${index}]`));
   };
   const fields = (value: Record<string, unknown>, allowed: readonly string[], path: string): void => {
-    for (const key of Object.keys(value).sort(byCodePoint)) if (!allowed.includes(key)) error(`${path}.${key}`, 'unknown-field', 'field is not part of the guide format');
+    for (const [index, key] of Object.keys(value).sort(byCodePoint).entries()) if (!allowed.includes(key)) error(`${path}.$keys[${index}]`, 'unknown-field', 'field is not part of the guide format');
   };
   let encoded: string;
   try { encoded = JSON.stringify(input); } catch { error('$', 'plain-data', 'expected bounded serializable data'); return done(); }
   if (typeof encoded !== 'string' || new TextEncoder().encode(encoded).length > 128 * 1024) { error('$', 'bound', 'guide exceeds 131072 bytes or is not serializable'); return done(); }
+  // Inspect the parsed data tree, not JSON-escaped bytes. Every string and member name can reach
+  // the source verifier (step, procedure and full guide), so no verifier runs until ALL are safe.
+  // Use the same plain snapshot for inspection and validation; getters/toJSON cannot swap later inputs.
+  input = JSON.parse(encoded) as unknown;
+  if (typeof host.containsSecret !== 'function') { error('$', 'verification-unavailable', 'secret verification is unavailable'); return done(); }
+  const sensitive = (value: string, path: string): boolean => {
+    try {
+      const result = host.containsSecret(value);
+      if (typeof result !== 'boolean') { error(path, 'verification-unavailable', 'secret verification did not return a result'); return true; }
+      if (result) { error(path, 'secret', 'sensitive value is not allowed in the artifact'); return true; }
+      return false;
+    } catch { error(path, 'verification-unavailable', 'secret verification failed'); return true; }
+  };
+  const knownFields = new Set(['schema', 'id', 'kind', 'locale', 'title', 'context', 'unitVersion', 'inputDigest', 'prerequisites', 'gaps', 'procedures', 'valid', 'known', 'state', 'repositories', 'name', 'commit', 'goal', 'role', 'steps', 'cwd', 'environment', 'inputs', 'instruction', 'expected', 'grounds', 'description', 'secret', 'content', 'status', 'observation', 'repository', 'path', 'line', 'endLine']);
+  const pending: { value: unknown; path: string }[] = [{ value: input, path: '$' }];
+  while (pending.length > 0) {
+    const held = pending.pop()!;
+    if (typeof held.value === 'string') { sensitive(held.value, held.path); continue; }
+    if (Array.isArray(held.value)) {
+      held.value.forEach((value, index) => pending.push({ value, path: `${held.path}[${index}]` }));
+    } else if (object(held.value)) {
+      for (const [index, key] of Object.keys(held.value).sort(byCodePoint).entries()) {
+        // Never put a sensitive member name into a diagnostic, including an ancestor of a value.
+        if (sensitive(key, `${held.path}.$keys[${index}]`)) continue;
+        const named = knownFields.has(key);
+        pending.push({ value: held.value[key], path: named ? `${held.path}.${key}` : `${held.path}.$members[${index}]` });
+      }
+    }
+  }
+  if (diagnostics.length > 0) return done();
   if (!object(input)) { error('$', 'object', 'expected a guide object'); return done(); }
   fields(input, ['schema', 'id', 'kind', 'locale', 'title', 'context', 'unitVersion', 'inputDigest', 'prerequisites', 'gaps', 'procedures'], '$');
   if (input['schema'] !== GUIDE_SCHEMA) error('$.schema', 'schema', `expected ${GUIDE_SCHEMA}`);
@@ -174,7 +201,7 @@ export async function validateGuide(input: unknown, host: GuideValidationHost): 
     });
   }
   if (diagnostics.length > 0) return done();
-  const guide = freeze(JSON.parse(encoded) as GuideDocument);
+  const guide = freeze(input as unknown as GuideDocument);
   const allSteps = guide.procedures.flatMap((procedure) => procedure.steps);
   if (allSteps.length > 240) error('$.procedures', 'bound', 'guide exceeds 240 total steps');
   if (allSteps.reduce((sum, step) => sum + step.grounds.length, 0) > 1200) error('$.procedures', 'bound', 'guide exceeds 1200 total grounds');

@@ -39,6 +39,15 @@ describe('two checked guide writer units',()=>{
   const secret={...input(kind),title:'private-value'};const answer=await session.call('write_guide',{guide:secret});expect(answer.isError).toBe(true);expect(JSON.stringify(answer)).not.toContain('private-value');expect(calls).toBe(1);
   const strict={...host,validation:{...host.validation,verifyStep:async()=>['unsupported observation']}};expect((await tools(kind,strict).session.call('write_guide',{guide:input(kind)})).isError).toBe(true);expect(calls).toBe(1);
  });
+ test('secret refusals identify the checked field without logging authored values',async()=>{
+  const kind='user-guide';let published=0;let verified=0;
+  const host=prepared(kind,async()=>{published++;return {ok:true,path:GUIDE_OUTPUTS[kind].path,unchanged:false};});
+  const strict={...host,validation:{...host.validation,verifyStep:async()=>{verified++;return [];}}};
+  const guide=input(kind);guide.procedures[0]!.steps[0]!.cwd='repos/sample/private-value';
+  const answer=await tools(kind,strict).session.call('write_guide',{guide});
+  expect(answer.isError).toBe(true);expect(published).toBe(0);expect(verified).toBe(0);
+  expect(JSON.stringify(answer)).toContain('$.procedures[0].steps[0].cwd');expect(JSON.stringify(answer)).toContain('secret');expect(JSON.stringify(answer)).not.toContain('private-value');
+ });
  test('prepared guide errors suppress sensitive host exception details',async()=>{
   const kind='user-guide';const host=prepared(kind,async()=>{throw new Error('private-value');});const {session}=tools(kind,host);const answer=await session.call('write_guide',{guide:input(kind)});expect(answer.isError).toBe(true);expect(JSON.stringify(answer)).not.toContain('private-value');
  });

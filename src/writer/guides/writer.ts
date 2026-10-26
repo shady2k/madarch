@@ -22,18 +22,25 @@ import remarkParse from 'remark-parse';
 import { firstGuideCursor, guidePagesComplete, registerGuidePages, markGuideCurrent } from './prepared.js';
 import { parseGuideArtifact } from './artifact.js';
 import { ENVIRONMENT_VALUE_RECORDS } from '../../extract/operations/env.js';
+import { readSyntaxTree, syntaxLanguageOf, type SyntaxLanguage } from '../../fill/stages/syntax-extract.js';
+import type { Node as SyntaxNode } from 'web-tree-sitter';
 
 export const GUIDE_UNIT_VERSION = 'guide-writer@1';
 const MAX_PREPARED_BYTES = 8 * 1024 * 1024;
 const MAX_GRAPH_ROWS = 1200;
 const MAX_SOURCE_LINES = 200;
-export interface GuideEvidenceSpan { readonly ground: GuideGround; readonly text: string; readonly digest: string }
+export interface GuideEvidenceSpan {
+  readonly ground: GuideGround; readonly text: string; readonly digest: string;
+  /** Private decoded syntax literals from the complete source tree; never sent to the agent or persisted. */
+  readonly sourceLiterals?: readonly string[];
+  readonly literalReadGap?: boolean;
+}
 export interface GuidePreparedEvidence {
   readonly context: GuideContext;
   readonly facts: readonly unknown[];
   readonly spans: readonly GuideEvidenceSpan[];
   readonly gaps: readonly string[];
-  readonly policy: { readonly version: 'withhold-config-values@1'; readonly withheldValues: number; readonly classifiedSources: readonly string[] };
+  readonly policy: { readonly version: 'withhold-config-values@1'; readonly withheldValues: number; readonly classifiedSources: readonly string[]; readonly sourceCandidateValues?: number; readonly hostSensitiveValues?: number };
   /** Private source policy values; removed before publication or an agent sees the packet. */
   readonly configValues?: readonly string[];
 }
@@ -94,6 +101,68 @@ export async function readGuideGraph(wiring: Pick<GuideWriterWiring, 'owner' | '
   };
   return transaction === undefined ? await wiring.owner.transaction('snapshot', read) : await read(transaction);
 }
+/** Decode only a parser-identified literal. This is not a source-text secret scanner. */
+function decodedSyntaxLiteral(node: SyntaxNode, language: SyntaxLanguage): string | undefined {
+  const raw = node.text;
+  if (node.type === 'raw_string_literal') return raw.slice(1,-1).split('\r').join('');
+  if (node.type !== 'string' && node.type !== 'interpreted_string_literal' && node.type !== 'template_string') return undefined;
+  if (node.type === 'template_string' && node.namedChildren.some((child)=>child!==null&&child.type==='template_substitution')) throw new Error('interpolated literal needs complete value proof');
+  let value='';
+  const text=raw.slice(1,-1);
+  for(let index=0;index<text.length;index++){
+    const character=text[index]!;
+    if(character!=='\\'){value+=character;continue;}
+    const escaped=text[++index];if(escaped===undefined)throw new Error('incomplete parsed literal escape');
+    if(escaped==='a'){value+=language==='go'?'\x07':'a';continue;}
+    const simple:Readonly<Record<string,string>>={n:'\n',r:'\r',t:'\t',b:'\b',f:'\f',v:'\v',a:'\x07','\\':'\\','"':'"',"'":"'",'`':'`'};
+    if(Object.hasOwn(simple,escaped)){value+=simple[escaped];continue;}
+    if(language!=='go'&&(escaped==='\n'||escaped==='\r')){if(escaped==='\r'&&text[index+1]==='\n')index++;continue;}
+    let digits='';let radix=16;
+    if(escaped==='x'||escaped==='u'||language==='go'&&escaped==='U'){
+      const width=escaped==='x'?2:escaped==='U'?8:4;
+      if(escaped==='u'&&language!=='go'&&text[index+1]==='{'){
+        index+=2;while(index<text.length&&text[index]!=='}')digits+=text[index++];
+        if(text[index]!=='}')throw new Error('incomplete parsed Unicode escape');
+      }else{digits=text.slice(index+1,index+1+width);index+=width;if(digits.length!==width)throw new Error('incomplete parsed numeric escape');}
+      if(digits.length===0||[...digits].some((digit)=>!('0123456789abcdefABCDEF'.includes(digit))))throw new Error('invalid parsed numeric escape');
+    }else if('01234567'.includes(escaped)){
+      digits=escaped;radix=8;
+      const width=language==='go'?3:escaped<='3'?3:2;
+      while(digits.length<width&&text[index+1]!==undefined&&'01234567'.includes(text[index+1]!))digits+=text[++index];
+      if(language==='go'&&digits.length!==3)throw new Error('incomplete Go octal escape');
+    }else if(language==='go')throw new Error('unsupported Go string escape');
+    else{value+=escaped;continue;}
+    const code=Number.parseInt(digits,radix);if(code>0x10ffff)throw new Error('parsed literal code point outside Unicode');
+    value+=String.fromCodePoint(code);
+  }
+  return value;
+}
+async function sourceLiteralValues(path:string,text:string):Promise<{values:readonly {line:number;endLine:number;value:string}[];gap:boolean}>{
+  if(path.endsWith('.json')||path.endsWith('.yaml')||path.endsWith('.yml')){
+    const documents=parseAllDocuments(text,{uniqueKeys:true});
+    const values:{line:number;endLine:number;value:string}[]=[];
+    const visit=(node:unknown):void=>{
+      if(isMap(node)){for(const pair of node.items)visit(pair.value);}
+      else if(isSeq(node)){for(const item of node.items)visit(item);}
+      else if(isScalar(node)&&typeof node.value==='string'&&node.range!==undefined&&node.range!==null)values.push({line:text.slice(0,node.range[0]).split('\n').length,endLine:text.slice(0,node.range[1]).split('\n').length,value:node.value});
+    };
+    for(const document of documents)visit(document.contents);
+    return {values,gap:documents.some((document)=>document.errors.length>0)};
+  }
+  if(syntaxLanguageOf(path)===undefined)return {values:[],gap:false};
+  try{
+    const parsed=await readSyntaxTree(path,new TextEncoder().encode(text),(file)=>{
+      const values:{line:number;endLine:number;value:string}[]=[];
+      const visit=(node:SyntaxNode):void=>{
+        const value=decodedSyntaxLiteral(node,file.language);
+        if(value!==undefined)values.push({line:node.startPosition.row+1,endLine:node.endPosition.row+1,value});
+        for(const child of node.namedChildren)if(child!==null)visit(child);
+      };visit(file.root);return values;
+    });
+    return parsed.read?{values:parsed.value,gap:!parsed.complete}:{values:[],gap:true};
+  }catch{return {values:[],gap:true};}
+}
+
 /** Conservative parsed-config policy: literal configuration values are withheld, not guessed public defaults. */
 function configurationValues(path: string, text: string): readonly string[] {
   if (!path.endsWith('.yaml') && !path.endsWith('.yml') && !path.endsWith('.json')) return [];
@@ -124,24 +193,27 @@ export function guidePacketPolicy(evidence: GuidePreparedEvidence, knownValues: 
     classifiedSources.push(`graph:${String(fact['id'])}`);
   }
   for (const value of evidence.configValues ?? []) if (value.length > 0) values.add(value);
-  const sensitiveValues = [...values];
+  const withholdingValues = [...values];
+  // Only a host authority classifies actual secrets. Literal defaults/configuration are source-withholding candidates, not sensitivity proof.
+  const sensitiveValues = [...new Set(knownValues.filter((value)=>value.length>0))];
   const contains = (value: unknown): boolean => {
-    if (typeof value === 'string') return containsGuideSecret(value, sensitiveValues);
+    if (typeof value === 'string') return containsGuideSecret(value, withholdingValues);
     if (Array.isArray(value)) return value.some(contains);
     if (value === null || typeof value !== 'object') return false;
-    return Object.entries(value).some(([name, child]) => containsGuideSecret(name, sensitiveValues) || contains(child));
+    return Object.entries(value).some(([name, child]) => containsGuideSecret(name, withholdingValues) || contains(child));
   };
   const facts = evidence.facts.map((fact) => {
     if (fact === null || typeof fact !== 'object') return fact;
     const row = fact as Record<string, unknown>;
     // The whole original row stays in the private dependency membership, never the agent packet.
-    return contains(row) ? { id: row['id'], kind: row['kind'], relation: row['relation'], withheld: 'configuration values withheld by source policy' } : row;
+    return contains(row) ? { ...(row['id']===undefined?{}:{id:row['id']}), ...(row['kind']===undefined?{}:{kind:row['kind']}), ...(row['relation']===undefined?{}:{relation:row['relation']}), withheld: 'configuration values withheld by source policy' } : row;
   });
-  const spans = evidence.spans.filter((span) => !contains(span.text));
+  const spans = evidence.spans.filter((span) => !span.literalReadGap && !contains(span.text) && !contains(span.sourceLiterals ?? []))
+    .map(({sourceLiterals:_privateLiterals,literalReadGap:_readGap,...span})=>span);
   const withheld = evidence.spans.length - spans.length;
-  const gaps = [...evidence.gaps, ...(withheld === 0 ? [] : [`${withheld} source spans contain configuration values and were withheld; no public or development-default status was inferred.`])];
+  const gaps = [...evidence.gaps, ...(withheld === 0 ? [] : [`${withheld} source spans contain configuration values or lack complete literal parsing and were withheld; no public or development-default status was inferred.`])];
   const { configValues: _privateValues, ...publicEvidence } = evidence;
-  return { evidence: { ...publicEvidence, facts, spans, gaps, policy: { version: 'withhold-config-values@1', withheldValues: values.size, classifiedSources: classifiedSources.sort(byCodePoint) } }, sensitiveValues };
+  return { evidence: { ...publicEvidence, facts, spans, gaps, policy: { version: 'withhold-config-values@1', withheldValues: values.size, classifiedSources: classifiedSources.sort(byCodePoint), sourceCandidateValues: [...values].filter((value)=>!sensitiveValues.includes(value)).length, hostSensitiveValues: sensitiveValues.length } }, sensitiveValues };
 }
 
 function generatedGuideSource(text: string): boolean {
@@ -251,6 +323,16 @@ export async function prepareGuideEvidence(wiring: Pick<GuideWriterWiring, 'owne
       const document=unified().use(remarkParse).parse(text);const lines=text.split('\n');
       for(const node of document.children){const start=node.position?.start.line;const end=node.position?.end.line;if(start===undefined||end===undefined){gaps.push(`${productPin.id}/${path}:1: document node has no parser range`);continue;}if(end-start+1>MAX_SOURCE_LINES){gaps.push(`${productPin.id}/${path}:${start}: document block exceeds ${MAX_SOURCE_LINES} lines; no shortened block was supplied`);continue;}const ground={repository:productPin.id,commit:product.commit,path,line:start,endLine:end};const excerpt=lines.slice(start-1,end).join('\n');spans.push({ground,text:excerpt,digest:guideDigest({ground,text:excerpt})});}
     }
+  }
+  const sourceLiterals=new Map<string,Awaited<ReturnType<typeof sourceLiteralValues>>>();
+  for(let index=0;index<spans.length;index++){
+    const span=spans[index]!;
+    if(span.ground.path.endsWith('.md')||span.ground.path.endsWith('.markdown'))continue;
+    if(syntaxLanguageOf(span.ground.path)===undefined&&!span.ground.path.endsWith('.json')&&!span.ground.path.endsWith('.yaml')&&!span.ground.path.endsWith('.yml')){spans[index]={...span,literalReadGap:true};continue;}
+    const key=`${span.ground.repository}:${span.ground.path}`;
+    let literals=sourceLiterals.get(key);
+    if(literals===undefined){const source=await wiring.snapshots.open(span.ground.repository);literals=await sourceLiteralValues(span.ground.path,await source.readText(span.ground.path));sourceLiterals.set(key,literals);}
+    spans[index]={...span,sourceLiterals:literals.values.filter((literal)=>literal.line<=span.ground.endLine&&literal.endLine>=span.ground.line).map((literal)=>literal.value),...(literals.gap?{literalReadGap:true}:{})};
   }
   gaps.push('Source evidence does not certify execution. Procedures without instruction and expected-result proof remain gaps.');
   const evidence:GuidePreparedEvidence={context,facts,spans,gaps,configValues,policy:{version:'withhold-config-values@1',withheldValues:configValues.length,classifiedSources}};
