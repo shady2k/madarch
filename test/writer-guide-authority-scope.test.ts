@@ -107,12 +107,12 @@ test('ordinary multi-document Kubernetes YAML is not Compose authority',async()=
  expect(readComposeDocument(source,'deploy/k8s/api.yaml')).toEqual({present:false,reason:'no-services'});
  expect(await configurationReferences('deploy/k8s/api.yaml',source,read)).toEqual([]);
 });
-test('the authority probe selects a Compose document while extraction keeps its single-document diagnostic',async()=>{
+test('a Compose-looking multi-document file is refused as a whole by authority and extraction',async()=>{
  for(const source of ['services:\n  api:\n    environment: {TOKEN: private/credential}\n---\nkind: Service\n','kind: Service\n---\nservices:\n  api:\n    environment: {TOKEN: private/credential}\n']){
   const probe=readComposeDocument(source,'compose.yaml');expect(probe.present).toBe(true);
   if(!probe.present)throw new Error('Compose document was not recognized');
-  expect(probe.gaps).toEqual([]);expect(probe.services[0]!.environment[0]!.value).toBe('private/credential');
-  expect(await configurationReferences('compose.yaml',source,read)).toEqual([{name:'TOKEN',path:'compose.yaml',value:'private/credential'}]);
+  expect(probe.services).toEqual([]);expect(probe.gaps.length).toBeGreaterThan(0);expect(probe.gaps[0]!.reason).toContain('line ');
+  await expect(configurationReferences('compose.yaml',source,read)).rejects.toThrow();
   const tree=new TreeText({paths:['compose.yaml'],read:()=>new TextEncoder().encode(source)});const records=new Records(tree);
   expect(readComposeFile(tree,records,'compose.yaml')).toEqual([]);expect(records.gaps.some(gap=>gap.reason.includes('Source contains multiple documents'))).toBe(true);
  }
@@ -123,4 +123,17 @@ test('an explicit nonmapping services key remains recognized and fails closed',a
  if(!probe.present)throw new Error('invalid Compose document was not recognized');
  expect(probe.services).toEqual([]);expect(probe.gaps.length).toBeGreaterThan(0);
  await expect(configurationReferences('compose.yaml',source,read)).rejects.toThrow();
+});
+
+test('a root merge is resolved before Compose detection and exposes inherited environment authority',async()=>{
+ const source='x-root: &root\n  services:\n    api:\n      environment:\n        TOKEN: private/credential\n      env_file: runtime.env\n<<: *root\n';
+ const probe=readComposeDocument(source,'compose.yaml');expect(probe.present).toBe(true);
+ if(!probe.present)throw new Error('resolved root merge was not recognized as Compose');
+ expect(probe.gaps).toEqual([]);expect(probe.services[0]!.environment[0]!.span.lineStart).toBe(5);expect(probe.services[0]!.envFiles).toEqual(['runtime.env']);
+ expect(await configurationReferences('compose.yaml',source,async()=> 'EXTRA=private/extra\n')).toEqual([{name:'TOKEN',path:'compose.yaml',value:'private/credential'},{name:'EXTRA',path:'runtime.env',value:'private/extra'}]);
+ const multi=source+'---\nkind: Service\n';
+ const refused=readComposeDocument(multi,'compose.yaml');expect(refused.present).toBe(true);
+ if(!refused.present)throw new Error('multi-document root merge was not recognized');
+ expect(refused.services).toEqual([]);expect(refused.gaps[0]!.reason).toContain('line ');
+ await expect(configurationReferences('compose.yaml',multi,read)).rejects.toThrow();
 });

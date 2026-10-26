@@ -2,7 +2,8 @@
  * One compose file, read once for every area that needs it: the services with
  * their image, build, ports, environment and depends_on, each with the line it
  * stands on. The reader is strict — YAML it refuses is a gap naming its line,
- * never a service read in part.
+ * never a service read in part. Anything in a Compose file that cannot be fully
+ * resolved and interpreted refuses the whole file, never a partial read.
  */
 import { LineCounter, isAlias, isMap, isScalar, isSeq, parseAllDocuments, parseDocument, type Document } from 'yaml';
 import { byCodePoint } from '../../model/order.js';
@@ -42,23 +43,31 @@ export type ComposeDocumentReading =
   | { readonly present: false; readonly reason: 'not-mapping' | 'no-services' }
   | { readonly present: true; readonly services: readonly ComposeService[]; readonly gaps: readonly ExtractionGap[] };
 
-/** Probes the complete resolved document without classifying ordinary YAML as Compose. */
+/** Probes the complete resolved document set; Compose authority never accepts a multi-document file. */
 export function readComposeDocument(text: string, path: string): ComposeDocumentReading {
   const lineCounter = new LineCounter();
   const documents = parseAllDocuments(text, { lineCounter, keepSourceTokens: true, merge: true });
-  const document = documents.find((candidate) => isMap(candidate.contents) && candidate.contents.items.some((pair) => isScalar(pair.key) && pair.key.value === 'services'));
-  if (document === undefined) return { present: false, reason: documents.some((candidate) => isMap(candidate.contents)) ? 'no-services' : 'not-mapping' };
   const tree = new TreeText({ paths: [path], read: () => new TextEncoder().encode(text) });
-  const records = new Records(tree);
-  const state: { absent?: 'not-mapping' | 'no-services' } = {};
-  const services = readResolvedCompose(tree, records, path, state, document, lineCounter);
-  return { present: true, services, gaps: records.gaps };
+  let candidate: { services: readonly ComposeService[]; gaps: readonly ExtractionGap[] } | undefined;
+  let reason: 'not-mapping' | 'no-services' = 'not-mapping';
+  for (const document of documents) {
+    const records = new Records(tree);
+    const state: { absent?: 'not-mapping' | 'no-services' } = {};
+    // Compose-ness is determined inside the shared reader only after root aliases
+    // and merge keys have been resolved through the same accessor as all fields.
+    const services = readResolvedCompose(tree, records, path, state, document, lineCounter);
+    if (state.absent === undefined) candidate = { services, gaps: records.gaps };
+    else if (state.absent === 'no-services') reason = 'no-services';
+  }
+  if (candidate === undefined) return { present: false, reason };
+  if (documents.length > 1) return { present: true, services: [], gaps: [{ path, reason: 'line 1: a Compose file must contain exactly one YAML document; no partial document was read' }] };
+  return { present: true, ...candidate };
 }
 
 /** Reads one compose file; a file the reader refuses is a gap and no services. */
 export function readComposeFile(t: TreeText, records: Records, path: string): readonly ComposeService[] {
   // Extraction keeps its historical single-document diagnostics. The authority
-  // probe selects a Compose document separately; both use this resolved reader.
+  // probe checks document membership separately; both use this resolved reader.
   const lineCounter = new LineCounter();
   const document = parseDocument(t.text(path), { lineCounter, keepSourceTokens: true, merge: true });
   const state: { absent?: 'not-mapping' | 'no-services' } = {};
