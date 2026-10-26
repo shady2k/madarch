@@ -85,6 +85,31 @@ func (r *Relay) Flush(ctx context.Context) (int, error) {
   }
   return len(published), tx.Commit()
 }`;
+// The row declared outside the loop, so a reference to it between the append and
+// the range is Go that compiles; the range item shadows it afterwards.
+const batchOuterRow = (beforeAppend = '', between = '') => header + `
+type Publisher interface { Publish(context.Context, string) error }
+type KafkaPublisher struct { writer *kafka.Writer }
+func (p *KafkaPublisher) Publish(ctx context.Context, topic string) error {
+  return p.writer.WriteMessages(ctx, kafka.Message{Topic: topic})
+}
+type Relay struct { publisher Publisher; db *sql.DB }
+func (r *Relay) Flush(ctx context.Context) {
+  rows, err := r.db.QueryContext(ctx, \`SELECT topic FROM outbox\`)
+  if err != nil { return }
+  var batch []pending
+  var row pending
+  for rows.Next() {
+    rows.Scan(&row.topic)
+    ${beforeAppend}
+    batch = append(batch, row)
+  }
+  ${between}
+  for _, row := range batch {
+    r.publisher.Publish(ctx, row.topic)
+  }
+}`;
+
 const run = async (source: string) => {
   const files: Record<string, string> = {
     'go.mod': 'module example.test/dispatch\n\ngo 1.23\n',
@@ -119,6 +144,9 @@ for (const [label, source] of [
   ['batch rebuilt before the range', batch('', '', '', 'batch = nil')],
   ['batch rebuilt from a new literal before the range', batch('', '', '', 'batch = []pending{{topic: actualTopic}}')],
   ['batch indexed field write before the range', batch('', '', '', 'batch[0].topic = actualTopic')],
+  ['row address taken before the append', batchOuterRow('alias := &row\nalias.topic = actualTopic')],
+  ['row address taken between the append and the range', batchOuterRow('', 'alias := &row\nalias.topic = actualTopic')],
+  ['a parallel assignment with the batch second', batch('', '', '', 'other, batch = otherBatch, otherBatch')],
   ['batch in a parallel assignment before the range', batch('', '', '', 'batch, other = otherBatch, otherBatch')],
 ] as const) test(`outbox proof stops at ${label}`, async () => {
   const value = await run(source);

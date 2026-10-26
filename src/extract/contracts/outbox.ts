@@ -329,6 +329,7 @@ export async function inferOutboxPublications(
         // Missing range identities are a gap, never a spelling match.
         const ranges = facts.expressions.filter(node => node.syntaxKind === 'for_statement' && contains(node.span, call.span));
         return ranges.some(loop => {
+          if (scannedRow.bindingId === undefined) return false;
           const clause = one(children(loop).filter(node => node.syntaxKind === 'range_clause')); if (clause === undefined) return false;
           const left = field(clause, 'left'); const right = field(clause, 'right'); const body = field(loop, 'body');
           const selections = left === undefined ? [] : children(left);
@@ -339,7 +340,10 @@ export async function inferOutboxPublications(
             item?.syntaxKind !== 'identifier' || itemBinding?.kind !== 'local' || itemBinding.path !== loop.path ||
             !same(itemBinding.span, item.span) || itemBinding.initializer !== undefined || itemBinding.id !== row.bindingId ||
             !same(loop.span, itemBinding.scope) || body === undefined || !contains(body.span, call.span) || !contains(body.span, row.span) ||
-            !untouched(value, left.span, call.span) || collection?.bindingId === undefined) return false;
+            !untouched(value, left.span, call.span) || collection?.bindingId === undefined ||
+            // The batch path follows the same rule as the single-row path: only the
+            // Scan's own address-of arguments may take the row's storage.
+            addressTaken(scannedRow.bindingId!, loop.path, scanned.span)) return false;
           if (itemBinding.goRange?.clauseExpression !== clause.id || itemBinding.goRange.collectionExpression !== right?.id || itemBinding.goRange.ordinal !== 1 || itemBinding.goRange.role !== 'value') return false;
           return calls.some(append => {
             const callee = expr(append.callee);
@@ -383,9 +387,12 @@ export async function inferOutboxPublications(
                 }
                 return undefined;
               };
+              // A parallel list touches the batch whichever position it stands in.
+              const touchesBatch = (node: CodeExpressionFact): boolean => node.syntaxKind === 'expression_list'
+                ? children(node).some((child) => touchesBatch(child)) : baseOf(node) === collection.bindingId;
               const targetsOfLeft = targets(write.fields.left);
-              const touches = write.fields.left === undefined ? children(write).some((child) => baseOf(child) === collection.bindingId)
-                : targetsOfLeft.some((target) => baseOf(target) === collection.bindingId);
+              const touches = write.fields.left === undefined ? children(write).some((child) => touchesBatch(child))
+                : targetsOfLeft.some((target) => touchesBatch(target));
               if (!touches) return false;
               const soleTarget = targetsOfLeft.length === 1 ? targetsOfLeft[0]! : undefined;
               if (write.syntaxKind !== 'assignment_statement' || soleTarget === undefined || soleTarget.bindingId !== collection.bindingId) return true;
