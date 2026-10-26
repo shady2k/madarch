@@ -12,6 +12,7 @@ import type {Node as SyntaxNode} from 'web-tree-sitter';
 import {calleeName, spanOf, stringValue, walkTree} from './walk.js';
 import type {SourceSpan, ExtractionGap} from '../../extract/records.js';
 import type {CodeBindingFact, CodeCallFact, CodeExpressionFact} from '../code/facts.js';
+import {roleOf} from '../code/source.js';
 import type {TreeText} from '../operations/source.js';
 import {libraryRegistry} from '../library-models/validate.js';
 import {messagingTypes} from '../library-models/messaging-models.js';
@@ -1054,6 +1055,12 @@ export interface StructuralGrpcDeadline {
  * Bounded proof: options property -> Date(clock + this.parameterProperty) ->
  * the unique canonical construction -> its actual config binding -> one
  * direct object return -> numeric nullish fallback. No source text is read.
+ *
+ * A client's deadline is set where the program wires the client, so among the
+ * canonical constructions of this exact constructor the ones written in the
+ * deployed code decide: a construction in a test or a test helper states that
+ * test's own value, not the deployed one. When no construction is deployed the
+ * deadline is read from the unique construction wherever it stands.
  */
 export function structuralGrpcDeadline(source: TreeText, siteSpan: SourceSpan, model: GrpcDeadlineModel = grpcDeadlineModel): StructuralGrpcDeadline | undefined {
   const facts = source.facts;
@@ -1076,6 +1083,10 @@ export function structuralGrpcDeadline(source: TreeText, siteSpan: SourceSpan, m
   const calls = index(facts.calls, value => value.expression);
   const symbols = index(facts.symbols, value => value.key);
   const parsed = new Set(facts.files.filter(file => file.parsed && file.language === 'typescript').map(file => file.path));
+  // The files whose shared code-fact role is the deployed code. The role is the
+  // extractor's own classification of a file, read once here and never guessed
+  // from a path in this module: a test's wiring is not the deployed deadline.
+  const deployed = new Set(facts.files.filter(file => file.parsed && file.language === 'typescript' && roleOf(file.path) === 'code').map(file => file.path));
   const expression = (id: string | undefined): CodeExpressionFact | undefined => {
     const value = id === undefined ? undefined : expressions.get(id);
     return value !== undefined && value.path === value.span.path && parsed.has(value.path) ? value : undefined;
@@ -1213,7 +1224,13 @@ export function structuralGrpcDeadline(source: TreeText, siteSpan: SourceSpan, m
   const ctorSymbol = unique([...symbols.values()].filter(symbol => symbol.callable && symbol.path === ctor.path && symbol.span.byteEnd === ctor.span.byteEnd && contains(symbol.span, ctor.span)));
   if (ordinal === undefined || ctorSymbol === undefined) return undefined;
   const constructions = [...calls.values()].filter(call => call.construct && validCall(call) && targetOf(call) === ctorSymbol.key);
-  const construction = unique(constructions);
+  // The deployed wiring decides. Two distinct deployed constructions are two
+  // values for one deadline, so nothing is proved and no config is picked; one
+  // call recorded twice is still one canonical call.
+  const wired = constructions.filter(call => deployed.has(call.path));
+  const canonical = wired.length === 0 ? constructions
+    : [...new Map(wired.map(call => [JSON.stringify([call.span.path, call.span.byteStart, call.span.byteEnd]), call] as const)).values()];
+  const construction = unique(canonical);
   if (construction === undefined) return undefined;
   const configMember = unwrap(expression(construction.arguments[ordinal]));
   if (configMember?.syntaxKind !== 'member_expression' || configMember.member === undefined || writtenMembers.has(configMember.member)) return undefined;

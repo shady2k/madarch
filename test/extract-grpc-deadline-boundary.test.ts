@@ -4,6 +4,7 @@ import {extractContracts} from '../src/extract/contracts/index.js';
 import {structuralGrpcDeadline} from '../src/extract/contracts/ts-code.js';
 import {TreeText} from '../src/extract/operations/source.js';
 import type {TreeReader} from '../src/extract/records.js';
+import type {CodeCallFact} from '../src/extract/code/facts.js';
 import {grpcDeadlineModel, validateGrpcDeadlineModel} from '../src/extract/library-models/grpc-deadline-models.js';
 
 const clientPath = 'services/relay/client.ts';
@@ -206,6 +207,85 @@ test('multiple canonical constructions do not select an arbitrary config', async
     'const second = new RateClient(settings.delay, "localhost:50052");',
   ].join('\n')});
   expect(answer.result).toBeUndefined();
+});
+
+test('a construction in a test file does not set the deployed deadline', async () => {
+  const testPath = 'services/relay/test/client.test.ts';
+  const answer = await proof({
+    [testPath]: [
+      'import {RateClient} from "../client";',
+      'export const probe = new RateClient(2000, "127.0.0.1:5001");',
+    ].join('\n'),
+  });
+  const callSites = (call: CodeCallFact): readonly string[] => {
+    const callee = answer.shared.facts.expressions.find(expression => expression.id === call.callee);
+    if (callee === undefined) throw new Error(`${import.meta.path}: the construction has no canonical callee`);
+    return answer.shared.facts.sites.filter(site => site.use === 'call' && site.holder === call.holder
+      && site.span.path === callee.span.path && callee.span.byteStart <= site.span.byteStart && site.span.byteEnd <= callee.span.byteEnd).map(site => site.to);
+  };
+  const deployed = answer.shared.facts.calls.filter(call => call.path === bootstrapPath && call.construct);
+  const probed = answer.shared.facts.calls.filter(call => call.path === testPath && call.construct);
+  // The fixture must really hold two canonical constructions of one constructor,
+  // or the deployed preference it checks is not the one that decided.
+  expect(deployed).toHaveLength(1);
+  expect(probed).toHaveLength(1);
+  expect(callSites(probed[0]!)).toEqual(callSites(deployed[0]!));
+  expect(callSites(probed[0]!).length).toBeGreaterThan(0);
+  expect(answer.result?.deadlineMs).toBe(7300);
+  expect(answer.result!.evidence.some(span => span.path === bootstrapPath && span.byteStart === deployed[0]!.span.byteStart && span.byteEnd === deployed[0]!.span.byteEnd)).toBe(true);
+  expect(answer.result!.evidence.some(span => span.path === testPath)).toBe(false);
+});
+
+test('two deployed constructions with different values prove nothing', async () => {
+  const answer = await proof({
+    [configPath]: [
+      'export function readSettings(env: Record<string, string> = {}) {',
+      '  return {delay: Number(env.RATE_WAIT ?? 7300), retry: Number(env.RETRY_WAIT ?? 1200)};',
+      '}',
+    ].join('\n'),
+    [bootstrapPath]: [
+      'import {RateClient} from "./client";',
+      'import {readSettings} from "./settings";',
+      'const settings = readSettings();',
+      'const first = new RateClient(settings.delay, "localhost:50051");',
+      'const second = new RateClient(settings.retry, "localhost:50052");',
+    ].join('\n'),
+  });
+  expect(answer.result).toBeUndefined();
+});
+
+test('a tree whose only construction is a test file keeps the single-construction fallback', async () => {
+  const testPath = 'services/relay/client.test.ts';
+  const answer = await proof({
+    [bootstrapPath]: 'import {readSettings} from "./settings"; export const settings = readSettings();',
+    [testPath]: [
+      'import {RateClient} from "./client";',
+      'import {readSettings} from "./settings";',
+      'const settings = readSettings();',
+      'export const client = new RateClient(settings.delay, "localhost:50051");',
+    ].join('\n'),
+  });
+  expect(answer.result?.deadlineMs).toBe(7300);
+  expect(answer.result?.evidence.some(span => span.path === testPath)).toBe(true);
+  expect(answer.result?.evidence.some(span => span.path === configPath)).toBe(true);
+});
+
+test('one deployed construction recorded twice is still one canonical call', async () => {
+  const answer = await proof();
+  const deployed = answer.shared.facts.calls.filter(call => call.path === bootstrapPath && call.construct);
+  expect(deployed).toHaveLength(1);
+  const call = deployed[0]!;
+  const node = answer.shared.facts.expressions.filter(expression => expression.id === call.expression);
+  expect(node).toHaveLength(1);
+  const id = `${call.expression}#recorded-twice`;
+  const facts = {
+    ...answer.shared.facts,
+    expressions: [...answer.shared.facts.expressions, {...node[0]!, id}],
+    calls: [...answer.shared.facts.calls, {...call, expression: id}],
+  };
+  const result = structuralGrpcDeadline(new TreeText(answer.tree, answer.shared.extraction, facts), answer.site.span);
+  expect(result?.deadlineMs).toBe(7300);
+  expect(result?.evidence.some(span => span.path === bootstrapPath)).toBe(true);
 });
 
 test('same-name classes in another module cannot supply the construction', async () => {

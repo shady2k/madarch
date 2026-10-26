@@ -15,6 +15,7 @@ import type {SourceSpan} from '../../extract/records.js';
 import type {CodeExpressionFact} from '../code/facts.js';
 import type {TreeText} from '../operations/source.js';
 import {libraryRegistry} from '../library-models/validate.js';
+import {messagingTypes} from '../library-models/messaging-models.js';
 
 /** One route registered on a net/http mux. */
 export interface GoRoute {
@@ -86,13 +87,14 @@ export interface GoFileFacts {
   readonly statusComparisons: readonly string[];
   /** The string-literal switch cases of each method that carries any (`ApplyPaymentEvent` -> the event kinds). */
   readonly switchCases: ReadonlyMap<string, readonly string[]>;
-  /** Whether a loop of this file applies a handler as a statement and then commits, reading only the commit's error. */
+  /** Whether a loop of this file applies a handler as a statement and then commits the reader it reads, reading only the commit's error. */
   readonly unconditionalCommit: boolean;
   /** The interface methods this file declares (`ApplyPaymentEvent` of PaymentEventHandler). */
   readonly interfaceMethods: readonly string[];
   /** The methods each method of the file calls, by the caller's name. */
   readonly calledMethods: ReadonlyMap<string, readonly string[]>;
   readonly kafkaSites: readonly GoKafkaSite[];
+  /** Consumer reads through a reader field this file declares as a type of the package it imports. */
   readonly kafkaReads: readonly {owner: string; field: string; span: SourceSpan}[];
   /** The middleware a `X := Chain(...)` binding names, and whether it authenticates. */
   readonly chainBindings: ReadonlyMap<string, {names: readonly string[]; auth: boolean}>;
@@ -153,6 +155,50 @@ function unwrappedHandler(node: SyntaxNode): SyntaxNode {
   return held;
 }
 
+// ---- the library data a consumer read is proved from ------------------------
+
+/**
+ * The consumer methods the library data registers, per declaring package: the
+ * models whose receiver role is `message-consumer`. A consumer read is
+ * recognised from these names, never from a list written in this file.
+ */
+const consumerMemberModels: ReadonlyMap<string, ReadonlySet<string>> = (() => {
+  const members = new Map<string, Set<string>>();
+  for (const model of libraryRegistry.models) {
+    if (model.ecosystem !== 'go' || model.invoke !== 'call' || model.target.kind !== 'member' || model.target.receiverRole !== 'message-consumer') continue;
+    const held = members.get(model.package) ?? new Set<string>();
+    held.add(model.target.member);
+    members.set(model.package, held);
+  }
+  return members;
+})();
+
+/** Every registered consumer method, whichever package declares it. */
+const consumerMethods: ReadonlySet<string> = new Set([...consumerMemberModels.values()].flatMap((members) => [...members]));
+
+/**
+ * The commit method of a consumer reader. The library data models a consumer's
+ * reads but not its commit, so the name stands here: the registry needs a
+ * `kafka-go.Reader.CommitMessages` member model of the `message-consumer`
+ * receiver role before it can be read from the data. What a commit is is still
+ * decided from grammar nodes, never from the text of a statement.
+ */
+const offsetCommitMember = 'CommitMessages';
+
+/** The Go package name each documented package declares, for an import written without an alias. */
+const declaredGoPackageNames: ReadonlyMap<string, string> = new Map(
+  messagingTypes.flatMap((model) => model.ecosystem === 'go' && model.packageName !== undefined ? [[model.package, model.packageName] as const] : []),
+);
+
+/** The name a Go file binds an import under: its alias, the documented package name, or the path's tail. */
+function goImportLocalName(specifier: string, alias: string | undefined): string {
+  if (alias !== undefined) return alias;
+  const declared = declaredGoPackageNames.get(specifier);
+  if (declared !== undefined) return declared;
+  const parts = specifier.split('/').filter((part) => part !== '');
+  return parts.length === 0 ? specifier : parts[parts.length - 1]!;
+}
+
 export function readGoFile(path: string, root: SyntaxNode, source?: TreeText): GoFileFacts {
   let packageName = '';
   const consts = new Map<string, string>();
@@ -177,11 +223,79 @@ export function readGoFile(path: string, root: SyntaxNode, source?: TreeText): G
   const rawRoutes: RawRoute[] = [];
   const calledMethods = new Map<string, Set<string>>();
 
+  // The consumer namespaces this file binds (`import stream ".../kafka-go"`),
+  // each with the methods the library data registers for its package.
+  const consumerNamespaces = new Map<string, ReadonlySet<string>>();
+  // The declared type of each struct field of this file, read once from the tree
+  // the read owns: a struct declared in another file of the package stays
+  // unknown here, and a read through its field is never claimed.
+  let structFieldTypes: Map<string, Map<string, {qualifier?: string; name: string}>> | undefined;
+  const fieldTypeOf = (owner: string, field: string): {qualifier?: string; name: string} | undefined => {
+    if (structFieldTypes === undefined) {
+      const collected = new Map<string, Map<string, {qualifier?: string; name: string}>>();
+      walkTree(root, (node) => {
+        if (node.type !== 'type_spec') return;
+        const name = node.childForFieldName('name')?.text;
+        const body = node.childForFieldName('type');
+        if (name === undefined || body === null || body.type !== 'struct_type') return;
+        const fields = collected.get(name) ?? new Map<string, {qualifier?: string; name: string}>();
+        walkTree(body, (declared) => {
+          if (declared.type !== 'field_declaration') return;
+          const fieldName = declared.childForFieldName('name')?.text;
+          const written = declared.childForFieldName('type');
+          if (fieldName === undefined || written === null) return;
+          const element = written.type === 'pointer_type' ? written.namedChild(0) : written;
+          if (element === null) return;
+          // A qualified type names the namespace its package is bound under here.
+          const qualifier = element.type === 'qualified_type' ? element.childForFieldName('package')?.text : undefined;
+          fields.set(fieldName, {...(qualifier !== undefined ? {qualifier} : {}), name: element.childForFieldName('name')?.text ?? element.text});
+        });
+        collected.set(name, fields);
+      });
+      structFieldTypes = collected;
+    }
+    return structFieldTypes.get(owner)?.get(field);
+  };
+  /**
+   * The reader a consumer call goes through, when the callee is a selector on a
+   * field this file declares as a type of a consumer namespace: the field's
+   * owner, the field, the member called, and the methods that namespace binds.
+   * Every part is a grammar node, so the same call with spaces around its dots
+   * is the same call; the method names come from the library data.
+   */
+  const readerCallOf = (call: SyntaxNode): {owner: string; field: string; member: string; members: ReadonlySet<string>} | undefined => {
+    if (consumerNamespaces.size === 0 || call.type !== 'call_expression') return undefined;
+    const fn = call.childForFieldName('function');
+    if (fn === null || fn.type !== 'selector_expression') return undefined;
+    const operand = fn.childForFieldName('operand');
+    const member = fn.childForFieldName('field');
+    if (operand === null || operand.type !== 'selector_expression' || member === null || member.type !== 'field_identifier') return undefined;
+    const base = operand.childForFieldName('operand');
+    const field = operand.childForFieldName('field');
+    if (base === null || base.type !== 'identifier' || field === null || field.type !== 'field_identifier') return undefined;
+    const owner = receiverNames.get(base.text);
+    if (owner === undefined) return undefined;
+    const declared = fieldTypeOf(owner, field.text);
+    const members = declared === undefined || declared.qualifier === undefined ? undefined : consumerNamespaces.get(declared.qualifier);
+    return members === undefined ? undefined : {owner, field: field.text, member: member.text, members};
+  };
+
   walkTree(root, (node) => {
     // A function whose text verifies a token with HS256 (`jwt.WithValidMethods([]string{"HS256"})`).
     if ((node.type === 'function_declaration' || node.type === 'method_declaration') && /['"]HS256['"]/.test(node.text)) {
       const name = node.childForFieldName('name')?.text;
       if (name !== undefined) hs256Functions.push(name);
+    }
+    // `import stream "github.com/segmentio/kafka-go"`: the local name the consumer
+    // package's namespace is bound under in this file, and the methods it declares.
+    if (node.type === 'import_spec') {
+      const specifier = stringValue(node.childForFieldName('path'));
+      const named = node.childForFieldName('name');
+      const members = specifier === undefined ? undefined : consumerMemberModels.get(specifier);
+      const local = specifier === undefined ? undefined : goImportLocalName(specifier, named === null ? undefined : named.text);
+      // A dot or blank import binds no name, so no read reaches the package through it.
+      if (members !== undefined && local !== undefined && local !== '.' && local !== '_') consumerNamespaces.set(local, members);
+      return;
     }
     if (node.type === 'package_clause') {
       packageName = node.namedChild(0)?.text ?? '';
@@ -315,27 +429,53 @@ export function readGoFile(path: string, root: SyntaxNode, source?: TreeText): G
       }
       return;
     }
-    if (node.type === 'call_expression' && ['FetchMessage', 'ReadMessage'].includes(calleeName(node) ?? '')) {
-      const object = node.childForFieldName('function')?.childForFieldName('operand')?.text;
-      const match = object === undefined ? null : /^([A-Za-z_][\w]*)\.([A-Za-z_][\w]*)$/.exec(object);
-      const owner = match === null ? undefined : receiverNames.get(match[1]!);
-      if (owner !== undefined) kafkaReads.push({owner, field: match![2]!, span: spanOf(node, path)});
+    // A consumer read: a call of a method the reader's library data declares,
+    // through a field this file declares as a type of that package's namespace.
+    if (node.type === 'call_expression') {
+      const reader = readerCallOf(node);
+      if (reader !== undefined && reader.members.has(reader.member)) {
+        kafkaReads.push({owner: reader.owner, field: reader.field, span: spanOf(node, path)});
+      }
     }
-    // The consumer loop: the handler applied as a statement, then the commit reading only its own error.
+    // The consumer loop: a read through its reader, the handler applied as a
+    // statement, then the commit of that same reader, read only for its own
+    // error. The commit is decided from grammar nodes: the if statement's own
+    // deciding parts -- its initializer and its condition, never its blocks --
+    // hold a call of the commit member on the reader the loop reads.
     if (node.type === 'for_statement' && !unconditionalCommit) {
       const body = node.childForFieldName('body');
       if (body === null) return;
+      const readers = new Set<string>();
       let applies = false;
       let commits = false;
       for (let i = 0; i < body.childCount; i++) {
         const statement = body.child(i);
         if (statement === null) continue;
+        // What the loop reads through a proved consumer reader, wherever the read stands.
+        walkTree(statement, (inner) => {
+          const read = readerCallOf(inner);
+          if (read !== undefined && read.members.has(read.member)) readers.add(`${read.owner}.${read.field}`);
+        });
         if (statement.type === 'expression_statement') {
           const call = statement.namedChild(0);
           const name = call !== null && call.type === 'call_expression' ? calleeName(call) : undefined;
-          if (name !== undefined && name !== 'CommitMessages' && name !== 'FetchMessage') applies = true;
+          // A read or a commit is no application of a handler.
+          if (name !== undefined && !consumerMethods.has(name) && name !== offsetCommitMember) applies = true;
         }
-        if (statement.type === 'if_statement' && statement.text.includes('CommitMessages')) commits = true;
+        if (statement.type === 'if_statement') {
+          for (const deciding of statement.namedChildren) {
+            // The blocks are what the if does, not what decides it.
+            if (deciding === null || deciding.type === 'block') continue;
+            walkTree(deciding, (inner) => {
+              if (commits) return;
+              const commit = readerCallOf(inner);
+              if (commit === undefined || commit.member !== offsetCommitMember) return;
+              // The reader the loop reads; when the read stands in a function of
+              // its own, any consumer reader proved from this file's receiver.
+              if (readers.size === 0 || readers.has(`${commit.owner}.${commit.field}`)) commits = true;
+            });
+          }
+        }
       }
       unconditionalCommit = applies && commits;
       return;
@@ -517,6 +657,8 @@ export function structuralGoReaders(source: TreeText, path: string): GoKafkaSite
     return node?.literal?.kind === 'string' && typeof node.literal.value === 'string' ? node.literal.value : undefined;
   };
   const readerModel = unique(libraryRegistry.models.filter(model => model.id === 'kafka-go.NewReader' && model.ecosystem === 'go' && model.returnRole === 'message-consumer'));
+  // The methods the reader's package declares, from the data that declares them.
+  const readerMembers = readerModel === undefined ? undefined : consumerMemberModels.get(readerModel.package);
   const importedMember = (node: CodeExpressionFact | undefined, member: string): boolean => {
     if (node === undefined || !['qualified_type', 'selector_expression'].includes(node.syntaxKind)) return false;
     const receiver = field(node, node.syntaxKind === 'qualified_type' ? 'package' : 'operand');
@@ -578,7 +720,7 @@ export function structuralGoReaders(source: TreeText, path: string): GoKafkaSite
         if (writeTargets.some(target => references.some(site => contains(target.span, site.span)))) continue;
         for (const call of calls) {
           const callee = expression(call.callee);
-          if (callee?.syntaxKind !== 'selector_expression' || !['FetchMessage', 'ReadMessage'].includes(callee.member ?? '')) continue;
+          if (callee?.syntaxKind !== 'selector_expression' || readerMembers?.has(callee.member ?? '') !== true) continue;
           const receiver = field(callee, 'operand'); const member = receiver === undefined ? undefined : field(receiver, 'field');
           if (member !== undefined && references.some(site => same(site.span, member.span)) && !reads.some(span => same(span, call.span))) reads.push(call.span);
         }

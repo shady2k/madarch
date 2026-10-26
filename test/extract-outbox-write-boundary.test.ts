@@ -26,7 +26,7 @@ func Flush(ctx context.Context, db *sql.DB, writer *kafka.Writer, actualTopic st
     ${tail}
   }
 }`;
-const batch = (beforeAppend = '', beforeSend = '', adapterWrite = '') => header + `
+const batch = (beforeAppend = '', beforeSend = '', adapterWrite = '', between = '') => header + `
 type Publisher interface { Publish(context.Context, string) error }
 type KafkaPublisher struct { writer *kafka.Writer }
 func (p *KafkaPublisher) Publish(ctx context.Context, topic string) error {
@@ -44,6 +44,7 @@ func (r *Relay) Flush(ctx context.Context, actualTopic string) {
     ${beforeAppend}
     batch = append(batch, row)
   }
+  ${between}
   for _, row := range batch {
     ${beforeSend}
     r.publisher.Publish(ctx, row.topic)
@@ -113,6 +114,10 @@ for (const [label, source] of [
   ['range value compound write before adapter send', batch('', 'row.topic += actualTopic')],
   ['range value receiver rebinding', batch('', 'row = pending{topic: actualTopic}')],
   ['adapter parameter overwritten before actual producer', batch('', '', 'topic = ctx.Value("topic").(string)')],
+  ['pointer alias write of the scanned row', fixture('alias := &row\nalias.topic = actualTopic')],
+  ['pointer alias chain write of the scanned row', fixture('alias := &row\nsecond := alias\nsecond.topic = actualTopic')],
+  ['batch rebuilt before the range', batch('', '', '', 'batch = nil')],
+  ['batch rebuilt from a new literal before the range', batch('', '', '', 'batch = []pending{{topic: actualTopic}}')],
 ] as const) test(`outbox proof stops at ${label}`, async () => {
   const value = await run(source);
   expect(publications(value), diagnostic(value)).toEqual([]);
@@ -129,6 +134,7 @@ for (const [label, source] of [
   ['a topic assignment before Scan', fixture('', 'row.topic = actualTopic')],
   ['a whole row assignment before Scan', fixture('', 'row = other')],
   ['a topic assignment after publication', fixture('', '', 'row.topic = actualTopic')],
+  ['a value copy write of the scanned row', fixture('copyRow := row\ncopyRow.topic = actualTopic')],
   ['SQL and Kafka import aliases', fixture().replace('"database/sql"', 'database "database/sql"').replace('"github.com/segmentio/kafka-go"', 'stream "github.com/segmentio/kafka-go"').replaceAll('sql.', 'database.').replaceAll('kafka.', 'stream.')],
 ] as const) test(`outbox proof survives ${label}`, async () => {
   const value = await run(source);

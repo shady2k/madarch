@@ -1,7 +1,8 @@
 import {expect, test} from 'bun:test';
 import {extractCodeWithFacts} from '../src/extract/code/index.js';
 import {freezeCodeFacts} from '../src/extract/code/facts.js';
-import {structuralGoReaders} from '../src/extract/contracts/go-code.js';
+import {readGoFile, structuralGoReaders} from '../src/extract/contracts/go-code.js';
+import {readSyntaxTree} from '../src/fill/stages/syntax-extract.js';
 import {extractContracts} from '../src/extract/contracts/index.js';
 import {TreeText} from '../src/extract/operations/source.js';
 import type {TreeReader} from '../src/extract/records.js';
@@ -118,4 +119,98 @@ test('an unproved consumer association keeps configuration intent and a located 
   expect([...value.text.factGaps.values()].some(gap => gap.path === path && gap.reason.includes('line 3:') && gap.reason.includes('consuming function association is unresolved'))).toBe(true);
   const result = await extractContracts(value.input, value.shared.extraction, value.shared.facts);
   expect(consumed(result).map(edge => [edge.from, edge.properties.configured])).toEqual([[`code.file:${path}`, true]]);
+});
+
+// ---- the consumer read and its commit, from grammar nodes and library data ----
+
+const readFactsOf = async (source: string) => {
+  const read = await readSyntaxTree(path, new TextEncoder().encode(source), (file) => readGoFile(path, file.root));
+  if (!read.read) throw new Error('the fixture did not parse');
+  return read.value;
+};
+const readsOf = async (source: string) => (await readFactsOf(source)).kafkaReads.map(read => [read.owner, read.field]);
+const consumerBody = (fieldType: string, statement: string): string =>
+  `${header}type Consumer struct { reader ${fieldType} }\nfunc (c *Consumer) Run() { ${statement} }\n`;
+
+test('a consumer read is proved from grammar nodes and the namespace the file imports', async () => {
+  // The same call written with spaces around its dots is the same tree, so the same read.
+  for (const statement of ['c.reader.FetchMessage(ctx)', 'c . reader . ReadMessage(ctx)']) {
+    expect(await readsOf(consumerBody('*stream.Reader', statement)), statement).toEqual([['Consumer', 'reader']]);
+  }
+  // A receiver chain, a parenthesized operand, a call's own result and the commit
+  // member are no read of a reader field this file declares.
+  const nested = `${header}type Consumer struct { inner *Inner }\ntype Inner struct { reader *stream.Reader }\nfunc (c *Consumer) Run() { c.inner.reader.FetchMessage(ctx) }\n`;
+  expect(await readsOf(nested)).toEqual([]);
+  for (const statement of ['(c.reader).FetchMessage(ctx)', 'stream.NewReader(config).FetchMessage(ctx)', 'c.reader.CommitMessages(ctx, message)']) {
+    expect(await readsOf(consumerBody('*stream.Reader', statement)), statement).toEqual([]);
+  }
+});
+
+test('a locally declared reader type and a differently imported package are no consumer read', async () => {
+  for (const source of [
+    `${header}type Reader struct { n int }\nfunc (r *Reader) FetchMessage() {}\ntype Consumer struct { reader *Reader }\nfunc (c *Consumer) Run() { c.reader.FetchMessage() }\n`,
+    'package dispatch\nimport stream "example.test/streams"\ntype Consumer struct { reader *stream.Reader }\nfunc (c *Consumer) Run() { c.reader.FetchMessage(ctx) }\n',
+    header + 'type Consumer struct { reader *Unknown }\nfunc (c *Consumer) Run() { c.reader.FetchMessage(ctx) }\n',
+  ]) expect(await readsOf(source), source).toEqual([]);
+  // A parameter that shadows the package name at the call site decides nothing:
+  // the read is proved from the field's declaration, never from a spelling.
+  expect(await readsOf(`${header}type Consumer struct { reader *stream.Reader }\nfunc (c *Consumer) Run(stream interface{}) { _ = stream; c.reader.FetchMessage(ctx) }\n`)).toEqual([['Consumer', 'reader']]);
+});
+
+const consumerLoop = (statement: string): string => header + `import "context"
+type Consumer struct { reader *stream.Reader }
+func New() *Consumer {
+ config := stream.ReaderConfig{Topic: "events"}
+ reader := stream.NewReader(config)
+ return &Consumer{reader: reader}
+}
+func (c *Consumer) Run(ctx context.Context) {
+ for {
+  message, err := c.reader.FetchMessage(ctx)
+  if err != nil {
+   return
+  }
+  c.handle(ctx, message)
+${statement}
+ }
+}
+`;
+const commitOf = async (source: string) => {
+  const value = await run(source);
+  const result = await extractContracts(value.input, value.shared.extraction, value.shared.facts);
+  // Every consumes edge of the file agrees, whichever edge the read settled on.
+  return [...new Set(consumed(result).map(edge => edge.properties['offsetCommit'] ?? 'none'))];
+};
+
+test('the commit is decided from the if statement, never from a comment or a string that names it', async () => {
+  const committed = '  if err := c.reader.CommitMessages(ctx, message); err != nil {\n   return\n  }';
+  expect(await commitOf(consumerLoop(committed))).toEqual(['unconditional']);
+  // The if statement's own block names the member in a comment and in a string, and calls nothing.
+  expect(await commitOf(consumerLoop('  if err != nil { /* c.reader.CommitMessages(ctx, message) */ return }'))).toEqual(['none']);
+  expect(await commitOf(consumerLoop('  if err != nil { _ = "CommitMessages"; return }'))).toEqual(['none']);
+});
+
+test('the commit is the reader the loop reads, not another reader the same file holds', async () => {
+  const source = header + `import "context"
+type Consumer struct { reader *stream.Reader; other *stream.Reader }
+func New() *Consumer {
+ config := stream.ReaderConfig{Topic: "events"}
+ reader := stream.NewReader(config)
+ other := stream.NewReader(config)
+ return &Consumer{reader: reader, other: other}
+}
+func (c *Consumer) Run(ctx context.Context) {
+ for {
+  message, err := c.reader.FetchMessage(ctx)
+  if err != nil {
+   return
+  }
+  c.handle(ctx, message)
+  if err := c.other.CommitMessages(ctx, message); err != nil {
+   return
+  }
+ }
+}
+`;
+  expect(await commitOf(source)).toEqual(['none']);
 });

@@ -49,6 +49,56 @@ const FUNCTION_NODES: ReadonlySet<string> = new Set([
   'generator_function_declaration', 'method_declaration', 'method_definition',
 ]);
 
+/**
+ * Grammar nodes whose named children are all types, so a name written inside one
+ * names a type rather than a value. `index_signature` and
+ * `nested_type_identifier` are absent on purpose: their first child is an index
+ * parameter or a module name, not a type name, and a namespace reference still
+ * needs the runtime identity of its module.
+ */
+const TYPE_CONTEXT_NODES: ReadonlySet<string> = new Set([
+  'array_type', 'conditional_type', 'constraint', 'constructor_type', 'existential_type', 'extends_type_clause',
+  'flow_maybe_type', 'function_type', 'generic_type', 'implements_clause', 'index_type_query', 'infer_type',
+  'intersection_type', 'literal_type', 'lookup_type', 'mapped_type_clause', 'object_type', 'optional_type',
+  'parenthesized_type', 'readonly_type', 'rest_type', 'template_literal_type', 'tuple_type', 'type_alias_declaration',
+  'type_annotation', 'type_arguments', 'type_parameter', 'type_parameters', 'union_type',
+]);
+
+/**
+ * A recorded use is a type reference when the grammar writes the name in a type
+ * position. A `type_identifier` is one unless a `typeof` query names the value it
+ * reads; a plain `identifier` is one only when every node between it and the file
+ * is a type, because the value side of an assertion, a `satisfies` or a `typeof`
+ * query names a runtime identity.
+ */
+function typeReference(node: SyntaxNode): boolean {
+  const plain = node.type === 'identifier';
+  if (!plain && node.type !== 'type_identifier') return false;
+  let current = node;
+  let insideType = false;
+  for (;;) {
+    const parent = current.parent;
+    if (parent === null) return !plain;
+    if (parent.type === 'type_query') return false;
+    if (plain) {
+      if (!TYPE_CONTEXT_NODES.has(parent.type)) return insideType;
+      insideType = true;
+    }
+    current = parent;
+  }
+}
+
+/**
+ * The names an import statement declares, and the name it reads from the source
+ * module, are declarations rather than references, so they never resolve to a
+ * local binding of this file.
+ */
+function importName(node: SyntaxNode): boolean {
+  let parent = node.parent;
+  while (parent !== null && ['import_specifier', 'named_imports', 'import_clause', 'namespace_import'].includes(parent.type)) parent = parent.parent;
+  return parent !== null && parent.type === 'import_statement';
+}
+
 export interface MemberFacts {
   readonly sites: readonly MemberSite[];
   readonly accesses: ReadonlyMap<number, readonly string[]>;
@@ -132,7 +182,17 @@ export async function memberSites(file: SourceFile, program: Program, imports: r
       const generic = genericNames.some((scope) => scope.has(token));
       const candidateBinding = resolveBinding && lexicalName && !generic ? lookupBinding(token) : undefined;
       const binding = candidateBinding === undefined ? undefined : bindings.get(candidateBinding);
-      const availableBinding = binding !== undefined && binding.kind === 'local' && !functionVarBindings.has(binding.id) && !hoistedFunctionBindings.has(binding.id) && span.byteStart < binding.span.byteStart ? undefined : candidateBinding;
+      // A reference from a nested function body runs after the outer declaration
+      // is evaluated, so only a reference in the same function body before its
+      // declaration is a lexical-initialization error.
+      const deferred = (scope: {readonly path: string; readonly byteStart: number; readonly byteEnd: number}): boolean => {
+        const inner = [...scopeNodes].reverse().find((node) => FUNCTION_NODES.has(node.type));
+        if (inner === undefined) return false;
+        const at = sourceSpan(inner);
+        return at.path === scope.path && scope.byteStart <= at.byteStart && at.byteEnd <= scope.byteEnd &&
+          (at.byteStart !== scope.byteStart || at.byteEnd !== scope.byteEnd);
+      };
+      const availableBinding = binding !== undefined && binding.kind === 'local' && !functionVarBindings.has(binding.id) && !hoistedFunctionBindings.has(binding.id) && span.byteStart < binding.span.byteStart && !deferred(binding.scope) ? undefined : candidateBinding;
       if (binding !== undefined && availableBinding === undefined) factGaps.set(id, { path: file.path, reason: `line ${span.lineStart}: lexical binding is not initialized at bytes ${span.byteStart}-${span.byteEnd}` });
       const object = node.childForFieldName(node.type === 'qualified_type' ? 'package' : go ? 'operand' : 'object');
       const property = node.childForFieldName(node.type === 'qualified_type' ? 'name' : go ? 'field' : 'property');

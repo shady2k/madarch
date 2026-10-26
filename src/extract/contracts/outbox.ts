@@ -116,8 +116,29 @@ export async function inferOutboxPublications(
   // A write kills only the same storage projection (or one of its parents).
   // The copied grammar and lexical binding IDs own this check, not row names.
   type Projection = {binding: string; members: readonly string[]};
+  /**
+   * The storage a binding shares with another through a pointer: `a := &row`,
+   * `b := a`, `c := *p` all name `row`'s storage, while a value copy (`a := row`)
+   * names its own. The copied facts decide this; nothing is matched by name.
+   */
+  const storageAlias = (node: CodeExpressionFact): CodeExpressionFact | undefined => {
+    const seen = new Set<string>();
+    let current: CodeExpressionFact | undefined = node;
+    let pointer = false;
+    while (current !== undefined && current.bindingId !== undefined) {
+      const binding = bindings.get(current.bindingId);
+      if (binding === undefined || seen.has(binding.id) || seen.size >= 32) return undefined;
+      const initial = expr(binding.initializer);
+      if (initial === undefined) return pointer ? current : undefined;
+      seen.add(binding.id);
+      if (initial.syntaxKind === 'unary_expression') pointer = true;
+      current = unwrap(initial);
+    }
+    return pointer ? current : undefined;
+  };
   const projection = (raw: CodeExpressionFact): Projection | undefined => {
-    const node = unwrap(raw);
+    const unwrapped = unwrap(raw);
+    const node = storageAlias(unwrapped) ?? unwrapped;
     if (node.bindingId !== undefined) return {binding: node.bindingId, members: []};
     const receiver = expr(node.receiver);
     const parent = receiver === undefined ? undefined : projection(receiver);
@@ -334,8 +355,17 @@ export async function inferOutboxPublications(
             if (facts.bindings.some(binding => binding.path === callee.path && binding.name === outboxModels.append.builtin && contains(binding.scope, callee.span)) || facts.symbols.some(symbol => symbol.path === callee.path && symbol.name === outboxModels.append.builtin)) return false;
             const first = expr(append.arguments[outboxModels.append.collection]); const second = expr(append.arguments[outboxModels.append.element]);
             if (first?.bindingId !== collection.bindingId || second?.bindingId === undefined || second.bindingId !== scannedRow.bindingId || !untouched(topic, scanned.span, append.span)) return false;
-            return facts.expressions.some(assignment => assignment.syntaxKind === 'assignment_statement' && contains(assignment.span, append.span) &&
+            const appended = facts.expressions.some(assignment => assignment.syntaxKind === 'assignment_statement' && contains(assignment.span, append.span) &&
               (assignment.fields.left ?? []).some(id => {const held = expr(id); return held !== undefined && children(held).some(target => target.bindingId === collection.bindingId);}));
+            // The batch the range walks must be the batch this append filled: a
+            // reassignment between the append and the range clause loses it.
+            const survivesToRange = ![...expressions.values()].some(write => {
+              if (!writeKinds.has(write.syntaxKind) || write.path !== append.path) return false;
+              if (write.span.byteEnd <= append.span.byteEnd || write.span.byteStart >= clause.span.byteStart) return false;
+              return (write.fields.left ?? []).flatMap(id => {const held = expr(id); return held === undefined ? [] : [held];})
+                .some(target => {const changed = projection(target); return changed !== undefined && changed.binding === collection.bindingId;});
+            });
+            return appended && survivesToRange;
           });
         });
       };
