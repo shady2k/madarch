@@ -54,3 +54,28 @@ test('Compose dangling aliases, nonmapping merges and recursive merges refuse th
   expect(readComposeFile(tree,records,'compose.yaml')).toEqual([]);expect(records.gaps.length).toBeGreaterThan(0);expect(records.gaps[0]!.reason).toContain('line ');
  }
 });
+
+test('whole Compose resolution covers service aliases and service merges without losing environment authority',async()=>{
+ const anchor='x-service: &runtime\n  environment:\n    TOKEN: private/credential\n  build: &build {context: ./api, dockerfile: Containerfile}\n  ports: &ports ["8100:80"]\n  depends_on: &dependencies [database]\n';
+ for(const service of ['*runtime','{<<: *runtime}']){
+  const source=anchor+`services:\n  api: ${service}\n`;
+  expect(await configurationReferences('compose.yaml',source,read)).toEqual([{name:'TOKEN',path:'compose.yaml',value:'private/credential'}]);
+  const tree=new TreeText({paths:['compose.yaml'],read:()=>new TextEncoder().encode(source)});const records=new Records(tree);
+  const result=readComposeFile(tree,records,'compose.yaml');
+  expect(records.gaps).toEqual([]);expect(result[0]!.environment[0]!.span.lineStart).toBe(3);
+  expect(result[0]!.build).toEqual({context:'./api',dockerfile:'Containerfile'});expect(result[0]!.ports).toEqual(['8100:80']);expect(result[0]!.dependsOn).toEqual(['database']);
+ }
+ const individual=anchor+'services:\n  api:\n    build: *build\n    ports: *ports\n    depends_on: *dependencies\n';
+ const tree=new TreeText({paths:['compose.yaml'],read:()=>new TextEncoder().encode(individual)});const records=new Records(tree);
+ const service=readComposeFile(tree,records,'compose.yaml')[0]!;
+ expect(service.build).toEqual({context:'./api',dockerfile:'Containerfile'});expect(service.ports).toEqual(['8100:80']);expect(service.dependsOn).toEqual(['database']);
+});
+test('whole Compose resolution refuses dangling service or unrelated aliases, cycles and alias-budget excess',async()=>{
+ const budget=['x-base: &a [value]'];let previous='a';for(let index=0;index<8;index++){const name=`layer${index}`;budget.push(`x-${name}: &${name} [*${previous}, *${previous}, *${previous}, *${previous}]`);previous=name;}
+ const documents=['services:\n  api: *missing\n','x-unused: *missing\nservices: {api: {}}\n','x-cycle: &cycle {self: *cycle}\nservices: {api: {}}\n',budget.join('\n')+'\nservices: {api: {}}\n'];
+ for(const source of documents){
+  const tree=new TreeText({paths:['compose.yaml'],read:()=>new TextEncoder().encode(source)});const records=new Records(tree);
+  expect(readComposeFile(tree,records,'compose.yaml')).toEqual([]);expect(records.gaps.length).toBeGreaterThan(0);expect(records.gaps[0]!.reason).toContain('line ');
+  await expect(configurationReferences('compose.yaml',source,read)).rejects.toThrow();
+ }
+});

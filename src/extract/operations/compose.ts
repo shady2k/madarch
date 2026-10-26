@@ -39,78 +39,98 @@ function scalarText(node: unknown): string | null {
 /** Reads one compose file; a file the reader refuses is a gap and no services. */
 export function readComposeFile(t: TreeText, records: Records, path: string): readonly ComposeService[] {
   const lineCounter = new LineCounter();
-  const document = parseDocument(t.text(path), { lineCounter, keepSourceTokens: true });
+  const document = parseDocument(t.text(path), { lineCounter, keepSourceTokens: true, merge: true });
   for (const error of document.errors) {
     records.gap(path, `line ${lineCounter.linePos(error.pos?.[0] ?? 0).line}: ${error.message}`);
   }
   if (document.errors.length > 0) return [];
-  const contents = document.contents;
+  const refuse = (node: unknown): never => {
+    const offset = node !== null && typeof node === 'object' && 'range' in node && Array.isArray(node.range) && typeof node.range[0] === 'number' ? node.range[0] : 0;
+    records.gap(path, `line ${lineCounter.linePos(offset).line}: the Compose document contains an unresolved alias, invalid merge or excessive alias expansion`);
+    throw new Error('Compose resolution refused');
+  };
+  type ResolvedPair = { readonly key: unknown; readonly value: unknown; readonly sourceValue: unknown };
+  const mappings = new Map<unknown, readonly ResolvedPair[]>();
+  const sequences = new Map<unknown, readonly unknown[]>();
+  const resolved = new Map<unknown, unknown>();
+  const active = new Set<unknown>();
+  const resolveNode = (source: unknown): unknown => {
+    if (resolved.has(source)) return resolved.get(source);
+    if (active.has(source)) return refuse(source);
+    active.add(source);
+    let result = source;
+    if (isAlias(source)) {
+      let target: unknown;
+      try { target = source.resolve(document); } catch { return refuse(source); }
+      if (target === undefined) return refuse(source);
+      result = resolveNode(target);
+    } else if (isMap(source)) {
+      const merged = new Map<unknown, ResolvedPair>();
+      const explicit = new Map<unknown, ResolvedPair>();
+      for (const pair of source.items) {
+        const key = resolveNode(pair.key);
+        const value = resolveNode(pair.value);
+        const merge = isScalar(key) && typeof key.value === 'symbol' && key.value.description === '<<';
+        if (merge) {
+          for (const item of isSeq(value) ? sequences.get(value)! : [value]) {
+            if (!isMap(item)) return refuse(pair.value);
+            for (const entry of mappings.get(item)!) {
+              const identity = isScalar(entry.key) ? entry.key.value : entry.key;
+              if (!merged.has(identity)) merged.set(identity, entry);
+            }
+          }
+        } else explicit.set(isScalar(key) ? key.value : key, { key, value, sourceValue: pair.value });
+      }
+      for (const [key, entry] of explicit) merged.set(key, entry);
+      mappings.set(source, [...merged.values()]);
+    } else if (isSeq(source)) sequences.set(source, source.items.map(resolveNode));
+    active.delete(source); resolved.set(source, result);
+    return result;
+  };
+  let contents: unknown;
+  try {
+    // The library enforces its alias-expansion budget before any consumer sees
+    // a value. The shared AST view also rejects cycles anywhere in the document.
+    document.toJS({ maxAliasCount: 100 });
+    contents = resolveNode(document.contents);
+  } catch {
+    if (records.gaps.length === 0) {
+      records.gap(path, 'line 1: the Compose document contains an unresolved alias, invalid merge or excessive alias expansion');
+    }
+    return [];
+  }
+  const pairs = (node: unknown): readonly ResolvedPair[] => isMap(node) ? mappings.get(node)! : [];
+  const items = (node: unknown): readonly unknown[] => isSeq(node) ? sequences.get(node)! : [];
+  const field = (node: unknown, name: string): unknown => pairs(node).find((entry) => isScalar(entry.key) && entry.key.value === name)?.value;
   if (!isMap(contents)) {
     records.gap(path, 'the file is no mapping: a compose file maps service names to their declarations');
     return [];
   }
-  const services = contents.items.find((pair) => isScalar(pair.key) && pair.key.value === 'services')?.value;
+  const services = field(contents, 'services');
   if (!isMap(services)) {
     records.gap(path, 'the file declares no services mapping');
     return [];
   }
-  const refuseEnvironment = (node: unknown): never => {
-    const offset = node !== null && typeof node === 'object' && 'range' in node && Array.isArray(node.range) && typeof node.range[0] === 'number' ? node.range[0] : 0;
-    records.gap(path, `line ${lineCounter.linePos(offset).line}: the environment alias or merged mapping cannot be resolved completely`);
-    throw new Error('environment mapping refused');
-  };
-  const resolveAlias = (node: unknown): unknown => {
-    const seen = new Set<unknown>();
-    while (isAlias(node)) {
-      if (seen.has(node)) return refuseEnvironment(node);
-      seen.add(node);
-      let target: unknown;
-      try { target = node.resolve(document); } catch { return refuseEnvironment(node); }
-      if (target === undefined) return refuseEnvironment(node);
-      node = target;
-    }
-    return node;
-  };
-  type EnvironmentPair = { readonly key: unknown; readonly value: unknown };
-  const environmentPairs = (source: unknown, active = new Set<unknown>()): readonly EnvironmentPair[] => {
-    const mapping = resolveAlias(source);
-    if (!isMap(mapping) || active.has(mapping)) return refuseEnvironment(source);
-    const next = new Set(active); next.add(mapping);
-    const merged = new Map<string, EnvironmentPair>();
-    const explicit = new Map<string, EnvironmentPair>();
-    for (const entry of mapping.items) {
-      if (!isScalar(entry.key) || typeof entry.key.value !== 'string') continue;
-      if (entry.key.value === '<<') {
-        const source = resolveAlias(entry.value);
-        for (const item of isSeq(source) ? source.items : [source]) {
-          for (const pair of environmentPairs(item, next)) {
-            if (isScalar(pair.key) && typeof pair.key.value === 'string' && !merged.has(pair.key.value)) merged.set(pair.key.value, pair);
-          }
-        }
-      } else explicit.set(entry.key.value, entry);
-    }
-    for (const [name, pair] of explicit) merged.set(name, pair);
-    return [...merged.values()];
-  };
   const read: ComposeService[] = [];
-  for (const pair of services.items) {
+  for (const pair of pairs(services)) {
     if (!isScalar(pair.key) || typeof pair.key.value !== 'string') continue;
     const name = pair.key.value;
-    const serviceLine = lineCounter.linePos(pair.key.range?.[0] ?? 0).line;
-    const image = scalarText(isMap(pair.value) ? pair.value.items.find((item) => isScalar(item.key) && item.key.value === 'image')?.value : undefined);
+    const serviceTarget = isAlias(pair.sourceValue) && pair.value !== null && typeof pair.value === 'object' && 'range' in pair.value && Array.isArray(pair.value.range) ? pair.value.range[0] : pair.key.range?.[0];
+    const serviceLine = lineCounter.linePos(typeof serviceTarget === 'number' ? serviceTarget : 0).line;
+    const image = scalarText(field(pair.value, 'image'));
     let build: ComposeService['build'] = null;
-    const buildNode = isMap(pair.value) ? pair.value.items.find((item) => isScalar(item.key) && item.key.value === 'build')?.value : undefined;
+    const buildNode = field(pair.value, 'build');
     if (isScalar(buildNode) && buildNode.value !== null) build = String(buildNode.value);
     else if (isMap(buildNode)) {
-      const context = scalarText(buildNode.items.find((item) => isScalar(item.key) && item.key.value === 'context')?.value);
-      const dockerfile = scalarText(buildNode.items.find((item) => isScalar(item.key) && item.key.value === 'dockerfile')?.value);
+      const context = scalarText(field(buildNode, 'context'));
+      const dockerfile = scalarText(field(buildNode, 'dockerfile'));
       if (context !== null) build = { context, dockerfile: dockerfile ?? 'Dockerfile' };
     }
     const ports: string[] = [];
     const portMappings: { host: string; container: string }[] = [];
-    const portsNode = isMap(pair.value) ? pair.value.items.find((item) => isScalar(item.key) && item.key.value === 'ports')?.value : undefined;
+    const portsNode = field(pair.value, 'ports');
     if (isSeq(portsNode)) {
-      for (const item of portsNode.items) {
+      for (const item of items(portsNode)) {
         const text = scalarText(item);
         if (text === null) continue;
         ports.push(text);
@@ -121,35 +141,32 @@ export function readComposeFile(t: TreeText, records: Records, path: string): re
       }
     }
     const environment: ComposeVariable[] = [];
-    try {
-      const envNode = resolveAlias(isMap(pair.value) ? pair.value.items.find((item) => isScalar(item.key) && item.key.value === 'environment')?.value : undefined);
-      if (isMap(envNode)) {
-        for (const variable of environmentPairs(envNode)) {
-          if (!isScalar(variable.key) || typeof variable.key.value !== 'string') continue;
-          const line = lineCounter.linePos(variable.key.range?.[0] ?? 0).line;
-          environment.push({ name: variable.key.value, value: scalarText(resolveAlias(variable.value)), span: t.spanOfLine(path, line) });
-        }
-      } else if (isSeq(envNode)) {
-        for (const source of envNode.items) {
-          const item = resolveAlias(source);
-          const text = scalarText(item);
-          if (text === null) continue;
-          const at = text.indexOf('=');
-          const name = at < 0 ? text : text.slice(0, at);
-          const line = lineCounter.linePos((item as { range?: number[] }).range?.[0] ?? 0).line;
-          environment.push({ name, value: at < 0 ? null : text.slice(at + 1), span: t.spanOfLine(path, line) });
-        }
+    const envNode = field(pair.value, 'environment');
+    if (isMap(envNode)) {
+      for (const variable of pairs(envNode)) {
+        if (!isScalar(variable.key) || typeof variable.key.value !== 'string') continue;
+        const line = lineCounter.linePos(variable.key.range?.[0] ?? 0).line;
+        environment.push({ name: variable.key.value, value: scalarText(variable.value), span: t.spanOfLine(path, line) });
       }
-    } catch { return []; }
+    } else if (isSeq(envNode)) {
+      for (const item of items(envNode)) {
+        const text = scalarText(item);
+        if (text === null) continue;
+        const at = text.indexOf('=');
+        const name = at < 0 ? text : text.slice(0, at);
+        const line = lineCounter.linePos((item as { range?: number[] }).range?.[0] ?? 0).line;
+        environment.push({ name, value: at < 0 ? null : text.slice(at + 1), span: t.spanOfLine(path, line) });
+      }
+    }
     const dependsOn: string[] = [];
-    const dependsNode = isMap(pair.value) ? pair.value.items.find((item) => isScalar(item.key) && item.key.value === 'depends_on')?.value : undefined;
+    const dependsNode = field(pair.value, 'depends_on');
     if (isSeq(dependsNode)) {
-      for (const item of dependsNode.items) {
+      for (const item of items(dependsNode)) {
         const text = scalarText(item);
         if (text !== null) dependsOn.push(text);
       }
     } else if (isMap(dependsNode)) {
-      for (const item of dependsNode.items) {
+      for (const item of pairs(dependsNode)) {
         if (isScalar(item.key) && typeof item.key.value === 'string') dependsOn.push(item.key.value);
       }
     }
