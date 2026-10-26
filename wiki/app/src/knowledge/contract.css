@@ -1,0 +1,11 @@
+.contract-definition { min-width: 0; }
+.contract-redoc, .contract-asyncapi { contain: inline-size; max-width: 100%; min-width: 0; overflow-x: auto; font-size: 14px; }
+.contract-redoc .menu-content { display: none; }
+.contract-redoc .api-content { width: 100%; padding: 0; }
+.contract-redoc [data-contract-selected] { outline: 2px solid var(--color-line); outline-offset: -2px; }
+.contract-proto { overflow-wrap: anywhere; }
+.contract-proto dl { display: grid; grid-template-columns: auto 1fr; gap: .5rem 1rem; }
+.contract-proto dd { min-width: 0; }
+.contract-asyncapi .aui-root { background: transparent; color: inherit; }
+.dark .contract-redoc, .dark .contract-asyncapi { color-scheme: dark; }
+@media (max-width: 600px) { .contract-redoc { font-size: 13px; } .contract-proto dl { grid-template-columns: 1fr; } }

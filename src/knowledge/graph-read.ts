@@ -182,14 +182,34 @@ export class GraphReader {
 
   /** One page of a kind's entities, by key, filtered by a text in the key or label. */
   async list(kind: string, options: { q?: string; after?: string; limit: number }): Promise<{ rows: GraphEntity[]; next: string | null; total: number }> {
+    return await this.listKinds([kind], options, false);
+  }
+
+  /** The operations catalogue also includes channels declared by actual AsyncAPI contracts.
+   * Identity and navigation remain the graph's existing logical keys. */
+  async listOperations(options: { q?: string; after?: string; limit: number }): Promise<{ rows: GraphEntity[]; next: string | null; total: number }> {
+    return await this.listKinds(['code.operation', 'code.channel'], options, true);
+  }
+
+  private async listKinds(kinds: readonly string[], options: { q?: string; after?: string; limit: number }, catalogue: boolean): Promise<{ rows: GraphEntity[]; next: string | null; total: number }> {
     return await this.run(async (tx, at) => {
       const text = options.q === undefined || options.q.trim() === '' ? null : `%${options.q.trim().replace(/[\\%_]/g, '\\$&')}%`;
-      const filter = `k.key = $2 AND v.properties ? 'recordKey' AND ${this.visible('v')} AND ($3::text IS NULL OR v.label ILIKE $3 OR v.properties->>'recordKey' ILIKE $3)`;
-      const total = await tx.query<Raw>(`SELECT count(DISTINCT v.properties->>'recordKey')::int AS n FROM node_version v JOIN node_kind k ON k.id = v.kind_id WHERE ${filter}`, [at, kind, text]);
+      const eligibility = catalogue ? ` AND (k.key <> 'code.channel' OR EXISTS (
+        SELECT 1 FROM node_version member JOIN edge_version e ON e.dst_id = member.node_id
+        JOIN relation_type r ON r.id = e.relation_type_id
+        JOIN node_version owner ON owner.node_id = e.src_id JOIN node_kind ok ON ok.id = owner.kind_id
+        WHERE member.properties->>'recordKey' = v.properties->>'recordKey'
+          AND member.scope_id = v.scope_id AND e.scope_id = v.scope_id AND owner.scope_id = v.scope_id
+          AND r.key = 'code.declares' AND ok.key = 'code.contract' AND owner.properties->>'format' = 'asyncapi'
+          AND ${this.visible('member')} AND ${this.visible('e')} AND ${this.visible('owner')}
+      ))` : '';
+      const filter = `k.key = ANY($2::text[]) AND v.properties ? 'recordKey' AND ${this.visible('v')} AND ($3::text IS NULL OR v.label ILIKE $3 OR v.properties->>'recordKey' ILIKE $3)${eligibility}`;
+      const kindsParameter = `{${kinds.map((kind) => `"${kind.replace(/(["\\])/g, '\\$1')}"`).join(',')}}`;
+      const total = await tx.query<Raw>(`SELECT count(DISTINCT v.properties->>'recordKey')::int AS n FROM node_version v JOIN node_kind k ON k.id = v.kind_id WHERE ${filter}`, [at, kindsParameter, text]);
       const keys = await tx.query<Raw>(
         `SELECT key FROM (SELECT DISTINCT v.properties->>'recordKey' AS key FROM node_version v JOIN node_kind k ON k.id = v.kind_id WHERE ${filter}) t
          WHERE ($4::text IS NULL OR key COLLATE "C" > $4::text) ORDER BY key COLLATE "C" LIMIT $5::int`,
-        [at, kind, text, options.after ?? null, String(options.limit + 1)],
+        [at, kindsParameter, text, options.after ?? null, String(options.limit + 1)],
       );
       const more = keys.rows.length > options.limit;
       const shown = keys.rows.slice(0, options.limit).map((row) => String(row['key']));

@@ -1,152 +1,127 @@
-# Graph kinds connect, contracts render by protocol, and history pages tell the story
+# Contracts open in their standard renderers and operations are grouped by contract
 
 Change: madarch-m38l.16
-Base: 05af1efa4ccd3b72531c9f0c93fea0dd8d260982
+Base: 6913d38b561017f46fc158d5c2aa1224ee167da0
 Tasks: madarch-m38l.16
 Kind: behavior
 
 ## Intent
-A reader of the generated product wiki can follow the relationships that give
-graph entities their meaning, understand an API contract in its native format,
-and see the history behind a task, commit or author. The operations index
-groups operations by contract and protocol. Contract pages provide a lazy,
-read-only Definition view, and operation pages open at their own contract
-operation. Graph relations connect data, operations, processes and history
-rather than leaving isolated pages or dangling keys. The graph neighbourhood
-must agree with the related block, and history pages must summarize the work
-they record. A committed exhaustive audit over the generated training
-repository prevents regressions.
+A reader understanding an integration opens the operations catalogue, finds
+an operation under its contract and protocol, and reads the actual contract
+in a familiar documentation view. The main path is catalogue → operation →
+Definition, with implementation, caller and source links beside it. Success
+means the complete contract and the selected operation are readable in the
+installed binary, not just a table of extracted names and raw source.
+This implements item 2 only and milestone wiki-for-people defect 41.
+
+## Rationale
+The owner asked for Swagger/Redoc views, then found that PR #164 had not
+provided them: «Здесь мы с тобой обсуждали swagger/redoc вид. Где это все?».
+At the pinned current origin/main baseline, the lazy Definition block exists
+but draws a member table and raw text; it is not Redoc or AsyncAPI, cuts source
+at 400 lines, and accepts contract pages only. The operation template has no
+Definition block. The wiki app declares neither renderer dependency.
+
+This is a behavior change with a complete proposed product-wiki capability in
+`capabilities/product-wiki.md`. It is the accepted capability at Base plus only
+`contract-display`. The previous proposal included graph, history and location
+work already delivered by PR #164; that proposal is narrowed here, not replayed
+as fresh work. Its historical audit and screenshots are not evidence for this
+remaining item. Current capability files stay unchanged until stage acceptance
+and closure.
 
 ## Out of scope
-- Task document pages (`task` kind under `docs/tasks`) owned by madarch-m38l.14; this change covers graph kind `code.task` and graph history pages.
-- Diagram modeling and other diagram renderers owned by madarch-m38l.15.
-- Reader shell and writer changes owned by madarch-m38l.12 and madarch-m38l.13.
-- Manifest upgrade, seed mechanism, index refusal and settings owned by madarch-m38l.11; new relation examples may be added only in `src/knowledge/seed.ts` `TEMPLATES` text.
-- Changes to graph storage or product data, and tests requiring an outside repository or owner infrastructure.
+- Item 1: graph connectivity, isolation audit, history summaries and code locations, delivered in PR #164.
+- Health/probe and route-operation extraction, now madarch-m38l.20; no changes under src/extract.
+- Other diagrams (madarch-m38l.15), document/page content and kinds (madarch-m38l.21), questions and the writer (madarch-m38l.22).
+- A general catalogue/menu redesign, new graph storage, product data inside the engine, contract editing or API execution.
+- Real agent runs, owner infrastructure and outside-repository fixtures. Use generated or committed neutral fixtures and the scripted ACP agent only.
 
 ## Changes to requirements
-- product-wiki (extended): graph kinds have their meaning-implied relations; an exhaustive audit checks isolation, unique labels and locations; entry points identify service, file, function location and started process; operations are grouped by contract with protocol-aware, lazy Definition views and operation deep-links; graph neighbourhood and related blocks agree; task, commit and author pages carry history summaries. Complete proposed text is in `capabilities/product-wiki.md`.
+- product-wiki/contract-display (new at Base): operations grouped by contract with protocol badges and operation, implemented-by, called-by and place columns; lazy, read-only Redoc, AsyncAPI and protobuf documentation; operation-specific Redoc views retaining graph links and chain; complete definitions or explicit diagnostic errors; bilingual app-owned strings; exact established dependencies and all renderer assets inside the compiled binary. Scenarios: `operations-grouped-by-contract`, `openapi-definition-and-operation-slice`, `asyncapi-definition`, `grpc-definition`, `contract-definition-is-lazy-and-failure-visible`, `protocol-rendering-localization`, `compiled-binary-contract-renderers`, `complete-definition-or-explicit-refusal`, `pinned-established-renderers`.
+
+Complete proposed capability: `capabilities/product-wiki.md`. All existing
+requirements are retained verbatim from Base; no hand-written delta is stored.
 
 ## Preserved contracts
-None.
+- product-wiki/serve: product routes remain reachable and reads do not change product files.
+- product-wiki/internationalization: app-owned text follows English and Russian catalogues; source content is not translated.
+- product-wiki/app: the same built app is served from a checkout and embedded in the release binary.
 
 ## Coverage
-- product-wiki/graph-connectivity: test, generated-training-repository-audit
-- product-wiki/entry-points-and-code-locations: test, generated-training-repository-audit
-- product-wiki/contract-display: test, browser-walk
-- product-wiki/graph-neighborhood: test, generated-training-repository-audit
-- product-wiki/history-pages: test, generated-training-repository-audit, browser-walk
+- product-wiki/contract-display: test, browser-walk, compiled-binary-contract-walk, renderer-version-audit
+- product-wiki/serve: test
+- product-wiki/internationalization: test, browser-walk
+- product-wiki/app: test, compiled-binary-contract-walk
 
 ## Where it is seen
 
 Kind: screen
-Place: the product wiki's operations index, contract and operation pages, and graph pages for data, process and history entities
-Mockup: docs/prototypes/madarch-m38l.9/function-pay-1150-light.png
+Place: a product's operations catalogue, contract Definition views and operation pages
+Mockup: docs/changes/madarch-m38l.16/contract-views-mockup.html
 
-1. A reader opens the operations index and finds operations grouped by contract, with protocol badges and the implemented-by, called-by and place columns.
-2. They open a contract's Definition view to read its OpenAPI, AsyncAPI or gRPC definition, or follow an operation page to its contract slice and call chain.
-3. They follow graph relations from a contract, table, endpoint, file, task or commit, and see its neighbours in both the graph diagram and relations block.
-4. They open an entry point and see its service, file, function location and started process; then open task, commit or author history pages and see the commits, changed files, symbols, authors and activity that explain them.
+1. Open the API operations catalogue and read each contract heading, its protocol badge and the operation, implemented-by, called-by and place columns.
+2. Open an OpenAPI contract and expand Definition. Read Redoc, then open one operation and find Redoc positioned at that operation beside madarch's links and chain.
+3. Open an AsyncAPI contract and read its channels and messages in the AsyncAPI component. Open a gRPC contract and follow service → method → request/response message fields.
+4. Repeat from an installed compiled binary with external network requests blocked, in English and Russian, light and dark, at 1150 px and 390 px. A bad definition reports its source and cause while the rest of the page remains usable.
 
 ## Blocking questions
 None.
 
 ## Design and decisions
-Connectivity is supplied by the owning fill extractors. The expected relations
-are: contract declares operation and message; database holds table; table has
-column and index; index covers column; migration creates or alters table,
-column and index; channel carries message; entry-point starts process or file;
-health and metrics endpoint is served by service or route, with `GET /healthz`
-also represented as a route; logger is used by file or service; commit touches
-file and is authored by author; task is named by commit; facet describes file.
-Every code-derived node has a path and line span, every kind's labels are
-unique, and entry points include service and file in the label, the function's
-location, and links to service, file and process.
-Existing graph ids must be resolved by their stable keys so these edges reach
-real nodes. If an entity kind is truly standalone, the starter template names
-it and gives its reason. The generated training-repository audit enumerates
-every node, computes depth-one neighbours, compares those with the page's
-related-block relations, and prints per-kind before/after totals and isolated
-counts. It must never sample or silently cap results.
+- Implementation starts only after the coordinator records the owner's approval for this scoped proposal's digest.
+- Extend the existing deferred Definition block and the operations list; do not introduce a second wiki or standalone API portal. The server reads repository content at the graph's pinned revision. The product remains the source of truth.
+- Group using declared contract relationships and stable graph identities, not matching names. Sort deterministically by code point. An operation lacking a contract remains visible in an explicitly labelled group; unresolved ownership must not drop a row. Preserve caller, implementation and location links.
+- Use lazy local adapters: Redoc for OpenAPI, @asyncapi/react-component for AsyncAPI and a local protobuf documentation view. Keep network/API execution controls off. The protobuf view documents services, methods, streaming where declared, request/response messages and their fields, rather than showing raw rpc names alone.
+- Load renderer code and styles only when Definition is opened. Keep errors inside the definition boundary; do not blank the surrounding page. Supply the entire definition and resolve product-local references against pinned source bytes. Unsupported or unresolved dependencies produce explicit file, line, full-path diagnostics; never silently fetch arbitrary remote references or present truncated content as complete.
+- An OpenAPI operation page selects its own operation using its stable operation identity or method/path. Redoc is positioned at that selection; madarch's declared-by, served-by, callers and chain links remain available. A missing or ambiguous selection is an explicit error, never the first operation as a fallback.
+- Prefer locally bundled adapters over CDN scripts or hosted documentation: the installed binary must work independently of network access and a source checkout. Compare with the existing embedded app asset path and PR #160's archify embedding. Build output must retain lazy chunks, styles, workers and fonts the renderers actually use.
+- Proposed exact pins, checked against the npm registry on 2026-10-24: Redoc 2.5.4 (published 2026-09-10T14:04:23.606Z) and @asyncapi/react-component 3.2.1 (published 2026-09-17T18:54:20.714Z). Both predate adoption by more than fourteen days and declare React 19-compatible peer ranges. Verify transitive compatibility and required peer dependencies on the pod before adoption; record the lockfile and built-asset evidence. Do not silently substitute a newer release or weaken compatibility. No dependency or product-code change is made in this approval proposal.
+- Shared-file boundary: the operation template, definition block/model, API projection and UI list/block types, app catalogues, package manifest/lockfile, build embedding and dedicated tests/shots may need targeted edits. Report overlap with m38l.21 (templates and kinds) and m38l.15 (UI blocks); coordinate before writes there. Do not edit extractor, writer or loop ownership.
 
-The contract catalogue groups the indexed operations by contract and protocol.
-Definition renderers are loaded only when the reader opens Definition. OpenAPI
-uses Redoc, AsyncAPI uses `@asyncapi/react-component`, and gRPC uses a local
-service/method/message-field documentation view. Operation pages select their
-own operation in the OpenAPI renderer and keep madarch's relationship links
-and call chain. Renderer errors identify the contract and cause while leaving
-the rest of the page usable. Renderer dependencies and app-owned messages are
-kept within the wiki app's conventions and localized in English and Russian.
+### Baseline and planned checks
+Baseline: origin/main `6913d38b561017f46fc158d5c2aa1224ee167da0`. Source review found:
+- `src/knowledge/definition.ts`: contract-only kind guard; member rows; `SPEC_LIMIT = 400`; no standard renderer output.
+- `wiki/app/src/knowledge/blocks.tsx`: Definition is a custom table and raw-text disclosure.
+- `src/knowledge/seed.ts`: contract has Definition; operation does not.
+- `wiki/app/package.json`: neither Redoc nor @asyncapi/react-component is installed.
 
-The neighbourhood query accepts all page-backed relation kinds, including
-history relations; the relation parity test compares the same entity and graph
-revision. History summaries are read from indexed graph facts only. Task pages
-list commits with date, author and message; commit pages list changed files,
-added/removed lines and symbols; author pages list commits and the most-touched
-files and modules. Missing data is named, and any bounded result exposes its
-total rather than implying the list is complete.
+TDD after approval: reproduce the missing grouping, renderer dispatch, lazy
+loading, operation selection, complete source/reference handling, protobuf
+fields and local-asset behavior through focused tests. Keep failure fixtures
+neutral and ensure malformed, missing and unsupported definitions fail with
+source diagnostics. Assert all operation rows remain present, including those
+without a resolvable contract, and check exact catalogue-key parity.
+
+Run type checks and focused engine/UI tests only on a SkyPilot AVX2 pod;
+use 8 GB for wiki, fill and browser work. Run the full suite through CI on
+the final PR head, not with local Bun. Run bounded mutations of changed
+logic before reporting, and disclose unsupported tooling or survivors.
+
+After approval, independently review with Codex in read-only mode and fix
+valid findings. On the pod, walk every touched contract and operation page
+through the JSON page API and kind lists, not a sample; record all ids and
+counts. Render and inspect the complete reader path in both languages, light
+and dark, desktop and phone. Seed the scratch home with the everything role
+before screenshots. Record screenshot paths and layout observations. Build
+and serve the compiled binary outside the checkout, block external browser
+requests and verify every renderer and required asset from that binary.
+Bring the pod down, merge current origin/main before the final push and hand
+one green PR to the owner; never merge it.
 
 ## Acceptance evidence
-
-**Isolated nodes, before and after.** The owner's walk of shop on 0.2.2 found,
-per kind: contract 3/3, message 2/2, database 4/4, column 40/40, index 6/6,
-migration 8/8, entry-point 4/4, facet 40/40, health-endpoint 4/4,
-metrics-endpoint 1/1, logger 4/4, commit 40/40, author 3/3, task 40/40 and
-newcomer-prerequisites isolated, and file 21/40, input 5/10, operation 1/9,
-env-definition 15/26 and make-target 2/7 partly isolated. Part of that was the
-neighbourhood query hiding the history relations; part was edges no extractor
-made.
-
-After this change `test/extract-driver-suite.ts` walks every node of the
-generated training repository at the tip the fill read, and prints
-`GRAPH_AUDIT` per kind. CI run 40047024531 (test shard 1, job 120730994820)
-printed 46 kinds and **0 isolated nodes in every one**, among them
-`code.commit` 72, `code.task` 72, `code.author` 3, `code.contract` 3,
-`code.column` 49, `code.index` 6, `code.migration` 8, `code.entry-point` 4,
-`code.facet` 182, `code.file` 115, `code.route` 18, `code.env-definition` 26,
-`code.input` 10, `code.make-target` 7, `code.service` 4. The audit also
-requires a path and a line for every code-derived node (the history kinds and
-the repository node are exempted with their reason in the test) and one label
-per kind, the kinds whose label is a local name (a column of a table, a
-symbol's name, a route's method and path, a service's variables) exempted with
-their reason written beside them.
-
-**Relation parity.** `test/knowledge-vertical.test.ts` walks twenty entities of
-every kind of the filled product and requires every row every `related` block
-of that page shows to stand in the page's depth-one neighbourhood, and a page
-that shows relations to have a neighbourhood at all — the owner's «А здесь
-почему пусто?». `QUIET_RELATIONS` is empty: the graph block no longer hides the
-history relations.
-
-**Entry points.** Each is labelled `<service> · <file>`, carries the file's
-span and links to its service (`code.belongs-to`) and the process it starts
-(`code.starts` → `code.process`), keyed as the deploy extractor keys it.
-
-**History and definition pages.** Task pages list their commits with the day,
-the author and the message; commit pages list the files with the lines added
-and removed (a `--numstat` walk) and the symbols each file declares; author
-pages list their commits and the files their work touched most, with their
-module. Contract pages get a Definition block, lazy like the diagrams: the
-OpenAPI operations, the AsyncAPI channels and messages, or the protobuf
-services and rpcs, each at an anchor, beside the contract's own text.
-
-**Checks.** GitHub CI on the PR head: run 40047024531 on `babb750c` is green in
-all six jobs — `checks` (`bun run check`, the views and contract checks, and the
-wiki app's own check, tests and build) and the five test shards. Shard 1
-reported 2103 passing cases.
-
-**Screenshots.** Rendered on the SkyPilot pod by `bun scripts/knowledge-shots.ts
---only shop`, which now also walks a task, a commit, an author and the OpenAPI
-contract in light, dark and at a phone's width.
+Proposal and baseline review only. No implementation, tests, mutation run,
+screenshots, compiled-binary verification, independent implementation review,
+PR or CI are claimed yet. All remain pending approval.
 
 ## DONE WHEN
-All listed graph kinds have their meaning-implied relations and stable endpoints;
-the exhaustive generated-repository audit has no unjustified isolated nodes
-and its before/after counts are recorded. The operations index is grouped by
-contract and protocol with the required columns; contract Definition views use
-the required lazy, read-only protocol renderers; operation views deep-link to
-the operation. The graph neighbourhood and related block agree, entry points identify their
-service, file, function location and process, every code-derived node has a
-location, labels are unique within each kind, and task, commit and author pages
-carry the required history. English and Russian reader
-screens are inspected in light and dark at desktop and phone widths.
+The operations catalogue groups every operation by contract and protocol with
+the four required columns. Contract pages lazily render complete OpenAPI in
+Redoc, AsyncAPI in @asyncapi/react-component and gRPC service/method/message
+fields in a proto documentation view. OpenAPI operation pages select their
+own Redoc operation and keep madarch links and chain. The views are read-only,
+errors are explicit and source-located, and the complete reader path works
+from the self-contained binary with no CDN. Every touched page is checked
+through JSON and inspected in English and Russian, light and dark, at 1150 px
+and 390 px, with screenshots, focused pod checks, mutation evidence, independent
+review and green CI recorded on the final PR head.

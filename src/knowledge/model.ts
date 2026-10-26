@@ -1,3 +1,5 @@
+import type { ProtoDocumentation } from './proto-document.js';
+import type { ContractDiagnostic } from './contract-document.js';
 /**
  * The page model the server answers and the app draws (decision 0029): a page
  * is a list of blocks, each already read from the graph or the Markdown, so the
@@ -187,9 +189,9 @@ type BlockShape =
   | { type: 'properties'; title: string; rows: PropertyRow[] }
   | { type: 'stated'; title: string; place: { repo: string | null; path: string; lineStart: number; lineEnd: number; href: string; commit: string | null; single?: boolean } }
   | { type: 'deferred'; block: string; title: string; line: number }
-  | { type: 'definition'; title: string; format: string; contract: string; location?: CodeLocation; members: DefinitionMember[]; membersTotal: number; membersShown: number; memberCuts: { channel: string; total: number; shown: number }[]; spec: { text: string; lines: number } }
+  | { type: 'definition'; title: string; format: string; contract: string; fullPath?: string; location?: CodeLocation; members: DefinitionMember[]; membersTotal: number; membersShown: number; memberCuts: { channel: string; total: number; shown: number }[]; spec: { text: string; lines: number }; document?: Record<string, unknown>; descriptions?: {text: string; path: string; line: number; fullPath: string}[]; selection?: { method: string; path: string; operationId: string }; protobuf?: ProtoDocumentation; diagnostics?: ContractDiagnostic[] }
   | { type: 'history'; title: string; sections: HistorySection[]; notes: HistoryNote[] }
-  | { type: 'problem'; block: string; message: string; file: string; line: number };
+  | { type: 'problem'; block: string; message: string; file: string; line: number; diagnostic?: ContractDiagnostic };
 
 
 /** One member of a contract's definition: an operation, a channel, or an rpc, with the anchor the page opens at. */
@@ -300,6 +302,7 @@ export interface KindSummary {
 }
 
 export interface EntityListing {
+  operations?: Record<string, import('./operation-catalogue.js').OperationMetadata>;
   kind: string;
   total: number;
   rows: EntityRef[];

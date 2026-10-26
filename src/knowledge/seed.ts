@@ -194,7 +194,9 @@ ${SECTION.pagesAbout('this contract', 'этом контракте')}
 
 /** An operation: what it is, where its code stands, the contract that declares it and its chain. */
 const OPERATION = `${SECTION.details}
+${block('definition', 'Definition', 'Определение')}
 ${G('Around this operation','Вокруг этой операции')}
+${block('sequence', 'End-to-end chain', 'Сквозная цепочка', 'scenario="{{label}}"')}
 ${SECTION.source}
 ${block('related', 'Declared by', 'Объявлена в', 'relation="code.declares" direction="in"')}
 ${block('related', 'Served by', 'Обслуживается', 'relation="code.serves" direction="in"')}

@@ -732,118 +732,6 @@ as one JSON object.
 - When: the probe runs
 - Then: the installed adapter is reported connected with the protocol version and agent identity its `initialize` answer carried, the missing one is reported with the command that installs it and that command's unpacked size, and no prompt was sent to either
 
-## Requirement: graph-neighborhood — A graph diagram shows every relation on its page
-A graph page's neighbourhood diagram shall include every relation the page's
-related block can show for the same node and graph revision. The relation
-selection, directions and edge endpoints used by the diagram shall be
-consistent with the related block; no relation may disappear merely because
-it was produced by a history extractor or uses a history-specific relation
-kind. A node is isolated only when both reads report no relations. Where a
-relation cannot be drawn because its other endpoint has no graph node, the
-page shall make that limitation explicit rather than report the node as
-having no relations. The generated training repository shall have an audit
-that reads every node's depth-one neighbourhood for every kind, compares the
-neighbourhood relation set with the node's related-block relation set, and
-reports isolated node counts by kind. A kind may contain isolated nodes only
-when the starter template declares that kind standalone with a reason.
-
-### Scenario: history-relations-are-not-dropped
-- Given: a graph node whose related block includes an incoming history relation
-- When: its depth-one graph neighbourhood is read
-- Then: the diagram includes that relation and its other endpoint, and the graph audit counts the node as connected
-
-### Scenario: graph-and-related-agree
-- Given: every node in the generated training repository
-- When: its depth-one graph neighbourhood and related block are read at the same graph revision
-- Then: both expose the same page-backed relations and directions, and any difference fails the audit with the node and relation named
-
-### Scenario: standalone-kind-is-explicit
-- Given: a graph kind with nodes that have no relations
-- When: the training-repository audit runs
-- Then: it passes those nodes only if their kind is declared standalone with a reason; otherwise it fails with the kind and node keys
-
-## Requirement: history-pages — History pages explain the work they record
-A task page shall show its related commits with each commit's date, author and
-message. A commit page shall show the files it changed, the added and removed
-line counts, and the symbols touched. An author page shall show their commits
-and the files and modules they touch most. These summaries shall be derived
-from indexed graph history, link to the corresponding graph pages when those
-pages exist, and state when a value is unavailable rather than silently omit
-it or substitute a smaller result. Reader-facing labels and unavailable states
-shall be available in English and Russian.
-
-### Scenario: task-history-summary
-- Given: a task linked to commits with dates, authors and messages
-- When: its wiki page is read
-- Then: it lists those commits with all three values and links to each commit page
-
-### Scenario: commit-change-summary
-- Given: a commit that changes files and touches symbols
-- When: its wiki page is read
-- Then: it lists every changed file with added and removed lines and the symbols touched
-
-### Scenario: author-history-summary
-- Given: an author with commits touching files and modules
-- When: their wiki page is read
-- Then: it lists their commits and ranks the files and modules they touch most
-
-### Scenario: missing-history-values
-- Given: a history record without a date, author, message, line counts or symbol data
-- When: its page is read
-- Then: the page identifies unavailable values and does not imply that the history is empty
-
-### Scenario: history-summary-localization
-- Given: a task, commit or author page with a history summary
-- When: it is rendered in English and Russian
-- Then: all app-owned labels and empty or unavailable states use the selected language
-
-## Requirement: graph-connectivity — Every graph kind has its meaning's relations
-The fill shall publish the relations implied by each graph kind so graph pages
-are reachable in both directions where a reader needs them: a contract
-declares its operations and messages; a database holds tables; a table has
-columns and indexes; an index covers columns; a migration creates or alters
-its tables, columns and indexes; a channel carries messages; an entry-point
-starts a process or file; a health or metrics endpoint is served by a service
-or route, and `GET /healthz` is also represented as a route so its operation
-finds it; a logger is used by a file or service; a commit touches files and is
-authored by an author; a task is named by a commit; and a facet describes a
-file. Existing extractor facts shall be joined by stable graph keys rather
-than leaving dangling endpoints. New starter relation blocks belong only in
-the `TEMPLATES` text in `src/knowledge/seed.ts`. Every node kind must either
-have the relations its meaning implies or be explicitly declared standalone
-in the starter template with a reason.
-
-The generated training repository shall have a committed audit test that
-reads every node's depth-one neighbourhood for every kind and fails on any
-unjustified isolated node. The audit shall report per-kind totals, isolated
-counts and standalone exceptions; it shall not sample or silently cap the
-result. The change record shall preserve the measured before and after counts.
-
-### Scenario: contract-data-and-operation-relations
-- Given: a contract that declares operations and messages, a database with tables, and tables with columns and indexes
-- When: graph pages and their neighbourhoods are read
-- Then: contract-declares-operation/message, database-holds-table, table-has-column/index and index-covers-column relations reach both endpoints
-
-### Scenario: migration-and-channel-relations
-- Given: migrations creating or altering schema objects and a channel carrying a message
-- When: their graph pages are read
-- Then: migration relations identify every created or altered table, column and index, and the channel is connected to its message
-
-### Scenario: process-endpoint-logger-relations
-- Given: entry points, health and metrics endpoints, routes, services, and loggers in the generated repository
-- When: their graph pages are read
-- Then: entry points start their process or file, endpoints are served by their service or route, `GET /healthz` is discoverable as a route and operation, and loggers are connected to their using file or service
-
-### Scenario: history-and-facet-relations
-- Given: commits, authors, tasks, facets and files in the generated repository
-- When: their graph pages are read
-- Then: commits touch files and are authored by authors, commits name tasks, and facets describe files
-
-### Scenario: exhaustive-isolation-audit
-- Given: the generated training repository and its declared standalone kinds with reasons
-- When: the committed audit enumerates every node at depth one
-- Then: it reports all per-kind counts, has no isolated nodes except the explicit standalone kinds, and fails rather than truncating or sampling
-
 ## Requirement: contract-display — Operations and contracts use protocol-aware definitions
 The operations index shall group operations by their contract and show a
 protocol badge identifying OpenAPI, gRPC or AsyncAPI. Each operation row
@@ -857,7 +745,16 @@ contract slice, deep-linking Redoc to the operation for OpenAPI, alongside
 madarch's links and call chain. Loading a definition shall not block the rest
 of the page; a load or parse failure shall be shown with the contract path and
 cause, not as an empty successful definition. All app-owned labels and errors
-shall be available in English and Russian.
+shall be available in English and Russian. Contract content remains as authored.
+The compiled release binary shall carry every renderer's scripts, styles and
+other required assets; reading these views shall require neither a CDN nor a
+source checkout or node_modules. Exact renderer library versions shall be
+pinned to releases published at least fourteen days before adoption.
+A renderer shall read the complete definition, never the first 400 lines or
+an unreported subset. An unsupported definition or unresolved dependency shall
+be reported with the source file, line, full path and cause, without presenting
+partial content as a successful complete definition. Read-only means no
+try-it-out requests or definition edits from the renderer.
 
 ### Scenario: operations-grouped-by-contract
 - Given: contracts of OpenAPI, gRPC and AsyncAPI protocols with operations
@@ -889,30 +786,17 @@ shall be available in English and Russian.
 - When: its operations table and Definition view are read
 - Then: all madarch-owned headings, badges, loading and error text use the selected language
 
-## Requirement: entry-points-and-code-locations — Code pages identify their place and avoid duplicate labels
-Every code-derived graph node shall carry a useful source location naming its
-repository-relative path and the line or line range where it was found. An
-entry-point label shall combine its service and source file, such as
-`orders · cmd/orders/main.go` or `payments · src/index.ts`; its page shall
-show the function's path and line and link to its service, file and the process
-it starts. A graph kind's list shall never contain two rows with the same
-label: labels are made unique using stable, meaningful identity details rather
-than hiding, merging or silently dropping nodes. The generated
-training-repository audit shall check locations for every code-derived node
-and unique labels within every kind as well as isolation.
+### Scenario: compiled-binary-contract-renderers
+- Given: a compiled binary run outside its checkout over a fixture product holding OpenAPI, AsyncAPI and protobuf contracts
+- When: a browser with external network requests blocked opens every contract definition and an OpenAPI operation page
+- Then: all three definitions and the operation slice render from the binary's own assets without node_modules, a CDN, missing styles or missing chunks
 
-### Scenario: entry-point-has-service-file-and-process
-- Given: entry points from different services or files, including duplicate function names
-- When: the entry-point list and each entry-point page are read
-- Then: labels include service and file, locations name the function path and line, and each page links to its service, file and started process
+### Scenario: complete-definition-or-explicit-refusal
+- Given: a contract longer than 400 lines, one using local references and one with an invalid or unavailable dependency
+- When: their Definition views are opened
+- Then: the valid contract includes its final operation and referenced schemas, and an unreadable definition reports file, line, full path and cause without silent truncation or a success-shaped partial view
 
-### Scenario: every-code-node-has-a-location
-- Given: every code-derived node in the generated training repository
-- When: the committed graph audit reads the nodes
-- Then: each node has a repository-relative source path and line or line range; missing locations fail with kind and node key
-
-### Scenario: labels-are-unique-per-kind
-- Given: every node list in the generated training repository
-- When: the committed graph audit checks labels
-- Then: no kind has duplicate labels, and any duplicate fails with the kind and colliding node keys
-
+### Scenario: pinned-established-renderers
+- Given: the dependency manifest and lockfile used to build the wiki
+- When: renderer versions and registry publication dates are checked
+- Then: Redoc and @asyncapi/react-component use exact versions published at least fourteen days before adoption and those same versions supply the built assets

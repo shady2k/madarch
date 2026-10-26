@@ -1,3 +1,4 @@
+import { Operations } from './operations.js';
 /**
  * The views of the knowledge wiki: one entity's page, a kind's entities, a
  * source file at a line, the empty product's way forward, and the fill's card.
@@ -118,6 +119,7 @@ export function KindPage({ kind, version }: { kind: string; version: number }): 
   const [query, setQuery] = useState('');
   const [asked, setAsked] = useState('');
   const [more, setMore] = useState<EntityRef[]>([]);
+  const [operationMore, setOperationMore] = useState<NonNullable<EntityListing['operations']>>({});
   const [next, setNext] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -130,6 +132,7 @@ export function KindPage({ kind, version }: { kind: string; version: number }): 
   // A fresh listing starts the rows over: what "load more" appended belonged to the one before.
   useEffect(() => {
     setMore([]);
+    setOperationMore({});
     setNext(listing?.next ?? null);
   }, [listing]);
   const listingRef = useRef<EntityListing | null>(null);
@@ -143,6 +146,7 @@ export function KindPage({ kind, version }: { kind: string; version: number }): 
         // A commit that reread the listing meanwhile makes this page of rows a stale one.
         if (listingRef.current !== mine) return;
         setMore((held) => [...held, ...answer.rows]);
+        setOperationMore((held) => ({...held, ...answer.operations}));
         setNext(answer.next);
       },
       (failure: unknown) => setError(message(failure)),
@@ -162,7 +166,8 @@ export function KindPage({ kind, version }: { kind: string; version: number }): 
       {(error ?? read.error) !== null && <Alert variant="problem" className="mb-4"><AlertDescription><p>{error ?? read.error}</p></AlertDescription></Alert>}
       {listing === null && read.error === null && <PageSkeleton testId="kind-loading" rows />}
       {listing !== null && rows.length === 0 && <p className="text-muted" data-testid="kind-empty">{t('knowledge.nothingOfKind')}</p>}
-      {rows.length > 0 && (
+      {rows.length > 0 && kind === 'code.operation' && <Operations rows={rows} metadata={{...listing?.operations, ...operationMore}} />}
+      {rows.length > 0 && kind !== 'code.operation' && (
         <Table>
           <TableHeader>
             <TableRow><TableHead>{t('knowledge.colName')}</TableHead><TableHead>{t('knowledge.colPlace')}</TableHead></TableRow>
