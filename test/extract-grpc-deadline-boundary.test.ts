@@ -1,5 +1,6 @@
 import {expect, test} from 'bun:test';
 import {extractCodeWithFacts} from '../src/extract/code/index.js';
+import {extractContracts} from '../src/extract/contracts/index.js';
 import {structuralGrpcDeadline} from '../src/extract/contracts/ts-code.js';
 import {TreeText} from '../src/extract/operations/source.js';
 import type {TreeReader} from '../src/extract/records.js';
@@ -10,7 +11,7 @@ const bootstrapPath = 'services/relay/start.ts';
 const configPath = 'services/relay/settings.ts';
 const invocation = 'this.stub.estimate({units: 1}, {deadline}, () => {})';
 
-async function proof(overrides: Readonly<Record<string, string>> = {}) {
+async function proof(overrides: Readonly<Record<string, string>> = {}, rawInvocation = invocation) {
   const files: Readonly<Record<string, string>> = {
     [clientPath]: [
       'interface Stub { estimate(request: unknown, options: unknown, callback: () => void): void; }',
@@ -43,10 +44,10 @@ async function proof(overrides: Readonly<Record<string, string>> = {}) {
     return new TextEncoder().encode(text);
   }};
   const shared = await extractCodeWithFacts(tree);
-  const site = shared.facts.calls.find(call => call.path === clientPath && new TextDecoder().decode(tree.read(call.path).subarray(call.span.byteStart, call.span.byteEnd)) === invocation);
+  const site = shared.facts.calls.find(call => call.path === clientPath && new TextDecoder().decode(tree.read(call.path).subarray(call.span.byteStart, call.span.byteEnd)) === rawInvocation);
   if (site === undefined) throw new Error(`${import.meta.path}:49: missing parsed invocation in ${clientPath}`);
   const result = structuralGrpcDeadline(new TreeText(tree, shared.extraction, shared.facts), site.span);
-  return {result, shared, files, site};
+  return {result, shared, files, site, tree};
 }
 
 test('gRPC deadline follows the exact constructor ordinal and config return binding', async () => {
@@ -84,6 +85,77 @@ test('a constructor property write preserves the receiver used by a Promise dead
   expect(answer.result?.deadlineMs).toBe(7300);
   expect(answer.result?.evidence.some(span => span.path === bootstrapPath)).toBe(true);
   expect(answer.result?.evidence.some(span => span.path === configPath)).toBe(true);
+});
+
+test('typed settings and a nested construction carry a deadline through the full gRPC contract join', async () => {
+  const protoPath = 'contracts/proto/rates.proto';
+  const rawInvocation = 'this.stub.estimate({units}, {deadline}, (error, reply) => { if (error) reject(error); else resolve(reply); })';
+  const answer = await proof({
+    'services/relay/package.json': JSON.stringify({name: 'relay', dependencies: {'@grpc/grpc-js': '1.12.0', '@grpc/proto-loader': '0.7.0'}}),
+    [protoPath]: 'syntax = "proto3";\npackage rates.v1;\nservice Rates {\n  rpc Estimate(EstimateRequest) returns (EstimateReply);\n}\nmessage EstimateRequest { int32 units = 1; }\nmessage EstimateReply { int32 value = 1; }\n',
+    [clientPath]: [
+      'import path from "node:path";',
+      'import * as grpc from "@grpc/grpc-js";',
+      'import * as loader from "@grpc/proto-loader";',
+      'const schema = path.resolve(__dirname, "../../contracts/proto/rates.proto");',
+      'export interface EstimateResult { value: number; }',
+      'interface RateStub extends grpc.Client { estimate(request: {units: number}, options: grpc.CallOptions, callback: (error: grpc.ServiceError | null, reply: EstimateResult) => void): void; }',
+      '/** The client owns its loaded transport. */',
+      'export class RateClient {',
+      '  private readonly stub: RateStub;',
+      '  constructor(',
+      '    address: string,',
+      '    private readonly waitMs: number,',
+      '  ) {',
+      '    const definition = loader.loadSync(schema, {keepCase: false, longs: Number, defaults: true});',
+      '    const loaded = grpc.loadPackageDefinition(definition) as unknown as {rates: {v1: {Rates: new (address: string, credentials: grpc.ChannelCredentials) => RateStub}}};',
+      '    this.stub = new loaded.rates.v1.Rates(address, grpc.credentials.createInsecure());',
+      '  }',
+      '  /** Calls the transport from a Promise executor. */',
+      '  estimate(units: number): Promise<EstimateResult> {',
+      '    const deadline = new Date(Date.now() + this.waitMs);',
+      `    return new Promise((resolve, reject) => { ${rawInvocation}; });`,
+      '  }',
+      '  close(): void { this.stub.close(); }',
+      '}',
+    ].join('\n'),
+    [bootstrapPath]: [
+      'import {RateClient} from "./client";',
+      'import {readSettings} from "./settings";',
+      'class LocalClient { constructor(address: string) {} }',
+      'class Dispatcher { constructor(local: LocalClient, remote: RateClient, other: LocalClient) {} }',
+      'const settings = readSettings();',
+      'const dispatcher = new Dispatcher(',
+      '  new LocalClient(settings.localUrl),',
+      '  new RateClient(settings.remoteAddress, settings.delay),',
+      '  new LocalClient(settings.otherUrl),',
+      ');',
+    ].join('\n'),
+    [configPath]: [
+      'export interface Settings { localUrl: string; otherUrl: string; remoteAddress: string; delay: number; }',
+      '/** Read each value from the environment or its own default. */',
+      'export function readSettings(env: NodeJS.ProcessEnv = process.env): Settings {',
+      '  return {',
+      '    localUrl: env.LOCAL_URL ?? "http://localhost:8080",',
+      '    otherUrl: env.OTHER_URL ?? "http://localhost:8082",',
+      '    remoteAddress: env.REMOTE_ADDRESS ?? "localhost:50051",',
+      '    delay: Number(env.RATE_WAIT ?? 7300),',
+      '  };',
+      '}',
+    ].join('\n'),
+  }, rawInvocation);
+  const contracts = await extractContracts(answer.tree, answer.shared.extraction, answer.shared.facts);
+  const remote = contracts.edges.filter(edge => edge.type === 'code.calls-remote' && edge.from === `code.file:${clientPath}` && edge.to === `code.operation:${protoPath}#rates.v1.Rates/Estimate`);
+  try {
+    // Separate the structural proof from the legacy site/proto integration.
+    expect(answer.result?.deadlineMs).toBe(7300);
+    expect(remote).toHaveLength(1);
+    expect(remote[0]!.span).toEqual(answer.site.span);
+    expect(remote[0]!.properties.deadlineMs).toBe(7300);
+    expect(remote[0]!.properties.deadlineEvidence).toEqual(answer.result!.evidence.map(span => ({...span})));
+  } catch (error) {
+    throw new Error(`${import.meta.path}:157: full-shape deadline proof or contract join failed; fixture paths ${clientPath}, ${bootstrapPath}, ${configPath}, ${protoPath}\n${JSON.stringify({error: String(error), result: answer.result, files: answer.files, site: answer.site, shared: answer.shared, remote, contractGaps: contracts.gaps}, null, 2)}`);
+  }
 });
 
 test('writing the duration property still invalidates the deadline proof', async () => {

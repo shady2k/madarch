@@ -807,13 +807,27 @@ export async function memberSites(file: SourceFile, program: Program, imports: r
     }
     visit(parsed.root);
     const typeOnlyImports: string[] = [];
+    // An ordinary import used only in structural type positions needs no runtime
+    // export. Keep its lexical facts and graph sites; never infer a value from
+    // an erased interface/alias. A typeof query still requires a value identity.
+    const structuralTypeUses = new Set<string>();
+    if (!go) for (const { node } of captures) {
+      if (node.type !== 'type_identifier') continue;
+      let parent = node.parent;
+      while (parent !== null && parent.type !== 'type_query') parent = parent.parent;
+      if (parent === null) structuralTypeUses.add(expressionId(node));
+    }
     if (!go) for (const statement of named(parsed.root).filter((node) => node.type === 'import_statement')) {
       const wholeType = statement.children.some((child) => child !== null && child.type === 'type');
       for (const imported of imports) {
         const statementSpan = sourceSpan(statement);
         if (imported.span.byteStart < statementSpan.byteStart || imported.span.byteEnd > statementSpan.byteEnd) continue;
         const selected = captures.map((capture) => capture.node).find((node) => node.type === 'import_specifier' && sourceSpan(node).byteStart <= imported.span.byteStart && sourceSpan(node).byteEnd >= imported.span.byteEnd);
-        if (wholeType || selected?.children.some((child) => child !== null && child.type === 'type')) typeOnlyImports.push(imported.id);
+        const bindingId = codeFactId(imported.span, 'binding');
+        const uses = [...expressions.values()].filter((expression) => expression.bindingId === bindingId &&
+          (expression.span.byteStart < statementSpan.byteStart || expression.span.byteEnd > statementSpan.byteEnd));
+        const onlyStructuralTypes = uses.length > 0 && uses.every((expression) => structuralTypeUses.has(expression.id));
+        if (wholeType || selected?.children.some((child) => child !== null && child.type === 'type') || onlyStructuralTypes) typeOnlyImports.push(imported.id);
       }
     }
     const exports: CodeExportFact[] = [];
