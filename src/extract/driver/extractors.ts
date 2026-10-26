@@ -19,13 +19,20 @@ import { metricSemanticModelDigest } from '../library-models/metric-semantic-mod
 import metricSemanticModelSource from '../library-models/metric-semantic-models.json' with { type: 'text' };
 import httpModelSource from '../library-models/http-models.json' with { type: 'text' };
 
+import { messagingModelDigest } from '../library-models/messaging-models.js';
+import messagingModelSource from '../library-models/messaging-models.json' with { type: 'text' };
+import { environmentModelDigest } from '../library-models/environment-models.js';
+import environmentModelSource from '../library-models/environment-models.json' with { type: 'text' };
+import { shellCommandModelDigest } from '../library-models/shell-command-models.js';
+import shellCommandModelSource from '../library-models/shell-command-models.json' with { type: 'text' };
+
 /** Every tree extractor, in the order the driver runs them per commit. */
 const TREE_READERS = [
  {name:'extractFiles',version:2,extractor:extractFiles},
- {name:'extractCode',version:11,extractor:extractCodeWithFacts},
- {name:'extractOperations',version:11,extractor:extractOperations},
- {name:'extractContracts',version:8,extractor:extractContracts},
- {name:'extractDataModel',version:4,extractor:extractDataModel},
+ {name:'extractCode',version:12,extractor:extractCodeWithFacts},
+ {name:'extractOperations',version:13,extractor:extractOperations},
+ {name:'extractContracts',version:10,extractor:extractContracts},
+ {name:'extractDataModel',version:6,extractor:extractDataModel},
 ] as const;
 export const TREE_EXTRACTORS: readonly TreeExtractor[] = TREE_READERS.map((entry)=>entry.extractor);
 
@@ -53,5 +60,11 @@ export const EXTRACTOR_VERSIONS = [
  {name:'metric-semantic-model-source-bytes',version:1,contentDigest:codeQueryDigest([{path:'library-models/metric-semantic-models.json',source:metricSemanticModelSource as unknown as string}])},
  {name:'http-model-source-bytes',version:1,contentDigest:codeQueryDigest([{path:'library-models/http-models.json',source:httpModelSource as unknown as string}])},
  {name:'library-model-source-bytes',version:1,contentDigest:codeQueryDigest([{path:'library-models/models.json',source:libraryModelSource as unknown as string}])},
- {name:'driver-and-link-normalization',version:6},
+ {name:'messaging-model-data',version:1,contentDigest:messagingModelDigest},
+ {name:'messaging-model-source-bytes',version:1,contentDigest:codeQueryDigest([{path:'library-models/messaging-models.json',source:messagingModelSource as unknown as string}])},
+ {name:'environment-model-data',version:1,contentDigest:environmentModelDigest},
+ {name:'environment-model-source-bytes',version:1,contentDigest:codeQueryDigest([{path:'library-models/environment-models.json',source:environmentModelSource as unknown as string}])},
+ {name:'shell-command-model-data',version:1,contentDigest:shellCommandModelDigest},
+ {name:'shell-command-model-source-bytes',version:1,contentDigest:codeQueryDigest([{path:'library-models/shell-command-models.json',source:shellCommandModelSource as unknown as string}])},
+ {name:'driver-and-link-normalization',version:7},
 ] as const;

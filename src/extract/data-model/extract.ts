@@ -28,8 +28,12 @@
 import {byCodePoint} from '../../model/order.js';
 import {extractFileSyntax} from '../../fill/stages/syntax-extract.js';
 import {readGoMod} from '../../fill/stages/manifest-format.js';
-import {sourceMask} from '../operations/symbol-sites.js';
-import {extractCode} from '../code/index.js';
+import {parseEnv} from 'node:util';
+import {codeFactsOf, extractCodeWithFacts} from '../code/index.js';
+import type {CodeExpressionFact, CodeFacts} from '../code/facts.js';
+import {CodeFactView} from '../operations/code-facts.js';
+import {evaluateLibraryModels} from '../library-models/evaluate.js';
+import {environmentModels} from '../library-models/environment-models.js';
 import type {ExtractedEdge, ExtractedNode, Extraction, ExtractionGap, SourceSpan, TreeReader} from '../records.js';
 import {extractFileAccess, type AccessSite, type FileAccess, type FunctionRegion} from './access.js';
 import {indexGoPackage, resolveGoCalls, type GoPackageFile, type ResolvedCall} from './go-calls.js';
@@ -91,7 +95,15 @@ interface MergedDatabase {
   readonly name: string;
   readonly tables: Map<string, MergedTable>;
   readonly migrations: MigrationFile[];
-  readonly evidence: {readonly kind: string; readonly span: SourceSpan}[];
+  readonly evidence: StorageEvidence[];
+}
+
+interface StorageEvidence {
+  readonly kind: string;
+  readonly span: SourceSpan;
+  readonly model?: string;
+  readonly expression?: string;
+  readonly holder?: string;
 }
 
 /** A table access resolved to its database: the ends an access edge carries. */
@@ -115,9 +127,13 @@ type TextOrGap = {readonly ok: true; readonly text: string} | {readonly ok: fals
 /**
  * Extracts the data model and the table access of one repository tree.
  */
-export async function extractDataModel(tree: TreeReader, suppliedCode?: Extraction): Promise<Extraction> {
-  const code = suppliedCode ?? await extractCode(tree);
-  const canonicalFunctions = code.nodes.filter((node) => node.kind === 'code.symbol' && node.span !== undefined && ['function', 'method', 'constructor'].includes(String(node.properties.symbolKind)));
+export async function extractDataModel(tree: TreeReader, suppliedCode?: Extraction, suppliedFacts?: CodeFacts): Promise<Extraction> {
+  // A caller that already owns the code pass must lend its exact immutable facts.
+  // Never parse a second tree to compensate for missing shared facts.
+  const shared = suppliedCode === undefined && suppliedFacts === undefined ? await extractCodeWithFacts(tree) : undefined;
+  const code = suppliedCode ?? shared?.extraction;
+  const facts = suppliedFacts ?? shared?.facts ?? (suppliedCode === undefined ? undefined : codeFactsOf(suppliedCode, tree));
+  const canonicalFunctions = (code?.nodes ?? []).filter((node) => node.kind === 'code.symbol' && node.span !== undefined && ['function', 'method', 'constructor'].includes(String(node.properties.symbolKind)));
   const databases = new Map<string, MergedDatabase>();
   const gaps: ExtractionGap[] = [];
   const migrations: MigrationFile[] = [];
@@ -149,7 +165,7 @@ export async function extractDataModel(tree: TreeReader, suppliedCode?: Extracti
 
   // Positive connection or driver evidence may describe a database without
   // declaring tables. A service directory, by itself, is never such evidence.
-  await collectStorageEvidence(tree, databases, gaps);
+  await collectStorageEvidence(tree, databases, gaps, facts);
 
   // ---- the migrations, in their applied order ------------------------------
   const topLevel = migrations.filter((migration) => !migration.prisma).sort((left, right) => byCodePoint(left.database, right.database) || byCodePoint(left.name, right.name));
@@ -554,7 +570,7 @@ export async function extractDataModel(tree: TreeReader, suppliedCode?: Extracti
   };
   for (const database of databases.values()) {
     const dbKey = databaseKey(database.name);
-    const readings = [...database.evidence];
+    const readings: StorageEvidence[] = [...database.evidence];
     for (const migration of database.migrations) {
       const read = readUtf8(tree, migration.path);
       if (read.ok) for (const statement of parseSqlScript(migration.path, read.text).statements) {
@@ -567,7 +583,7 @@ export async function extractDataModel(tree: TreeReader, suppliedCode?: Extracti
     if (prismaPath !== undefined) for (const table of database.tables.values()) if (table.span?.path === prismaPath) readings.push({kind: 'schema', span: table.span});
     for (const table of database.tables.values()) if (table.span !== undefined && !readings.some((reading) => reading.span.path === table.span!.path && reading.span.byteStart === table.span!.byteStart && reading.span.byteEnd === table.span!.byteEnd)) readings.push({kind: 'schema', span: table.span});
     if (readings.length === 0) gaps.push({path: database.migrations[0]?.path ?? `services/${database.name}`, reason: `line 1: database ${database.name} has no contributing storage reading; service use is unresolved`});
-    else structuralEdges.push({type: 'code.uses-database', from: `code.service:${database.name}`, to: dbKey, discriminator: '', properties: {via: readings.some((reading) => reading.kind === 'schema') ? 'schema' : readings[0]!.kind, origins: readings.map((reading) => ({sourceProducer: DATA_MODEL_PRODUCER, originalDiscriminator: '', sourceSpan: {...reading.span}, properties: {via: reading.kind}}))}, span: readings[0]!.span});
+    else structuralEdges.push({type: 'code.uses-database', from: `code.service:${database.name}`, to: dbKey, discriminator: '', properties: {via: readings.some((reading) => reading.kind === 'schema') ? 'schema' : readings[0]!.kind, origins: readings.map((reading) => ({sourceProducer: DATA_MODEL_PRODUCER, originalDiscriminator: '', sourceSpan: {...reading.span}, properties: {via: reading.kind, ...(reading.model === undefined ? {} : {environmentModel: reading.model}), ...(reading.expression === undefined ? {} : {expression: reading.expression}), ...(reading.holder === undefined ? {} : {holder: reading.holder})}}))}, span: readings[0]!.span});
     for (const migration of database.migrations) {
       const migrationId = migrationKey(database.name, migration.name);
       edge('code.contains', dbKey, migrationId);
@@ -691,17 +707,20 @@ function wholeFile(tree: TreeReader, path: string): SourceSpan {
 }
 
 /** Reads only explicit storage declarations; generic config files never imply a database. */
-async function collectStorageEvidence(tree: TreeReader, databases: Map<string, MergedDatabase>, gaps: ExtractionGap[]): Promise<void> {
+async function collectStorageEvidence(tree: TreeReader, databases: Map<string, MergedDatabase>, gaps: ExtractionGap[], facts?: CodeFacts): Promise<void> {
   const spanAt = (path: string, text: string, start: number, end: number): SourceSpan => {
     const bytes = new ByteText(text);
     return {path, byteStart: bytes.byteAt(start), byteEnd: bytes.byteAt(end), lineStart: bytes.lineOf(bytes.byteAt(start)), lineEnd: bytes.lineOf(bytes.byteAt(end))};
   };
-  const add = (service: string, kind: string, span: SourceSpan): void => {
-    databaseOf(databases, service).evidence.push({kind, span});
+  const add = (service: string, kind: string, span: SourceSpan, metadata: Omit<StorageEvidence, 'kind' | 'span'> = {}): void => {
+    databaseOf(databases, service).evidence.push({kind, span, ...metadata});
   };
+  const environment = new Map(environmentModels.map(model => [model.variable, model]));
+  if (facts !== undefined) collectEnvironmentReadEvidence(facts, databases, gaps);
   for (const path of [...tree.paths].sort(byCodePoint)) {
     const service = serviceOf(path);
-    const source = service !== undefined && /(?:\.(?:go|ts|js|json)|\/go\.mod|\.?env(?:\.[^/]*)?)$/.test(path);
+    const codeSource = languageOf(path) !== null;
+    const source = service !== undefined && (codeSource || /(?:\.json|\/go\.mod|\.?env(?:\.[^/]*)?)$/.test(path));
     const compose = /(?:^|\/)(?:docker-)?compose(?:\.[^/.]+)?\.ya?ml$/.test(path);
     if (!source && !compose) continue;
     const read = readUtf8(tree, path);
@@ -709,17 +728,12 @@ async function collectStorageEvidence(tree: TreeReader, databases: Map<string, M
     const text = read.text;
     if (service !== undefined && source) {
       const driver = /^(?:pg|postgres|mysql2?|better-sqlite3|sqlite3|@prisma\/client|github\.com\/(?:jackc\/pgx(?:\/.*)?|lib\/pq|go-sql-driver\/mysql)|modernc\.org\/sqlite)$/;
-      if (/\.(?:go|ts|js)$/.test(path)) {
+      if (codeSource) {
         const syntax = await extractFileSyntax(path, tree.read(path));
         for (const imported of syntax.imports) if (driver.test(imported.specifier)) add(service, 'driver', {
           path, byteStart: imported.span.startByte, byteEnd: imported.span.endByte, lineStart: imported.span.startLine, lineEnd: imported.span.endLine,
         });
-        // Only an actual environment read is evidence. A comment, prose string
-        // or same-named local constant is not a connection setting.
-        const mask = sourceMask(text);
-        for (const match of mask.matchAll(/\bprocess\.env\.(?:DATABASE_URL|DB_URL|DB_DSN|POSTGRES_URL|MYSQL_URL)\b/g)) add(service, 'connection-setting', spanAt(path, text, match.index, match.index + match[0].length));
-        const getenv = /\bos\.Getenv\(\s*"(?:DATABASE_URL|DB_URL|DB_DSN|POSTGRES_URL|MYSQL_URL)"\s*\)/g;
-        for (const match of text.matchAll(getenv)) if (mask.slice(match.index, match.index + 2) === 'os') add(service, 'connection-setting', spanAt(path, text, match.index, match.index + match[0].length));
+        if (facts === undefined) gaps.push({path, reason: `line 1: shared CodeFacts are absent; environment connection evidence is unresolved (${path})`});
       } else if (path.endsWith('/package.json')) {
         try {
           const manifest = JSON.parse(text) as {dependencies?: Record<string, unknown>; devDependencies?: Record<string, unknown>};
@@ -732,8 +746,17 @@ async function collectStorageEvidence(tree: TreeReader, databases: Map<string, M
         if (manifest.ok) for (const entry of manifest.value.requires) if (driver.test(entry.path)) {
           const at = text.split('\n').slice(0, entry.line - 1).join('\n').length + (entry.line > 1 ? 1 : 0); add(service, 'driver', spanAt(path, text, at, at + (text.split('\n')[entry.line - 1]?.length ?? 0)));
         }
-      } else {
-        for (const match of text.matchAll(/^\s*(?:DATABASE_URL|DB_URL|DB_DSN|POSTGRES_URL|MYSQL_URL)\s*=\s*[^#\s][^\n]*/gm)) add(service, 'connection-setting', spanAt(path, text, match.index, match.index + match[0].length));
+      } else if (path.slice(path.lastIndexOf('/') + 1).startsWith('.env') || path.endsWith('/env')) {
+        try {
+          const variables = parseEnv(text);
+          if (Object.keys(variables).length === 0 && text.split('\n').some(line => line.trim() !== '' && !line.trimStart().startsWith('#'))) {
+            gaps.push({path, reason: `line 1: environment parser returned no assignments for non-comment configuration; connection evidence is unresolved (${path})`});
+          }
+          for (const name of Object.keys(variables).sort(byCodePoint)) {
+            const model = environment.get(name);
+            if (model !== undefined && variables[name] !== '') add(service, 'connection-setting', wholeFile(tree, path), {model: model.id});
+          }
+        } catch (error) { gaps.push({path, reason: `line 1: environment configuration cannot be parsed: ${error instanceof Error ? error.message : String(error)} (${path})`}); }
       }
     }
     if (compose) {
@@ -752,18 +775,110 @@ async function collectStorageEvidence(tree: TreeReader, databases: Map<string, M
         const env = pair.value.get('environment', true);
         if (!isMap(env)) continue;
         for (const item of env.items) {
-          if (!isScalar(item.key) || !/^(?:DATABASE_URL|DB_URL|DB_DSN|POSTGRES_URL|MYSQL_URL)$/.test(String(item.key.value))) continue;
+          if (!isScalar(item.key) || typeof item.key.value !== 'string') continue;
+          const model = environment.get(item.key.value);
+          if (model === undefined) continue;
           if (!isScalar(item.value) || typeof item.value.value !== 'string') continue;
           const range = item.value.range ?? item.key.range;
           if (range == null || !Number.isSafeInteger(range[0]) || !Number.isSafeInteger(range[1]) || range[0] < 0 || range[1] <= range[0] || range[1] > text.length) {
             gaps.push({path, reason: `line 1: deployment connection setting ${String(item.key.value)} of service ${name} has no valid source range; no storage evidence is created`});
             continue;
           }
-          add(name, 'deployment-connection', spanAt(path, text, range[0], range[1]));
+          add(name, 'deployment-connection', spanAt(path, text, range[0], range[1]), {model: model.id});
         }
       }
     }
   }
+}
+
+/** Resolve environment reads only from the already copied lexical facts. */
+function collectEnvironmentReadEvidence(facts: CodeFacts, databases: Map<string, MergedDatabase>, gaps: ExtractionGap[]): void {
+  const view = new CodeFactView(facts);
+  const environment = new Map(environmentModels.map(model => [model.variable, model]));
+  const files = new Map(facts.files.map(file => [file.path, file]));
+  const parents = new Map<string, CodeExpressionFact[]>();
+  for (const expression of facts.expressions) for (const child of expression.children) {
+    const held = parents.get(child) ?? []; held.push(expression); parents.set(child, held);
+  }
+  const gap = (expression: CodeExpressionFact, reason: string): void => {
+    gaps.push({path: expression.path, reason: `line ${expression.span.lineStart}: ${reason} at bytes ${expression.span.byteStart}-${expression.span.byteEnd} (${expression.path})`});
+  };
+  const contains = (outer: SourceSpan, inner: SourceSpan): boolean => outer.path === inner.path && outer.byteStart <= inner.byteStart && inner.byteEnd <= outer.byteEnd;
+  const field = (expression: CodeExpressionFact, name: string): CodeExpressionFact | undefined => {
+    const ids = expression.fields[name];
+    return ids?.length === 1 ? view.expressions.get(ids[0]!) : undefined;
+  };
+  const member = (expression: CodeExpressionFact): {receiver: CodeExpressionFact; name?: string} | undefined => {
+    if (expression.syntaxKind === 'member_expression' && expression.receiver !== undefined) {
+      const receiver = view.expressions.get(expression.receiver);
+      const object = field(expression, 'object'); const property = field(expression, 'property');
+      if (receiver !== undefined && receiver.id === object?.id && expression.member === property?.name && contains(expression.span, receiver.span)) return {receiver, name: expression.member};
+    }
+    if (expression.syntaxKind === 'subscript_expression') {
+      const receiver = field(expression, 'object'); const index = field(expression, 'index');
+      if (receiver !== undefined && index !== undefined && contains(expression.span, receiver.span) && contains(expression.span, index.span)) {
+        const value = view.value(index.id);
+        return {receiver, ...(typeof value === 'string' ? {name: value} : {})};
+      }
+    }
+    return undefined;
+  };
+  const isRead = (expression: CodeExpressionFact): boolean => {
+    const seen = new Set<string>();
+    const visit = (id: string): boolean => {
+      if (seen.has(id)) return false; seen.add(id);
+      for (const parent of parents.get(id) ?? []) {
+        if (['assignment_expression', 'augmented_assignment_expression'].includes(parent.syntaxKind) && (parent.fields.left ?? []).includes(id)) return false;
+        if (parent.syntaxKind === 'update_expression') return false;
+        // Unary operators are not copied as tokens, so delete cannot be
+        // distinguished from a read here. Do not invent read evidence.
+        if (parent.syntaxKind === 'unary_expression') { gap(expression, 'unary environment access is unresolved'); return false; }
+        if (['parenthesized_expression', 'as_expression', 'satisfies_expression', 'non_null_expression'].includes(parent.syntaxKind) && !visit(parent.id)) return false;
+      }
+      return true;
+    };
+    return visit(expression.id);
+  };
+  const record = (expression: CodeExpressionFact, name: unknown, holder?: string): void => {
+    const service = serviceOf(expression.path);
+    if (service === undefined) return;
+    if (typeof name !== 'string') { gap(expression, 'environment variable name is unresolved'); return; }
+    const model = environment.get(name); if (model === undefined) return;
+    const owners = facts.symbols.filter(symbol => symbol.callable && contains(symbol.span, expression.span))
+      .sort((left, right) => (left.span.byteEnd - left.span.byteStart) - (right.span.byteEnd - right.span.byteStart) || byCodePoint(left.key, right.key));
+    const owner = owners[0];
+    if (owner !== undefined && owners.some(candidate => candidate.key !== owner.key && candidate.span.byteStart === owner.span.byteStart && candidate.span.byteEnd === owner.span.byteEnd)) {
+      gap(expression, 'environment read has no unique canonical callable owner'); return;
+    }
+    const canonical = owner?.key ?? fileKey(expression.path);
+    if (holder !== undefined && holder !== canonical) { gap(expression, 'environment effect disagrees with its canonical callable owner'); return; }
+    databaseOf(databases, service).evidence.push({kind: 'connection-setting', span: expression.span, model: model.id, expression: expression.id, holder: canonical});
+  };
+  for (const expression of facts.expressions) {
+    if (serviceOf(expression.path) === undefined || files.get(expression.path)?.language === 'go') continue;
+    const selected = member(expression); if (selected === undefined) continue;
+    const env = member(selected.receiver); if (env?.name !== 'env') continue;
+    const process = env.receiver;
+    if (process.syntaxKind !== 'identifier' || process.name !== 'process') continue;
+    // A copied identity or any enclosing lexical reservation (including TDZ)
+    // proves this is not the JS global. Never chase a local initializer.
+    if (process.bindingId !== undefined || facts.bindings.some(binding => binding.path === process.path && binding.name === 'process' && binding.kind !== 'type' && contains(binding.scope, process.span))) continue;
+    if (files.get(expression.path)?.parsed !== true) { gap(expression, 'environment source has no successful parse fact'); continue; }
+    if (!isRead(expression)) continue;
+    record(expression, selected.name);
+  }
+  // Go environment APIs already have validated library models and exact
+  // imported-binding origins. Reuse their effects instead of spelling os.
+  const library = evaluateLibraryModels(facts);
+  for (const effect of library.effects) {
+    if (effect.kind !== 'env-read' || files.get(effect.span.path)?.language !== 'go') continue;
+    const expression = view.expressions.get(effect.expression); if (expression === undefined) continue;
+    const selected = effect.arguments.find(argument => argument.name === 'name');
+    record(expression, selected?.expression === undefined ? undefined : view.value(selected.expression), effect.holder);
+  }
+  // Facts and library diagnostics are already located. Retain them verbatim;
+  // a parser failure or unresolved origin must not become a smaller success.
+  for (const incoming of library.gaps) if (serviceOf(incoming.path) !== undefined && !gaps.some(held => held.path === incoming.path && held.reason === incoming.reason)) gaps.push(incoming);
 }
 
 function readUtf8(tree: TreeReader, path: string): TextOrGap {

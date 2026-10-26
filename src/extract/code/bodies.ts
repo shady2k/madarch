@@ -155,10 +155,13 @@ export async function memberSites(file: SourceFile, program: Program, imports: r
       // A parsed interpolation is a supported dynamic expression, not an unread
       // literal. Static consumers still receive no value and must report a gap.
       if (literalKind !== undefined && value === undefined && !dynamicTemplate) factGaps.set(id, { path: file.path, reason: `line ${span.lineStart}: unsupported ${node.type} literal at bytes ${span.byteStart}-${span.byteEnd}` });
-      if (node.type === 'subscript_expression' || node.type === 'index_expression') factGaps.set(id, { path: file.path, reason: `line ${span.lineStart}: computed member identity needs a resolved literal key at bytes ${span.byteStart}-${span.byteEnd}` });
       const typeProof = resolveBinding ? compositeProof(node, callee) : undefined;
+      const operatorNode = node.childForFieldName('operator');
+      const unaryTokens = node.type === 'unary_expression' ? node.children.filter((child): child is SyntaxNode => child !== null && !child.isNamed) : [];
+      const operator = operatorNode?.type ?? (unaryTokens.length === 1 ? unaryTokens[0]!.type : undefined);
       expressions.set(id, {
         id, path: file.path, syntaxKind: node.type, span,
+        ...(operator === undefined ? {} : { operator }),
         ...(isName ? { name: token, ...(availableBinding === undefined ? {} : { bindingId: availableBinding }) } : {}),
         ...(isMember && object !== null && property !== null ? { receiver: expressionId(object), member: textOf(property, text) } : {}),
         ...(callee !== null && isCall ? { callee: expressionId(callee), arguments: argumentsOf() } : {}),
@@ -338,6 +341,9 @@ export async function memberSites(file: SourceFile, program: Program, imports: r
     const accessRoles = (node: SyntaxNode): readonly string[] => {
       const parent = node.parent;
       if (parent === null) return ['read-access'];
+      // Index writes affect only the indexed operand. The key is still a read,
+      // even when it is another resolved field of the same receiver.
+      if (parent.type === 'index_expression' && parent.childForFieldName('operand')?.id === node.id) return accessRoles(parent);
       if (['update_expression', 'inc_statement', 'dec_statement'].includes(parent.type)) return ['read-access', 'write-access'];
       if (['assignment_expression', 'augmented_assignment_expression', 'assignment_statement'].includes(parent.type)) {
         const left = parent.childForFieldName('left');
@@ -479,7 +485,9 @@ export async function memberSites(file: SourceFile, program: Program, imports: r
         }
         const body = node.childForFieldName('body');
         const at = sourceSpan(node);
-        const owners = symbols.filter((symbol) => symbol.functionLike && !symbol.local && symbol.span.startByte <= at.byteStart && symbol.span.endByte === at.byteEnd);
+        const candidates = symbols.filter((symbol) => symbol.functionLike && !symbol.local && symbol.span.startByte <= at.byteStart && symbol.span.endByte === at.byteEnd);
+        const nearestStart = Math.max(...candidates.map((symbol) => symbol.span.startByte));
+        const owners = candidates.filter((symbol) => symbol.span.startByte === nearestStart);
         if (body === null) factGaps.set(expressionId(node), {path:file.path, reason:`line ${at.lineStart}: callable declaration has no body at bytes ${at.byteStart}-${at.byteEnd}`});
         else if (owners.length !== 1) factGaps.set(expressionId(node), {path:file.path, reason:`line ${at.lineStart}: callable has no unique canonical symbol at bytes ${at.byteStart}-${at.byteEnd}`});
         if (body !== null && owners.length === 1) {
@@ -567,6 +575,12 @@ export async function memberSites(file: SourceFile, program: Program, imports: r
           suppressed.add(spanOf(node).startByte);
           return;
         }
+        // A namespace-qualified type still has a lexical module reference.
+        // Retain its binding without treating the property name as a variable.
+        if (type === 'nested_type_identifier') {
+          const module = node.childForFieldName('module');
+          if (module !== null) visit(module);
+        }
         const parent = node.parent;
         const declarationName = parent?.childForFieldName('name');
         const heritage = ['extends_clause', 'extends_type_clause', 'implements_clause'].includes(parent?.type ?? '');
@@ -613,18 +627,9 @@ export async function memberSites(file: SourceFile, program: Program, imports: r
       }
       if (['assignment_expression', 'augmented_assignment_expression', 'assignment_statement', 'update_expression', 'inc_statement', 'dec_statement'].includes(type)) {
         visitChildren(node);
-        const left = node.childForFieldName('left') ?? node.childForFieldName('argument') ?? named(node)[0];
-        const invalidate = (target: SyntaxNode): void => {
-          if (target.type === 'identifier') {
-            const id = lookupBinding(textOf(target, text));
-            const binding = id === undefined ? undefined : bindings.get(id);
-            if (binding !== undefined) {
-              const { initializer: _initializer, importId: _importId, ...unknown } = binding;
-              bindings.set(binding.id, unknown);
-            }
-          } else if (target.type === 'expression_list' || target.type === 'array_pattern' || target.type === 'object_pattern') for (const child of named(target)) invalidate(child);
-        };
-        if (left !== undefined && left !== null) invalidate(left);
+        // Declaration facts retain their original import/initializer identity.
+        // Assignment expressions carry writes; consumers must reject stale
+        // values without erasing the origin needed to diagnose that rejection.
         return;
       }
       if (go && (type === 'type_spec' || type === 'type_alias')) {

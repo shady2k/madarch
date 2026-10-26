@@ -28,29 +28,73 @@ export function evaluateLibraryModels(facts: CodeFacts, input: LibraryRegistry =
   const candidateExpressions = new Map(facts.expressions.map((expression) => [expression.id, expression]));
   const candidateImports = new Map(facts.imports.map((imported) => [imported.id, imported]));
   const candidateBindings = new Map(facts.bindings.map((binding) => [binding.id, binding]));
-  const candidate = (id: string, seen = new Set<string>()): Set<string> => {
-    const cached = candidateRoles.get(id); if (cached !== undefined) return cached;
-    if (seen.has(id)) return new Set(); seen.add(id);
-    const expression = candidateExpressions.get(id); const roles = new Set<string>();
-    if (expression === undefined) return roles;
-    const imported = expression.bindingId === undefined ? undefined : candidateImports.get(candidateBindings.get(expression.bindingId)?.importId ?? '');
-    for (const model of registry.models) {
-      if (model.target.kind === 'member' && model.target.member === expression.member) roles.add(model.returnRole ?? model.target.receiverRole);
-      if (model.target.kind === 'export' && facts.imports.some((one) => one.path === expression.path && one.local === expression.name && one.specifier === model.package)) {
-        roles.add(model.returnRole ?? model.effect ?? 'library');
-      }
-      if (imported !== undefined && imported.specifier === model.package) roles.add(model.returnRole ?? model.effect ?? 'library');
+  const candidateDependents = new Map<string, Set<string>>();
+  const candidateQueue: string[] = [];
+  const candidateExport = (id: string, seen = new Set<string>()): { imported: CodeImportFact; path: readonly string[] } | undefined => {
+    if (seen.has(id)) return undefined; seen.add(id);
+    const expression = candidateExpressions.get(id); if (expression === undefined) return undefined;
+    if (expression.receiver !== undefined && expression.member !== undefined) {
+      const receiver = candidateExport(expression.receiver, seen);
+      return receiver === undefined ? undefined : { imported: receiver.imported, path: [...receiver.path, expression.member] };
     }
-    if (expression.callee !== undefined) for (const role of candidate(expression.callee, seen)) roles.add(role);
-    candidateRoles.set(id, roles); return roles;
+    const binding = expression.bindingId === undefined ? undefined : candidateBindings.get(expression.bindingId);
+    const imported = binding?.importId === undefined ? undefined : candidateImports.get(binding.importId);
+    if (imported?.targetExpression !== undefined) return candidateExport(imported.targetExpression, seen);
+    // A rejected import proof or a lexical shadow still names a diagnostic
+    // candidate only through the exact import form and complete exported path.
+    // It never supplies a runtime value, and member spelling alone is not enough.
+    const candidate = imported ?? (expression.name === undefined ? undefined : facts.imports.find((one) =>
+      one.path === expression.path && one.local === expression.name));
+    if (candidate !== undefined) return { imported: candidate,
+      path: candidate.imported.form === 'named' ? [candidate.imported.name] : candidate.imported.form === 'default' ? ['default'] : [] };
+    return binding?.initializer === undefined ? undefined : candidateExport(binding.initializer, seen);
   };
-  for (const expression of facts.expressions) candidate(expression.id);
+  for (const expression of facts.expressions) {
+    const roles = new Set<string>();
+    const binding = expression.bindingId === undefined ? undefined : candidateBindings.get(expression.bindingId);
+    const imported = binding?.importId === undefined ? undefined : candidateImports.get(binding.importId);
+    const exported = candidateExport(expression.id);
+    const receiver = expression.receiver === undefined ? undefined : candidateExpressions.get(expression.receiver);
+    for (const model of registry.models) {
+      // A completely unbound receiver is an unread candidate (unknown.info).
+      // A known repository parameter/member is not a library by method spelling.
+      if (model.target.kind === 'member' && model.target.member === expression.member && receiver?.name !== undefined && receiver.bindingId === undefined) {
+        roles.add(model.returnRole ?? model.target.receiverRole);
+      }
+      if (model.target.kind !== 'export') continue;
+      const matches = (one: CodeImportFact, path: readonly string[]): boolean => one.specifier === model.package &&
+        model.target.kind === 'export' && model.target.importRoles.includes(one.imported.form) &&
+        model.target.exportedPaths.some((expected) => JSON.stringify(expected) === JSON.stringify(path));
+      const shadowedFactory = expression.name !== undefined && facts.imports.some((one) => one.path === expression.path &&
+        one.local === expression.name && matches(one, one.imported.form === 'named' ? [one.imported.name] : one.imported.form === 'default' ? ['default'] : []));
+      if (exported !== undefined && matches(exported.imported, exported.path) || shadowedFactory) roles.add(model.returnRole ?? model.effect ?? 'library');
+    }
+    candidateRoles.set(expression.id, roles);
+    if (roles.size > 0) candidateQueue.push(expression.id);
+    // Diagnostic relevance follows exact copied identities, not just call names.
+    // This graph never supplies a positive value or bypasses binding validation.
+    const indexedReceiver = ['subscript_expression', 'index_expression'].includes(expression.syntaxKind)
+      ? expression.fields[expression.syntaxKind === 'subscript_expression' ? 'object' : 'operand'] ?? [] : [];
+    for (const dependency of [expression.callee, expression.receiver, binding?.initializer, imported?.targetExpression, ...indexedReceiver]) {
+      if (dependency === undefined || !candidateExpressions.has(dependency)) continue;
+      const dependents = candidateDependents.get(dependency) ?? new Set<string>();
+      dependents.add(expression.id); candidateDependents.set(dependency, dependents);
+    }
+  }
+  for (let next = 0; next < candidateQueue.length; next++) {
+    const id = candidateQueue[next]!; const roles = candidateRoles.get(id)!;
+    for (const dependent of candidateDependents.get(id) ?? []) {
+      const target = candidateRoles.get(dependent)!; const before = target.size;
+      for (const role of roles) target.add(role);
+      if (target.size !== before) candidateQueue.push(dependent);
+    }
+  }
   const report = (code: LibraryDiagnostic['code'], at: CodeExpressionFact | CodeCallFact | CodeBindingFact,
     reason: string, modelId?: string): void => {
     const expression = 'expression' in at ? at.expression : at.id;
     const relevant = candidateRoles.get(expression);
-    if (code === 'unknown-origin' && modelId === undefined && (relevant === undefined || relevant.size === 0)) return;
-    const context = relevant?.has('logger') && 'expression' in at ? 'logger factory or logger use: ' : '';
+    if ((code === 'unknown-origin' || code === 'dynamic-member') && modelId === undefined && (relevant === undefined || relevant.size === 0)) return;
+    const context = relevant?.has('logger') ? 'logger factory or logger use: ' : '';
     const item: LibraryDiagnostic = { code, path: at.path, span: at.span, expression, reason: context + reason,
       ...(modelId === undefined ? {} : { modelId }) };
     diagnostics.set(JSON.stringify([code, expression, modelId, reason]), item);
@@ -78,6 +122,17 @@ export function evaluateLibraryModels(facts: CodeFacts, input: LibraryRegistry =
     exportNames.set(key, (exportNames.get(key) ?? 0) + 1);
   }
   const files = new Map(facts.files.map((file) => [file.path, file]));
+  for (const imported of facts.imports) {
+    const at = { ...imported, syntaxKind: 'import', children: [], fields: {} };
+    if (imported.targetPath === undefined && (imported.targetExpression !== undefined || imported.targetChain !== undefined)) {
+      report('ambiguous-fact', at, 'external import carries an internal exported-value proof without a target path');
+    }
+    const ecosystem = files.get(imported.path)?.language === 'go' ? 'go' : 'node';
+    if (imported.package !== undefined && (imported.package.ecosystem !== ecosystem ||
+      imported.package.name !== imported.specifier && !imported.specifier.startsWith(`${imported.package.name}/`))) {
+      report('ambiguous-fact', at, 'import package identity conflicts with its actual specifier or source language');
+    }
+  }
   const invalidExpressions = new Set<string>();
   const exportRules = new Map<string, LibraryModel[]>(); const memberRules = new Map<string, LibraryModel[]>();
   for (const model of registry.models) {
@@ -588,6 +643,6 @@ export function evaluateLibraryModels(facts: CodeFacts, input: LibraryRegistry =
     effects: [...effects.values()].sort((a, b) => byCodePoint(a.span.path, b.span.path) || a.span.byteStart - b.span.byteStart || byCodePoint(a.modelId, b.modelId)),
     diagnostics: orderedDiagnostics,
     gaps: [...facts.gaps, ...orderedDiagnostics.map((item) => ({ path: item.path,
-      reason: `${item.path}:${item.span.lineStart}: ${item.code}: ${item.reason}${item.modelId === undefined ? '' : ` [${item.modelId}]`}` }))],
+      reason: `${item.path}:${item.span.lineStart}: line ${item.span.lineStart}: ${item.code}: ${item.reason}${item.modelId === undefined ? '' : ` [${item.modelId}]`}` }))],
   };
 }

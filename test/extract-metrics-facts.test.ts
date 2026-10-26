@@ -1,5 +1,8 @@
 import { expect, test } from 'bun:test';
-import { extractOperations } from './extract-code-facts-fixture.js';
+import { extractCode, extractOperations } from './extract-code-facts-fixture.js';
+import { codeFactsOf } from '../src/extract/code/index.js';
+import { structuralHttpRegistrations } from '../src/extract/operations/route-facts.js';
+import { TreeText } from '../src/extract/operations/source.js';
 import type { TreeReader } from '../src/extract/records.js';
 import { metricSemanticModels, validateMetricSemanticModels } from '../src/extract/library-models/metric-semantic-models.js';
 const path = 'services/api/main.ts';
@@ -85,7 +88,7 @@ const goTree = (source: string): TreeReader => ({ paths: ['services/api/telemetr
 const goMetric = 'code.metric:services/api/telemetry.go#work_items_total';
 
 test('registered typed HTTP object handler exposes a typed atomic observation and its modeled mutations', async () => {
-  const result = await extractOperations(goTree(`package api
+  const input = goTree(`package api
 import printer "fmt"
 import web "net/http"
 import cell "sync/atomic"
@@ -97,7 +100,10 @@ func (c *Collector) ServeHTTP(w web.ResponseWriter, r *web.Request) {
  printer.Fprint(w, "# TYPE work_items_total counter\\n")
  printer.Fprintf(w, "work_items_total %d\\n", c.count.Load())
 }
-func Register() { mux := web.NewServeMux(); mux.Handle("/inspect", &Collector{}) }`));
+func Register() { mux := web.NewServeMux(); mux.Handle("/inspect", &Collector{}) }`);
+  const code = await extractCode(input);
+  const facts = codeFactsOf(code, input);
+  const result = await extractOperations(input, code);
   const metric = result.nodes.find((node) => node.key === goMetric);
   expect(metric?.properties.backingDeclaration).toBe('code.symbol:services/api/telemetry.go#Collector.count');
   expect(metric?.properties.backingTypeExpression).toBeString();
@@ -108,7 +114,10 @@ func Register() { mux := web.NewServeMux(); mux.Handle("/inspect", &Collector{})
   const updates = result.edges.filter((edge) => edge.type === 'code.updates-metric' && edge.to === goMetric);
   expect(updates.every((edge) => edge.properties.receiverModel === 'go.atomic.int64')).toBe(true);
   const endpoint = result.nodes.find((node) => node.key === 'code.metrics-endpoint:services/api/telemetry.go#Collector');
-  expect(endpoint?.properties.path).toBe('/inspect');
+  const diagnostics = JSON.stringify({ facts, registrations: structuralHttpRegistrations(new TreeText(input, code, facts)),
+    gaps: result.gaps, nodes: result.nodes, edges: result.edges }, null, 2);
+  expect(endpoint?.properties.path, diagnostics).toBe('/inspect');
+  expect(facts?.expressions.find((expression) => expression.syntaxKind === 'unary_expression')?.operator, diagnostics).toBe('&');
   expect(endpoint?.properties.handler).toBe('code.symbol:services/api/telemetry.go#Collector.ServeHTTP');
   expect(endpoint?.properties.counters).toEqual(['work_items_total']);
   expect(targets(result)).toEqual([goMetric]);
@@ -252,14 +261,17 @@ func Register() { http.HandleFunc("/inspect", Publish) }`));
 });
 
 test('indexed map samples keep the direct map declaration and exact index evidence', async () => {
-  const result = await extractOperations(goTree(`package api
+  const input = goTree(`package api
 import "fmt"
 import "io"
 type Collector struct { counts map[string]int64; category string }
 func (c *Collector) Increase() { c.counts[c.category]++ }
 func (c *Collector) Export(w io.Writer) {
  fmt.Fprintf(w, "# TYPE work_items_total counter\\nwork_items_total %d\\n", c.counts[c.category])
-}`));
+}`);
+  const code = await extractCode(input);
+  const facts = codeFactsOf(code, input)!;
+  const result = await extractOperations(input, code);
   const metric = result.nodes.find((node) => node.key === goMetric);
   expect(metric?.properties.backingDeclaration).toBe('code.symbol:services/api/telemetry.go#Collector.counts');
   expect(result.edges.filter((edge) => edge.type === 'code.updates-metric' && edge.to === goMetric).map((edge) => edge.from))
@@ -272,6 +284,35 @@ func (c *Collector) Export(w io.Writer) {
   expect(samples[0]?.indexSpan).toEqual(samples[0]?.valueSpan);
   expect(samples[0]?.indexKeyExpression).toBeString();
   expect(samples[0]?.indexKeySpan).toBeDefined();
+  const increase = 'code.symbol:services/api/telemetry.go#Collector.Increase';
+  const backingSites = facts.sites.filter((site) => site.holder === increase && site.to === 'code.symbol:services/api/telemetry.go#Collector.counts');
+  expect(backingSites).toHaveLength(1);
+  expect(backingSites[0]?.roles).toEqual(['read-access', 'write-access']);
+  const keySites = facts.sites.filter((site) => site.holder === increase && site.to === 'code.symbol:services/api/telemetry.go#Collector.category');
+  expect(keySites).toHaveLength(1);
+  expect(keySites[0]?.roles).toEqual(['read-access']);
+  const keyExpression = facts.expressions.find((expression) => expression.id === samples[0]?.indexKeyExpression);
+  expect(keyExpression?.syntaxKind).toBe('selector_expression');
+  expect(keyExpression?.member).toBe('category');
+  expect(samples[0]?.indexKeySpan).toEqual(keyExpression?.span);
+  expect(samples[0]?.valueSpan).not.toEqual(keyExpression?.span);
+  expect(metric?.properties.backingDeclaration).not.toBe('code.symbol:services/api/telemetry.go#Collector.category');
+  expect(targets(result)).toEqual([]);
+});
+
+test('incrementing a map element does not update the declaration read by its key', async () => {
+  const result = await extractOperations(goTree(`package api
+import "fmt"
+import "io"
+type Collector struct { counts map[int64]int64; category int64 }
+func (c *Collector) Increase() { c.counts[c.category]++ }
+func (c *Collector) Export(w io.Writer) {
+ fmt.Fprintf(w, "# TYPE work_items_total counter\\nwork_items_total %d\\n", c.category)
+}`));
+  const metric = result.nodes.find((node) => node.key === goMetric);
+  expect(metric?.properties.backingDeclaration).toBe('code.symbol:services/api/telemetry.go#Collector.category');
+  expect(result.edges.filter((edge) => edge.type === 'code.updates-metric' && edge.to === goMetric)).toEqual([]);
+  expect(result.gaps.some((gap) => gap.reason.includes('backing declaration has no resolved write effect'))).toBe(true);
   expect(targets(result)).toEqual([]);
 });
 

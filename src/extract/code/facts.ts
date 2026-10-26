@@ -56,6 +56,8 @@ export interface CodeExpressionFact {
   readonly id: CodeFactId;
   readonly path: string;
   readonly syntaxKind: string;
+  /** Grammar operator token kind, copied without source-text interpretation. */
+  readonly operator?: string;
   readonly span: SourceSpan;
   readonly name?: string;
   readonly bindingId?: CodeFactId;

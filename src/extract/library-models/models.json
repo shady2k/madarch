@@ -212,6 +212,12 @@
           "index": 1,
           "path": [],
           "required": true
+        },
+        {
+          "name": "topic",
+          "index": 1,
+          "path": ["Topic"],
+          "required": false
         }
       ],
       "reference": "https://pkg.go.dev/github.com/segmentio/kafka-go",

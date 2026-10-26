@@ -26,7 +26,8 @@ test('provided facts are authoritative: removing a listener call cannot trigger 
  const missing=freezeCodeFacts({...shared.facts,calls:shared.facts.calls.filter(call=>call.expression!==listener.expression)});
  const result=await extractContracts(input,shared.extraction,missing);expect(result.nodes.filter(node=>node.kind==='code.route').map(node=>node.properties.ports)).toEqual([[]]);
  expect(result.gaps.some(gap=>gap.path===path&&gap.reason.includes('receiver/listener'))).toBe(true);
- const codeOnly=await extractContracts(input,shared.extraction);expect(codeOnly.nodes.filter(node=>node.kind==='code.route').map(node=>node.properties.ports)).toEqual([[]]);expect(codeOnly.gaps.some(gap=>gap.reason.includes('shared resolved code facts'))).toBe(true);
+ const codeOnly=await extractContracts(input,shared.extraction);expect(codeOnly.nodes.filter(node=>node.kind==='code.route').map(node=>node.properties.ports)).toEqual([['7311']]);
+ const detached=await extractContracts(input,{...shared.extraction});expect(detached.nodes.filter(node=>node.kind==='code.route').map(node=>node.properties.ports)).toEqual([[]]);expect(detached.gaps.some(gap=>gap.reason.includes('shared resolved code facts'))).toBe(true);
  expect(shared.facts.calls.some(call=>call.expression===listener.expression)).toBe(true);
 });
 

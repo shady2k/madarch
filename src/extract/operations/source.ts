@@ -6,6 +6,7 @@
 import type { Extraction, SourceSpan, TreeReader } from '../records.js';
 import { byCodePoint } from '../../model/order.js';
 import type { CodeFacts } from '../code/facts.js';
+import {codeFactsOf} from '../code/index.js';
 import { evaluateLibraryModels } from '../library-models/evaluate.js';
 import type { LibraryEvaluation } from '../library-models/model.js';
 
@@ -29,8 +30,10 @@ export class TreeText {
     return this.libraryCache;
   }
 
-  constructor(tree: TreeReader, readonly code?: Extraction, readonly facts?: CodeFacts) {
+  readonly facts: CodeFacts | undefined;
+  constructor(tree: TreeReader, readonly code?: Extraction, facts?: CodeFacts) {
     this.tree = tree;
+    this.facts = facts ?? (code === undefined ? undefined : codeFactsOf(code, tree));
     const paths = new Set(tree.paths);
     this.has = (path) => paths.has(path);
   }

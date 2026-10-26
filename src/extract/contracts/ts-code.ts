@@ -10,7 +10,11 @@
  */
 import type {Node as SyntaxNode} from 'web-tree-sitter';
 import {calleeName, spanOf, stringValue, walkTree} from './walk.js';
-import type {SourceSpan} from '../../extract/records.js';
+import type {SourceSpan, ExtractionGap} from '../../extract/records.js';
+import type {CodeBindingFact, CodeCallFact, CodeExpressionFact} from '../code/facts.js';
+import type {TreeText} from '../operations/source.js';
+import {libraryRegistry} from '../library-models/validate.js';
+import {messagingTypes} from '../library-models/messaging-models.js';
 
 /** One route registered on an Express app or router, as the file states it (mounts joined later). */
 export interface TsRoute {
@@ -35,18 +39,6 @@ export interface TsStarted {
   readonly path?: string;
 }
 
-/** One Kafka send the file makes. */
-export interface TsSend {
-  /** Direct imported producer or locally proved wrapper; false is an unresolved site, not a publication fact. */
-  readonly receiverGrounded: boolean;
-  readonly receiverMessagingEvidence: boolean;
-  /** The channel name the topic expression names, when it names one. */
-  readonly channel?: string;
-  readonly publisher?: string;
-  readonly key?: string;
-  readonly span: SourceSpan;
-}
-
 export interface TsFileFacts {
   readonly path: string;
   /** String- and number-valued top-level consts, by name (`PAYMENTS_TOPIC` -> `payments.events`). */
@@ -65,7 +57,6 @@ export interface TsFileFacts {
   readonly entry: {symbol: string} | undefined;
   readonly started: readonly TsStarted[];
   readonly listenerPorts: readonly string[];
-  readonly sends: readonly TsSend[];
   readonly fetchCalls: readonly {urlText: string; method: string; tokenForwarded: boolean; client?: string; span: SourceSpan}[];
   /** `const PROTO_PATH = path.resolve(__dirname, '<rel>')`: the relative part. */
   readonly protoRel?: string;
@@ -99,193 +90,6 @@ function urlText(node: SyntaxNode): string | undefined {
   return undefined;
 }
 
-/** Resolve direct imported producer types and locally implemented messaging wrappers.
- * No receiver is inferred from its spelling. Unsupported aliases or bindings stay unresolved.
- */
-function messagingReceiver(call: SyntaxNode, root: SyntaxNode): boolean {
-  const named = (node: SyntaxNode): SyntaxNode[] => node.namedChildren.filter((child): child is SyntaxNode => child !== null);
-  const fn = call.childForFieldName('function');
-  const receiver = fn?.type === 'member_expression' ? fn.childForFieldName('object')?.text : undefined;
-  if (receiver === undefined) return false;
-  const imports = new Map<string, string>();
-  for (const statement of named(root)) {
-    if (statement.type !== 'import_statement' || statement.childForFieldName('source')?.text.slice(1, -1) !== 'kafkajs') continue;
-    walkTree(statement, (node) => {
-      if (node.type !== 'import_specifier') return;
-      const name = node.childForFieldName('name');
-      if (name === null || !['Producer', 'Kafka'].includes(name.text)) return;
-      imports.set(node.childForFieldName('alias')?.text ?? name.text, name.text);
-    });
-  }
-  const typeOf = (node: SyntaxNode): string | undefined => node.childForFieldName('type')?.text.replace(/^:\s*/, '').trim();
-  const nameOf = (node: SyntaxNode): string | undefined => node.childForFieldName('pattern')?.text ?? node.childForFieldName('name')?.text;
-  const shadowsImport = (at: SyntaxNode, name: string): boolean => {
-    let scope: SyntaxNode | null = at;
-    while (scope !== null) {
-      const parameters = scope.childForFieldName('type_parameters');
-      if (parameters !== null && named(parameters).some((parameter) => parameter.childForFieldName('name')?.text === name || parameter.text === name)) return true;
-      const values = scope.childForFieldName('parameters');
-      if (values !== null && named(values).some((parameter) => nameOf(parameter) === name)) return true;
-      for (const child of named(scope).flatMap((statement) => statement.type === 'export_statement' ? named(statement) : [statement])) {
-        if (['class_declaration', 'interface_declaration', 'type_alias_declaration', 'enum_declaration', 'function_declaration'].includes(child.type) && child.childForFieldName('name')?.text === name) return true;
-        if (['lexical_declaration', 'variable_declaration'].includes(child.type) && named(child).some((declaration) => declaration.childForFieldName('name')?.text === name)) return true;
-      }
-      scope = scope.parent;
-    }
-    return false;
-  };
-  const producerType = (declaration: SyntaxNode): boolean => {
-    const type = typeOf(declaration);
-    return type !== undefined && imports.get(type) === 'Producer' && !shadowsImport(call, type);
-  };
-  const classOf = (node: SyntaxNode): SyntaxNode | null => {
-    let owner: SyntaxNode | null = node.parent;
-    while (owner !== null && owner.type !== 'class_declaration') owner = owner.parent;
-    return owner;
-  };
-  const fieldsOf = (owner: SyntaxNode): SyntaxNode[] => {
-    const body = owner.childForFieldName('body');
-    if (body === null) return [];
-    const members = named(body);
-    const fields = members.filter((member) => member.type === 'public_field_definition');
-    for (const member of members) {
-      if (member.type !== 'method_definition' || member.childForFieldName('name')?.text !== 'constructor') continue;
-      const parameters = member.childForFieldName('parameters');
-      if (parameters === null) continue;
-      for (const parameter of named(parameters)) {
-        if (parameter.children.some((child) => child !== null && (child.type === 'accessibility_modifier' || child.type === 'readonly'))) fields.push(parameter);
-      }
-    }
-    return fields;
-  };
-  const implementedWrappers = new Set<string>();
-  // A wrapper signature alone is insufficient. A local implementing class must
-  // delegate send to its real Producer field and construct a Kafka producer.
-  for (const owner of named(root).flatMap((statement) => statement.type === 'export_statement' ? named(statement) : [statement])) {
-    if (owner.type !== 'class_declaration') continue;
-    const fields = fieldsOf(owner).filter(producerType);
-    if (fields.length === 0) continue;
-    const body = owner.childForFieldName('body');
-    const send = body === null ? undefined : named(body).find((member) => member.type === 'method_definition' && member.childForFieldName('name')?.text === 'send');
-    if (send === undefined) continue;
-    let delegated = false;
-    const producedBindings: {name: string; method: number}[] = [];
-    const wrapperCalls: {arguments: string[]; method: number}[] = [];
-    const methodOf = (node: SyntaxNode): number | null => {
-      let method: SyntaxNode | null = node.parent;
-      while (method !== null && method.type !== 'method_definition' && method.type !== 'function_declaration') method = method.parent;
-      return method?.startIndex ?? null;
-    };
-    const className = owner.childForFieldName('name')?.text;
-    const constructor = body === null ? undefined : named(body).find((member) => member.type === 'method_definition' && member.childForFieldName('name')?.text === 'constructor');
-    const constructorParameters = constructor?.childForFieldName('parameters');
-    const producerIndexes = constructorParameters == null ? [] : named(constructorParameters).flatMap((parameter, index) => fields.some((field) => field.startIndex === parameter.startIndex) ? [index] : []);
-    walkTree(owner, (node) => {
-      // Reject evidence from a nested class or another receiver's field.
-      if (classOf(node)?.startIndex !== owner.startIndex) return;
-      if (node.type === 'new_expression') {
-        const constructedType = node.childForFieldName('constructor')?.text;
-        const method = methodOf(node);
-        if (constructedType !== undefined && imports.get(constructedType) === 'Kafka' && !shadowsImport(node, constructedType)) {
-          const parent = node.parent;
-          const factoryCall = parent?.type === 'member_expression' && parent.childForFieldName('property')?.text === 'producer' ? parent.parent : null;
-          const binding = factoryCall?.type === 'call_expression' ? factoryCall.parent : null;
-          const name = binding?.type === 'variable_declarator' ? binding.childForFieldName('name')?.text : undefined;
-          if (name !== undefined && method !== null) producedBindings.push({name, method});
-        }
-        if (constructedType === className && method !== null) {
-          const argumentsNode = node.childForFieldName('arguments');
-          if (argumentsNode !== null) wrapperCalls.push({arguments: named(argumentsNode).map((argument) => argument.text), method});
-        }
-      }
-      if (node.type !== 'call_expression' || node.startIndex < send.startIndex || node.endIndex > send.endIndex) return;
-      const target = node.childForFieldName('function');
-      if (target?.type !== 'member_expression' || target.childForFieldName('property')?.text !== 'send') return;
-      const object = target.childForFieldName('object')?.text;
-      if (!fields.some((field) => object === `this.${nameOf(field)}`)) return;
-      const argument = node.childForFieldName('arguments')?.namedChild(0);
-      if (argument?.type !== 'object') return;
-      const keys = named(argument).map((property) => property.type === 'shorthand_property_identifier' ? property.text : property.childForFieldName('key')?.text);
-      delegated ||= keys.includes('topic') && keys.includes('messages');
-    });
-    const constructed = wrapperCalls.some((call) => producerIndexes.some((index) => producedBindings.some((binding) => binding.method === call.method && call.arguments[index] === binding.name)));
-    if (!delegated || !constructed) continue;
-    const heritage = named(owner).find((child) => child.type === 'class_heritage');
-    if (heritage === undefined) continue;
-    for (const clause of named(heritage)) if (clause.type === 'implements_clause') for (const name of named(clause)) implementedWrappers.add(name.text);
-  }
-  const accepts = (declaration: SyntaxNode): boolean => {
-    const type = typeOf(declaration);
-    if (producerType(declaration)) return true;
-    if (type === undefined || !implementedWrappers.has(type)) return false;
-    let scope: SyntaxNode | null = call.parent;
-    while (scope !== null && scope.type !== 'program') {
-      const parameters = scope.childForFieldName('type_parameters');
-      if (parameters !== null && named(parameters).some((parameter) => parameter.childForFieldName('name')?.text === type || parameter.text === type)) return false;
-      if (named(scope).some((child) => ['interface_declaration', 'class_declaration', 'type_alias_declaration'].includes(child.type) && child.childForFieldName('name')?.text === type)) return false;
-      scope = scope.parent;
-    }
-    return true;
-  };
-  if (receiver.startsWith('this.')) {
-    const owner = classOf(call);
-    return owner !== null && fieldsOf(owner).some((field) => nameOf(field) === receiver.slice(5) && accepts(field));
-  }
-  // The nearest binding wins. A local variable or function parameter shadows an
-  // outer producer even if the unrelated binding has the same spelling.
-  let enclosing: SyntaxNode | null = call.parent;
-  while (enclosing !== null) {
-    const parameters = enclosing.childForFieldName('parameters');
-    if (parameters !== null) for (const parameter of named(parameters)) if (nameOf(parameter) === receiver) return accepts(parameter);
-    if (enclosing.type === 'statement_block' || enclosing.type === 'program') for (const statement of named(enclosing)) {
-      if (statement.type !== 'lexical_declaration' && statement.type !== 'variable_declaration') continue;
-      for (const declaration of named(statement)) if (declaration.type === 'variable_declarator' && nameOf(declaration) === receiver) {
-        if (accepts(declaration)) return true;
-        const value = declaration.childForFieldName('value');
-        const target = value?.type === 'call_expression' ? value.childForFieldName('function') : null;
-        if (target?.type !== 'member_expression' || target.childForFieldName('property')?.text !== 'producer') return false;
-        let constructed = target.childForFieldName('object');
-        if (constructed?.type === 'parenthesized_expression') constructed = constructed.namedChild(0);
-        if (constructed?.type !== 'new_expression') return false;
-        const constructor = constructed.childForFieldName('constructor')?.text;
-        return constructor !== undefined && imports.get(constructor) === 'Kafka' && !shadowsImport(constructed, constructor);
-      }
-    }
-    enclosing = enclosing.parent;
-  }
-  return false;
-}
-
-/** A located unresolved site is reported only for an explicit messaging type. */
-function messagingTypeEvidence(call: SyntaxNode, root: SyntaxNode): boolean {
-  const fn = call.childForFieldName('function');
-  const receiver = fn?.type === 'member_expression' ? fn.childForFieldName('object')?.text : undefined;
-  if (receiver === undefined) return false;
-  const names = new Set<string>();
-  walkTree(root, (node) => {
-    if (node.type === 'interface_declaration' && /\bsend\s*\(\s*topic\s*:\s*string\s*,\s*key\s*:\s*string\s*,\s*value\s*:\s*string\s*\)/.test(node.text)) {
-      const name = node.childForFieldName('name')?.text;
-      if (name !== undefined) names.add(name);
-    }
-    if (node.type !== 'import_statement' || node.childForFieldName('source')?.text.slice(1, -1) !== 'kafkajs') return;
-    walkTree(node, (specifier) => {
-      if (specifier.type !== 'import_specifier' || specifier.childForFieldName('name')?.text !== 'Producer') return;
-      names.add(specifier.childForFieldName('alias')?.text ?? 'Producer');
-    });
-  });
-  let scope: SyntaxNode | null = call.parent;
-  while (scope !== null) {
-    const parameters = scope.childForFieldName('parameters');
-    if (parameters !== null) for (const parameter of parameters.namedChildren) {
-      if (parameter === null || (parameter.childForFieldName('pattern')?.text ?? parameter.childForFieldName('name')?.text) !== receiver) continue;
-      const type = parameter.childForFieldName('type')?.text.replace(/^:\s*/, '').trim();
-      return type !== undefined && names.has(type);
-    }
-    scope = scope.parent;
-  }
-  return false;
-}
-
 export function readTsFile(path: string, root: SyntaxNode): TsFileFacts {
   const consts = new Map<string, string>();
   const typeUnions = new Map<string, readonly string[]>();
@@ -295,7 +99,6 @@ export function readTsFile(path: string, root: SyntaxNode): TsFileFacts {
   let appVar: string | undefined;
   let entry: {symbol: string} | undefined;
   const started: TsStarted[] = [];
-  const sends: TsSend[] = [];
   const fetchCalls: {urlText: string; method: string; tokenForwarded: boolean; client?: string; span: SourceSpan}[] = [];
   let protoRel: string | undefined;
   const grpcSites: {kind: 'serve' | 'call'; rpc: string; fn?: string; className?: string; handlerSpan?: SourceSpan; span: SourceSpan}[] = [];
@@ -442,37 +245,6 @@ export function readTsFile(path: string, root: SyntaxNode): TsFileFacts {
         const rpc = fn.childForFieldName('property')?.text ?? '';
         if (object.startsWith('this.') && rpc !== '') {
           grpcSites.push({kind: 'call', rpc, fn: enclosingFunctionName(node), className: enclosingClassName(node), span: spanOf(node, path)});
-        }
-      }
-      // A Kafka send.
-      if (calleeName(node) === 'send') {
-        const args = node.childForFieldName('arguments');
-        const topicArg = args?.namedChild(0);
-        if (topicArg !== null && topicArg !== undefined) {
-          let channel = topicArg.type === 'identifier' ? consts.get(topicArg.text) : stringValue(topicArg);
-          const keyArg = args?.namedChild(1);
-          if (topicArg.type === 'object') {
-            const pairs = topicArg.namedChildren.filter((child): child is SyntaxNode => child !== null && child.type === 'pair');
-            const field = (name: string): SyntaxNode | null => {
-              const explicit = pairs.find((pair) => pair.childForFieldName('key')?.text.replace(/['"]/g, '') === name)?.childForFieldName('value');
-              if (explicit != null) return explicit;
-              return topicArg.namedChildren.find((child) => child !== null && child.type === 'shorthand_property_identifier' && child.text === name) ?? null;
-            };
-            const topic = field('topic');
-            const messages = field('messages');
-            // KafkaJS send takes both a topic and messages. A topic-bearing
-            // object alone, or an unrelated object elsewhere, proves nothing.
-            if (topic === null || messages === null) return;
-            channel = topic.type === 'identifier' || topic.type === 'shorthand_property_identifier' ? consts.get(topic.text) : stringValue(topic);
-          }
-          sends.push({
-            receiverGrounded: messagingReceiver(node, root),
-            receiverMessagingEvidence: messagingTypeEvidence(node, root),
-            ...(channel !== undefined ? {channel} : {}),
-            publisher: enclosingFunctionName(node),
-            ...(keyArg !== undefined && keyArg !== null ? {key: keyArg.text} : {}),
-            span: spanOf(node, path),
-          });
         }
       }
       // An HTTP client call.
@@ -699,7 +471,6 @@ export function readTsFile(path: string, root: SyntaxNode): TsFileFacts {
     routes,
     entry,
     started,
-    sends,
     fetchCalls,
     protoRel,
     grpcSites,
@@ -875,4 +646,383 @@ export function joinPath(prefix: string, suffix: string): string {
   const right = suffix === '/' ? '' : suffix.startsWith('/') ? suffix : `/${suffix}`;
   const joined = left === '/' ? right : `${left}${right}`;
   return joined === '' ? '/' : joined;
+}
+
+/** A publication proved from the shared binding/call graph, before channel matching. */
+export interface StructuralPublication {
+  readonly span: SourceSpan;
+  readonly channel?: string;
+  readonly publisher?: string;
+  readonly key?: string;
+  readonly evidence: readonly SourceSpan[];
+}
+
+/**
+ * Library identity is data. Lexical identity, parameter substitution and local
+ * delegation are structural joins over the immutable shared facts only.
+ */
+export function structuralPublishers(source: TreeText): {sites: StructuralPublication[]; gaps: ExtractionGap[]} {
+  const facts = source.facts;
+  if (facts === undefined) return {sites: [], gaps: []};
+  const unique = <T>(entries: readonly T[]): T | undefined => entries.length === 1 ? entries[0] : undefined;
+  const contains = (a: SourceSpan, b: SourceSpan): boolean => a.path === b.path && a.byteStart <= b.byteStart && b.byteEnd <= a.byteEnd;
+  const same = (a: SourceSpan, b: SourceSpan): boolean => contains(a, b) && contains(b, a);
+  // Duplicate identities are tombstones, not a last-writer-wins selection.
+  const index = <T>(entries: readonly T[], key: (entry: T) => string): Map<string, T> => {
+    const result = new Map<string, T>(); const duplicates = new Set<string>();
+    for (const entry of entries) { const id = key(entry); if (result.has(id) || duplicates.has(id)) { result.delete(id); duplicates.add(id); } else result.set(id, entry); }
+    return result;
+  };
+  const expressions = index(facts.expressions, x => x.id);
+  const bindings = index(facts.bindings, x => x.id);
+  const imports = index(facts.imports, x => x.id);
+  const calls = index(facts.calls, x => x.expression);
+  const symbols = index(facts.symbols, x => x.key);
+  const models = libraryRegistry.models.filter(model => model.effect === 'message-publish' && model.target.kind === 'member');
+  const roles = source.libraryFacts()?.roles ?? [];
+  const sites: StructuralPublication[] = []; const gaps: ExtractionGap[] = [];
+  const reported = new Set<string>();
+  const gap = (call: CodeCallFact, detail: string): void => {
+    const reason = `contracts: line ${call.span.lineStart}: ${detail} (${call.path})`;
+    if (!reported.has(reason)) { reported.add(reason); gaps.push({path: call.path, reason}); }
+  };
+  const parsedPaths = new Set(facts.files.filter(file => file.parsed).map(file => file.path));
+  const expression = (id: string): CodeExpressionFact | undefined => {
+    const value = expressions.get(id);
+    return value !== undefined && value.path === value.span.path && parsedPaths.has(value.path) ? value : undefined;
+  };
+  const children = (value: CodeExpressionFact): CodeExpressionFact[] => value.children.flatMap(id => {
+    const child = expression(id); return child !== undefined && contains(value.span, child.span) && child.syntaxKind !== 'comment' ? [child] : [];
+  });
+  const field = (value: CodeExpressionFact, name: string): CodeExpressionFact | undefined => {
+    const id = unique(value.fields[name] ?? []); const child = id === undefined ? undefined : expression(id);
+    return child !== undefined && value.children.includes(child.id) && contains(value.span, child.span) ? child : undefined;
+  };
+  // These joins are reused for every call in a repository. Index copied
+  // identities once rather than walking the whole expression set per receiver.
+  const parents = new Map<string, CodeExpressionFact[]>();
+  const declarations = new Map<string, CodeExpressionFact[]>();
+  const lexicalTypes = new Map<string, CodeExpressionFact[]>();
+  const classes = new Map<string, CodeExpressionFact[]>();
+  const functions = new Map<string, CodeExpressionFact[]>();
+  const callsByHolder = new Map<string, CodeCallFact[]>();
+  const rolesByExpression = new Map<string, typeof roles[number][]>();
+  const receiverDeclarations = new Map<string, CodeBindingFact[]>();
+  const spanKey = (span: SourceSpan): string => JSON.stringify([span.path, span.byteStart, span.byteEnd]);
+  for (const binding of bindings.values()) if (binding.kind === 'receiver') {
+    const key = spanKey(binding.span); const held = receiverDeclarations.get(key) ?? []; held.push(binding); receiverDeclarations.set(key, held);
+  }
+  const append = <T>(map: Map<string, T[]>, key: string, item: T): void => { const held = map.get(key) ?? []; held.push(item); map.set(key, held); };
+  for (const node of expressions.values()) {
+    for (const child of node.children) append(parents, child, node);
+    if (['required_parameter', 'optional_parameter', 'parameter_declaration', 'variadic_parameter_declaration', 'variable_declarator', 'var_spec'].includes(node.syntaxKind)) {
+      for (const id of [...(node.fields.pattern ?? []), ...(node.fields.name ?? [])]) {
+        const name = expression(id); const binding = name?.bindingId === undefined ? undefined : bindings.get(name.bindingId);
+        if (name !== undefined && binding !== undefined && contains(node.span, binding.span) && same(name.span, binding.span)) append(declarations, binding.id, node);
+      }
+    }
+    if (['interface_declaration', 'type_alias_declaration', 'class_declaration', 'enum_declaration'].includes(node.syntaxKind)) {
+      const name = field(node, 'name')?.name; if (name !== undefined) append(lexicalTypes, name, node);
+    }
+    if (['class_declaration', 'abstract_class_declaration', 'class'].includes(node.syntaxKind)) {
+      const name = field(node, 'name');
+      const binding = name === undefined ? undefined : unique(receiverDeclarations.get(spanKey(name.span)) ?? []);
+      if (binding !== undefined && contains(binding.scope, node.span)) append(classes, binding.id, node);
+    }
+    if (['function_declaration', 'method_definition', 'method_declaration', 'arrow_function', 'function_expression', 'func_literal'].includes(node.syntaxKind)) append(functions, JSON.stringify([node.path, node.span.byteEnd]), node);
+  }
+  for (const call of calls.values()) append(callsByHolder, call.holder, call);
+  for (const role of roles) append(rolesByExpression, role.expression, role);
+  const callSitesByHolder = new Map<string, typeof facts.sites[number][]>();
+  const referencesBySpan = new Map<string, typeof facts.sites[number][]>();
+  const fieldsByKey = new Map<string, NonNullable<typeof facts.fields>[number][]>();
+  for (const site of facts.sites) {
+    if (site.use === 'call') append(callSitesByHolder, site.holder, site);
+    if (site.use === 'reference') append(referencesBySpan, spanKey(site.span), site);
+  }
+  for (const declared of facts.fields ?? []) append(fieldsByKey, declared.key, declared);
+  const callEdges = new Set((source.code?.edges ?? []).filter(edge => edge.type === 'code.calls').map(edge => JSON.stringify([edge.from, edge.to])));
+  const boundImports = new Set(facts.bindings.filter(binding => binding.kind === 'import' && binding.importId !== undefined).map(binding => binding.importId));
+  const importedTargets = new Set(facts.imports.filter(imported => imported.targetPath !== undefined && boundImports.has(imported.id)).map(imported => JSON.stringify([imported.path, imported.targetPath])));
+  const written = new Set<string>();
+  const mark = (value: CodeExpressionFact): void => { if (value.bindingId !== undefined) written.add(value.bindingId); for (const child of children(value)) mark(child); };
+  for (const value of expressions.values()) {
+    if (['assignment_expression', 'augmented_assignment_expression', 'assignment_statement'].includes(value.syntaxKind)) for (const id of value.fields.left ?? []) { const target = expression(id); if (target !== undefined) mark(target); }
+    if (['update_expression', 'inc_statement', 'dec_statement'].includes(value.syntaxKind)) mark(value);
+    if (value.syntaxKind === 'short_var_declaration') for (const id of value.fields.left ?? []) {
+      const left = expression(id); if (left === undefined) continue;
+      for (const target of children(left)) {
+        const binding = target.bindingId === undefined ? undefined : bindings.get(target.bindingId);
+        // := may assign an existing Go parameter/local beside a new binding.
+        if (binding !== undefined && !same(binding.span, target.span)) mark(target);
+      }
+    }
+  }
+  const bindingOf = (value: CodeExpressionFact): CodeBindingFact | undefined => {
+    const binding = value.bindingId === undefined ? undefined : bindings.get(value.bindingId);
+    return binding !== undefined && binding.path === value.path && contains(binding.scope, value.span) && !written.has(binding.id) && (binding.kind !== 'local' || binding.span.byteStart <= value.span.byteStart) ? binding : undefined;
+  };
+  type Value = {id: string; env: ReadonlyMap<string, Value>};
+  const unwrap = (value: Value, seen = new Set<string>()): Value | undefined => {
+    if (seen.has(value.id) || seen.size > 80) return undefined; seen.add(value.id);
+    const node = expression(value.id); if (node === undefined) return undefined;
+    if (node.bindingId !== undefined) {
+      const binding = bindingOf(node); if (binding === undefined) return undefined;
+      const argument = value.env.get(binding.id); if (argument !== undefined) return unwrap(argument, seen);
+      if (binding.kind === 'local' && binding.initializer !== undefined) return unwrap({id: binding.initializer, env: value.env}, seen);
+    }
+    if (['parenthesized_expression', 'literal_element', 'expression_list', 'await_expression'].includes(node.syntaxKind)) {
+      const child = unique(children(node)); return child === undefined ? undefined : unwrap({id: child.id, env: value.env}, seen);
+    }
+    return value;
+  };
+  const literal = (value: Value): string | undefined => { const held = unwrap(value); const node = held === undefined ? undefined : expression(held.id); return node?.literal?.kind === 'string' && typeof node.literal.value === 'string' ? node.literal.value : undefined; };
+  const select = (value: Value, path: readonly string[]): Value | undefined => {
+    let held: Value | undefined = value;
+    for (const key of path) {
+      held = held === undefined ? undefined : unwrap(held); const node: CodeExpressionFact | undefined = held === undefined ? undefined : expression(held.id);
+      if (node === undefined || held === undefined) return undefined;
+      let object: CodeExpressionFact = node;
+      if (node.syntaxKind === 'composite_literal') { const body = field(node, 'body'); if (body === undefined) return undefined; object = body; }
+      const candidates: CodeExpressionFact[] = children(object).flatMap((entry): CodeExpressionFact[] => {
+        if (entry.syntaxKind === 'shorthand_property_identifier' && entry.name === key) return [entry];
+        if (entry.syntaxKind !== 'pair' && entry.syntaxKind !== 'keyed_element') return [];
+        let name = field(entry, 'key'); let result = field(entry, 'value');
+        // Go's keyed_element has two ordered literal_element operands, not
+        // named key/value fields. Read only that direct grammar pair; a nested
+        // key or a surviving half of a partial pair cannot supply the selector.
+        if (entry.syntaxKind === 'keyed_element' && entry.fields.key === undefined && entry.fields.value === undefined) {
+          const operands = children(entry);
+          if (operands.length !== 2 || operands.some(operand => operand.syntaxKind !== 'literal_element') || operands[0]!.span.byteEnd > operands[1]!.span.byteStart) return [];
+          [name, result] = operands;
+        }
+        if (name?.syntaxKind === 'literal_element') name = unique(children(name));
+        const named = name?.name ?? (typeof name?.literal?.value === 'string' ? name.literal.value : undefined);
+        return named === key && result !== undefined ? [result] : [];
+      });
+      const chosen: CodeExpressionFact | undefined = unique(candidates); if (chosen === undefined) return undefined;
+      held = {id: chosen.id, env: held.env};
+    }
+    return held;
+  };
+  const externalType = (raw: CodeExpressionFact): {package: string; path: readonly string[]; pointer: boolean} | undefined => {
+    let node: CodeExpressionFact | undefined = raw; let pointer = false;
+    const visited = new Set<string>();
+    while (node !== undefined && ['type_annotation', 'parenthesized_type', 'pointer_type'].includes(node.syntaxKind)) {
+      if (visited.has(node.id) || visited.size >= 80) return undefined; visited.add(node.id);
+      if (node.syntaxKind === 'pointer_type') { if (pointer) return undefined; pointer = true; }
+      node = unique(children(node));
+    }
+    if (node === undefined) return undefined;
+    const path: string[] = [];
+    while (['nested_type_identifier', 'qualified_type'].includes(node.syntaxKind)) {
+      if (visited.has(node.id) || visited.size >= 80) return undefined; visited.add(node.id);
+      const name = field(node, 'name');
+      const base: CodeExpressionFact | undefined = field(node, node.syntaxKind === 'qualified_type' ? 'package' : 'module');
+      if (name?.name === undefined || base === undefined) return undefined;
+      path.unshift(name.name); node = base;
+    }
+    // Type declarations occupy a lexical namespace too. The fact pass retains
+    // their grammar even where a consumer has no exported type identity.
+    for (const declaration of lexicalTypes.get(node.name ?? '') ?? []) {
+      const parent = unique(parents.get(declaration.id) ?? []);
+      const scope = parent?.syntaxKind === 'export_statement' ? unique(parents.get(parent.id) ?? []) : parent;
+      if (scope !== undefined && ['statement_block', 'program'].includes(scope.syntaxKind) && contains(scope.span, raw.span)) return undefined;
+    }
+    const binding = bindingOf(node); const imported = binding?.importId === undefined ? undefined : imports.get(binding.importId);
+    if (binding?.kind !== 'import' || imported === undefined || imported.path !== node.path || imported.targetPath !== undefined) return undefined;
+    const exported = imported.imported.form === 'named' ? [imported.imported.name] : imported.imported.form === 'default' ? ['default'] : [];
+    return {package: imported.specifier, path: [...exported, ...path], pointer};
+  };
+  const parameter = (binding: CodeBindingFact): CodeExpressionFact | undefined => unique(declarations.get(binding.id) ?? []);
+  const producerType = (raw: CodeExpressionFact | undefined): string | undefined => {
+    const type = raw === undefined ? undefined : externalType(raw);
+    return type === undefined ? undefined : unique(messagingTypes.filter(model => model.package === type.package && model.pointer === type.pointer && JSON.stringify(model.exportedPath) === JSON.stringify(type.path)))?.package;
+  };
+  const receiverPackage = (id: string, env: ReadonlyMap<string, Value>, seen = new Set<string>()): string | undefined => {
+    const value = unwrap({id, env}); if (value === undefined || seen.has(value.id)) return undefined; seen.add(value.id);
+    const node = expression(value.id); if (node === undefined) return undefined;
+    const modeled = unique((rolesByExpression.get(node.id) ?? []).filter(role => role.role === 'message-producer'));
+    if (modeled !== undefined) return imports.get(modeled.origin.importId)?.specifier;
+    const binding = bindingOf(node);
+    if (binding !== undefined) { const declaration = parameter(binding); const type = declaration === undefined ? undefined : field(declaration, 'type'); const grounded = producerType(type); if (grounded !== undefined) return grounded; }
+    if (node.receiver === undefined || node.member === undefined) return undefined;
+    const base = expression(node.receiver); const owner = base === undefined ? undefined : bindingOf(base);
+    if (base?.syntaxKind === 'this' && owner?.kind === 'receiver') {
+      const cls = unique(classes.get(owner.id) ?? []);
+      const body = cls === undefined || !contains(cls.span, base.span) ? undefined : field(cls, 'body'); if (body === undefined) return undefined;
+      const members = children(body); const candidates: CodeExpressionFact[] = [];
+      for (const member of members) {
+        if (member.syntaxKind === 'public_field_definition' && field(member, 'name')?.name === node.member) candidates.push(member);
+        if (member.syntaxKind !== 'method_definition' || field(member, 'name')?.name !== 'constructor') continue;
+        const params = field(member, 'parameters'); if (params === undefined) continue;
+        for (const param of children(params)) if (field(param, 'pattern')?.name === node.member && children(param).some(modifier => ['accessibility_modifier', 'readonly'].includes(modifier.syntaxKind))) candidates.push(param);
+      }
+      const declared = unique(candidates); return producerType(declared === undefined ? undefined : field(declared, 'type'));
+    }
+    // Go field identity must come from the exact reference site and declared owner.
+    const property = field(node, 'field');
+    const target = property === undefined ? undefined : unique((referencesBySpan.get(spanKey(property.span)) ?? []).map(site => site.to));
+    const declared = target === undefined ? undefined : unique(fieldsByKey.get(target) ?? []);
+    if (declared === undefined) return undefined;
+    const ownerType = owner === undefined ? undefined : parameter(owner);
+    let raw = ownerType === undefined ? undefined : field(ownerType, 'type');
+    if (raw?.syntaxKind === 'pointer_type') raw = unique(children(raw));
+    const typeBinding = raw === undefined ? undefined : bindingOf(raw);
+    if (typeBinding?.typeDeclaration?.expression !== declared.ownerDeclaration) return undefined;
+    return producerType(expression(declared.typeExpression));
+  };
+  const validCall = (call: CodeCallFact): boolean => {
+    const node = expression(call.expression); const callee = expression(call.callee);
+    return node !== undefined && callee !== undefined && same(node.span, call.span) && node.callee === call.callee && node.children.includes(call.callee) && JSON.stringify(node.arguments ?? []) === JSON.stringify(call.arguments) && call.arguments.every(id => { const arg = expression(id); return arg !== undefined && contains(node.span, arg.span); });
+  };
+  const callableCache = new Map<string, CodeExpressionFact | undefined>();
+  const callable = (key: string): CodeExpressionFact | undefined => {
+    if (callableCache.has(key)) return callableCache.get(key);
+    const symbol = symbols.get(key);
+    const result = symbol?.callable !== true || symbol.bodySpan === undefined ? undefined :
+      unique((functions.get(JSON.stringify([symbol.path, symbol.span.byteEnd])) ?? []).filter(node => contains(symbol.span, node.span) && same(field(node, 'body')?.span ?? node.span, symbol.bodySpan!)));
+    callableCache.set(key, result); return result;
+  };
+  const targets = (call: CodeCallFact): {key: string; fan: boolean}[] => {
+    const callee = expression(call.callee); if (callee === undefined) return [];
+    const resolved = (callSitesByHolder.get(call.holder) ?? []).filter(site => contains(callee.span, site.span));
+    const direct = [...new Set(resolved.map(site => site.to))];
+    if (direct.length !== 1) return [];
+    const candidate = direct[0]!;
+    const keys = callable(candidate) === undefined ? [...new Set(resolved.flatMap(site => site.fanOut))] : [candidate];
+    return keys.filter(key => {
+      const target = symbols.get(key);
+      if (target === undefined || !callEdges.has(JSON.stringify([call.holder, key]))) return false;
+      // A cross-file callable requires the shared resolver's actual import
+      // edge, not only a surviving same-name call site in a partial fact view.
+      return target.path === call.path || importedTargets.has(JSON.stringify([call.path, target.path]));
+    }).map(key => ({key, fan: key !== candidate}));
+  };
+  const argumentsFor = (target: CodeExpressionFact, call: CodeCallFact, env: ReadonlyMap<string, Value>): ReadonlyMap<string, Value> | undefined => {
+    const parameters = field(target, 'parameters'); if (parameters === undefined) return undefined;
+    const result = new Map<string, Value>();
+    for (const [at, param] of children(parameters).entries()) {
+      const name = field(param, 'pattern') ?? field(param, 'name') ?? (param.syntaxKind === 'identifier' ? param : undefined);
+      const binding = name === undefined ? undefined : bindingOf(name); const arg = call.arguments[at];
+      if (binding === undefined || binding.kind !== 'parameter' || arg === undefined) return undefined;
+      result.set(binding.id, {id: arg, env});
+    }
+    return result;
+  };
+  // Interface fan-out is an implementation possibility. It becomes publisher
+  // evidence only when a real factory result reaches that implementation's constructor.
+  const connected = (target: CodeExpressionFact): boolean => {
+    const cls = [...expressions.values()].filter(node => node.syntaxKind === 'class_declaration' && contains(node.span, target.span)).sort((a,b) => (a.span.byteEnd-a.span.byteStart)-(b.span.byteEnd-b.span.byteStart))[0];
+    if (cls === undefined) return false;
+    const body = field(cls, 'body'); const ctor = body === undefined ? undefined : unique(children(body).filter(node => node.syntaxKind === 'method_definition' && field(node, 'name')?.name === 'constructor'));
+    const params = ctor === undefined ? undefined : field(ctor, 'parameters'); if (params === undefined) return false;
+    const producerIndexes = children(params).flatMap((param, at) => producerType(field(param, 'type')) === undefined ? [] : [at]);
+    const owner = unique(facts.symbols.filter(symbol => !symbol.callable && contains(symbol.span, cls.span) && symbol.name === field(cls, 'name')?.name));
+    return [...calls.values()].some(call => call.construct && validCall(call) && facts.sites.some(site => site.use === 'call' && contains(expression(call.callee)!.span, site.span) && (site.to === owner?.key || site.to === facts.symbols.find(symbol => symbol.callable && same(symbol.span, ctor!.span))?.key)) && producerIndexes.some(at => { const arg = call.arguments[at]; return arg !== undefined && roles.some(role => role.expression === arg && role.role === 'message-producer'); }));
+  };
+  const targetCache = new Map<string, ReturnType<typeof targets>>();
+  const targetsOf = (call: CodeCallFact): ReturnType<typeof targets> => {
+    let held = targetCache.get(call.expression); if (held === undefined) { held = targets(call); targetCache.set(call.expression, held); } return held;
+  };
+  const directModel = (call: CodeCallFact, env: ReadonlyMap<string, Value>): typeof models[number] | undefined => {
+    const callee = expression(call.callee);
+    const pkg = callee?.receiver === undefined ? undefined : receiverPackage(callee.receiver, env);
+    return unique(models.filter(model => model.target.kind === 'member' && model.target.member === callee?.member && model.package === pkg));
+  };
+  // Publication ownership does not follow reachability. A sender method may
+  // adapt its own modeled producer call, but its callers are not sender methods
+  // merely because they eventually reach one. Index only directly owned sends.
+  const senderMethods = new Map<string, CodeCallFact[]>();
+  for (const call of calls.values()) {
+    if (!validCall(call) || directModel(call, new Map()) === undefined) continue;
+    const body = callable(call.holder);
+    if (body !== undefined && ['method_definition', 'method_declaration'].includes(body.syntaxKind)) append(senderMethods, call.holder, call);
+  }
+  type Found = {channel?: string; evidence: SourceSpan[]};
+  const directPublication = (call: CodeCallFact, env: ReadonlyMap<string, Value>): Found[] => {
+    if (!validCall(call)) return [];
+    const model = directModel(call, env);
+    if (model === undefined) return [];
+    for (const selector of model.arguments.filter(selector => selector.required)) {
+      const arg = call.arguments[selector.index];
+      if (arg === undefined || select({id: arg, env}, selector.path) === undefined) { gap(call, `publisher required argument ${selector.name} is unresolved`); return []; }
+    }
+    const topic = model.arguments.find(selector => selector.name === 'topic');
+    if (topic === undefined) { gap(call, 'publisher model has no supported topic selector'); return []; }
+    const indexes = model.ecosystem === 'go' ? call.arguments.map((_, at) => at).filter(at => at >= topic.index) : [topic.index];
+    const result: Found[] = [];
+    for (const at of indexes) {
+      const id = call.arguments[at]; const value = id === undefined ? undefined : select({id, env}, topic.path);
+      const channel = value === undefined ? undefined : literal(value);
+      if (channel === undefined) gap(call, 'publisher topic is unresolved through the supplied bindings and call arguments');
+      result.push({...(channel === undefined ? {} : {channel}), evidence: [call.span]});
+    }
+    return result;
+  };
+  const analyze = (call: CodeCallFact, env: ReadonlyMap<string, Value>): Found[] => {
+    if (!validCall(call)) return [];
+    if (directModel(call, env) !== undefined) return directPublication(call, env);
+    const callee = expression(call.callee);
+    // Only an actual receiver invocation of a resolved sender method adapts
+    // arguments. A free function that calls that sender has no publisher role.
+    if (callee?.receiver === undefined) return [];
+    const result: Found[] = [];
+    for (const target of targetsOf(call)) {
+      const sends = senderMethods.get(target.key); if (sends === undefined) continue;
+      const body = callable(target.key); if (body === undefined || target.fan && !connected(body)) continue;
+      const args = argumentsFor(body, call, env); if (args === undefined) {
+        gap(call, 'publisher delegation arguments cannot be bound to the resolved callable');
+        continue;
+      }
+      for (const inner of sends) for (const found of directPublication(inner, args)) result.push({...found, evidence: [call.span, ...found.evidence]});
+    }
+    return result;
+  };
+  const empty = new Map<string, Value>();
+  for (const call of calls.values()) {
+    const found = analyze(call, empty);
+    const uniqueChannels = new Set<string>();
+    for (const item of found) {
+      const id = item.channel ?? ''; if (uniqueChannels.has(id)) continue; uniqueChannels.add(id);
+      const symbol = symbols.get(call.holder); const arg = call.arguments[1]; const keySpan = arg === undefined ? undefined : expression(arg)?.span;
+      const key = keySpan === undefined ? undefined : new TextDecoder().decode(source.tree.read(keySpan.path).subarray(keySpan.byteStart,keySpan.byteEnd));
+      if (item.channel === undefined) gap(call, 'publisher topic is unresolved through the supplied bindings and call arguments');
+      sites.push({span: call.span, ...(item.channel === undefined ? {} : {channel: item.channel}), ...(symbol === undefined ? {} : {publisher: symbol.name}), ...(key === undefined ? {} : {key}), evidence: item.evidence});
+    }
+    // An explicitly typed local send is a candidate even when its implementation
+    // is absent. An untyped response/cache method is not messaging evidence.
+    if (found.length === 0) {
+      const callee = expression(call.callee); const receiverValue = callee?.receiver === undefined ? undefined : unwrap({id: callee.receiver, env: empty});
+      const receiver = receiverValue === undefined ? undefined : expression(receiverValue.id);
+      const binding = receiver === undefined ? undefined : bindingOf(receiver); const declaration = binding === undefined ? undefined : parameter(binding);
+      const type = declaration === undefined ? undefined : field(declaration, 'type');
+      let namedType = type?.syntaxKind === 'type_annotation' ? unique(children(type)) : type;
+      if (namedType?.syntaxKind === 'pointer_type') namedType = unique(children(namedType));
+      const typed = namedType !== undefined && ['type_identifier','generic_type','nested_type_identifier','qualified_type'].includes(namedType.syntaxKind);
+      const channelArg = call.arguments[0]; const channel = channelArg === undefined ? undefined : literal({id:channelArg,env:empty});
+      if (typed && models.some(model => model.target.kind === 'member' && model.target.member === callee?.member)) gap(call, channel === undefined ? 'typed publisher candidate has no resolved receiver/delegation; no publisher is claimed' : `send names channel ${channel} but its receiver has no resolved publisher delegation; no publisher is claimed`);
+      // A local shadow is not its outer producer. Keep the located candidate
+      // diagnostic only when the exact enclosing binding proves a producer and
+      // the call's direct modeled topic selector resolves. Ordinary any/cache/
+      // response sends have no such lexical producer evidence.
+      const rawReceiver = callee?.receiver === undefined ? undefined : expression(callee.receiver);
+      const local = rawReceiver === undefined ? undefined : bindingOf(rawReceiver);
+      if (validCall(call) && local?.kind === 'local' && rawReceiver !== undefined && models.some(model => model.target.kind === 'member' && model.target.member === callee?.member)) {
+        const enclosing = [...bindings.values()].filter(candidate => candidate.id !== local.id && candidate.path === local.path && candidate.name === local.name && contains(candidate.scope, local.scope) && !same(candidate.scope, local.scope) && contains(candidate.scope, rawReceiver.span));
+        enclosing.sort((a, b) => (a.scope.byteEnd - a.scope.byteStart) - (b.scope.byteEnd - b.scope.byteStart));
+        const nearest = enclosing[0];
+        const outer = nearest === undefined ? undefined : unique(enclosing.filter(candidate => same(candidate.scope, nearest.scope)));
+        const declared = outer?.kind === 'parameter' && !written.has(outer.id) ? parameter(outer) : undefined;
+        const pkg = producerType(declared === undefined ? undefined : field(declared, 'type'));
+        const model = unique(models.filter(candidate => candidate.target.kind === 'member' && candidate.target.member === callee?.member && candidate.package === pkg));
+        const topic = model?.arguments.find(selector => selector.name === 'topic');
+        const arg = topic === undefined ? undefined : call.arguments[topic.index];
+        const selected = arg === undefined || topic === undefined ? undefined : select({id: arg, env: empty}, topic.path);
+        const shadowedChannel = selected === undefined ? undefined : literal(selected);
+        if (shadowedChannel !== undefined) gap(call, `send names channel ${shadowedChannel} but its receiver shadows a proved producer binding; no publisher is claimed`);
+      }
+    }
+  }
+  return {sites,gaps};
 }

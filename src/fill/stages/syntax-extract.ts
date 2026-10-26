@@ -150,6 +150,16 @@ export interface ExtractedImport {
   readonly span: SyntaxSpan;
 }
 
+/** A callable expression and the direct declaration that owns its value, if any. */
+export interface ExtractedCallableBoundary {
+  readonly span: SyntaxSpan;
+  /** Public arrow callback identity starts at its parameters; span keeps async. */
+  readonly identity: SyntaxSpan;
+  /** Only a direct named variable initializer proves a declaration owner. */
+  readonly declarationSpan?: SyntaxSpan;
+  readonly argument: boolean;
+}
+
 /** Everything this stage read in one file: what it found, and what it could not read. */
 export interface ExtractedFileSyntax {
   /** The file's repository path, as it was given. */
@@ -159,8 +169,8 @@ export interface ExtractedFileSyntax {
   /** Whether a syntax tree was made and walked. */
   readonly parsed: boolean;
   readonly symbols: readonly ExtractedSymbol[];
-  /** Raw callable span and the grammar parameter start used by stable callback keys. */
-  readonly callables?: readonly { readonly span: SyntaxSpan; readonly identity: SyntaxSpan; readonly argument: boolean }[];
+  /** Raw callable boundaries copied while the grammar tree is alive. */
+  readonly callables?: readonly ExtractedCallableBoundary[];
   readonly comments: readonly ExtractedComment[];
   readonly entryPoints: readonly ExtractedEntryPoint[];
   readonly tests: readonly ExtractedTest[];
@@ -434,7 +444,7 @@ const TEST_FRAMEWORKS: Readonly<Record<string, string>> = {
 /** One file's findings, before they become facts: what the walk found, and what it could not read. */
 interface Findings {
   symbols: readonly ExtractedSymbol[];
-  callables: readonly { readonly span: SyntaxSpan; readonly identity: SyntaxSpan; readonly argument: boolean }[];
+  callables: readonly ExtractedCallableBoundary[];
   comments: readonly ExtractedComment[];
   entryPoints: readonly ExtractedEntryPoint[];
   tests: readonly ExtractedTest[];
@@ -450,7 +460,7 @@ function walk(path: string, text: string, root: SyntaxNode, language: SyntaxLang
   const lines = lineIndex(text);
   const spanOf = spanFactory(text);
   const symbols: ExtractedSymbol[] = [];
-  const callables: { span: SyntaxSpan; identity: SyntaxSpan; argument: boolean }[] = [];
+  const callables: ExtractedCallableBoundary[] = [];
   const comments: ExtractedComment[] = [];
   const entryPoints: ExtractedEntryPoint[] = [];
   const tests: ExtractedTest[] = [];
@@ -642,9 +652,14 @@ function walk(path: string, text: string, root: SyntaxNode, language: SyntaxLang
 
   const visit = (node: SyntaxNode, container: readonly string[]): void => {
     if (['arrow_function', 'function_expression', 'generator_function', 'func_literal'].includes(node.type)) {
-      const parameters = node.type === 'arrow_function' ? node.childForFieldName('parameters') ?? node.childForFieldName('parameter') : null;
-      callables.push({ span: spanOf(node), identity: spanOf(parameters ?? node),
-        argument: node.parent !== null && ['arguments', 'argument_list'].includes(node.parent.type) });
+      const parent = node.parent;
+      const declaration = parent?.type === 'variable_declarator' && parent.childForFieldName('value')?.id === node.id &&
+        parent.childForFieldName('name')?.type === 'identifier' ? parent : undefined;
+      const identity = node.type === 'arrow_function'
+        ? node.childForFieldName('parameters') ?? node.childForFieldName('parameter') ?? node : node;
+      callables.push({ span: spanOf(node), identity: spanOf(identity),
+        ...(declaration === undefined ? {} : {declarationSpan: spanOf(declaration)}),
+        argument: parent !== null && ['arguments', 'argument_list'].includes(parent.type) });
     }
     record(node, container);
     const name = declaredName(node, text) ?? holderName(node, text);

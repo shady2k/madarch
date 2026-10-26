@@ -44,7 +44,8 @@ test('Go pointer receiver metadata comes from its exact AST binding, not qualifi
 
 test('missing facts, abstract/overload bodies, malformed receiver and UTF-8 boundaries gap without source fallback',async()=>{
   const path='lib/work.ts';const tree=treeOf({[path]:'const label="éλ"; export function actual(){return 1;}'});const code=await extractCodeWithFacts(tree);
-  const absent=new TreeText(tree,code.extraction);expect(functionsOf(absent,path)).toEqual([]);expect(absent.factGaps.size).toBe(1);
+  // A copied extraction carries no retained semantic provenance.
+  const absent=new TreeText(tree,{...code.extraction});expect(functionsOf(absent,path)).toEqual([]);expect(absent.factGaps.size).toBe(1);
   const symbol=code.facts.symbols.find((entry)=>entry.name==='actual')!;expect(symbol.bodySpan).toBeDefined();
   const variants:CodeFacts[]=[
     {...code.facts,symbols:code.facts.symbols.map((entry)=>entry.key===symbol.key?{...entry,bodySpan:undefined}:entry)},

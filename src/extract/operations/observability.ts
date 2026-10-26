@@ -86,11 +86,6 @@ export function linkEndpoints(t: TreeText, records: Records): void {
   for (const probe of records.nodes.filter((node) => node.kind === 'code.probe' || node.kind === 'code.healthcheck')) {
     // A TCP/exec/database readiness command does not claim an HTTP endpoint.
     if (probe.kind === 'code.probe' && probe.properties.transport !== 'http') continue;
-    if (probe.kind === 'code.healthcheck') {
-      const test = probe.properties.test;
-      const command = Array.isArray(test) ? test.join(' ') : test;
-      if (typeof command !== 'string' || !/https?:\/\//.test(command)) continue;
-    }
     const target = endpointTarget(probe);
     if (target === undefined) {records.gap(probe.span?.path ?? '.', `line ${probe.span?.lineStart ?? 1}: probe target authority or method is unresolved (${probe.key})`); continue;}
     const endpoints = records.nodes.filter((node) => node.kind === 'code.health-endpoint' && matchesEndpoint(target, node));

@@ -154,8 +154,10 @@ describe('the neighbourhood', () => {
     expect(hood.center).toBe(pay);
     const callers = hood.edges.filter((edge) => edge.relation === 'code.calls' && edge.to === pay).map((edge) => edge.from);
     expect(callers).toEqual([
-      recordKey('code.symbol', 'services/payments/src/api/routes.ts#paymentRoutes.callback@10:371'),
-      recordKey('code.symbol', 'services/payments/src/grpc/server.ts#paymentsHandlers.callback@38:1399'),
+      // Public async callback keys use their grammar parameter start. Their
+      // independent raw source spans still include the leading async token.
+      recordKey('code.symbol', 'services/payments/src/api/routes.ts#paymentRoutes.callback@10:377'),
+      recordKey('code.symbol', 'services/payments/src/grpc/server.ts#paymentsHandlers.callback@38:1405'),
     ]);
     const callback = callers[0]!;
     const registered = block(await page(route('services/payments/src/api/routes.ts', 'POST:/payments')), 'graph').neighborhood;

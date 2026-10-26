@@ -1,5 +1,5 @@
 /** Canonical code identities for contract sites. Missing inner proof is a tombstone. */
-import {extractCodeWithFacts} from '../code/index.js';
+import {codeFactsOf, extractCodeWithFacts} from '../code/index.js';
 import type {CodeFacts, CodeSymbolFact} from '../code/facts.js';
 import {TreeText} from '../operations/source.js';
 import {functionsOf} from '../operations/symbol-sites.js';
@@ -49,5 +49,5 @@ export async function contractSymbols(reader: TreeReader, _nodes: ExtractedNode[
     const shared = await extractCodeWithFacts(reader);
     return new ContractSymbols(new TreeText(reader, shared.extraction, shared.facts));
   }
-  return new ContractSymbols(new TreeText(reader, code, facts));
+  return new ContractSymbols(new TreeText(reader, code, facts ?? codeFactsOf(code, reader)));
 }

@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "models": [
+    {
+      "id": "node.kafka-producer",
+      "ecosystem": "node",
+      "package": "kafkajs",
+      "exportedPath": [
+        "Producer"
+      ],
+      "role": "message-producer",
+      "pointer": false,
+      "reference": "https://www.npmjs.com/package/kafkajs"
+    },
+    {
+      "id": "go.kafka-writer",
+      "ecosystem": "go",
+      "package": "github.com/segmentio/kafka-go",
+      "packageName": "kafka",
+      "exportedPath": [
+        "Writer"
+      ],
+      "role": "message-producer",
+      "pointer": true,
+      "reference": "https://pkg.go.dev/github.com/segmentio/kafka-go#Writer"
+    }
+  ]
+}

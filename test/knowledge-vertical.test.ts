@@ -102,8 +102,10 @@ describe('the function page', () => {
     const model = await page(PAY);
     const route = item('flow.payments.chain').locations!.find((entry) => entry.symbol === 'paymentRoutes')!;
     const callers = block(model, 'callers');
-    const routeCallback = recordKey('code.symbol', 'services/payments/src/api/routes.ts#paymentRoutes.callback@10:371');
-    const grpcCallback = recordKey('code.symbol', 'services/payments/src/grpc/server.ts#paymentsHandlers.callback@38:1399');
+    // Public callback identity starts at the parameters; raw source locations
+    // independently retain the leading async token and the complete body.
+    const routeCallback = recordKey('code.symbol', 'services/payments/src/api/routes.ts#paymentRoutes.callback@10:377');
+    const grpcCallback = recordKey('code.symbol', 'services/payments/src/grpc/server.ts#paymentsHandlers.callback@38:1405');
     expect(callers.rows.map((row) => row.entity.id)).toEqual([routeCallback, grpcCallback]);
     expect(callers.rows.map((row) => row.entity.label)).toEqual(['paymentRoutes callback (line 10)', 'paymentsHandlers callback (line 38)']);
     expect(callers.rows.map((row) => row.sites)).toEqual([1, 1]);

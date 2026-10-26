@@ -297,8 +297,10 @@ describe('the contract of a product repository kinds registry', () => {
 
   test('the check command runs the whole examples folder and exits 0', () => {
     const run = Bun.spawnSync(['bun', 'scripts/check-contract.ts'], { cwd: fileURLToPath(new URL('..', import.meta.url)) });
-    expect(run.exitCode).toBe(0);
-    expect(new TextDecoder().decode(run.stdout)).toContain('0 misread');
+    const stdout = new TextDecoder().decode(run.stdout);
+    const stderr = new TextDecoder().decode(run.stderr);
+    expect(run.exitCode, `${import.meta.path}:300: scripts/check-contract.ts failed in ${fileURLToPath(new URL('..', import.meta.url))}\nstdout:\n${stdout}\nstderr:\n${stderr}`).toBe(0);
+    expect(stdout).toContain('0 misread');
   });
 
   test("a document header's generic fields read through the examples' own readings", () => {

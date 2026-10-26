@@ -7,6 +7,9 @@ import { isScalar, parseDocument } from 'yaml';
 import { validateLibraryRegistry } from '../src/extract/library-models/validate.js';
 import { validateHttpModels } from '../src/extract/library-models/http-models.js';
 import { validateMetricSemanticModels } from '../src/extract/library-models/metric-semantic-models.js';
+import { validateMessagingModels } from '../src/extract/library-models/messaging-models.js';
+import { validateShellCommandModels } from '../src/extract/library-models/shell-command-models.js';
+import { validateEnvironmentModels } from '../src/extract/library-models/environment-models.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const SCAN_ROOTS = ['src', 'test', 'scripts', 'wiki/app/src', 'examples', 'docs/system'];
@@ -160,13 +163,13 @@ function provenanceRanges(root: string, file: string, text: string, errors: stri
     for (const error of document.errors) located(error.pos[0], error.message);
     return [];
   }
-  try { validateLibraryRegistry(parsed); } catch (libraryError) {
-    try { validateHttpModels(parsed); } catch (httpError) {
-      try { validateMetricSemanticModels(parsed); } catch (metricError) {
-        located(0, `invalid model registry: ${String(libraryError)}; ${String(httpError)}; ${String(metricError)}`); return [];
-      }
-    }
+  const validators = [validateLibraryRegistry, validateHttpModels, validateMetricSemanticModels, validateMessagingModels, validateShellCommandModels, validateEnvironmentModels];
+  const validationErrors: string[] = [];
+  let validated = false;
+  for (const validate of validators) {
+    try { validate(parsed); validated = true; break; } catch (error) { validationErrors.push(String(error)); }
   }
+  if (!validated) { located(0, `invalid model registry: ${validationErrors.join('; ')}`); return []; }
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return [];
   const registry = parsed as Record<string, unknown>;
   const ranges: ProvenanceRange[] = [];

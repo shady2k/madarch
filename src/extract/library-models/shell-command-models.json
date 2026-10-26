@@ -1,0 +1,120 @@
+{
+  "schemaVersion": 1,
+  "models": [
+    {
+      "id": "curl.request",
+      "ecosystem": "shell",
+      "package": "curl",
+      "reference": "https://curl.se/docs/manpage.html",
+      "executables": [
+        "curl"
+      ],
+      "defaultMethod": "GET",
+      "options": [
+        {
+          "names": [
+            "-X",
+            "--request"
+          ],
+          "argument": "required",
+          "effect": "method"
+        },
+        {
+          "names": [
+            "-I",
+            "--head"
+          ],
+          "argument": "none",
+          "effect": "fixed-method",
+          "method": "HEAD",
+          "priority": 2
+        },
+        {
+          "names": [
+            "-d",
+            "--data",
+            "--data-raw",
+            "--data-binary",
+            "--data-ascii",
+            "--data-urlencode",
+            "--json",
+            "-F",
+            "--form",
+            "--form-string"
+          ],
+          "argument": "required",
+          "effect": "fixed-method",
+          "method": "POST",
+          "priority": 1
+        },
+        {
+          "names": [
+            "-T",
+            "--upload-file"
+          ],
+          "argument": "required",
+          "effect": "fixed-method",
+          "method": "PUT",
+          "priority": 1
+        },
+        {
+          "names": [
+            "-G",
+            "--get"
+          ],
+          "argument": "none",
+          "effect": "fixed-method",
+          "method": "GET",
+          "priority": 2
+        },
+        {
+          "names": [
+            "--url"
+          ],
+          "argument": "required",
+          "effect": "url"
+        },
+        {
+          "names": [
+            "-f",
+            "--fail",
+            "-s",
+            "--silent",
+            "-S",
+            "--show-error",
+            "-L",
+            "--location",
+            "-k",
+            "--insecure",
+            "--compressed",
+            "--fail-with-body"
+          ],
+          "argument": "none",
+          "effect": "ignore"
+        },
+        {
+          "names": [
+            "--connect-timeout",
+            "-m",
+            "--max-time",
+            "--retry",
+            "--retry-delay",
+            "-H",
+            "--header",
+            "-u",
+            "--user",
+            "-A",
+            "--user-agent",
+            "-o",
+            "--output",
+            "--cacert",
+            "--cert",
+            "--key"
+          ],
+          "argument": "required",
+          "effect": "ignore"
+        }
+      ]
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 import { extractCode, extractCodeWithFacts } from '../src/extract/code/index.js';
 import { decodeNumberToken, decodeStringToken } from '../src/extract/code/literals.js';
+import { evaluateLibraryModels } from '../src/extract/library-models/evaluate.js';
 import { freezeCodeFacts, type CodeFacts } from '../src/extract/code/facts.js';
 import type { TreeReader } from '../src/extract/records.js';
 
@@ -111,11 +112,21 @@ test('function-hoisted var and reassignment cannot retain imported receiver orig
   }));
   const expressions = new Map(facts.expressions.map((expression) => [expression.id, expression]));
   const bindings = new Map(facts.bindings.map((binding) => [binding.id, binding]));
-  for (const expression of member(facts, 'info')) {
-    const receiver = expressions.get(expression.receiver!);
-    const binding = receiver?.bindingId === undefined ? undefined : bindings.get(receiver.bindingId);
-    expect(binding?.importId).toBeUndefined();
-  }
+  const uses = member(facts, 'info');
+  expect(uses).toHaveLength(2);
+  const [before, after] = [...uses].sort((left, right) => left.span.byteStart - right.span.byteStart);
+  const bound = (expression: (typeof uses)[number] | undefined) => {const receiver = expression?.receiver === undefined ? undefined : expressions.get(expression.receiver);return receiver?.bindingId === undefined ? undefined : bindings.get(receiver.bindingId);};
+  // Hoisting selects the function-local declaration. Assignment keeps the real
+  // import declaration as evidence; its write proof forbids a stale origin.
+  expect(bound(before)?.importId).toBeUndefined();
+  expect(bound(before)?.kind).toBe('local');
+  const reassigned = bound(after);
+  expect(reassigned?.kind).toBe('import');
+  expect(reassigned?.importId).toBe(facts.imports.find(entry => entry.local === 'logger')?.id);
+  expect(facts.expressions.some(expression => expression.syntaxKind === 'assignment_expression' && (expression.fields.left ?? []).some(id => expressions.get(id)?.bindingId === reassigned?.id))).toBe(true);
+  const evaluated = evaluateLibraryModels(facts);
+  expect(evaluated.effects.filter(effect => effect.kind === 'logger-use')).toEqual([]);
+  expect(evaluated.diagnostics.some(entry => entry.path === 'src/main.ts' && entry.reason.includes('reassigned'))).toBe(true);
 });
 
 test('Go legacy octal and non-ASCII byte escapes are decoded accurately or left unknown', async () => {

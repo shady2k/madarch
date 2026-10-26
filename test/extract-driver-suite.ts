@@ -185,9 +185,20 @@ export function extractDriverTests(label: string, make: () => { owner: DatabaseO
         const [hash = '', parents = '', committer = '', subject = ''] = line.split('\0');
         return { hash, parent: parents.split(' ')[0] ?? '', committer, subject };
       });
-      const options = fillOf(owner, store, repository);
+      const started = performance.now();
+      const progress = (event: string, detail: unknown): void => {
+        console.info(`[extract-driver:${label}] ${JSON.stringify({event, elapsedMs: Math.round(performance.now() - started), repository, detail})}`);
+      };
+      const options: FillOptions = {
+        ...fillOf(owner, store, repository),
+        onStart: detail => progress('start', detail),
+        onPhase: detail => progress('phase', detail),
+        onCommit: (detail, place) => progress('commit', {detail, place}),
+        onPoint: (detail, place) => progress('point', {detail, place}),
+      };
       fill = options;
       const report = await fillGraph(options);
+      progress('complete', {phases: report.phases, totalMs: report.totalMs});
       env = {
         owner, store, repository, report,
         query: async <Row extends object>(sql: string, values?: readonly unknown[]) => (await owner.run((tx) => tx.query<Row>(sql, values))).rows,

@@ -314,46 +314,6 @@ export function readGoFile(path: string, root: SyntaxNode): GoFileFacts {
       const owner = match === null ? undefined : receiverNames.get(match[1]!);
       if (owner !== undefined) kafkaReads.push({owner, field: match![2]!, span: spanOf(node, path)});
     }
-    // A message is not a publication until an actual supported writer call takes it.
-    if (node.type === 'call_expression' && calleeName(node) === 'WriteMessages') {
-      const selector = node.childForFieldName('function');
-      const receiver = selector?.childForFieldName('operand')?.text;
-      const aliases = new Set<string>();
-      walkTree(root, (imported) => {
-        if (imported.type !== 'import_spec' || !/^"github\.com\/segmentio\/kafka-go"$/.test(imported.childForFieldName('path')?.text ?? '')) return;
-        aliases.add(imported.childForFieldName('name')?.text ?? 'kafka');
-      });
-      let fn: SyntaxNode | null = node;
-      while (fn !== null && !['function_declaration', 'method_declaration', 'func_literal'].includes(fn.type)) fn = fn.parent;
-      const params = fn?.childForFieldName('parameters')?.text ?? '';
-      const receiverName = receiver !== undefined && /^\w+$/.test(receiver) ? receiver : undefined;
-      let writer = false;
-      for (const alias of aliases) {
-        const safe = alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        if (receiverName !== undefined && new RegExp(`(?:^|[,(])\\s*${receiverName}\\s+\\*?${safe}\\.Writer\\b`).test(params)) writer = true;
-        const field = receiver === undefined ? undefined : /^(\w+)\.(\w+)$/.exec(receiver);
-        const owner = field === undefined || field === null ? undefined : receiverNames.get(field[1]!);
-        if (owner !== undefined && field !== undefined && field !== null) {
-          walkTree(root, (declaration) => {
-            if (declaration.type === 'type_spec' && declaration.childForFieldName('name')?.text === owner && new RegExp(`\\b${field[2]}\\s+\\*?${safe}\\.Writer\\b`).test(declaration.childForFieldName('type')?.text ?? '')) writer = true;
-          });
-        }
-      }
-      if (!writer) return;
-      const args = node.childForFieldName('arguments');
-      if (args === null) return;
-      for (const argument of args.namedChildren.slice(1)) {
-        if (argument === null || argument.type !== 'composite_literal') continue;
-        const type = argument.childForFieldName('type')?.text;
-        if (![...aliases].some((alias) => type === `${alias}.Message`)) continue;
-        const body = argument.childForFieldName('body');
-        const keyed = body?.namedChildren.find((element) => element?.type === 'keyed_element' && (element.childForFieldName('key') ?? element.namedChild(0))?.text === 'Topic');
-        const value = keyed?.childForFieldName('value') ?? keyed?.namedChild(1);
-        const topic = value !== null && value !== undefined && /^(?:"[^"\n]*"|[A-Za-z_][\w.]*)$/.test(value.text) ? value.text : undefined;
-        kafkaSites.push({kind: 'publish', ...(topic === undefined ? {} : {topic}), span: spanOf(node, path)});
-      }
-      return;
-    }
     if (/^kafka\.ReaderConfig\{/.test(node.text)) {
       const topicMatch = /\bTopic:\s*("[^"\n]*"|[A-Za-z0-9_.]+)/.exec(node.text);
       const groupMatch = /\bGroupID:\s*"([^"]*)"/.exec(node.text);

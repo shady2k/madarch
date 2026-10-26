@@ -21,7 +21,7 @@
  */
 import {TreeText} from '../operations/source.js';
 import {routeListenerPorts, structuralHttpRegistrations} from '../operations/route-facts.js';
-import {extractCodeWithFacts} from '../code/index.js';
+import {codeFactsOf, extractCodeWithFacts} from '../code/index.js';
 import type {CodeFacts} from '../code/facts.js';
 import {asyncApiNodes, readAsyncApi} from './asyncapi.js';
 import {contractSymbols} from './symbol-links.js';
@@ -53,7 +53,7 @@ import {
   sqlBuildKey,
   sqlSinkKey,
 } from './schema.js';
-import {joinPath, readTsFile, type TsFileFacts} from './ts-code.js';
+import {joinPath, readTsFile, structuralPublishers, type TsFileFacts} from './ts-code.js';
 import {readSyntaxTree} from '../../fill/stages/syntax-extract.js';
 import type {ExtractedEdge, ExtractedNode, Extraction, ExtractionGap, PropertyValue, SourceSpan, TreeReader} from '../../extract/records.js';
 
@@ -94,6 +94,7 @@ function wholeFileSpan(path: string, text: string): SourceSpan {
 }
 
 export async function extractContracts(reader: TreeReader, code?: Extraction, facts?: CodeFacts): Promise<Extraction> {
+  facts ??= code === undefined ? undefined : codeFactsOf(code, reader);
   // Standalone callers own one shared pass. A supplied partial view is never
   // silently replaced by an independent parse or resolver.
   if (code === undefined && facts === undefined) {
@@ -363,11 +364,12 @@ export async function extractContracts(reader: TreeReader, code?: Extraction, fa
       };
       const registration = httpRegistrationAt(route.span);
       const handler = registration === undefined ? symbols.handler(route.handlerSpan, route.inline, `${route.method}:${route.path}`) : registration.handler?.key;
+      const handlerSpan = registration?.handlerExpression === undefined ? route.handlerSpan : facts?.expressions.find(expression => expression.id === registration.handlerExpression)?.span ?? route.handlerSpan;
       if (handler !== undefined) {
-        properties['handlerPath'] = handler.slice('code.symbol:'.length, handler.indexOf('#'));
+        properties['handlerPath'] = registration?.handler?.path ?? handler.slice('code.symbol:'.length, handler.indexOf('#'));
         properties['handlerKey'] = handler;
-        addEdge('code.handled-by', routeKey(file.path, route.method, route.path), handler, {}, route.handlerSpan);
-        edges.push({type: 'code.references', from: symbols.enclosing(route.span) ?? fileKey(file.path), to: handler, discriminator: String(route.handlerSpan.byteStart), properties: {role: 'callback-registration'}, span: route.handlerSpan});
+        addEdge('code.handled-by', routeKey(file.path, route.method, route.path), handler, {}, handlerSpan);
+        edges.push({type: 'code.references', from: symbols.enclosing(route.span) ?? fileKey(file.path), to: handler, discriminator: String(handlerSpan.byteStart), properties: {role: 'callback-registration'}, span: handlerSpan});
       } else gaps.push({path: file.path, reason: `contracts: line ${route.handlerSpan.lineStart}: handler ${route.handler} is not resolved to a function symbol (${file.path})`});
       nodes.push({
         key: routeKey(file.path, route.method, route.path),
@@ -402,35 +404,6 @@ export async function extractContracts(reader: TreeReader, code?: Extraction, fa
     }
 
     for (const site of file.go.kafkaSites) {
-      if (site.kind === 'publish') {
-        const direct = topicValue(service, site.topic);
-        if (direct !== undefined && channels.includes(direct)) {
-          interaction(REL_PUBLISHES, file.path, channelKey(direct), {topic: direct}, site.span);
-          continue;
-        }
-        // The site names no resolved topic: it publishes the rows of the outbox table.
-        // A channel is claimed only when the constant that names it is written
-        // into that same table -- the writer's file carries the INSERT.
-        for (const channel of channels) {
-          const constant = service === undefined ? undefined : constantForService(service, channel);
-          if (constant === undefined) continue;
-          const constantText = textOf(reader, constant.path);
-          if (constantText === undefined || !/INTO\s+outbox/.test(constantText)) continue;
-          const readsOutbox = [...goFiles, ...tsFiles].some((held) => {
-            if (serviceOf(held.path) !== service) return false;
-            const text = textOf(reader, held.path);
-            return text !== undefined && /FROM\s+outbox/.test(text);
-          });
-          if (!readsOutbox) continue;
-          interaction(REL_PUBLISHES, file.path, channelKey(channel), {
-            topic: channel,
-            constant: constant.name,
-            constantPath: constant.path,
-            via: 'outbox',
-          }, site.span);
-        }
-        continue;
-      }
       if (site.topic === undefined) continue;
       const topic = topicValue(service, site.topic);
       if (topic === undefined || !channels.includes(topic)) continue;
@@ -587,26 +560,45 @@ export async function extractContracts(reader: TreeReader, code?: Extraction, fa
       }
     }
 
-    // Kafka sends that name a channel.
-    for (const send of ts.sends) {
-      if (send.channel === undefined || !channels.includes(send.channel)) continue;
-      if (!send.receiverGrounded) {
-        if (send.receiverMessagingEvidence) gaps.push({path: file.path, reason: `contracts: line ${send.span.lineStart}: send names channel ${send.channel} but its receiver is not resolved to an imported KafkaJS producer or an implemented local messaging wrapper; no publisher is claimed (${file.path})`});
-        continue;
-      }
-      const constant = service === undefined ? undefined : constantForService(service, send.channel);
-      const union = [...ts.typeUnions.values()].find((members) => members.length > 0 && members.every((member) => member.includes('.')));
-      interaction(REL_PUBLISHES, file.path, channelKey(send.channel), {
-        topic: send.channel,
-        publisher: send.publisher ?? '',
-        ...(send.key !== undefined ? {key: send.key} : {}),
-        ...(union !== undefined ? {eventTypes: [...union].sort()} : {}),
-        ...(constant !== undefined ? {constant: constant.name, constantPath: constant.path} : {}),
-      }, send.span);
-    }
-
     // The SQL path.
     extractSqlFlow(file, nodes, addEdge);
+  }
+
+  // Publications use the shared facts for receiver identity and every local
+  // delegation hop. Contract matching cannot reintroduce a per-file name guess.
+  const publications = structuralPublishers(sourceText);
+  gaps.push(...publications.gaps);
+  for (const site of publications.sites) {
+    const service = serviceOf(site.span.path);
+    const ts = tsFiles.find(file => file.path === site.span.path)?.ts;
+    const evidence = site.evidence.map(span => ({path: span.path, byteStart: span.byteStart, byteEnd: span.byteEnd, lineStart: span.lineStart, lineEnd: span.lineEnd}));
+    if (site.channel !== undefined) {
+      if (!channels.includes(site.channel)) {
+        gaps.push({path: site.span.path, reason: `contracts: line ${site.span.lineStart}: publisher topic ${site.channel} has no declared channel (${site.span.path})`});
+        continue;
+      }
+      const constant = service === undefined ? undefined : constantForService(service, site.channel);
+      const union = ts === undefined ? undefined : [...ts.typeUnions.values()].find(members => members.length > 0 && members.every(member => member.includes('.')));
+      interaction(REL_PUBLISHES, site.span.path, channelKey(site.channel), {
+        topic: site.channel, publisher: site.publisher ?? '', evidence,
+        ...(site.key === undefined ? {} : {key: site.key}),
+        ...(union === undefined ? {} : {eventTypes: [...union].sort()}),
+        ...(constant === undefined ? {} : {constant: constant.name, constantPath: constant.path}),
+      }, site.span);
+      continue;
+    }
+    if (!site.span.path.endsWith('.go')) continue;
+    // Existing outbox evidence remains an explicitly named indirect path, and
+    // only a grounded writer call can reach this join.
+    for (const channel of channels) {
+      const constant = service === undefined ? undefined : constantForService(service, channel);
+      if (constant === undefined) continue;
+      const constantText = textOf(reader, constant.path);
+      if (constantText === undefined || !/INTO\s+outbox/.test(constantText)) continue;
+      const readsOutbox = [...goFiles, ...tsFiles].some(held => serviceOf(held.path) === service && /FROM\s+outbox/.test(textOf(reader, held.path) ?? ''));
+      if (!readsOutbox) continue;
+      interaction(REL_PUBLISHES, site.span.path, channelKey(channel), {topic: channel, constant: constant.name, constantPath: constant.path, via: 'outbox', evidence}, site.span);
+    }
   }
 
   // Shared structural registrations also cover imported factory aliases the
@@ -623,8 +615,9 @@ export async function extractContracts(reader: TreeReader, code?: Extraction, fa
     }, span: route.span});
     if (route.ports.length === 0) gaps.push({path: route.span.path, reason: `contracts: line ${route.span.lineStart}: route receiver/listener association is unresolved (${route.span.path})`});
     if (route.handler !== undefined) {
-      addEdge('code.handled-by', key, route.handler.key, {}, route.span);
-      edges.push({type: 'code.references', from: symbols.enclosing(route.span) ?? fileKey(route.span.path), to: route.handler.key, discriminator: String(route.span.byteStart), properties: {role: 'callback-registration'}, span: route.span});
+      const handlerSpan = route.handlerExpression === undefined ? route.span : facts?.expressions.find(expression => expression.id === route.handlerExpression)?.span ?? route.span;
+      addEdge('code.handled-by', key, route.handler.key, {}, handlerSpan);
+      edges.push({type: 'code.references', from: symbols.enclosing(route.span) ?? fileKey(route.span.path), to: route.handler.key, discriminator: String(handlerSpan.byteStart), properties: {role: 'callback-registration'}, span: handlerSpan});
     } else gaps.push({path: route.span.path, reason: `contracts: line ${route.span.lineStart}: route has no resolved handler function (${route.span.path})`});
   }
 

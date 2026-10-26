@@ -598,3 +598,17 @@ test('a proved absent selector differs from an unresolved dynamic or duplicate p
   expect(registerStatuses).toContain('absent');expect(registerStatuses).toContain('selected');
   const unresolved=result.diagnostics.some((diagnostic)=>diagnostic.reason.includes('spread'));expect(unresolved).toBe(true);
 });
+
+
+test('diagnostic candidates require an exact imported export path, not an unrelated member spelling', async () => {
+  const goPath = 'lib/unrelated.go';
+  const nodePath = 'lib/unrelated.ts';
+  const tree = treeOf({
+    [goPath]: 'package sample\nimport format "fmt"\nfunc run(){format.NewCounter(nil);format.Info("not a logger")}\n',
+    [nodePath]: 'import express from "express";const app=express();export function run(){app.info("not a logger");app.NewCounter({name:"not_a_metric"});}',
+  });
+  const {facts} = await extractCodeWithFacts(tree);
+  const result = evaluateLibraryModels(facts);
+  expect(result.effects).toEqual([]);
+  expect(result.diagnostics.filter((entry) => entry.code === 'unknown-origin' || entry.code === 'dynamic-member')).toEqual([]);
+});

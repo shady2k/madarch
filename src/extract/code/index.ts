@@ -65,6 +65,13 @@ const decoder = new TextDecoder('utf-8', { fatal: true });
 
 export { CODE_PRODUCER };
 
+const retainedCodeFacts = new WeakMap<Extraction, {readonly reader: TreeReader; readonly facts: import('./facts.js').CodeFacts}>();
+
+/** Only this exact extraction and its original reader can lend retained facts. */
+export function codeFactsOf(extraction: Extraction | undefined, reader: TreeReader): import('./facts.js').CodeFacts | undefined {
+  const retained = extraction === undefined ? undefined : retainedCodeFacts.get(extraction);
+  return retained?.reader === reader ? retained.facts : undefined;
+}
 
 /** The span of a whole file, from the text a reader already holds: a manifest's place is the manifest. */
 function fileSpan(path: string, text: string): SourceSpan {
@@ -208,14 +215,23 @@ export async function extractCodeWithFacts(reader: TreeReader): Promise<CodeExtr
     const symbols = indexSymbols(source.path, syntax.symbols, topNames);
     const callbackValues: SourceSpan[] = [];
     if (syntax.parsed) {
-      // The syntax pass copied these boundaries while its tree was alive. A
-      // callback key starts at its grammar parameters; its span keeps async.
+      // The syntax pass proves direct initializer ownership. One callable has
+      // one canonical owner, even when its declaration and expression differ.
+      // Raw evidence keeps async; callback keys retain their parameter position.
       for (const boundary of [...(syntax.callables ?? [])].sort((left, right) =>
         (right.span.endByte - right.span.startByte) - (left.span.endByte - left.span.startByte) || left.span.startByte - right.span.startByte)) {
         const span = boundary.span;
-        const existing = symbols.findIndex((symbol) => symbol.functionLike && symbol.span.startByte === span.startByte && symbol.span.endByte === span.endByte);
-        if (existing >= 0) { const symbol = symbols[existing]!; symbols[existing] = {...symbol, local: false, keptKey: symbol.key}; }
-        else {
+        const declaration = boundary.declarationSpan;
+        const declared = declaration === undefined ? [] : symbols.filter((symbol) => symbol.functionLike &&
+          symbol.span.startByte === declaration.startByte && symbol.span.endByte === declaration.endByte);
+        const raw = symbols.filter((symbol) => symbol.functionLike && symbol.span.startByte === span.startByte && symbol.span.endByte === span.endByte);
+        const canonical = declared.length === 1 ? declared[0] : raw.length === 1 ? raw[0] : undefined;
+        if (canonical !== undefined) {
+          for (const [index, symbol] of symbols.entries()) {
+            if (symbol === canonical) symbols[index] = {...symbol, local: false, keptKey: symbol.key};
+            else if (declared.length === 1 && raw.includes(symbol)) symbols[index] = {...symbol, local: true, keptKey: canonical.key};
+          }
+        } else if (declared.length === 0 && raw.length === 0) {
           const enclosing = holderAt(symbols, span.startByte);
           const name = callbackName(enclosing?.qualifiedName, 'anonymous', boundary.identity.startLine, boundary.identity.startByte);
           const key = symbolKey(source.path, name);
@@ -223,10 +239,9 @@ export async function extractCodeWithFacts(reader: TreeReader): Promise<CodeExtr
         }
         if (boundary.argument) callbackValues.push(toSpan(source.path, span));
       }
-      for (const [index, symbol] of symbols.entries()) if (symbol.functionLike && symbol.local) symbols[index] = {...symbol, local: false, keptKey: symbol.key};
     }
     for (const [index, symbol] of symbols.entries()) {
-      if (!symbol.local) continue;
+      if (!symbol.local || symbol.functionLike) continue;
       const holder = holderAt(symbols, symbol.span.startByte);
       if (holder !== undefined) symbols[index] = {...symbol, keptKey: holder.key};
     }
@@ -316,14 +331,19 @@ export async function extractCodeWithFacts(reader: TreeReader): Promise<CodeExtr
         sites.push({ span: mention.span, to: symbolKey(top.file, top.name), use: mention.use === 'call' ? 'call' : 'reference', roles: [mention.access], fanOut: [] });
       }
     }
-    const fileImports: CodeImportFact[] = file.resolution.imports.map((entry) => {
+    const fileImports: CodeImportFact[] = file.resolution.imports.flatMap((entry): CodeImportFact[] => {
       const span = toSpan(path, entry.span);
+      const local = file.source.language === 'go' ? program.goImportLocal(path, entry.specifier, entry.local) : entry.local;
+      if (local === undefined) {
+        gap(path, `line ${span.lineStart}: internal Go import has no unique declared package identity at bytes ${span.byteStart}-${span.byteEnd}`);
+        return [];
+      }
       const targetPath = file.source.language === 'go' ? undefined : resolveSpecifier(path, entry.specifier, known);
       const manifest = rootOf(folderOf(path), file.source.language === 'go' ? 'go' : 'node');
       const declared = manifest === undefined ? undefined : [...manifest.dependencies].filter(([name]) => entry.specifier === name || entry.specifier.startsWith(`${name}/`)).sort(([left], [right]) => right.length - left.length || byCodePoint(left, right))[0];
-      return { id: codeFactId(span, 'import'), path, local: entry.local, specifier: entry.specifier,
+      return [{ id: codeFactId(span, 'import'), path, local, specifier: entry.specifier,
         imported: { ...entry.imported }, span, ...(targetPath === undefined ? {} : { targetPath }),
-        ...(declared === undefined || manifest === undefined ? {} : { package: { ecosystem: manifest.ecosystem, name: declared[0], manifestPath: manifest.span.path, declaredVersion: declared[1] } }) };
+        ...(declared === undefined || manifest === undefined ? {} : { package: { ecosystem: manifest.ecosystem, name: declared[0], manifestPath: manifest.span.path, declaredVersion: declared[1] } }) }];
     });
     const members = await memberSites(file.source, program, fileImports, file.symbols);
     imports.push(...fileImports.map((imported) => members.typeOnlyImports.includes(imported.id) ? { ...imported, typeOnly: true } : imported));
@@ -867,6 +887,7 @@ export async function extractCodeWithFacts(reader: TreeReader): Promise<CodeExtr
     sites: [...sitesByFile].flatMap(([path, sites]) => sites.map((site) => ({ path, span: toSpan(path, site.span), to: site.to, use: site.use, roles: [...site.roles], fanOut: [...site.fanOut], holder: holderAt(symbolsByFile.get(path) ?? [], site.span.startByte)?.keptKey ?? fileKey(path) }))).sort((left, right) => byCodePoint(left.path, right.path) || left.span.byteStart - right.span.byteStart || byCodePoint(left.to, right.to)),
     gaps: sortedGaps.map((gap) => ({ ...gap })),
   });
+  retainedCodeFacts.set(extraction, {reader, facts});
   return { extraction, facts };
 }
 

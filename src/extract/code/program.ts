@@ -77,13 +77,58 @@ export interface Implementation {
   readonly form: 'declared' | 'structural';
 }
 
+import {messagingTypes} from '../library-models/messaging-models.js';
+
 export class Program {
   readonly files = new Map<string, FileCtx>();
   readonly types = new Map<string, TypeInfo>();
   readonly tops = new Map<string, Map<string, TopInfo>>();
   private implementationList: Implementation[] | undefined;
+  private readonly goImportLocals = new Map<string, string | undefined>();
+
+  /** Exact syntax alias, or the unanimous package clause of an internal target folder. */
+  goImportLocal(file: string, specifier: string, recordedLocal: string): string | undefined {
+    const key = JSON.stringify([file, specifier, recordedLocal]);
+    return this.goImportLocals.has(key) ? this.goImportLocals.get(key) : recordedLocal;
+  }
 
   constructor(contexts: readonly FileCtx[]) {
+    const packageNames = new Map<string, Set<string | undefined>>();
+    for (const ctx of contexts) if (ctx.language === 'go' && ctx.role === 'code') {
+      const names = packageNames.get(ctx.scope) ?? new Set<string | undefined>();
+      names.add(ctx.decls.packageName); packageNames.set(ctx.scope, names);
+    }
+    contexts = contexts.map((ctx) => {
+      if (ctx.language !== 'go' || ctx.decls.goImports === undefined) return ctx;
+      const imports = new Map<string, Binding>(); const ambiguous = new Set<string>();
+      for (const entry of ctx.decls.goImports) {
+        const parts = entry.specifier.split('/').filter((part) => part !== '');
+        const documented = [...new Set(messagingTypes.filter(model => model.ecosystem === 'go' && model.package === entry.specifier && model.packageName !== undefined).map(model => model.packageName!))];
+        const recorded = entry.local ?? (documented.length === 1 ? documented[0] : undefined) ?? parts[parts.length - 1] ?? entry.specifier;
+        const binding = ctx.imports.get(recorded);
+        // External implicit package names are documented library data, not the
+        // basename of the module URL. Explicit syntax aliases always win.
+        let local: string | undefined = entry.local ?? (documented.length === 1 ? documented[0] : documented.length > 1 ? undefined : recorded);
+        if (binding?.kind === 'package') {
+          const names = packageNames.get(binding.scope);
+          const declared = names?.size === 1 ? [...names][0] : undefined;
+          local = declared === undefined ? undefined : entry.local ?? declared;
+        }
+        this.goImportLocals.set(JSON.stringify([ctx.path, entry.specifier, recorded]), local);
+        if (local === undefined || local === '_' || local === '.' || binding === undefined) continue;
+        if (imports.has(local) || ambiguous.has(local)) { imports.delete(local); ambiguous.add(local); }
+        else imports.set(local, binding);
+      }
+      if (ambiguous.size > 0) for (const entry of ctx.decls.goImports) {
+        const parts = entry.specifier.split('/').filter((part) => part !== '');
+        const documented = [...new Set(messagingTypes.filter(model => model.ecosystem === 'go' && model.package === entry.specifier && model.packageName !== undefined).map(model => model.packageName!))];
+        const recorded = entry.local ?? (documented.length === 1 ? documented[0] : undefined) ?? parts[parts.length - 1] ?? entry.specifier;
+        const key = JSON.stringify([ctx.path, entry.specifier, recorded]);
+        const local = this.goImportLocals.get(key);
+        if (local !== undefined && ambiguous.has(local)) this.goImportLocals.set(key, undefined);
+      }
+      return { ...ctx, imports };
+    });
     for (const ctx of contexts) this.files.set(ctx.path, ctx);
     for (const ctx of contexts) {
       const scopeTops = this.tops.get(ctx.scope) ?? new Map<string, TopInfo>();

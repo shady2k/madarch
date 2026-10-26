@@ -7,15 +7,19 @@ export function endpointRelations(extractions: readonly Extraction[]): Extractio
   const routes = nodes.filter((node) => node.kind === 'code.route');
   return extractions.map((extraction) => {
     const edges: ExtractedEdge[] = [...extraction.edges];
+    const gaps = [...extraction.gaps];
     for (const node of extraction.nodes) {
       if (!['code.probe', 'code.healthcheck', 'code.health-endpoint', 'code.metrics-endpoint'].includes(node.kind)) continue;
       const target = endpointTarget(node);
-      if (target === undefined) continue;
+      if (target === undefined) {
+        if (node.kind === 'code.healthcheck') gaps.push({path:node.span?.path ?? '.',reason:`line ${node.span?.lineStart ?? 1}: healthcheck command target is unresolved (${node.key})`});
+        continue;
+      }
       const candidates = routes.filter((route) => matchesEndpoint(target, route));
       if (candidates.length !== 1) continue;
       const route = candidates[0]!;
       edges.push({type: node.kind === 'code.probe' || node.kind === 'code.healthcheck' ? 'code.probes' : 'code.served-by', from: node.key, to: route.key, discriminator: 'route', properties: {role: 'route'}, ...(node.span === undefined ? {} : {span: node.span})});
     }
-    return {...extraction, edges};
+    return {...extraction, edges, gaps};
   });
 }
