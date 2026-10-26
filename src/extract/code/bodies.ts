@@ -89,6 +89,7 @@ export async function memberSites(file: SourceFile, program: Program, imports: r
     const scopeNodes: SyntaxNode[] = [parsed.root];
     const bindings = new Map<string, CodeBindingFact>();
     const functionVarBindings = new Set<string>();
+    const hoistedFunctionBindings = new Set<string>();
     const expressions = new Map<string, CodeExpressionFact>();
     const calls = new Map<string, CodeCallFact>();
     const fields: CodeFieldFact[] = [];
@@ -131,7 +132,7 @@ export async function memberSites(file: SourceFile, program: Program, imports: r
       const generic = genericNames.some((scope) => scope.has(token));
       const candidateBinding = resolveBinding && lexicalName && !generic ? lookupBinding(token) : undefined;
       const binding = candidateBinding === undefined ? undefined : bindings.get(candidateBinding);
-      const availableBinding = binding !== undefined && binding.kind === 'local' && !functionVarBindings.has(binding.id) && span.byteStart < binding.span.byteStart ? undefined : candidateBinding;
+      const availableBinding = binding !== undefined && binding.kind === 'local' && !functionVarBindings.has(binding.id) && !hoistedFunctionBindings.has(binding.id) && span.byteStart < binding.span.byteStart ? undefined : candidateBinding;
       if (binding !== undefined && availableBinding === undefined) factGaps.set(id, { path: file.path, reason: `line ${span.lineStart}: lexical binding is not initialized at bytes ${span.byteStart}-${span.byteEnd}` });
       const object = node.childForFieldName(node.type === 'qualified_type' ? 'package' : go ? 'operand' : 'object');
       const property = node.childForFieldName(node.type === 'qualified_type' ? 'name' : go ? 'field' : 'property');
@@ -547,9 +548,20 @@ export async function memberSites(file: SourceFile, program: Program, imports: r
                 const name = declarator.childForFieldName('name');
                 if (name !== null) bindPattern(name, 'local');
               }
-            } else if (['function_declaration', 'class_declaration'].includes(statement.type)) {
+            } else if (['function_declaration', 'generator_function_declaration', 'class_declaration'].includes(statement.type)) {
               const name = statement.childForFieldName('name');
-              if (name !== null) bind(textOf(name, text), undefined, name);
+              if (name !== null) {
+                bind(textOf(name, text), undefined, name);
+                const id = codeFactId(sourceSpan(name), 'binding');
+                const binding = bindings.get(id);
+                // Only a grammar function declaration with a body is hoisted.
+                // Keep its declaration/body evidence, not a reaching initializer:
+                // classes, let/const and function-valued variables retain TDZ.
+                if (statement.type !== 'class_declaration' && statement.childForFieldName('body') !== null && binding !== undefined) {
+                  hoistedFunctionBindings.add(id);
+                  bindings.set(id, { ...binding, declarationSpan: sourceSpan(statement) });
+                }
+              }
             }
           }
         }
@@ -808,6 +820,9 @@ export async function memberSites(file: SourceFile, program: Program, imports: r
     if (!go) for (const statement of named(parsed.root).filter((node) => node.type === 'export_statement')) {
       if (statement.children.some((child) => child !== null && child.type === 'type')) continue;
       const declaration = statement.childForFieldName('declaration');
+      // Type and value declarations may legally share a name. Erased declarations
+      // cannot compete with that name's runtime export (including default).
+      if (declaration !== null && ['type_alias_declaration', 'interface_declaration'].includes(declaration.type)) continue;
       const value = statement.childForFieldName('value');
       const source = statement.childForFieldName('source');
       const specifier = source === null ? undefined : decodeStringToken(source.type, textOf(source, text));

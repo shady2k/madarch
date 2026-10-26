@@ -70,6 +70,42 @@ export function functionsOf(t: TreeText, path: string): FunctionSite[] {
     return facts.symbols.filter((entry) => entry.path === path && entry.symbolKind === 'interface' && sameSpan(entry.span, owner.span) &&
       symbol.qualifiedName === `${entry.qualifiedName}.${symbol.name}`).length === 1;
   };
+  const declarationOnlyAbstractMethod = (symbol: (typeof facts.symbols)[number]): boolean => {
+    if (!['typescript', 'tsx'].includes(file.language) || symbol.symbolKind !== 'method' ||
+      symbol.bodySpan !== undefined || symbol.bodySyntaxKind !== undefined) return false;
+    const contains = (outer: SourceSpan, inner: SourceSpan): boolean => outer.path === path && inner.path === path &&
+      outer.byteStart <= inner.byteStart && inner.byteStart < inner.byteEnd && inner.byteEnd <= outer.byteEnd;
+    const unique = (id: string) => {
+      const candidates = expressions.filter((entry) => entry.id === id);
+      return candidates.length === 1 ? candidates[0] : undefined;
+    };
+    const methods = expressions.filter((entry) => entry.syntaxKind === 'abstract_method_signature' && sameSpan(entry.span, symbol.span));
+    if (methods.length !== 1) return false;
+    const method = methods[0]!;
+    if (unique(method.id) !== method || (method.fields.body ?? []).length !== 0) return false;
+    const names = method.fields.name ?? [];
+    const name = names.length === 1 ? unique(names[0]!) : undefined;
+    if (name?.name !== symbol.name || method.children.filter((id) => id === name.id).length !== 1 || !contains(method.span, name.span)) return false;
+    const containers = expressions.filter((entry) => entry.syntaxKind === 'class_body' &&
+      entry.children.filter((id) => id === method.id).length === 1 && contains(entry.span, method.span));
+    if (containers.length !== 1) return false;
+    const container = containers[0]!;
+    if (unique(container.id) !== container) return false;
+    const owners = expressions.filter((entry) => entry.syntaxKind === 'abstract_class_declaration' &&
+      (entry.fields.body ?? []).length === 1 && entry.fields.body![0] === container.id &&
+      entry.children.filter((id) => id === container.id).length === 1 && contains(entry.span, container.span));
+    if (owners.length !== 1) return false;
+    const owner = owners[0]!;
+    if (unique(owner.id) !== owner) return false;
+    const ownerNames = owner.fields.name ?? [];
+    const ownerName = ownerNames.length === 1 ? unique(ownerNames[0]!) : undefined;
+    if (ownerName?.name === undefined || owner.children.filter((id) => id === ownerName.id).length !== 1 || !contains(owner.span, ownerName.span)) return false;
+    const classes = facts.symbols.filter((entry) => entry.path === path && entry.symbolKind === 'class' && sameSpan(entry.span, owner.span));
+    const canonical = classes.length === 1 ? classes[0] : undefined;
+    return canonical !== undefined && !canonical.callable && canonical.name === ownerName.name &&
+      symbol.qualifiedName === `${canonical.qualifiedName}.${symbol.name}` &&
+      facts.symbols.filter((entry) => entry.key === canonical.key).length === 1;
+  };
   const symbols = facts.symbols.filter((entry) => entry.path === path && entry.callable);
   const counts = new Map<string, number>();
   for (const symbol of symbols) counts.set(symbol.key, (counts.get(symbol.key) ?? 0) + 1);
@@ -77,9 +113,9 @@ export function functionsOf(t: TreeText, path: string): FunctionSite[] {
     if (counts.get(symbol.key) !== 1) { t.factGap(path, `line ${symbol.span.lineStart}: duplicate callable identity ${symbol.key}`); continue; }
     const body = symbol.bodySpan;
     if (body === undefined || symbol.bodySyntaxKind === undefined) {
-      // An exact copied interface signature declares no executable body. A
-      // missing body on any actual callable remains a diagnostic tombstone.
-      if (declarationOnlyInterfaceMethod(symbol)) continue;
+      // Exact copied interface or abstract-class signatures declare no executable
+      // body. A missing body on an actual callable remains a diagnostic tombstone.
+      if (declarationOnlyInterfaceMethod(symbol) || declarationOnlyAbstractMethod(symbol)) continue;
       t.factGap(path, `line ${symbol.span.lineStart}: callable ${symbol.key} has no proved body at bytes ${symbol.span.byteStart}-${symbol.span.byteEnd}`);
       continue;
     }

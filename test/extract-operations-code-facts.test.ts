@@ -102,6 +102,46 @@ test('cross-file exports retain metric/logger identity through aliases and expli
   expect(origin?.chain?.some((id) => id.includes('lib/use.ts'))).toBe(true);
 });
 
+test('same-name type and value exports keep one exact cross-file logger origin', async () => {
+  const tree = treeOf({
+    'package.json': '{"name":"neutral-unit","dependencies":{"pino":"9.0.0"}}',
+    'lib/decl.ts': 'import pino from "pino"; export const audit=pino(); export type audit = typeof audit;',
+    'lib/bridge.ts': 'export {audit as logger} from "./decl.js";',
+    'lib/use.ts': 'import {logger} from "./bridge.js"; export function run(){logger.info("real");} export function shadow(logger:any){logger.info("parameter");} export function lexical(){logger.info("tdz");const logger=other;}',
+  });
+  const code = await extractCodeWithFacts(tree);
+  const terminal = code.facts.exports?.filter((entry) => entry.path === 'lib/decl.ts' && entry.name === 'audit') ?? [];
+  expect(terminal).toHaveLength(1);
+  const binding = code.facts.bindings.find((entry) => entry.id === terminal[0]?.localBinding);
+  expect(binding?.name).toBe('audit'); expect(binding?.initializer).toBeDefined();
+  const imported = code.facts.imports.find((entry) => entry.path === 'lib/use.ts' && entry.local === 'logger');
+  expect(imported?.targetExpression).toBeDefined();
+  const endpoint = code.facts.expressions.find((entry) => entry.id === imported?.targetExpression);
+  expect(endpoint?.bindingId).toBe(binding?.id);
+  const bridge = code.facts.exports?.find((entry) => entry.path === 'lib/bridge.ts' && entry.name === 'logger');
+  expect(bridge).toBeDefined();
+  expect(terminal[0]).toBeDefined();
+  expect(imported?.targetChain).toEqual([bridge!.id, terminal[0]!.id]);
+  expect(code.facts.gaps.some((entry) => entry.reason.includes('no unique exported value'))).toBe(false);
+  const result = extractOperations(tree, code.extraction, code.facts);
+  const uses = result.edges.filter((entry) => entry.type === 'code.uses-logger' && entry.to.startsWith('code.symbol:'));
+  expect(uses.map((entry) => entry.to)).toEqual(['code.symbol:lib/use.ts#run']);
+  expect(uses[0]?.properties.origin).toMatchObject({importSpan: {path: 'lib/decl.ts'}});
+});
+
+test('hoisted var identity never supplies its later logger initializer to an earlier use', async () => {
+  const tree = treeOf({
+    'package.json': '{"name":"neutral-unit","dependencies":{"pino":"9.0.0"}}',
+    'lib/worker.ts': 'import pino from "pino"; export function run(){logger.info("before");var logger=pino();logger.info("after");}',
+  });
+  const code = await extractCodeWithFacts(tree);
+  const result = extractOperations(tree, code.extraction, code.facts);
+  const uses = result.edges.filter((entry) => entry.type === 'code.uses-logger' && entry.to.startsWith('code.symbol:'));
+  expect(uses).toHaveLength(1);
+  expect(uses[0]?.span?.byteStart).toBe(tree.read('lib/worker.ts').length - 'logger.info("after");}'.length);
+  expect(result.gaps.some((entry) => entry.path === 'lib/worker.ts' && entry.reason.includes('before its declaration'))).toBe(true);
+});
+
 test('named default-value export and renamed imported factory preserve anonymous source identity', async () => {
   const tree = treeOf({
     'package.json': '{"name":"fixture","dependencies":{"pino":"9.0.0"}}',

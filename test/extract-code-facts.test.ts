@@ -68,6 +68,106 @@ test('destructured parameters and temporal-dead-zone locals do not reuse imports
   }
 });
 
+test('grammar function declarations are hoisted with exact declaration and body evidence', async () => {
+  for (const path of ['lib/worker.ts', 'lib/worker.js']) {
+    const source = [
+      'export function run(){ return prepare(); }',
+      'iterate();',
+      'export async function prepare(){ return "ready"; }',
+      'function* iterate(){ yield "item"; }',
+    ].join('\n');
+    const tree = treeOf({[path]: source});
+    const {facts} = await extractCodeWithFacts(tree);
+    const textAt = (span: {byteStart: number; byteEnd: number}) => new TextDecoder().decode(tree.read(path).subarray(span.byteStart, span.byteEnd));
+    for (const [name, declaration] of [
+      ['prepare', 'async function prepare(){ return "ready"; }'],
+      ['iterate', 'function* iterate(){ yield "item"; }'],
+    ] as const) {
+      const binding = facts.bindings.find((entry) => entry.name === name);
+      expect(binding).toBeDefined();
+      expect(binding?.kind).toBe('local');
+      expect(binding?.initializer).toBeUndefined();
+      expect(binding?.declarationSpan).toBeDefined();
+      expect(textAt(binding!.span)).toBe(name!);
+      expect(textAt(binding!.declarationSpan!)).toBe(declaration!);
+      const call = facts.calls.find((entry) => facts.expressions.find((expression) => expression.id === entry.callee)?.name === name);
+      const callee = facts.expressions.find((entry) => entry.id === call?.callee);
+      expect(callee?.span.byteStart).toBeLessThan(binding!.span.byteStart);
+      expect(callee?.bindingId).toBe(binding!.id);
+      const declared = facts.expressions.find((entry) => entry.span.byteStart === binding!.declarationSpan!.byteStart && entry.span.byteEnd === binding!.declarationSpan!.byteEnd);
+      expect(declared?.syntaxKind).toBe(name === 'prepare' ? 'function_declaration' : 'generator_function_declaration');
+      const body = facts.expressions.find((entry) => entry.id === declared?.fields.body?.[0]);
+      expect(body?.syntaxKind).toBe('statement_block');
+      const symbol = facts.symbols.find((entry) => entry.key === `code.symbol:${path}#${name}`);
+      expect(symbol?.bodySpan).toEqual(body?.span);
+      expect(symbol?.bodySpan).toBeDefined();
+    }
+    expect(facts.gaps.filter((entry) => entry.reason.includes('lexical binding is not initialized'))).toEqual([]);
+  }
+});
+
+test('hoisted block functions keep their scope and never exempt lexical function values or classes from TDZ', async () => {
+  const path = 'lib/scopes.ts';
+  const source = [
+    'export function run(){',
+    '  prepare();',
+    '  { prepare(); function prepare(){ return "inner"; } }',
+    '  prepare();',
+    '  lateConst(); const lateConst = function named(){ return "const"; };',
+    '  lateLet(); let lateLet = () => "let";',
+    '  new LateClass(); class LateClass {}',
+    '  beforeValue(); var beforeValue = () => "var";',
+    '}',
+    'function prepare(){ return "outer"; }',
+  ].join('\n');
+  const {facts} = await extractCodeWithFacts(treeOf({[path]: source}));
+  const callees = facts.calls.map((call) => facts.expressions.find((entry) => entry.id === call.callee)!);
+  const prepares = callees.filter((entry) => entry.name === 'prepare').sort((left, right) => left.span.byteStart - right.span.byteStart);
+  const bindings = facts.bindings.filter((entry) => entry.name === 'prepare').sort((left, right) => left.span.byteStart - right.span.byteStart);
+  expect(prepares).toHaveLength(3); expect(bindings).toHaveLength(2);
+  expect(prepares.map((entry) => entry.bindingId)).toEqual([bindings[1]!.id, bindings[0]!.id, bindings[1]!.id]);
+  expect(bindings[0]!.scope.byteStart).toBeGreaterThan(prepares[0]!.span.byteStart);
+  expect(bindings[0]!.scope.byteEnd).toBeLessThan(prepares[2]!.span.byteStart);
+  for (const name of ['lateConst', 'lateLet', 'LateClass']) {
+    const callee = callees.find((entry) => entry.name === name);
+    expect(callee).toBeDefined(); expect(callee?.bindingId).toBeUndefined();
+    expect(facts.gaps.some((entry) => entry.path === path && entry.reason.includes(`bytes ${callee!.span.byteStart}-${callee!.span.byteEnd}`) && entry.reason.includes('lexical binding is not initialized'))).toBe(true);
+  }
+  const before = callees.find((entry) => entry.name === 'beforeValue');
+  const variable = facts.bindings.find((entry) => entry.name === 'beforeValue');
+  expect(before?.bindingId).toBe(variable?.id); expect(variable?.initializer).toBeDefined();
+  expect(before!.span.byteStart).toBeLessThan(variable!.span.byteStart);
+  expect(variable?.declarationSpan?.byteStart).toBe(source.indexOf('var beforeValue'));
+  expect(facts.gaps.some((entry) => entry.reason.includes(`bytes ${prepares[1]!.span.byteStart}-${prepares[1]!.span.byteEnd}`) && entry.reason.includes('lexical binding is not initialized'))).toBe(false);
+});
+
+test('erased type exports cannot duplicate same-name runtime exports or remove class enum and namespace values', async () => {
+  const path = 'lib/values.ts';
+  const source = [
+    'export const State = {ready:"ready"};',
+    'export type State = typeof State[keyof typeof State];',
+    'export class Client {}',
+    'export interface Client { readonly name: string }',
+    'export enum Mode { ready }',
+    'export namespace Tools { export const version = 1; }',
+    'export interface OnlyInterface { readonly value: string }',
+    'export type OnlyAlias = string;',
+  ].join('\n');
+  const {facts} = await extractCodeWithFacts(treeOf({[path]: source, 'lib/default.ts': 'export default interface Shape { readonly name: string }'}));
+  const exported = facts.exports?.filter((entry) => entry.path === path) ?? [];
+  expect(exported.map((entry) => entry.name).sort()).toEqual(['Client', 'Mode', 'State', 'Tools']);
+  const state = exported.find((entry) => entry.name === 'State');
+  const binding = facts.bindings.find((entry) => entry.id === state?.localBinding);
+  expect(binding?.name).toBe('State'); expect(binding?.initializer).toBeDefined();
+  const expressions = new Map(facts.expressions.map((entry) => [entry.id, entry]));
+  for (const [name, kind] of [['Client', 'class_declaration'], ['Mode', 'enum_declaration'], ['Tools', 'internal_module']] as const) {
+    const declaration = exported.find((entry) => entry.name === name);
+    expect(declaration?.expression).toBeDefined();
+    expect(expressions.get(declaration!.expression!)?.syntaxKind).toBe(kind!);
+  }
+  expect(facts.exports?.filter((entry) => entry.path === 'lib/default.ts')).toEqual([]);
+});
+
 test('copied facts retain UTF-8 spans and canonical callback owners after AST disposal', async () => {
   const path = 'src/work.ts';
   const source = 'const label = "éλ"; export function outer(){ setTimeout(()=>{ console.log(label); }, 1); }';
