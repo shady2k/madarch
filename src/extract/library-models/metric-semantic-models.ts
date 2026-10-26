@@ -1,6 +1,6 @@
 /** Closed external type and receiver effects used by structural metric joins. */
 import { createHash } from 'node:crypto';
-import source from './metric-semantic-models.json';
+import source from './metric-semantic-models.json' with { type: 'text' };
 import { byCodePoint } from '../../model/order.js';
 
 export interface MetricReceiverOperation { readonly member: string; readonly arguments: number }
@@ -55,5 +55,5 @@ export function validateMetricSemanticModels(value: unknown): readonly MetricSem
   if (new Set(models.map((model) => JSON.stringify([model.ecosystem, model.package, model.exportedPath]))).size !== models.length) throw new Error('metric-semantic-models.models: duplicate type origin');
   return Object.freeze([...models].sort((a, b) => byCodePoint(a.id, b.id)));
 }
-export const metricSemanticModels = validateMetricSemanticModels(source);
+export const metricSemanticModels = validateMetricSemanticModels(JSON.parse(source as unknown as string));
 export const metricSemanticModelDigest = createHash('sha256').update(JSON.stringify(metricSemanticModels)).digest('hex');

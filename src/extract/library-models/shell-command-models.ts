@@ -1,6 +1,6 @@
 /** Closed command option semantics. Shell syntax belongs to the Bash grammar. */
 import {createHash} from 'node:crypto';
-import source from './shell-command-models.json';
+import source from './shell-command-models.json' with { type: 'text' };
 export interface ShellOptionModel {readonly names:readonly string[];readonly argument:'none'|'required';readonly effect:'method'|'fixed-method'|'url'|'ignore';readonly method?:string;readonly priority?:number}
 export interface ShellCommandModel {readonly id:string;readonly ecosystem:'shell';readonly package:string;readonly reference:string;readonly executables:readonly string[];readonly defaultMethod:string;readonly options:readonly ShellOptionModel[]}
 function object(value:unknown, keys:readonly string[]):Record<string,unknown>{
@@ -31,5 +31,5 @@ export function validateShellCommandModels(value:unknown):readonly ShellCommandM
  if(new Set(models.map(m=>m.id)).size!==models.length||new Set(models.flatMap(m=>m.executables)).size!==models.flatMap(m=>m.executables).length)throw new Error('shell command model: duplicate command');
  return Object.freeze(models);
 }
-export const shellCommandModels=validateShellCommandModels(source);
+export const shellCommandModels=validateShellCommandModels(JSON.parse(source as unknown as string));
 export const shellCommandModelDigest=createHash('sha256').update(JSON.stringify(shellCommandModels)).digest('hex');

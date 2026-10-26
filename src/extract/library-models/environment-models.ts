@@ -1,6 +1,6 @@
 /** Closed environment-to-storage semantics. Source readers never own a variable catalog. */
 import {createHash} from 'node:crypto';
-import source from './environment-models.json';
+import source from './environment-models.json' with { type: 'text' };
 import {byCodePoint} from '../../model/order.js';
 
 export interface EnvironmentModel {
@@ -43,6 +43,6 @@ export function validateEnvironmentModels(value: unknown): readonly EnvironmentM
   return Object.freeze(models.sort((left, right) => byCodePoint(left.id, right.id)));
 }
 
-export const environmentModels = validateEnvironmentModels(source);
+export const environmentModels = validateEnvironmentModels(JSON.parse(source as unknown as string));
 // Validated records have a fixed field order; model order is code-point canonical.
 export const environmentModelDigest = createHash('sha256').update(JSON.stringify({schemaVersion: 1, models: environmentModels})).digest('hex');

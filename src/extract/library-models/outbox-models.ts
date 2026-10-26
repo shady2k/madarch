@@ -1,6 +1,6 @@
 /** Closed SQL receiver identities and outbox semantics. No method-name fallback. */
 import {createHash} from 'node:crypto';
-import source from './outbox-models.json';
+import source from './outbox-models.json' with { type: 'text' };
 export interface OutboxReceiverModel {
   readonly id: string; readonly ecosystem: 'go'; readonly package: string; readonly packageName: string;
   readonly exportedPath: readonly string[]; readonly pointer: boolean; readonly reference: string;
@@ -70,5 +70,5 @@ export function validateOutboxModels(value: unknown): OutboxModels {
   unique(factories.flatMap(model => model.receiverIds.map(receiver => JSON.stringify([receiver, model.member]))));
   return Object.freeze({scan: Object.freeze({member: text(scan.member), receiver: scan.receiver, arguments: scan.arguments}), append: Object.freeze({ecosystem: append.ecosystem, builtin: text(append.builtin), collection: ordinal(append.collection), element: ordinal(append.element)}), factories: Object.freeze(factories), outbox: Object.freeze({table: text(semantics.table), topicColumn: text(semantics.topicColumn)}), receivers: Object.freeze(receivers), operations: Object.freeze(operations)});
 }
-export const outboxModels = validateOutboxModels(source);
+export const outboxModels = validateOutboxModels(JSON.parse(source as unknown as string));
 export const outboxModelDigest = createHash('sha256').update(JSON.stringify(outboxModels)).digest('hex');

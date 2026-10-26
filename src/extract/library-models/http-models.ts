@@ -1,6 +1,6 @@
 /** Closed HTTP models-as-data vocabulary. No executable repository rules. */
 import {createHash} from 'node:crypto';
-import source from './http-models.json';
+import source from './http-models.json' with { type: 'text' };
 import {byCodePoint} from '../../model/order.js';
 export type HttpRole='application'|'router'|'mux';
 export type HttpTarget={readonly kind:'export';readonly paths:readonly (readonly string[])[]}|{readonly kind:'member';readonly roles:readonly HttpRole[];readonly members:readonly string[]};
@@ -42,5 +42,5 @@ export function validateHttpModels(value:unknown):readonly HttpModel[]{
  for(const model of models){const effect=model.effect;if('defaultReceiver' in effect&&effect.defaultReceiver!==undefined&&!models.some(provider=>provider.ecosystem===model.ecosystem&&provider.package===model.package&&provider.effect.kind==='registry'&&provider.effect.role===effect.defaultReceiver))throw new Error(`http-models.models.${model.id}: default receiver role has no provider`);}
  return Object.freeze([...models].sort((a,b)=>byCodePoint(a.id,b.id)));
 }
-export const httpModels=validateHttpModels(source);
+export const httpModels=validateHttpModels(JSON.parse(source as unknown as string));
 export const httpModelDigest=createHash('sha256').update(JSON.stringify(httpModels)).digest('hex');

@@ -1,6 +1,7 @@
 /** Validate untrusted JSON before interpreting it or computing its identity. */
 import { createHash } from 'node:crypto';
-import data from './models.json';
+// Match the driver's raw-byte imports: Bun's compiler shares one loader per JSON path.
+import data from './models.json' with { type: 'text' };
 import { byCodePoint } from '../../model/order.js';
 import type { ArgumentSelector, ImportRole, LibraryEffectKind, LibraryModel, LibraryRegistry, LibraryRole, LibraryTypeModel, MetricRegistrySourceMetadata, ModelTarget } from './model.js';
 
@@ -224,5 +225,5 @@ export function canonicalLibraryModels(value: unknown): string {
 export function libraryRegistryDigest(value: unknown): string {
   return createHash('sha256').update(canonicalLibraryModels(value)).digest('hex');
 }
-export const libraryRegistry = validateLibraryRegistry(data);
+export const libraryRegistry = validateLibraryRegistry(JSON.parse(data as unknown as string));
 export const libraryModelDigest = libraryRegistryDigest(libraryRegistry);
