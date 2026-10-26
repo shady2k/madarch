@@ -4,7 +4,7 @@
  * Records are keyed by the file and the symbol that serve, never by the route,
  * so the contracts extractor may find the same routes without a collision.
  */
-import {endpointTarget, matchesEndpoint} from '../endpoint-target.js';
+import {resolveEndpointTarget, matchesEndpoint} from '../endpoint-target.js';
 import { extractMetrics } from './metrics.js';
 import { effectOwner, effectSpan, libraryEvidence } from './code-facts.js';
 import type { Records } from './accumulate.js';
@@ -86,9 +86,10 @@ export function linkEndpoints(t: TreeText, records: Records): void {
   for (const probe of records.nodes.filter((node) => node.kind === 'code.probe' || node.kind === 'code.healthcheck')) {
     // A TCP/exec/database readiness command does not claim an HTTP endpoint.
     if (probe.kind === 'code.probe' && probe.properties.transport !== 'http') continue;
-    const target = endpointTarget(probe);
-    if (target === undefined) {records.gap(probe.span?.path ?? '.', `line ${probe.span?.lineStart ?? 1}: probe target authority or method is unresolved (${probe.key})`); continue;}
-    const endpoints = records.nodes.filter((node) => node.kind === 'code.health-endpoint' && matchesEndpoint(target, node));
+    const resolved = resolveEndpointTarget(probe);
+    if (resolved.kind === 'non-http') continue;
+    if (resolved.kind === 'unresolved') {records.gap(probe.span?.path ?? '.', `line ${probe.span?.lineStart ?? 1}: probe target authority or method is unresolved (${probe.key})`); continue;}
+    const endpoints = records.nodes.filter((node) => node.kind === 'code.health-endpoint' && matchesEndpoint(resolved.target, node));
     if (endpoints.length === 1 && endpoints[0] !== undefined) records.edge('code.probes', probe.key, endpoints[0].key, { role: 'endpoint' }, probe.span);
   }
   for (const node of [...records.nodes]) {

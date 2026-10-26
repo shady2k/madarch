@@ -2,7 +2,11 @@
 import {createHash} from 'node:crypto';
 import source from './shell-command-models.json' with { type: 'text' };
 export interface ShellOptionModel {readonly names:readonly string[];readonly argument:'none'|'required';readonly effect:'method'|'fixed-method'|'url'|'ignore';readonly method?:string;readonly priority?:number}
-export interface ShellCommandModel {readonly id:string;readonly ecosystem:'shell';readonly package:string;readonly reference:string;readonly executables:readonly string[];readonly defaultMethod:string;readonly options:readonly ShellOptionModel[]}
+interface ShellCommandBase {readonly id:string;readonly ecosystem:'shell';readonly package:string;readonly reference:string;readonly executables:readonly string[]}
+export interface HttpShellCommandModel extends ShellCommandBase {readonly kind:'http';readonly defaultMethod:string;readonly options:readonly ShellOptionModel[]}
+export interface NonHttpShellOptionModel {readonly names:readonly string[];readonly argument:'none'|'required';readonly effect:'ignore'}
+export interface NonHttpShellCommandModel extends ShellCommandBase {readonly kind:'non-http';readonly options:readonly NonHttpShellOptionModel[]}
+export type ShellCommandModel = HttpShellCommandModel | NonHttpShellCommandModel;
 function object(value:unknown, keys:readonly string[]):Record<string,unknown>{
  if(value===null||typeof value!=='object'||Array.isArray(value))throw new Error('shell command model: expected object');
  for(const key of Object.keys(value))if(!keys.includes(key))throw new Error(`shell command model: unknown field ${key}`);
@@ -13,11 +17,14 @@ function strings(value:unknown):readonly string[]{if(!Array.isArray(value)||valu
 export function validateShellCommandModels(value:unknown):readonly ShellCommandModel[]{
  const root=object(value,['schemaVersion','models']);if(root.schemaVersion!==1||!Array.isArray(root.models)||root.models.length===0)throw new Error('shell command model: unsupported registry');
  const models=root.models.map((entry):ShellCommandModel=>{
-  const model=object(entry,['id','ecosystem','package','reference','executables','defaultMethod','options']);
+  const model=object(entry,['id','kind','ecosystem','package','reference','executables','defaultMethod','options']);
+  if(model.kind!=='http'&&model.kind!=='non-http')throw new Error('shell command model: invalid kind');
+  if(model.kind==='non-http'&&Object.hasOwn(model,'defaultMethod'))throw new Error('shell command model: non-http default method');
   if(model.ecosystem!=='shell'||!Array.isArray(model.options)||model.options.length===0)throw new Error('shell command model: invalid ecosystem/options');
   const reference=text(model.reference);const url=new URL(reference);if(url.protocol!=='https:'||url.username!==''||url.password!=='')throw new Error('shell command model: invalid reference');
   const options=model.options.map((entry):ShellOptionModel=>{
-   const option=object(entry,['names','argument','effect','method','priority']);
+   const option=object(entry,model.kind==='non-http'?['names','argument','effect']:['names','argument','effect','method','priority']);
+   if(model.kind==='non-http'&&option.effect!=='ignore')throw new Error('shell command model: non-http effect');
    if(option.argument!=='none'&&option.argument!=='required')throw new Error('shell command model: invalid arity');
    if(!['method','fixed-method','url','ignore'].includes(String(option.effect)))throw new Error('shell command model: unknown effect');
    const effect=option.effect as ShellOptionModel['effect'];
@@ -26,7 +33,9 @@ export function validateShellCommandModels(value:unknown):readonly ShellCommandM
    return Object.freeze({names:strings(option.names),argument:option.argument,effect,...(option.method===undefined?{}:{method:text(option.method),priority:option.priority as number})});
   });
   const names=options.flatMap(o=>o.names);if(new Set(names).size!==names.length||names.some(n=>!n.startsWith('-')||n==='-'||n==='--'))throw new Error('shell command model: duplicate/invalid option');
-  return Object.freeze({id:text(model.id),ecosystem:'shell',package:text(model.package),reference,executables:strings(model.executables),defaultMethod:text(model.defaultMethod),options:Object.freeze(options)});
+  const common={id:text(model.id),ecosystem:'shell' as const,package:text(model.package),reference,executables:strings(model.executables)};
+  if(model.kind==='non-http')return Object.freeze({...common,kind:'non-http',options:Object.freeze(options.map((option):NonHttpShellOptionModel=>Object.freeze({names:option.names,argument:option.argument,effect:'ignore'})))});
+  return Object.freeze({...common,kind:'http',defaultMethod:text(model.defaultMethod),options:Object.freeze(options)});
  });
  if(new Set(models.map(m=>m.id)).size!==models.length||new Set(models.flatMap(m=>m.executables)).size!==models.flatMap(m=>m.executables).length)throw new Error('shell command model: duplicate command');
  return Object.freeze(models);

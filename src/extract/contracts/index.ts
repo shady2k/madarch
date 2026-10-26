@@ -212,7 +212,7 @@ export async function extractContracts(reader: TreeReader, code?: Extraction, fa
       gaps.push({path: p, reason: `contracts: the tree carries no readable bytes: ${describe(error)}`});
       continue;
     }
-    const read = await readSyntaxTree(p, bytes, (file) => (p.endsWith('.go') ? readGoFile(p, file.root) : readTsFile(p, file.root)));
+    const read = await readSyntaxTree(p, bytes, (file) => (p.endsWith('.go') ? readGoFile(p, file.root, sourceText) : readTsFile(p, file.root)));
     if (!read.read) {
       gaps.push(...read.unread.map((gap) => ({path: p, reason: `contracts: ${gap.what}: ${gap.reason}`})));
       continue;
@@ -407,7 +407,7 @@ export async function extractContracts(reader: TreeReader, code?: Extraction, fa
 
     for (const site of file.go.kafkaSites) {
       if (site.topic === undefined) continue;
-      const topic = topicValue(service, site.topic);
+      const topic = site.channel;
       if (topic === undefined || !channels.includes(topic)) continue;
       const properties: {[key: string]: PropertyValue} = {topic, ...(site.group !== undefined ? {group: site.group} : {})};
       // The handler the consumer delegates to, its mapping, and its behaviour.
@@ -425,8 +425,8 @@ export async function extractContracts(reader: TreeReader, code?: Extraction, fa
         break;
       }
       if (file.go.unconditionalCommit) properties['offsetCommit'] = 'unconditional';
-      const reads = file.go.kafkaReads.filter((read) => site.readerOwner !== undefined && site.readerField !== undefined && read.owner === site.readerOwner && read.field === site.readerField);
-      if (reads.length > 0) for (const read of reads) interaction(REL_CONSUMES, file.path, channelKey(topic), properties, read.span);
+      const reads = site.reads ?? [];
+      if (reads.length > 0) for (const read of reads) interaction(REL_CONSUMES, file.path, channelKey(topic), properties, read);
       else {
         // Construction proves subscription intent, not execution by a consuming function.
         addEdge(REL_CONSUMES, fileKey(file.path), channelKey(topic), {...properties, summary: true, configured: true}, site.span);

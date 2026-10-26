@@ -3,6 +3,7 @@
   "models": [
     {
       "id": "curl.request",
+      "kind": "http",
       "ecosystem": "shell",
       "package": "curl",
       "reference": "https://curl.se/docs/manpage.html",
@@ -110,6 +111,26 @@
             "--cacert",
             "--cert",
             "--key"
+          ],
+          "argument": "required",
+          "effect": "ignore"
+        }
+      ]
+    },
+    {
+      "id": "postgresql.pg_isready",
+      "kind": "non-http",
+      "ecosystem": "shell",
+      "package": "postgresql",
+      "reference": "https://www.postgresql.org/docs/current/app-pg-isready.html",
+      "executables": [
+        "pg_isready"
+      ],
+      "options": [
+        {
+          "names": [
+            "-U",
+            "--username"
           ],
           "argument": "required",
           "effect": "ignore"

@@ -113,6 +113,34 @@ export async function inferOutboxPublications(
     const mark = (target: CodeExpressionFact): void => { if (target.bindingId !== undefined) mutated.add(target.bindingId); for (const child of children(target)) mark(child); };
     if (node.fields.left !== undefined) for (const id of node.fields.left) { const left = expr(id); if (left !== undefined) mark(left); } else mark(node);
   }
+  // A write kills only the same storage projection (or one of its parents).
+  // The copied grammar and lexical binding IDs own this check, not row names.
+  type Projection = {binding: string; members: readonly string[]};
+  const projection = (raw: CodeExpressionFact): Projection | undefined => {
+    const node = unwrap(raw);
+    if (node.bindingId !== undefined) return {binding: node.bindingId, members: []};
+    const receiver = expr(node.receiver);
+    const parent = receiver === undefined ? undefined : projection(receiver);
+    return parent === undefined || node.member === undefined ? undefined : {binding: parent.binding, members: [...parent.members, node.member]};
+  };
+  const writeKinds = new Set(['assignment_expression', 'augmented_assignment_expression', 'assignment_statement', 'short_var_declaration', 'update_expression', 'inc_statement', 'dec_statement']);
+  const untouched = (value: CodeExpressionFact, after: SourceSpan, before: SourceSpan): boolean => {
+    const selected = projection(value);
+    if (selected === undefined || after.path !== before.path || value.path !== before.path || after.byteEnd > before.byteStart) return false;
+    const targets = (node: CodeExpressionFact): CodeExpressionFact[] => node.syntaxKind === 'expression_list' ? children(node).flatMap(targets) : [node];
+    return ![...expressions.values()].some(write => {
+      if (!writeKinds.has(write.syntaxKind) || write.path !== before.path || write.span.byteEnd <= after.byteEnd || write.span.byteStart >= before.byteStart) return false;
+      const left = write.fields.left;
+      const written = left === undefined ? children(write) : left.flatMap(id => {const held = expr(id); return held === undefined ? [] : [held];});
+      if (written.length === 0) return true;
+      return written.flatMap(targets).some(target => {
+        const changed = projection(target);
+        // Unsupported lvalues cannot certify that this value survived.
+        if (changed === undefined) return true;
+        return changed.binding === selected.binding && changed.members.length <= selected.members.length && changed.members.every((member, at) => member === selected.members[at]);
+      });
+    });
+  };
   const parameters = (key: string): string[] | undefined => {
     const symbol = facts.symbols.find(symbol => symbol.key === key && symbol.callable); if (symbol === undefined) return undefined;
     const fn = one(facts.expressions.filter(node => contains(symbol.span, node.span) && node.span.byteEnd === symbol.span.byteEnd && ['function_declaration', 'method_declaration', 'method_definition'].includes(node.syntaxKind)));
@@ -251,6 +279,8 @@ export async function inferOutboxPublications(
       const rowBindings = facts.bindings.filter(binding => binding.initializer === read.call.expression);
       const scan = calls.filter(call => call.holder === read.call.holder && expr(call.callee)?.member === outboxModels.scan.member && rowBindings.some(binding => expr(expr(call.callee)?.receiver)?.bindingId === binding.id));
       const scanned = one(scan); const scannedTopic = scanned === undefined ? undefined : expr(scanned.arguments[select.topicIndex]);
+      const scanReceiver = scanned === undefined ? undefined : expr(expr(scanned.callee)?.receiver);
+      if (scanned === undefined || scanReceiver === undefined || !untouched(scanReceiver, read.call.span, scanned.span)) continue;
       const topic = scannedTopic === undefined ? undefined : unwrap(scannedTopic); if (topic?.member !== outboxModels.outbox.topicColumn) continue;
       const candidateCall = one(calls.filter(call => same(call.span, candidate.span)));
       if (candidateCall === undefined) continue;
@@ -270,12 +300,13 @@ export async function inferOutboxPublications(
       const actual = one(messageTopics); if (actual === undefined) continue;
       const topicParameter = actual.bindingId === undefined ? undefined : bindings.get(actual.bindingId);
       const at = topicParameter?.kind === 'parameter' ? parameters(owner)?.indexOf(topicParameter.id) ?? -1 : -1;
+      if (at >= 0 && topicParameter !== undefined && !untouched(actual, topicParameter.span, candidateCall.span)) continue;
       const downstream = calls.filter(call => call.holder === read.call.holder && (call.expression === candidateCall.expression || targets(call).includes(owner)));
       const sameRow = (value: CodeExpressionFact, call: CodeCallFact): boolean => {
         if (value.member !== topic.member || value.receiver === undefined || topic.receiver === undefined) return false;
         const row = expr(value.receiver); const scannedRow = expr(topic.receiver);
         if (row === undefined || scannedRow === undefined) return false;
-        if (row.bindingId !== undefined && row.bindingId === scannedRow.bindingId) return true;
+        if (row.bindingId !== undefined && row.bindingId === scannedRow.bindingId) return untouched(topic, scanned.span, call.span);
         // Same property projection on an exactly transferred row value needs
         // no independent field-name lookup or guessed owner type.
         // Range transfers require the copied item binding and its exact scope.
@@ -292,14 +323,14 @@ export async function inferOutboxPublications(
             item?.syntaxKind !== 'identifier' || itemBinding?.kind !== 'local' || itemBinding.path !== loop.path ||
             !same(itemBinding.span, item.span) || itemBinding.initializer !== undefined || itemBinding.id !== row.bindingId ||
             !same(loop.span, itemBinding.scope) || body === undefined || !contains(body.span, call.span) || !contains(body.span, row.span) ||
-            mutated.has(itemBinding.id) || collection?.bindingId === undefined) return false;
+            !untouched(value, left.span, call.span) || collection?.bindingId === undefined) return false;
           if (itemBinding.goRange?.clauseExpression !== clause.id || itemBinding.goRange.collectionExpression !== right?.id || itemBinding.goRange.ordinal !== 1 || itemBinding.goRange.role !== 'value') return false;
           return calls.some(append => {
             const callee = expr(append.callee);
             if (append.holder !== read.call.holder || callee?.name !== outboxModels.append.builtin || callee.bindingId !== undefined || append.span.byteStart >= loop.span.byteStart) return false;
             if (facts.bindings.some(binding => binding.path === callee.path && binding.name === outboxModels.append.builtin && contains(binding.scope, callee.span)) || facts.symbols.some(symbol => symbol.path === callee.path && symbol.name === outboxModels.append.builtin)) return false;
             const first = expr(append.arguments[outboxModels.append.collection]); const second = expr(append.arguments[outboxModels.append.element]);
-            if (first?.bindingId !== collection.bindingId || second?.bindingId === undefined || second.bindingId !== scannedRow.bindingId) return false;
+            if (first?.bindingId !== collection.bindingId || second?.bindingId === undefined || second.bindingId !== scannedRow.bindingId || !untouched(topic, scanned.span, append.span)) return false;
             return facts.expressions.some(assignment => assignment.syntaxKind === 'assignment_statement' && contains(assignment.span, append.span) &&
               (assignment.fields.left ?? []).some(id => {const held = expr(id); return held !== undefined && children(held).some(target => target.bindingId === collection.bindingId);}));
           });

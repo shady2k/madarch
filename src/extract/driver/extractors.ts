@@ -34,8 +34,8 @@ import shellCommandModelSource from '../library-models/shell-command-models.json
 const TREE_READERS = [
  {name:'extractFiles',version:2,extractor:extractFiles},
  {name:'extractCode',version:14,extractor:extractCodeWithFacts},
- {name:'extractOperations',version:15,extractor:extractOperations},
- {name:'extractContracts',version:14,extractor:extractContracts},
+ {name:'extractOperations',version:16,extractor:extractOperations},
+ {name:'extractContracts',version:15,extractor:extractContracts},
  {name:'extractDataModel',version:8,extractor:extractDataModel},
 ] as const;
 export const TREE_EXTRACTORS: readonly TreeExtractor[] = TREE_READERS.map((entry)=>entry.extractor);
@@ -75,5 +75,5 @@ export const EXTRACTOR_VERSIONS = [
  {name:'sql-parser-runtime:libpg-query@18.2.1',version:1},
  {name:'shell-command-model-data',version:1,contentDigest:shellCommandModelDigest},
  {name:'shell-command-model-source-bytes',version:1,contentDigest:codeQueryDigest([{path:'library-models/shell-command-models.json',source:shellCommandModelSource as unknown as string}])},
- {name:'driver-and-link-normalization',version:7},
+ {name:'driver-and-link-normalization',version:8},
 ] as const;

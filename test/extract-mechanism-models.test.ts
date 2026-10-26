@@ -48,8 +48,11 @@ test('default metric namespaces select exported validated package data without c
   expect(canonicalLibraryModels(libraryModelData)).toBe(canonicalLibraryModels(legacy));
   expect(libraryRegistryDigest(libraryModelData)).toBe(libraryModelDigest);
   expect(libraryRegistryDigest(libraryRegistry)).toBe(libraryModelDigest);
-  // Fingerprint of the full normalized registry before replacing the 13 literal selectors.
-  expect(libraryModelDigest).toBe('6d72125b9ce1d5cd2a37549125a103601f8786344b15d28021c6bf031743d56d');
+  // Retain the historical namespace-normalization proof over its original registry.
+  // New invocation semantics change the complete interpretation digest independently.
+  const namespaceBaseline = {...libraryModelData, models: libraryModelData.models.filter(model => model.id !== 'kafkajs.producer.connect')};
+  expect(libraryRegistryDigest(namespaceBaseline)).toBe('6d72125b9ce1d5cd2a37549125a103601f8786344b15d28021c6bf031743d56d');
+  expect(libraryModelDigest).not.toBe(libraryRegistryDigest(namespaceBaseline));
 
   const anchor = libraryModelData.models.find(model => model.id === 'prom-client.register')!;
   const counter = libraryModelData.models.find(model => model.id === 'prom-client.Counter')!;
