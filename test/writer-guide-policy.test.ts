@@ -38,7 +38,7 @@ test('parsed facts and source spans with escaped sensitive characters are withhe
  const context={valid:'2026-01-01T00:00:00Z',known:'2026-01-02T00:00:00Z',state:'0',repositories:[{name:'sample',commit:'a'.repeat(40)}]};
  const ground={repository:'sample',commit:'a'.repeat(40),path:'settings.yaml',line:1,endLine:1};
  const text=`const configured = ${JSON.stringify(privateValue)}; // ${privateValue}`;
- const evidence:GuidePreparedEvidence={context,facts:[{id:'definition',kind:'code.env-definition',properties:{value:privateValue}},{id:'nested',kind:'code.symbol',properties:{nested:[{value:privateValue}]}},{id:'key',kind:'code.symbol',properties:{[privateValue]:'value'}},{id:'public',kind:'code.route',label:'Status'}],spans:[{ground,text,digest:guideDigest({ground,text})}],gaps:[],policy:{version:'withhold-config-values@1',withheldValues:0,classifiedSources:[]}};
+ const evidence:GuidePreparedEvidence={context,facts:[{id:'definition',kind:'code.env-definition',properties:{value:privateValue}},{id:'nested',kind:'code.symbol',properties:{nested:[{value:privateValue}]}},{id:'key',kind:'code.symbol',properties:{[privateValue]:'value'}},{id:'public',kind:'code.route',label:'Status'}],spans:[{ground,text,digest:guideDigest({ground,text}),sourceLiterals:[privateValue]}],gaps:[],policy:{version:'withhold-config-values@1',withheldValues:0,classifiedSources:[]}};
  const result=guidePacketPolicy(evidence,[privateValue]);
  const inspect=(value:unknown):void=>{if(typeof value==='string')expect(value.includes(privateValue)).toBe(false);else if(Array.isArray(value))value.forEach(inspect);else if(value!==null&&typeof value==='object')for(const [key,child]of Object.entries(value)){inspect(key);inspect(child);}};
  inspect(result.evidence);
@@ -64,12 +64,12 @@ test('actual extracted environment defaults and definition edges are withheld be
  const defines=extraction.edges.find((edge)=>edge.type==='code.defines'&&edge.properties['value']===escaped);
  expect(variable).toBeDefined();expect(read).toBeDefined();expect(definition).toBeDefined();expect(defines).toBeDefined();
  const context={valid:'2026-01-01T00:00:00Z',known:'2026-01-02T00:00:00Z',state:'0',repositories:[{name:'sample',commit:'a'.repeat(40)}]};
- const facts=[...extraction.nodes.map((node)=>({id:node.key,kind:node.kind,properties:node.properties})),...extraction.edges.map((edge,index)=>({id:`edge:${index}`,relation:edge.type,properties:edge.properties}))];
+ const facts=[...extraction.nodes.map((node)=>({id:node.key,kind:node.kind,label:node.label,properties:{...node.properties,...(node.span===undefined?{}:{span:node.span})}})),...extraction.edges.map((edge,index)=>({id:`edge:${index}`,relation:edge.type,properties:{...edge.properties,...(edge.span===undefined?{}:{span:edge.span})}}))];
  const spans=Object.entries(files).map(([path,text])=>{const ground={repository:'sample',commit:'a'.repeat(40),path,line:1,endLine:text.split('\n').length};return {ground,text,digest:guideDigest({ground,text})};});
- const evidence:GuidePreparedEvidence={context,facts,spans,gaps:[],policy:{version:'withhold-config-values@1',withheldValues:0,classifiedSources:[]}};
+ const evidence:GuidePreparedEvidence={context,facts,spans,gaps:[],configReferences:[{name:'services.api.environment.JWT_SECRET',path:'docker-compose.yml',value:escaped}],policy:{version:'withhold-config-values@1',withheldValues:0,classifiedSources:[]}};
  const protectedInput=guidePacketPolicy(evidence);
  expect(()=>canonicalJsonDigest(protectedInput.evidence)).not.toThrow();
- expect(protectedInput.sensitiveValues).toEqual([]); // defaults/definitions are withheld candidates, not proven secrets
+ expect(protectedInput.sensitiveValues).toContain(ordinary); expect(protectedInput.sensitiveValues).toContain(escaped); // distinctive withheld values also protect output
  expect(protectedInput.evidence.spans).toEqual([]);expect(protectedInput.evidence.gaps.join(' ')).toContain('2 source spans');
  expect(protectedInput.evidence.policy.classifiedSources).toContain(`graph:${variable!.key}`);
  expect(protectedInput.evidence.policy.classifiedSources).toContain(`graph:${definition!.key}`);
@@ -81,13 +81,13 @@ test('actual extracted environment defaults and definition edges are withheld be
  inspect(packets);
  // The dependency membership remains complete and private; withholding does not shrink it.
  expect(facts.length).toBe(extraction.nodes.length+extraction.edges.length);
- expect(facts.some((fact)=>Object.values(fact.properties).includes(escaped))).toBe(true);
+ expect(facts.some((fact)=>Object.values(fact.properties).some((value: unknown)=>typeof value === 'string' && value === escaped))).toBe(true);
  // Each actual edge independently supplies its value, even if a read returns no declaring node.
  for(const edge of [read!,defines!]){
   const edgeOnly=guidePacketPolicy({...evidence,facts:[{id:'actual-edge',relation:edge.type,properties:edge.properties}]});
   const actualValue=edge.properties['default']??edge.properties['value'];
   if(typeof actualValue!=='string')throw new Error('the actual extracted edge must carry its literal value');
-  expect(edgeOnly.sensitiveValues).toEqual([]);
+  expect(edgeOnly.sensitiveValues).toContain(actualValue);
   expect(edgeOnly.evidence.spans.some((span)=>span.text.includes(actualValue))).toBe(false);
   expect(edgeOnly.evidence.facts[0]).toHaveProperty('withheld');
  }
