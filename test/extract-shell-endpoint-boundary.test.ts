@@ -42,3 +42,21 @@ test('command model validator rejects arbitrary rules, duplicate aliases and inv
  expect(()=>validateShellCommandModels({schemaVersion:1,models:[{...shellCommandModels[0],options:[...shellCommandModels[0]!.options,shellCommandModels[0]!.options[0]]}]})).toThrow('duplicate');
  expect(()=>validateShellCommandModels({schemaVersion:1,models:[{...shellCommandModels[0],options:[{names:['-x'],argument:'none',effect:'execute'}]}]})).toThrow('effect');
 });
+
+test('the quoting kind decides what a word holds, and a quote of the other kind is text inside it',()=>{
+ // A raw (single-quoted) word is literal as written: a backslash in it is that byte, so the word
+ // needs no escape scanning and the grammar's token kind alone answers it.
+ expect(literalShellArgv(`curl -H 'X-Name:some\\ value' ${url}`)).toEqual(['curl','-H','X-Name:some\\ value',url]);
+ // An interpreted (double-quoted) word holds the content tokens the grammar gave it, and nothing else.
+ expect(literalShellArgv(`curl --request="PATCH" ${url}`)).toEqual(['curl','--request=PATCH',url]);
+ // Decoys: a double-quoted shape written inside a raw word, and a single-quoted shape written
+ // inside an interpreted one, are plain text of that word, and neither makes the word unresolved.
+ expect(literalShellArgv(`curl -H 'X-Name: "a b"' ${url}`)).toEqual(['curl','-H','X-Name: "a b"',url]);
+ expect(literalShellArgv(`curl -H "X-Name: a'b" ${url}`)).toEqual(['curl','-H',"X-Name: a'b",url]);
+ // Parts of another kind stay unresolved, as before: an expansion, a substitution in the command
+ // itself, a substitution inside an interpreted word, and an unterminated word.
+ expect(literalShellArgv(`curl -H "$HEADER" ${url}`)).toBeUndefined();
+ expect(literalShellArgv(`curl $(echo ${url})`)).toBeUndefined();
+ expect(literalShellArgv(`curl -H "$(cat token)" ${url}`)).toBeUndefined();
+ expect(literalShellArgv(`curl '${url}`)).toBeUndefined();
+});

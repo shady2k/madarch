@@ -30,15 +30,29 @@ export function spanOf(node: SyntaxNode, path: string): SourceSpan {
   return {path, byteStart: span.startByte, byteEnd: span.endByte, lineStart: span.startLine, lineEnd: span.endLine};
 }
 
-/** The name a call's callee ends with (`HandleFunc` of `mux.HandleFunc`), or undefined. */
+/**
+ * The name a call's callee ends with (`HandleFunc` of `mux.HandleFunc`), or undefined.
+ *
+ * The grammar answers which name that is: the property of a `member_expression` (TypeScript's
+ * `mux.HandleFunc`), the field of a `selector_expression` (Go's), or a plain `identifier`,
+ * `field_identifier` or `property_identifier`. The reader used to slice the last dot off the
+ * callee's own text, which read a name out of the source rather than out of the tree.
+ *
+ * What it refuses, and the text read accepted nothing there either: a callee of another kind --
+ * a parenthesized or subscripted callee (`(a.b)(x)`, `handlers[name]`), a computed property, a
+ * wrapper or an awaiting expression. The one shape the text read did answer and this one does not
+ * is a member whose property the grammar could not read: the incomplete `a.` answered the empty
+ * name, and an empty name now matches no callee.
+ */
 export function calleeName(call: SyntaxNode): string | undefined {
   if (call.type !== 'call_expression') return undefined;
   const fn = call.childForFieldName('function');
   if (fn === null) return undefined;
-  const name = fn.type === 'identifier' || fn.type === 'field_identifier' || fn.type === 'property_identifier' || fn.type === 'member_expression' || fn.type === 'selector_expression' ? fn.text : undefined;
-  if (name === undefined) return undefined;
-  const dot = name.lastIndexOf('.');
-  return dot >= 0 ? name.slice(dot + 1) : name;
+  if (fn.type === 'member_expression' || fn.type === 'selector_expression') {
+    const name = fn.childForFieldName('property') ?? fn.childForFieldName('field');
+    return name === null ? undefined : name.text;
+  }
+  return fn.type === 'identifier' || fn.type === 'field_identifier' || fn.type === 'property_identifier' ? fn.text : undefined;
 }
 
 /** Every call expression whose callee ends with one of the names. */

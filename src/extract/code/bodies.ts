@@ -160,7 +160,7 @@ export async function memberSites(file: SourceFile, program: Program, imports: r
     const pushScope = (node: SyntaxNode): void => { scopes.push(new Map()); factScopes.push(new Map()); goAmbiguousScopes.push(new Set()); scopeSpans.push(sourceSpan(node)); scopeNodes.push(node); };
     const popScope = (): void => { scopes.pop(); factScopes.pop(); goAmbiguousScopes.pop(); scopeSpans.pop(); scopeNodes.pop(); };
     const genericNames: Set<string>[] = [];
-    const compositeProof = (node: SyntaxNode, type: SyntaxNode | null): import('./facts.js').CodeExpressionFact['compositeType'] => {
+    const compositeProof = (node: SyntaxNode, type: SyntaxNode | null): CodeExpressionFact['compositeType'] => {
       if (!go || node.type !== 'composite_literal' || type === null) return undefined;
       if (type.type === 'struct_type') return { shape: 'struct', typeExpression: expressionId(type), declarationSpan: sourceSpan(type) };
       if (type.type !== 'type_identifier' || typeParameters.some((scope) => scope.has(textOf(type,text))) ||

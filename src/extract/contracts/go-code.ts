@@ -11,6 +11,7 @@
  */
 import type {Node as SyntaxNode} from 'web-tree-sitter';
 import {calleeName, spanOf, stringValue, walkTree} from './walk.js';
+import {decodeStringToken} from '../code/literals.js';
 import type {SourceSpan} from '../../extract/records.js';
 import type {CodeExpressionFact} from '../code/facts.js';
 import type {TreeText} from '../operations/source.js';
@@ -72,9 +73,12 @@ export interface GoFileFacts {
   /** Methods declared `(x *T) Name`, as `T.Name`. */
   readonly methods: readonly string[];
   readonly functions: readonly string[];
-  /** The functions of the file whose text verifies a token with HS256. */
+  /** The functions of the file whose body carries the string literal `HS256`. */
   readonly hs256Functions: readonly string[];
-  /** `X := &http.Server{Addr: ...}`: the server variable and its Addr as written. */
+  /**
+   * `X := &http.Server{Addr: ...}`: the server variable and its Addr -- decoded when the
+   * literal holds a string, the constant's name when it reads one.
+   */
   readonly serverAddrs: ReadonlyMap<string, string>;
   readonly routes: readonly GoRoute[];
   /** A `package main` file whose `main` the process starts with. */
@@ -87,7 +91,11 @@ export interface GoFileFacts {
   readonly statusComparisons: readonly string[];
   /** The string-literal switch cases of each method that carries any (`ApplyPaymentEvent` -> the event kinds). */
   readonly switchCases: ReadonlyMap<string, readonly string[]>;
-  /** Whether a loop of this file applies a handler as a statement and then commits the reader it reads, reading only the commit's error. */
+  /**
+   * Whether a loop of this file applies a handler as a statement and then commits the
+   * reader it reads as a statement of its own, with nothing deciding whether that commit
+   * runs (coordinator decision 2026-10-25T11:10Z).
+   */
   readonly unconditionalCommit: boolean;
   /** The interface methods this file declares (`ApplyPaymentEvent` of PaymentEventHandler). */
   readonly interfaceMethods: readonly string[];
@@ -281,8 +289,11 @@ export function readGoFile(path: string, root: SyntaxNode, source?: TreeText): G
   };
 
   walkTree(root, (node) => {
-    // A function whose text verifies a token with HS256 (`jwt.WithValidMethods([]string{"HS256"})`).
-    if ((node.type === 'function_declaration' || node.type === 'method_declaration') && /['"]HS256['"]/.test(node.text)) {
+    // A function whose body carries the string literal `HS256`
+    // (`jwt.WithValidMethods([]string{"HS256"})`): the grammar delimits the
+    // token and the token's decoded value decides. A comment that names it is
+    // no literal, and a list this reader cannot decode stays unresolved.
+    if ((node.type === 'function_declaration' || node.type === 'method_declaration') && carriesStringLiteral(node, 'HS256')) {
       const name = node.childForFieldName('name')?.text;
       if (name !== undefined) hs256Functions.push(name);
     }
@@ -310,16 +321,20 @@ export function readGoFile(path: string, root: SyntaxNode, source?: TreeText): G
     if (node.type === 'method_declaration') {
       const declaration = node.childForFieldName('receiver')?.namedChild(0) ?? null;
       const typeNode = declaration?.childForFieldName('type') ?? null;
-      const receiverType = (typeNode?.text ?? '').replace(/^\*+/, '');
+      // The grammar says which type a pointer points at; no asterisk is counted here.
+      const receiverType = typeNode === null ? '' : pointedAt(typeNode).text;
       const receiverVar = declaration?.childForFieldName('name')?.text ?? '';
       const name = node.childForFieldName('name')?.text ?? '';
       const body = node.childForFieldName('body');
       if (receiverType !== '' && name !== '') methods.push(`${receiverType}.${name}`);
       if (receiverVar !== '' && receiverType !== '') receiverNames.set(receiverVar, receiverType);
       if (body !== null && name !== '') {
-        // A method that decides a repeat by comparing a status for equality.
+        // A method that decides a repeat by comparing a status for equality:
+        // the equality's own operands say whether one side is the field or the
+        // name `Status`. A comment or a string that spells the comparison is no
+        // operand, and a comparison of another field stays unclaimed.
         walkTree(body, (inner) => {
-          if (inner.type === 'binary_expression' && inner.childForFieldName('operator')?.text === '==' && /\.Status|Status ==/.test(inner.text)) {
+          if (inner.type === 'binary_expression' && inner.childForFieldName('operator')?.text === '==' && comparesStatus(inner)) {
             statusComparisons.add(name);
           }
           // The string-literal switch cases of the method (the event kinds).
@@ -366,7 +381,8 @@ export function readGoFile(path: string, root: SyntaxNode, source?: TreeText): G
           walkTree(body, (field) => {
             if (field.type !== 'field_declaration') return;
             const fieldName = field.childForFieldName('name')?.text;
-            const fieldType = field.childForFieldName('type')?.text.replace(/^\*+/, '') ?? '';
+            const written = field.childForFieldName('type');
+            const fieldType = written === null ? '' : pointedAt(written).text;
             if (fieldName !== undefined && fieldType !== '') structFields.set(fieldName, fieldType);
           });
         }
@@ -389,15 +405,14 @@ export function readGoFile(path: string, root: SyntaxNode, source?: TreeText): G
         chainBindings.set(left, chainOf(right));
         return;
       }
-      // `server := &http.Server{Addr: ...}` -- a server a main starts. The right
-      // side is found by its text, whatever the parse wraps around it.
+      // `server := &http.Server{Addr: ...}` -- a server a main starts, read from
+      // the composite literal the grammar gives: the `Addr` keyed element holds a
+      // string literal, whose delimited token this reader decodes, or the name of
+      // a constant the package's joins resolve. Any other value is unresolved,
+      // and an unresolved address is never guessed.
       if (left !== undefined && !serverAddrs.has(left)) {
-        const rightNode = node.childForFieldName('right');
-        const rightText = rightNode?.text ?? '';
-        if (rightText.includes('http.Server{')) {
-          const addrMatch = /Addr:\s*([A-Za-z0-9_.":]+)/.exec(rightText);
-          if (addrMatch !== null) serverAddrs.set(left, addrMatch[1]!);
-        }
+        const addr = serverAddrOf(node.childForFieldName('right'));
+        if (addr !== undefined) serverAddrs.set(left, addr);
       }
       return;
     }
@@ -438,46 +453,48 @@ export function readGoFile(path: string, root: SyntaxNode, source?: TreeText): G
       }
     }
     // The consumer loop: a read through its reader, the handler applied as a
-    // statement, then the commit of that same reader, read only for its own
-    // error. The commit is decided from grammar nodes: the if statement's own
-    // deciding parts -- its initializer and its condition, never its blocks --
-    // hold a call of the commit member on the reader the loop reads.
+    // statement, then a commit of that same reader. The commit is unconditional
+    // only when nothing decides whether it runs (coordinator decision
+    // 2026-10-25T11:10Z): the commit call is the whole of an expression
+    // statement directly in the loop's own block, and the loop is a statement
+    // of the function's own body. A commit inside an if -- its condition, its
+    // initializer or its block -- inside a nested loop, a switch, a select or a
+    // closure, or held in a larger expression runs on a decision of its own and
+    // stays conditional.
     if (node.type === 'for_statement' && !unconditionalCommit) {
       const body = node.childForFieldName('body');
       if (body === null) return;
+      const statements = namedCode(body);
+      // What the loop reads through a proved consumer reader, wherever the read stands.
       const readers = new Set<string>();
-      let applies = false;
-      let commits = false;
-      for (let i = 0; i < body.childCount; i++) {
-        const statement = body.child(i);
-        if (statement === null) continue;
-        // What the loop reads through a proved consumer reader, wherever the read stands.
+      for (const statement of statements) {
         walkTree(statement, (inner) => {
           const read = readerCallOf(inner);
           if (read !== undefined && read.members.has(read.member)) readers.add(`${read.owner}.${read.field}`);
         });
-        if (statement.type === 'expression_statement') {
-          const call = statement.namedChild(0);
-          const name = call !== null && call.type === 'call_expression' ? calleeName(call) : undefined;
-          // A read or a commit is no application of a handler.
-          if (name !== undefined && !consumerMethods.has(name) && name !== offsetCommitMember) applies = true;
-        }
-        if (statement.type === 'if_statement') {
-          for (const deciding of statement.namedChildren) {
-            // The blocks are what the if does, not what decides it.
-            if (deciding === null || deciding.type === 'block') continue;
-            walkTree(deciding, (inner) => {
-              if (commits) return;
-              const commit = readerCallOf(inner);
-              if (commit === undefined || commit.member !== offsetCommitMember) return;
-              // The reader the loop reads; when the read stands in a function of
-              // its own, any consumer reader proved from this file's receiver.
-              if (readers.size === 0 || readers.has(`${commit.owner}.${commit.field}`)) commits = true;
-            });
-          }
-        }
       }
-      unconditionalCommit = applies && commits;
+      let applies = false;
+      let commits = false;
+      for (const statement of statements) {
+        if (statement.type !== 'expression_statement') continue;
+        // One call and nothing else: a call held in an assignment, a comparison
+        // or any larger expression is no statement of its own.
+        const held = namedCode(statement);
+        const call = held.length === 1 && held[0]!.type === 'call_expression' ? held[0]! : null;
+        if (call === null) continue;
+        const name = calleeName(call);
+        if (name === offsetCommitMember) {
+          const commit = readerCallOf(call);
+          if (commit === undefined || commit.member !== offsetCommitMember) continue;
+          // The reader the loop reads; when the read stands in a function of
+          // its own, any consumer reader proved from this file's receiver.
+          if (readers.size === 0 || readers.has(`${commit.owner}.${commit.field}`)) commits = true;
+          continue;
+        }
+        // A read is no application of a handler.
+        if (name !== undefined && !consumerMethods.has(name)) applies = true;
+      }
+      unconditionalCommit = inFunctionBody(node) && applies && commits;
       return;
     }
   });
@@ -763,6 +780,110 @@ function callsNamedIn(body: SyntaxNode, name: string): SyntaxNode[] {
     if (object === name) out.push(node);
   });
   return out;
+}
+
+/** The type a pointer type points at, however many pointers deep it is written. */
+function pointedAt(type: SyntaxNode): SyntaxNode {
+  let held = type;
+  while (held.type === 'pointer_type') {
+    const element = namedCode(held)[0];
+    if (element === undefined) break;
+    held = element;
+  }
+  return held;
+}
+
+/** The named children of a node without the comments the grammar also carries as nodes. */
+function namedCode(node: SyntaxNode): SyntaxNode[] {
+  const children: SyntaxNode[] = [];
+  for (const child of node.namedChildren) if (child !== null && child.type !== 'comment') children.push(child);
+  return children;
+}
+
+/** Whether a node's subtree carries a string literal whose decoded value is `value`. */
+function carriesStringLiteral(node: SyntaxNode, value: string): boolean {
+  let found = false;
+  walkTree(node, (inner) => {
+    if (found || (inner.type !== 'interpreted_string_literal' && inner.type !== 'raw_string_literal')) return;
+    if (decodeStringToken(inner.type, inner.text) === value) found = true;
+  });
+  return found;
+}
+
+/** Whether an operand of an equality is the status field or the name `Status`. */
+function namesStatus(operand: SyntaxNode | null): boolean {
+  let held = operand;
+  while (held !== null && held.type === 'parenthesized_expression') held = held.namedChild(0);
+  if (held === null) return false;
+  if (held.type === 'identifier') return held.text === 'Status';
+  return held.type === 'selector_expression' && held.childForFieldName('field')?.text === 'Status';
+}
+
+/** Whether an equality compares a status on either side (`order.Status == domain.Cancelled`). */
+function comparesStatus(equality: SyntaxNode): boolean {
+  return namesStatus(equality.childForFieldName('left')) || namesStatus(equality.childForFieldName('right'));
+}
+
+/** The one value a wrapper holds: an expression list, a literal element and parentheses wrap, they are no value. */
+function singleValueOf(node: SyntaxNode | null): SyntaxNode | undefined {
+  let held = node;
+  while (held !== null && (held.type === 'expression_list' || held.type === 'literal_element' || held.type === 'parenthesized_expression')) {
+    const only = namedCode(held);
+    if (only.length !== 1) return undefined;
+    held = only[0]!;
+  }
+  return held ?? undefined;
+}
+
+/** The keyed elements of a Go literal body with key and value unwrapped, or undefined when one is not keyed. */
+function keyedElementsOf(body: SyntaxNode): {key: SyntaxNode; value: SyntaxNode}[] | undefined {
+  const pairs: {key: SyntaxNode; value: SyntaxNode}[] = [];
+  for (const entry of namedCode(body)) {
+    if (entry.type !== 'keyed_element') return undefined;
+    // The Go grammar writes a keyed element as two ordered operands; a grammar
+    // that names them writes the same two as fields.
+    const fieldKey = entry.childForFieldName('key');
+    const fieldValue = entry.childForFieldName('value');
+    const parts = fieldKey !== null && fieldValue !== null ? [fieldKey, fieldValue] : namedCode(entry);
+    const key = parts.length === 2 ? singleValueOf(parts[0]!) : undefined;
+    const value = parts.length === 2 ? singleValueOf(parts[1]!) : undefined;
+    if (key === undefined || value === undefined) return undefined;
+    pairs.push({key, value});
+  }
+  return pairs;
+}
+
+/** The `Addr` a `&http.Server{...}` value writes, decoded or named, or undefined when it is no such literal. */
+function serverAddrOf(right: SyntaxNode | null): string | undefined {
+  const held = singleValueOf(right);
+  if (held === undefined || held.type !== 'unary_expression') return undefined;
+  // The address of a composite literal is the one unary form this reads: any
+  // other operator (a dereference, a negation) is no listening server.
+  if (held.children.some((child) => child !== null && !child.isNamed && child.text !== '&')) return undefined;
+  // The addressed expression: the grammar's operand field, or the one named child an address of a literal has.
+  const literal = singleValueOf(held.childForFieldName('operand') ?? namedCode(held)[0] ?? null);
+  if (literal === undefined || literal.type !== 'composite_literal') return undefined;
+  const written = literal.childForFieldName('type');
+  if (written === null || written.type !== 'qualified_type') return undefined;
+  if (written.childForFieldName('package')?.text !== 'http' || written.childForFieldName('name')?.text !== 'Server') return undefined;
+  const body = literal.childForFieldName('body');
+  if (body === null) return undefined;
+  const pairs = keyedElementsOf(body);
+  if (pairs === undefined) return undefined;
+  const addrs = pairs.filter((pair) => pair.key.type === 'identifier' && pair.key.text === 'Addr').map((pair) => pair.value);
+  // A duplicated `Addr` key is no Go a person writes, so the address stays unknown.
+  if (addrs.length !== 1) return undefined;
+  const addr = addrs[0]!;
+  if (addr.type === 'interpreted_string_literal' || addr.type === 'raw_string_literal') return decodeStringToken(addr.type, addr.text);
+  return addr.type === 'identifier' ? addr.text : undefined;
+}
+
+/** Whether a statement stands directly in a function's or a method's own body block. */
+function inFunctionBody(statement: SyntaxNode): boolean {
+  const block = statement.parent;
+  if (block === null || block.type !== 'block') return false;
+  const owner = block.parent;
+  return owner !== null && (owner.type === 'function_declaration' || owner.type === 'method_declaration');
 }
 
 /** Joins one file's raw starts across its package: ports from the package's consts and server addresses, jobs from the package's files. */

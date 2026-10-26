@@ -1,7 +1,8 @@
 import {expect, test} from 'bun:test';
 import {extractCodeWithFacts} from '../src/extract/code/index.js';
 import {extractContracts} from '../src/extract/contracts/index.js';
-import {structuralGrpcDeadline} from '../src/extract/contracts/ts-code.js';
+import {readTsFile, structuralGrpcDeadline, type TsFileFacts} from '../src/extract/contracts/ts-code.js';
+import {readSyntaxTree} from '../src/fill/stages/syntax-extract.js';
 import {TreeText} from '../src/extract/operations/source.js';
 import type {TreeReader} from '../src/extract/records.js';
 import type {CodeCallFact} from '../src/extract/code/facts.js';
@@ -323,4 +324,63 @@ test('deadline selector data is closed and frozen', () => {
   expect(Object.isFrozen(grpcDeadlineModel)).toBe(true);
   expect(() => validateGrpcDeadlineModel({...grpcDeadlineModel, optionsArgument: 2})).toThrow();
   expect(() => validateGrpcDeadlineModel({...grpcDeadlineModel, passthrough: true})).toThrow();
+});
+
+const tsFactsPath = 'services/relay/payments.ts';
+
+/** The contract facts one TypeScript fixture states, read through the same parse the extractor uses. */
+async function tsFactsOf(source: string): Promise<TsFileFacts> {
+  const read = await readSyntaxTree(tsFactsPath, new TextEncoder().encode(source), (parsed) => readTsFile(tsFactsPath, parsed.root));
+  if (!read.read) throw new Error(`${import.meta.path}: ${tsFactsPath} was not read: ${JSON.stringify(read.unread)}`);
+  if (!read.complete) throw new Error(`${import.meta.path}: ${tsFactsPath} was not read whole; the fixture must parse`);
+  return read.value;
+}
+
+test('the signing algorithm is the string literal the tree holds, and a mention of it is no algorithm', async () => {
+  // The grammar answers with a `string` node whose decoded value is the name, under either quote
+  // kind. The two readers of the decoy function write the name inside a longer string and inside
+  // a comment, which the tree holds as other things: the function that only names it stays unnamed.
+  const facts = await tsFactsOf([
+    "import jwt from 'jsonwebtoken';",
+    'export function authenticate(secret: string) {',
+    "  return (header: string) => jwt.verify(header, secret, {algorithms: ['HS256']});",
+    '}',
+    'export function sign(payload: unknown) {',
+    '  return jwt.sign(payload, "secret", {algorithm: "HS256"});',
+    '}',
+    'export function documentsOnly() {',
+    "  // the group verifies 'HS256' tokens before it reaches a handler",
+    '  const note = \'the middleware uses "HS256" elsewhere\';',
+    '  return note;',
+    '}',
+  ].join('\n'));
+  expect(facts.hs256Functions).toEqual(['authenticate', 'sign']);
+});
+
+test('a listener port is the number literal or its const, and a call or a string names no port', async () => {
+  const facts = await tsFactsOf([
+    'import express from "express";',
+    'const PORT = 8080;',
+    'export function start() {',
+    '  const app = express();',
+    '  app.listen(PORT);',
+    '  app.listen(9091);',
+    '  app.listen(Number(process.env.OTHER_PORT));',
+    '  const decoy = "app.listen(9092)";',
+    '  return decoy;',
+    '}',
+  ].join('\n'));
+  // The literal const and the literal argument are ports the file states; the call's result is
+  // not, and the string that only writes a listener is no listener.
+  expect(facts.listenerPorts).toEqual(['8080', '9091']);
+});
+
+test('a returned query parameter is the member read the tree holds, and a string that names it is no read', async () => {
+  const facts = await tsFactsOf([
+    'export function readFilters(query: Record<string, string>) {',
+    '  // page: query.page is read by the pagination helper, not here',
+    "  return {limit: query.limit, status: query.status, page: 'query.page'};",
+    '}',
+  ].join('\n'));
+  expect(facts.returnedQueryProps.get('readFilters')).toEqual(['limit', 'status']);
 });

@@ -34,8 +34,8 @@ import shellCommandModelSource from '../library-models/shell-command-models.json
 const TREE_READERS = [
  {name:'extractFiles',version:3,extractor:extractFiles},
  {name:'extractCode',version:16,extractor:extractCodeWithFacts},
- {name:'extractOperations',version:17,extractor:extractOperations},
- {name:'extractContracts',version:16,extractor:extractContracts},
+ {name:'extractOperations',version:18,extractor:extractOperations},
+ {name:'extractContracts',version:17,extractor:extractContracts},
  {name:'extractDataModel',version:8,extractor:extractDataModel},
 ] as const;
 export const TREE_EXTRACTORS: readonly TreeExtractor[] = TREE_READERS.map((entry)=>entry.extractor);

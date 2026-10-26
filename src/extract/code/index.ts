@@ -58,17 +58,17 @@ import { codeLanguageOf, folderOf, roleOf, type SourceFile } from './source.js';
 import { holderAt, indexSymbols, type FileSymbol } from './symbols.js';
 import { readTestDetails } from './tests.js';
 import {callbackName} from './keys.js';
-import { codeFactId, freezeCodeFacts, type CodeBindingFact, type CodeCallFact, type CodeExpressionFact, type CodeExtractionResult, type CodeImportFact, type CodeExportFact } from './facts.js';
+import { codeFactId, freezeCodeFacts, type CodeBindingFact, type CodeCallFact, type CodeExpressionFact, type CodeFacts, type CodeExtractionResult, type CodeImportFact, type CodeExportFact } from './facts.js';
 export type { CodeFacts, CodeExtractionResult } from './facts.js';
 
 const decoder = new TextDecoder('utf-8', { fatal: true });
 
 export { CODE_PRODUCER };
 
-const retainedCodeFacts = new WeakMap<Extraction, {readonly reader: TreeReader; readonly facts: import('./facts.js').CodeFacts}>();
+const retainedCodeFacts = new WeakMap<Extraction, {readonly reader: TreeReader; readonly facts: CodeFacts}>();
 
 /** Only this exact extraction and its original reader can lend retained facts. */
-export function codeFactsOf(extraction: Extraction | undefined, reader: TreeReader): import('./facts.js').CodeFacts | undefined {
+export function codeFactsOf(extraction: Extraction | undefined, reader: TreeReader): CodeFacts | undefined {
   const retained = extraction === undefined ? undefined : retainedCodeFacts.get(extraction);
   return retained?.reader === reader ? retained.facts : undefined;
 }
@@ -294,7 +294,7 @@ export async function extractCodeWithFacts(reader: TreeReader): Promise<CodeExtr
   const sitesByFile = new Map<string, Site[]>();
   const imports: CodeImportFact[] = [];
   const bindings: CodeBindingFact[] = [];
-  const fields: NonNullable<import('./facts.js').CodeFacts['fields']>[number][] = [];
+  const fields: NonNullable<CodeFacts['fields']>[number][] = [];
   const exports: CodeExportFact[] = [];
   const expressions: CodeExpressionFact[] = [];
   const calls: CodeCallFact[] = [];

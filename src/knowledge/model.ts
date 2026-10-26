@@ -121,6 +121,12 @@ export interface ChainStep {
   site?: CodeLocation;
   /** `source`: after the previous step in the source order of one function. `unordered`: the graph holds no order against the steps before. */
   order: 'source' | 'unordered';
+  /**
+   * The call-nesting layer that produced the step: how many calls the walk descended through from the entry to reach the
+   * function whose body the step records. Layer 0 is the entry itself - its route, the handler registered for it, and the
+   * tail the graph links with no order. A call step belongs to its caller's layer; a callee's own steps are one deeper.
+   */
+  layer: number;
   note?: string;
 }
 

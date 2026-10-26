@@ -156,7 +156,7 @@ export function readTsFile(path: string, root: SyntaxNode): TsFileFacts {
       const name = node.childForFieldName('name')?.text;
       const body = node.childForFieldName('body');
       if (name === undefined || body === null) return;
-      if (/['"]HS256['"]/.test(node.text)) hs256Functions.push(name);
+      if (mentionsSigningAlgorithm(node)) hs256Functions.push(name);
       // `const router = Router()` inside a function makes it a router factory.
       walkTree(body, (inner) => {
         if (inner.type !== 'variable_declarator') return;
@@ -424,9 +424,8 @@ export function readTsFile(path: string, root: SyntaxNode): TsFileFacts {
     if (fn?.type !== 'member_expression' || fn.childForFieldName('property')?.text !== 'listen') return;
     const object = fn.childForFieldName('object')?.text;
     if (object === undefined || (object !== appVar && !routerFactories.has(object))) return;
-    const argument = node.childForFieldName('arguments')?.namedChild(0)?.text;
-    const port = argument === undefined ? undefined : consts.get(argument) ?? argument;
-    if (port !== undefined && /^\d+$/.test(port)) listenerPorts.add(port);
+    const port = listenerPort(node.childForFieldName('arguments')?.namedChild(0) ?? null, consts);
+    if (port !== undefined) listenerPorts.add(port);
   });
   return {
     path,
@@ -468,9 +467,7 @@ function returnedQueryProps(root: SyntaxNode): ReadonlyMap<string, readonly stri
       walkTree(value, (pair) => {
         if (pair.type !== 'pair') return;
         const key = pair.childForFieldName('key')?.text;
-        const pairValue = pair.childForFieldName('value')?.text ?? '';
-        const match = key !== undefined ? /query\.([A-Za-z0-9_]+)/.exec(pairValue ?? '') : null;
-        if (match !== null && match !== undefined && key !== undefined && key === match[1]) {
+        if (key !== undefined && readsQueryProperty(pair.childForFieldName('value'), key)) {
           const held = out.get(name) ?? new Set<string>();
           held.add(key);
           out.set(name, held);
@@ -481,7 +478,73 @@ function returnedQueryProps(root: SyntaxNode): ReadonlyMap<string, readonly stri
   return new Map([...out].map(([name, held]) => [name, [...held].sort()]));
 }
 
+/**
+ * Whether a returned property's value reads the request query under the property's own name --
+ * the shape `limit: query.limit` and `limit: req.query.limit` state. The grammar answers it: the
+ * value holds a `member_expression` whose property is that name, and whose object is `query` or a
+ * member whose own property is `query`. A string, a comment or a word that merely mentions
+ * `query.` is no such read and marks nothing; a value that wraps the read (`Number(query.limit)`)
+ * still states it.
+ */
+function readsQueryProperty(value: SyntaxNode | null, name: string): boolean {
+  if (value === null) return false;
+  let reads = false;
+  walkTree(value, (node) => {
+    if (reads || node.type !== 'member_expression') return;
+    if (node.childForFieldName('property')?.text !== name) return;
+    const object = node.childForFieldName('object');
+    if (object === null) return;
+    if (object.type === 'identifier') {
+      reads = object.text === 'query';
+      return;
+    }
+    reads = object.type === 'member_expression' && object.childForFieldName('property')?.text === 'query';
+  });
+  return reads;
+}
+
 // ---- small local helpers ----------------------------------------------------
+
+/**
+ * Whether a function's own tree holds the `HS256` string literal, the signing algorithm a
+ * verifier names. The grammar answers it: a `string` node whose decoded value is the name, under
+ * either quote kind (`'HS256'` or `"HS256"`). A comment, a template's text or a longer string that
+ * mentions the name is no algorithm, and the function that only writes one stays unnamed.
+ */
+function mentionsSigningAlgorithm(root: SyntaxNode): boolean {
+  let mentions = false;
+  walkTree(root, (node) => {
+    if (mentions || node.type !== 'string') return;
+    if (stringValue(node) === 'HS256') mentions = true;
+  });
+  return mentions;
+}
+
+/**
+ * The port a `.listen(...)` argument names, or undefined when the argument names none. The
+ * grammar names the kinds that can: a `number` literal, or an `identifier` whose file-level
+ * `const` holds a literal. A call (`Number(env.PORT)`), a template, a property read or a
+ * parameter names no port here, and the caller keeps its gap.
+ */
+function listenerPort(argument: SyntaxNode | null, consts: ReadonlyMap<string, string>): string | undefined {
+  if (argument === null) return undefined;
+  if (argument.type === 'number') return decimalDigits(argument.text);
+  if (argument.type === 'identifier') return decimalDigits(consts.get(argument.text));
+  return undefined;
+}
+
+/**
+ * A value written as decimal digits (`3000`), or undefined. The question is about the port number
+ * the file states, not about the shape of its source: `3000.5`, `1e3`, `0x10` and `-1` name no
+ * port, and a value that only holds digits is kept as written.
+ */
+function decimalDigits(value: string | undefined): string | undefined {
+  if (value === undefined || value === '') return undefined;
+  for (const character of value) {
+    if (character < '0' || character > '9') return undefined;
+  }
+  return value;
+}
 
 function argNodes(args: SyntaxNode): SyntaxNode[] {
   const out: SyntaxNode[] = [];

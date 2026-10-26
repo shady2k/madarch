@@ -1,7 +1,7 @@
 import {expect, test} from 'bun:test';
 import {extractCodeWithFacts} from '../src/extract/code/index.js';
 import {freezeCodeFacts} from '../src/extract/code/facts.js';
-import {readGoFile, structuralGoReaders} from '../src/extract/contracts/go-code.js';
+import {readGoFile, resolveGoStarts, structuralGoReaders} from '../src/extract/contracts/go-code.js';
 import {readSyntaxTree} from '../src/fill/stages/syntax-extract.js';
 import {extractContracts} from '../src/extract/contracts/index.js';
 import {TreeText} from '../src/extract/operations/source.js';
@@ -182,9 +182,27 @@ const commitOf = async (source: string) => {
   return [...new Set(consumed(result).map(edge => edge.properties['offsetCommit'] ?? 'none'))];
 };
 
-test('the commit is decided from the if statement, never from a comment or a string that names it', async () => {
-  const committed = '  if err := c.reader.CommitMessages(ctx, message); err != nil {\n   return\n  }';
-  expect(await commitOf(consumerLoop(committed))).toEqual(['unconditional']);
+test('the commit is unconditional only as a statement of the loop\'s own block', async () => {
+  // Coordinator decision 2026-10-25T11:10Z: the claim holds only when the commit
+  // call is the whole of a statement directly in the loop's block, and the loop is
+  // a statement of the function's own body. A commit in an if -- its condition,
+  // initializer or block -- in a nested loop, in a closure, in an assignment or in
+  // a condition runs on a decision of its own and stays conditional.
+  expect(await commitOf(consumerLoop('  c.reader.CommitMessages(ctx, message)'))).toEqual(['unconditional']);
+  // The training repository's own shape (services/orders/internal/consumer/payments.go):
+  // the commit stands in an if initializer, so this file answers conditional.
+  const initializer = '  if err := c.reader.CommitMessages(ctx, message); err != nil {\n   return\n  }';
+  expect(await commitOf(consumerLoop(initializer))).toEqual(['none']);
+  for (const statement of [
+    '  if err != nil {\n   c.reader.CommitMessages(ctx, message)\n  }',
+    '  for i := 0; i < 1; i++ {\n   c.reader.CommitMessages(ctx, message)\n  }',
+    '  func() { c.reader.CommitMessages(ctx, message) }()',
+    '  _ = c.reader.CommitMessages(ctx, message)',
+    '  if c.reader.CommitMessages(ctx, message) == nil {\n   return\n  }',
+  ]) expect(await commitOf(consumerLoop(statement)), statement).toEqual(['none']);
+});
+
+test('the commit is decided from grammar nodes, never from a comment or a string that names it', async () => {
   // The if statement's own block names the member in a comment and in a string, and calls nothing.
   expect(await commitOf(consumerLoop('  if err != nil { /* c.reader.CommitMessages(ctx, message) */ return }'))).toEqual(['none']);
   expect(await commitOf(consumerLoop('  if err != nil { _ = "CommitMessages"; return }'))).toEqual(['none']);
@@ -206,11 +224,62 @@ func (c *Consumer) Run(ctx context.Context) {
    return
   }
   c.handle(ctx, message)
-  if err := c.other.CommitMessages(ctx, message); err != nil {
-   return
-  }
+  c.other.CommitMessages(ctx, message)
  }
 }
 `;
   expect(await commitOf(source)).toEqual(['none']);
+});
+
+// ---- the file's facts from the grammar, never from a second pattern over the source ----
+
+/** One file's facts, at a path of its own so a main package can be read too. */
+const factsAt = async (filePath: string, source: string) => {
+  const read = await readSyntaxTree(filePath, new TextEncoder().encode(source), (file) => readGoFile(filePath, file.root));
+  if (!read.read) throw new Error('the fixture did not parse');
+  return read.value;
+};
+
+test('a function verifies HS256 from the string literal its body holds', async () => {
+  const verifies = (body: string): string => `${header}func RequireAuth() { ${body} }\n`;
+  // The token is delimited by the grammar and decoded; a raw literal is the same value.
+  expect((await readFactsOf(verifies('jwt.WithValidMethods([]string{"HS256"})'))).hs256Functions).toEqual(['RequireAuth']);
+  expect((await readFactsOf(verifies('jwt.WithValidMethods([]string{`HS256`})'))).hs256Functions).toEqual(['RequireAuth']);
+  // A comment that names the method list states no literal, and another token verifies nothing.
+  expect((await readFactsOf(verifies('/* jwt.WithValidMethods([]string{"HS256"}) */ _ = "HS512"'))).hs256Functions).toEqual([]);
+  // A list this reader cannot decode stays unresolved rather than guessed.
+  expect((await readFactsOf(verifies('methods := allowedMethods(); jwt.WithValidMethods(methods)'))).hs256Functions).toEqual([]);
+});
+
+test('a status comparison is the equality\'s own operand, never a comment or a string', async () => {
+  const decides = (body: string): string => `${header}type Store struct{}\nfunc (s *Store) decide() bool { ${body} }\n`;
+  const statusOf = async (body: string) => (await readFactsOf(decides(body))).statusComparisons;
+  expect(await statusOf('return s.order.Status == Cancelled')).toEqual(['decide']);
+  expect(await statusOf('return known && order.Status == outcome')).toEqual(['decide']);
+  // The same characters in a comment and in a string are no operand of an equality.
+  expect(await statusOf('/* s.order.Status == Cancelled */ return false')).toEqual([]);
+  expect(await statusOf('_ = "s.order.Status == Cancelled"; return false')).toEqual([]);
+  // Another field that merely begins with `Status`, and a comparison that is no equality, stay unclaimed.
+  expect(await statusOf('return s.response.StatusCode == 200')).toEqual([]);
+  expect(await statusOf('return s.order.Status != Cancelled')).toEqual([]);
+});
+
+test('a listening address is the Addr keyed element, decoded or named', async () => {
+  const addrsOf = async (statement: string) => [...(await readFactsOf(`${header}func start() { ${statement} }`)).serverAddrs];
+  // The literal's own token, decoded: no quote reaches the port's reader.
+  expect(await addrsOf('server := &http.Server{Addr: ":7311"}; _ = server')).toEqual([['server', ':7311']]);
+  // A constant's name, which the package's joins resolve.
+  expect(await addrsOf('server := &http.Server{Addr: listenAddr}; _ = server')).toEqual([['server', 'listenAddr']]);
+  // A comment that spells the literal, and another type's field, are no address.
+  expect(await addrsOf('/* server := &http.Server{Addr: ":7311"} */ _ = 1')).toEqual([]);
+  expect(await addrsOf('server := &other.Server{Addr: ":7311"}; _ = server')).toEqual([]);
+  // A value this reader cannot decode stays unresolved rather than guessed.
+  expect(await addrsOf('server := &http.Server{Addr: address()}; _ = server')).toEqual([]);
+});
+
+test('a literal Addr reaches the started port without its quotes', async () => {
+  const mainPath = 'cmd/serve/main.go';
+  const source = 'package main\nimport "net/http"\nconst listenAddr = ":8080"\nfunc main() { server := &http.Server{Addr: ":7311"}; server.ListenAndServe() }\n';
+  const starts = resolveGoStarts([{path: mainPath, go: await factsAt(mainPath, source)}], mainPath);
+  expect(starts).toEqual([{kind: 'http-server', symbol: 'server.ListenAndServe()', port: '7311'}]);
 });

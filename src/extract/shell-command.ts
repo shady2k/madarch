@@ -8,8 +8,10 @@ const language=await (async()=>{try{await Parser.init({locateFile:()=>runtime});
 function word(node:Node|null):string|undefined {
  if(node===null)return undefined;
  if(node.hasError||node.isMissing)return undefined;
+ // The quoting decides, and the grammar states it: a raw (single-quoted) string is literal as
+ // written, and `string_content` is the content token of an interpreted (double-quoted) string.
  if(node.type==='raw_string')return node.text.slice(1,-1);
- if(node.type==='string_content')return node.text.includes('\\')?undefined:node.text;
+ if(node.type==='string_content')return node.text;
  if(node.type==='concatenation'){
   // Bash emits literal braces as separate word tokens. Decode only the empty
   // brace pair; a comma/range expansion or any other unquoted brace is unknown.
@@ -24,7 +26,14 @@ function word(node:Node|null):string|undefined {
   }
   return parts.join('');
  }
- if(node.type==='string'||node.type==='command_name'){
+ if(node.type==='string'){
+  // An interpreted string is literal only as the content the grammar gave it: an expansion, a
+  // substitution or any part of another kind is not decoded here, and the word is unresolved.
+  const parts=node.namedChildren;const text:string[]=[];
+  for(const part of parts){if(part===null||part.type!=='string_content')return undefined;const value=word(part);if(value===undefined)return undefined;text.push(value);}
+  return text.join('');
+ }
+ if(node.type==='command_name'){
   const parts=node.namedChildren.map(word);return parts.some(p=>p===undefined)?undefined:parts.join('');
  }
  if(node.type!=='word'||node.namedChildCount!==0)return undefined;

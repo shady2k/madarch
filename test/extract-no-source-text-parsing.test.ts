@@ -448,17 +448,7 @@ function located(findings: readonly Finding[]): string {
  * entries no longer exists. It is empty when the migration is done, and then the guard is the
  * zero-finding check the change blocks CI on.
  */
-const PRESENT_DEBT: readonly string[] = [
-  'src/extract/contracts/go-code.ts regex-exec',
-  'src/extract/contracts/go-code.ts regex-test',
-  'src/extract/contracts/go-code.ts regex-test',
-  'src/extract/contracts/go-code.ts text-search',
-  'src/extract/contracts/ts-code.ts regex-exec',
-  'src/extract/contracts/ts-code.ts regex-test',
-  'src/extract/contracts/ts-code.ts regex-test',
-  'src/extract/contracts/walk.ts text-search',
-  'src/extract/shell-command.ts text-search',
-].sort(byCodePoint);
+const PRESENT_DEBT: readonly string[] = [].sort(byCodePoint);
 
 describe('the source-text rule', () => {
   test('refuses the Go message read that re-read a receiver out of its text', async () => {
