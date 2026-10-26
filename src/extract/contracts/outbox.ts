@@ -366,19 +366,31 @@ export async function inferOutboxPublications(
               if (write.span.byteStart >= clause.span.byteStart) return false;
               // Go wraps each side of an assignment in an expression_list: one
               // element is a plain assignment, several are a parallel one.
-              const sole = (ids: readonly string[] | undefined): CodeExpressionFact | undefined => {
-                if (ids === undefined) return undefined;
-                const held = ids.flatMap((id) => {const node = expr(id); return node === undefined ? [] : [node];});
-                if (held.length !== 1) return undefined;
-                const node = unwrap(held[0]!);
-                return node.syntaxKind === 'expression_list' && children(node).length !== 1 ? undefined : unwrap(node);
+              // One element of an expression_list is a plain target; several are a
+              // parallel assignment, whose wrapper itself is a target here.
+              const targets = (ids: readonly string[] | undefined): readonly CodeExpressionFact[] => (ids ?? []).flatMap((id) => {
+                const node = expr(id);
+                if (node === undefined) return [];
+                return [node.syntaxKind === 'expression_list' && children(node).length === 1 ? unwrap(node) : node];
+              });
+              // An index, field or slice of the batch writes the batch's storage.
+              const baseOf = (node: CodeExpressionFact): string | undefined => {
+                const seen = new Set<string>(); let current: CodeExpressionFact | undefined = node;
+                while (current !== undefined && !seen.has(current.id)) {
+                  seen.add(current.id);
+                  if (current.bindingId !== undefined) return current.bindingId;
+                  current = expr(current.receiver) ?? children(current)[0];
+                }
+                return undefined;
               };
-              const left = sole(write.fields.left);
-              const touches = write.fields.left === undefined ? children(write).some((child) => child.bindingId === collection.bindingId)
-                : (left === undefined ? false : left.bindingId === collection.bindingId || children(left).some((child) => child.bindingId === collection.bindingId));
+              const targetsOfLeft = targets(write.fields.left);
+              const touches = write.fields.left === undefined ? children(write).some((child) => baseOf(child) === collection.bindingId)
+                : targetsOfLeft.some((target) => baseOf(target) === collection.bindingId);
               if (!touches) return false;
-              if (write.syntaxKind !== 'assignment_statement' || left === undefined || left.bindingId !== collection.bindingId) return true;
-              const right = sole(write.fields.right);
+              const soleTarget = targetsOfLeft.length === 1 ? targetsOfLeft[0]! : undefined;
+              if (write.syntaxKind !== 'assignment_statement' || soleTarget === undefined || soleTarget.bindingId !== collection.bindingId) return true;
+              const rightTargets = targets(write.fields.right);
+              const right = rightTargets.length === 1 ? rightTargets[0] : undefined;
               const appendedCall = right === undefined ? undefined : calls.find((candidate) => candidate.expression === right.id);
               const callee = appendedCall === undefined ? undefined : expr(appendedCall.callee);
               const first = appendedCall === undefined ? undefined : expr(appendedCall.arguments[outboxModels.append.collection]);
