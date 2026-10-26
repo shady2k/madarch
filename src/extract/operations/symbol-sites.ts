@@ -44,13 +44,42 @@ export function functionsOf(t: TreeText, path: string): FunctionSite[] {
     try { return decoder.decode(bytes.subarray(0, byte)).length; } catch { return undefined; }
   };
   const found: FunctionSite[] = [];
-  const symbols = t.facts.symbols.filter((entry) => entry.path === path && entry.callable);
+  const facts = t.facts;
+  const sameSpan = (left: SourceSpan, right: SourceSpan): boolean => left.path === path && right.path === path &&
+    left.byteStart === right.byteStart && left.byteEnd === right.byteEnd && left.lineStart === right.lineStart && left.lineEnd === right.lineEnd;
+  const expressions = facts.expressions.filter((entry) => entry.path === path && entry.span.path === path);
+  const declarationOnlyInterfaceMethod = (symbol: (typeof facts.symbols)[number]): boolean => {
+    if (symbol.symbolKind !== 'method' || symbol.bodySpan !== undefined || symbol.bodySyntaxKind !== undefined) return false;
+    const kinds = file.language === 'go' ? ['method_spec'] : ['method_signature'];
+    const methods = expressions.filter((entry) => kinds.includes(entry.syntaxKind) && sameSpan(entry.span, symbol.span));
+    if (methods.length !== 1) return false;
+    const method = methods[0]!;
+    if ((method.fields.body ?? []).length !== 0) return false;
+    const names = method.fields.name ?? [];
+    const name = names.length === 1 ? expressions.find((entry) => entry.id === names[0]) : undefined;
+    if (name?.name !== symbol.name || method.children.filter((id) => id === name.id).length !== 1) return false;
+    const containers = expressions.filter((entry) => entry.syntaxKind === (file.language === 'go' ? 'interface_type' : 'interface_body') &&
+      entry.children.filter((id) => id === method.id).length === 1 && entry.span.byteStart <= method.span.byteStart && method.span.byteEnd <= entry.span.byteEnd);
+    if (containers.length !== 1) return false;
+    const container = containers[0]!;
+    const owners = expressions.filter((entry) => entry.syntaxKind === (file.language === 'go' ? 'type_spec' : 'interface_declaration') &&
+      (entry.fields[file.language === 'go' ? 'type' : 'body'] ?? []).length === 1 &&
+      entry.fields[file.language === 'go' ? 'type' : 'body']![0] === container.id && entry.children.filter((id) => id === container.id).length === 1);
+    if (owners.length !== 1) return false;
+    const owner = owners[0]!;
+    return facts.symbols.filter((entry) => entry.path === path && entry.symbolKind === 'interface' && sameSpan(entry.span, owner.span) &&
+      symbol.qualifiedName === `${entry.qualifiedName}.${symbol.name}`).length === 1;
+  };
+  const symbols = facts.symbols.filter((entry) => entry.path === path && entry.callable);
   const counts = new Map<string, number>();
   for (const symbol of symbols) counts.set(symbol.key, (counts.get(symbol.key) ?? 0) + 1);
   for (const symbol of symbols) {
     if (counts.get(symbol.key) !== 1) { t.factGap(path, `line ${symbol.span.lineStart}: duplicate callable identity ${symbol.key}`); continue; }
     const body = symbol.bodySpan;
     if (body === undefined || symbol.bodySyntaxKind === undefined) {
+      // An exact copied interface signature declares no executable body. A
+      // missing body on any actual callable remains a diagnostic tombstone.
+      if (declarationOnlyInterfaceMethod(symbol)) continue;
       t.factGap(path, `line ${symbol.span.lineStart}: callable ${symbol.key} has no proved body at bytes ${symbol.span.byteStart}-${symbol.span.byteEnd}`);
       continue;
     }

@@ -267,12 +267,14 @@ describe('registry validation and failure transparency', () => {
     expect(evaluateLibraryModels({ ...facts, expressions: [...facts.expressions, ...facts.expressions] }).diagnostics.some((entry) => entry.code === 'ambiguous-fact')).toBe(true);
   });
   test('single-child Go key wrapper is structural, cyclic key wrapper is a located gap', () => {
+    const model = libraryRegistry.models.find((entry) => entry.id === 'prometheus.NewCounter');
+    if (model === undefined) throw new Error('missing prometheus.NewCounter model');
     const f = new FactsFixture(true); const value = f.literal('neutral_total');
     const options = f.object(new Map([['Name', value]]));
     const wrapped = f.expressions.find((entry) => entry.syntaxKind === 'literal_element' &&
       entry.children.some((id) => f.expressions.find((child) => child.id === id)?.name === 'Name'))?.id;
     if (wrapped === undefined) throw new Error('fixture key wrapper missing');
-    const declaration = f.call(f.member(f.imported('github.com/prometheus/client_golang/prometheus'), 'NewCounter'), [options]);
+    const declaration = f.call(f.member(f.imported(model.package), 'NewCounter'), [options]);
     expect(evaluateLibraryModels(f.facts()).effects.some((entry) => entry.expression === declaration)).toBe(true);
     const facts = f.facts(); const result = evaluateLibraryModels({ ...facts, expressions: facts.expressions.map((entry) => entry.id === wrapped ? { ...entry, children: [wrapped] } : entry) });
     expect(result.effects.some((entry) => entry.expression === declaration)).toBe(false);

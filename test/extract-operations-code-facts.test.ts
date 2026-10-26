@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 import { extractCodeWithFacts } from '../src/extract/code/index.js';
 import { evaluateLibraryModels } from '../src/extract/library-models/evaluate.js';
+import { libraryRegistry } from '../src/extract/library-models/validate.js';
 import { extractOperations } from '../src/extract/operations/index.js';
 import type { TreeReader } from '../src/extract/records.js';
 
@@ -294,13 +295,15 @@ test('Go grammar pair and type proofs reject malformed copied facts without chan
 });
 
 for(const [type,constructor] of [['CounterOpts','NewCounter'],['GaugeOpts','NewGauge'],['HistogramOpts','NewHistogram']] as const){
+  const model=libraryRegistry.models.find((entry)=>entry.id===`prometheus.${constructor}`);
+  if(model===undefined)throw new Error(`missing prometheus.${constructor} model`);
   test(`prometheus.${type}.struct.positive`,async()=>{
-    const path='lib/metric.go';const tree=treeOf({[path]:`package sample\nimport prom "github.com/prometheus/client_golang/prometheus"\nvar metric=prom.${constructor}(prom.${type}{Name:"neutral_total"})`});
+    const path='lib/metric.go';const tree=treeOf({[path]:`package sample\nimport prom "${model.package}"\nvar metric=prom.${constructor}(prom.${type}{Name:"neutral_total"})`});
     const code=await extractCodeWithFacts(tree);const result=extractOperations(tree,code.extraction,code.facts);
     expect(result.nodes.filter((entry)=>entry.kind==='code.metric').map((entry)=>entry.label)).toEqual(['neutral_total']);
   });
   test(`prometheus.${type}.struct.negative`,async()=>{
-    const path='lib/metric.go';const tree=treeOf({[path]:`package sample\nimport prom "github.com/prometheus/client_golang/prometheus"\nvar metric=prom.${constructor}(prom.UnknownOpts{Name:"neutral_total"})`});
+    const path='lib/metric.go';const tree=treeOf({[path]:`package sample\nimport prom "${model.package}"\nvar metric=prom.${constructor}(prom.UnknownOpts{Name:"neutral_total"})`});
     const code=await extractCodeWithFacts(tree);const result=extractOperations(tree,code.extraction,code.facts);
     expect(result.nodes.filter((entry)=>entry.kind==='code.metric')).toEqual([]);
     expect(result.gaps.some((entry)=>entry.path===path&&entry.reason.includes('struct-shape proof'))).toBe(true);

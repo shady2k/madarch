@@ -27,6 +27,16 @@ export function evaluateLibraryModels(facts: CodeFacts, input: LibraryRegistry =
   const candidateRoles = new Map<string, Set<string>>();
   const candidateExpressions = new Map(facts.expressions.map((expression) => [expression.id, expression]));
   const candidateImports = new Map(facts.imports.map((imported) => [imported.id, imported]));
+  // Preserve input order and duplicates while avoiding a repository-wide scan
+  // for each identifier and each export model.
+  const importsByLocal = new Map<string, CodeImportFact[]>();
+  for (const imported of facts.imports) {
+    const key = JSON.stringify([imported.path, imported.local]);
+    const held = importsByLocal.get(key) ?? [];
+    held.push(imported); importsByLocal.set(key, held);
+  }
+  const localImports = (expression: CodeExpressionFact): readonly CodeImportFact[] => expression.name === undefined
+    ? [] : importsByLocal.get(JSON.stringify([expression.path, expression.name])) ?? [];
   const candidateBindings = new Map(facts.bindings.map((binding) => [binding.id, binding]));
   const candidateDependents = new Map<string, Set<string>>();
   const candidateQueue: string[] = [];
@@ -43,8 +53,7 @@ export function evaluateLibraryModels(facts: CodeFacts, input: LibraryRegistry =
     // A rejected import proof or a lexical shadow still names a diagnostic
     // candidate only through the exact import form and complete exported path.
     // It never supplies a runtime value, and member spelling alone is not enough.
-    const candidate = imported ?? (expression.name === undefined ? undefined : facts.imports.find((one) =>
-      one.path === expression.path && one.local === expression.name));
+    const candidate = imported ?? localImports(expression)[0];
     if (candidate !== undefined) return { imported: candidate,
       path: candidate.imported.form === 'named' ? [candidate.imported.name] : candidate.imported.form === 'default' ? ['default'] : [] };
     return binding?.initializer === undefined ? undefined : candidateExport(binding.initializer, seen);
@@ -65,8 +74,8 @@ export function evaluateLibraryModels(facts: CodeFacts, input: LibraryRegistry =
       const matches = (one: CodeImportFact, path: readonly string[]): boolean => one.specifier === model.package &&
         model.target.kind === 'export' && model.target.importRoles.includes(one.imported.form) &&
         model.target.exportedPaths.some((expected) => JSON.stringify(expected) === JSON.stringify(path));
-      const shadowedFactory = expression.name !== undefined && facts.imports.some((one) => one.path === expression.path &&
-        one.local === expression.name && matches(one, one.imported.form === 'named' ? [one.imported.name] : one.imported.form === 'default' ? ['default'] : []));
+      const shadowedFactory = localImports(expression).some((one) => matches(one,
+        one.imported.form === 'named' ? [one.imported.name] : one.imported.form === 'default' ? ['default'] : []));
       if (exported !== undefined && matches(exported.imported, exported.path) || shadowedFactory) roles.add(model.returnRole ?? model.effect ?? 'library');
     }
     candidateRoles.set(expression.id, roles);

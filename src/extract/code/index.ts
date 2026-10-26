@@ -380,6 +380,14 @@ export async function extractCodeWithFacts(reader: TreeReader): Promise<CodeExtr
   // follow only these identities; they never resolve source module names again.
   const expressionIndex = new Map(expressions.map((entry) => [entry.id, entry]));
   const bindingIndex = new Map(bindings.map((entry) => [entry.id, entry]));
+  // Keep every candidate: duplicate declaration identities must still fail closed.
+  const declarationExpressions = new Map<string, CodeExpressionFact[]>();
+  for (const expression of expressions) {
+    if (expression.bindingId === undefined) continue;
+    const key = JSON.stringify([expression.bindingId, expression.span.byteStart, expression.span.byteEnd]);
+    const held = declarationExpressions.get(key) ?? [];
+    held.push(expression); declarationExpressions.set(key, held);
+  }
   const exportedValues = new Map<string, CodeExportFact[]>();
   for (const entry of exports) {
     const key = JSON.stringify([entry.path, entry.name]);
@@ -396,7 +404,7 @@ export async function extractCodeWithFacts(reader: TreeReader): Promise<CodeExtr
     if (entry.localBinding !== undefined) {
       const binding = bindingIndex.get(entry.localBinding);
       // The declaration's own identifier retains reassignment and alias guards.
-      const identifiers = expressions.filter((expression) => expression.bindingId === entry.localBinding && expression.span.byteStart === binding?.span.byteStart && expression.span.byteEnd === binding.span.byteEnd);
+      const identifiers = binding === undefined ? [] : declarationExpressions.get(JSON.stringify([entry.localBinding, binding.span.byteStart, binding.span.byteEnd])) ?? [];
       if (identifiers.length === 1) return { expression: identifiers[0]!.id, chain: [entry.id] };
     }
     if (entry.reexport?.targetPath !== undefined) {

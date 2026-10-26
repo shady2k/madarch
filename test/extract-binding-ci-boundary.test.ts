@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 import { extractCodeWithFacts } from '../src/extract/code/index.js';
 import { evaluateLibraryModels } from '../src/extract/library-models/evaluate.js';
+import { libraryRegistry } from '../src/extract/library-models/validate.js';
 import { extractOperations } from '../src/extract/operations/index.js';
 import type { CodeFacts } from '../src/extract/code/facts.js';
 import type { TreeReader } from '../src/extract/records.js';
@@ -63,10 +64,12 @@ test('writes through imported aliases poison re-exported live bindings and retai
 });
 
 test('external Go struct proof conflicts always retain a located diagnostic', async () => {
+  const model = libraryRegistry.models.find((entry) => entry.id === 'prometheus.NewCounter');
+  if (model === undefined) throw new Error('missing prometheus.NewCounter model');
   const path = 'units/metric.go';
   const { facts } = await extractCodeWithFacts(treeOf({ [path]: [
     'package sample',
-    'import telemetry "github.com/prometheus/client_golang/prometheus"',
+    `import telemetry "${model.package}"`,
     'var completed = telemetry.NewCounter(telemetry.CounterOpts{Name:"completed_total"})',
   ].join('\n') }));
   const imported = facts.imports[0]!;

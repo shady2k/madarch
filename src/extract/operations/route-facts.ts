@@ -10,7 +10,7 @@ const contains=(a:SourceSpan,b:SourceSpan):boolean=>a.path===b.path&&a.byteStart
 const same=(a:SourceSpan,b:SourceSpan):boolean=>contains(a,b)&&contains(b,a);
 const unique=<T>(items:readonly T[]):T|undefined=>items.length===1?items[0]:undefined;
 type HttpOrigin={id:string;package:string;role:HttpRole};
-type HttpFlow={kind:'origin';origin:HttpOrigin}|{kind:'closure';site:FunctionSite;environment:ReadonlyMap<string,HttpFlow>}|{kind:'collection';items:readonly HttpFlow[]};
+type HttpFlow={kind:'origin';origin:HttpOrigin}|{kind:'handler';site:FunctionSite}|{kind:'closure';site:FunctionSite;environment:ReadonlyMap<string,HttpFlow>}|{kind:'collection';items:readonly HttpFlow[]};
 class HttpFacts {
  private readonly expressions=new Map<string,CodeExpressionFact>();
  private readonly bindings=new Map<string,CodeBindingFact>();
@@ -18,6 +18,9 @@ class HttpFacts {
  private readonly calls=new Map<string,CodeCallFact>();
  private readonly written=new Set<string>();
  private readonly validSites=new Map<string,readonly FunctionSite[]>();
+ private readonly origins=new Map<string,HttpOrigin|undefined>();
+ private readonly callModels=new Map<string,readonly HttpModel[]>();
+ private readonly listenerPorts=new Map<string,readonly string[]>();
  constructor(private readonly t:TreeText){
   const index=<T>(items:readonly T[],key:(item:T)=>string,target:Map<string,T>):void=>{const duplicates=new Set<string>();for(const item of items){const id=key(item);if(target.has(id)||duplicates.has(id)){target.delete(id);duplicates.add(id);}else target.set(id,item);}};
   index(t.facts?.expressions??[],x=>x.id,this.expressions);index(t.facts?.bindings??[],x=>x.id,this.bindings);index(t.facts?.imports??[],x=>x.id,this.imports);index(t.facts?.calls??[],x=>x.expression,this.calls);
@@ -183,14 +186,14 @@ class HttpFacts {
  }
  private exportedModels(id:string):readonly HttpModel[]{const imported=this.external(id);const expression=this.expression(id);const language=this.t.facts?.files.find(file=>file.path===expression?.path)?.language;const ecosystem=language===undefined?undefined:language==='go'?'go':'node';return imported===undefined?[]:httpModels.filter(model=>model.target.kind==='export'&&model.ecosystem===ecosystem&&model.package===imported.package&&model.target.paths.some(path=>JSON.stringify(path)===JSON.stringify(imported.path)));}
  /** Abstract values retain lexical substitutions; no argument is assumed transparent. */
- private origin(id:string):HttpOrigin|undefined{const flow=this.flow(id,new Map(),new Set());return flow?.kind==='origin'?flow.origin:undefined;}
+ private origin(id:string):HttpOrigin|undefined{if(this.origins.has(id))return this.origins.get(id);const flow=this.flow(id,new Map(),new Set());const origin=flow?.kind==='origin'?flow.origin:undefined;this.origins.set(id,origin);return origin;}
  /** A sole returned Go literal shares its span with its expression_list.
   * Select the callable by its exact canonical body edge, not its span alone. */
  private declaration(site:FunctionSite):CodeExpressionFact|undefined{
   const symbol=unique((this.t.facts?.symbols??[]).filter(symbol=>symbol.key===site.key&&symbol.callable&&same(symbol.span,site.span)));
   if(symbol?.bodySpan===undefined||symbol.bodySyntaxKind===undefined)return undefined;const bodySpan=symbol.bodySpan;
   return unique([...this.expressions.values()].filter(expression=>{
-   if(!['func_literal','function_declaration','method_declaration'].includes(expression.syntaxKind)||!same(expression.span,site.span))return false;const body=this.field(expression,'body');
+   if(!['func_literal','function_declaration','method_declaration','function_expression','arrow_function'].includes(expression.syntaxKind)||!same(expression.span,site.span))return false;const body=this.field(expression,'body');
    return body!==undefined&&body.syntaxKind===symbol.bodySyntaxKind&&same(body.span,bodySpan);
   }));
  }
@@ -198,9 +201,14 @@ class HttpFacts {
   const declaration=this.declaration(site);const list=declaration===undefined?undefined:this.field(declaration,'parameters');const parameters=list===undefined?undefined:this.children(list);if(parameters===undefined)return undefined;
   const result:{binding:CodeBindingFact;variadic:boolean}[]=[];
   for(const parameter of parameters){
-   if(!['parameter_declaration','variadic_parameter_declaration'].includes(parameter.syntaxKind))return undefined;
-   const name=this.field(parameter,'name');const binding=name?.bindingId===undefined?undefined:this.bindings.get(name.bindingId);
-   if(binding?.kind!=='parameter'||binding.path!==site.path||!same(binding.span,name!.span)||!contains(binding.scope,site.span))return undefined;
+   const go=site.language==='go';let name:CodeExpressionFact|undefined;
+   if(go){if(!['parameter_declaration','variadic_parameter_declaration'].includes(parameter.syntaxKind))return undefined;name=this.field(parameter,'name');}
+   else if(['required_parameter','optional_parameter'].includes(parameter.syntaxKind)){if((parameter.fields.value??[]).length!==0)return undefined;name=this.field(parameter,'pattern');}
+   else if(parameter.syntaxKind==='identifier')name=parameter;
+   else return undefined;
+   // Destructuring, defaults and rest arguments need their own substitution proof.
+   if(name?.syntaxKind!=='identifier')return undefined;const binding=name.bindingId===undefined?undefined:this.bindings.get(name.bindingId);
+   if(binding?.kind!=='parameter'||binding.path!==site.path||!same(binding.span,name.span)||!contains(binding.scope,site.span))return undefined;
    result.push({binding,variadic:parameter.syntaxKind==='variadic_parameter_declaration'});
   }
   return result;
@@ -231,7 +239,9 @@ class HttpFacts {
   if(model?.effect.kind==='factory')return {kind:'origin',origin:{id:value.id,package:model.package,role:model.effect.role}};
   if(model?.effect.kind==='handler-adapter'){
    if(call.arguments.length!==1)return undefined;const argument=call.arguments[model.effect.argument];const callback=argument===undefined?undefined:this.flow(argument,environment,next);
-   return callback?.kind==='closure'?this.forwardedCallback(callback,next):undefined;
+   if(callback?.kind!=='closure')return undefined;
+   const forwarded=this.forwardedCallback(callback,next);if(forwarded!==undefined)return forwarded;
+   return httpModels.some(model=>model.effect.kind==='handler'&&this.signature(callback.site,model,callback.site.receiver!==undefined))?{kind:'handler',site:callback.site}:undefined;
   }
   const target=this.target(callee);const closure=target===undefined?this.flow(callee.id,environment,next):{kind:'closure' as const,site:target,environment};
   if(closure?.kind!=='closure')return undefined;
@@ -273,7 +283,7 @@ class HttpFacts {
      if(parent===undefined||!['expression_statement','block','statement_list'].includes(parent.syntaxKind)){statement=undefined;break;}statement=parent;
     }
     if(statement===undefined||symbol?.bodySpan===undefined||!same(statement.span,symbol.bodySpan))continue;
-    const receiver=this.flow(member.receiver,closure.environment,seen);if(receiver?.kind==='origin')candidates.push(receiver);
+    const receiver=this.flow(member.receiver,closure.environment,seen);if(receiver?.kind==='origin'||receiver?.kind==='handler')candidates.push(receiver);
    }
    if(candidates.length===1)return candidates[0];
   }
@@ -342,7 +352,7 @@ class HttpFacts {
   * selected wrapper independently forwards the same typed HTTP handler. */
  private forwardingLoop(site:FunctionSite,binding:CodeBindingFact,environment:ReadonlyMap<string,HttpFlow>,seen:Set<string>):boolean{
   const writes=[...this.expressions.values()].filter(expression=>['assignment_statement','assignment_expression','augmented_assignment_expression','inc_statement','dec_statement','update_expression'].includes(expression.syntaxKind)&&contains(site.span,expression.span)&&this.owner(expression.span)?.key===site.key&&(expression.fields.left??expression.children).some(id=>this.referencesBinding(id,binding.id)));
-  if(writes.length===0)return false;const original=environment.get(binding.id);if(original?.kind!=='origin')return false;
+  if(writes.length===0)return false;const original=environment.get(binding.id);if(original?.kind!=='origin'&&original?.kind!=='handler')return false;
   for(const write of writes){
    if(write.syntaxKind!=='assignment_statement')return false;const left=this.field(write,'left');const right=this.field(write,'right');const target=left===undefined?undefined:this.single(left);const applied=right===undefined?undefined:this.single(right);const call=applied===undefined?undefined:this.call(applied.id);
    const argument=call?.arguments[0]===undefined?undefined:this.expression(call.arguments[0]);if(target?.bindingId!==binding.id||call?.arguments.length!==1||argument===undefined||this.single(argument)?.bindingId!==binding.id)return false;
@@ -362,7 +372,7 @@ class HttpFacts {
    const indexBinding=index.bindingId===undefined?undefined:this.bindings.get(index.bindingId);const clause=loop===undefined?undefined:unique((this.children(loop)??[]).filter(expression=>expression.syntaxKind==='for_clause'));
    const initializer=clause===undefined?undefined:this.field(clause,'initializer');const indexLeft=initializer===undefined?undefined:this.field(initializer,'left');const indexRight=initializer===undefined?undefined:this.field(initializer,'right');const declared=indexLeft===undefined?undefined:this.single(indexLeft);const initialValue=indexRight===undefined?undefined:this.single(indexRight);
    if(loop===undefined||body.syntaxKind!=='block'||indexBinding?.kind!=='local'||indexBinding.path!==index.path||!contains(indexBinding.scope,loop.span)||!contains(indexBinding.scope,index.span)||clause===undefined||initializer?.syntaxKind!=='short_var_declaration'||indexBinding.declarationSpan===undefined||!same(indexBinding.declarationSpan,initializer.span)||declared?.bindingId!==indexBinding.id||!same(declared.span,indexBinding.span)||initialValue===undefined||initialValue.id!==indexBinding.initializer)return false;
-   for(const wrapper of values.items){if(wrapper.kind!=='closure')return false;const forwarded=this.invoke(wrapper,[original],seen);if(forwarded?.kind!=='origin'||forwarded.origin.id!==original.origin.id)return false;}
+   for(const wrapper of values.items){if(wrapper.kind!=='closure')return false;const forwarded=this.invoke(wrapper,[original],seen);if(original.kind==='origin'?forwarded?.kind!=='origin'||forwarded.origin.id!==original.origin.id:forwarded?.kind!=='handler'||forwarded.site.key!==original.site.key)return false;}
   }
   return true;
  }
@@ -377,8 +387,9 @@ class HttpFacts {
  }
  private registrationOrigin(call:CodeCallFact,model:HttpModel):{id:string;package:string;role:HttpRole}|undefined{return this.defaultModelOrigin(model,call.path)??(this.member(call)?.receiver===undefined?undefined:this.origin(this.member(call)!.receiver!));}
  private models(call:CodeCallFact):readonly HttpModel[]{
+  const held=this.callModels.get(call.expression);if(held!==undefined)return held;
   const exported=this.exportedModels(call.callee);const member=this.member(call);const receiver=member?.receiver===undefined?undefined:this.origin(member.receiver);
-  return [...exported,...(receiver===undefined?[]:httpModels.filter(model=>model.target.kind==='member'&&model.package===receiver.package&&model.target.roles.includes(receiver.role)&&model.target.members.includes(member?.member??'')))];
+  const models=[...exported,...(receiver===undefined?[]:httpModels.filter(model=>model.target.kind==='member'&&model.package===receiver.package&&model.target.roles.includes(receiver.role)&&model.target.members.includes(member?.member??'')))];this.callModels.set(call.expression,models);return models;
  }
  private value(id:string):string|number|undefined{const value=this.unwrap(id)?.literal?.value;return typeof value==='string'||typeof value==='number'?value:undefined;}
  private port(id:string,address=false):string|undefined{const value=this.value(id);if(!address)return typeof value==='number'&&Number.isInteger(value)&&value>0&&value<=65535?String(value):undefined;if(typeof value!=='string')return undefined;const port=value.slice(value.lastIndexOf(':')+1);const parsed=Number(port);return port!==''&&Number.isInteger(parsed)&&parsed>0&&parsed<=65535&&String(parsed)===port?port:undefined;}
@@ -390,7 +401,7 @@ class HttpFacts {
  }
  /** Traverse only explicit mount edges between proved receiver identities. */
  ports(receiver:string,wanted=this.origin(receiver)):string[]{
-  if(wanted===undefined)return [];const reachable=new Set([wanted.id]);const listeners:{origin:string;port:string}[]=[];const mounts:{child:string;parent:string}[]=[];
+  if(wanted===undefined)return [];const held=this.listenerPorts.get(wanted.id);if(held!==undefined)return [...held];const reachable=new Set([wanted.id]);const listeners:{origin:string;port:string}[]=[];const mounts:{child:string;parent:string}[]=[];
   for(const raw of this.calls.values()){
    const call=this.call(raw.expression);if(call===undefined)continue;const member=this.member(call);const receiverOrigin=member?.receiver===undefined?undefined:this.origin(member.receiver);
    for(const model of this.models(call)){
@@ -407,7 +418,7 @@ class HttpFacts {
    }
   }
   let changed=true;while(changed){changed=false;for(const mount of mounts)if(reachable.has(mount.child)&&!reachable.has(mount.parent)){reachable.add(mount.parent);changed=true;}}
-  return [...new Set(listeners.filter(listener=>reachable.has(listener.origin)).map(listener=>listener.port))].sort(byCodePoint);
+  const ports=[...new Set(listeners.filter(listener=>reachable.has(listener.origin)).map(listener=>listener.port))].sort(byCodePoint);this.listenerPorts.set(wanted.id,ports);return [...ports];
  }
  private handler(id:string,seen=new Set<string>()):FunctionSite|undefined{
   if(seen.has(id)||seen.size>80)return undefined;seen.add(id);const value=this.unwrap(id);if(value===undefined)return undefined;
@@ -424,7 +435,7 @@ class HttpFacts {
   }
   if(direct!==undefined){if(language!=='go')return direct;return signatures.some(model=>this.signature(direct,model,direct.receiver!==undefined))?direct:undefined;}
   const call=this.call(value.id);
-  if(call!==undefined){const adapter=unique(this.exportedModels(call.callee).filter(model=>model.effect.kind==='handler-adapter'));if(adapter?.effect.kind==='handler-adapter'&&call.arguments.length===1){const argument=call.arguments[adapter.effect.argument];return argument===undefined?undefined:this.handler(argument,seen);}}
+  if(call!==undefined){const adapter=unique(this.exportedModels(call.callee).filter(model=>model.effect.kind==='handler-adapter'));if(adapter?.effect.kind==='handler-adapter'&&call.arguments.length===1){const argument=call.arguments[adapter.effect.argument];return argument===undefined?undefined:this.handler(argument,seen);}const flow=this.flow(value.id,new Map(),new Set());if(flow?.kind==='handler')return flow.site;}
   if(language!=='go')return undefined;const type=this.valueType(value.id);if(type===undefined)return undefined;
   const candidates:FunctionSite[]=[];
   for(const model of signatures){if(model.effect.kind!=='handler')continue;for(const symbol of this.t.facts?.symbols??[]){

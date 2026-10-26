@@ -88,6 +88,7 @@ export async function memberSites(file: SourceFile, program: Program, imports: r
     const scopeSpans: SourceSpan[] = [sourceSpan(parsed.root)];
     const scopeNodes: SyntaxNode[] = [parsed.root];
     const bindings = new Map<string, CodeBindingFact>();
+    const functionVarBindings = new Set<string>();
     const expressions = new Map<string, CodeExpressionFact>();
     const calls = new Map<string, CodeCallFact>();
     const fields: CodeFieldFact[] = [];
@@ -130,7 +131,7 @@ export async function memberSites(file: SourceFile, program: Program, imports: r
       const generic = genericNames.some((scope) => scope.has(token));
       const candidateBinding = resolveBinding && lexicalName && !generic ? lookupBinding(token) : undefined;
       const binding = candidateBinding === undefined ? undefined : bindings.get(candidateBinding);
-      const availableBinding = binding !== undefined && binding.kind === 'local' && span.byteStart < binding.span.byteStart ? undefined : candidateBinding;
+      const availableBinding = binding !== undefined && binding.kind === 'local' && !functionVarBindings.has(binding.id) && span.byteStart < binding.span.byteStart ? undefined : candidateBinding;
       if (binding !== undefined && availableBinding === undefined) factGaps.set(id, { path: file.path, reason: `line ${span.lineStart}: lexical binding is not initialized at bytes ${span.byteStart}-${span.byteEnd}` });
       const object = node.childForFieldName(node.type === 'qualified_type' ? 'package' : go ? 'operand' : 'object');
       const property = node.childForFieldName(node.type === 'qualified_type' ? 'name' : go ? 'field' : 'property');
@@ -210,18 +211,22 @@ export async function memberSites(file: SourceFile, program: Program, imports: r
       bindings.set(id, { id, path: file.path, name, kind, span, scope: previous?.scope ?? scopeSpans[scopeSpans.length - 1]!, ...(initializer === undefined || initializer === null ? {} : { initializer: expressionId(initializer) }), ...(declarationSpan === undefined ? {} : { declarationSpan }) });
       recordExpression(node);
     };
-    const bindPattern = (node: SyntaxNode, kind: CodeBindingFact['kind']): void => {
-      if (node.type === 'identifier' || node.type === 'shorthand_property_identifier_pattern') { bind(textOf(node, text), undefined, node, kind); return; }
-      if (node.type === 'pair_pattern') { const value = node.childForFieldName('value'); if (value !== null) bindPattern(value, kind); return; }
-      if (node.type === 'assignment_pattern' || node.type === 'object_assignment_pattern') { const left = node.childForFieldName('left'); if (left !== null) bindPattern(left, kind); return; }
-      if (['object_pattern', 'array_pattern', 'rest_pattern'].includes(node.type)) for (const child of named(node)) bindPattern(child, kind);
+    const bindPattern = (node: SyntaxNode, kind: CodeBindingFact['kind'], functionVar = false): void => {
+      if (node.type === 'identifier' || node.type === 'shorthand_property_identifier_pattern') {
+        // Hoisting supplies lexical identity, not a reaching initializer value.
+        if (functionVar) functionVarBindings.add(codeFactId(sourceSpan(node), 'binding'));
+        bind(textOf(node, text), undefined, node, kind); return;
+      }
+      if (node.type === 'pair_pattern') { const value = node.childForFieldName('value'); if (value !== null) bindPattern(value, kind, functionVar); return; }
+      if (node.type === 'assignment_pattern' || node.type === 'object_assignment_pattern') { const left = node.childForFieldName('left'); if (left !== null) bindPattern(left, kind, functionVar); return; }
+      if (['object_pattern', 'array_pattern', 'rest_pattern'].includes(node.type)) for (const child of named(node)) bindPattern(child, kind, functionVar);
     };
     const reserveFunctionVars = (root: SyntaxNode): void => {
       const visit = (node: SyntaxNode): void => {
         if (node !== root && (FUNCTION_NODES.has(node.type) || ['class', 'class_declaration', 'abstract_class_declaration'].includes(node.type))) return;
         if (node.type === 'variable_declaration') for (const declarator of named(node)) {
           const name = declarator.childForFieldName('name');
-          if (name !== null) bindPattern(name, 'local');
+          if (name !== null) bindPattern(name, 'local', true);
         }
         for (const child of named(node)) visit(child);
       };
@@ -393,7 +398,7 @@ export async function memberSites(file: SourceFile, program: Program, imports: r
         if (go) {
           if (parameter.type !== 'parameter_declaration' && parameter.type !== 'variadic_parameter_declaration') continue;
           const ty = typeFrom(goTypeName(parameter.childForFieldName('type'), text));
-          for (const name of parameter.childrenForFieldName('name')) if (name !== null) bind(textOf(name, text), ty, name, 'parameter');
+          for (const name of parameter.childrenForFieldName('name')) if (name?.type === 'identifier') bind(textOf(name, text), ty, name, 'parameter');
         } else {
           if (['identifier', 'object_pattern', 'array_pattern', 'rest_pattern', 'assignment_pattern'].includes(parameter.type)) { bindPattern(parameter, 'parameter'); continue; }
           if (parameter.type !== 'required_parameter' && parameter.type !== 'optional_parameter') continue;
@@ -429,7 +434,8 @@ export async function memberSites(file: SourceFile, program: Program, imports: r
           const name = spec.childForFieldName('name'); if (name !== null) { add(name); types.push(spec); }
         }
         if (['var_declaration','const_declaration'].includes(entry.type)) for (const spec of named(entry).flatMap((child) => child.type === 'var_spec_list' ? named(child) : [child])) {
-          for (const name of spec.childrenForFieldName('name')) if (name !== null) add(name);
+          // Repeated name fields include comma tokens, not just declarations.
+          for (const name of spec.childrenForFieldName('name')) if (name?.type === 'identifier') add(name);
         }
         if (entry.type === 'short_var_declaration') {
           const left=entry.childForFieldName('left'); for(const name of left===null?[]:named(left)) if(name.type==='identifier') {
@@ -506,6 +512,16 @@ export async function memberSites(file: SourceFile, program: Program, imports: r
         popScope();
         genericNames.pop();
         typeParameters.pop();
+        return;
+      }
+      if (go && ['if_statement', 'for_statement', 'expression_switch_statement', 'type_switch_statement',
+        'expression_case', 'type_case', 'communication_case', 'default_case'].includes(type)) {
+        // Go initializers belong to their statement, not the enclosing block.
+        // Switch/select clauses also introduce distinct implicit blocks.
+        pushScope(node);
+        prepareGoScope(node, false);
+        visitChildren(node);
+        popScope();
         return;
       }
       if (type === 'class_declaration' || type === 'abstract_class_declaration' || type === 'class') {
@@ -697,8 +713,8 @@ export async function memberSites(file: SourceFile, program: Program, imports: r
         const declared = typeFrom(goTypeName(node.childForFieldName('type'), text));
         const value = node.childForFieldName('value');
         const values = value === null ? [] : named(value);
-        node.childrenForFieldName('name').forEach((name, index) => {
-          if (name !== null) bind(textOf(name, text), declared ?? evaluate(values[index]), name, 'local', values[index]);
+        node.childrenForFieldName('name').filter((name): name is SyntaxNode => name?.type === 'identifier').forEach((name, index) => {
+          bind(textOf(name, text), declared ?? evaluate(values[index]), name, 'local', values[index]);
         });
         return;
       }
