@@ -18,7 +18,6 @@
  * holds (see `anchorExtent()`).
  */
 import { byCodePoint } from '../model/order.js';
-import { SLUGGER_REGEX } from '../wiki/github-slugger-regex.js';
 import { boldLead, leadText, readDocTree, sectionBlocks, walkNodes, type DocNode, type DocSection, type DocTree } from './doc-tree.js';
 
 const LETTER = (code: number): boolean => (code >= 0x41 && code <= 0x5a) || (code >= 0x61 && code <= 0x7a);
@@ -30,22 +29,26 @@ const WORD = (char: string | undefined): boolean => {
 };
 
 /**
- * GitHub's published table of the characters a heading's anchor never holds, copied verbatim under the ISC licence
- * (`github-slugger`), asked about ONE CHARACTER at a time: no pattern is applied to a line of a document.
+ * GitHub's slug of a heading, as a character scan over the name the parser read from the heading's own text nodes: a
+ * letter, a number or a combining mark is kept, `-` and `_` are kept, a space becomes a hyphen, and every other character
+ * — an em dash, a question mark, a symbol — is dropped. What a character is, `Intl.Segmenter` answers: a piece it calls a
+ * word is a letter or a number, whatever the script. No regular expression touches the document's text anywhere.
  */
-const STRIPPED_CHARACTER = new RegExp(`^(?:${SLUGGER_REGEX.source})$`);
+const SEGMENTER = new Intl.Segmenter(undefined, { granularity: 'word' });
+function isWordCharacter(char: string): boolean {
+  for (const piece of SEGMENTER.segment(char)) if (piece.isWordLike) return true;
+  return false;
+}
 
 /**
- * The slug GitHub gives a heading: a character scan over the name the parser read from the heading's own text nodes.
- * A mark the AST already removed is not stripped again; a space becomes a hyphen, and every character GitHub's table
- * holds is dropped.
+ * The slug GitHub gives a heading: its marks are not part of it, its spaces become hyphens, and a character that is no
+ * word character, no `-` and no `_` is dropped.
  */
 export function slugOf(heading: string): string {
   let kept = '';
   for (const char of heading) {
-    if (char === '`' || char === '*' || char === '_' || char === '~') continue;
-    if (char !== ' ' && STRIPPED_CHARACTER.test(char)) continue;
-    kept += char;
+    if (char === ' ' || char === '-' || char === '_') { kept += char; continue; }
+    if (isWordCharacter(char)) kept += char;
   }
   let slug = '';
   for (const char of kept.trim().toLowerCase()) slug += char === ' ' ? '-' : char;

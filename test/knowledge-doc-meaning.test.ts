@@ -14,7 +14,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { anchorLines, findAnchor } from '../src/knowledge/anchors.js';
-import { docEntityId, readDocEntities, type DocumentSource } from '../src/knowledge/doc-entities.js';
+import { docEntityId, entityAtAddress, readDocEntities, type DocumentSource } from '../src/knowledge/doc-entities.js';
 import { assignIdentities, IDENTITIES_FILE, readDocIdentities, textDigest, writeDocIdentities } from '../src/knowledge/doc-identities.js';
 import { readDocTree } from '../src/knowledge/doc-tree.js';
 import { parseKinds, type KindsManifest } from '../src/knowledge/kinds.js';
@@ -148,7 +148,7 @@ describe('the training product\'s documents, read by meaning', () => {
     const rules = read.entities.filter((entity) => entity.kind === 'doc.rule').map((entity) => entity.identifier);
     expect(rules).toEqual(['BR-1', 'BR-2', 'BR-3', 'BR-4', 'BR-5']);
     const terms = read.entities.filter((entity) => entity.kind === 'doc.term').map((entity) => entity.title);
-    expect(terms).toEqual(['Capture', 'CardToken', 'Idempotency key', 'Order', 'Outbox', 'PaymentToken', 'Zero-rated']);
+    expect(terms).toEqual(['Order', 'Outbox', 'Idempotency key', 'CardToken', 'PaymentToken', 'Capture', 'Zero-rated']);
   });
 
   test('an ADR is its whole section, from its heading to the end of the file, and the structure it declares is complete', () => {
@@ -297,10 +297,14 @@ describe('the passages of one section are decided one by one', () => {
       ['doc.story', 'scenario', 'stories.1', 'A shopper pays by card.'],
       ['doc.actor', 'actor', 'stories.1.2', 'Support refunds a payment.'],
     ]);
-    // Both anchors resolve to the paragraph they were read in, and both pages are their own. The second reads its own
-    // anchor as the block's and its place in it.
+    // Both anchors resolve to the paragraph they were read in, and each address opens its OWN passage: the second reads
+    // its anchor as the block's with its place in it (madarch-ztyq.3, the review of C(b)).
     expect(findAnchor(text, 'stories.1.2')).toBe(3);
     expect(findAnchor(text, 'stories.1')).toBe(3);
+    const entities = new Map(read.entities.map((entity) => [entity.id, entity]));
+    expect(entityAtAddress(entities, 'doc:docs/stories.md#stories.1')).toBe(read.entities[0]!);
+    expect(entityAtAddress(entities, 'doc:docs/stories.md#stories.1.2')).toBe(read.entities[1]!);
+    expect(entityAtAddress(entities, read.entities[1]!.id)).toBe(read.entities[1]!);
     expect(new Set(read.entities.map((entity) => entity.id)).size).toBe(2);
     expect(read.findings).toEqual([]);
   });
@@ -345,14 +349,15 @@ describe('a number is an alias, never the identity', () => {
     const passage = (read: typeof first, words: string) => read.entities.find((entity) => entity.text.includes(words))!;
     const before = passage(first, 'A signed-in shopper submits a cart.');
     const after = passage(second, 'A signed-in shopper submits a cart.');
-    expect([before.stableId, before.anchor, before.identifier]).toEqual(['uc-1', 'uc-1', 'UC-1']);
-    expect([after.stableId, after.anchor, after.identifier]).toEqual(['uc-1', 'uc-2', 'UC-2']);
+    // The first read mints the document's counter names, in document order; a swap of two numbers changes no name.
+    expect([before.stableId, before.anchor, before.identifier]).toEqual(['doc-section:1', 'uc-1', 'UC-1']);
+    expect([after.stableId, after.anchor, after.identifier]).toEqual(['doc-section:1', 'uc-2', 'UC-2']);
     expect(after.id).toBe(before.id);
     // And the other passage keeps its own too, so neither identity was exchanged.
     const payBefore = passage(first, 'Checkout asks payments to authorize the card');
     const payAfter = passage(second, 'Checkout asks payments to authorize the card');
-    expect([payBefore.stableId, payBefore.anchor]).toEqual(['uc-2', 'uc-2']);
-    expect([payAfter.stableId, payAfter.anchor]).toEqual(['uc-2', 'uc-1']);
+    expect([payBefore.stableId, payBefore.anchor]).toEqual(['doc-section:2', 'uc-2']);
+    expect([payAfter.stableId, payAfter.anchor]).toEqual(['doc-section:2', 'uc-1']);
   });
 
   test('an unnamed passage added before the others shifts no identity, and the passage it joins keeps its page', () => {
@@ -502,7 +507,9 @@ describe('the front matter says what the document\'s sections are', () => {
     const text = ['---', 'sections:', '  Stories: doc.gone', '---', '', '# Product', '', '## Stories', '', '- A shopper pays by card.', ''].join('\n');
     const read = readDocEntities([{ repo: null, path: 'docs/product.md', text }], manifest());
     expect(read.entities).toEqual([]);
-    expect(read.findings.map((finding) => [finding.file, finding.line])).toEqual([['docs/product.md', 3]]);
+    // The front matter names a kind the manifest does not declare, and the one block it would have decided is
+    // reported as unread rather than vanishing (the review of finding 5).
+    expect(read.findings.map((finding) => [finding.file, finding.line])).toEqual([['docs/product.md', 3], ['docs/product.md', 10]]);
     expect(read.findings[0]!.message).toContain('the manifest declares no kind or general kind of that name');
   });
 });

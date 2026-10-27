@@ -1280,6 +1280,9 @@ export class KnowledgeProduct {
     const entityAtLine = new Map<string, DocEntity>(reading.entities.map((entity) => [`${entity.repo ?? ''}\0${entity.path}\0${entity.line}`, entity]));
     // A page id names a durable identity: the resolver finds the page by it, whatever heading the document writes now.
     const entityById = new Map<string, DocEntity>(reading.entities.map((entity) => [`${entity.repo ?? ''}\0${entity.path}\0${entity.stableId}`, entity]));
+    // A source anchor names the passage the document gives that anchor now — and a passage of one paragraph has an anchor
+    // of its own (`stories.1.2`), so two meanings of one paragraph never open one another's page (the review of C(b)).
+    const entityByAnchor = new Map<string, DocEntity>(reading.entities.map((entity) => [`${entity.repo ?? ''}\0${entity.path}\0${entity.anchor}`, entity]));
     const repoOfScope = (scope: string): string | undefined => [...pins.values()].find((pin) => pin.scope === scope)?.name;
     const readSource = async (repo: string | null, path: string): Promise<string | undefined> => {
       if (repo === null) {
@@ -1316,6 +1319,7 @@ export class KnowledgeProduct {
       repositories: () => history === undefined ? [...pins.keys()].sort(byCodePoint) : [history.repo],
       locate: (entity) => (entity.span === undefined ? undefined : locationOf({ repoOfScope, webOf }, entity.scope, entity.span)),
       documentEntity: (repo, path, line) => entityAtLine.get(`${repo ?? ''}\0${path}\0${line}`),
+      documentEntityByAnchor: (repo, path, anchor) => entityByAnchor.get(`${repo ?? ''}\0${path}\0${anchor}`),
       documentEntityById: (repo, path, stableId) => entityById.get(`${repo ?? ''}\0${path}\0${stableId}`),
     });
     return {
@@ -1354,10 +1358,10 @@ export class KnowledgeProduct {
     const sources: DocumentSource[] = [];
     const stamps: string[] = [];
     const outside = docsLinkedOutside(productFolder);
-    if (outside !== undefined) findings.push({ file: 'docs', line: 1, message: `docs is a link to ${outside}, outside the product repository ${productFolder}: its documents are not read for entities` });
+    if (outside !== undefined) findings.push({ file: 'docs', line: 1, message: `docs is a link to ${outside}, outside the product repository ${productFolder}: its documents are not read for entities`, source: join(productFolder, 'docs') });
     for (const path of productDocumentPaths(productFolder).filter((candidate) => listedDocument(manifest, null, candidate))) {
       const text = readProductDocument(productFolder, path);
-      if (text === undefined) { findings.push({ file: path, line: 1, message: 'the document is too large or cannot be read, so no entity is read from it' }); continue; }
+      if (text === undefined) { findings.push({ file: path, line: 1, message: 'the document is too large or cannot be read, so no entity is read from it', source: join(productFolder, path) }); continue; }
       sources.push({ repo: null, path, text, origin: join(productFolder, path) });
       stamps.push(`${path}\0${text.length}\0${Bun.hash(text)}`);
     }
@@ -1375,10 +1379,10 @@ export class KnowledgeProduct {
         for (const path of paths) {
           const text = texts.get(path);
           if (text === undefined) continue;
-          if (text === null) { cut.push({ file: `repos/${repo.name}/${path}`, line: 1, message: 'the document is too large, comes past the budget of bytes read from this repository, or its name holds a line break, so no entity is read from it' }); continue; }
+          if (text === null) { cut.push({ file: `repos/${repo.name}/${path}`, line: 1, message: 'the document is too large, comes past the budget of bytes read from this repository, or its name holds a line break, so no entity is read from it', source: join(repo.path, path) }); continue; }
           held.push({ repo: repo.name, path, text, origin: join(repo.path, path) });
         }
-        if (all.length > DOCUMENT_LIMIT) cut.push({ file: `repos/${repo.name}`, line: 1, message: `the repository holds ${all.length} Markdown documents and the wiki reads the first ${DOCUMENT_LIMIT} of them for entities` });
+        if (all.length > DOCUMENT_LIMIT) cut.push({ file: `repos/${repo.name}`, line: 1, message: `the repository holds ${all.length} Markdown documents and the wiki reads the first ${DOCUMENT_LIMIT} of them for entities`, source: repo.path });
         this.repoDocs.set(key, held);
         this.repoDocFindings.set(key, cut);
       }

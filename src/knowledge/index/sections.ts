@@ -27,7 +27,7 @@ export function documentSections(text: string): Section[] {
   const found: Section[] = [];
   for (const [anchor, node] of reading.nodes) {
     const extent = extentOfNode(tree, node);
-    found.push({ anchor, text: lines.slice(extent.start - 1, extent.end).join('\n').replace(/\s+$/, '') });
+    found.push({ anchor, text: lines.slice(extent.start - 1, extent.end).join('\n').trimEnd() });
   }
   return found.sort((a, b) => byCodePoint(a.anchor, b.anchor));
 }

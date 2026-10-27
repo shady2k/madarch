@@ -214,7 +214,13 @@ an anchor shall stay a display and a way to resolve a ground: a ground written a
 source anchor shall open the entity the CURRENT document gives that anchor — or
 the document at that line when no entity does — and an anchor the document no
 longer has shall be a broken section, never a fallback to an older identity; a
-page id shall open the entity its identity names, whatever anchor it stands at now.
+page id shall open the entity its identity names, whatever anchor it stands at now; and
+an address whose fragment is a source anchor — a page or a link written before
+identities were minted — shall open the passage the document gives that anchor
+now, so an older page keeps opening its passage. An address that names a
+repository, written with a qualifier before the path, shall be read in that repository, and
+one that names none shall be looked for in the product repository first and then
+in each connected one.
 
 Identities shall be reconciled by content first and by anchor second, with
 ambiguity left to the next pass: a digest held by exactly one previous section
@@ -231,6 +237,16 @@ with its file and line, and its sections shall read as new.
 - Given: the training requirements document, and a copy of it with the `UC-` and `BR-` numbers taken out
 - When: both are read with the same mapping
 - Then: the same entities with the same durable identities and the same page ids, every alias gone, the anchors following the changed words, and every text identical to the numbered document's
+
+### Scenario: an-older-page-keeps-opening
+- Given: a glossary page written before identities were minted, whose link addresses its term by the source anchor `payment-token`
+- When: the page is opened
+- Then: the term's page opens, and after the term's phrase is renamed the page id minted for it still opens that same term, while an address naming the anchor it no longer writes names nothing
+
+### Scenario: a-repository-qualified-address
+- Given: a product with a connected repository holding `docs/requirements.md`, and the page id that names the repository, the document's path and the passage's durable identity
+- When: the id and a ground naming the same document's anchor are resolved
+- Then: both open the passage's page, read in that repository, and an address naming a repository that holds no such document is a broken link with that reason
 
 ### Scenario: a-ground-and-a-page-id-are-two-kinds
 - Given: a document whose passages stand at `uc-1` and `uc-2`, and a second read in which the two numbers have changed places while each passage keeps its identity

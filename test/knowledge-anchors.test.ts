@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { anchorLines, documentAnchors, findAnchor } from '../src/knowledge/anchors.js';
 import { Resolver } from '../src/knowledge/resolve.js';
-import { readDocEntities } from '../src/knowledge/doc-entities.js';
+import { entityAtAddress, readDocEntities } from '../src/knowledge/doc-entities.js';
 import { parseKinds } from '../src/knowledge/kinds.js';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { generateTrainingRepository } from './knowledge-fixture.js';
@@ -110,5 +110,65 @@ describe('a page id and a ground are two kinds of reference', () => {
   test('an anchor the document no longer has is a broken section, never a fallback to an old identity', async () => {
     const gone = await resolver.resolve('madarch:doc:docs/requirements.md#uc-9');
     expect(gone).toMatchObject({ state: 'broken', why: { code: 'no-section', anchor: 'uc-9' } });
+  });
+});
+
+describe('an address names its passage by an anchor or by an identity, and both open the page', () => {
+  const folder = mkdtempSync(join(tmpdir(), 'madarch-anchors-address-'));
+  mkdirSync(join(folder, 'templates'), { recursive: true });
+  writeFileSync(join(folder, 'templates', 'x.md'), ':::body\n');
+  const manifest = parseKinds(['kinds:', '  doc.term: { template: templates/x.md, source: document, terms: ["**/glossary*.md"] }', '  doc.use-case: { template: templates/x.md, source: document, identifier: UC, semantics: scenario }', ''].join('\n'), join(folder, 'madarch/kinds.yaml'), folder);
+  const glossary = ['# Glossary', '', '- **Payment token** - The proof a provider returns when it captured money.', '- **Capture** - The moment the money is taken from the card.', ''].join('\n');
+  const read = readDocEntities([{ repo: null, path: 'docs/glossary.md', text: glossary }], manifest);
+  const entities = new Map(read.entities.map((entity) => [entity.id, entity]));
+  const token = read.entities.find((entity) => entity.title === 'Payment token')!;
+
+  test('an address written with the source anchor a passage stands at opens that passage', () => {
+    // Pages and links written before identities existed address a section by its anchor (`payment-token`); they must keep
+    // opening it (madarch-ztyq.3, the review of A).
+    expect(entityAtAddress(entities, 'doc:docs/glossary.md#payment-token')).toBe(token);
+    expect(token.id).toBe(`doc:docs/glossary.md#${token.stableId}`);
+  });
+
+  test('an identity keeps opening its passage after the heading is renamed, and the anchor it left names nothing', () => {
+    const renamed = readDocEntities([{ repo: null, path: 'docs/glossary.md', text: glossary.replace('**Payment token**', '**Provider token**') }], manifest, { identities: read.identities });
+    const after = new Map(renamed.entities.map((entity) => [entity.id, entity]));
+    const held = renamed.entities.find((entity) => entity.stableId === token.stableId)!;
+    expect(entityAtAddress(after, `doc:docs/glossary.md#${token.stableId}`)).toBe(held);
+    // The anchor the old heading wrote is the old passage's display name, and a document that no longer writes it names
+    // nothing: a stale anchor is a problem, never a fallback to the identity that used to stand there.
+    expect(entityAtAddress(after, 'doc:docs/glossary.md#payment-token')).toBeUndefined();
+    expect(held.anchor).toBe('provider-token');
+  });
+});
+
+describe('a repository-qualified address resolves in its repository', () => {
+  const folder = mkdtempSync(join(tmpdir(), 'madarch-anchors-repo-'));
+  mkdirSync(join(folder, 'templates'), { recursive: true });
+  writeFileSync(join(folder, 'templates', 'x.md'), ':::body\n');
+  const manifest = parseKinds(['kinds:', '  doc.use-case: { template: templates/x.md, source: document, identifier: UC, semantics: scenario }', ''].join('\n'), join(folder, 'madarch/kinds.yaml'), folder);
+  const text = '# Requirements\n\n## Use cases\n\n- **UC-1 Place order.** A signed-in shopper submits a cart.\n';
+  const read = readDocEntities([{ repo: 'training', path: 'docs/requirements.md', text }], manifest);
+  const entity = read.entities[0]!;
+  const entities = new Map(read.entities.map((entry) => [entry.id, entry]));
+
+  test('the page id of a connected repository names its repository, and the address opens the page', () => {
+    expect(entity.id).toBe(`doc:@training/docs/requirements.md#${entity.stableId}`);
+    expect(entityAtAddress(entities, entity.id)).toBe(entity);
+    expect(entityAtAddress(entities, `doc:@training/docs/requirements.md#${entity.anchor}`)).toBe(entity);
+  });
+
+  test('the resolver strips the qualifier and reads the document in that repository', async () => {
+    const resolver = new Resolver({
+      graph: undefined as never, markdown: new Map(), declared: () => true, locate: () => undefined,
+      readDocument: async (repo, path) => (repo === 'training' && path === 'docs/requirements.md' ? text : undefined),
+      repositories: () => ['training'],
+      documentEntityByAnchor: (repo, path, anchor) => (repo === 'training' && path === 'docs/requirements.md' && entity.anchor === anchor ? entity : undefined),
+      documentEntityById: (repo, path, stableId) => (repo === 'training' && path === 'docs/requirements.md' && entity.stableId === stableId ? entity : undefined),
+    });
+    expect(await resolver.resolve(`madarch:${entity.id}`)).toMatchObject({ state: 'ok', entity: entity.id });
+    expect(await resolver.resolve('madarch:doc:@training/docs/requirements.md#uc-1')).toMatchObject({ state: 'ok', entity: entity.id });
+    // A repository that holds no such document is named as the reason, not silently searched elsewhere.
+    expect(await resolver.resolve('madarch:doc:@nowhere/docs/requirements.md#uc-1')).toMatchObject({ state: 'broken', why: { code: 'no-document' } });
   });
 });

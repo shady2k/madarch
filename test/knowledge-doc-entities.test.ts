@@ -150,7 +150,7 @@ describe('the sections of the training repository\'s documents', () => {
   });
 
   test('a rule\'s section runs over the lines that continue it and stops at the next rule: BR-1 names the code that implements it', () => {
-    const rule = byId.get(docEntityId('training', 'docs/requirements.md', 'br-1'))!;
+    const rule = read.entities.find((entity) => entity.path === 'docs/requirements.md' && entity.anchor === 'br-1')!;
     expect(rule.text).toContain('Implemented in `services/orders/internal/pricing/pricing.go` (`Discount`)');
     expect(rule.text).toContain('checkout previews it in');
     expect(rule.text).not.toContain('BR-2');
@@ -163,13 +163,15 @@ describe('the sections of the training repository\'s documents', () => {
 
   test('the glossary\'s seven terms are entities by the slug of their bold word', () => {
     const terms = read.entities.filter((entity) => entity.kind === 'doc.term');
-    expect(terms.map((entity) => entity.title)).toEqual(['Capture', 'CardToken', 'Idempotency key', 'Order', 'Outbox', 'PaymentToken', 'Zero-rated']);
+    // Document order, not alphabetical: an identity is a name, not an order, so entities come in the order the
+    // document reads them.
+    expect(terms.map((entity) => entity.title)).toEqual(['Order', 'Outbox', 'Idempotency key', 'CardToken', 'PaymentToken', 'Capture', 'Zero-rated']);
     expect(terms.find((entity) => entity.title === 'Idempotency key')!.anchor).toBe('idempotency-key');
     expect(terms.find((entity) => entity.title === 'Outbox')!.text).toBe('the table in which orders queues the messages it will publish.');
   });
 
   test('a decision record is the heading with its identifier, from its first line to the end of the file', () => {
-    const adr = byId.get(docEntityId('training', 'docs/adr/0001-broker.md', 'adr-0001'))!;
+    const adr = read.entities.find((entity) => entity.path === 'docs/adr/0001-broker.md' && entity.anchor === 'adr-0001')!;
     expect(adr.kind).toBe('doc.decision');
     expect(adr.title).toBe('ADR-0001 Kafka is the broker');
     expect(adr.line).toBe(1);

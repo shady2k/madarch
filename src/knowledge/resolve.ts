@@ -65,6 +65,11 @@ export interface ResolverDeps {
   /** The entity of a document that starts at a line of the document, when the manifest's document kinds make one of it. */
   documentEntity?: (repo: string | null, path: string, line: number) => { id: string; kind: string; title: string } | undefined;
   /**
+   * The entity of a document whose source anchor is the fragment, when the manifest's document kinds make one of it: a
+   * passage address (`stories.1.2`) names one meaning of a paragraph, and only the entity's own anchor says which.
+   */
+  documentEntityByAnchor?: (repo: string | null, path: string, anchor: string) => { id: string; kind: string; title: string } | undefined;
+  /**
    * The entity of a document whose durable identity is the fragment, when the manifest's document kinds make one of it:
    * a page id (`doc:<path>#<stableId>`) is a link that outlives a renamed heading or a removed `UC-`/`BR-` alias, so the
    * resolver must find the page by that identity and not only by the anchor the document writes now (finding 2).
@@ -101,26 +106,34 @@ export class Resolver {
 
   private async resolveDocument(url: string, path: string, anchor: string | null): Promise<Resolution> {
     if (path === '') return { state: 'broken', target: url, reason: 'the document link names no path', why: { code: 'no-path' } };
-    const roots: (string | null)[] = [null, ...this.deps.repositories()];
+    // `@<repository>/<path>` names the repository the document stands in; a path with no qualifier is looked for in the
+    // product repository first and then in each connected one (madarch-ztyq.3, the review of finding C(a)).
+    const qualifier = path.startsWith('@') ? path.slice(1) : null;
+    const slash = qualifier === null ? -1 : qualifier.indexOf('/');
+    const named = qualifier !== null && slash > 0 ? qualifier.slice(0, slash) : null;
+    const where = named === null ? path : qualifier!.slice(slash + 1);
+    const roots: (string | null)[] = named === null ? [null, ...this.deps.repositories()] : [named];
     const seen: string[] = [];
     for (const root of roots) {
-      const text = await this.deps.readDocument(root, path);
+      const text = await this.deps.readDocument(root, where);
       if (text === undefined) continue;
       seen.push(root ?? 'the product repository');
       // A Markdown document opens as a page of the wiki at its section; any other file opens in the source view.
-      if (anchor === null || anchor === '') return { state: 'ok', target: url, kind: 'document', label: path, href: isMarkdownPath(path) ? documentAddress(root, path) : sourceAddress(root, path) };
+      if (anchor === null || anchor === '') return { state: 'ok', target: url, kind: 'document', label: where, href: isMarkdownPath(where) ? documentAddress(root, where) : sourceAddress(root, where) };
       // Two kinds of reference, kept apart (madarch-ztyq.3, the review of finding A). A GROUND written as a source anchor
       // names the part the document gives that anchor NOW, so after two numbers swap it opens the passage that carries
       // `uc-1` today, and an anchor the document no longer has is a broken section rather than a stale identity. A page
       // id names a durable identity, which no anchor can spell (it holds a colon), so it resolves by identity alone.
       const line = findAnchor(text, anchor);
-      const atAnchor = line === null ? undefined : this.deps.documentEntity?.(root, path, line);
-      const entity = atAnchor ?? this.deps.documentEntityById?.(root, path, anchor);
+      const byAnchor = this.deps.documentEntityByAnchor?.(root, where, anchor.toLowerCase());
+      const atLine = line === null ? undefined : this.deps.documentEntity?.(root, where, line);
+      const atAnchor = byAnchor ?? atLine;
+      const entity = atAnchor ?? this.deps.documentEntityById?.(root, where, anchor);
       if (entity !== undefined && this.deps.declared(entity.kind)) return { state: 'ok', target: url, kind: entity.kind, label: entity.title, href: entityAddress(entity.id), entity: entity.id };
-      if (line !== null) return { state: 'ok', target: url, kind: 'document', label: `${path}#${anchor}`, href: isMarkdownPath(path) ? documentAddress(root, path, anchor) : sourceAddress(root, path, line) };
+      if (line !== null) return { state: 'ok', target: url, kind: 'document', label: `${where}#${anchor}`, href: isMarkdownPath(where) ? documentAddress(root, where, anchor) : sourceAddress(root, where, line) };
     }
-    if (seen.length === 0) return { state: 'broken', target: url, reason: `no document "${path}" in the product repository or its code repositories`, why: { code: 'no-document', path } };
-    return { state: 'broken', target: url, reason: `the document "${path}" (in ${seen.join(', ')}) has no section "${anchor}"`, why: { code: 'no-section', path, anchor: anchor ?? '', repos: seen.join(', ') } };
+    if (seen.length === 0) return { state: 'broken', target: url, reason: `no document "${where}" in ${named === null ? 'the product repository or its code repositories' : `the repository ${named}`}`, why: { code: 'no-document', path: where } };
+    return { state: 'broken', target: url, reason: `the document "${where}" (in ${seen.join(', ')}) has no section "${anchor}"`, why: { code: 'no-section', path: where, anchor: anchor ?? '', repos: seen.join(', ') } };
   }
 }
 

@@ -68,13 +68,16 @@ export function textDigest(text: string): string {
   return sha256Hex(new TextEncoder().encode(collapsed.trim())).slice(0, 32);
 }
 
+/** The prefix every durable identity holds: a colon, which no heading slug and no block anchor can spell. */
+export const IDENTITY_PREFIX = 'doc-section:';
+
 /**
  * The name a new section is given: the document's counter. It holds a colon, which no heading slug and no block anchor
  * can spell, so a page id and a source anchor are two kinds of reference that never collide; and the counter only moves
  * forward, so a retired name is never given to another section (madarch-ztyq.3, the review of findings A and B).
  */
 export function identityName(sequence: number): string {
-  return `doc-section:${String(sequence)}`;
+  return `${IDENTITY_PREFIX}${String(sequence)}`;
 }
 
 /** The indexes of one value in a list, so a digest or an anchor claimed by several sections is told apart. */

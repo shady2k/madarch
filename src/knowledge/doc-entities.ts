@@ -69,6 +69,54 @@ export function docEntityId(repo: string | null, path: string, stableId: string)
   return `doc:${repo === null ? '' : `@${repo}/`}${path}#${stableId}`;
 }
 
+/**
+ * A document address in its parts: `doc:<path>#<fragment>` in the product repository, or `doc:@<repository>/<path>#<fragment>`
+ * in a connected one (madarch-ztyq.3, the review of finding C(a)). The fragment is either a source anchor — the part the
+ * document gives that anchor now — or a durable identity, which no anchor can spell.
+ */
+export interface DocumentAddress {
+  readonly repo: string | null;
+  readonly path: string;
+  readonly fragment: string;
+}
+
+/** The parts of a document address, or undefined when the address names a whole document or is no document address. */
+export function parseDocumentAddress(address: string): DocumentAddress | undefined {
+  if (!address.startsWith('doc:')) return undefined;
+  const rest = address.slice('doc:'.length);
+  const hash = rest.indexOf('#');
+  if (hash < 0) return undefined;
+  const where = rest.slice(0, hash);
+  const fragment = rest.slice(hash + 1);
+  if (where.startsWith('@')) {
+    const slash = where.indexOf('/');
+    if (slash < 0) return undefined;
+    return { repo: where.slice(1, slash), path: where.slice(slash + 1), fragment };
+  }
+  return { repo: null, path: where, fragment };
+}
+
+/** The collection of entities a page or a link names: the map the wiki renders from. */
+export interface HasDocEntities { get(id: string): DocEntity | undefined; values(): IterableIterator<DocEntity> }
+
+/**
+ * The entity a document address names, whichever kind of address it is: a source anchor opens the passage the document
+ * gives that anchor now, a durable identity opens the passage it was minted for. Both are looked up by what the address
+ * says, so a page written before an identity was minted still opens its passage (madarch-ztyq.3, the review of A).
+ */
+export function entityAtAddress(entities: HasDocEntities, address: string): DocEntity | undefined {
+  const exact = entities.get(address);
+  if (exact !== undefined) return exact;
+  const parsed = parseDocumentAddress(address);
+  if (parsed === undefined) return undefined;
+  for (const entity of entities.values()) {
+    if (entity.repo !== parsed.repo || entity.path !== parsed.path) continue;
+    if (entity.stableId === parsed.fragment) return entity;
+    if (entity.anchor === parsed.fragment.toLowerCase()) return entity;
+  }
+  return undefined;
+}
+
 export interface ReadDocOptions {
   /** The third pass: the classifier the host fills from jev and the agent. Without one, only the manifest decides. */
   readonly classifier?: SemanticClassifier;
@@ -368,7 +416,7 @@ export function readDocEntities(sources: readonly DocumentSource[], manifest: Ki
     const what = kind?.semantics === undefined ? '' : ` (a ${kind.semantics})`;
     findings.push({ file: manifest.file, line: expected.line, message: `the documents hold no entity of kind "${expected.kind}"${what}, which "documents.expect" says they must: no section of any document is read as it, so the wiki says what the documents lack and this is one of the lacks` });
   }
-  return { entities: entities.sort((a, b) => byCodePoint(a.id, b.id)), findings, identities };
+  return { entities: entities.sort((a, b) => byCodePoint(a.path, b.path) || a.line - b.line || byCodePoint(a.anchor, b.anchor)), findings, identities };
 }
 
 /** The kind whose identifier prefixes take one: the prefix a kind names wins over a kind that takes any other prefix. */
