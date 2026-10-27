@@ -166,8 +166,8 @@ are the repository's installation, and each person's plugin and hooks are theirs
   each revision cut or landed; `node .shady2k/adapter.mjs backlog --at <rev>`
   reads it, refusing a revision never recorded); revisions of the in-tree era
   (up to 40ce61f1, recorded at the move from its own tree) read their own
-  committed export. Tracker writes need no commit: the service publishes them,
-  and a commit carries code and documents only.
+  committed export. Tracker writes need no commit: the tracker commands publish them
+  (see "Tracker synchronization"), and a commit carries code and documents only.
 - **Tracker synchronization:** the set's mechanism, copied byte for byte from
   shady2k-skills 0.128.0 (setup 0.58.0, madarch-j6ho.4; it stops a record
   leaving a whole copy of the store behind, and removes the copies older
@@ -184,18 +184,16 @@ are the repository's installation, and each person's plugin and hooks are theirs
   command that names no machine's path (`tracker.mjs` resolves the store) —
   `post-commit` and `post-merge` record the revision, `post-checkout` relinks
   a checkout a pre-move branch left a folder in. Connect refuses, naming the
-  line, a hook that lacks its marker. Supervisor: the user
-  unit `~/.config/systemd/user/madarch-tracker-sync.service` (this machine's,
-  not committed) runs `tracker.mjs watch --interval 10 --debounce 2 --max-age 5`:
-  a write is published after 2 s of quiet or 5 s at most (measured at setup:
-  3.9 s), the other machines' state is merged per item every 10 s, a push is
-  killed after 10 s and a fetch after 20 s and reported as unreachable. The
-  unit survives logout and reboot only with the user's linger on
-  (`loginctl enable-linger <user>`, a privileged command; on NixOS
-  `users.users.<user>.linger = true`). The owner decided on 2026-10-13 not to
-  turn linger on ("Не нужен"): the service starts with the user's first login
-  session and stops with the last; while it is down, writes stay in this
-  machine's store and are published when it runs again. A push to the ref starts no code CI (a
+  line, a hook that lacks its marker. Supervisor: none. The owner decided on
+  2026-10-27 that madarch has one developer on one machine and needs no
+  background sync ("Нам не нужна эта служба, я разрабатываю madarch один"),
+  so the user unit `madarch-tracker-sync.service` is no longer enabled and
+  nothing runs `tracker.mjs watch`. A record, claim or transition publishes
+  the store itself when the remote answers; a plain `br` write stays in this
+  machine's store until the next of those or `node .shady2k/tracker.mjs
+  publish`. The remote ref is a copy, read by no CI. A second machine or
+  developer brings the supervisor back first: the unit template above, run as
+  `tracker.mjs watch --interval 10 --debounce 2 --max-age 5`. A push to the ref starts no code CI (a
   workflow's push event is a branch or a tag; the run list after the first
   pushes showed none). The residual the set accepts: two machines claiming one
   item in the same seconds can both believe they hold it until the next sync.
@@ -385,8 +383,7 @@ are the repository's installation, and each person's plugin and hooks are theirs
   in any other checkout it only links `.beads` to the store. Only then does it
   write `core.hooksPath` (and drop the old `br-portable-path` filter), and it
   proves the privacy guard, the tracker home guard and a tracker read pass.
-  The supervisor is not started by it: the user unit is this machine's, agreed
-  with the owner (see "Tracker synchronization"). Safe to rerun; it writes no
+  It starts no supervisor: there is none (see "Tracker synchronization"). Safe to rerun; it writes no
   global git config. Tests: `.shady2k/hooks.test.mjs`.
 - **Public repository, privacy:** no personal data and no details of the
   owner's other projects. `.githooks/privacy-guard.sh` refuses staged content
