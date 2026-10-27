@@ -29,11 +29,27 @@ const WORD = (char: string | undefined): boolean => {
   return LETTER(code) || DIGIT(code) || char === '_';
 };
 
-/** The slug GitHub gives a heading: its marks are not part of it, and its spaces become hyphens. */
+/**
+ * GitHub's published table of the characters a heading's anchor never holds, copied verbatim under the ISC licence
+ * (`github-slugger`), asked about ONE CHARACTER at a time: no pattern is applied to a line of a document.
+ */
+const STRIPPED_CHARACTER = new RegExp(`^(?:${SLUGGER_REGEX.source})$`);
+
+/**
+ * The slug GitHub gives a heading: a character scan over the name the parser read from the heading's own text nodes.
+ * A mark the AST already removed is not stripped again; a space becomes a hyphen, and every character GitHub's table
+ * holds is dropped.
+ */
 export function slugOf(heading: string): string {
-  let marked = '';
-  for (const char of heading) if (char !== '`' && char !== '*' && char !== '_' && char !== '~') marked += char;
-  return marked.trim().toLowerCase().replace(SLUGGER_REGEX, '').replace(/ /g, '-');
+  let kept = '';
+  for (const char of heading) {
+    if (char === '`' || char === '*' || char === '_' || char === '~') continue;
+    if (char !== ' ' && STRIPPED_CHARACTER.test(char)) continue;
+    kept += char;
+  }
+  let slug = '';
+  for (const char of kept.trim().toLowerCase()) slug += char === ' ' ? '-' : char;
+  return slug;
 }
 
 /** The identifier a text opens with (`UC-2`, `ADR-0001`), or null: letters, a hyphen and digits, then a boundary. */

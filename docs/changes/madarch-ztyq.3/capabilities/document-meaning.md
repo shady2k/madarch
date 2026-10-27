@@ -105,9 +105,11 @@ as, the heading texts that enclose it and the ids of the identity it was given. 
 heading that opens with an identifier shall be its whole section, from its
 heading to the last line of the section, so an architecture decision keeps its
 Status, Context, Decision and Consequences. A reading shall never rewrite a
-document's own text. A passage of a section the manifest declares that no pass
-and no classifier read shall be a finding of its own, at its line: it is never a
-passage that disappears. A second section with the same anchor shall be a finding
+document's own text. A passage that the first two passes leave and that no
+classifier read — because none is wired, or because it answered nothing for that
+passage — shall be a finding of its own, at its line, with the passage's own words:
+it is never a passage that disappears, and a document read without a classifier
+says what it could not decide rather than showing a smaller wiki. A second section with the same anchor shall be a finding
 that names both lines.
 
 ### Scenario: pass-is-recorded
@@ -126,9 +128,9 @@ that names both lines.
 - Then: two entities of the kind, the first decided by the metadata pass and the second by the structure pass, and no finding
 
 ### Scenario: an-unread-passage-is-said
-- Given: a section the manifest declares, holding a passage that no pass and no classifier reads
+- Given: a document holding two passages that no pass reads, one numberless and one that opens with a number the manifest takes no kind for
 - When: the document is read without a classifier
-- Then: the passage is a finding at its own line, saying that no page shows it
+- Then: each passage is a finding of its own at its line, naming the identity, the file on this machine and the passage's own words, and saying that no page shows it
 
 ### Scenario: identifier-heads-its-whole-section
 - Given: an architecture decision record whose heading opens with `ADR-0001`
@@ -197,15 +199,22 @@ lines the section has now rather than name the wrong passage.
 
 A number such as `UC-1`, and the anchor a section stands at, shall be aliases the
 document writes, never the identity. Every entity shall be given a durable
-identity, minted once and kept in a mapping beside the product — in the product's
-store, never in the repository — by document, with the identity, the anchor the
-section stands at now, the kind and the digest of the text of each section. The
+identity, minted once from its document's own counter and kept in a mapping
+beside the product — in the product's store, never in the repository — by
+document, with the identity, the anchor the section stands at now, the kind and
+the digest of the text of each section. The counter shall only move forward, so a
+name it has given is never given to another section, not even after the section
+that held it is removed and an unrelated passage takes its number; and the name
+shall hold a colon, which no heading slug and no block anchor can spell, so a page
+id and a source anchor are two kinds of reference that never collide. The
 page id a link names, the address of an entity's page, the name of its localized
 source and the place its interpretations are kept shall be built from that
 identity, so renaming a heading or removing a `UC-`/`BR-` alias changes no link;
-an anchor shall stay a display and a way to resolve a ground, and a ground naming
-one shall open the page of the entity that stands there now, or the document at
-that line when no entity does.
+an anchor shall stay a display and a way to resolve a ground: a ground written as a
+source anchor shall open the entity the CURRENT document gives that anchor — or
+the document at that line when no entity does — and an anchor the document no
+longer has shall be a broken section, never a fallback to an older identity; a
+page id shall open the entity its identity names, whatever anchor it stands at now.
 
 Identities shall be reconciled by content first and by anchor second, with
 ambiguity left to the next pass: a digest held by exactly one previous section
@@ -222,6 +231,11 @@ with its file and line, and its sections shall read as new.
 - Given: the training requirements document, and a copy of it with the `UC-` and `BR-` numbers taken out
 - When: both are read with the same mapping
 - Then: the same entities with the same durable identities and the same page ids, every alias gone, the anchors following the changed words, and every text identical to the numbered document's
+
+### Scenario: a-ground-and-a-page-id-are-two-kinds
+- Given: a document whose passages stand at `uc-1` and `uc-2`, and a second read in which the two numbers have changed places while each passage keeps its identity
+- When: a ground written as `uc-1` and a page id of the first passage are resolved against the document as it now stands
+- Then: the ground opens the passage the document gives `uc-1` now, the page id opens the passage its identity names, and a ground naming an anchor the document no longer has is a broken section
 
 ### Scenario: two-numbers-swapped-exchange-nothing
 - Given: a document read once, and read again after `UC-1` and `UC-2` changed places

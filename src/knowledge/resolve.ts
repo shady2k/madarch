@@ -109,11 +109,13 @@ export class Resolver {
       seen.push(root ?? 'the product repository');
       // A Markdown document opens as a page of the wiki at its section; any other file opens in the source view.
       if (anchor === null || anchor === '') return { state: 'ok', target: url, kind: 'document', label: path, href: isMarkdownPath(path) ? documentAddress(root, path) : sourceAddress(root, path) };
-      // A page id names the entity's durable identity, which no heading or number change rewrites; an anchor names the
-      // part of the document as it stands now. Both open the entity's page, never the document at a line.
-      const byIdentity = this.deps.documentEntityById?.(root, path, anchor);
+      // Two kinds of reference, kept apart (madarch-ztyq.3, the review of finding A). A GROUND written as a source anchor
+      // names the part the document gives that anchor NOW, so after two numbers swap it opens the passage that carries
+      // `uc-1` today, and an anchor the document no longer has is a broken section rather than a stale identity. A page
+      // id names a durable identity, which no anchor can spell (it holds a colon), so it resolves by identity alone.
       const line = findAnchor(text, anchor);
-      const entity = byIdentity ?? (line === null ? undefined : this.deps.documentEntity?.(root, path, line));
+      const atAnchor = line === null ? undefined : this.deps.documentEntity?.(root, path, line);
+      const entity = atAnchor ?? this.deps.documentEntityById?.(root, path, anchor);
       if (entity !== undefined && this.deps.declared(entity.kind)) return { state: 'ok', target: url, kind: entity.kind, label: entity.title, href: entityAddress(entity.id), entity: entity.id };
       if (line !== null) return { state: 'ok', target: url, kind: 'document', label: `${path}#${anchor}`, href: isMarkdownPath(path) ? documentAddress(root, path, anchor) : sourceAddress(root, path, line) };
     }

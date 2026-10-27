@@ -8,6 +8,7 @@
 import type { DatabaseOwner } from '../adapters/database-owner.js';
 import { byCodePoint } from '../model/order.js';
 import { changedGrounds, gitReader, readKnowledgePages, type IndexedPage } from '../knowledge/index/index.js';
+import type { FindingKind } from '../knowledge/kinds.js';
 import type { Resolution } from '../knowledge/resolve.js';
 import { DOMAINS_FOLDER, PRODUCT_PATH } from '../writer/run.js';
 import { parseStatementRef, readCorrections, readQuestions, type Author, type Correction, type Question } from './entities.js';
@@ -92,7 +93,7 @@ export async function questionDetail(productFolder: string, slug: string, resolv
 
 // ---- problems ---------------------------------------------------------------------------------
 
-export type ProblemKind = 'correction' | 'ground-removed' | 'broken-link' | 'unreadable-file' | 'unplaced';
+export type ProblemKind = 'correction' | 'ground-removed' | 'broken-link' | 'unreadable-file' | 'unread-passage' | 'unplaced';
 /** Who fixes it: the agent when the pages are refreshed, or a person. */
 export type Fixer = 'agent' | 'person';
 
@@ -111,6 +112,8 @@ export interface Problem {
   readonly reason: string;
   readonly file: string;
   readonly line: number | null;
+  /** The file's place on this machine, when the reader knows it: the identity above is what a reader navigates by. */
+  readonly source?: string;
   readonly by: Author | null;
   readonly at: string | null;
 }
@@ -132,7 +135,7 @@ export interface ProblemInput {
   readonly repository?: { readonly name: string; readonly path: string; readonly commit: string };
   readonly resolve: (url: string) => Promise<Resolution>;
   /** Findings of the manifest and of the product's Markdown, already read. */
-  readonly findings: readonly { readonly file: string; readonly line: number; readonly message: string }[];
+  readonly findings: readonly { readonly file: string; readonly line: number; readonly message: string; readonly kind?: FindingKind; readonly source?: string }[];
   readonly unplaced?: readonly Unplaced[];
   readonly starter?: readonly StarterOffer[];
 }
@@ -153,7 +156,12 @@ export async function listProblems(input: ProblemInput): Promise<ProblemListing>
   const findingsByLocation = new Map<string, Problem>();
   for (const finding of [...input.findings, ...read.findings]) {
     const key = `${finding.file}:${finding.line}`;
-    if (!findingsByLocation.has(key)) findingsByLocation.set(key, { ...none, kind: 'unreadable-file', fixer: 'person', reason: finding.message, file: finding.file, line: finding.line });
+    const kind = finding.kind ?? 'unreadable-file';
+    // A passage no reader decided is the agent's to read at the next fill; a file that cannot be read is a person's.
+    const fixer = kind === 'unread-passage' ? 'agent' : 'person';
+    if (!findingsByLocation.has(key)) {
+      findingsByLocation.set(key, { ...none, kind, fixer, reason: finding.message, file: finding.file, line: finding.line, ...(finding.source === undefined ? {} : { source: finding.source }) });
+    }
   }
   out.push(...findingsByLocation.values());
   for (const miss of input.unplaced ?? []) out.push({ ...none, kind: 'unplaced', fixer: 'person', target: miss.slug, reason: miss.reason, file: miss.kind === 'question' ? `docs/questions/${miss.slug}.md` : `docs/corrections/${miss.slug}.md` });
@@ -187,7 +195,7 @@ export async function listProblems(input: ProblemInput): Promise<ProblemListing>
       out.push({ ...none, kind: 'ground-removed', fixer: 'agent', page: page.id, pageTitle: page.title, statement: change.statement, sentence: change.text, target: change.ground, reason: `${change.ground} is no longer in ${input.repository.name} at the commit the graph describes`, file: page.file, line: change.line });
     }
   }
-  const order: Record<ProblemKind, number> = { correction: 0, 'ground-removed': 1, 'broken-link': 2, unplaced: 3, 'unreadable-file': 4 };
+  const order: Record<ProblemKind, number> = { correction: 0, 'ground-removed': 1, 'broken-link': 2, unplaced: 3, 'unreadable-file': 4, 'unread-passage': 5 };
   out.sort((a, b) => Number(a.closed) - Number(b.closed) || order[a.kind] - order[b.kind] || byCodePoint(a.file, b.file) || (a.line ?? 0) - (b.line ?? 0) || byCodePoint(a.target ?? '', b.target ?? ''));
   return { problems: out, open: out.filter((p) => !p.closed).length, closed: out.filter((p) => p.closed).length, notes, starter: input.starter ?? [] };
 }

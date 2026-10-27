@@ -28,7 +28,8 @@ const item = (id: string) => {
 
 // Built from parts so the neutral-names scan does not read it as a repository source.
 const REMOTE = ['https://github.com', 'example', 'shop'].join('/');
-const UC_2 = 'doc:@training/docs/requirements.md#uc-2';
+// A page id names the document and the passage's durable identity, never the anchor a heading can change.
+const UC_2 = 'doc:@training/docs/requirements.md#doc-section:2';
 let work: string;
 let repository: string;
 let product: KnowledgeProduct;
@@ -215,7 +216,7 @@ describe('the pages of the documents\' entities', () => {
   });
 
   test('BR-1 names the file and the symbol of each place the answer key says it is implemented in', async () => {
-    const model = await page('doc:@training/docs/requirements.md#br-1');
+    const model = await page('doc:@training/docs/requirements.md#doc-section:5');
     const implemented = rows(model, 'Implemented by');
     expect(implemented.filter((row) => row.broken !== undefined)).toEqual([]);
     const ids = implemented.map((row) => row.id);
@@ -228,25 +229,26 @@ describe('the pages of the documents\' entities', () => {
   });
 
   test('BR-2 and BR-4 name their files too, and the document page of each rule is the one the key anchors', async () => {
-    for (const [rule, path] of [['br-2', 'services/orders/internal/pricing/tax.go'], ['br-4', 'services/payments/src/domain/refund.ts']] as const) {
-      const ids = rows(await page(`doc:@training/docs/requirements.md#${rule}`), 'Implemented by').map((row) => row.id);
+    // The passages' durable identities: BR-2 is the sixth passage of the document and BR-4 the eighth, counted from 1.
+    for (const [passage, path] of [['doc-section:6', 'services/orders/internal/pricing/tax.go'], ['doc-section:8', 'services/payments/src/domain/refund.ts']] as const) {
+      const ids = rows(await page(`doc:@training/docs/requirements.md#${passage}`), 'Implemented by').map((row) => row.id);
       expect(ids).toContain(recordKey('code.file', path));
     }
   });
 
   test('ADR-0001 is linked to the topics of the contract and ADR-0002 to OutboxWriter and the outbox table; each decision gives its reasons', async () => {
-    const broker = await page('doc:@training/docs/adr/0001-broker.md#adr-0001');
+    const broker = await page('doc:@training/docs/adr/0001-broker.md#doc-section:1');
     expect(broker).toMatchObject({ kind: 'doc.decision', title: 'ADR-0001 Kafka is the broker' });
     const said = (model: PageModel): string => block(model, 'body').markdown.replace(/\s+/g, ' ');
     for (const reason of ['Messages are retained', 'Per-key ordering', 'already runs it', 'tolerate duplicates']) expect(said(broker)).toContain(reason);
     expect(rows(broker, 'Implemented by').map((row) => row.id)).toEqual([recordKey('code.channel', 'orders.events'), recordKey('code.channel', 'payments.events')]);
-    const outbox = await page('doc:@training/docs/adr/0002-outbox.md#adr-0002');
+    const outbox = await page('doc:@training/docs/adr/0002-outbox.md#doc-section:1');
     for (const reason of ['same database transaction', 'relay', 'consumers must tolerate duplicates']) expect(said(outbox)).toContain(reason);
     const linked = rows(outbox, 'Implemented by').map((row) => row.id);
     expect(linked.some((id) => id.startsWith(recordKey('code.symbol', 'services/orders/internal/store/outbox.go#')) && id.endsWith('OutboxWriter'))).toBe(true);
     expect(linked).toContain(recordKey('code.table', 'orders/public.outbox'));
     // The documents that name ADR-0001 outside it: ADR-0002 and the requirements.
-    expect(rows(broker, 'Linked from').map((row) => row.id)).toContain('doc:@training/docs/adr/0002-outbox.md#adr-0002');
+    expect(rows(broker, 'Linked from').map((row) => row.id)).toContain('doc:@training/docs/adr/0002-outbox.md#doc-section:1');
   });
 
   test('the glossary defines seven terms, each a page with its definition', async () => {

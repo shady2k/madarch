@@ -4,6 +4,9 @@ import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { anchorLines, documentAnchors, findAnchor } from '../src/knowledge/anchors.js';
 import { Resolver } from '../src/knowledge/resolve.js';
+import { readDocEntities } from '../src/knowledge/doc-entities.js';
+import { parseKinds } from '../src/knowledge/kinds.js';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { generateTrainingRepository } from './knowledge-fixture.js';
 
 function markdownFiles(folder: string, root = folder): string[] {
@@ -50,5 +53,62 @@ describe('one reading of a document\'s sections for the writer and the wiki', ()
     for (const anchor of anchors) expect(findAnchor(text, anchor), anchor).not.toBeNull();
     expect(findAnchor(text, 'use-a-promotion')).toBe(3);
     expect(anchorLines(text).get('journeys')).toBe(1);
+  });
+});
+
+describe('the names of a document come from its tree, never from a pattern over its lines', () => {
+  test('a Setext heading is named like an ATX one, and a label inside a paragraph names nothing', () => {
+    // The parser reads `Qualities` over `=====` as a heading, so it carries an anchor and its block carries the heading's
+    // place — where a line-by-line reader saw no heading at all (madarch-ztyq.3, the review of finding 1).
+    const setext = ['Qualities', '=========', '', 'The payment provider may be slow.', ''].join('\n');
+    expect(documentAnchors(setext)).toEqual(['qualities', 'qualities.1']);
+    expect(findAnchor(setext, 'qualities')).toBe(1);
+    // A label that a line-based pattern would have named where it merely stands mid-paragraph names nothing: the block is
+    // named by the text node it OPENS with, and this one opens with a sentence.
+    const midParagraph = ['# Notes', '', 'A first sentence.', 'NFR-7 stands in the middle of this paragraph.', ''].join('\n');
+    expect(documentAnchors(midParagraph)).toEqual(['notes', 'notes.1']);
+    expect(findAnchor(midParagraph, 'nfr-7')).toBeNull();
+    // The reverse: the same label at the start of a block names it.
+    const leading = ['# Notes', '', 'NFR-7 opens this paragraph.', ''].join('\n');
+    expect(documentAnchors(leading)).toContain('nfr-7');
+  });
+});
+
+describe('a page id and a ground are two kinds of reference', () => {
+  const folder = mkdtempSync(join(tmpdir(), 'madarch-anchors-identity-'));
+  mkdirSync(join(folder, 'templates'), { recursive: true });
+  writeFileSync(join(folder, 'templates', 'x.md'), ':::body\n');
+  const manifest = parseKinds(['kinds:', '  doc.use-case: { template: templates/x.md, source: document, identifier: UC, semantics: scenario }', ''].join('\n'), join(folder, 'madarch/kinds.yaml'), folder);
+  const numbered = ['# Requirements', '', '## Use cases', '', '- **UC-1 Place order.** A signed-in shopper submits a cart.', '- **UC-2 Pay.** Checkout asks payments to authorize the card.', ''].join('\n');
+  // The two numbers change places; the passages keep their identities, so their page ids keep them too.
+  const swapped = numbered.replace('**UC-1 Place order.**', '**@@**').replace('**UC-2 Pay.**', '**UC-1 Place order.**').replace('**@@**', '**UC-2 Pay.**');
+  const first = readDocEntities([{ repo: null, path: 'docs/requirements.md', text: numbered }], manifest);
+  const second = readDocEntities([{ repo: null, path: 'docs/requirements.md', text: swapped }], manifest, { identities: first.identities });
+  const byLine = new Map(second.entities.map((entity) => [entity.line, entity]));
+  const byIdentity = new Map(second.entities.map((entity) => [entity.stableId, entity]));
+  const resolver = new Resolver({
+    graph: undefined as never, markdown: new Map(), declared: () => true, locate: () => undefined,
+    readDocument: async (repo, path) => (repo === null && path === 'docs/requirements.md' ? swapped : undefined),
+    repositories: () => [],
+    documentEntity: (_repo, _path, line) => byLine.get(line),
+    documentEntityById: (_repo, _path, stableId) => byIdentity.get(stableId),
+  });
+  const placeOrder = second.entities.find((entity) => entity.text.includes('A signed-in shopper'))!;
+  const pay = second.entities.find((entity) => entity.text.includes('Checkout asks payments'))!;
+
+  test('a ground written as a source anchor opens the passage the document gives that anchor now', () => {
+    // `uc-1` is the Pay passage now, because the number moved with its alias and the identity followed the content.
+    expect([placeOrder.anchor, pay.anchor]).toEqual(['uc-2', 'uc-1']);
+    return expect(resolver.resolve('madarch:doc:docs/requirements.md#uc-1')).resolves.toMatchObject({ state: 'ok', entity: pay.id });
+  });
+
+  test('a page id opens the passage its durable identity names, whatever anchor it stands at now', async () => {
+    expect(placeOrder.id).toBe('doc:docs/requirements.md#doc-section:1');
+    expect(await resolver.resolve(placeOrder.id.replace(/^doc:/, 'madarch:doc:'))).toMatchObject({ state: 'ok', entity: placeOrder.id });
+  });
+
+  test('an anchor the document no longer has is a broken section, never a fallback to an old identity', async () => {
+    const gone = await resolver.resolve('madarch:doc:docs/requirements.md#uc-9');
+    expect(gone).toMatchObject({ state: 'broken', why: { code: 'no-section', anchor: 'uc-9' } });
   });
 });

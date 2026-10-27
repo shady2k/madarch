@@ -26,7 +26,7 @@ import { byCodePoint } from '../model/order.js';
 import { anchorExtent, anchorsOfTree, identifierOf, slugOf } from './anchors.js';
 import { assignIdentities, documentKey, type DocIdentities, type DocumentIdentities, type SectionIdentity } from './doc-identities.js';
 import { boldLead, leadText, openingParagraph, readDocTree, sectionBlocks, type DocNode, type DocSection, type DocumentSource } from './doc-tree.js';
-import { globToRegExp, type Finding, type KindDecl, type KindsManifest } from './kinds.js';
+import { globToRegExp, type Finding, type FindingKind, type KindDecl, type KindsManifest } from './kinds.js';
 import { normaliseHeading, type PassageRequest, type PassageReading, type SemanticClassifier, type SemanticKind } from './semantics.js';
 
 export type { DocumentSource } from './doc-tree.js';
@@ -97,6 +97,15 @@ interface Candidate {
   headingPath: string[];
 }
 
+const DIGIT = (code: number): boolean => code >= 0x30 && code <= 0x39;
+
+/** A passage's own words, quoted for a finding: shortened to 140 characters, never paraphrased. */
+function quote(words: string): string {
+  const characters = [...words];
+  const cut = characters.length <= 140 ? words : `${characters.slice(0, 139).join('')}…`;
+  return `«${cut}»`;
+}
+
 /** The trimming every title and body does, by character: marks and separators are dropped, never a word. */
 function trimStart(text: string): string {
   let at = 0;
@@ -126,7 +135,7 @@ function flat(text: string): string {
     if (space && (collapsed === '' || collapsed.endsWith(' '))) continue;
     collapsed += space ? ' ' : char;
   }
-  return collapsed.replace(/\s+$/, '');
+  return collapsed.trimEnd();
 }
 
 /** The name after an identifier: `UC-2 Pay.` gives `Pay`, `ADR-0001: Kafka is the broker` gives `Kafka is the broker`. */
@@ -144,7 +153,7 @@ function firstWords(text: string): string {
     const after = plain[at + 1];
     if (after !== undefined && after !== ' ') continue;
     // A full stop between two digits is a decimal point, not the end of a sentence.
-    if (char === '.' && /\d/.test(plain[at - 1] ?? '') && /\d/.test(after ?? '')) continue;
+    if (char === '.' && DIGIT((plain[at - 1] ?? ' ').codePointAt(0)!) && DIGIT((after ?? ' ').codePointAt(0)!)) continue;
     return trimEnd(plain.slice(0, at)).trim();
   }
   return trimEnd(plain).trim();
@@ -154,8 +163,8 @@ function firstWords(text: string): string {
 function bodyOf(block: DocNode): string {
   if (block.type !== 'listItem') return block.raw.trim();
   const paragraph = openingParagraph(block);
-  if (paragraph === undefined) return block.children.map((child) => child.raw.replace(/\s+$/, '')).join('\n').trim();
-  const rest = block.children.filter((child) => child !== paragraph).map((child) => child.raw.replace(/\s+$/, ''));
+  if (paragraph === undefined) return block.children.map((child) => child.raw.trimEnd()).join('\n').trim();
+  const rest = block.children.filter((child) => child !== paragraph).map((child) => child.raw.trimEnd());
   const bold = boldLead(block);
   const first = bold === undefined ? trimStart(paragraph.raw) : trimStart(paragraph.raw.slice(bold.endOffset - paragraph.startOffset));
   return [first, ...rest].join('\n').trim();
@@ -201,7 +210,7 @@ export function readDocEntities(sources: readonly DocumentSource[], manifest: Ki
     const key = documentKey(source.repo, source.path);
     const where = source.repo === null ? source.path : `repos/${source.repo}/${source.path}`;
     // Every diagnostic of this document names both places it stands in: the identity a reader navigates by and the file.
-    const report = (line: number, message: string): void => { findings.push({ file: where, line, message, ...(source.origin === undefined ? {} : { source: source.origin }) }); };
+    const report = (line: number, message: string, kind?: FindingKind): void => { findings.push({ file: where, line, message, ...(kind === undefined ? {} : { kind }), ...(source.origin === undefined ? {} : { source: source.origin }) }); };
     const tree = readDocTree(source);
     findings.push(...tree.findings);
     const reading = anchorsOfTree(tree);
@@ -276,7 +285,7 @@ export function readDocEntities(sources: readonly DocumentSource[], manifest: Ki
         // The passages of one block: the first keeps the block's own anchor, each later one its place in the block.
         const places = new Map<DocNode, number>();
         if (readings.length === 0) {
-          report(section.line, 'no classifier has read this section yet, so what it means is not shown: the manifest declares no kind for it, and this is said rather than dropped');
+          report(section.line, 'no classifier has read this section yet, so what it means is not shown: the manifest declares no kind for it, and this is said rather than dropped', 'unread-passage');
           continue;
         }
         for (const passage of readings) {
@@ -304,13 +313,13 @@ export function readDocEntities(sources: readonly DocumentSource[], manifest: Ki
           }
           candidates.push({ kind, semantics: passage.kind, pass: 'classifier', anchor, title: place === 1 ? titleOf(block, identifier) : firstWords(span.text), identifier: place === 1 ? identifier : null, line: span.line, endLine: span.endLine, text: span.text, headingPath: [...section.headingPath] });
         }
-        for (const block of pending) if (!places.has(block)) report(block.line, `the classifier read no meaning of this ${block.type === 'listItem' ? 'list item' : 'paragraph'}, so no page shows it: this is said rather than dropped`);
+        for (const block of pending) if (!places.has(block)) report(block.line, `the classifier read no meaning of this passage, so no page shows it: ${quote(firstWords(leadText(block)))}`, 'unread-passage');
       } else if (pending.length > 0) {
-        // Without a classifier, a passage the document numbers and no kind of the manifest takes is said: the wiki never
-        // shows a smaller picture of the documents than they hold (madarch-ztyq.3, the review of finding 5).
+        // Without a classifier every passage the first two passes left is said, with its own words: the wiki shows what
+        // it could not decide instead of a smaller picture of the documents (madarch-ztyq.3, the review of finding 5).
         for (const block of pending) {
-          const identifier = identifierOf(leadText(block));
-          if (identifier !== null) report(block.line, `the identifier ${identifier} opens this passage and the manifest declares no kind that takes it: no page shows it`);
+          const words = firstWords(leadText(block));
+          report(block.line, `no kind of the manifest and no classifier read this passage, so no page shows it: ${quote(words)}`, 'unread-passage');
         }
       }
     }

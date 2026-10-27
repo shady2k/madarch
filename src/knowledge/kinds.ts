@@ -37,11 +37,16 @@ import { BLOCK_NAMES } from './template.js';
 export const KINDS_FILE = 'madarch/kinds.yaml';
 
 /** One problem in a product file the wiki reads: where it is and what it is. */
+/** What kind of problem a finding is, for the Problems page: a file that cannot be read, or a passage no reader decided. */
+export type FindingKind = 'unreadable-file' | 'unread-passage';
+
 export interface Finding {
   /** Where the problem stands, as the reader knows it: the product's path, or `repos/<repository>/<path>` in a code repository. */
   file: string;
   line: number;
   message: string;
+  /** The kind of problem; a file that cannot be read when the finding does not say. */
+  kind?: FindingKind;
   /**
    * The file's place on disk, when the reader knows it: a diagnostic names both the identity a reader navigates by
    * (`file`) and the absolute path a person opens (madarch-ztyq.3, the review of finding 8). A finding whose place is

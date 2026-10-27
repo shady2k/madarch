@@ -333,6 +333,21 @@ describe('the loop, from the first question to a translation', () => {
     expect(plan.plan.pages.map((p) => [p.path, p.reasons.map((r) => r.kind)])).toEqual([['docs/domains/pricing.md', ['ground-removed']]]);
   }, 300_000);
 
+  test('a passage no reader decided is a problem the agent fixes, and it names both the identity and the file on this machine', async () => {
+    // A document finding carries the kind a reader acts on and the file's place on disk (madarch-ztyq.3, the review of
+    // finding 8): the Problems page must show both, so a person can open the file and know which passage it is about.
+    const listing = await listProblems({
+      productFolder, owner, findings: [
+        { file: 'repos/training/docs/notes.md', line: 4, message: 'no kind of the manifest and no classifier read this passage, so no page shows it: «Rows are read in the order they were written»', kind: 'unread-passage', source: '/srv/checkouts/training/docs/notes.md' },
+        { file: 'docs/domains/pricing.md', line: 2, message: 'the file cannot be read', source: '/srv/products/shop/docs/domains/pricing.md' },
+      ],
+      resolve: async (url) => ({ state: 'ok', target: url, kind: 'document', label: url, href: null }),
+    });
+    const byFile = new Map(listing.problems.map((problem) => [problem.file, problem]));
+    expect(byFile.get('repos/training/docs/notes.md')).toMatchObject({ kind: 'unread-passage', fixer: 'agent', line: 4, source: '/srv/checkouts/training/docs/notes.md' });
+    expect(byFile.get('docs/domains/pricing.md')).toMatchObject({ kind: 'unreadable-file', fixer: 'person', line: 2, source: '/srv/products/shop/docs/domains/pricing.md' });
+  }, 120_000);
+
   test('a change of language is a translation of every page, with the page in front of the unit and the names kept', async () => {
     seen.length = 0;
     const russian: Record<string, string> = {

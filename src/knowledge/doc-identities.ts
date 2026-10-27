@@ -68,6 +68,15 @@ export function textDigest(text: string): string {
   return sha256Hex(new TextEncoder().encode(collapsed.trim())).slice(0, 32);
 }
 
+/**
+ * The name a new section is given: the document's counter. It holds a colon, which no heading slug and no block anchor
+ * can spell, so a page id and a source anchor are two kinds of reference that never collide; and the counter only moves
+ * forward, so a retired name is never given to another section (madarch-ztyq.3, the review of findings A and B).
+ */
+export function identityName(sequence: number): string {
+  return `doc-section:${String(sequence)}`;
+}
+
 /** The indexes of one value in a list, so a digest or an anchor claimed by several sections is told apart. */
 function group<T>(entries: readonly T[], key: (entry: T) => string): Map<string, number[]> {
   const grouped = new Map<string, number[]>();
@@ -113,21 +122,14 @@ export function assignIdentities(key: string, sections: readonly SectionIdentity
     used.add(old[0]!);
     ids[indexes[0]!] = held[old[0]!]!.id;
   }
-  // 3. A new section: a name of its own — the anchor it stands at, or that anchor and the first number no identity holds.
-  const taken = new Set<string>(held.map((entry) => entry.id));
-  for (const id of ids) if (id !== undefined) taken.add(id);
-  let sequence = Math.max(previous?.nextSequence ?? 0, held.length);
+  // 3. A new section: the next name of the document's counter, which no section ever had before. The counter never goes
+  // back, so a section that is removed and written again is a new page, never the page of the one that was deleted, and
+  // a name holds a colon no heading slug can spell, so a page id is never mistaken for a source anchor (finding B).
+  let sequence = previous?.nextSequence ?? 0;
   sections.forEach((section, index) => {
     if (ids[index] !== undefined) return;
-    let name = section.anchor;
-    let attempt = 2;
-    while (name === '' || taken.has(name)) {
-      name = section.anchor === '' ? `section-${String(sequence + attempt)}` : `${section.anchor}-${String(attempt)}`;
-      attempt += 1;
-    }
-    taken.add(name);
     sequence += 1;
-    ids[index] = name;
+    ids[index] = identityName(sequence);
   });
   return {
     ids: ids.map((id) => id!),

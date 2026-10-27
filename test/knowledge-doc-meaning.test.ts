@@ -131,7 +131,9 @@ describe('the training product\'s documents, read by meaning', () => {
     expect(qualities.map((entity) => [entity.anchor, entity.line, entity.endLine])).toEqual([['qualities.1', 47, 48], ['qualities.2', 49, 50]]);
     expect(qualities.map((entity) => [entity.pass, entity.semantics, entity.identifier])).toEqual([['structure', 'quality', null], ['structure', 'quality', null]]);
     expect(qualities[0]!.text).toContain('a payment call that does not answer');
-    expect(qualities[0]!.id).toBe(docEntityId('training', 'docs/requirements.md', 'qualities.1'));
+    // The page id names the passage's durable identity (a counter name), never the anchor a heading may change.
+    expect(qualities[0]!.stableId).toMatch(/^doc-section:[0-9]+$/);
+    expect(qualities[0]!.id).toBe(docEntityId('training', 'docs/requirements.md', qualities[0]!.stableId));
     // The anchors are the ones the one anchor reader names, so a ground to either of them opens the entity's page.
     const lines = anchorLines(requirements.text);
     for (const entity of qualities) expect(lines.get(entity.anchor)).toBe(entity.line);
@@ -243,7 +245,7 @@ describe('the three passes, each recording which one decided', () => {
     expect([movedStory.line, movedStory.text]).toEqual([5, 'A shopper pays by card.']);
     // The passage no answer covers is said, not dropped: a host that filled half the section cannot shrink the wiki silently.
     expect(held.findings.map((finding) => [finding.file, finding.line])).toEqual([['docs/stories.md', 5]]);
-    expect(held.findings[0]!.message).toContain('the classifier read no meaning of this paragraph');
+    expect(held.findings[0]!.message).toContain('the classifier read no meaning of this passage');
     // A store that cannot be read is a finding naming the file and the line, never an answer nobody wrote.
     writeFileSync(store, '{ not json\n');
     expect(readClassificationStore(store).findings).toEqual([{ file: store, line: 1, message: expect.stringContaining('not valid JSON') }]);
@@ -264,14 +266,19 @@ describe('the passages of one section are decided one by one', () => {
     expect(read.findings).toEqual([]);
   });
 
-  test('a passage the document numbers and the manifest takes no kind for is a finding at its line, never a passage that disappears', () => {
-    const text = '# Notes\n\n- **BR-1 Discount.** A discount is taken off each line.\n- **ZZ-9 Loyalty points.** Points are added after a paid order.\n';
+  test('every passage no pass could decide is a finding of its own, with its own words, when no classifier is wired', () => {
+    const text = '# Notes\n\n- **BR-1 Discount.** A discount is taken off each line.\n- **ZZ-9 Loyalty points.** Points are added after a paid order.\n- Rows are read in the order they were written.\n';
     // `ZZ` is no prefix of this manifest, the heading is none the manifest declares, and without a classifier nothing can
-    // read the passage: the wiki says so rather than showing a smaller document.
+    // read the two passages: each is said with its own words rather than left out of a smaller document (madarch-ztyq.3,
+    // the review of finding 5).
     const manifest = parse(['kinds:', '  doc.rule: { template: templates/x.md, source: document, identifier: BR, semantics: rule, headings: [Business rules] }']);
-    const read = readDocEntities([{ repo: null, path: 'docs/rules.md', text }], manifest);
+    const read = readDocEntities([{ repo: 'shop', path: 'docs/rules.md', text, origin: '/srv/checkouts/shop/docs/rules.md' }], manifest);
     expect(read.entities.map((entity) => [entity.pass, entity.anchor])).toEqual([['metadata', 'br-1']]);
-    expect(read.findings.map((finding) => [finding.line, finding.message])).toEqual([[4, expect.stringContaining('the identifier ZZ-9 opens this passage and the manifest declares no kind that takes it')]]);
+    expect(read.findings.map((finding) => [finding.kind, finding.line])).toEqual([['unread-passage', 4], ['unread-passage', 5]]);
+    expect(read.findings.map((finding) => [finding.file, finding.source])).toEqual([['repos/shop/docs/rules.md', '/srv/checkouts/shop/docs/rules.md'], ['repos/shop/docs/rules.md', '/srv/checkouts/shop/docs/rules.md']]);
+    expect(read.findings[0]!.message).toContain('no kind of the manifest and no classifier read this passage');
+    expect(read.findings[0]!.message).toContain('«ZZ-9 Loyalty points»');
+    expect(read.findings[1]!.message).toContain('«Rows are read in the order they were written»');
   }, 60_000);
 
   test('two meanings in one paragraph are two entities, each with its own anchor and the words the reading named', () => {
@@ -360,16 +367,29 @@ describe('a number is an alias, never the identity', () => {
     expect(first.entities.map((entity) => entity.stableId)).not.toContain(added.stableId);
   });
 
-  test('an edited section keeps its identity through its anchor, and a deleted one is not given to the section that takes its place', () => {
+  test('an edited section keeps its identity through its anchor, and a removed one is never given to the section that follows it', () => {
     const key = 'training/docs/requirements.md';
     const first = assignIdentities(key, [{ anchor: 'uc-1', kind: 'doc.use-case', title: 'UC-1 Place order', text: 'The shopper places an order.' }], undefined);
-    expect(first.ids).toEqual(['uc-1']);
+    expect(first.ids).toEqual(['doc-section:1']);
     const edited = assignIdentities(key, [{ anchor: 'uc-1', kind: 'doc.use-case', title: 'UC-1 Place an order', text: 'The shopper places an order, again.' }], first.next);
     expect(edited.ids).toEqual(first.ids);
-    // The section that took the deleted one's anchor by number is a new section: its text is new, so it is new.
     const replaced = assignIdentities(key, [{ anchor: 'uc-9', kind: 'doc.use-case', title: 'UC-9 Something else', text: 'Something else entirely.' }], first.next);
-    expect(replaced.ids).toEqual(['uc-9']);
+    expect(replaced.ids).toEqual(['doc-section:2']);
     expect(replaced.ids).not.toEqual(first.ids);
+  });
+
+  test('a passage removed and written again keeps its old page for nobody: the counter never hands a retired name to another', () => {
+    // Read UC-1, then read the document without it, then read a document that writes an unrelated UC-1 again. Under a
+    // name taken from the anchor, the third read would mint `uc-1` again and every old link would open a stranger
+    // (madarch-ztyq.3, the review of finding B).
+    const key = 'training/docs/requirements.md';
+    const one = assignIdentities(key, [{ anchor: 'uc-1', kind: 'doc.use-case', title: 'UC-1 Place order', text: 'The shopper places an order.' }], undefined);
+    const empty = assignIdentities(key, [], one.next);
+    expect(empty.ids).toEqual([]);
+    expect(empty.next.nextSequence).toBe(one.next.nextSequence);
+    const again = assignIdentities(key, [{ anchor: 'uc-1', kind: 'doc.use-case', title: 'UC-1 Something else', text: 'An unrelated passage that now carries the same number.' }], empty.next);
+    expect(again.ids).toEqual(['doc-section:2']);
+    expect(again.ids[0]).not.toBe(one.ids[0]);
   });
 
   test('a document read with no identities beside it is read again with new ones, and the same text gives the same digest', () => {

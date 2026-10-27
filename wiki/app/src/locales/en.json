@@ -627,14 +627,16 @@
       "ground-removed": "A statement stands on something that is gone",
       "broken-link": "A link or ground names nothing",
       "unreadable-file": "A file cannot be read",
-      "unplaced": "An answer or correction reaches no page"
+      "unplaced": "An answer or correction reaches no page",
+      "unread-passage": "A passage no reader decided"
     },
     "because": {
       "correction": "Why:",
       "ground-removed": "What happened:",
       "broken-link": "What the wiki found:",
       "unreadable-file": "What is wrong:",
-      "unplaced": "What is wrong:"
+      "unplaced": "What is wrong:",
+      "unread-passage": "What the wiki could not read:"
     },
     "fixer": {
       "agent": "The agent fixes it",
@@ -645,7 +647,8 @@
       "ground-removed": "The agent fixes it at the next refresh: it grounds the sentence on something that still exists, or drops it.",
       "broken-link": "The agent fixes it at the next refresh, when it edits this page.",
       "unreadable-file": "A person fixes it: open the file at the line shown and correct it; the wiki reads it again at once.",
-      "unplaced": "A person fixes it: name a page in the file's \"about\", or add the page."
+      "unplaced": "A person fixes it: name a page in the file's \"about\", or add the page.",
+      "unread-passage": "The agent reads it at the next fill: it classifies the passage, or the document’s manifest names the kind it is."
     },
     "plan": {
       "title": "What the refresh will do",

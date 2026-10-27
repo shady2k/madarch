@@ -311,7 +311,8 @@ describe('one press with an agent chosen', () => {
     expect(readFileSync(join(home, 'tiny', 'madarch', 'kinds.yaml'), 'utf8')).toContain('language: ru');
     const done = await until('the Russian run', async () => (await get('/api/k/status')).body, (value) => value.language === 'ru' && value.writer.state === 'done' && value.fill.state === 'done');
     expect(done.writer.units.map((unit: { state: string }) => unit.state)).toEqual(['written', 'written', 'written', 'not-written', 'written', 'written']);
-    const skipped = done.writer.units.find((unit: { unit: string }) => unit.unit === 'localized-source:doc:docs/glossary.md#x');
+    // The second glossary term says `X.` alone, which no language is read from: its unit is the one left unwritten.
+    const skipped = done.writer.units.find((unit: { unit: string; state: string }) => unit.unit.startsWith('localized-source:doc:docs/glossary.md#') && unit.state === 'not-written');
     expect(skipped).toMatchObject({ state: 'not-written', refusals: [{ rule: 'source-language' }] });
     expect(seen).toEqual(['product:tiny', 'domain:numbers', expect.stringMatching(/^localized-source:doc:docs\/glossary\.md#/), 'administrator-guide:main', 'user-guide:main']);
     expect(prompts.filter((_, index) => !seen[index]!.startsWith('localized-source:') && !seen[index]!.endsWith('-guide:main')).every((prompt) => prompt.includes('Write every sentence and every heading of the page, and its title, in Russian'))).toBe(true);
@@ -322,10 +323,11 @@ describe('one press with an agent chosen', () => {
       expect(page.body.blocks.find((block: { type: string }) => block.type === 'guide').data.guide.locale).toBe('ru');
     }
     expect(readFileSync(join(home, 'tiny', 'docs', 'domains', 'numbers.md'), 'utf8')).toContain('Как считаются числа');
-    const localizedPath = join(home, 'tiny', 'docs', 'sources', 'doc.term', createHash('sha256').update('doc:docs/glossary.md#tiny-account').digest('hex') + '.md');
-    expect(readFileSync(localizedPath, 'utf8')).toContain('Счет, в котором хранится результат завершенного вычисления.');
     const glossary = await get('/api/k/glossary');
     const localizedTerm = glossary.body.terms.find((term: { title: string }) => term.title === 'Tiny account');
+    // The file a localized source is kept in is named by the entity's durable identity, which the page id also names.
+    const localizedPath = join(home, 'tiny', 'docs', 'sources', 'doc.term', createHash('sha256').update(localizedTerm.id).digest('hex') + '.md');
+    expect(readFileSync(localizedPath, 'utf8')).toContain('Счет, в котором хранится результат завершенного вычисления.');
     expect(localizedTerm.definition).toBe('Счет, в котором хранится результат завершенного вычисления.');
     expect(localizedTerm.source).toMatchObject({ original: expect.stringContaining('An account that holds'), document: 'docs/glossary.md' });
     const entityPage = await get(`/api/k/page?id=${encodeURIComponent(localizedTerm.id)}`);
@@ -337,7 +339,7 @@ describe('one press with an agent chosen', () => {
     const invalidGlossary = await get('/api/k/glossary');
     const invalidTerm = invalidGlossary.body.terms.find((term: { title: string }) => term.title === 'Tiny account');
     expect(invalidTerm.definition).toBe('');
-    expect(invalidGlossary.body.findings.some((finding: { file: string; line: number }) => finding.file === 'docs/sources/doc.term/' + createHash('sha256').update('doc:docs/glossary.md#tiny-account').digest('hex') + '.md' && finding.line > 0)).toBe(true);
+    expect(invalidGlossary.body.findings.some((finding: { file: string; line: number }) => finding.file === 'docs/sources/doc.term/' + createHash('sha256').update(localizedTerm.id).digest('hex') + '.md' && finding.line > 0)).toBe(true);
   }, 120_000);
 
   test('a unit the writer refused is shown with its line and rule', async () => {

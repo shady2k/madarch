@@ -158,7 +158,8 @@ describe('the one press', () => {
     expect(requirements.body.anchors['uc-2']).toBeGreaterThan(0);
     const ground = (homePage.body.resolutions as Record<string, { state: string; href: string | null }>)['madarch:doc:docs/requirements.md#uc-2'];
     // The section is a use case of the manifest's document kind: its ground opens the entity's page.
-    expect(ground?.href).toBe(`/k/e/${encodeURIComponent('doc:@training-shop/docs/requirements.md#uc-2')}`);
+    // The page id names the passage's durable identity (the second passage of the document), never the anchor.
+    expect(ground?.href).toBe(`/k/e/${encodeURIComponent('doc:@training-shop/docs/requirements.md#doc-section:2')}`);
 
     // The same press with the language of the pages changed asks the agent in Russian and writes every page again.
     const russian = await post('api/k/fill', { agent: 'claude-code', language: 'ru' });
@@ -201,13 +202,13 @@ describe('the one press', () => {
       expect(term.source.document).toBe('docs/glossary.md');
       expect(term.single).toBe(true);
     }
-    for (const [title, path, anchor] of [
-      ['UC-2 Pay', 'docs/requirements.md', 'uc-2'],
-      ['BR-1 Discount', 'docs/requirements.md', 'br-1'],
-      ['ADR-0001 Kafka is the broker', 'docs/adr/0001-broker.md', 'adr-0001'],
-      ['ADR-0002 Events leave through a transactional outbox', 'docs/adr/0002-outbox.md', 'adr-0002'],
+    for (const [title, path, passage] of [
+      ['UC-2 Pay', 'docs/requirements.md', 'doc-section:2'],
+      ['BR-1 Discount', 'docs/requirements.md', 'doc-section:5'],
+      ['ADR-0001 Kafka is the broker', 'docs/adr/0001-broker.md', 'doc-section:1'],
+      ['ADR-0002 Events leave through a transactional outbox', 'docs/adr/0002-outbox.md', 'doc-section:1'],
     ] as const) {
-      const page = await pageOf(`doc:@training-shop/${path}#${anchor}`);
+      const page = await pageOf(`doc:@training-shop/${path}#${passage}`);
       expect(page.status).toBe(200);
       expect(page.body.title).toBe(title);
       const body = page.body.blocks.find((block: { type: string }) => block.type === 'body');

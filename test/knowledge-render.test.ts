@@ -394,7 +394,7 @@ describe('Markdown pages, links and grounds', () => {
 
 describe('a document entity\'s page', () => {
   test('its text links to the graph as the links resolve, its text names code that the page lists (a name the file does not hold is shown broken), and the document and line it is stated at are on the page', async () => {
-    const model = await page('doc:@shop/docs/handbook.md#uc-7');
+    const model = await page('doc:@shop/docs/handbook.md#doc-section:1');
     expect(model).toMatchObject({ kind: 'doc.use-case', title: 'UC-7 Pay' });
     expect(model.resolutions[`madarch:${CHARGE}`]).toMatchObject({ state: 'ok', label: 'charge' });
     expect(block(model, 'stated').place).toMatchObject({ repo: 'shop', path: 'docs/handbook.md', lineStart: 9 });
@@ -408,7 +408,7 @@ describe('a document entity\'s page', () => {
   });
 
   test('a ground that names the section opens the entity\'s page, and the section\'s own anchor and a heading anchor behave as before', async () => {
-    expect(await ctx.resolver.resolve('madarch:doc:docs/handbook.md#uc-7')).toMatchObject({ state: 'ok', kind: 'doc.use-case', href: `/k/e/${encodeURIComponent('doc:@shop/docs/handbook.md#uc-7')}` });
+    expect(await ctx.resolver.resolve('madarch:doc:docs/handbook.md#uc-7')).toMatchObject({ state: 'ok', kind: 'doc.use-case', href: `/k/e/${encodeURIComponent('doc:@shop/docs/handbook.md#doc-section:1')}` });
     expect(await ctx.resolver.resolve('madarch:doc:docs/handbook.md#money')).toMatchObject({ state: 'ok', kind: 'document', href: '/k/doc?repo=shop&path=docs%2Fhandbook.md#money' });
   });
 });

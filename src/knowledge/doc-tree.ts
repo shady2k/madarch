@@ -106,6 +106,17 @@ function plainOf(node: RawNode): string {
   return node.value ?? '';
 }
 
+/** The line a YAML error message names ("... at line 3, column 5"), read by scanning the message, or 2 when it names none. */
+function yamlErrorLine(message: string): number {
+  const marker = 'at line ';
+  const at = message.indexOf(marker);
+  if (at < 0) return 2;
+  let cursor = at + marker.length;
+  let digits = '';
+  while (cursor < message.length && message[cursor]! >= '0' && message[cursor]! <= '9') { digits += message[cursor]!; cursor += 1; }
+  return digits === '' ? 2 : 1 + Number(digits);
+}
+
 /** The document with its front matter blanked, so every other line keeps its number and its offset. */
 function maskFrontMatter(text: string, bodyLine: number): string {
   const lines = text.split('\n');
@@ -141,8 +152,7 @@ export function readDocTree(source: DocumentSource): DocTree {
       if (value !== null && typeof value === 'object' && !Array.isArray(value)) meta = value as Record<string, unknown>;
       else findings.push(stand(2, 'the front matter is a mapping of fields, and it is read as none'));
     } catch (error) {
-      const at = /at line (\d+)/.exec((error as Error).message);
-      findings.push(stand(at === null ? 2 : 1 + Number(at[1]), `the front matter is not valid YAML and is read as none: ${(error as Error).message.split('\n')[0]}`));
+      findings.push(stand(yamlErrorLine((error as Error).message), `the front matter is not valid YAML and is read as none: ${(error as Error).message.split('\n')[0]}`));
     }
   }
   const text = front === null ? source.text : maskFrontMatter(source.text, bodyLine);
