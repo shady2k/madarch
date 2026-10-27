@@ -197,8 +197,10 @@ function extractTextMetrics(t: TreeText, records: Records, view: CodeFactView, e
   const contains = (outer: import('../records.js').SourceSpan, inner: import('../records.js').SourceSpan): boolean =>
     outer.path === inner.path && outer.byteStart <= inner.byteStart && inner.byteEnd <= outer.byteEnd;
   const unique = <T>(items: readonly T[]): T | undefined => items.length === 1 ? items[0] : undefined;
+  // The view indexes expressions by id once, so every answer below reads the
+  // index: the group stays an array, so two entries under one id still refuse.
   const expression = (id: string): CodeExpressionFact | undefined => {
-    const value = unique(facts.expressions.filter((entry) => entry.id === id));
+    const value = unique(t.expressionsById.all(id));
     return value !== undefined && value.path === value.span.path && facts.files.some((file) => file.path === value.path && file.language === 'go' && file.parsed) ? value : undefined;
   };
   const field = (value: CodeExpressionFact, name: string): CodeExpressionFact | undefined => {
@@ -217,7 +219,7 @@ function extractTextMetrics(t: TreeText, records: Records, view: CodeFactView, e
     return unique(metricSemanticModels.filter((model) => model.package === imported.specifier && model.exportedPath.length === 1 && model.exportedPath[0] === type.member));
   };
   const checkedCall = (id: string) => {
-    const value = expression(id); const call = unique(facts.calls.filter((entry) => entry.expression === id));
+    const value = expression(id); const call = unique(t.callsByExpression.all(id));
     if (value === undefined || call === undefined || value.syntaxKind !== 'call_expression' || call.path !== value.path ||
       !contains(value.span, call.span) || !contains(call.span, value.span) || value.callee !== call.callee || !value.children.includes(call.callee) ||
       JSON.stringify(value.arguments ?? []) !== JSON.stringify(call.arguments) || call.arguments.some((id) => {

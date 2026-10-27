@@ -6,7 +6,7 @@
 import type { Extraction, SourceSpan, TreeReader } from '../records.js';
 import { byCodePoint } from '../../model/order.js';
 import type {
-  CodeBindingFact, CodeExpressionFact, CodeFactId, CodeFacts, CodeFileFact, CodeImportFact, CodeSymbolFact,
+  CodeBindingFact, CodeCallFact, CodeExpressionFact, CodeFactId, CodeFacts, CodeFileFact, CodeImportFact, CodeSymbolFact,
 } from '../code/facts.js';
 import {codeFactsOf} from '../code/index.js';
 import { evaluateLibraryModels } from '../library-models/evaluate.js';
@@ -82,12 +82,13 @@ export class TreeText {
   /**
    * The view's immutable fact indexes, built once for this view and never
    * shared with another one: expressions by path and by id, child ids by their
-   * parent's id, bindings by id and by initializer, symbols by path and by key,
-   * imports by path and files by path.
+   * parent's id, calls by their call expression, bindings by id and by
+   * initializer, symbols by path and by key, imports by path and files by path.
    */
   readonly expressionsByPath: FactIndex<CodeExpressionFact>;
   readonly expressionsById: FactIndex<CodeExpressionFact>;
   readonly childrenByParent: FactIndex<CodeFactId>;
+  readonly callsByExpression: FactIndex<CodeCallFact>;
   readonly bindingsById: FactIndex<CodeBindingFact>;
   readonly bindingsByInitializer: FactIndex<CodeBindingFact>;
   readonly symbolsByPath: FactIndex<CodeSymbolFact>;
@@ -108,6 +109,7 @@ export class TreeText {
     this.expressionsById = groupedBy(this.facts?.expressions, (expression) => expression.id);
     this.childrenByParent = new FactIndex((this.facts?.expressions ?? []).flatMap((expression) =>
       expression.children.map((child) => [expression.id, child] as const)));
+    this.callsByExpression = groupedBy(this.facts?.calls, (call) => call.expression);
     this.bindingsById = groupedBy(this.facts?.bindings, (binding) => binding.id);
     this.bindingsByInitializer = groupedBy((this.facts?.bindings ?? []).filter((binding) => binding.initializer !== undefined),
       (binding) => binding.initializer!);
