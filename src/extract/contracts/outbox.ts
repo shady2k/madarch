@@ -1,6 +1,6 @@
 /** Bounded outbox inference over copied code facts and PostgreSQL syntax trees. */
 import {parsePostgres, type ParseResult} from '../../parsers/postgres.js';
-import type {CodeCallFact, CodeExpressionFact, CodeFacts} from '../code/facts.js';
+import type {CodeBindingFact, CodeCallFact, CodeExpressionFact, CodeFacts} from '../code/facts.js';
 import type {Extraction, ExtractionGap, SourceSpan} from '../records.js';
 
 import {outboxModels} from '../library-models/outbox-models.js';
@@ -88,6 +88,8 @@ export async function inferOutboxPublications(
     return new Map([...grouped].flatMap(([key, values]) => values.length === 1 ? [[key, values[0]!] as const] : []));
   };
   const expressions = index(facts.expressions, node => node.id); const bindings = index(facts.bindings, binding => binding.id);
+  /** The same expressions the map holds, in facts order: one array for the passes that walk all of them. */
+  const expressionList = [...expressions.values()];
   const parsedPaths = new Set(facts.files.filter(file => file.parsed).map(file => file.path));
   const expr = (id: string | undefined): CodeExpressionFact | undefined => { const held = id === undefined ? undefined : expressions.get(id); return held !== undefined && held.path === held.span.path && parsedPaths.has(held.path) ? held : undefined; };
   const children = (node: CodeExpressionFact): CodeExpressionFact[] => node.children.flatMap(id => { const held = expr(id); return held !== undefined && contains(node.span, held.span) && held.syntaxKind !== 'comment' ? [held] : []; });
@@ -102,14 +104,37 @@ export async function inferOutboxPublications(
   const calls = facts.calls.filter(call => {
     const node = expr(call.expression); return node !== undefined && same(node.span, call.span) && node.callee === call.callee && JSON.stringify(node.arguments ?? []) === JSON.stringify(call.arguments);
   });
-  const holder = (span: SourceSpan): string | undefined => one(calls.filter(call => same(call.span, span)))?.holder;
+  // What these walks ask over and over, indexed once (madarch-mwhd.3's profile: `targets` alone was
+  // 41.5 % of one fill's samples). Each answer is the one its scan gave, "exactly one" included, and
+  // every group keeps the order the facts hold.
+  const spanKey = (span: SourceSpan): string => JSON.stringify([span.path, span.byteStart, span.byteEnd]);
+  const callSites = new Map<string, {to: string; fanOut: readonly string[]; span: SourceSpan}[]>();
+  for (const site of facts.sites) if (site.use === 'call') { const held = callSites.get(site.holder) ?? []; held.push({to: site.to, fanOut: site.fanOut, span: site.span}); callSites.set(site.holder, held); }
+  const callEdges = new Set<string>();
+  for (const edge of code.edges) if (edge.type === 'code.calls') callEdges.add(JSON.stringify([edge.from, edge.to]));
+  const bindingsByInitializer = new Map<string, CodeBindingFact[]>();
+  for (const binding of facts.bindings) if (binding.initializer !== undefined) { const held = bindingsByInitializer.get(binding.initializer) ?? []; held.push(binding); bindingsByInitializer.set(binding.initializer, held); }
+  const callsByHolder = new Map<string, CodeCallFact[]>();
+  const callsBySpan = new Map<string, CodeCallFact[]>();
+  for (const call of calls) {
+    const held = callsByHolder.get(call.holder) ?? []; held.push(call); callsByHolder.set(call.holder, held);
+    const at = callsBySpan.get(spanKey(call.span)) ?? []; at.push(call); callsBySpan.set(spanKey(call.span), at);
+  }
+  const holder = (span: SourceSpan): string | undefined => one(callsBySpan.get(spanKey(span)) ?? [])?.holder;
+  /** What one call reaches depends on its callee expression and its holder, so one answer serves every call that shares them. */
+  const targetMemo = new Map<string, string[]>();
   const targets = (call: CodeCallFact): string[] => {
-    const callee = expr(call.callee); if (callee === undefined) return [];
-    const keys = facts.sites.filter(site => site.use === 'call' && site.holder === call.holder && contains(callee.span, site.span)).flatMap(site => [site.to, ...site.fanOut]);
-    return [...new Set(keys)].filter(key => code.edges.some(edge => edge.type === 'code.calls' && edge.from === call.holder && edge.to === key));
+    const asked = JSON.stringify([call.holder, call.callee]);
+    const held = targetMemo.get(asked); if (held !== undefined) return held;
+    const callee = expr(call.callee);
+    if (callee === undefined) { targetMemo.set(asked, []); return []; }
+    const keys = (callSites.get(call.holder) ?? []).filter(site => contains(callee.span, site.span)).flatMap(site => [site.to, ...site.fanOut]);
+    const reached = [...new Set(keys)].filter(key => callEdges.has(JSON.stringify([call.holder, key])));
+    targetMemo.set(asked, reached);
+    return reached;
   };
   const mutated = new Set<string>();
-  for (const node of expressions.values()) if (['assignment_expression', 'augmented_assignment_expression', 'assignment_statement', 'update_expression', 'inc_statement', 'dec_statement'].includes(node.syntaxKind)) {
+  for (const node of expressionList) if (['assignment_expression', 'augmented_assignment_expression', 'assignment_statement', 'update_expression', 'inc_statement', 'dec_statement'].includes(node.syntaxKind)) {
     const mark = (target: CodeExpressionFact): void => { if (target.bindingId !== undefined) mutated.add(target.bindingId); for (const child of children(target)) mark(child); };
     if (node.fields.left !== undefined) for (const id of node.fields.left) { const left = expr(id); if (left !== undefined) mark(left); } else mark(node);
   }
@@ -124,7 +149,7 @@ export async function inferOutboxPublications(
     return parent === undefined || node.member === undefined ? undefined : {binding: parent.binding, members: [...parent.members, node.member]};
   };
   /** A binding whose storage a pointer could share: any address-of of it or of one of its fields. */
-  const addressTaken = (binding: string, path: string, written?: SourceSpan): boolean => [...expressions.values()].some((node) => {
+  const addressTaken = (binding: string, path: string, written?: SourceSpan): boolean => expressionList.some((node) => {
     if (node.path !== path || node.syntaxKind !== 'unary_expression') return false;
     // The Scan call itself takes the row's fields by address to fill them: that
     // is the read this proof starts from, not another holder of the storage.
@@ -138,7 +163,7 @@ export async function inferOutboxPublications(
     const selected = projection(value);
     if (selected === undefined || after.path !== before.path || value.path !== before.path || after.byteEnd > before.byteStart) return false;
     const targets = (node: CodeExpressionFact): CodeExpressionFact[] => node.syntaxKind === 'expression_list' ? children(node).flatMap(targets) : [node];
-    return ![...expressions.values()].some(write => {
+    return !expressionList.some(write => {
       if (!writeKinds.has(write.syntaxKind) || write.path !== before.path || write.span.byteEnd <= after.byteEnd || write.span.byteStart >= before.byteStart) return false;
       const left = write.fields.left;
       const written = left === undefined ? children(write) : left.flatMap(id => {const held = expr(id); return held === undefined ? [] : [held];});
@@ -154,15 +179,27 @@ export async function inferOutboxPublications(
       });
     });
   };
+  // The parameters of one callable are asked for once per call that reaches it: answered once, in its order.
+  const parameterMemo = new Map<string, string[] | undefined>();
   const parameters = (key: string): string[] | undefined => {
-    const symbol = facts.symbols.find(symbol => symbol.key === key && symbol.callable); if (symbol === undefined) return undefined;
-    const fn = one(facts.expressions.filter(node => contains(symbol.span, node.span) && node.span.byteEnd === symbol.span.byteEnd && ['function_declaration', 'method_declaration', 'method_definition'].includes(node.syntaxKind)));
-    const params = fn === undefined ? undefined : field(fn, 'parameters'); if (params === undefined) return undefined;
-    return children(params).flatMap(param => [...(param.fields.name ?? []), ...(param.fields.pattern ?? [])].flatMap(id => { const name = expr(id); return name?.bindingId === undefined ? [] : [name.bindingId]; }));
+    if (parameterMemo.has(key)) return parameterMemo.get(key);
+    const symbol = facts.symbols.find(symbol => symbol.key === key && symbol.callable);
+    const fn = symbol === undefined ? undefined : one(expressionList.filter(node => contains(symbol.span, node.span) && node.span.byteEnd === symbol.span.byteEnd && ['function_declaration', 'method_declaration', 'method_definition'].includes(node.syntaxKind)));
+    const params = fn === undefined ? undefined : field(fn, 'parameters');
+    const answer = params === undefined ? undefined : children(params).flatMap(param => [...(param.fields.name ?? []), ...(param.fields.pattern ?? [])].flatMap(id => { const name = expr(id); return name?.bindingId === undefined ? [] : [name.bindingId]; }));
+    parameterMemo.set(key, answer);
+    return answer;
   };
-  const declarationOf = (id: string): CodeExpressionFact | undefined => one(facts.expressions.filter(node =>
-    ['parameter_declaration', 'variadic_parameter_declaration', 'var_spec', 'required_parameter', 'optional_parameter'].includes(node.syntaxKind) &&
-    [...(node.fields.name ?? []), ...(node.fields.pattern ?? [])].some(name => expr(name)?.bindingId === id)));
+  // One pass over the declarations that name a binding, instead of every expression per binding.
+  const declarationsOfBinding = new Map<string, CodeExpressionFact[]>();
+  for (const node of expressionList) {
+    if (!['parameter_declaration', 'variadic_parameter_declaration', 'var_spec', 'required_parameter', 'optional_parameter'].includes(node.syntaxKind)) continue;
+    for (const name of [...(node.fields.name ?? []), ...(node.fields.pattern ?? [])]) {
+      const binding = expr(name)?.bindingId; if (binding === undefined) continue;
+      const held = declarationsOfBinding.get(binding) ?? []; held.push(node); declarationsOfBinding.set(binding, held);
+    }
+  }
+  const declarationOf = (id: string): CodeExpressionFact | undefined => one(declarationsOfBinding.get(id) ?? []);
   const declaredField = (node: CodeExpressionFact) => {
     const member = field(node, 'field') ?? field(node, 'property');
     const key = member === undefined ? undefined : one(facts.sites.filter(site => site.use === 'reference' && same(site.span, member.span)).map(site => site.to));
@@ -289,13 +326,13 @@ export async function inferOutboxPublications(
     for (const read of queries) for (const select of read.shape.selects) {
       if (service(candidate.span.path) === undefined || service(candidate.span.path) !== service(read.call.path)) continue;
       // The scan receiver must be the binding initialized by this exact query.
-      const rowBindings = facts.bindings.filter(binding => binding.initializer === read.call.expression);
-      const scan = calls.filter(call => call.holder === read.call.holder && expr(call.callee)?.member === outboxModels.scan.member && rowBindings.some(binding => expr(expr(call.callee)?.receiver)?.bindingId === binding.id));
+      const rowBindings = bindingsByInitializer.get(read.call.expression) ?? [];
+      const scan = (callsByHolder.get(read.call.holder) ?? []).filter(call => expr(call.callee)?.member === outboxModels.scan.member && rowBindings.some(binding => expr(expr(call.callee)?.receiver)?.bindingId === binding.id));
       const scanned = one(scan); const scannedTopic = scanned === undefined ? undefined : expr(scanned.arguments[select.topicIndex]);
       const scanReceiver = scanned === undefined ? undefined : expr(expr(scanned.callee)?.receiver);
       if (scanned === undefined || scanReceiver === undefined || !untouched(scanReceiver, read.call.span, scanned.span)) continue;
       const topic = scannedTopic === undefined ? undefined : unwrap(scannedTopic); if (topic?.member !== outboxModels.outbox.topicColumn) continue;
-      const candidateCall = one(calls.filter(call => same(call.span, candidate.span)));
+      const candidateCall = one(callsBySpan.get(spanKey(candidate.span)) ?? []);
       if (candidateCall === undefined) continue;
       // Select only the direct Kafka Message.Topic pair. Nested decoys cannot
       // supply the actual producer argument.
@@ -355,7 +392,7 @@ export async function inferOutboxPublications(
               (assignment.fields.left ?? []).some(id => {const held = expr(id); return held !== undefined && children(held).some(target => target.bindingId === collection.bindingId);}));
             // The batch the range walks must be the batch this append filled: a
             // reassignment between the append and the range clause loses it.
-            const survivesToRange = ![...expressions.values()].some(write => {
+            const survivesToRange = !expressionList.some(write => {
               if (!writeKinds.has(write.syntaxKind) || write.path !== append.path) return false;
               if (write.span.byteEnd <= append.span.byteEnd || write.span.byteStart >= clause.span.byteStart) return false;
               return (write.fields.left ?? []).flatMap(id => {const held = expr(id); return held === undefined ? [] : [held];})
@@ -364,7 +401,7 @@ export async function inferOutboxPublications(
             // The batch is only ever extended by appending to itself; any other
             // assignment, indexed write or address-of it loses the proof.
             const collectionBinding = collection.bindingId!;
-            const extendedOnly = !addressTaken(collectionBinding, append.path) && ![...expressions.values()].some((write) => {
+            const extendedOnly = !addressTaken(collectionBinding, append.path) && !expressionList.some((write) => {
               if (!writeKinds.has(write.syntaxKind) || write.path !== append.path) return false;
               // Only a write before the range can change what it walks.
               if (write.span.byteStart >= clause.span.byteStart) return false;
