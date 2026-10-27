@@ -11,7 +11,7 @@
  * naming the repository, never a task silently left open or closed.
  */
 import { execFileSync } from 'node:child_process';
-import { anchorLines } from '../knowledge/anchors.js';
+import { anchorLines, headingLines } from '../knowledge/anchors.js';
 import { byCodePoint } from '../model/order.js';
 import { scopePath, type PlannedTask, type TaskScope } from './tasks.js';
 
@@ -81,7 +81,7 @@ function changedLines(repository: string, commit: string, path: string): { start
   return ranges;
 }
 
-/** The lines a section of a file holds at a commit: from its heading to the line before the next anchor. */
+/** The lines a section of a file holds at a commit: the line its anchor names, to the line before the next heading. */
 function sectionLines(repository: string, commit: string, path: string, anchor: string): { start: number; end: number } | undefined {
   let text: string;
   try {
@@ -89,11 +89,14 @@ function sectionLines(repository: string, commit: string, path: string, anchor: 
   } catch {
     return undefined;
   }
-  const anchors = [...anchorLines(text).entries()].sort((a, b) => a[1] - b[1]);
-  const at = anchors.find(([name]) => name === anchor.toLowerCase());
-  if (at === undefined) return undefined;
-  const next = anchors.find(([, line]) => line > at[1]);
-  return { start: at[1], end: next === undefined ? text.split('\n').length : next[1] - 1 };
+  // The section starts at whatever its anchor names — a heading, a bold item, a block under a heading — and ends where
+  // the next heading begins, not at the next anchor: a bold item or a plain paragraph inside the section is part of it,
+  // and reading the end from `anchorLines()` cut the section off there, so a commit that changed a later line of the
+  // section closed nothing (madarch-ztyq.3). `headingLines()` is the reading of where sections end.
+  const start = anchorLines(text).get(anchor.toLowerCase());
+  if (start === undefined) return undefined;
+  const next = [...headingLines(text).values()].filter((line) => line > start).sort((one, other) => one - other)[0];
+  return { start, end: next === undefined ? text.split('\n').length : next - 1 };
 }
 
 const overlaps = (ranges: readonly { start: number; end: number }[], scope: { start: number; end: number }): boolean =>

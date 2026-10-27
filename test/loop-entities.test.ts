@@ -301,8 +301,23 @@ describe('a product made before the loop gets its two kinds', () => {
     const folder = product();
     const manifest = join(folder, 'madarch/kinds.yaml');
     const before = readFileSync(manifest, 'utf8');
-    const old = before.replace(/  question:[\s\S]*?  code\.service:/, '  code.service:');
+    // What the draft's manifest declares about its documents, said by name: the general kind and the headings each
+    // document kind is read by, and the four kinds `documents.expect` holds it to (madarch-ztyq.3).
+    const drafted = readKinds(folder);
+    if (!drafted.present) throw new Error('absent');
+    expect(drafted.manifest.expect?.map((entry) => entry.kind)).toEqual(['doc.use-case', 'doc.rule', 'doc.requirement', 'doc.decision']);
+    expect(drafted.manifest.kinds.get('doc.use-case')).toMatchObject({ semantics: 'scenario', headings: ['Use cases'] });
+    expect(drafted.manifest.kinds.get('doc.rule')).toMatchObject({ semantics: 'rule', headings: ['Business rules'] });
+    expect(drafted.manifest.kinds.get('doc.requirement')).toMatchObject({ semantics: 'quality', headings: ['Qualities', 'Non-functional requirements'] });
+    expect(drafted.manifest.kinds.get('doc.decision')).toMatchObject({ semantics: 'decision', structure: ['Status', 'Context', 'Decision', 'Consequences'] });
+    expect(drafted.manifest.findings).toEqual([]);
+    // A product made before the loop declares neither the document kinds nor the expectation: an expectation whose kinds
+    // are not declared is a finding of its own, so the two go together here, as an older manifest has neither.
+    const old = before
+      .replace(/  question:[\s\S]*?  code\.service:/, '  code.service:')
+      .replace(/^  expect: \[[^\]]*\]\n/m, '');
     expect(old).not.toContain('question:');
+    expect(old).not.toContain('expect: [');
     writeFileSync(manifest, old);
     rmSync(join(folder, 'templates/question.md'));
     rmSync(join(folder, 'templates/correction.md'));

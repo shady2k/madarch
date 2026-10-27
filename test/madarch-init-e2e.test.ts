@@ -15,7 +15,7 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ROOT, SAMPLE_IDENTITY, generateTrainingRepository } from './knowledge-fixture.js';
-import { localizedScript, LOCALIZED_STATEMENTS } from './knowledge-agent-script.js';
+import { localizableEntities, localizedScript, LOCALIZED_STATEMENTS } from './knowledge-agent-script.js';
 
 const FAKE_AGENT = join(ROOT, 'test', 'fixtures', 'acp-fake-agent', 'acp-fake-agent.ts');
 
@@ -55,7 +55,7 @@ beforeAll(async () => {
   const app = join(work, 'app');
   mkdirSync(join(app, 'dist'), { recursive: true });
   writeFileSync(join(app, 'dist', 'index.html'), '<!doctype html><title>app</title><div id="root"></div>');
-  writeFileSync(join(work, 'script.json'), JSON.stringify(localizedScript()));
+
   // The adapter the wiki finds by its name, as it finds a real one.
   writeFileSync(join(bin, 'claude-agent-acp'), `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(FAKE_AGENT)} --scenario script --script ${JSON.stringify(join(work, 'script.json'))}\n`);
   chmodSync(join(bin, 'claude-agent-acp'), 0o755);
@@ -65,6 +65,9 @@ beforeAll(async () => {
   const port = await freePort();
   const init = madarch(['init', '--home', home, '--port', String(port), '--no-open'], repository);
   initOutput = `${init.stdout}${init.stderr}`;
+  // The script answers for every document entity the product's own manifest makes of the repository's documents — read
+  // from them, never a list of names — so the fill below finds a statement for each entity it offers (madarch-ztyq.3).
+  writeFileSync(join(work, 'script.json'), JSON.stringify(localizedScript({ entities: localizableEntities(join(home, 'training-shop'), repository) })));
   expect(init.status, initOutput).toBe(0);
   url = /The wiki is running at (\S+)/.exec(initOutput)?.[1] ?? '';
 }, 180_000);
@@ -95,7 +98,10 @@ describe('madarch init', () => {
     expect(status.body).toMatchObject({ manifest: 'ok', filled: false, home: null, chosenAgent: null, writer: { state: 'idle' }, repositories: [{ name: 'training-shop', filled: false }] });
     const agents = await get('api/k/agents');
     expect(agents.body.agents.map((offer: { id: string; installed: boolean }) => [offer.id, offer.installed])).toEqual([['claude-code', true], ['codex', false], ['opencode', false], ['omp', false]]);
-  });
+    // The first read of a product opens its store (a PGlite of about two seconds) and asks which adapters stand on the
+    // PATH: the case names its own bound, as every case whose work is long does (madarch-tzte.36), so a run of several
+    // files — where the preload's default reaches no file — does not stop it at five seconds.
+  }, 60_000);
 });
 
 describe('the one press', () => {
@@ -163,6 +169,12 @@ describe('the one press', () => {
       after = (await get('api/k/status')).body;
     }
     expect(after.writer, JSON.stringify(after.writer)).toMatchObject({ state: 'done' });
+    // Every document entity the units were offered got its statement: the fill's own units are the proof, and an entity
+    // whose statement were empty would stand here as a failed unit (madarch-ztyq.3).
+    const offered = localizableEntities(join(home, 'training-shop'), repository);
+    const localized = (after.writer.units as { unit: string; state: string; refusals: unknown[] }[]).filter((unit) => unit.unit.startsWith('localized-source:'));
+    expect(localized.length).toBe(offered.length);
+    expect(localized.filter((unit) => unit.state !== 'written')).toEqual([]);
     for (const id of ['administrator-guide:main', 'user-guide:main']) {
       const page = await pageOf(id);
       expect(page.status).toBe(200);

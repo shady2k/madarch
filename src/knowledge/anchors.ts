@@ -124,6 +124,42 @@ export function anchorLines(text: string): Map<string, number> {
   return anchors;
 }
 
+/**
+ * The lines a document's headings stand on, by the name `anchorLines()` gives a heading: its GitHub slug (a repeated
+ * one suffixed -1, -2) and, where the heading carries one, its explicit `{#anchor}`.
+ *
+ * Why this is a second reading and not `anchorLines()`: an *anchor* names the smallest thing a ground may open — a
+ * heading, a bold item's phrase, a block a heading and a place name (`qualities.1`) — and a ground to any of them is
+ * a ground to that part, so every one of them must be in `anchorLines()`. A section's *extent* is another question:
+ * it runs from the thing the anchor names to the line before the next heading, whatever smaller named or unnamed thing
+ * the document writes inside it. Reading the extent from `anchorLines()` cut a section off at its first bold item or
+ * its first plain paragraph, and never at its next heading (madarch-ztyq.3): a commit that changed a later line of the
+ * section then touched no scope, and the task it named stayed open.
+ */
+export function headingLines(text: string): Map<string, number> {
+  const headings = new Map<string, number>();
+  const seen = new Map<string, number>();
+  const add = (anchor: string, line: number): void => {
+    if (anchor !== '' && !headings.has(anchor)) headings.set(anchor, line);
+  };
+  let fenced = false;
+  const lines = text.split('\n');
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]!;
+    if (/^\s*(```|~~~)/.test(line)) { fenced = !fenced; continue; }
+    if (fenced) continue;
+    const heading = HEADING.exec(line);
+    if (heading === null) continue;
+    const number = index + 1;
+    if (heading[3] !== undefined) add(heading[3].toLowerCase(), number);
+    const slug = slugOf(heading[2]!);
+    const count = seen.get(slug) ?? 0;
+    seen.set(slug, count + 1);
+    add(count === 0 ? slug : `${slug}-${count}`, number);
+  }
+  return headings;
+}
+
 /** The anchors of a document, code-point sorted. */
 export function documentAnchors(text: string): string[] {
   return [...anchorLines(text).keys()].sort(byCodePoint);
