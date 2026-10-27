@@ -49,11 +49,12 @@ fi
 for f in \
   .shady2k/adapter.mjs .shady2k/config.json .shady2k/push.mjs \
   .shady2k/tracker.mjs .shady2k/tracker-sync.mjs .shady2k/tracker-sync.version .shady2k/trackers/br.mjs \
+  .shady2k/argv.mjs .shady2k/regular-file.mjs \
   .shady2k/documents.mjs .shady2k/documents.json .shady2k/document-policy.json \
   .shady2k/checks/check.mjs .shady2k/checks/time-format.mjs \
   .shady2k/checks/check-commits.mjs .shady2k/checks/check-present.mjs \
   .shady2k/checks/check-docs.mjs .shady2k/checks/document-format.mjs \
-  .shady2k/checks/check-product.mjs \
+  .shady2k/checks/check-product.mjs .shady2k/checks/argv.mjs .shady2k/checks/regular-file.mjs \
   .shady2k/adapter.test.mjs .shady2k/documents.test.mjs .shady2k/hooks.test.mjs \
   .shady2k/push.test.mjs \
   .githooks/privacy-guard.sh .githooks/tracker-home.sh .githooks/pre-commit \

@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DEFAULT_STAGE_LIMITS } from '../src/fill/stage.js';
 import { acpUnitAgent } from '../src/writer/acp-agent.js';
-import { fileJournal, journalOfUnit, MAX_RESPONSE_CHARACTERS, memoryJournal, newRunId, readJournalFile, recordOf } from '../src/writer/journal.js';
+import { fileJournal, journalOfUnit, MAX_RESPONSE_CHARACTERS, memoryJournal, newRunId, NO_COUNTERS, readJournalFile, recordOf } from '../src/writer/journal.js';
 import type { ToolClient } from '../src/writer/run.js';
 import { memorySink } from '../src/writer/run.js';
 import { UnitTools, WRITER_TOOLS, type UnitSpec } from '../src/writer/tools.js';
@@ -88,7 +88,7 @@ describe('a journal record', () => {
     expect(mine.runs).toEqual([run]);
     expect(mine.records.map((record) => record.tool)).toEqual(['overview']);
     expect(journalOfUnit(join(folder, 'journal'), 'product:none').run).toBeNull();
-    expect(journalOfUnit(join(folder, 'missing'), 'product:tiny')).toEqual({ run: null, runs: [], records: [], problems: [] });
+    expect(journalOfUnit(join(folder, 'missing'), 'product:tiny')).toEqual({ run: null, runs: [], records: [], totals: NO_COUNTERS, problems: [] });
   });
 
   test('a journal that cannot be written raises with its file named', () => {

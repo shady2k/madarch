@@ -72,9 +72,11 @@ are the repository's installation, and each person's plugin and hooks are theirs
 - **Rules:** `.shady2k/checks/{check,check-commits,check-docs,check-present,check-product}.mjs`,
   `document-format.mjs` (which `documents.mjs` parses the project's documents
   with and `check-present.mjs` takes its path matcher from; `check-docs.mjs`
-  reads the exported model, not files) and `time-format.mjs`
-  (which `check.mjs` reads records by),
-  verbatim copies of shady2k-skills plugin 0.121.0 (setup and rules 0.51.0),
+  reads the exported model, not files), `time-format.mjs`
+  (which `check.mjs` reads records by), and `argv.mjs` and `regular-file.mjs`
+  (which every check reads its arguments and opens a named path through),
+  verbatim copies of shady2k-skills plugin 0.128.0 (setup and rules 0.58.0,
+  madarch-j6ho.4, 2026-10-27; earlier 0.121.0, setup 0.51.0, madarch-y47p),
   compared byte for byte at each setup, with the set's fixtures and templates
   under `.shady2k/checks/`. Their self-tests run from the plugin's
   setup skill directory, where their fixtures are. `check.mjs` carries the
@@ -93,7 +95,10 @@ are the repository's installation, and each person's plugin and hooks are theirs
   milestone's re-plan; the commit check's code-path rule waits for
   `codePaths` and the commit input it needs (each commit's paths and the
   document gate's verdicts on its change records); the design-match and
-  judgement rules wait for the records they read.
+  judgement rules wait for the records they read. The rules added in 0.52.0 to 0.58.0 (design
+  match, judgement records with their quotes, computed forecast records and
+  `merged-but-open`) are off the same way: the config and the adapter carry
+  none of what they read yet (madarch-j6ho.4).
 - **Present documents:** the config's `presentDocuments` (`AGENTS.md`, the
   glossary, `docs/system/architecture.md`, the current capability specs).
   `node .shady2k/checks/check-present.mjs --config .shady2k/config.json --base
@@ -164,7 +169,10 @@ are the repository's installation, and each person's plugin and hooks are theirs
   committed export. Tracker writes need no commit: the service publishes them,
   and a commit carries code and documents only.
 - **Tracker synchronization:** the set's mechanism, copied byte for byte from
-  shady2k-skills 0.121.0 (setup 0.51.0, madarch-y47p): `.shady2k/tracker-sync.mjs`
+  shady2k-skills 0.128.0 (setup 0.58.0, madarch-j6ho.4; it stops a record
+  leaving a whole copy of the store behind, and removes the copies older
+  versions left on its first run): `.shady2k/tracker-sync.mjs` with
+  `.shady2k/argv.mjs` and `.shady2k/regular-file.mjs` beside it
   (version in `.shady2k/tracker-sync.version`; `node .shady2k/tracker.mjs status
   --expect-version <the set's version>` says when the copy is behind), the br
   recipe `.shady2k/trackers/br.mjs`, the unit template
