@@ -5,7 +5,7 @@ import { glossaryTerms } from '../src/knowledge/glossary.js';
 import { noEntityMessage } from '../src/knowledge/resolve.js';
 import type { KindsManifest } from '../src/knowledge/kinds.js';
 
-const entity: DocEntity = { id: 'doc:docs/glossary.md#payment-token', kind: 'doc.term', title: 'Payment token', identifier: null, repo: null, path: 'docs/glossary.md', anchor: 'payment-token', line: 4, endLine: 6, text: 'The token returned after payment succeeds.', };
+const entity: DocEntity = { id: 'doc:docs/glossary.md#payment-token', kind: 'doc.term', title: 'Payment token', identifier: null, repo: null, path: 'docs/glossary.md', anchor: 'payment-token', line: 4, endLine: 6, text: 'The token returned after payment succeeds.', stableId: 'doc-section:0', semantics: 'term', pass: 'metadata', headingPath: ['Glossary'] };
 
 describe('localized document sources', () => {
   test('detects only clearly English or Russian text', () => {
@@ -70,7 +70,7 @@ describe('a code repository\'s documents in a Russian wiki (madarch-m38l.18)', (
     file: 'madarch/kinds.yaml', roles: new Map(), groups: new Map(), excludeDocuments: [], findings: [],
     kinds: new Map([['doc.term', { name: 'doc.term', template: 'templates/term.md', source: 'document', terms: ['**/glossary*.md'], title: 'title', relations: [], line: 1 }]]),
   };
-  const inRepository: DocEntity = { id: 'doc:@training/docs/glossary.md#outbox', kind: 'doc.term', title: 'Outbox', identifier: null, repo: 'training', path: 'docs/glossary.md', anchor: 'outbox', line: 3, endLine: 3, text: 'The table in which orders queues the messages it will publish.' };
+  const inRepository: DocEntity = { id: 'doc:@training/docs/glossary.md#outbox', kind: 'doc.term', title: 'Outbox', identifier: null, repo: 'training', path: 'docs/glossary.md', anchor: 'outbox', line: 3, endLine: 3, text: 'The table in which orders queues the messages it will publish.', stableId: 'doc-section:1', semantics: 'term', pass: 'metadata', headingPath: ['Glossary'] };
   const localized = new Map<string, LocalizedDocumentSource>([['doc:@training/docs/glossary.md#outbox', { schema: LOCALIZED_SOURCE_SCHEMA, entity: inRepository.id, kind: inRepository.kind, wikiLanguage: 'ru', sourceLanguage: 'en', sourceDocument: 'docs/glossary.md', sourceLine: 3, sourceEndLine: 3, original: inRepository.text, statement: 'Таблица, в которой сервис заказов хранит сообщения, которые опубликует.' }]]);
 
   test('a term of the repository\'s glossary is shown in Russian with its original beside it', () => {

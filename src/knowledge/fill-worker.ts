@@ -11,8 +11,8 @@
  * nothing else of the driver.
  */
 import { execFile } from 'node:child_process';
-import { cpSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { cpSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { setPriority } from 'node:os';
 import { promisify } from 'node:util';
 import { createPGliteDatabaseOwner, type DatabaseOwner } from '../adapters/database-owner.js';
@@ -31,6 +31,8 @@ import { parseMessage, type FromWorker, type RepositoryPin, type ToWorker, type 
 import { readKinds } from './kinds.js';
 import { DOCUMENT_LIMIT, listedDocument, productDocumentPaths, readProductDocument, readRepoDocuments, repoDocumentPaths } from './doc-sources.js';
 import { readDocEntities, type DocumentSource } from './doc-entities.js';
+import { IDENTITIES_FILE, readDocIdentities, sameDocIdentities, writeDocIdentities } from './doc-identities.js';
+import { CLASSIFICATIONS_FILE, readClassificationStore, storedClassifier } from './semantics.js';
 import { createGitSnapshotSource } from '../fill/snapshot.js';
 import { createGuideWriter, guideProductPin, type GuideWriterWiring } from '../writer/guides/writer.js';
 
@@ -313,7 +315,19 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
           }
         }
       }
-      const documentEntities = kinds.present ? readDocEntities(documentSources, kinds.manifest).entities : [];
+      // The documents are read in the product's store as the wiki reads them: the same stable identities and the same
+      // meanings jev and the agent read, so a page the fill writes is a page the wiki shows.
+      const storeFolder = dirname(graphPath);
+      const identityFile = join(storeFolder, IDENTITIES_FILE);
+      const classificationFile = join(storeFolder, CLASSIFICATIONS_FILE);
+      const held = kinds.present ? readDocIdentities(identityFile) : { identities: new Map(), findings: [] };
+      const classifications = kinds.present && existsSync(classificationFile) ? readClassificationStore(classificationFile) : { answers: new Map(), findings: [] };
+      const documentRead = kinds.present
+        ? readDocEntities(documentSources, kinds.manifest, { identities: held.identities, ...(classifications.answers.size > 0 ? { classifier: storedClassifier(classifications.answers) } : {}) })
+        : { entities: [], findings: [], identities: new Map() };
+      if (kinds.present && !sameDocIdentities(held.identities, documentRead.identities)) writeDocIdentities(identityFile, documentRead.identities);
+      for (const finding of [...held.findings, ...classifications.findings, ...documentRead.findings]) send({ type: 'log', line: `${finding.file}:${finding.line}: ${finding.message}` });
+      const documentEntities = documentRead.entities;
       const guidePin = pins.get(repo.name);
       if (guidePin === undefined || guidePin.commit === '' || guidePin.effectiveTime === '') throw new Error('guide preparation requires the completed repository pin');
       const guideSnapshots = createGitSnapshotSource([{ id: repo.name, form: 'code', root: repo.path, commit: guidePin.commit }, guideProductPin(productFolder,[repo.name])]);

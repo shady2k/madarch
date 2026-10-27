@@ -1,0 +1,372 @@
+/**
+ * Documents are read by meaning (madarch-ztyq.3, decision 0032 section 4).
+ *
+ * The expected values are read off the training repository's own documents and
+ * off texts this test writes, never off the engine's output: the unnumbered
+ * `## Qualities` section is two requirements, a copy of the requirements
+ * document with its numbers taken out is the same entities with the same stable
+ * identities, and what no document holds is said with the manifest's file, line
+ * and full path. Every read here uses `fakeClassifier()`, the deterministic
+ * classifier — no model runs in this file.
+ */
+import { afterAll, describe, expect, test } from 'bun:test';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { anchorLines } from '../src/knowledge/anchors.js';
+import { docEntityId, readDocEntities, type DocumentSource } from '../src/knowledge/doc-entities.js';
+import { assignStableIds, IDENTITIES_FILE, readDocIdentities, textDigest, writeDocIdentities } from '../src/knowledge/doc-identities.js';
+import { readDocTree } from '../src/knowledge/doc-tree.js';
+import { parseKinds, type KindsManifest } from '../src/knowledge/kinds.js';
+import { STARTER_FILES } from '../src/knowledge/seed.js';
+import { CLASSIFICATIONS_FILE, classificationKey, fakeClassifier, readClassificationStore, storedClassifier, writeClassificationStore } from '../src/knowledge/semantics.js';
+import { ROOT } from './knowledge-fixture.js';
+
+const DOCS = join(ROOT, 'examples/training-repository/template/docs');
+const doc = (name: string): string => readFileSync(join(DOCS, name), 'utf8');
+
+const made: string[] = [];
+const scratch = (name: string): string => {
+  const folder = mkdtempSync(join(tmpdir(), `madarch-doc-meaning-${name}-`));
+  made.push(folder);
+  return folder;
+};
+afterAll(() => { for (const folder of made) rmSync(folder, { recursive: true, force: true }); });
+
+/** A product folder holding the one template these manifests name. */
+const folder = scratch('product');
+mkdirSync(join(folder, 'templates'), { recursive: true });
+writeFileSync(join(folder, 'templates', 'x.md'), ':::body\n');
+const MANIFEST_FILE = join(folder, 'madarch/kinds.yaml');
+
+/** A manifest of this test's own: the template every kind names is the one the folder holds. */
+function parse(lines: readonly string[]): KindsManifest {
+  return parseKinds(`${lines.join('\n')}\n`, MANIFEST_FILE, folder);
+}
+
+/** The training product's own manifest: the starter set `madarch new` writes. */
+const starterFolder = scratch('starter');
+for (const file of STARTER_FILES) {
+  mkdirSync(dirname(join(starterFolder, file.path)), { recursive: true });
+  writeFileSync(join(starterFolder, file.path), file.content);
+}
+const STARTER = parseKinds(STARTER_FILES.find((file) => file.path === 'madarch/kinds.yaml')!.content, join(starterFolder, 'madarch/kinds.yaml'), starterFolder);
+
+const requirements: DocumentSource = { repo: 'training', path: 'docs/requirements.md', text: doc('requirements.md') };
+const training: DocumentSource[] = [requirements, { repo: 'training', path: 'docs/glossary.md', text: doc('glossary.md') }, { repo: 'training', path: 'docs/adr/0001-broker.md', text: doc('adr/0001-broker.md') }, { repo: 'training', path: 'docs/adr/0002-outbox.md', text: doc('adr/0002-outbox.md') }];
+
+describe('a document is a tree, and every node carries the place of its own source', () => {
+  const tree = readDocTree(requirements);
+
+  test('a heading and a list item have their lines, their character offsets and their byte offsets', () => {
+    const heading = tree.nodes[0]!;
+    expect(heading).toMatchObject({ type: 'heading', level: 1, raw: '# Requirements', plain: 'Requirements', line: 1, endLine: 1, startOffset: 0, endOffset: 14, startByte: 0, endByte: 14 });
+    const useCases = tree.sections.find((section) => section.heading?.plain === 'Use cases')!;
+    const pay = useCases.nodes[0]!.children[1]!;
+    expect(pay).toMatchObject({ type: 'listItem', line: 8, endLine: 10 });
+    expect(pay.raw.startsWith('- **UC-2 Pay.**')).toBe(true);
+    expect(requirements.text.slice(pay.startOffset, pay.endOffset)).toBe(pay.raw);
+  });
+
+  test('a section is its heading and its own blocks, with the heading ancestry above it; its text is the document\'s own', () => {
+    const qualities = tree.sections.find((section) => section.heading?.plain === 'Qualities')!;
+    expect(qualities).toMatchObject({ line: 45 });
+    expect(qualities.headingPath).toEqual(['Requirements', 'Qualities']);
+    expect(qualities.nodes.map((node) => node.type)).toEqual(['list', 'html']);
+    expect(qualities.text.startsWith('- The payment provider may be slow:')).toBe(true);
+    expect(qualities.text).toContain('(see ADR-0002).');
+  });
+
+  test('the byte offsets of a text that is not ASCII are its bytes, not its characters', () => {
+    const russian = readDocTree({ repo: null, path: 'docs/ru.md', text: '# Качества\n\n- Пункт один.\n' });
+    const heading = russian.nodes[0]!;
+    expect(heading.plain).toBe('Качества');
+    expect(heading.endOffset - heading.startOffset).toBe('# Качества'.length);
+    expect([heading.startByte, heading.endByte]).toEqual([0, Buffer.byteLength('# Качества', 'utf8')]);
+    const item = russian.sections[0]!.nodes[0]!.children[0]!;
+    expect(item).toMatchObject({ type: 'listItem', line: 3, endLine: 3, raw: '- Пункт один.' });
+    expect(item.endByte - item.startByte).toBe(Buffer.byteLength('- Пункт один.', 'utf8'));
+  });
+
+  test('the front matter is metadata, not a section, and a document before its first heading is its own section', () => {
+    const withFront = readDocTree({ repo: null, path: 'docs/x.md', text: '---\nsections:\n  Stories: doc.story\n---\n\nLoose words.\n\n# Title\n\nBody.\n' });
+    expect(withFront.meta).toEqual({ sections: { Stories: 'doc.story' } });
+    expect(withFront.sections.map((section) => [section.heading?.plain ?? null, section.line])).toEqual([[null, 6], ['Title', 8]]);
+    expect(withFront.sections[0]!.text).toBe('Loose words.');
+    expect(withFront.findings).toEqual([]);
+  });
+});
+
+describe('the training product\'s documents, read by meaning', () => {
+  const read = readDocEntities(training, STARTER);
+
+  test('the unnumbered Qualities section yields its two requirements, by the structure and not by a number', () => {
+    const qualities = read.entities.filter((entity) => entity.kind === 'doc.requirement');
+    expect(qualities.map((entity) => entity.title)).toEqual([
+      'The payment provider may be slow',
+      'Every change of an order reaches Kafka exactly when the change is committed (see ADR-0002)',
+    ]);
+    expect(qualities.map((entity) => [entity.anchor, entity.line, entity.endLine])).toEqual([['qualities.1', 47, 48], ['qualities.2', 49, 50]]);
+    expect(qualities.map((entity) => [entity.pass, entity.semantics, entity.identifier])).toEqual([['structure', 'quality', null], ['structure', 'quality', null]]);
+    expect(qualities[0]!.text).toContain('a payment call that does not answer');
+    expect(qualities[0]!.id).toBe(docEntityId('training', 'docs/requirements.md', 'qualities.1'));
+    // The anchors are the ones the one anchor reader names, so a ground to either of them opens the entity's page.
+    const lines = anchorLines(requirements.text);
+    for (const entity of qualities) expect(lines.get(entity.anchor)).toBe(entity.line);
+  });
+
+  test('the numbered sections are decided by the metadata pass, and their anchors are the numbers they write', () => {
+    const useCases = read.entities.filter((entity) => entity.kind === 'doc.use-case');
+    expect(useCases.map((entity) => [entity.identifier, entity.anchor, entity.pass, entity.line])).toEqual([
+      ['UC-1', 'uc-1', 'metadata', 5], ['UC-2', 'uc-2', 'metadata', 8], ['UC-3', 'uc-3', 'metadata', 12], ['UC-4', 'uc-4', 'metadata', 14],
+    ]);
+    expect(useCases.every((entity) => entity.semantics === 'scenario')).toBe(true);
+    const rules = read.entities.filter((entity) => entity.kind === 'doc.rule').map((entity) => entity.identifier);
+    expect(rules).toEqual(['BR-1', 'BR-2', 'BR-3', 'BR-4', 'BR-5']);
+    const terms = read.entities.filter((entity) => entity.kind === 'doc.term').map((entity) => entity.title);
+    expect(terms).toEqual(['Capture', 'CardToken', 'Idempotency key', 'Order', 'Outbox', 'PaymentToken', 'Zero-rated']);
+  });
+
+  test('an ADR is its whole section, from its heading to the end of the file, and the structure it declares is complete', () => {
+    const broker = read.entities.find((entity) => entity.anchor === 'adr-0001')!;
+    expect(broker).toMatchObject({ kind: 'doc.decision', title: 'ADR-0001 Kafka is the broker', line: 1, endLine: 28, pass: 'metadata', semantics: 'decision' });
+    expect(broker.text).toContain('## Context');
+    expect(broker.text).toContain('Consumers must tolerate duplicates');
+    // Status, Context, Decision and Consequences all stand in it, so nothing is said to be missing.
+    expect(read.findings.filter((finding) => finding.message.includes('which the manifest declares its structure'))).toEqual([]);
+  });
+
+  test('nothing the documents hold is silently smaller: the training documents are read with no finding at all', () => {
+    expect(read.findings).toEqual([]);
+    expect(read.entities.length).toBe(20);
+  });
+
+  test('a copy of requirements.md with its UC-/BR- numbers taken out holds the same entities with the same stable identities', () => {
+    const renumbered = requirements.text.replace(/\*\*(UC|BR)-\d+ /g, '**');
+    expect(renumbered).not.toContain('**UC-1 ');
+    expect(renumbered).not.toContain('**BR-1 ');
+    expect(renumbered).toContain('**Place order.**');
+    const numbered = readDocEntities([requirements], STARTER);
+    const without = readDocEntities([{ repo: 'training', path: 'docs/requirements.md', text: renumbered }], STARTER, { identities: numbered.identities });
+    const key = (entity: { kind: string; stableId: string }): string => `${entity.kind}\u0000${entity.stableId}`;
+    expect([...without.entities.map(key)].sort()).toEqual([...numbered.entities.map(key)].sort());
+    expect(without.entities.map((entity) => entity.identifier)).toEqual(without.entities.map(() => null));
+    // The anchor follows the words the document writes, the identity does not: the alias is not the identity.
+    expect(without.entities.map((entity) => entity.anchor)).not.toEqual(numbered.entities.map((entity) => entity.anchor));
+    for (const entity of without.entities) expect(numbered.entities.find((candidate) => candidate.stableId === entity.stableId)!.text).toBe(entity.text);
+    const pay = without.entities.find((entity) => entity.stableId === numbered.entities.find((candidate) => candidate.anchor === 'uc-2')!.stableId)!;
+    expect(pay).toMatchObject({ kind: 'doc.use-case', anchor: 'pay', line: 8, pass: 'structure', title: 'Pay' });
+  });
+});
+
+describe('the three passes, each recording which one decided', () => {
+  const stories = '# Stories\n\nA shopper pays by card.\n\nSupport refunds a payment.\n';
+  const manifest = (): KindsManifest => parse([
+    'kinds:',
+    '  doc.story: { template: templates/x.md, source: document, semantics: scenario }',
+    '  doc.rule: { template: templates/x.md, source: document, semantics: rule, headings: [Rules] }',
+    '  doc.requirement: { template: templates/x.md, source: document, semantics: quality }',
+  ]);
+
+  test('the classifier splits a section into its passages, and the section\'s own text stands as the document writes it', () => {
+    const read = readDocEntities([{ repo: null, path: 'docs/stories.md', text: stories }], manifest(), { classifier: fakeClassifier({ Stories: 'scenario' }) });
+    expect(read.entities.map((entity) => [entity.kind, entity.pass, entity.anchor, entity.line, entity.endLine, entity.text])).toEqual([
+      ['doc.story', 'classifier', 'stories.1', 3, 3, 'A shopper pays by card.'],
+      ['doc.story', 'classifier', 'stories.2', 5, 5, 'Support refunds a payment.'],
+    ]);
+    expect(read.entities.map((entity) => entity.semantics)).toEqual(['scenario', 'scenario']);
+    const section = readDocTree({ repo: null, path: 'docs/stories.md', text: stories }).sections[0]!;
+    expect(section.text).toBe('A shopper pays by card.\n\nSupport refunds a payment.');
+  });
+
+  test('a passage that holds several meanings is split into them, and each keeps the document\'s words', () => {
+    const mixed = '# Mixed\n\nA rule that holds.\n\nA quality that is wanted.\n';
+    const read = readDocEntities([{ repo: null, path: 'docs/mixed.md', text: mixed }], manifest(), { classifier: fakeClassifier({ Mixed: ['rule', 'quality'] }) });
+    expect(read.entities.map((entity) => [entity.kind, entity.semantics, entity.pass, entity.text])).toEqual([
+      ['doc.rule', 'rule', 'classifier', 'A rule that holds.'],
+      ['doc.requirement', 'quality', 'classifier', 'A quality that is wanted.'],
+    ]);
+  });
+
+  test('without a classifier the third pass decides nothing and nothing is invented, and a section it could not read is a finding', () => {
+    expect(readDocEntities([{ repo: null, path: 'docs/stories.md', text: stories }], manifest()).entities).toEqual([]);
+    const unread = readDocEntities([{ repo: null, path: 'docs/stories.md', text: stories }], manifest(), { classifier: fakeClassifier({}) });
+    expect(unread.entities).toEqual([]);
+    expect(unread.findings.map((finding) => [finding.file, finding.line])).toEqual([['docs/stories.md', 1]]);
+    expect(unread.findings[0]!.message).toContain('no classifier has read this section yet');
+  });
+
+  test('a passage of a general kind no kind of the manifest names is a finding at the passage, not a passage that vanishes', () => {
+    const read = readDocEntities([{ repo: null, path: 'docs/stories.md', text: stories }], parse(['kinds:', '  doc.rule: { template: templates/x.md, source: document, semantics: rule }']), { classifier: fakeClassifier({ Stories: 'actor' }) });
+    expect(read.entities).toEqual([]);
+    expect(read.findings.map((finding) => [finding.file, finding.line])).toEqual([['docs/stories.md', 3], ['docs/stories.md', 5]]);
+    expect(read.findings[0]!.message).toContain('the manifest declares no kind with "semantics: actor"');
+  });
+
+  test('the classifier\'s answers are data the host keeps beside the product: a stored answer is read back and answered with', () => {
+    const store = join(scratch('store'), CLASSIFICATIONS_FILE);
+    const section = readDocTree({ repo: null, path: 'docs/stories.md', text: stories }).sections[0]!;
+    const key = classificationKey({ repo: null, path: 'docs/stories.md', headingPath: section.headingPath, text: section.text });
+    writeClassificationStore(store, new Map([[key, [{ kind: 'scenario', text: 'A shopper pays by card.', line: 3, endLine: 3 }]]]));
+    const read = readClassificationStore(store);
+    expect(read.findings).toEqual([]);
+    const held = readDocEntities([{ repo: null, path: 'docs/stories.md', text: stories }], manifest(), { classifier: storedClassifier(read.answers) });
+    expect(held.entities.map((entity) => [entity.kind, entity.pass, entity.line])).toEqual([['doc.story', 'classifier', 3]]);
+    // The passage no answer covers is said, not dropped: a host that filled half the section cannot shrink the wiki silently.
+    expect(held.findings.map((finding) => [finding.file, finding.line])).toEqual([['docs/stories.md', 5]]);
+    expect(held.findings[0]!.message).toContain('the classifier read no meaning of this paragraph');
+    // A store that cannot be read is a finding naming the file and the line, never an answer nobody wrote.
+    writeFileSync(store, '{ not json\n');
+    expect(readClassificationStore(store).findings).toEqual([{ file: store, line: 1, message: expect.stringContaining('not valid JSON') }]);
+    expect(readClassificationStore(store).answers.size).toBe(0);
+  });
+});
+
+describe('a number is an alias, never the identity', () => {
+  const identitiesOf = (text: string, previous?: ReturnType<typeof readDocEntities>['identities']) => readDocEntities([{ repo: 'training', path: 'docs/requirements.md', text }], STARTER, previous === undefined ? {} : { identities: previous });
+
+  test('a renamed heading keeps the identity of its section, and its anchor follows the new heading', () => {
+    const first = identitiesOf(requirements.text);
+    const qualifying = first.entities.filter((entity) => entity.kind === 'doc.requirement').map((entity) => entity.stableId);
+    // The starter manifest declares both of these headings, so the renamed section is still read as the same kind.
+    const renamed = requirements.text.replace('## Qualities', '## Non-functional requirements');
+    const second = identitiesOf(renamed, first.identities);
+    const held = second.entities.filter((entity) => entity.kind === 'doc.requirement');
+    expect(held.map((entity) => entity.stableId)).toEqual(qualifying);
+    expect(held.map((entity) => entity.anchor)).toEqual(['non-functional-requirements.1', 'non-functional-requirements.2']);
+  });
+
+  test('a new section gets a new identity, and the sections it joins keep theirs', () => {
+    const first = identitiesOf(requirements.text);
+    const held = first.entities.filter((entity) => entity.kind === 'doc.requirement').map((entity) => entity.stableId);
+    const added = requirements.text.replace('- Every change of an order reaches Kafka exactly when the change is committed\n  (see ADR-0002).', '- Every change of an order reaches Kafka exactly when the change is committed\n  (see ADR-0002).\n- A third quality, written after the first read of this document.');
+    expect(added).not.toBe(requirements.text);
+    const second = identitiesOf(added, first.identities);
+    const qualities = second.entities.filter((entity) => entity.kind === 'doc.requirement');
+    expect(qualities.length).toBe(3);
+    expect(qualities.slice(0, 2).map((entity) => entity.stableId)).toEqual(held);
+    expect(held).not.toContain(qualities[2]!.stableId);
+  });
+
+  test('an edited section keeps its identity through its anchor, and a deleted one is not given to the section that takes its place', () => {
+    const key = 'training/docs/requirements.md';
+    const first = assignStableIds(key, [{ anchor: 'uc-1', kind: 'doc.use-case', title: 'UC-1 Place order', text: 'The shopper places an order.' }], undefined);
+    expect(first.next.nextSequence).toBe(1);
+    const edited = assignStableIds(key, [{ anchor: 'uc-1', kind: 'doc.use-case', title: 'UC-1 Place an order', text: 'The shopper places an order, again.' }], first.next);
+    expect(edited.ids).toEqual(first.ids);
+    // The section that took the deleted one's anchor by number is a new section: its text is new, so it is new.
+    const replaced = assignStableIds(key, [{ anchor: 'uc-9', kind: 'doc.use-case', title: 'UC-9 Something else', text: 'Something else entirely.' }], first.next);
+    expect(replaced.ids).not.toEqual(first.ids);
+    expect(replaced.next.nextSequence).toBe(2);
+  });
+
+  test('a document read with no identities beside it is read again with new ones, and the same text gives the same digest', () => {
+    const first = readDocEntities([requirements], STARTER);
+    expect(first.identities.has('@training/docs/requirements.md')).toBe(true);
+    expect(first.identities.has('docs/requirements.md')).toBe(false);
+    // A document this read does not see keeps the identity it had: a document that drops out for a moment does not lose its links.
+    const onlyGlossary = readDocEntities([{ repo: 'training', path: 'docs/glossary.md', text: doc('glossary.md') }], STARTER, { identities: first.identities });
+    expect(onlyGlossary.identities.get('@training/docs/requirements.md')).toEqual(first.identities.get('@training/docs/requirements.md'));
+    expect(textDigest('A  rule\n holds.')).toBe(textDigest('A rule holds.'));
+    const again = readDocEntities([requirements], STARTER, { identities: first.identities });
+    expect(again.entities.map((entity) => entity.stableId)).toEqual(first.entities.map((entity) => entity.stableId));
+  });
+});
+
+describe('the identities live beside the product, in its store and never in the repository', () => {
+  test('they are written to a file of the store and read back as they were written', () => {
+    const store = scratch('identities');
+    const file = join(store, IDENTITIES_FILE);
+    expect(IDENTITIES_FILE).toBe('doc-identities.json');
+    const identities = new Map([['training/docs/requirements.md', { nextSequence: 3, sections: [{ stableId: 'doc-section:abc', anchor: 'uc-2', kind: 'doc.use-case', digest: 'd', title: 'UC-2 Pay' }] }]]);
+    writeDocIdentities(file, identities);
+    const read = readDocIdentities(file);
+    expect(read.findings).toEqual([]);
+    expect([...read.identities]).toEqual([...identities]);
+  });
+
+  test('a store that is absent is a product that was never read, and one that cannot be read is a finding naming the file and the line', () => {
+    expect(readDocIdentities(join(scratch('absent'), IDENTITIES_FILE))).toEqual({ identities: new Map(), findings: [] });
+    const file = join(scratch('broken'), IDENTITIES_FILE);
+    writeFileSync(file, '{ not json\n');
+    expect(readDocIdentities(file).findings).toEqual([{ file, line: 1, message: expect.stringContaining('not valid JSON') }]);
+    writeFileSync(file, '{"documents": { "docs/x.md": { "nextSequence": 1, "sections": [ { "stableId": "s" } ] } }}\n');
+    const partial = readDocIdentities(file);
+    expect(partial.identities.get('docs/x.md')).toEqual({ nextSequence: 1, sections: [] });
+    expect(partial.findings.map((finding) => [finding.file, finding.line])).toEqual([[file, 1]]);
+    expect(partial.findings[0]!.message).toContain('so that section is read as new');
+  });
+});
+
+describe('the wiki says what the documents lack', () => {
+  const lines = [
+    'documents:',
+    '  expect: [doc.use-case, doc.user-story]',
+    'kinds:',
+    '  doc.use-case: { template: templates/x.md, source: document, identifier: UC }',
+    '  doc.user-story: { template: templates/x.md, source: document, identifier: US, semantics: scenario }',
+  ];
+
+  test('a kind the product expects and no document holds is a finding with the manifest\'s file, line and full path', () => {
+    const read = readDocEntities([requirements], parse(lines));
+    expect(read.findings).toEqual([{ file: MANIFEST_FILE, line: 2, message: expect.stringContaining('the documents hold no entity of kind "doc.user-story" (a scenario)') }]);
+    // The kind the documents do hold is not said to be missing.
+    expect(read.entities.some((entity) => entity.kind === 'doc.use-case')).toBe(true);
+  });
+
+  test('a kind the documents hold is not reported, and an expectation that names no kind is a finding of the manifest at its own line', () => {
+    expect(readDocEntities([requirements], parse(['documents:', '  expect: [doc.use-case]', 'kinds:', '  doc.use-case: { template: templates/x.md, source: document, identifier: UC }'])).findings).toEqual([]);
+    const wrong = parse(['documents:', '  expect: [doc.gone]', 'kinds:', '  doc.use-case: { template: templates/x.md, source: document, identifier: UC }']);
+    expect(wrong.expect).toEqual([]);
+    expect(wrong.findings).toEqual([{ file: MANIFEST_FILE, line: 2, message: expect.stringContaining('"documents.expect" names the kind "doc.gone"') }]);
+  });
+
+  test('a document kind with a passage only a classifier reads is declared by its general kind, and a wrong one is a finding at its line', () => {
+    expect(parse(['kinds:', '  doc.story: { template: templates/x.md, source: document, semantics: scenario }']).findings).toEqual([]);
+    const wrong = parse(['kinds:', '  doc.story: { template: templates/x.md, source: document, semantics: legend }']);
+    expect(wrong.findings).toEqual([{ file: MANIFEST_FILE, line: 2, message: expect.stringContaining('"semantics" is the general kind of the sections: scenario, actor, rule, quality, decision, procedure, term, other') }]);
+    const headings = parse(['kinds:', '  doc.story: { template: templates/x.md, source: document, headings: [] }']);
+    expect(headings.findings.map((finding) => finding.line)).toEqual([2]);
+    expect(headings.findings[0]!.message).toContain('"headings" is a list of the headings whose sections are entities of the kind');
+  });
+});
+
+describe('the structure a kind declares is checked on the section', () => {
+  const manifest = (): KindsManifest => parse(['kinds:', '  doc.decision: { template: templates/x.md, source: document, identifier: ADR, semantics: decision, structure: [Status, Context, Decision, Consequences] }']);
+
+  test('a decision record that holds every section it declares is read with no finding', () => {
+    const read = readDocEntities([{ repo: 'training', path: 'docs/adr/0001-broker.md', text: doc('adr/0001-broker.md') }], manifest());
+    expect(read.findings).toEqual([]);
+    expect(read.entities.map((entity) => [entity.kind, entity.anchor])).toEqual([['doc.decision', 'adr-0001']]);
+  });
+
+  test('the sections it lacks are named in a finding at its line, and the document\'s own text is still shown', () => {
+    const text = '# ADR-0003: Use a queue\n\n## Context\nOrders must publish.\n\n## Decision\nUse a queue.\n';
+    const read = readDocEntities([{ repo: 'training', path: 'docs/adr/0003-queue.md', text }], manifest());
+    expect(read.entities.map((entity) => entity.text)).toEqual([text.slice(text.indexOf('\n') + 1).trim()]);
+    expect(read.findings.map((finding) => [finding.file, finding.line])).toEqual([['repos/training/docs/adr/0003-queue.md', 1]]);
+    expect(read.findings[0]!.message).toContain('holds no Status, no Consequences');
+  });
+});
+
+describe('the front matter says what the document\'s sections are', () => {
+  const manifest = (): KindsManifest => parse(['kinds:', '  doc.story: { template: templates/x.md, source: document, semantics: scenario }']);
+
+  test('a section the front matter names is decided by the metadata pass', () => {
+    const text = ['---', 'sections:', '  Stories: doc.story', '---', '', '# Product', '', '## Stories', '', '- A shopper pays by card.', '- Support refunds a payment.', ''].join('\n');
+    const read = readDocEntities([{ repo: null, path: 'docs/product.md', text }], manifest());
+    expect(read.entities.map((entity) => [entity.kind, entity.pass, entity.anchor, entity.line, entity.text])).toEqual([
+      ['doc.story', 'metadata', 'stories.1', 10, 'A shopper pays by card.'],
+      ['doc.story', 'metadata', 'stories.2', 11, 'Support refunds a payment.'],
+    ]);
+    expect(read.findings).toEqual([]);
+  });
+
+  test('a front matter that names no kind of the manifest is a finding at its own line', () => {
+    const text = ['---', 'sections:', '  Stories: doc.gone', '---', '', '# Product', '', '## Stories', '', '- A shopper pays by card.', ''].join('\n');
+    const read = readDocEntities([{ repo: null, path: 'docs/product.md', text }], manifest());
+    expect(read.entities).toEqual([]);
+    expect(read.findings.map((finding) => [finding.file, finding.line])).toEqual([['docs/product.md', 3]]);
+    expect(read.findings[0]!.message).toContain('the manifest declares no kind or general kind of that name');
+  });
+});

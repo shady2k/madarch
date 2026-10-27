@@ -68,6 +68,8 @@ import { buildViews, chosenRenderer, parseSpec, payloadOf, RENDERERS_OF, ViewRef
 import { buildStatement, type StatementResult } from './statement.js';
 import { noEntityMessage, Resolver, type Resolution } from './resolve.js';
 import { readDocEntities, type DocEntity, type DocumentSource } from './doc-entities.js';
+import { IDENTITIES_FILE, readDocIdentities, sameDocIdentities, writeDocIdentities } from './doc-identities.js';
+import { CLASSIFICATIONS_FILE, readClassificationStore, storedClassifier } from './semantics.js';
 import { DOCUMENT_LIMIT, DOCUMENT_PATH, HARNESS_FILES, documentTitle, docsLinkedOutside, listedDocument, productDocumentPaths, readProductDocument, readRepoDocuments, repoDocumentPaths } from './doc-sources.js';
 import { ensureLoopKinds, seedStarterSet, TEMPLATES } from './seed.js';
 import { readCorrections } from '../loop/entities.js';
@@ -816,6 +818,9 @@ export class KnowledgeProduct {
           this.notify();
           return;
         case 'log':
+          // A line the worker could not put on a page — a document it could not read, a kind the documents lack — goes to
+          // the host's log, where a person serving the product reads it.
+          this.options.errorLog?.(message.line);
           return;
       }
     };
@@ -1341,6 +1346,7 @@ export class KnowledgeProduct {
    */
   private async documentEntities(productFolder: string, manifest: KindsManifest): Promise<{ sources: DocumentSource[]; entities: DocEntity[]; findings: Finding[] }> {
     if (![...manifest.kinds.values()].some((kind) => kind.source === 'document')) return { sources: [], entities: [], findings: [] };
+    const store = this.storeFolder();
     const findings: Finding[] = [];
     const sources: DocumentSource[] = [];
     const stamps: string[] = [];
@@ -1377,11 +1383,23 @@ export class KnowledgeProduct {
       findings.push(...(this.repoDocFindings.get(key) ?? []));
       stamps.push(key);
     }
-    const signature = JSON.stringify([...manifest.kinds.values()].filter((kind) => kind.source === 'document').map((kind) => [kind.name, kind.identifier, kind.terms]));
-    const memoKey = `${signature}\0${stamps.join('\n')}`;
-    if (this.docMemo?.key !== memoKey) {
-      const read = readDocEntities(sources, manifest);
-      this.docMemo = { key: memoKey, sources, entities: read.entities, findings: read.findings };
+    const signature = JSON.stringify([...manifest.kinds.values()].filter((kind) => kind.source === 'document').map((kind) => [kind.name, kind.identifier, kind.terms, kind.headings, kind.semantics, kind.structure]));
+    // The identities beside the product and the meanings jev and the agent read are part of what the read stands on: a changed one reads the documents again.
+    const identityFile = join(store, IDENTITIES_FILE);
+    const classificationFile = join(store, CLASSIFICATIONS_FILE);
+    const stampOf = (file: string): string => { try { return String(statSync(file).mtimeMs); } catch { return '-'; } };
+    const keyOf = (): string => `${signature}\0${stamps.join('\n')}\0${String((manifest.expect ?? []).map((entry) => entry.kind).join(','))}\0${stampOf(identityFile)}\0${stampOf(classificationFile)}`;
+    if (this.docMemo?.key !== keyOf()) {
+      const held = readDocIdentities(identityFile);
+      const hasClassifications = existsSync(classificationFile);
+      const classifications = hasClassifications ? readClassificationStore(classificationFile) : { answers: new Map(), findings: [] as Finding[] };
+      const read = readDocEntities(sources, manifest, { identities: held.identities, ...(hasClassifications ? { classifier: storedClassifier(classifications.answers) } : {}) });
+      // The identities are kept beside the product, never in the repository: editing a heading keeps its links.
+      if (!sameDocIdentities(held.identities, read.identities)) {
+        try { writeDocIdentities(identityFile, read.identities); }
+        catch (error) { held.findings.push({ file: identityFile, line: 1, message: `the identities of the document sections could not be kept, so a renamed section loses its links at the next read: ${(error as Error).message}` }); }
+      }
+      this.docMemo = { key: keyOf(), sources, entities: read.entities, findings: [...held.findings, ...classifications.findings, ...read.findings] };
     }
     return { sources, entities: this.docMemo.entities, findings: [...findings, ...this.docMemo.findings] };
   }
