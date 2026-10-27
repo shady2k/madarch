@@ -53,6 +53,13 @@ export interface PassageRequest {
   readonly text: string;
   readonly line: number;
   readonly endLine: number;
+  /**
+   * The line the section's own text begins at: the first line after its heading, which is the origin a stored
+   * reading's relative range is counted from. It is not the heading's line, because an ATX heading and a Setext
+   * heading occupy a different number of lines and a blank line under a heading shifts the body without moving the
+   * heading (the review of the fifth pass, finding 3).
+   */
+  readonly bodyLine: number;
   /** The blocks the section is made of, in document order, so a classifier may split it. */
   readonly blocks: readonly PassageBlock[];
 }
@@ -124,8 +131,8 @@ export interface StoredReading {
 }
 
 /** The readings of one read, as the store keeps them: absolute lines counted back to the section's first line. */
-export function relativeReadings(readings: readonly PassageReading[], sectionLine: number): StoredReading[] {
-  return readings.map((reading) => ({ kind: reading.kind, text: reading.text, start: reading.line - sectionLine, end: reading.endLine - sectionLine }));
+export function relativeReadings(readings: readonly PassageReading[], bodyLine: number): StoredReading[] {
+  return readings.map((reading) => ({ kind: reading.kind, text: reading.text, start: reading.line - bodyLine, end: reading.endLine - bodyLine }));
 }
 
 /**
@@ -138,7 +145,9 @@ export function storedClassifier(answers: ReadonlyMap<string, readonly StoredRea
     classify(request: PassageRequest): readonly PassageReading[] {
       const held = answers.get(classificationKey(request));
       if (held === undefined) return [];
-      return held.map((reading) => ({ kind: reading.kind, text: reading.text, line: request.line + reading.start, endLine: request.line + reading.end }));
+      // Rebasing counts from the body's origin, so a heading written another way, or a blank line under it, moves the
+      // readings with the text they were read from (the review of the fifth pass, finding 3).
+      return held.map((reading) => ({ kind: reading.kind, text: reading.text, line: request.bodyLine + reading.start, endLine: request.bodyLine + reading.end }));
     },
   };
 }

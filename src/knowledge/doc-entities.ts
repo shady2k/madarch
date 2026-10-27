@@ -162,7 +162,27 @@ function quote(words: string): string {
   return `«${cut}»`;
 }
 
-/** The trimming every title and body does, by character: marks and separators are dropped, never a word. */
+/** The separator a bold naming phrase leaves behind (`**Outbox** - the table`, `**Outbox**: the table`), dropped from the body. */
+function trimSeparator(text: string): string {
+  const trimmed = trimSpaces(text);
+  const first = trimmed[0];
+  if (first === '-' || first === '–' || first === '—' || first === ':' || first === '.') {
+    const next = trimmed[1];
+    if (next === ' ' || next === '\t' || next === undefined) return trimSpaces(trimmed.slice(1));
+  }
+  return trimmed;
+}
+
+/** The spaces and line ends around a passage: a body keeps every other character, so `-5 °C` stays negative. */
+function trimSpaces(text: string): string {
+  let start = 0;
+  while (start < text.length && (text[start] === ' ' || text[start] === '\t' || text[start] === '\n' || text[start] === '\r')) start += 1;
+  let end = text.length;
+  while (end > start && (text[end - 1] === ' ' || text[end - 1] === '\t' || text[end - 1] === '\n' || text[end - 1] === '\r')) end -= 1;
+  return text.slice(start, end);
+}
+
+/** The trimming a title does, by character: marks and separators are dropped, never a word. */
 function trimStart(text: string): string {
   let at = 0;
   while (at < text.length) {
@@ -222,7 +242,9 @@ function bodyOf(block: DocNode): string {
   if (paragraph === undefined) return block.children.map((child) => child.raw.trimEnd()).join('\n').trim();
   const rest = block.children.filter((child) => child !== paragraph).map((child) => child.raw.trimEnd());
   const bold = boldLead(block);
-  const first = bold === undefined ? trimStart(paragraph.raw) : trimStart(paragraph.raw.slice(bold.endOffset - paragraph.startOffset));
+  // Only the naming span goes: a body keeps its own punctuation, so a negative number stays negative (the review of the
+  // fifth pass, finding 2).
+  const first = bold === undefined ? trimSpaces(paragraph.raw) : trimSeparator(paragraph.raw.slice(bold.endOffset - paragraph.startOffset));
   return [first, ...rest].join('\n').trim();
 }
 
@@ -335,6 +357,7 @@ export function readDocEntities(sources: readonly DocumentSource[], manifest: Ki
       if (pending.length > 0 && options.classifier !== undefined) {
         const request: PassageRequest = {
           repo: source.repo, path: source.path, headingPath: [...section.headingPath], text: section.text, line: section.line, endLine: section.endLine,
+          bodyLine: section.nodes[0]?.line ?? section.line,
           blocks: pending.map((block) => ({ line: block.line, endLine: block.endLine, text: bodyOf(block) })),
         };
         const readings = options.classifier.classify(request);
@@ -367,7 +390,11 @@ export function readDocEntities(sources: readonly DocumentSource[], manifest: Ki
             report(passage.line, `the ${passage.kind} this classifier read has no anchor a link could name, so no page shows it`);
             continue;
           }
-          candidates.push({ kind, semantics: passage.kind, pass: 'classifier', anchor, aliases: [anchor], title: place === 1 ? titleOf(block, identifier) : firstWords(span.text), identifier: place === 1 ? identifier : null, line: span.line, endLine: span.endLine, text: span.text, headingPath: [...section.headingPath] });
+          candidates.push({ kind, semantics: passage.kind, pass: 'classifier', anchor, aliases: place === 1
+                // The first reading of a block keeps every anchor the tree gives that block, so the paragraph's own
+                // address opens it beside the reading's (the review of the fifth pass, finding 1).
+                ? [...new Set([...anchorsOfNode(names, block), anchor])]
+                : [anchor], title: place === 1 ? titleOf(block, identifier) : firstWords(span.text), identifier: place === 1 ? identifier : null, line: span.line, endLine: span.endLine, text: span.text, headingPath: [...section.headingPath] });
         }
         for (const block of pending) if (!places.has(block)) report(block.line, `the classifier read no meaning of this passage, so no page shows it: ${quote(firstWords(leadText(block)))}`, 'unread-passage');
       } else if (pending.length > 0) {

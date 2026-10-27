@@ -231,8 +231,10 @@ describe('the three passes, each recording which one decided', () => {
     const store = join(scratch('store'), CLASSIFICATIONS_FILE);
     const section = readDocTree({ repo: null, path: 'docs/stories.md', text: stories }).sections[0]!;
     const key = classificationKey({ repo: null, path: 'docs/stories.md', headingPath: section.headingPath, text: section.text });
-    // A reading is kept with its lines counted from the section's first line, so an insertion above the section moves it.
-    writeClassificationStore(store, new Map([[key, relativeReadings([{ kind: 'scenario', text: 'A shopper pays by card.', line: 3, endLine: 3 }], 1)]]));
+    // A reading is kept with its lines counted from the body's first line (not the heading's), so an insertion above the
+    // section, a heading written another way or a blank line under it moves the reading with the text it was read from.
+    const bodyLine = section.nodes[0]!.line;
+    writeClassificationStore(store, new Map([[key, relativeReadings([{ kind: 'scenario', text: 'A shopper pays by card.', line: 3, endLine: 3 }], bodyLine)]]));
     const read = readClassificationStore(store);
     expect(read.findings).toEqual([]);
     const held = readDocEntities([{ repo: null, path: 'docs/stories.md', text: stories }], manifest(), { classifier: storedClassifier(read.answers) });
@@ -511,5 +513,40 @@ describe('the front matter says what the document\'s sections are', () => {
     // reported as unread rather than vanishing (the review of finding 5).
     expect(read.findings.map((finding) => [finding.file, finding.line])).toEqual([['docs/product.md', 3], ['docs/product.md', 10]]);
     expect(read.findings[0]!.message).toContain('the manifest declares no kind or general kind of that name');
+  });
+});
+
+const firstDocSectionText = (text: string): string => readDocTree({ repo: null, path: 'docs/stories.md', text }).sections[0]!.text;
+describe('what the fifth review found', () => {
+  const manifest = (): KindsManifest => parse([
+    'kinds:',
+    '  doc.story: { template: templates/x.md, source: document, semantics: scenario }',
+    '  doc.requirement: { template: templates/x.md, source: document, semantics: quality, headings: [Qualities] }',
+  ]);
+
+  test('a negative number in an unbolded list item keeps its sign', () => {
+    const text = '# Qualities\n\n- -5 °C is the minimum temperature.\n';
+    const read = readDocEntities([{ repo: null, path: 'docs/requirements.md', text }], manifest());
+    expect(read.entities.map((entity) => entity.text)).toEqual(['-5 °C is the minimum temperature.']);
+  });
+
+  test('the first classified passage keeps every anchor the tree gives its block', () => {
+    const text = '# Transport\n\nThe bus runs every ten minutes.\n';
+    const read = readDocEntities([{ repo: null, path: 'docs/stories.md', text }], manifest(), { classifier: fakeClassifier({ Transport: 'scenario' }) });
+    const [first] = read.entities;
+    expect(first!.anchor).toBe('transport.1');
+    // The block's own alias is the one that answered 404 before: the reading's place and the block's place are kept
+    // together on its first passage (the review of the fifth pass, finding 1).
+    expect([...first!.aliases]).toContain('transport.1');
+  });
+
+  test('a stored reading survives a heading written another way, and a blank line under it', () => {
+    const atx = '# Stories\n\nA shopper pays by card.\n';
+    const first = readDocEntities([{ repo: null, path: 'docs/stories.md', text: atx }], manifest(), { classifier: fakeClassifier({ Stories: 'scenario' }) });
+    const readings = relativeReadings(first.entities.map((entity) => ({ kind: 'scenario' as const, text: entity.text, line: entity.line, endLine: entity.endLine })), first.entities[0]!.line);
+    const answers = new Map([[classificationKey({ repo: null, path: 'docs/stories.md', headingPath: ['Stories'], text: firstDocSectionText(atx) }), readings]]);
+    const setext = 'Stories\n=======\n\nA shopper pays by card.\n';
+    const after = readDocEntities([{ repo: null, path: 'docs/stories.md', text: setext }], manifest(), { classifier: storedClassifier(answers) });
+    expect(after.entities.map((entity) => entity.text)).toEqual(['A shopper pays by card.']);
   });
 });
