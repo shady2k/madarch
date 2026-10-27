@@ -67,7 +67,11 @@ const extractions: Extraction[] = [];
 phase = 'raw-extraction';
 for (const [index, extractor] of TREE_EXTRACTORS.entries()) {
  phase = `raw-extractor-${index}`;
- extractions.push(await extractor(tree, extractions.find((entry) => entry.producer === 'code.extract.code')));
+ // A tree extractor returns either its extraction or the code extractor's
+ // `{extraction, facts}` result (src/extract/code/facts.ts). The driver reads both
+ // shapes; the audit unwraps the second, or every later step reads `.nodes` of it.
+ const produced = await extractor(tree, extractions.find((entry) => entry.producer === 'code.extract.code'));
+ extractions.push('extraction' in produced ? produced.extraction : produced);
  save('raw-extractions-partial', {complete: false, extractions});
 }
 phase = 'history-extraction';

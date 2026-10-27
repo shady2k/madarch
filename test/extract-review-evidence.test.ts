@@ -113,3 +113,31 @@ test('historical renamed file shows only explicit readable same-scope successor,
  const result=await sourceBlock(ctx,{source:'graph',entity:old},{},'templates/file.md',3);expect(result.type).toBe('refs');if(result.type==='refs'){expect(result.total).toBe(1);expect(result.rows[0]?.entity.id).toBe(next.key);expect(result.rows[0]?.entity.location?.path).toBe('new.ts');expect(result.title).toContain('original path is absent');}expect(reads).toEqual(['old.ts','new.ts']);expect(JSON.stringify(result)).not.toContain('actual successor bytes');
  rows=[{other:{...next,scope:'scope-b'}}];expect((await sourceBlock(ctx,{source:'graph',entity:old},{},'templates/file.md',3)).type).toBe('problem');rows=[];expect((await sourceBlock(ctx,{source:'graph',entity:old},{},'templates/file.md',3)).type).toBe('problem');rows=[{other:{...next,span:{...span,path:'missing.ts'}}}];expect((await sourceBlock(ctx,{source:'graph',entity:old},{},'templates/file.md',3)).type).toBe('problem');
 });
+
+test('audit unwraps the code extractor\'s {extraction, facts} result before it audits raw rows', async () => {
+ const root = mkdtempSync(join(tmpdir(), 'madarch-audit-wrapper-'));
+ try {
+  const engine = join(root,'engine'); const repository = join(root,'repository'); const out = join(root,'out');
+  mkdirSync(join(engine,'src/extract/driver'),{recursive:true}); mkdirSync(repository,{recursive:true});
+  writeFileSync(join(repository,'fixture.ts'),'é\nx');
+  writeFileSync(join(engine,'src/extract/driver/git.ts'),`export const walkDefaultBranch = () => [{hash:'fixture-head',effectiveTime:'2025-01-01T00:00:00Z'}]; export const commitTree = () => ({paths:['fixture.ts'],read:() => new TextEncoder().encode('é\\nx')});`);
+  const first = {producer:'code.fixture.first',nodes:[{key:'code.symbol:fixture.ts#first',kind:'code.symbol',label:'first',properties:{},span:{path:'fixture.ts',byteStart:0,byteEnd:2,lineStart:1,lineEnd:1}}],edges:[],gaps:[]};
+  // The code extractor returns `{extraction, facts}` (src/extract/code/facts.ts); every other
+  // extractor returns the extraction. The audit must read the same two shapes as the driver.
+  // The history extractor keeps its own, empty extraction: this case reads the tree pass's rows.
+  const history = {producer:'code.fixture.history',nodes:[],edges:[],gaps:[]};
+  writeFileSync(join(engine,'src/extract/driver/extractors.ts'),`export const TREE_EXTRACTORS = [() => ({extraction: ${JSON.stringify(first)}, facts: {}})]; export const OWNERS = {}; export const HISTORY_EXTRACTOR = () => (${JSON.stringify(history)});`);
+  const child = Bun.spawn([process.execPath, resolve(import.meta.dir,'../scripts/extract-truth-audit.ts'),'--engine',engine,'--repository',repository,'--out',out],{stdout:'pipe',stderr:'pipe'});
+  await Promise.all([child.exited,new Response(child.stdout).text(),new Response(child.stderr).text()]);
+  const runs = readdirSync(out); expect(runs).toHaveLength(1);
+  const run = join(out,runs[0]!);
+  // The fixture engine holds no database module, so the run stops when it imports the store —
+  // after the raw rows were audited, which is what this case reads. The phase stays
+  // 'history-extraction' until 'store-start' is set, so the raw row files are the evidence.
+  const failure = JSON.parse(readFileSync(join(run,'failure.json'),'utf8'));
+  expect(failure.phase).toBe('history-extraction');
+  expect(failure.error.message).toContain('database-owner.ts');
+  expect(JSON.parse(readFileSync(join(run,'raw-nodes.json'),'utf8')).map((node:{key:string}) => node.key)).toEqual(['code.symbol:fixture.ts#first']);
+  expect(JSON.parse(readFileSync(join(run,'raw-summary.json'),'utf8')).nodes).toBe(1);
+ } finally {rmSync(root,{recursive:true,force:true});}
+}, 20_000);
