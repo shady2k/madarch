@@ -59,29 +59,44 @@ function groupedBy<T>(items: readonly T[] | undefined, key: (item: T) => string)
   return new FactIndex((items ?? []).map((item) => [key(item), item] as const));
 }
 
+/** The paths of one tree as a membership test, made once and read by every pass over it. */
+function hasOf(tree: TreeReader): (path: string) => boolean {
+  const paths = new Set(tree.paths);
+  return (path) => paths.has(path);
+}
+
+/**
+ * One tree read as text and as its shared facts: the decoded bytes, the lines,
+ * the spans records point at, the fact indexes and the library evaluation. The
+ * view of a tree (`treeView`) is made once; the passes over it (`pass`) read its
+ * indexes, text and evaluation instead of building them again, and each pass
+ * keeps its own record of the paths it could not read, so a gap one extractor
+ * proves is never reported by another over the same tree.
+ */
 export class TreeText {
   /** The tree's paths, as a set for `has`. */
   readonly has: (path: string) => boolean;
 
-  private readonly texts = new Map<string, string>();
-  private readonly linesCache = new Map<string, readonly string[]>();
+  private readonly texts: Map<string, string>;
+  private readonly linesCache: Map<string, readonly string[]>;
+  private readonly boundaries: Map<string, Int32Array>;
+  private readonly library: {evaluation?: LibraryEvaluation};
 
   readonly tree: TreeReader;
-  private libraryCache: LibraryEvaluation | undefined;
   readonly factGaps = new Map<string, { readonly path: string; readonly reason: string }>();
   factGap(path: string, reason: string): void { this.factGaps.set(JSON.stringify([path, reason]), {path, reason}); }
 
   libraryFacts(): LibraryEvaluation | undefined {
     if (this.facts === undefined) return undefined;
-    this.libraryCache ??= evaluateLibraryModels(this.facts);
-    return this.libraryCache;
+    this.library.evaluation ??= evaluateLibraryModels(this.facts);
+    return this.library.evaluation;
   }
 
   readonly facts: CodeFacts | undefined;
 
   /**
-   * The view's immutable fact indexes, built once for this view and never
-   * shared with another one: expressions by path and by id, child ids by their
+   * The view's immutable fact indexes, built once for this view and read by
+   * every pass over it: expressions by path and by id, child ids by their
    * parent's id, bindings by id and by initializer, symbols by path and by key,
    * imports by path and files by path.
    */
@@ -95,26 +110,47 @@ export class TreeText {
   readonly importsByPath: FactIndex<CodeImportFact>;
   readonly filesByPath: FactIndex<CodeFileFact>;
 
-  /** The callable sites this view has already proved, and the bytes' boundary tables. */
+  /**
+   * The callable sites this pass has already proved. They stay this pass's own:
+   * proving a path's sites also records the paths it could not read, and a pass
+   * that read a proof another pass had made would report none of that.
+   */
   private readonly callables = new Map<string, readonly FunctionSite[]>();
-  private readonly boundaries = new Map<string, Int32Array>();
 
-  constructor(tree: TreeReader, readonly code?: Extraction, facts?: CodeFacts) {
+  /**
+   * Reads one tree. With `view` given, everything the facts' indexes, the text,
+   * the byte boundaries and the library evaluation hold is the view's, so a
+   * later pass over the same tree builds none of it again.
+   */
+  constructor(tree: TreeReader, readonly code?: Extraction, facts?: CodeFacts, view?: TreeText) {
     this.tree = tree;
-    this.facts = facts ?? (code === undefined ? undefined : codeFactsOf(code, tree));
-    const paths = new Set(tree.paths);
-    this.has = (path) => paths.has(path);
-    this.expressionsByPath = groupedBy(this.facts?.expressions, (expression) => expression.path);
-    this.expressionsById = groupedBy(this.facts?.expressions, (expression) => expression.id);
-    this.childrenByParent = new FactIndex((this.facts?.expressions ?? []).flatMap((expression) =>
+    this.facts = view !== undefined ? view.facts : facts ?? (code === undefined ? undefined : codeFactsOf(code, tree));
+    const held = this.facts;
+    this.has = view !== undefined ? view.has : hasOf(tree);
+    this.texts = view !== undefined ? view.texts : new Map<string, string>();
+    this.linesCache = view !== undefined ? view.linesCache : new Map<string, readonly string[]>();
+    this.boundaries = view !== undefined ? view.boundaries : new Map<string, Int32Array>();
+    this.library = view !== undefined ? view.library : {};
+    this.expressionsByPath = view !== undefined ? view.expressionsByPath : groupedBy(held?.expressions, (expression) => expression.path);
+    this.expressionsById = view !== undefined ? view.expressionsById : groupedBy(held?.expressions, (expression) => expression.id);
+    this.childrenByParent = view !== undefined ? view.childrenByParent : new FactIndex((held?.expressions ?? []).flatMap((expression) =>
       expression.children.map((child) => [expression.id, child] as const)));
-    this.bindingsById = groupedBy(this.facts?.bindings, (binding) => binding.id);
-    this.bindingsByInitializer = groupedBy((this.facts?.bindings ?? []).filter((binding) => binding.initializer !== undefined),
+    this.bindingsById = view !== undefined ? view.bindingsById : groupedBy(held?.bindings, (binding) => binding.id);
+    this.bindingsByInitializer = view !== undefined ? view.bindingsByInitializer : groupedBy((held?.bindings ?? []).filter((binding) => binding.initializer !== undefined),
       (binding) => binding.initializer!);
-    this.symbolsByPath = groupedBy(this.facts?.symbols, (symbol) => symbol.path);
-    this.symbolsByKey = groupedBy(this.facts?.symbols, (symbol) => symbol.key);
-    this.importsByPath = groupedBy(this.facts?.imports, (entry) => entry.path);
-    this.filesByPath = groupedBy(this.facts?.files, (file) => file.path);
+    this.symbolsByPath = view !== undefined ? view.symbolsByPath : groupedBy(held?.symbols, (symbol) => symbol.path);
+    this.symbolsByKey = view !== undefined ? view.symbolsByKey : groupedBy(held?.symbols, (symbol) => symbol.key);
+    this.importsByPath = view !== undefined ? view.importsByPath : groupedBy(held?.imports, (entry) => entry.path);
+    this.filesByPath = view !== undefined ? view.filesByPath : groupedBy(held?.files, (file) => file.path);
+  }
+
+  /**
+   * One pass's reader over this view: the view's facts, indexes, text, byte
+   * boundaries and library evaluation, and a record of its own of the paths it
+   * could not read.
+   */
+  pass(): TreeText {
+    return new TreeText(this.tree, this.code, this.facts, this);
   }
 
   /** The callable sites already proved for a path in this view, when one asked before. */
@@ -230,6 +266,40 @@ export class TreeText {
     const byteEnd = endChar >= text.length ? bytes.length : encoder.encode(text.slice(0, endChar)).length;
     return { path, byteStart, byteEnd, lineStart: lineStart_, lineEnd: Math.max(lineEnd_, lineStart_) };
   }
+}
+
+/** What a tree's view was built from, and the view itself. */
+interface HeldView {
+  readonly code: Extraction | undefined;
+  readonly facts: CodeFacts | undefined;
+  readonly view: TreeText;
+}
+
+/** Every tree's view, keyed by the very reader it reads. */
+const views = new WeakMap<TreeReader, HeldView>();
+
+/**
+ * The operations fact view of one tree (madarch-mwhd.3): the facts, their
+ * indexes, the decoded text, the byte boundaries and the library evaluation of
+ * one reader, built on the first question and read by every later one, so the
+ * tree's two extractors pay for each of them once. The entry is keyed by the
+ * reader object itself: a view never outlives the tree it was read from, since
+ * an entry whose value names its key is collected with the key, and
+ * `releaseTreeView` drops it the moment that tree's work ends. A question that
+ * brings another code extraction or another fact set than the held one builds
+ * its own view, exactly as the first question did.
+ */
+export function treeView(tree: TreeReader, code?: Extraction, facts?: CodeFacts): TreeText {
+  const held = views.get(tree);
+  if (held !== undefined && held.code === code && held.facts === facts) return held.view;
+  const view = new TreeText(tree, code, facts);
+  views.set(tree, { code, facts, view });
+  return view;
+}
+
+/** Drops a tree's view when that tree's work ends: the next question about its reader builds a new one. */
+export function releaseTreeView(tree: TreeReader): void {
+  views.delete(tree);
 }
 
 /** The character offset a 1-based line starts at. */

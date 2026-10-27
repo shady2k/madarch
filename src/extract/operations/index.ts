@@ -2,7 +2,11 @@
  * The operations extractor: configuration, build, deploy, dependencies,
  * observability, the stack passport and the newcomer's first run, read from
  * one tree as pure records (decision 0028). No database, no network, no clock;
- * a file that cannot be read is a gap, never a silence.
+ * a file that cannot be read is a gap, never a silence. Every pass reads the
+ * tree's own fact view (`treeView`), which the contracts extractor reads too,
+ * so one tree's fact indexes, text, byte boundaries and library models are
+ * built once for both and each pass keeps the gaps it proved itself
+ * (madarch-mwhd.3).
  */
 import type { Extraction, TreeReader } from '../records.js';
 import type { CodeFacts } from '../code/facts.js';
@@ -15,14 +19,14 @@ import { extractNewcomer } from './newcomer.js';
 import { extractMessaging } from './messaging.js';
 import { extractObservability, linkEndpoints } from './observability.js';
 import { extractStack } from './stack.js';
-import { TreeText } from './source.js';
+import { treeView } from './source.js';
 
 /** The producer key of every record this folder returns. */
 export const OPERATIONS_PRODUCER = 'code.extract.operations';
 
 /** Extracts the operations records of one tree. */
 export function extractOperations(tree: TreeReader, code?: Extraction, facts?: CodeFacts): Extraction {
-  const t = new TreeText(tree, code, facts);
+  const t = treeView(tree, code, facts).pass();
   const records = new Records(t);
   try {
     const library = t.libraryFacts();

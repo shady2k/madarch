@@ -19,7 +19,7 @@
  * - the SQL path links reads of `req.query` to the string builders whose
  *   results reach `$queryRawUnsafe`, through the file's local bindings.
  */
-import {TreeText} from '../operations/source.js';
+import {treeView} from '../operations/source.js';
 import {routeListenerPorts, structuralHttpRegistrations} from '../operations/route-facts.js';
 import {codeFactsOf, extractCodeWithFacts} from '../code/index.js';
 import type {CodeExpressionFact, CodeFacts} from '../code/facts.js';
@@ -188,7 +188,11 @@ export async function extractContracts(reader: TreeReader, code?: Extraction, fa
     nodes[at] = {...node, properties: {...node.properties, path}, span};
   }
 
-  const sourceText = new TreeText(reader, code, facts);
+  // One view per tree: where the operations extractor already read this
+  // reader, its fact indexes, decoded text, byte boundaries and library
+  // evaluation stand here, and this pass keeps the gaps it proves itself
+  // (madarch-mwhd.3).
+  const sourceText = treeView(reader, code, facts).pass();
   const symbols = await contractSymbols(reader, nodes, code, facts, sourceText);
   const httpRegistrations = structuralHttpRegistrations(sourceText);
   const httpRegistrationAt = (span: SourceSpan) => {const matches = httpRegistrations.filter(route => route.span.path === span.path && route.span.byteStart === span.byteStart && route.span.byteEnd === span.byteEnd); return matches.length === 1 ? matches[0] : undefined;};
