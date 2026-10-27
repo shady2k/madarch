@@ -82,7 +82,7 @@ const OFFERS: StarterOffer[] = [
 
 const status = (over: Partial<WikiStatus> = {}): WikiStatus => ({
   product: { name: 'shop', id: 'p1' }, manifest: 'ok', manifestFile: 'madarch/kinds.yaml', language: 'ru', seeded: [], findings: [], kinds: [], groups: [], repositories: [{ name: 'shop', filled: true }],
-  filled: true, incomplete: false, fill: { state: 'idle' }, writer: { state: 'idle', agent: null, units: [] }, bounds: BOUNDS, chosenAgent: null, home: null, starterOffers: 0, ...over,
+  filled: true, incomplete: false, fill: { state: 'idle' }, writer: { state: 'idle', agent: null, units: [] }, bounds: BOUNDS, chosenAgent: null, home: null, starterOffers: 0, problemsOpen: 0, ...over,
 });
 
 describe('the product settings page', () => {
@@ -332,7 +332,7 @@ describe('where the settings are and where the progress is', () => {
 
   test('the bottom of the sidebar links to the settings, counts actual problems but not starter offers, and removes «Start over»', async () => {
     (globalThis as { fetch?: unknown }).fetch = async (url: string) => {
-      if (url.endsWith('/api/k/status')) return json(status({ starterOffers: 56, loop: { questionsOpen: 0, questionsAnswered: 0, correctionsOpen: 4 } }));
+      if (url.endsWith('/api/k/status')) return json(status({ starterOffers: 56, problemsOpen: 2, loop: { questionsOpen: 0, questionsAnswered: 0, correctionsOpen: 4 } }));
       if (url.endsWith('/api/k/products')) return json({ products: [{ name: 'shop', folder: 'shop' }] });
       if (url.endsWith('/api/k/agents')) return json({ agents: [], chosen: null });
       if (url.endsWith('/api/k/settings')) return json({ role: 'everything', asked: true, roles: [] });
@@ -345,6 +345,6 @@ describe('where the settings are and where the progress is', () => {
     expect(app.querySelector('[data-testid=nav-settings]')!.getAttribute('href')).toBe('/k/settings');
     expect(app.querySelector('[data-testid=nav-settings]')!.textContent).toBe('Product settings');
     expect(app.querySelector('[data-testid=start-over]')).toBeNull();
-    expect(app.querySelector('[data-testid=nav-problems-count]')!.textContent).toBe('4');
+    expect(app.querySelector('[data-testid=nav-problems-count]')!.textContent).toBe('2');
   });
 });

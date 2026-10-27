@@ -246,6 +246,7 @@ export type WikiStatus = {
   own?: boolean;
   /** Questions and corrections waiting, counted from their files. */
   loop?: { questionsOpen: number; questionsAnswered: number; correctionsOpen: number };
+  problemsOpen?: number;
   /** What the current starter set holds that this product's edited manifest lacks (the Problems page offers it). */
   starterOffers?: number;
 };
