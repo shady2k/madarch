@@ -108,11 +108,37 @@ export function classificationKey(request: Pick<PassageRequest, 'repo' | 'path' 
   return sha256Hex(new TextEncoder().encode([request.repo ?? '', request.path, request.headingPath.join('\u0000'), request.text].join('\u0001'))).slice(0, 32);
 }
 
-/** A classifier that answers from readings already kept: what jev and the agent read, filled by the host. */
-export function storedClassifier(answers: ReadonlyMap<string, readonly PassageReading[]>): SemanticClassifier {
+/**
+ * One reading as the product's store keeps it: its general kind, its text, and the lines it covers counted from the
+ * section's own first line (`start: 0` is that line). Absolute lines are a property of one read of one document, not of
+ * a meaning: a paragraph inserted above an unchanged section moves every line of it, and a reading stored by absolute
+ * line would then name the wrong passage (madarch-ztyq.3, the review of finding 6). The section's text is part of the
+ * key, so an edited section is asked again and its relative ranges are read against the section as it stands now.
+ */
+export interface StoredReading {
+  readonly kind: SemanticKind;
+  readonly text: string;
+  /** The passage's first line and last line, counted from 0 at the section's first line. */
+  readonly start: number;
+  readonly end: number;
+}
+
+/** The readings of one read, as the store keeps them: absolute lines counted back to the section's first line. */
+export function relativeReadings(readings: readonly PassageReading[], sectionLine: number): StoredReading[] {
+  return readings.map((reading) => ({ kind: reading.kind, text: reading.text, start: reading.line - sectionLine, end: reading.endLine - sectionLine }));
+}
+
+/**
+ * A classifier that answers from readings already kept: what jev and the agent read, filled by the host. It rebases the
+ * reading's relative range onto the section as the document has it now, so an insertion before the section moves the
+ * readings with it instead of losing them.
+ */
+export function storedClassifier(answers: ReadonlyMap<string, readonly StoredReading[]>): SemanticClassifier {
   return {
     classify(request: PassageRequest): readonly PassageReading[] {
-      return answers.get(classificationKey(request)) ?? [];
+      const held = answers.get(classificationKey(request));
+      if (held === undefined) return [];
+      return held.map((reading) => ({ kind: reading.kind, text: reading.text, line: request.line + reading.start, endLine: request.line + reading.end }));
     },
   };
 }
@@ -121,30 +147,32 @@ export function storedClassifier(answers: ReadonlyMap<string, readonly PassageRe
 export const CLASSIFICATIONS_FILE = 'doc-classifications.json';
 
 /** Valid readings read back from the store; a reading that names no general kind is a finding, not a reading. */
-function readingsOf(file: string, key: string, value: unknown, line: number): { readings: PassageReading[]; findings: Finding[] } {
+function readingsOf(file: string, key: string, value: unknown, line: number): { readings: StoredReading[]; findings: Finding[] } {
   const findings: Finding[] = [];
   if (!Array.isArray(value)) {
-    findings.push({ file, line, message: `the readings of the section ${JSON.stringify(key)} are a list of { kind, text, line, endLine }` });
+    findings.push({ file, line, message: `the readings of the section ${JSON.stringify(key)} are a list of { kind, text, start, end }` });
     return { readings: [], findings };
   }
-  const readings: PassageReading[] = [];
+  const readings: StoredReading[] = [];
   value.forEach((entry: unknown, index) => {
     const body = entry as Record<string, unknown> | null;
-    const kind = body === null || typeof body !== 'object' ? undefined : body['kind'];
-    const text = body === null || typeof body !== 'object' ? undefined : body['text'];
-    const at = body === null || typeof body !== 'object' ? undefined : body['line'];
-    const ends = body === null || typeof body !== 'object' ? undefined : body['endLine'];
-    if (typeof kind !== 'string' || !isSemanticKind(kind) || typeof text !== 'string' || typeof at !== 'number' || typeof ends !== 'number') {
-      findings.push({ file, line, message: `the ${String(index + 1)}th reading of the section ${JSON.stringify(key)} is not { kind: ${SEMANTIC_KINDS.join('|')}, text, line, endLine }` });
+    const field = (name: string): unknown => (body === null || typeof body !== 'object' ? undefined : body[name]);
+    const kind = field('kind');
+    const text = field('text');
+    const start = field('start');
+    const end = field('end');
+    const whole = (number: unknown): number | undefined => (typeof number === 'number' && Number.isInteger(number) && number >= 0 ? number : undefined);
+    if (typeof kind !== 'string' || !isSemanticKind(kind) || typeof text !== 'string' || whole(start) === undefined || whole(end) === undefined || (end as number) < (start as number)) {
+      findings.push({ file, line, message: `the ${String(index + 1)}th reading of the section ${JSON.stringify(key)} is not { kind: ${SEMANTIC_KINDS.join('|')}, text, start, end }, its lines counted from the section's first line` });
       return;
     }
-    readings.push({ kind, text, line: at, endLine: ends });
+    readings.push({ kind, text, start: start as number, end: end as number });
   });
   return { readings, findings };
 }
 
 /** The readings a host filled into the product's store; a store that cannot be read is a finding naming the file and the line. */
-export function readClassificationStore(file: string): { answers: Map<string, readonly PassageReading[]>; findings: Finding[] } {
+export function readClassificationStore(file: string): { answers: Map<string, readonly StoredReading[]>; findings: Finding[] } {
   let text: string;
   try {
     text = readFileSync(file, 'utf8');
@@ -159,10 +187,10 @@ export function readClassificationStore(file: string): { answers: Map<string, re
     return { answers: new Map(), findings: [{ file, line: 1, message: `the classifications are not valid JSON: ${(error as Error).message}` }] };
   }
   const body = value as Record<string, unknown> | null;
-  if (body === null || typeof body !== 'object' || Array.isArray(body)) return { answers: new Map(), findings: [{ file, line: 1, message: 'the classifications are { "sections": { "<key>": [ { kind, text, line, endLine } ] } }' }] };
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) return { answers: new Map(), findings: [{ file, line: 1, message: 'the classifications are { "sections": { "<key>": [ { kind, text, start, end } ] } }' }] };
   const sections = body['sections'];
   if (sections === null || typeof sections !== 'object' || Array.isArray(sections)) return { answers: new Map(), findings: [{ file, line: 1, message: 'the classifications hold a "sections" mapping of a key to its readings' }] };
-  const answers = new Map<string, readonly PassageReading[]>();
+  const answers = new Map<string, readonly StoredReading[]>();
   const findings: Finding[] = [];
   for (const [key, entry] of Object.entries(sections as Record<string, unknown>).sort(([a], [b]) => byCodePoint(a, b))) {
     const line = text.split('\n').findIndex((candidate) => candidate.includes(key)) + 1;
@@ -174,8 +202,8 @@ export function readClassificationStore(file: string): { answers: Map<string, re
 }
 
 /** Writes the readings a host filled into the product's store, in a file of its own so a reader never sees half of one. */
-export function writeClassificationStore(file: string, answers: ReadonlyMap<string, readonly PassageReading[]>): void {
-  const sections: Record<string, readonly PassageReading[]> = {};
+export function writeClassificationStore(file: string, answers: ReadonlyMap<string, readonly StoredReading[]>): void {
+  const sections: Record<string, readonly StoredReading[]> = {};
   for (const [key, readings] of [...answers].sort(([a], [b]) => byCodePoint(a, b))) sections[key] = readings;
   const text = `${JSON.stringify({ sections }, null, 2)}\n`;
   mkdirSync(dirname(file), { recursive: true });
@@ -189,7 +217,21 @@ export function writeClassificationStore(file: string, answers: ReadonlyMap<stri
   }
 }
 
-/** A heading's text as a declaration writes it: marks removed, spaces collapsed, lower case, a closing colon dropped. */
+/**
+ * A heading's text as a declaration writes it: marks removed, spaces collapsed, lower case, a closing colon dropped.
+ * Read character by character: no expression over a document's text stands between a heading and what it is called
+ * (madarch-ztyq.3, the review of finding 1).
+ */
 export function normaliseHeading(text: string): string {
-  return text.replace(/[`*_~]/g, '').replace(/\s+/g, ' ').trim().replace(/:$/, '').trim().toLowerCase();
+  let stripped = '';
+  for (const char of text) if (char !== '`' && char !== '*' && char !== '_' && char !== '~') stripped += char;
+  let collapsed = '';
+  for (const char of stripped) {
+    const space = char === ' ' || char === '\t' || char === '\n' || char === '\r' || char === '\f';
+    if (space && collapsed.endsWith(' ')) continue;
+    collapsed += space ? ' ' : char;
+  }
+  let named = collapsed.trim().toLowerCase();
+  if (named.endsWith(':')) named = named.slice(0, -1).trim();
+  return named;
 }

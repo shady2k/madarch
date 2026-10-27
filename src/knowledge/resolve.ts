@@ -64,6 +64,12 @@ export interface ResolverDeps {
   locate: (entity: GraphEntity) => CodeLocation | undefined;
   /** The entity of a document that starts at a line of the document, when the manifest's document kinds make one of it. */
   documentEntity?: (repo: string | null, path: string, line: number) => { id: string; kind: string; title: string } | undefined;
+  /**
+   * The entity of a document whose durable identity is the fragment, when the manifest's document kinds make one of it:
+   * a page id (`doc:<path>#<stableId>`) is a link that outlives a renamed heading or a removed `UC-`/`BR-` alias, so the
+   * resolver must find the page by that identity and not only by the anchor the document writes now (finding 2).
+   */
+  documentEntityById?: (repo: string | null, path: string, stableId: string) => { id: string; kind: string; title: string } | undefined;
 }
 
 export class Resolver {
@@ -103,9 +109,11 @@ export class Resolver {
       seen.push(root ?? 'the product repository');
       // A Markdown document opens as a page of the wiki at its section; any other file opens in the source view.
       if (anchor === null || anchor === '') return { state: 'ok', target: url, kind: 'document', label: path, href: isMarkdownPath(path) ? documentAddress(root, path) : sourceAddress(root, path) };
+      // A page id names the entity's durable identity, which no heading or number change rewrites; an anchor names the
+      // part of the document as it stands now. Both open the entity's page, never the document at a line.
+      const byIdentity = this.deps.documentEntityById?.(root, path, anchor);
       const line = findAnchor(text, anchor);
-      // A section the manifest makes an entity opens the entity's page, not the document at a line.
-      const entity = line === null ? undefined : this.deps.documentEntity?.(root, path, line);
+      const entity = byIdentity ?? (line === null ? undefined : this.deps.documentEntity?.(root, path, line));
       if (entity !== undefined && this.deps.declared(entity.kind)) return { state: 'ok', target: url, kind: entity.kind, label: entity.title, href: entityAddress(entity.id), entity: entity.id };
       if (line !== null) return { state: 'ok', target: url, kind: 'document', label: `${path}#${anchor}`, href: isMarkdownPath(path) ? documentAddress(root, path, anchor) : sourceAddress(root, path, line) };
     }

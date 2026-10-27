@@ -135,6 +135,26 @@ const REFUND_QUESTION: Omit<Question, 'file' | 'id'> = {
   writtenAt: [],
 };
 
+/** A third open question, about one bold item of the Refunds section: its task's scope is that item alone. */
+const REFUND_AMOUNT_QUESTION: Omit<Question, 'file' | 'id'> = {
+  slug: 'refund-amount',
+  title: 'Can a refund exceed what was captured?',
+  type: 'undocumented',
+  status: 'open',
+  about: [],
+  askedIn: null,
+  askedAt: '2026-10-23T13:00:00.000Z',
+  question: 'How much can a refund give back?',
+  why: 'The README caps a refund at the captured total, and nothing in the code says so.',
+  sides: [{ claim: 'The README says a refund never exceeds the captured total.', grounds: ['doc:README.md#full-amount'] }],
+  answer: null,
+  resolvedBy: [],
+  resolvedAt: null,
+  writtenAt: [],
+};
+/** The bold item of the Refunds section that a task is scoped to: the sibling of `thirty-days`. */
+const REFUND_ITEM_SCOPE = { type: 'section', path: 'README.md', anchor: 'full-amount' };
+
 let work: string;
 let folder: string;
 let repository: string;
@@ -186,6 +206,7 @@ beforeAll(async () => {
   writeFileSync(join(folder, 'docs/questions/discount-percentage.md'), renderQuestion(DISCOUNT_QUESTION));
   writeFileSync(join(folder, 'docs/questions/tax-timing.md'), renderQuestion(TAX_QUESTION));
   writeFileSync(join(folder, 'docs/questions/refund-window.md'), renderQuestion(REFUND_QUESTION));
+  writeFileSync(join(folder, 'docs/questions/refund-amount.md'), renderQuestion(REFUND_AMOUNT_QUESTION));
   git(folder, ['add', '-A']);
   git(folder, ['-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'the agent wrote']);
   const app = join(work, 'app');
@@ -455,6 +476,36 @@ describe('closing a task by a commit', () => {
       words: 'README.md#refunds',
       place: { kind: 'section', label: 'Refunds', where: 'Shop', href: '/k/doc?repo=orders-code&path=README.md#refunds', path: 'README.md', words: 'README.md#refunds' },
     }]);
+  }, 60_000);
+
+  test('a task scoped to one list item is not closed by a commit that changes its sibling', async () => {
+    // A list item covers only its own lines: the scope is the item, not the section round it (madarch-ztyq.3, the review
+    // of finding 4). The sibling item stands two lines above it in the same section.
+    const answered = await post('/api/k/answer', { question: 'refund-amount', text: 'A refund gives back at most what was captured.' });
+    expect(answered.status).toBe(200);
+    const proposal = await post('/api/k/task-propose', { question: 'refund-amount', choice: 'code' });
+    expect(proposal.status).toBe(200);
+    expect(proposal.body.scope).toEqual([REFUND_ITEM_SCOPE]);
+    const created = await post('/api/k/task-create', { question: 'refund-amount', title: proposal.body.title, grounds: proposal.body.grounds, scope: proposal.body.scope });
+    expect(created.status).toBe(201);
+    const task: { id: string; slug: string; at: string } = created.body.task;
+    const readme = (): string => readFileSync(join(repository, 'README.md'), 'utf8');
+    const commit = (message: string, change: (text: string) => string, seconds: number): string => {
+      writeFileSync(join(repository, 'README.md'), change(readme()));
+      const dated = { GIT_AUTHOR_DATE: new Date(Date.parse(task.at) + seconds * 1000).toISOString(), GIT_COMMITTER_DATE: new Date(Date.parse(task.at) + seconds * 1000).toISOString() };
+      git(repository, ['add', '--', 'README.md'], dated);
+      git(repository, ['-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', message], dated);
+      return git(repository, ['rev-parse', 'HEAD']).trim();
+    };
+    // The sibling item changes: the task stays open, because that line is not its scope.
+    commit(`Say the refund window again\n\nTask: ${task.slug}`, (text) => text.replace('A refund is asked within thirty days of the capture.', 'A refund is asked within thirty days of the capture, in writing.'), 2);
+    expect(taskRowOf(await get('/api/k/tasks'), task.id)).toMatchObject({ status: 'open', closedBy: null });
+    // The task's own item changes: it closes with that commit.
+    const closing = commit(`Cap the refund at the capture\n\nTask: ${task.slug}`, (text) => text.replace('A refund never exceeds the captured total.', 'A refund never exceeds the captured total, in part or in full.'), 4);
+    const row = taskRowOf(await get('/api/k/tasks'), task.id);
+    expect(row.status).toBe('closed');
+    expect(row.closedBy).toEqual({ repository: CODE, commit: closing, at: expect.any(String), subject: 'Cap the refund at the capture' });
+    expect(row.scope[0].place).toMatchObject({ kind: 'section', label: 'Full amount', path: 'README.md' });
   }, 60_000);
 });
 

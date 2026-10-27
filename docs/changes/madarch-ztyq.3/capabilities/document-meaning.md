@@ -5,31 +5,43 @@ Capability: document-meaning
 ## Purpose
 
 How the wiki reads a person's Markdown documents: each document as a tree with
-the exact place of every node, its sections classified in three passes in a
-fixed order, the pass recorded, a number treated as an alias and never as the
-identity, and what the documents lack said where a person reads it. This is
-section 4 of decision 0032, apart from the pages the writer draws from these
-entities (that is the writer's own capability) and apart from the stage that
-fills the classifier's answers from jev and the agent.
+the exact place of every node, every anchor, section and extent read from that
+tree and never from an expression over the document's lines, the sections
+classified in three passes in a fixed order with the deciding pass recorded, a
+number and an anchor treated as aliases of a durable identity, and what the
+documents lack said where a person reads it. This is section 4 of decision 0032,
+apart from the pages the writer draws from these entities (that is the writer's
+own capability) and apart from the stage that fills the classifier's answers from
+jev and the agent.
 
-## Requirement: document-tree — Every document is a tree with the exact place of every node
+## Requirement: document-tree — Every document is a tree, and every name and extent is read from it
 
 Every Markdown document shall be read by a real Markdown parser — unified with
-remark and GFM — and never by expressions over its lines, into a tree whose nodes
-are headings, paragraphs, lists and their items, code blocks, quotes, tables and
-HTML blocks. Every node shall carry the first and the last line it covers, its
-character offsets in the document's text, the same range as UTF-8 byte offsets,
-its source as the document writes it, and its text with the Markdown marks
-removed.
+remark and GFM, exactly once per reading — into a tree whose nodes are headings,
+paragraphs, lists and their items, code blocks, quotes, tables and HTML blocks.
+Every node shall carry the first and the last line it covers, its character
+offsets in the document's text, the same range as UTF-8 byte offsets counted
+against the document as it is written, its source as the document writes it, and
+its text with the Markdown marks removed.
 
-A document's front matter shall be read as metadata, not as a section, and shall
-leave every line number and every offset after it as the document has them; the
-text before a document's first heading shall be a section of its own. A section
-shall be a heading, the blocks it holds itself, and the heading texts that
-enclose it, with the document's own text (the line that names it aside). A node
-the parser gives no source range to shall be a finding naming the file and the
-line, and a document the parser cannot read shall be a finding, never a document
-read as smaller.
+The anchors a ground may name, the lines a part covers and the text a passage
+holds shall be read from that tree alone: no expression over a document's text
+shall decide what a heading, a block or a passage is. A Setext heading — text
+over a line of `=` or `-` — is a heading to the parser, so it carries an anchor
+like an ATX one. A document's front matter shall be read as metadata, not as a
+section, and shall leave every line number and character offset after it as the
+document has them; the text before a document's first heading shall be a section
+of its own. A node the parser gives no source range to shall be a finding, and a
+document the parser cannot read shall be a finding, never a document read as
+smaller.
+
+The extent a part covers shall be the node's own: a heading covers its whole
+section — its blocks and its sub-sections — and a list item or a paragraph covers
+itself and only what stands under it, never a sibling that follows it. A finding
+about a document shall name both places it stands in: the identity a reader
+navigates by — the product's path, or `repos/`, the repository's name and the
+document's path — and, where the reader knows it, the absolute path of the file
+on this machine.
 
 The conventions a document is read by shall be the product's data in its manifest
 — which kinds exist, the identifier prefixes a kind takes, the documents whose
@@ -42,41 +54,60 @@ shall name no heading, prefix or word of any document.
 - When: the document is read into a tree
 - Then: the item's node names lines 8 and 10, its character offsets and its byte offsets, and the document's text cut at those offsets is the node's source as written
 
-### Scenario: bytes-not-characters
-- Given: a document whose heading is written in Cyrillic
+### Scenario: bytes-are-the-source-bytes
+- Given: a document whose front matter holds a field written in Cyrillic, and a heading in Cyrillic after it
 - When: it is read
-- Then: the heading's range is 10 characters and 18 bytes, and its text is the heading without the mark
+- Then: the heading's byte range counts the bytes the source writes, not the single bytes of the masked front matter, and its character count is the source's
+
+### Scenario: setext-sets-an-anchor
+- Given: a document whose section is written as a Setext heading, its text over a line of `=`
+- When: its anchors are read
+- Then: the section carries the anchor of its text, its block carries the anchor of that heading and its place in it, and the section's text is the source from that heading to the next one
 
 ### Scenario: front-matter-is-metadata
 - Given: a document that opens with front matter naming a section's kind, then a sentence, then a heading with a paragraph
 - When: it is read
 - Then: the front matter is read as fields and is no section, the sentence before the first heading is a section of its own at its own line, and the heading's section holds the paragraph at the line the document gives it
 
+### Scenario: a-sibling-is-not-the-section
+- Given: two bold items of one section, side by side, and the paragraph that follows them
+- When: the extent of the first item and the extent of the section's heading are read
+- Then: the item's extent is its own lines alone, so a change to the second item or to the paragraph is no change of it, and the heading's extent covers every line of the section
+
 ### Scenario: headings-declared-by-the-product
 - Given: a manifest declaring the heading `Qualities` for a kind, and a document whose `## Qualities` section holds two plain list items
 - When: the document is read
 - Then: each item is an entity of that kind, and a product that declares another heading is read by its own declaration with no change to the engine
 
-## Requirement: classification-passes — A section is classified by three passes, in this order, and the pass is recorded
+### Scenario: a-finding-names-both-places
+- Given: a document read from a code repository's checkout, holding an identifier twice
+- When: the second section is refused
+- Then: the finding names the repository's path with its line and the absolute path of the file on this machine
 
-What a section is shall be decided by three passes, each tried only when the pass
-before it named nothing, and each recorded on the entity it decided:
+## Requirement: classification-passes — A section is classified by three passes, block by block, and the pass is recorded
+
+What a passage is shall be decided by three passes, each tried only when the pass
+before it named nothing, each recorded on the entity it decided, and each decided
+for the passage itself — one identified rule shall not hide the unnumbered rule
+that stands beside it in the same section:
 
 1. Metadata: the document's front matter (`sections:`, a heading and the kind its
    passages are) and the manifest's conventions — an identifier prefix (`UC`
    takes `UC-2`) and the documents whose leading bold words are terms.
-2. Structure: a kind's declared headings, whose list items — or paragraphs, when
-   the section holds no list — are its entities; and a kind's declared structure,
-   the sections a section of it holds, each a child heading or a paragraph that
-   opens with its name and a colon, and a missing one a finding on the section.
+2. Structure: a kind's declared headings, whose blocks — a list item, or a
+   paragraph — are its entities; and a kind's declared structure, the sections a
+   section of it holds, each a child heading or a paragraph that opens with its
+   name and a colon, and a missing one a finding on the section.
 3. The classifier (see `semantic-classifier`).
 
 Every entity shall record the pass that decided it, the general kind it was read
-as, and the heading texts that enclose it. A heading that opens with an
-identifier shall be its whole section, from its heading to the last line before
-the next heading of the same or a higher level, so an architecture decision keeps
-its Status, Context, Decision and Consequences. A reading shall never rewrite a
-document's own text, and a second section with the same anchor shall be a finding
+as, the heading texts that enclose it and the ids of the identity it was given. A
+heading that opens with an identifier shall be its whole section, from its
+heading to the last line of the section, so an architecture decision keeps its
+Status, Context, Decision and Consequences. A reading shall never rewrite a
+document's own text. A passage of a section the manifest declares that no pass
+and no classifier read shall be a finding of its own, at its line: it is never a
+passage that disappears. A second section with the same anchor shall be a finding
 that names both lines.
 
 ### Scenario: pass-is-recorded
@@ -89,6 +120,16 @@ that names both lines.
 - When: the document is read
 - Then: two entities, each with its own line, its own text and its anchor from the anchor reader, and no number is required of either
 
+### Scenario: one-identified-rule-hides-no-other
+- Given: a section the manifest declares, holding an identified rule and, below it, an unnumbered rule
+- When: the document is read
+- Then: two entities of the kind, the first decided by the metadata pass and the second by the structure pass, and no finding
+
+### Scenario: an-unread-passage-is-said
+- Given: a section the manifest declares, holding a passage that no pass and no classifier reads
+- When: the document is read without a classifier
+- Then: the passage is a finding at its own line, saying that no page shows it
+
 ### Scenario: identifier-heads-its-whole-section
 - Given: an architecture decision record whose heading opens with `ADR-0001`
 - When: it is read
@@ -99,34 +140,48 @@ that names both lines.
 - When: it is read
 - Then: a finding at the section's line names the two it lacks, and the entity still shows the document's own text
 
-## Requirement: semantic-classifier — A typed classifier reads what the first two passes leave, and its answers are data
+## Requirement: semantic-classifier — A typed classifier reads what the first two passes leave, keeps its passages whole, and its answers are data
 
-The third pass shall be a typed interface that answers, for one section, one
-reading per passage: the general kind the passage is — `scenario`, `actor`,
-`rule`, `quality`, `decision`, `procedure`, `term` or `other` — the passage's
-lines and its text. The interface shall be synchronous, so that a host fills it:
-the production host from answers kept in the product's store (a file beside the
-product, never in the repository, keyed by the document, the enclosing headings
-and the section's text), which jev and the agent fill; every committed check
-shall fill it with a deterministic classifier that answers from a table of
-headings and runs no model.
+The third pass shall be a typed interface that answers, for the passages the
+first two passes left, one reading per meaning: the general kind the passage is —
+`scenario`, `actor`, `rule`, `quality`, `decision`, `procedure`, `term` or
+`other` — the passage's lines and its text. The interface shall be synchronous,
+so that a host fills it: the production host from answers kept in the product's
+store (a file beside the product, never in the repository, keyed by the document,
+the enclosing headings and the section's text), which jev and the agent fill;
+every committed check shall fill it with a deterministic classifier that answers
+from a table and runs no model.
 
-A section that holds several meanings shall be split by the interface into its
-passages, and a reading shall be shown as the kind whose `semantics` names it. A
-reading of a general kind that no kind names, a section no classifier has read
-and a block no reading covers shall each be a finding at their file and line,
-never a passage dropped. Without a classifier the third pass shall decide nothing
-and invent nothing.
+A passage that holds several meanings shall be split by the interface into its
+readings, and every reading shall keep the span it named: the lines it covers and
+the words the document writes there, validated against the source, with an anchor
+of its own — the block's when it is the block's only reading, and the block's
+anchor with the reading's place in it otherwise. A reading whose text is not the
+document's text of its span shall be a finding. A reading of a general kind that
+no kind names shall be a finding at its line, a reading of `other` shall be shown
+nowhere and said nowhere, and a block that no reading covers shall be a finding
+of its own. Without a classifier the third pass shall decide nothing and invent
+nothing.
+
+An answer kept in the store shall hold its lines counted from the section's first
+line, never an absolute line of one read: a paragraph inserted above an unchanged
+section moves the section's lines, and the reading shall be rebased onto the
+lines the section has now rather than name the wrong passage.
 
 ### Scenario: several-meanings-split
-- Given: a section of two paragraphs and a classifier that answers `rule` for the first passage and `quality` for the second
+- Given: one paragraph that holds two meanings and a classifier that reads both in it
 - When: the document is read
-- Then: two entities of the two kinds, each with its own line and the document's own words, and the section's own text unchanged
+- Then: two entities, each with its own anchor — the paragraph's and the paragraph's with the second reading's place — and each holding the words its reading named, and the paragraph's own text unchanged
 
 ### Scenario: answers-are-stored-beside-the-product
-- Given: a product's store holding one answer for the first of a section's two passages
+- Given: a product's store holding one answer for the first of a section's two passages, its lines counted from the section's first line
 - When: the documents are read with the stored classifier
 - Then: the answered passage is an entity of its kind, and the passage no answer covers is a finding at its line
+
+### Scenario: an-answer-moves-with-its-section
+- Given: that same store, and a paragraph inserted above the section
+- When: the documents are read again
+- Then: the reading names the same words at the section's new lines, and no finding says a passage is unread where it stands
 
 ### Scenario: unread-section-is-a-finding
 - Given: a classifier that has read nothing of a section no manifest convention names
@@ -138,39 +193,50 @@ and invent nothing.
 - When: a document is read
 - Then: a section no manifest convention names yields no entity and no finding, and nothing is invented
 
-## Requirement: stable-identities — A number is an alias; a section's identity is kept beside the product
+## Requirement: stable-identities — A number and an anchor are aliases; a page is named by a durable identity kept beside the product
 
-A number such as `UC-1` or `BR-3` shall be an alias the document writes, never the
-identity. Every entity shall carry a stable identity, kept in a mapping beside the
-product — in the product's store, never in the repository — by document, with the
-identity, the anchor, the kind and the digest of the text of each section.
+A number such as `UC-1`, and the anchor a section stands at, shall be aliases the
+document writes, never the identity. Every entity shall be given a durable
+identity, minted once and kept in a mapping beside the product — in the product's
+store, never in the repository — by document, with the identity, the anchor the
+section stands at now, the kind and the digest of the text of each section. The
+page id a link names, the address of an entity's page, the name of its localized
+source and the place its interpretations are kept shall be built from that
+identity, so renaming a heading or removing a `UC-`/`BR-` alias changes no link;
+an anchor shall stay a display and a way to resolve a ground, and a ground naming
+one shall open the page of the entity that stands there now, or the document at
+that line when no entity does.
 
-A section that keeps its anchor shall keep its identity; a section whose text is
-unchanged shall keep it through a renumbering; a section that neither the anchor
-nor the text knows shall be new and get a new identity from a counter that only
-moves forward; a document a read does not see shall keep the identities it had; a
-mapping that cannot be read shall be a finding with its file and line, and its
-sections shall read as new. The wiki's page id shall stay the document's path and
-its anchor after a hash, as the wiki names a document section today, and each
-anchor shall be one the one anchor reader names: a heading's slug, a
-bold phrase's slug, an identifier, or, for a block that no name covers, the
-enclosing heading's anchor and the block's place among the unnamed blocks of that
-section (`qualities.1`).
+Identities shall be reconciled by content first and by anchor second, with
+ambiguity left to the next pass: a digest held by exactly one previous section
+and written by exactly one section pairs them; a digest or an anchor several
+sections claim pairs none of them; and only then does the anchor a section stands
+at decide. So two numbers swapped exchange nothing, a passage inserted before the
+others shifts nothing, a renamed heading keeps its page, a section neither pass
+matches is new, and a document a read does not see keeps the identities it had. A
+new identity shall be a name no other identity of the document holds, so two
+sections never share a page. A mapping that cannot be read shall be a finding
+with its file and line, and its sections shall read as new.
 
 ### Scenario: renumbered-document-keeps-identities
 - Given: the training requirements document, and a copy of it with the `UC-` and `BR-` numbers taken out
 - When: both are read with the same mapping
-- Then: the same entities with the same stable identities, every alias gone, the anchors following the changed words, and every text identical to the numbered document's
+- Then: the same entities with the same durable identities and the same page ids, every alias gone, the anchors following the changed words, and every text identical to the numbered document's
+
+### Scenario: two-numbers-swapped-exchange-nothing
+- Given: a document read once, and read again after `UC-1` and `UC-2` changed places
+- When: both reads are compared
+- Then: each passage keeps its durable identity and its page id, and only its anchor and its alias follow the number the document writes now
+
+### Scenario: an-insertion-shifts-nothing
+- Given: a document read once, and read again with an unnamed passage written before the others in its section
+- When: both reads are compared
+- Then: every earlier passage keeps its identity and its page, and the new passage is given one no other identity holds
 
 ### Scenario: renamed-heading-keeps-identity
 - Given: a document read once, and read again after its section heading is renamed to another heading the manifest declares
 - When: both reads are compared
-- Then: both entities keep their stable identities and their anchors follow the new heading
-
-### Scenario: new-section-gets-a-new-identity
-- Given: a document read once, and read again with one section added to the section that stood last
-- When: both reads are compared
-- Then: three entities, the first two keeping their identities, the third one new
+- Then: both entities keep their durable identities and their page ids, and their anchors follow the new heading
 
 ### Scenario: identities-live-beside-the-product
 - Given: a product's store folder

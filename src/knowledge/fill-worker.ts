@@ -297,7 +297,7 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
       const kinds = readKinds(productFolder);
       const documentSources: DocumentSource[] = kinds.present ? productDocumentPaths(productFolder).filter((path) => listedDocument(kinds.manifest, null, path)).flatMap((path) => {
         const text = readProductDocument(productFolder, path);
-        return text === undefined ? [] : [{ repo: null, path, text }];
+        return text === undefined ? [] : [{ repo: null, path, text, origin: join(productFolder, path) }];
       }) : [];
       // The code repository's documents are extracted entities of the wiki too (madarch-m38l.18): a Russian wiki shows each
       // of them in Russian with its original beside it, so the fill reads them as the reader does.
@@ -311,7 +311,7 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
           for (const path of all) {
             const text = texts.get(path);
             if (typeof text !== 'string') throw new Error(`repos/${repository.name}/${path}:1: the document cannot be read within the document size and byte limits; no smaller set of localized statements was written`);
-            documentSources.push({ repo: repository.name, path, text });
+            documentSources.push({ repo: repository.name, path, text, origin: join(repository.path, path) });
           }
         }
       }
@@ -326,7 +326,10 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
         ? readDocEntities(documentSources, kinds.manifest, { identities: held.identities, ...(classifications.answers.size > 0 ? { classifier: storedClassifier(classifications.answers) } : {}) })
         : { entities: [], findings: [], identities: new Map() };
       if (kinds.present && !sameDocIdentities(held.identities, documentRead.identities)) writeDocIdentities(identityFile, documentRead.identities);
-      for (const finding of [...held.findings, ...classifications.findings, ...documentRead.findings]) send({ type: 'log', line: `${finding.file}:${finding.line}: ${finding.message}` });
+      // Both places of every diagnostic: the identity a reader navigates by, then the file a person opens on this machine.
+      for (const finding of [...held.findings, ...classifications.findings, ...documentRead.findings]) {
+        send({ type: 'log', line: `${finding.file}:${finding.line}: ${finding.message}${finding.source === undefined ? '' : ` (${finding.source})`}` });
+      }
       const documentEntities = documentRead.entities;
       const guidePin = pins.get(repo.name);
       if (guidePin === undefined || guidePin.commit === '' || guidePin.effectiveTime === '') throw new Error('guide preparation requires the completed repository pin');

@@ -38,9 +38,16 @@ export const KINDS_FILE = 'madarch/kinds.yaml';
 
 /** One problem in a product file the wiki reads: where it is and what it is. */
 export interface Finding {
+  /** Where the problem stands, as the reader knows it: the product's path, or `repos/<repository>/<path>` in a code repository. */
   file: string;
   line: number;
   message: string;
+  /**
+   * The file's place on disk, when the reader knows it: a diagnostic names both the identity a reader navigates by
+   * (`file`) and the absolute path a person opens (madarch-ztyq.3, the review of finding 8). A finding whose place is
+   * not a file of this machine — a manifest's entry, say — has none.
+   */
+  source?: string;
 }
 
 /** An edge the product declares between an entity of a kind and the entity at a key (decision 0029: the manifests hold the relations). */

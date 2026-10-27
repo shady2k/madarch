@@ -43,7 +43,7 @@ import { selectHistory, withHistoryLinks, type HistoryContext, type HistorySelec
 import { readMarkdownEntities, type MarkdownEntity } from './markdown.js';
 import type { AgentOffer, Block, DocumentListing, DocumentPage, DocumentRef, FillState, Neighborhood, PageModel, PlannedMarkView, PlannedSectionView, WikiStatus, WriterState, WriterUnit } from './model.js';
 import { neighborhoodOf } from './diagrams.js';
-import { anchorLines } from './anchors.js';
+import { anchorLines, titleOfAnchor } from './anchors.js';
 import { adapterOf, installAdapter, makeUnitAgent, offers, queryAgentChoices, WRITER_BOUNDS } from './agents.js';
 import type { AgentChoices } from '../fill/acp-choices.js';
 import { addStarterItems, currentOffers, filesAPersonEdited, replaceWithStarterSet, upgradeStarterSet, type StarterOffer, type UpgradeReport, rememberChangedStarterFileIfOwned } from './starter-upgrade.js';
@@ -1278,6 +1278,8 @@ export class KnowledgeProduct {
       localizedSources.set(entity.id, single ? { ...parsed.source, sourceDocument: parsed.source.sourceDocument.replace(new RegExp(`^repos/${entity.repo?.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/`), '') } : parsed.source);
     }
     const entityAtLine = new Map<string, DocEntity>(reading.entities.map((entity) => [`${entity.repo ?? ''}\0${entity.path}\0${entity.line}`, entity]));
+    // A page id names a durable identity: the resolver finds the page by it, whatever heading the document writes now.
+    const entityById = new Map<string, DocEntity>(reading.entities.map((entity) => [`${entity.repo ?? ''}\0${entity.path}\0${entity.stableId}`, entity]));
     const repoOfScope = (scope: string): string | undefined => [...pins.values()].find((pin) => pin.scope === scope)?.name;
     const readSource = async (repo: string | null, path: string): Promise<string | undefined> => {
       if (repo === null) {
@@ -1314,6 +1316,7 @@ export class KnowledgeProduct {
       repositories: () => history === undefined ? [...pins.keys()].sort(byCodePoint) : [history.repo],
       locate: (entity) => (entity.span === undefined ? undefined : locationOf({ repoOfScope, webOf }, entity.scope, entity.span)),
       documentEntity: (repo, path, line) => entityAtLine.get(`${repo ?? ''}\0${path}\0${line}`),
+      documentEntityById: (repo, path, stableId) => entityById.get(`${repo ?? ''}\0${path}\0${stableId}`),
     });
     return {
       ctx: { productFolder: product.folder, manifest: read.manifest, graph, markdown, docEntities, localizedSources, language, documents: reading.sources, repositories: history === undefined ? [...pins.keys()].sort(byCodePoint) : [history.repo], webOf, ...(history === undefined ? { index: { relyingOn: (key: string) => statementsRelyingOn(indexOwner, key), counts: () => indexCounts(indexOwner) } } : {}), commitOf: (repo) => history === undefined ? pins.get(repo)?.commit ?? null : repo === history.repo ? history.commit : null, resolver, repoOfScope, readSource },
@@ -1355,7 +1358,7 @@ export class KnowledgeProduct {
     for (const path of productDocumentPaths(productFolder).filter((candidate) => listedDocument(manifest, null, candidate))) {
       const text = readProductDocument(productFolder, path);
       if (text === undefined) { findings.push({ file: path, line: 1, message: 'the document is too large or cannot be read, so no entity is read from it' }); continue; }
-      sources.push({ repo: null, path, text });
+      sources.push({ repo: null, path, text, origin: join(productFolder, path) });
       stamps.push(`${path}\0${text.length}\0${Bun.hash(text)}`);
     }
     for (const repo of this.repositories().filter((candidate) => candidate.present)) {
@@ -1373,7 +1376,7 @@ export class KnowledgeProduct {
           const text = texts.get(path);
           if (text === undefined) continue;
           if (text === null) { cut.push({ file: `repos/${repo.name}/${path}`, line: 1, message: 'the document is too large, comes past the budget of bytes read from this repository, or its name holds a line break, so no entity is read from it' }); continue; }
-          held.push({ repo: repo.name, path, text });
+          held.push({ repo: repo.name, path, text, origin: join(repo.path, path) });
         }
         if (all.length > DOCUMENT_LIMIT) cut.push({ file: `repos/${repo.name}`, line: 1, message: `the repository holds ${all.length} Markdown documents and the wiki reads the first ${DOCUMENT_LIMIT} of them for entities` });
         this.repoDocs.set(key, held);
@@ -1886,8 +1889,8 @@ export class KnowledgeProduct {
     if (scope.type === 'section') {
       const repo = repoOf(scope.path);
       const page = await this.document(repo, scope.path);
-      const section = page === undefined ? undefined : documentSections(page.markdown).find((candidate) => candidate.anchor === scope.anchor.toLowerCase());
-      const heading = section?.text.split('\n')[0]?.replace(/^#{1,6}\s+/, '').replace(/\s*#*\s*$/, '');
+      // The label is the name the document gives the part, read from the tree: a heading's text or a bold item's phrase.
+      const heading = page === undefined ? undefined : titleOfAnchor(page.markdown, scope.anchor);
       return { kind: 'section', label: heading === undefined || heading === '' ? scope.anchor : heading, where: page?.title ?? scope.path, href: documentAddress(repo, scope.path, scope.anchor), path: scope.path, words };
     }
     if (scope.type === 'file' || scope.type === 'lines') {

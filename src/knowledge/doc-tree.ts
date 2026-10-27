@@ -22,8 +22,11 @@ import { splitFrontMatter } from './markdown.js';
 export interface DocumentSource {
   /** The code repository's name; null for the product repository. */
   repo: string | null;
+  /** The path inside the repository, `/`-separated: the identity a reader navigates by. */
   path: string;
   text: string;
+  /** Where the file stands on this machine, when the reader knows it: what a person opens from a diagnostic. */
+  origin?: string;
 }
 
 /** The block kinds a section is made of; anything else is `other`. */
@@ -127,17 +130,19 @@ function lineBytes(text: string): { starts: number[]; bytes: number[] } {
 /** Reads one document into a tree of nodes and sections; everything that cannot be read is a finding with its line. */
 export function readDocTree(source: DocumentSource): DocTree {
   const findings: Finding[] = [];
-  const where = source.repo === null ? source.path : `repos/${source.repo}/${source.path}`;
+  // Two places for every diagnostic: the identity a reader navigates by, and the file on this machine.
+  const where = source.path === '' ? 'the document' : source.repo === null ? source.path : `repos/${source.repo}/${source.path}`;
+  const stand = (line: number, message: string): Finding => ({ file: where, line, message, ...(source.origin === undefined ? {} : { source: source.origin }) });
   const { front, bodyLine } = splitFrontMatter(source.text);
   let meta: Record<string, unknown> | null = null;
   if (front !== null) {
     try {
       const value: unknown = parseYaml(front);
       if (value !== null && typeof value === 'object' && !Array.isArray(value)) meta = value as Record<string, unknown>;
-      else findings.push({ file: where, line: 2, message: 'the front matter is a mapping of fields, and it is read as none' });
+      else findings.push(stand(2, 'the front matter is a mapping of fields, and it is read as none'));
     } catch (error) {
       const at = /at line (\d+)/.exec((error as Error).message);
-      findings.push({ file: where, line: at === null ? 2 : 1 + Number(at[1]), message: `the front matter is not valid YAML and is read as none: ${(error as Error).message.split('\n')[0]}` });
+      findings.push(stand(at === null ? 2 : 1 + Number(at[1]), `the front matter is not valid YAML and is read as none: ${(error as Error).message.split('\n')[0]}`));
     }
   }
   const text = front === null ? source.text : maskFrontMatter(source.text, bodyLine);
@@ -145,10 +150,14 @@ export function readDocTree(source: DocumentSource): DocTree {
   try {
     parsed = PARSER.parse(text) as unknown as RawNode;
   } catch (error) {
-    findings.push({ file: where, line: 1, message: `the document cannot be parsed, so no section of it is read: ${(error as Error).message}` });
+    findings.push(stand(1, `the document cannot be parsed, so no section of it is read: ${(error as Error).message}`));
     return { repo: source.repo, path: source.path, text: source.text, front, meta, nodes: [], sections: [], findings };
   }
-  const { starts, bytes } = lineBytes(text);
+  // Byte offsets are counted against the document as it is written, never the masked text: masking replaces every
+  // character of the front matter with a space, so a non-ASCII field would count one byte where the source has two
+  // (madarch-ztyq.3, the review of finding 9). Masking keeps the character count, so a character offset is the same
+  // offset in the original and only the byte count differs.
+  const { starts, bytes } = lineBytes(source.text);
   const byteAt = (offset: number): number => {
     let low = 0;
     let high = starts.length - 1;
@@ -157,14 +166,14 @@ export function readDocTree(source: DocumentSource): DocTree {
       const middle = (low + high) >> 1;
       if (starts[middle]! <= offset) { line = middle; low = middle + 1; } else high = middle - 1;
     }
-    return bytes[line]! + Buffer.byteLength(text.slice(starts[line]!, Math.max(offset, starts[line]!)), 'utf8');
+    return bytes[line]! + Buffer.byteLength(source.text.slice(starts[line]!, Math.max(offset, starts[line]!)), 'utf8');
   };
   const nodeOf = (raw: RawNode): DocNode => {
     const position = raw.position;
     const start = position?.start.offset ?? 0;
     const end = position?.end.offset ?? start;
     if (position?.start.offset === undefined || position?.end.offset === undefined) {
-      findings.push({ file: where, line: position?.start.line ?? 1, message: `the parser gave the ${raw.type} no source range, so its text is read as no section` });
+      findings.push(stand(position?.start.line ?? 1, `the parser gave the ${raw.type} no source range, so its text is read as no section`));
     }
     return {
       type: TYPES.get(raw.type) ?? 'other',
@@ -220,4 +229,38 @@ export function sectionsOf(nodes: readonly DocNode[], text: string): DocSection[
     section.text = text.slice(from, endOf(section.endLine)).trim();
   }
   return sections;
+}
+
+/** Every node of the tree, depth first, in document order. */
+export function walkNodes(nodes: readonly DocNode[], visit: (node: DocNode) => void): void {
+  for (const node of nodes) {
+    visit(node);
+    walkNodes(node.children, visit);
+  }
+}
+
+/** The blocks a section holds itself, in document order: the top-level items of its lists, and its paragraphs. */
+export function sectionBlocks(section: DocSection): DocNode[] {
+  const blocks: DocNode[] = [];
+  for (const node of section.nodes) {
+    if (node.type === 'list') for (const item of node.children) blocks.push(item);
+    else if (node.type === 'paragraph') blocks.push(node);
+  }
+  return blocks;
+}
+
+/** The paragraph a block opens with: an item's first paragraph, or the paragraph itself. */
+export function openingParagraph(block: DocNode): DocNode | undefined {
+  return block.type === 'listItem' ? block.children.find((child) => child.type === 'paragraph') : block;
+}
+
+/** The bold phrase a block opens with, when it opens with one: that phrase names the block. */
+export function boldLead(block: DocNode): DocNode | undefined {
+  const lead = openingParagraph(block)?.children[0];
+  return lead !== undefined && lead.type === 'strong' ? lead : undefined;
+}
+
+/** The text a block opens with, marks removed: the phrase an identifier or a label would open it with. */
+export function leadText(block: DocNode): string {
+  return openingParagraph(block)?.plain ?? block.plain;
 }

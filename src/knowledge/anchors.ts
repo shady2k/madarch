@@ -1,171 +1,273 @@
 /**
- * The sections of a Markdown document that a ground can name, in one place
- * (madarch-m38l.4, remark 11). The writer checks a ground
- * `madarch:doc:<path>#<anchor>` before it writes a page, and the wiki resolves
- * the same ground when it draws the page; when they read a document two ways, a
- * ground the writer accepted showed as a problem on the page. Both now ask
- * this module, so what the writer accepts the wiki resolves.
+ * The names a Markdown document gives its parts, in one place (madarch-m38l.4, remark 11; decision 0032 section 4).
  *
- * An anchor is, in lower case: a heading's GitHub slug (a repeated one
- * suffixed -1, -2), an explicit `{#anchor}` on a heading, the slug of a list
- * item's leading bold phrase (`- **Place an order.** ...`), the identifier a
- * heading, a bold phrase or a line opens with (`UC-1`, `BR-3`, `ADR-0001`), and
- * — for a block that none of those names, such as a paragraph or a plain list
- * item under `## Qualities` — the enclosing heading's anchor, a dot and the
- * block's place in that section (`qualities.1`, `qualities.2`). The last one is
- * what a document read by meaning needs (madarch-ztyq.3): an unnumbered section
- * holds entities too, and a ground to one of them must open it. Fenced code is
- * skipped. The line is the first one that names the anchor, and a heading's
- * name is never shadowed by the place of a block under it.
+ * Every one of them is read from the parsed tree (`doc-tree.ts`) and never from an expression over the document's
+ * lines: a heading, its section and its blocks are nodes with exact ranges, and the anchors below are names of those
+ * nodes. A Setext heading (`Title` over `=====`) is a heading to the parser, so it carries an anchor like an ATX one.
+ *
+ * An anchor is, in lower case: a heading's GitHub slug (a repeated one suffixed -1, -2), an explicit `{#anchor}` on a
+ * heading, the slug of a list item's leading bold phrase (`- **Place an order.** ...`), the identifier a heading, a bold
+ * phrase or a block opens with (`UC-1`, `BR-3`, `ADR-0001`), the label a block opens with (`HTTP2`, when the block
+ * says `HTTP2 support ...`), and — for a block that none of those names, such as a paragraph under `## Qualities` —
+ * the enclosing heading's anchor, a dot and the block's place in that section (`qualities.1`, `qualities.2`). A
+ * passage a classifier split out of one block is named by the block's anchor and its place there (`qualities.1.2`),
+ * which resolves to the block's line.
+ *
+ * Two readings live here and differ on purpose: `anchorLines()` names every part a ground may open, and
+ * `headingLines()` names only headings, because a section's EXTENT runs to the next heading whatever named block it
+ * holds (see `anchorExtent()`).
  */
-import { SLUGGER_REGEX } from '../wiki/github-slugger-regex.js';
 import { byCodePoint } from '../model/order.js';
+import { SLUGGER_REGEX } from '../wiki/github-slugger-regex.js';
+import { boldLead, leadText, readDocTree, sectionBlocks, walkNodes, type DocNode, type DocSection, type DocTree } from './doc-tree.js';
 
-/** The slug GitHub gives a heading; emphasis and code marks are not part of it. */
+const LETTER = (code: number): boolean => (code >= 0x41 && code <= 0x5a) || (code >= 0x61 && code <= 0x7a);
+const DIGIT = (code: number): boolean => code >= 0x30 && code <= 0x39;
+const WORD = (char: string | undefined): boolean => {
+  if (char === undefined) return false;
+  const code = char.codePointAt(0)!;
+  return LETTER(code) || DIGIT(code) || char === '_';
+};
+
+/** The slug GitHub gives a heading: its marks are not part of it, and its spaces become hyphens. */
 export function slugOf(heading: string): string {
-  return heading.replace(/[`*_~]/g, '').trim().toLowerCase().replace(SLUGGER_REGEX, '').replace(/ /g, '-');
+  let marked = '';
+  for (const char of heading) if (char !== '`' && char !== '*' && char !== '_' && char !== '~') marked += char;
+  return marked.trim().toLowerCase().replace(SLUGGER_REGEX, '').replace(/ /g, '-');
 }
 
-const IDENTIFIER = /^([A-Za-z]+-\d+)\b/;
-/** A line that opens with a label such as `UC-2` or `ADR-0001`, with an optional list mark and bold. */
-const LABEL = /^\s*(?:[-*+]|\d+[.)])?\s*(?:\*\*|__)?\s*([A-Za-z][\w-]*)(?=[\s.:*_)-]|$)/;
-
-/** A line that opens a list item: its mark, or the ordered number. */
-const LIST_MARK = /^(\s*)(?:[-*+]|\d+[.)])\s+/;
-/** A list item whose leading phrase is bold: the phrase names the item. */
-const BOLD_LEAD = /^\s*(?:[-*+]|\d+[.)])\s+(?:\*\*|__)/;
-/** A heading of the document, with the explicit `{#anchor}` it may carry. */
-const HEADING = /^(#{1,6})\s+(.*?)\s*(?:\{#([\w-]+)\})?\s*#*\s*$/;
+/** The identifier a text opens with (`UC-2`, `ADR-0001`), or null: letters, a hyphen and digits, then a boundary. */
+export function identifierOf(text: string): string | null {
+  const plain = text.trim();
+  let at = 0;
+  while (at < plain.length && LETTER(plain.codePointAt(at)!)) at += 1;
+  const letters = plain.slice(0, at);
+  if (letters === '' || plain[at] !== '-') return null;
+  at += 1;
+  const start = at;
+  while (at < plain.length && DIGIT(plain.codePointAt(at)!)) at += 1;
+  const digits = plain.slice(start, at);
+  if (digits === '' || WORD(plain[at])) return null;
+  return `${letters.toUpperCase()}-${digits}`;
+}
 
 /**
- * The anchors of the blocks of a document that no heading, bold phrase or
- * identifier names — a paragraph, or a plain list item — with the line each
- * starts at. The anchor is the enclosing heading's anchor, a dot, and the
- * block's place among the unnamed blocks of that section: the section's own
- * blocks keep their place when a named block is added or removed, and no
- * heading slug can hold a dot, so a block's anchor never shadows a heading's.
- * A block before the document's first heading has no section to belong to and
- * so has no anchor.
+ * The label a block opens with, when the label names something: the first word's letters, digits, `_` and `-` in lower
+ * case, kept when it carries a digit (`HTTP2`) or opens with two capitals and a hyphen (`NFR-`). Today's documents name
+ * a block this way as well as by an identifier, and the two rules meet on `UC-2`.
  */
-export function blockAnchors(text: string): Map<number, string> {
-  const anchors = new Map<number, string>();
-  const lines = text.replace(/\r\n/g, '\n').split('\n');
+function labelOf(text: string): string | null {
+  const plain = text.trim();
+  let at = 0;
+  while (at < plain.length && (LETTER(plain.codePointAt(at)!) || DIGIT(plain.codePointAt(at)!) || plain[at] === '_' || plain[at] === '-')) at += 1;
+  if (at === 0) return null;
+  const word = plain.slice(0, at);
+  const capitals = word.slice(0, 2).split('');
+  const named = [...word].some((char) => DIGIT(char.codePointAt(0)!)) || (capitals.length === 2 && capitals.every((char) => char >= 'A' && char <= 'Z') && word[2] === '-');
+  return named ? word.toLowerCase() : null;
+}
+
+/** A heading's text with the explicit `{#anchor}` it may carry taken off it. */
+function splitExplicit(text: string): { text: string; explicit?: string } {
+  const plain = text.trim();
+  if (!plain.endsWith('}')) return { text: plain };
+  const open = plain.lastIndexOf('{#');
+  if (open < 0) return { text: plain };
+  const inside = plain.slice(open + 2, -1);
+  if (inside === '' || ![...inside].every((char) => LETTER(char.codePointAt(0)!) || DIGIT(char.codePointAt(0)!) || char === '_' || char === '-')) return { text: plain };
+  return { text: plain.slice(0, open).trim(), explicit: inside };
+}
+
+/** The trailing `.` and `:` a bold phrase ends with are not part of its name. */
+function stripTail(text: string): string {
+  let end = text.trimEnd().length;
+  while (end > 0 && (text[end - 1] === '.' || text[end - 1] === ':')) end -= 1;
+  return text.slice(0, end).trim();
+}
+
+/** What one document's parts are called, and where they stand. */
+export interface AnchorReading {
+  /** Every anchor, with the 1-based line it first names. */
+  readonly lines: ReadonlyMap<string, number>;
+  /** The anchors of headings alone, with their lines: what a section's end is read from. */
+  readonly headings: ReadonlyMap<string, number>;
+  /** The anchors of the blocks no name covers (a paragraph, a plain list item), by the line they start at. */
+  readonly blocks: ReadonlyMap<number, string>;
+  /** The node each anchor names, in document order: a heading (which covers its section), an item or a paragraph. */
+  readonly nodes: ReadonlyMap<string, DocNode>;
+}
+
+/** The anchors of one parsed document. */
+export function anchorsOfTree(tree: DocTree): AnchorReading {
+  const lines = new Map<string, number>();
+  const headings = new Map<string, number>();
+  const blocks = new Map<number, string>();
+  const nodes = new Map<string, DocNode>();
+  const add = (anchor: string, node: DocNode): void => {
+    if (anchor === '' || lines.has(anchor)) return;
+    lines.set(anchor, node.line);
+    nodes.set(anchor, node);
+  };
+  // Headings: an explicit `{#anchor}`, the GitHub slug (a repeated one suffixed -1, -2) and the identifier they open with.
+  const headingName = new Map<DocNode, string>();
   const seen = new Map<string, number>();
-  let fenced = false;
-  let heading: string | null = null;
-  let ordinal = 0;
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index]!;
-    if (/^\s*(```|~~~)/.test(line)) { fenced = !fenced; continue; }
-    if (fenced) continue;
-    const named = HEADING.exec(line);
-    if (named !== null) {
-      const slug = slugOf(named[2]!);
-      const count = seen.get(slug) ?? 0;
-      seen.set(slug, count + 1);
-      heading = named[3] !== undefined ? named[3].toLowerCase() : count === 0 ? slug : `${slug}-${count}`;
-      ordinal = 0;
-      continue;
+  walkNodes(tree.nodes, (node) => {
+    if (node.type !== 'heading') return;
+    const heading = splitExplicit(node.plain);
+    if (heading.explicit !== undefined) add(heading.explicit.toLowerCase(), node);
+    const slug = slugOf(heading.text);
+    const count = seen.get(slug) ?? 0;
+    seen.set(slug, count + 1);
+    const name = count === 0 ? slug : `${slug}-${count}`;
+    headingName.set(node, name);
+    add(name, node);
+    if (!headings.has(name)) headings.set(name, node.line);
+    const identifier = identifierOf(heading.text);
+    if (identifier !== null) add(identifier.toLowerCase(), node);
+  });
+  // Every list item and paragraph the document writes is named by its bold phrase, its identifier or its label — a nested
+  // item too, which stands inside another item and is no block of its own section.
+  walkNodes(tree.nodes, (node) => {
+    if (node.type !== 'listItem' && node.type !== 'paragraph') return;
+    const bold = boldLead(node);
+    if (bold !== undefined) {
+      const phrase = stripTail(bold.plain);
+      add(slugOf(phrase), node);
+      const identifier = identifierOf(phrase);
+      if (identifier !== null) add(identifier.toLowerCase(), node);
+      return;
     }
-    if (line.trim() === '') continue;
-    const item = LIST_MARK.test(line);
-    // A paragraph starts where a blank line ends and something that is not a heading, a fence, a table, a quote or an HTML block begins.
-    const paragraph = !item && (index === 0 || lines[index - 1]!.trim() === '')
-      && !/^\s*(?:[<>|]|\[\^)/.test(line) && !/^\s*(?:[-*_]\s*){3,}$/.test(line);
-    if (!item && !paragraph) continue;
-    if (BOLD_LEAD.test(line)) continue;
-    if (IDENTIFIER.test(line.replace(/^\s*(?:[-*+]|\d+[.)])?\s*(?:\*\*|__)?\s*/, ''))) continue;
-    if (heading === null) continue;
-    ordinal += 1;
-    anchors.set(index + 1, `${heading}.${ordinal}`);
+    const lead = leadText(node);
+    const identifier = identifierOf(lead);
+    if (identifier !== null) { add(identifier.toLowerCase(), node); return; }
+    const label = labelOf(lead);
+    if (label !== null) add(label, node);
+  });
+  // A block none of those names is named by its heading and its place in that section, and a block before the document's
+  // first heading has no section to belong to.
+  for (const section of tree.sections) {
+    const heading = section.heading === null ? undefined : headingName.get(section.heading);
+    let ordinal = 0;
+    for (const block of sectionBlocks(section)) {
+      const bold = boldLead(block);
+      if (bold !== undefined) {
+        const phrase = stripTail(bold.plain);
+        add(slugOf(phrase), block);
+        const identifier = identifierOf(phrase);
+        if (identifier !== null) add(identifier.toLowerCase(), block);
+        continue;
+      }
+      const lead = leadText(block);
+      const identifier = identifierOf(lead);
+      if (identifier !== null) { add(identifier.toLowerCase(), block); continue; }
+      const label = labelOf(lead);
+      if (label !== null) add(label, block);
+      if (heading === undefined) continue;
+      ordinal += 1;
+      const anchor = `${heading}.${ordinal}`;
+      add(anchor, block);
+      if (!blocks.has(block.line)) blocks.set(block.line, anchor);
+    }
   }
-  return anchors;
+  return { lines, headings, blocks, nodes };
+}
+
+/** The anchors of a document's text; the text is parsed once, and the same tree answers every reading below. */
+export function anchorsOf(text: string): AnchorReading {
+  return anchorsOfTree(readDocTree({ repo: null, path: '', text }));
 }
 
 /** Every anchor of a document with the line (1-based) that first names it. */
 export function anchorLines(text: string): Map<string, number> {
-  const anchors = new Map<string, number>();
-  const seen = new Map<string, number>();
-  const add = (anchor: string, line: number): void => {
-    if (anchor !== '' && !anchors.has(anchor)) anchors.set(anchor, line);
-  };
-  let fenced = false;
-  const lines = text.split('\n');
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index]!;
-    const number = index + 1;
-    if (/^\s*(```|~~~)/.test(line)) { fenced = !fenced; continue; }
-    if (fenced) continue;
-    const identifier = (phrase: string): void => {
-      const lead = IDENTIFIER.exec(phrase.replace(/[`*_~]/g, '').trim());
-      if (lead !== null) add(lead[1]!.toLowerCase(), number);
-    };
-    const heading = /^#{1,6}\s+(.*?)\s*(?:\{#([\w-]+)\})?\s*#*\s*$/.exec(line);
-    if (heading !== null) {
-      if (heading[2] !== undefined) add(heading[2].toLowerCase(), number);
-      const slug = slugOf(heading[1]!);
-      const count = seen.get(slug) ?? 0;
-      seen.set(slug, count + 1);
-      add(count === 0 ? slug : `${slug}-${count}`, number);
-      identifier(heading[1]!);
-      continue;
-    }
-    const bold = /^\s*(?:[-*+]|\d+[.)])\s+(?:\*\*|__)([^*_]+)(?:\*\*|__)/.exec(line);
-    if (bold !== null) {
-      const phrase = bold[1]!.replace(/[.:]\s*$/, '');
-      add(slugOf(phrase), number);
-      identifier(phrase);
-    }
-    const label = LABEL.exec(line);
-    if (label !== null && /[\w-]+\d|[A-Z]{2,}-/.test(label[1]!)) add(label[1]!.toLowerCase(), number);
-  }
-  // A block no name of its own covers is named by the heading it stands under and its place there.
-  for (const [line, anchor] of blockAnchors(text)) add(anchor, line);
-  return anchors;
+  return new Map(anchorsOf(text).lines);
 }
 
-/**
- * The lines a document's headings stand on, by the name `anchorLines()` gives a heading: its GitHub slug (a repeated
- * one suffixed -1, -2) and, where the heading carries one, its explicit `{#anchor}`.
- *
- * Why this is a second reading and not `anchorLines()`: an *anchor* names the smallest thing a ground may open — a
- * heading, a bold item's phrase, a block a heading and a place name (`qualities.1`) — and a ground to any of them is
- * a ground to that part, so every one of them must be in `anchorLines()`. A section's *extent* is another question:
- * it runs from the thing the anchor names to the line before the next heading, whatever smaller named or unnamed thing
- * the document writes inside it. Reading the extent from `anchorLines()` cut a section off at its first bold item or
- * its first plain paragraph, and never at its next heading (madarch-ztyq.3): a commit that changed a later line of the
- * section then touched no scope, and the task it named stayed open.
- */
+/** The lines a document's headings stand on, by the name `anchorLines()` gives a heading. */
 export function headingLines(text: string): Map<string, number> {
-  const headings = new Map<string, number>();
-  const seen = new Map<string, number>();
-  const add = (anchor: string, line: number): void => {
-    if (anchor !== '' && !headings.has(anchor)) headings.set(anchor, line);
-  };
-  let fenced = false;
-  const lines = text.split('\n');
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index]!;
-    if (/^\s*(```|~~~)/.test(line)) { fenced = !fenced; continue; }
-    if (fenced) continue;
-    const heading = HEADING.exec(line);
-    if (heading === null) continue;
-    const number = index + 1;
-    if (heading[3] !== undefined) add(heading[3].toLowerCase(), number);
-    const slug = slugOf(heading[2]!);
-    const count = seen.get(slug) ?? 0;
-    seen.set(slug, count + 1);
-    add(count === 0 ? slug : `${slug}-${count}`, number);
-  }
-  return headings;
+  return new Map(anchorsOf(text).headings);
+}
+
+/** The anchors of the blocks no name covers, by the line each starts at. */
+export function blockAnchors(text: string): Map<number, string> {
+  return new Map(anchorsOf(text).blocks);
 }
 
 /** The anchors of a document, code-point sorted. */
 export function documentAnchors(text: string): string[] {
-  return [...anchorLines(text).keys()].sort(byCodePoint);
+  return [...anchorsOf(text).lines.keys()].sort(byCodePoint);
 }
 
-/** The line a document's section is on, or null when the document has no such section. */
+/**
+ * The line a `doc:<path>#<anchor>` ground names, or null. A passage a classifier split out of a block is named by the
+ * block's anchor and its place there (`qualities.1.2`), and so resolves to the block's own line.
+ */
 export function findAnchor(text: string, anchor: string): number | null {
-  return anchorLines(text).get(anchor.toLowerCase()) ?? null;
+  const reading = anchorsOf(text);
+  const name = anchor.toLowerCase();
+  const line = reading.lines.get(name);
+  if (line !== undefined) return line;
+  let cut = name.lastIndexOf('.');
+  while (cut > 0) {
+    const block = name.slice(0, cut);
+    const place = name.slice(cut + 1);
+    const at = reading.lines.get(block);
+    if (at !== undefined && place !== '' && [...place].every((char) => DIGIT(char.codePointAt(0)!))) return at;
+    cut = block.lastIndexOf('.');
+  }
+  return null;
 }
+
+/**
+ * The lines a node covers: a heading covers its whole section (its blocks and its sub-sections), a list item or a
+ * paragraph covers itself and only what stands under it, never the sibling that follows it.
+ */
+export function extentOfNode(tree: DocTree, node: DocNode): { start: number; end: number } {
+  if (node.type !== 'heading') return { start: node.line, end: node.endLine };
+  const section = tree.sections.find((candidate) => candidate.heading === node);
+  return { start: node.line, end: section?.endLine ?? node.endLine };
+}
+
+/**
+ * The lines an anchor's part covers, or undefined when the document has no such anchor: the extent of the node the
+ * anchor names. A task scoped to `br-1` closes on a commit that changes `br-1` and not on one that changes its sibling
+ * `br-2`, because a list item covers only its own lines (madarch-ztyq.3, the review of finding 4).
+ */
+export function anchorExtent(text: string, anchor: string): { start: number; end: number } | undefined {
+  const tree = readDocTree({ repo: null, path: '', text });
+  const reading = anchorsOfTree(tree);
+  const name = anchor.toLowerCase();
+  const direct = reading.nodes.get(name);
+  if (direct !== undefined) return extentOfNode(tree, direct);
+  let cut = name.lastIndexOf('.');
+  while (cut > 0) {
+    const node = reading.nodes.get(name.slice(0, cut));
+    if (node !== undefined && name.slice(cut + 1) !== '' && [...name.slice(cut + 1)].every((char) => DIGIT(char.codePointAt(0)!))) return extentOfNode(tree, node);
+    cut = name.slice(0, cut).lastIndexOf('.');
+  }
+  return undefined;
+}
+
+/**
+ * What a reader calls the part an anchor names: a heading's text (its explicit `{#anchor}` aside), a bold item's phrase,
+ * or nothing when the part has no name of its own. A place a task names is read this way, from the tree, so a label is
+ * the name the document gives the part and never a line of its source.
+ */
+export function titleOfAnchor(text: string, anchor: string): string | undefined {
+  const tree = readDocTree({ repo: null, path: '', text });
+  const node = anchorsOfTree(tree).nodes.get(anchor.toLowerCase());
+  if (node === undefined) return undefined;
+  if (node.type === 'heading') {
+    const heading = splitExplicit(node.plain).text.trim();
+    return heading === '' ? undefined : heading;
+  }
+  const bold = boldLead(node);
+  if (bold === undefined) return undefined;
+  const phrase = stripTail(bold.plain);
+  return phrase === '' ? undefined : phrase;
+}
+
+/** The section a heading opens, for a reader that holds a tree. */
+export function sectionOfHeading(tree: DocTree, heading: DocNode): DocSection | undefined {
+  return tree.sections.find((section) => section.heading === heading);
+}
+
