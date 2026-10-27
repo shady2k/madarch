@@ -34,24 +34,51 @@
  * The grammars are the ones the landed `src/product/fill-index.ts` reads: the
  * same four wasm grammars of `tree-sitter-wasms` over the same runtime, so the
  * rebuild parses what the landed fill parsed (decision 0026 rebuilds that fill
- * rather than patching it). They are loaded by `parse-session.ts`, which holds
- * one parse per path for a pass; this module reads what a tree says.
+ * rather than patching it).
  */
-import type { Node as SyntaxNode } from 'web-tree-sitter';
+import goGrammar from 'tree-sitter-wasms/out/tree-sitter-go.wasm' with { type: 'file' };
+import jsGrammar from 'tree-sitter-wasms/out/tree-sitter-javascript.wasm' with { type: 'file' };
+import tsGrammar from 'tree-sitter-wasms/out/tree-sitter-typescript.wasm' with { type: 'file' };
+import tsxGrammar from 'tree-sitter-wasms/out/tree-sitter-tsx.wasm' with { type: 'file' };
+import treeSitterRuntime from 'web-tree-sitter/tree-sitter.wasm' with { type: 'file' };
+import { Language, Parser, Query, type Node as SyntaxNode } from 'web-tree-sitter';
 import { byCodePoint } from '../../model/order.js';
 import type { CommentForm, CoverageGap, CoverageGapReason, EntryPointForm, SymbolKind } from '../facts.js';
-import { currentParseSession, readSyntaxTreeOnce, syntaxLanguageOf, type SyntaxLanguage } from './parse-session.js';
 
 // ---- the languages this stage reads ---------------------------------------
 
+/** The languages a grammar of this stage parses, in code point order. */
+export const SYNTAX_LANGUAGES = ['go', 'javascript', 'tsx', 'typescript'] as const;
+
+/** One language this stage parses, as a file's extension names it. */
+export type SyntaxLanguage = (typeof SYNTAX_LANGUAGES)[number];
+
 /**
- * What a path is written in and which grammar reads it is the parse layer's
- * (`parse-session.ts`, which also holds one parse per path for a pass); this
- * module re-exports the names a reader of a tree asks for, so a reader still
- * imports the syntax stage and nothing else.
+ * The language a repository path is written in, by its extension: the map the
+ * landed walk used (`src/product/fill-index.ts`), where `.tsx` is its own
+ * grammar and `.jsx` is read by the JavaScript grammar as the landed fill read
+ * it. A path whose extension names no grammar of this stage has no language
+ * here, and the stage reports it as a coverage gap rather than a silence.
  */
-export { SYNTAX_LANGUAGES, syntaxLanguageOf } from './parse-session.js';
-export type { SyntaxLanguage } from './parse-session.js';
+const LANGUAGE_BY_EXTENSION: Readonly<Record<string, SyntaxLanguage>> = {
+  '.cjs': 'javascript',
+  '.cts': 'typescript',
+  '.go': 'go',
+  '.js': 'javascript',
+  '.jsx': 'javascript',
+  '.mjs': 'javascript',
+  '.mts': 'typescript',
+  '.ts': 'typescript',
+  '.tsx': 'tsx',
+};
+
+/** The language a repository path is written in, or `undefined` where no grammar of this stage reads it. */
+export function syntaxLanguageOf(path: string): SyntaxLanguage | undefined {
+  const dot = path.lastIndexOf('.');
+  const slash = path.lastIndexOf('/');
+  if (dot <= slash) return undefined;
+  return LANGUAGE_BY_EXTENSION[path.slice(dot).toLowerCase()];
+}
 
 /** The extensions each language is written in, in the order a specifier is tried against them. */
 const EXTENSIONS_IN_ORDER: readonly string[] = ['.cjs', '.cts', '.go', '.js', '.jsx', '.mjs', '.mts', '.ts', '.tsx'];
@@ -157,6 +184,35 @@ export interface ExtractedFileSyntax {
   readonly unread: readonly CoverageGap[];
 }
 
+// ---- parsing --------------------------------------------------------------
+
+const GRAMMAR_FILES: Readonly<Record<SyntaxLanguage, string>> = {
+  go: goGrammar,
+  javascript: jsGrammar,
+  tsx: tsxGrammar,
+  typescript: tsGrammar,
+};
+
+/**
+ * The runtime's own initialization, once per process: `Parser.init` loads the
+ * wasm runtime the grammars run on. A failed initialization is kept, so a
+ * second call answers the same failure rather than starting a second load.
+ */
+let runtimeReady: Promise<void> | undefined;
+
+/** The grammars loaded so far, one per language, in the order they were first needed. */
+const loadedGrammars = new Map<SyntaxLanguage, Awaited<ReturnType<typeof Language.load>>>();
+
+async function grammarFor(language: SyntaxLanguage): Promise<Awaited<ReturnType<typeof Language.load>>> {
+  runtimeReady ??= Parser.init({ locateFile: () => treeSitterRuntime });
+  await runtimeReady;
+  const held = loadedGrammars.get(language);
+  if (held !== undefined) return held;
+  const loaded = await Language.load(GRAMMAR_FILES[language]);
+  loadedGrammars.set(language, loaded);
+  return loaded;
+}
+
 /**
  * Reads one file's bytes and answers everything this stage finds in it. Pure:
  * the two arguments decide the answer, and nothing else does.
@@ -204,22 +260,53 @@ export type SyntaxTreeRead<T> =
 /**
  * Reads one file's bytes and hands its tree to a walk, which is how two
  * readers share one parse: the syntax stage's own extraction and stage 4's
- * resolution of the names the file mentions.
- *
- * Inside a pass, the tree is the pass's (`parse-session.ts`): the first reader
- * of the path parses it, every later reader walks that same tree, and the pass
- * releases it when the pass ends. Outside a pass the tree and the parser live no
- * longer than the call, as they always did, so a walk cannot keep a node — it
- * answers what it read, and the answer outlives the tree.
+ * resolution of the names the file mentions. The tree and the parser live no
+ * longer than the call, so a walk cannot keep a node — it answers what it
+ * read, and the answer outlives the tree.
  */
 export async function readSyntaxTree<T>(path: string, bytes: Uint8Array, walk: (file: ParsedSyntaxTree) => T): Promise<SyntaxTreeRead<T>> {
   const language = syntaxLanguageOf(path);
-  // No grammar of this stage reads the path: no pass parses it either, and the
-  // answer is the same for every reader of it.
   if (language === undefined) return { read: false, language: null, unread: [{ what: path, reason: 'unsupported' }] };
-  const session = currentParseSession();
-  if (session === undefined) return readSyntaxTreeOnce(path, language, bytes, walk);
-  return session.read(path, bytes, walk);
+  let text: string;
+  try {
+    text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    // Bytes that are not UTF-8 text have no syntax tree to walk: the file is
+    // reported unread, with the reason, rather than read as something it is not.
+    return { read: false, language, unread: [{ what: path, reason: 'error' }] };
+  }
+  // The runtime is initialized before a parser is made: `Parser.init` loads the
+  // wasm runtime the grammars run on, and a parser made before it is refused.
+  const grammar = await grammarFor(language);
+  const parser = new Parser();
+  try {
+    parser.setLanguage(grammar);
+    const tree = parser.parse(text);
+    if (tree === null) return { read: false, language, unread: [{ what: path, reason: 'error' }] };
+    try {
+      const root = tree.rootNode;
+      const complete = !root.hasError;
+      const captures = (source: string): readonly { readonly name: string; readonly node: SyntaxNode }[] => {
+        // A query is structural only. Disallow every predicate, including custom
+        // predicates that would otherwise be silently ignored by the web binding.
+        if (source.includes('#')) throw new Error('syntax query predicates are not permitted');
+        const query = new Query(grammar, source);
+        try {
+          const found = query.captures(root, { matchLimit: 65_536 });
+          if (query.didExceedMatchLimit()) throw new Error('syntax query exceeded its match limit');
+          return found;
+        } finally {
+          query.delete();
+        }
+      };
+      const value = walk({ path, language, text, root, complete, captures });
+      return { read: true, value, language, complete };
+    } finally {
+      tree.delete();
+    }
+  } finally {
+    parser.delete();
+  }
 }
 
 /**

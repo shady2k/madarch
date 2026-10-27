@@ -63,7 +63,6 @@ import { sha256Hex } from '../../graph/index.js';
 import type { GraphRegistry } from '../../graph/vocabulary.js';
 import type { Extraction, SourceSpan, TreeReader } from '../records.js';
 import type { CodeExtractionResult, CodeFacts } from '../code/facts.js';
-import { openParseSession } from '../../fill/stages/parse-session.js';
 import { linkExtractions, LINKS_PRODUCER } from './links.js';
 import { endpointRelations } from './relationships.js';
 import { commitTree, resolvePoint, walkDefaultBranch, type CommitFact, type FillPoint } from './git.js';
@@ -384,36 +383,23 @@ export async function fillGraph(options: FillOptions): Promise<FillReport> {
     for (const type of relations) knownRelations.add(type);
   };
 
-  /**
-   * Runs the extractors over one commit's tree, naming the commit and the
-   * repository when one fails. The pass opens one parse session over the tree
-   * (madarch-mwhd.3): every extractor and every reader of every file shares one
-   * parse per path, and the session — and with it every tree the pass parsed —
-   * is released when the pass ends, whether it answered or threw.
-   */
+  /** Runs the extractors over one commit's tree, naming the commit and the repository when one fails. */
   const runExtractors = async (commit: CommitFact, tree: TreeReader): Promise<Extraction[]> => {
-    const session = openParseSession(tree);
-    try {
-      return await session.run(async (): Promise<Extraction[]> => {
-        const extractions: Extraction[] = [];
-        let facts: CodeFacts | undefined;
-        for (const extractor of options.extractors) {
-          try {
-            const result = await extractor(tree, extractions.find((entry) => entry.producer === 'code.extract.code'), facts);
-            if ('extraction' in result) {
-              facts = result.facts;
-              extractions.push(result.extraction);
-            } else extractions.push(result);
-          } catch (error) {
-            const name = extractor.name === '' ? 'an unnamed extractor' : `the extractor "${extractor.name}"`;
-            throw new Error(`extract driver: ${name} failed over commit ${commit.hash} ("${commit.subject}", generation ${commit.generation}) of ${repository}: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
-          }
-        }
-        return extractions;
-      });
-    } finally {
-      session.close();
+    const extractions: Extraction[] = [];
+    let facts: CodeFacts | undefined;
+    for (const extractor of options.extractors) {
+      try {
+        const result = await extractor(tree, extractions.find((entry) => entry.producer === 'code.extract.code'), facts);
+        if ('extraction' in result) {
+          facts = result.facts;
+          extractions.push(result.extraction);
+        } else extractions.push(result);
+      } catch (error) {
+        const name = extractor.name === '' ? 'an unnamed extractor' : `the extractor "${extractor.name}"`;
+        throw new Error(`extract driver: ${name} failed over commit ${commit.hash} ("${commit.subject}", generation ${commit.generation}) of ${repository}: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
+      }
     }
+    return extractions;
   };
 
   /**
