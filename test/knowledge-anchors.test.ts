@@ -6,6 +6,7 @@ import { anchorLines, documentAnchors, findAnchor } from '../src/knowledge/ancho
 import { Resolver } from '../src/knowledge/resolve.js';
 import { entityAtAddress, readDocEntities } from '../src/knowledge/doc-entities.js';
 import { parseKinds } from '../src/knowledge/kinds.js';
+import { splitFrontMatter } from '../src/knowledge/markdown.js';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { generateTrainingRepository } from './knowledge-fixture.js';
 
@@ -130,6 +131,19 @@ describe('an address names its passage by an anchor or by an identity, and both 
     expect(token.id).toBe(`doc:docs/glossary.md#${token.stableId}`);
   });
 
+  test('a heading that names itself two ways opens one page from either address', () => {
+    // `## UC-1 Pay for an order` writes two anchors — its number and its words — and both address the same passage, so a
+    // page written as either one opens it (the review of the fourth pass, finding 1).
+    const useCases = ['# Requirements', '', '## UC-1 Pay for an order', '', 'A shopper pays.', ''].join('\n');
+    const one = readDocEntities([{ repo: null, path: 'docs/requirements.md', text: useCases }], manifest);
+    const pages = new Map(one.entities.map((entity) => [entity.id, entity]));
+    const byNumber = entityAtAddress(pages, 'doc:docs/requirements.md#uc-1');
+    const byWords = entityAtAddress(pages, 'doc:docs/requirements.md#uc-1-pay-for-an-order');
+    expect(byNumber).toBeDefined();
+    expect(byWords).toBe(byNumber);
+    expect([...byNumber!.aliases].sort()).toEqual(['uc-1', 'uc-1-pay-for-an-order']);
+  });
+
   test('an identity keeps opening its passage after the heading is renamed, and the anchor it left names nothing', () => {
     const renamed = readDocEntities([{ repo: null, path: 'docs/glossary.md', text: glossary.replace('**Payment token**', '**Provider token**') }], manifest, { identities: read.identities });
     const after = new Map(renamed.entities.map((entity) => [entity.id, entity]));
@@ -170,5 +184,15 @@ describe('a repository-qualified address resolves in its repository', () => {
     expect(await resolver.resolve('madarch:doc:@training/docs/requirements.md#uc-1')).toMatchObject({ state: 'ok', entity: entity.id });
     // A repository that holds no such document is named as the reason, not silently searched elsewhere.
     expect(await resolver.resolve('madarch:doc:@nowhere/docs/requirements.md#uc-1')).toMatchObject({ state: 'broken', why: { code: 'no-document' } });
+  });
+});
+
+describe('the front matter is read without a pattern over the document', () => {
+  test('a byte-order mark and CRLF line ends are read as the front matter they are', () => {
+    const text = '\uFEFF---\r\nsections:\r\n  Terms: doc.term\r\n---\r\n\r\n# Glossary\r\n\r\n- **Payment token** - The proof a provider returns.\r\n';
+    const split = splitFrontMatter(text);
+    expect(split.front).toContain('sections:');
+    expect(split.body.startsWith('\r\n# Glossary')).toBe(true);
+    expect(split.bodyLine).toBe(5);
   });
 });

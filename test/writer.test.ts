@@ -242,7 +242,7 @@ describe('the writer over the training repository', () => {
   test('a localized-source unit writes the statement with fixed source identity and provenance', async () => {
     const sourceText = readFileSync(path.join(ROOT, 'examples/training-repository/template/docs/requirements.md'), 'utf8');
     const sourceLine = sourceText.split('\n').find((line) => line.includes('order'))!;
-    const entity = { id: 'doc:docs/requirements.md#doc-section:2', kind: 'doc.requirement', title: 'Order requirement', identifier: 'UC-1', repo: null, path: 'docs/requirements.md', anchor: 'localized-test', line: 1, endLine: 1, text: sourceLine, stableId: 'doc-section:2', semantics: 'quality' as const, pass: 'metadata' as const, headingPath: ['Requirements'] };
+    const entity = { id: 'doc:docs/requirements.md#doc-section:2', kind: 'doc.requirement', title: 'Order requirement', identifier: 'UC-1', repo: null, path: 'docs/requirements.md', anchor: 'localized-test', aliases: ['localized-test'], line: 1, endLine: 1, text: sourceLine, stableId: 'doc-section:2', semantics: 'quality' as const, pass: 'metadata' as const, headingPath: ['Requirements'] };
     expect(entity.text).not.toBe('');
     const sink = memorySink();
     const sourcePath = localizedSourcePath(entity);

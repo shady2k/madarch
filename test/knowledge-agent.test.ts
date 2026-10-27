@@ -19,6 +19,8 @@ import { startServer, type StartedServer } from '../src/server/http.js';
 import type { UnitAgent, UnitRequest } from '../src/writer/index.js';
 import { gitEnv } from './git-env.js';
 import { SAMPLE_IDENTITY, makeProduct, recordKey } from './knowledge-fixture.js';
+import { readDocEntities, docEntityId } from '../src/knowledge/doc-entities.js';
+import { parseKinds } from '../src/knowledge/kinds.js';
 import { SCRIPTED_GUIDE_PATH, SCRIPTED_GUIDE_SOURCE, verifyScriptedGuide, writeScriptedGuide } from './scripted-guide-agent.js';
 
 const env = gitEnv(SAMPLE_IDENTITY);
@@ -272,7 +274,15 @@ describe('one press with an agent chosen', () => {
     expect(events.join('')).toContain('event: change');
     release();
     const done = await until('the stage', async () => (await get('/api/k/status')).body, (value) => value.writer.state !== 'running');
-    expect(done.writer).toMatchObject({ state: 'done', units: [{ unit: 'product:tiny', state: 'written' }, { unit: 'domain:numbers', state: 'written' }, { unit: 'localized-source:doc:docs/glossary.md#x', state: 'not-written', refusals: [{ rule: 'source-language' }] }, { unit: 'administrator-guide:main', state: 'written' }, { unit: 'user-guide:main', state: 'written' }] });
+    // A localized source is named by the passage's durable identity, so the expectation reads it from the document
+    // rather than naming a minted number (madarch-ztyq.3).
+    const productFolder = join(work, 'home', 'tiny');
+    const kindsFile = join(productFolder, 'madarch', 'kinds.yaml');
+    const kinds = parseKinds(readFileSync(kindsFile, 'utf8'), kindsFile, productFolder);
+    const glossaryText = readFileSync(join(productFolder, 'docs', 'glossary.md'), 'utf8');
+    const glossaryPage = readDocEntities([{ repo: null, path: 'docs/glossary.md', text: glossaryText }], kinds).entities.find((entity) => entity.anchor === 'x')!;
+    expect(glossaryPage.id).toBe(docEntityId(null, 'docs/glossary.md', glossaryPage.stableId));
+    expect(done.writer).toMatchObject({ state: 'done', units: [{ unit: 'product:tiny', state: 'written' }, { unit: 'domain:numbers', state: 'written' }, { unit: `localized-source:${glossaryPage.id}`, state: 'not-written', refusals: [{ rule: 'source-language' }] }, { unit: 'administrator-guide:main', state: 'written' }, { unit: 'user-guide:main', state: 'written' }] });
     expect(seen).toEqual(['product:tiny', 'domain:numbers', 'administrator-guide:main', 'user-guide:main']);
     for (const id of ['administrator-guide:main', 'user-guide:main']) {
       const guidePage = await get(`/api/k/page?id=${encodeURIComponent(id)}`);

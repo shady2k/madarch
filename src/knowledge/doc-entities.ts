@@ -49,6 +49,8 @@ export interface DocEntity {
   path: string;
   /** The anchor the document gives it now: what a ground names and a page shows, never what the page is called. */
   anchor: string;
+  /** Every anchor the tree derives for this passage: a heading names itself by its number and by its words. */
+  aliases: readonly string[];
   /** The 1-based line the passage starts at, and the last line it covers. */
   line: number;
   endLine: number;
@@ -109,10 +111,14 @@ export function entityAtAddress(entities: HasDocEntities, address: string): DocE
   if (exact !== undefined) return exact;
   const parsed = parseDocumentAddress(address);
   if (parsed === undefined) return undefined;
+  const fragment = parsed.fragment.toLowerCase();
   for (const entity of entities.values()) {
     if (entity.repo !== parsed.repo || entity.path !== parsed.path) continue;
     if (entity.stableId === parsed.fragment) return entity;
-    if (entity.anchor === parsed.fragment.toLowerCase()) return entity;
+    // A heading names itself every way the tree names it: `uc-1` and `uc-1-place-order` open one page (the review of the
+    // fourth pass, finding 1).
+    if (entity.anchor === fragment) return entity;
+    if (entity.aliases.some((alias) => alias === fragment)) return entity;
   }
   return undefined;
 }
@@ -137,6 +143,8 @@ interface Candidate {
   semantics: SemanticKind;
   pass: DecidingPass;
   anchor: string;
+  /** Every anchor the tree gives this passage: a heading names itself both by its number and by its words. */
+  aliases: readonly string[];
   title: string;
   identifier: string | null;
   line: number;
@@ -295,7 +303,7 @@ export function readDocEntities(sources: readonly DocumentSource[], manifest: Ki
         if (identifier !== null && kind !== undefined) {
           const anchor = anchorsOfBlock(section.heading, identifier, 1);
           if (anchor === undefined) { report(section.line, 'the heading names no anchor a link could carry, so no page shows this section'); continue; }
-          candidates.push({ kind, semantics: kind.semantics ?? 'other', pass: 'metadata', anchor, title: titleOf(section.heading, identifier), identifier, line: section.line, endLine: section.endLine, text: section.text, headingPath: [...section.headingPath] });
+          candidates.push({ kind, semantics: kind.semantics ?? 'other', pass: 'metadata', anchor, aliases: names.get(section.heading!) ?? [anchor], title: titleOf(section.heading, identifier), identifier, line: section.line, endLine: section.endLine, text: section.text, headingPath: [...section.headingPath] });
           covered.push({ line: section.line, endLine: section.endLine });
           const missing = kind.structure === undefined ? [] : missingStructure(section, kind.structure, tree.sections);
           if (missing.length > 0) report(section.line, `this "${kind.name}" holds no ${missing.join(', no ')}, which the manifest declares its structure: the section is shown as the document writes it, and what it lacks is said here`);
@@ -321,7 +329,7 @@ export function readDocEntities(sources: readonly DocumentSource[], manifest: Ki
         if (kind === undefined) { pending.push(block); continue; }
         const anchor = anchorsOfBlock(block, identifier, 1);
         if (anchor === undefined) { report(block.line, 'this passage stands before the document\'s first heading, so it has no anchor a link could name: it is not shown as an entity'); continue; }
-        candidates.push({ kind, semantics: kind.semantics ?? 'other', pass, anchor, title: titleOf(block, identifier), identifier, line: block.line, endLine: block.endLine, text: bodyOf(block), headingPath: [...section.headingPath] });
+        candidates.push({ kind, semantics: kind.semantics ?? 'other', pass, anchor, aliases: names.get(block) ?? [anchor], title: titleOf(block, identifier), identifier, line: block.line, endLine: block.endLine, text: bodyOf(block), headingPath: [...section.headingPath] });
       }
       // Pass 3, the classifier: only the blocks the first two passes left, and every reading keeps its own span.
       if (pending.length > 0 && options.classifier !== undefined) {
@@ -359,7 +367,7 @@ export function readDocEntities(sources: readonly DocumentSource[], manifest: Ki
             report(passage.line, `the ${passage.kind} this classifier read has no anchor a link could name, so no page shows it`);
             continue;
           }
-          candidates.push({ kind, semantics: passage.kind, pass: 'classifier', anchor, title: place === 1 ? titleOf(block, identifier) : firstWords(span.text), identifier: place === 1 ? identifier : null, line: span.line, endLine: span.endLine, text: span.text, headingPath: [...section.headingPath] });
+          candidates.push({ kind, semantics: passage.kind, pass: 'classifier', anchor, aliases: [anchor], title: place === 1 ? titleOf(block, identifier) : firstWords(span.text), identifier: place === 1 ? identifier : null, line: span.line, endLine: span.endLine, text: span.text, headingPath: [...section.headingPath] });
         }
         for (const block of pending) if (!places.has(block)) report(block.line, `the classifier read no meaning of this passage, so no page shows it: ${quote(firstWords(leadText(block)))}`, 'unread-passage');
       } else if (pending.length > 0) {
@@ -398,6 +406,7 @@ export function readDocEntities(sources: readonly DocumentSource[], manifest: Ki
         repo: source.repo,
         path: source.path,
         anchor: candidate.anchor,
+        aliases: candidate.aliases,
         line: candidate.line,
         endLine: candidate.endLine,
         text: candidate.text,
