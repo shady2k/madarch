@@ -182,6 +182,16 @@ function trimSpaces(text: string): string {
   return text.slice(start, end);
 }
 
+/** A table cell's own words: its source without the pipes and the spaces that hold it. */
+function trimCell(text: string): string {
+  let start = 0;
+  let end = text.length;
+  const edge = (char: string | undefined): boolean => char === '|' || char === ' ' || char === '\t' || char === '\n' || char === '\r';
+  while (start < end && edge(text[start])) start += 1;
+  while (end > start && edge(text[end - 1])) end -= 1;
+  return text.slice(start, end);
+}
+
 /** The trimming a title does, by character: marks and separators are dropped, never a word. */
 function trimStart(text: string): string {
   let at = 0;
@@ -245,36 +255,55 @@ function leafWords(node: DocNode): string {
 }
 
 /**
- * The identifier a passage opens with, and the text that follows its naming span. Both are read from the mdast nodes
- * themselves — their decoded values, in order, and the source of the nodes that follow — so nothing decodes a document's
- * source a second time: an escaped dash (`BR\-1`) and a character reference (`BR&#45;1`) are already one character in the
- * node's value, and a reference the parser leaves literal is literal text that cannot crash the reader.
- *
- * Where the identifier ends inside one node, the rest of THAT node's decoded text opens the body; a node whose text the
- * identifier ends on is dropped whole, so the marks that close it (`**BR-1**`, the emphasis of `BR-*1*`) go with it.
+ * How far into a text node's own source the first `count` of its decoded characters reach: `BR\-1` spells four
+ * characters in five, and a character reference spells one in several. Only the identifier's own spelling is measured
+ * here — the body is never decoded, so an escape in the words after it (`Match \*paid\* literally.`) survives as written.
+ */
+function spellingEnd(raw: string, count: number): number {
+  let decoded = 0;
+  let at = 0;
+  while (at < raw.length && decoded < count) {
+    if (raw[at] === '\\') at += 1;
+    else if (raw[at] === '&') {
+      const close = raw.indexOf(';', at);
+      if (close > at) at = close;
+    }
+    at += 1;
+    decoded += 1;
+  }
+  return Math.min(at, raw.length);
+}
+
+/**
+ * The identifier a passage opens with, and the words after the span that names it, cut from the source the parser gave:
+ * the identifier's text is the nodes' own decoded value, and the body starts where that identifier ends — inside a text
+ * node (at the source offset its spelling reaches), after a markup node whose text it fills (`**BR-1**`, the emphasis of
+ * `BR-*1*`), or after the closing marks of a markup node it ends inside (`**BR-1 Never charge twice.**`, whose body is
+ * the rest of the bold phrase).
  */
 function namingOf(passage: DocNode): { identifier: string; tail: string } | null {
   const container = namingContainer(passage);
+  if (container === undefined) return null;
   const inline = namingInline(passage);
   const identifier = identifierOf(inline.map((node) => node.plain).join(''));
   if (identifier === null) return null;
-  // The source after one inline node: the whole rest of the naming container, so the whitespace and marks BETWEEN nodes
-  // are kept as the document writes them (a line's indentation before a code span is nobody's node).
-  const after = (node: DocNode | undefined): string => {
-    if (container === undefined) return '';
-    const end = node === undefined ? container.endOffset : node.endOffset;
-    return container.raw.slice(Math.max(0, end - container.startOffset));
+  const sourceAfter = (offset: number): string => {
+    const rest = container.raw.slice(Math.max(0, offset - container.startOffset));
+    return container.type === 'tableCell' ? trimCell(rest) : rest;
   };
-  const lead = inline[0];
-  // A bold phrase at the start names the passage — its identifier and its name together — so the whole phrase is the
-  // naming span (`**UC-1 Place order.**`, `**BR-1**`).
-  if (lead !== undefined && lead.type === 'strong') return { identifier, tail: after(lead) };
   let seen = 0;
   for (const node of inline) {
     const length = node.plain.length;
     if (seen + length < identifier.length) { seen += length; continue; }
     const within = identifier.length - seen;
-    return { identifier, tail: within < length ? node.plain.slice(within) + after(node) : after(node) };
+    if (within < length) {
+      // The identifier ends inside this node: at its own source spelling in a text node, or after the marks that close a
+      // markup node — whose remaining words then open the body.
+      if (node.type === 'text') return { identifier, tail: sourceAfter(node.startOffset + spellingEnd(node.raw, within)) };
+      return { identifier, tail: trimCell(node.plain.slice(within)) + sourceAfter(node.endOffset) };
+    }
+    // The identifier fills the node's text: the node — a bold phrase's marks included — is the naming span.
+    return { identifier, tail: sourceAfter(node.endOffset) };
   }
   return null;
 }
@@ -297,23 +326,34 @@ function firstWords(text: string): string {
 
 /**
  * The text of a passage without the span that names it: a bold phrase names a term, and an identifier a passage opens
- * with is an alias, so a renumbered passage keeps the digest its page was minted for. A table row's body is the cells
- * after the naming cell (the seventh, eighth, ninth and tenth reviews).
+ * with is an alias, so a renumbered passage keeps the digest its page was minted for. The words are the document's own
+ * source, so an escape in them survives. A cell that names a rule carries the words of the other cells of its row, and a
+ * list item carries what its nested containers hold (the seventh, eighth, ninth, tenth and eleventh reviews).
  */
-function bodyOf(passage: DocNode): string {
-  if (passage.type === 'tableRow') {
-    const named = namingOf(passage);
-    const cells = passage.children.slice(1).map((cell) => flat(cell.plain)).filter((cell) => cell !== '');
-    return [trimSeparator(trimSpaces(named?.tail ?? '')), ...cells].filter((part) => part !== '').join(' ').trim();
-  }
+/** Whether the manifest names a passage by its leading bold words (a glossary's terms) rather than by an identifier. */
+function bodyOf(passage: DocNode, namedByPhrase = false): string {
+  const named = namingOf(passage);
   const paragraph = openingParagraph(passage);
   if (paragraph === undefined) return passage.children.map((child) => child.raw.trimEnd()).join('\n').trim();
-  const rest = passage.type === 'listItem' ? passage.children.filter((child) => child !== paragraph).map((child) => child.raw.trimEnd()) : [];
-  const named = namingOf(passage);
-  if (named !== null) return [trimSeparator(trimSpaces(named.tail)), ...rest].join('\n').trim();
+  // An item's own words are its opening paragraph; a container it holds is a passage of its own and is not repeated here.
+  const rest = passage.type === 'listItem' ? passage.children.filter((child) => child !== paragraph && child.type !== 'paragraph').map((child) => child.raw.trimEnd()) : [];
   const bold = boldLead(passage);
-  if (bold !== undefined) return [trimSeparator(trimSpaces(paragraph.raw.slice(bold.endOffset - paragraph.startOffset))), ...rest].join('\n').trim();
-  return [trimSeparator(trimSpaces(paragraph.raw)), ...rest].join('\n').trim();
+  const container = namingContainer(passage) ?? paragraph;
+  // The body is the content minus the span that names it: an identifier only, or — where the manifest names a passage by
+  // its bold phrase — the whole phrase. A bold phrase that only carries the identifier keeps its words (the eleventh
+  // review): `**BR-1 Never charge twice.**` has the body `Never charge twice.`.
+  // The words after a node are cut from the node's own container, not from the passage: an item's container is its
+  // opening paragraph, so the containers the item holds are not repeated in its body (they are passages of their own).
+  const after = (node: DocNode): string => container.raw.slice(node.endOffset - container.startOffset);
+  const tail = named !== null ? named.tail : bold === undefined ? container.raw : namedByPhrase ? after(bold) : bold.plain + after(bold);
+  const own = trimSeparator(trimSpaces(passage.type === 'tableCell' && named === null ? trimCell(container.raw) : tail));
+  if (passage.type !== 'tableCell') return [own, ...rest].filter((part) => part !== '').join('\n').trim();
+  // A cell that names a rule speaks for its row: every cell's words are part of the rule's body, in row order. A cell
+  // that names nothing is a passage of its own words alone.
+  if (named === null) return own;
+  const row = passage.parent;
+  const parts = row === undefined ? [own] : row.children.map((cell) => (cell === passage ? own : trimCell(cell.raw)));
+  return parts.filter((part) => part !== '').join(' ').trim();
 }
 
 /** What a listing calls the block: its bold phrase, the identifier and its name, or the words of its first sentence. */
@@ -405,7 +445,9 @@ export function readDocEntities(sources: readonly DocumentSource[], manifest: Ki
       const sectionKind = section.heading === null ? undefined : declared.get(normaliseHeading(section.heading.plain));
       const byHeading = section.heading === null ? undefined : kinds.find((kind) => kind.headings?.some((heading) => normaliseHeading(heading) === normaliseHeading(section.heading!.plain)));
       const pending: DocNode[] = [];
-      for (const block of sectionBlocks(section)) {
+      // A passage the manifest names is the one a row's words belong to: the cell that opens with an identifier.
+      const namesIdentifier = (candidate: DocNode): boolean => identifierOf(namingText(candidate)) !== null;
+      for (const block of sectionBlocks(section, namesIdentifier)) {
         const lead = namingText(block);
         const identifier = identifierOf(lead);
         const byIdentifier = identifier === null ? undefined : kindOfIdentifier(kinds, identifier);
@@ -419,7 +461,7 @@ export function readDocEntities(sources: readonly DocumentSource[], manifest: Ki
         if (kind === undefined) { pending.push(block); continue; }
         const anchor = anchorsOfBlock(block, identifier, 1);
         if (anchor === undefined) { report(block.line, 'this passage stands before the document\'s first heading, so it has no anchor a link could name: it is not shown as an entity'); continue; }
-        candidates.push({ kind, semantics: kind.semantics ?? 'other', pass, anchor, aliases: names.get(block) ?? [anchor], title: titleOf(block, identifier), identifier, line: block.line, endLine: block.endLine, text: bodyOf(block), headingPath: [...section.headingPath] });
+        candidates.push({ kind, semantics: kind.semantics ?? 'other', pass, anchor, aliases: names.get(block) ?? [anchor], title: titleOf(block, identifier), identifier, line: block.line, endLine: block.endLine, text: bodyOf(block, kind === terms), headingPath: [...section.headingPath] });
       }
       // Pass 3, the classifier: only the blocks the first two passes left, and every reading keeps its own span.
       if (pending.length > 0 && options.classifier !== undefined) {
@@ -436,7 +478,7 @@ export function readDocEntities(sources: readonly DocumentSource[], manifest: Ki
           // dropped by the early answer (the ninth review, B). The leaves are said by the loop below, before the early
           // answer leaves the section.
           for (const block of pending) report(block.line, `no classifier has read this passage yet, so what it means is not shown: ${quote(firstWords(leadText(block) || block.raw))}`, 'unread-passage');
-          for (const leaf of sectionLeaves(section)) {
+          for (const leaf of sectionLeaves(section, namesIdentifier)) {
             if (manifest.ignoreBlocks.includes(leaf.type)) continue;
             report(leaf.line, `this block holds text no kind of the manifest reads: ${quote(firstWords(namedLeaf(leaf) ?? leafWords(leaf)))}`, 'unread-passage');
           }
@@ -488,7 +530,7 @@ export function readDocEntities(sources: readonly DocumentSource[], manifest: Ki
       // its line. Ordinary furniture (an html comment, a plain fence) names nothing, so it is not a lost passage.
       // Every block has a disposition: read as a passage, reported here, or ignored by a rule the product names in its own
       // manifest (`documents.ignore`). No block is dropped without one of the three (the review of the eighth pass).
-      for (const leaf of sectionLeaves(section)) {
+      for (const leaf of sectionLeaves(section, namesIdentifier)) {
         if (manifest.ignoreBlocks.includes(leaf.type)) continue;
         report(leaf.line, `this block holds text no kind of the manifest reads: ${quote(firstWords(namedLeaf(leaf) ?? leafWords(leaf)))}`, 'unread-passage');
       }

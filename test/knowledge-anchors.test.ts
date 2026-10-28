@@ -81,8 +81,11 @@ describe('a page id and a ground are two kinds of reference', () => {
   writeFileSync(join(folder, 'templates', 'x.md'), ':::body\n');
   const manifest = parseKinds(['kinds:', '  doc.use-case: { template: templates/x.md, source: document, identifier: UC, semantics: scenario }', ''].join('\n'), join(folder, 'madarch/kinds.yaml'), folder);
   const numbered = ['# Requirements', '', '## Use cases', '', '- **UC-1 Place order.** A signed-in shopper submits a cart.', '- **UC-2 Pay.** Checkout asks payments to authorize the card.', ''].join('\n');
-  // The two numbers change places; the passages keep their identities, so their page ids keep them too.
-  const swapped = numbered.replace('**UC-1 Place order.**', '**@@**').replace('**UC-2 Pay.**', '**UC-1 Place order.**').replace('**@@**', '**UC-2 Pay.**');
+  // The two numbers change places: each passage keeps its name and its words, so its identity stays with it.
+  const swapped = numbered
+    .replace('**UC-1 Place order.**', '**UC-@ Place order.**')
+    .replace('**UC-2 Pay.**', '**UC-1 Pay.**')
+    .replace('**UC-@ Place order.**', '**UC-2 Place order.**');
   const first = readDocEntities([{ repo: null, path: 'docs/requirements.md', text: numbered }], manifest);
   const second = readDocEntities([{ repo: null, path: 'docs/requirements.md', text: swapped }], manifest, { identities: first.identities });
   const byLine = new Map(second.entities.map((entity) => [entity.line, entity]));

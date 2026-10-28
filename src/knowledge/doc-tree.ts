@@ -51,6 +51,8 @@ export interface DocNode {
   startByte: number;
   endByte: number;
   children: DocNode[];
+  /** The node this one stands in, when it stands in another: a cell in its row, an item in its list. */
+  parent?: DocNode;
 }
 
 /** A heading's section: the heading, the blocks it holds, and the sections it opens. */
@@ -185,7 +187,7 @@ export function readDocTree(source: DocumentSource): DocTree {
     if (position?.start.offset === undefined || position?.end.offset === undefined) {
       findings.push(stand(position?.start.line ?? 1, `the parser gave the ${raw.type} no source range, so its text is read as no section`));
     }
-    return {
+    const node: DocNode = {
       type: TYPES.get(raw.type) ?? 'other',
       ...(raw.depth === undefined ? {} : { level: raw.depth }),
       raw: text.slice(start, end),
@@ -198,6 +200,9 @@ export function readDocTree(source: DocumentSource): DocTree {
       endByte: byteAt(end),
       children: (raw.children ?? []).map(nodeOf),
     };
+    // A node knows the node it stands in, so a table cell can reach its row's other cells.
+    for (const child of node.children) child.parent = node;
+    return node;
   };
   const nodes = (parsed.children ?? []).map(nodeOf);
   return { repo: source.repo, path: source.path, text: source.text, front, meta, nodes, sections: sectionsOf(nodes, text), findings };
@@ -265,7 +270,7 @@ export interface SectionWalk {
  * table's first row — the names of the columns. A nested list item is a passage rather than a part of the item above it,
  * and a table row is a passage whose naming cell comes first (the review of the tenth pass).
  */
-export function sectionWalk(section: DocSection): SectionWalk {
+export function sectionWalk(section: DocSection, namesIdentifier?: (passage: DocNode) => boolean): SectionWalk {
   const passages: DocNode[] = [];
   const leaves: DocNode[] = [];
   const collect = (node: DocNode): void => {
@@ -274,14 +279,23 @@ export function sectionWalk(section: DocSection): SectionWalk {
       case 'paragraph': passages.push(node); return;
       case 'listItem':
         passages.push(node);
-        // The items nested under this one are passages of their own, not words of it.
-        for (const child of node.children) if (child.type === 'list') collect(child);
+        // Every container an item holds is walked at any depth — a nested list, a quote, a table, a footnote — so a rule
+        // written inside one is a passage of its own; the item's own paragraph is the item's words (the tenth and
+        // eleventh reviews).
+        for (const child of node.children) if (child.type !== 'paragraph') collect(child);
         return;
       case 'list': for (const child of node.children) collect(child); return;
       case 'table': {
-        // Every row is a passage; the first row of a table with more than one names its columns, so it holds no passage.
+        // A row's cells are its passages: the cell that names an identifier is the passage and carries the row's words
+        // in its body; a row that names none is one passage per cell, so no cell's words are lost. The first row of a
+        // table with more than one names its columns, so it holds no passage (the eleventh review).
         const rows = node.children;
-        rows.forEach((row, index) => { if (index === 0 && rows.length > 1) return; passages.push(row); });
+        rows.forEach((row, index) => {
+          if (index === 0 && rows.length > 1) return;
+          const named = row.children.find((cell) => namesIdentifier?.(cell) === true);
+          if (named !== undefined) { passages.push(named); return; }
+          for (const cell of row.children) passages.push(cell);
+        });
         return;
       }
       case 'blockquote': case 'definition': for (const child of node.children) collect(child); return;
@@ -296,8 +310,8 @@ export function sectionWalk(section: DocSection): SectionWalk {
 }
 
 /** The blocks a section holds, in document order: every passage its containers hold. */
-export function sectionBlocks(section: DocSection): DocNode[] {
-  return sectionWalk(section).passages;
+export function sectionBlocks(section: DocSection, namesIdentifier?: (passage: DocNode) => boolean): DocNode[] {
+  return sectionWalk(section, namesIdentifier).passages;
 }
 
 /**
@@ -305,8 +319,8 @@ export function sectionBlocks(section: DocSection): DocNode[] {
  * never candidates (a `BR-9` inside a code fence names no rule), and they never vanish either: the reader reports each
  * as a block it could not decide (the review of the seventh pass, finding 2).
  */
-export function sectionLeaves(section: DocSection): DocNode[] {
-  return sectionWalk(section).leaves;
+export function sectionLeaves(section: DocSection, namesIdentifier?: (passage: DocNode) => boolean): DocNode[] {
+  return sectionWalk(section, namesIdentifier).leaves;
 }
 
 /** The paragraph a block opens with: an item's first paragraph, or the paragraph itself. */

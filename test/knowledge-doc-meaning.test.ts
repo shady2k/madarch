@@ -343,9 +343,9 @@ describe('a number is an alias, never the identity', () => {
     // `UC-1` and `UC-2` change places. Reading identities from the anchor would hand each passage the other's page; the
     // content decides first, so each keeps its own (madarch-ztyq.3, the review of finding 3).
     const swapped = requirements.text
-      .replace('**UC-1 Place order.**', '**@@**')
-      .replace('**UC-2 Pay.**', '**UC-1 Place order.**')
-      .replace('**@@**', '**UC-2 Pay.**');
+      .replace('**UC-1 Place order.**', '**UC-@ Place order.**')
+      .replace('**UC-2 Pay.**', '**UC-1 Pay.**')
+      .replace('**UC-@ Place order.**', '**UC-2 Place order.**');
     expect(swapped).not.toBe(requirements.text);
     const first = readDocEntities([requirements], STARTER);
     const second = readDocEntities([{ repo: 'training', path: 'docs/requirements.md', text: swapped }], STARTER, { identities: first.identities });
@@ -745,7 +745,85 @@ describe('what the tenth review found', () => {
   }
 
   test('a character reference no code point holds is literal text, never a crash', () => {
+    // The body is the document's own source, so the reference stands as it was written: the parser held no code point
+    // for it, and nothing throws.
     const read = readDocEntities([{ repo: null, path: 'docs/requirements.md', text: '# Rules\n\nBR-1 Never emit &#x110000;.\n' }], manifest());
-    expect(read.entities.map((entity) => [entity.identifier, entity.text])).toEqual([['BR-1', 'Never emit \uFFFD.']]);
+    expect(read.entities.map((entity) => [entity.identifier, entity.text])).toEqual([['BR-1', 'Never emit &#x110000;.']]);
+  });
+});
+
+describe('what the eleventh review found', () => {
+  const manifest = (): KindsManifest => parse([
+    'kinds:',
+    '  doc.rule: { template: templates/x.md, source: document, identifier: BR, semantics: rule }',
+    'documents:',
+    '  ignore: [code, html, thematicBreak, definition]',
+  ]);
+  /** A manifest whose rule kind is declared by a heading, so a table cell no identifier names is still a passage. */
+  const byHeading = (): KindsManifest => parse([
+    'kinds:',
+    '  doc.rule: { template: templates/x.md, source: document, identifier: BR, semantics: rule, headings: [Rules] }',
+    'documents:',
+    '  ignore: [code, html, thematicBreak, definition]',
+  ]);
+
+  test('a wholly bold rule keeps the words inside its bold phrase, and a renumbering keeps its page', () => {
+    // The body is the content minus the identifier span only: two wholly bold rules must not share an empty body.
+    const before = '# Rules\n\n- **BR-1 Never charge twice.**\n- **BR-9 Always log refunds.**\n';
+    const first = readDocEntities([{ repo: null, path: 'docs/requirements.md', text: before }], manifest());
+    expect(first.entities.map((entity) => [entity.identifier, entity.text])).toEqual([['BR-1', 'Never charge twice.'], ['BR-9', 'Always log refunds.']]);
+    const after = readDocEntities([{ repo: null, path: 'docs/requirements.md', text: before.replace('BR-1 Never', 'BR-2 Never') }], manifest(), { identities: first.identities });
+    expect(after.entities.find((entity) => entity.identifier === 'BR-2')!.stableId).toBe(first.entities.find((entity) => entity.identifier === 'BR-1')!.stableId);
+    expect(after.entities.find((entity) => entity.identifier === 'BR-9')!.stableId).toBe(first.entities.find((entity) => entity.identifier === 'BR-9')!.stableId);
+  });
+
+  test('a table row keeps every cell: the condition stands beside the rule it qualifies', () => {
+    // Under a heading the manifest declares, each cell is a passage of its own words; neither loses the other's.
+    const row = '# Rules\n\n| Condition | Rule |\n| --- | --- |\n| Only on retries | Never charge twice. |\n';
+    expect(readDocEntities([{ repo: null, path: 'docs/requirements.md', text: row }], byHeading()).entities.map((entity) => entity.text)).toEqual(['Only on retries', 'Never charge twice.']);
+    // With no heading convention the same row is two unread passages, each reported with its own words.
+    const bare = readDocEntities([{ repo: null, path: 'docs/requirements.md', text: row }], manifest());
+    expect(bare.entities).toEqual([]);
+    expect(bare.findings.map((finding) => finding.line)).toEqual([5, 5]);
+  });
+
+  test('a row whose first or second cell names the rule gives the rule every cell of its row', () => {
+    const first = readDocEntities([{ repo: null, path: 'docs/requirements.md', text: '# Rules\n\n| Rule | Text |\n| --- | --- |\n| BR-1 | Never charge twice. |\n' }], manifest());
+    expect(first.entities.map((entity) => [entity.identifier, entity.text])).toEqual([['BR-1', 'Never charge twice.']]);
+    const second = readDocEntities([{ repo: null, path: 'docs/requirements.md', text: '# Rules\n\n| Condition | Rule |\n| --- | --- |\n| Payment | BR-1 Never charge twice. |\n' }], manifest());
+    expect(second.entities.map((entity) => [entity.identifier, entity.text])).toEqual([['BR-1', 'Payment Never charge twice.']]);
+  });
+
+  test('a container inside a list item is walked: a quoted rule under an item is a passage of its own', () => {
+    const read = readDocEntities([{ repo: null, path: 'docs/requirements.md', text: '# Rules\n\n- Payment safety:\n\n  > BR-1 Never charge twice.\n' }], manifest());
+    expect(read.entities.map((entity) => [entity.identifier, entity.text])).toEqual([['BR-1', 'Never charge twice.']]);
+    // The item that holds the quote is a passage of its own words, and it is reported.
+    expect(read.findings.map((finding) => finding.line)).toEqual([3]);
+  });
+
+  /** A manifest whose term kind takes a glossary's bold entries, as the starter manifest does. */
+  const glossary = (): KindsManifest => parse([
+    'kinds:',
+    '  doc.term: { template: templates/x.md, source: document, terms: ["**/glossary*.md"], semantics: term }',
+    'documents:',
+    '  ignore: [code, html, thematicBreak, definition]',
+  ]);
+
+  test('a glossary entry is one term, and the fields written under it are read once', () => {
+    // A list item owns its opening paragraph: the containers under it (the field list here) are passages of their own, so
+    // a body that also carried them made every field appear twice and listed the term twice (the twelfth review).
+    const text = ['# Glossary', '', '- **Manifest** - The file that tells the wiki which kinds a product has.', '  - Also called: manifests, kinds file', '  - In code: `madarch/kinds.yaml`', '- **Capture** - The moment the money is taken from the card.', ''].join('\n');
+    const read = readDocEntities([{ repo: null, path: 'docs/glossary.md', text }], glossary());
+    expect(read.entities.map((entity) => entity.title)).toEqual(['Manifest', 'Capture']);
+    const term = read.entities[0]!;
+    const occurrences = (needle: string): number => term.text.split(needle).length - 1;
+    expect([occurrences('Also called: manifests, kinds file'), occurrences('In code: `madarch/kinds.yaml`')]).toEqual([1, 1]);
+    expect(term.text.startsWith('The file that tells the wiki which kinds a product has.')).toBe(true);
+    expect(new Set(read.entities.map((entity) => entity.stableId)).size).toBe(read.entities.length);
+  });
+
+  test('an escaped character in the words after the identifier survives as the document writes it', () => {
+    const read = readDocEntities([{ repo: null, path: 'docs/requirements.md', text: '# Rules\n\nBR-1 Match \\*paid\\* literally.\n' }], manifest());
+    expect(read.entities.map((entity) => entity.text)).toEqual(['Match \\*paid\\* literally.']);
   });
 });

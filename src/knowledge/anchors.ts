@@ -167,7 +167,9 @@ export function anchorsOfTree(tree: DocTree): AnchorReading {
   for (const section of tree.sections) {
     const heading = section.heading === null ? undefined : headingName.get(section.heading);
     let ordinal = 0;
-    for (const block of sectionBlocks(section)) {
+    // A table row's words belong to the cell that names an identifier, when one does.
+    const namesIdentifier = (candidate: DocNode): boolean => identifierOf(namingText(candidate)) !== null;
+    for (const block of sectionBlocks(section, namesIdentifier)) {
       const bold = boldLead(block);
       if (bold !== undefined) {
         const phrase = stripTail(bold.plain);
