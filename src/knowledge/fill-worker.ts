@@ -158,11 +158,20 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
       }
     });
     let lastSnapshot = 0;
+    /** Whether the replacement of a rebuild with nothing to replace has been published: one snapshot of it is enough. */
+    let published = false;
     const snapshot = async (force: boolean): Promise<void> => {
-      if (rebuilding) return; // The reader keeps the old working index until the replacement is complete.
+      // A rebuild reads the replacement in a folder of its own, beside the working graph the reader is showing, and the
+      // reader keeps that working index until the replacement is complete. A product's first fill has no working graph
+      // to keep: holding the reader back there would leave it with nothing at all for the whole fill, the Files list
+      // empty while the code it counts is already read (madarch-i8dn). So the replacement is published once, as soon as
+      // the fill offers it, and read from that snapshot until the promotion: every snapshot of it is a copy of the store
+      // and a reader process of its own, and a page asked during the fill waits on that work.
+      if (rebuilding && (existsSync(start.graphPath) || published)) return;
       if (!force && Date.now() - lastSnapshot < start.snapshotMs) return;
       const seq = await takeSnapshot(owner, graphPath, readRoot);
       lastSnapshot = Date.now();
+      if (rebuilding) published = true;
       send({ type: 'snapshot', seq, pins: [...pins.values()] });
     };
     const pin = async (next: RepositoryPin): Promise<void> => {
