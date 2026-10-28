@@ -827,3 +827,35 @@ describe('what the eleventh review found', () => {
     expect(read.entities.map((entity) => entity.text)).toEqual(['Match \\*paid\\* literally.']);
   });
 });
+
+describe('what the twelfth review found', () => {
+  const manifest = (): KindsManifest => parse([
+    'kinds:',
+    '  doc.rule: { template: templates/x.md, source: document, identifier: BR, semantics: rule }',
+    'documents:',
+    '  ignore: [code, html, thematicBreak, definition]',
+  ]);
+
+  test('a continuation paragraph of a list item is part of its body', () => {
+    const text = '# Rules\n\n- BR-1 Never charge twice.\n\n  Refund duplicate captures.\n';
+    const read = readDocEntities([{ repo: null, path: 'docs/requirements.md', text }], manifest());
+    expect(read.entities.map((entity) => entity.text)).toEqual(['Never charge twice.\nRefund duplicate captures.']);
+  });
+
+  test('a heading-only rule keeps its identity when it is renumbered', () => {
+    const before = '# Rules\n\n## BR-1 Never charge twice.\n';
+    const first = readDocEntities([{ repo: null, path: 'docs/requirements.md', text: before }], manifest());
+    const after = readDocEntities([{ repo: null, path: 'docs/requirements.md', text: before.replace('BR-1', 'BR-9') }], manifest(), { identities: first.identities });
+    expect(first.entities[0]!.identifier).toBe('BR-1');
+    expect(after.entities[0]!.identifier).toBe('BR-9');
+    expect(after.entities[0]!.stableId).toBe(first.entities[0]!.stableId);
+  });
+
+  test('two unread cells on one table line are two findings', () => {
+    const text = '# Rules\n\n| Only on retries | Never charge twice. |\n| --- | --- |\n';
+    const read = readDocEntities([{ repo: null, path: 'docs/requirements.md', text }], manifest());
+    const unread = read.findings.filter((finding) => finding.kind === 'unread-passage' && finding.line === 3);
+    expect(unread.length).toBe(2);
+    expect(new Set(unread.map((finding) => finding.message)).size).toBe(2);
+  });
+});

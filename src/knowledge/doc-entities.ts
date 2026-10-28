@@ -150,6 +150,8 @@ interface Candidate {
   line: number;
   endLine: number;
   text: string;
+  /** The words identity is reconciled on when they differ from the body: a heading's own words name the passage too. */
+  identityText?: string;
   headingPath: string[];
 }
 
@@ -336,7 +338,10 @@ function bodyOf(passage: DocNode, namedByPhrase = false): string {
   const paragraph = openingParagraph(passage);
   if (paragraph === undefined) return passage.children.map((child) => child.raw.trimEnd()).join('\n').trim();
   // An item's own words are its opening paragraph; a container it holds is a passage of its own and is not repeated here.
-  const rest = passage.type === 'listItem' ? passage.children.filter((child) => child !== paragraph && child.type !== 'paragraph').map((child) => child.raw.trimEnd()) : [];
+  // Everything an item holds after its opening paragraph is part of its body — a continuation paragraph as much as the
+  // field list under a glossary term — and the naming container's own slice above never repeats them, because it stops at
+  // the container and not at the item (the eleventh and twelfth reviews).
+  const rest = passage.type === 'listItem' ? passage.children.filter((child) => child !== paragraph).map((child) => child.raw.trimEnd()) : [];
   const bold = boldLead(passage);
   const container = namingContainer(passage) ?? paragraph;
   // The body is the content minus the span that names it: an identifier only, or — where the manifest names a passage by
@@ -433,7 +438,7 @@ export function readDocEntities(sources: readonly DocumentSource[], manifest: Ki
         if (identifier !== null && kind !== undefined) {
           const anchor = anchorsOfBlock(section.heading, identifier, 1);
           if (anchor === undefined) { report(section.line, 'the heading names no anchor a link could carry, so no page shows this section'); continue; }
-          candidates.push({ kind, semantics: kind.semantics ?? 'other', pass: 'metadata', anchor, aliases: names.get(section.heading!) ?? [anchor], title: titleOf(section.heading, identifier), identifier, line: section.line, endLine: section.endLine, text: section.text, headingPath: [...section.headingPath] });
+          candidates.push({ kind, semantics: kind.semantics ?? 'other', pass: 'metadata', anchor, aliases: names.get(section.heading!) ?? [anchor], title: titleOf(section.heading, identifier), identifier, identityText: identifier === null ? undefined : `${nameAfter(flat(section.heading!.plain), identifier)}\n${section.text}`.trim(), line: section.line, endLine: section.endLine, text: section.text, headingPath: [...section.headingPath] });
           covered.push({ line: section.line, endLine: section.endLine });
           const missing = kind.structure === undefined ? [] : missingStructure(section, kind.structure, tree.sections);
           if (missing.length > 0) report(section.line, `this "${kind.name}" holds no ${missing.join(', no ')}, which the manifest declares its structure: the section is shown as the document writes it, and what it lacks is said here`);
@@ -549,7 +554,7 @@ export function readDocEntities(sources: readonly DocumentSource[], manifest: Ki
       kept.push(candidate);
     }
     // The durable identities of the passages, so a renumbered or renamed one keeps the links it had.
-    const sections: SectionIdentity[] = kept.map((candidate) => ({ anchor: candidate.anchor, kind: candidate.kind.name, title: candidate.title, text: candidate.text }));
+    const sections: SectionIdentity[] = kept.map((candidate) => ({ anchor: candidate.anchor, kind: candidate.kind.name, title: candidate.title, text: candidate.identityText ?? candidate.text }));
     const assigned = assignIdentities(key, sections, options.identities?.get(key));
     identities.set(key, assigned.next);
     kept.forEach((candidate, index) => {

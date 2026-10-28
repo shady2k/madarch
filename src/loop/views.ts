@@ -153,17 +153,18 @@ export async function listProblems(input: ProblemInput): Promise<ProblemListing>
   for (const correction of corrections.items) out.push(correctionProblem(correction, byId));
   for (const problem of corrections.problems) out.push({ ...none, kind: 'unreadable-file', fixer: 'person', reason: problem.message.slice(problem.file.length + String(problem.line).length + 2), file: problem.file, line: problem.line });
   for (const problem of readQuestions(input.productFolder).problems) out.push({ ...none, kind: 'unreadable-file', fixer: 'person', reason: problem.message.slice(problem.file.length + String(problem.line).length + 2), file: problem.file, line: problem.line });
-  const findingsByLocation = new Map<string, Problem>();
+  // Every finding is kept: two passages of one table row stand on the same line, and one message would hide the other
+  // (the twelfth review). Only an exact repeat — the same kind, message and place — is dropped.
+  const seenFinding = new Set<string>();
   for (const finding of [...input.findings, ...read.findings]) {
-    const key = `${finding.file}:${finding.line}`;
     const kind = finding.kind ?? 'unreadable-file';
     // A passage no reader decided is the agent's to read at the next fill; a file that cannot be read is a person's.
     const fixer = kind === 'unread-passage' ? 'agent' : 'person';
-    if (!findingsByLocation.has(key)) {
-      findingsByLocation.set(key, { ...none, kind, fixer, reason: finding.message, file: finding.file, line: finding.line, ...(finding.source === undefined ? {} : { source: finding.source }) });
-    }
+    const key = `${finding.file}:${finding.line}:${kind}:${finding.message}`;
+    if (seenFinding.has(key)) continue;
+    seenFinding.add(key);
+    out.push({ ...none, kind, fixer, reason: finding.message, file: finding.file, line: finding.line, ...(finding.source === undefined ? {} : { source: finding.source }) });
   }
-  out.push(...findingsByLocation.values());
   for (const miss of input.unplaced ?? []) out.push({ ...none, kind: 'unplaced', fixer: 'person', target: miss.slug, reason: miss.reason, file: miss.kind === 'question' ? `docs/questions/${miss.slug}.md` : `docs/corrections/${miss.slug}.md` });
   // Grounds and links that name nothing.
   const seen = new Set<string>();
