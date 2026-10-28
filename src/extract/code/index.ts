@@ -524,7 +524,9 @@ export async function extractCodeWithFacts(reader: TreeReader): Promise<CodeExtr
     const owner = symbolKey(type.file, type.name);
     if (!symbolByKey.has(owner)) continue;
     for (const member of type.members.values()) {
-      const target = symbolByKey.get(symbolKey(member.file, member.qualifiedName));
+      // The member's symbol is qualified by its holder (`CartLine.priceCents`), which a parser's own
+      // `qualifiedName` keeps for some models and drops for others; both spellings name the same key.
+      const target = symbolByKey.get(symbolKey(member.file, member.qualifiedName)) ?? symbolByKey.get(symbolKey(member.file, `${type.name}.${member.name}`));
       if (target === undefined || target.local) continue;
       addEdge({ type: REL_CONTAINS, from: owner, to: target.key, discriminator: '', properties: {}, span: toSpan(member.file, target.definitionSpan) });
     }
