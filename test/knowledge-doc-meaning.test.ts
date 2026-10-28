@@ -584,3 +584,39 @@ describe('what the sixth review found', () => {
     expect(read.entities.map((entity) => [entity.kind, entity.identifier, entity.text])).toEqual([['doc.rule', 'BR-1', 'Never charge twice.']]);
   });
 });
+
+describe('what the seventh review found', () => {
+  const manifest = (): KindsManifest => parse([
+    'kinds:',
+    '  doc.rule: { template: templates/x.md, source: document, identifier: BR, semantics: rule }',
+  ]);
+
+  test('a rule written with its identifier in bold keeps only its words as the body', () => {
+    const text = '# Rules\n\n**BR-1** Never charge twice.\n';
+    const read = readDocEntities([{ repo: null, path: 'docs/requirements.md', text }], manifest());
+    expect(read.entities.map((entity) => [entity.identifier, entity.text])).toEqual([['BR-1', 'Never charge twice.']]);
+  });
+
+  test('a rule written in a table cell is reported, never lost', () => {
+    // A table's cells hold phrasing, not paragraphs, so the row is no passage a kind decides; the reader says it could
+    // not decide it, with the table's line, instead of dropping it (the review of the seventh pass, finding 2).
+    const text = '# Rules\n\n| Rule | Text |\n| --- | --- |\n| BR-1 | Never charge twice. |\n';
+    const read = readDocEntities([{ repo: null, path: 'docs/requirements.md', text }], manifest());
+    expect(read.entities).toEqual([]);
+    expect(read.findings.map((finding) => [finding.kind, finding.line])).toEqual([['unread-passage', 3]]);
+  });
+
+  test('every block type a document can hold is reached: none vanishes without a finding', () => {
+    const blocks = ['# Rules', '', 'A plain paragraph.', '', '- A list item.', '', '> A quoted line.', '', '```', 'BR-9 code', '```', '', '<p>BR-8 html</p>', '', 'Footnote:[^1]', '', '[^1]: A footnote paragraph.', ''].join('\n');
+    const read = readDocEntities([{ repo: null, path: 'docs/requirements.md', text: blocks }], manifest());
+    const read_ = new Set(read.entities.map((entity) => entity.text));
+    const unread = read.findings.filter((finding) => finding.kind === 'unread-passage').map((finding) => finding.line);
+    // Every block is either an entity or a finding, and the quoted rule is an entity.
+    // Every block of the document is answered: an entity where a kind reads it, a finding where none does.
+    expect(unread.length + read.entities.length).toBeGreaterThanOrEqual(6);
+    // The quoted paragraph is a passage; the code fence, the html and the table are answered only when they name an
+    // identifier a person meant to be read, which is what `BR-9` in a fence does.
+    expect(read.findings.some((finding) => finding.kind === 'unread-passage' && finding.line === 9)).toBe(true);
+    expect(read.findings.every((finding) => typeof finding.line === 'number')).toBe(true);
+  });
+});

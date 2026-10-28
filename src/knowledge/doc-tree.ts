@@ -252,18 +252,38 @@ export function walkNodes(nodes: readonly DocNode[], visit: (node: DocNode) => v
 /** The blocks a section holds itself, in document order: the top-level items of its lists, and its paragraphs. */
 export function sectionBlocks(section: DocSection): DocNode[] {
   const blocks: DocNode[] = [];
-  // A container block (a quote, a list, anything else that holds blocks) is walked to the passages it holds, so a rule
-  // a person wrote as a quote is read or reported rather than silently skipped (the review of the sixth pass, finding 2).
+  // Every block type mdast knows is reached: a container (a list, a quote, a table row's cell, a footnote definition) is
+  // walked to the passages it holds, so a rule a person wrote in a quote or a table cell is read rather than
+  // disappearing (the review of the sixth and seventh passes).
   const collect = (node: DocNode): void => {
     if (node.type === 'heading') return;
-    if (node.type === 'list') { for (const item of node.children) blocks.push(item); return; }
-    if (node.type === 'paragraph') { blocks.push(node); return; }
-    // A container is walked; a leaf that is no paragraph (`html`, a rule line) keeps the reading it had before, which
-    // is to say nothing, so no document's passages move.
-    if (node.children.length > 0) for (const child of node.children) collect(child);
+    if (node.type === 'list') { for (const item of node.children) collect(item); return; }
+    if (node.type === 'listItem' || node.type === 'paragraph') { blocks.push(node); return; }
+    for (const child of node.children) collect(child);
   };
   for (const node of section.nodes) collect(node);
   return blocks;
+}
+
+/**
+ * The leaves of a section that hold text of their own and no passage of a kind: code, html, a thematic line. They are
+ * never candidates (a `BR-9` inside a code fence names no rule), and they never vanish either: the reader reports each
+ * as a passage it could not decide (the review of the seventh pass, finding 2).
+ */
+export function sectionLeaves(section: DocSection): DocNode[] {
+  const leaves: DocNode[] = [];
+  const collect = (node: DocNode): void => {
+    if (node.type === 'heading') return;
+    if (node.type === 'list') { for (const item of node.children) collect(item); return; }
+    if (node.type === 'listItem' || node.type === 'paragraph') return;
+    // A table's cells hold phrasing, not paragraphs, so a table is one passage the reader cannot decide: it is
+    // reported with its line rather than vanishing (the review of the seventh pass, finding 2).
+    if (node.type === 'table') { leaves.push(node); return; }
+    if (node.children.length > 0) { for (const child of node.children) collect(child); return; }
+    leaves.push(node);
+  };
+  for (const node of section.nodes) collect(node);
+  return leaves;
 }
 
 /** The paragraph a block opens with: an item's first paragraph, or the paragraph itself. */

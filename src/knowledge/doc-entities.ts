@@ -25,7 +25,7 @@
 import { byCodePoint } from '../model/order.js';
 import { anchorExtent, anchorsOfTree, identifierOf, slugOf } from './anchors.js';
 import { assignIdentities, documentKey, type DocIdentities, type DocumentIdentities, type SectionIdentity } from './doc-identities.js';
-import { boldLead, leadText, openingParagraph, readDocTree, sectionBlocks, type DocNode, type DocSection, type DocumentSource } from './doc-tree.js';
+import { boldLead, leadText, openingParagraph, readDocTree, sectionBlocks, sectionLeaves, type DocNode, type DocSection, type DocumentSource } from './doc-tree.js';
 import { globToRegExp, type Finding, type FindingKind, type KindDecl, type KindsManifest } from './kinds.js';
 import { normaliseHeading, type PassageRequest, type PassageReading, type SemanticClassifier, type SemanticKind } from './semantics.js';
 
@@ -219,6 +219,31 @@ function nameAfter(phrase: string, identifier: string): string {
   return trimEnd(trimStart(flat(phrase).slice(identifier.length))).trim();
 }
 
+/**
+ * The text a leaf block holds that opens with an identifier a person meant to be read, when one does: a table's cells
+ * are their own texts, and only the cell that names `BR-1` says so (the review of the seventh pass, finding 2).
+ */
+function namedLeaf(node: DocNode): string | null {
+  const own = leadText(node);
+  if (identifierOf(own) !== null) return own;
+  for (const child of node.children) {
+    const held = namedLeaf(child);
+    if (held !== null) return held;
+  }
+  return null;
+}
+
+/** The words a leaf block holds: its own text, or the first text inside it when the block is a container of phrasing. */
+function leafWords(node: DocNode): string {
+  const own = leadText(node);
+  if (own.trim() !== '') return own;
+  for (const child of node.children) {
+    const held = leafWords(child);
+    if (held.trim() !== '') return held;
+  }
+  return node.raw;
+}
+
 /** The words a listing calls a passage: up to its first sentence end or its first colon. */
 function firstWords(text: string): string {
   const plain = flat(text);
@@ -238,11 +263,19 @@ function firstWords(text: string): string {
 /** The text of a block without the phrase that names it, its list mark and indentation aside. */
 function bodyOf(block: DocNode): string {
   if (block.type !== 'listItem') {
-    // A paragraph a person wrote in a quote or on its own may open with the identifier that names it (`BR-1 Never
-    // charge twice.`); the identifier is the naming span, and the body is what follows it (the sixth review, finding 2).
+    // The naming span is removed by the source offsets the parser gave it, never by counting the identifier's plain
+    // text: `**BR-1** Never charge twice.` is the usual way a person writes a rule, and counting four characters of
+    // `BR-1` would leave `-1** Never charge twice.` (the review of the seventh pass, finding 1).
+    const paragraph = openingParagraph(block);
     const identifier = identifierOf(leadText(block));
-    const text = trimSpaces(block.raw);
-    return identifier === null ? text.trim() : trimSeparator(text.slice(identifier.length)).trim();
+    if (paragraph === undefined || identifier === null) return trimSpaces(block.raw).trim();
+    const bold = boldLead(block);
+    if (bold !== undefined) return trimSeparator(paragraph.raw.slice(bold.endOffset - paragraph.startOffset)).trim();
+    const wire = openingText(paragraph);
+    if (wire === undefined) return trimSpaces(block.raw).trim();
+    // The identifier and the body share one text node, so the span ends where the identifier ends inside it.
+    const end = wire.startOffset - paragraph.startOffset + identifier.length;
+    return trimSeparator(paragraph.raw.slice(end)).trim();
   }
   const paragraph = openingParagraph(block);
   if (paragraph === undefined) return block.children.map((child) => child.raw.trimEnd()).join('\n').trim();
@@ -252,6 +285,12 @@ function bodyOf(block: DocNode): string {
   // fifth pass, finding 2).
   const first = bold === undefined ? trimSpaces(paragraph.raw) : trimSeparator(paragraph.raw.slice(bold.endOffset - paragraph.startOffset));
   return [first, ...rest].join('\n').trim();
+}
+
+/** The first text the paragraph holds: the node a plain identifier is written in, whose offsets are the source's. */
+function openingText(paragraph: DocNode): DocNode | undefined {
+  const lead = paragraph.children[0];
+  return lead !== undefined && lead.type === 'text' ? lead : undefined;
 }
 
 /** What a listing calls the block: its bold phrase, the identifier and its name, or the words of its first sentence. */
@@ -410,6 +449,14 @@ export function readDocEntities(sources: readonly DocumentSource[], manifest: Ki
           const words = firstWords(leadText(block));
           report(block.line, `no kind of the manifest and no classifier read this passage, so no page shows it: ${quote(words)}`, 'unread-passage');
         }
+      }
+      // A block that holds text of its own and opens with an identifier a person meant to be read — a rule written in a
+      // table row or a code fence — is no passage a kind decides, and it is not silent either: the reader says so, with
+      // its line. Ordinary furniture (an html comment, a plain fence) names nothing, so it is not a lost passage.
+      for (const leaf of sectionLeaves(section)) {
+        const named = namedLeaf(leaf);
+        if (named === null) continue;
+        report(leaf.line, `this block holds text no kind of the manifest reads: ${quote(firstWords(named))}`, 'unread-passage');
       }
     }
     // A number names one section: a second section with the same anchor has no page, and the finding says where the first is.
