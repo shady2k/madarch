@@ -29,6 +29,7 @@ import { outboxModelDigest } from '../library-models/outbox-models.js';
 import outboxModelSource from '../library-models/outbox-models.json' with { type: 'text' };
 import { shellCommandModelDigest } from '../library-models/shell-command-models.js';
 import { repositoryConventionsDigest } from '../library-models/repository-conventions.js';
+import repositoryConventionsSource from '../library-models/repository-conventions.json' with { type: 'text' };
 import shellCommandModelSource from '../library-models/shell-command-models.json' with { type: 'text' };
 
 /** Every tree extractor, in the order the driver runs them per commit. */
@@ -75,7 +76,8 @@ export const EXTRACTOR_VERSIONS = [
  {name:'outbox-model-source-bytes',version:1,contentDigest:codeQueryDigest([{path:'library-models/outbox-models.json',source:outboxModelSource as unknown as string}])},
  {name:'sql-parser-runtime:libpg-query@18.2.1',version:1},
  {name:'shell-command-model-data',version:1,contentDigest:shellCommandModelDigest},
- {name:'repository-conventions-data',version:1,contentDigest:repositoryConventionsDigest()},
+ {name:'repository-conventions-model-data',version:1,contentDigest:repositoryConventionsDigest()},
+ {name:'repository-conventions-model-source-bytes',version:1,contentDigest:codeQueryDigest([{path:'library-models/repository-conventions.json',source:repositoryConventionsSource as unknown as string}])},
  {name:'shell-command-model-source-bytes',version:1,contentDigest:codeQueryDigest([{path:'library-models/shell-command-models.json',source:shellCommandModelSource as unknown as string}])},
  {name:'driver-and-link-normalization',version:8},
 ] as const;

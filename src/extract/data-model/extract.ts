@@ -173,7 +173,8 @@ export async function extractDataModel(tree: TreeReader, suppliedCode?: Extracti
       if (declared.kind === 'schema') {
         migrations.push({database: databaseOfPath(segments.length - 1), name: file, path, prisma: false});
       } else {
-        if (declared.kind === 'unread') gaps.push(declared.gap);
+        // A file the parser could not read is the script reader's gap to report, once, with its own
+        // line: classifying it here would report the same failure twice.
         scriptPaths.push(path);
       }
       continue;
@@ -731,23 +732,17 @@ function migrationSeriesOf(segments: readonly string[], file: string): Migration
  * (repository-conventions.ts `schemaScripts`): a file that creates, alters or indexes a table is a
  * schema wherever it stands; a file that only writes rows is a seed.
  */
-async function declaresTables(path: string, tree: TreeReader): Promise<{kind: 'schema'} | {kind: 'script'} | {kind: 'unread'; gap: ExtractionGap}> {
+async function declaresTables(path: string, tree: TreeReader): Promise<{kind: 'schema'} | {kind: 'script'}> {
   const read = readUtf8(tree, path);
-  if (!read.ok) return {kind: 'unread', gap: {path, reason: read.reason}};
+  if (!read.ok) return {kind: 'script'};
   const kinds = new Set(repositoryConventions.schemaScripts.flatMap((entry) => (path.endsWith(entry.fileSuffix) ? entry.declaresTables : [])));
   if (kinds.size === 0) return {kind: 'script'};
   let parsed: ParseResult;
   try {
     parsed = await parsePostgres(read.text);
-  } catch (error) {
-    // The parser names its own position; the caller reports it with this file's path and line.
-    const bytes = new ByteText(read.text);
-    const details = error instanceof Error && 'sqlDetails' in error ? error.sqlDetails : undefined;
-    const cursor = typeof details === 'object' && details !== null && 'cursorPosition' in details && typeof details.cursorPosition === 'number' ? details.cursorPosition : 0;
-    const prefix = Array.from(read.text).slice(0, Math.max(0, cursor)).join('');
-    const line = bytes.lineOf(new TextEncoder().encode(prefix).length);
-    const message = error instanceof Error ? error.message : String(error);
-    return {kind: 'unread', gap: {path, reason: `${path}:${line}: PostgreSQL parse failed: ${message}`}};
+  } catch {
+    // The script reader reports the parse failure with its own line, once: this reader only classifies.
+    return {kind: 'script'};
   }
   for (const raw of parsed.stmts ?? []) {
     const statement = raw.stmt as Record<string, unknown> | undefined;
