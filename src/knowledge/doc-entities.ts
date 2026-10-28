@@ -237,7 +237,13 @@ function firstWords(text: string): string {
 
 /** The text of a block without the phrase that names it, its list mark and indentation aside. */
 function bodyOf(block: DocNode): string {
-  if (block.type !== 'listItem') return block.raw.trim();
+  if (block.type !== 'listItem') {
+    // A paragraph a person wrote in a quote or on its own may open with the identifier that names it (`BR-1 Never
+    // charge twice.`); the identifier is the naming span, and the body is what follows it (the sixth review, finding 2).
+    const identifier = identifierOf(leadText(block));
+    const text = trimSpaces(block.raw);
+    return identifier === null ? text.trim() : trimSeparator(text.slice(identifier.length)).trim();
+  }
   const paragraph = openingParagraph(block);
   if (paragraph === undefined) return block.children.map((child) => child.raw.trimEnd()).join('\n').trim();
   const rest = block.children.filter((child) => child !== paragraph).map((child) => child.raw.trimEnd());

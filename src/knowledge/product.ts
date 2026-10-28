@@ -1282,7 +1282,14 @@ export class KnowledgeProduct {
     const entityById = new Map<string, DocEntity>(reading.entities.map((entity) => [`${entity.repo ?? ''}\0${entity.path}\0${entity.stableId}`, entity]));
     // A source anchor names the passage the document gives that anchor now — and a passage of one paragraph has an anchor
     // of its own (`stories.1.2`), so two meanings of one paragraph never open one another's page (the review of C(b)).
-    const entityByAnchor = new Map<string, DocEntity>(reading.entities.map((entity) => [`${entity.repo ?? ''}\0${entity.path}\0${entity.anchor}`, entity]));
+    // Every anchor the tree derives is indexed, not only the primary one: a paragraph's place (`transport.1`) and a
+    // heading's number both address the passage they name, and the first meaning of a split paragraph keeps them
+    // (the review of the sixth pass, finding 1).
+    const entityByAnchor = new Map<string, DocEntity>();
+    for (const entity of reading.entities) for (const anchor of [entity.anchor, ...entity.aliases]) {
+      const key = `${entity.repo ?? ''}\0${entity.path}\0${anchor}`;
+      if (!entityByAnchor.has(key)) entityByAnchor.set(key, entity);
+    }
     const repoOfScope = (scope: string): string | undefined => [...pins.values()].find((pin) => pin.scope === scope)?.name;
     const readSource = async (repo: string | null, path: string): Promise<string | undefined> => {
       if (repo === null) {

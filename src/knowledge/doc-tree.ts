@@ -252,10 +252,17 @@ export function walkNodes(nodes: readonly DocNode[], visit: (node: DocNode) => v
 /** The blocks a section holds itself, in document order: the top-level items of its lists, and its paragraphs. */
 export function sectionBlocks(section: DocSection): DocNode[] {
   const blocks: DocNode[] = [];
-  for (const node of section.nodes) {
-    if (node.type === 'list') for (const item of node.children) blocks.push(item);
-    else if (node.type === 'paragraph') blocks.push(node);
-  }
+  // A container block (a quote, a list, anything else that holds blocks) is walked to the passages it holds, so a rule
+  // a person wrote as a quote is read or reported rather than silently skipped (the review of the sixth pass, finding 2).
+  const collect = (node: DocNode): void => {
+    if (node.type === 'heading') return;
+    if (node.type === 'list') { for (const item of node.children) blocks.push(item); return; }
+    if (node.type === 'paragraph') { blocks.push(node); return; }
+    // A container is walked; a leaf that is no paragraph (`html`, a rule line) keeps the reading it had before, which
+    // is to say nothing, so no document's passages move.
+    if (node.children.length > 0) for (const child of node.children) collect(child);
+  };
+  for (const node of section.nodes) collect(node);
   return blocks;
 }
 

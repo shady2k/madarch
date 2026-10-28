@@ -550,3 +550,37 @@ describe('what the fifth review found', () => {
     expect(after.entities.map((entity) => entity.text)).toEqual(['A shopper pays by card.']);
   });
 });
+
+describe('what the sixth review found', () => {
+  // The transport requirement is decided by its meaning alone, so the classifier reads the paragraph; a heading
+  // convention would decide the whole block before the classifier saw it.
+  const manifest = (): KindsManifest => parse([
+    'kinds:',
+    '  doc.requirement: { template: templates/x.md, source: document, semantics: quality }',
+    '  doc.rule: { template: templates/x.md, source: document, identifier: BR, semantics: rule }',
+  ]);
+
+  test('a ground to a paragraph\'s own anchor opens its first meaning, not the second', () => {
+    const text = '# Transport\n\nHTTP2 support is required. Latency must stay below 1 s.\n';
+    // A classifier that splits the one paragraph into the two requirements it holds.
+    const splitting = { classify: (request: { blocks: readonly { line: number }[] }) => {
+      const line = request.blocks[0]!.line;
+      return [
+        { kind: 'quality' as const, text: 'HTTP2 support is required.', line, endLine: line },
+        { kind: 'quality' as const, text: 'Latency must stay below 1 s.', line, endLine: line },
+      ];
+    } };
+    const read = readDocEntities([{ repo: null, path: 'docs/requirements.md', text }], manifest(), { classifier: splitting });
+    const pages = new Map(read.entities.map((entity) => [entity.id, entity]));
+    const byFirst = entityAtAddress(pages, 'doc:docs/requirements.md#transport.1');
+    expect(read.entities).toHaveLength(2);
+    expect(byFirst).toBe(read.entities[0]);
+    expect(byFirst!.text).toBe('HTTP2 support is required.');
+  });
+
+  test('a rule a person wrote as a quote is read, not silently skipped', () => {
+    const text = '# Rules\n\n> BR-1 Never charge twice.\n';
+    const read = readDocEntities([{ repo: null, path: 'docs/requirements.md', text }], manifest());
+    expect(read.entities.map((entity) => [entity.kind, entity.identifier, entity.text])).toEqual([['doc.rule', 'BR-1', 'Never charge twice.']]);
+  });
+});
