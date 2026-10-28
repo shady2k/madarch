@@ -13,6 +13,7 @@
 import type { Node as SyntaxNode } from 'web-tree-sitter';
 import { readSyntaxTree, type SyntaxTreeRead } from '../../fill/stages/syntax-extract.js';
 import type { SourceFile } from './source.js';
+import { decodeStringToken } from './literals.js';
 
 export type TypeKind = 'class' | 'interface' | 'struct' | 'type';
 
@@ -56,6 +57,8 @@ export interface MethodDecl {
 
 export interface FileDecls {
   readonly packageName?: string;
+  /** Actual Go import syntax; an absent local means use the target's package clause. */
+  readonly goImports?: readonly { readonly specifier: string; readonly local?: string }[];
   readonly types: readonly TypeDecl[];
   readonly tops: readonly TopDecl[];
   /** Go methods, declared apart from their type and possibly in another file of the package. */
@@ -123,6 +126,17 @@ function goResult(node: SyntaxNode, text: string): string | undefined {
 
 function goDecls(root: SyntaxNode, text: string): FileDecls {
   let packageName: string | undefined;
+  const goImports: { specifier: string; local?: string }[] = [];
+  const collectImports = (node: SyntaxNode): void => {
+    if (node.type === 'import_spec') {
+      const path = node.childForFieldName('path'); const alias = node.childForFieldName('name');
+      const specifier = path === null ? undefined : decodeStringToken(path.type, textOf(path, text));
+      if (specifier !== undefined) goImports.push({ specifier, ...(alias === null ? {} : { local: textOf(alias, text) }) });
+      return;
+    }
+    for (const child of named(node)) collectImports(child);
+  };
+  for (const top of named(root)) if (top.type === 'import_declaration') collectImports(top);
   const types: TypeDecl[] = [];
   const tops: TopDecl[] = [];
   const methods: MethodDecl[] = [];
@@ -182,7 +196,7 @@ function goDecls(root: SyntaxNode, text: string): FileDecls {
         break;
     }
   }
-  return { ...(packageName === undefined ? {} : { packageName }), types, tops, methods, typeText, abstractNames: new Set() };
+  return { ...(packageName === undefined ? {} : { packageName }), goImports, types, tops, methods, typeText, abstractNames: new Set() };
 }
 
 function goTypeDecl(name: string, body: SyntaxNode, text: string, typeText: Map<string, string>): TypeDecl {
@@ -235,6 +249,7 @@ export function tsTypeName(node: SyntaxNode | null, text: string): string | unde
     case 'readonly_type':
       return tsTypeName(named(node)[0] ?? null, text);
     case 'type_identifier':
+    case 'nested_type_identifier':
       return textOf(node, text);
     case 'generic_type': {
       const name = node.childForFieldName('name');
@@ -372,6 +387,7 @@ function tsClass(name: string, node: SyntaxNode, text: string, typeText: Map<str
             const annotation = parameter.childForFieldName('type');
             if (annotation !== null) typeText.set(`${name}.${propertyName}`, textOf(annotation, text).replace(/^:\s*/, ''));
           }
+          members.push({ name: written, kind: 'method', qualifiedName, abstract: false });
           break;
         }
         const returns = tsTypeName(member.childForFieldName('return_type'), text);

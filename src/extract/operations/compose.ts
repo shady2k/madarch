@@ -33,6 +33,16 @@ export interface ComposeService {
   /** Pinned environment files named by the fully resolved service declaration. */
   readonly envFiles: readonly string[];
   readonly dependsOn: readonly string[];
+  readonly healthcheck: {
+    readonly test: string | readonly string[] | null;
+    readonly interval: string | null;
+    readonly timeout: string | null;
+    readonly retries: number | null;
+    readonly startPeriod: string | null;
+    readonly startInterval: string | null;
+    readonly disable: boolean | null;
+    readonly span: SourceSpan;
+  } | null;
 }
 
 function scalarText(node: unknown): string | null {
@@ -219,10 +229,28 @@ function readResolvedCompose(t: TreeText, records: Records, path: string, state:
         if (isScalar(item.key) && typeof item.key.value === 'string') dependsOn.push(item.key.value);
       }
     }
+    const healthPair = isMap(pair.value) ? pair.value.items.find((item) => isScalar(item.key) && item.key.value === 'healthcheck') : undefined;
+    const health = healthPair?.value;
+    let healthcheck: ComposeService['healthcheck'] = null;
+    if (isMap(health)) {
+      const value = (name: string): unknown => health.items.find((item) => isScalar(item.key) && item.key.value === name)?.value;
+      const test = value('test');
+      const retries = Number(scalarText(value('retries')) ?? Number.NaN);
+      const disabled = scalarText(value('disable'));
+      const start = isScalar(healthPair?.key) ? healthPair.key.range?.[0] ?? 0 : health.range?.[0] ?? 0;
+      healthcheck = {
+        test: isSeq(test) ? test.items.map(scalarText).filter((item): item is string => item !== null) : scalarText(test),
+        interval: scalarText(value('interval')), timeout: scalarText(value('timeout')),
+        retries: Number.isFinite(retries) ? retries : null,
+        startPeriod: scalarText(value('start_period')), startInterval: scalarText(value('start_interval')),
+        disable: disabled === null ? null : disabled === 'true',
+        span: t.spanOfLines(path, lineCounter.linePos(start).line, lineCounter.linePos(Math.max(start, (health.range?.[1] ?? start + 1) - 1)).line),
+      };
+    }
     environment.sort((left, right) => byCodePoint(left.name, right.name));
     dependsOn.sort(byCodePoint);
     ports.sort(byCodePoint);
-    read.push({ name, line: serviceLine, image, build, ports, portMappings, environment, envFiles, dependsOn });
+    read.push({ name, line: serviceLine, image, build, ports, portMappings, environment, envFiles, dependsOn, healthcheck });
   }
   read.sort((left, right) => byCodePoint(left.name, right.name));
   return read;

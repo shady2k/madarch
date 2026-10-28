@@ -38,6 +38,7 @@ import { byCodePoint } from '../../model/order.js';
 import type { CoverageGap } from '../facts.js';
 import { readSyntaxTree, spanFactory, type ParsedSyntaxTree, type SyntaxLanguage, type SyntaxSpan } from './syntax-extract.js';
 import { isRelativeSpecifier } from './syntax-facts.js';
+import {messagingTypes} from '../../extract/library-models/messaging-models.js';
 
 /** What a mention does at its place; the resolver turns the first three into edge kinds. */
 export const MENTION_USES = ['call', 'extends', 'implements', 'mention'] as const;
@@ -531,8 +532,10 @@ function unquote(written: string): string {
   return trimmed;
 }
 
-/** The name a Go import binds when it names none: the last segment of the package's path. */
+/** A documented external Go package name takes priority over the unresolved path default. */
 function goPackageName(specifier: string): string {
+  const declared = [...new Set(messagingTypes.filter(model => model.ecosystem === 'go' && model.package === specifier && model.packageName !== undefined).map(model => model.packageName!))];
+  if (declared.length === 1) return declared[0]!;
   const parts = specifier.split('/').filter((part) => part !== '');
   return parts.length === 0 ? specifier : parts[parts.length - 1]!;
 }

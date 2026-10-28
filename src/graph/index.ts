@@ -28,7 +28,7 @@ import { registerCodeSchema, registerVocabulary } from './register.js';
 import { createGraphSchema } from './schema.js';
 import { instantMicros, microsInstant } from './time.js';
 import {
-  closeVersion, removeNodeVersion, correctEdgeVersion, correctNodeVersion, endEdgeVersion, endNode, newNodeIdentity, openEdgeVersion, openNodeVersion,
+  closeVersion, removeNodeVersion, correctEdgeVersion, correctNodeVersion, endEdgeVersion, endNode, newNodeIdentity, openEdgeVersion, openNodeVersion, writeMemo,
   type EdgePatch, type EndResult, type NewEdgeVersion, type NewNodeVersion, type NodePatch, type NodeVersionRow, type WriteContext,
 } from './versions.js';
 import type { GraphRegistry } from './vocabulary.js';
@@ -83,7 +83,7 @@ export class GraphStore {
    * patched halfway; inside the caller's own transaction there is no retry.
    */
   private async write<T>(transaction: OuterTransaction | undefined, work: (ctx: WriteContext) => Promise<T>): Promise<T> {
-    const context = (tx: OuterTransaction): WriteContext => ({ tx, at: this.tick(), now: () => this.nowText() });
+    const context = (tx: OuterTransaction): WriteContext => ({ tx, at: this.tick(), now: () => this.nowText(), memo: writeMemo() });
     if (transaction !== undefined) return await work(context(transaction));
     for (let attempt = 0; ; attempt += 1) {
       try {

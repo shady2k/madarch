@@ -23,6 +23,7 @@ import { byCodePoint } from '../../model/order.js';
 export interface TextGap {
   readonly line: number;
   readonly detail: string;
+  readonly code?: 'missing-module';
 }
 
 /** What reading one manifest's text gave: what it holds with the notes taken, or where it stopped. */
@@ -534,7 +535,7 @@ function splitTomlItems(text: string, line: number): string[] {
 export interface GoModReading {
   readonly module: string;
   /** The modules it requires, each with the line that declares it, in the file's own order. */
-  readonly requires: readonly { readonly path: string; readonly line: number }[];
+  readonly requires: readonly { readonly path: string; readonly version: string; readonly line: number }[];
   /** The directives the file used, code point order, each once. */
   readonly read: readonly string[];
 }
@@ -545,12 +546,13 @@ const GO_DIRECTIVES: readonly string[] = ['exclude', 'go', 'godebug', 'module', 
 /**
  * Reads the directives a Go module is declared by (go.mod): the `module` line
  * and every `require`, in the single-line and the block form. Every other
- * directive is read and named, since a stage 2 fact carries no version, no
- * replacement and no exclusion; a line that is no directive at all is a gap
+ * directive is read and named. Required versions are copied with their module
+ * paths; replacement and exclusion interpretation stays with their consumers.
+ * A line that is no directive at all is a gap
  * naming its line.
  */
 export function readGoMod(text: string): TextRead<GoModReading> {
-  const requires: { path: string; line: number }[] = [];
+  const requires: { path: string; version: string; line: number }[] = [];
   const read = new Set<string>();
   let module: string | undefined;
   let block: string | undefined;
@@ -602,13 +604,13 @@ export function readGoMod(text: string): TextRead<GoModReading> {
     return { ok: false, gap: { line: physical.length, detail: `the ${block} block is never closed: a ")" is missing` } };
   }
   if (module === undefined) {
-    return { ok: false, gap: { line: 1, detail: 'the file declares no module: a go.mod names the module it is' } };
+    return { ok: false, gap: { line: 1, code: 'missing-module', detail: 'the file declares no module: a go.mod names the module it is' } };
   }
   return { ok: true, value: { module, requires, read: [...read].sort(byCodePoint) }, gaps: [] };
 }
 
 /** One required module: its path and the line it stands on. */
-function requireOf(text: string, line: number): { path: string; line: number } {
+function requireOf(text: string, line: number): { path: string; version: string; line: number } {
   const [path, version, ...rest] = text.split(/\s+/u);
   if (path === undefined || path === '' || version === undefined || version === '') {
     throw new TextStop(line, `${JSON.stringify(text)} is no requirement: a requirement is a module path and its version`);
@@ -616,7 +618,7 @@ function requireOf(text: string, line: number): { path: string; line: number } {
   if (rest.length > 0) {
     throw new TextStop(line, `${JSON.stringify(rest.join(' '))} stands after the requirement ${JSON.stringify(path)}: a requirement is a module path and its version`);
   }
-  return { path, line };
+  return { path, version, line };
 }
 
 // ---- Dockerfile -----------------------------------------------------------

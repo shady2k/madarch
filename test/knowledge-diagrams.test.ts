@@ -51,12 +51,12 @@ const block = <T extends Block['type']>(model: PageModel, type: T, at = 0): Extr
 const viewsOf = (model: PageModel): ViewPayload[] => model.blocks.flatMap((entry) => (entry.type === 'diagrams' ? entry.views : []));
 const ofType = (model: PageModel, type: string): ViewPayload[] => viewsOf(model).filter((view) => view.spec.type === type);
 /** A chain as the sequence view draws it: its steps in order (an unordered one is dashed), the participants (a service, a database, the broker). */
-interface Chain { steps: { n: number; label: string; kind: string; note?: string; order: 'source' | 'unordered'; href: string | null }[]; lanes: string[]; notes: string[]; title: string }
+interface Chain { steps: { n: number; label: string; kind: string; note?: string; order: 'source' | 'unordered'; href: string | null }[]; lanes: string[]; notes: string[]; title: string; /** The steps the builder found, drawn and folded, and their total: the failure messages say what was left out. */ found: { n: number; label: string; kind: string; note?: string }[]; total: number | null }
 const chainOfView = (view: ViewPayload): Chain => ({
   title: view.label,
   steps: view.edges.map((edge) => ({ n: edge.step!, label: edge.label, kind: edge.kind!, ...(edge.note === undefined ? {} : { note: edge.note }), order: edge.dashed ? 'unordered' as const : 'source' as const, href: edge.href ?? null })),
   lanes: view.elements.map((element) => element.label),
-  notes: view.notes,
+  notes: view.notes, found: (view.fullEdges ?? view.edges).map((edge) => ({ n: edge.step!, label: edge.label, kind: edge.kind!, ...(edge.note === undefined ? {} : { note: edge.note }) })), total: view.total ?? null,
 });
 const chainOf = async (id: string): Promise<Chain> => chainOfView(ofType(await page(id), 'sequence')[0]!);
 const labels = (chain: Chain): string[] => chain.steps.map((step) => step.label);
@@ -114,7 +114,7 @@ describe('the end-to-end chains match the answer key\'s flows', () => {
     const kinds = chain.steps.map((step) => [step.kind, step.label]);
     expect(kinds).toEqual(expect.arrayContaining([['http', 'POST /internal/apply'], ['http', 'POST /orders']]));
     const grpc = chain.steps.find((step) => step.kind === 'grpc');
-    expect(grpc).toBeDefined();
+    expect(grpc, `checkout.sequence: no gRPC step among the ${chain.steps.length} steps the drawn chain holds; the builder found ${chain.total} steps, and its whole chain is: ${JSON.stringify(chain.found, null, 2)}`).toBeDefined();
     expect(grpc!.note).toContain('PaymentsClient.authorize');
     for (const service of ['checkout', 'promotions', 'orders', 'payments']) expect(chain.lanes).toContain(service);
     // The answer key's order of the checkout sequence: promotions, then orders, then payments.
@@ -153,7 +153,19 @@ describe('the neighbourhood', () => {
     const hood = block(await page(pay), 'graph').neighborhood;
     expect(hood.center).toBe(pay);
     const callers = hood.edges.filter((edge) => edge.relation === 'code.calls' && edge.to === pay).map((edge) => edge.from);
-    expect(callers.map((id) => id.split('#')[1])).toEqual(expect.arrayContaining(['paymentRoutes', 'paymentsHandlers']));
+    expect(callers).toEqual([
+      // Public async callback keys use their grammar parameter start. Their
+      // independent raw source spans still include the leading async token.
+      recordKey('code.symbol', 'services/payments/src/api/routes.ts#paymentRoutes.callback@10:377'),
+      recordKey('code.symbol', 'services/payments/src/grpc/server.ts#paymentsHandlers.callback@38:1405'),
+    ]);
+    const callback = callers[0]!;
+    const registered = block(await page(route('services/payments/src/api/routes.ts', 'POST:/payments')), 'graph').neighborhood;
+    expect(registered.edges.filter((edge) => edge.relation === 'code.handled-by' && edge.from === registered.center)).toEqual([
+      {from: registered.center, to: callback, relation: 'code.handled-by', count: 1},
+    ]);
+    expect(hood.nodes.find((node) => node.id === callback)?.label).toBe('paymentRoutes callback (line 10)');
+    expect(hood.edges.some((edge) => edge.relation === 'code.calls' && edge.from === recordKey('code.symbol', 'services/payments/src/api/routes.ts#paymentRoutes') && edge.to === pay)).toBe(false);
     expect(hood.edges.some((edge) => edge.relation === 'code.calls' && edge.from === pay)).toBe(true);
     expect(hood.relations).toContainEqual(expect.objectContaining({ relation: 'code.calls', direction: 'in', count: 2 }));
     expect(hood.nodes.filter((node) => node.href === null && node.kind === 'code.symbol')).toEqual([]);

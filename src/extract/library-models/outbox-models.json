@@ -1,0 +1,98 @@
+{
+  "schemaVersion": 1,
+  "outbox": {
+    "table": "outbox",
+    "topicColumn": "topic"
+  },
+  "receivers": [
+    {
+      "id": "go-database-sql-db",
+      "ecosystem": "go",
+      "package": "database/sql",
+      "packageName": "sql",
+      "exportedPath": [
+        "DB"
+      ],
+      "pointer": true,
+      "reference": "https://pkg.go.dev/database/sql#DB"
+    },
+    {
+      "id": "go-database-sql-tx",
+      "ecosystem": "go",
+      "package": "database/sql",
+      "packageName": "sql",
+      "exportedPath": [
+        "Tx"
+      ],
+      "pointer": true,
+      "reference": "https://pkg.go.dev/database/sql#Tx"
+    }
+  ],
+  "operations": [
+    {
+      "id": "go-database-sql-ExecContext",
+      "receiverIds": [
+        "go-database-sql-db",
+        "go-database-sql-tx"
+      ],
+      "member": "ExecContext",
+      "sql": 1,
+      "values": 2,
+      "reference": "https://pkg.go.dev/database/sql#DB.ExecContext"
+    },
+    {
+      "id": "go-database-sql-QueryContext",
+      "receiverIds": [
+        "go-database-sql-db",
+        "go-database-sql-tx"
+      ],
+      "member": "QueryContext",
+      "sql": 1,
+      "values": 2,
+      "reference": "https://pkg.go.dev/database/sql#DB.QueryContext"
+    },
+    {
+      "id": "go-database-sql-Exec",
+      "receiverIds": [
+        "go-database-sql-db",
+        "go-database-sql-tx"
+      ],
+      "member": "Exec",
+      "sql": 0,
+      "values": 1,
+      "reference": "https://pkg.go.dev/database/sql#DB.Exec"
+    },
+    {
+      "id": "go-database-sql-Query",
+      "receiverIds": [
+        "go-database-sql-db",
+        "go-database-sql-tx"
+      ],
+      "member": "Query",
+      "sql": 0,
+      "values": 1,
+      "reference": "https://pkg.go.dev/database/sql#DB.Query"
+    }
+  ],
+  "scan": {
+    "member": "Scan",
+    "receiver": "query-result",
+    "arguments": "destinations"
+  },
+  "append": {
+    "ecosystem": "go",
+    "builtin": "append",
+    "collection": 0,
+    "element": 1
+  },
+  "factories": [
+    {
+      "member": "BeginTx",
+      "receiverIds": [
+        "go-database-sql-db"
+      ],
+      "returns": "go-database-sql-tx",
+      "reference": "https://pkg.go.dev/database/sql#DB.BeginTx"
+    }
+  ]
+}

@@ -19,6 +19,7 @@ import { renderGuideArtifact } from '../src/writer/guides/artifact.js';
 import { guidePacketPolicy, prepareGuideEvidence, resolveGuideContext, type GuidePreparedEvidence } from '../src/writer/guides/writer.js';
 import { guideDigest } from '../src/writer/guides/digest.js';
 import { extractOperations } from '../src/extract/operations/index.js';
+import {extractCodeWithFacts} from '../src/extract/code/index.js';
 import { firstGuideCursor, readGuidePageContext, registerGuidePages, type GuideContextPage } from '../src/writer/guides/prepared.js';
 import type { GuidePreparedUnit } from '../src/writer/guides/host-contract.js';
 
@@ -51,14 +52,18 @@ test('parsed facts and source spans with escaped sensitive characters are withhe
 });
 
 
-test('actual extracted environment defaults and definition edges are withheld before bounded context reads',()=>{
+test('actual extracted environment defaults and definition edges are withheld before bounded context reads',async()=>{
  const ordinary='private-runtime-key';const escaped='private"credential';
  const files:Record<string,string>={
   'services/api/config.ts':`export const key = process.env.JWT_SECRET ?? "${ordinary}";\nexport const other = process.env.OTHER_SECRET ?? '${escaped}';\n`,
   'docker-compose.yml':`services:\n  api:\n    build: ./services/api\n    environment:\n      JWT_SECRET: '${escaped}'\n`,
  };
  const encoder=new TextEncoder();
- const extraction=extractOperations({paths:Object.keys(files).sort(),read(path){const text=files[path];if(text===undefined)throw new Error(`missing fixture path ${path}`);return encoder.encode(text);}});
+ const fixture={paths:Object.keys(files).sort(),read(path:string){const text=files[path];if(text===undefined)throw new Error(`missing fixture path ${path}`);return encoder.encode(text);}};
+ // The operations area decides from the shared code facts (madarch-mwhd.3): a read comes from a call the
+ // parser copied, never from a pattern over the file's text.
+ const code=await extractCodeWithFacts(fixture);
+ const extraction=extractOperations(fixture,code.extraction,code.facts);
  const variable=extraction.nodes.find((node)=>node.kind==='code.env-var'&&node.properties['default']===ordinary);
  const read=extraction.edges.find((edge)=>edge.type==='code.reads-env'&&edge.properties['default']===ordinary);
  const definition=extraction.nodes.find((node)=>node.kind==='code.env-definition'&&node.properties['value']===escaped);

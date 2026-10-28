@@ -11,7 +11,7 @@ import type { Records } from './accumulate.js';
 import type { ComposeService } from './compose.js';
 import { readComposeFile } from './compose.js';
 import { byCodePoint } from '../../model/order.js';
-import { serviceOf, TreeText } from './source.js';
+import { TreeText } from './source.js';
 
 /** One image built by one Dockerfile: the parts the chain follows. */
 interface DockerfileReading {
@@ -29,7 +29,9 @@ interface DockerfileReading {
 function dockerfiles(t: TreeText, records: Records): DockerfileReading[] {
   const readings: DockerfileReading[] = [];
   for (const path of t.pathsNamed(/^Dockerfile(\.[A-Za-z0-9_-]+)?$/)) {
-    const service = serviceOf(path) ?? (path.slice(0, path.lastIndexOf('/')) || '.');
+    // A Dockerfile belongs to the unit that declares the folder it stands in; a file outside every
+    // unit is known by its own folder.
+    const service = t.serviceOf(path) ?? (path.slice(0, path.lastIndexOf('/')) || '.');
     const read = readDockerfile(t.text(path));
     if (!read.ok) {
       records.gap(path, `line ${read.gap.line}: ${read.gap.detail}`);
@@ -118,27 +120,60 @@ function parseExecForm(argument: string): string[] {
   return trimmed.split(/\s+/u);
 }
 
-/** The Go constant or literal a source file's listen address comes from. */
+/**
+ * The listen address a source file declares, read from the shared code facts: a `listen`/`ListenAndServe`
+ * call's own argument, a `listenAddr` constant's literal, or the constant a listened variable holds.
+ * No pattern touches the file's characters (madarch-mwhd.3).
+ */
 function listenPort(t: TreeText, path: string): { port: number; addr: string; line: number } | undefined {
-  const lines = t.lines(path);
-  for (const [index, line] of lines.entries()) {
-    const constant = /(?:const\s+)?listenAddr\s*=\s*"([^"]+)"/.exec(line) ?? /listenAddr\s*=\s*"([^"]+)"/.exec(line);
-    if (constant !== null) {
-      const port = Number.parseInt((constant[1] ?? '').replace(/^[:\[]/, ''), 10);
-      if (Number.isFinite(port)) return { port, addr: constant[1] ?? '', line: index + 1 };
+  const facts = t.facts;
+  if (facts === undefined) return undefined;
+  const expressions = new Map(facts.expressions.filter((expression) => expression.path === path).map((expression) => [expression.id, expression]));
+  /** The literal an expression stands for, through an expression list's single element. */
+  const unwrap = (id: string | undefined): (typeof facts.expressions)[number] | undefined => {
+    let held = id === undefined ? undefined : expressions.get(id);
+    const seen = new Set<string>();
+    while (held !== undefined && held.syntaxKind === 'expression_list' && !seen.has(held.id)) {
+      seen.add(held.id);
+      held = expressions.get(held.children[0] ?? '');
     }
-    const tsConst = /\.listen\(\s*([A-Z][A-Z0-9_]*)\b/.exec(line);
-    if (tsConst !== null) {
-      const name = tsConst[1] ?? '';
-      const declared = new RegExp(`const\\s+${name}\\s*=\\s*(\\d+)`).exec(t.text(path));
-      const port = declared === null ? Number.NaN : Number.parseInt(declared[1] ?? '', 10);
-      if (Number.isFinite(port)) return { port, addr: String(port), line: declared === null ? index + 1 : index + 1 };
+    return held;
+  };
+  /** An address a literal states: `":8080"`, `"0.0.0.0:8080"`, `8080`. */
+  const address = (value: string): { port: number; addr: string } | undefined => {
+    const colon = value.lastIndexOf(':');
+    const digits = (colon < 0 ? value : value.slice(colon + 1)).trim();
+    if (digits === '' || [...digits].some((character) => character < '0' || character > '9')) return undefined;
+    const port = Number.parseInt(digits, 10);
+    return Number.isFinite(port) ? {port, addr: value} : undefined;
+  };
+  /** The address one expression states, or the constant it reads, by the binding's own initializer. */
+  const addressOf = (id: string | undefined): { port: number; addr: string; line: number } | undefined => {
+    const held = unwrap(id);
+    if (held === undefined) return undefined;
+    if (held.literal !== undefined && (held.literal.kind === 'string' || held.literal.kind === 'number')) {
+      const stated = address(String(held.literal.value));
+      if (stated !== undefined) return {...stated, line: held.span.lineStart};
     }
-    const literal = /\.listen\(\s*(\d+)\b/.exec(line);
-    if (literal !== null) {
-      const port = Number.parseInt(literal[1] ?? '', 10);
-      if (Number.isFinite(port)) return { port, addr: literal[1] ?? '', line: index + 1 };
-    }
+    const binding = held.bindingId === undefined ? undefined : facts.bindings.find((entry) => entry.id === held.bindingId && entry.path === path);
+    if (binding?.initializer === undefined) return undefined;
+    const initial = unwrap(binding.initializer);
+    if (initial === undefined || initial.literal === undefined || (initial.literal.kind !== 'string' && initial.literal.kind !== 'number')) return undefined;
+    const stated = address(String(initial.literal.value));
+    return stated === undefined ? undefined : {...stated, line: held.span.lineStart};
+  };
+  for (const call of facts.calls) {
+    if (call.path !== path) continue;
+    const callee = unwrap(call.callee);
+    if (callee?.member !== 'listen' && callee?.member !== 'ListenAndServe') continue;
+    const found = addressOf(call.arguments[0]);
+    if (found !== undefined) return found;
+  }
+  // A Go file's listen address constant, which the call's own argument names.
+  for (const binding of facts.bindings) {
+    if (binding.path !== path || binding.name !== 'listenAddr' || binding.initializer === undefined) continue;
+    const found = addressOf(binding.initializer);
+    if (found !== undefined) return found;
   }
   return undefined;
 }
@@ -151,7 +186,7 @@ interface K8sWorkload {
   image: string | null;
   replicas: number | null;
   readonly containerPorts: number[];
-  probePath: string | null;
+  readonly probes: { readonly container: string; readonly probeType: string; readonly properties: { readonly [key: string]: PropertyValue }; readonly span: SourceSpan }[];
   readonly envFrom: string[];
   readonly servicePorts: { name: string | null; port: number; targetPort: number | null }[];
   readonly lineStart: number;
@@ -182,7 +217,7 @@ function k8sWorkloads(t: TreeText, records: Records, path: string): K8sWorkload[
       image: null,
       replicas: null,
       containerPorts: [],
-      probePath: null,
+      probes: [],
       envFrom: [],
       servicePorts: [],
       lineStart: firstLine,
@@ -223,12 +258,41 @@ function k8sWorkloads(t: TreeText, records: Records, path: string): K8sWorkload[
                 }
               }
             }
-            const probes = ['readinessProbe', 'livenessProbe'];
-            for (const probeName of probes) {
-              const probe = container.items.find((pair) => isScalar(pair.key) && pair.key.value === probeName)?.value;
-              const httpGet = isMap(probe) ? probe.items.find((pair) => isScalar(pair.key) && pair.key.value === 'httpGet')?.value : undefined;
-              const probePath = isMap(httpGet) ? scalarText0(httpGet.items.find((pair) => isScalar(pair.key) && pair.key.value === 'path')?.value) : null;
-              if (probePath !== null) workload.probePath = probePath;
+            const containerName = scalarText0(container.items.find((pair) => isScalar(pair.key) && pair.key.value === 'name')?.value) ?? String(containers.items.indexOf(container));
+            for (const probeName of ['readinessProbe', 'livenessProbe', 'startupProbe']) {
+              const pair = container.items.find((item) => isScalar(item.key) && item.key.value === probeName);
+              const probe = pair?.value;
+              if (!isMap(probe)) continue;
+              const value = (key: string): unknown => probe.items.find((item) => isScalar(item.key) && item.key.value === key)?.value;
+              const httpGet = value('httpGet');
+              const tcp = value('tcpSocket');
+              const exec = value('exec');
+              const field = (node: unknown, key: string): unknown => isMap(node) ? node.items.find((item) => isScalar(item.key) && item.key.value === key)?.value : undefined;
+              const portText = scalarText0(field(httpGet, 'port') ?? field(tcp, 'port'));
+              const port = portText !== null && /^\d+$/.test(portText) ? Number(portText) : portText;
+              const command = field(exec, 'command');
+              const properties: { [key: string]: PropertyValue } = {
+                service: name, container: containerName, probeType: probeName,
+                transport: isMap(httpGet) ? 'http' : isMap(tcp) ? 'tcp' : isMap(exec) ? 'exec' : null,
+                path: scalarText0(field(httpGet, 'path')), port,
+                host: scalarText0(field(httpGet, 'host')),
+                resolvedPort: typeof port === 'number' ? port : isSeq(ports) ? (() => {
+                  const candidates = ports.items.filter((entry) => isMap(entry) && scalarText0(field(entry, 'name')) === portText);
+                  const literal = candidates.length === 1 ? scalarText0(field(candidates[0], 'containerPort')) : null;
+                  return literal !== null && /^\d+$/.test(literal) ? Number(literal) : null;
+                })() : null,
+                scheme: scalarText0(field(httpGet, 'scheme')),
+                command: isSeq(command) ? command.items.map(scalarText0) : null,
+              };
+              for (const setting of ['initialDelaySeconds', 'periodSeconds', 'timeoutSeconds', 'successThreshold', 'failureThreshold', 'terminationGracePeriodSeconds']) {
+                const raw = scalarText0(value(setting));
+                properties[setting] = raw !== null && /^\d+$/.test(raw) ? Number(raw) : null;
+              }
+              const start = isScalar(pair?.key) ? pair.key.range?.[0] ?? 0 : probe.range?.[0] ?? 0;
+              workload.probes.push({
+                container: containerName, probeType: probeName, properties,
+                span: t.spanOfLines(path, lineCounter.linePos(start).line, lineCounter.linePos(Math.max(start, (probe.range?.[1] ?? start + 1) - 1)).line),
+              });
             }
           }
         }
@@ -293,6 +357,12 @@ export function extractDeploy(t: TreeText, records: Records): void {
         } satisfies { [key: string]: PropertyValue },
         span: t.spanOfLine(path, service.line),
       });
+      if (service.healthcheck !== null) {
+        const { span: healthSpan, ...healthProperties } = service.healthcheck;
+        const healthKey = `code.healthcheck:${path}#${service.name}`;
+        records.add({ key: healthKey, kind: 'code.healthcheck', label: `${service.name} healthcheck`, properties: { ...healthProperties, service: service.name }, span: healthSpan });
+        records.edge('code.configured-by', key, healthKey, {role: 'healthcheck'}, healthSpan);
+      }
       for (const mapping of service.portMappings) {
         records.edge(
           'code.publishes',
@@ -327,11 +397,19 @@ export function extractDeploy(t: TreeText, records: Records): void {
             replicas: workload.replicas,
             image: workload.image,
             containerPorts: [...workload.containerPorts].sort((left, right) => left - right),
-            probePath: workload.probePath,
+            // Preserve the legacy aggregate only when all HTTP probes agree.
+            probePath: [...new Set(workload.probes.map((probe) => probe.properties.path).filter((path) => typeof path === 'string'))].length === 1 ? workload.probes.find((probe) => typeof probe.properties.path === 'string')?.properties.path ?? null : null,
+            probePaths: workload.probes.map((probe) => probe.properties.path ?? null),
             envFrom: workload.envFrom.sort(byCodePoint),
           } satisfies { [key: string]: PropertyValue },
           span,
         });
+        for (const probe of workload.probes) {
+          const probeKey = `code.probe:${path}#${workload.name}/${probe.container}/${probe.probeType}`;
+          records.add({ key: probeKey, kind: 'code.probe', label: `${workload.name} ${probe.probeType}`, properties: probe.properties, span: probe.span });
+          records.edge('code.probes', probeKey, key, { role: 'workload' }, probe.span);
+          if (typeof probe.properties.port === 'number') records.edge('code.targets', probeKey, records.port(workload.name, probe.properties.port, probe.span), {}, probe.span);
+        }
         if (workload.image !== null) {
           const imageKey = imageNode(records, workload.image, span);
           records.edge('code.runs', key, imageKey, {}, span);

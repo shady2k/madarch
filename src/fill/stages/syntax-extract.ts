@@ -41,7 +41,7 @@ import jsGrammar from 'tree-sitter-wasms/out/tree-sitter-javascript.wasm' with {
 import tsGrammar from 'tree-sitter-wasms/out/tree-sitter-typescript.wasm' with { type: 'file' };
 import tsxGrammar from 'tree-sitter-wasms/out/tree-sitter-tsx.wasm' with { type: 'file' };
 import treeSitterRuntime from 'web-tree-sitter/tree-sitter.wasm' with { type: 'file' };
-import { Language, Parser, type Node as SyntaxNode } from 'web-tree-sitter';
+import { Language, Parser, Query, type Node as SyntaxNode } from 'web-tree-sitter';
 import { byCodePoint } from '../../model/order.js';
 import type { CommentForm, CoverageGap, CoverageGapReason, EntryPointForm, SymbolKind } from '../facts.js';
 
@@ -150,6 +150,16 @@ export interface ExtractedImport {
   readonly span: SyntaxSpan;
 }
 
+/** A callable expression and the direct declaration that owns its value, if any. */
+export interface ExtractedCallableBoundary {
+  readonly span: SyntaxSpan;
+  /** Public arrow callback identity starts at its parameters; span keeps async. */
+  readonly identity: SyntaxSpan;
+  /** Only a direct named variable initializer proves a declaration owner. */
+  readonly declarationSpan?: SyntaxSpan;
+  readonly argument: boolean;
+}
+
 /** Everything this stage read in one file: what it found, and what it could not read. */
 export interface ExtractedFileSyntax {
   /** The file's repository path, as it was given. */
@@ -159,6 +169,8 @@ export interface ExtractedFileSyntax {
   /** Whether a syntax tree was made and walked. */
   readonly parsed: boolean;
   readonly symbols: readonly ExtractedSymbol[];
+  /** Raw callable boundaries copied while the grammar tree is alive. */
+  readonly callables?: readonly ExtractedCallableBoundary[];
   readonly comments: readonly ExtractedComment[];
   readonly entryPoints: readonly ExtractedEntryPoint[];
   readonly tests: readonly ExtractedTest[];
@@ -231,6 +243,8 @@ export interface ParsedSyntaxTree {
   readonly root: SyntaxNode;
   /** Whether the parser read the file whole: a tree with an error node read as far as the parser could go. */
   readonly complete: boolean;
+  /** Captured nodes are borrowed only inside this parsed-tree callback. */
+  readonly captures: (source: string) => readonly { readonly name: string; readonly node: SyntaxNode }[];
 }
 
 /**
@@ -272,7 +286,20 @@ export async function readSyntaxTree<T>(path: string, bytes: Uint8Array, walk: (
     try {
       const root = tree.rootNode;
       const complete = !root.hasError;
-      const value = walk({ path, language, text, root, complete });
+      const captures = (source: string): readonly { readonly name: string; readonly node: SyntaxNode }[] => {
+        // A query is structural only. Disallow every predicate, including custom
+        // predicates that would otherwise be silently ignored by the web binding.
+        if (source.includes('#')) throw new Error('syntax query predicates are not permitted');
+        const query = new Query(grammar, source);
+        try {
+          const found = query.captures(root, { matchLimit: 65_536 });
+          if (query.didExceedMatchLimit()) throw new Error('syntax query exceeded its match limit');
+          return found;
+        } finally {
+          query.delete();
+        }
+      };
+      const value = walk({ path, language, text, root, complete, captures });
       return { read: true, value, language, complete };
     } finally {
       tree.delete();
@@ -417,6 +444,7 @@ const TEST_FRAMEWORKS: Readonly<Record<string, string>> = {
 /** One file's findings, before they become facts: what the walk found, and what it could not read. */
 interface Findings {
   symbols: readonly ExtractedSymbol[];
+  callables: readonly ExtractedCallableBoundary[];
   comments: readonly ExtractedComment[];
   entryPoints: readonly ExtractedEntryPoint[];
   tests: readonly ExtractedTest[];
@@ -432,6 +460,7 @@ function walk(path: string, text: string, root: SyntaxNode, language: SyntaxLang
   const lines = lineIndex(text);
   const spanOf = spanFactory(text);
   const symbols: ExtractedSymbol[] = [];
+  const callables: ExtractedCallableBoundary[] = [];
   const comments: ExtractedComment[] = [];
   const entryPoints: ExtractedEntryPoint[] = [];
   const tests: ExtractedTest[] = [];
@@ -622,6 +651,16 @@ function walk(path: string, text: string, root: SyntaxNode, language: SyntaxLang
   };
 
   const visit = (node: SyntaxNode, container: readonly string[]): void => {
+    if (['arrow_function', 'function_expression', 'generator_function', 'func_literal'].includes(node.type)) {
+      const parent = node.parent;
+      const declaration = parent?.type === 'variable_declarator' && parent.childForFieldName('value')?.id === node.id &&
+        parent.childForFieldName('name')?.type === 'identifier' ? parent : undefined;
+      const identity = node.type === 'arrow_function'
+        ? node.childForFieldName('parameters') ?? node.childForFieldName('parameter') ?? node : node;
+      callables.push({ span: spanOf(node), identity: spanOf(identity),
+        ...(declaration === undefined ? {} : {declarationSpan: spanOf(declaration)}),
+        argument: parent !== null && ['arguments', 'argument_list'].includes(parent.type) });
+    }
     record(node, container);
     const name = declaredName(node, text) ?? holderName(node, text);
     const containers = go ? GO_CONTAINERS : TS_CONTAINERS;
@@ -633,6 +672,7 @@ function walk(path: string, text: string, root: SyntaxNode, language: SyntaxLang
   visit(root, []);
 
   return {
+    callables: callables.sort((left, right) => left.span.startByte - right.span.startByte || right.span.endByte - left.span.endByte),
     unread: [...unread].sort((left, right) => byCodePoint(left.what, right.what)),
     symbols: [...symbols].sort((left, right) => byCodePoint(left.qualifiedName, right.qualifiedName) || byCodePoint(left.symbolKind, right.symbolKind)),
     comments: [...comments].sort((left, right) => left.span.startByte - right.span.startByte),

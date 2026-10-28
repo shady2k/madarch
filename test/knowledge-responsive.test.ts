@@ -60,13 +60,20 @@ describe.skipIf(skip)('the wiki while a fill runs', () => {
     let running = true;
     const started = Date.now();
     let lastFiles = 0;
+    const recentFiles: {at: number; status: number; total?: number; rows?: number}[] = [];
     const ask = async (path: string): Promise<void> => {
       const at = performance.now();
       const response = await fetch(base + path);
       const body = await response.text();
       const ms = performance.now() - at;
       if (path === '/api/k/status' && response.ok) { const fill = (JSON.parse(body) as { fill: { state: string; phase?: string } }).fill; running = fill.state === 'running'; phase = fill.phase ?? fill.state; }
-      if (path.startsWith('/api/k/entities?kind=code.file') && response.ok) lastFiles = (JSON.parse(body) as { rows: unknown[] }).rows.length;
+      if (path.startsWith('/api/k/entities?kind=code.file')) {
+        const files = response.ok ? JSON.parse(body) as {total: number; rows: unknown[]} : undefined;
+        if (files !== undefined) lastFiles = files.rows.length;
+        recentFiles.push({at: Math.round(Date.now() - started), status: response.status,
+          ...(files === undefined ? {} : {total: files.total, rows: files.rows.length})});
+        if (recentFiles.length > 4) recentFiles.shift();
+      }
       if (response.ok || response.status === 404) samples.push({ path: path.slice(0, 48), ms, running, at: Math.round(Date.now() - started), phase });
     };
     // Three readers at once, as a reader's browser asks (the page and what it holds), until the fill ends.
@@ -75,6 +82,21 @@ describe.skipIf(skip)('the wiki while a fill runs', () => {
       await Promise.all([ask(paths[2]!), ask(paths[4]!), ask(paths[5]!)]);
       await new Promise((rest) => setTimeout(rest, 60));
     }
+    const terminalStatus = await (await fetch(`${base}/api/k/status`)).json() as {fill: {state: string; message?: string; code?: string; phase?: string}};
+    console.log(`terminal fill before list assertions: ${JSON.stringify(terminalStatus.fill)}`);
+    // Diagnose publication independently of the last parallel sample. Never
+    // overwrite lastFiles: the during-fill list assertion below stays intact.
+    const postDoneFilesResponse = await fetch(`${base}/api/k/entities?kind=code.file&limit=100`);
+    const postDoneFiles = postDoneFilesResponse.ok
+      ? await postDoneFilesResponse.json() as {total: number; rows: unknown[]} : undefined;
+    const postDoneStatusResponse = await fetch(`${base}/api/k/status`);
+    const postDoneStatus = postDoneStatusResponse.ok
+      ? await postDoneStatusResponse.json() as {fill: {state: string}; kinds: {kind: string; count: number}[]} : undefined;
+    console.log(`Files publication diagnostic: ${JSON.stringify({lastFiles, recentFiles,
+      filesStatus: postDoneFilesResponse.status, total: postDoneFiles?.total, rows: postDoneFiles?.rows.length,
+      statusStatus: postDoneStatusResponse.status, state: postDoneStatus?.fill.state,
+      count: postDoneStatus?.kinds.find(kind => kind.kind === 'code.file')?.count})}`);
+    expect(terminalStatus.fill.state, JSON.stringify(terminalStatus.fill)).toBe('done');
     const during = samples.filter((sample) => sample.running);
     const byPath = new Map<string, number[]>();
     for (const sample of during) byPath.set(sample.path, [...(byPath.get(sample.path) ?? []), sample.ms]);

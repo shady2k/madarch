@@ -50,6 +50,7 @@ func (m *Metrics) Purged(n int) { m.purged.Add(int64(n)) }
 // ServeHTTP writes the counters.
 func (m *Metrics) ServeHTTP(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+	fmt.Fprint(w, "# TYPE orders_http_requests_total counter\n# TYPE orders_created_total counter\n# TYPE orders_purged_total counter\n# TYPE orders_transitions_total counter\n")
 	fmt.Fprintf(w, "orders_http_requests_total %d\n", m.requests.Load())
 	fmt.Fprintf(w, "orders_created_total %d\n", m.created.Load())
 	fmt.Fprintf(w, "orders_purged_total %d\n", m.purged.Load())

@@ -207,7 +207,7 @@ interface Located {
 
 interface Event {
   at: number;
-  kind: 'call' | 'read' | 'write' | 'remote' | 'publish';
+  kind: 'call' | 'callback' | 'read' | 'write' | 'remote' | 'publish';
   target: GraphEntity;
   props: Record<string, unknown>;
   span?: SourceSpan;
@@ -296,13 +296,18 @@ export class ChainBuilder {
     return lane;
   }
 
-  private push(step: Omit<ChainStep, 'n'>): void {
+  /**
+   * One step, published with the call-nesting layer that produced it: a step of the function the walk reached through
+   * `layer` calls from the entry, where layer 0 is the entry's own function. The sequence view reads the layer so that a
+   * callee's subtree can never spend its caller's own steps (views.ts, `budgetedSteps`).
+   */
+  private push(step: Omit<ChainStep, 'n' | 'layer'>, layer: number): void {
     this.total += 1;
     if (this.steps.length >= this.options.limit) {
       this.notes.add(`The chain has more steps than the ${this.options.limit} drawn; the diagram stops there.`);
       return;
     }
-    this.steps.push({ n: this.steps.length + 1, ...step });
+    this.steps.push({ n: this.steps.length + 1, layer, ...step });
   }
 
   private site(entity: GraphEntity, span: SourceSpan | undefined): { site?: ReturnType<typeof locationOf> } {
@@ -354,11 +359,12 @@ export class ChainBuilder {
     const events: Event[] = [];
     const inRange = (span: SourceSpan | undefined): boolean => within === undefined || (span !== undefined && span.lineStart >= within.lineStart && span.lineEnd <= within.lineEnd);
     const relations: [string, Event['kind']][] = [['code.calls', 'call'], ['code.reads-table', 'read'], ['code.writes-table', 'write']];
-    if (within !== undefined) relations.push(['code.references', 'call']);
+    relations.push(['code.references', 'callback']);
     for (const [relation, kind] of relations) {
       const found = await this.ctx.graph.edgesOf(symbol, relation, 'out', 300);
       for (const edge of found.rows) {
         if (!inRange(edge.span)) continue;
+        if (kind === 'callback' && edge.properties['role'] !== 'callback-value') continue;
         if (kind === 'call' && (edge.other.kind !== 'code.symbol' || edge.other.properties['test'] === true)) continue;
         if (relation === 'code.references' && !['function', 'method', 'class'].includes(String(edge.other.properties['symbolKind']))) continue;
         events.push({ at: edge.span?.byteStart ?? Number.MAX_SAFE_INTEGER, kind, target: edge.other, props: edge.properties, ...(edge.span === undefined ? {} : { span: edge.span }) });
@@ -407,7 +413,7 @@ export class ChainBuilder {
   }
 
   /** Enters a function: its lane, and what it does in source order. */
-  async visit(symbol: GraphEntity, depthLeft: number, within?: { lineStart: number; lineEnd: number }, unordered = false): Promise<void> {
+  async visit(symbol: GraphEntity, depthLeft: number, within?: { lineStart: number; lineEnd: number }, unordered = false, layer = 0): Promise<void> {
     if (symbol.span === undefined) return;
     const fromLane = await this.laneOfFile(symbol.span.path, undefined);
     if (!within) {
@@ -421,7 +427,9 @@ export class ChainBuilder {
     }
     const order: ChainStep['order'] = unordered ? 'unordered' : 'source';
     for (const event of await this.eventsOf(symbol, within)) {
-      if (event.kind === 'call') {
+      if (event.kind === 'callback') {
+        this.pendingUnordered.push({symbol: event.target, from: fromLane.id, ...(event.span === undefined ? {} : {span: event.span}), reason: 'callback value passed here; invocation order is not established'});
+      } else if (event.kind === 'call') {
         const target = event.target;
         if (target.span === undefined) continue;
         const toLane = await this.laneOfFile(target.span.path, undefined);
@@ -432,8 +440,8 @@ export class ChainBuilder {
         this.push({
           from: fromLane.id, to: toLane.id, label: symbolName(target), kind: same ? 'self' : 'call', href: refOfGraph(this.ctx, target).href, order,
           ...this.site(symbol, event.span), ...(again ? { note: 'called again; its steps are shown above' } : typeof event.props['alternatives'] === 'number' ? { note: `one of ${event.props['alternatives']} functions called at this site; the graph holds no order between them` } : typeof event.props['viaInterface'] === 'string' ? { note: `through ${event.props['viaInterface']}` } : {}),
-        });
-        if (!again && depthLeft > 1) await this.visit(target, depthLeft - 1, undefined, unordered);
+        }, layer);
+        if (!again && depthLeft > 1) await this.visit(target, depthLeft - 1, undefined, unordered, layer + 1);
         else if (!again && depthLeft <= 1) this.cutAtDepth += 1;
         // A helper of the same file that reaches nothing else adds a row and no information: it is left out, and counted.
         if (same && !again && depthLeft > 1 && this.steps.length === before + 1 && this.total === totalBefore + 1) {
@@ -444,13 +452,13 @@ export class ChainBuilder {
       } else if (event.kind === 'read' || event.kind === 'write') {
         const lane = this.laneOfTable(event.target);
         if (event.kind === 'write') this.written.add(event.target.key);
-        this.push({ from: fromLane.id, to: lane.id, label: `${event.kind === 'write' ? 'writes' : 'reads'} ${event.target.label}`, kind: event.kind, href: refOfGraph(this.ctx, event.target).href, order, ...this.site(symbol, event.span) });
+        this.push({ from: fromLane.id, to: lane.id, label: `${event.kind === 'write' ? 'writes' : 'reads'} ${event.target.label}`, kind: event.kind, href: refOfGraph(this.ctx, event.target).href, order, ...this.site(symbol, event.span) }, layer);
       } else if (event.kind === 'publish') {
         const channel = this.laneOfChannel(event.target);
-        this.push({ from: fromLane.id, to: channel.id, label: `publishes ${event.target.label}`, kind: 'publish', href: refOfGraph(this.ctx, event.target).href, order, ...this.site(symbol, event.span) });
+        this.push({ from: fromLane.id, to: channel.id, label: `publishes ${event.target.label}`, kind: 'publish', href: refOfGraph(this.ctx, event.target).href, order, ...this.site(symbol, event.span) }, layer);
         await this.consumersOf(event.target, channel);
       } else {
-        await this.remote(symbol, fromLane, event, depthLeft, order);
+        await this.remote(symbol, fromLane, event, depthLeft, order, layer);
       }
     }
   }
@@ -479,7 +487,7 @@ export class ChainBuilder {
   }
 
   /** A call to another service: to the route or the handler that serves the operation, when the graph knows it. */
-  private async remote(symbol: GraphEntity, fromLane: ChainLane, event: Event, depthLeft: number, order: ChainStep['order']): Promise<void> {
+  private async remote(symbol: GraphEntity, fromLane: ChainLane, event: Event, depthLeft: number, order: ChainStep['order'], layer: number): Promise<void> {
     const target = event.target;
     const via = String(event.props['via'] ?? 'http');
     const kind: StepKind = via === 'grpc' ? 'grpc' : 'http';
@@ -492,7 +500,7 @@ export class ChainBuilder {
     if (servers.length === 0) {
       const lane: ChainLane = { id: `external:${target.key}`, label: target.label, sub: 'no service in the graph serves it', kind: 'external', href: refOfGraph(this.ctx, target).href, group: 'elsewhere' };
       this.lanes.set(lane.id, lane);
-      this.push({ from: fromLane.id, to: lane.id, label: String(event.props['client'] ?? target.label), kind, href: lane.href, order, ...this.site(symbol, event.span), note: 'no service of the graph serves this operation' });
+      this.push({ from: fromLane.id, to: lane.id, label: String(event.props['client'] ?? target.label), kind, href: lane.href, order, ...this.site(symbol, event.span), note: 'no service of the graph serves this operation' }, layer);
       return;
     }
     for (const server of servers.slice(0, 1)) {
@@ -502,19 +510,19 @@ export class ChainBuilder {
       this.push({
         from: fromLane.id, to: toLane.id, label: serverEntity.kind === 'code.route' ? serverEntity.label : target.label, kind, href: refOfGraph(this.ctx, serverEntity).href, order,
         ...this.site(symbol, event.span), note: `${via === 'grpc' ? 'gRPC' : 'HTTP'} call of ${String(event.props['client'] ?? target.label)}`,
-      });
+      }, layer);
       if (depthLeft <= 1) continue;
-      if (serverEntity.kind === 'code.route') await this.enterRoute(serverEntity, depthLeft - 1, order === 'unordered', false);
+      if (serverEntity.kind === 'code.route') await this.enterRoute(serverEntity, depthLeft - 1, order === 'unordered', false, layer + 1);
       else if (server.span !== undefined) {
         const handler = await this.enclosing(path, server.span);
-        if (handler !== undefined) await this.visit(handler, depthLeft - 1, { lineStart: server.span.lineStart, lineEnd: server.span.lineEnd }, order === 'unordered');
+        if (handler !== undefined) await this.visit(handler, depthLeft - 1, { lineStart: server.span.lineStart, lineEnd: server.span.lineEnd }, order === 'unordered', layer + 1);
         else this.notes.add(`${target.label} is served in ${path}, but the graph does not say by which function.`);
       }
     }
   }
 
-  /** The route as the first step of a chain (from the caller), and what the function that registers it does at its lines. */
-  async enterRoute(route: GraphEntity, depthLeft: number, unordered = false, fromActor = true): Promise<void> {
+  /** The route as the first step, then the handler its actual registration names. */
+  async enterRoute(route: GraphEntity, depthLeft: number, unordered = false, fromActor = true, layer = 0): Promise<void> {
     const span = route.span;
     if (span === undefined) return;
     if (fromActor) this.actor();
@@ -524,32 +532,31 @@ export class ChainBuilder {
       this.push({
         from: this.actor().id, to: lane.id, label: route.label, kind: 'route', href: refOfGraph(this.ctx, route).href, order: unordered ? 'unordered' : 'source', ...this.site(route, span),
         ...(middleware.length === 0 ? {} : { note: `middleware: ${middleware.join(', ')}` }),
-      });
+      }, layer);
     }
-    const registrar = await this.enclosing(span.path, span);
-    if (registrar === undefined) {
-      this.notes.add(`${route.label} is registered in ${span.path}, but the graph does not say which function holds the registration.`);
-      return;
+    const handlers = await this.handlersOf(route);
+    if (handlers.length === 0) this.notes.add(`${route.label} has no resolved handler function in the graph.`);
+    for (const handler of handlers) {
+      if (handler.span === undefined) continue;
+      const handlerLane = await this.laneOfFile(handler.span.path, undefined);
+      if (handlerLane.id !== lane.id) this.push({ from: lane.id, to: handlerLane.id, label: symbolName(handler), kind: 'call', href: refOfGraph(this.ctx, handler).href, order: unordered ? 'unordered' : 'source', ...this.site(route, span), note: 'registered request handler' }, layer);
+      await this.visit(handler, depthLeft, undefined, unordered, layer);
     }
-    await this.visit(registrar, depthLeft, { lineStart: span.lineStart, lineEnd: span.lineEnd }, unordered);
   }
 
-  /** The functions a route hands the request to: what its registration calls or references at the route's own lines. */
+  /** Only the route's grounded handler relation identifies a request handler. */
   async handlersOf(route: GraphEntity): Promise<GraphEntity[]> {
-    const span = route.span;
-    if (span === undefined) return [];
-    const registrar = await this.enclosing(span.path, span);
-    if (registrar === undefined) return [];
-    const handlers = new Map<string, GraphEntity>();
-    for (const event of await this.eventsOf(registrar, { lineStart: span.lineStart, lineEnd: span.lineEnd })) if (event.kind === 'call') handlers.set(event.target.key, event.target);
-    return handlers.size === 0 ? [registrar] : [...handlers.values()].sort((a, b) => byCodePoint(a.key, b.key));
+    const found = await this.ctx.graph.edgesOf(route, 'code.handled-by', 'out', 300);
+    return found.rows.map((edge) => edge.other)
+      .filter((handler) => handler.kind === 'code.symbol' && handler.properties['test'] !== true)
+      .sort((a, b) => byCodePoint(a.key, b.key));
   }
 
   /** Starts from a function with no route above it. */
-  async enterSymbol(symbol: GraphEntity, depthLeft: number): Promise<void> {
+  async enterSymbol(symbol: GraphEntity, depthLeft: number, layer = 0): Promise<void> {
     if (symbol.span === undefined) return;
     await this.laneOfFile(symbol.span.path, undefined);
-    await this.visit(symbol, depthLeft);
+    await this.visit(symbol, depthLeft, undefined, false, layer);
   }
 
   /** The tail: what the graph links with no order, after the ordered steps. */
@@ -576,8 +583,8 @@ export class ChainBuilder {
         marked = true;
         this.notes.add('The graph holds no order between a publisher and the consumers of its topic, nor between a writer of a table and the functions that read the row later: those steps are drawn apart, below the dashed line.');
       }
-      this.push({ from: item.from, to: lane.id, label: symbolName(item.symbol), kind: 'consume', href: refOfGraph(this.ctx, item.symbol).href, order: 'unordered', ...this.site(item.symbol, item.span), note: item.reason });
-      await this.visit(item.symbol, depthLeft, undefined, true);
+      this.push({ from: item.from, to: lane.id, label: symbolName(item.symbol), kind: 'consume', href: refOfGraph(this.ctx, item.symbol).href, order: 'unordered', ...this.site(item.symbol, item.span), note: item.reason }, 0);
+      await this.visit(item.symbol, depthLeft, undefined, true, 0);
     }
   }
 
@@ -831,6 +838,18 @@ export async function modulesBlockModel(ctx: RenderContext, subject: Subject): P
 
 // ---- the treemap --------------------------------------------------------------------------------
 
+/** The dependency extractor's lock-file node: a path it files as one is not code anyone edits. */
+const LOCKFILE_KIND = 'code.lockfile' as const;
+const LOCKFILE_PREFIX = `${LOCKFILE_KIND}:`;
+const lockPathOf = (key: string): string => key.slice(LOCKFILE_PREFIX.length);
+
+/** The lines of a file whose row carries no count: its bytes at the graph's commit, or undefined when unreadable. */
+async function linesOfSource(ctx: RenderContext, scope: string, path: string): Promise<number | undefined> {
+  const text = await ctx.readSource(ctx.repoOfScope(scope) ?? null, path);
+  if (text === undefined) return undefined;
+  return text === '' ? 0 : text.split('\n').length - (text.endsWith('\n') ? 1 : 0);
+}
+
 export async function treemapBlock(ctx: RenderContext, subject: Subject, params: Readonly<Record<string, string>>): Promise<Block> {
   const title = params['title'] ?? 'Files by size and change';
   const limit = toInt(params['limit'], 400, 10, 1500);
@@ -840,32 +859,46 @@ export async function treemapBlock(ctx: RenderContext, subject: Subject, params:
   const found = await ctx.graph.byPrefix('code.file', scope === '' ? 'code.file:' : `code.file:${scope}/`, limit);
   const notes: string[] = [];
   if (found.total > found.rows.length) notes.push(`Showing the first ${found.rows.length} of ${found.total} files by path.`);
-  // Generated files (lock files) are not code anyone edits: they would fill the picture and carry no hotspot.
-  const generated = (path: string): boolean => /(^|\/)(package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb?|go\.sum|Cargo\.lock|poetry\.lock|composer\.lock)$/.test(path);
+  // A file is left out of the picture only where the graph proves it is not code anyone edits: the dependency
+  // extractor's `code.lockfile` node for that exact path, or the file's own `generated` fact (a repository that
+  // declares it generated or vendored). No file name is special here, so the picture and the note name none.
+  const locks = await completeRead('treemap lock files', 200, (requested) => ctx.graph.byPrefix(LOCKFILE_KIND, scope === '' ? LOCKFILE_PREFIX : `${LOCKFILE_PREFIX}${scope}/`, requested));
+  const lockPaths = new Set(locks.rows.map((lock) => lockPathOf(lock.key)));
   const churn = await ctx.graph.inDegrees('code.touched', found.rows.map((file) => file.key));
   let lockfiles = 0;
+  let declared = 0;
   const files: TreemapFile[] = [];
   let unread = 0;
   const queue = [...found.rows];
   const read = async (): Promise<void> => {
     for (let file = queue.shift(); file !== undefined; file = queue.shift()) {
       const path = String(file.properties['path'] ?? pathOfKey(file.key));
-      if (generated(path)) {
+      if (lockPaths.has(path)) {
         lockfiles += 1;
         continue;
       }
-      const repo = ctx.repoOfScope(file.scope) ?? null;
-      const text = await ctx.readSource(repo, path);
-      if (text === undefined) {
+      if (file.properties['generated'] === true) {
+        declared += 1;
+        continue;
+      }
+      // The file's size is its fact: the tree lister files every path with the lines it holds, so a row that carries
+      // that count is measured without reading a byte. Only a row that lacks it falls back to the bytes, and a file
+      // those bytes cannot answer for is said, never drawn as empty.
+      const counted = file.properties['lines'];
+      const lines = typeof counted === 'number' && Number.isSafeInteger(counted) && counted >= 0
+        ? counted : await linesOfSource(ctx, file.scope, path);
+      if (lines === undefined) {
         unread += 1;
         continue;
       }
-      const lines = text === '' ? 0 : text.split('\n').length - (text.endsWith('\n') ? 1 : 0);
       files.push({ id: file.key, path, href: refOfGraph(ctx, file).href, lines, churn: churn.get(file.key) ?? 0 });
     }
   };
   await Promise.all(Array.from({ length: 8 }, read));
-  if (lockfiles > 0) notes.push(`${lockfiles} lock file${lockfiles === 1 ? ' is' : 's are'} generated and not drawn.`);
+  const hidden: string[] = [];
+  if (lockfiles > 0) hidden.push(`${lockfiles} lock file${lockfiles === 1 ? '' : 's'}`);
+  if (declared > 0) hidden.push(`${declared} repository-declared generated or vendored file${declared === 1 ? '' : 's'}`);
+  if (hidden.length > 0) notes.push(`${hidden.join(' and ')} ${lockfiles + declared === 1 ? 'is' : 'are'} not drawn.`);
   if (unread > 0) notes.push(`${unread} file${unread === 1 ? ' was' : 's were'} not readable at the commit the graph was filled from and ${unread === 1 ? 'is' : 'are'} not drawn.`);
   files.sort((a, b) => byCodePoint(a.path, b.path));
   return { type: 'treemap', title, scope, files, maxChurn: files.reduce((max, file) => Math.max(max, file.churn), 0), total: found.total, notes };

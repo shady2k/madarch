@@ -7,17 +7,34 @@
  * reader (`src/fill/stages/syntax-extract.ts`) found; this module imports that
  * reader and edits none of it.
  *
+ * Nothing here reads a pattern of a file's characters (madarch-mwhd.3). The
+ * strings (every literal the grammar delimits: single and double quotes, and
+ * TypeScript's template strings), the calls and the `const` functions come from
+ * the file's own tree; a literal's SQL comes from PostgreSQL's parser, and
+ * where a literal is only a fragment of a statement - the legacy report builds
+ * its SQL by `+` from `' FROM payments p'` and `' LEFT JOIN ...'` - from
+ * PostgreSQL's own lexer, which is the authority on the clause keywords and the
+ * names that follow them.
+ *
+ * The file is parsed once more than the syntax stage parses it: that stage
+ * answers the symbols of `extractFileSyntax`, whose tree it does not lend, and
+ * this reader walks a tree of its own for the strings, the calls and the `const`
+ * bodies. One parse for both would need the stage to hand its tree out.
+ *
  * The regions are the syntax reader's declarations of function, method,
  * constant and variable kind. A TypeScript `const name = async (...) => {...}`
  * the syntax reader does not declare (an anonymous function expression holds
- * it) is found by a lexical fallback, so the legacy report's builders are not
- * a silence. A SQL literal or a Prisma call that no region holds is reported
- * with no region; the caller decides what carries it, and never drops it
- * silently.
+ * it) is found by the tree's own `const` declarators, so the legacy report's
+ * builders are not a silence. A SQL literal or a Prisma call that no region
+ * holds is reported with no region; the caller decides what carries it, and
+ * never drops it silently.
  */
+import {scan, type ScanToken} from 'libpg-query';
+import type {Node as SyntaxNode} from 'web-tree-sitter';
+import {extractFileSyntax, readSyntaxTree, type ExtractedFileSyntax, type ParsedSyntaxTree, type SyntaxSpan} from '../../fill/stages/syntax-extract.js';
+import {parsePostgres, type ParseResult} from '../../parsers/postgres.js';
 import type {SourceSpan} from '../records.js';
-import {extractFileSyntax, type SyntaxSpan} from '../../fill/stages/syntax-extract.js';
-import {scanGoText, scanTsLikeText} from './text-scan.js';
+import {ByteText} from './text-scan.js';
 
 /** The languages whose files this reader scans for table access. */
 export type AccessLanguage = 'go' | 'javascript' | 'tsx' | 'typescript';
@@ -69,76 +86,67 @@ const PRISMA_READ_OPS = new Set(['aggregate', 'count', 'findFirst', 'findFirstOr
 
 const REGIONS_OF_INTEREST = new Set(['function', 'method', 'constant', 'variable']);
 
+/** The grammar's nodes whose own range is delimited by the string's quotes, template strings included. */
+const STRING_NODES = new Set(['interpreted_string_literal', 'raw_string_literal', 'string', 'template_string']);
+
+/** The expressions a `const`'s value may be and still be read as a function region. */
+const FUNCTION_VALUES = new Set(['arrow_function', 'function_expression', 'generator_function']);
+
 /**
  * Reads one file's bytes for table access. `path` names the file in every
- * span; the file's own bytes decide everything else.
+ * span; the file's own tree and PostgreSQL's own syntax decide everything else.
  */
-export async function extractFileAccess(path: string, bytes: Uint8Array): Promise<FileAccess> {
-  const syntax = await extractFileSyntax(path, bytes);
+export async function extractFileAccess(path: string, input: Uint8Array): Promise<FileAccess> {
+  const syntax = await extractFileSyntax(path, input);
   const language = languageOfPath(path);
   if (language === null) {
     return {path, language: null, regions: [], sites: [], tableDeclarations: [], unread: gapsOf(syntax.unread)};
   }
-  const text = new TextDecoder().decode(bytes);
-  const toByte = byteCounter(text);
-  const regions = collectRegions(path, text, language, syntax, toByte);
+  const unread = gapsOf(syntax.unread);
+  const read = await readSyntaxTree(path, input, (file) => readCodeTree(file, language));
+  if (!read.read) {
+    // A file with no readable tree has no strings, calls or `const` bodies of
+    // its own: the syntax reader's own gap says why, and the caller publishes it.
+    return {path, language, regions: collectRegions(path, language, syntax), sites: [], tableDeclarations: [], unread};
+  }
+  const code = read.value;
+  const bytes = new ByteText(code.text);
+  const regions = withConstRegions(collectRegions(path, language, syntax), code.constRegions, path, bytes, language);
+  const regionOf = regionFinder(regions);
   const sites: AccessSite[] = [];
   const tableDeclarations: CodeTableDeclaration[] = [];
-  const strings = language === 'go' ? scanGoText(text) : scanTsLikeText(text);
-  const regionOf = regionFinder(regions);
-  // The call spans of the file, over text whose strings and comments are
-  // spaces: the call a SQL literal stands in (`tx.ExecContext(ctx, \`INSERT
-  // INTO outbox ...)\``) is the call site the access cites.
-  const masked = maskText(text, language, toByte);
-  // The call spans come from character offsets of the masked text; every span
-  // this module hands out is a byte span (records.ts), so they are converted
-  // once here, before they meet a literal's byte range.
-  const callSpans = collectCallSpans(masked).map((call) => ({
-    chainStart: toByte[call.chainStart]!,
-    openParen: toByte[call.openParen]!,
-    closeParen: toByte[call.closeParen]!,
-  }));
-  for (const literal of strings.strings) {
-    if (insideAny(literal.byteStart, literal.byteEnd, strings.comments)) continue;
-    const content = text.slice(charAt(toByte, literal.byteStart), charAt(toByte, literal.byteEnd));
-    if (!looksLikeSql(content)) continue;
+  for (const literal of code.strings) {
+    const facts = await sqlFactsOf(code.text.slice(literal.start, literal.end));
+    if (facts.inserts.length === 0 && facts.updates.length === 0 && facts.deletes.length === 0
+      && facts.reads.length === 0 && facts.declarations.length === 0) continue;
     // A literal no function region holds keeps the empty region name: the
     // caller attributes it to the file itself, and never drops it.
-    const holder = regionOf(literal.byteStart, literal.byteEnd);
+    const holder = regionOf(bytes.byteAt(literal.start), bytes.byteAt(literal.end));
     const regionName = holder?.qualifiedName ?? '';
-    const site = callSpans.filter((call) => call.openParen < literal.byteStart && literal.byteEnd < call.closeParen).sort((left, right) => right.openParen - left.openParen)[0];
-    const byteStart = site !== undefined ? site.chainStart : literal.byteStart;
-    const byteEnd = site !== undefined ? site.closeParen + 1 : literal.byteEnd;
-    const span: SourceSpan = {
-      path,
-      byteStart,
-      byteEnd,
-      lineStart: lineOf(text, toByte, byteStart),
-      lineEnd: lineOf(text, toByte, byteEnd),
-    };
-    for (const site of collectSqlSites(content, span, regionName)) sites.push(site);
-    for (const declaration of collectCodeDdl(content, span)) tableDeclarations.push(declaration);
+    // The call a SQL literal stands in (`tx.ExecContext(ctx, \`INSERT INTO
+    // outbox ...)\``) is the site the access cites; a literal no call holds is
+    // cited where it stands.
+    const call = enclosingCall(code.calls, literal.start, literal.end);
+    const byteStart = bytes.byteAt(call === undefined ? literal.start : call.start);
+    const byteEnd = bytes.byteAt(call === undefined ? literal.end : call.end);
+    const span: SourceSpan = {path, byteStart, byteEnd, lineStart: bytes.lineOf(byteStart), lineEnd: bytes.lineOf(byteEnd)};
+    for (const site of sqlSites(facts, span, regionName)) sites.push(site);
+    for (const declaration of sqlDeclarations(facts, span)) tableDeclarations.push(declaration);
   }
   // Prisma client calls: `this.prisma.<model>.<op>(...)` or `prisma.<model>.<op>(...)`.
-  const calls = /(?:this\s*\.\s*)?prisma\s*\.\s*([A-Za-z_]\w*)\s*\.\s*([A-Za-z_$][\w$]*)\s*\(/g;
-  for (let match = calls.exec(text); match !== null; match = calls.exec(text)) {
-    const charStart = match.index;
-    const charEnd = match.index + match[0].length;
-    const byteStart = toByte[charStart]!;
-    const byteEnd = toByte[charEnd]!;
-    if (insideAny(byteStart, byteEnd, strings.comments)) continue;
-    const holder = regionOf(byteStart, byteEnd);
-    const regionName = holder?.qualifiedName ?? '';
-    const op = match[2]!;
-    const verb = PRISMA_WRITE_OPS.has(op) ? 'write' : PRISMA_READ_OPS.has(op) ? 'read' : undefined;
+  for (const call of code.prisma) {
+    const verb = PRISMA_WRITE_OPS.has(call.op) ? 'write' : PRISMA_READ_OPS.has(call.op) ? 'read' : undefined;
     if (verb === undefined) continue;
+    const byteStart = bytes.byteAt(call.start);
+    const byteEnd = bytes.byteAt(call.end);
+    const holder = regionOf(byteStart, byteEnd);
     sites.push({
-      table: match[1]!,
+      table: call.model,
       verb,
       via: 'prisma-client',
-      model: match[1]!,
-      region: regionName,
-      span: {path, byteStart, byteEnd, lineStart: lineOf(text, toByte, byteStart), lineEnd: lineOf(text, toByte, byteEnd)},
+      model: call.model,
+      region: holder?.qualifiedName ?? '',
+      span: {path, byteStart, byteEnd, lineStart: bytes.lineOf(byteStart), lineEnd: bytes.lineOf(byteEnd)},
     });
   }
   return {
@@ -147,7 +155,7 @@ export async function extractFileAccess(path: string, bytes: Uint8Array): Promis
     regions,
     sites: sites.sort((left, right) => left.span.byteStart - right.span.byteStart || byCodePointOf(left.region, right.region)),
     tableDeclarations,
-    unread: gapsOf(syntax.unread),
+    unread,
   };
 }
 
@@ -164,6 +172,372 @@ function languageOfPath(path: string): AccessLanguage | null {
   if (extension === '.js' || extension === '.mjs' || extension === '.cjs' || extension === '.jsx') return 'javascript';
   return null;
 }
+
+// ---- what the file's tree holds -------------------------------------------
+
+/** A character range of the file's text, as the grammar counts it. */
+interface CharSpan {
+  readonly start: number;
+  readonly end: number;
+}
+
+/** One call expression: the whole invocation, and the argument list its parens delimit. */
+interface CallSpan extends CharSpan {
+  readonly argsStart: number;
+  readonly argsEnd: number;
+}
+
+/** One Prisma client call: the model and operation names the grammar read, and the span the reader cites. */
+interface PrismaCall extends CharSpan {
+  readonly model: string;
+  readonly op: string;
+}
+
+/** One `const <name> = <function>` the syntax reader did not declare, at the name and the body's close. */
+interface ConstRegion extends CharSpan {
+  readonly name: string;
+}
+
+/** Everything this reader takes from one file's tree, as plain data: no node outlives the walk. */
+interface CodeTree {
+  readonly text: string;
+  readonly strings: readonly CharSpan[];
+  readonly calls: readonly CallSpan[];
+  readonly prisma: readonly PrismaCall[];
+  readonly constRegions: readonly ConstRegion[];
+}
+
+/** Visits a node and every node below it, pre-order. */
+function walk(node: SyntaxNode, visit: (node: SyntaxNode) => void): void {
+  visit(node);
+  for (let index = 0; index < node.childCount; index++) {
+    const child = node.child(index);
+    if (child !== null) walk(child, visit);
+  }
+}
+
+function readCodeTree(file: ParsedSyntaxTree, language: AccessLanguage): CodeTree {
+  const strings: CharSpan[] = [];
+  const calls: CallSpan[] = [];
+  const prisma: PrismaCall[] = [];
+  const constRegions: ConstRegion[] = [];
+  walk(file.root, (node) => {
+    // A string's content is strictly between its quotes, in every grammar here.
+    if (STRING_NODES.has(node.type) && node.endIndex >= node.startIndex + 2) {
+      strings.push({start: node.startIndex + 1, end: node.endIndex - 1});
+    }
+    // An invocation's own range is the site a literal inside its arguments is
+    // cited at; `new Error(...)` invokes where its constructor stands, so the
+    // citation starts at the name a reader sees.
+    if (node.type === 'call_expression' || node.type === 'new_expression') {
+      const args = node.childForFieldName('arguments');
+      if (args !== null) {
+        const invoked = node.type === 'new_expression' ? node.childForFieldName('constructor') ?? node : node;
+        calls.push({start: invoked.startIndex, end: node.endIndex, argsStart: args.startIndex, argsEnd: args.endIndex});
+        const called = node.type === 'call_expression' ? prismaCallOf(node, args.startIndex) : undefined;
+        if (called !== undefined) prisma.push(called);
+      }
+    }
+    // A `const name = (...) => {...}` the syntax reader does not declare: the
+    // legacy report's report builders. The grammar says what the value is, so
+    // no spelling of it is read.
+    if (language !== 'go' && node.type === 'variable_declarator') {
+      const region = constFunctionOf(node);
+      if (region !== undefined) constRegions.push(region);
+    }
+  });
+  return {text: file.text, strings, calls, prisma, constRegions};
+}
+
+/** The name a member expression reads off, where the grammar wrote it as a plain name. */
+function propertyName(member: SyntaxNode): string | undefined {
+  const property = member.childForFieldName('property');
+  if (property === null) return undefined;
+  if (property.type === 'property_identifier' || property.type === 'identifier') return property.text;
+  return undefined;
+}
+
+/**
+ * The Prisma client call `prisma.<model>.<op>(` / `this.prisma.<model>.<op>(`
+ * a call expression makes, or `undefined` where it makes none. The client, the
+ * model and the operation are the grammar's own members; the span the reader
+ * cites runs from the client to the opening paren, as the site always has.
+ */
+function prismaCallOf(call: SyntaxNode, argsStart: number): PrismaCall | undefined {
+  const callee = call.childForFieldName('function');
+  if (callee === null || callee.type !== 'member_expression') return undefined;
+  const op = propertyName(callee);
+  const model = callee.childForFieldName('object');
+  if (op === undefined || model === null || model.type !== 'member_expression') return undefined;
+  const name = propertyName(model);
+  const client = model.childForFieldName('object');
+  if (name === undefined || client === null || !isPrismaClient(client)) return undefined;
+  return {model: name, op, start: call.startIndex, end: argsStart + 1};
+}
+
+/** Whether an expression is the Prisma client: the bare `prisma`, or `this.prisma`. */
+function isPrismaClient(node: SyntaxNode): boolean {
+  if (node.type === 'identifier') return node.text === 'prisma';
+  if (node.type !== 'member_expression' || propertyName(node) !== 'prisma') return false;
+  const object = node.childForFieldName('object');
+  return object !== null && object.type === 'this';
+}
+
+/** The region a `const <name> = <function> {...}` declares, where its value is a function body. */
+function constFunctionOf(declarator: SyntaxNode): ConstRegion | undefined {
+  const declaration = declarator.parent;
+  if (declaration === null || declaration.type !== 'lexical_declaration') return undefined;
+  if (declaration.child(0)?.type !== 'const') return undefined;
+  const name = declarator.childForFieldName('name');
+  const value = declarator.childForFieldName('value');
+  if (name === null || name.type !== 'identifier' || value === null || !FUNCTION_VALUES.has(value.type)) return undefined;
+  const body = value.childForFieldName('body');
+  if (body === null || body.type !== 'statement_block') return undefined;
+  return {name: name.text, start: name.startIndex, end: body.endIndex};
+}
+
+/** The innermost call whose argument list holds the character range: the call a literal stands in. */
+function enclosingCall(calls: readonly CallSpan[], start: number, end: number): CallSpan | undefined {
+  let innermost: CallSpan | undefined;
+  for (const call of calls) {
+    if (!(call.argsStart < start && end < call.argsEnd)) continue;
+    if (innermost === undefined || call.argsStart > innermost.argsStart) innermost = call;
+  }
+  return innermost;
+}
+
+// ---- the SQL one literal holds -------------------------------------------
+
+/**
+ * The table accesses and the CREATE TABLE declarations one SQL text holds, by
+ * statement kind, each list in the order the text writes them.
+ */
+interface SqlFacts {
+  readonly inserts: readonly string[];
+  readonly updates: readonly string[];
+  readonly deletes: readonly string[];
+  readonly reads: readonly string[];
+  readonly declarations: readonly string[];
+}
+
+const NO_FACTS: SqlFacts = {inserts: [], updates: [], deletes: [], reads: [], declarations: []};
+
+/**
+ * The SQL one literal's content holds. PostgreSQL's parser answers a statement,
+ * with its own reading of quoting, case folding and statement boundaries. A
+ * literal that is only a fragment of a statement has no statement to parse -
+ * and no reader can make one out of `' FROM payments p'` - so PostgreSQL's
+ * lexer answers its clause keywords and the names that follow them instead.
+ */
+async function sqlFactsOf(content: string): Promise<SqlFacts> {
+  let tokens: readonly ScanToken[];
+  try {
+    tokens = (await scan(content)).tokens;
+  } catch {
+    // Bytes the lexer cannot read are no SQL this reader claims.
+    return NO_FACTS;
+  }
+  if (!holdsClause(tokens)) return NO_FACTS;
+  let parsed: ParseResult;
+  try {
+    parsed = await parsePostgres(content);
+  } catch {
+    return fragmentFacts(tokens);
+  }
+  return statementFacts(parsed);
+}
+
+/** Whether a lexer token is the SQL keyword `name`: the lexer says a keyword, and its spelling is that keyword. */
+function keyword(token: ScanToken | undefined, name: string): boolean {
+  return token !== undefined && token.keywordKind !== 0 && token.text.toUpperCase() === name;
+}
+
+/**
+ * Whether a lexer token is a name: an identifier, or a word the lexer read as a
+ * keyword - a table may carry a keyword's spelling (`FROM method`), and the
+ * grammar that reads the statement accepts it there.
+ */
+function nameToken(token: ScanToken | undefined): boolean {
+  if (token === undefined) return false;
+  return token.tokenName === 'IDENT' || token.keywordKind !== 0;
+}
+
+/**
+ * Whether a token stream names a statement's verb or a clause that reads a
+ * table: the seven shapes the reader answers, so a literal that holds none of
+ * them is no SQL literal and costs no parse.
+ */
+function holdsClause(tokens: readonly ScanToken[]): boolean {
+  for (let at = 0; at < tokens.length; at++) {
+    if (keyword(tokens[at], 'SELECT') || keyword(tokens[at], 'FROM') || keyword(tokens[at], 'JOIN')) return true;
+    if (keyword(tokens[at], 'INSERT') && keyword(tokens[at + 1], 'INTO')) return true;
+    if (keyword(tokens[at], 'UPDATE') && nameToken(tokens[at + 1]) && keyword(tokens[at + 2], 'SET')) return true;
+    if (keyword(tokens[at], 'DELETE') && keyword(tokens[at + 1], 'FROM')) return true;
+    if (keyword(tokens[at], 'CREATE') && keyword(tokens[at + 1], 'TABLE')) return true;
+  }
+  return false;
+}
+
+/** The name a name token holds, without the quotes the grammar wrote around it. */
+function tokenName(token: ScanToken | undefined): string | undefined {
+  if (token === undefined || !nameToken(token)) return undefined;
+  const text = token.text;
+  if (text.length >= 2 && text[0] === '"' && text[text.length - 1] === '"') return text.slice(1, -1);
+  return text;
+}
+
+/**
+ * The facts of a literal that is a fragment of a statement: the clauses the
+ * lexer's keywords open, and the names its identifiers write after them. The
+ * FROM of a DELETE is that delete, never a read of its own.
+ */
+function fragmentFacts(tokens: readonly ScanToken[]): SqlFacts {
+  const inserts: string[] = [];
+  const updates: string[] = [];
+  const deletes: string[] = [];
+  const reads: string[] = [];
+  const declarations: string[] = [];
+  const deletedFrom = new Set<number>();
+  for (let at = 0; at < tokens.length; at++) {
+    if (keyword(tokens[at], 'INSERT') && keyword(tokens[at + 1], 'INTO')) {
+      const table = tokenName(tokens[at + 2]);
+      if (table !== undefined) inserts.push(table);
+      continue;
+    }
+    if (keyword(tokens[at], 'UPDATE') && nameToken(tokens[at + 1]) && keyword(tokens[at + 2], 'SET')) {
+      const table = tokenName(tokens[at + 1]);
+      if (table !== undefined) updates.push(table);
+      continue;
+    }
+    if (keyword(tokens[at], 'DELETE') && keyword(tokens[at + 1], 'FROM')) {
+      const table = tokenName(tokens[at + 2]);
+      if (table !== undefined) deletes.push(table);
+      deletedFrom.add(at + 1);
+      continue;
+    }
+    if (keyword(tokens[at], 'CREATE') && keyword(tokens[at + 1], 'TABLE')) {
+      const table = declaredTable(tokens, at + 2);
+      if (table !== undefined) declarations.push(table);
+    }
+  }
+  for (let at = 0; at < tokens.length; at++) {
+    if (keyword(tokens[at], 'FROM') && !deletedFrom.has(at)) {
+      const table = tokenName(tokens[at + 1]);
+      if (table !== undefined) reads.push(table);
+      continue;
+    }
+    if (keyword(tokens[at], 'JOIN')) {
+      const table = tokenName(tokens[at + 1]);
+      if (table !== undefined) reads.push(table);
+    }
+  }
+  return {inserts, updates, deletes, reads, declarations};
+}
+
+/**
+ * The table a `CREATE TABLE` names, from the token after TABLE: `IF NOT
+ * EXISTS` is skipped, a schema qualification is dropped (the reader cites the
+ * table's own name), and the declaration's column list must follow.
+ */
+function declaredTable(tokens: readonly ScanToken[], from: number): string | undefined {
+  let at = from;
+  if (keyword(tokens[at], 'IF') && keyword(tokens[at + 1], 'NOT') && keyword(tokens[at + 2], 'EXISTS')) at += 3;
+  let table = tokenName(tokens[at]);
+  if (table === undefined) return undefined;
+  if (tokens[at + 1]?.text === '.') {
+    table = tokenName(tokens[at + 2]);
+    at += 2;
+  }
+  return tokens[at + 3]?.text === '(' ? table : undefined;
+}
+
+/** The facts of a statement PostgreSQL parsed: the tables its own nodes name. */
+function statementFacts(parsed: ParseResult): SqlFacts {
+  const inserts: {readonly table: string; readonly at: number}[] = [];
+  const updates: {readonly table: string; readonly at: number}[] = [];
+  const deletes: {readonly table: string; readonly at: number}[] = [];
+  const reads: {readonly table: string; readonly at: number}[] = [];
+  const declarations: string[] = [];
+  const named = (entries: readonly {readonly table: string; readonly at: number}[]): string[] =>
+    [...entries].sort((left, right) => left.at - right.at).map((entry) => entry.table);
+  const target = (value: unknown, into: {readonly table: string; readonly at: number}[]): void => {
+    const range = record(value);
+    const table = string(range?.relname);
+    if (range !== undefined && table !== undefined) into.push({table, at: locationOf(range)});
+  };
+  // A source of a FROM clause is a table (`{RangeVar: ...}`), a join of two
+  // sources, or something else (a subquery, a function call) whose own
+  // statements the walk below meets.
+  const source = (value: unknown): void => {
+    const node = record(value);
+    if (node === undefined) return;
+    const join = record(node.JoinExpr);
+    if (join !== undefined) {
+      source(join.larg);
+      source(join.rarg);
+      return;
+    }
+    target(node.RangeVar, reads);
+  };
+  const visit = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      for (const child of value) visit(child);
+      return;
+    }
+    const node = record(value);
+    if (node === undefined) return;
+    const insert = record(node.InsertStmt);
+    if (insert !== undefined) target(insert.relation, inserts);
+    const update = record(node.UpdateStmt);
+    if (update !== undefined) target(update.relation, updates);
+    const remove = record(node.DeleteStmt);
+    if (remove !== undefined) target(remove.relation, deletes);
+    const create = record(node.CreateStmt);
+    if (create !== undefined) {
+      const table = string(record(create.relation)?.relname);
+      if (table !== undefined) declarations.push(table);
+    }
+    const select = record(node.SelectStmt);
+    if (select !== undefined) for (const item of list(select.fromClause)) source(item);
+    for (const child of Object.values(node)) visit(child);
+  };
+  for (const statement of parsed.stmts ?? []) visit(statement.stmt);
+  return {inserts: named(inserts), updates: named(updates), deletes: named(deletes), reads: named(reads), declarations};
+}
+
+type RecordNode = {[key: string]: unknown};
+const record = (value: unknown): RecordNode | undefined => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as RecordNode : undefined;
+const list = (value: unknown): unknown[] => Array.isArray(value) ? value : [];
+const string = (value: unknown): string | undefined => typeof value === 'string' ? value : undefined;
+/** Where a node stands in the text PostgreSQL read; a node the parser wrote at 0 omits its place. */
+const locationOf = (node: RecordNode): number => typeof node['location'] === 'number' ? node['location'] : 0;
+
+/** The table accesses one SQL text holds, each at the literal's own span, named once. */
+function sqlSites(facts: SqlFacts, span: SourceSpan, region: string): readonly AccessSite[] {
+  const sites = new Map<string, AccessSite>();
+  const push = (table: string, verb: 'read' | 'write'): void => {
+    if (table === '' || beginsWithDigit(table)) return;
+    const key = `${verb} ${table}`;
+    if (!sites.has(key)) sites.set(key, {table, verb, via: 'sql', region, span});
+  };
+  for (const table of facts.inserts) push(table, 'write');
+  for (const table of facts.updates) push(table, 'write');
+  for (const table of facts.deletes) push(table, 'write');
+  for (const table of facts.reads) push(table, 'read');
+  return [...sites.values()];
+}
+
+/** The CREATE TABLE declarations one SQL text holds, at the literal's own span. */
+function sqlDeclarations(facts: SqlFacts, span: SourceSpan): readonly CodeTableDeclaration[] {
+  return facts.declarations.map((table) => ({table, span}));
+}
+
+function beginsWithDigit(name: string): boolean {
+  const code = name.charCodeAt(0);
+  return code >= 0x30 && code <= 0x39;
+}
+
+// ---- the regions ----------------------------------------------------------
 
 /**
  * The innermost function or method whose span holds the byte range, or
@@ -190,239 +564,39 @@ function regionFinder(regions: readonly FunctionRegion[]): (byteStart: number, b
 }
 
 /** Collects the regions this reader attributes access to, from the syntax reader's declarations. */
-function collectRegions(
-  path: string,
-  text: string,
-  language: AccessLanguage,
-  syntax: Awaited<ReturnType<typeof extractFileSyntax>>,
-  toByte: readonly number[],
-): FunctionRegion[] {
+function collectRegions(path: string, language: AccessLanguage, syntax: ExtractedFileSyntax): FunctionRegion[] {
   const regions: FunctionRegion[] = [];
   for (const symbol of syntax.symbols) {
     if (!REGIONS_OF_INTEREST.has(symbol.symbolKind)) continue;
-    regions.push({
-      qualifiedName: symbol.qualifiedName,
-      symbolKind: symbol.symbolKind,
-      language,
-      span: sourceSpan(path, symbol.span),
-    });
-  }
-  if (language !== 'go') {
-    // A `const name = (...) => {...}` the syntax reader does not declare: the
-    // legacy report's report builders. The fallback is lexical and bounded: a
-    // `const` whose value begins with `async`, `(` or `function`, and only
-    // where no declaration already holds the span.
-    for (const candidate of constFunctionRegions(text)) {
-      const byteStart = toByte[candidate.start]!;
-      const byteEnd = toByte[candidate.end]!;
-      const held = regions.some((region) => region.span.byteStart <= byteStart && byteEnd <= region.span.byteEnd);
-      if (held) continue;
-      regions.push({
-        qualifiedName: candidate.name,
-        // The region holds a function body (an arrow or a function
-        // expression), whatever keyword declares it.
-        symbolKind: 'function',
-        language,
-        span: {
-          path,
-          byteStart,
-          byteEnd,
-          lineStart: lineOf(text, toByte, byteStart),
-          lineEnd: lineOf(text, toByte, byteEnd),
-        },
-      });
-    }
+    regions.push({qualifiedName: symbol.qualifiedName, symbolKind: symbol.symbolKind, language, span: sourceSpan(path, symbol.span)});
   }
   return regions.sort((left, right) => left.span.byteStart - right.span.byteStart || byCodePointOf(left.qualifiedName, right.qualifiedName));
 }
 
-interface CandidateRegion {
-  readonly name: string;
-  readonly start: number;
-  readonly end: number;
-}
-
-/** Finds `const NAME ... = ... => {` / `= function ... {` regions by brace matching. */
-function constFunctionRegions(text: string): readonly CandidateRegion[] {
-  const found: CandidateRegion[] = [];
-  const pattern = /(?:^|\n)\s*(?:export\s+)?(?:async\s+)?const\s+([A-Za-z_$][\w$]*)\s*/g;
-  for (let match = pattern.exec(text); match !== null; match = pattern.exec(text)) {
-    const nameStart = match.index + match[0].indexOf(match[1]!);
-    let index = match.index + match[0].length;
-    // Skip a type annotation (`: ReportBuilder`) to the value's `=`.
-    while (index < text.length && text[index] !== '=' && text[index] !== '\n') index++;
-    if (text[index] !== '=') continue;
-    index++;
-    while (index < text.length && /\s/.test(text[index]!)) index++;
-    const value = text.slice(index, index + 9);
-    if (!/^async\b/.test(value) && !/^function\b/.test(value) && value[0] !== '(') continue;
-    // The body: the first `{` of the value, matched to its own close.
-    while (index < text.length && text[index] !== '{' && text[index] !== ';') index++;
-    if (text[index] !== '{') continue;
-    const close = matchingBrace(text, index);
-    if (close === -1) continue;
-    found.push({name: match[1]!, start: nameStart, end: close + 1});
-  }
-  return found;
-}
-
-function matchingBrace(text: string, open: number): number {
-  let depth = 0;
-  let index = open;
-  while (index < text.length) {
-    const character = text[index];
-    if (character === '/' && text[index + 1] === '/') {
-      while (index < text.length && text[index] !== '\n') index++;
-      continue;
-    }
-    if (character === '/' && text[index + 1] === '*') {
-      index += 2;
-      while (index < text.length && !(text[index] === '*' && text[index + 1] === '/')) index++;
-      index = Math.min(text.length, index + 2);
-      continue;
-    }
-    if (character === '"' || character === "'" || character === '`') {
-      const quote = character;
-      index++;
-      while (index < text.length) {
-        if (text[index] === '\\') {
-          index += 2;
-          continue;
-        }
-        if (text[index] === quote) break;
-        index++;
-      }
-      index++;
-      continue;
-    }
-    if (character === '{') depth++;
-    if (character === '}') {
-      depth--;
-      if (depth === 0) return index;
-    }
-    index++;
-  }
-  return -1;
-}
-
 /**
- * Whether a string literal's content is worth an SQL reading. A fragment of a
- * concatenated statement (`\` FROM orders WHERE id = $1\``) carries only the
- * FROM clause, so the clause keywords count as much as the statement verbs.
+ * The syntax reader's regions with the `const` function bodies it declares
+ * nowhere: a region is added where no declaration already holds its span, and
+ * the whole list is answered in the order every reader sorts it.
  */
-function looksLikeSql(content: string): boolean {
-  return /\b(?:SELECT\b|FROM\b|JOIN\b|INSERT\s+INTO\b|UPDATE\s+\w+\s+SET\b|DELETE\s+FROM\b|CREATE\s+TABLE\b)/i.test(content);
-}
-
-/** The table accesses one SQL text holds, each at the literal's own span, named once. */
-function collectSqlSites(content: string, span: SourceSpan, region: string): readonly AccessSite[] {
-  const sites = new Map<string, AccessSite>();
-  const push = (table: string, verb: 'read' | 'write'): void => {
-    if (table === '' || /^\d/.test(table)) return;
-    const key = `${verb} ${table}`;
-    if (!sites.has(key)) sites.set(key, {table, verb, via: 'sql', region, span});
-  };
-  for (const match of content.matchAll(/\bINSERT\s+INTO\s+"?(\w+)"?/gi)) push(match[1]!, 'write');
-  for (const match of content.matchAll(/\bUPDATE\s+"?(\w+)"?\s+SET\b/gi)) push(match[1]!, 'write');
-  const deletes = [...content.matchAll(/\bDELETE\s+FROM\s+"?(\w+)"?/gi)];
-  for (const match of deletes) push(match[1]!, 'write');
-  // The FROM of a DELETE is that delete, not a read.
-  const inDelete = (at: number): boolean => deletes.some((candidate) => candidate.index !== undefined && at >= candidate.index && at < candidate.index + candidate[0].length);
-  for (const match of content.matchAll(/\bFROM\s+"?(\w+)"?/gi)) {
-    if (inDelete(match.index ?? 0)) continue;
-    push(match[1]!, 'read');
+function withConstRegions(
+  regions: readonly FunctionRegion[],
+  candidates: readonly ConstRegion[],
+  path: string,
+  bytes: ByteText,
+  language: AccessLanguage,
+): readonly FunctionRegion[] {
+  const merged = [...regions];
+  for (const candidate of candidates) {
+    const byteStart = bytes.byteAt(candidate.start);
+    const byteEnd = bytes.byteAt(candidate.end);
+    if (merged.some((region) => region.span.byteStart <= byteStart && byteEnd <= region.span.byteEnd)) continue;
+    // The region holds a function body (an arrow or a function expression),
+    // whatever keyword declares it.
+    merged.push({qualifiedName: candidate.name, symbolKind: 'function', language, span: {
+      path, byteStart, byteEnd, lineStart: bytes.lineOf(byteStart), lineEnd: bytes.lineOf(byteEnd),
+    }});
   }
-  for (const match of content.matchAll(/\bJOIN\s+"?(\w+)"?/gi)) push(match[1]!, 'read');
-  return [...sites.values()];
-}
-
-/** The CREATE TABLE declarations one SQL text holds, at the literal's own span. */
-function collectCodeDdl(content: string, span: SourceSpan): readonly CodeTableDeclaration[] {
-  const found: CodeTableDeclaration[] = [];
-  for (const match of content.matchAll(/\bCREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:(?:"?(\w+)"?)\.)?"?(\w+)"?\s*\(/gi)) {
-    found.push({table: match[2]!, span});
-  }
-  return found;
-}
-
-/**
- * Replaces every string literal's content and every comment with spaces, so a
- * scan over the text never reads a string or a comment as code, and the
- * offsets of the text stay the same.
- */
-function maskText(text: string, language: AccessLanguage, toByte: readonly number[]): string {
-  const scanned = language === 'go' ? scanGoText(text) : scanTsLikeText(text);
-  const out = [...text];
-  for (const span of [...scanned.comments, ...scanned.strings]) {
-    // The spans are byte spans; the character offset of a byte is found, not indexed.
-    const from = charAt(toByte, span.byteStart);
-    const to = charAt(toByte, span.byteEnd);
-    for (let at = from; at < to; at++) out[at] = ' ';
-  }
-  return out.join('');
-}
-
-/** The calls of one masked text: where each chain starts and where its arguments end. */
-function collectCallSpans(masked: string): readonly {readonly chainStart: number; readonly openParen: number; readonly closeParen: number}[] {
-  const found: {chainStart: number; openParen: number; closeParen: number}[] = [];
-  for (const match of masked.matchAll(/([A-Za-z_$][\w$]*(?:\s*\.\s*[A-Za-z_$][\w$]*)*)\s*\(/g)) {
-    const openParen = (match.index ?? 0) + match[0].length - 1;
-    const closeParen = matchingParenOf(masked, openParen);
-    if (closeParen !== -1) found.push({chainStart: match.index ?? 0, openParen, closeParen});
-  }
-  return found.sort((left, right) => left.openParen - right.openParen);
-}
-
-function matchingParenOf(masked: string, open: number): number {
-  let depth = 0;
-  for (let index = open; index < masked.length; index++) {
-    if (masked[index] === '(') depth++;
-    if (masked[index] === ')') {
-      depth--;
-      if (depth === 0) return index;
-    }
-  }
-  return -1;
-}
-
-// ---- byte/char bookkeeping ------------------------------------------------
-
-/** The byte offset of every character of `text`, one entry past the end included. */
-function byteCounter(text: string): number[] {
-  const offsets = new Array<number>(text.length + 1);
-  let byte = 0;
-  for (let index = 0; index < text.length; index++) {
-    offsets[index] = byte;
-    const codePoint = text.codePointAt(index)!;
-    byte += codePoint > 0xffff ? 4 : codePoint > 0x7f ? (codePoint > 0x7ff ? 3 : 2) : 1;
-    if (codePoint > 0xffff) index++;
-  }
-  offsets[text.length] = byte;
-  return offsets;
-}
-
-function charAt(offsets: readonly number[], byte: number): number {
-  let low = 0;
-  let high = offsets.length - 1;
-  while (low < high) {
-    const middle = Math.ceil((low + high) / 2);
-    if (offsets[middle]! <= byte) low = middle;
-    else high = middle - 1;
-  }
-  return low;
-}
-
-function lineOf(text: string, offsets: readonly number[], byte: number): number {
-  const charIndex = charAt(offsets, byte);
-  let line = 1;
-  for (let index = 0; index < charIndex; index++) {
-    if (text[index] === '\n') line++;
-  }
-  return line;
-}
-
-function insideAny(byteStart: number, byteEnd: number, spans: readonly {byteStart: number; byteEnd: number}[]): boolean {
-  return spans.some((span) => byteStart >= span.byteStart && byteEnd <= span.byteEnd);
+  return merged.sort((left, right) => left.span.byteStart - right.span.byteStart || byCodePointOf(left.qualifiedName, right.qualifiedName));
 }
 
 /** The syntax reader's span is byte-based already (SyntaxSpan.startByte); only the path is added. */

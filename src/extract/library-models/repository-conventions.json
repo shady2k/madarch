@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 1,
+  "foreignManifestFolders": [
+    {
+      "id": "npm-node-modules",
+      "folder": "node_modules",
+      "ecosystem": "node",
+      "reference": "https://docs.npmjs.com/cli/v10/configuring-npm/folders"
+    },
+    {
+      "id": "go-vendor",
+      "folder": "vendor",
+      "ecosystem": "go",
+      "reference": "https://go.dev/ref/mod#vendoring"
+    }
+  ],
+  "migrationSeries": [
+    {
+      "id": "sql-migration-folder",
+      "folder": "migrations",
+      "parent": null,
+      "fileName": null,
+      "fileSuffix": ".sql",
+      "nameFrom": "file",
+      "ordered": "path",
+      "reference": "https://www.postgresql.org/docs/current/ddl.html"
+    },
+    {
+      "id": "prisma-migration-folder",
+      "folder": "migrations",
+      "parent": "prisma",
+      "fileName": "migration.sql",
+      "fileSuffix": ".sql",
+      "nameFrom": "parent",
+      "ordered": "path",
+      "reference": "https://www.prisma.io/docs/orm/prisma-migrate/understanding-prisma-migrate/migration-histories"
+    }
+  ],
+  "prismaSchemas": [
+    {
+      "id": "prisma-schema",
+      "folder": "prisma",
+      "fileName": "schema.prisma",
+      "reference": "https://www.prisma.io/docs/orm/prisma-schema/overview"
+    }
+  ],
+  "schemaScripts": [
+    {
+      "id": "sql-schema-statements",
+      "fileSuffix": ".sql",
+      "declaresTables": [
+        "CreateStmt",
+        "AlterTableStmt",
+        "IndexStmt"
+      ],
+      "reference": "https://www.postgresql.org/docs/current/ddl.html"
+    }
+  ],
+  "composeServices": [
+    {
+      "id": "compose-build-context",
+      "keys": [
+        "build",
+        "context"
+      ],
+      "namesUnit": true,
+      "reference": "https://docs.docker.com/compose/compose-file/build/"
+    }
+  ]
+}

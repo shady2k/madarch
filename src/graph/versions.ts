@@ -25,6 +25,29 @@ export interface WriteContext {
   now: () => string;
   /** Where `reconcileEdges` records the cascades it makes, when the caller wants them (a publication reports them). */
   cascadeLog?: { edgeVersion: GraphId; replacedBy: GraphId | null }[];
+  /**
+   * Answers one transaction already has, so a publication of ten thousand rows
+   * does not ask a thousand times what it has asked once (madarch-mwhd.3: one
+   * tree's fill sent 107 346 statements, a third of them repeats). Every entry
+   * is a row this transaction may only read afterwards — a node identity, a
+   * kind id, an edge identity — never a fact that another statement of the same
+   * transaction can change.
+   */
+  memo: WriteMemo;
+}
+
+export interface WriteMemo {
+  /** Node identities this transaction has already proved exist, in `checkId` form. */
+  readonly nodes: Set<string>;
+  /** Kind keys to their ids, as the vocabulary stands in this transaction. */
+  readonly kinds: Map<string, string>;
+  /** Edge key hashes to the identity they stand for. */
+  readonly edges: Map<string, GraphId>;
+}
+
+/** The empty memory a transaction starts with. */
+export function writeMemo(): WriteMemo {
+  return {nodes: new Set(), kinds: new Map(), edges: new Map()};
 }
 
 /** Who owns a version: the extraction recipe and the scope node it ran for. */
@@ -185,9 +208,12 @@ export async function guarded<T>(operation: string, path: string, origin: GraphO
 }
 
 export async function kindId(ctx: WriteContext, key: string, operation: string, path: string, origin?: GraphOrigin): Promise<string> {
+  const held = ctx.memo.kinds.get(key);
+  if (held !== undefined) return held;
   const found = await ctx.tx.query<{ id: string }>('SELECT id::text AS id FROM node_kind WHERE key = $1', [key]);
   const row = found.rows[0];
   if (row === undefined) throw new GraphError(operation, path, `the node kind "${key}" is not registered: the engine declares its own keys and the product's registry declares the rest`, origin);
+  ctx.memo.kinds.set(key, row.id);
   return row.id;
 }
 
@@ -211,8 +237,11 @@ export async function newNodeIdentity(ctx: WriteContext): Promise<GraphId> {
 
 /** Refuses an identity that has no row, naming where it was given. */
 export async function requireNode(ctx: WriteContext, id: GraphId, operation: string, path: string, origin?: GraphOrigin): Promise<void> {
-  const found = await ctx.tx.query('SELECT 1 FROM node_identity WHERE id = $1::bigint', [checkId(id, operation, path, origin)]);
+  const checked = checkId(id, operation, path, origin);
+  if (ctx.memo.nodes.has(checked)) return;
+  const found = await ctx.tx.query('SELECT 1 FROM node_identity WHERE id = $1::bigint', [checked]);
   if (found.rows.length === 0) throw new GraphError(operation, path, `node ${id} does not exist`, origin);
+  ctx.memo.nodes.add(checked);
 }
 
 /** Locks node identities in ascending order, so a writer ending a node and a writer inserting an edge to it serialise and never deadlock. */
@@ -605,11 +634,14 @@ export async function resolveEdge(ctx: WriteContext, input: NewEdgeVersion, path
   return { relation, discriminator, position, keyHash: edgeKeyHash({ relation: input.relation, src, dst, discriminator, position }) };
 }
 
+/** The identity one key hash stands for: asked once per transaction, since the row never changes after it is written. */
 export async function edgeIdentity(ctx: WriteContext, keyHash: string): Promise<GraphId> {
+  const held = ctx.memo.edges.get(keyHash);
+  if (held !== undefined) return held;
   const made = await ctx.tx.query<{ id: string }>('INSERT INTO edge_identity (key_hash) VALUES ($1) ON CONFLICT (key_hash) DO NOTHING RETURNING id::text AS id', [keyHash]);
-  if (made.rows[0] !== undefined) return made.rows[0].id;
-  const found = await ctx.tx.query<{ id: string }>('SELECT id::text AS id FROM edge_identity WHERE key_hash = $1', [keyHash]);
-  return found.rows[0]!.id;
+  const identity = made.rows[0]?.id ?? (await ctx.tx.query<{ id: string }>('SELECT id::text AS id FROM edge_identity WHERE key_hash = $1', [keyHash])).rows[0]!.id;
+  ctx.memo.edges.set(keyHash, identity);
+  return identity;
 }
 
 /** Opens an edge version after endpoint integrity has been checked; returns its identity and version. */

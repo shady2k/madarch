@@ -13,7 +13,9 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { extractOperations } from '../src/extract/operations/index.js';
+// Test-only CodeFacts fixture owns one shared code pass for each immutable tree.
+import { extractOperations } from './extract-code-facts-fixture.js';
+import {extractCode} from './extract-code-facts-fixture.js';
 import type { Extraction, ExtractedEdge, ExtractedNode, SourceSpan, TreeReader } from '../src/extract/records.js';
 import { byCodePoint } from '../src/model/order.js';
 
@@ -94,14 +96,14 @@ let spanText: (span: SourceSpan) => string;
 let textOf: (path: string) => string;
 let workspace: string;
 
-beforeAll(() => {
+beforeAll(async () => {
   workspace = mkdtempSync(path.join(tmpdir(), 'madarch-extract-operations-'));
   const repo = path.join(workspace, 'repo');
   execFileSync('node', [GENERATOR, repo], { cwd: ROOT, stdio: ['ignore', 'ignore', 'pipe'], maxBuffer: 64 * 1024 * 1024 });
   tree = readTree(repo);
   spanText = (span: SourceSpan) => new TextDecoder().decode(tree.read(span.path).subarray(span.byteStart, span.byteEnd));
   textOf = textOfOf(tree);
-  extraction = extractOperations(tree);
+  extraction = await extractOperations(tree, await extractCode(tree));
   nodes = new Map(extraction.nodes.map((entry) => [entry.key, entry]));
 }, 120_000);
 
@@ -147,8 +149,8 @@ function assertAnchored(id: string): void {
 }
 
 describe('extract operations', () => {
-  test('the extraction is deterministic over one tree', () => {
-    expect(extractOperations(tree)).toEqual(extraction);
+  test('the extraction is deterministic over one tree', async () => {
+    expect(await extractOperations(tree, await extractCode(tree))).toEqual(extraction);
   });
 
   test('every edge ends at nodes the extraction holds, and keys carry no run', () => {
@@ -172,6 +174,17 @@ describe('extract operations', () => {
     expect(edgeKeys).toEqual([...edgeKeys].sort(byCodePoint));
     expect(extraction.gaps, JSON.stringify(extraction.gaps)).toEqual([]);
     expect(extraction.producer).toBe('code.extract.operations');
+  });
+
+  test('health listeners follow each generated composition root, not the service-wide ports', () => {
+    const expected: Record<string, string[]> = {checkout: ['8083'], orders: ['8080'], payments: ['8081'], promotions: ['8082']};
+    const endpoints = nodesOfKind('code.health-endpoint');
+    expect(endpoints).toHaveLength(4);
+    for (const [service, ports] of Object.entries(expected)) {
+      const held = endpoints.filter((endpoint) => endpoint.properties.service === service);
+      expect(held, `${service} health endpoint`).toHaveLength(1);
+      expect(held[0]?.properties.ports, `${service} actual HTTP listener`).toEqual(ports);
+    }
   });
 
   // ---- stack.passport -----------------------------------------------------
@@ -348,6 +361,10 @@ describe('extract operations', () => {
     expect(deployment.properties.image).toBe('registry.example.test/training/orders:1.4.0');
     expect(deployment.properties.containerPorts).toEqual([8080]);
     expect(deployment.properties.probePath).toBe('/healthz');
+    expect(deployment.properties.probePaths).toEqual(['/healthz', '/healthz', '/healthz']);
+    const probes = nodesOfKind('code.probe');
+    expect(probes.map((probe) => probe.properties.probeType)).toEqual(['livenessProbe', 'readinessProbe', 'startupProbe']);
+    expect(probes.map((probe) => probe.properties.periodSeconds)).toEqual([10, 5, 2]);
     const service = node('code.k8s-service:deploy/k8s/orders.yaml#orders');
     expect(service.properties.ports).toEqual([{ name: 'http', port: 80, targetPort: 8080 }]);
     expect(edgesFrom('code.targets', service.key).map((entry) => entry.to)).toEqual([`code.port:${'orders/8080'}`]);
@@ -544,16 +561,27 @@ describe('extract operations', () => {
 
   test('obs.healthz', () => {
     assertAnchored('obs.healthz');
-    const endpoints: Record<string, string> = {
-      'services/orders/internal/api/router.go': 'Health',
-      'services/payments/src/app.ts': 'createApp',
-      'services/promotions/internal/api/handler.go': 'Routes',
-      'services/checkout/src/app.ts': 'createApp',
-    };
-    for (const [file, symbol] of Object.entries(endpoints)) {
+    const endpoints = [
+      ['services/orders/internal/api/router.go', 'Health'],
+      ['services/payments/src/app.ts', 'createApp'],
+      ['services/promotions/internal/api/handler.go', 'Handler.Routes'],
+      ['services/checkout/src/app.ts', 'createApp'],
+    ] as const;
+    for (const [file, enclosing] of endpoints) {
+      const source = textOf(file);
+      const registration = file.endsWith('.go') ? source.indexOf('mux.HandleFunc("GET /healthz",') : source.indexOf("app.get('/healthz',");
+      expect(registration).toBeGreaterThanOrEqual(0);
+      const inlineAt = file.endsWith('.go') ? source.indexOf('func(', registration) : source.indexOf('(_req, res) =>', registration);
+      const inline = enclosing !== 'Health';
+      const line = inline ? source.slice(0, inlineAt).split('\n').length : 0;
+      const byte = inline ? new TextEncoder().encode(source.slice(0, inlineAt)).length : 0;
+      const symbol = inline ? `${enclosing}.callback@${line}:${byte}` : 'Health';
       const endpoint = node(`code.health-endpoint:${file}#${symbol}`);
       expect(endpoint.properties.path).toBe('/healthz');
       expect(endpoint.properties.method).toBe('GET');
+      const handler = extraction.edges.filter((edge) => edge.type === 'code.served-by' && edge.from === endpoint.key && edge.properties.role === 'handler');
+      expect(handler.map((edge) => edge.to)).toEqual([`code.symbol:${file}#${symbol}`]);
+      if (inline) expect(extraction.edges.some((edge) => edge.from === endpoint.key && edge.to === `code.symbol:${file}#${enclosing}` && edge.properties.role === 'handler')).toBe(false);
     }
   });
 

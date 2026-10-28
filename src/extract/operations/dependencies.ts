@@ -7,7 +7,7 @@
 import type { PropertyValue } from '../records.js';
 import type { Records } from './accumulate.js';
 import { readGoMod, readJson } from '../../fill/stages/manifest-format.js';
-import { serviceOf, TreeText } from './source.js';
+import { TreeText } from './source.js';
 
 const EXACT_VERSION = /^\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?$/;
 
@@ -15,7 +15,7 @@ const EXACT_VERSION = /^\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?$/;
 function npmManifests(t: TreeText, records: Records): void {
   for (const path of t.pathsNamed(/^package\.json$/)) {
     if (path.includes('node_modules')) continue;
-    const service = serviceOf(path);
+    const service = t.serviceOf(path);
     const read = readJson(t.text(path));
     if (!read.ok) {
       records.gap(path, `line ${read.gap.line}: ${read.gap.detail}`);
@@ -57,7 +57,7 @@ function npmManifests(t: TreeText, records: Records): void {
         names.push({ name: dependency, scope });
       }
     }
-    if (service !== undefined) markUses(t, records, service, path, names.map((entry) => entry.name), 'ts');
+    if (service !== undefined) markUses(t, records, path, names.map((entry) => entry.name), 'ts');
 
     // The lock file the manifest resolves through: the counts the key plants.
     const lockPath = `${path.slice(0, path.lastIndexOf('/'))}/package-lock.json`;
@@ -105,7 +105,7 @@ function readNpmLock(t: TreeText, records: Records, manifestPath: string, manife
 /** One go.mod: the module, its requirements with versions and the indirect marker. */
 function goManifests(t: TreeText, records: Records): void {
   for (const path of t.pathsNamed(/^go\.mod$/)) {
-    const service = serviceOf(path);
+    const service = t.serviceOf(path);
     const read = readGoMod(t.text(path));
     if (!read.ok) {
       records.gap(path, `line ${read.gap.line}: ${read.gap.detail}`);
@@ -144,7 +144,7 @@ function goManifests(t: TreeText, records: Records): void {
       );
       if (!indirect) direct.push(require.path);
     }
-    if (service !== undefined) markUses(t, records, service, path, direct, 'go');
+    if (service !== undefined) markUses(t, records, path, direct, 'go');
     const sumPath = `${path.slice(0, path.lastIndexOf('/'))}/go.sum`;
     if (t.has(sumPath)) readGoSum(t, records, manifestKey, sumPath);
   }
@@ -169,12 +169,15 @@ function readGoSum(t: TreeText, records: Records, manifestKey: string, sumPath: 
 }
 
 /** The source files of one service that import a dependency of its manifest. */
-function markUses(t: TreeText, records: Records, service: string, manifestPath: string, names: readonly string[], kind: 'ts' | 'go'): void {
+function markUses(t: TreeText, records: Records, manifestPath: string, names: readonly string[], kind: 'ts' | 'go'): void {
   if (names.length === 0) return;
-  const prefix = `services/${service}/`;
+  // The unit the manifest declares, not a folder called services/: its files are the ones it governs.
+  const unit = t.unitOf(manifestPath);
+  if (unit === undefined) return;
+  const prefix = unit.root === '' ? '' : `${unit.root}/`;
   const wanted = new Set(names);
   for (const path of t.tree.paths) {
-    if (!path.startsWith(prefix) || path === manifestPath) continue;
+    if ((prefix !== '' && !path.startsWith(prefix)) || path === manifestPath) continue;
     if (kind === 'ts' ? !/\.(ts|mts|cts|js|mjs)$/.test(path) : !path.endsWith('.go')) continue;
     let text: string;
     try {

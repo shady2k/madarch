@@ -4,7 +4,7 @@
  * edges into the tree when the tree holds the file, so `make seed` reaches the
  * SQL it feeds psql with.
  */
-import { isMap, isScalar, isSeq, parseDocument } from 'yaml';
+import { LineCounter, isMap, isScalar, isSeq, parseDocument } from 'yaml';
 import type { PropertyValue } from '../records.js';
 import { byCodePoint } from '../../model/order.js';
 import type { Records } from './accumulate.js';
@@ -53,7 +53,7 @@ export function makeTargets(t: TreeText, records: Records, path: string): Map<st
         const candidate = token.replace(/^[^A-Za-z0-9_.]+|[^A-Za-z0-9_.]+$/g, '');
         if (!candidate.includes('/') || candidate.includes('*') || candidate.includes('$')) continue;
         if (!t.has(candidate)) continue;
-        records.edge('code.references', key, records.file(candidate));
+        records.edge('code.references', key, records.file(candidate), {}, t.spanOfLines(path, index + 1, last + 1));
       }
     }
     index = last;
@@ -64,7 +64,12 @@ export function makeTargets(t: TreeText, records: Records, path: string): Map<st
 /** The workflow of one CI YAML file and one node per job. */
 export function ciWorkflows(t: TreeText, records: Records): void {
   for (const path of t.pathsUnder('.github/workflows', /\.ya?ml$/)) {
-    const document = parseDocument(t.text(path));
+    const lineCounter = new LineCounter();
+    const document = parseDocument(t.text(path), { lineCounter, keepSourceTokens: true });
+    for (const error of document.errors) {
+      records.gap(path, `line ${lineCounter.linePos(error.pos[0]).line}: ${error.message}`);
+    }
+    if (document.errors.length > 0) continue;
     if (!isMap(document.contents)) {
       records.gap(path, 'the file is no mapping: a workflow maps its jobs and triggers');
       continue;
@@ -130,9 +135,11 @@ export function ciWorkflows(t: TreeText, records: Records): void {
         kind: 'code.ci-job',
         label: job,
         properties: { workingDirectory, steps, uses: [...uses].sort(byCodePoint) } satisfies { [key: string]: PropertyValue },
-        span: t.spanOfLine(path, 1),
+        span: t.spanOfLines(path,
+          lineCounter.linePos(pair.key.range?.[0] ?? 0).line,
+          lineCounter.linePos(Math.max(pair.key.range?.[0] ?? 0, (isMap(pair.value) ? pair.value.range?.[1] : pair.key.range?.[1]) ?? 0) - 1).line),
       });
-      records.edge('code.contains-job', workflowKey, key);
+      records.edge('code.contains-job', workflowKey, key, {}, records.nodes.find((node) => node.key === key)?.span);
     }
   }
 }

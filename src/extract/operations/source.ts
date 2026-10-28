@@ -3,10 +3,62 @@
  * point at. Offsets are bytes (records.ts), lines are 1-based; both come from
  * the same decoded text, so a span made here is the span the bytes hold.
  */
-import type { SourceSpan, TreeReader } from '../records.js';
+import type { Extraction, SourceSpan, TreeReader } from '../records.js';
 import { byCodePoint } from '../../model/order.js';
+import type {
+  CodeBindingFact, CodeCallFact, CodeExpressionFact, CodeFactId, CodeFacts, CodeFileFact, CodeImportFact, CodeSymbolFact,
+} from '../code/facts.js';
+import {codeFactsOf} from '../code/index.js';
+import { evaluateLibraryModels } from '../library-models/evaluate.js';
+import { serviceOfPath, serviceUnits, unitIndex, unitOfPath, type ServiceUnit, type UnitIndex } from '../service-units.js';
+import type { LibraryEvaluation } from '../library-models/model.js';
+import type { FunctionSite } from './symbol-sites.js';
 
 const encoder = new TextEncoder();
+
+const EMPTY_INDEX: readonly never[] = [];
+Object.freeze(EMPTY_INDEX);
+
+/**
+ * One view's index of a fact array: every entry the facts hold under a key,
+ * in the order they hold it. Groups stay arrays, never single values, so a
+ * duplicate id or key remains visible to the proofs that must fail on one,
+ * and a key the facts do not hold answers with no entry at all — the answer
+ * the whole-array scan it replaces always gave.
+ */
+export class FactIndex<T> {
+  private readonly groups: ReadonlyMap<string, readonly T[]>;
+
+  constructor(entries: Iterable<readonly [string, T]>) {
+    const grouped = new Map<string, T[]>();
+    for (const [key, entry] of entries) {
+      const held = grouped.get(key);
+      if (held === undefined) grouped.set(key, [entry]);
+      else held.push(entry);
+    }
+    const groups = new Map<string, readonly T[]>();
+    for (const [key, held] of grouped) {
+      Object.freeze(held);
+      groups.set(key, held);
+    }
+    this.groups = groups;
+  }
+
+  /** Every entry under one key, in the facts' own order; none when nothing matches. */
+  all(key: string): readonly T[] {
+    return this.groups.get(key) ?? EMPTY_INDEX;
+  }
+
+  /** The keys this index holds. */
+  keys(): readonly string[] {
+    return [...this.groups.keys()];
+  }
+}
+
+/** One index that holds one entry per item, grouped by a key of that item. */
+function groupedBy<T>(items: readonly T[] | undefined, key: (item: T) => string): FactIndex<T> {
+  return new FactIndex((items ?? []).map((item) => [key(item), item] as const));
+}
 
 export class TreeText {
   /** The tree's paths, as a set for `has`. */
@@ -16,11 +68,112 @@ export class TreeText {
   private readonly linesCache = new Map<string, readonly string[]>();
 
   readonly tree: TreeReader;
+  private libraryCache: LibraryEvaluation | undefined;
+  private unitCache: UnitIndex | undefined;
+  readonly factGaps = new Map<string, { readonly path: string; readonly reason: string }>();
+  factGap(path: string, reason: string): void { this.factGaps.set(JSON.stringify([path, reason]), {path, reason}); }
 
-  constructor(tree: TreeReader) {
+  /** The units the tree declares, read once: a service is what the repository says it is, never a folder shape. */
+  units(): UnitIndex {
+    return this.unitCache ??= unitIndex(serviceUnits(this.tree));
+  }
+
+  /** The unit a path belongs to, or undefined outside every declared unit. */
+  unitOf(path: string): ServiceUnit | undefined {
+    return unitOfPath(this.units(), path);
+  }
+
+  /** The name of the unit a path belongs to, or undefined outside every declared unit. */
+  serviceOf(path: string): string | undefined {
+    return serviceOfPath(this.units(), path);
+  }
+
+  libraryFacts(): LibraryEvaluation | undefined {
+    if (this.facts === undefined) return undefined;
+    this.libraryCache ??= evaluateLibraryModels(this.facts);
+    return this.libraryCache;
+  }
+
+  readonly facts: CodeFacts | undefined;
+
+  /**
+   * The view's immutable fact indexes, built once for this view and never
+   * shared with another one: expressions by path and by id, child ids by their
+   * parent's id, calls by their call expression, bindings by id and by
+   * initializer, symbols by path and by key, imports by path and files by path.
+   */
+  readonly expressionsByPath: FactIndex<CodeExpressionFact>;
+  readonly expressionsById: FactIndex<CodeExpressionFact>;
+  readonly childrenByParent: FactIndex<CodeFactId>;
+  readonly callsByExpression: FactIndex<CodeCallFact>;
+  readonly bindingsById: FactIndex<CodeBindingFact>;
+  readonly bindingsByInitializer: FactIndex<CodeBindingFact>;
+  readonly symbolsByPath: FactIndex<CodeSymbolFact>;
+  readonly symbolsByKey: FactIndex<CodeSymbolFact>;
+  readonly importsByPath: FactIndex<CodeImportFact>;
+  readonly filesByPath: FactIndex<CodeFileFact>;
+
+  /** The callable sites this view has already proved, and the bytes' boundary tables. */
+  private readonly callables = new Map<string, readonly FunctionSite[]>();
+  private readonly boundaries = new Map<string, Int32Array>();
+
+  constructor(tree: TreeReader, readonly code?: Extraction, facts?: CodeFacts) {
     this.tree = tree;
+    this.facts = facts ?? (code === undefined ? undefined : codeFactsOf(code, tree));
     const paths = new Set(tree.paths);
     this.has = (path) => paths.has(path);
+    this.expressionsByPath = groupedBy(this.facts?.expressions, (expression) => expression.path);
+    this.expressionsById = groupedBy(this.facts?.expressions, (expression) => expression.id);
+    this.childrenByParent = new FactIndex((this.facts?.expressions ?? []).flatMap((expression) =>
+      expression.children.map((child) => [expression.id, child] as const)));
+    this.callsByExpression = groupedBy(this.facts?.calls, (call) => call.expression);
+    this.bindingsById = groupedBy(this.facts?.bindings, (binding) => binding.id);
+    this.bindingsByInitializer = groupedBy((this.facts?.bindings ?? []).filter((binding) => binding.initializer !== undefined),
+      (binding) => binding.initializer!);
+    this.symbolsByPath = groupedBy(this.facts?.symbols, (symbol) => symbol.path);
+    this.symbolsByKey = groupedBy(this.facts?.symbols, (symbol) => symbol.key);
+    this.importsByPath = groupedBy(this.facts?.imports, (entry) => entry.path);
+    this.filesByPath = groupedBy(this.facts?.files, (file) => file.path);
+  }
+
+  /** The callable sites already proved for a path in this view, when one asked before. */
+  callableSites(path: string): readonly FunctionSite[] | undefined {
+    return this.callables.get(path);
+  }
+
+  /** Keep the callable sites one path was proved to have, for every later question about it. */
+  rememberCallableSites(path: string, sites: readonly FunctionSite[]): readonly FunctionSite[] {
+    const held: FunctionSite[] = [...sites];
+    Object.freeze(held);
+    this.callables.set(path, held);
+    return held;
+  }
+
+  /**
+   * The character offset each UTF-8 boundary of a path's bytes stands at,
+   * built once for this view. A boundary a fatal UTF-8 decode refuses stays -1,
+   * so a span that is not a boundary is refused exactly as the prefix decode
+   * that used to answer this question refused it.
+   */
+  charBoundaries(path: string): Int32Array {
+    const held = this.boundaries.get(path);
+    if (held !== undefined) return held;
+    const bytes = this.tree.read(path);
+    const table = new Int32Array(bytes.length + 1).fill(-1);
+    table[0] = 0;
+    // A leading byte order mark is not a character of the decoded text.
+    let at = bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf ? 3 : 0;
+    table[at] = 0;
+    let chars = 0;
+    while (at < bytes.length) {
+      const length = utf8Length(bytes, at);
+      if (length === undefined || at + length > bytes.length) break;
+      at += length;
+      chars += length === 4 ? 2 : 1;
+      table[at] = chars;
+    }
+    this.boundaries.set(path, table);
+    return table;
   }
 
   /** The file's text, decoded once. A path the tree does not hold throws. */
@@ -77,7 +230,8 @@ export class TreeText {
   /** The first span whose text holds the needle, from a 1-based line on. */
   spanAround(path: string, needle: string, fromLine = 1): SourceSpan | undefined {
     const text = this.text(path);
-    const at = text.indexOf(needle, charOfLine(this.lines(path), fromLine));
+    // A literal search for a string the caller already holds: the comparison is of characters, never a pattern.
+    const at = indexOfText(text, needle, charOfLine(this.lines(path), fromLine));
     if (at < 0) return undefined;
     const lines = this.lines(path);
     const first = lineOfChar(lines, at);
@@ -120,8 +274,46 @@ function charOfLine(lines: readonly string[], line: number): number {
   return lineStart(lines, line);
 }
 
-/** The service folder a repository path under services/ belongs to, or undefined. */
-export function serviceOf(path: string): string | undefined {
-  const match = /^services\/([^/]+)\//.exec(path);
-  return match?.[1];
+/**
+ * The byte length of the UTF-8 sequence a byte offset starts, or undefined
+ * where a fatal UTF-8 decoder refuses it: an overlong form, a surrogate, a
+ * code point past U+10FFFF, a stray continuation or a sequence cut short.
+ */
+function utf8Length(bytes: Uint8Array, at: number): number | undefined {
+  const lead = bytes[at];
+  if (lead === undefined) return undefined;
+  const continuation = (index: number): boolean => {
+    const byte = bytes[index];
+    return byte !== undefined && byte >= 0x80 && byte <= 0xbf;
+  };
+  const second = bytes[at + 1];
+  if (lead <= 0x7f) return 1;
+  if (lead >= 0xc2 && lead <= 0xdf) return continuation(at + 1) ? 2 : undefined;
+  if (lead === 0xe0) return second !== undefined && second >= 0xa0 && second <= 0xbf && continuation(at + 2) ? 3 : undefined;
+  if (lead >= 0xe1 && lead <= 0xec) return continuation(at + 1) && continuation(at + 2) ? 3 : undefined;
+  if (lead === 0xed) return second !== undefined && second >= 0x80 && second <= 0x9f && continuation(at + 2) ? 3 : undefined;
+  if (lead >= 0xee && lead <= 0xef) return continuation(at + 1) && continuation(at + 2) ? 3 : undefined;
+  if (lead === 0xf0) return second !== undefined && second >= 0x90 && second <= 0xbf && continuation(at + 2) && continuation(at + 3) ? 4 : undefined;
+  if (lead >= 0xf1 && lead <= 0xf3) return continuation(at + 1) && continuation(at + 2) && continuation(at + 3) ? 4 : undefined;
+  if (lead === 0xf4) return second !== undefined && second >= 0x80 && second <= 0x8f && continuation(at + 2) && continuation(at + 3) ? 4 : undefined;
+  return undefined;
+}
+
+/** The units one tree declares: read once per extractor run, not once per file. */
+export function declaredUnits(tree: TreeReader): UnitIndex {
+  return unitIndex(serviceUnits(tree));
+}
+
+/** The first place a literal string stands in a text, from a character offset on: no pattern, one comparison of characters. */
+function indexOfText(text: string, needle: string, from = 0): number {
+  if (needle === '') return from <= text.length ? from : -1;
+  const last = text.length - needle.length;
+  for (let at = Math.max(0, from); at <= last; at += 1) {
+    let matched = true;
+    for (let offset = 0; offset < needle.length; offset += 1) {
+      if (text[at + offset] !== needle[offset]) { matched = false; break; }
+    }
+    if (matched) return at;
+  }
+  return -1;
 }

@@ -64,7 +64,15 @@ test('real indexed root-package contributions and Go module imports survive the 
     const module = evidence.entities.find((one) => one.key === imported.to);
     expect(module?.kind).toBe('code.module');
     if (!module) throw new Error(`Indexed fixture omitted imported module ${imported.to} in ${repository}`);
-    expect(evidence.edges).toContainEqual({ relation: 'code.contains', from: imported.to, to: target.key, properties: {} });
+    const containment = evidence.edges.filter((one) => one.relation === 'code.contains' && one.from === imported.to && one.to === target.key);
+    expect(containment).toHaveLength(1);
+    expect(containment[0]).toEqual({
+      relation: 'code.contains', from: imported.to, to: target.key,
+      properties: {
+        sourceProducer: 'code.extract.code',
+        origins: [{ properties: {}, sourceSpan: null, sourceProducer: 'code.extract.code', originalDiscriminator: '' }],
+      },
+    });
     const reference = (one: GraphEntity) => ({ id: one.key, kind: one.kind, label: one.label, href: `/k/e?id=${encodeURIComponent(one.key)}` });
     for (const container of [rootPackage, module]) {
       const history = projectHistory(evidence, container, 50, reference);

@@ -185,9 +185,20 @@ export function extractDriverTests(label: string, make: () => { owner: DatabaseO
         const [hash = '', parents = '', committer = '', subject = ''] = line.split('\0');
         return { hash, parent: parents.split(' ')[0] ?? '', committer, subject };
       });
-      const options = fillOf(owner, store, repository);
+      const started = performance.now();
+      const progress = (event: string, detail: unknown): void => {
+        console.info(`[extract-driver:${label}] ${JSON.stringify({event, elapsedMs: Math.round(performance.now() - started), repository, detail})}`);
+      };
+      const options: FillOptions = {
+        ...fillOf(owner, store, repository),
+        onStart: detail => progress('start', detail),
+        onPhase: detail => progress('phase', detail),
+        onCommit: (detail, place) => progress('commit', {detail, place}),
+        onPoint: (detail, place) => progress('point', {detail, place}),
+      };
       fill = options;
       const report = await fillGraph(options);
+      progress('complete', {phases: report.phases, totalMs: report.totalMs});
       env = {
         owner, store, repository, report,
         query: async <Row extends object>(sql: string, values?: readonly unknown[]) => (await owner.run((tx) => tx.query<Row>(sql, values))).rows,
@@ -572,6 +583,10 @@ export function extractDriverTests(label: string, make: () => { owner: DatabaseO
       const ghost = await env.query<{ producer: string }>(`SELECT v.producer FROM node_version v WHERE v.properties->>'recordKey' = $1 AND v.recorded_to = 'infinity'`, [FILE + 'ghost.txt']);
       expect(ghost.map((row) => row.producer)).toEqual(['code.extract.other']);
       expect(tinyReport.gaps.map((gap) => gap.path)).toContain(FILE + 'ghost.txt');
+      expect(tinyReport.gaps.filter((gap) => gap.path === FILE + 'ghost.txt')).toEqual([{
+        producer: 'code.extract.other', path: FILE + 'ghost.txt',
+        reason: 'code.file:ghost.txt has no node of its owner "code.extract.files" at this commit, so it stays a reference node of this producer',
+      }]);
       expect(tinyReport.gaps.some((gap) => gap.path === fileKey && gap.reason.includes('property "path"'))).toBe(true);
     }, 120_000);
   });

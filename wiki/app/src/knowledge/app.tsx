@@ -300,6 +300,7 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
   else if (status.filled) {
     const when = fill.finishedAt === undefined ? null : new Date(fill.finishedAt).toLocaleDateString(language, { day: 'numeric', month: 'short', timeZone: 'UTC' });
     label = when === null ? t('knowledge.fillDoneNoDate', { count: pages }) : t('knowledge.fillDone', { date: when, count: pages });
+    if (fill.rebuilt === 'extractors-changed') label = `${t('knowledge.fillRebuiltExtractors')}. ${label}`;
   } else return null;
   const busy = fill.state === 'running' || writer.state === 'running' || writer.state === 'waiting' || starting;
   const press = (): void => {

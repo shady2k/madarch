@@ -26,6 +26,17 @@
  * without models, and bytes that are not text.
  */
 import {byCodePoint} from '../../model/order.js';
+import {serviceOfPath, serviceUnits, unitIndex, unitOfPath, type ServiceUnit, type UnitIndex} from '../service-units.js';
+import {repositoryConventions} from '../library-models/repository-conventions.js';
+import {parsePostgres, type ParseResult} from '../../parsers/postgres.js';
+import {extractFileSyntax} from '../../fill/stages/syntax-extract.js';
+import {readGoMod} from '../../fill/stages/manifest-format.js';
+import {parseEnv} from 'node:util';
+import {codeFactsOf, extractCodeWithFacts} from '../code/index.js';
+import type {CodeExpressionFact, CodeFacts} from '../code/facts.js';
+import {CodeFactView} from '../operations/code-facts.js';
+import {evaluateLibraryModels} from '../library-models/evaluate.js';
+import {environmentModels} from '../library-models/environment-models.js';
 import type {ExtractedEdge, ExtractedNode, Extraction, ExtractionGap, SourceSpan, TreeReader} from '../records.js';
 import {extractFileAccess, type AccessSite, type FileAccess, type FunctionRegion} from './access.js';
 import {indexGoPackage, resolveGoCalls, type GoPackageFile, type ResolvedCall} from './go-calls.js';
@@ -33,6 +44,7 @@ import {DATA_MODEL_PRODUCER, columnKey, databaseKey, fileKey, functionKey, index
 import {parsePrismaSchema, type PrismaModel} from './prisma.js';
 import {parseSqlScript, type SqlColumnDecl, type SqlIndexDecl, type SqlStatement, type SqlTableDecl} from './sql.js';
 import {ByteText} from './text-scan.js';
+import {isMap, isScalar, LineCounter, parseDocument} from 'yaml';
 
 const READS = 'code.reads-table' as const;
 const WRITES = 'code.writes-table' as const;
@@ -86,6 +98,15 @@ interface MergedDatabase {
   readonly name: string;
   readonly tables: Map<string, MergedTable>;
   readonly migrations: MigrationFile[];
+  readonly evidence: StorageEvidence[];
+}
+
+interface StorageEvidence {
+  readonly kind: string;
+  readonly span: SourceSpan;
+  readonly model?: string;
+  readonly expression?: string;
+  readonly holder?: string;
 }
 
 /** A table access resolved to its database: the ends an access edge carries. */
@@ -109,35 +130,61 @@ type TextOrGap = {readonly ok: true; readonly text: string} | {readonly ok: fals
 /**
  * Extracts the data model and the table access of one repository tree.
  */
-export async function extractDataModel(tree: TreeReader): Promise<Extraction> {
+export async function extractDataModel(tree: TreeReader, suppliedCode?: Extraction, suppliedFacts?: CodeFacts): Promise<Extraction> {
+  // A caller that already owns the code pass must lend its exact immutable facts.
+  // Never parse a second tree to compensate for missing shared facts.
+  const shared = suppliedCode === undefined && suppliedFacts === undefined ? await extractCodeWithFacts(tree) : undefined;
+  const code = suppliedCode ?? shared?.extraction;
+  const facts = suppliedFacts ?? shared?.facts ?? (suppliedCode === undefined ? undefined : codeFactsOf(suppliedCode, tree));
+  const canonicalFunctions = (code?.nodes ?? []).filter((node) => node.kind === 'code.symbol' && node.span !== undefined && ['function', 'method', 'constructor'].includes(String(node.properties.symbolKind)));
   const databases = new Map<string, MergedDatabase>();
   const gaps: ExtractionGap[] = [];
   const migrations: MigrationFile[] = [];
   const prismaSchemas = new Map<string, string>();
   const codePaths: string[] = [];
   const scriptPaths: string[] = [];
+  // The units the repository declares, and the question every loop below asks of a path.
+  const units = unitIndex(serviceUnits(tree));
+  const serviceOf = (path: string): string | undefined => serviceOfPath(units, path);
 
   for (const path of [...tree.paths].sort(byCodePoint)) {
     const service = serviceOf(path);
-    if (/^services\/[^/]+\/migrations\/[^/]+\.sql$/.test(path) && service !== undefined) {
-      migrations.push({database: service, name: path.slice(path.lastIndexOf('/') + 1), path, prisma: false});
+    const unit = unitOfPath(units, path);
+    const segments = path.split('/');
+    const file = segments[segments.length - 1] ?? '';
+    // A migration is what its series declares it to be (repository-conventions.ts): a `.sql` inside a
+    // `migrations` folder, or prisma's `<name>/migration.sql` beside its `schema.prisma`. The database is
+    // the unit that holds the folder, or the folder itself when no unit does (madarch-mwhd.3).
+    const series = migrationSeriesOf(segments, file);
+    const databaseOfPath = (at: number): string => unit?.name ?? folderName(segments.slice(0, at).join('/'));
+    if (series !== undefined) {
+      migrations.push({database: databaseOfPath(series.at), name: series.name, path, prisma: series.series.nameFrom === 'parent'});
       continue;
     }
-    const prismaMigration = /^services\/([^/]+)\/prisma\/migrations\/([^/]+)\/migration\.sql$/.exec(path);
-    if (prismaMigration !== null) {
-      migrations.push({database: prismaMigration[1]!, name: prismaMigration[2]!, path, prisma: true});
+    const schemaPlace = repositoryConventions.prismaSchemas.find((entry) => entry.fileName === file && segments[segments.length - 2] === entry.folder);
+    if (schemaPlace !== undefined) {
+      prismaSchemas.set(databaseOfPath(segments.length - 2), path);
       continue;
     }
-    if (/^services\/[^/]+\/prisma\/schema\.prisma$/.test(path) && service !== undefined) {
-      prismaSchemas.set(service, path);
-      continue;
-    }
-    if (/^scripts\/[^/]+\.sql$/.test(path)) {
-      scriptPaths.push(path);
+    if (file.endsWith('.sql')) {
+      // A script that declares tables is that folder's schema, not a seed: the parser's own statement
+      // kinds decide (repository-conventions.ts), so a file keeps its DDL wherever it stands.
+      const declared = await declaresTables(path, tree);
+      if (declared.kind === 'schema') {
+        migrations.push({database: databaseOfPath(segments.length - 1), name: file, path, prisma: false});
+      } else {
+        // A file the parser could not read is the script reader's gap to report, once, with its own
+        // line: classifying it here would report the same failure twice.
+        scriptPaths.push(path);
+      }
       continue;
     }
     if (service !== undefined && languageOf(path) !== null) codePaths.push(path);
   }
+
+  // Positive connection or driver evidence may describe a database without
+  // declaring tables. A service directory, by itself, is never such evidence.
+  await collectStorageEvidence(tree, units, databases, gaps, facts);
 
   // ---- the migrations, in their applied order ------------------------------
   const topLevel = migrations.filter((migration) => !migration.prisma).sort((left, right) => byCodePoint(left.database, right.database) || byCodePoint(left.name, right.name));
@@ -162,7 +209,12 @@ export async function extractDataModel(tree: TreeReader): Promise<Extraction> {
     const script = parseSqlScript(migration.path, read.text);
     applyStatements(databaseOf(databases, migration.database), script.statements, gaps);
     if (!script.statements.some((statement) => statement.kind !== 'other')) {
-      gaps.push({path: migration.path, reason: 'no table or column statement could be read'});
+      // The failing line, named with the whole repository path: a migration that reads no statement is a
+      // gap a person can open, never a silent empty schema (madarch-mwhd.3 review 5).
+      const first = script.statements.find((statement) => statement.kind === 'other');
+      const line = first === undefined ? 1 : first.span.lineStart;
+      const detail = first === undefined ? 'the file holds no statement' : 'the statement is no CREATE, ALTER or INDEX this reader knows';
+      gaps.push({path: migration.path, reason: `${migration.path}:${line}: no table or column declaration could be read: ${detail}`});
     }
   }
 
@@ -217,9 +269,10 @@ export async function extractDataModel(tree: TreeReader): Promise<Extraction> {
     const access = await extractFileAccess(path, tree.read(path));
     codeFiles.push({path, access, text: read.text});
     for (const gap of access.unread) gaps.push({path: gap.what, reason: `code could not be read: ${gap.reason}`});
-    const database = databaseOf(databases, serviceOf(path)!);
     for (const declaration of access.tableDeclarations) {
-      // A table the code itself creates (the migration runner's schema_migrations).
+      // A service's source files alone say nothing about storage. Only an
+      // actual CREATE declaration provides positive database evidence here.
+      const database = databaseOf(databases, serviceOf(path)!);
       const table = tableOf(database, declaration.table);
       if (table.span === undefined) table.span = declaration.span;
     }
@@ -247,9 +300,7 @@ export async function extractDataModel(tree: TreeReader): Promise<Extraction> {
     }
     const database = databases.get(service);
     if (database?.tables.has(site.table)) return tableKey(database.name, site.table);
-    const elsewhere = [...databases.values()].filter((candidate) => candidate.tables.has(site.table));
-    if (elsewhere.length === 1) return tableKey(elsewhere[0]!.name, site.table);
-    noteGap(file.path, `the table ${site.table} the code names is not declared by exactly one database of the tree`);
+    noteGap(file.path, `line ${site.span.lineStart}: table ${site.table} is not declared by service ${service}'s database; no connection evidence resolves it to a sibling database (${file.path})`);
     return undefined;
   };
 
@@ -259,8 +310,13 @@ export async function extractDataModel(tree: TreeReader): Promise<Extraction> {
       const to = resolveSite(file, site);
       if (to === undefined) continue;
       const type = site.verb === 'read' ? READS : WRITES;
-      // A site no function region holds belongs to the file itself.
-      const from = site.region === '' ? fileKey(file.path) : functionKey(file.path, site.region);
+      const owner = canonicalFunctions.filter((node) => node.span!.path === file.path && node.span!.byteStart <= site.span.byteStart && site.span.byteEnd <= node.span!.byteEnd)
+        .sort((a, b) => (a.span!.byteEnd - a.span!.byteStart) - (b.span!.byteEnd - b.span!.byteStart))[0];
+      if (owner === undefined && site.region !== '') {
+        noteGap(file.path, `line ${site.span.lineStart}: table access has no canonical positioned function owner (${file.path})`);
+        continue;
+      }
+      const from = owner?.key ?? fileKey(file.path);
       const key = `${type} ${from} ${to}`;
       const held = immediate.get(key);
       if (held !== undefined) {
@@ -268,12 +324,13 @@ export async function extractDataModel(tree: TreeReader): Promise<Extraction> {
         continue;
       }
       immediate.set(key, {type, from, to, via: site.via, sites: [{...site.span}]});
-      if (site.region !== '') {
+      const regionName = owner === undefined ? '' : String(owner.properties.qualifiedName);
+      if (regionName !== '') {
         const directory = file.path.slice(0, file.path.lastIndexOf('/') + 1);
         const packageAccesses = regionAccesses.get(directory) ?? new Map<string, ResolvedAccess[]>();
-        const accesses = packageAccesses.get(site.region) ?? [];
+        const accesses = packageAccesses.get(regionName) ?? [];
         accesses.push({verb: site.verb, to, via: site.via});
-        packageAccesses.set(site.region, accesses);
+        packageAccesses.set(regionName, accesses);
         regionAccesses.set(directory, packageAccesses);
       }
     }
@@ -358,18 +415,40 @@ export async function extractDataModel(tree: TreeReader): Promise<Extraction> {
       gaps.push({path, reason: read.reason});
       continue;
     }
-    const writes = scanScriptWrites(path, read.text);
-    const recognized = /\b(CREATE|ALTER|INSERT|UPDATE|DELETE|SELECT)\b/i.test(read.text);
-    if (writes.length === 0 && !recognized && read.text.trim() !== '') {
-      gaps.push({path, reason: 'no CREATE, ALTER, INSERT, UPDATE, DELETE or SELECT statement could be read'});
+    const script = await scanScriptWrites(path, read.text);
+    if (script.gap !== undefined) {
+      gaps.push(script.gap);
+      continue;
     }
-    for (const write of writes) {
-      const owners = [...databases.values()].filter((candidate) => candidate.tables.has(write.table));
-      if (owners.length !== 1) {
-        noteGap(path, `the table ${write.table} the script fills is not declared by exactly one database of the tree`);
+    if (!script.recognized && read.text.trim() !== '') {
+      gaps.push({path, reason: `${path}:1: no PostgreSQL statement could be read`});
+    }
+    for (const write of script.writes) {
+      const owners = [...databases.values()].flatMap((database) => [...database.tables.values()]
+        .filter((table) => table.name === write.table
+          && (write.schema === undefined || table.schema === write.schema)
+          && (write.catalog === undefined || database.name === write.catalog))
+        .map((table) => ({database, table})));
+      // The existing migration model can merge same-named tables. Do not let
+      // that lossy representation turn an ambiguous seed into a claimed write.
+      const collapsed = owners.some(({database}) => {
+        const schemas = new Set<string>();
+        for (const migration of database.migrations) {
+          const source = readUtf8(tree, migration.path);
+          if (!source.ok) continue;
+          for (const statement of parseSqlScript(migration.path, source.text).statements) {
+            if (statement.kind === 'create-table' && statement.table.name === write.table) schemas.add(statement.table.schema);
+          }
+        }
+        return schemas.size > 1;
+      });
+      if (owners.length !== 1 || collapsed) {
+        const identity = [write.catalog, write.schema, write.table].filter((part) => part !== undefined).join('.');
+        noteGap(path, `${path}:${write.span.lineStart}: the table ${identity} the script fills is not declared by exactly one database of the tree`);
         continue;
       }
-      edgeDrafts.push({type: WRITES, from: fileKey(path), to: tableKey(owners[0]!.name, write.table), via: 'sql', sites: [write.span]});
+      const owner = owners[0]!;
+      edgeDrafts.push({type: WRITES, from: fileKey(path), to: tableKey(owner.database.name, owner.table.name, owner.table.schema), via: 'sql', sites: [write.span]});
       endpointKeys.add(fileKey(path));
     }
   }
@@ -411,13 +490,16 @@ export async function extractDataModel(tree: TreeReader): Promise<Extraction> {
   for (const database of [...databases.values()].sort((left, right) => byCodePoint(left.name, right.name))) {
     // The database's place is the first file that declares it — its first migration, its schema, or the folder it
     // stands in — and every migration names its own file (madarch-m38l.16: a node says where it stands).
-    const declaredIn = database.migrations[0]?.path ?? prismaSchemas.get(database.name) ?? firstTablePath(database) ?? serviceFile(tree, database.name);
+    const declaredIn = database.migrations[0]?.path ?? prismaSchemas.get(database.name) ?? firstTablePath(database);
+    const evidence = database.evidence[0];
+    const span = declaredIn === undefined ? evidence?.span : wholeFile(tree, declaredIn);
+    if (span === undefined) throw new Error(`data model: database ${database.name} has no positive storage evidence`);
     nodes.push({
       key: databaseKey(database.name),
       kind: 'code.database',
       label: database.name,
-      properties: {service: database.name, ...(declaredIn === undefined ? {} : {path: declaredIn})},
-      ...(declaredIn === undefined ? {} : {span: wholeFile(tree, declaredIn)}),
+      properties: {service: database.name, path: span.path, evidenceKind: declaredIn === undefined ? evidence!.kind : 'schema', evidence: database.evidence.map((item) => ({kind: item.kind, path: item.span.path, line: item.span.lineStart}))},
+      span,
     });
     for (const migration of database.migrations) {
       nodes.push({
@@ -477,6 +559,8 @@ export async function extractDataModel(tree: TreeReader): Promise<Extraction> {
     const separator = key.indexOf('#');
     const filePath = key.slice('code.symbol:'.length, separator);
     const qualifiedName = key.slice(separator + 1);
+    const canonical = canonicalFunctions.find((node) => node.key === key);
+    if (canonical !== undefined) {nodes.push(canonical); continue;}
     const region = codeFiles.map((file) => file.access).find((access) => access.path === filePath)?.regions.find((candidate) => candidate.qualifiedName === qualifiedName);
     nodes.push({
       key: functionKey(filePath, qualifiedName),
@@ -532,7 +616,20 @@ export async function extractDataModel(tree: TreeReader): Promise<Extraction> {
   };
   for (const database of databases.values()) {
     const dbKey = databaseKey(database.name);
-    structuralEdges.push({type: 'code.uses-database', from: `code.service:${database.name}`, to: dbKey, discriminator: '', properties: {via: 'schema'}});
+    const readings: StorageEvidence[] = [...database.evidence];
+    for (const migration of database.migrations) {
+      const read = readUtf8(tree, migration.path);
+      if (read.ok) for (const statement of parseSqlScript(migration.path, read.text).statements) {
+        if (statement.kind === 'other') continue;
+        const span = statement.kind === 'create-table' ? statement.table.span : statement.kind === 'alter-table-add-column' ? statement.column.span : statement.kind === 'create-index' ? statement.index.span : statement.span;
+        readings.push({kind: 'schema', span});
+      }
+    }
+    const prismaPath = prismaSchemas.get(database.name);
+    if (prismaPath !== undefined) for (const table of database.tables.values()) if (table.span?.path === prismaPath) readings.push({kind: 'schema', span: table.span});
+    for (const table of database.tables.values()) if (table.span !== undefined && !readings.some((reading) => reading.span.path === table.span!.path && reading.span.byteStart === table.span!.byteStart && reading.span.byteEnd === table.span!.byteEnd)) readings.push({kind: 'schema', span: table.span});
+    if (readings.length === 0) gaps.push({path: database.migrations[0]?.path ?? database.name, reason: `line 1: database ${database.name} has no contributing storage reading; service use is unresolved`});
+    else structuralEdges.push({type: 'code.uses-database', from: `code.service:${database.name}`, to: dbKey, discriminator: '', properties: {via: readings.some((reading) => reading.kind === 'schema') ? 'schema' : readings[0]!.kind, origins: readings.map((reading) => ({sourceProducer: DATA_MODEL_PRODUCER, originalDiscriminator: '', sourceSpan: {...reading.span}, properties: {via: reading.kind, ...(reading.model === undefined ? {} : {environmentModel: reading.model}), ...(reading.expression === undefined ? {} : {expression: reading.expression}), ...(reading.holder === undefined ? {} : {holder: reading.holder})}}))}, span: readings[0]!.span});
     for (const migration of database.migrations) {
       const migrationId = migrationKey(database.name, migration.name);
       edge('code.contains', dbKey, migrationId);
@@ -565,6 +662,7 @@ export async function extractDataModel(tree: TreeReader): Promise<Extraction> {
       }
     }
   }
+  for (const node of nodes) if (node.kind !== 'code.file' && node.span !== undefined) edge('code.contains', fileKey(node.span.path), node.key, node.span);
   const edges: ExtractedEdge[] = [...structuralEdges, ...foreignEdges, ...logicalEdges, ...edgeDrafts.map(toEdge)].sort(edgeOrder);
   return {
     producer: DATA_MODEL_PRODUCER,
@@ -603,9 +701,62 @@ function within(call: ResolvedCall, region: FunctionRegion): boolean {
   return call.site.byteStart >= region.span.byteStart && call.site.byteEnd <= region.span.byteEnd;
 }
 
-function serviceOf(path: string): string | undefined {
-  const match = /^services\/([^/]+)\//.exec(path);
-  return match?.[1];
+/** One migration the registry's series declare: its name, and the folder index the series stands at. */
+interface MigrationPlace {
+  readonly series: (typeof repositoryConventions.migrationSeries)[number];
+  readonly name: string;
+  /** The index of the series' folder among the path's segments. */
+  readonly at: number;
+}
+
+/** The series one path belongs to, read from the registry's entries: folder, parent, file and suffix. */
+function migrationSeriesOf(segments: readonly string[], file: string): MigrationPlace | undefined {
+  // The most specific series first: prisma's `<name>/migration.sql` stands inside a `migrations`
+  // folder too, and the folder that names its parent is the one that declares it.
+  const ordered = [...repositoryConventions.migrationSeries].sort((left, right) => Number(right.parent !== null) - Number(left.parent !== null));
+  for (const series of ordered) {
+    if (!file.endsWith(series.fileSuffix)) continue;
+    if (series.fileName !== null && file !== series.fileName) continue;
+    const at = segments.lastIndexOf(series.folder);
+    if (at < 0) continue;
+    if (series.parent !== null && segments[at - 1] !== series.parent) continue;
+    const name = series.nameFrom === 'file' ? file : segments[at + 1];
+    if (name === undefined || name === '') continue;
+    return {series, name, at};
+  }
+  return undefined;
+}
+
+/**
+ * Whether one `.sql` file declares tables, decided by the SQL parser's own statement kinds
+ * (repository-conventions.ts `schemaScripts`): a file that creates, alters or indexes a table is a
+ * schema wherever it stands; a file that only writes rows is a seed.
+ */
+async function declaresTables(path: string, tree: TreeReader): Promise<{kind: 'schema'} | {kind: 'script'}> {
+  const read = readUtf8(tree, path);
+  if (!read.ok) return {kind: 'script'};
+  const kinds = new Set(repositoryConventions.schemaScripts.flatMap((entry) => (path.endsWith(entry.fileSuffix) ? entry.declaresTables : [])));
+  if (kinds.size === 0) return {kind: 'script'};
+  let parsed: ParseResult;
+  try {
+    parsed = await parsePostgres(read.text);
+  } catch {
+    // The script reader reports the parse failure with its own line, once: this reader only classifies.
+    return {kind: 'script'};
+  }
+  for (const raw of parsed.stmts ?? []) {
+    const statement = raw.stmt as Record<string, unknown> | undefined;
+    if (statement === undefined) continue;
+    if (Object.keys(statement).some((key) => kinds.has(key))) return {kind: 'schema'};
+  }
+  return {kind: 'script'};
+}
+
+/** The last folder of a path, the name an unowned folder declares itself by. */
+function folderName(path: string): string {
+  const trimmed = path.endsWith('/') ? path.slice(0, -1) : path;
+  const at = trimmed.lastIndexOf('/');
+  return at < 0 ? trimmed : trimmed.slice(at + 1);
 }
 
 function languageOf(path: string): string | null {
@@ -617,7 +768,7 @@ function languageOf(path: string): string | null {
 function databaseOf(databases: Map<string, MergedDatabase>, name: string): MergedDatabase {
   const held = databases.get(name);
   if (held !== undefined) return held;
-  const created: MergedDatabase = {name, tables: new Map(), migrations: []};
+  const created: MergedDatabase = {name, tables: new Map(), migrations: [], evidence: []};
   databases.set(name, created);
   return created;
 }
@@ -633,12 +784,6 @@ function tableOf(database: MergedDatabase, name: string, schema = 'public'): Mer
 }
 
 /** Reads a path's bytes as text; the reason is the gap when they cannot be read. */
-
-/** The file a service's own folder holds, for a database whose schema no single file declares: its manifest, else its first file. */
-function serviceFile(tree: TreeReader, service: string): string | undefined {
-  for (const candidate of [`services/${service}/package.json`, `services/${service}/go.mod`, `services/${service}/prisma/schema.prisma`]) if (tree.paths.includes(candidate)) return candidate;
-  return tree.paths.filter((path) => path.startsWith(`services/${service}/`)).sort(byCodePoint)[0];
-}
 
 /** The file a database without a migration is declared in: the file of its first table, or none. */
 function firstTablePath(database: MergedDatabase): string | undefined {
@@ -658,6 +803,184 @@ function wholeFile(tree: TreeReader, path: string): SourceSpan {
     }
   })();
   return {path, byteStart: 0, byteEnd: bytes, lineStart: 1, lineEnd: lines};
+}
+
+/** Reads only explicit storage declarations; generic config files never imply a database. */
+async function collectStorageEvidence(tree: TreeReader, units: UnitIndex, databases: Map<string, MergedDatabase>, gaps: ExtractionGap[], facts?: CodeFacts): Promise<void> {
+  const serviceOf = (path: string): string | undefined => serviceOfPath(units, path);
+  const spanAt = (path: string, text: string, start: number, end: number): SourceSpan => {
+    const bytes = new ByteText(text);
+    return {path, byteStart: bytes.byteAt(start), byteEnd: bytes.byteAt(end), lineStart: bytes.lineOf(bytes.byteAt(start)), lineEnd: bytes.lineOf(bytes.byteAt(end))};
+  };
+  const add = (service: string, kind: string, span: SourceSpan, metadata: Omit<StorageEvidence, 'kind' | 'span'> = {}): void => {
+    databaseOf(databases, service).evidence.push({kind, span, ...metadata});
+  };
+  const environment = new Map(environmentModels.map(model => [model.variable, model]));
+  if (facts !== undefined) collectEnvironmentReadEvidence(facts, units, databases, gaps);
+  for (const path of [...tree.paths].sort(byCodePoint)) {
+    const service = serviceOf(path);
+    const codeSource = languageOf(path) !== null;
+    const source = service !== undefined && (codeSource || /(?:\.json|\/go\.mod|\.?env(?:\.[^/]*)?)$/.test(path));
+    const compose = /(?:^|\/)(?:docker-)?compose(?:\.[^/.]+)?\.ya?ml$/.test(path);
+    if (!source && !compose) continue;
+    const read = readUtf8(tree, path);
+    if (!read.ok) { gaps.push({path, reason: read.reason}); continue; }
+    const text = read.text;
+    if (service !== undefined && source) {
+      const driver = /^(?:pg|postgres|mysql2?|better-sqlite3|sqlite3|@prisma\/client|github\.com\/(?:jackc\/pgx(?:\/.*)?|lib\/pq|go-sql-driver\/mysql)|modernc\.org\/sqlite)$/;
+      if (codeSource) {
+        const syntax = await extractFileSyntax(path, tree.read(path));
+        for (const imported of syntax.imports) if (driver.test(imported.specifier)) add(service, 'driver', {
+          path, byteStart: imported.span.startByte, byteEnd: imported.span.endByte, lineStart: imported.span.startLine, lineEnd: imported.span.endLine,
+        });
+        if (facts === undefined) gaps.push({path, reason: `line 1: shared CodeFacts are absent; environment connection evidence is unresolved (${path})`});
+      } else if (path.endsWith('/package.json')) {
+        try {
+          const manifest = JSON.parse(text) as {dependencies?: Record<string, unknown>; devDependencies?: Record<string, unknown>};
+          for (const name of Object.keys({...manifest.devDependencies, ...manifest.dependencies}).sort(byCodePoint)) if (driver.test(name)) {
+            const at = text.indexOf(JSON.stringify(name)); add(service, 'driver', spanAt(path, text, at, at + name.length + 2));
+          }
+        } catch (error) { gaps.push({path, reason: `line 1: storage evidence cannot read package.json: ${error instanceof Error ? error.message : String(error)}`}); }
+      } else if (path.endsWith('/go.mod')) {
+        const manifest = readGoMod(text);
+        if (manifest.ok) for (const entry of manifest.value.requires) if (driver.test(entry.path)) {
+          const at = text.split('\n').slice(0, entry.line - 1).join('\n').length + (entry.line > 1 ? 1 : 0); add(service, 'driver', spanAt(path, text, at, at + (text.split('\n')[entry.line - 1]?.length ?? 0)));
+        }
+      } else if (path.slice(path.lastIndexOf('/') + 1).startsWith('.env') || path.endsWith('/env')) {
+        try {
+          const variables = parseEnv(text);
+          if (Object.keys(variables).length === 0 && text.split('\n').some(line => line.trim() !== '' && !line.trimStart().startsWith('#'))) {
+            gaps.push({path, reason: `line 1: environment parser returned no assignments for non-comment configuration; connection evidence is unresolved (${path})`});
+          }
+          for (const name of Object.keys(variables).sort(byCodePoint)) {
+            const model = environment.get(name);
+            if (model !== undefined && variables[name] !== '') add(service, 'connection-setting', wholeFile(tree, path), {model: model.id});
+          }
+        } catch (error) { gaps.push({path, reason: `line 1: environment configuration cannot be parsed: ${error instanceof Error ? error.message : String(error)} (${path})`}); }
+      }
+    }
+    if (compose) {
+      const lc = new LineCounter();
+      const doc = parseDocument(text, {lineCounter: lc});
+      if (doc.errors.length > 0) { for (const error of doc.errors) gaps.push({path, reason: `line ${lc.linePos(error.pos[0]).line}: ${error.message}`}); continue; }
+      if (!isMap(doc.contents)) continue;
+      const services = doc.contents.get('services', true);
+      if (!isMap(services)) continue;
+      for (const pair of services.items) {
+        if (!isScalar(pair.key) || typeof pair.key.value !== 'string' || !isMap(pair.value)) continue;
+        const name = pair.key.value;
+        // Associate only product services actually present in this tree, not
+        // an arbitrary compose infrastructure service or image label.
+        // A compose service is one this repository declares as a unit, by the name the unit declares.
+        if (![...units.manifests.values(), ...units.others.values()].some((held) => held.name === name)) continue;
+        const env = pair.value.get('environment', true);
+        if (!isMap(env)) continue;
+        for (const item of env.items) {
+          if (!isScalar(item.key) || typeof item.key.value !== 'string') continue;
+          const model = environment.get(item.key.value);
+          if (model === undefined) continue;
+          if (!isScalar(item.value) || typeof item.value.value !== 'string') continue;
+          const range = item.value.range ?? item.key.range;
+          if (range == null || !Number.isSafeInteger(range[0]) || !Number.isSafeInteger(range[1]) || range[0] < 0 || range[1] <= range[0] || range[1] > text.length) {
+            gaps.push({path, reason: `line 1: deployment connection setting ${String(item.key.value)} of service ${name} has no valid source range; no storage evidence is created`});
+            continue;
+          }
+          add(name, 'deployment-connection', spanAt(path, text, range[0], range[1]), {model: model.id});
+        }
+      }
+    }
+  }
+}
+
+/** Resolve environment reads only from the already copied lexical facts. */
+function collectEnvironmentReadEvidence(facts: CodeFacts, units: UnitIndex, databases: Map<string, MergedDatabase>, gaps: ExtractionGap[]): void {
+  const serviceOf = (path: string): string | undefined => serviceOfPath(units, path);
+  const view = new CodeFactView(facts);
+  const environment = new Map(environmentModels.map(model => [model.variable, model]));
+  const files = new Map(facts.files.map(file => [file.path, file]));
+  const parents = new Map<string, CodeExpressionFact[]>();
+  for (const expression of facts.expressions) for (const child of expression.children) {
+    const held = parents.get(child) ?? []; held.push(expression); parents.set(child, held);
+  }
+  const gap = (expression: CodeExpressionFact, reason: string): void => {
+    gaps.push({path: expression.path, reason: `line ${expression.span.lineStart}: ${reason} at bytes ${expression.span.byteStart}-${expression.span.byteEnd} (${expression.path})`});
+  };
+  const contains = (outer: SourceSpan, inner: SourceSpan): boolean => outer.path === inner.path && outer.byteStart <= inner.byteStart && inner.byteEnd <= outer.byteEnd;
+  const field = (expression: CodeExpressionFact, name: string): CodeExpressionFact | undefined => {
+    const ids = expression.fields[name];
+    return ids?.length === 1 ? view.expressions.get(ids[0]!) : undefined;
+  };
+  const member = (expression: CodeExpressionFact): {receiver: CodeExpressionFact; name?: string} | undefined => {
+    if (expression.syntaxKind === 'member_expression' && expression.receiver !== undefined) {
+      const receiver = view.expressions.get(expression.receiver);
+      const object = field(expression, 'object'); const property = field(expression, 'property');
+      if (receiver !== undefined && receiver.id === object?.id && expression.member === property?.name && contains(expression.span, receiver.span)) return {receiver, name: expression.member};
+    }
+    if (expression.syntaxKind === 'subscript_expression') {
+      const receiver = field(expression, 'object'); const index = field(expression, 'index');
+      if (receiver !== undefined && index !== undefined && contains(expression.span, receiver.span) && contains(expression.span, index.span)) {
+        const value = view.value(index.id);
+        return {receiver, ...(typeof value === 'string' ? {name: value} : {})};
+      }
+    }
+    return undefined;
+  };
+  const isRead = (expression: CodeExpressionFact): boolean => {
+    const seen = new Set<string>();
+    const visit = (id: string): boolean => {
+      if (seen.has(id)) return false; seen.add(id);
+      for (const parent of parents.get(id) ?? []) {
+        if (['assignment_expression', 'augmented_assignment_expression'].includes(parent.syntaxKind) && (parent.fields.left ?? []).includes(id)) return false;
+        if (parent.syntaxKind === 'update_expression') return false;
+        // Unary operators are not copied as tokens, so delete cannot be
+        // distinguished from a read here. Do not invent read evidence.
+        if (parent.syntaxKind === 'unary_expression') { gap(expression, 'unary environment access is unresolved'); return false; }
+        if (['parenthesized_expression', 'as_expression', 'satisfies_expression', 'non_null_expression'].includes(parent.syntaxKind) && !visit(parent.id)) return false;
+      }
+      return true;
+    };
+    return visit(expression.id);
+  };
+  const record = (expression: CodeExpressionFact, name: unknown, holder?: string): void => {
+    const service = serviceOf(expression.path);
+    if (service === undefined) return;
+    if (typeof name !== 'string') { gap(expression, 'environment variable name is unresolved'); return; }
+    const model = environment.get(name); if (model === undefined) return;
+    const owners = facts.symbols.filter(symbol => symbol.callable && contains(symbol.span, expression.span))
+      .sort((left, right) => (left.span.byteEnd - left.span.byteStart) - (right.span.byteEnd - right.span.byteStart) || byCodePoint(left.key, right.key));
+    const owner = owners[0];
+    if (owner !== undefined && owners.some(candidate => candidate.key !== owner.key && candidate.span.byteStart === owner.span.byteStart && candidate.span.byteEnd === owner.span.byteEnd)) {
+      gap(expression, 'environment read has no unique canonical callable owner'); return;
+    }
+    const canonical = owner?.key ?? fileKey(expression.path);
+    if (holder !== undefined && holder !== canonical) { gap(expression, 'environment effect disagrees with its canonical callable owner'); return; }
+    databaseOf(databases, service).evidence.push({kind: 'connection-setting', span: expression.span, model: model.id, expression: expression.id, holder: canonical});
+  };
+  for (const expression of facts.expressions) {
+    if (serviceOf(expression.path) === undefined || files.get(expression.path)?.language === 'go') continue;
+    const selected = member(expression); if (selected === undefined) continue;
+    const env = member(selected.receiver); if (env?.name !== 'env') continue;
+    const process = env.receiver;
+    if (process.syntaxKind !== 'identifier' || process.name !== 'process') continue;
+    // A copied identity or any enclosing lexical reservation (including TDZ)
+    // proves this is not the JS global. Never chase a local initializer.
+    if (process.bindingId !== undefined || facts.bindings.some(binding => binding.path === process.path && binding.name === 'process' && binding.kind !== 'type' && contains(binding.scope, process.span))) continue;
+    if (files.get(expression.path)?.parsed !== true) { gap(expression, 'environment source has no successful parse fact'); continue; }
+    if (!isRead(expression)) continue;
+    record(expression, selected.name);
+  }
+  // Go environment APIs already have validated library models and exact
+  // imported-binding origins. Reuse their effects instead of spelling os.
+  const library = evaluateLibraryModels(facts);
+  for (const effect of library.effects) {
+    if (effect.kind !== 'env-read' || files.get(effect.span.path)?.language !== 'go') continue;
+    const expression = view.expressions.get(effect.expression); if (expression === undefined) continue;
+    const selected = effect.arguments.find(argument => argument.name === 'name');
+    record(expression, selected?.expression === undefined ? undefined : view.value(selected.expression), effect.holder);
+  }
+  // Facts and library diagnostics are already located. Retain them verbatim;
+  // a parser failure or unresolved origin must not become a smaller success.
+  for (const incoming of library.gaps) if (serviceOf(incoming.path) !== undefined && !gaps.some(held => held.path === incoming.path && held.reason === incoming.reason)) gaps.push(incoming);
 }
 
 function readUtf8(tree: TreeReader, path: string): TextOrGap {
@@ -774,6 +1097,7 @@ function applyPrismaModel(
       ...(field.default !== undefined ? {default: field.default} : {}),
       primaryKey: field.primaryKey,
       unique: field.unique,
+      span: field.span,
     });
   }
   if (table.primaryKey.length === 0) {
@@ -819,25 +1143,60 @@ function indexColumnsHeld(table: MergedTable, columns: readonly string[]): boole
   return [...table.indexes.values()].some((held) => [...held.columns].sort(byCodePoint).join(',') === wanted);
 }
 
-/** The writes one seed script holds: one per INSERT statement, at its own span. */
-function scanScriptWrites(path: string, text: string): readonly {readonly table: string; readonly span: SourceSpan}[] {
+interface ScriptWrite {
+  readonly table: string;
+  readonly schema?: string;
+  readonly catalog?: string;
+  readonly span: SourceSpan;
+}
+
+interface ScriptWrites {
+  readonly writes: readonly ScriptWrite[];
+  readonly recognized: boolean;
+  readonly gap?: ExtractionGap;
+}
+
+/** PostgreSQL owns statement boundaries, identifiers and UTF-8 byte offsets. */
+async function scanScriptWrites(path: string, text: string): Promise<ScriptWrites> {
+  if (text.trim() === '') return {writes: [], recognized: false};
   const bytes = new ByteText(text);
-  const writes: {table: string; span: SourceSpan}[] = [];
-  for (const match of text.matchAll(/\bINSERT\s+INTO\s+"?(\w+)"?/gi)) {
-    const start = match.index ?? 0;
-    let end = text.indexOf(';', start);
-    if (end === -1) end = text.length;
-    const trimmed = text.slice(start, end).trimEnd();
+  let parsed: ParseResult;
+  try {
+    parsed = await parsePostgres(text);
+  } catch (error) {
+    // libpg-query exposes a zero-based character cursor, unlike RawStmt's
+    // UTF-8 byte locations. Never use PostgreSQL's internal C file/line here.
+    const details = error instanceof Error && 'sqlDetails' in error ? error.sqlDetails : undefined;
+    const cursor = typeof details === 'object' && details !== null && 'cursorPosition' in details
+      && typeof details.cursorPosition === 'number' ? details.cursorPosition : 0;
+    const prefix = Array.from(text).slice(0, Math.max(0, cursor)).join('');
+    const line = bytes.lineOf(new TextEncoder().encode(prefix).length);
+    const message = error instanceof Error ? error.message : String(error);
+    return {writes: [], recognized: false, gap: {path, reason: `${path}:${line}: PostgreSQL parse failed: ${message}`}};
+  }
+  const writes: ScriptWrite[] = [];
+  let nextByteStart = 0;
+  for (const raw of parsed.stmts ?? []) {
+    // RawStmt starts at the first SQL token, not its leading comments. Keep
+    // those raw bytes, but calculate the end from the parser's own location.
+    const byteStart = nextByteStart;
+    // PostgreSQL omits zero fields. A zero length means the rest of the input,
+    // including trailing comments; a positive length excludes the semicolon.
+    const byteEnd = (raw.stmt_len ?? 0) > 0 ? (raw.stmt_location ?? 0) + raw.stmt_len! : bytes.byteLength;
+    // Advance for every AST statement, even a SELECT that emits no write.
+    nextByteStart = Math.min(byteEnd + 1, bytes.byteLength);
+    const statement = raw.stmt;
+    if (statement === undefined || !('InsertStmt' in statement)) continue;
+    const target = statement.InsertStmt.relation;
+    if (target?.relname === undefined) {
+      return {writes: [], recognized: false, gap: {path, reason: `${path}:${bytes.lineOf(raw.stmt_location ?? 0)}: PostgreSQL INSERT has no target relation`}};
+    }
     writes.push({
-      table: match[1]!,
-      span: {
-        path,
-        byteStart: bytes.byteAt(start),
-        byteEnd: bytes.byteAt(start + trimmed.trimEnd().length),
-        lineStart: bytes.lineOf(bytes.byteAt(start)),
-        lineEnd: bytes.lineOf(bytes.byteAt(start + trimmed.trimEnd().length)),
-      },
+      table: target.relname,
+      ...(target.schemaname === undefined ? {} : {schema: target.schemaname}),
+      ...(target.catalogname === undefined ? {} : {catalog: target.catalogname}),
+      span: {path, byteStart, byteEnd, lineStart: bytes.lineOf(byteStart), lineEnd: bytes.lineOf(byteEnd)},
     });
   }
-  return writes;
+  return {writes, recognized: (parsed.stmts ?? []).some((raw) => raw.stmt !== undefined)};
 }
