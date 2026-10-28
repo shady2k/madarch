@@ -25,10 +25,9 @@
  *    it is printed for a person and compared with nothing.
  *  - a literal's decoded value (`stringValue(node)`): the grammar delimited the token, and the
  *    value is the grammar's answer.
- *  - a whole file's text from `TreeText` (`t.text(path)`): not a syntax node, so out of this
- *    rule's scope. Those readers are the wider owner rule's debt and the change's migration
- *    inventory lists them; this guard neither calls them clean nor lets them hide a node-text
- *    finding, and it must not be read as the complete no-regex guard of the change.
+ *  - nothing else: a whole file's text from `TreeText` (`t.text(path)`, `t.lines(path)`), a tree's
+ *    bytes (`tree.read`), `readUtf8`, `readFileSync` and a decoder's answer are repository text too,
+ *    and every pattern application over any of them is refused.
  *  - a reader helper that only copies a node's text (`textOf(node, text)` in `code/`): the same
  *    copying use as the second item, though its callers still have to keep this rule.
  *
@@ -39,13 +38,10 @@
  * helper hands back (`textOf(node, text)`): searching that text from a caller stays a breach of
  * the owner's rule, and one this shape-level guard cannot see. Loosen neither to hide a finding.
  *
- * Where the migration stands. Four files under `src/extract` hold nine refusals today —
- * `contracts/go-code.ts` (four), `contracts/ts-code.ts` (three), `contracts/walk.ts` (one) and
- * `shell-command.ts` (one) — and `PRESENT_DEBT` names them by file and kind. The tree case
- * asserts that list exactly, so a new source-text parse anywhere under `src/extract` turns this
- * test red, and a fixed one turns it red until its entry leaves the list. That keeps the list
- * honest and shrinking to `[]`: the zero-finding, blocking form the change requires at
- * acceptance. The shape the go-code reader held at lines 318-320 (a regex `exec` over
+ * Where the migration stands. There are no refusals under `src/extract`: every reader that decided
+ * anything from a file's characters now decides from the parser's facts, and `PRESENT_DEBT` is
+ * empty. The tree case asserts that list exactly, so a new source-text parse anywhere under
+ * `src/extract` turns this test red. The shape the go-code reader held at lines 318-320 (a regex `exec` over
  * `?.childForFieldName('operand')?.text`) was refactored away before this guard landed, so the
  * fixture below carries it: the same checker refuses it, and refuses `statement.text.includes`,
  * a variable that holds a `.text`, and a pattern kept in a variable.
@@ -492,36 +488,7 @@ function located(findings: readonly Finding[]): string {
  * entries no longer exists. It is empty when the migration is done, and then the guard is the
  * zero-finding check the change blocks CI on.
  */
-const PRESENT_DEBT: readonly string[] = [
-  // The readers this migration has not reached yet (madarch-mwhd.3). Each entry is one construct the
-  // guard sees over a file's whole text — a file's own characters, never a node's, which the older
-  // rule already refused; the tree case fails when the list and the tree disagree in either direction,
-  // so a new pattern anywhere under src/extract turns this test red. The environment reader, the
-  // stack passport, the go.mod reader and the compose reader are migrated; the SQL access reader, the
-  // symbol-site reader and one contract reader are the remaining work.
-  'src/extract/contracts/ts-code.ts regex-apply',
-  'src/extract/data-model/access.ts regex-apply',
-  'src/extract/data-model/access.ts regex-apply',
-  'src/extract/data-model/access.ts regex-apply',
-  'src/extract/data-model/access.ts regex-apply',
-  'src/extract/data-model/access.ts regex-apply',
-  'src/extract/data-model/access.ts regex-apply',
-  'src/extract/data-model/access.ts regex-exec',
-  'src/extract/data-model/access.ts regex-exec',
-  'src/extract/data-model/access.ts regex-exec',
-  'src/extract/data-model/access.ts regex-exec',
-  'src/extract/data-model/access.ts regex-test',
-  'src/extract/data-model/access.ts regex-test',
-  'src/extract/data-model/access.ts regex-test',
-  'src/extract/operations/deploy.ts regex-exec',
-  'src/extract/operations/env.ts text-search',
-  'src/extract/operations/source.ts text-search',
-  'src/extract/operations/symbol-sites.ts regex-apply',
-  'src/extract/operations/symbol-sites.ts regex-apply',
-  'src/extract/operations/symbol-sites.ts regex-apply',
-  'src/extract/operations/symbol-sites.ts regex-exec',
-  'src/extract/operations/symbol-sites.ts regex-test',
-].sort(byCodePoint);
+const PRESENT_DEBT: readonly string[] = [].sort(byCodePoint);
 
 describe('the source-text rule', () => {
   test('refuses the Go message read that re-read a receiver out of its text', async () => {

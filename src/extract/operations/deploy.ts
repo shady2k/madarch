@@ -120,27 +120,60 @@ function parseExecForm(argument: string): string[] {
   return trimmed.split(/\s+/u);
 }
 
-/** The Go constant or literal a source file's listen address comes from. */
+/**
+ * The listen address a source file declares, read from the shared code facts: a `listen`/`ListenAndServe`
+ * call's own argument, a `listenAddr` constant's literal, or the constant a listened variable holds.
+ * No pattern touches the file's characters (madarch-mwhd.3).
+ */
 function listenPort(t: TreeText, path: string): { port: number; addr: string; line: number } | undefined {
-  const lines = t.lines(path);
-  for (const [index, line] of lines.entries()) {
-    const constant = /(?:const\s+)?listenAddr\s*=\s*"([^"]+)"/.exec(line) ?? /listenAddr\s*=\s*"([^"]+)"/.exec(line);
-    if (constant !== null) {
-      const port = Number.parseInt((constant[1] ?? '').replace(/^[:\[]/, ''), 10);
-      if (Number.isFinite(port)) return { port, addr: constant[1] ?? '', line: index + 1 };
+  const facts = t.facts;
+  if (facts === undefined) return undefined;
+  const expressions = new Map(facts.expressions.filter((expression) => expression.path === path).map((expression) => [expression.id, expression]));
+  /** The literal an expression stands for, through an expression list's single element. */
+  const unwrap = (id: string | undefined): (typeof facts.expressions)[number] | undefined => {
+    let held = id === undefined ? undefined : expressions.get(id);
+    const seen = new Set<string>();
+    while (held !== undefined && held.syntaxKind === 'expression_list' && !seen.has(held.id)) {
+      seen.add(held.id);
+      held = expressions.get(held.children[0] ?? '');
     }
-    const tsConst = /\.listen\(\s*([A-Z][A-Z0-9_]*)\b/.exec(line);
-    if (tsConst !== null) {
-      const name = tsConst[1] ?? '';
-      const declared = new RegExp(`const\\s+${name}\\s*=\\s*(\\d+)`).exec(t.text(path));
-      const port = declared === null ? Number.NaN : Number.parseInt(declared[1] ?? '', 10);
-      if (Number.isFinite(port)) return { port, addr: String(port), line: declared === null ? index + 1 : index + 1 };
+    return held;
+  };
+  /** An address a literal states: `":8080"`, `"0.0.0.0:8080"`, `8080`. */
+  const address = (value: string): { port: number; addr: string } | undefined => {
+    const colon = value.lastIndexOf(':');
+    const digits = (colon < 0 ? value : value.slice(colon + 1)).trim();
+    if (digits === '' || [...digits].some((character) => character < '0' || character > '9')) return undefined;
+    const port = Number.parseInt(digits, 10);
+    return Number.isFinite(port) ? {port, addr: value} : undefined;
+  };
+  /** The address one expression states, or the constant it reads, by the binding's own initializer. */
+  const addressOf = (id: string | undefined): { port: number; addr: string; line: number } | undefined => {
+    const held = unwrap(id);
+    if (held === undefined) return undefined;
+    if (held.literal !== undefined && (held.literal.kind === 'string' || held.literal.kind === 'number')) {
+      const stated = address(String(held.literal.value));
+      if (stated !== undefined) return {...stated, line: held.span.lineStart};
     }
-    const literal = /\.listen\(\s*(\d+)\b/.exec(line);
-    if (literal !== null) {
-      const port = Number.parseInt(literal[1] ?? '', 10);
-      if (Number.isFinite(port)) return { port, addr: literal[1] ?? '', line: index + 1 };
-    }
+    const binding = held.bindingId === undefined ? undefined : facts.bindings.find((entry) => entry.id === held.bindingId && entry.path === path);
+    if (binding?.initializer === undefined) return undefined;
+    const initial = unwrap(binding.initializer);
+    if (initial === undefined || initial.literal === undefined || (initial.literal.kind !== 'string' && initial.literal.kind !== 'number')) return undefined;
+    const stated = address(String(initial.literal.value));
+    return stated === undefined ? undefined : {...stated, line: held.span.lineStart};
+  };
+  for (const call of facts.calls) {
+    if (call.path !== path) continue;
+    const callee = unwrap(call.callee);
+    if (callee?.member !== 'listen' && callee?.member !== 'ListenAndServe') continue;
+    const found = addressOf(call.arguments[0]);
+    if (found !== undefined) return found;
+  }
+  // A Go file's listen address constant, which the call's own argument names.
+  for (const binding of facts.bindings) {
+    if (binding.path !== path || binding.name !== 'listenAddr' || binding.initializer === undefined) continue;
+    const found = addressOf(binding.initializer);
+    if (found !== undefined) return found;
   }
   return undefined;
 }

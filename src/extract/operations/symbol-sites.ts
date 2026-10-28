@@ -1,7 +1,7 @@
 /** Small positioned source joins for the synchronous operations extractor.
  * Only declarations present in the source become shared code.symbol nodes.
  */
-import type { CodeBindingFact, CodeExpressionFact, CodeImportFact, CodeSymbolFact } from '../code/facts.js';
+import type { CodeBindingFact, CodeCallFact, CodeExpressionFact, CodeImportFact, CodeSymbolFact } from '../code/facts.js';
 import { httpModels } from '../library-models/http-models.js';
 import type { SourceSpan } from '../records.js';
 import type { Records } from './accumulate.js';
@@ -394,6 +394,78 @@ function importOf(t: TreeText, path: string, binding: CodeBindingFact): CodeImpo
 }
 
 /**
+ * One path's calls in the facts' own order: every expression the facts also
+ * recorded as a call. An expression with two call facts answers neither, as the
+ * index keeps both and no proof may choose between them.
+ */
+function callsOf(t: TreeText, path: string): readonly CodeCallFact[] {
+  const found: CodeCallFact[] = [];
+  for (const expression of t.expressionsByPath.all(path)) {
+    const call = one(t.callsByExpression.all(expression.id));
+    if (call !== undefined && call.span.path === path && expression.span.path === path) found.push(call);
+  }
+  return found;
+}
+
+/**
+ * The name a callee writes, as the facts spell it: `paymentRoutes` of an
+ * identifier, `routes.paymentRoutes` of a member read off one name. A callee
+ * read off anything else — a call's result, a literal — names nothing here.
+ */
+function writtenCallee(t: TreeText, callee: CodeExpressionFact): string | undefined {
+  if (callee.syntaxKind === 'identifier' || callee.syntaxKind === 'package_identifier') return callee.name;
+  const member = callee.member;
+  const receiver = member === undefined ? undefined : expressionFact(t, callee.receiver);
+  const qualifier = receiver === undefined || receiver.syntaxKind !== 'identifier' &&
+    receiver.syntaxKind !== 'package_identifier' ? undefined : receiver.name;
+  return member === undefined || qualifier === undefined ? undefined : `${qualifier}.${member}`;
+}
+
+/**
+ * Whether one of a call's own arguments is itself a call of one written name:
+ * the argument is a call expression and the facts hold the callee it begins
+ * with — never the characters that argument's text happens to spell.
+ */
+function argumentCalls(t: TreeText, call: CodeCallFact, called: string): boolean {
+  return call.arguments.some((id) => {
+    const argument = expressionFact(t, id);
+    const callee = argument?.syntaxKind === 'call_expression' ? expressionFact(t, argument.callee) : undefined;
+    return callee !== undefined && writtenCallee(t, callee) === called;
+  });
+}
+
+/**
+ * The literal token one name's declaration states in one path: the earliest
+ * binding of the name whose initializer is a string literal, with the token's
+ * own quotes kept. A name the facts bind nowhere with a literal answers
+ * nothing, rather than the first literal its characters stand near. A short
+ * declaration states its literal as plainly as a `const` or a plain assignment
+ * does, and the facts bind all three.
+ */
+function constantToken(t: TreeText, path: string, name: string): string | undefined {
+  const declarations = (bindingsByPath(t).get(path) ?? [])
+    .filter((binding) => binding.name === name && binding.initializer !== undefined)
+    .sort((left, right) => left.span.byteStart - right.span.byteStart);
+  for (const declaration of declarations) {
+    const literal = expressionFact(t, declaration.initializer)?.literal;
+    if (literal?.kind === 'string') return literal.raw;
+  }
+  return undefined;
+}
+
+/**
+ * The digits an address states after its last colon, or none where it states no
+ * port. The address is a value the facts decoded or one token the reader already
+ * holds — no span of a file is read here.
+ */
+function trailingPort(address: string): string | undefined {
+  const colon = address.lastIndexOf(':');
+  if (colon < 0) return undefined;
+  const port = address.slice(colon + 1);
+  return port !== '' && [...port].every((digit) => digit >= '0' && digit <= '9') ? port : undefined;
+}
+
+/**
  * The export paths one written reference stands for, from the form its import
  * binds. A named import names one symbol and takes no member. A default or
  * namespace import names the module itself — its own value, or one of its
@@ -520,18 +592,22 @@ export function receiverListenerPorts(t: TreeText, path: string, receiver: strin
   const unit = t.unitOf(path);
   const scope = unit === undefined ? undefined : unit.root === '' ? '' : `${unit.root}/`;
   for (const other of t.tree.paths.filter((file) => scope !== undefined && (scope === '' || file.startsWith(scope)) && file.endsWith(path.endsWith('.go') ? '.go' : '.ts'))) {
+    // The file's own characters stay for the one handler proof that still reads
+    // text (`handlesReceiver`); every other question below asks the facts.
     const source = t.text(other); const otherMask = sourceMask(t, other);
     const factoryCalls = new Set<string>();
     const methodReceivers: {name: string; definition: number}[] = [];
     if (factory !== undefined) {
       if (other === path && owner?.receiverType === undefined) factoryCalls.add(factory);
       if (path.endsWith('.ts')) {
-        for (const imported of source.matchAll(/import\s*\{([^}]+)\}\s*from\s*['"]([^'"]+)['"]/g)) {
-          if (relativeSource(t, other, imported[2] ?? '') !== path || otherMask.slice(imported.index, imported.index + 6) !== 'import') continue;
-          for (const entry of imported[1]!.split(',')) {
-            const named = /^\s*(\w+)(?:\s+as\s+(\w+))?\s*$/.exec(entry);
-            if (named?.[1] === factory) factoryCalls.add(named[2] ?? factory);
-          }
+        // The name this file calls the factory by is the import fact's own local
+        // name: one named import of the declaring path whose imported name is the
+        // factory, and the alias that import binds. A type-only import binds no
+        // value, so it names no call of the factory.
+        for (const imported of t.importsByPath.all(other)) {
+          if (imported.span.path !== other || imported.typeOnly === true || imported.imported.form !== 'named') continue;
+          if (imported.imported.name !== factory || relativeSource(t, other, imported.specifier) !== path) continue;
+          factoryCalls.add(imported.local);
         }
       } else {
         const folder = path.slice(0, path.lastIndexOf('/'));
@@ -596,26 +672,48 @@ export function receiverListenerPorts(t: TreeText, path: string, receiver: strin
           }
         }
       }
-      for (const mount of source.matchAll(/\b(\w+)\.use\s*\(/g)) {
-        if (!httpReceiver(t, other, mount[1]!, mount.index)) continue;
-        const open = mount.index + mount[0].lastIndexOf('('); const end = closeDelimiter(otherMask, open);
-        if (end === undefined) continue;
-        const args = source.slice(open + 1, end - 1);
-        if (![...factoryCalls].some((called) => new RegExp(`(?:^|,)\\s*${escaped(called)}\\s*\\(`).test(args) && !bindingShadowed(otherMask, called.split('.')[0]!, mount.index))) continue;
-        for (const port of receiverListenerPorts(t, other, mount[1]!, mount.index, seen)) ports.add(port);
+      // A mount is a call fact whose callee reads `use` off a receiver the
+      // shipped models prove where it stands, and one of whose own argument
+      // facts is a call of a name this file calls the factory by.
+      for (const call of callsOf(t, other)) {
+        const callee = expressionFact(t, call.callee);
+        const mount = callee?.syntaxKind === 'member_expression' && callee.member === 'use' ? expressionFact(t, callee.receiver) : undefined;
+        if (mount?.syntaxKind !== 'identifier' || mount.name === undefined) continue;
+        const chars = charsOf(t, other, mount.span);
+        if (chars === undefined || !httpReceiver(t, other, mount.name, chars[0])) continue;
+        if (![...factoryCalls].some((called) => argumentCalls(t, call, called) &&
+          !bindingShadowed(otherMask, called.split('.')[0]!, chars[0]))) continue;
+        for (const port of receiverListenerPorts(t, other, mount.name, chars[0], seen)) ports.add(port);
       }
       continue;
     }
     const httpPackage = importedModule(t, other, 'net/http');
     if (httpPackage === undefined || !httpPackage.namespace) continue;
     const alias = httpPackage.local;
+    // The port an address value proves: a quoted address states its own port, and a
+    // name states the port of the literal token its own declaration initializes it
+    // with — the facts' string token, never a pattern over the file.
     const literalPort = (value: string): string | undefined => {
-      const literal = value.startsWith('"') ? value : new RegExp(`\\b${escaped(value)}\\s*=\\s*("[^"\\n]+")`).exec(source)?.[1];
-      return literal === undefined ? undefined : /:(\d+)"$/.exec(literal)?.[1];
+      const literal = value.startsWith('"') ? value : constantToken(t, other, value);
+      return literal === undefined || !literal.startsWith('"') || !literal.endsWith('"') ? undefined : trailingPort(literal.slice(1, -1));
     };
-    for (const call of source.matchAll(new RegExp(`\\b${escaped(alias)}\\.ListenAndServe\\s*\\(\\s*("[^"\\n]+"|\\w+)\\s*,\\s*([^,]+?)\\)`, 'g'))) {
-      if (otherMask.slice(call.index, call.index + alias.length) !== alias || bindingShadowed(otherMask, alias, call.index) || !handlesReceiver(call[2]!, call.index)) continue;
-      const port = literalPort(call[1]!); if (port !== undefined) ports.add(port);
+    // A listen call is the call fact on the imported package itself: the
+    // receiver at that place is the `net/http` binding, and the call's own two
+    // arguments are the address it serves on and the handler it serves.
+    for (const call of callsOf(t, other)) {
+      const callee = expressionFact(t, call.callee);
+      if (callee?.syntaxKind !== 'selector_expression' || callee.member !== 'ListenAndServe') continue;
+      const served = expressionFact(t, callee.receiver);
+      const chars = served === undefined ? undefined : charsOf(t, other, served.span);
+      if (served?.name !== alias || chars === undefined || importedModule(t, other, 'net/http', chars[0]) === undefined) continue;
+      if (call.arguments.length !== 2) continue;
+      const [addressId, handlerId] = call.arguments;
+      const address = expressionFact(t, addressId);
+      const handler = handlerId === undefined ? undefined : expressionFact(t, handlerId);
+      const handlerChars = handler === undefined ? undefined : charsOf(t, other, handler.span);
+      const written = address?.literal?.kind === 'string' ? address.literal.raw : address?.syntaxKind === 'identifier' ? address.name : undefined;
+      if (written === undefined || handlerChars === undefined || !handlesReceiver(source.slice(handlerChars[0], handlerChars[1]), chars[0])) continue;
+      const port = literalPort(written); if (port !== undefined) ports.add(port);
     }
     for (const declaration of otherMask.matchAll(new RegExp(`\\b(\\w+)\\s*:=\\s*&?${escaped(alias)}\\.Server\\s*\\{`, 'g'))) {
       const open = declaration.index + declaration[0].lastIndexOf('{'); const end = closeDelimiter(otherMask, open, '{', '}');

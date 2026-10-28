@@ -228,7 +228,13 @@ export function readTsFile(path: string, root: SyntaxNode): TsFileFacts {
           if (init !== null && init !== undefined && init.type === 'object') {
             walkTree(init, (pair) => {
               if (pair.type !== 'pair') return;
-              const pairKey = pair.childForFieldName('key')?.text.replace(/['"]/g, '');
+              // A pair's key is a token the grammar delimited: its own quotes come off by slicing, not by a pattern.
+              const keyNode = pair.childForFieldName('key');
+              const keyText = keyNode === null ? undefined : keyNode.text;
+              const quote = keyText === undefined ? undefined : keyText[0];
+              const pairKey = keyText === undefined ? undefined
+                : (quote === '"' || quote === "'") && keyText.length >= 2 && keyText[keyText.length - 1] === quote ? keyText.slice(1, -1)
+                : keyText;
               const pairValue = pair.childForFieldName('value');
               if (pairKey === 'method' && pairValue !== null) method = (stringValue(pairValue) ?? 'GET').toUpperCase();
               if (pairKey !== undefined && pairKey.toLowerCase() === 'authorization' && pairValue !== null && pairValue.text !== "''") tokenForwarded = true;

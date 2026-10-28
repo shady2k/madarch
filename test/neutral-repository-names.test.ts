@@ -15,6 +15,7 @@ import { validateShellCommandModels } from '../src/extract/library-models/shell-
 import { validateEnvironmentModels } from '../src/extract/library-models/environment-models.js';
 import { validateOutboxModels } from '../src/extract/library-models/outbox-models.js';
 import { validateGrpcDeadlineModel } from '../src/extract/library-models/grpc-deadline-models.js';
+import { validateRepositoryConventions } from '../src/extract/library-models/repository-conventions.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const SCAN_ROOTS = ['src', 'test', 'scripts', 'wiki/app/src', 'examples', 'docs/system'];
@@ -285,7 +286,7 @@ function provenanceRanges(root: string, file: string, text: string, errors: stri
     for (const error of document.errors) located(error.pos[0], error.message);
     return [];
   }
-  const validators = [validateLibraryRegistry, validateHttpModels, validateMetricSemanticModels, validateMessagingModels, validateShellCommandModels, validateEnvironmentModels, validateOutboxModels, validateGrpcDeadlineModel];
+  const validators = [validateLibraryRegistry, validateHttpModels, validateMetricSemanticModels, validateMessagingModels, validateShellCommandModels, validateEnvironmentModels, validateOutboxModels, validateGrpcDeadlineModel, validateRepositoryConventions];
   const validationErrors: string[] = [];
   let validated = false;
   for (const validate of validators) {
@@ -334,6 +335,25 @@ function provenanceRanges(root: string, file: string, text: string, errors: stri
         const first = receivers[0];
         if (first !== undefined && receivers.every(receiver => receiver?.ecosystem === first.ecosystem && receiver.package === first.package)
           && provenanceDocumentation(operation.reference, first.ecosystem, first.package)) license([section, index, 'reference'], operation.reference);
+      }
+    }
+    return ranges;
+  }
+  if ('foreignManifestFolders' in registry && 'migrationSeries' in registry) {
+    // The repository conventions cite the documentation that states each convention: the validated
+    // schema marks those scalars as provenance, and nothing else in the file is a source.
+    const conventions = validateRepositoryConventions(registry);
+    for (const section of ['foreignManifestFolders', 'migrationSeries', 'prismaSchemas', 'schemaScripts', 'composeServices'] as const) {
+      for (const [index, entry] of conventions[section].entries()) {
+        if (!provenanceDocumentation(entry.reference)) continue;
+        const scalar = document.getIn([section, index, 'reference'], true);
+        if (!isScalar(scalar) || scalar.type !== 'QUOTE_DOUBLE' || scalar.range == null || scalar.value !== entry.reference) {
+          located(0, `${section}[${index}].reference has no exact JSON scalar location`); return [];
+        }
+        const [start, end] = scalar.range;
+        try { if (JSON.parse(text.slice(start, end)) !== entry.reference) { located(start, 'scalar bytes disagree'); return []; } }
+        catch { located(start, 'scalar bytes are not JSON'); return []; }
+        ranges.push({start, end});
       }
     }
     return ranges;

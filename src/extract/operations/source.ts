@@ -230,7 +230,8 @@ export class TreeText {
   /** The first span whose text holds the needle, from a 1-based line on. */
   spanAround(path: string, needle: string, fromLine = 1): SourceSpan | undefined {
     const text = this.text(path);
-    const at = text.indexOf(needle, charOfLine(this.lines(path), fromLine));
+    // A literal search for a string the caller already holds: the comparison is of characters, never a pattern.
+    const at = indexOfText(text, needle, charOfLine(this.lines(path), fromLine));
     if (at < 0) return undefined;
     const lines = this.lines(path);
     const first = lineOfChar(lines, at);
@@ -301,4 +302,18 @@ function utf8Length(bytes: Uint8Array, at: number): number | undefined {
 /** The units one tree declares: read once per extractor run, not once per file. */
 export function declaredUnits(tree: TreeReader): UnitIndex {
   return unitIndex(serviceUnits(tree));
+}
+
+/** The first place a literal string stands in a text, from a character offset on: no pattern, one comparison of characters. */
+function indexOfText(text: string, needle: string, from = 0): number {
+  if (needle === '') return from <= text.length ? from : -1;
+  const last = text.length - needle.length;
+  for (let at = Math.max(0, from); at <= last; at += 1) {
+    let matched = true;
+    for (let offset = 0; offset < needle.length; offset += 1) {
+      if (text[at + offset] !== needle[offset]) { matched = false; break; }
+    }
+    if (matched) return at;
+  }
+  return -1;
 }

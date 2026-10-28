@@ -530,6 +530,12 @@ interface EnvDefinition {
   readonly span: ReturnType<TreeText['spanOfLine']>;
 }
 
+/** The first place one character stands in a string: one comparison per character, never a search pattern. */
+function firstCharacter(text: string, character: string): number {
+  for (let at = 0; at < text.length; at += 1) if (text[at] === character) return at;
+  return -1;
+}
+
 /** The definitions in the .env.example files, as NAME=value lines. */
 function envExampleDefinitions(t: TreeText): EnvDefinition[] {
   const definitions: EnvDefinition[] = [];
@@ -537,7 +543,7 @@ function envExampleDefinitions(t: TreeText): EnvDefinition[] {
     t.lines(path).forEach((line, index) => {
       // A dotenv line is a name and a value around one `=`: no pattern reads the line, and a comment or a foreign
       // line has no name of that shape.
-      const at = line.indexOf('=');
+      const at = firstCharacter(line, '=');
       if (at < 0) return;
       const name = line.slice(0, at).trim();
       if (!isDotenvName(name)) return;
