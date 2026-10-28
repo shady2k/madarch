@@ -32,10 +32,22 @@ import {
   leaseUnit,
   readProductUnits,
   replaceStaleGeneration,
+  revokeUnitLease,
 } from '../fill/state-store.js';
 import type { UnitRecord } from '../fill/state-store.js';
 import { byCodePoint } from '../model/order.js';
 import { writerStageId, type WriterUnitKindName } from './graph.js';
+
+/** What opening a unit's generation answered: whether an attempt is open, and whether it recovered an interrupted one. */
+export interface WriterAttempt {
+  /** True when this run holds an attempt to publish into; false when the page already holds what the run would write. */
+  readonly opened: boolean;
+  /**
+   * True when the generation this attempt replaced was an attempt that never ended (leased, running, drafting or
+   * validating) under exactly these inputs: the page it left on disk is this unit's page, and the run publishes it.
+   */
+  readonly recovered: boolean;
+}
 
 /** One unit as the writer records it: what it is, what it covers and what it read. */
 export interface WriterUnitRecord {
@@ -53,10 +65,14 @@ export interface WriterState {
   /** The units the product's earlier runs published, by unit id. */
   published(): Promise<ReadonlyMap<string, WriterUnitRecord>>;
   /**
-   * Opens a unit's generation for this run, and answers true when an attempt is open to publish into. A unit an
-   * earlier run published with the same inputs opens nothing (false): its page is already what this run would write.
+   * Opens a unit's generation for this run. `opened` is true when an attempt is open to publish into, and false when
+   * the unit's page already holds what this run would write (published under the same inputs) — nothing to do.
+   * `recovered` is true when the generation this attempt replaced was an attempt that never ended with exactly these
+   * inputs: a page that attempt left on disk is this unit's page, and the run publishes it instead of writing it again.
+   * A generation in a terminal state (`failed`, `cancelled`) answers no authority at all, and the run refuses to run
+   * the unit rather than write a page nobody can publish.
    */
-  begin(record: WriterUnitRecord, at: number): Promise<boolean>;
+  begin(record: WriterUnitRecord, at: number): Promise<WriterAttempt>;
   /** Records a unit as published: from here on a run with the same digest keeps what it produced. */
   publish(record: WriterUnitRecord, at: number): Promise<void>;
   /** Records a unit that ended without its content, with the reason: the next run takes it up again. */
@@ -73,7 +89,7 @@ export type WriterClock = () => number;
  */
 export const NO_WRITER_STATE: WriterState = {
   published: async () => new Map(),
-  begin: async () => true,
+  begin: async () => ({ opened: true, recovered: false }),
   publish: async () => undefined,
   blocked: async () => undefined,
 };
@@ -100,10 +116,11 @@ export function memoryWriterState(): MemoryWriterState {
     published: async () => new Map([...publishedUnits].sort(([left], [right]) => byCodePoint(left, right))),
     begin: async (record) => {
       // A unit published under the same inputs has nothing to open: the page this run would write is the one it holds.
-      if (publishedUnits.get(record.unit)?.digest === record.digest) return false;
+      if (publishedUnits.get(record.unit)?.digest === record.digest) return { opened: false, recovered: false };
+      const abandoned = opened.find((entry) => entry.unit === record.unit);
       blockedUnits.delete(record.unit);
       opened.push(record);
-      return true;
+      return { opened: true, recovered: abandoned !== undefined && abandoned.digest === record.digest };
     },
     publish: async (record) => {
       blockedUnits.delete(record.unit);
@@ -179,7 +196,26 @@ export function fillWriterState(database: FillStateDatabase, options: FillWriter
       let state: UnitRecord['state'] = created.state;
       // The unit is published under exactly the inputs this run offers: nothing is opened, and the page it holds is the
       // page this run would write.
-      if (state === 'published' && created.inputsDigest === record.digest) return false;
+      if (state === 'published' && created.inputsDigest === record.digest) return { opened: false, recovered: false };
+      if (state === 'failed' || state === 'cancelled') {
+        // A generation that ended holds no authority: nothing may start it again, and a page written into it could never
+        // be published. The run refuses the unit and says so rather than writing a page nobody can publish.
+        throw new Error(`src/writer/graph-state.ts: the unit ${JSON.stringify(record.unit)} is ${state} in the fill's unit tables (fill_unit_generation, unit ${record.unit}, generation ${generation}): a generation that ended holds no authority, so this run does not write its page`);
+      }
+      // An attempt that never ended — the worker was killed between its lease and its publication — is recovered here,
+      // through the persisted state: its lease is revoked, its generation goes stale, and the next generation of the same
+      // inputs is opened below. No orchestrator sweep ever comes for a writer unit (it has no run of the fill's), so the
+      // writer is its own sweep.
+      let recovered = false;
+      if (state === 'leased' || state === 'running' || state === 'draft' || state === 'validating' || state === 'waiting_children' || state === 'retry_wait') {
+        recovered = created.inputsDigest === record.digest;
+        if (created.lease !== null) await revokeUnitLease(database, { unitId: record.unit, generation, fence: created.lease.fence, at });
+        await step('the invalidation of an attempt that never ended', record, async () => await advanceUnit(database, {
+          unitId: record.unit,
+          event: { type: 'invalidate', at, replacement: generation + 1, cause: `an attempt that never ended was recovered by the writer's next run: ${state}` },
+        }));
+        state = 'stale';
+      }
       if (state === 'published' && created.inputsDigest !== record.digest) {
         // What a person read is the record of the inputs it was written from (0027): a unit whose inputs moved
         // is marked stale and replaced by its next generation, never edited in place.
@@ -216,7 +252,7 @@ export function fillWriterState(database: FillStateDatabase, options: FillWriter
         throw new Error(`src/writer/graph-state.ts: the lease of the unit ${JSON.stringify(record.unit)} was refused by the fill's unit machine: ${leased.refusal.code}: ${leased.refusal.reason} (table fill_unit_lease, unit ${record.unit})`);
       }
       await step('the start', record, async () => await advanceUnit(database, { unitId: record.unit, event: { type: 'start', at, generation, fence: leased.record.context.fence } }));
-      return true;
+      return { opened: true, recovered };
     },
     async publish(record, at) {
       const current = (await readProductUnits(database, { product: options.product, state: 'running' })).find((unit) => unit.unitId === record.unit);

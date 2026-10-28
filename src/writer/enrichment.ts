@@ -134,6 +134,32 @@ export function parseEnrichment(path: string, text: string, entity: DocEntity): 
   return { ok: true, entity: entity.id, schema: ENRICHMENT_SCHEMA, body };
 }
 
+/** The page id a written page's front matter names, or undefined when the text is no page of the writer's. */
+export function frontMatterId(text: string): string | undefined {
+  if (text.replace(/\r\n/g, '\n').split('\n')[0] !== '---') return undefined;
+  try {
+    const split = splitFrontMatter(text.replace(/\r\n/g, '\n'));
+    if (split.front === null) return undefined;
+    const front: unknown = parseYaml(split.front);
+    if (typeof front !== 'object' || front === null || Array.isArray(front)) return undefined;
+    const id = (front as Record<string, unknown>)['id'];
+    return typeof id === 'string' && id.trim() !== '' ? id : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Why an enrichment file may not be replaced, or undefined when it is this entity's own page as the writer left it
+ * (decision 0032, section 1: the person's text is never overwritten). A file that is no enrichment, another entity's
+ * enrichment, or a page an outside hand rewrote carries the line and the reason.
+ */
+export function enrichmentOverwriteProblem(path: string, existing: string, entity: DocEntity): { readonly line: number; readonly message: string } | undefined {
+  const read = parseEnrichment(path, existing, entity);
+  if (read.ok) return undefined;
+  return { line: read.line, message: `${read.message} (the file stands at its entity's place: ${path})` };
+}
+
 /**
  * Whether a file is a page this writer wrote: its front matter names the producer `agent`, which no
  * document a person wrote does. A caller about to write over an existing page reads this first, and

@@ -20,7 +20,7 @@ import { extractFiles } from '../src/extract/driver/files.js';
 import { createGraphStore, type GraphStore } from '../src/graph/index.js';
 import type { DocEntity } from '../src/knowledge/doc-entities.js';
 import {
-  enrichmentPath, enrichmentPageId, fsSink, memorySink, memoryWriterState, runWriter, writerGraphProblems,
+  enrichmentPath, enrichmentPageId, fsSink, GraphView, memorySink, memoryWriterState, runWriter, UnitTools, writerGraphProblems,
   writerPageFamily, writerUnitOrder, WRITER_UNIT_KINDS,
   type PageSink, type UnitAgent, type UnitRequest, type WriterReport,
 } from '../src/writer/index.js';
@@ -93,6 +93,9 @@ function declareWriterPages(folder: string): void {
   for (const [kind, page] of [['validation', 'docs/validation.md'], ['overview', 'docs/overview.md'], ['editorial', 'docs/editorial.md']] as const) {
     manifest.setIn(['kinds', kind], { template: 'templates/product.md', source: 'markdown', file: page, origin: 'agent', labels: { en: { one: 'Report', many: 'Reports' } } });
   }
+  // The enrichment of a passage is a kind of the wiki too: its pages stand beside the documents, so a product shows them
+  // only when its manifest declares the kind (decision 0029).
+  manifest.setIn(['kinds', 'enrichment'], { template: 'templates/product.md', source: 'markdown', folder: 'docs/enrichment', origin: 'agent', labels: { en: { one: 'Enrichment', many: 'Enrichments' } } });
   writeFileSync(file, manifest.toString());
   const read = readKinds(folder);
   if (!read.present || !read.manifest.kinds.has('validation')) throw new Error(`the fixture manifest of ${folder} does not declare the validation kind: ${JSON.stringify(read.present ? read.manifest.findings : 'no manifest')}`);
@@ -287,6 +290,133 @@ describe('a run of the writer', () => {
 });
 
 // ---------------------------------------------------------------------------------------------
+// An attempt that never ended: recovered, published once, and nothing else redone
+// ---------------------------------------------------------------------------------------------
+
+describe('a worker killed mid-unit', () => {
+  test('its page is published by the next run, not written again, and no other unit is redone', async () => {
+    const folder = mkdtempSync(join(tmpdir(), 'madarch-writer-graph-killed-'));
+    try {
+      mkdirSync(join(folder, 'docs'), { recursive: true });
+      declareWriterPages(folder);
+      const state = memoryWriterState();
+      const killed = scripted();
+      // The run dies inside the overview unit, after its page was written and before it was published: exactly what a
+      // killed worker leaves. The unit's generation stays running, and no sweep ever comes for a writer unit.
+      const failure = await runWriter({
+        owner, store, repository, output: folder, productName: 'Tiny shop', agent: killed.agent, documentEntities: entities, state, sink: fsSink(folder),
+        onUnit: (outcome) => { if (outcome.unit === 'overview:tiny-shop') throw new Error('the worker was killed'); },
+      }).then(() => undefined, (error: Error) => error);
+      expect((failure as Error).message).toBe('the worker was killed');
+      expect(state.publishedUnits.has('overview:tiny-shop')).toBe(false);
+      const pageAfterKill = readFileSync(join(folder, 'docs/overview.md'), 'utf8');
+
+      const resumed = scripted();
+      const report = await runWriter({ owner, store, repository, output: folder, productName: 'Tiny shop', agent: resumed.agent, documentEntities: entities, state, sink: fsSink(folder) });
+      // The unit the kill left is published once, from the page it had written: the agent is not asked for it again.
+      expect(resumed.seen).toEqual(['editorial:tiny-shop']);
+      expect(state.publishedUnits.has('overview:tiny-shop')).toBe(true);
+      expect(readFileSync(join(folder, 'docs/overview.md'), 'utf8')).toBe(pageAfterKill);
+      expect(report.graph.find((kind) => kind.kind === 'overview')!.units).toEqual([{ unit: 'overview:tiny-shop', kind: 'overview', path: 'docs/overview.md', status: 'written' }]);
+      expect(report.stateProblems).toEqual([]);
+      // And a third run writes nothing at all.
+      const third = scripted();
+      await runWriter({ owner, store, repository, output: folder, productName: 'Tiny shop', agent: third.agent, documentEntities: entities, state, sink: fsSink(folder) });
+      expect(third.seen).toEqual([]);
+    } finally {
+      rmSync(folder, { recursive: true, force: true });
+    }
+  }, 240_000);
+});
+
+// ---------------------------------------------------------------------------------------------
+// The digests a unit is resumed by: the pinned inputs and the upstream content, not only the ids
+// ---------------------------------------------------------------------------------------------
+
+describe('what a unit\'s inputs digest holds', () => {
+  test('an upstream enrichment rewritten by hand reaches the unit that stands on it', async () => {
+    const folder = mkdtempSync(join(tmpdir(), 'madarch-writer-graph-upstream-'));
+    try {
+      mkdirSync(join(folder, 'docs'), { recursive: true });
+      declareWriterPages(folder);
+      const state = memoryWriterState();
+      await runWriter({ owner, store, repository, output: folder, productName: 'Tiny shop', agent: scripted().agent, documentEntities: entities, state, sink: fsSink(folder) });
+      // The rule's enrichment — the input the scenario unit reads — says something else now.
+      const rulePage = enrichmentPath(entities[1]!);
+      const rewritten = readFileSync(join(folder, rulePage), 'utf8').replace('## What this passage says', '## What a person found here');
+      writeFileSync(join(folder, rulePage), rewritten);
+      const second = scripted();
+      await runWriter({ owner, store, repository, output: folder, productName: 'Tiny shop', agent: second.agent, documentEntities: entities, state, sink: fsSink(folder) });
+      // The scenario unit stands on that page, so its inputs moved and it runs; the rule's own unit and the product page
+      // did not move, and the editorial pass reads the pages by content, so it sees the change too.
+      expect(second.seen).toContain('enrichment:doc:docs/requirements.md#doc-section:1');
+      expect(second.seen).not.toContain('enrichment:doc:docs/requirements.md#doc-section:2');
+      expect(second.seen).not.toContain('product:tiny-shop');
+    } finally {
+      rmSync(folder, { recursive: true, force: true });
+    }
+  }, 240_000);
+
+  test('a moved pin is a new input, even when the passage reads the same', async () => {
+    const folder = mkdtempSync(join(tmpdir(), 'madarch-writer-graph-pin-'));
+    try {
+      mkdirSync(join(folder, 'docs'), { recursive: true });
+      declareWriterPages(folder);
+      const state = memoryWriterState();
+      await runWriter({ owner, store, repository, output: folder, productName: 'Tiny shop', agent: scripted().agent, documentEntities: entities, state, sink: fsSink(folder) });
+      // The pin the pages record moves: the enrichments were written against another revision of the code.
+      const env = gitEnv({ GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.test', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.test' });
+      writeFileSync(join(repository, 'src/app.ts'), `${SOURCE}export const refunded = (amount: number): number => refund(amount);\n`);
+      execFileSync('git', ['-c', 'commit.gpgsign=false', 'commit', '--quiet', '-am', 'Change the refund implementation'], { cwd: repository, env, encoding: 'utf8' });
+      const second = scripted();
+      const report = await runWriter({ owner, store, repository, output: folder, productName: 'Tiny shop', agent: second.agent, documentEntities: entities, state, sink: fsSink(folder) });
+      expect(second.seen).toContain('enrichment:doc:docs/requirements.md#doc-section:2');
+      expect(report.ok).toBe(true);
+    } finally {
+      rmSync(folder, { recursive: true, force: true });
+    }
+  }, 240_000);
+});
+
+// ---------------------------------------------------------------------------------------------
+// A prompt is a bounded list, never a lost input: every produced artifact is reachable
+// ---------------------------------------------------------------------------------------------
+
+describe('the artifacts a run produced', () => {
+  test('search_pages with all names every one of them, and get_page reads the page a prompt cut', async () => {
+    const folder = mkdtempSync(join(tmpdir(), 'madarch-writer-graph-list-'));
+    try {
+      mkdirSync(join(folder, 'docs'), { recursive: true });
+      declareWriterPages(folder);
+      const answers: Record<string, unknown> = {};
+      const agent: UnitAgent = {
+        run: async (request) => {
+          if (request.id === 'domain:ordering') {
+            answers['list'] = (await request.tools.call('search_pages', { all: true })).answer;
+            const listed = (answers['list'] as { pages: { path: string }[] }).pages;
+            const enrichment = listed.find((page) => page.path.startsWith('docs/enrichment/'))!;
+            answers['page'] = (await request.tools.call('get_page', { page: enrichment.path })).answer;
+          }
+          await scripted().agent.run(request);
+        },
+      };
+      // The scripted agent above answers as the fixture's agent does after recording the two answers.
+      const report = await runWriter({ owner, store, repository, output: folder, productName: 'Tiny shop', agent, documentEntities: entities, state: memoryWriterState(), sink: fsSink(folder) });
+      expect(report.ok).toBe(true);
+      const listed = answers['list'] as { pages: { path: string; artifact: string }[]; total: number; artifacts: string[] };
+      const paths = listed.pages.map((page) => page.path);
+      for (const entity of entities) expect(paths).toContain(enrichmentPath(entity));
+      expect(listed.artifacts).toEqual(expect.arrayContaining(['document-readings', 'rule-enrichments', 'product-page']));
+      expect(listed.total).toBe(listed.pages.length);
+      // The page a unit's prompt did not carry is read whole from its path.
+      expect(JSON.stringify(answers['page'])).toContain('enrichment:doc:docs/requirements.md#doc-section');
+    } finally {
+      rmSync(folder, { recursive: true, force: true });
+    }
+  }, 240_000);
+});
+
+// ---------------------------------------------------------------------------------------------
 // Enrichment of a person's document: apart from it, keyed by its identity, never over it
 // ---------------------------------------------------------------------------------------------
 
@@ -305,6 +435,30 @@ describe('the enrichment of a person’s document', () => {
     }
     // Two passages of one document never share a file.
     expect(enrichmentPath(entities[0]!)).not.toBe(enrichmentPath(entities[1]!));
+  });
+
+  test('a file a person left at an enrichment’s place is refused, with its path and line, and never replaced', async () => {
+    const sink = fsSink(product);
+    const entity = entities[0]!;
+    const path = `docs/enrichment/doc.other/${'a'.repeat(64)}.md`;
+    mkdirSync(join(product, 'docs/enrichment/doc.other'), { recursive: true });
+    writeFileSync(join(product, path), '# A note a person wrote about UC-1\n');
+    // A page the writer did not write is not replaced, whatever family it stands in.
+    await expect(sink.write(path, page('enrichment:doc:docs/requirements.md#doc-section:1', 'enrichment', 'UC-1', 'A shopper places an order.[^what-it-is]'))).rejects.toThrow(/does not overwrite a page it did not write/);
+    expect(readFileSync(join(product, path), 'utf8')).toBe('# A note a person wrote about UC-1\n');
+    // An agent page of another entity is refused too: an enrichment is replaced only by its own entity's page.
+    const other = page('enrichment:doc:docs/requirements.md#doc-section:2', 'enrichment', 'Other', 'A refund is checked.[^what-it-is]');
+    writeFileSync(join(product, path), other);
+    await expect(sink.write(path, page('enrichment:doc:docs/requirements.md#doc-section:1', 'enrichment', 'UC-1', 'A shopper places an order.[^what-it-is]'))).rejects.toThrow(/replaced only by the page of the same entity/);
+    expect(readFileSync(join(product, path), 'utf8')).toBe(other);
+    // The writer's state guard is not what says this: the entity's own tool refuses it before a byte is written.
+    const entityPath = enrichmentPath(entity);
+    writeFileSync(join(product, entityPath), 'A person wrote this at the entity\'s own place.\n');
+    const tools = new UnitTools(await GraphView.open(owner, store), { kind: 'enrichment', id: `enrichment:${entity.id}`, path: entityPath, entity, task: 'State the scenario.' }, sink);
+    const refused = await tools.call('write_enrichment', { body: '## The scenario\n\nA shopper places an order.[^what-it-is]\n\n[^what-it-is]: [UC-1](madarch:doc:docs/requirements.md#uc-1)' });
+    expect(refused.isError).toBe(true);
+    expect(JSON.stringify(refused.answer)).toContain('enrichment-ownership');
+    expect(readFileSync(join(product, entityPath), 'utf8')).toBe('A person wrote this at the entity\'s own place.\n');
   });
 
   test('the person’s own document is not touched, and the writer refuses to write over it', async () => {

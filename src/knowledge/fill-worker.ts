@@ -332,7 +332,8 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
       }),
     };
     const files = fsSink(productFolder);
-    const sink = { read: files.read, write: async (relative: string, content: string): Promise<void> => { await files.write(relative, content); send({ type: 'page', path: relative }); } };
+    // The sink keeps the ability to list the pages: `search_pages` and `get_page` reach an input a unit's prompt cut.
+    const sink = { read: files.read, list: files.list, write: async (relative: string, content: string): Promise<void> => { await files.write(relative, content); send({ type: 'page', path: relative }); } };
     try {
       const repo = repositories[0]!;
       const kinds = readKinds(productFolder);

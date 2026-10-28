@@ -28,7 +28,7 @@ import type { GraphView } from './view.js';
 import { AnswerRefusal, CONTEXT_PURPOSES, EVIDENCE_SHOWN, FLOW_DEPTH, FLOW_STEPS, FLOW_TARGETS, PAGES_SHOWN, QUESTIONS_SHOWN, UNRESOLVED_SHOWN, getContext, getDocumentSections, getPage, getSymbol, searchPages, searchQuestions, traceFlow, SnapshotReads, type AnswerResult, type ContextPurpose, type FlowTarget, type GraphReads, type SourceRead } from './answers.js';
 import { betweenCounters, NO_COUNTERS, type CallCounters } from './journal.js';
 import { detectStatementLanguage, LOCALIZED_SOURCE_SCHEMA, parseLocalizedSource, renderLocalizedSource } from './localized-source.js';
-import { ENRICHMENT_FRONT_KEYS, enrichmentPageId, renderEnrichment } from './enrichment.js';
+import { ENRICHMENT_FRONT_KEYS, enrichmentOverwriteProblem, enrichmentPageId, renderEnrichment } from './enrichment.js';
 import type { GuidePreparedUnit } from './guides/host-contract.js';
 import { validateGuide } from './guides/validate.js';
 import { renderGuideArtifact } from './guides/artifact.js';
@@ -132,6 +132,21 @@ export interface UnitExtras {
   readonly questions?: () => Promise<readonly Question[]>;
   /** The graph reads the answers make: the pinned snapshot reader of the fill's view unless a caller gives its own. */
   readonly reads?: GraphReads;
+  /**
+   * Every artifact this run has produced, in code point order of its path: the pages a later unit may read. A unit's
+   * prompt carries at most `ARTIFACT_LIMIT` of them, so `search_pages` with `all` is how it reaches the rest — the tool
+   * that keeps a cut prompt from becoming a lost input (decision 0032, section 1).
+   */
+  readonly produced?: () => Promise<readonly ProducedArtifactRead[]>;
+}
+
+/** One artifact a unit may read: what it is, the page it stands in, and how a reader names it. */
+export interface ProducedArtifactRead {
+  readonly artifact: string;
+  readonly kind: string;
+  readonly unit: string;
+  readonly path: string;
+  readonly title: string;
 }
 
 export const MAX_DOMAINS = 12;
@@ -251,12 +266,14 @@ export const WRITER_TOOLS: readonly McpToolDefinition[] = [
   },
   {
     name: 'search_pages',
-    description: 'The pages of the product already written — the product page, the domain pages and the questions — whose title or text holds the words you ask for, with the lines that hold them.',
+    description: 'The pages of the product already written — the product page, the domain pages and the questions — whose title or text holds the words you ask for, with the lines that hold them. With "all": true it lists every artifact this run has produced instead, in code point order of its path, so a page your instructions cut from the list they gave you is reachable here.',
     inputSchema: object({
       text: { type: 'string', description: 'The words to look for.' },
       kind: { type: 'string', description: 'Only the pages of this kind: "product", "domain" or "question".' },
+      all: { type: 'boolean', description: 'With "all": true, list every artifact this run produced instead of searching a text.' },
+      artifact: { type: 'string', description: 'With "all": only the pages of this artifact, such as "rule-enrichments".' },
       limit: { type: 'integer', minimum: 1, maximum: 20 },
-    }, ['text']),
+    }),
   },
   {
     name: 'get_page',
@@ -569,6 +586,12 @@ export class UnitTools {
     // A page written before stands: a sentence this write keeps keeps its footnote name, so the wiki's
     // statement identity survives a rewritten enrichment (0029).
     const previous = await this.sink.read(unit.path).catch(() => undefined);
+    if (previous !== undefined) {
+      // The file stands at one entity's place: it is replaced only by that entity's own page, never a person's text and
+      // never another entity's page (decision 0032, section 1).
+      const problem = enrichmentOverwriteProblem(unit.path, previous, unit.entity);
+      if (problem !== undefined) return this.refuse([{ line: problem.line, rule: 'enrichment-ownership', message: problem.message }]);
+    }
     const verdict = await checkPage(draft, {
       file: unit.path,
       fullPath: resolve(this.extras.output ?? process.cwd(), unit.path),
@@ -735,6 +758,15 @@ export class UnitTools {
   }
 
   private async searchPagesAnswer(args: Record<string, unknown>): Promise<ToolAnswer> {
+    // The listing the prompt's own bounded list cannot be: every artifact this run has produced, so a cut input is a
+    // shorter list and never a lost one (decision 0032, section 1).
+    if (args['all'] === true) {
+      if (args['artifact'] !== undefined && typeof args['artifact'] !== 'string') return fail('bad-argument', '"artifact" is a text, such as "rule-enrichments"');
+      const produced = this.extras.produced === undefined ? [] : [...await this.extras.produced()];
+      const wantedArtifact = args['artifact'] as string | undefined;
+      const shown = produced.filter((item) => wantedArtifact === undefined || item.artifact === wantedArtifact).sort((left, right) => byCodePoint(left.path, right.path) || byCodePoint(left.unit, right.unit));
+      return ok({ pages: shown, total: shown.length, artifacts: [...new Set(produced.map((item) => item.artifact))].sort(byCodePoint) });
+    }
     const wanted = text(args['text'], 'text');
     if (isFailure(wanted)) return wanted;
     if (args['kind'] !== undefined && typeof args['kind'] !== 'string') return fail('bad-argument', '"kind" is a text, such as "product" or "domain"');

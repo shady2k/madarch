@@ -36,9 +36,9 @@ import { MAX_SLUG_LENGTH, SLUG } from './format.js';
 import { domainPrompt, editorialPrompt, enrichmentPrompt, ENRICHMENT_TASKS, overviewPrompt, productPrompt, validationPrompt, type UnitContext, type WriterArtifactRead } from './prompts.js';
 import { DEFAULT_UNIT_BOUNDS, UnitTools, type DomainDeclaration, type PageSink, type ToolAnswer, type UnitBounds, type UnitOutcome, type UnitSpec } from './tools.js';
 import { GraphView, ingestContent, type ContentReport } from './view.js';
-import { WRITER_UNIT_KINDS, writerUnitDigest, writerUnitKind, writerUnitOrder, type WriterArtifact, type WriterUnitKindName } from './graph.js';
+import { textDigest, WRITER_UNIT_KINDS, writerUnitDigest, writerUnitKind, writerUnitOrder, type WriterArtifact, type WriterUnitKindName } from './graph.js';
 import { NO_WRITER_STATE, type WriterState, type WriterUnitRecord } from './graph-state.js';
-import { enrichmentPath, isAgentPage, type EnrichmentDraft } from './enrichment.js';
+import { enrichmentOverwriteProblem, enrichmentPath, frontMatterId, isAgentPage, type EnrichmentDraft } from './enrichment.js';
 import { GUIDE_OUTPUTS, registeredGuideOutput, type GuideWriterHost } from './guides/host-contract.js';
 import { guidePageCount, currentGuidePath } from './guides/prepared.js';
 import { formatGuidePreparationError, type GuidePreparationStage } from './guides/preparation-error.js';
@@ -326,10 +326,19 @@ export function fsSink(root: string): PageSink {
       // What the writer did not write, it does not replace: a page whose front matter does not name the
       // producer `agent` is a person's text (or a file of another shape), and the write is refused with the
       // file, its line and its full path rather than overwriting it (decision 0032, section 1).
-      if (family !== undefined && OWNED_BY_THE_WRITER.includes(family)) {
+      if ((family !== undefined && OWNED_BY_THE_WRITER.includes(family)) || enrichment) {
         const existing = await readFile(target, 'utf8').catch((error: NodeJS.ErrnoException) => (error.code === 'ENOENT' ? undefined : Promise.reject(error)));
         if (existing !== undefined && !isAgentPage(existing)) {
           throw new Error(`${target}:1: the writer does not overwrite a page it did not write: the file holds no page whose front matter names the producer "agent", so it is a person's text (decision 0032, section 1)`);
+        }
+        if (existing !== undefined && enrichment) {
+          // An enrichment stands at a path derived from one entity's identity: the file there must be that entity's page, or
+          // an outside hand has rewritten it, and it is refused rather than replaced.
+          const held = frontMatterId(existing);
+          const next = frontMatterId(content);
+          if (held === undefined || next === undefined || held !== next) {
+            throw new Error(`${target}:2: the writer does not replace this file: it holds the page ${JSON.stringify(held ?? 'of no id')} and this write is ${JSON.stringify(next ?? 'of no id')}, and an enrichment is replaced only by the page of the same entity (decision 0032, section 1)`);
+          }
         }
       }
       const temporary = `${target}.${process.pid}.${(counter += 1)}.writing`;
@@ -474,13 +483,33 @@ export async function runGraphUnit(input: {
   if (kept !== undefined && kept.digest === input.digest && await pageKept(input.sink, input.path)) {
     return { run: { unit: input.id, kind: input.kind, path: input.path, status: 'kept', reason: `published by an earlier run of the same inputs (${input.digest.slice(0, 12)})` } };
   }
-  if (kept === undefined && input.pageStandingKeepsTheUnit === true && await pageKept(input.sink, input.path)) {
+  // A standing page is kept only where the run keeps no state at all: with a state, the state decides — an attempt that
+  // never ended is recovered and its page published, which is not the same as a page nobody recorded.
+  if (kept === undefined && input.pageStandingKeepsTheUnit === true && input.state === NO_WRITER_STATE && await pageKept(input.sink, input.path)) {
     return { run: { unit: input.id, kind: input.kind, path: input.path, status: 'kept', reason: 'the page stands and no earlier run of this writer recorded it: this run wrote nothing over it' } };
   }
   const entry: WriterUnitRecord = { unit: input.id, kind: input.kind, scope: input.scope, digest: input.digest };
-  const opened = await recorded('the opening of its generation', async () => await input.state.begin(entry, input.now()));
+  const attempt = await recorded('the opening of its generation', async () => await input.state.begin(entry, input.now()));
+  if (attempt === undefined) {
+    // No lease, no authority: a page written now could never be published, and the next run would write it again. The
+    // unit is not run, and the run says why rather than leaving a page behind that nobody owns.
+    const reason = `${input.path}:1: the writer's state refused this unit's attempt, so it was not run and no page was written for it (report.stateProblems names the refusal)`;
+    input.onUnit?.({ unit: input.id, status: 'failed', path: input.path, writeAttempts: 0, calls: 0, refusals: [{ line: 1, rule: 'no-authority', message: reason }], domains: [], grounds: [], links: [], filesRead: [], questions: [], merged: [] });
+    return { run: { unit: input.id, kind: input.kind, path: input.path, status: 'failed', reason } };
+  }
+  if (!attempt.opened) {
+    // Published under exactly these inputs: the page holds what this run would write.
+    return { run: { unit: input.id, kind: input.kind, path: input.path, status: 'kept', reason: `published by an earlier run of the same inputs (${input.digest.slice(0, 12)})` } };
+  }
+  if (attempt.recovered && await pageKept(input.sink, input.path)) {
+    // An attempt that never ended left its page on disk: it is this unit's page, so it is published, not written again
+    // (a page written twice is a page a person may have already read).
+    await recorded('its publication after a crash', async () => await input.state.publish(entry, input.now()));
+    const page = { unit: input.id, status: 'written' as const, path: input.path, writeAttempts: 0, calls: 0, refusals: [], domains: [], grounds: [], links: [], filesRead: [], questions: [], merged: [] };
+    input.onUnit?.(page);
+    return { run: { unit: input.id, kind: input.kind, path: input.path, status: 'written' }, outcome: page };
+  }
   const result = await runOnly();
-  if (opened !== true) return result;
   if (result.outcome?.status === 'written') await recorded('its publication', async () => await input.state.publish(entry, input.now()));
   else if (result.outcome !== undefined) await recorded('its reason', async () => await input.state.blocked(entry, result.run.reason ?? unitEndedOn(result.outcome!), input.now()));
   return result;
@@ -547,7 +576,11 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
     }
     return found;
   };
-  const extras = { entityIds: async () => entityIds, output: options.output, language, questions: liveQuestions, ...(options.clock === undefined ? {} : { clock: options.clock }) };
+  // Every artifact this run has produced, read fresh at each call: a unit's prompt carries a bounded list of them, and
+  // `list_pages` is how the unit reaches what the prompt cut (decision 0032, section 1).
+  const producedNow = async (): Promise<readonly { artifact: string; kind: string; unit: string; path: string; title: string }[]> =>
+    [...produced.values()].flat().map((item) => ({ artifact: item.artifact, kind: item.kind, unit: item.unit, path: item.path, title: item.title }));
+  const extras = { entityIds: async () => entityIds, output: options.output, language, questions: liveQuestions, produced: producedNow, ...(options.clock === undefined ? {} : { clock: options.clock }) };
   let existingProduct: string | null = null;
   try { existingProduct = await sink.read(PRODUCT_PATH); } catch { existingProduct = null; }
   const domainPages = await existingDomainPages(options.output);
@@ -633,6 +666,12 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
   };
   const artifactsOf = (artifact: WriterArtifact): readonly ProducedArtifact[] => produced.get(artifact) ?? [];
   /** The pages a kind's declared reads name, as the kind's units are handed them. */
+  /** The pinned inputs every unit is read at: the commit the pages record, and the instant the graph is read at. */
+  const pinned = (): string[] => [`${basis[0]!.repository}@${basis[0]!.commit}`, view.at];
+  /** What the artifacts a unit reads say, by content: a later unit's inputs move when an earlier page changes, not only when its producer runs. */
+  const upstreamOf = (kind: WriterUnitKindName): string[] => (writerUnitKind(kind)?.reads ?? []).flatMap((read) => artifactsOf(read.artifact).map((item) => textDigest(`${item.path}\n${item.text ?? ''}`)));
+  /** What a unit is told about the page it edits: the answers and corrections in its brief, by content. */
+  const briefOf = (brief: EditBrief | undefined): string => textDigest(JSON.stringify(brief === undefined ? null : { current: brief.current === null ? null : textDigest(brief.current), notes: brief.notes, omitted: brief.omitted }));
   const readsFor = (kind: WriterUnitKindName): WriterArtifactRead[] => (writerUnitKind(kind)?.reads ?? []).flatMap((read) => artifactsOf(read.artifact).map((item) => ({
     artifact: item.artifact, kind: item.kind, path: item.path, title: item.title, ...(item.text === undefined ? {} : { text: item.text }),
   })));
@@ -718,6 +757,10 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
     const runs: WriterUnitRun[] = [];
     switch (kind) {
       case 'document-interpretation': {
+        // The enrichment page is a kind of the product's wiki: where the manifest declares none, its pages are pages no
+        // reader could open, so no enrichment unit is planned and a run writes exactly what it wrote before this change.
+        const noEnrichmentPages = pageKindGate('enrichment');
+        if (noEnrichmentPages !== undefined) { nothingFound(kind, position, noEnrichmentPages); break; }
         // The passages whose reading is still open: the document's own structure and the manifest decided
         // the rest (madarch-ztyq.3). One unit per passage, in the identity's code point order.
         const open = [...(options.documentEntities ?? [])]
@@ -728,7 +771,7 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
           const page = enrichmentPath(entity);
           const run = await runGraphUnit({
             id: `enrichment:${entity.id}`, kind, scope: entity.id, path: page,
-            digest: writerUnitDigest({ kind, version: versionOf(kind), scope: entity.id, language, inputs: [entity.kind, entity.text, entity.anchor] }),
+            digest: writerUnitDigest({ kind, version: versionOf(kind), scope: entity.id, language, inputs: [entity.kind, entity.text, entity.anchor, ...pinned(), ...upstreamOf(kind), ...questions.filter((question) => question.about.includes(entity.id)).map((question) => `${question.id}:${question.status}:${textDigest(question.title)}`), ...corrections.filter((correction) => correction.id.trim() !== '' && correction.statement.trim() !== '' && correction.about.startsWith(entity.id)).map((correction) => textDigest(`${correction.id}\n${correction.statement}`))] }),
             state, resumed, sink, now, stateProblem,
             ...(options.onUnitStart === undefined ? {} : { onUnitStart: options.onUnitStart }),
             ...(options.onUnit === undefined ? {} : { onUnit: options.onUnit }),
@@ -752,7 +795,7 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
         if (undeclared !== undefined) { nothingFound(kind, position, undeclared); break; }
         const run = await runGraphUnit({
           id, kind, scope: slug, path: VALIDATION_PATH, pageStandingKeepsTheUnit: true,
-          digest: writerUnitDigest({ kind, version: versionOf(kind), scope: slug, language, inputs: [view.at] }),
+          digest: writerUnitDigest({ kind, version: versionOf(kind), scope: slug, language, inputs: [...pinned(), ...upstreamOf(kind)] }),
           state, resumed, sink, now, stateProblem,
           ...(options.onUnitStart === undefined ? {} : { onUnitStart: options.onUnitStart }),
           ...(options.onUnit === undefined ? {} : { onUnit: options.onUnit }),
@@ -779,7 +822,7 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
         } else {
           const run = await runGraphUnit({
             id: productUnit.id, kind, scope: slug, path: PRODUCT_PATH, asked: true,
-            digest: writerUnitDigest({ kind, version: versionOf(kind), scope: slug, language, inputs: [view.at, brief === undefined ? 'no-brief' : 'a-brief', String(need.product)] }),
+            digest: writerUnitDigest({ kind, version: versionOf(kind), scope: slug, language, inputs: [...pinned(), briefOf(brief), String(need.product), ...upstreamOf(kind)] }),
             state, resumed, sink, now, stateProblem,
             ...(options.onUnitStart === undefined ? {} : { onUnitStart: options.onUnitStart }),
             ...(options.onUnit === undefined ? {} : { onUnit: options.onUnit }),
@@ -807,6 +850,10 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
         break;
       }
       case 'rules-and-decisions': {
+        // The enrichment page is a kind of the product's wiki: where the manifest declares none, its pages are pages no
+        // reader could open, so no enrichment unit is planned and a run writes exactly what it wrote before this change.
+        const noEnrichmentPages = pageKindGate('enrichment');
+        if (noEnrichmentPages !== undefined) { nothingFound(kind, position, noEnrichmentPages); break; }
         const entities = [...(options.documentEntities ?? [])]
           .filter((entity) => entity.semantics === 'rule' || entity.semantics === 'decision')
           .sort((left, right) => byCodePoint(left.id, right.id));
@@ -816,7 +863,7 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
           const task = ENRICHMENT_TASKS['rules-and-decisions']!;
           const run = await runGraphUnit({
             id: `enrichment:${entity.id}`, kind, scope: entity.id, path: page,
-            digest: writerUnitDigest({ kind, version: versionOf(kind), scope: entity.id, language, inputs: [entity.kind, entity.text, entity.anchor, entity.semantics] }),
+            digest: writerUnitDigest({ kind, version: versionOf(kind), scope: entity.id, language, inputs: [entity.kind, entity.text, entity.anchor, entity.semantics, ...pinned(), ...upstreamOf(kind)] }),
             state, resumed, sink, now, stateProblem,
             ...(options.onUnitStart === undefined ? {} : { onUnitStart: options.onUnitStart }),
             ...(options.onUnit === undefined ? {} : { onUnit: options.onUnit }),
@@ -835,6 +882,10 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
         break;
       }
       case 'scenarios': {
+        // The enrichment page is a kind of the product's wiki: where the manifest declares none, its pages are pages no
+        // reader could open, so no enrichment unit is planned and a run writes exactly what it wrote before this change.
+        const noEnrichmentPages = pageKindGate('enrichment');
+        if (noEnrichmentPages !== undefined) { nothingFound(kind, position, noEnrichmentPages); break; }
         const entities = [...(options.documentEntities ?? [])]
           .filter((entity) => entity.semantics === 'scenario')
           .sort((left, right) => byCodePoint(left.id, right.id));
@@ -844,7 +895,7 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
           const task = ENRICHMENT_TASKS['scenarios']!;
           const run = await runGraphUnit({
             id: `enrichment:${entity.id}`, kind, scope: entity.id, path: page,
-            digest: writerUnitDigest({ kind, version: versionOf(kind), scope: entity.id, language, inputs: [entity.kind, entity.text, entity.anchor, ...artifactsOf('rule-enrichments').map((item) => item.unit), ...artifactsOf('decision-enrichments').map((item) => item.unit)] }),
+            digest: writerUnitDigest({ kind, version: versionOf(kind), scope: entity.id, language, inputs: [entity.kind, entity.text, entity.anchor, ...pinned(), ...upstreamOf(kind)] }),
             state, resumed, sink, now, stateProblem,
             ...(options.onUnitStart === undefined ? {} : { onUnitStart: options.onUnitStart }),
             ...(options.onUnit === undefined ? {} : { onUnit: options.onUnit }),
@@ -879,7 +930,7 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
           expect(spec.id, brief);
           const run = await runGraphUnit({
             id: spec.id, kind, scope: declaration.slug, path: page, asked: true,
-            digest: writerUnitDigest({ kind, version: versionOf(kind), scope: declaration.slug, language, inputs: [view.at, declaration.summary, ...declaration.evidence, brief === undefined ? 'no-brief' : 'a-brief'] }),
+            digest: writerUnitDigest({ kind, version: versionOf(kind), scope: declaration.slug, language, inputs: [...pinned(), declaration.summary, ...declaration.evidence, briefOf(brief), ...upstreamOf(kind)] }),
             state, resumed, sink, now, stateProblem,
             ...(options.onUnitStart === undefined ? {} : { onUnitStart: options.onUnitStart }),
             ...(options.onUnit === undefined ? {} : { onUnit: options.onUnit }),
@@ -951,7 +1002,7 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
         const pages = [...artifactsOf('product-page'), ...artifactsOf('domain-pages'), ...artifactsOf('validation-verdicts')];
         const run = await runGraphUnit({
           id, kind, scope: slug, path: OVERVIEW_PATH, pageStandingKeepsTheUnit: true,
-          digest: writerUnitDigest({ kind, version: versionOf(kind), scope: slug, language, inputs: [view.at, ...pages.map((page) => `${page.unit}:${page.path}`)] }),
+          digest: writerUnitDigest({ kind, version: versionOf(kind), scope: slug, language, inputs: [...pinned(), ...pages.map((page) => textDigest(`${page.unit}\n${page.path}\n${page.text ?? ''}`)), ...upstreamOf(kind)] }),
           state, resumed, sink, now, stateProblem,
           ...(options.onUnitStart === undefined ? {} : { onUnitStart: options.onUnitStart }),
           ...(options.onUnit === undefined ? {} : { onUnit: options.onUnit }),
@@ -981,7 +1032,7 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
         const id = productUnitId(kind, slug);
         const run = await runGraphUnit({
           id, kind, scope: slug, path: EDITORIAL_PATH, pageStandingKeepsTheUnit: true,
-          digest: writerUnitDigest({ kind, version: versionOf(kind), scope: slug, language, inputs: [view.at, ...pages.map((page) => `${page.unit}:${page.path}`), ...reading.map((page) => page.path)] }),
+          digest: writerUnitDigest({ kind, version: versionOf(kind), scope: slug, language, inputs: [...pinned(), ...pages.map((page) => textDigest(`${page.unit}\n${page.path}\n${page.text ?? ''}`)), ...reading.map((page) => textDigest(`${page.path}\n${page.text ?? ''}`)), ...upstreamOf(kind)] }),
           state, resumed, sink, now, stateProblem,
           ...(options.onUnitStart === undefined ? {} : { onUnitStart: options.onUnitStart }),
           ...(options.onUnit === undefined ? {} : { onUnit: options.onUnit }),
