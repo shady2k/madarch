@@ -826,6 +826,13 @@ describe('what the eleventh review found', () => {
     const read = readDocEntities([{ repo: null, path: 'docs/requirements.md', text: '# Rules\n\nBR-1 Match \\*paid\\* literally.\n' }], manifest());
     expect(read.entities.map((entity) => entity.text)).toEqual(['Match \\*paid\\* literally.']);
   });
+
+  test('an escaped character in the words of a wholly bold rule survives as the document writes it', () => {
+    // The whole line is bold, so the body is the bold phrase's remaining inline content, re-serialised as Markdown:
+    // the escapes are the document's own, never the parser's decoded text (madarch-jtn3).
+    const read = readDocEntities([{ repo: null, path: 'docs/requirements.md', text: '# Rules\n\n**BR-1 Match \\*paid\\* literally.**\n' }], manifest());
+    expect(read.entities.map((entity) => entity.text)).toEqual(['Match \\*paid\\* literally.']);
+  });
 });
 
 describe('what the twelfth review found', () => {
