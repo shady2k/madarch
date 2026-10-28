@@ -520,7 +520,9 @@ export async function extractCodeWithFacts(reader: TreeReader): Promise<CodeExtr
         const dot = symbol.qualifiedName.lastIndexOf('.');
         if (dot <= 0) continue;
         const ownerKey = symbolKey(path, symbol.qualifiedName.slice(0, dot));
-        if (ownerKey === symbol.key || !symbolByKey.has(ownerKey)) continue;
+        // Both ends must be nodes this pass published: a symbol folded into its canonical owner (a
+        // local, an alternate name) has a key but no node, and an edge to it would dangle.
+        if (ownerKey === symbol.key || !symbolByKey.has(ownerKey) || !nodes.has(ownerKey) || !nodes.has(symbol.key)) continue;
         if (held.has(`${ownerKey}\u0000${symbol.key}`)) continue;
         held.add(`${ownerKey}\u0000${symbol.key}`);
         addEdge({type: REL_CONTAINS, from: ownerKey, to: symbol.key, discriminator: '', properties: {}, span: toSpan(path, symbol.definitionSpan)});
