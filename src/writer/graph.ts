@@ -114,24 +114,25 @@ export const WRITER_UNIT_KINDS: readonly WriterUnitKind[] = [
     writes: ['product-page', 'domain-declarations'],
   },
   {
-    // Rules and decisions (0032, section 1): each keeps its own structure and its implementation
-    // links, stored apart from the person's ADR or rule section.
+    // Rules and decisions (0032, section 1): each keeps its own structure and its implementation links,
+    // stored apart from the person's ADR or rule section (madarch-ztyq.5, `src/writer/structured.ts`).
+    // Version 2: the page is the kind's own sections, and its places are keys the graph must hold.
     kind: 'rules-and-decisions',
-    version: 1,
+    version: 2,
     reads: [{ artifact: 'document-readings', required: false }],
     writes: ['rule-enrichments', 'decision-enrichments'],
-    contentOwner: 'madarch-ztyq.5',
   },
   {
-    // Scenarios consume the enriched rules and decisions instead of rediscovering them.
+    // Scenarios consume the enriched rules and decisions instead of rediscovering them. Version 2: a use
+    // case's page carries its actor, goal, flows, the rules that govern it and what implements it, and the
+    // route it names is what the engine draws its sequence diagram from (madarch-ztyq.5).
     kind: 'scenarios',
-    version: 1,
+    version: 2,
     reads: [
       { artifact: 'rule-enrichments', required: false },
       { artifact: 'decision-enrichments', required: false },
     ],
     writes: ['scenario-enrichments'],
-    contentOwner: 'madarch-ztyq.5',
   },
   {
     // Domains summarise the enriched scenarios and the product's own page; the product page is
