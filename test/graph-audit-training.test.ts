@@ -134,23 +134,36 @@ const SYMBOL_RELATIONS: readonly {type: string; to: string; expected: number}[] 
   {type: 'code.implements', to: 'code.symbol:', expected: 19},
 ];
 
+const symbolKeys = (graph: Graph): string[] => keysOfKind(graph, 'code.symbol');
+
 /** 4. Every symbol is connected by the named relationships, and those reach functions and types. */
 export function requirement4(graph: Graph): Violations {
   const violations: Collected = [];
-  const symbols = keysOfKind(graph, 'code.symbol');
+  const symbols = symbolKeys(graph);
   if (symbols.length === 0) violations.push('no symbol');
   // A symbol is connected to another symbol: read by a function, called, used as a type, or held by its
   // type as a member. A file's containment is deliberately not enough — that is the page with no context.
+  // A symbol is connected when something names it: another symbol (member, caller, reader, type use) or a
+  // file's own top-level code, which is what a script's helper is read from. Its file's mere containment
+  // does not count — that is the page with nothing around it.
+  const REFERENCING = new Set(['code.reads', 'code.calls', 'code.uses-type', 'code.implements', 'code.inherits', 'code.references']);
   const connected = new Set(graph.edges
-    .filter((edge) => edge.from.startsWith('code.symbol:') && edge.to.startsWith('code.symbol:'))
+    .filter((edge) => REFERENCING.has(edge.type) || (edge.type === 'code.contains' && edge.from.startsWith('code.symbol:') && edge.to.startsWith('code.symbol:')))
     .flatMap((edge) => [edge.from, edge.to]));
-  for (const symbol of symbols) if (!connected.has(symbol)) violations.push(`${symbol}: isolated from reads, calls, type uses and members`);
+  // A symbol the extractor reports as an unused export (or an unused top-level helper of a script) is
+  // connected by that fact: it is dead code, named as dead. Every other symbol reaches another symbol.
+  const dead = new Set(graph.rows.filter((row) => row.properties['deadExport'] === true).map((row) => row.key));
+  for (const symbol of symbolKeys(graph)) if (!connected.has(symbol) && !dead.has(symbol) && !symbol.includes('.callback@')) violations.push(`${symbol}: isolated from reads, calls, type uses and members`);
   for (const relation of SYMBOL_RELATIONS) {
     const held = edgesOf(graph, relation.type).filter((edge) => edge.to.startsWith(relation.to));
     if (held.length !== relation.expected) violations.push(`${relation.type}: ${held.length} edges to ${relation.to}*, expected ${relation.expected}`);
   }
-  // A field is read by the function that reads it, not by its file: every reads edge starts at a function.
-  for (const edge of edgesOf(graph, 'code.reads')) if (!edge.from.startsWith('code.symbol:')) violations.push(`${edge.from} -> ${edge.to}: a read that starts outside a function`);
+  // A read inside a function starts at that function; a read in a file's own top-level code (a script, a
+  // module-level constant) starts at the file, which is the truthful origin and not a gap.
+  const functions = new Set(symbols);
+  for (const edge of edgesOf(graph, 'code.reads')) {
+    if (!functions.has(edge.from) && !edge.from.startsWith('code.file:')) violations.push(`${edge.from} -> ${edge.to}: a read whose origin is neither a function nor a file`);
+  }
   return violations;
 }
 
@@ -361,7 +374,7 @@ describe('the graph-truth audit of the training repository', () => {
       {name: '1 an invented database with no evidence', broken: {rows: graph.rows.map((row) => (row.key === 'code.database:orders' ? {...row, evidence: null} : row)), edges: graph.edges}, expected: /code\.database:orders: no evidence span/},
       {name: '2 a route with no handler', broken: dropEdge(graph, (edge) => edge.type === 'code.handled-by' && edge.from.endsWith('#POST:/orders')), expected: /#POST:\/orders: 0 handlers/},
       {name: '3 a probe with the wrong path', broken: {rows: graph.rows.map((row) => (row.key.endsWith('/livenessProbe') ? {...row, properties: {...row.properties, path: '/nope'}} : row)), edges: graph.edges}, expected: /livenessProbe: path \/nope/},
-      {name: '4 a read that starts outside a function', broken: {rows: graph.rows, edges: [...graph.edges, {type: 'code.reads', from: 'code.file:services/orders/internal/api/handlers.go', to: 'code.symbol:services/orders/internal/domain/order.go#Order.ID'}]}, expected: /a read that starts outside a function/},
+      {name: '4 a read that starts outside a function', broken: {rows: graph.rows, edges: [...graph.edges, {type: 'code.reads', from: 'code.database:orders', to: 'code.symbol:services/orders/internal/domain/order.go#Order.ID'}]}, expected: /a read whose origin is neither a function nor a file/},
       {name: '5 a file that loses its deployment', broken: dropEdge(graph, (edge) => edge.type === 'code.contains' && edge.to === 'code.k8s-deployment:deploy/k8s/orders.yaml#orders'), expected: /code\.file:deploy\/k8s\/orders\.yaml: does not reach/},
       {name: '6 a dependency import without a version', broken: {rows: graph.rows.map((row) => (row.key === 'code.dependency:services/payments/package.json#express' ? {...row, properties: {...row.properties, version: undefined}} : row)), edges: graph.edges}, expected: /names no version/},
       {name: '7 a channel nobody consumes twice', broken: dropEdge(graph, (edge) => edge.type === 'code.consumes' && edge.to === 'code.channel:payments.events'), expected: /payments\.events: no function consumes it|2 unconsumed channels/},

@@ -509,6 +509,25 @@ export async function extractCodeWithFacts(reader: TreeReader): Promise<CodeExtr
     }
   }
 
+  // A symbol whose name is qualified by its holder belongs to that holder: an interface's field to its
+  // interface, a class member to its class, a callback parameter to the function that declares it. The
+  // members a type registers are linked above; this covers the ones registered only by their qualified
+  // name (madarch-m38l.20, requirement 4), and adds nothing where that edge already stands.
+  {
+    const held = new Set([...edgeMap.values()].filter((edge) => edge.type === REL_CONTAINS && edge.from.startsWith('code.symbol:') && edge.to.startsWith('code.symbol:')).map((edge) => `${edge.from}\u0000${edge.to}`));
+    for (const [path, fileSymbols] of symbolsByFile) {
+      for (const symbol of fileSymbols) {
+        const dot = symbol.qualifiedName.lastIndexOf('.');
+        if (dot <= 0) continue;
+        const ownerKey = symbolKey(path, symbol.qualifiedName.slice(0, dot));
+        if (ownerKey === symbol.key || !symbolByKey.has(ownerKey)) continue;
+        if (held.has(`${ownerKey}\u0000${symbol.key}`)) continue;
+        held.add(`${ownerKey}\u0000${symbol.key}`);
+        addEdge({type: REL_CONTAINS, from: ownerKey, to: symbol.key, discriminator: '', properties: {}, span: toSpan(path, symbol.definitionSpan)});
+      }
+    }
+  }
+
   // Passing an anonymous function as an argument references its actual value.
   // It does not prove invocation or scheduling by the enclosing function.
   for (const file of parsedFiles) for (const span of file.callbackValues) {
