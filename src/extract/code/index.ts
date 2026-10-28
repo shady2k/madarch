@@ -509,6 +509,27 @@ export async function extractCodeWithFacts(reader: TreeReader): Promise<CodeExtr
     }
   }
 
+  // A symbol whose name is qualified by its holder belongs to that holder: an interface's field to its
+  // interface, a class member to its class, a callback parameter to the function that declares it. The
+  // members a type registers are linked above; this covers the ones registered only by their qualified
+  // name (madarch-m38l.20, requirement 4), and adds nothing where that edge already stands.
+  {
+    const held = new Set([...edgeMap.values()].filter((edge) => edge.type === REL_CONTAINS && edge.from.startsWith('code.symbol:') && edge.to.startsWith('code.symbol:')).map((edge) => `${edge.from}\u0000${edge.to}`));
+    for (const [path, fileSymbols] of symbolsByFile) {
+      for (const symbol of fileSymbols) {
+        const dot = symbol.qualifiedName.lastIndexOf('.');
+        if (dot <= 0) continue;
+        const ownerKey = symbolKey(path, symbol.qualifiedName.slice(0, dot));
+        // Both ends must be nodes this pass published: a symbol folded into its canonical owner (a
+        // local, an alternate name) has a key but no node, and an edge to it would dangle.
+        if (ownerKey === symbol.key || !symbolByKey.has(ownerKey) || !nodes.has(ownerKey) || !nodes.has(symbol.key)) continue;
+        if (held.has(`${ownerKey}\u0000${symbol.key}`)) continue;
+        held.add(`${ownerKey}\u0000${symbol.key}`);
+        addEdge({type: REL_CONTAINS, from: ownerKey, to: symbol.key, discriminator: '', properties: {}, span: toSpan(path, symbol.definitionSpan)});
+      }
+    }
+  }
+
   // Passing an anonymous function as an argument references its actual value.
   // It does not prove invocation or scheduling by the enclosing function.
   for (const file of parsedFiles) for (const span of file.callbackValues) {
@@ -524,7 +545,9 @@ export async function extractCodeWithFacts(reader: TreeReader): Promise<CodeExtr
     const owner = symbolKey(type.file, type.name);
     if (!symbolByKey.has(owner)) continue;
     for (const member of type.members.values()) {
-      const target = symbolByKey.get(symbolKey(member.file, member.qualifiedName));
+      // The member's symbol is qualified by its holder (`CartLine.priceCents`), which a parser's own
+      // `qualifiedName` keeps for some models and drops for others; both spellings name the same key.
+      const target = symbolByKey.get(symbolKey(member.file, member.qualifiedName)) ?? symbolByKey.get(symbolKey(member.file, `${type.name}.${member.name}`));
       if (target === undefined || target.local) continue;
       addEdge({ type: REL_CONTAINS, from: owner, to: target.key, discriminator: '', properties: {}, span: toSpan(member.file, target.definitionSpan) });
     }
