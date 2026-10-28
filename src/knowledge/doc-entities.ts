@@ -277,6 +277,27 @@ function spellingEnd(raw: string, count: number): number {
 }
 
 /**
+ * The Markdown source of inline nodes from `skip` decoded characters in: a text node's remainder keeps the document's
+ * own spelling, so an escape in the words after an identifier survives as written, and a markup node's content is handed
+ * back from its children's source, so the marks that close it are not part of what follows the identifier. This is the
+ * same serialisation the plain path takes from the parser's source, applied to the content inside a bold phrase.
+ */
+function inlineAfter(nodes: readonly DocNode[], skip: number): string {
+  let seen = 0;
+  for (let at = 0; at < nodes.length; at += 1) {
+    const node = nodes[at]!;
+    const length = node.plain.length;
+    if (seen + length <= skip) { seen += length; continue; }
+    const within = skip - seen;
+    const rest = node.type === 'text' || node.children.length === 0
+      ? node.raw.slice(spellingEnd(node.raw, within))
+      : inlineAfter(node.children, within);
+    return rest + nodes.slice(at + 1).map((following) => following.raw).join('');
+  }
+  return '';
+}
+
+/**
  * The identifier a passage opens with, and the words after the span that names it, cut from the source the parser gave:
  * the identifier's text is the nodes' own decoded value, and the body starts where that identifier ends — inside a text
  * node (at the source offset its spelling reaches), after a markup node whose text it fills (`**BR-1**`, the emphasis of
@@ -299,10 +320,10 @@ function namingOf(passage: DocNode): { identifier: string; tail: string } | null
     if (seen + length < identifier.length) { seen += length; continue; }
     const within = identifier.length - seen;
     if (within < length) {
-      // The identifier ends inside this node: at its own source spelling in a text node, or after the marks that close a
-      // markup node — whose remaining words then open the body.
+      // The identifier ends inside this node: at its own source spelling in a text node, or inside a markup node, whose
+      // remaining inline content — re-serialised from the source — then opens the body.
       if (node.type === 'text') return { identifier, tail: sourceAfter(node.startOffset + spellingEnd(node.raw, within)) };
-      return { identifier, tail: trimCell(node.plain.slice(within)) + sourceAfter(node.endOffset) };
+      return { identifier, tail: trimCell(inlineAfter(node.children, within)) + sourceAfter(node.endOffset) };
     }
     // The identifier fills the node's text: the node — a bold phrase's marks included — is the naming span.
     return { identifier, tail: sourceAfter(node.endOffset) };
