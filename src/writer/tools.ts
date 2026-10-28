@@ -28,6 +28,7 @@ import type { GraphView } from './view.js';
 import { AnswerRefusal, CONTEXT_PURPOSES, EVIDENCE_SHOWN, FLOW_DEPTH, FLOW_STEPS, FLOW_TARGETS, PAGES_SHOWN, QUESTIONS_SHOWN, UNRESOLVED_SHOWN, getContext, getDocumentSections, getPage, getSymbol, searchPages, searchQuestions, traceFlow, SnapshotReads, type AnswerResult, type ContextPurpose, type FlowTarget, type GraphReads, type SourceRead } from './answers.js';
 import { betweenCounters, NO_COUNTERS, type CallCounters } from './journal.js';
 import { detectStatementLanguage, LOCALIZED_SOURCE_SCHEMA, parseLocalizedSource, renderLocalizedSource } from './localized-source.js';
+import { ENRICHMENT_FRONT_KEYS, enrichmentOverwriteProblem, enrichmentPageId, renderEnrichment } from './enrichment.js';
 import type { GuidePreparedUnit } from './guides/host-contract.js';
 import { validateGuide } from './guides/validate.js';
 import { renderGuideArtifact } from './guides/artifact.js';
@@ -47,7 +48,14 @@ export type UnitSpec =
   | { readonly kind: 'domain'; readonly id: string; readonly path: string; readonly domain: DomainDeclaration; readonly productId?: string }
   | { readonly kind: 'administrator-guide'; readonly id: string; readonly path: string; readonly prepared: GuidePreparedUnit }
   | { readonly kind: 'user-guide'; readonly id: string; readonly path: string; readonly prepared: GuidePreparedUnit }
-  | { readonly kind: 'localized-source'; readonly id: string; readonly path: string; readonly entity: import('../knowledge/doc-entities.js').DocEntity; readonly sourceLanguage: 'en' | 'ru'; readonly language: 'en' | 'ru' };
+  | { readonly kind: 'localized-source'; readonly id: string; readonly path: string; readonly entity: import('../knowledge/doc-entities.js').DocEntity; readonly sourceLanguage: 'en' | 'ru'; readonly language: 'en' | 'ru' }
+  // The writer's own page kinds (decision 0032, section 1; madarch-ztyq.4): the graph's verdicts, the home
+  // page and the editorial pass's report are knowledge pages of the same format, so they are checked and
+  // written like the product and domain pages.
+  | { readonly kind: 'validation' | 'overview' | 'editorial'; readonly id: string; readonly path: string; readonly name: string; readonly productId?: string }
+  // The enrichment of ONE passage of a person's document: stored apart from the document, keyed by the
+  // entity's identity, written through `write_enrichment` (`src/writer/enrichment.ts`).
+  | { readonly kind: 'enrichment'; readonly id: string; readonly path: string; readonly entity: import('../knowledge/doc-entities.js').DocEntity; readonly task: string };
 
 /** Where checked pages go; the filesystem's is in `run.ts`. */
 export interface PageSink {
@@ -124,6 +132,21 @@ export interface UnitExtras {
   readonly questions?: () => Promise<readonly Question[]>;
   /** The graph reads the answers make: the pinned snapshot reader of the fill's view unless a caller gives its own. */
   readonly reads?: GraphReads;
+  /**
+   * Every artifact this run has produced, in code point order of its path: the pages a later unit may read. A unit's
+   * prompt carries at most `ARTIFACT_LIMIT` of them, so `search_pages` with `all` is how it reaches the rest — the tool
+   * that keeps a cut prompt from becoming a lost input (decision 0032, section 1).
+   */
+  readonly produced?: () => Promise<readonly ProducedArtifactRead[]>;
+}
+
+/** One artifact a unit may read: what it is, the page it stands in, and how a reader names it. */
+export interface ProducedArtifactRead {
+  readonly artifact: string;
+  readonly kind: string;
+  readonly unit: string;
+  readonly path: string;
+  readonly title: string;
 }
 
 export const MAX_DOMAINS = 12;
@@ -243,12 +266,14 @@ export const WRITER_TOOLS: readonly McpToolDefinition[] = [
   },
   {
     name: 'search_pages',
-    description: 'The pages of the product already written — the product page, the domain pages and the questions — whose title or text holds the words you ask for, with the lines that hold them.',
+    description: 'The pages of the product already written — the product page, the domain pages and the questions — whose title or text holds the words you ask for, with the lines that hold them. With "all": true it lists every artifact this run has produced instead, in code point order of its path, so a page your instructions cut from the list they gave you is reachable here.',
     inputSchema: object({
       text: { type: 'string', description: 'The words to look for.' },
       kind: { type: 'string', description: 'Only the pages of this kind: "product", "domain" or "question".' },
+      all: { type: 'boolean', description: 'With "all": true, list every artifact this run produced instead of searching a text.' },
+      artifact: { type: 'string', description: 'With "all": only the pages of this artifact, such as "rule-enrichments".' },
       limit: { type: 'integer', minimum: 1, maximum: 20 },
-    }, ['text']),
+    }),
   },
   {
     name: 'get_page',
@@ -305,6 +330,20 @@ export const WRITER_TOOLS: readonly McpToolDefinition[] = [
     }, ['type', 'title', 'question', 'why', 'sides']),
   },
 ];
+
+/**
+ * The one write of an enrichment unit (decision 0032, section 1; `src/writer/enrichment.ts`): the agent
+ * writes the page's body, and the core writes the front matter that names the entity the page enriches.
+ * The identity is therefore never the agent's to choose, and a page that would stand for another entity
+ * cannot be written.
+ */
+export const WRITE_ENRICHMENT_TOOL: McpToolDefinition = {
+  name: 'write_enrichment',
+  description: 'Writes the enrichment of the one passage this unit is given. The body is Markdown in the page format: headings, then statements each ending in its footnotes, every ground a madarch: link. The core writes the front matter that names the entity, its source and the lines it stands at, and checks the whole page before it writes anything.',
+  inputSchema: object({
+    body: { type: 'string', description: 'The page body only: its headings, its statements with their footnotes, and the footnote definitions. No front matter.' },
+  }, ['body']),
+};
 
 const fail = (code: string, message: string, extra: Record<string, unknown> = {}): ToolAnswer => ({ answer: { error: { code, message, ...extra } }, isError: true });
 const ok = (answer: unknown): ToolAnswer => ({ answer, isError: false });
@@ -400,6 +439,9 @@ export class UnitTools {
     if (this.unit.kind === 'localized-source') return [
       { name: 'write_localized_source', description: `Write one grounded ${this.unit.language === 'ru' ? 'Russian' : 'English'} statement for this document entity. Use only the supplied source excerpt.`, inputSchema: object({ statement: { type: 'string' } }, ['statement']) },
     ];
+    // An enrichment unit writes the page of one passage: the body is the agent's, the identity and the source
+    // are the core's, so the page cannot be written about another entity or over a person's text.
+    if (this.unit.kind === 'enrichment') return WRITER_TOOLS.map((tool) => (tool.name === 'write_page' ? WRITE_ENRICHMENT_TOOL : tool));
     return this.unit.kind === 'product' ? WRITER_TOOLS : WRITER_TOOLS.map((tool) => (tool.name === 'write_page' ? { ...tool, inputSchema: object({ markdown: { type: 'string' } }, ['markdown']) } : tool));
   }
 
@@ -509,6 +551,7 @@ export class UnitTools {
         case 'get_page': return await this.getPageAnswer(args);
         case 'search_questions': return await this.searchQuestionsAnswer(args);
         case 'write_localized_source': return await this.writeLocalizedSource(args);
+        case 'write_enrichment': return await this.writeEnrichment(args);
         case 'write_page': return await this.writePage(args);
         case 'ask_question': return await this.serialQuestion(args);
         default: return fail('unknown-tool', `"${tool}" is no tool of this unit: the tools are ${WRITER_TOOLS.map((t) => t.name).join(', ')}`);
@@ -517,6 +560,67 @@ export class UnitTools {
       if (this.unit.kind === 'administrator-guide' || this.unit.kind === 'user-guide') return fail('tool-failed', 'guide tool failed; sensitive details withheld (src/writer/tools.ts)');
       return fail('tool-failed', `${tool} failed: ${error instanceof Error ? error.message : String(error)} (src/writer/tools.ts)`);
     }
+  }
+
+  /**
+   * Writes one passage's enrichment: the body the agent wrote inside the front matter the core owns, checked
+   * as the page it is. The file lands apart from the person's document (`enrichmentPath`), and a refusal keeps
+   * every problem with its line, so the agent can fix it and call again within its bound.
+   */
+  private async writeEnrichment(args: Record<string, unknown>): Promise<ToolAnswer> {
+    const unit = this.unit;
+    if (unit.kind !== 'enrichment') return fail('wrong-unit', 'write_enrichment belongs only to an enrichment unit');
+    if (this.status === 'written') return fail('already-written', `this unit already wrote ${unit.path}`);
+    if (this.writeAttempts >= this.bounds.maxWriteAttempts) return fail('no-attempts', `this unit made ${this.bounds.maxWriteAttempts} refused writes and has failed; nothing more is accepted`);
+    this.writeAttempts += 1;
+    const body = args['body'];
+    if (typeof body !== 'string' || body.trim() === '') return this.refuse([{ line: 0, rule: 'body', message: '"body" is the non-empty Markdown of the page: headings, then statements each ending in its footnotes, and the footnote definitions' }]);
+    let draft: string;
+    try {
+      draft = renderEnrichment({ entity: unit.entity, title: unit.entity.title, body });
+    } catch (error) {
+      return this.refuse([{ line: 0, rule: 'body', message: `${unit.path}:1: ${error instanceof Error ? error.message : String(error)}` }]);
+    }
+    const questions = await this.existingQuestions();
+    const entities = [...new Set([...(await this.extras.entityIds?.() ?? []), ...questions.filter((question) => question.status === 'answered').map((question) => question.id)])];
+    // A page written before stands: a sentence this write keeps keeps its footnote name, so the wiki's
+    // statement identity survives a rewritten enrichment (0029).
+    const previous = await this.sink.read(unit.path).catch(() => undefined);
+    if (previous !== undefined) {
+      // The file stands at one entity's place: it is replaced only by that entity's own page, never a person's text and
+      // never another entity's page (decision 0032, section 1).
+      const problem = enrichmentOverwriteProblem(unit.path, previous, unit.entity);
+      if (problem !== undefined) return this.refuse([{ line: problem.line, rule: 'enrichment-ownership', message: problem.message }]);
+    }
+    const verdict = await checkPage(draft, {
+      file: unit.path,
+      fullPath: resolve(this.extras.output ?? process.cwd(), unit.path),
+      language: this.extras.language === 'ru' ? 'ru' : 'en',
+      questions: questions.map((question) => question.id),
+      ...(previous === undefined ? {} : { previous }),
+      entities,
+      ...(this.basis.length === 0 ? {} : { writtenAt: this.basis }),
+      id: enrichmentPageId(unit.entity),
+      kind: 'enrichment',
+      domains: [],
+      mustLinkDomains: false,
+      extraFrontKeys: ENRICHMENT_FRONT_KEYS,
+    }, this.view);
+    if (!verdict.ok) return this.refuse(verdict.refusals);
+    const unused = [...this.answersUsed].filter((id) => !verdict.page.grounds.includes(id));
+    if (unused.length > 0) return this.refuse(unused.map((id) => ({ line: 1, rule: 'answer-not-used', message: `use the answer returned for ${id} and ground its rewritten sentence on that answered question` })));
+    const lost = this.contradictionProblems(verdict.page.grounds);
+    if (lost.length > 0) return this.refuse(lost);
+    await this.sink.write(unit.path, verdict.page.markdown);
+    this.status = 'written';
+    this.refusals = [];
+    this.written = { grounds: verdict.page.grounds, links: verdict.page.links };
+    this.produced.pages += 1;
+    const written = splitFrontMatter(verdict.page.markdown);
+    this.produced.statements += statementsOf(written.body, written.bodyLine).length;
+    this.produced.grounds += verdict.page.grounds.length;
+    this.produced.links += verdict.page.links.length;
+    return ok({ written: true, path: unit.path, entity: enrichmentPageId(unit.entity), grounds: verdict.page.grounds.length });
   }
 
   private async writeGuide(args: Record<string, unknown>): Promise<ToolAnswer> {
@@ -654,6 +758,15 @@ export class UnitTools {
   }
 
   private async searchPagesAnswer(args: Record<string, unknown>): Promise<ToolAnswer> {
+    // The listing the prompt's own bounded list cannot be: every artifact this run has produced, so a cut input is a
+    // shorter list and never a lost one (decision 0032, section 1).
+    if (args['all'] === true) {
+      if (args['artifact'] !== undefined && typeof args['artifact'] !== 'string') return fail('bad-argument', '"artifact" is a text, such as "rule-enrichments"');
+      const produced = this.extras.produced === undefined ? [] : [...await this.extras.produced()];
+      const wantedArtifact = args['artifact'] as string | undefined;
+      const shown = produced.filter((item) => wantedArtifact === undefined || item.artifact === wantedArtifact).sort((left, right) => byCodePoint(left.path, right.path) || byCodePoint(left.unit, right.unit));
+      return ok({ pages: shown, total: shown.length, artifacts: [...new Set(produced.map((item) => item.artifact))].sort(byCodePoint) });
+    }
     const wanted = text(args['text'], 'text');
     if (isFailure(wanted)) return wanted;
     if (args['kind'] !== undefined && typeof args['kind'] !== 'string') return fail('bad-argument', '"kind" is a text, such as "product" or "domain"');
@@ -940,7 +1053,7 @@ export class UnitTools {
   }
 
   private async writePageNow(args: Record<string, unknown>): Promise<ToolAnswer> {
-    if (this.unit.kind === 'localized-source' || this.unit.kind === 'administrator-guide' || this.unit.kind === 'user-guide') return fail('wrong-unit', 'write_page is unavailable to this unit');
+    if (this.unit.kind === 'localized-source' || this.unit.kind === 'administrator-guide' || this.unit.kind === 'user-guide' || this.unit.kind === 'enrichment') return fail('wrong-unit', `write_page is unavailable to this unit${this.unit.kind === 'enrichment' ? ': an enrichment is written with write_enrichment, whose front matter the core owns' : ''}`);
     if (this.status === 'written') return fail('already-written', `this unit already wrote ${this.unit.path}`);
     if (this.writeAttempts >= this.bounds.maxWriteAttempts) return fail('no-attempts', `this unit made ${this.bounds.maxWriteAttempts} refused writes and has failed; nothing more is accepted`);
     this.writeAttempts += 1;

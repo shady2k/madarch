@@ -5,6 +5,7 @@
  * pasted: the agent reads files through `read_file`. The same graph and the
  * same declarations always give the same prompt, byte for byte.
  */
+import { byCodePoint } from '../model/order.js';
 import type { Question } from '../loop/entities.js';
 import { editPart, type EditBrief } from './edit.js';
 import type { DomainDeclaration, UnitSpec } from './tools.js';
@@ -12,7 +13,7 @@ import { FILE_LINES, FIND_LIMIT } from './tools.js';
 import { CONTEXT_PURPOSES, FLOW_TARGETS } from './answers.js';
 import type { GraphView } from './view.js';
 
-export const PROMPT_VERSION = 'writer@6';
+export const PROMPT_VERSION = 'writer@7';
 
 /** The languages a product's pages are written in, with the name the agent is told. */
 export const CONTENT_LANGUAGES: Readonly<Record<string, { name: string; seeAlso: string }>> = {
@@ -156,12 +157,14 @@ export async function preparedContextPart(view: GraphView): Promise<string[]> {
   ];
 }
 
-/** What a unit is told beside the graph: the edit it is asked to make, and the questions asked about its page. */
+/** What a unit is told beside the graph: the edit it is asked to make, the questions asked about its page, and what the units before it wrote. */
 export interface UnitContext {
   readonly brief?: EditBrief;
   readonly questions?: readonly Question[];
   /** The domains as the product page declares them now (product unit editing a page that exists). */
   readonly declared?: readonly DomainDeclaration[];
+  /** The pages of the artifacts this unit's kind declares it reads (decision 0032, section 1). */
+  readonly reads?: readonly WriterArtifactRead[];
 }
 
 /** The questions asked about a page, so a unit does not ask them again and knows which are answered. */
@@ -201,6 +204,7 @@ export async function productPrompt(view: GraphView, unit: Extract<UnitSpec, { k
     ...questionsPart(unit.id, context.questions),
     ...otherQuestionsPart(unit.id, context.questions),
     ...(context.brief === undefined ? [] : editPart(context.brief, CONTENT_LANGUAGES[language]?.name ?? language)),
+    ...earlierArtifactsPart(context.reads ?? []),
     ...await preparedContextPart(view),
   ].join('\n');
 }
@@ -234,6 +238,7 @@ export async function domainPrompt(view: GraphView, unit: Extract<UnitSpec, { ki
     '## The product page, for context',
     excerpt,
     '',
+    ...earlierArtifactsPart(context.reads ?? []),
     ...await preparedContextPart(view),
   ].join('\n');
 }
@@ -248,4 +253,152 @@ export function guidePrompt(kind: 'administrator-guide' | 'user-guide', locale: 
     'A truncated or unavailable context is not complete evidence; refuse or retain its gaps rather than silently returning a smaller success.',
     prepared,
   ].join('\n\n');
+}
+
+/** What an earlier unit of this run produced: the artifact, the page it is in, and the title a unit reads it by. */
+export interface WriterArtifactRead {
+  readonly artifact: string;
+  readonly kind: string;
+  readonly path: string;
+  readonly title: string;
+  /** The page the artifact was written to, as it stands, bounded by the caller; absent when it has no page. */
+  readonly text?: string;
+}
+
+/** How much of one earlier page a later unit is shown, and how many of them: a prompt is not a page dump. */
+export const ARTIFACT_CHARACTERS = 2400;
+export const ARTIFACT_LIMIT = 8;
+
+/**
+ * What the units before this one wrote (decision 0032, section 1: "each unit reading what earlier
+ * units produced"). The run hands a unit the pages of the artifacts it declared it reads, bounded and
+ * in code point order, and says what it cut, so a unit never believes it read a whole set it did not.
+ */
+export function earlierArtifactsPart(reads: readonly WriterArtifactRead[]): string[] {
+  if (reads.length === 0) return [];
+  const ordered = [...reads].sort((left, right) => byCodePoint(left.artifact, right.artifact) || byCodePoint(left.path, right.path));
+  const shown = ordered.slice(0, ARTIFACT_LIMIT);
+  return [
+    '## What the units before you wrote',
+    'These pages are this run\'s own output, produced by the units whose kinds your unit declares it reads. Read them instead of rediscovering what they already say.',
+    ...shown.flatMap((read) => {
+      const text = (read.text ?? '').trim();
+      const cut = text.length > ARTIFACT_CHARACTERS ? `${text.slice(0, ARTIFACT_CHARACTERS)}\n[cut at ${ARTIFACT_CHARACTERS} characters; get_page ${read.path} reads the rest]` : text;
+      return [`### ${read.title} (${read.artifact}, ${read.kind}: ${read.path})`, ...(cut === '' ? ['(the unit wrote no page for this artifact)'] : [cut]), ''];
+    }),
+    ...(ordered.length > shown.length ? [`${ordered.length - shown.length} more pages of those artifacts are not shown here; search_pages finds them.`, ''] : []),
+  ];
+}
+
+/**
+ * The graph-validation unit (decision 0032, section 3): what the graph holds, what the extraction
+ * reported as gaps, and the disposition each item the unit inspected. The page is minimal now — the
+ * anomaly rules and the jev dispatch are madarch-mwhd.1's — and it says what it did not judge rather
+ * than leave a reader believing the graph was validated whole.
+ */
+export async function validationPrompt(view: GraphView, unit: { readonly id: string; readonly path: string; readonly name: string }, language = 'en', context: UnitContext & { readonly reads?: readonly WriterArtifactRead[] } = {}): Promise<string> {
+  return [
+    fixedPart(language),
+    '',
+    '## Your unit',
+    `You write ${unit.path}: the verdicts of this fill's graph, for a reader who asks how far the wiki\'s facts were checked. Its id is \`${unit.id}\`, its kind is \`validation\`.`,
+    'Work through the graph kind by kind (overview, then find_nodes and get_context of what you inspect). For every kind you looked at, state what you found with its evidence: a node with no edge, an import nobody calls, a route with no handler, a database with no table, a channel with no consumer. A kind you did not look at, and an item you could not judge, is stated as unreviewed — never left out, and never presented as checked.',
+    'Your page is the minimal version of this unit: the deterministic anomaly rules and the jev dispatch are madarch-mwhd.1\'s, and the agent judges only what those rules flag. Say so on the page, in one sentence, so a reader knows how much of the graph stands behind the wiki.',
+    '',
+    '## The product', `The product is ${unit.name}.`,
+    '',
+    ...questionsPart(unit.id, context.questions),
+    ...earlierArtifactsPart(context.reads ?? []),
+    ...await preparedContextPart(view),
+  ].join('\n');
+}
+
+/** What an enrichment unit is told its passage reads as: the kind of thing the passage is. */
+export const ENRICHMENT_TASKS: Readonly<Record<string, string>> = {
+  'document-interpretation': 'The reading of this passage is still open: the document\'s own structure and the manifest did not decide what it is. Say what it is — a scenario, an actor, a rule, a quality requirement, a decision, a procedure or a term — and what it requires of the product, each as its own grounded statement.',
+  'rules-and-decisions': 'State this rule or decision in its own structure: a rule its statement, where it applies and its exceptions; a decision its status, its context, the decision itself and its consequences. Then name what implements it, with the code keys you found, or say plainly that nothing does.',
+  scenarios: 'State this scenario in its own structure: the actor, the goal, the preconditions, the main flow and the alternative flows, the outcome, and what implements each step. The rules and decisions the units before yours enriched are yours to stand on.',
+};
+
+/**
+ * The enrichment unit (decision 0032, section 1): one source entity of a person's document, read
+ * and enriched. Its page is stored APART from the document, keyed by the entity's identity, so the
+ * person's text is never edited; the unit is told so, because a model that rewrites a document is
+ * exactly the failure the rule exists for.
+ */
+export async function enrichmentPrompt(view: GraphView, unit: { readonly id: string; readonly path: string; readonly entity: import('../knowledge/doc-entities.js').DocEntity; readonly enriches: string; readonly task: string }, language = 'en', context: UnitContext & { readonly reads?: readonly WriterArtifactRead[] } = {}): Promise<string> {
+  const entity = unit.entity;
+  const source = entity.repo === null ? entity.path : `repos/${entity.repo}/${entity.path}`;
+  const text = entity.text.trim();
+  return [
+    fixedPart(language),
+    '',
+    '## Your unit',
+    `You enrich ONE passage of a person\'s document: ${entity.title} (${entity.identifier ?? 'unnumbered'}), read as a ${entity.semantics} passage of ${source} at lines ${entity.line}-${entity.endLine}.`,
+    `Write the enrichment to ${unit.path}, whose id is \`${unit.id}\`, with write_enrichment: the core keeps the identity, the title and the source in the page and writes the file.`,
+    'The person\'s document is not yours to change. Nothing you write is put back into it: your page stands beside it, keyed by the passage\'s durable identity, and the wiki shows both. Do not copy the passage\'s sentences into your page.',
+    '',
+    '## What to write',
+    unit.task,
+    'Every statement is grounded: on the passage itself as \`madarch:doc:' + (entity.repo === null ? entity.path : `${entity.repo}/${entity.path}`) + '#' + entity.anchor + '\`, or on the code the graph holds (get_symbol, get_context, trace_flow of what the passage names). A statement you cannot ground is left out; a thing the document does not settle is a question.',
+    '',
+    '## The passage, as the document writes it',
+    `Lines ${entity.line}-${entity.endLine} of ${source}:`,
+    '',
+    text.length > 4000 ? `${text.slice(0, 4000)}\n[cut at 4000 characters; read_file ${source} reads the rest]` : text,
+    '',
+    ...questionsPart(unit.id, context.questions),
+    ...earlierArtifactsPart(context.reads ?? []),
+    ...await preparedContextPart(view),
+  ].join('\n');
+}
+
+/**
+ * The overview unit (decision 0032, section 1 and section 7): the home page, written last, from the
+ * pages this run published. Minimal now — what the page must hold in full is madarch-ztyq.7's — and
+ * it links what exists instead of restating it.
+ */
+export async function overviewPrompt(view: GraphView, unit: { readonly id: string; readonly path: string; readonly name: string }, pages: readonly { readonly id: string; readonly path: string; readonly title: string }[], language = 'en', context: UnitContext & { readonly reads?: readonly WriterArtifactRead[] } = {}): Promise<string> {
+  const seeAlso = CONTENT_LANGUAGES[language]?.seeAlso ?? 'See also';
+  return [
+    fixedPart(language),
+    '',
+    '## Your unit',
+    `You write the home page ${unit.path}: a one-minute overview of ${unit.name} for someone who opened the wiki for the first time. Its id is \`${unit.id}\`, its kind is \`overview\`.`,
+    'Say what the product is and for whom, its main scenarios, how the system is put together, its domains and the rules and decisions that matter, its technology and size, how complete the wiki is, and what is not connected (a part with no frontend, a document the product lacks). Each of those is one short section, and each points at the page that says it in full instead of restating it.',
+    'You are the last page written: link the pages this run published rather than describing them again, and say plainly what the wiki does not hold yet.',
+    ...(pages.length === 0 ? [] : ['', 'The pages this run published, which you may link as `(madarch:<page id>)`:', ...pages.map((page) => `- ${page.id}: ${page.title} (${page.path})`)]),
+    ...(pages.length === 0 ? [] : ['', `A line that only connects pages starts with "${seeAlso}".`]),
+    '',
+    ...questionsPart(unit.id, context.questions),
+    ...earlierArtifactsPart(context.reads ?? []),
+    ...await preparedContextPart(view),
+  ].join('\n');
+}
+
+/** The most revision requests one editorial unit may send: bounded, as decision 0032, section 6 asks. */
+export const MAX_REVISION_REQUESTS = 12;
+
+/**
+ * The editorial unit (0032, section 6): reads the pages this run wrote as a newcomer and asks for
+ * bounded revisions. Minimal now — the typed revision requests and the rounds are
+ * madarch-ztyq.9's — and the page it writes says what it read, what it found and what it could not
+ * judge.
+ */
+export async function editorialPrompt(view: GraphView, unit: { readonly id: string; readonly path: string }, pages: readonly { readonly id: string; readonly path: string; readonly title: string }[], language = 'en', context: UnitContext & { readonly reads?: readonly WriterArtifactRead[] } = {}): Promise<string> {
+  return [
+    fixedPart(language),
+    '',
+    '## Your unit',
+    `You are the editorial pass over this run\'s pages. You write ${unit.path}, whose id is \`${unit.id}\` and whose kind is \`editorial\`.`,
+    'Read the pages this run wrote as someone who just arrived (get_page of each, and search_pages for a fact that should read the same way on every page). Look for: a page that does not say what it is for; one fact stated two ways; a glossary term used before it is defined; internal jargon a reader cannot know.',
+    `Write at most ${MAX_REVISION_REQUESTS} revision requests, each naming the page and the sentence it is about, in the reader\'s words. A page that reads well is said to read well. The page you write says what you read, what you found, and what you could not judge.`,
+    '',
+    'The pages this run wrote:',
+    ...(pages.length === 0 ? ['(none: this run wrote no page an editor can read)'] : pages.map((page) => `- ${page.id}: ${page.title} (${page.path})`)),
+    '',
+    ...questionsPart(unit.id, context.questions),
+    ...earlierArtifactsPart(context.reads ?? []),
+    ...await preparedContextPart(view),
+  ].join('\n');
 }
