@@ -26,7 +26,7 @@ import { briefsFor, neededFrom, neededFromPaths, planRefresh } from '../loop/pla
 import { planTaskRun } from '../loop/task-run.js';
 import type { EditBrief } from '../writer/edit.js';
 import type { UnitsInput, UnitsNeeded } from '../writer/run.js';
-import { fsSink, PRODUCT_PATH, productSlug, runWriter, type ToolClient, type UnitAgent } from '../writer/index.js';
+import { fillWriterState, fsSink, PRODUCT_PATH, productSlug, runWriter, type ToolClient, type UnitAgent } from '../writer/index.js';
 import { parseMessage, type FromWorker, type RepositoryPin, type ToWorker, type WorkerStart } from './fill-protocol.js';
 import { readKinds } from './kinds.js';
 import { DOCUMENT_LIMIT, listedDocument, productDocumentPaths, readProductDocument, readRepoDocuments, repoDocumentPaths } from './doc-sources.js';
@@ -337,8 +337,14 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
       const guides = await createFillGuideWriter({ owner, store, snapshots: guideSnapshots, output: productFolder, scope: guidePin.scope, valid: guidePin.effectiveTime, agent: remote,
         afterWrite: async (path) => { const indexed = await indexNow(); if (indexed.error !== undefined) throw new Error(indexed.error); send({ type: 'page', path }); },
       });
+      // The units are kept in the fill's own unit tables under the writer's run name: an interrupted run leaves the
+      // finished units published and the next fill of this product writes only what is left (decision 0027;
+      // madarch-ztyq.4). The run name is the writer's own: it opens no `fill_run` row, so the fill's progress never
+      // counts the same work twice.
+      const writerState = fillWriterState(owner, { product: productSlug(start.productName), runId: `writer:${productSlug(start.productName)}:${Date.now().toString(36)}` });
       const report = await runWriter({
         guides,
+        state: writerState,
         owner, store, repository: repo.path, ...(pins.get(repo.name)?.head === undefined ? {} : { ref: pins.get(repo.name)!.head }), output: productFolder, productName: start.productName, agent: remote, sink,
         language: start.language, languageChanged: start.languageChanged, documentEntities, repositoryName: repo.name,
         needed,

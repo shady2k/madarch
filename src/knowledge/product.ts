@@ -815,6 +815,13 @@ export class KnowledgeProduct {
           this.writer = message.state === 'done'
             ? { ...this.writer, state: 'done', current: undefined, finishedAt: now(), asked: message.asked, ...(message.message === undefined ? {} : { message: message.message }) }
             : { ...this.writer, state: 'failed', current: undefined, finishedAt: now(), asked: message.asked, message: message.message, ...(message.code === undefined ? {} : { code: message.code }) };
+          if (message.state !== 'done') {
+            // A writer that ended without every page says which units it left unwritten, with the reason each ended on,
+            // on the process's error stream: the page a reader watches names the first problem, and this is the whole of it.
+            const unwritten = this.writer.units.filter((unit) => unit.state !== 'written')
+              .map((unit) => `${unit.unit}=${unit.state}${unit.refusals === undefined || unit.refusals.length === 0 ? '' : ` (${unit.refusals[0]!.rule} at line ${unit.refusals[0]!.line}: ${unit.refusals[0]!.message.slice(0, 400)})`}`);
+            process.stderr.write(`knowledge writer failed: ${message.code ?? 'units'}; unwritten: ${unwritten.join('; ') || 'no unit is unwritten, so the failure is the index or the questions'}; ${message.message ?? ''}\n`);
+          }
           this.notify();
           return;
         case 'log':

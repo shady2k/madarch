@@ -43,10 +43,18 @@ export interface GroundResolver {
   uniqueSymbol?(name: string): Promise<string | undefined>;
 }
 
+/**
+ * The kinds of page the writer checks (decision 0032, section 1): the product page and the domain
+ * pages of 0029, the graph's verdicts, an entity's enrichment, the home page and the editorial
+ * pass's report. A kind is what the page's front matter must say it is; the rules of the format are
+ * the same for all of them.
+ */
+export type PageKind = 'product' | 'domain' | 'validation' | 'enrichment' | 'overview' | 'editorial';
+
 /** What the caller knows about the page being checked. */
 export interface PageExpectation {
   readonly id: string;
-  readonly kind: 'product' | 'domain';
+  readonly kind: PageKind;
   /** The domains the product page declared; `madarch:domain:<slug>` links may name only these. */
   readonly domains: readonly string[];
   /** For a product page: every declared domain must be linked from it. */
@@ -69,6 +77,12 @@ export interface PageExpectation {
   /** Product-relative file and its full path, when the caller knows them. */
   readonly file?: string;
   readonly fullPath?: string;
+  /**
+   * Keys this kind of page owns beside the format's own, each a text or a whole number: the identity an
+   * enrichment is keyed by and the lines of the source it enriches (`src/writer/enrichment.ts`). A page
+   * of another kind that carries one is still refused, so the format stays one format.
+   */
+  readonly extraFrontKeys?: readonly string[];
 }
 
 export interface FrontMatter {
@@ -79,6 +93,12 @@ export interface FrontMatter {
   readonly producer: 'agent';
   readonly sources: readonly string[];
   readonly writtenAt: readonly WrittenAt[];
+  /**
+   * The keys this kind of page owns beside the format's own (`PageExpectation.extraFrontKeys`), in code
+   * point order of their names: an enrichment's identity and the lines of the source it stands at
+   * (`src/writer/enrichment.ts`). A page of a kind that owns none carries none.
+   */
+  readonly extra: Readonly<Record<string, string | number>>;
 }
 
 /** A page that passed, in canonical form (what is written to disk). */
@@ -129,7 +149,16 @@ function frontMatterOf(text: string, expected: PageExpectation): { front?: Front
   }
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return { refusals: [{ line: 2, rule: 'front-matter', message: 'the front matter is a YAML mapping with the keys id, kind, title, relates, producer, sources' }] };
   const record = raw as Record<string, unknown>;
-  for (const key of Object.keys(record)) if (!(FRONT_KEYS as readonly string[]).includes(key) && !(WRITER_KEYS as readonly string[]).includes(key)) refuse(`the front matter key "${key}" is not part of the format; the keys are ${FRONT_KEYS.join(', ')}`);
+  const owned = expected.extraFrontKeys ?? [];
+  for (const key of Object.keys(record)) {
+    if ((FRONT_KEYS as readonly string[]).includes(key) || (WRITER_KEYS as readonly string[]).includes(key)) continue;
+    if (owned.includes(key)) {
+      const value = record[key];
+      if (typeof value !== 'string' && !(typeof value === 'number' && Number.isInteger(value))) refuse(`the front matter key "${key}" is a text or a whole number`);
+      continue;
+    }
+    refuse(`the front matter key "${key}" is not part of the format; the keys are ${[...FRONT_KEYS, ...owned].join(', ')}`);
+  }
   for (const key of FRONT_KEYS) if (!(key in record)) refuse(`the front matter lacks "${key}"`);
   if (record['id'] !== expected.id) refuse(`id is ${JSON.stringify(record['id'])} but this page's id is "${expected.id}"`);
   if (record['kind'] !== expected.kind) refuse(`kind is ${JSON.stringify(record['kind'])} but this page's kind is "${expected.kind}"`);
@@ -145,6 +174,12 @@ function frontMatterOf(text: string, expected: PageExpectation): { front?: Front
   };
   const relates = list('relates');
   const sources = list('sources');
+  // The kind's own keys, kept as written: a text or a whole number, never a nested value.
+  const extra: Record<string, string | number> = {};
+  for (const key of owned) {
+    const value = record[key];
+    if (typeof value === 'string' || (typeof value === 'number' && Number.isInteger(value))) extra[key] = value;
+  }
   if (refusals.length > 0) return { refusals };
   return {
     refusals,
@@ -156,6 +191,7 @@ function frontMatterOf(text: string, expected: PageExpectation): { front?: Front
       producer: 'agent',
       sources: [...new Set(sources)].sort(byCodePoint),
       writtenAt: expected.writtenAt ?? [],
+      extra: Object.fromEntries(Object.entries(extra).sort(([left], [right]) => byCodePoint(left, right))),
     },
   };
 }
@@ -560,6 +596,7 @@ function canonical(front: FrontMatter, body: string, defined: Map<string, { line
     yamlList('relates', front.relates),
     'producer: agent',
     yamlList('sources', front.sources),
+    ...Object.entries(front.extra).sort(([left], [right]) => byCodePoint(left, right)).map(([key, value]) => `${key}: ${typeof value === 'number' ? String(value) : JSON.stringify(value)}`),
     ...writtenAt,
     '---',
   ].join('\n');

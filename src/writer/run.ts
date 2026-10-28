@@ -1,15 +1,21 @@
 /**
- * The knowledge writer (decision 0029; the vertical's formats, section 1):
- * after the deterministic fill, one agent unit for the product, then one per
- * domain the product page declared, each reading the graph through tools and
- * writing one Markdown file in the product repository.
+ * The knowledge writer (decision 0029; decision 0032, section 1): after the deterministic fill the
+ * writer runs as a GRAPH OF UNITS — graph validation, the documents read by meaning, the product
+ * page, rules and decisions, scenarios, the domain pages, the guides, the home page last, and the
+ * editorial pass. Each kind declares what it reads and what it writes (`src/writer/graph.ts`), the
+ * order is the topological order of those declarations, and a unit of a later kind is handed the
+ * pages the kinds before it wrote.
  *
- * The agent is an interface (`UnitAgent`): a real one drives an ACP agent
- * (`acp-agent.ts`), a scripted one answers a test. Around it the core is
- * deterministic: the units run in a fixed order (product, then domains in
- * slug order), the prompts come from the graph, the tools answer in
- * code-point order, and a checked page is written in canonical form, so the
- * same graph, prompts and answers give the same files.
+ * Every unit is resumable (decision 0027): its generation is recorded in the fill's own unit tables
+ * with the digest of what it read (`src/writer/graph-state.ts`), so an interrupted run leaves the
+ * finished units published and the next run writes only what is left. Enrichment of a person's
+ * document is stored apart from it, keyed by the source entity's identity (`src/writer/enrichment.ts`),
+ * and a document of the product is not a page this writer may write at all.
+ *
+ * The agent is an interface (`UnitAgent`): a real one drives an ACP agent (`acp-agent.ts`), a
+ * scripted one answers a test. Around it the core is deterministic: the order comes from the
+ * declarations, the prompts come from the graph, the tools answer in code-point order, and a checked
+ * page is written in canonical form, so the same graph, prompts and answers give the same files.
  */
 import { lstat, mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -19,6 +25,7 @@ import { byCodePoint } from '../model/order.js';
 import type { McpToolDefinition } from '../fill/unit-mcp.js';
 import { parse as parseYaml } from 'yaml';
 import { splitFrontMatter } from '../knowledge/markdown.js';
+import { KINDS_FILE, readKinds } from '../knowledge/kinds.js';
 import { parseQuestion, parseStatementRef, QUESTIONS_FOLDER, readCorrections, readQuestions, type Correction, type Question } from '../loop/entities.js';
 import { writtenAtOf } from './basis.js';
 import type { DocEntity } from '../knowledge/doc-entities.js';
@@ -26,9 +33,12 @@ import { detectDocumentLanguage, localizedSourcePath, localizedSourcePrompt, par
 import { includedNotes, type ChangeNote, type EditBrief } from './edit.js';
 import { statementsOf } from './sentences.js';
 import { MAX_SLUG_LENGTH, SLUG } from './format.js';
-import { domainPrompt, productPrompt, type UnitContext } from './prompts.js';
+import { domainPrompt, editorialPrompt, enrichmentPrompt, ENRICHMENT_TASKS, overviewPrompt, productPrompt, validationPrompt, type UnitContext, type WriterArtifactRead } from './prompts.js';
 import { DEFAULT_UNIT_BOUNDS, UnitTools, type DomainDeclaration, type PageSink, type ToolAnswer, type UnitBounds, type UnitOutcome, type UnitSpec } from './tools.js';
 import { GraphView, ingestContent, type ContentReport } from './view.js';
+import { WRITER_UNIT_KINDS, writerUnitDigest, writerUnitKind, writerUnitOrder, type WriterArtifact, type WriterUnitKindName } from './graph.js';
+import { NO_WRITER_STATE, type WriterState, type WriterUnitRecord } from './graph-state.js';
+import { enrichmentPath, isAgentPage, type EnrichmentDraft } from './enrichment.js';
 import { GUIDE_OUTPUTS, registeredGuideOutput, type GuideWriterHost } from './guides/host-contract.js';
 import { guidePageCount, currentGuidePath } from './guides/prepared.js';
 import { formatGuidePreparationError, type GuidePreparationStage } from './guides/preparation-error.js';
@@ -36,6 +46,12 @@ import { guidePrompt } from './prompts.js';
 
 export const PRODUCT_PATH = 'docs/product.md';
 export const DOMAINS_FOLDER = 'docs/domains';
+/** The graph-validation unit's page (decision 0032, section 3). */
+export const VALIDATION_PATH = 'docs/validation.md';
+/** The home page the overview unit writes last (0032, section 11; its content is madarch-ztyq.7's). */
+export const OVERVIEW_PATH = 'docs/overview.md';
+/** The editorial pass's page (0032, section 6; its requests are madarch-ztyq.9's). */
+export const EDITORIAL_PATH = 'docs/editorial.md';
 
 /** What an agent is handed for one unit. */
 export interface UnitRequest {
@@ -97,6 +113,12 @@ export interface WriterOptions {
   readonly resolved?: (resolved: ResolvedEntity) => Promise<void>;
   /** The clock questions are stamped with; tests inject. */
   readonly clock?: () => Date;
+  /**
+   * Where the units are kept between runs (decision 0027; `src/writer/graph-state.ts`). Absent, every
+   * unit runs and nothing is remembered; the fill passes the state of its own store, and an interrupted
+   * run then resumes instead of starting over.
+   */
+  readonly state?: WriterState;
 }
 
 export interface WriterReport {
@@ -119,6 +141,63 @@ export interface WriterReport {
   readonly loopProblems: readonly string[];
   /** The ids of the questions the units asked in this run, in the order they were asked. */
   readonly questions: readonly string[];
+  /** The order the kinds ran in, derived from their declared reads and writes (`writerUnitOrder`). */
+  readonly order: readonly WriterUnitKindName[];
+  /**
+   * What every kind of the graph did: the units it ran, the units it kept from an earlier run, and —
+   * for a kind that ran none — the reason. A kind is never skipped quietly, so a reader of the report
+   * can tell "nothing to do" from "could not run".
+   */
+  readonly graph: readonly WriterKindRun[];
+  /** The enrichments this run wrote: one page per passage, stored apart from the person's document. */
+  readonly enrichments: readonly UnitOutcome[];
+  /**
+   * What the writer's state could not record, each with its page and the reason. The units ran and their pages stand;
+   * the next run will not skip what was not published, and this list says so rather than leaving it to a guess.
+   */
+  readonly stateProblems: readonly string[];
+  /** The graph-validation unit's outcome, or the reason it did not run. */
+  readonly validation: WriterKindRun;
+  /** The home page's unit, written last of the pages a reader opens first. */
+  readonly overview: WriterKindRun;
+  /** The editorial pass's unit. */
+  readonly editorial: WriterKindRun;
+}
+
+/** How one unit of the graph ended: it wrote, it was kept from an earlier run, or it ended without its page. */
+export interface WriterUnitRun {
+  readonly unit: string;
+  readonly kind: WriterUnitKindName;
+  readonly path: string;
+  readonly status: UnitOutcome['status'] | 'kept';
+  /** What a kept or an unfinished unit is kept for or ended on; absent for a written one. */
+  readonly reason?: string;
+}
+
+/** How one kind of the graph ran: the units it knew how to run and what became of them. */
+export interface WriterKindRun {
+  readonly kind: WriterUnitKindName;
+  /** The kind's place in the run's order, from 0. */
+  readonly position: number;
+  /**
+   * `ran`: the kind's units ran or were kept. `nothing-found`: its inputs hold nothing to run, and
+   * `reason` says what was looked for. `blocked`: an artifact it requires was not produced, and
+   * `reason` names that artifact.
+   */
+  readonly state: 'ran' | 'nothing-found' | 'blocked';
+  readonly reason?: string;
+  readonly units: readonly WriterUnitRun[];
+}
+
+/** One artifact this run produced: the kind that wrote it, the page it stands in, and the title a later unit reads it by. */
+export interface ProducedArtifact {
+  readonly artifact: WriterArtifact;
+  readonly kind: WriterUnitKindName;
+  readonly unit: string;
+  readonly path: string;
+  readonly title: string;
+  /** The page as it was written, for the units that read it; the report does not carry it. */
+  readonly text?: string;
 }
 
 /** What the seam is given: the pages that exist and whether the content language was changed by this run. */
@@ -164,22 +243,77 @@ export function productSlug(name: string): string {
   return slug;
 }
 
+/**
+ * The families of file the writer writes inside a product: one per kind of page, so a path is judged by
+ * what it is rather than by one pattern that grows with every kind. A path outside these is refused
+ * outright — a person's document (`docs/requirements.md`, `docs/architecture/…`) is no family here, which
+ * is the first half of "never overwrites the person's text" (decision 0032, section 1).
+ */
+export type WriterPageFamily = 'product' | 'domain' | 'question' | 'localized-source' | 'enrichment' | 'validation' | 'overview' | 'editorial';
+
+/** The slug a page file may be named by, as everywhere else in the writer. */
+const familySlug = (part: string): boolean => SLUG.test(part) && part.length <= MAX_SLUG_LENGTH;
+
+/** The family a product-relative path belongs to, or undefined when the writer may not write there. */
+export function writerPageFamily(relativePath: string): WriterPageFamily | undefined {
+  const parts = relativePath.split('/');
+  if (parts.some((part) => part === '' || part === '.' || part === '..' || part.includes('\\'))) return undefined;
+  if (relativePath === PRODUCT_PATH) return 'product';
+  if (relativePath === 'docs/validation.md') return 'validation';
+  if (relativePath === 'docs/overview.md') return 'overview';
+  if (relativePath === 'docs/editorial.md') return 'editorial';
+  if (parts[0] !== 'docs' || !parts[parts.length - 1]!.endsWith('.md')) return undefined;
+  const folder = parts[1]!;
+  // A page of its own under `docs/<folder>/<slug>.md`: a domain page, or a question a person answers.
+  if (parts.length === 3) {
+    const name = parts[2]!.slice(0, -'.md'.length);
+    if (folder === 'domains') return familySlug(name) ? 'domain' : undefined;
+    if (folder === 'questions') return familySlug(name) ? 'question' : undefined;
+    return undefined;
+  }
+  // A file filed under a kind of its own, `docs/<folder>/<kind>/<name>.md` (`localizedSourcePath`,
+  // `enrichmentPath`): the kind may carry a dot, and the name is a digest of the entity's identity.
+  if (parts.length === 4) {
+    const kind = parts[2]!;
+    const name = parts[3]!.slice(0, -'.md'.length);
+    if (folder === 'sources') return kind !== '' && name !== '' ? 'localized-source' : undefined;
+    return undefined;
+  }
+  return undefined;
+}
+
+/** The families an enrichment lives in: a folder per entity kind under `docs/enrichment`. */
+const ENRICHMENT_FOLDER = 'docs/enrichment';
+
+/** The families a file the writer did not write is refused in (`isAgentPage`, `src/writer/enrichment.ts`). */
+const OWNED_BY_THE_WRITER: readonly WriterPageFamily[] = ['product', 'domain', 'validation', 'overview', 'editorial'];
+
+/** The family of an enrichment path: `docs/enrichment/<entity kind>/<digest>.md`, three parts inside a folder. */
+export function enrichmentFamilyOf(relativePath: string): boolean {
+  const parts = relativePath.split('/');
+  if (parts.length !== 4 || parts[0] !== 'docs' || parts[1] !== 'enrichment') return false;
+  const kind = parts[2]!;
+  const name = parts[3]!;
+  return kind !== '' && kind !== '.' && kind !== '..' && name.endsWith('.md') && name.slice(0, -3) !== '';
+}
+
 /** Writes pages under a folder; a page lands whole or not at all. */
 let counter = 0;
 
 export function fsSink(root: string): PageSink {
   return {
     async write(relativePath: string, content: string): Promise<void> {
-      const target = path.resolve(root, relativePath);
-      if (!target.startsWith(`${path.resolve(root)}${path.sep}`) || relativePath.split(/[\\/]/).some((part) => part === '.' || part === '..') || !/^docs\/(product\.md|domains\/[a-z][a-z0-9-]*\.md|questions\/[a-z][a-z0-9-]*\.md|sources\/[A-Za-z0-9._-]+\/[A-Za-z0-9_-]+\.md)$/.test(relativePath)) {
-        throw new Error(`src/writer/run.ts: ${JSON.stringify(relativePath)} is not a page the writer may write`);
-      }
       const absoluteRoot = path.resolve(root);
+      const target = path.resolve(root, relativePath);
+      const family = writerPageFamily(relativePath);
+      const enrichment = family === undefined && enrichmentFamilyOf(relativePath);
+      if (!target.startsWith(`${absoluteRoot}${path.sep}`) || relativePath.split(/[\\/]/).some((part) => part === '.' || part === '..') || (family === undefined && !enrichment)) {
+        throw new Error(`${absoluteRoot}/${relativePath}:1: the writer may not write this path: it writes ${PRODUCT_PATH}, ${VALIDATION_PATH}, ${OVERVIEW_PATH}, ${EDITORIAL_PATH}, the pages under ${DOMAINS_FOLDER}, docs/questions and docs/sources, and the enrichments under ${ENRICHMENT_FOLDER}; a document a person wrote is never a page the writer overwrites`);
+      }
       const rootStat = await lstat(absoluteRoot);
       if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) throw new Error(`src/writer/run.ts: ${JSON.stringify(root)} is not a real product directory`);
-      const relativeParent = path.relative(absoluteRoot, path.dirname(target));
       let cursor = absoluteRoot;
-      for (const part of relativeParent.split(path.sep).filter(Boolean)) {
+      for (const part of path.relative(absoluteRoot, path.dirname(target)).split(path.sep).filter(Boolean)) {
         cursor = path.join(cursor, part);
         try {
           const stat = await lstat(cursor);
@@ -187,6 +321,15 @@ export function fsSink(root: string): PageSink {
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
           await mkdir(cursor);
+        }
+      }
+      // What the writer did not write, it does not replace: a page whose front matter does not name the
+      // producer `agent` is a person's text (or a file of another shape), and the write is refused with the
+      // file, its line and its full path rather than overwriting it (decision 0032, section 1).
+      if (family !== undefined && OWNED_BY_THE_WRITER.includes(family)) {
+        const existing = await readFile(target, 'utf8').catch((error: NodeJS.ErrnoException) => (error.code === 'ENOENT' ? undefined : Promise.reject(error)));
+        if (existing !== undefined && !isAgentPage(existing)) {
+          throw new Error(`${target}:1: the writer does not overwrite a page it did not write: the file holds no page whose front matter names the producer "agent", so it is a person's text (decision 0032, section 1)`);
         }
       }
       const temporary = `${target}.${process.pid}.${(counter += 1)}.writing`;
@@ -260,6 +403,97 @@ export function declarationOf(path: string, text: string): DomainDeclaration {
 
 const entityKey = (kind: string, slug: string): string => `${kind}:${slug}`;
 
+/** The page a kept unit left: read back from the sink, so a page that vanished is written again. */
+async function pageKept(sink: PageSink, path: string): Promise<boolean> {
+  try { await sink.read(path); return true; } catch { return false; }
+}
+
+/** The reason a unit that wrote nothing carries into the report and the state. */
+export function unitEndedOn(outcome: UnitOutcome): string {
+  const refusal = outcome.refusals[0];
+  return refusal === undefined ? 'the unit ended without writing its page and said nothing about why' : `${outcome.path}:${refusal.line}: ${refusal.rule}: ${refusal.message}`;
+}
+
+/**
+ * Runs one unit of the graph, or keeps it (decision 0027): a unit whose generation stands published
+ * with the same inputs digest and whose page is still there is kept and not run again; every other
+ * unit is opened in the fill's own unit state, runs, and is published or left blocked with the reason
+ * it ended on, so the run after this one takes up exactly what is left.
+ */
+export async function runGraphUnit(input: {
+  readonly id: string;
+  readonly kind: WriterUnitKindName;
+  readonly scope: string;
+  readonly digest: string;
+  readonly path: string;
+  readonly state: WriterState;
+  readonly resumed: ReadonlyMap<string, WriterUnitRecord>;
+  readonly sink: PageSink;
+  readonly now: () => number;
+  /**
+   * True when the run's plan asked for this unit: a plan that names a page owns it, so the unit runs whatever the
+   * state remembers (a person asked for the page again), and the page's own incremental logic is what keeps a page
+   * that stands. False where no plan names the unit — the graph's own pages and the enrichments — and the state then
+   * decides: a unit an earlier run published with the same inputs and whose page still stands is kept.
+   */
+  readonly asked?: boolean;
+  readonly onUnitStart?: (unit: { readonly unit: string; readonly path: string }) => void;
+  readonly onUnit?: (outcome: UnitOutcome) => void;
+  /** True for the graph's own pages, whose writing the run's plan does not name: a page that stands and that no earlier run recorded is kept. */
+  readonly pageStandingKeepsTheUnit?: boolean;
+  /** Builds the unit's tools and runs its agent; called only when the unit is neither kept nor blocked. */
+  readonly start: () => Promise<UnitOutcome>;
+  /** What the state could not record, told to the run: the unit ran and its page stands, and the next run will not skip it. */
+  readonly stateProblem?: (message: string) => void;
+}): Promise<{ readonly run: WriterUnitRun; readonly outcome?: UnitOutcome }> {
+  const report = (message: string): void => input.stateProblem?.(`${input.path}:1: ${message}`);
+  /** One step on the run's state, which never fails the run: its refusal is told, and the unit goes on. */
+  const recorded = async <T>(what: string, work: () => Promise<T>): Promise<T | undefined> => {
+    try {
+      return await work();
+    } catch (error) {
+      report(`the writer's state could not record ${what} for the unit ${JSON.stringify(input.id)}: ${error instanceof Error ? error.message : String(error)}`);
+      return undefined;
+    }
+  };
+  const runOnly = async (): Promise<{ readonly run: WriterUnitRun; readonly outcome?: UnitOutcome }> => {
+    input.onUnitStart?.({ unit: input.id, path: input.path });
+    const outcome = await input.start();
+    input.onUnit?.(outcome);
+    return {
+      run: outcome.status === 'written'
+        ? { unit: input.id, kind: input.kind, path: input.path, status: 'written' }
+        : { unit: input.id, kind: input.kind, path: input.path, status: outcome.status, reason: unitEndedOn(outcome) },
+      outcome,
+    };
+  };
+  // A unit the run's plan names is the plan's: the page's own incremental logic keeps a page that stands, and the state
+  // never keeps a page a person asked to be written again.
+  const asked = input.asked === true;
+  const kept = asked ? undefined : input.resumed.get(input.id);
+  if (kept !== undefined && kept.digest === input.digest && await pageKept(input.sink, input.path)) {
+    return { run: { unit: input.id, kind: input.kind, path: input.path, status: 'kept', reason: `published by an earlier run of the same inputs (${input.digest.slice(0, 12)})` } };
+  }
+  if (kept === undefined && input.pageStandingKeepsTheUnit === true && await pageKept(input.sink, input.path)) {
+    return { run: { unit: input.id, kind: input.kind, path: input.path, status: 'kept', reason: 'the page stands and no earlier run of this writer recorded it: this run wrote nothing over it' } };
+  }
+  const entry: WriterUnitRecord = { unit: input.id, kind: input.kind, scope: input.scope, digest: input.digest };
+  const opened = await recorded('the opening of its generation', async () => await input.state.begin(entry, input.now()));
+  const result = await runOnly();
+  if (opened !== true) return result;
+  if (result.outcome?.status === 'written') await recorded('its publication', async () => await input.state.publish(entry, input.now()));
+  else if (result.outcome !== undefined) await recorded('its reason', async () => await input.state.blocked(entry, result.run.reason ?? unitEndedOn(result.outcome!), input.now()));
+  return result;
+}
+
+/** The unit id of the one unit a kind runs for the whole product. */
+export function productUnitId(kind: WriterUnitKindName, slug: string): string {
+  return `${kind}:${slug}`;
+}
+
+
+
+
 export async function runWriter(options: WriterOptions): Promise<WriterReport> {
   const bounds = options.bounds ?? DEFAULT_UNIT_BOUNDS;
   const view = await GraphView.open(options.owner, options.store);
@@ -281,8 +515,17 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
   };
   const basis = [await writtenAtOf(options.repository, options.ref ?? 'HEAD', options.repositoryName)];
   const slug = productSlug(options.productName);
-  const productUnit: UnitSpec = { kind: 'product', id: `product:${slug}`, path: PRODUCT_PATH, name: options.productName };
   const language = options.language ?? 'en';
+  const state = options.state ?? NO_WRITER_STATE;
+  const now = (): number => (options.clock?.() ?? new Date()).getTime();
+  // The units an earlier run published, and the order the declared kinds run in: both are read before a
+  // single unit starts, so a run that cannot even order its kinds writes nothing at all.
+  const resumed = await state.published();
+  const derived = writerUnitOrder();
+  if (derived.problems.length > 0) throw new Error(derived.problems.join('\n'));
+  const order = derived.order;
+  const versionOf = (kind: WriterUnitKindName): number => writerUnitKind(kind)?.version ?? 1;
+  const productUnit: UnitSpec = { kind: 'product', id: `product:${slug}`, path: PRODUCT_PATH, name: options.productName };
   // The questions people were asked and the corrections they made: a unit is told those about its page, and may stand on the answered ones.
   const readQ = readQuestions(options.output);
   const readC = readCorrections(options.output);
@@ -309,9 +552,12 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
   try { existingProduct = await sink.read(PRODUCT_PATH); } catch { existingProduct = null; }
   const domainPages = await existingDomainPages(options.output);
   const need = (options.needed ?? unitsNeeded)({ productPage: existingProduct, domainPages, languageChanged: options.languageChanged === true });
+  // The kinds the product's wiki shows (decision 0029: the manifest says which): a page of a kind it does not declare is
+  // a page no reader can open, so the unit of that kind does not run, and the run says why.
+  const manifest = readKinds(options.output);
+  const declaresKind = (kind: string): boolean => manifest.present && manifest.manifest.kinds.has(kind);
   const askedIds: string[] = [];
   const keptOutcome = (unit: string, path: string): UnitOutcome => ({ unit, status: 'written', path, writeAttempts: 0, calls: 0, refusals: [], domains: [], grounds: [], links: [], filesRead: [], questions: [], merged: [] });
-  const neededDomains = domainPages.filter((page) => need.domain(page));
   // A reset can leave a correction without its page. Match the stable page id when that page is recreated,
   // before the unit starts; never infer applicability from a fixture name or a similar sentence.
   const freshCorrections = new Map<string, Set<string>>();
@@ -372,139 +618,420 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
     for (const page of domainPages) out.push(declarationOf(page, await sink.read(page)));
     return out;
   };
-  let product: UnitOutcome;
-  let declarations: readonly DomainDeclaration[];
+
+  // ---- the graph ------------------------------------------------------------------------------
+  const stateProblems: string[] = [];
+  const stateProblem = (message: string): void => { stateProblems.push(message); };
+  const produced = new Map<WriterArtifact, ProducedArtifact[]>();
+  const kinds: WriterKindRun[] = [];
+  const units: WriterUnitRun[] = [];
+  const enrichments: UnitOutcome[] = [];
+  const note = (artifact: WriterArtifact, item: Omit<ProducedArtifact, 'artifact'>): void => {
+    const held = produced.get(artifact) ?? [];
+    held.push({ artifact, ...item });
+    produced.set(artifact, held.sort((left, right) => byCodePoint(left.unit, right.unit)));
+  };
+  const artifactsOf = (artifact: WriterArtifact): readonly ProducedArtifact[] => produced.get(artifact) ?? [];
+  /** The pages a kind's declared reads name, as the kind's units are handed them. */
+  const readsFor = (kind: WriterUnitKindName): WriterArtifactRead[] => (writerUnitKind(kind)?.reads ?? []).flatMap((read) => artifactsOf(read.artifact).map((item) => ({
+    artifact: item.artifact, kind: item.kind, path: item.path, title: item.title, ...(item.text === undefined ? {} : { text: item.text }),
+  })));
+  /** The reads a kind requires and no kind produced: a unit that cannot run is reported, never run on less. */
+  const absent = (kind: WriterUnitKindName): readonly string[] => (writerUnitKind(kind)?.reads ?? [])
+    .filter((read) => read.required && artifactsOf(read.artifact).length === 0)
+    .map((read) => `${JSON.stringify(read.artifact)} (written by the ${WRITER_UNIT_KINDS.filter((candidate) => candidate.writes.includes(read.artifact)).map((candidate) => `"${candidate.kind}"`).join(' or ') || 'nothing'} kind)`);
+  const nothingFound = (kind: WriterUnitKindName, position: number, reason: string): void => { kinds.push({ kind, position, state: 'nothing-found', reason, units: [] }); };
+  /** The page a written unit left, as the artifact later units read: the kind, the path and the text as it stands. */
+  const rememberPage = async (artifact: WriterArtifact, kind: WriterUnitKindName, unit: string, page: string, title: string): Promise<void> => {
+    const text = await sink.read(page).catch(() => undefined);
+    note(artifact, { kind, unit, path: page, title, ...(text === undefined ? {} : { text }) });
+  };
+  /**
+   * Why one of the graph's own pages does not run, or undefined when the product's wiki shows its kind. The manifest
+   * says which kinds the wiki shows (decision 0029), so a page of a kind the product does not declare is a page no
+   * reader could open: the unit does not run, the run says why, and the absence alone never makes the run a failure.
+   */
+  const pageKindGate = (pageKind: string): string | undefined => (declaresKind(pageKind)
+    ? undefined
+    : `the product's manifest (${KINDS_FILE}) declares no ${JSON.stringify(pageKind)} kind, so this run wrote no page of that kind: the wiki shows no page of a kind its manifest does not declare`);
+
+  let product: UnitOutcome = { ...keptOutcome(productUnit.id, PRODUCT_PATH) };
+  let declarations: readonly DomainDeclaration[] = [];
   let productPage = '';
-  if (need.product) {
-    const brief = briefFor(productUnit.id, PRODUCT_PATH, existingProduct);
-    expect(productUnit.id, brief);
-    options.onUnitStart?.({ unit: productUnit.id, path: productUnit.path });
-    const productTools = new UnitTools(view, productUnit, sink, [], bounds, basis, extras);
-    const declared = existingProduct === null ? [] : await declaredNow();
-    product = await runUnit(options.agent, productTools, await productPrompt(view, productUnit, language, { ...(brief === undefined ? {} : { brief }), questions, declared }));
-    options.onUnit?.(product);
-    finish(productUnit.id, product);
-    declarations = product.domains;
-    if (product.status === 'written') {
-      try {
-        productPage = await sink.read(PRODUCT_PATH);
-      } catch (error) {
-        throw new Error(`src/writer/run.ts: the product page ${PRODUCT_PATH} was written but cannot be read back for the domain units: ${(error as Error).message}`);
-      }
-    }
-  } else {
-    // The product page stays: its domains are the pages it links, as those pages say.
-    declarations = await declaredNow();
-    product = { ...keptOutcome(productUnit.id, PRODUCT_PATH), domains: [...declarations] };
-    options.onUnit?.(product);
-    productPage = existingProduct ?? '';
-  }
-  const domains: UnitOutcome[] = [];
-  if (product.status === 'written') {
-    for (const declaration of declarations) {
-      const path = `${DOMAINS_FOLDER}/${declaration.slug}.md`;
-      if (!need.domain(path)) {
-        // The page is there and stays: the unit does not run, and it is told as a kept page.
-        const kept = keptOutcome(`domain:${declaration.slug}`, path);
-        options.onUnit?.(kept);
-        domains.push(kept);
+  const domainOutcomes: UnitOutcome[] = [];
+  const guides: UnitOutcome[] = [];
+
+  const localizedSources: UnitOutcome[] = [];
+  const localizedEntities = [...(options.documentEntities ?? [])].sort((a, b) => byCodePoint(a.id, b.id));
+  /**
+   * The localized statements of the documents' entities (madarch-m38l.18), written where they were written before this
+   * change: after the domain pages and before the guides. They are no kind of 0032's table — a passage shown in the
+   * wiki's language is neither a reading of the document nor an enrichment of it, it is the same passage in the
+   * reader's language — and the graph of kinds is additive around them: a product that declares none of the new kinds
+   * gets the same units, in the same order, as before.
+   */
+  const runLocalizedSources = async (): Promise<void> => {
+    for (const entity of localizedEntities) {
+      const sourceLanguage = detectDocumentLanguage(entity.text);
+      if (sourceLanguage === undefined) {
+        const id = `localized-source:${entity.id}`;
+        const file = localizedSourcePath(entity);
+        const refusal = { line: entity.line, rule: 'source-language', message: 'the source language cannot be identified confidently as English or Russian; no smaller localized statement was written' };
+        const outcome: UnitOutcome = { ...keptOutcome(id, file), status: 'not-written', refusals: [refusal] };
+        options.onUnitStart?.({ unit: id, path: file });
+        options.onUnit?.(outcome);
+        localizedSources.push(outcome);
         continue;
       }
-      const spec: UnitSpec = { kind: 'domain', id: `domain:${declaration.slug}`, path, domain: declaration, productId: productUnit.id };
-      const brief = briefFor(spec.id, path, domainPages.includes(path) ? await sink.read(path) : null);
-      expect(spec.id, brief);
+      if (sourceLanguage === language) {
+        localizedSources.push(keptOutcome(`localized-source:${entity.id}`, localizedSourcePath(entity)));
+        continue;
+      }
+      const unitPath = localizedSourcePath(entity);
+      let existing: string | undefined;
+      try { existing = await sink.read(unitPath); } catch { existing = undefined; }
+      if (existing !== undefined) {
+        const validated = parseLocalizedSource(unitPath, existing, entity, language);
+        if (validated.ok && validated.source.sourceLanguage === sourceLanguage) {
+          localizedSources.push(keptOutcome(`localized-source:${entity.id}`, unitPath));
+          continue;
+        }
+      }
+      const spec: UnitSpec = { kind: 'localized-source', id: `localized-source:${entity.id}`, path: unitPath, entity, sourceLanguage, language: language === 'ru' ? 'ru' : 'en' };
       options.onUnitStart?.({ unit: spec.id, path: spec.path });
-      const tools = new UnitTools(view, spec, sink, declarations, bounds, basis, extras);
-      const outcome = await runUnit(options.agent, tools, await domainPrompt(view, spec, productPage, declarations, language, { ...(brief === undefined ? {} : { brief }), questions }));
-      options.onUnit?.(outcome);
-      finish(spec.id, outcome);
-      domains.push(outcome);
-    }
-  }
-  const localizedSources: UnitOutcome[] = [];
-  // Every extracted document entity, of the product's own documents and of each code repository's: a Russian wiki over
-  // English documents shows each of them in Russian, with its original beside it.
-  const localizedEntities = [...(options.documentEntities ?? [])].sort((a, b) => byCodePoint(a.id, b.id));
-  for (const entity of localizedEntities) {
-    const sourceLanguage = detectDocumentLanguage(entity.text);
-    if (sourceLanguage === undefined) {
-      const id = `localized-source:${entity.id}`;
-      const file = localizedSourcePath(entity);
-      const refusal = { line: entity.line, rule: 'source-language', message: 'the source language cannot be identified confidently as English or Russian; no smaller localized statement was written' };
-      const outcome: UnitOutcome = { ...keptOutcome(id, file), status: 'not-written', refusals: [refusal] };
-      options.onUnitStart?.({ unit: id, path: file });
+      const tools = new UnitTools(view, spec, sink, [], bounds, basis, extras);
+      const result = await runUnit(options.agent, tools, localizedSourcePrompt({ entity, language: spec.language, sourceLanguage, file: entity.path }));
+      const outcome: UnitOutcome = result.status === 'not-written'
+        ? { ...result, status: 'failed', refusals: [{ line: entity.line, rule: 'localized-source-missing', message: `${unitPath}:1: the writer ended without a valid localized statement` }] }
+        : result;
       options.onUnit?.(outcome);
       localizedSources.push(outcome);
+    }
+  };
+
+  for (const [position, kind] of order.entries()) {
+    const missing = absent(kind);
+    if (missing.length > 0) {
+      kinds.push({ kind, position, state: 'blocked', reason: `the unit cannot run: it requires ${missing.join(', ')}, and no unit of this run produced it`, units: [] });
       continue;
     }
-    if (sourceLanguage === language) {
-      localizedSources.push(keptOutcome(`localized-source:${entity.id}`, localizedSourcePath(entity)));
-      continue;
-    }
-    const unitPath = localizedSourcePath(entity);
-    let existing: string | undefined;
-    try { existing = await sink.read(unitPath); } catch { existing = undefined; }
-    if (existing !== undefined) {
-      const validated = parseLocalizedSource(unitPath, existing, entity, language);
-      if (validated.ok && validated.source.sourceLanguage === sourceLanguage) {
-        localizedSources.push(keptOutcome(`localized-source:${entity.id}`, unitPath));
-        continue;
-      }
-    }
-    const spec: UnitSpec = { kind: 'localized-source', id: `localized-source:${entity.id}`, path: unitPath, entity, sourceLanguage, language: language === 'ru' ? 'ru' : 'en' };
-    options.onUnitStart?.({ unit: spec.id, path: spec.path });
-    const tools = new UnitTools(view, spec, sink, [], bounds, basis, extras);
-    const result = await runUnit(options.agent, tools, localizedSourcePrompt({ entity, language: spec.language, sourceLanguage, file: entity.path }));
-    const outcome: UnitOutcome = result.status === 'not-written'
-      ? { ...result, status: 'failed', refusals: [{ line: entity.line, rule: 'localized-source-missing', message: `${unitPath}:1: the writer ended without a valid localized statement` }] }
-      : result;
-    options.onUnit?.(outcome);
-    localizedSources.push(outcome);
-  }
-  const guides: UnitOutcome[] = [];
-  if (options.guides !== undefined) {
-    for (const kind of ['administrator-guide', 'user-guide'] as const) {
-      let output = { id: GUIDE_OUTPUTS[kind].id as string, path: 'madarch/kinds.yaml' };
-      let outcome: UnitOutcome;
-      let preparationStage: GuidePreparationStage = 'registry';
-      try {
-        output = registeredGuideOutput(options.output, kind);
-        options.onUnitStart?.({ unit: output.id, path: output.path });
-        preparationStage = 'preparation';
-        const prepared = await options.guides.prepare(kind, language === 'ru' ? 'ru' : 'en');
-        preparationStage = 'current-proof';
-        const currentPath=currentGuidePath(prepared);
-        if(currentPath!==undefined){
-          if(currentPath!==output.path)throw new Error('guide current proof is bound to another registered path');
-          outcome=keptOutcome(output.id,output.path);guides.push(outcome);options.onUnit?.(outcome);continue;
+    const runs: WriterUnitRun[] = [];
+    switch (kind) {
+      case 'document-interpretation': {
+        // The passages whose reading is still open: the document's own structure and the manifest decided
+        // the rest (madarch-ztyq.3). One unit per passage, in the identity's code point order.
+        const open = [...(options.documentEntities ?? [])]
+          .filter((entity) => entity.pass === 'classifier' && entity.semantics === 'other')
+          .sort((left, right) => byCodePoint(left.id, right.id));
+        if (open.length === 0) { nothingFound(kind, position, 'the documents hold no passage the classifier left as "other": every passage that no manifest or structural pass decided was read as a general kind'); break; }
+        for (const entity of open) {
+          const page = enrichmentPath(entity);
+          const run = await runGraphUnit({
+            id: `enrichment:${entity.id}`, kind, scope: entity.id, path: page,
+            digest: writerUnitDigest({ kind, version: versionOf(kind), scope: entity.id, language, inputs: [entity.kind, entity.text, entity.anchor] }),
+            state, resumed, sink, now, stateProblem,
+            ...(options.onUnitStart === undefined ? {} : { onUnitStart: options.onUnitStart }),
+            ...(options.onUnit === undefined ? {} : { onUnit: options.onUnit }),
+            start: async () => {
+              const spec: UnitSpec = { kind: 'enrichment', id: `enrichment:${entity.id}`, path: page, entity, task: ENRICHMENT_TASKS['document-interpretation']! };
+              const tools = new UnitTools(view, spec, sink, [], bounds, basis, extras);
+              return await runUnit(options.agent, tools, await enrichmentPrompt(view, { id: spec.id, path: page, entity, enriches: entity.id, task: ENRICHMENT_TASKS['document-interpretation']! }, language, { questions, reads: readsFor(kind) }));
+            },
+          });
+          runs.push(run.run);
+          if (run.outcome !== undefined) enrichments.push(run.outcome);
+          if (run.run.status === 'written' || run.run.status === 'kept') await rememberPage('document-readings', kind, run.run.unit, page, entity.title);
+          if (run.run.status === 'failed' || run.run.status === 'not-written') loopProblems.push(`${path.resolve(options.output, page)}:1: the enrichment of ${entity.id} was not written: ${run.run.reason ?? 'no reason given'}`);
         }
-        preparationStage = 'unit';
-        const spec: UnitSpec = { kind, id: output.id, path: output.path, prepared };
-        const guideBounds = { ...bounds, maxCalls: bounds.maxCalls + guidePageCount(prepared) };
-        const tools = new UnitTools(view, spec, sink, [], guideBounds, basis, extras);
-        outcome = await runUnit(options.agent, tools, guidePrompt(kind, language === 'ru' ? 'ru' : 'en', prepared.prompt));
-        if (outcome.status === 'not-written') outcome = { ...outcome, status: 'failed', refusals: [{ line: 1, rule: 'guide-missing', message: `${path.resolve(options.output, output.path)}:1: $.guide: the unit ended without a verified guide` }] };
-      } catch (failure) {
-        outcome = { ...keptOutcome(output.id, output.path), status: 'failed', refusals: [formatGuidePreparationError(failure, { file: path.resolve(options.output, output.path), stage: preparationStage })] };
+        kinds.push({ kind, position, state: 'ran', units: runs });
+        break;
       }
-      guides.push(outcome);
-      options.onUnit?.(outcome);
+      case 'graph-validation': {
+        const undeclared = pageKindGate('validation');
+        const id = productUnitId(kind, slug);
+        if (undeclared !== undefined) { nothingFound(kind, position, undeclared); break; }
+        const run = await runGraphUnit({
+          id, kind, scope: slug, path: VALIDATION_PATH, pageStandingKeepsTheUnit: true,
+          digest: writerUnitDigest({ kind, version: versionOf(kind), scope: slug, language, inputs: [view.at] }),
+          state, resumed, sink, now, stateProblem,
+          ...(options.onUnitStart === undefined ? {} : { onUnitStart: options.onUnitStart }),
+          ...(options.onUnit === undefined ? {} : { onUnit: options.onUnit }),
+          start: async () => {
+            const spec: UnitSpec = { kind: 'validation', id, path: VALIDATION_PATH, name: options.productName };
+            const tools = new UnitTools(view, spec, sink, [], bounds, basis, extras);
+            return await runUnit(options.agent, tools, await validationPrompt(view, { id, path: VALIDATION_PATH, name: options.productName }, language, { questions, reads: readsFor(kind) }));
+          },
+        });
+        runs.push(run.run);
+        if (run.run.status === 'written' || run.run.status === 'kept') await rememberPage('validation-verdicts', kind, id, VALIDATION_PATH, `Graph verdicts of ${options.productName}`);
+        kinds.push({ kind, position, state: 'ran', units: runs });
+        break;
+      }
+      case 'product': {
+        const brief = need.product ? briefFor(productUnit.id, PRODUCT_PATH, existingProduct) : undefined;
+        if (need.product) expect(productUnit.id, brief);
+        if (!need.product) {
+          // The page is there and stays: its domains are the pages it links, as those pages say.
+          declarations = await declaredNow();
+          product = { ...keptOutcome(productUnit.id, PRODUCT_PATH), domains: [...declarations] };
+          options.onUnit?.(product);
+          runs.push({ unit: productUnit.id, kind, path: PRODUCT_PATH, status: 'kept', reason: 'the page is there and this run was not asked to write it again' });
+        } else {
+          const run = await runGraphUnit({
+            id: productUnit.id, kind, scope: slug, path: PRODUCT_PATH, asked: true,
+            digest: writerUnitDigest({ kind, version: versionOf(kind), scope: slug, language, inputs: [view.at, brief === undefined ? 'no-brief' : 'a-brief', String(need.product)] }),
+            state, resumed, sink, now, stateProblem,
+            ...(options.onUnitStart === undefined ? {} : { onUnitStart: options.onUnitStart }),
+            ...(options.onUnit === undefined ? {} : { onUnit: options.onUnit }),
+            start: async () => {
+              const productTools = new UnitTools(view, productUnit, sink, [], bounds, basis, extras);
+              const declared = existingProduct === null ? [] : await declaredNow();
+              return await runUnit(options.agent, productTools, await productPrompt(view, productUnit, language, { ...(brief === undefined ? {} : { brief }), questions, declared, reads: readsFor(kind) }));
+            },
+          });
+          runs.push(run.run);
+          product = run.outcome ?? { ...keptOutcome(productUnit.id, PRODUCT_PATH), domains: await declaredNow() };
+          declarations = product.domains;
+          finish(productUnit.id, product);
+        }
+        if (product.status === 'written' || (runs[0]?.status === 'kept')) {
+          try {
+            productPage = await sink.read(PRODUCT_PATH);
+          } catch (error) {
+            throw new Error(`src/writer/run.ts: the product page ${PRODUCT_PATH} was written but cannot be read back for the domain units: ${(error as Error).message}`);
+          }
+          await rememberPage('product-page', kind, productUnit.id, PRODUCT_PATH, options.productName);
+          note('domain-declarations', { kind, unit: productUnit.id, path: PRODUCT_PATH, title: options.productName });
+        }
+        kinds.push({ kind, position, state: 'ran', units: runs });
+        break;
+      }
+      case 'rules-and-decisions': {
+        const entities = [...(options.documentEntities ?? [])]
+          .filter((entity) => entity.semantics === 'rule' || entity.semantics === 'decision')
+          .sort((left, right) => byCodePoint(left.id, right.id));
+        if (entities.length === 0) { nothingFound(kind, position, 'the documents hold no passage read as a rule or as a decision'); break; }
+        for (const entity of entities) {
+          const page = enrichmentPath(entity);
+          const task = ENRICHMENT_TASKS['rules-and-decisions']!;
+          const run = await runGraphUnit({
+            id: `enrichment:${entity.id}`, kind, scope: entity.id, path: page,
+            digest: writerUnitDigest({ kind, version: versionOf(kind), scope: entity.id, language, inputs: [entity.kind, entity.text, entity.anchor, entity.semantics] }),
+            state, resumed, sink, now, stateProblem,
+            ...(options.onUnitStart === undefined ? {} : { onUnitStart: options.onUnitStart }),
+            ...(options.onUnit === undefined ? {} : { onUnit: options.onUnit }),
+            start: async () => {
+              const spec: UnitSpec = { kind: 'enrichment', id: `enrichment:${entity.id}`, path: page, entity, task };
+              const tools = new UnitTools(view, spec, sink, [], bounds, basis, extras);
+              return await runUnit(options.agent, tools, await enrichmentPrompt(view, { id: spec.id, path: page, entity, enriches: entity.id, task }, language, { questions, reads: readsFor(kind) }));
+            },
+          });
+          runs.push(run.run);
+          if (run.outcome !== undefined) enrichments.push(run.outcome);
+          if (run.run.status === 'written' || run.run.status === 'kept') await rememberPage(entity.semantics === 'decision' ? 'decision-enrichments' : 'rule-enrichments', kind, run.run.unit, page, entity.title);
+          if (run.run.status === 'failed' || run.run.status === 'not-written') loopProblems.push(`${path.resolve(options.output, page)}:1: the enrichment of ${entity.id} was not written: ${run.run.reason ?? 'no reason given'}`);
+        }
+        kinds.push({ kind, position, state: 'ran', units: runs });
+        break;
+      }
+      case 'scenarios': {
+        const entities = [...(options.documentEntities ?? [])]
+          .filter((entity) => entity.semantics === 'scenario')
+          .sort((left, right) => byCodePoint(left.id, right.id));
+        if (entities.length === 0) { nothingFound(kind, position, 'the documents hold no passage read as a scenario'); break; }
+        for (const entity of entities) {
+          const page = enrichmentPath(entity);
+          const task = ENRICHMENT_TASKS['scenarios']!;
+          const run = await runGraphUnit({
+            id: `enrichment:${entity.id}`, kind, scope: entity.id, path: page,
+            digest: writerUnitDigest({ kind, version: versionOf(kind), scope: entity.id, language, inputs: [entity.kind, entity.text, entity.anchor, ...artifactsOf('rule-enrichments').map((item) => item.unit), ...artifactsOf('decision-enrichments').map((item) => item.unit)] }),
+            state, resumed, sink, now, stateProblem,
+            ...(options.onUnitStart === undefined ? {} : { onUnitStart: options.onUnitStart }),
+            ...(options.onUnit === undefined ? {} : { onUnit: options.onUnit }),
+            start: async () => {
+              const spec: UnitSpec = { kind: 'enrichment', id: `enrichment:${entity.id}`, path: page, entity, task };
+              const tools = new UnitTools(view, spec, sink, [], bounds, basis, extras);
+              return await runUnit(options.agent, tools, await enrichmentPrompt(view, { id: spec.id, path: page, entity, enriches: entity.id, task }, language, { questions, reads: readsFor(kind) }));
+            },
+          });
+          runs.push(run.run);
+          if (run.outcome !== undefined) enrichments.push(run.outcome);
+          if (run.run.status === 'written' || run.run.status === 'kept') await rememberPage('scenario-enrichments', kind, run.run.unit, page, entity.title);
+          if (run.run.status === 'failed' || run.run.status === 'not-written') loopProblems.push(`${path.resolve(options.output, page)}:1: the enrichment of ${entity.id} was not written: ${run.run.reason ?? 'no reason given'}`);
+        }
+        kinds.push({ kind, position, state: 'ran', units: runs });
+        break;
+      }
+      case 'domains': {
+        for (const declaration of declarations) {
+          const page = `${DOMAINS_FOLDER}/${declaration.slug}.md`;
+          if (!need.domain(page)) {
+            // The page is there and stays: the unit does not run, and it is told as a kept page.
+            const kept = keptOutcome(`domain:${declaration.slug}`, page);
+            options.onUnit?.(kept);
+            domainOutcomes.push(kept);
+            runs.push({ unit: kept.unit, kind, path: page, status: 'kept', reason: 'the page is there and this run was not asked to write it again' });
+            await rememberPage('domain-pages', kind, kept.unit, page, declaration.title);
+            continue;
+          }
+          const spec: UnitSpec = { kind: 'domain', id: `domain:${declaration.slug}`, path: page, domain: declaration, productId: productUnit.id };
+          const brief = briefFor(spec.id, page, domainPages.includes(page) ? await sink.read(page) : null);
+          expect(spec.id, brief);
+          const run = await runGraphUnit({
+            id: spec.id, kind, scope: declaration.slug, path: page, asked: true,
+            digest: writerUnitDigest({ kind, version: versionOf(kind), scope: declaration.slug, language, inputs: [view.at, declaration.summary, ...declaration.evidence, brief === undefined ? 'no-brief' : 'a-brief'] }),
+            state, resumed, sink, now, stateProblem,
+            ...(options.onUnitStart === undefined ? {} : { onUnitStart: options.onUnitStart }),
+            ...(options.onUnit === undefined ? {} : { onUnit: options.onUnit }),
+            start: async () => {
+              const tools = new UnitTools(view, spec, sink, declarations, bounds, basis, extras);
+              return await runUnit(options.agent, tools, await domainPrompt(view, spec, productPage, declarations, language, { ...(brief === undefined ? {} : { brief }), questions, reads: readsFor(kind) }));
+            },
+          });
+          runs.push(run.run);
+          const outcome = run.outcome ?? keptOutcome(spec.id, page);
+          if (run.outcome === undefined) options.onUnit?.(outcome);
+          finish(spec.id, outcome);
+          // The run's own list of domain outcomes names every domain the product declares, as it did before.
+          if (!domainOutcomes.some((held) => held.unit === spec.id)) domainOutcomes.push(outcome);
+          await rememberPage('domain-pages', kind, spec.id, page, declaration.title);
+        }
+        kinds.push({ kind, position, state: 'ran', units: runs });
+        break;
+      }
+      case 'guides': {
+        // The localized statements stand here, after the domain pages and before the guides, exactly as they did before
+        // the graph of kinds: a product that declares none of the new kinds runs the same units in the same order.
+        await runLocalizedSources();
+        if (options.guides === undefined) { nothingFound(kind, position, 'the run wires no checked guide production, so no guide unit runs'); break; }
+        for (const guideKind of ['administrator-guide', 'user-guide'] as const) {
+          let output = { id: GUIDE_OUTPUTS[guideKind].id as string, path: 'madarch/kinds.yaml' };
+          let outcome: UnitOutcome;
+          let preparationStage: GuidePreparationStage = 'registry';
+          try {
+            output = registeredGuideOutput(options.output, guideKind);
+            options.onUnitStart?.({ unit: output.id, path: output.path });
+            preparationStage = 'preparation';
+            const prepared = await options.guides.prepare(guideKind, language === 'ru' ? 'ru' : 'en');
+            preparationStage = 'current-proof';
+            const currentPath = currentGuidePath(prepared);
+            if (currentPath !== undefined) {
+              if (currentPath !== output.path) throw new Error('guide current proof is bound to another registered path');
+              outcome = keptOutcome(output.id, output.path);
+              guides.push(outcome);
+              options.onUnit?.(outcome);
+              runs.push({ unit: output.id, kind, path: output.path, status: 'kept', reason: 'the guide is current and its proof stands' });
+              note('guides', { kind, unit: output.id, path: output.path, title: guideKind });
+              continue;
+            }
+            preparationStage = 'unit';
+            const spec: UnitSpec = { kind: guideKind, id: output.id, path: output.path, prepared };
+            const guideBounds = { ...bounds, maxCalls: bounds.maxCalls + guidePageCount(prepared) };
+            const tools = new UnitTools(view, spec, sink, [], guideBounds, basis, extras);
+            outcome = await runUnit(options.agent, tools, guidePrompt(guideKind, language === 'ru' ? 'ru' : 'en', prepared.prompt));
+            if (outcome.status === 'not-written') outcome = { ...outcome, status: 'failed', refusals: [{ line: 1, rule: 'guide-missing', message: `${path.resolve(options.output, output.path)}:1: $.guide: the unit ended without a verified guide` }] };
+          } catch (failure) {
+            outcome = { ...keptOutcome(output.id, output.path), status: 'failed', refusals: [formatGuidePreparationError(failure, { file: path.resolve(options.output, output.path), stage: preparationStage })] };
+          }
+          guides.push(outcome);
+          options.onUnit?.(outcome);
+          runs.push({ unit: output.id, kind, path: output.path, status: outcome.status, ...(outcome.status === 'written' ? {} : { reason: unitEndedOn(outcome) }) });
+          if (outcome.status === 'written') note('guides', { kind, unit: output.id, path: output.path, title: guideKind });
+        }
+        kinds.push({ kind, position, state: 'ran', units: runs });
+        break;
+      }
+      case 'overview': {
+        const undeclared = pageKindGate('overview');
+        const id = productUnitId(kind, slug);
+        if (undeclared !== undefined) { nothingFound(kind, position, undeclared); break; }
+        // The domains the home page may link: the ones this run's product page declared, or — when that page
+        // failed — the ones the pages that stand declare, so a link is never refused for a declaration the run lost.
+        const linkedDomains = declarations.length > 0 ? declarations : await declaredNow().catch(() => []);
+        const pages = [...artifactsOf('product-page'), ...artifactsOf('domain-pages'), ...artifactsOf('validation-verdicts')];
+        const run = await runGraphUnit({
+          id, kind, scope: slug, path: OVERVIEW_PATH, pageStandingKeepsTheUnit: true,
+          digest: writerUnitDigest({ kind, version: versionOf(kind), scope: slug, language, inputs: [view.at, ...pages.map((page) => `${page.unit}:${page.path}`)] }),
+          state, resumed, sink, now, stateProblem,
+          ...(options.onUnitStart === undefined ? {} : { onUnitStart: options.onUnitStart }),
+          ...(options.onUnit === undefined ? {} : { onUnit: options.onUnit }),
+          start: async () => {
+            const spec: UnitSpec = { kind: 'overview', id, path: OVERVIEW_PATH, name: options.productName, productId: productUnit.id };
+            const tools = new UnitTools(view, spec, sink, linkedDomains, bounds, basis, extras);
+            const linked = [...artifactsOf('product-page'), ...artifactsOf('domain-pages')].map((page) => ({ id: page.unit, path: page.path, title: page.title }));
+            return await runUnit(options.agent, tools, await overviewPrompt(view, { id, path: OVERVIEW_PATH, name: options.productName }, linked, language, { questions, reads: readsFor(kind) }));
+          },
+        });
+        runs.push(run.run);
+        if (run.run.status === 'written' || run.run.status === 'kept') await rememberPage('overview-page', kind, id, OVERVIEW_PATH, `The home page of ${options.productName}`);
+        kinds.push({ kind, position, state: 'ran', units: runs });
+        break;
+      }
+      case 'editorial': {
+        const undeclared = pageKindGate('editorial');
+        if (undeclared !== undefined) { nothingFound(kind, position, undeclared); break; }
+        // The pages this run wrote from a document reading: what an editor has to hold consistent with the
+        // documents. A run that read no document has no such page, and says so.
+        const reading = [...artifactsOf('document-readings'), ...artifactsOf('rule-enrichments'), ...artifactsOf('decision-enrichments'), ...artifactsOf('scenario-enrichments')];
+        const pages = [...artifactsOf('product-page'), ...artifactsOf('domain-pages'), ...artifactsOf('overview-page')];
+        if (reading.length === 0 || pages.length === 0) {
+          kinds.push({ kind, position, state: 'nothing-found', reason: reading.length === 0 ? 'no unit of this run read a document passage, so no page stands on a reading an editor could hold it to' : 'the run wrote no page for an editor to read', units: [] });
+          break;
+        }
+        const id = productUnitId(kind, slug);
+        const run = await runGraphUnit({
+          id, kind, scope: slug, path: EDITORIAL_PATH, pageStandingKeepsTheUnit: true,
+          digest: writerUnitDigest({ kind, version: versionOf(kind), scope: slug, language, inputs: [view.at, ...pages.map((page) => `${page.unit}:${page.path}`), ...reading.map((page) => page.path)] }),
+          state, resumed, sink, now, stateProblem,
+          ...(options.onUnitStart === undefined ? {} : { onUnitStart: options.onUnitStart }),
+          ...(options.onUnit === undefined ? {} : { onUnit: options.onUnit }),
+          start: async () => {
+            const spec: UnitSpec = { kind: 'editorial', id, path: EDITORIAL_PATH, name: options.productName };
+            const tools = new UnitTools(view, spec, sink, declarations, bounds, basis, extras);
+            return await runUnit(options.agent, tools, await editorialPrompt(view, { id, path: EDITORIAL_PATH }, pages.map((page) => ({ id: page.unit, path: page.path, title: page.title })), language, { questions, reads: readsFor(kind) }));
+          },
+        });
+        runs.push(run.run);
+        kinds.push({ kind, position, state: 'ran', units: runs });
+        break;
+      }
     }
+    units.push(...runs);
   }
+
   if (options.resolved !== undefined) {
-    for (const [key, units] of [...expected].sort(([a], [b]) => byCodePoint(a, b))) {
+    for (const [key, unitsOfKey] of [...expected].sort(([a], [b]) => byCodePoint(a, b))) {
       const written = done.get(key);
-      if (written === undefined || written.size !== units.size) continue;
+      if (written === undefined || written.size !== unitsOfKey.size) continue;
       const [kind, ...rest] = key.split(':');
       try {
-        await options.resolved({ kind: kind as 'question' | 'correction', slug: rest.join(':'), pages: [...units].sort(byCodePoint) });
+        await options.resolved({ kind: kind as 'question' | 'correction', slug: rest.join(':'), pages: [...unitsOfKey].sort(byCodePoint) });
       } catch (error) {
         loopProblems.push(`${key}: it was used but could not be marked resolved: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
   }
-  const stale = (await existingDomainPages(options.output)).filter((page) => !domains.some((d) => d.path === page));
-  return { content, product, domains, localizedSources, guides, units: guides.length + (need.product ? 1 : 0) + domains.filter((d) => d.writeAttempts > 0 || d.calls > 0 || d.status !== 'written').length + localizedSources.filter((d) => d.calls > 0 || d.status === 'failed').length, ok: guides.every((unit) => unit.status === 'written') && product.status === 'written' && domains.every((d) => d.status === 'written') && localizedSources.every((outcome) => { if (outcome.status === 'failed') return false; const entity = localizedEntities.find((candidate) => `localized-source:${candidate.id}` === outcome.unit); const sourceLanguage = entity === undefined ? undefined : detectDocumentLanguage(entity.text); return sourceLanguage === undefined || sourceLanguage === language || outcome.status === 'written'; }) && indexErrors.length === 0 && loopProblems.length === 0, stale, indexErrors, loopProblems, questions: askedIds };
+  const stale = (await existingDomainPages(options.output)).filter((page) => !domainOutcomes.some((unit) => unit.path === page));
+  const kindOf = (name: WriterUnitKindName): WriterKindRun => kinds.find((kind) => kind.kind === name) ?? { kind: name, position: -1, state: 'nothing-found', reason: 'the kind is not declared by the writer', units: [] };
+  return {
+    content,
+    product,
+    domains: domainOutcomes,
+    localizedSources,
+    guides,
+    units: units.filter((unit) => unit.status !== 'kept').length,
+    ok: guides.every((unit) => unit.status === 'written') && product.status === 'written' && domainOutcomes.every((d) => d.status === 'written') && localizedSources.every((outcome) => { if (outcome.status === 'failed') return false; const entity = localizedEntities.find((candidate) => `localized-source:${candidate.id}` === outcome.unit); const sourceLanguage = entity === undefined ? undefined : detectDocumentLanguage(entity.text); return sourceLanguage === undefined || sourceLanguage === language || outcome.status === 'written'; }) && indexErrors.length === 0 && loopProblems.length === 0
+      && kinds.every((kind) => kind.state !== 'blocked' && kind.units.every((unit) => unit.status === 'written' || unit.status === 'kept')),
+    stale,
+    indexErrors,
+    loopProblems,
+    questions: askedIds,
+    order,
+    graph: kinds,
+    enrichments,
+    stateProblems,
+    validation: kindOf('graph-validation'),
+    overview: kindOf('overview'),
+    editorial: kindOf('editorial'),
+  };
 }
-
-export type { DomainDeclaration };
