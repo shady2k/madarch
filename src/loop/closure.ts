@@ -11,7 +11,7 @@
  * naming the repository, never a task silently left open or closed.
  */
 import { execFileSync } from 'node:child_process';
-import { anchorLines } from '../knowledge/anchors.js';
+import { anchorExtent } from '../knowledge/anchors.js';
 import { byCodePoint } from '../model/order.js';
 import { scopePath, type PlannedTask, type TaskScope } from './tasks.js';
 
@@ -81,7 +81,14 @@ function changedLines(repository: string, commit: string, path: string): { start
   return ranges;
 }
 
-/** The lines a section of a file holds at a commit: from its heading to the line before the next anchor. */
+/**
+ * The lines the part an anchor names covers at a commit, read from the parsed document: a heading covers its whole
+ * section (its blocks and its sub-sections), a list item or a paragraph covers itself and only what stands under it.
+ *
+ * The extent is the anchored node's own, never "to the next heading" for every anchor: a task scoped to `br-1` must not
+ * close on a commit that changes its sibling `br-2` (madarch-ztyq.3, the review of finding 4), and a section must not be
+ * cut off at its first bold item or plain paragraph (the defect that made a commit inside a section close nothing).
+ */
 function sectionLines(repository: string, commit: string, path: string, anchor: string): { start: number; end: number } | undefined {
   let text: string;
   try {
@@ -89,11 +96,7 @@ function sectionLines(repository: string, commit: string, path: string, anchor: 
   } catch {
     return undefined;
   }
-  const anchors = [...anchorLines(text).entries()].sort((a, b) => a[1] - b[1]);
-  const at = anchors.find(([name]) => name === anchor.toLowerCase());
-  if (at === undefined) return undefined;
-  const next = anchors.find(([, line]) => line > at[1]);
-  return { start: at[1], end: next === undefined ? text.split('\n').length : next[1] - 1 };
+  return anchorExtent(text, anchor);
 }
 
 const overlaps = (ranges: readonly { start: number; end: number }[], scope: { start: number; end: number }): boolean =>

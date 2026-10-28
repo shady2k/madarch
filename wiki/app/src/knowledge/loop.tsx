@@ -251,6 +251,7 @@ function ProblemItem({ problem }: { problem: Problem }): ReactElement {
       <p className="mb-0 mt-1 text-small text-muted">
         {where !== null && <span>{t('loop.onPage')} {where} · </span>}
         <code>{problem.file}{problem.line === null ? '' : `:${problem.line}`}</code>
+        {problem.source !== undefined && <> · <code data-testid="problem-source">{problem.source}</code></>}
         {problem.by !== null && <span> · <AuthorLine by={problem.by} at={problem.at} /></span>}
       </p>
       <p className="mb-0 mt-1 text-small text-muted" data-testid="problem-who">{problem.closed ? t('loop.fixedNote') : t(`loop.whoFixes.${problem.kind}`)}</p>

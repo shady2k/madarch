@@ -30,16 +30,29 @@ import { existsSync, lstatSync, readFileSync, realpathSync, statSync, writeFileS
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { LineCounter, parseDocument } from 'yaml';
 import { lineForPath } from '../model/yaml-position.js';
+import { isSemanticKind, SEMANTIC_KINDS, type SemanticKind } from './semantics.js';
 import { BLOCK_NAMES } from './template.js';
 
 /** The manifest's place in the product repository. */
 export const KINDS_FILE = 'madarch/kinds.yaml';
 
 /** One problem in a product file the wiki reads: where it is and what it is. */
+/** What kind of problem a finding is, for the Problems page: a file that cannot be read, or a passage no reader decided. */
+export type FindingKind = 'unreadable-file' | 'unread-passage';
+
 export interface Finding {
+  /** Where the problem stands, as the reader knows it: the product's path, or `repos/<repository>/<path>` in a code repository. */
   file: string;
   line: number;
   message: string;
+  /** The kind of problem; a file that cannot be read when the finding does not say. */
+  kind?: FindingKind;
+  /**
+   * The file's place on disk, when the reader knows it: a diagnostic names both the identity a reader navigates by
+   * (`file`) and the absolute path a person opens (madarch-ztyq.3, the review of finding 8). A finding whose place is
+   * not a file of this machine — a manifest's entry, say — has none.
+   */
+  source?: string;
 }
 
 /** An edge the product declares between an entity of a kind and the entity at a key (decision 0029: the manifests hold the relations). */
@@ -79,6 +92,24 @@ export interface KindDecl {
   identifier?: readonly string[];
   /** Document kinds: the documents (path patterns, `*` within a folder and `**` across folders) whose leading bold terms are entities of the kind. */
   terms?: readonly string[];
+  /**
+   * Document kinds: the headings whose sections are entities of the kind — each list item under one,
+   * or each paragraph when it holds no list. The product writes its own headings here, so the wiki
+   * reads an unnumbered `## Qualities` as well as a numbered `UC-2` (madarch-ztyq.3).
+   */
+  headings?: readonly string[];
+  /**
+   * Document kinds: the general kind a passage of this kind means (`scenario`, `actor`, `rule`,
+   * `quality`, `decision`, `procedure`, `term`). The classifier's answer is shown as this kind, and
+   * a passage of a general kind no kind names is said to be unshown, never dropped silently.
+   */
+  semantics?: SemanticKind;
+  /**
+   * Document kinds: the sections a section of this kind holds (`Status`, `Context`, `Decision`,
+   * `Consequences`): the structure pass reads them, as a heading or as a paragraph that opens with
+   * the name and a colon, and a missing one is a finding on the section.
+   */
+  structure?: readonly string[];
   /** Markdown kinds: the folder (many entities) or the file (one entity) the Markdown lives in. */
   folder?: string;
   file?: string;
@@ -117,6 +148,12 @@ export interface RoleDecl {
   line: number;
 }
 
+/** A kind the product's documents are expected to hold, and the manifest's line that says so. */
+export interface ExpectedKind {
+  readonly kind: string;
+  readonly line: number;
+}
+
 export interface KindsManifest {
   file: string;
   /** What each role changes; a role the manifest does not declare reads everything open in the manifest's order. */
@@ -130,6 +167,14 @@ export interface KindsManifest {
   groups: ReadonlyMap<string, GroupDecl>;
   /** Markdown documents the wiki does not list as documents (harness files, say), as path patterns. */
   excludeDocuments: readonly string[];
+  /** Block kinds a document may hold without a page, named by the product: a fence, an html comment. */
+  ignoreBlocks: readonly string[];
+  /**
+   * The kinds the product expects its documents to hold (`documents.expect`). A kind that no
+   * document section is read as is a finding naming the manifest's line: the wiki says what the
+   * documents lack instead of showing a smaller result (decision 0032 section 4).
+   */
+  expect?: readonly ExpectedKind[];
   findings: readonly Finding[];
   /** The manifest could not be read as a whole (not YAML, not a mapping, no `kinds` mapping): no kind is known, which is not the same as every kind having a finding. */
   unreadable?: true;
@@ -139,7 +184,7 @@ export type KindsRead =
   | { present: false; file: string }
   | { present: true; manifest: KindsManifest };
 
-const KIND_KEYS = new Set(['template', 'source', 'folder', 'file', 'title', 'attributes', 'relations', 'labels', 'group', 'origin', 'description', 'identifier', 'terms']);
+const KIND_KEYS = new Set(['template', 'source', 'folder', 'file', 'title', 'attributes', 'relations', 'labels', 'group', 'origin', 'description', 'identifier', 'terms', 'headings', 'semantics', 'structure']);
 
 /** Whether a repository-relative path stays inside the folder: no climbing, not absolute. */
 export function insideFolder(folder: string, path: string): boolean {
@@ -149,7 +194,7 @@ export function insideFolder(folder: string, path: string): boolean {
 }
 
 function nothing(file: string, findings: Finding[]): KindsManifest {
-  return { file, roles: new Map(), kinds: new Map(), groups: new Map(), excludeDocuments: [], findings, unreadable: true };
+  return { file, roles: new Map(), kinds: new Map(), groups: new Map(), excludeDocuments: [], ignoreBlocks: [], expect: [], findings, unreadable: true };
 }
 
 /** Reads `madarch/kinds.yaml` of a product folder; absent when the product holds none. */
@@ -241,23 +286,38 @@ export function parseKinds(text: string, file: string, productFolder: string): K
     }
   }
   const excludeDocuments: string[] = [];
+  // Block kinds the product says hold no meaning of their own: a fence or an html comment is furniture, and the manifest
+  // names it rather than the reader guessing (the review of the eighth pass, finding 1).
+  const ignoredBlocks: string[] = [];
+  const expected: ExpectedKind[] = [];
   const rawDocuments = top['documents'];
   if (rawDocuments !== undefined) {
     const body = rawDocuments as Record<string, unknown> | null;
-    if (body === null || typeof body !== 'object' || Array.isArray(body)) findings.push({ file, line: at(['documents']), message: '"documents" is { exclude: [<path pattern>, ...] }' });
+    if (body === null || typeof body !== 'object' || Array.isArray(body)) findings.push({ file, line: at(['documents']), message: '"documents" is { exclude: [<path pattern>, ...], expect: [<kind>, ...] }' });
     else {
-      for (const key of Object.keys(body)) if (key !== 'exclude') findings.push({ file, line: at(['documents', key]), message: `"${key}" is not a field of "documents": the field is "exclude"` });
+      for (const key of Object.keys(body)) if (key !== 'exclude' && key !== 'expect' && key !== 'ignore') findings.push({ file, line: at(['documents', key]), message: `"${key}" is not a field of "documents": the fields are "exclude", "expect" and "ignore"` });
+      const ignore = body['ignore'];
+      if (ignore !== undefined) {
+        if (!Array.isArray(ignore) || ignore.some((entry) => typeof entry !== 'string' || entry.trim() === '')) findings.push({ file, line: at(['documents', 'ignore']), message: '"ignore" is a list of block kinds a document may hold without a page, such as "code" or "html"' });
+        else ignoredBlocks.push(...(ignore as string[]));
+      }
       const exclude = body['exclude'];
       if (exclude !== undefined) {
         if (!Array.isArray(exclude) || exclude.some((entry) => typeof entry !== 'string' || entry.trim() === '')) findings.push({ file, line: at(['documents', 'exclude']), message: '"exclude" is a list of path patterns of documents the wiki does not list, such as "AGENTS.md" or "**/CHANGELOG.md"' });
         else excludeDocuments.push(...(exclude as string[]));
+      }
+      // The general kinds the documents are expected to hold: one that no section is read as is a finding, never a smaller wiki.
+      const expect = body['expect'];
+      if (expect !== undefined) {
+        if (!Array.isArray(expect) || expect.some((entry) => typeof entry !== 'string' || entry.trim() === '')) findings.push({ file, line: at(['documents', 'expect']), message: '"expect" is a list of the kinds of "kinds" the documents must hold, such as "doc.use-case" or "doc.quality"' });
+        else (expect as string[]).forEach((kind, index) => expected.push({ kind, line: at(['documents', 'expect', index]) }));
       }
     }
   }
   const declared = top['kinds'];
   if (declared === null || typeof declared !== 'object' || Array.isArray(declared)) {
     findings.push({ file, line: at(['kinds']), message: '"kinds" is a mapping of kind names to their declarations' });
-    return { ...nothing(file, findings), groups, roles, excludeDocuments };
+    return { ...nothing(file, findings), groups, roles, excludeDocuments, ignoreBlocks: ignoredBlocks };
   }
   const kinds = new Map<string, KindDecl>();
   for (const [name, value] of Object.entries(declared as Record<string, unknown>)) {
@@ -296,8 +356,18 @@ export function parseKinds(text: string, file: string, productFolder: string): K
     const identifiers = typeof identifier === 'string' ? [identifier] : identifier;
     if (identifier !== undefined && (!names(identifiers) || !identifiers.every((entry) => entry === '*' || /^[A-Za-z]+$/.test(entry)))) problem(['identifier'], '"identifier" is the letters an identifier opens with ("UC" for UC-2), a list of them, or "*" for any other');
     if (terms !== undefined && !names(terms)) problem(['terms'], '"terms" is a list of path patterns of the documents whose leading bold terms are entities, such as "**/glossary.md"');
-    if (source === 'document' && identifier === undefined && terms === undefined) problem([], 'a document kind names "identifier" (the sections that open with an identifier) or "terms" (the documents whose bold terms are entities)');
-    if (source !== 'document' && (identifier !== undefined || terms !== undefined)) problem([identifier !== undefined ? 'identifier' : 'terms'], `"${identifier !== undefined ? 'identifier' : 'terms'}" belongs to a document kind`);
+    const headings = decl['headings'];
+    const names2 = (value: unknown): value is string[] => Array.isArray(value) && value.length > 0 && value.every((entry) => typeof entry === 'string' && entry.trim() !== '');
+    if (headings !== undefined && !names2(headings)) problem(['headings'], '"headings" is a list of the headings whose sections are entities of the kind, such as [Use cases, Qualities]');
+    const semantics = decl['semantics'];
+    if (semantics !== undefined && (typeof semantics !== 'string' || !isSemanticKind(semantics))) problem(['semantics'], `"semantics" is the general kind of the sections: ${SEMANTIC_KINDS.join(', ')}`);
+    const structure = decl['structure'];
+    if (structure !== undefined && !names2(structure)) problem(['structure'], '"structure" is a list of the sections a section of the kind holds, such as [Status, Context, Decision, Consequences]');
+    if (source === 'document' && identifier === undefined && terms === undefined && headings === undefined && semantics === undefined) problem([], 'a document kind names "identifier" (the sections that open with an identifier), "headings" (the headings whose sections are entities of the kind), "terms" (the documents whose bold terms are entities) or "semantics" (the passages the classifier reads of a general kind)');
+    if (source !== 'document' && (identifier !== undefined || terms !== undefined || headings !== undefined || structure !== undefined || semantics !== undefined)) {
+      const field = identifier !== undefined ? 'identifier' : terms !== undefined ? 'terms' : headings !== undefined ? 'headings' : structure !== undefined ? 'structure' : 'semantics';
+      problem([field], `"${field}" belongs to a document kind`);
+    }
     const group = decl['group'];
     if (group !== undefined && (typeof group !== 'string' || !groups.has(group))) problem(['group'], `"group" names a group of "groups" (${[...groups.keys()].join(', ') || 'none is declared'}), got ${JSON.stringify(group)}`);
     const origin = decl['origin'];
@@ -359,6 +429,9 @@ export function parseKinds(text: string, file: string, productFolder: string): K
       ...(Object.keys(descriptions).length > 0 ? { descriptions } : {}),
       ...(identifiers !== undefined && names(identifiers) ? { identifier: identifiers } : {}),
       ...(Array.isArray(terms) ? { terms: terms as string[] } : {}),
+      ...(names2(headings) ? { headings: headings as string[] } : {}),
+      ...(typeof semantics === 'string' && isSemanticKind(semantics) ? { semantics } : {}),
+      ...(names2(structure) ? { structure: structure as string[] } : {}),
       ...(typeof folder === 'string' ? { folder } : {}),
       ...(typeof single === 'string' ? { file: single } : {}),
       title: typeof title === 'string' ? title : 'label',
@@ -368,7 +441,20 @@ export function parseKinds(text: string, file: string, productFolder: string): K
       line,
     });
   }
-  return { file, roles, kinds, groups, excludeDocuments, findings, ...(language === undefined ? {} : { language }), ...(diagram === undefined ? {} : { diagram }) };
+  // A kind named in "expect" that the manifest does not declare is a finding at its own line.
+  const wanted = expected.filter((entry) => {
+    const kind = kinds.get(entry.kind);
+    if (kind === undefined) {
+      findings.push({ file, line: entry.line, message: `"documents.expect" names the kind ${JSON.stringify(entry.kind)}, and the manifest declares no such kind: the kinds are ${[...kinds.keys()].join(', ') || 'none'}` });
+      return false;
+    }
+    if (kind.source !== 'document') {
+      findings.push({ file, line: entry.line, message: `"documents.expect" names the kind ${JSON.stringify(entry.kind)}, which is a ${kind.source} kind: it names the kinds a document section is read as` });
+      return false;
+    }
+    return true;
+  });
+  return { file, roles, kinds, groups, excludeDocuments, ignoreBlocks: ignoredBlocks, expect: wanted, findings, ...(language === undefined ? {} : { language }), ...(diagram === undefined ? {} : { diagram }) };
 }
 
 /**

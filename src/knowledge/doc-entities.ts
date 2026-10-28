@@ -1,193 +1,659 @@
 /**
- * The entities that live in Markdown documents (madarch-m38l.6; decision 0029:
- * what is not rebuilt from code is Markdown, the manifest says which kinds the
- * wiki shows). A manifest kind whose source is `document` names the sections it
- * takes:
+ * The entities that live in Markdown documents, read by meaning (madarch-ztyq.3, decision 0032 section 4; decision 0029:
+ * what is not rebuilt from code is Markdown, and the manifest says which kinds the wiki shows).
  *
- * - `identifier: UC` takes a heading or a list item or paragraph that opens with
- *   that identifier (`## UC-2 Pay`, `- **UC-2 Pay.** ...`, `# ADR-0001: Broker`);
- *   `identifier: "*"` takes every other identifier;
- * - `terms: ["**\/glossary.md"]` takes the leading bold term of every list item of
- *   the documents the patterns name (`- **Outbox** - the table ...`).
+ * One reader decides what a document is made of: `doc-tree.ts` parses it, `anchors.ts` names its parts and their
+ * extents from that tree, and nothing here looks at a line of text to find a heading, a block or a meaning. A section is
+ * a heading with the blocks it holds; a block is a list item or a paragraph; its text and its title come from the node.
  *
- * The reading is deterministic and local to a document: the same text gives the
- * same entities anywhere. An entity's id is `doc:<path>#<anchor>` in the product
- * repository and `doc:@<repository>/<path>#<anchor>` in a connected one; the
- * anchor is the one a `madarch:doc:` ground names (`anchors.ts`), so a ground to
- * the section opens the entity's page.
+ * Sections are classified in three passes, each recorded on the entity it decided:
+ *
+ * 1. `metadata` — the document's front matter (`sections:`), a kind's `identifier` prefixes (`UC` takes `UC-2`) and a
+ *    kind's `terms` patterns (a glossary's leading bold words).
+ * 2. `structure` — a kind's `headings`: the blocks of the section a heading names, numbered or not; and a kind's
+ *    `structure`, the sections a section of it holds.
+ * 3. `classifier` — the typed classifier of `semantics.ts`, which the production host fills from jev and the agent.
+ *
+ * The passes decide BLOCK by BLOCK: a section that holds an identified rule and an unnumbered one keeps both, the
+ * numbered one decided by its identifier and the other by its heading, and a block no pass decides is offered to the
+ * classifier — and, when it is still unread, is a finding of its own, never a passage that disappears.
+ *
+ * A number such as `UC-1`, and the anchor a section stands at, are aliases: the identity is `stableId`, minted once and
+ * kept beside the product (`doc-identities.ts`), and the page id a link names is built from it — so renaming a heading or
+ * removing a `UC-`/`BR-` alias keeps every link. The anchor stays a display and resolution detail.
  */
 import { byCodePoint } from '../model/order.js';
-import { slugOf } from './anchors.js';
-import { globToRegExp, type Finding, type KindDecl, type KindsManifest } from './kinds.js';
+import { anchorExtent, anchorsOfTree, identifierOf, slugOf } from './anchors.js';
+import { assignIdentities, documentKey, type DocIdentities, type DocumentIdentities, type SectionIdentity } from './doc-identities.js';
+import { boldLead, leadText, namingContainer, namingInline, namingText, openingParagraph, readDocTree, sectionBlocks, sectionLeaves, type DocNode, type DocSection, type DocumentSource } from './doc-tree.js';
+import { globToRegExp, type Finding, type FindingKind, type KindDecl, type KindsManifest } from './kinds.js';
+import { normaliseHeading, type PassageRequest, type PassageReading, type SemanticClassifier, type SemanticKind } from './semantics.js';
 
-/** A Markdown document as read: where it is and its text. */
-export interface DocumentSource {
-  /** The code repository's name; null for the product repository. */
-  repo: string | null;
-  path: string;
-  text: string;
-}
+export type { DocumentSource } from './doc-tree.js';
+export { IDENTITIES_FILE, readDocIdentities, writeDocIdentities, documentKey } from './doc-identities.js';
+export type { DocIdentities, DocumentIdentities, DocIdentity } from './doc-identities.js';
+export { identifierOf } from './anchors.js';
+
+/** Which pass decided what a section is. */
+export type DecidingPass = 'metadata' | 'structure' | 'classifier';
 
 export interface DocEntity {
+  /** The page id, `doc:<path>#<stableId>`: built from the durable identity, never from the anchor (finding 2). */
   id: string;
   kind: string;
-  /** What a reader calls it: the identifier and its name (`UC-2 Pay`), or the term. */
+  /** What a reader calls it: the identifier and its name (`UC-2 Pay`), or the words of its first passage. */
   title: string;
-  /** `UC-2`; null for a term. */
+  /** The alias the document writes (`UC-2`); null for a section that numbers nothing. Never the identity. */
   identifier: string | null;
   repo: string | null;
   path: string;
+  /** The anchor the document gives it now: what a ground names and a page shows, never what the page is called. */
   anchor: string;
-  /** The 1-based line the section starts at, and the last line it covers. */
+  /** Every anchor the tree derives for this passage: a heading names itself by its number and by its words. */
+  aliases: readonly string[];
+  /** The 1-based line the passage starts at, and the last line it covers. */
   line: number;
   endLine: number;
-  /** The section's Markdown without the line that names it (the bold identifier or the heading). */
+  /** The passage's Markdown without the line that names it (the heading, the bold identifier or the list mark). */
   text: string;
+  /** The durable identity: the page id's fragment, which a rename or a renumbering does not change. */
+  stableId: string;
+  /** The general kind the section was read as. */
+  semantics: SemanticKind;
+  /** The pass that decided the kind: the manifest and the metadata, the structure, or the classifier. */
+  pass: DecidingPass;
+  /** The heading texts that enclose it, from the document's first heading down to it. */
+  headingPath: string[];
 }
 
-/** The id of the entity a section is. */
-export function docEntityId(repo: string | null, path: string, anchor: string): string {
-  return `doc:${repo === null ? '' : `@${repo}/`}${path}#${anchor}`;
+/** The id of the entity a passage is: its document and its durable identity, not the anchor a heading may change. */
+export function docEntityId(repo: string | null, path: string, stableId: string): string {
+  return `doc:${repo === null ? '' : `@${repo}/`}${path}#${stableId}`;
 }
 
-const IDENTIFIER = /^([A-Za-z]+)-(\d+)\b/;
-const HEADING = /^(#{1,6})\s+(.*?)\s*#*\s*$/;
-const ITEM = /^(\s*)(?:(?:[-*+]|\d+[.)])\s+)?(?:\*\*|__)(.+?)(?:\*\*|__)(.*)$/;
-const LIST_MARK = /^(\s*)(?:[-*+]|\d+[.)])\s+/;
+/**
+ * A document address in its parts: `doc:<path>#<fragment>` in the product repository, or `doc:@<repository>/<path>#<fragment>`
+ * in a connected one (madarch-ztyq.3, the review of finding C(a)). The fragment is either a source anchor — the part the
+ * document gives that anchor now — or a durable identity, which no anchor can spell.
+ */
+export interface DocumentAddress {
+  readonly repo: string | null;
+  readonly path: string;
+  readonly fragment: string;
+}
 
-const plain = (text: string): string => text.replace(/[`*_~]/g, '').trim();
+/** The parts of a document address, or undefined when the address names a whole document or is no document address. */
+export function parseDocumentAddress(address: string): DocumentAddress | undefined {
+  if (!address.startsWith('doc:')) return undefined;
+  const rest = address.slice('doc:'.length);
+  const hash = rest.indexOf('#');
+  if (hash < 0) return undefined;
+  const where = rest.slice(0, hash);
+  const fragment = rest.slice(hash + 1);
+  if (where.startsWith('@')) {
+    const slash = where.indexOf('/');
+    if (slash < 0) return undefined;
+    return { repo: where.slice(1, slash), path: where.slice(slash + 1), fragment };
+  }
+  return { repo: null, path: where, fragment };
+}
+
+/** The collection of entities a page or a link names: the map the wiki renders from. */
+export interface HasDocEntities { get(id: string): DocEntity | undefined; values(): IterableIterator<DocEntity> }
+
+/**
+ * The entity a document address names, whichever kind of address it is: a source anchor opens the passage the document
+ * gives that anchor now, a durable identity opens the passage it was minted for. Both are looked up by what the address
+ * says, so a page written before an identity was minted still opens its passage (madarch-ztyq.3, the review of A).
+ */
+export function entityAtAddress(entities: HasDocEntities, address: string): DocEntity | undefined {
+  const exact = entities.get(address);
+  if (exact !== undefined) return exact;
+  const parsed = parseDocumentAddress(address);
+  if (parsed === undefined) return undefined;
+  const fragment = parsed.fragment.toLowerCase();
+  for (const entity of entities.values()) {
+    if (entity.repo !== parsed.repo || entity.path !== parsed.path) continue;
+    if (entity.stableId === parsed.fragment) return entity;
+    // A heading names itself every way the tree names it: `uc-1` and `uc-1-place-order` open one page (the review of the
+    // fourth pass, finding 1).
+    if (entity.anchor === fragment) return entity;
+    if (entity.aliases.some((alias) => alias === fragment)) return entity;
+  }
+  return undefined;
+}
+
+export interface ReadDocOptions {
+  /** The third pass: the classifier the host fills from jev and the agent. Without one, only the manifest decides. */
+  readonly classifier?: SemanticClassifier;
+  /** The durable identities of earlier reads, from the product's store; absent means the documents were never read. */
+  readonly identities?: DocIdentities;
+}
+
+export interface DocRead {
+  entities: DocEntity[];
+  findings: Finding[];
+  /** The identities as this read leaves them: the caller keeps them beside the product, never in the repository. */
+  identities: Map<string, DocumentIdentities>;
+}
+
+/** A passage that may become an entity, before it has an identity or a page. */
+interface Candidate {
+  kind: KindDecl;
+  semantics: SemanticKind;
+  pass: DecidingPass;
+  anchor: string;
+  /** Every anchor the tree gives this passage: a heading names itself both by its number and by its words. */
+  aliases: readonly string[];
+  title: string;
+  identifier: string | null;
+  line: number;
+  endLine: number;
+  text: string;
+  /** The words identity is reconciled on when they differ from the body: a heading's own words name the passage too. */
+  identityText?: string;
+  headingPath: string[];
+}
+
+const DIGIT = (code: number): boolean => code >= 0x30 && code <= 0x39;
+
+/** A passage's own words, quoted for a finding: shortened to 140 characters, never paraphrased. */
+function quote(words: string): string {
+  const characters = [...words];
+  const cut = characters.length <= 140 ? words : `${characters.slice(0, 139).join('')}…`;
+  return `«${cut}»`;
+}
+
+/** The separator a bold naming phrase leaves behind (`**Outbox** - the table`, `**Outbox**: the table`), dropped from the body. */
+function trimSeparator(text: string): string {
+  const trimmed = trimSpaces(text);
+  const first = trimmed[0];
+  if (first === '-' || first === '–' || first === '—' || first === ':' || first === '.') {
+    const next = trimmed[1];
+    if (next === ' ' || next === '\t' || next === undefined) return trimSpaces(trimmed.slice(1));
+  }
+  return trimmed;
+}
+
+/** The spaces and line ends around a passage: a body keeps every other character, so `-5 °C` stays negative. */
+function trimSpaces(text: string): string {
+  let start = 0;
+  while (start < text.length && (text[start] === ' ' || text[start] === '\t' || text[start] === '\n' || text[start] === '\r')) start += 1;
+  let end = text.length;
+  while (end > start && (text[end - 1] === ' ' || text[end - 1] === '\t' || text[end - 1] === '\n' || text[end - 1] === '\r')) end -= 1;
+  return text.slice(start, end);
+}
+
+/** A table cell's own words: its source without the pipes and the spaces that hold it. */
+function trimCell(text: string): string {
+  let start = 0;
+  let end = text.length;
+  const edge = (char: string | undefined): boolean => char === '|' || char === ' ' || char === '\t' || char === '\n' || char === '\r';
+  while (start < end && edge(text[start])) start += 1;
+  while (end > start && edge(text[end - 1])) end -= 1;
+  return text.slice(start, end);
+}
+
+/** The trimming a title does, by character: marks and separators are dropped, never a word. */
+function trimStart(text: string): string {
+  let at = 0;
+  while (at < text.length) {
+    const char = text[at]!;
+    if (char === ' ' || char === '\t' || char === '\n' || char === '\r' || char === '.' || char === ':' || char === '-' || char === '–' || char === '—' || char === ')') at += 1;
+    else break;
+  }
+  return text.slice(at);
+}
+
+function trimEnd(text: string): string {
+  let end = text.length;
+  while (end > 0) {
+    const char = text[end - 1]!;
+    if (char === ' ' || char === '\t' || char === '\n' || char === '\r' || char === '.' || char === ':') end -= 1;
+    else break;
+  }
+  return text.slice(0, end);
+}
+
+/** A text with its whitespace collapsed and its ends trimmed. */
+function flat(text: string): string {
+  let collapsed = '';
+  for (const char of text) {
+    const space = char === ' ' || char === '\t' || char === '\n' || char === '\r' || char === '\f' || char === '\v';
+    if (space && (collapsed === '' || collapsed.endsWith(' '))) continue;
+    collapsed += space ? ' ' : char;
+  }
+  return collapsed.trimEnd();
+}
 
 /** The name after an identifier: `UC-2 Pay.` gives `Pay`, `ADR-0001: Kafka is the broker` gives `Kafka is the broker`. */
 function nameAfter(phrase: string, identifier: string): string {
-  return plain(phrase).slice(identifier.length).replace(/^[\s:.\-–—)]+/, '').replace(/[\s.:]+$/, '');
+  return trimEnd(trimStart(flat(phrase).slice(identifier.length))).trim();
 }
 
-interface Raw {
-  identifier: string | null;
-  anchor: string;
-  title: string;
-  line: number;
-  endLine: number;
-  text: string;
-  termOnly: boolean;
-}
-
-/** The sections of one document that open with an identifier or a bold term, before kinds are matched. */
-function sectionsOf(text: string, allowTerms: boolean): Raw[] {
-  const lines = text.replace(/\r\n/g, '\n').split('\n');
-  const out: Raw[] = [];
-  let fenced = false;
-  const fence: boolean[] = lines.map((line) => {
-    if (/^\s*(```|~~~)/.test(line)) { fenced = !fenced; return true; }
-    return fenced;
-  });
-  const headings: { level: number; line: number }[] = [];
-  lines.forEach((line, index) => {
-    if (fence[index]) return;
-    const heading = HEADING.exec(line);
-    if (heading !== null) headings.push({ level: heading[1]!.length, line: index + 1 });
-  });
-  for (let index = 0; index < lines.length; index += 1) {
-    if (fence[index]) continue;
-    const line = lines[index]!;
-    const number = index + 1;
-    const heading = HEADING.exec(line);
-    if (heading !== null) {
-      const level = heading[1]!.length;
-      const lead = IDENTIFIER.exec(plain(heading[2]!));
-      if (lead === null) continue;
-      const identifier = `${lead[1]!.toUpperCase()}-${lead[2]}`;
-      const next = headings.find((entry) => entry.line > number && entry.level <= level);
-      const end = next === undefined ? lines.length : next.line - 1;
-      const body = lines.slice(index + 1, end);
-      out.push({ identifier, anchor: identifier.toLowerCase(), title: `${identifier} ${nameAfter(heading[2]!, lead[0]).trim()}`.trim(), line: number, endLine: trimEnd(lines, end), text: body.join('\n').trim(), termOnly: false });
-      continue;
-    }
-    const item = ITEM.exec(line);
-    if (item === null) continue;
-    const indent = item[1]!.length;
-    const isListItem = LIST_MARK.test(line);
-    // A bold phrase in the middle of a paragraph is not a lead; a paragraph's lead is its first words.
-    if (!isListItem && !line.trimStart().startsWith('**') && !line.trimStart().startsWith('__')) continue;
-    const phrase = item[2]!;
-    const lead = IDENTIFIER.exec(plain(phrase));
-    if (lead === null && !allowTerms) continue;
-    const identifier = lead === null ? null : `${lead[1]!.toUpperCase()}-${lead[2]}`;
-    const name = identifier === null ? plain(phrase).replace(/[\s.:]+$/, '') : nameAfter(phrase, lead![0]);
-    // The item runs to the next item of its level, the next heading, or the end of its indented continuation.
-    let end = index;
-    for (let probe = index + 1; probe < lines.length; probe += 1) {
-      const next = lines[probe]!;
-      if (fence[probe]) { end = probe; continue; }
-      if (next.trim() === '') {
-        const after = lines.slice(probe + 1).findIndex((candidate) => candidate.trim() !== '');
-        if (after < 0) break;
-        const following = lines[probe + 1 + after]!;
-        if (isListItem && following.length - following.trimStart().length > indent) { end = probe; continue; }
-        break;
-      }
-      if (HEADING.test(next) || /^\s*<!--/.test(next)) break;
-      const mark = LIST_MARK.exec(next);
-      if (mark !== null && mark[1]!.length <= indent) break;
-      if (!isListItem && ITEM.test(next) && !/^\s+/.test(next)) break;
-      end = probe;
-    }
-    const first = `${item[3] ?? ''}`.replace(/^[\s.:\-–—]+/, '');
-    const rest = lines.slice(index + 1, end + 1).map((value) => value.replace(new RegExp(`^\\s{0,${indent + 2}}`), ''));
-    out.push({
-      identifier,
-      anchor: identifier === null ? slugOf(name) : identifier.toLowerCase(),
-      title: identifier === null ? name : `${identifier} ${name}`.trim(),
-      line: number,
-      endLine: trimEnd(lines, end + 1),
-      text: [first, ...rest].join('\n').trim(),
-      termOnly: identifier === null,
-    });
+/**
+ * The text a leaf block holds that opens with an identifier a person meant to be read, when one does: a table's cells
+ * are their own texts, and only the cell that names `BR-1` says so (the review of the seventh pass, finding 2).
+ */
+function namedLeaf(node: DocNode): string | null {
+  const own = leadText(node);
+  if (identifierOf(own) !== null) return own;
+  for (const child of node.children) {
+    const held = namedLeaf(child);
+    if (held !== null) return held;
   }
-  return out;
+  return null;
 }
 
-/** The last non-blank line (1-based) at or before `end` (1-based, inclusive). */
-function trimEnd(lines: readonly string[], end: number): number {
-  let last = Math.min(end, lines.length);
-  while (last > 1 && lines[last - 1]!.trim() === '') last -= 1;
-  return last;
-}
-
-/** The kind of the manifest that takes a section, or undefined. A kind naming the identifier wins over a catch-all. */
-function kindOfSection(kinds: readonly KindDecl[], raw: Raw, path: string): KindDecl | undefined {
-  if (raw.identifier !== null) {
-    const prefix = raw.identifier.slice(0, raw.identifier.indexOf('-')).toUpperCase();
-    return kinds.find((kind) => kind.identifier?.some((entry) => entry.toUpperCase() === prefix))
-      ?? kinds.find((kind) => kind.identifier?.includes('*'));
+/** The words a leaf block holds: its own text, or the first text inside it when the block is a container of phrasing. */
+function leafWords(node: DocNode): string {
+  const own = leadText(node);
+  if (own.trim() !== '') return own;
+  for (const child of node.children) {
+    const held = leafWords(child);
+    if (held.trim() !== '') return held;
   }
-  return kinds.find((kind) => kind.terms?.some((pattern) => globToRegExp(pattern).test(path)));
+  return node.raw;
+}
+
+/**
+ * How far into a text node's own source the first `count` of its decoded characters reach: `BR\-1` spells four
+ * characters in five, and a character reference spells one in several. Only the identifier's own spelling is measured
+ * here — the body is never decoded, so an escape in the words after it (`Match \*paid\* literally.`) survives as written.
+ */
+function spellingEnd(raw: string, count: number): number {
+  let decoded = 0;
+  let at = 0;
+  while (at < raw.length && decoded < count) {
+    if (raw[at] === '\\') at += 1;
+    else if (raw[at] === '&') {
+      const close = raw.indexOf(';', at);
+      if (close > at) at = close;
+    }
+    at += 1;
+    decoded += 1;
+  }
+  return Math.min(at, raw.length);
+}
+
+/**
+ * The identifier a passage opens with, and the words after the span that names it, cut from the source the parser gave:
+ * the identifier's text is the nodes' own decoded value, and the body starts where that identifier ends — inside a text
+ * node (at the source offset its spelling reaches), after a markup node whose text it fills (`**BR-1**`, the emphasis of
+ * `BR-*1*`), or after the closing marks of a markup node it ends inside (`**BR-1 Never charge twice.**`, whose body is
+ * the rest of the bold phrase).
+ */
+function namingOf(passage: DocNode): { identifier: string; tail: string } | null {
+  const container = namingContainer(passage);
+  if (container === undefined) return null;
+  const inline = namingInline(passage);
+  const identifier = identifierOf(inline.map((node) => node.plain).join(''));
+  if (identifier === null) return null;
+  const sourceAfter = (offset: number): string => {
+    const rest = container.raw.slice(Math.max(0, offset - container.startOffset));
+    return container.type === 'tableCell' ? trimCell(rest) : rest;
+  };
+  let seen = 0;
+  for (const node of inline) {
+    const length = node.plain.length;
+    if (seen + length < identifier.length) { seen += length; continue; }
+    const within = identifier.length - seen;
+    if (within < length) {
+      // The identifier ends inside this node: at its own source spelling in a text node, or after the marks that close a
+      // markup node — whose remaining words then open the body.
+      if (node.type === 'text') return { identifier, tail: sourceAfter(node.startOffset + spellingEnd(node.raw, within)) };
+      return { identifier, tail: trimCell(node.plain.slice(within)) + sourceAfter(node.endOffset) };
+    }
+    // The identifier fills the node's text: the node — a bold phrase's marks included — is the naming span.
+    return { identifier, tail: sourceAfter(node.endOffset) };
+  }
+  return null;
+}
+
+/** The words a listing calls a passage: up to its first sentence end or its first colon. */
+function firstWords(text: string): string {
+  const plain = flat(text);
+  for (let at = 0; at < plain.length; at += 1) {
+    const char = plain[at]!;
+    if (char === ':' && plain[at + 1] === ' ') return trimEnd(plain.slice(0, at)).trim();
+    if (char !== '.' && char !== '!' && char !== '?') continue;
+    const after = plain[at + 1];
+    if (after !== undefined && after !== ' ') continue;
+    // A full stop between two digits is a decimal point, not the end of a sentence.
+    if (char === '.' && DIGIT((plain[at - 1] ?? ' ').codePointAt(0)!) && DIGIT((after ?? ' ').codePointAt(0)!)) continue;
+    return trimEnd(plain.slice(0, at)).trim();
+  }
+  return trimEnd(plain).trim();
+}
+
+/**
+ * The text of a passage without the span that names it: a bold phrase names a term, and an identifier a passage opens
+ * with is an alias, so a renumbered passage keeps the digest its page was minted for. The words are the document's own
+ * source, so an escape in them survives. A cell that names a rule carries the words of the other cells of its row, and a
+ * list item carries what its nested containers hold (the seventh, eighth, ninth, tenth and eleventh reviews).
+ */
+/** Whether the manifest names a passage by its leading bold words (a glossary's terms) rather than by an identifier. */
+function bodyOf(passage: DocNode, namedByPhrase = false): string {
+  const named = namingOf(passage);
+  const paragraph = openingParagraph(passage);
+  if (paragraph === undefined) return passage.children.map((child) => child.raw.trimEnd()).join('\n').trim();
+  // An item's own words are its opening paragraph; a container it holds is a passage of its own and is not repeated here.
+  // Everything an item holds after its opening paragraph is part of its body — a continuation paragraph as much as the
+  // field list under a glossary term — and the naming container's own slice above never repeats them, because it stops at
+  // the container and not at the item (the eleventh and twelfth reviews).
+  const rest = passage.type === 'listItem' ? passage.children.filter((child) => child !== paragraph).map((child) => child.raw.trimEnd()) : [];
+  const bold = boldLead(passage);
+  const container = namingContainer(passage) ?? paragraph;
+  // The body is the content minus the span that names it: an identifier only, or — where the manifest names a passage by
+  // its bold phrase — the whole phrase. A bold phrase that only carries the identifier keeps its words (the eleventh
+  // review): `**BR-1 Never charge twice.**` has the body `Never charge twice.`.
+  // The words after a node are cut from the node's own container, not from the passage: an item's container is its
+  // opening paragraph, so the containers the item holds are not repeated in its body (they are passages of their own).
+  const after = (node: DocNode): string => container.raw.slice(node.endOffset - container.startOffset);
+  const tail = named !== null ? named.tail : bold === undefined ? container.raw : namedByPhrase ? after(bold) : bold.plain + after(bold);
+  const own = trimSeparator(trimSpaces(passage.type === 'tableCell' && named === null ? trimCell(container.raw) : tail));
+  if (passage.type !== 'tableCell') return [own, ...rest].filter((part) => part !== '').join('\n').trim();
+  // A cell that names a rule speaks for its row: every cell's words are part of the rule's body, in row order. A cell
+  // that names nothing is a passage of its own words alone.
+  if (named === null) return own;
+  const row = passage.parent;
+  const parts = row === undefined ? [own] : row.children.map((cell) => (cell === passage ? own : trimCell(cell.raw)));
+  return parts.filter((part) => part !== '').join(' ').trim();
+}
+
+/** What a listing calls the block: its bold phrase, the identifier and its name, or the words of its first sentence. */
+function titleOf(block: DocNode, identifier: string | null): string {
+  const bold = boldLead(block);
+  if (identifier !== null) {
+    const phrase = bold?.plain ?? namingText(block);
+    return `${identifier} ${nameAfter(phrase, identifier)}`.trim();
+  }
+  if (bold !== undefined) return trimEnd(flat(bold.plain)).trim();
+  return firstWords(namingText(block));
+}
+
+/** The anchors that name a block, in the order the anchor reader met them. */
+function anchorsOfNode(names: ReadonlyMap<DocNode, readonly string[]>, block: DocNode): readonly string[] {
+  return names.get(block) ?? [];
+}
+
+/** The prose of a paragraph a reading names, validated against the block's own source. */
+function passageOf(block: DocNode, reading: PassageReading, document: readonly string[]): { text: string; line: number; endLine: number } | null {
+  if (reading.line < block.line || reading.endLine > block.endLine || reading.line > reading.endLine) return null;
+  const source = document.slice(reading.line - 1, reading.endLine).join('\n');
+  const wanted = flat(reading.text);
+  if (wanted === '' || !flat(source).includes(wanted)) return null;
+  return { text: reading.text.trim(), line: reading.line, endLine: reading.endLine };
 }
 
 /** Every entity of the manifest's document kinds in the documents, in code point order of their ids; and what could not be read. */
-export function readDocEntities(sources: readonly DocumentSource[], manifest: KindsManifest): { entities: DocEntity[]; findings: Finding[] } {
+export function readDocEntities(sources: readonly DocumentSource[], manifest: KindsManifest, options: ReadDocOptions = {}): DocRead {
   const kinds = [...manifest.kinds.values()].filter((kind) => kind.source === 'document');
   const findings: Finding[] = [];
-  if (kinds.length === 0) return { entities: [], findings };
   const entities: DocEntity[] = [];
+  // The identities of the documents this read does not see stand as they were: a document that was not read for a
+  // moment keeps its links.
+  const identities = new Map<string, DocumentIdentities>(options.identities ?? []);
+  if (kinds.length === 0) return { entities, findings, identities };
+  const bySemantics = new Map<SemanticKind, KindDecl>();
+  for (const kind of kinds) if (kind.semantics !== undefined && !bySemantics.has(kind.semantics)) bySemantics.set(kind.semantics, kind);
   for (const source of sources) {
-    const allowTerms = kinds.some((kind) => kind.terms?.some((pattern) => globToRegExp(pattern).test(source.path)));
-    const seen = new Map<string, number>();
+    const key = documentKey(source.repo, source.path);
     const where = source.repo === null ? source.path : `repos/${source.repo}/${source.path}`;
-    for (const raw of sectionsOf(source.text, allowTerms)) {
-      const kind = kindOfSection(kinds, raw, source.path);
-      if (kind === undefined) continue;
-      const first = seen.get(raw.anchor);
+    // Every diagnostic of this document names both places it stands in: the identity a reader navigates by and the file.
+    const report = (line: number, message: string, kind?: FindingKind): void => { findings.push({ file: where, line, message, ...(kind === undefined ? {} : { kind }), ...(source.origin === undefined ? {} : { source: source.origin }) }); };
+    const tree = readDocTree(source);
+    findings.push(...tree.findings);
+    const reading = anchorsOfTree(tree);
+    const names = new Map<DocNode, string[]>();
+    for (const [anchor, node] of reading.nodes) {
+      const held = names.get(node);
+      if (held === undefined) names.set(node, [anchor]);
+      else held.push(anchor);
+    }
+    const lines = source.text.split('\n');
+    const declared = frontSections(tree.meta, tree.front, kinds, report);
+    const terms = kindOfTerms(kinds, source.path);
+    const candidates: Candidate[] = [];
+    const covered: { line: number; endLine: number }[] = [];
+    const isCovered = (section: DocSection): boolean => covered.some((range) => section.line >= range.line && section.endLine <= range.endLine);
+    const anchorsOfBlock = (block: DocNode, identifier: string | null, place: number): string | undefined => {
+      const held = anchorsOfNode(names, block);
+      if (place > 1) return held.length === 0 ? undefined : `${held[0]}.${String(place)}`;
+      // An identifier the document writes is the anchor a reader would name, even when an earlier block already took it:
+      // the second one is then a second section of the same name, and the finding below says so.
+      if (identifier !== null && identifier !== '') {
+        const written = identifier.toLowerCase();
+        if (held.includes(written) || reading.lines.has(written)) return written;
+      }
+      if (held.length > 0) return held[0];
+      return reading.blocks.get(block.line);
+    };
+    for (const section of tree.sections) {
+      if (isCovered(section)) continue;
+      // Pass 1, a heading that opens with an identifier: the whole section is the entity (an ADR keeps its parts).
+      if (section.heading !== null) {
+        const identifier = identifierOf(section.heading.plain);
+        const kind = identifier === null ? undefined : kindOfIdentifier(kinds, identifier);
+        if (identifier !== null && kind !== undefined) {
+          const anchor = anchorsOfBlock(section.heading, identifier, 1);
+          if (anchor === undefined) { report(section.line, 'the heading names no anchor a link could carry, so no page shows this section'); continue; }
+          candidates.push({ kind, semantics: kind.semantics ?? 'other', pass: 'metadata', anchor, aliases: names.get(section.heading!) ?? [anchor], title: titleOf(section.heading, identifier), identifier, identityText: identifier === null ? undefined : `${nameAfter(flat(section.heading!.plain), identifier)}\n${section.text}`.trim(), line: section.line, endLine: section.endLine, text: section.text, headingPath: [...section.headingPath] });
+          covered.push({ line: section.line, endLine: section.endLine });
+          const missing = kind.structure === undefined ? [] : missingStructure(section, kind.structure, tree.sections);
+          if (missing.length > 0) report(section.line, `this "${kind.name}" holds no ${missing.join(', no ')}, which the manifest declares its structure: the section is shown as the document writes it, and what it lacks is said here`);
+          continue;
+        }
+      }
+      // Passes 1 and 2, block by block: an identifier or a term names one, else the heading the manifest declares takes
+      // the block. A block neither decides is kept for the classifier — one identified rule does not hide its neighbour.
+      const sectionKind = section.heading === null ? undefined : declared.get(normaliseHeading(section.heading.plain));
+      const byHeading = section.heading === null ? undefined : kinds.find((kind) => kind.headings?.some((heading) => normaliseHeading(heading) === normaliseHeading(section.heading!.plain)));
+      const pending: DocNode[] = [];
+      // A passage the manifest names is the one a row's words belong to: the cell that opens with an identifier.
+      const namesIdentifier = (candidate: DocNode): boolean => identifierOf(namingText(candidate)) !== null;
+      for (const block of sectionBlocks(section, namesIdentifier)) {
+        const lead = namingText(block);
+        const identifier = identifierOf(lead);
+        const byIdentifier = identifier === null ? undefined : kindOfIdentifier(kinds, identifier);
+        const bold = boldLead(block) !== undefined;
+        let kind: KindDecl | undefined;
+        let pass: DecidingPass = 'metadata';
+        if (identifier !== null && byIdentifier !== undefined) kind = byIdentifier;
+        else if (sectionKind !== undefined) kind = sectionKind;
+        else if (terms !== undefined && bold) kind = terms;
+        else if (byHeading !== undefined) { kind = byHeading; pass = 'structure'; }
+        if (kind === undefined) { pending.push(block); continue; }
+        const anchor = anchorsOfBlock(block, identifier, 1);
+        if (anchor === undefined) { report(block.line, 'this passage stands before the document\'s first heading, so it has no anchor a link could name: it is not shown as an entity'); continue; }
+        candidates.push({ kind, semantics: kind.semantics ?? 'other', pass, anchor, aliases: names.get(block) ?? [anchor], title: titleOf(block, identifier), identifier, line: block.line, endLine: block.endLine, text: bodyOf(block, kind === terms), headingPath: [...section.headingPath] });
+      }
+      // Pass 3, the classifier: only the blocks the first two passes left, and every reading keeps its own span.
+      if (pending.length > 0 && options.classifier !== undefined) {
+        const request: PassageRequest = {
+          repo: source.repo, path: source.path, headingPath: [...section.headingPath], text: section.text, line: section.line, endLine: section.endLine,
+          bodyLine: section.nodes[0]?.line ?? section.line,
+          blocks: pending.map((block) => ({ line: block.line, endLine: block.endLine, text: bodyOf(block) })),
+        };
+        const readings = options.classifier.classify(request);
+        // The passages of one block: the first keeps the block's own anchor, each later one its place in the block.
+        const places = new Map<DocNode, number>();
+        if (readings.length === 0) {
+          // Every pending block is said, not only the section: a block no classifier read has no page and must not be
+          // dropped by the early answer (the ninth review, B). The leaves are said by the loop below, before the early
+          // answer leaves the section.
+          for (const block of pending) report(block.line, `no classifier has read this passage yet, so what it means is not shown: ${quote(firstWords(leadText(block) || block.raw))}`, 'unread-passage');
+          for (const leaf of sectionLeaves(section, namesIdentifier)) {
+            if (manifest.ignoreBlocks.includes(leaf.type)) continue;
+            report(leaf.line, `this block holds text no kind of the manifest reads: ${quote(firstWords(namedLeaf(leaf) ?? leafWords(leaf)))}`, 'unread-passage');
+          }
+          continue;
+        }
+        for (const passage of readings) {
+          // The innermost passage that holds the reading: a list item contains the item nested under it.
+          const block = pending
+            .filter((candidate) => passage.line >= candidate.line && passage.endLine <= candidate.endLine)
+            .sort((one, other) => (one.endLine - one.line) - (other.endLine - other.line))[0];
+          const span = block === undefined ? null : passageOf(block, passage, lines);
+          if (block === undefined || span === null) {
+            report(passage.line, `the classifier read a ${passage.kind} here, and the passage it names is not a passage of this section: no page shows it`);
+            continue;
+          }
+          // A passage the classifier read as no general kind of the product is read: nothing is shown and nothing is missing.
+          if (passage.kind === 'other') { places.set(block, (places.get(block) ?? 0) + 1); continue; }
+          // The block has been read, whatever the manifest makes of the reading: it is not a block nobody read.
+          const place = (places.get(block) ?? 0) + 1;
+          places.set(block, place);
+          const kind = bySemantics.get(passage.kind);
+          if (kind === undefined) {
+            report(passage.line, `this passage is a ${passage.kind} and the manifest declares no kind with "semantics: ${passage.kind}", so no page shows it`);
+            continue;
+          }
+          const identifier = identifierOf(namingText(block));
+          const anchor = anchorsOfBlock(block, identifier, place);
+          if (anchor === undefined) {
+            report(passage.line, `the ${passage.kind} this classifier read has no anchor a link could name, so no page shows it`);
+            continue;
+          }
+          candidates.push({ kind, semantics: passage.kind, pass: 'classifier', anchor, aliases: place === 1
+                // The first reading of a block keeps every anchor the tree gives that block, so the paragraph's own
+                // address opens it beside the reading's (the review of the fifth pass, finding 1).
+                ? [...new Set([...anchorsOfNode(names, block), anchor])]
+                : [anchor], title: place === 1 ? titleOf(block, identifier) : firstWords(span.text), identifier: place === 1 ? identifier : null, line: span.line, endLine: span.endLine, text: span.text, headingPath: [...section.headingPath] });
+        }
+        for (const block of pending) if (!places.has(block)) report(block.line, `the classifier read no meaning of this passage, so no page shows it: ${quote(firstWords(leadText(block)))}`, 'unread-passage');
+      } else if (pending.length > 0) {
+        // Without a classifier every passage the first two passes left is said, with its own words: the wiki shows what
+        // it could not decide instead of a smaller picture of the documents (madarch-ztyq.3, the review of finding 5).
+        for (const block of pending) {
+          const words = firstWords(leadText(block));
+          report(block.line, `no kind of the manifest and no classifier read this passage, so no page shows it: ${quote(words)}`, 'unread-passage');
+        }
+      }
+      // A block that holds text of its own and opens with an identifier a person meant to be read — a rule written in a
+      // table row or a code fence — is no passage a kind decides, and it is not silent either: the reader says so, with
+      // its line. Ordinary furniture (an html comment, a plain fence) names nothing, so it is not a lost passage.
+      // Every block has a disposition: read as a passage, reported here, or ignored by a rule the product names in its own
+      // manifest (`documents.ignore`). No block is dropped without one of the three (the review of the eighth pass).
+      for (const leaf of sectionLeaves(section, namesIdentifier)) {
+        if (manifest.ignoreBlocks.includes(leaf.type)) continue;
+        report(leaf.line, `this block holds text no kind of the manifest reads: ${quote(firstWords(namedLeaf(leaf) ?? leafWords(leaf)))}`, 'unread-passage');
+      }
+    }
+    // A number names one section: a second section with the same anchor has no page, and the finding says where the first is.
+    const kept: Candidate[] = [];
+    const seen = new Map<string, number>();
+    for (const candidate of candidates) {
+      const first = seen.get(candidate.anchor);
       if (first !== undefined) {
-        findings.push({ file: where, line: raw.line, message: `${raw.identifier ?? `the term "${raw.title}"`} opens a second section of this document (the first is at line ${first}); an identifier names one section, so this one has no page` });
+        const what = candidate.identifier ?? (candidate.semantics === 'term' ? `the term "${candidate.title}"` : `the section "${candidate.title}"`);
+        report(candidate.line, `${what} opens a second section of this document (the first is at line ${first}); an identifier names one section, so this one has no page`);
         continue;
       }
-      seen.set(raw.anchor, raw.line);
-      entities.push({
-        id: docEntityId(source.repo, source.path, raw.anchor), kind: kind.name, title: raw.title, identifier: raw.identifier,
-        repo: source.repo, path: source.path, anchor: raw.anchor, line: raw.line, endLine: raw.endLine, text: raw.text,
-      });
+      seen.set(candidate.anchor, candidate.line);
+      kept.push(candidate);
     }
+    // The durable identities of the passages, so a renumbered or renamed one keeps the links it had.
+    const sections: SectionIdentity[] = kept.map((candidate) => ({ anchor: candidate.anchor, kind: candidate.kind.name, title: candidate.title, text: candidate.identityText ?? candidate.text }));
+    const assigned = assignIdentities(key, sections, options.identities?.get(key));
+    identities.set(key, assigned.next);
+    kept.forEach((candidate, index) => {
+      const stableId = assigned.ids[index]!;
+      entities.push({
+        id: docEntityId(source.repo, source.path, stableId),
+        kind: candidate.kind.name,
+        title: candidate.title,
+        identifier: candidate.identifier,
+        repo: source.repo,
+        path: source.path,
+        anchor: candidate.anchor,
+        aliases: candidate.aliases,
+        line: candidate.line,
+        endLine: candidate.endLine,
+        text: candidate.text,
+        stableId,
+        semantics: candidate.semantics,
+        pass: candidate.pass,
+        headingPath: candidate.headingPath,
+      });
+    });
   }
-  return { entities: entities.sort((a, b) => byCodePoint(a.id, b.id)), findings };
+  // What the documents lack: a kind the product expects and no document holds is said, with the manifest's file and line.
+  const held = new Set(entities.map((entity) => entity.kind));
+  for (const expected of manifest.expect ?? []) {
+    if (held.has(expected.kind)) continue;
+    const kind = manifest.kinds.get(expected.kind);
+    const what = kind?.semantics === undefined ? '' : ` (a ${kind.semantics})`;
+    findings.push({ file: manifest.file, line: expected.line, message: `the documents hold no entity of kind "${expected.kind}"${what}, which "documents.expect" says they must: no section of any document is read as it, so the wiki says what the documents lack and this is one of the lacks` });
+  }
+  return { entities: entities.sort((a, b) => byCodePoint(a.path, b.path) || a.line - b.line || byCodePoint(a.anchor, b.anchor)), findings, identities };
+}
+
+/** The kind whose identifier prefixes take one: the prefix a kind names wins over a kind that takes any other prefix. */
+function kindOfIdentifier(kinds: readonly KindDecl[], identifier: string): KindDecl | undefined {
+  const prefix = identifier.slice(0, identifier.indexOf('-')).toUpperCase();
+  return kinds.find((kind) => kind.identifier?.some((entry) => entry.toUpperCase() === prefix))
+    ?? kinds.find((kind) => kind.identifier?.includes('*'));
+}
+
+/** The kind whose `terms` patterns name the document: a glossary's leading bold words. */
+function kindOfTerms(kinds: readonly KindDecl[], path: string): KindDecl | undefined {
+  return kinds.find((kind) => kind.terms?.some((pattern) => globToRegExp(pattern).test(path)));
+}
+
+/** The line of the front matter a field stands on, or the first line of the document's body. */
+function frontLine(front: string | null, needle: string): number {
+  if (front === null) return 2;
+  const lines = front.split('\n');
+  for (const [index, line] of lines.entries()) if (line.includes(needle)) return index + 2;
+  return 2;
+}
+
+/** What the document's front matter says its sections are (`sections: { Qualities: doc.quality }`), by heading. */
+function frontSections(meta: Record<string, unknown> | null, front: string | null, kinds: readonly KindDecl[], report: (line: number, message: string) => void): Map<string, KindDecl> {
+  const declared = new Map<string, KindDecl>();
+  const raw = meta?.['sections'];
+  if (raw === undefined || raw === null) return declared;
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    report(frontLine(front, 'sections'), 'the front matter\'s "sections" maps a heading to the kind its sections are, such as { Qualities: doc.quality }');
+    return declared;
+  }
+  for (const [heading, value] of Object.entries(raw as Record<string, unknown>)) {
+    const line = frontLine(front, heading);
+    if (typeof value !== 'string' || value.trim() === '') {
+      report(line, `the front matter names the section ${JSON.stringify(heading)} as ${JSON.stringify(value)}: a section names the kind its passages are`);
+      continue;
+    }
+    const kind = kinds.find((candidate) => candidate.name === value) ?? kinds.find((candidate) => candidate.semantics === value);
+    if (kind === undefined) {
+      report(line, `the front matter names the section ${JSON.stringify(heading)} as ${JSON.stringify(value)}, and the manifest declares no kind or general kind of that name: the kinds are ${kinds.map((candidate) => candidate.name).join(', ') || 'none'}`);
+      continue;
+    }
+    declared.set(normaliseHeading(heading), kind);
+  }
+  return declared;
+}
+
+/**
+ * The sections a section of its kind declares (an ADR's Status, Context, Decision and Consequences) that it does not
+ * hold: each is a child heading, or a paragraph that opens with the name and a colon. What is missing is answered, for
+ * the finding that says the section is incomplete.
+ */
+function missingStructure(section: DocSection, structure: readonly string[], sections: readonly DocSection[]): string[] {
+  const headings = new Set<string>();
+  const labels = new Set<string>();
+  const read = (nodes: readonly DocNode[]): void => {
+    for (const node of nodes) {
+      if (node.type === 'heading') headings.add(normaliseHeading(node.plain));
+      else if (node.type === 'paragraph') {
+        const text = flat(node.plain);
+        const at = text.indexOf(':');
+        if (at > 0) labels.add(normaliseHeading(text.slice(0, at)));
+      }
+    }
+  };
+  read(section.nodes);
+  // A section of a section is part of it: an ADR's Context, Decision and Consequences are its sub-sections.
+  for (const inner of sections) if (inner !== section && inner.heading !== null && inner.line > section.line && inner.endLine <= section.endLine) { headings.add(normaliseHeading(inner.heading.plain)); read(inner.nodes); }
+  return structure.filter((name) => !headings.has(normaliseHeading(name)) && !labels.has(normaliseHeading(name)));
 }

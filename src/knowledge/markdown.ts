@@ -42,11 +42,12 @@ export interface MarkdownEntity {
 
 /** The front matter and body of a Markdown file; the front matter is null when the file has none. */
 export function splitFrontMatter(text: string): { front: string | null; body: string; bodyLine: number } {
-  const normalized = text.replace(/^\uFEFF/, '');
+  const normalized = text.startsWith('\uFEFF') ? text.slice(1) : text;
   if (!normalized.startsWith('---\n') && !normalized.startsWith('---\r\n')) return { front: null, body: normalized, bodyLine: 1 };
   const lines = normalized.split('\n');
   for (let index = 1; index < lines.length; index += 1) {
-    if (lines[index]!.replace(/\r$/, '') === '---') {
+    const line = lines[index]!;
+    if ((line.endsWith('\r') ? line.slice(0, -1) : line) === '---') {
       return { front: lines.slice(1, index).join('\n'), body: lines.slice(index + 1).join('\n'), bodyLine: index + 2 };
     }
   }

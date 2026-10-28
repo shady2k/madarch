@@ -149,7 +149,12 @@ export async function buildStatement(ctx: RenderContext, pageId: string, sentenc
       const entity = ground.resolution.entity;
       // The index names a document section by its path alone: a path held by two repositories cannot be told apart.
       if (pathTwice(entity)) continue;
-      const key = entity.startsWith('doc:') ? entity.replace(/^doc:@[^/]+\//, 'doc:') : entity;
+      // The index names a document section by the ground's path and the ANCHOR the ground writes — not by the page's
+      // durable identity, which no anchor spells (madarch-ztyq.3, the review of A). A path held twice is skipped above.
+      const named = parseTarget(ground.url);
+      const key = named.kind === 'doc' && named.anchor !== null
+        ? `doc:${named.path.startsWith('@') && named.path.includes('/') ? named.path.slice(named.path.indexOf('/') + 1) : named.path}#${named.anchor.toLowerCase()}`
+        : entity;
       for (const other of await ctx.index.relyingOn(key)) {
         const id = `${other.page}\0${other.line}\0${other.statement}`;
         if (seen.has(id) || (other.page === pageId && other.line === found.line && squash(other.text) === wanted)) continue;

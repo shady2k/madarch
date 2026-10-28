@@ -35,6 +35,29 @@ const CODE_FILE = { type: 'file', path: 'src/a.ts' };
 /** The grounds of the answered contradiction, in the code-point order the engine sorts them. */
 const DISCOUNT_GROUNDS = ['code.file\u003asrc/a.ts', 'code.service:orders', 'doc:README.md#discounts'];
 
+/** The code repository's README: two sections the answered questions name, and the Refunds section a closure is read on. */
+const REFUNDS_README = [
+  '# Shop',
+  '',
+  '## Discounts',
+  '',
+  'Every order gets ten percent.',
+  '',
+  '## Tax',
+  '',
+  'Tax is added at checkout.',
+  '',
+  '## Refunds',
+  '',
+  '- **Thirty days.** A refund is asked within thirty days of the capture.',
+  '- **Full amount.** A refund never exceeds the captured total.',
+  '',
+  'Refunds are paid back to the card that was charged.',
+  '',
+].join('\n');
+/** The section a task closes against: two bold items, then the unnamed paragraph its last line changes. */
+const REFUND_SECTION = { type: 'section', path: 'README.md', anchor: 'refunds' };
+
 /** The product page an agent wrote: two statements, one standing on each README section. */
 const PAGE = `---
 id: domain:orders
@@ -94,6 +117,44 @@ const TAX_QUESTION: Omit<Question, 'file' | 'id'> = {
   writtenAt: [],
 };
 
+/** A second open question, about the section the regression closes: an answer proposes the task that changes it. */
+const REFUND_QUESTION: Omit<Question, 'file' | 'id'> = {
+  slug: 'refund-window',
+  title: 'Is a refund asked for within thirty days of the capture?',
+  type: 'undocumented',
+  status: 'open',
+  about: [],
+  askedIn: null,
+  askedAt: '2026-10-23T12:00:00.000Z',
+  question: 'How long does a shopper have to ask for a refund?',
+  why: 'The README says thirty days, and nothing in the code says when a refund is asked for.',
+  sides: [{ claim: 'The README says a refund is asked within thirty days of the capture.', grounds: ['doc:README.md#refunds'] }],
+  answer: null,
+  resolvedBy: [],
+  resolvedAt: null,
+  writtenAt: [],
+};
+
+/** A third open question, about one bold item of the Refunds section: its task's scope is that item alone. */
+const REFUND_AMOUNT_QUESTION: Omit<Question, 'file' | 'id'> = {
+  slug: 'refund-amount',
+  title: 'Can a refund exceed what was captured?',
+  type: 'undocumented',
+  status: 'open',
+  about: [],
+  askedIn: null,
+  askedAt: '2026-10-23T13:00:00.000Z',
+  question: 'How much can a refund give back?',
+  why: 'The README caps a refund at the captured total, and nothing in the code says so.',
+  sides: [{ claim: 'The README says a refund never exceeds the captured total.', grounds: ['doc:README.md#full-amount'] }],
+  answer: null,
+  resolvedBy: [],
+  resolvedAt: null,
+  writtenAt: [],
+};
+/** The bold item of the Refunds section that a task is scoped to: the sibling of `thirty-days`. */
+const REFUND_ITEM_SCOPE = { type: 'section', path: 'README.md', anchor: 'full-amount' };
+
 let work: string;
 let folder: string;
 let repository: string;
@@ -128,7 +189,9 @@ beforeAll(async () => {
   mkdirSync(join(repository, 'src'), { recursive: true });
   git(repository, ['init', '--quiet', '--initial-branch=main']);
   writeFileSync(join(repository, 'src', 'a.ts'), 'export function discount(percent: number): number {\n  return percent;\n}\n');
-  writeFileSync(join(repository, 'README.md'), '# Shop\n\n## Discounts\n\nEvery order gets ten percent.\n\n## Tax\n\nTax is added at checkout.\n');
+  // The Refunds section is the regression of madarch-ztyq.3: it holds two bold items and then an unnamed paragraph, and
+  // a commit that changes that last paragraph — its last line — must still touch the section's scope (src/loop/closure.ts).
+  writeFileSync(join(repository, 'README.md'), REFUNDS_README);
   writeFileSync(join(repository, 'NOTES.md'), '# Notes\n\nNothing is planned here.\n');
   git(repository, ['add', '.']);
   git(repository, ['-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'first']);
@@ -142,6 +205,8 @@ beforeAll(async () => {
   writeFileSync(join(folder, 'docs/domains/orders.md'), PAGE);
   writeFileSync(join(folder, 'docs/questions/discount-percentage.md'), renderQuestion(DISCOUNT_QUESTION));
   writeFileSync(join(folder, 'docs/questions/tax-timing.md'), renderQuestion(TAX_QUESTION));
+  writeFileSync(join(folder, 'docs/questions/refund-window.md'), renderQuestion(REFUND_QUESTION));
+  writeFileSync(join(folder, 'docs/questions/refund-amount.md'), renderQuestion(REFUND_AMOUNT_QUESTION));
   git(folder, ['add', '-A']);
   git(folder, ['-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'the agent wrote']);
   const app = join(work, 'app');
@@ -376,6 +441,71 @@ describe('closing a task by a commit', () => {
     expect(row.scope).toEqual([{ scope: TAX_SECTION, words: 'README.md#tax', place: { kind: 'section', label: 'Tax', where: 'Shop', href: '/k/doc?repo=orders-code&path=README.md#tax', path: 'README.md', words: 'README.md#tax' } }]);
     // The other task is untouched by these commits: none of them names it.
     expect(taskRowOf(closed, discountTask.id).status).toBe('open');
+  }, 60_000);
+
+  test('a section that holds a bold item and an unnamed paragraph closes on a commit that changes its last line', async () => {
+    // A section's scope is the whole section — from its heading to the line before the next heading — whatever named or
+    // unnamed blocks it holds inside (madarch-ztyq.3). The reading that ended it at its next anchor cut it off at its
+    // first bold item, so the commit below touched no scope and the task stayed open.
+    const answered = await post('/api/k/answer', { question: 'refund-window', text: 'Thirty days from the capture.' });
+    expect(answered.status).toBe(200);
+    const proposal = await post('/api/k/task-propose', { question: 'refund-window', choice: 'code' });
+    expect(proposal.status).toBe(200);
+    expect(proposal.body.scope).toEqual([REFUND_SECTION]);
+    const created = await post('/api/k/task-create', { question: 'refund-window', title: proposal.body.title, grounds: proposal.body.grounds, scope: proposal.body.scope });
+    expect(created.status).toBe(201);
+    const task: { id: string; slug: string; at: string } = created.body.task;
+    const commitReadme = (text: string, message: string, date: string): string => {
+      writeFileSync(join(repository, 'README.md'), text);
+      const dated = { GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date };
+      git(repository, ['add', '--', 'README.md'], dated);
+      git(repository, ['-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', message], dated);
+      return git(repository, ['rev-parse', 'HEAD']).trim();
+    };
+    // The last line of the section is the unnamed paragraph after its two bold items.
+    const closing = commitReadme(
+      REFUNDS_README.replace('Refunds are paid back to the card that was charged.', 'Refunds are paid back to the card that was charged, in full or in part.'),
+      `Say how a refund is paid back\n\nTask: ${task.slug}`,
+      new Date(Date.parse(task.at) + 4000).toISOString(),
+    );
+    const row = taskRowOf(await get('/api/k/tasks'), task.id);
+    expect(row.status).toBe('closed');
+    expect(row.closedBy).toEqual({ repository: CODE, commit: closing, at: expect.any(String), subject: 'Say how a refund is paid back' });
+    expect(row.scope).toEqual([{
+      scope: REFUND_SECTION,
+      words: 'README.md#refunds',
+      place: { kind: 'section', label: 'Refunds', where: 'Shop', href: '/k/doc?repo=orders-code&path=README.md#refunds', path: 'README.md', words: 'README.md#refunds' },
+    }]);
+  }, 60_000);
+
+  test('a task scoped to one list item is not closed by a commit that changes its sibling', async () => {
+    // A list item covers only its own lines: the scope is the item, not the section round it (madarch-ztyq.3, the review
+    // of finding 4). The sibling item stands two lines above it in the same section.
+    const answered = await post('/api/k/answer', { question: 'refund-amount', text: 'A refund gives back at most what was captured.' });
+    expect(answered.status).toBe(200);
+    const proposal = await post('/api/k/task-propose', { question: 'refund-amount', choice: 'code' });
+    expect(proposal.status).toBe(200);
+    expect(proposal.body.scope).toEqual([REFUND_ITEM_SCOPE]);
+    const created = await post('/api/k/task-create', { question: 'refund-amount', title: proposal.body.title, grounds: proposal.body.grounds, scope: proposal.body.scope });
+    expect(created.status).toBe(201);
+    const task: { id: string; slug: string; at: string } = created.body.task;
+    const readme = (): string => readFileSync(join(repository, 'README.md'), 'utf8');
+    const commit = (message: string, change: (text: string) => string, seconds: number): string => {
+      writeFileSync(join(repository, 'README.md'), change(readme()));
+      const dated = { GIT_AUTHOR_DATE: new Date(Date.parse(task.at) + seconds * 1000).toISOString(), GIT_COMMITTER_DATE: new Date(Date.parse(task.at) + seconds * 1000).toISOString() };
+      git(repository, ['add', '--', 'README.md'], dated);
+      git(repository, ['-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', message], dated);
+      return git(repository, ['rev-parse', 'HEAD']).trim();
+    };
+    // The sibling item changes: the task stays open, because that line is not its scope.
+    commit(`Say the refund window again\n\nTask: ${task.slug}`, (text) => text.replace('A refund is asked within thirty days of the capture.', 'A refund is asked within thirty days of the capture, in writing.'), 2);
+    expect(taskRowOf(await get('/api/k/tasks'), task.id)).toMatchObject({ status: 'open', closedBy: null });
+    // The task's own item changes: it closes with that commit.
+    const closing = commit(`Cap the refund at the capture\n\nTask: ${task.slug}`, (text) => text.replace('A refund never exceeds the captured total.', 'A refund never exceeds the captured total, in part or in full.'), 4);
+    const row = taskRowOf(await get('/api/k/tasks'), task.id);
+    expect(row.status).toBe('closed');
+    expect(row.closedBy).toEqual({ repository: CODE, commit: closing, at: expect.any(String), subject: 'Cap the refund at the capture' });
+    expect(row.scope[0].place).toMatchObject({ kind: 'section', label: 'Full amount', path: 'README.md' });
   }, 60_000);
 });
 

@@ -129,8 +129,12 @@ describe('the sections of the training repository\'s documents', () => {
     const br = read.entities.filter((entity) => entity.kind === 'doc.rule').map((entity) => entity.identifier);
     expect(uc).toEqual(['UC-1', 'UC-2', 'UC-3', 'UC-4']);
     expect(br).toEqual(['BR-1', 'BR-2', 'BR-3', 'BR-4', 'BR-5']);
-    const pay = byId.get(docEntityId('training', 'docs/requirements.md', 'uc-2'))!;
-    expect(pay.id).toBe('doc:@training/docs/requirements.md#uc-2');
+    // The page id names the passage's durable identity, not the anchor: the anchor is what a ground names (madarch-ztyq.3,
+    // the review of finding 2), so `uc-2` is the id of nothing and the identity is the document's own counter.
+    const pay = read.entities.find((entity) => entity.anchor === 'uc-2')!;
+    expect(pay.stableId).toMatch(/^doc-section:[0-9]+$/);
+    expect(pay.id).toBe(docEntityId('training', 'docs/requirements.md', pay.stableId));
+    expect(pay.id).not.toBe('doc:@training/docs/requirements.md#uc-2');
     expect(pay.title).toBe('UC-2 Pay');
     expect(pay.text.replace(/\s+/g, ' ')).toContain('Checkout asks payments to authorize the card for the order\'s total.');
     expect(pay.text).not.toContain('UC-3');
@@ -146,7 +150,7 @@ describe('the sections of the training repository\'s documents', () => {
   });
 
   test('a rule\'s section runs over the lines that continue it and stops at the next rule: BR-1 names the code that implements it', () => {
-    const rule = byId.get(docEntityId('training', 'docs/requirements.md', 'br-1'))!;
+    const rule = read.entities.find((entity) => entity.path === 'docs/requirements.md' && entity.anchor === 'br-1')!;
     expect(rule.text).toContain('Implemented in `services/orders/internal/pricing/pricing.go` (`Discount`)');
     expect(rule.text).toContain('checkout previews it in');
     expect(rule.text).not.toContain('BR-2');
@@ -159,13 +163,15 @@ describe('the sections of the training repository\'s documents', () => {
 
   test('the glossary\'s seven terms are entities by the slug of their bold word', () => {
     const terms = read.entities.filter((entity) => entity.kind === 'doc.term');
-    expect(terms.map((entity) => entity.title)).toEqual(['Capture', 'CardToken', 'Idempotency key', 'Order', 'Outbox', 'PaymentToken', 'Zero-rated']);
+    // Document order, not alphabetical: an identity is a name, not an order, so entities come in the order the
+    // document reads them.
+    expect(terms.map((entity) => entity.title)).toEqual(['Order', 'Outbox', 'Idempotency key', 'CardToken', 'PaymentToken', 'Capture', 'Zero-rated']);
     expect(terms.find((entity) => entity.title === 'Idempotency key')!.anchor).toBe('idempotency-key');
     expect(terms.find((entity) => entity.title === 'Outbox')!.text).toBe('the table in which orders queues the messages it will publish.');
   });
 
   test('a decision record is the heading with its identifier, from its first line to the end of the file', () => {
-    const adr = byId.get(docEntityId('training', 'docs/adr/0001-broker.md', 'adr-0001'))!;
+    const adr = read.entities.find((entity) => entity.path === 'docs/adr/0001-broker.md' && entity.anchor === 'adr-0001')!;
     expect(adr.kind).toBe('doc.decision');
     expect(adr.title).toBe('ADR-0001 Kafka is the broker');
     expect(adr.line).toBe(1);
@@ -176,7 +182,7 @@ describe('the sections of the training repository\'s documents', () => {
 
   test('the same identifier twice in one document opens one page and a finding names the second line', () => {
     const twice = readDocEntities([{ repo: null, path: 'docs/x.md', text: '- **UC-1 One.** a\n- **UC-1 Again.** b\n' }], parse());
-    expect(twice.entities.map((entity) => entity.id)).toEqual(['doc:docs/x.md#uc-1']);
+    expect(twice.entities.map((entity) => entity.id)).toEqual(['doc:docs/x.md#doc-section:1']);
     expect(twice.findings).toEqual([{ file: 'docs/x.md', line: 2, message: expect.stringContaining('opens a second section of this document (the first is at line 1)') }]);
   });
 

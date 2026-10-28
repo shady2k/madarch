@@ -6,6 +6,10 @@
  * end test and the screenshots walk both run the production agent path with
  * this script behind an adapter executable on the PATH.
  */
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+import { readDocEntities } from '../src/knowledge/doc-entities.js';
+import { readKinds } from '../src/knowledge/kinds.js';
 import { FACTORY, PAY, PAYMENTS_SERVICE } from './knowledge-fixture.js';
 
 export const ORDERS_SERVICE = 'code.service:orders';
@@ -104,21 +108,79 @@ export const LOCALIZED_STATEMENTS: Readonly<Record<string, string>> = {
   'ADR-0002 Events leave through a transactional outbox': 'Сервис заказов пишет сообщения в таблицу outbox в той же транзакции, что и изменение заказа, а отдельный процесс публикует их в Kafka.',
 };
 
-/** An unknown fixture entity must fail validation, not appear to have a meaningful translation. */
-export const LOCALIZED_STATEMENT = '';
+/**
+ * What this scripted agent writes for a document entity it holds no written Russian rendering of: the source's own words,
+ * kept whole in an inline code span under the Russian lead that says where they stand. A scripted agent translates
+ * nothing, so it quotes the section rather than inventing a sentence about it, and the same section always gives the same
+ * statement. A section that holds an inline code span of its own cannot be quoted inside one (a span ends at its next
+ * backtick, and the language reader would then count the English prose), so there the statement says where the section
+ * stands and that no translation is given — never a fact the document does not hold.
+ */
+export function derivedStatement(entity: { text: string; line: number; endLine: number }, label: string): string {
+  const lines = entity.line === entity.endLine ? `строка ${entity.line}` : `строки ${entity.line}–${entity.endLine}`;
+  const words = entity.text.replace(/\s+/g, ' ').trim();
+  return words === '' || words.includes('`')
+    ? `Перевод не приводится: ${label}, ${lines} в источнике.`
+    : `Перевод не приводится; слова источника, ${lines}: \`${words}\``;
+}
+
+/**
+ * The statement for a document entity the script was not built for — one whose title `LOCALIZED_STATEMENTS` does not
+ * name and that `localizableEntities()` did not list. It says no translation is given, so a unit is answered rather than
+ * refused with an empty statement, and nothing about the section is invented.
+ */
+export const LOCALIZED_STATEMENT = 'Перевод не приводится: раздел изложен в источнике.';
+
+/** One document entity the wiki offers for a localized statement, and the statement this scripted agent writes for it. */
+export interface LocalizableEntity {
+  readonly title: string;
+  readonly statement: string;
+}
+
+/**
+ * The document entities a product's wiki offers as localized sources, read the way the fill reads them — the product's
+ * own manifest over the code repository's Markdown documents — each with the statement `derivedStatement()` writes. A
+ * script built from this answers every entity the unit offers; adding a document to the repository adds its entry, with
+ * nothing to keep in step by hand (madarch-ztyq.3).
+ */
+export function localizableEntities(productFolder: string, repository: string, repoName = 'training-shop'): LocalizableEntity[] {
+  const kinds = readKinds(productFolder);
+  if (!kinds.present) return [];
+  const sources = markdownUnder(repository).map((path) => ({ repo: repoName, path, text: readFileSync(join(repository, path), 'utf8') }));
+  return readDocEntities(sources, kinds.manifest).entities.map((entity) => ({
+    title: entity.title,
+    statement: derivedStatement(entity, kinds.manifest.kinds.get(entity.kind)?.labels?.['ru']?.one ?? 'Раздел документа'),
+  }));
+}
+
+/** The Markdown documents under a folder, `/`-separated and in code point order. */
+function markdownUnder(folder: string, root = folder): string[] {
+  return readdirSync(folder).flatMap((name) => {
+    const path = join(folder, name);
+    if (name === '.git' || name === 'node_modules') return [];
+    if (statSync(path).isDirectory()) return markdownUnder(path, root);
+    return /\.(md|markdown)$/i.test(name) ? [path.slice(root.length + 1).split('\\').join('/')] : [];
+  }).sort();
+}
 
 /**
  * The script of a wiki whose pages are Russian over the training repository's English documents: the
  * product page and its domains in Russian, and one Russian statement for every extracted document
  * entity the writer asks for. A prompt that names an entity is answered by its name alone, so a page
- * never falls back to another unit's text.
+ * never falls back to another unit's text; `entities` (from `localizableEntities()`) answers for every
+ * entity the product's documents hold, and an entity neither names is answered with the plain note
+ * that no translation is given, so no unit is ever refused for an empty statement.
  */
-export function localizedScript(delays: { product?: number; ordering?: number; payments?: number } = {}, places: PagePlaces = {}) {
-  const base = agentScript(delays, places);
+export function localizedScript(options: { entities?: readonly LocalizableEntity[]; delays?: { product?: number; ordering?: number; payments?: number }; places?: PagePlaces } = {}) {
+  const base = agentScript(options.delays ?? {}, options.places ?? {});
   const named = Object.entries(LOCALIZED_STATEMENTS).map(([title, statement]) => ({ matches: `Entity name: ${title}\n`, steps: [localizedCall(statement), { end: { stopReason: 'end_turn' } }] }));
+  const derived = (options.entities ?? [])
+    .filter((entity) => LOCALIZED_STATEMENTS[entity.title] === undefined)
+    .map((entity) => ({ matches: `Entity name: ${entity.title}\n`, steps: [localizedCall(entity.statement), { end: { stopReason: 'end_turn' } }] }));
   return {
     byPrompt: [
       ...named,
+      ...derived,
       { matches: 'You are translating one extracted document entity', steps: [localizedCall(LOCALIZED_STATEMENT), { end: { stopReason: 'end_turn' } }] },
       ...base.byPrompt,
     ],

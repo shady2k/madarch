@@ -71,7 +71,18 @@ describe('a product made by an earlier madarch, opened by this one', () => {
     const held = product(folder, store, { errorLog: (line) => logged.push(line) });
     const status = await held.status();
     expect(status.manifest).toBe('ok');
-    expect(status.findings).toEqual([]);
+    // The product holds no document at all, and the manifest the wiki now has names the four kinds its documents must
+    // hold: the wiki says what they lack, at the line that declares it, instead of showing a smaller wiki (decision 0032,
+    // section 4). Its documents holding every kind is the training product's case, which reads with no finding.
+    const manifestFile = join(folder, 'madarch', 'kinds.yaml');
+    const expectLine = readFileSync(manifestFile, 'utf8').split('\n').findIndex((line) => line.trim().startsWith('expect: [')) + 1;
+    expect(expectLine).toBeGreaterThan(1);
+    expect(status.findings).toEqual([
+      { file: manifestFile, line: expectLine, message: expect.stringContaining('the documents hold no entity of kind "doc.use-case" (a scenario)') },
+      { file: manifestFile, line: expectLine, message: expect.stringContaining('the documents hold no entity of kind "doc.rule" (a rule)') },
+      { file: manifestFile, line: expectLine, message: expect.stringContaining('the documents hold no entity of kind "doc.requirement" (a quality)') },
+      { file: manifestFile, line: expectLine, message: expect.stringContaining('the documents hold no entity of kind "doc.decision" (a decision)') },
+    ]);
     expect(status.language).toBe('ru');
     expect(status.groups.map((group) => group.group)).toEqual(['product', 'code', 'contracts', 'data', 'operations', 'tests', 'history']);
     expect(Object.keys(status.roles).sort()).toEqual(['analyst', 'architect', 'developer', 'operations', 'product', 'tester']);

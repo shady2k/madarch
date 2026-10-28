@@ -21,7 +21,7 @@ import type { GraphEntity } from './graph-read.js';
 import { implementedByBlock, linkedFromBlock, statedBlock, termBlock } from './doc-blocks.js';
 import { homeKind, type Finding, type Origin } from './kinds.js';
 import { readBody } from './markdown.js';
-import type { DocEntity } from './doc-entities.js';
+import { entityAtAddress, type DocEntity } from './doc-entities.js';
 import type { MarkdownEntity } from './markdown.js';
 import type { Block, EntityListing, EntityRef, KindSummary, PageModel } from './model.js';
 import { documentAddress, noEntityMessage, type Resolution } from './resolve.js';
@@ -34,7 +34,9 @@ export type PageResult = { ok: true; page: PageModel } | { ok: false; status: 40
 export async function findSubject(ctx: RenderContext, id: string): Promise<{ subject: Subject; others: number } | undefined> {
   const markdown = ctx.markdown.get(id);
   if (markdown !== undefined) return { subject: { source: 'markdown', entity: markdown }, others: 0 };
-  const document = ctx.docEntities.get(id);
+  // A document address names its passage by a durable identity or by a source anchor; both open the same page, so a page
+  // written before an identity was minted keeps working (madarch-ztyq.3, the review of A).
+  const document = entityAtAddress(ctx.docEntities, id);
   if (document !== undefined) return { subject: { source: 'document', entity: document }, others: 0 };
   const found = await ctx.graph.find(id);
   if (found.length === 0) return undefined;
