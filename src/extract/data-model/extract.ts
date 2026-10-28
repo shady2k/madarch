@@ -26,7 +26,8 @@
  * without models, and bytes that are not text.
  */
 import {byCodePoint} from '../../model/order.js';
-import {serviceOfPath, serviceUnits, unitIndex, unitOfPath, type ServiceUnit} from '../service-units.js';
+import {serviceOfPath, serviceUnits, unitIndex, unitOfPath, type ServiceUnit, type UnitIndex} from '../service-units.js';
+import {repositoryConventions} from '../library-models/repository-conventions.js';
 import {parsePostgres, type ParseResult} from '../../parsers/postgres.js';
 import {extractFileSyntax} from '../../fill/stages/syntax-extract.js';
 import {readGoMod} from '../../fill/stages/manifest-format.js';
@@ -151,27 +152,30 @@ export async function extractDataModel(tree: TreeReader, suppliedCode?: Extracti
     const unit = unitOfPath(units, path);
     const segments = path.split('/');
     const file = segments[segments.length - 1] ?? '';
-    // A migration is what its folder declares it to be: a `migrations` folder holding a `.sql`
-    // script, or prisma's `<name>/migration.sql` beside a `schema.prisma`. The database is the unit
-    // that holds the folder, or the folder itself when no unit does (madarch-mwhd.3).
-    const migrationsAt = segments.lastIndexOf('migrations');
+    // A migration is what its series declares it to be (repository-conventions.ts): a `.sql` inside a
+    // `migrations` folder, or prisma's `<name>/migration.sql` beside its `schema.prisma`. The database is
+    // the unit that holds the folder, or the folder itself when no unit does (madarch-mwhd.3).
+    const series = migrationSeriesOf(segments, file);
     const databaseOfPath = (at: number): string => unit?.name ?? folderName(segments.slice(0, at).join('/'));
-    if (migrationsAt >= 0 && file.endsWith('.sql')) {
-      if (migrationsAt === segments.length - 2) {
-        migrations.push({database: databaseOfPath(migrationsAt), name: file, path, prisma: false});
-        continue;
-      }
-      if (migrationsAt === segments.length - 3 && file === 'migration.sql' && segments[migrationsAt - 1] === 'prisma') {
-        migrations.push({database: databaseOfPath(migrationsAt), name: segments[migrationsAt + 1]!, path, prisma: true});
-        continue;
-      }
+    if (series !== undefined) {
+      migrations.push({database: databaseOfPath(series.at), name: series.name, path, prisma: series.series.nameFrom === 'parent'});
+      continue;
     }
-    if (file === 'schema.prisma' && segments[segments.length - 2] === 'prisma') {
+    const schemaPlace = repositoryConventions.prismaSchemas.find((entry) => entry.fileName === file && segments[segments.length - 2] === entry.folder);
+    if (schemaPlace !== undefined) {
       prismaSchemas.set(databaseOfPath(segments.length - 2), path);
       continue;
     }
     if (file.endsWith('.sql')) {
-      scriptPaths.push(path);
+      // A script that declares tables is that folder's schema, not a seed: the parser's own statement
+      // kinds decide (repository-conventions.ts), so a file keeps its DDL wherever it stands.
+      const declared = await declaresTables(path, tree);
+      if (declared.kind === 'schema') {
+        migrations.push({database: databaseOfPath(segments.length - 1), name: file, path, prisma: false});
+      } else {
+        if (declared.kind === 'unread') gaps.push(declared.gap);
+        scriptPaths.push(path);
+      }
       continue;
     }
     if (service !== undefined && languageOf(path) !== null) codePaths.push(path);
@@ -204,7 +208,12 @@ export async function extractDataModel(tree: TreeReader, suppliedCode?: Extracti
     const script = parseSqlScript(migration.path, read.text);
     applyStatements(databaseOf(databases, migration.database), script.statements, gaps);
     if (!script.statements.some((statement) => statement.kind !== 'other')) {
-      gaps.push({path: migration.path, reason: 'no table or column statement could be read'});
+      // The failing line, named with the whole repository path: a migration that reads no statement is a
+      // gap a person can open, never a silent empty schema (madarch-mwhd.3 review 5).
+      const first = script.statements.find((statement) => statement.kind === 'other');
+      const line = first === undefined ? 1 : first.span.lineStart;
+      const detail = first === undefined ? 'the file holds no statement' : 'the statement is no CREATE, ALTER or INDEX this reader knows';
+      gaps.push({path: migration.path, reason: `${migration.path}:${line}: no table or column declaration could be read: ${detail}`});
     }
   }
 
@@ -691,6 +700,63 @@ function within(call: ResolvedCall, region: FunctionRegion): boolean {
   return call.site.byteStart >= region.span.byteStart && call.site.byteEnd <= region.span.byteEnd;
 }
 
+/** One migration the registry's series declare: its name, and the folder index the series stands at. */
+interface MigrationPlace {
+  readonly series: (typeof repositoryConventions.migrationSeries)[number];
+  readonly name: string;
+  /** The index of the series' folder among the path's segments. */
+  readonly at: number;
+}
+
+/** The series one path belongs to, read from the registry's entries: folder, parent, file and suffix. */
+function migrationSeriesOf(segments: readonly string[], file: string): MigrationPlace | undefined {
+  // The most specific series first: prisma's `<name>/migration.sql` stands inside a `migrations`
+  // folder too, and the folder that names its parent is the one that declares it.
+  const ordered = [...repositoryConventions.migrationSeries].sort((left, right) => Number(right.parent !== null) - Number(left.parent !== null));
+  for (const series of ordered) {
+    if (!file.endsWith(series.fileSuffix)) continue;
+    if (series.fileName !== null && file !== series.fileName) continue;
+    const at = segments.lastIndexOf(series.folder);
+    if (at < 0) continue;
+    if (series.parent !== null && segments[at - 1] !== series.parent) continue;
+    const name = series.nameFrom === 'file' ? file : segments[at + 1];
+    if (name === undefined || name === '') continue;
+    return {series, name, at};
+  }
+  return undefined;
+}
+
+/**
+ * Whether one `.sql` file declares tables, decided by the SQL parser's own statement kinds
+ * (repository-conventions.ts `schemaScripts`): a file that creates, alters or indexes a table is a
+ * schema wherever it stands; a file that only writes rows is a seed.
+ */
+async function declaresTables(path: string, tree: TreeReader): Promise<{kind: 'schema'} | {kind: 'script'} | {kind: 'unread'; gap: ExtractionGap}> {
+  const read = readUtf8(tree, path);
+  if (!read.ok) return {kind: 'unread', gap: {path, reason: read.reason}};
+  const kinds = new Set(repositoryConventions.schemaScripts.flatMap((entry) => (path.endsWith(entry.fileSuffix) ? entry.declaresTables : [])));
+  if (kinds.size === 0) return {kind: 'script'};
+  let parsed: ParseResult;
+  try {
+    parsed = await parsePostgres(read.text);
+  } catch (error) {
+    // The parser names its own position; the caller reports it with this file's path and line.
+    const bytes = new ByteText(read.text);
+    const details = error instanceof Error && 'sqlDetails' in error ? error.sqlDetails : undefined;
+    const cursor = typeof details === 'object' && details !== null && 'cursorPosition' in details && typeof details.cursorPosition === 'number' ? details.cursorPosition : 0;
+    const prefix = Array.from(read.text).slice(0, Math.max(0, cursor)).join('');
+    const line = bytes.lineOf(new TextEncoder().encode(prefix).length);
+    const message = error instanceof Error ? error.message : String(error);
+    return {kind: 'unread', gap: {path, reason: `${path}:${line}: PostgreSQL parse failed: ${message}`}};
+  }
+  for (const raw of parsed.stmts ?? []) {
+    const statement = raw.stmt as Record<string, unknown> | undefined;
+    if (statement === undefined) continue;
+    if (Object.keys(statement).some((key) => kinds.has(key))) return {kind: 'schema'};
+  }
+  return {kind: 'script'};
+}
+
 /** The last folder of a path, the name an unowned folder declares itself by. */
 function folderName(path: string): string {
   const trimmed = path.endsWith('/') ? path.slice(0, -1) : path;
@@ -745,7 +811,7 @@ function wholeFile(tree: TreeReader, path: string): SourceSpan {
 }
 
 /** Reads only explicit storage declarations; generic config files never imply a database. */
-async function collectStorageEvidence(tree: TreeReader, units: ReadonlyMap<string, ServiceUnit>, databases: Map<string, MergedDatabase>, gaps: ExtractionGap[], facts?: CodeFacts): Promise<void> {
+async function collectStorageEvidence(tree: TreeReader, units: UnitIndex, databases: Map<string, MergedDatabase>, gaps: ExtractionGap[], facts?: CodeFacts): Promise<void> {
   const serviceOf = (path: string): string | undefined => serviceOfPath(units, path);
   const spanAt = (path: string, text: string, start: number, end: number): SourceSpan => {
     const bytes = new ByteText(text);
@@ -811,7 +877,7 @@ async function collectStorageEvidence(tree: TreeReader, units: ReadonlyMap<strin
         // Associate only product services actually present in this tree, not
         // an arbitrary compose infrastructure service or image label.
         // A compose service is one this repository declares as a unit, by the name the unit declares.
-        if (![...units.values()].some((held) => held.name === name)) continue;
+        if (![...units.manifests.values(), ...units.others.values()].some((held) => held.name === name)) continue;
         const env = pair.value.get('environment', true);
         if (!isMap(env)) continue;
         for (const item of env.items) {
@@ -832,7 +898,7 @@ async function collectStorageEvidence(tree: TreeReader, units: ReadonlyMap<strin
 }
 
 /** Resolve environment reads only from the already copied lexical facts. */
-function collectEnvironmentReadEvidence(facts: CodeFacts, units: ReadonlyMap<string, ServiceUnit>, databases: Map<string, MergedDatabase>, gaps: ExtractionGap[]): void {
+function collectEnvironmentReadEvidence(facts: CodeFacts, units: UnitIndex, databases: Map<string, MergedDatabase>, gaps: ExtractionGap[]): void {
   const serviceOf = (path: string): string | undefined => serviceOfPath(units, path);
   const view = new CodeFactView(facts);
   const environment = new Map(environmentModels.map(model => [model.variable, model]));

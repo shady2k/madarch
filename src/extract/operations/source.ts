@@ -10,7 +10,7 @@ import type {
 } from '../code/facts.js';
 import {codeFactsOf} from '../code/index.js';
 import { evaluateLibraryModels } from '../library-models/evaluate.js';
-import { serviceOfPath, serviceUnits, unitIndex, unitOfPath, type ServiceUnit } from '../service-units.js';
+import { serviceOfPath, serviceUnits, unitIndex, unitOfPath, type ServiceUnit, type UnitIndex } from '../service-units.js';
 import type { LibraryEvaluation } from '../library-models/model.js';
 import type { FunctionSite } from './symbol-sites.js';
 
@@ -69,12 +69,12 @@ export class TreeText {
 
   readonly tree: TreeReader;
   private libraryCache: LibraryEvaluation | undefined;
-  private unitCache: ReadonlyMap<string, ServiceUnit> | undefined;
+  private unitCache: UnitIndex | undefined;
   readonly factGaps = new Map<string, { readonly path: string; readonly reason: string }>();
   factGap(path: string, reason: string): void { this.factGaps.set(JSON.stringify([path, reason]), {path, reason}); }
 
   /** The units the tree declares, read once: a service is what the repository says it is, never a folder shape. */
-  units(): ReadonlyMap<string, ServiceUnit> {
+  units(): UnitIndex {
     return this.unitCache ??= unitIndex(serviceUnits(this.tree));
   }
 
@@ -299,6 +299,6 @@ function utf8Length(bytes: Uint8Array, at: number): number | undefined {
 }
 
 /** The units one tree declares: read once per extractor run, not once per file. */
-export function declaredUnits(tree: TreeReader): ReadonlyMap<string, ServiceUnit> {
+export function declaredUnits(tree: TreeReader): UnitIndex {
   return unitIndex(serviceUnits(tree));
 }

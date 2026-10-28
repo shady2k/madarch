@@ -8,6 +8,7 @@ import { byCodePoint } from '../../model/order.js';
 import type { Records } from './accumulate.js';
 import type { EnvRead } from './env.js';
 import { TreeText } from './source.js';
+import { readGoMod } from '../../fill/stages/manifest-format.js';
 
 /** The Go imports a passport names: standard library packages the service runs on. */
 const GO_STDLIB_FRAMEWORKS: readonly string[] = ['database/sql', 'net/http'];
@@ -15,35 +16,29 @@ const GO_STDLIB_FRAMEWORKS: readonly string[] = ['database/sql', 'net/http'];
 /** The stack passport of every service that holds a manifest. */
 export function extractStack(t: TreeText, records: Records, envReads: ReadonlyMap<string, readonly EnvRead[]>): void {
   // The units the repository declares: each manifest is one service, named by what it says it is.
-  for (const unit of [...t.units().values()].sort((left, right) => byCodePoint(left.name, right.name) || byCodePoint(left.root, right.root))) {
+  for (const unit of [...t.units().manifests.values()].sort((left, right) => byCodePoint(left.name, right.name) || byCodePoint(left.root, right.root))) {
     const service = unit.name;
     const prefix = unit.root === '' ? '' : `${unit.root}/`;
-    const manifestPath = unit.manifestPath;
+    const manifestPath = unit.manifestPath!;
     const go = unit.ecosystem === 'go';
     const goMod = go ? manifestPath : '';
     const packageJson = go ? '' : manifestPath;
     const frameworks = new Set<string>();
     let testFramework: string | null = null;
     if (go) {
+      // The imports the parser copied, and the module's own direct requirements from the go.mod
+      // reader: never a pattern over a file's text (madarch-mwhd.3).
       const imports = new Set<string>();
-      for (const path of t.tree.paths) {
-        if (!path.startsWith(prefix) || !path.endsWith('.go')) continue;
-        for (const match of t.text(path).matchAll(/"([a-z0-9_./-]+)"/g)) {
-          const imported = match[1];
-          if (imported !== undefined) imports.add(imported);
-        }
+      for (const imported of t.facts?.imports ?? []) {
+        if (!imported.path.startsWith(prefix) || imported.path !== imported.span.path) continue;
+        imports.add(imported.specifier);
       }
       for (const stdlib of GO_STDLIB_FRAMEWORKS) {
         if (imports.has(stdlib)) frameworks.add(stdlib);
       }
-      // The frameworks a passport names: the standard library packages above
-      // and the module's own direct requirements, never every dotted string.
-      for (const line of t.lines(goMod)) {
-        const required = /^\s*(\S+)\s+(v\S+)(\s*\/\/\s*indirect)?\s*$/.exec(line) ?? /^require\s+(\S+)\s+(v\S+)/.exec(line);
-        if (required === null) continue;
-        if (required[3] !== undefined) continue;
-        frameworks.add(required[1] ?? '');
-      }
+      const manifest = readGoMod(t.text(goMod));
+      if (!manifest.ok) records.gap(goMod, `line ${manifest.gap.line}: the stack cannot be read: ${manifest.gap.detail}`);
+      for (const required of manifest.ok ? manifest.value.requires : []) frameworks.add(required.path);
       frameworks.delete('');
       testFramework = t.tree.paths.some((path) => path.startsWith(prefix) && path.endsWith('_test.go')) ? 'go test' : null;
     } else {

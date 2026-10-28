@@ -4,7 +4,7 @@ import type {CodeBindingFact, CodeCallFact, CodeExpressionFact, CodeFacts} from 
 import type {Extraction, ExtractionGap, SourceSpan} from '../records.js';
 
 import {outboxModels} from '../library-models/outbox-models.js';
-import {serviceOfPath, type ServiceUnit} from '../service-units.js';
+import {serviceOfPath, type UnitIndex} from '../service-units.js';
 import {libraryRegistry} from '../library-models/validate.js';
 
 type RecordNode = {[key: string]: unknown};
@@ -81,7 +81,7 @@ export interface OutboxPublication {span: SourceSpan; channel: string; evidence:
 export async function inferOutboxPublications(
   facts: CodeFacts | undefined, code: Extraction | undefined,
   candidates: readonly {span: SourceSpan; channel?: string; evidence: readonly SourceSpan[]}[],
-  units: ReadonlyMap<string, ServiceUnit>,
+  units: UnitIndex,
 ): Promise<{sites: OutboxPublication[]; gaps: ExtractionGap[]}> {
   const sites: OutboxPublication[] = []; const gaps: ExtractionGap[] = [];
   if (facts === undefined || code === undefined || !candidates.some(site => site.channel === undefined)) return {sites, gaps};

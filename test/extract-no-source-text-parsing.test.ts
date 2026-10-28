@@ -66,7 +66,7 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const GUARDED = 'src/extract';
 
 /** The shape a finding names, so a migration can count what it fixed. */
-type FindingKind = 'regex-test' | 'regex-exec' | 'text-search';
+type FindingKind = 'regex-test' | 'regex-exec' | 'regex-apply' | 'text-search';
 
 interface Finding {
   /** The repository-relative path of the file the construct stands in. */
@@ -111,6 +111,22 @@ const TEXT_ANSWERS: ReadonlySet<string> = new Set([
 
 /** The questions this rule refuses to ask of a node's text. */
 const TEXT_SEARCHES: ReadonlySet<string> = new Set(['includes', 'indexOf', 'lastIndexOf']);
+
+/**
+ * Every method that applies a pattern to the string it is called on: a file's whole text or a
+ * node's own text is repository text, and no reader may decide anything by matching a pattern to it.
+ */
+const REGEX_APPLICATIONS: ReadonlySet<string> = new Set(['match', 'matchAll', 'replace', 'replaceAll', 'search', 'split']);
+
+/**
+ * The reads that answer repository text: a `TreeText`'s whole file or its lines, a tree's bytes,
+ * the shared reader's text, and a decoder's answer. A value that holds one of these holds
+ * repository text, whatever the reader calls the variable.
+ */
+const REPOSITORY_TEXT_READS: ReadonlySet<string> = new Set(['text', 'lines', 'read', 'readUtf8', 'readFileSync', 'decode']);
+
+/** The array reads whose callback receives the elements of the list: of a text list, each element is text. */
+const TEXT_LISTS: ReadonlySet<string> = new Set(['filter', 'find', 'findIndex', 'flatMap', 'forEach', 'map', 'some', 'every']);
 
 /** The node types the project's code names a syntax node with, in a parameter annotation. */
 const NODE_TYPE_NAMES: ReadonlySet<string> = new Set(['Node', 'SyntaxNode']);
@@ -245,11 +261,15 @@ function isNodeText(expression: SyntaxNode | null, names: Names): boolean {
     case 'template_string':
       return named(expression).some((child) => child.type === 'template_substitution' && isNodeText(named(child)[0] ?? null, names));
     case 'call_expression': {
-      // `text.trim()`, `text.slice(0, 4)`: a string read answers text; a map lookup does not.
+      // `t.text(path)`, `tree.read(p)`, `readUtf8(...)`, `decoder.decode(bytes)`: a file's own characters.
       const called = expression.childForFieldName('function');
-      if (called === null || called.type !== 'member_expression') return false;
+      const named_ = calleeName(expression);
+      if (called === null || called.type !== 'member_expression') return named_ !== undefined && REPOSITORY_TEXT_READS.has(named_);
       const method = propertyOf(called);
-      if (method === undefined || !TEXT_ANSWERS.has(method)) return false;
+      if (method === undefined) return false;
+      if (REPOSITORY_TEXT_READS.has(method)) return true;
+      // `text.trim()`, `text.slice(0, 4)`: a string read answers text; a map lookup does not.
+      if (!TEXT_ANSWERS.has(method)) return false;
       if (isNodeText(objectOf(called), names)) return true;
       return named(expression.childForFieldName('arguments')).some((argument) => isNodeText(argument, names));
     }
@@ -290,6 +310,23 @@ function collectNames(root: SyntaxNode): Names {
       const pattern = node.childForFieldName('pattern');
       if (pattern !== null) names.nodes.add(pattern.text);
       return;
+    }
+    // A callback that receives the elements of a text list receives text: `t.lines(path).filter((line) => ...)`.
+    if (node.type === 'call_expression') {
+      const method = calleeName(node);
+      if (method !== undefined && TEXT_LISTS.has(method)) {
+        const object = objectOf(node.childForFieldName('function') as SyntaxNode);
+        if (isNodeText(object, names)) {
+          for (const argument of named(node.childForFieldName('arguments'))) {
+            if (argument.type !== 'arrow_function' && argument.type !== 'function_expression') continue;
+            for (const parameter of named(argument.childForFieldName('parameters'))) {
+              const name = parameter.type === 'identifier' ? parameter : null;
+              const pattern = name ?? parameter.childForFieldName('pattern');
+              if (pattern !== null && pattern.type === 'identifier') names.texts.add(pattern.text);
+            }
+          }
+        }
+      }
     }
     // A node handed to the project's own walk is a node, whether or not it is annotated.
     if (node.type !== 'call_expression' || calleeName(node) !== 'walkTree') return;
@@ -361,6 +398,13 @@ function findingsIn(parsed: ParsedSyntaxTree): readonly Finding[] {
     const object = objectOf(called);
     if (TEXT_SEARCHES.has(method)) {
       if (isNodeText(object, names)) findings.push(findingAt(node, 'text-search', parsed.path));
+      return;
+    }
+    if (REGEX_APPLICATIONS.has(method)) {
+      // `text.matchAll(/x/g)`, `text.replace(/x/, 'y')`, `text.split(/x/)`, `text.search(/x/)`: the
+      // pattern comes first, and the string it is applied to is repository text.
+      const [first] = named(node.childForFieldName('arguments'));
+      if (isNodeText(object, names) && isPattern(first ?? null, names)) findings.push(findingAt(node, 'regex-apply', parsed.path));
       return;
     }
     if (method !== 'test' && method !== 'exec') return;
@@ -448,7 +492,36 @@ function located(findings: readonly Finding[]): string {
  * entries no longer exists. It is empty when the migration is done, and then the guard is the
  * zero-finding check the change blocks CI on.
  */
-const PRESENT_DEBT: readonly string[] = [].sort(byCodePoint);
+const PRESENT_DEBT: readonly string[] = [
+  // The readers this migration has not reached yet (madarch-mwhd.3). Each entry is one construct the
+  // guard sees over a file's whole text — a file's own characters, never a node's, which the older
+  // rule already refused; the tree case fails when the list and the tree disagree in either direction,
+  // so a new pattern anywhere under src/extract turns this test red. The environment reader, the
+  // stack passport, the go.mod reader and the compose reader are migrated; the SQL access reader, the
+  // symbol-site reader and one contract reader are the remaining work.
+  'src/extract/contracts/ts-code.ts regex-apply',
+  'src/extract/data-model/access.ts regex-apply',
+  'src/extract/data-model/access.ts regex-apply',
+  'src/extract/data-model/access.ts regex-apply',
+  'src/extract/data-model/access.ts regex-apply',
+  'src/extract/data-model/access.ts regex-apply',
+  'src/extract/data-model/access.ts regex-apply',
+  'src/extract/data-model/access.ts regex-exec',
+  'src/extract/data-model/access.ts regex-exec',
+  'src/extract/data-model/access.ts regex-exec',
+  'src/extract/data-model/access.ts regex-exec',
+  'src/extract/data-model/access.ts regex-test',
+  'src/extract/data-model/access.ts regex-test',
+  'src/extract/data-model/access.ts regex-test',
+  'src/extract/operations/deploy.ts regex-exec',
+  'src/extract/operations/env.ts text-search',
+  'src/extract/operations/source.ts text-search',
+  'src/extract/operations/symbol-sites.ts regex-apply',
+  'src/extract/operations/symbol-sites.ts regex-apply',
+  'src/extract/operations/symbol-sites.ts regex-apply',
+  'src/extract/operations/symbol-sites.ts regex-exec',
+  'src/extract/operations/symbol-sites.ts regex-test',
+].sort(byCodePoint);
 
 describe('the source-text rule', () => {
   test('refuses the Go message read that re-read a receiver out of its text', async () => {
@@ -515,6 +588,47 @@ describe('the source-text rule', () => {
       '}',
     ]);
     expect(findings.map((entry) => `${entry.line} ${entry.kind}`)).toEqual(['3 regex-test']);
+  });
+
+  test('refuses a pattern applied to a whole file read from the tree', async () => {
+    // `/PHANTOM/.test(t.text(path))` and `t.text(path).match(...)`: the file's characters, not a node's.
+    const findings = await findingsOf([
+      'function scan(t: TreeText, path: string): boolean {',
+      '  return /PHANTOM/.test(t.text(path));',
+      '}',
+    ]);
+    expect(findings.map((entry) => `${entry.line} ${entry.kind}`)).toEqual(['2 regex-test']);
+  });
+
+  test('refuses every pattern application form over a whole file read', async () => {
+    // Each line is one shape a reader reached for during this migration; all of them are refused.
+    const findings = await findingsOf([
+      'function scan(t: TreeText, path: string, node: SyntaxNode): boolean {',
+      '  const text = t.text(path);',
+      '  void text.matchAll(/PHANTOM/g);',
+      "  void text.replace(/PHANTOM/g, 'x');",
+      '  void text.split(/PHANTOM/);',
+      '  void text.search(/PHANTOM/);',
+      "  void t.lines(path).filter((line) => /PHANTOM/.test(line));",
+      '  void new RegExp("PHANTOM").test(text);',
+      '  void node.text.matchAll(/PHANTOM/g);',
+      '  return false;',
+      '}',
+    ]);
+    expect(findings.map((entry) => `${entry.line} ${entry.kind}`)).toEqual([
+      '3 regex-apply', '4 regex-apply', '5 regex-apply', '6 regex-apply', '7 regex-test', '8 regex-test', '9 regex-apply',
+    ]);
+  });
+
+  test('allows structured tool output matched with a fixed pattern, and nothing else', async () => {
+    // A program's own output is not repository text: a `git log` line with a fixed format is the one
+    // shape the change allows a pattern to read (the extractor reads commits that way).
+    const findings = await findingsOf([
+      'function readLog(output: string): string[] {',
+      '  return output.split(";").filter((line) => /^[0-9a-f]{40}/.test(line));',
+      '}',
+    ]);
+    expect(findings).toEqual([]);
   });
 
   test('allows a node text handed to a diagnostic and measured, because nothing matches it', async () => {
