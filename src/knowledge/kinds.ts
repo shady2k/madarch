@@ -167,6 +167,8 @@ export interface KindsManifest {
   groups: ReadonlyMap<string, GroupDecl>;
   /** Markdown documents the wiki does not list as documents (harness files, say), as path patterns. */
   excludeDocuments: readonly string[];
+  /** Block kinds a document may hold without a page, named by the product: a fence, an html comment. */
+  ignoreBlocks: readonly string[];
   /**
    * The kinds the product expects its documents to hold (`documents.expect`). A kind that no
    * document section is read as is a finding naming the manifest's line: the wiki says what the
@@ -192,7 +194,7 @@ export function insideFolder(folder: string, path: string): boolean {
 }
 
 function nothing(file: string, findings: Finding[]): KindsManifest {
-  return { file, roles: new Map(), kinds: new Map(), groups: new Map(), excludeDocuments: [], expect: [], findings, unreadable: true };
+  return { file, roles: new Map(), kinds: new Map(), groups: new Map(), excludeDocuments: [], ignoreBlocks: [], expect: [], findings, unreadable: true };
 }
 
 /** Reads `madarch/kinds.yaml` of a product folder; absent when the product holds none. */
@@ -284,13 +286,21 @@ export function parseKinds(text: string, file: string, productFolder: string): K
     }
   }
   const excludeDocuments: string[] = [];
+  // Block kinds the product says hold no meaning of their own: a fence or an html comment is furniture, and the manifest
+  // names it rather than the reader guessing (the review of the eighth pass, finding 1).
+  const ignoredBlocks: string[] = [];
   const expected: ExpectedKind[] = [];
   const rawDocuments = top['documents'];
   if (rawDocuments !== undefined) {
     const body = rawDocuments as Record<string, unknown> | null;
     if (body === null || typeof body !== 'object' || Array.isArray(body)) findings.push({ file, line: at(['documents']), message: '"documents" is { exclude: [<path pattern>, ...], expect: [<kind>, ...] }' });
     else {
-      for (const key of Object.keys(body)) if (key !== 'exclude' && key !== 'expect') findings.push({ file, line: at(['documents', key]), message: `"${key}" is not a field of "documents": the fields are "exclude" and "expect"` });
+      for (const key of Object.keys(body)) if (key !== 'exclude' && key !== 'expect' && key !== 'ignore') findings.push({ file, line: at(['documents', key]), message: `"${key}" is not a field of "documents": the fields are "exclude", "expect" and "ignore"` });
+      const ignore = body['ignore'];
+      if (ignore !== undefined) {
+        if (!Array.isArray(ignore) || ignore.some((entry) => typeof entry !== 'string' || entry.trim() === '')) findings.push({ file, line: at(['documents', 'ignore']), message: '"ignore" is a list of block kinds a document may hold without a page, such as "code" or "html"' });
+        else ignoredBlocks.push(...(ignore as string[]));
+      }
       const exclude = body['exclude'];
       if (exclude !== undefined) {
         if (!Array.isArray(exclude) || exclude.some((entry) => typeof entry !== 'string' || entry.trim() === '')) findings.push({ file, line: at(['documents', 'exclude']), message: '"exclude" is a list of path patterns of documents the wiki does not list, such as "AGENTS.md" or "**/CHANGELOG.md"' });
@@ -307,7 +317,7 @@ export function parseKinds(text: string, file: string, productFolder: string): K
   const declared = top['kinds'];
   if (declared === null || typeof declared !== 'object' || Array.isArray(declared)) {
     findings.push({ file, line: at(['kinds']), message: '"kinds" is a mapping of kind names to their declarations' });
-    return { ...nothing(file, findings), groups, roles, excludeDocuments };
+    return { ...nothing(file, findings), groups, roles, excludeDocuments, ignoreBlocks: ignoredBlocks };
   }
   const kinds = new Map<string, KindDecl>();
   for (const [name, value] of Object.entries(declared as Record<string, unknown>)) {
@@ -444,7 +454,7 @@ export function parseKinds(text: string, file: string, productFolder: string): K
     }
     return true;
   });
-  return { file, roles, kinds, groups, excludeDocuments, expect: wanted, findings, ...(language === undefined ? {} : { language }), ...(diagram === undefined ? {} : { diagram }) };
+  return { file, roles, kinds, groups, excludeDocuments, ignoreBlocks: ignoredBlocks, expect: wanted, findings, ...(language === undefined ? {} : { language }), ...(diagram === undefined ? {} : { diagram }) };
 }
 
 /**

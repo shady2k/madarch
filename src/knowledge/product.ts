@@ -1732,7 +1732,7 @@ export class KnowledgeProduct {
     if ('message' in product) throw new WikiReadError(product.message);
     // Listing the documents writes nothing: a product with no manifest has no pages of kinds and no excluded files.
     const read = readKinds(product.folder);
-    const manifest: KindsManifest = read.present ? read.manifest : { file: read.file, roles: new Map(), kinds: new Map(), groups: new Map(), excludeDocuments: [], findings: [] };
+    const manifest: KindsManifest = read.present ? read.manifest : { file: read.file, roles: new Map(), kinds: new Map(), groups: new Map(), excludeDocuments: [], ignoreBlocks: [], findings: [] };
     const documents: DocumentRef[] = [];
     const truncated: DocumentListing['truncated'] = [];
     // The product's own pages (the files of its Markdown kinds) are entity pages, and the manifest names the harness files that are no product document.

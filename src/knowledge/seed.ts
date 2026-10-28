@@ -370,6 +370,10 @@ function kindsManifest(): string {
     // The document kinds the wiki says the documents hold: one that no section of any document is read as is a finding, so a
     // product without user stories or quality requirements says so instead of showing a smaller wiki (decision 0032, section 4).
     "  expect: [doc.use-case, doc.rule, doc.requirement, doc.decision]",
+    // A fence, an html comment, a rule line and a link definition are a document's furniture: the product names them as
+    // blocks that hold no meaning of their own, so the reader can ignore them by a rule instead of guessing (decision
+    // 0032 section 4; the review of the eighth pass).
+    "  ignore: [code, html, thematicBreak, definition]",
     "roles:",
     ...ROLES.map((role) => `  ${role.name}: { lead: [${role.lead.join(', ')}], open: [${role.open.join(', ')}] }`),
     "kinds:",

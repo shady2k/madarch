@@ -244,6 +244,33 @@ function leafWords(node: DocNode): string {
   return node.raw;
 }
 
+/**
+ * Where an identifier ends in the source that writes it: the decoded text (`BR-1`) may be spelled with escapes or
+ * character references (`BR\-1`, `BR&#45;1`), so the end is found by decoding the source one character at a time until
+ * it spells the identifier. The body is then cut at a source offset, never at a decoded length (the review of the
+ * eighth pass, finding 2).
+ */
+function identifierSourceEnd(source: string, identifier: string): number {
+  let decoded = '';
+  for (let at = 0; at < source.length; at += 1) {
+    const char = source[at]!;
+    let piece = char;
+    if (char === '\\' && at + 1 < source.length) { piece = source[at + 1]!; at += 1; }
+    else if (char === '&' && source[at + 1] === '#') {
+      const close = source.indexOf(';', at);
+      if (close > at) {
+        const body = source.slice(at + 2, close);
+        const code = body.startsWith('x') || body.startsWith('X') ? Number.parseInt(body.slice(1), 16) : Number.parseInt(body, 10);
+        if (Number.isFinite(code)) { piece = String.fromCodePoint(code); at = close; }
+      }
+    }
+    decoded += piece;
+    if (decoded === identifier) return at + 1;
+    if (!identifier.startsWith(decoded)) return -1;
+  }
+  return -1;
+}
+
 /** The words a listing calls a passage: up to its first sentence end or its first colon. */
 function firstWords(text: string): string {
   const plain = flat(text);
@@ -273,9 +300,11 @@ function bodyOf(block: DocNode): string {
     if (bold !== undefined) return trimSeparator(paragraph.raw.slice(bold.endOffset - paragraph.startOffset)).trim();
     const wire = openingText(paragraph);
     if (wire === undefined) return trimSpaces(block.raw).trim();
-    // The identifier and the body share one text node, so the span ends where the identifier ends inside it.
-    const end = wire.startOffset - paragraph.startOffset + identifier.length;
-    return trimSeparator(paragraph.raw.slice(end)).trim();
+    // The identifier and the body share one text node, so the span ends where the identifier ends inside it — found by
+    // decoding the source, because the same identifier may be written `BR\-1` or `BR&#45;1`.
+    const end = identifierSourceEnd(wire.raw, identifier);
+    if (end < 0) return trimSpaces(block.raw).trim();
+    return trimSeparator(paragraph.raw.slice(wire.startOffset - paragraph.startOffset + end)).trim();
   }
   const paragraph = openingParagraph(block);
   if (paragraph === undefined) return block.children.map((child) => child.raw.trimEnd()).join('\n').trim();
@@ -453,10 +482,11 @@ export function readDocEntities(sources: readonly DocumentSource[], manifest: Ki
       // A block that holds text of its own and opens with an identifier a person meant to be read — a rule written in a
       // table row or a code fence — is no passage a kind decides, and it is not silent either: the reader says so, with
       // its line. Ordinary furniture (an html comment, a plain fence) names nothing, so it is not a lost passage.
+      // Every block has a disposition: read as a passage, reported here, or ignored by a rule the product names in its own
+      // manifest (`documents.ignore`). No block is dropped without one of the three (the review of the eighth pass).
       for (const leaf of sectionLeaves(section)) {
-        const named = namedLeaf(leaf);
-        if (named === null) continue;
-        report(leaf.line, `this block holds text no kind of the manifest reads: ${quote(firstWords(named))}`, 'unread-passage');
+        if (manifest.ignoreBlocks.includes(leaf.type)) continue;
+        report(leaf.line, `this block holds text no kind of the manifest reads: ${quote(firstWords(namedLeaf(leaf) ?? leafWords(leaf)))}`, 'unread-passage');
       }
     }
     // A number names one section: a second section with the same anchor has no page, and the finding says where the first is.

@@ -614,9 +614,38 @@ describe('what the seventh review found', () => {
     // Every block is either an entity or a finding, and the quoted rule is an entity.
     // Every block of the document is answered: an entity where a kind reads it, a finding where none does.
     expect(unread.length + read.entities.length).toBeGreaterThanOrEqual(6);
-    // The quoted paragraph is a passage; the code fence, the html and the table are answered only when they name an
-    // identifier a person meant to be read, which is what `BR-9` in a fence does.
-    expect(read.findings.some((finding) => finding.kind === 'unread-passage' && finding.line === 9)).toBe(true);
+    // Every block has one disposition: read as a passage, reported as a finding, or ignored by a rule the product names.
+    // This manifest names no ignore rule, so nothing is ignored here: each block is either an entity or a finding.
+    const answered = new Set([...read.entities.map((entity) => entity.line), ...read.findings.map((finding) => finding.line)]);
+    for (const line of [3, 5, 7, 9, 13, 15, 17]) expect([...answered]).toContain(line);
+    expect(read.findings.every((finding) => finding.line > 0)).toBe(true);
     expect(read.findings.every((finding) => typeof finding.line === 'number')).toBe(true);
+  });
+});
+
+describe('what the eighth review found', () => {
+  const manifest = (): KindsManifest => parse([
+    'kinds:',
+    '  doc.rule: { template: templates/x.md, source: document, identifier: BR, semantics: rule }',
+    'documents:',
+    '  ignore: [code, html, thematicBreak, definition]',
+  ]);
+
+  test('an escaped identifier is cut at its source end, not at its decoded length', () => {
+    const text = '# Rules\n\nBR\\-1 Never charge twice.\n';
+    const read = readDocEntities([{ repo: null, path: 'docs/requirements.md', text }], manifest());
+    expect(read.entities.map((entity) => [entity.identifier, entity.text])).toEqual([['BR-1', 'Never charge twice.']]);
+  });
+
+  test('a character reference in the identifier is cut the same way', () => {
+    const text = '# Rules\n\nBR&#45;2 Never refund twice.\n';
+    const read = readDocEntities([{ repo: null, path: 'docs/requirements.md', text }], manifest());
+    expect(read.entities.map((entity) => [entity.identifier, entity.text])).toEqual([['BR-2', 'Never refund twice.']]);
+  });
+
+  test('a table is answered even when its row names no identifier', () => {
+    const text = '# Rules\n\n| Never charge twice. |\n| --- |\n';
+    const read = readDocEntities([{ repo: null, path: 'docs/requirements.md', text }], manifest());
+    expect(read.findings.map((finding) => [finding.kind, finding.line])).toEqual([['unread-passage', 3]]);
   });
 });
