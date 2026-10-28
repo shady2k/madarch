@@ -598,13 +598,14 @@ describe('what the seventh review found', () => {
     expect(read.entities.map((entity) => [entity.identifier, entity.text])).toEqual([['BR-1', 'Never charge twice.']]);
   });
 
-  test('a rule written in a table cell is reported, never lost', () => {
-    // A table's cells hold phrasing, not paragraphs, so the row is no passage a kind decides; the reader says it could
-    // not decide it, with the table's line, instead of dropping it (the review of the seventh pass, finding 2).
+  test('a rule written in a table row is a passage, and the row that names the columns is not read as one', () => {
+    // A row is a passage whose naming cell comes first and whose body is the cells after it; the first row of a table
+    // with more than one names the columns (the review of the tenth pass, which replaced the seventh's finding-only
+    // answer for a table).
     const text = '# Rules\n\n| Rule | Text |\n| --- | --- |\n| BR-1 | Never charge twice. |\n';
     const read = readDocEntities([{ repo: null, path: 'docs/requirements.md', text }], manifest());
-    expect(read.entities).toEqual([]);
-    expect(read.findings.map((finding) => [finding.kind, finding.line])).toEqual([['unread-passage', 3]]);
+    expect(read.entities.map((entity) => [entity.identifier, entity.text])).toEqual([['BR-1', 'Never charge twice.']]);
+    expect(read.findings).toEqual([]);
   });
 
   test('every block type a document can hold is reached: none vanishes without a finding', () => {
@@ -686,16 +687,6 @@ describe('what the ninth review found', () => {
     expect(after.entities[0]!.anchor).toBe('br-2');
   });
 
-  test('a table row is no passage in either numbering: renumbering it mints no identity and leaves the same finding', () => {
-    // A table's cells hold phrasing, so no kind decides a row (the seventh review). Renumbering one therefore changes
-    // nothing that could carry an identity, and the reader says the same thing about it.
-    const before = '# Rules\n\n| BR-1 | Never charge twice. |\n| --- | --- |\n';
-    const first = readDocEntities([{ repo: null, path: 'docs/requirements.md', text: before }], manifest());
-    const after = readDocEntities([{ repo: null, path: 'docs/requirements.md', text: before.replace('BR-1', 'BR-2') }], manifest(), { identities: first.identities });
-    expect([first.entities, after.entities]).toEqual([[], []]);
-    expect(after.findings.map((finding) => [finding.kind, finding.line])).toEqual(first.findings.map((finding) => [finding.kind, finding.line]));
-  });
-
   test('an emphasized or escaped lowercase identifier names its rule', () => {
     for (const text of ['# Rules\n\n*BR-1* Never charge twice.\n', '# Rules\n\nbr\\-1 Never charge twice.\n']) {
       const read = readDocEntities([{ repo: null, path: 'docs/requirements.md', text }], manifest());
@@ -708,5 +699,53 @@ describe('what the ninth review found', () => {
     const read = readDocEntities([{ repo: null, path: 'docs/requirements.md', text }], parse(['kinds:', '  doc.rule: { template: templates/x.md, source: document, semantics: rule }', 'documents:', '  ignore: [code, html, thematicBreak, definition]']), { classifier: fakeClassifier({}) });
     const unread = read.findings.filter((finding) => finding.kind === 'unread-passage').map((finding) => finding.line);
     expect(unread).toEqual([3, 5]);
+  });
+});
+
+describe('what the tenth review found', () => {
+  // A rule written in any container mdast knows, its identifier spelled in any of the ways a person writes it: one
+  // entity, the words after the identifier as its body, and the same page after the number changes.
+  const manifest = (): KindsManifest => parse([
+    'kinds:',
+    '  doc.rule: { template: templates/x.md, source: document, identifier: BR, semantics: rule }',
+    'documents:',
+    '  ignore: [code, html, thematicBreak, definition]',
+  ]);
+  const body = 'Never charge twice.';
+  const markups: [string, (number: number) => string][] = [
+    ['plain', (number) => `BR-${number}`],
+    ['bold', (number) => `**BR-${number}**`],
+    ['emphasis on part', (number) => `BR-*${number}*`],
+    ['an escaped dash', (number) => `BR\\-${number}`],
+    ['a character reference', (number) => `BR&#45;${number}`],
+    ['lower case and escaped', (number) => `br\\-${number}`],
+  ];
+  const containers: [string, (named: string) => string][] = [
+    ['a top-level list item', (named) => `# Rules\n\n- ${named} ${body}\n`],
+    ['a list item nested under another', (named) => `# Rules\n\n- Payment safety:\n  - ${named} ${body}\n`],
+    ['a quote', (named) => `# Rules\n\n> ${named} ${body}\n`],
+    ['a table row', (named) => `# Rules\n\n| Rule | Text |\n| --- | --- |\n| ${named} | ${body} |\n`],
+    ['a footnote paragraph', (named) => `# Rules\n\nSee:[^1]\n\n[^1]: ${named} ${body}\n`],
+  ];
+
+  for (const [container, document] of containers) {
+    for (const [markup, spell] of markups) {
+      test(`a rule written as ${container}, its identifier ${markup}, is one entity, and its page survives a renumbering`, () => {
+        const first = readDocEntities([{ repo: null, path: 'docs/requirements.md', text: document(spell(1)) }], manifest());
+        const rule = first.entities.find((entity) => entity.kind === 'doc.rule');
+        expect(rule).toBeDefined();
+        expect([rule!.identifier, rule!.text, rule!.anchor]).toEqual(['BR-1', body, 'br-1']);
+        const after = readDocEntities([{ repo: null, path: 'docs/requirements.md', text: document(spell(2)) }], manifest(), { identities: first.identities });
+        const renumbered = after.entities.find((entity) => entity.kind === 'doc.rule');
+        expect(renumbered).toBeDefined();
+        expect(renumbered!.stableId).toBe(rule!.stableId);
+        expect([renumbered!.identifier, renumbered!.text, renumbered!.anchor]).toEqual(['BR-2', body, 'br-2']);
+      });
+    }
+  }
+
+  test('a character reference no code point holds is literal text, never a crash', () => {
+    const read = readDocEntities([{ repo: null, path: 'docs/requirements.md', text: '# Rules\n\nBR-1 Never emit &#x110000;.\n' }], manifest());
+    expect(read.entities.map((entity) => [entity.identifier, entity.text])).toEqual([['BR-1', 'Never emit \uFFFD.']]);
   });
 });

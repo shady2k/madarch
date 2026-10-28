@@ -43,11 +43,39 @@ navigates by — the product's path, or `repos/`, the repository's name and the
 document's path — and, where the reader knows it, the absolute path of the file
 on this machine.
 
+A passage shall be every block a kind may decide, found by one recursive walk of
+the tree: a paragraph (a quote's or a footnote's as well as the section's own), a
+list item — an item nested under another is a passage of its own — and a table
+row, whose naming is read from its first cell and whose body is the cells after
+it. A table's first row, when the table holds more than one, names its columns and
+is no passage. Every other block shall be a leaf that holds text no kind reads
+(code, HTML, a thematic line), and a block kind the product names in
+`documents.ignore` shall be furniture no reader reports.
+
+An identifier's text shall be the parser's own decoded values of the inline nodes
+that carry it, never a source decoded a second time: an escaped dash and a
+character reference are one character each in the node's value, and a reference no
+code point holds is literal text. The span that names a passage shall be cut from
+the source the parser gave it — the bold phrase that names it whole, or the marks
+that close on the identifier (`**BR-1**`, the emphasis of `BR-*1*`) — so the body
+is the words after the name and nothing of the mark survives.
+
 The conventions a document is read by shall be the product's data in its manifest
 — which kinds exist, the identifier prefixes a kind takes, the documents whose
 leading bold words are terms, the headings whose sections are entities of a kind,
-the general kind a passage means and the sections a kind holds — and the engine
-shall name no heading, prefix or word of any document.
+the general kind a passage means, the sections a kind holds and the block kinds
+that hold no passage — and the engine shall name no heading, prefix or word of any
+document.
+
+### Scenario: a-row-and-a-nested-item-are-passages
+- Given: a section holding a table row whose first cell names `BR-1` and a list item nested under another item that names `BR-2`
+- When: the section is read
+- Then: each is an entity with its identifier and the words after it as its body (`Never charge twice.` in both), the row's body being the cells after its naming cell, and the outer item is a passage of its own beside the item nested under it
+
+### Scenario: an-identifier-is-the-parsers-text
+- Given: a rule whose identifier is written with an escaped dash, with a character reference, in lower case, in bold, with the emphasis on part of it, and a document holding a character reference no code point has
+- When: the document is read
+- Then: every spelling names the same identifier and leaves the same body behind, and the reference no code point holds is literal text, never a crash
 
 ### Scenario: ranges-are-exact
 - Given: the training repository's requirements document, whose second use case is a list item over lines 8 to 10

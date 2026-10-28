@@ -25,7 +25,7 @@
 import { byCodePoint } from '../model/order.js';
 import { anchorExtent, anchorsOfTree, identifierOf, slugOf } from './anchors.js';
 import { assignIdentities, documentKey, type DocIdentities, type DocumentIdentities, type SectionIdentity } from './doc-identities.js';
-import { boldLead, leadText, openingParagraph, readDocTree, sectionBlocks, sectionLeaves, type DocNode, type DocSection, type DocumentSource } from './doc-tree.js';
+import { boldLead, leadText, namingContainer, namingInline, namingText, openingParagraph, readDocTree, sectionBlocks, sectionLeaves, type DocNode, type DocSection, type DocumentSource } from './doc-tree.js';
 import { globToRegExp, type Finding, type FindingKind, type KindDecl, type KindsManifest } from './kinds.js';
 import { normaliseHeading, type PassageRequest, type PassageReading, type SemanticClassifier, type SemanticKind } from './semantics.js';
 
@@ -244,73 +244,39 @@ function leafWords(node: DocNode): string {
   return node.raw;
 }
 
-/** One character of a passage's text, where its source spelling ends, and the inline node whose marks close on it. */
-interface InlineChar {
-  readonly char: string;
-  /** The document offset just past this character's spelling (`1` of `BR\-1` ends after the escape's character). */
-  readonly end: number;
-  /** The bold phrase, emphasis or code span whose closing marks follow this character, when one does. */
-  readonly closes: DocNode | null;
-}
-
 /**
- * The characters a paragraph spells, in order, each with the document offset its source spelling ends at. The source is
- * decoded one spelling at a time — a backslash escape (`BR\-1`) and a character reference (`BR&#45;1`) spell one
- * character each — so a body is cut at a source offset and never at a decoded length (the review of the eighth pass).
+ * The identifier a passage opens with, and the text that follows its naming span. Both are read from the mdast nodes
+ * themselves — their decoded values, in order, and the source of the nodes that follow — so nothing decodes a document's
+ * source a second time: an escaped dash (`BR\-1`) and a character reference (`BR&#45;1`) are already one character in the
+ * node's value, and a reference the parser leaves literal is literal text that cannot crash the reader.
+ *
+ * Where the identifier ends inside one node, the rest of THAT node's decoded text opens the body; a node whose text the
+ * identifier ends on is dropped whole, so the marks that close it (`**BR-1**`, the emphasis of `BR-*1*`) go with it.
  */
-function inlineChars(paragraph: DocNode): InlineChar[] {
-  const chars: InlineChar[] = [];
-  const walk = (node: DocNode, closing: DocNode | null): void => {
-    if (node.children.length > 0) {
-      const marks = node.type === 'strong' || node.type === 'emphasis' || node.type === 'inlineCode' ? node : closing;
-      for (const child of node.children) walk(child, marks);
-      return;
-    }
-    if (node.type === 'inlineCode') {
-      // A code span's own marks are not part of its text: `` `BR-1` `` spells `BR-1`, and its text ends at the backtick.
-      const text = node.plain;
-      for (let index = 0; index < text.length; index += 1) chars.push({ char: text[index]!, end: node.startOffset + index + 2, closes: node });
-      return;
-    }
-    const raw = node.raw;
-    for (let at = 0; at < raw.length; at += 1) {
-      const char = raw[at]!;
-      let piece = char;
-      if (char === '\\' && at + 1 < raw.length) { piece = raw[at + 1]!; at += 1; }
-      else if (char === '&' && raw[at + 1] === '#') {
-        const close = raw.indexOf(';', at);
-        if (close > at) {
-          const body = raw.slice(at + 2, close);
-          const hex = body.startsWith('x') || body.startsWith('X');
-          const code = Number.parseInt(hex ? body.slice(1) : body, hex ? 16 : 10);
-          if (Number.isFinite(code)) { piece = String.fromCodePoint(code); at = close; }
-        }
-      }
-      chars.push({ char: piece, end: node.startOffset + at + 1, closes: closing });
-    }
-  };
-  walk(paragraph, null);
-  return chars;
-}
-
-/**
- * The identifier a passage opens with and where its naming span ends in the document's source, read across the inline
- * nodes that carry it: `BR-1`, `br\-1`, `BR&#45;1`, `**BR-1**` and `*BR-1*` all name one identifier, and the span ends after
- * the marks that close it. The identifier is compared without its case (the seventh, eighth and ninth reviews).
- */
-function naming(paragraph: DocNode): { identifier: string; end: number } | null {
-  const chars = inlineChars(paragraph);
-  const text = chars.map((entry) => entry.char).join('');
-  // The same shape a ground names (`anchors.ts`), read from the decoded text so case, escapes and references agree.
-  const identifier = identifierOf(text);
+function namingOf(passage: DocNode): { identifier: string; tail: string } | null {
+  const container = namingContainer(passage);
+  const inline = namingInline(passage);
+  const identifier = identifierOf(inline.map((node) => node.plain).join(''));
   if (identifier === null) return null;
-  const last = chars[identifier.length - 1];
-  if (last === undefined) return null;
-  const name = text.slice(0, identifier.length);
-  // A bold phrase, emphasis or code span that closes on the identifier's last character is part of the naming span.
-  const closing = last.closes;
-  const end = closing !== null && flat(closing.plain) === name ? Math.max(last.end, closing.endOffset) : last.end;
-  return { identifier, end };
+  // The source after one inline node: the whole rest of the naming container, so the whitespace and marks BETWEEN nodes
+  // are kept as the document writes them (a line's indentation before a code span is nobody's node).
+  const after = (node: DocNode | undefined): string => {
+    if (container === undefined) return '';
+    const end = node === undefined ? container.endOffset : node.endOffset;
+    return container.raw.slice(Math.max(0, end - container.startOffset));
+  };
+  const lead = inline[0];
+  // A bold phrase at the start names the passage — its identifier and its name together — so the whole phrase is the
+  // naming span (`**UC-1 Place order.**`, `**BR-1**`).
+  if (lead !== undefined && lead.type === 'strong') return { identifier, tail: after(lead) };
+  let seen = 0;
+  for (const node of inline) {
+    const length = node.plain.length;
+    if (seen + length < identifier.length) { seen += length; continue; }
+    const within = identifier.length - seen;
+    return { identifier, tail: within < length ? node.plain.slice(within) + after(node) : after(node) };
+  }
+  return null;
 }
 
 /** The words a listing calls a passage: up to its first sentence end or its first colon. */
@@ -330,33 +296,35 @@ function firstWords(text: string): string {
 }
 
 /**
- * The text of a passage without the span that names it: a bold phrase names a term or a rule, and an identifier a passage
- * opens with is an alias. The cut is made at the document offset the AST gives the naming span, so `**BR-1**`, `BR\-1`,
- * `BR&#45;1` and `*BR-1*` all leave the same words behind — and a renumbered passage keeps the digest its page was minted
- * for (the seventh, eighth and ninth reviews).
+ * The text of a passage without the span that names it: a bold phrase names a term, and an identifier a passage opens
+ * with is an alias, so a renumbered passage keeps the digest its page was minted for. A table row's body is the cells
+ * after the naming cell (the seventh, eighth, ninth and tenth reviews).
  */
-function bodyOf(block: DocNode): string {
-  const paragraph = openingParagraph(block);
-  if (paragraph === undefined) return block.children.map((child) => child.raw.trimEnd()).join('\n').trim();
-  const rest = block.type === 'listItem' ? block.children.filter((child) => child !== paragraph).map((child) => child.raw.trimEnd()) : [];
-  const bold = boldLead(block);
-  if (bold !== undefined) {
-    return [trimSeparator(trimSpaces(paragraph.raw.slice(bold.endOffset - paragraph.startOffset))), ...rest].join('\n').trim();
+function bodyOf(passage: DocNode): string {
+  if (passage.type === 'tableRow') {
+    const named = namingOf(passage);
+    const cells = passage.children.slice(1).map((cell) => flat(cell.plain)).filter((cell) => cell !== '');
+    return [trimSeparator(trimSpaces(named?.tail ?? '')), ...cells].filter((part) => part !== '').join(' ').trim();
   }
-  const named = naming(paragraph);
-  const cut = named === null ? 0 : Math.max(0, Math.min(paragraph.raw.length, named.end - paragraph.startOffset));
-  return [trimSeparator(trimSpaces(paragraph.raw.slice(cut))), ...rest].join('\n').trim();
+  const paragraph = openingParagraph(passage);
+  if (paragraph === undefined) return passage.children.map((child) => child.raw.trimEnd()).join('\n').trim();
+  const rest = passage.type === 'listItem' ? passage.children.filter((child) => child !== paragraph).map((child) => child.raw.trimEnd()) : [];
+  const named = namingOf(passage);
+  if (named !== null) return [trimSeparator(trimSpaces(named.tail)), ...rest].join('\n').trim();
+  const bold = boldLead(passage);
+  if (bold !== undefined) return [trimSeparator(trimSpaces(paragraph.raw.slice(bold.endOffset - paragraph.startOffset))), ...rest].join('\n').trim();
+  return [trimSeparator(trimSpaces(paragraph.raw)), ...rest].join('\n').trim();
 }
 
 /** What a listing calls the block: its bold phrase, the identifier and its name, or the words of its first sentence. */
 function titleOf(block: DocNode, identifier: string | null): string {
   const bold = boldLead(block);
   if (identifier !== null) {
-    const phrase = bold?.plain ?? leadText(block);
+    const phrase = bold?.plain ?? namingText(block);
     return `${identifier} ${nameAfter(phrase, identifier)}`.trim();
   }
   if (bold !== undefined) return trimEnd(flat(bold.plain)).trim();
-  return firstWords(leadText(block));
+  return firstWords(namingText(block));
 }
 
 /** The anchors that name a block, in the order the anchor reader met them. */
@@ -438,7 +406,7 @@ export function readDocEntities(sources: readonly DocumentSource[], manifest: Ki
       const byHeading = section.heading === null ? undefined : kinds.find((kind) => kind.headings?.some((heading) => normaliseHeading(heading) === normaliseHeading(section.heading!.plain)));
       const pending: DocNode[] = [];
       for (const block of sectionBlocks(section)) {
-        const lead = leadText(block);
+        const lead = namingText(block);
         const identifier = identifierOf(lead);
         const byIdentifier = identifier === null ? undefined : kindOfIdentifier(kinds, identifier);
         const bold = boldLead(block) !== undefined;
@@ -475,7 +443,10 @@ export function readDocEntities(sources: readonly DocumentSource[], manifest: Ki
           continue;
         }
         for (const passage of readings) {
-          const block = pending.find((candidate) => passage.line >= candidate.line && passage.endLine <= candidate.endLine);
+          // The innermost passage that holds the reading: a list item contains the item nested under it.
+          const block = pending
+            .filter((candidate) => passage.line >= candidate.line && passage.endLine <= candidate.endLine)
+            .sort((one, other) => (one.endLine - one.line) - (other.endLine - other.line))[0];
           const span = block === undefined ? null : passageOf(block, passage, lines);
           if (block === undefined || span === null) {
             report(passage.line, `the classifier read a ${passage.kind} here, and the passage it names is not a passage of this section: no page shows it`);
@@ -491,7 +462,7 @@ export function readDocEntities(sources: readonly DocumentSource[], manifest: Ki
             report(passage.line, `this passage is a ${passage.kind} and the manifest declares no kind with "semantics: ${passage.kind}", so no page shows it`);
             continue;
           }
-          const identifier = identifierOf(leadText(block));
+          const identifier = identifierOf(namingText(block));
           const anchor = anchorsOfBlock(block, identifier, place);
           if (anchor === undefined) {
             report(passage.line, `the ${passage.kind} this classifier read has no anchor a link could name, so no page shows it`);

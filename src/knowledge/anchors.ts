@@ -18,7 +18,7 @@
  * holds (see `anchorExtent()`).
  */
 import { byCodePoint } from '../model/order.js';
-import { boldLead, leadText, readDocTree, sectionBlocks, walkNodes, type DocNode, type DocSection, type DocTree } from './doc-tree.js';
+import { boldLead, namingText, readDocTree, sectionBlocks, walkNodes, type DocNode, type DocSection, type DocTree } from './doc-tree.js';
 
 const LETTER = (code: number): boolean => (code >= 0x41 && code <= 0x5a) || (code >= 0x61 && code <= 0x7a);
 const DIGIT = (code: number): boolean => code >= 0x30 && code <= 0x39;
@@ -156,7 +156,7 @@ export function anchorsOfTree(tree: DocTree): AnchorReading {
       if (identifier !== null) add(identifier.toLowerCase(), node);
       return;
     }
-    const lead = leadText(node);
+    const lead = namingText(node);
     const identifier = identifierOf(lead);
     if (identifier !== null) { add(identifier.toLowerCase(), node); return; }
     const label = labelOf(lead);
@@ -176,7 +176,7 @@ export function anchorsOfTree(tree: DocTree): AnchorReading {
         if (identifier !== null) add(identifier.toLowerCase(), block);
         continue;
       }
-      const lead = leadText(block);
+      const lead = namingText(block);
       const identifier = identifierOf(lead);
       if (identifier !== null) { add(identifier.toLowerCase(), block); continue; }
       const label = labelOf(lead);

@@ -30,7 +30,7 @@ export interface DocumentSource {
 }
 
 /** The block kinds a section is made of; anything else is `other`. */
-export type DocNodeType = 'heading' | 'paragraph' | 'list' | 'listItem' | 'code' | 'blockquote' | 'table' | 'html' | 'thematicBreak' | 'definition'
+export type DocNodeType = 'heading' | 'paragraph' | 'list' | 'listItem' | 'code' | 'blockquote' | 'table' | 'tableRow' | 'tableCell' | 'html' | 'thematicBreak' | 'definition'
   | 'strong' | 'emphasis' | 'text' | 'inlineCode' | 'other';
 
 /** One node of a document's tree. */
@@ -87,7 +87,7 @@ const PARSER = unified().use(remarkParse).use(remarkGfm);
 
 const TYPES = new Map<string, DocNodeType>(Object.entries({
   heading: 'heading' as const, paragraph: 'paragraph' as const, list: 'list' as const, listItem: 'listItem' as const,
-  code: 'code' as const, blockquote: 'blockquote' as const, table: 'table' as const, html: 'html' as const,
+  code: 'code' as const, blockquote: 'blockquote' as const, table: 'table' as const, tableRow: 'tableRow' as const, tableCell: 'tableCell' as const, html: 'html' as const,
   thematicBreak: 'thematicBreak' as const, definition: 'definition' as const,
   strong: 'strong' as const, emphasis: 'emphasis' as const, text: 'text' as const, inlineCode: 'inlineCode' as const,
 }));
@@ -249,41 +249,64 @@ export function walkNodes(nodes: readonly DocNode[], visit: (node: DocNode) => v
   }
 }
 
-/** The blocks a section holds itself, in document order: the top-level items of its lists, and its paragraphs. */
-export function sectionBlocks(section: DocSection): DocNode[] {
-  const blocks: DocNode[] = [];
-  // Every block type mdast knows is reached: a container (a list, a quote, a table row's cell, a footnote definition) is
-  // walked to the passages it holds, so a rule a person wrote in a quote or a table cell is read rather than
-  // disappearing (the review of the sixth and seventh passes).
+/** What a section holds: the passages a kind may decide, and the leaves that hold text no kind reads. */
+export interface SectionWalk {
+  /**
+   * A passage, in document order: a paragraph (a quote's or a footnote's too), a list item — an item nested under another
+   * is a passage of its own — and a table row.
+   */
+  readonly passages: DocNode[];
+  /** A block that is no passage and holds text of its own: a code fence, an HTML block, a thematic line. */
+  readonly leaves: DocNode[];
+}
+
+/**
+ * One recursive walk over every mdast container, so every block of a section has a place: a passage, a leaf, or — for a
+ * table's first row — the names of the columns. A nested list item is a passage rather than a part of the item above it,
+ * and a table row is a passage whose naming cell comes first (the review of the tenth pass).
+ */
+export function sectionWalk(section: DocSection): SectionWalk {
+  const passages: DocNode[] = [];
+  const leaves: DocNode[] = [];
   const collect = (node: DocNode): void => {
-    if (node.type === 'heading') return;
-    if (node.type === 'list') { for (const item of node.children) collect(item); return; }
-    if (node.type === 'listItem' || node.type === 'paragraph') { blocks.push(node); return; }
-    for (const child of node.children) collect(child);
+    switch (node.type) {
+      case 'heading': return;
+      case 'paragraph': passages.push(node); return;
+      case 'listItem':
+        passages.push(node);
+        // The items nested under this one are passages of their own, not words of it.
+        for (const child of node.children) if (child.type === 'list') collect(child);
+        return;
+      case 'list': for (const child of node.children) collect(child); return;
+      case 'table': {
+        // Every row is a passage; the first row of a table with more than one names its columns, so it holds no passage.
+        const rows = node.children;
+        rows.forEach((row, index) => { if (index === 0 && rows.length > 1) return; passages.push(row); });
+        return;
+      }
+      case 'blockquote': case 'definition': for (const child of node.children) collect(child); return;
+      case 'code': case 'html': case 'thematicBreak': leaves.push(node); return;
+      default:
+        if (node.children.length > 0) { for (const child of node.children) collect(child); return; }
+        leaves.push(node); return;
+    }
   };
   for (const node of section.nodes) collect(node);
-  return blocks;
+  return { passages, leaves };
+}
+
+/** The blocks a section holds, in document order: every passage its containers hold. */
+export function sectionBlocks(section: DocSection): DocNode[] {
+  return sectionWalk(section).passages;
 }
 
 /**
  * The leaves of a section that hold text of their own and no passage of a kind: code, html, a thematic line. They are
  * never candidates (a `BR-9` inside a code fence names no rule), and they never vanish either: the reader reports each
- * as a passage it could not decide (the review of the seventh pass, finding 2).
+ * as a block it could not decide (the review of the seventh pass, finding 2).
  */
 export function sectionLeaves(section: DocSection): DocNode[] {
-  const leaves: DocNode[] = [];
-  const collect = (node: DocNode): void => {
-    if (node.type === 'heading') return;
-    if (node.type === 'list') { for (const item of node.children) collect(item); return; }
-    if (node.type === 'listItem' || node.type === 'paragraph') return;
-    // A table's cells hold phrasing, not paragraphs, so a table is one passage the reader cannot decide: it is
-    // reported with its line rather than vanishing (the review of the seventh pass, finding 2).
-    if (node.type === 'table') { leaves.push(node); return; }
-    if (node.children.length > 0) { for (const child of node.children) collect(child); return; }
-    leaves.push(node);
-  };
-  for (const node of section.nodes) collect(node);
-  return leaves;
+  return sectionWalk(section).leaves;
 }
 
 /** The paragraph a block opens with: an item's first paragraph, or the paragraph itself. */
@@ -295,6 +318,25 @@ export function openingParagraph(block: DocNode): DocNode | undefined {
 export function boldLead(block: DocNode): DocNode | undefined {
   const lead = openingParagraph(block)?.children[0];
   return lead !== undefined && lead.type === 'strong' ? lead : undefined;
+}
+
+/**
+ * The node a passage's naming stands in: the first cell of a table row (a cell holds phrasing, not a paragraph), or the
+ * passage's own opening paragraph.
+ */
+export function namingContainer(passage: DocNode): DocNode | undefined {
+  if (passage.type === 'tableRow') return passage.children[0];
+  return openingParagraph(passage);
+}
+
+/** The inline nodes a passage's naming is read from, inside its naming container. */
+export function namingInline(passage: DocNode): readonly DocNode[] {
+  return namingContainer(passage)?.children ?? [];
+}
+
+/** The decoded text a passage's identifier or label is read from (mdast's own values, never a re-decoded source). */
+export function namingText(passage: DocNode): string {
+  return namingInline(passage).map((node) => node.plain).join('');
 }
 
 /** The text a block opens with, marks removed: the phrase an identifier or a label would open it with. */
