@@ -6,6 +6,7 @@
  */
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test';
 import { GlobalRegistrator } from '@happy-dom/global-registrator';
+import type { IFetchInterceptor } from 'happy-dom';
 import { createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { flushSync } from 'react-dom';
@@ -15,10 +16,44 @@ import { DiagramOpenProvider } from './open.js';
 import { frontTab, resetTabs } from '../tabs.js';
 import type { Block, DiagramView, Neighborhood } from '../types.js';
 import { bindMermaid, mermaidPicture } from './views.js';
+import { viewFrameAddress } from '../api.js';
 import { diagramTitleNodes } from '../../../../../src/knowledge/diagram-titles.js';
 
+/**
+ * The page inside an archify frame is a navigation of the browser itself, not a call of the app's `fetch`: the React
+ * stub never sees it, and the run went to localhost:80 and left an ECONNREFUSED and a teardown abort behind
+ * (madarch-u3vw.4). The supported seam of the pinned HappyDOM 20.14.6 is `settings.fetch.interceptor`
+ * (IOptionalBrowserSettings.ts:66-84, IFetchInterceptor.ts:7-18, Fetch.ts:149-158): `disableIframePageLoading` is not
+ * usable, as it returns at HTMLIFrameElement.ts:414-421 before the browsing context exists (:428) and the
+ * contentWindow is assigned (:444-446), which would leave the frame's `contentWindow` null. The one navigation these
+ * tests mean is answered here with an inert same-origin document, made with the frame window's own Response class;
+ * every other browser request names its full method and URL and fails.
+ */
+const FRAME_ORIGIN = 'http://localhost';
+const FRAME_PATH = '/api/k/view-frame';
+const FRAME_DOCUMENT = '<!doctype html><html><head><meta charset="utf-8"><title>archify</title></head><body data-frame-document="archify"></body></html>';
+type BrowserRequest = { method: string; url: string };
+const frameNavigations: BrowserRequest[] = [];
+const otherBrowserRequests: BrowserRequest[] = [];
+
+function refuseBrowserRequest(method: string, url: string): never {
+  otherBrowserRequests.push({ method, url });
+  throw new Error(`the browser made a request no diagram test isolated: ${method} ${url}`);
+}
+
+const frameInterceptor: IFetchInterceptor = {
+  beforeAsyncRequest: async ({ request, window }) => {
+    const url = new URL(request.url);
+    const meant = request.method === 'GET' && url.origin === FRAME_ORIGIN && url.pathname === FRAME_PATH && url.searchParams.get('renderer') === 'archify';
+    if (!meant) refuseBrowserRequest(request.method, request.url);
+    frameNavigations.push({ method: request.method, url: request.url });
+    return new window.Response(FRAME_DOCUMENT, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+  },
+  beforeSyncRequest: ({ request }) => refuseBrowserRequest(request.method, request.url),
+};
+
 beforeAll(async () => {
-  GlobalRegistrator.register({ url: 'http://localhost/' });
+  GlobalRegistrator.register({ url: `${FRAME_ORIGIN}/`, settings: { fetch: { interceptor: frameInterceptor } } });
   await setWikiLanguage('en');
 });
 afterAll(async () => {
@@ -46,6 +81,11 @@ afterEach(() => {
   rendered = undefined;
   document.body.innerHTML = '';
   delete (globalThis as { fetch?: unknown }).fetch;
+  frameNavigations.length = 0;
+  const surprises = otherBrowserRequests.splice(0);
+  if (surprises.length > 0) {
+    throw new Error(`browser requests outside the isolated iframe navigation: ${surprises.map(({ method, url }) => `${method} ${url}`).join(', ')}`);
+  }
 });
 
 const node = (id: string, label: string, hops: number, href: string | null = `/k/e/${encodeURIComponent(id)}`) => ({ id, kind: 'code.symbol', label, href, hops });
@@ -227,6 +267,10 @@ describe('the drawn views', () => {
     await until(() => asked.some((url) => url.includes('/api/k/view-frame?type=c4-container&subject=&renderer=likec4&lang=en')), 'the LikeC4 model read');
     (container.querySelector('[data-testid=renderer-archify]') as HTMLElement).click();
     await until(() => container.querySelector('iframe')?.getAttribute('src')?.includes('renderer=archify') === true, 'the archify frame');
+    const source = `${viewFrameAddress(CONTAINER.query, 'archify', 'en')}&fullscreen=0`;
+    expect(container.querySelector('iframe')!.getAttribute('src')).toBe(source);
+    await until(() => frameNavigations.length === 1, 'the isolated archify navigation');
+    expect(frameNavigations).toEqual([{ method: 'GET', url: new URL(source, location.origin).href }]);
     expect(container.querySelector('[data-testid=view]')!.getAttribute('data-renderer')).toBe('archify');
   });
 
@@ -381,6 +425,15 @@ test('only the selected archify iframe can request fallback, and its reason rema
   const container=into(createElement(BlockView,{block:{...viewsBlock(CONTAINER),renderer:'archify'} as Block,resolutions:{}}));
   await until(()=>container.querySelector('iframe')!==null,'the archify iframe');
   const frame=container.querySelector('iframe')!;
+  // The exact frame the server would answer, and the one navigation the browser makes for it, isolated rather than sent.
+  const source=`${viewFrameAddress(CONTAINER.query,'archify','en')}&fullscreen=0`;
+  const address=new URL(source,location.origin).href;
+  expect(frame.getAttribute('src')).toBe(source);
+  expect(frame.getAttribute('data-renderer')).toBe('archify');
+  await until(()=>frame.contentDocument?.querySelector('[data-frame-document=archify]')!==null,'the iframe document');
+  expect(frame.contentWindow).not.toBeNull();
+  expect(frame.contentWindow!.location.href).toBe(address);
+  expect(frameNavigations).toEqual([{method:'GET',url:address}]);
   flushSync(() => window.dispatchEvent(new window.MessageEvent('message',{origin:location.origin,source:window,data:{madarch:'failed',renderer:'archify',message:'forged failure'}})));
   expect(container.querySelector('[data-testid=renderer-fallback]')).toBeNull();
   flushSync(() => window.dispatchEvent(new window.MessageEvent('message',{origin:'https://elsewhere.invalid',source:frame.contentWindow,data:{madarch:'failed',renderer:'archify',message:'wrong-origin failure'}})));
