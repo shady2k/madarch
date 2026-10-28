@@ -35,6 +35,7 @@ import {
   sqlSinkKey,
 } from '../src/extract/contracts/schema.js';
 import {extractContracts} from '../src/extract/contracts/index.js';
+import {extractCodeWithFacts} from '../src/extract/code/index.js';
 import type {Extraction, ExtractedEdge, ExtractedNode, TreeReader} from '../src/extract/records.js';
 
 const testFolder = path.dirname(fileURLToPath(import.meta.url));
@@ -105,6 +106,8 @@ async function folderReader(dir: string): Promise<{reader: TreeReader; folder: s
 }
 
 let extraction: Extraction;
+let sharedCode: Awaited<ReturnType<typeof extractCodeWithFacts>>;
+let retainedReader: TreeReader;
 
 beforeAll(async () => {
   const scratch = await mkdtemp(path.join(tmpdir(), 'madarch-o0eq1-'));
@@ -114,7 +117,9 @@ beforeAll(async () => {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   const {reader} = await folderReader(generated);
-  extraction = await extractContracts(reader);
+  retainedReader = reader;
+  sharedCode = await extractCodeWithFacts(reader);
+  extraction = await extractContracts(reader, sharedCode.extraction, sharedCode.facts);
   await rm(scratch, {recursive: true, force: true});
 }, 240_000);
 
@@ -288,7 +293,7 @@ describe('extract contracts (training repository)', () => {
     // The relay publishes the outbox rows and nothing else: no edge to the
     // channel the same service only consumes.
     expect(edgesOf(REL_PUBLISHES).filter((e) => e.to === channelKey('payments.events')).map((e) => e.from))
-      .toEqual([fileKey('services/payments/src/events/publishers.ts')]);
+      .toEqual([fileKey('services/payments/src/events/publishers.ts'), 'code.symbol:services/payments/src/events/publishers.ts#publishPaymentEvent']);
   });
 
   test('contract.asyncapi.payments-events: payments.events published by payments, consumed by orders', () => {
@@ -341,6 +346,29 @@ describe('extract contracts (training repository)', () => {
       operationKey(protoPath, 'payments.v1.Payments/Authorize'),
     );
     expect(called.properties['client']).toBe(`PaymentsClient.${clientLocation.symbol}`);
+    if (called.properties['deadlineMs'] !== 8000) {
+      // Keep the actual shared pass, including test constructions. This payload
+      // distinguishes a canonical construction collision from a missing join.
+      const {facts, extraction: code} = sharedCode;
+      const expressions = new Map(facts.expressions.map(entry => [entry.id, entry]));
+      const contains = (outer: {path: string; byteStart: number; byteEnd: number}, inner: {path: string; byteStart: number; byteEnd: number}) =>
+        outer.path === inner.path && outer.byteStart <= inner.byteStart && inner.byteEnd <= outer.byteEnd;
+      const symbols = facts.symbols.filter(symbol => symbol.path === clientLocation.path && symbol.callable);
+      const keys = new Set(symbols.map(symbol => symbol.key));
+      const constructions = facts.calls.filter(call => call.construct).flatMap(call => {
+        const callee = expressions.get(call.callee);
+        if (callee === undefined) return [];
+        const sites = facts.sites.filter(site => site.use === 'call' && site.holder === call.holder && contains(callee.span, site.span));
+        const binding = facts.bindings.find(entry => entry.id === callee.bindingId);
+        const imported = facts.imports.find(entry => entry.id === binding?.importId);
+        if (!sites.some(site => keys.has(site.to)) && imported?.targetPath !== clientLocation.path) return [];
+        return [{call, callee, binding, imported, sites,
+          arguments: call.arguments.map(id => expressions.get(id)),
+          edges: code.edges.filter(edge => edge.type === 'code.calls' && edge.from === call.holder && keys.has(edge.to)),
+          raw: new TextDecoder().decode(retainedReader.read(call.path).subarray(call.span.byteStart, call.span.byteEnd))}];
+      });
+      console.log(`actual training gRPC deadline diagnostic: ${JSON.stringify({called, symbols, constructions})}`);
+    }
     expect(called.properties['deadlineMs']).toBe(8000);
   });
 

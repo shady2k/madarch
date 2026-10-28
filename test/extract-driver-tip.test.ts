@@ -89,9 +89,9 @@ const treesRead: string[] = [];
 
 /** The tree extractors, each counting the trees it is given: the number of commits whose code is parsed. */
 const counting: TreeExtractor[] = TREE_EXTRACTORS.map((extractor) => {
-  const wrapped: TreeExtractor = (tree) => {
+  const wrapped: TreeExtractor = (tree, code) => {
     treesRead.push(extractor.name);
-    return extractor(tree);
+    return extractor(tree, code);
   };
   Object.defineProperty(wrapped, 'name', { value: extractor.name });
   return wrapped;
@@ -276,6 +276,7 @@ describe('small repositories (review findings of decision 0030)', () => {
     const base = { owner, store, repository: folder, owners: OWNERS };
     const first = await fillGraph({ ...base, extractors: [extractFiles] });
     expect(first.commits[0]!.publications).toBe(1);
+    expect((await query<{producer:string}>(`SELECT producer FROM work_item WHERE scope_id=$1::bigint AND published_at IS NOT NULL AND producer='code.extract.links'`,[first.repositoryNode]))).toEqual([]);
     const second = await fillGraph({ ...base, extractors: [extractFiles, extra] });
     expect(second.commits[0]!.publications).toBe(1); // the new producer's, not the lister's again
     const extras = await query<{ n: string }>(`SELECT count(*)::text AS n FROM node_version v WHERE v.producer = 'code.extract.extra' AND v.recorded_to = 'infinity'`);

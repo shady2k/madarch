@@ -470,6 +470,7 @@
       "path": "Путь"
     },
     "pageNotRead": "Не удалось прочитать страницу {{id}}: {{reason}}",
+    "fillRebuiltExtractors": "Граф перестроен: экстракторы изменились",
     "contractLoading": "Загрузка документации контракта…",
     "contractRenderError": "Не удалось показать определение: {{reason}}",
     "contractSelectionMissing": "Выбранная операция не найдена в отображённом определении.",

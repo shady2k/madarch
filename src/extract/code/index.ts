@@ -15,6 +15,8 @@
  * the declarations of the repository, and claimed only where those say it.
  */
 import { byCodePoint } from '../../model/order.js';
+import { isStandardLibrary } from './packages.js';
+import { readGoMod } from '../../fill/stages/manifest-format.js';
 import { extractFileResolution, type ExtractedFileResolution } from '../../fill/stages/resolution-extract.js';
 import { extractFileSyntax, type ExtractedFileSyntax, type SyntaxSpan } from '../../fill/stages/syntax-extract.js';
 import { resolveSpecifier } from '../../fill/stages/syntax-facts.js';
@@ -43,6 +45,9 @@ import {
   REL_INHERITS,
   REL_OCCURRENCE,
   REL_REFERENCES,
+  REL_READS,
+  REL_WRITES,
+  REL_USES_TYPE,
   REL_TESTS,
   symbolKey,
   testCaseKey,
@@ -52,15 +57,25 @@ import { resolveFile } from './resolve.js';
 import { codeLanguageOf, folderOf, roleOf, type SourceFile } from './source.js';
 import { holderAt, indexSymbols, type FileSymbol } from './symbols.js';
 import { readTestDetails } from './tests.js';
+import {callbackName} from './keys.js';
+import { codeFactId, freezeCodeFacts, type CodeBindingFact, type CodeCallFact, type CodeExpressionFact, type CodeFacts, type CodeExtractionResult, type CodeImportFact, type CodeExportFact } from './facts.js';
+export type { CodeFacts, CodeExtractionResult } from './facts.js';
 
 const decoder = new TextDecoder('utf-8', { fatal: true });
 
 export { CODE_PRODUCER };
 
+const retainedCodeFacts = new WeakMap<Extraction, {readonly reader: TreeReader; readonly facts: CodeFacts}>();
+
+/** Only this exact extraction and its original reader can lend retained facts. */
+export function codeFactsOf(extraction: Extraction | undefined, reader: TreeReader): CodeFacts | undefined {
+  const retained = extraction === undefined ? undefined : retainedCodeFacts.get(extraction);
+  return retained?.reader === reader ? retained.facts : undefined;
+}
 
 /** The span of a whole file, from the text a reader already holds: a manifest's place is the manifest. */
 function fileSpan(path: string, text: string): SourceSpan {
-  return {path, byteStart: 0, byteEnd: text.length, lineStart: 1, lineEnd: text === '' ? 1 : text.split('\n').length};
+  return {path, byteStart: 0, byteEnd: new TextEncoder().encode(text).length, lineStart: 1, lineEnd: text === '' ? 1 : text.split('\n').length};
 }
 
 function toSpan(path: string, span: SyntaxSpan): SourceSpan {
@@ -76,6 +91,7 @@ interface Manifest {
   readonly ecosystem: 'go' | 'node';
   readonly name: string;
   readonly frameworks: readonly string[];
+  readonly dependencies: ReadonlyMap<string, string | null>;
   readonly span: SourceSpan;
 }
 
@@ -85,6 +101,7 @@ interface FileFacts {
   readonly resolution: ExtractedFileResolution;
   readonly decls: FileDecls;
   readonly symbols: FileSymbol[];
+  readonly callbackValues: readonly SourceSpan[];
 }
 
 /** A resolved name: where it stands, what it names, and how. */
@@ -92,12 +109,17 @@ interface Site {
   readonly span: SyntaxSpan;
   /** The symbol key the name reaches, already folded to a kept symbol. */
   readonly to: string;
-  readonly use: 'call' | 'reference' | 'extends' | 'implements';
+  readonly use: 'call' | 'reference' | 'type' | 'extends' | 'implements';
   readonly roles: readonly string[];
   readonly fanOut: readonly string[];
 }
 
 export async function extractCode(reader: TreeReader): Promise<Extraction> {
+  return (await extractCodeWithFacts(reader)).extraction;
+}
+
+/** The existing code pass, with its immutable semantic view retained for consumers. */
+export async function extractCodeWithFacts(reader: TreeReader): Promise<CodeExtractionResult> {
   const gaps: ExtractionGap[] = [];
   const gap = (path: string, reason: string): void => {
     gaps.push({ path, reason });
@@ -118,27 +140,36 @@ export async function extractCode(reader: TreeReader): Promise<Extraction> {
       continue;
     }
     if (base === 'go.mod') {
-      const module = /^module\s+(\S+)/m.exec(text)?.[1];
-      if (module === undefined) {
-        gap(path, 'the go.mod names no module');
+      const parsed = readGoMod(text);
+      if (!parsed.ok) {
+        gap(path, `line ${parsed.gap.line}: ${parsed.gap.code === 'missing-module' ? 'the go.mod names no module: ' : ''}${parsed.gap.detail}`);
         continue;
       }
+      const module = parsed.value.module;
       goModules.push({ folder: folderOf(path), module });
-      manifests.push({ folder: folderOf(path), ecosystem: 'go', name: module, frameworks: ['go-test'], span: fileSpan(path, text) });
+      // The manifest parser owns both tokens; no consumer rescans source lines.
+      const dependencies = new Map<string, string | null>(parsed.value.requires.map((entry) => [entry.path, entry.version]));
+      for (const note of parsed.gaps) gap(path, `line ${note.line}: ${note.detail}`);
+      manifests.push({ folder: folderOf(path), ecosystem: 'go', name: module, frameworks: ['go-test'], dependencies, span: fileSpan(path, text) });
     } else {
       try {
         const parsed = JSON.parse(text) as { name?: unknown; dependencies?: Record<string, unknown>; devDependencies?: Record<string, unknown> };
         const names = new Set([...Object.keys(parsed.dependencies ?? {}), ...Object.keys(parsed.devDependencies ?? {})]);
         const frameworks = ['jest', 'vitest', 'mocha'].filter((name) => names.has(name));
-        manifests.push({ folder: folderOf(path), ecosystem: 'node', name: typeof parsed.name === 'string' ? parsed.name : folderOf(path), frameworks, span: fileSpan(path, text) });
+        const dependencies = new Map<string, string | null>();
+        for (const block of [parsed.dependencies, parsed.devDependencies]) for (const [name, version] of Object.entries(block ?? {})) {
+          if (typeof version === 'string') dependencies.set(name, version);
+        }
+        manifests.push({ folder: folderOf(path), ecosystem: 'node', name: typeof parsed.name === 'string' ? parsed.name : folderOf(path), frameworks, dependencies, span: fileSpan(path, text) });
       } catch (error) {
         gap(path, `the package.json is not JSON: ${describeError(error)}`);
       }
     }
   }
-  const rootOf = (folder: string): Manifest | undefined => {
+  const rootOf = (folder: string, ecosystem?: Manifest['ecosystem']): Manifest | undefined => {
     let best: Manifest | undefined;
     for (const manifest of manifests) {
+      if (ecosystem !== undefined && manifest.ecosystem !== ecosystem) continue;
       if (manifest.folder !== '' && folder !== manifest.folder && !folder.startsWith(`${manifest.folder}/`)) continue;
       if (best === undefined || manifest.folder.length > best.folder.length) best = manifest;
     }
@@ -177,9 +208,44 @@ export async function extractCode(reader: TreeReader): Promise<Extraction> {
     } else if (syntax.unread.length > 0) {
       for (const unread of syntax.unread) gap(source.path, `the file is read as far as the parser went (${unread.reason}): ${unread.what}`);
     }
-    const { decls } = await readDecls(source);
+    const declarations = await readDecls(source);
+    const { decls } = declarations;
+    if (!declarations.read) gap(source.path, `line 1: declarations could not be read from repository path ${source.path}`);
     const topNames = syntax.parsed && source.language === 'typescript' ? new Set(decls.tops.map((top) => top.name)) : undefined;
-    files.push({ source, syntax, resolution, decls, symbols: indexSymbols(source.path, syntax.symbols, topNames) });
+    const symbols = indexSymbols(source.path, syntax.symbols, topNames);
+    const callbackValues: SourceSpan[] = [];
+    if (syntax.parsed) {
+      // The syntax pass proves direct initializer ownership. One callable has
+      // one canonical owner, even when its declaration and expression differ.
+      // Raw evidence keeps async; callback keys retain their parameter position.
+      for (const boundary of [...(syntax.callables ?? [])].sort((left, right) =>
+        (right.span.endByte - right.span.startByte) - (left.span.endByte - left.span.startByte) || left.span.startByte - right.span.startByte)) {
+        const span = boundary.span;
+        const declaration = boundary.declarationSpan;
+        const declared = declaration === undefined ? [] : symbols.filter((symbol) => symbol.functionLike &&
+          symbol.span.startByte === declaration.startByte && symbol.span.endByte === declaration.endByte);
+        const raw = symbols.filter((symbol) => symbol.functionLike && symbol.span.startByte === span.startByte && symbol.span.endByte === span.endByte);
+        const canonical = declared.length === 1 ? declared[0] : raw.length === 1 ? raw[0] : undefined;
+        if (canonical !== undefined) {
+          for (const [index, symbol] of symbols.entries()) {
+            if (symbol === canonical) symbols[index] = {...symbol, local: false, keptKey: symbol.key};
+            else if (declared.length === 1 && raw.includes(symbol)) symbols[index] = {...symbol, local: true, keptKey: canonical.key};
+          }
+        } else if (declared.length === 0 && raw.length === 0) {
+          const enclosing = holderAt(symbols, span.startByte);
+          const name = callbackName(enclosing?.qualifiedName, 'anonymous', boundary.identity.startLine, boundary.identity.startByte);
+          const key = symbolKey(source.path, name);
+          symbols.push({key, qualifiedName: name, name, symbolKind: 'function', span, definitionSpan: span, local: false, keptKey: key, functionLike: true});
+        }
+        if (boundary.argument) callbackValues.push(toSpan(source.path, span));
+      }
+    }
+    for (const [index, symbol] of symbols.entries()) {
+      if (!symbol.local || symbol.functionLike) continue;
+      const holder = holderAt(symbols, symbol.span.startByte);
+      if (holder !== undefined) symbols[index] = {...symbol, keptKey: holder.key};
+    }
+    files.push({ source, syntax, resolution, decls, symbols, callbackValues });
   }
   const parsedFiles = files.filter((file) => file.syntax.parsed);
   const fileFacts = new Map(files.map((file) => [file.source.path, file]));
@@ -194,7 +260,7 @@ export async function extractCode(reader: TreeReader): Promise<Extraction> {
     for (const entry of file.resolution.imports) {
       if (file.source.language === 'go') {
         const folder = goImportFolder(entry.specifier, goModules, goFolders);
-        if (folder !== undefined) imports.set(entry.local, { kind: 'package', scope: folder });
+        if (folder !== undefined) imports.set(entry.specifier, { kind: 'package', scope: folder });
         continue;
       }
       const target = resolveSpecifier(file.source.path, entry.specifier, known);
@@ -226,6 +292,14 @@ export async function extractCode(reader: TreeReader): Promise<Extraction> {
 
   // ---- the sites -----------------------------------------------------------------------
   const sitesByFile = new Map<string, Site[]>();
+  const imports: CodeImportFact[] = [];
+  const bindings: CodeBindingFact[] = [];
+  const fields: NonNullable<CodeFacts['fields']>[number][] = [];
+  const exports: CodeExportFact[] = [];
+  const expressions: CodeExpressionFact[] = [];
+  const calls: CodeCallFact[] = [];
+  const callables = new Map<string, { readonly bodySpan: SourceSpan; readonly bodySyntaxKind: string; readonly receiver?: { readonly bindingId: string; readonly name: string; readonly typeName?: string } }>();
+  const ambiguousCallables = new Set<string>();
   const allPaths = sources.map((source) => source.path);
   for (const file of parsedFiles) {
     const path = file.source.path;
@@ -257,9 +331,98 @@ export async function extractCode(reader: TreeReader): Promise<Extraction> {
         sites.push({ span: mention.span, to: symbolKey(top.file, top.name), use: mention.use === 'call' ? 'call' : 'reference', roles: [mention.access], fanOut: [] });
       }
     }
-    const members = await memberSites(file.source, program);
-    for (const site of members.sites) sites.push({ span: site.span, to: site.to, use: site.use, roles: ['read-access'], fanOut: site.fanOut });
+    const fileImports: CodeImportFact[] = file.resolution.imports.flatMap((entry): CodeImportFact[] => {
+      const span = toSpan(path, entry.span);
+      const local = file.source.language === 'go' ? program.goImportLocal(path, entry.specifier, entry.local) : entry.local;
+      if (local === undefined) {
+        gap(path, `line ${span.lineStart}: internal Go import has no unique declared package identity at bytes ${span.byteStart}-${span.byteEnd}`);
+        return [];
+      }
+      const targetPath = file.source.language === 'go' ? undefined : resolveSpecifier(path, entry.specifier, known);
+      const manifest = rootOf(folderOf(path), file.source.language === 'go' ? 'go' : 'node');
+      const declared = manifest === undefined ? undefined : [...manifest.dependencies].filter(([name]) => entry.specifier === name || entry.specifier.startsWith(`${name}/`)).sort(([left], [right]) => right.length - left.length || byCodePoint(left, right))[0];
+      return [{ id: codeFactId(span, 'import'), path, local, specifier: entry.specifier,
+        imported: { ...entry.imported }, span, ...(targetPath === undefined ? {} : { targetPath }),
+        ...(declared === undefined || manifest === undefined ? {} : { package: { ecosystem: manifest.ecosystem, name: declared[0], manifestPath: manifest.span.path, declaredVersion: declared[1] } }) }];
+    });
+    const members = await memberSites(file.source, program, fileImports, file.symbols);
+    imports.push(...fileImports.map((imported) => members.typeOnlyImports.includes(imported.id) ? { ...imported, typeOnly: true } : imported));
+    bindings.push(...members.bindings);
+    fields.push(...members.fields);
+    expressions.push(...members.expressions);
+    calls.push(...members.calls);
+    for (const callable of members.callables) {
+      if (callables.has(callable.key) || ambiguousCallables.has(callable.key)) { ambiguousCallables.add(callable.key); callables.delete(callable.key); gap(path, `line ${callable.bodySpan.lineStart}: duplicate canonical callable metadata for ${callable.key}`); continue; }
+      callables.set(callable.key, {bodySpan: callable.bodySpan, bodySyntaxKind: callable.bodySyntaxKind, ...(callable.receiver === undefined ? {} : {receiver: callable.receiver})});
+    }
+    exports.push(...members.exports.map((entry) => entry.reexport === undefined ? entry : { ...entry, reexport: { ...entry.reexport, ...(resolveSpecifier(path, entry.reexport.specifier, known) === undefined ? {} : { targetPath: resolveSpecifier(path, entry.reexport.specifier, known) }) } }));
+    for (const unread of members.gaps) gap(unread.path, unread.reason);
+    if (!members.read) gap(path, `line 1: the member/use walk could not read repository path ${path}`);
+    for (let i = sites.length - 1; i >= 0; i--) if (members.suppressed.has(sites[i]!.span.startByte)) sites.splice(i, 1);
+    for (let i = 0; i < sites.length; i++) {
+      const site = sites[i]!;
+      const roles = members.accesses.get(site.span.startByte);
+      if (roles !== undefined) sites[i] = { ...site, roles };
+    }
+    // Replace only plain-name readings. A typed token may truthfully name both
+    // a constructor call and its class reference; neither erases the other.
+    for (let i = sites.length - 1; i >= 0; i--) {
+      const plain = sites[i]!;
+      if (members.sites.some((site) => site.span.startByte <= plain.span.startByte && plain.span.endByte <= site.span.endByte)) sites.splice(i, 1);
+    }
+    for (const site of members.sites) {
+      sites.push({ span: site.span, to: site.to, use: site.use, roles: site.roles ?? ['read-access'], fanOut: site.fanOut });
+    }
     sitesByFile.set(path, sites);
+  }
+
+  // Join exported values here, beside the existing program resolver. Consumers
+  // follow only these identities; they never resolve source module names again.
+  const expressionIndex = new Map(expressions.map((entry) => [entry.id, entry]));
+  const bindingIndex = new Map(bindings.map((entry) => [entry.id, entry]));
+  // Keep every candidate: duplicate declaration identities must still fail closed.
+  const declarationExpressions = new Map<string, CodeExpressionFact[]>();
+  for (const expression of expressions) {
+    if (expression.bindingId === undefined) continue;
+    const key = JSON.stringify([expression.bindingId, expression.span.byteStart, expression.span.byteEnd]);
+    const held = declarationExpressions.get(key) ?? [];
+    held.push(expression); declarationExpressions.set(key, held);
+  }
+  const exportedValues = new Map<string, CodeExportFact[]>();
+  for (const entry of exports) {
+    const key = JSON.stringify([entry.path, entry.name]);
+    exportedValues.set(key, [...(exportedValues.get(key) ?? []), entry]);
+  }
+  const exportedValue = (path: string, name: string, active: Set<string>): { expression: string; chain: string[] } | undefined => {
+    const key = JSON.stringify([path, name]);
+    if (active.has(key)) return undefined;
+    active.add(key);
+    const candidates = exportedValues.get(key) ?? [];
+    if (candidates.length !== 1) return undefined;
+    const entry = candidates[0]!;
+    if (entry.expression !== undefined && expressionIndex.has(entry.expression)) return { expression: entry.expression, chain: [entry.id] };
+    if (entry.localBinding !== undefined) {
+      const binding = bindingIndex.get(entry.localBinding);
+      // The declaration's own identifier retains reassignment and alias guards.
+      const identifiers = binding === undefined ? [] : declarationExpressions.get(JSON.stringify([entry.localBinding, binding.span.byteStart, binding.span.byteEnd])) ?? [];
+      if (identifiers.length === 1) return { expression: identifiers[0]!.id, chain: [entry.id] };
+    }
+    if (entry.reexport?.targetPath !== undefined) {
+      const target = exportedValue(entry.reexport.targetPath, entry.reexport.name, active);
+      if (target !== undefined) return { expression: target.expression, chain: [entry.id, ...target.chain] };
+    }
+    return undefined;
+  };
+  for (let index = 0; index < imports.length; index++) {
+    const imported = imports[index]!;
+    if (imported.targetPath === undefined || imported.typeOnly) continue;
+    if (imported.imported.form === 'namespace') {
+      gap(imported.path, `line ${imported.span.lineStart}: namespace import needs exact exported-member identities at bytes ${imported.span.byteStart}-${imported.span.byteEnd}`);
+      continue;
+    }
+    const target = exportedValue(imported.targetPath, imported.imported.form === 'default' ? 'default' : imported.imported.name, new Set());
+    if (target === undefined) gap(imported.path, `line ${imported.span.lineStart}: internal import has no unique exported value at bytes ${imported.span.byteStart}-${imported.span.byteEnd}`);
+    else imports[index] = { ...imported, targetExpression: target.expression, targetChain: target.chain };
   }
 
   // ---- nodes -----------------------------------------------------------------------------
@@ -330,6 +493,7 @@ export async function extractCode(reader: TreeReader): Promise<Extraction> {
         exported: isExported,
         test: file.source.role !== 'code',
       };
+      if (symbol.qualifiedName.includes('.callback@')) properties['inline'] = true;
       if (['class', 'method', 'interface'].includes(symbol.symbolKind)) properties['abstract'] = abstractNames.has(symbol.qualifiedName);
       const written = typeText.get(symbol.qualifiedName);
       if (written !== undefined && ['variable', 'constant', 'field', 'property'].includes(symbol.symbolKind)) properties['typeText'] = written;
@@ -339,8 +503,30 @@ export async function extractCode(reader: TreeReader): Promise<Extraction> {
       if (isExported && file.source.role === 'code') {
         properties['deadExport'] = (referencedFrom.get(symbol.key) ?? 0) === 0 && properties['entryPoint'] === undefined;
       }
-      addNode({ key: symbol.key, kind: KIND_SYMBOL, label: symbol.qualifiedName, properties, span: toSpan(path, symbol.span) });
+      const label = properties['inline'] === true ? symbol.qualifiedName.replace(/\.callback@(\d+):\d+$/, ' callback (line $1)') : symbol.qualifiedName;
+      addNode({ key: symbol.key, kind: KIND_SYMBOL, label, properties, span: toSpan(path, symbol.span) });
       addEdge({ type: REL_CONTAINS, from: fileKey(path), to: symbol.key, discriminator: '', properties: {} });
+    }
+  }
+
+  // Passing an anonymous function as an argument references its actual value.
+  // It does not prove invocation or scheduling by the enclosing function.
+  for (const file of parsedFiles) for (const span of file.callbackValues) {
+    const callback = file.symbols.find((symbol) => !symbol.local && symbol.functionLike && symbol.span.startByte === span.byteStart && symbol.span.endByte === span.byteEnd);
+    if (callback === undefined) continue;
+    const parent = holderAt(file.symbols.filter((symbol) => symbol.key !== callback.key), span.byteStart);
+    addEdge({type: REL_REFERENCES, from: parent?.key ?? fileKey(file.source.path), to: callback.key, discriminator: String(span.byteStart), properties: {role: 'callback-value'}, span});
+  }
+
+  // Types own their actual declared members, including Go methods declared
+  // in another file of the same package. No same-name fallback is allowed.
+  for (const type of program.types.values()) {
+    const owner = symbolKey(type.file, type.name);
+    if (!symbolByKey.has(owner)) continue;
+    for (const member of type.members.values()) {
+      const target = symbolByKey.get(symbolKey(member.file, member.qualifiedName));
+      if (target === undefined || target.local) continue;
+      addEdge({ type: REL_CONTAINS, from: owner, to: target.key, discriminator: '', properties: {}, span: toSpan(member.file, target.definitionSpan) });
     }
   }
 
@@ -373,8 +559,11 @@ export async function extractCode(reader: TreeReader): Promise<Extraction> {
     const symbols = symbolsByFile.get(path) ?? [];
     for (const site of [...sites].sort((left, right) => left.span.startByte - right.span.startByte || byCodePoint(left.to, right.to))) {
       const holder = holderAt(symbols, site.span.startByte);
-      const from = holder === undefined ? fileKey(path) : holder.key;
-      const target = symbolByKey.get(site.to);
+      const access = site.roles.includes('write-access') || site.roles.includes('read-access');
+      const fieldTarget = symbolByKey.get(site.to);
+      const isValue = fieldTarget !== undefined && ['field', 'property', 'variable', 'constant', 'enum-member'].includes(fieldTarget.symbolKind);
+      const from = holder === undefined || (isValue && access && !holder.functionLike) ? fileKey(path) : holder.key;
+      const target = fieldTarget;
       if (target === undefined) continue;
       const to = target.keptKey;
       if (target.local && (to === from || to.startsWith('code.file:'))) continue;
@@ -390,6 +579,16 @@ export async function extractCode(reader: TreeReader): Promise<Extraction> {
       if (site.use === 'call') fold(REL_CALLS, from, to, site.span, path, false);
       else if (site.use === 'reference') fold(REL_REFERENCES, from, to, site.span, path, false);
       else if (site.use === 'extends') fold(REL_INHERITS, from, to, site.span, path, false);
+      else if (site.use === 'type') {
+        fold(REL_USES_TYPE, from, to, site.span, path, false);
+        // Type uses remain references for existing navigation. The occurrence
+        // retains its precise `type` use, never a value read or a call.
+        fold(REL_REFERENCES, from, to, site.span, path, false);
+      }
+      if (isValue && site.use === 'reference') {
+        if (site.roles.includes('read-access')) fold(REL_READS, from, to, site.span, path, false);
+        if (site.roles.includes('write-access')) fold(REL_WRITES, from, to, site.span, path, false);
+      }
       for (const implementation of site.fanOut) {
         const implTarget = symbolByKey.get(implementation);
         if (implTarget !== undefined && implTarget.keptKey !== from) fold(site.use === 'call' ? REL_CALLS : REL_REFERENCES, from, implTarget.keptKey, site.span, path, true);
@@ -419,10 +618,38 @@ export async function extractCode(reader: TreeReader): Promise<Extraction> {
   }
 
   // ---- modules, packages and imports ------------------------------------------------------------
-  const importCounts = new Map<string, { from: string; to: string; specifier: string; span: SyntaxSpan; path: string; count: number }>();
+  interface ImportReading {specifier:string;span:SourceSpan;properties:Record<string,PropertyValue>}
+  const importCounts = new Map<string, {from:string;to:string;readings:Map<string,ImportReading>}>();
+  const recordImport=(path:string,target:string,imported:ExtractedFileSyntax['imports'][number],properties:Record<string,PropertyValue>):void=>{
+    const id=`${path}\u0000${target}`;const held=importCounts.get(id)??{from:fileKey(path),to:target,readings:new Map<string,ImportReading>()};
+    // Syntax emits one specifier per actual import site, not one per bound name. Defend against duplicate copies only.
+    const reading:ImportReading={specifier:imported.specifier,span:toSpan(path,imported.span),properties};
+    held.readings.set(JSON.stringify([imported.specifier,imported.span.startByte,imported.span.endByte]),reading);
+    importCounts.set(id,held);
+  };
   const moduleEdges = new Map<string, { from: string; to: string; count: number; imports: string[]; span: SyntaxSpan; path: string }>();
   const fileGraph = new Map<string, Set<string>>();
   const moduleGraph = new Map<string, Set<string>>();
+  const externalImport = (file: FileFacts, imported: ExtractedFileSyntax['imports'][number]): void => {
+    const path = file.source.path;
+    const ecosystem = file.source.language === 'go' ? 'go' : 'node';
+    const manifest = rootOf(folderOf(path), ecosystem);
+    const standardLibrary = isStandardLibrary(ecosystem, imported.specifier);
+    const dependency = standardLibrary ? undefined : [...(manifest?.dependencies.keys() ?? [])]
+      .filter((name) => imported.specifier === name || imported.specifier.startsWith(`${name}/`))
+      .sort((left, right) => right.length - left.length || byCodePoint(left, right))[0];
+    // Dependency declarations belong to operations. An import points to that
+    // identity, not to a duplicate declaration emitted by this producer.
+    const target = dependency !== undefined && manifest !== undefined
+      ? `code.dependency:${manifest.span.path}#${dependency}`
+      : `${KIND_PACKAGE}:import/${ecosystem}/${imported.specifier}`;
+    if (dependency === undefined) addNode({
+      key: target, kind: KIND_PACKAGE, label: imported.specifier,
+      properties: { ecosystem, name: imported.specifier, standardLibrary, versionStatus: standardLibrary ? 'not-applicable' : 'not-declared', external: true },
+      span: toSpan(path, imported.span),
+    });
+    recordImport(path,target,imported,{standardLibrary,versionStatus:dependency===undefined?standardLibrary?'not-applicable':'not-declared':'declared',...(dependency===undefined?{}:{version:manifest!.dependencies.get(dependency)??null})});
+  };
   for (const file of parsedFiles) {
     const path = file.source.path;
     for (const imported of file.syntax.imports) {
@@ -432,21 +659,27 @@ export async function extractCode(reader: TreeReader): Promise<Extraction> {
       let toFile: string | undefined;
       if (file.source.language === 'go') {
         const folder = goImportFolder(imported.specifier, goModules, goFolders);
-        if (folder === undefined) continue;
+        if (folder === undefined) {
+          if (goModules.some((module) => imported.specifier === module.module || imported.specifier.startsWith(`${module.module}/`))) {
+            gap(path, `line ${imported.span.startLine}: internal import ${JSON.stringify(imported.specifier)} in repository path ${path} names no package folder`);
+          } else externalImport(file, imported);
+          continue;
+        }
         toFolder = folder;
         toKey = moduleKey(folder);
         label = folder;
       } else {
         toFile = resolveSpecifier(path, imported.specifier, known);
-        if (toFile === undefined) continue;
+        if (toFile === undefined) {
+          if (/^\.{1,2}(?:\/|$)/u.test(imported.specifier)) gap(path, `line ${imported.span.startLine}: internal import ${JSON.stringify(imported.specifier)} in repository path ${path} names no source file`);
+          else externalImport(file, imported);
+          continue;
+        }
         toFolder = folderOf(toFile);
         toKey = fileKey(toFile);
         label = toFile;
       }
-      const id = `${path}\u0000${toKey}`;
-      const held = importCounts.get(id);
-      if (held === undefined) importCounts.set(id, { from: fileKey(path), to: toKey, specifier: imported.specifier, span: imported.span, path, count: 1 });
-      else held.count += 1;
+      recordImport(path,toKey,imported,{});
       if (file.source.role !== 'code') continue;
       if (toFile !== undefined) {
         const fileTargets = fileGraph.get(fileKey(path)) ?? new Set<string>();
@@ -467,14 +700,10 @@ export async function extractCode(reader: TreeReader): Promise<Extraction> {
     }
   }
   for (const entry of importCounts.values()) {
-    addEdge({
-      type: REL_IMPORTS,
-      from: entry.from,
-      to: entry.to,
-      discriminator: '',
-      properties: { specifier: entry.specifier, count: entry.count },
-      span: toSpan(entry.path, entry.span),
-    });
+    const readings=[...entry.readings.values()].sort((a,b)=>a.span.byteStart-b.span.byteStart||a.span.byteEnd-b.span.byteEnd||byCodePoint(a.specifier,b.specifier));
+    const first=readings[0]!;
+    const common=Object.fromEntries(Object.entries(first.properties).filter(([name,value])=>readings.every((reading)=>JSON.stringify(reading.properties[name])===JSON.stringify(value))));
+    addEdge({type:REL_IMPORTS,from:entry.from,to:entry.to,discriminator:'',properties:{...common,specifier:first.specifier,specifiers:[...new Set(readings.map((reading)=>reading.specifier))].sort(byCodePoint),count:readings.length,importReadings:readings.map((reading)=>({...reading,span:{...reading.span}}))},span:first.span});
   }
   for (const entry of moduleEdges.values()) {
     addEdge({
@@ -651,7 +880,23 @@ export async function extractCode(reader: TreeReader): Promise<Extraction> {
     (left, right) => byCodePoint(left.type, right.type) || byCodePoint(left.from, right.from) || byCodePoint(left.to, right.to) || byCodePoint(left.discriminator, right.discriminator),
   );
   const sortedGaps = [...gaps].sort((left, right) => byCodePoint(left.path, right.path) || byCodePoint(left.reason, right.reason));
-  return { producer: CODE_PRODUCER, nodes: sortedNodes, edges: sortedEdges, gaps: sortedGaps };
+  const extraction: Extraction = { producer: CODE_PRODUCER, nodes: sortedNodes, edges: sortedEdges, gaps: sortedGaps };
+  const byId = <T extends { readonly id: string }>(left: T, right: T): number => byCodePoint(left.id, right.id);
+  const facts = freezeCodeFacts({
+    files: files.map((file) => {
+      const manifest = rootOf(folderOf(file.source.path), file.source.language === 'go' ? 'go' : 'node');
+      return { path: file.source.path, language: file.syntax.language ?? file.source.grammar, parsed: file.syntax.parsed,
+        ...(manifest === undefined ? {} : { manifest: { path: manifest.span.path, ecosystem: manifest.ecosystem, name: manifest.name } }) };
+    }).sort((left, right) => byCodePoint(left.path, right.path)),
+    symbols: files.flatMap((file) => file.symbols.filter((symbol) => !symbol.local).map((symbol) => ({ key: symbol.key, path: file.source.path, name: symbol.name, qualifiedName: symbol.qualifiedName, symbolKind: symbol.symbolKind, callable: symbol.functionLike, span: toSpan(file.source.path, symbol.span), ...callables.get(symbol.key) }))).sort((left, right) => byCodePoint(left.key, right.key)),
+    fields: fields.sort((left,right)=>byCodePoint(left.key,right.key) || left.span.byteStart-right.span.byteStart),
+    imports: imports.sort(byId), exports: exports.sort(byId), bindings: bindings.sort(byId), expressions: expressions.sort(byId),
+    calls: calls.sort((left, right) => byCodePoint(left.expression, right.expression)),
+    sites: [...sitesByFile].flatMap(([path, sites]) => sites.map((site) => ({ path, span: toSpan(path, site.span), to: site.to, use: site.use, roles: [...site.roles], fanOut: [...site.fanOut], holder: holderAt(symbolsByFile.get(path) ?? [], site.span.startByte)?.keptKey ?? fileKey(path) }))).sort((left, right) => byCodePoint(left.path, right.path) || left.span.byteStart - right.span.byteStart || byCodePoint(left.to, right.to)),
+    gaps: sortedGaps.map((gap) => ({ ...gap })),
+  });
+  retainedCodeFacts.set(extraction, {reader, facts});
+  return { extraction, facts };
 }
 
 function lineCountOf(bytes: Uint8Array): number {

@@ -72,7 +72,7 @@ export function extractNewcomer(t: TreeText, records: Records, targets: Readonly
       for (const token of new Set(command.split(/\s+/u))) {
         const candidate = token.replace(/["']/g, '');
         if (!t.has(candidate)) continue;
-        records.edge('code.references', key, records.file(candidate));
+        records.edge('code.references', key, records.file(candidate), {}, t.spanOfLines(readmePath, startLine, index + 1));
       }
     }
   }
@@ -103,7 +103,7 @@ export function extractNewcomer(t: TreeText, records: Records, targets: Readonly
     for (const token of new Set((fix ?? '').split(/\s+/u))) {
       const candidate = token.replace(/\.$/, '');
       if (!t.has(candidate)) continue;
-      records.edge('code.references', key, records.file(candidate));
+      records.edge('code.references', key, records.file(candidate), {}, t.spanOfLines(readmePath, failureAt + 1, failureAt + paragraph.length));
     }
   }
 }

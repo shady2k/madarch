@@ -1,0 +1,296 @@
+{
+  "schemaVersion": 1,
+  "models": [
+    {
+      "id": "express.application",
+      "package": "express",
+      "target": {
+        "kind": "export",
+        "paths": [
+          [
+            "default"
+          ],
+          []
+        ]
+      },
+      "effect": {
+        "kind": "factory",
+        "role": "application"
+      },
+      "reference": "https://www.npmjs.com/package/express",
+      "ecosystem": "node"
+    },
+    {
+      "id": "express.router",
+      "package": "express",
+      "target": {
+        "kind": "export",
+        "paths": [
+          [
+            "Router"
+          ],
+          [
+            "default",
+            "Router"
+          ]
+        ]
+      },
+      "effect": {
+        "kind": "factory",
+        "role": "router"
+      },
+      "reference": "https://www.npmjs.com/package/express",
+      "ecosystem": "node"
+    },
+    {
+      "id": "express.routes",
+      "package": "express",
+      "target": {
+        "kind": "member",
+        "roles": [
+          "application",
+          "router"
+        ],
+        "members": [
+          "get",
+          "post",
+          "put",
+          "patch",
+          "delete",
+          "options",
+          "head",
+          "all"
+        ]
+      },
+      "effect": {
+        "kind": "route",
+        "pathArgument": 0,
+        "handlerArgument": -1,
+        "method": "member"
+      },
+      "reference": "https://www.npmjs.com/package/express",
+      "ecosystem": "node"
+    },
+    {
+      "id": "express.listen",
+      "package": "express",
+      "target": {
+        "kind": "member",
+        "roles": [
+          "application"
+        ],
+        "members": [
+          "listen"
+        ]
+      },
+      "effect": {
+        "kind": "listen",
+        "portArgument": 0,
+        "portFormat": "number"
+      },
+      "reference": "https://www.npmjs.com/package/express",
+      "ecosystem": "node"
+    },
+    {
+      "id": "express.mount",
+      "package": "express",
+      "target": {
+        "kind": "member",
+        "roles": [
+          "application",
+          "router"
+        ],
+        "members": [
+          "use"
+        ]
+      },
+      "effect": {
+        "kind": "mount",
+        "argumentsFrom": 0
+      },
+      "reference": "https://www.npmjs.com/package/express",
+      "ecosystem": "node"
+    },
+    {
+      "id": "http.mux",
+      "package": "net/http",
+      "target": {
+        "kind": "export",
+        "paths": [
+          [
+            "NewServeMux"
+          ]
+        ]
+      },
+      "effect": {
+        "kind": "factory",
+        "role": "mux"
+      },
+      "reference": "https://pkg.go.dev/net/http#NewServeMux",
+      "ecosystem": "go"
+    },
+    {
+      "id": "http.routes",
+      "package": "net/http",
+      "target": {
+        "kind": "member",
+        "roles": [
+          "mux"
+        ],
+        "members": [
+          "Handle",
+          "HandleFunc"
+        ]
+      },
+      "effect": {
+        "kind": "route",
+        "pathArgument": 0,
+        "handlerArgument": 1,
+        "method": "pattern"
+      },
+      "reference": "https://pkg.go.dev/net/http#ServeMux.Handle",
+      "ecosystem": "go"
+    },
+    {
+      "id": "http.default-routes",
+      "package": "net/http",
+      "target": {
+        "kind": "export",
+        "paths": [
+          [
+            "Handle"
+          ],
+          [
+            "HandleFunc"
+          ]
+        ]
+      },
+      "effect": {
+        "kind": "route",
+        "pathArgument": 0,
+        "handlerArgument": 1,
+        "method": "pattern",
+        "defaultReceiver": "mux"
+      },
+      "reference": "https://pkg.go.dev/net/http#Handle",
+      "ecosystem": "go"
+    },
+    {
+      "id": "http.listen",
+      "package": "net/http",
+      "target": {
+        "kind": "export",
+        "paths": [
+          [
+            "ListenAndServe"
+          ]
+        ]
+      },
+      "effect": {
+        "kind": "listen",
+        "portArgument": 0,
+        "handlerArgument": 1,
+        "portFormat": "address",
+        "defaultReceiver": "mux"
+      },
+      "reference": "https://pkg.go.dev/net/http#ListenAndServe",
+      "ecosystem": "go"
+    },
+    {
+      "id": "http.server",
+      "package": "net/http",
+      "target": {
+        "kind": "export",
+        "paths": [
+          [
+            "Server"
+          ]
+        ]
+      },
+      "effect": {
+        "kind": "server",
+        "listenMember": "ListenAndServe",
+        "addressField": "Addr",
+        "handlerField": "Handler",
+        "defaultReceiver": "mux"
+      },
+      "reference": "https://pkg.go.dev/net/http#Server",
+      "ecosystem": "go"
+    },
+    {
+      "id": "http.default-mux",
+      "ecosystem": "go",
+      "package": "net/http",
+      "target": {
+        "kind": "export",
+        "paths": [
+          [
+            "DefaultServeMux"
+          ]
+        ]
+      },
+      "effect": {
+        "kind": "registry",
+        "role": "mux"
+      },
+      "reference": "https://pkg.go.dev/net/http#DefaultServeMux"
+    },
+    {
+      "id": "http.handler-func",
+      "ecosystem": "go",
+      "package": "net/http",
+      "target": {
+        "kind": "export",
+        "paths": [
+          [
+            "HandlerFunc"
+          ]
+        ]
+      },
+      "effect": {
+        "kind": "handler-adapter",
+        "argument": 0
+      },
+      "reference": "https://pkg.go.dev/net/http#HandlerFunc"
+    },
+    {
+      "id": "http.handler",
+      "ecosystem": "go",
+      "package": "net/http",
+      "target": {
+        "kind": "export",
+        "paths": [
+          [
+            "Handler"
+          ]
+        ]
+      },
+      "effect": {
+        "kind": "handler",
+        "member": "ServeHTTP",
+        "requestPreservingMembers": ["WithContext"],
+        "writerMembers": ["Header", "Write", "WriteHeader"],
+        "declarationKind": "method_declaration",
+        "functionDeclarationKinds": [
+          "function_declaration",
+          "func_literal"
+        ],
+        "parameters": [
+          {
+            "path": [
+              "ResponseWriter"
+            ],
+            "pointer": false
+          },
+          {
+            "path": [
+              "Request"
+            ],
+            "pointer": true
+          }
+        ]
+      },
+      "reference": "https://pkg.go.dev/net/http#Handler"
+    }
+  ]
+}

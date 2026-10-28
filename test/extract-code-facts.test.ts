@@ -1,0 +1,409 @@
+import { expect, test } from 'bun:test';
+import { extractCode, extractCodeWithFacts } from '../src/extract/code/index.js';
+import { decodeNumberToken, decodeStringToken } from '../src/extract/code/literals.js';
+import { evaluateLibraryModels } from '../src/extract/library-models/evaluate.js';
+import { freezeCodeFacts, type CodeFacts } from '../src/extract/code/facts.js';
+import type { TreeReader } from '../src/extract/records.js';
+
+function treeOf(files: Readonly<Record<string, string>>): TreeReader {
+  return { paths: Object.keys(files).sort(), read: (path) => {
+    const source = files[path];
+    if (source === undefined) throw new Error(`missing fixture path ${path}`);
+    return new TextEncoder().encode(source);
+  } };
+}
+
+function member(facts: CodeFacts, name: string) {
+  return facts.expressions.filter((expression) => expression.member === name);
+}
+
+test('one code pass exposes frozen source facts without changing the extraction API', async () => {
+  const tree = treeOf({
+    'package.json': JSON.stringify({ name: 'fixture', dependencies: { pino: '9.0.0' } }),
+    'lib/entry.ts': 'import factory from "pino"; export const logger = factory(); export function run(){ logger.info("ok"); }',
+  });
+  const result = await extractCodeWithFacts(tree);
+  expect(result.extraction).toEqual(await extractCode(tree));
+  expect(Object.isFrozen(result.facts)).toBe(true);
+  expect(Object.isFrozen(result.facts.expressions)).toBe(true);
+  expect(result.facts.imports[0]?.package).toEqual({ ecosystem: 'node', name: 'pino', manifestPath: 'package.json', declaredVersion: '9.0.0' });
+  expect(result.facts.expressions.every((expression) => Object.isFrozen(expression) && Object.isFrozen(expression.fields))).toBe(true);
+  const ids = result.facts.expressions.map((expression) => expression.id);
+  expect(new Set(ids).size).toBe(ids.length);
+  expect(Object.isFrozen(result.facts.bindings[0]?.span)).toBe(true);
+});
+
+test('a full receiver chain cannot borrow a standalone logger or counter binding', async () => {
+  const { facts } = await extractCodeWithFacts(treeOf({
+    'package.json': '{"name":"fixture","dependencies":{"pino":"9.0.0","prom-client":"15.0.0"}}',
+    'src/main.ts': [
+      'import makeLog from "pino";',
+      'import {Counter} from "prom-client";',
+      'const logger = makeLog(); const requests = new Counter({name:"work_total",help:"work"});',
+      'export function run(other: any){ logger.info("yes"); other.logger.info("no"); requests.inc(); other.requests.inc(); }',
+    ].join('\n'),
+  }));
+  const expressions = new Map(facts.expressions.map((expression) => [expression.id, expression]));
+  const info = member(facts, 'info');
+  expect(info).toHaveLength(2);
+  const roots = info.map((expression) => expressions.get(expression.receiver!));
+  expect(roots.some((expression) => expression?.name === 'logger' && expression.bindingId !== undefined)).toBe(true);
+  expect(roots.some((expression) => expression?.member === 'logger' && expression.receiver !== undefined && expression.bindingId === undefined)).toBe(true);
+  const inc = member(facts, 'inc');
+  expect(inc).toHaveLength(2);
+  expect(inc.map((expression) => expressions.get(expression.receiver!)).some((expression) => expression?.member === 'requests')).toBe(true);
+});
+
+test('destructured parameters and temporal-dead-zone locals do not reuse imports', async () => {
+  const { facts } = await extractCodeWithFacts(treeOf({
+    'package.json': '{"name":"fixture","dependencies":{"pino":"9.0.0"}}',
+    'src/main.ts': 'import logger from "pino"; export function run({logger}: any){ logger.info("local"); (()=>logger.info("nested"))(); } export function next(){ logger.info("tdz"); const logger = other; }',
+  }));
+  const expressions = new Map(facts.expressions.map((expression) => [expression.id, expression]));
+  const bindings = new Map(facts.bindings.map((binding) => [binding.id, binding]));
+  for (const expression of member(facts, 'info')) {
+    const receiver = expressions.get(expression.receiver!);
+    if (receiver?.bindingId !== undefined) expect(bindings.get(receiver.bindingId)?.kind).not.toBe('import');
+    else expect(receiver?.name).toBe('logger'); // TDZ: unknown, never outer import.
+  }
+});
+
+test('grammar function declarations are hoisted with exact declaration and body evidence', async () => {
+  for (const path of ['lib/worker.ts', 'lib/worker.js']) {
+    const source = [
+      'export function run(){ return prepare(); }',
+      'iterate();',
+      'export async function prepare(){ return "ready"; }',
+      'function* iterate(){ yield "item"; }',
+    ].join('\n');
+    const tree = treeOf({[path]: source});
+    const {facts} = await extractCodeWithFacts(tree);
+    const textAt = (span: {byteStart: number; byteEnd: number}) => new TextDecoder().decode(tree.read(path).subarray(span.byteStart, span.byteEnd));
+    for (const [name, declaration] of [
+      ['prepare', 'async function prepare(){ return "ready"; }'],
+      ['iterate', 'function* iterate(){ yield "item"; }'],
+    ] as const) {
+      const binding = facts.bindings.find((entry) => entry.name === name);
+      expect(binding).toBeDefined();
+      expect(binding?.kind).toBe('local');
+      expect(binding?.initializer).toBeUndefined();
+      expect(binding?.declarationSpan).toBeDefined();
+      expect(textAt(binding!.span)).toBe(name!);
+      expect(textAt(binding!.declarationSpan!)).toBe(declaration!);
+      const call = facts.calls.find((entry) => facts.expressions.find((expression) => expression.id === entry.callee)?.name === name);
+      const callee = facts.expressions.find((entry) => entry.id === call?.callee);
+      expect(callee?.span.byteStart).toBeLessThan(binding!.span.byteStart);
+      expect(callee?.bindingId).toBe(binding!.id);
+      const declared = facts.expressions.find((entry) => entry.span.byteStart === binding!.declarationSpan!.byteStart && entry.span.byteEnd === binding!.declarationSpan!.byteEnd);
+      expect(declared?.syntaxKind).toBe(name === 'prepare' ? 'function_declaration' : 'generator_function_declaration');
+      const body = facts.expressions.find((entry) => entry.id === declared?.fields.body?.[0]);
+      expect(body?.syntaxKind).toBe('statement_block');
+      const symbol = facts.symbols.find((entry) => entry.key === `code.symbol:${path}#${name}`);
+      expect(symbol?.bodySpan).toEqual(body?.span);
+      expect(symbol?.bodySpan).toBeDefined();
+    }
+    expect(facts.gaps.filter((entry) => entry.reason.includes('lexical binding is not initialized'))).toEqual([]);
+  }
+});
+
+test('hoisted block functions keep their scope and never exempt lexical function values or classes from TDZ', async () => {
+  const path = 'lib/scopes.ts';
+  const source = [
+    'export function run(){',
+    '  prepare();',
+    '  { prepare(); function prepare(){ return "inner"; } }',
+    '  prepare();',
+    '  lateConst(); const lateConst = function named(){ return "const"; };',
+    '  lateLet(); let lateLet = () => "let";',
+    '  new LateClass(); class LateClass {}',
+    '  beforeValue(); var beforeValue = () => "var";',
+    '}',
+    'function prepare(){ return "outer"; }',
+  ].join('\n');
+  const {facts} = await extractCodeWithFacts(treeOf({[path]: source}));
+  const callees = facts.calls.map((call) => facts.expressions.find((entry) => entry.id === call.callee)!);
+  const prepares = callees.filter((entry) => entry.name === 'prepare').sort((left, right) => left.span.byteStart - right.span.byteStart);
+  const bindings = facts.bindings.filter((entry) => entry.name === 'prepare').sort((left, right) => left.span.byteStart - right.span.byteStart);
+  expect(prepares).toHaveLength(3); expect(bindings).toHaveLength(2);
+  expect(prepares.map((entry) => entry.bindingId)).toEqual([bindings[1]!.id, bindings[0]!.id, bindings[1]!.id]);
+  expect(bindings[0]!.scope.byteStart).toBeGreaterThan(prepares[0]!.span.byteStart);
+  expect(bindings[0]!.scope.byteEnd).toBeLessThan(prepares[2]!.span.byteStart);
+  for (const name of ['lateConst', 'lateLet', 'LateClass']) {
+    const callee = callees.find((entry) => entry.name === name);
+    expect(callee).toBeDefined(); expect(callee?.bindingId).toBeUndefined();
+    expect(facts.gaps.some((entry) => entry.path === path && entry.reason.includes(`bytes ${callee!.span.byteStart}-${callee!.span.byteEnd}`) && entry.reason.includes('lexical binding is not initialized'))).toBe(true);
+  }
+  const before = callees.find((entry) => entry.name === 'beforeValue');
+  const variable = facts.bindings.find((entry) => entry.name === 'beforeValue');
+  expect(before?.bindingId).toBe(variable?.id); expect(variable?.initializer).toBeDefined();
+  expect(before!.span.byteStart).toBeLessThan(variable!.span.byteStart);
+  expect(variable?.declarationSpan?.byteStart).toBe(source.indexOf('var beforeValue'));
+  expect(facts.gaps.some((entry) => entry.reason.includes(`bytes ${prepares[1]!.span.byteStart}-${prepares[1]!.span.byteEnd}`) && entry.reason.includes('lexical binding is not initialized'))).toBe(false);
+});
+
+test('erased type exports cannot duplicate same-name runtime exports or remove class enum and namespace values', async () => {
+  const path = 'lib/values.ts';
+  const source = [
+    'export const State = {ready:"ready"};',
+    'export type State = typeof State[keyof typeof State];',
+    'export class Client {}',
+    'export interface Client { readonly name: string }',
+    'export enum Mode { ready }',
+    'export namespace Tools { export const version = 1; }',
+    'export interface OnlyInterface { readonly value: string }',
+    'export type OnlyAlias = string;',
+  ].join('\n');
+  const {facts} = await extractCodeWithFacts(treeOf({[path]: source, 'lib/default.ts': 'export default interface Shape { readonly name: string }'}));
+  const exported = facts.exports?.filter((entry) => entry.path === path) ?? [];
+  expect(exported.map((entry) => entry.name).sort()).toEqual(['Client', 'Mode', 'State', 'Tools']);
+  const state = exported.find((entry) => entry.name === 'State');
+  const binding = facts.bindings.find((entry) => entry.id === state?.localBinding);
+  expect(binding?.name).toBe('State'); expect(binding?.initializer).toBeDefined();
+  const expressions = new Map(facts.expressions.map((entry) => [entry.id, entry]));
+  for (const [name, kind] of [['Client', 'class_declaration'], ['Mode', 'enum_declaration'], ['Tools', 'internal_module']] as const) {
+    const declaration = exported.find((entry) => entry.name === name);
+    expect(declaration?.expression).toBeDefined();
+    expect(expressions.get(declaration!.expression!)?.syntaxKind).toBe(kind!);
+  }
+  expect(facts.exports?.filter((entry) => entry.path === 'lib/default.ts')).toEqual([]);
+});
+
+test('copied facts retain UTF-8 spans and canonical callback owners after AST disposal', async () => {
+  const path = 'src/work.ts';
+  const source = 'const label = "éλ"; export function outer(){ setTimeout(()=>{ console.log(label); }, 1); }';
+  const { facts } = await extractCodeWithFacts(treeOf({ 'package.json': '{"name":"fixture"}', [path]: source }));
+  const call = facts.calls.find((call) => facts.expressions.find((expression) => expression.id === call.callee)?.member === 'log');
+  expect(call).toBeDefined();
+  expect(call!.holder).not.toBe('code.symbol:src/work.ts#outer');
+  const bytes = new TextEncoder().encode(source);
+  expect(new TextDecoder().decode(bytes.subarray(call!.span.byteStart, call!.span.byteEnd))).toBe('console.log(label)');
+  const expressionIds = new Set(facts.expressions.map((expression) => expression.id));
+  for (const expression of facts.expressions) for (const child of expression.children) expect(expressionIds.has(child)).toBe(true);
+});
+
+test('JavaScript, TSX and Go query assets return facts or explicit syntax diagnostics', async () => {
+  const { facts } = await extractCodeWithFacts(treeOf({
+    'package.json': '{"name":"fixture"}',
+    'web/view.tsx': 'export function View(){ return <div>{String(1)}</div>; }',
+    'web/entry.js': 'export function start(){ return globalThis.run(); }',
+    'engine/go.mod': 'module example.invalid/engine\n\ngo 1.23\n',
+    'engine/main.go': 'package engine\nimport "log/slog"\nfunc Run(){ slog.Info("ready") }\n',
+    'web/bad.ts': 'export function broken( {',
+  }));
+  expect(new Set(facts.files.map((file) => file.language))).toEqual(new Set(['tsx', 'javascript', 'go', 'typescript']));
+  expect(facts.calls.some((call) => call.path === 'web/view.tsx')).toBe(true);
+  expect(facts.calls.some((call) => call.path === 'engine/main.go')).toBe(true);
+  expect(facts.gaps.some((gap) => gap.path === 'web/bad.ts')).toBe(true);
+});
+
+test('literal decoding follows grammar tokens and refuses dynamic template values', () => {
+  expect(decodeStringToken('string', '"a\\n\\u03bb"')).toBe('a\nλ');
+  expect(decodeStringToken('string', "'it\\'s'")).toBe("it's");
+  expect(decodeStringToken('raw_string_literal', '`raw\\n`')).toBe('raw\\n');
+  expect(decodeStringToken('interpreted_string_literal', '"\\141"')).toBe('a');
+  expect(decodeStringToken('template_string', '`hello ${name}`')).toBeUndefined();
+  expect(decodeStringToken('identifier', '"not a token"')).toBeUndefined();
+});
+
+test('function-hoisted var and reassignment cannot retain imported receiver origins', async () => {
+  const { facts } = await extractCodeWithFacts(treeOf({
+    'package.json': '{"name":"fixture","dependencies":{"pino":"9.0.0"}}',
+    'src/main.ts': 'import logger from "pino"; export function run(){ logger.info("before"); if (true) { var logger = other; } } export function change(){ logger = replacement; logger.info("after"); }',
+  }));
+  const expressions = new Map(facts.expressions.map((expression) => [expression.id, expression]));
+  const bindings = new Map(facts.bindings.map((binding) => [binding.id, binding]));
+  const uses = member(facts, 'info');
+  expect(uses).toHaveLength(2);
+  const [before, after] = [...uses].sort((left, right) => left.span.byteStart - right.span.byteStart);
+  const bound = (expression: (typeof uses)[number] | undefined) => {const receiver = expression?.receiver === undefined ? undefined : expressions.get(expression.receiver);return receiver?.bindingId === undefined ? undefined : bindings.get(receiver.bindingId);};
+  // Hoisting selects the function-local declaration. Assignment keeps the real
+  // import declaration as evidence; its write proof forbids a stale origin.
+  expect(bound(before)?.importId).toBeUndefined();
+  expect(bound(before)?.kind).toBe('local');
+  const reassigned = bound(after);
+  expect(reassigned?.kind).toBe('import');
+  expect(reassigned?.importId).toBe(facts.imports.find(entry => entry.local === 'logger')?.id);
+  expect(facts.expressions.some(expression => expression.syntaxKind === 'assignment_expression' && (expression.fields.left ?? []).some(id => expressions.get(id)?.bindingId === reassigned?.id))).toBe(true);
+  const evaluated = evaluateLibraryModels(facts);
+  expect(evaluated.effects.filter(effect => effect.kind === 'logger-use')).toEqual([]);
+  expect(evaluated.diagnostics.some(entry => entry.path === 'src/main.ts' && entry.reason.includes('reassigned'))).toBe(true);
+});
+
+test('Go legacy octal and non-ASCII byte escapes are decoded accurately or left unknown', async () => {
+  expect(decodeNumberToken('int_literal', '0777', true)).toBe(511);
+  expect(decodeNumberToken('int_literal', '0o777', true)).toBe(511);
+  expect(decodeStringToken('interpreted_string_literal', '"\\xff"')).toBeUndefined();
+  expect(decodeStringToken('interpreted_string_literal', '"\\377"')).toBeUndefined();
+  const { facts } = await extractCodeWithFacts(treeOf({
+    'go.mod': 'module example.invalid/unit\n\ngo 1.23\n',
+    'main.go': 'package unit\nvar mode = 0777\nvar invalid = "\\xff"\n',
+  }));
+  expect(facts.expressions.find((expression) => expression.literal?.raw === '0777')?.literal?.value).toBe(511);
+  expect(facts.expressions.find((expression) => expression.literal?.raw === '"\\xff"')?.literal?.value).toBeUndefined();
+  expect(facts.gaps.some((gap) => gap.path === 'main.go' && gap.reason.includes('literal'))).toBe(true);
+});
+
+
+test('grammar fields called constructor retain their own exact expression identity without prototype collisions',async()=>{
+  const path='lib/construct.ts';const source='class Unit {} export const value=new Unit();';const tree=treeOf({[path]:source});
+  const code=await extractCodeWithFacts(tree);const expressions=new Map(code.facts.expressions.map((entry)=>[entry.id,entry]));
+  const construct=code.facts.calls.find((call)=>call.construct)!;expect(construct).toBeDefined();
+  const expression=expressions.get(construct.expression)!;expect(Object.hasOwn(expression.fields,'constructor')).toBe(true);
+  expect(expression.fields['constructor']).toEqual([construct.callee]);
+  const constructor=expressions.get(construct.callee)!;
+  expect(new TextDecoder().decode(tree.read(path).subarray(constructor.span.byteStart,constructor.span.byteEnd))).toBe('Unit');
+  expect(code.extraction.nodes.some((node)=>node.key==='code.symbol:lib/construct.ts#Unit')).toBe(true);
+});
+
+
+test('copied structural fields preserve constructor, prototype and inherited-method names as own data keys',()=>{
+  const span={path:'lib/generated.ts',byteStart:0,byteEnd:1,lineStart:1,lineEnd:1};
+  const fields:Record<string,string[]> = Object.fromEntries(new Map([['constructor',['ctor']],['__proto__',['proto']],['toString',['display']]]));
+  const facts=freezeCodeFacts({files:[],symbols:[],imports:[],bindings:[],expressions:[{id:'holder',path:span.path,syntaxKind:'generated',span,children:[],fields}],calls:[],sites:[],gaps:[]});
+  const copied=facts.expressions[0]!.fields;
+  for(const [key,expected] of [['constructor','ctor'],['__proto__','proto'],['toString','display']] as const){
+    expect(Object.hasOwn(copied,key)).toBe(true);expect(copied[key]).toEqual([expected]);
+  }
+  expect(Object.getPrototypeOf(copied)).toBe(Object.prototype);expect(Object.isFrozen(copied)).toBe(true);
+});
+
+
+test('Go struct proofs retain exact raw type children and local declaration identities; aliases stay unproven', async () => {
+  const path = 'lib/options.go';
+  const {facts} = await extractCodeWithFacts(treeOf({[path]: 'package sample\n' +
+    'type Local struct { Name string }\n' +
+    'var anonymous = struct { Name string }{Name:"one"}\nvar named = Local{Name:"two"}\ntype Alias = Local\nvar alias = Alias{Name:"three"}\n'}));
+  const anonymousCandidates = facts.expressions.filter((entry) => entry.compositeType !== undefined && entry.compositeType.bindingId === undefined &&
+    facts.expressions.find((type) => type.id === entry.compositeType?.typeExpression)?.syntaxKind === 'struct_type');
+  expect(anonymousCandidates).toHaveLength(1);
+  const anonymous = anonymousCandidates[0];
+  expect(anonymous).toBeDefined();
+  const type = facts.expressions.find((entry) => entry.id === anonymous?.compositeType?.typeExpression);
+  expect(type?.syntaxKind).toBe('struct_type');
+  if (anonymous?.compositeType === undefined || type === undefined) throw new Error('anonymous struct type proof missing');
+  expect(anonymous.compositeType.declarationSpan).toEqual(type.span);
+  expect(Object.isFrozen(anonymous?.compositeType)).toBe(true);
+  const named = facts.expressions.find((entry) => entry.compositeType?.bindingId !== undefined);
+  expect(named?.compositeType?.declarationExpression).toBeDefined();
+  const alias = facts.expressions.find((entry) => entry.syntaxKind === 'composite_literal' &&
+    (entry.fields.type ?? []).some((id) => facts.expressions.find((type) => type.id === id)?.name === 'Alias'));
+  expect(alias).toBeDefined();
+  expect(alias?.compositeType).toBeUndefined();
+  const pair = facts.expressions.find((entry) => entry.syntaxKind === 'keyed_element');
+  expect(pair?.fields).toEqual({});
+  expect(pair?.children).toHaveLength(2);
+  expect(pair?.children.map((id) => facts.expressions.find((entry) => entry.id === id)?.syntaxKind)).toEqual(['literal_element', 'literal_element']);
+});
+
+
+test('Go short declaration reuses a function parameter and binds only its new name',async()=>{
+  const path='lib/reuse.go';const source='package sample\nfunc run(x int){x,y:=1,2;_ = x;_ = y}';
+  const {facts}=await extractCodeWithFacts(treeOf({[path]:source}));
+  const parameter=facts.bindings.find((entry)=>entry.kind==='parameter'&&entry.name==='x');
+  expect(parameter).toBeDefined();expect(facts.bindings.filter((entry)=>entry.name==='x')).toHaveLength(1);
+  const y=facts.bindings.filter((entry)=>entry.name==='y');expect(y).toHaveLength(1);expect(y[0]?.kind).toBe('local');
+  const read=facts.expressions.filter((entry)=>entry.name==='x'&&entry.span.byteStart>source.indexOf('x,y'));
+  expect(read.every((entry)=>entry.bindingId===parameter?.id)).toBe(true);
+  expect(facts.gaps).toEqual([]);
+});
+
+test('Go repeated short declaration without a new name is a located gap and invents no binding identity',async()=>{
+  const path='lib/reuse.go';const source='package sample\nfunc run(){x:=1;x:=2;_ = x}';
+  const {facts}=await extractCodeWithFacts(treeOf({[path]:source}));
+  expect(facts.bindings.filter((entry)=>entry.name==='x')).toHaveLength(1);
+  expect(facts.gaps.some((entry)=>entry.path===path&&entry.reason.includes('short declaration has no unique new binding'))).toBe(true);
+});
+
+
+test('Go manifest versions and missing-module reason codes come from the manifest parser metadata', async () => {
+  const tree=treeOf({'go.mod':'module example.test/unit\nrequire (\n example.test/dependency v1.2.3\n)\n','main.go':'package main\nimport "example.test/dependency/sub"\n'});
+  const result=await extractCodeWithFacts(tree);
+  const imported=result.extraction.edges.find((edge)=>edge.type==='code.imports' && edge.to==='code.dependency:go.mod#example.test/dependency');
+  expect(imported?.properties.version).toBe('v1.2.3');
+  expect(result.facts.imports.find((entry)=>entry.specifier==='example.test/dependency/sub')?.package?.declaredVersion).toBe('v1.2.3');
+  const missing=await extractCodeWithFacts(treeOf({'go.mod':'go 1.23\n'}));
+  expect(missing.extraction.gaps.some((gap)=>gap.path==='go.mod' && gap.reason.includes('line 1') && gap.reason.includes('names no module'))).toBe(true);
+});
+
+
+test('direct Go field declarations retain exact owner and qualified type expressions for cross-method evidence', async () => {
+  const path='engine/meter.go';const source='package meter\nimport "sync/atomic"\ntype Meter struct { total atomic.Int64 }\nfunc (m *Meter) Add(){m.total.Add(1)}\nfunc (m *Meter) Read() int64{return m.total.Load()}\n';
+  const {facts}=await extractCodeWithFacts(treeOf({[path]:source}));
+  const fields=facts.fields?.filter((field)=>field.key===`code.symbol:${path}#Meter.total`);expect(fields).toHaveLength(1);
+  const field=fields![0]!;expect(field.ownerTypeName).toBe('Meter');
+  const declaration=facts.expressions.find((expression)=>expression.id===field.ownerDeclaration);expect(declaration?.syntaxKind).toBe('type_spec');
+  const type=facts.expressions.find((expression)=>expression.id===field.typeExpression);expect(type?.member).toBe('Int64');
+  const packageExpression=facts.expressions.find((expression)=>expression.id===type?.receiver);
+  const binding=facts.bindings.find((entry)=>entry.id===packageExpression?.bindingId);expect(facts.imports.find((entry)=>entry.id===binding?.importId)?.specifier).toBe('sync/atomic');
+  const reads=facts.sites.filter((site)=>site.to===field.key);expect(reads.length).toBeGreaterThanOrEqual(2);
+});
+
+
+test('Go full import paths keep same-basename packages distinct and explicit aliases win', async () => {
+  const path = 'cmd/run/main.go';
+  const first = 'example.test/catalog/components/adapter';
+  const second = 'example.test/catalog/other/adapter';
+  const external = 'example.test/remote/adapter';
+  for (const aliased of [false, true]) {
+    const left = aliased ? 'chosenLeft' : 'source';
+    const right = aliased ? 'chosenRight' : 'target';
+    const {facts} = await extractCodeWithFacts(treeOf({
+      'go.mod': 'module example.test/catalog\n',
+      'components/adapter/one.go': 'package source\ntype Worker struct{}\nfunc New() *Worker{return &Worker{}}\nfunc(w *Worker) Run(){}',
+      'other/adapter/two.go': 'package target\ntype Worker struct{}\nfunc New() *Worker{return &Worker{}}\nfunc(w *Worker) Run(){}',
+      [path]: `package main\nimport (${aliased ? `${left} ` : ''}"${first}";${aliased ? `${right} ` : ''}"${second}";"${external}")\nfunc main(){a:=${left}.New();a.Run();b:=${right}.New();b.Run();adapter.New();${aliased ? 'source.New();target.New();' : ''}}\n`,
+    }));
+    const imported = facts.imports.filter((entry) => entry.path === path);
+    expect(imported.map((entry) => [entry.specifier, entry.local]).sort()).toEqual([
+      [first, left], [second, right], [external, 'adapter'],
+    ].sort());
+    const bindings = new Map(facts.bindings.map((entry) => [entry.id, entry]));
+    for (const [specifier, local] of [[first, left], [second, right], [external, 'adapter']]) {
+      const expected = imported.find((entry) => entry.specifier === specifier);
+      const references = facts.expressions.filter((entry) => entry.path === path && entry.name === local && entry.bindingId !== undefined);
+      expect(references.length).toBeGreaterThan(0);
+      expect(references.every((entry) => bindings.get(entry.bindingId!)?.importId === expected?.id)).toBe(true);
+    }
+    expect(facts.sites.filter((site) => site.path === path && site.use === 'call').map((site) => site.to).sort()).toEqual([
+      'code.symbol:components/adapter/one.go#New',
+      'code.symbol:components/adapter/one.go#Worker.Run',
+      'code.symbol:other/adapter/two.go#New',
+      'code.symbol:other/adapter/two.go#Worker.Run',
+    ].sort());
+    expect(facts.gaps.filter((gap) => gap.path === path && gap.reason.includes('declared package identity'))).toEqual([]);
+  }
+});
+
+test('Go conflicting local namespaces fail closed for distinct internal and external import paths', async () => {
+  const path = 'cmd/run/main.go';
+  for (const rival of ['example.test/catalog/other/adapter', 'example.test/remote/shared']) for (const alias of ['', 'chosen ']) {
+    const local = alias === '' ? 'shared' : 'chosen';
+    const {facts} = await extractCodeWithFacts(treeOf({
+      'go.mod': 'module example.test/catalog\n',
+      'components/adapter/one.go': 'package shared\nfunc New() int{return 1}',
+      'other/adapter/two.go': 'package shared\nfunc New() int{return 2}',
+      [path]: `package main\nimport (${alias}"example.test/catalog/components/adapter";${alias}"${rival}")\nfunc main(){${local}.New()}\n`,
+    }));
+    expect(facts.imports.filter((entry) => entry.path === path)).toEqual([]);
+    expect(facts.bindings.filter((entry) => entry.path === path && entry.kind === 'import')).toEqual([]);
+    expect(facts.sites.filter((site) => site.path === path && site.use === 'call')).toEqual([]);
+    expect(facts.gaps.filter((gap) => gap.path === path && gap.reason.includes('declared package identity'))).toHaveLength(2);
+  }
+});
+
+test('a mixed-clause Go folder cannot contaminate a same-basename external import', async () => {
+  const path = 'cmd/run/main.go';
+  for (const alias of ['', 'chosen ']) {
+    const {facts} = await extractCodeWithFacts(treeOf({
+      'go.mod': 'module example.test/catalog\n',
+      'components/adapter/one.go': 'package first\nfunc New() int{return 1}',
+      'components/adapter/two.go': 'package second\nfunc Other() int{return 2}',
+      [path]: `package main\nimport (${alias}"example.test/catalog/components/adapter";"example.test/remote/adapter")\nfunc main(){first.New();second.New();chosen.New();adapter.New()}\n`,
+    }));
+    expect(facts.imports.filter((entry) => entry.path === path).map((entry) => [entry.specifier, entry.local])).toEqual([
+      ['example.test/remote/adapter', 'adapter'],
+    ]);
+    expect(facts.sites.filter((site) => site.path === path && site.use === 'call')).toEqual([]);
+    expect(facts.gaps.filter((gap) => gap.path === path && gap.reason.includes('declared package identity'))).toHaveLength(1);
+  }
+});

@@ -27,7 +27,7 @@ import type { RenderContext, Subject } from './blocks.js';
 import { locationOf, refOfGraph, refOfMarkdown } from './blocks.js';
 import { chainFrom, entriesOf, modulesBlockModel, pathOfKey, serviceLocator, systemModel, type Entry } from './diagrams.js';
 import type { GraphEntity } from './graph-read.js';
-import type { Chain, CodeLocation } from './model.js';
+import type { Chain, ChainStep, CodeLocation } from './model.js';
 import { sourceAddress } from './resolve.js';
 import { stateMachinesOf } from './state-machines.js';
 
@@ -173,6 +173,8 @@ export interface GraphView {
   fullElements?: ViewElement[];
   fullEdges?: ViewEdge[];
   notes: string[];
+  /** A sequence's steps the builder found, drawn and folded together: the total its marker counts against. */
+  total?: number;
   /** Why nothing is drawn, when nothing is. */
   empty: string | null;
   /** The view one level up. */
@@ -691,6 +693,19 @@ export async function stateViews(ctx: RenderContext, subject: GraphEntity, w: Wo
 
 const STEP_BUDGET = 40;
 
+/**
+ * The steps a chain's view draws: the first `budget` of them by call-nesting layer, then by walk order, drawn in walk
+ * order. A chain is a depth-first walk, so a flat prefix of it can end inside the first callee's subtree and hide the
+ * caller's own later calls (madarch-mwhd.3: a route whose handler calls three clients showed two of them); selecting by
+ * layer first keeps every caller's own steps, and its own calls, before its callees' subtrees. A chain that fits the
+ * budget is drawn whole, unchanged, and so is one whose steps all stand at one layer.
+ */
+function budgetedSteps(steps: readonly ChainStep[], budget = STEP_BUDGET): ChainStep[] {
+  if (steps.length <= budget) return [...steps];
+  const byLayer = [...steps].sort((a, b) => a.layer - b.layer || a.n - b.n).slice(0, budget);
+  return byLayer.sort((a, b) => a.n - b.n);
+}
+
 async function participantsOf(ctx: RenderContext, chain: Chain): Promise<Map<string, ViewElement>> {
   const participants = new Map<string, ViewElement>();
   for (const lane of chain.lanes) {
@@ -732,10 +747,10 @@ async function sequenceViews(ctx: RenderContext, spec: ViewSpec, subject: Subjec
     const chain = await chainFrom(ctx, entry, { limit: 100, depth: 6 });
     const participants = await participantsOf(ctx, chain);
     const laneGroup = new Map(chain.lanes.map((lane) => [lane.id, lane.group]));
-    const steps = chain.steps.slice(0, STEP_BUDGET);
+    const steps = budgetedSteps(chain.steps);
     const used = new Set(steps.flatMap((step) => [laneGroup.get(step.from), laneGroup.get(step.to)]));
     const elements = [...participants.entries()].filter(([group]) => used.has(group)).map(([, element]) => element);
-    const edges: ViewEdge[] = steps.map((step) => ({
+    const edgeOf = (step: ChainStep): ViewEdge => ({
       from: participants.get(laneGroup.get(step.from)!)!.id,
       to: participants.get(laneGroup.get(step.to)!)!.id,
       label: step.label,
@@ -746,11 +761,21 @@ async function sequenceViews(ctx: RenderContext, spec: ViewSpec, subject: Subjec
       ...(step.note === undefined ? {} : { note: step.note }),
       href: step.href,
       ...(step.site === undefined ? {} : { location: step.site }),
-    }));
+    });
+    const edges: ViewEdge[] = steps.map(edgeOf);
+    // The fold is never silent: the note counts the steps the view leaves out, the marker says how many it draws of the
+    // chain's total, and the block carries that total and every step found beside the ones drawn, so a reader can tell
+    // which step was folded away and not only how many were.
+    const folded = chain.total - steps.length;
     const notes = [...foldedEntries, ...chain.notes];
-    if (chain.steps.length > steps.length) notes.push(w.stepsFolded(chain.steps.length - steps.length));
+    if (folded > 0) notes.push(w.stepsFolded(folded));
     const entrySpec: ViewSpec = { type: 'sequence', subject: spec.subject, entry: entry.entity.key };
-    views.push({ spec: entrySpec, title: `${w.sequence}: ${chain.title}`, label: chain.title, elements, edges, notes, empty: edges.length === 0 ? w.noEntry : null, marker: null });
+    views.push({
+      spec: entrySpec, title: `${w.sequence}: ${chain.title}`, label: chain.title, elements, edges, notes,
+      total: chain.total,
+      ...(folded > 0 ? { fullElements: [...participants.values()], fullEdges: chain.steps.map(edgeOf) } : {}),
+      empty: edges.length === 0 ? w.noEntry : null, marker: folded > 0 ? w.truncated(steps.length, chain.total) : null,
+    });
   }
   return views;
 }

@@ -176,6 +176,7 @@ export type OperationMetadata = { contracts: {entity: EntityRef; protocol: strin
 export type EntityListing = { kind: string; total: number; rows: EntityRef[]; next: string | null; operations?: Record<string, OperationMetadata> };
 
 export type FillState = {
+  rebuilt?: 'extractors-changed';
   state: 'idle' | 'running' | 'done' | 'failed';
   repository?: string;
   phase?: 'code' | 'history' | 'points';

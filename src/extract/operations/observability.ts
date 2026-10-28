@@ -4,180 +4,78 @@
  * Records are keyed by the file and the symbol that serve, never by the route,
  * so the contracts extractor may find the same routes without a collision.
  */
-import type { PropertyValue } from '../records.js';
-import { byCodePoint } from '../../model/order.js';
+import {resolveEndpointTarget, matchesEndpoint} from '../endpoint-target.js';
+import { extractMetrics } from './metrics.js';
+import { effectOwner, effectSpan, libraryEvidence } from './code-facts.js';
 import type { Records } from './accumulate.js';
-import { serviceOf, TreeText } from './source.js';
+import { TreeText } from './source.js';
+import { functionNode } from './symbol-sites.js';
+import { structuralHttpRegistrations } from './route-facts.js';
 
-/** The logger modules: one per service, slog in Go and pino in TypeScript. */
+/** Logger effects require resolved package/receiver provenance from shared facts. */
 function loggers(t: TreeText, records: Records): void {
-  for (const path of t.tree.paths) {
-    if (!/^services\/[^/]+\/.*\/logging\//.test(path)) continue;
-    const service = serviceOf(path);
-    if (service === undefined) continue;
-    let text: string;
-    try {
-      text = t.text(path);
-    } catch (error) {
-      records.gap(path, `the logger cannot be read: ${error instanceof Error ? error.message : String(error)}`);
-      continue;
-    }
-    const lines = text.split('\n');
-    if (path.endsWith('.go') && /slog\.NewJSONHandler/.test(text)) {
-      const at = lines.findIndex((line) => /^func New\(/.test(line));
-      if (at < 0) continue;
-      records.add({
-        key: `code.logger:${path}#New`,
-        kind: 'code.logger',
-        label: `logger of ${service}`,
-        properties: { service, library: 'slog', json: true } satisfies { [key: string]: PropertyValue },
-        span: t.spanOfLine(path, at + 1),
-      });
-      records.edge('code.uses-logger', `code.logger:${path}#New`, records.file(path), {}, t.spanOfLine(path, at + 1));
-    }
-    if (path.endsWith('.ts') && /\bpino\(/.test(text)) {
-      const at = lines.findIndex((line) => /export\s+const\s+([A-Za-z0-9_]+)\s*=\s*pino\(/.test(line));
-      if (at < 0 || lines[at] === undefined) continue;
-      const symbol = /export\s+const\s+([A-Za-z0-9_]+)\s*=\s*pino\(/.exec(lines[at] ?? '')?.[1] ?? 'logger';
-      records.add({
-        key: `code.logger:${path}#${symbol}`,
-        kind: 'code.logger',
-        label: `logger of ${service}`,
-        properties: { service, library: 'pino', json: true } satisfies { [key: string]: PropertyValue },
-        span: t.spanOfLine(path, at + 1),
-      });
-      records.edge('code.uses-logger', `code.logger:${path}#${symbol}`, records.file(path), {}, t.spanOfLine(path, at + 1));
-    }
+  if (t.facts === undefined) { records.gap('.', 'logger extraction requires the shared resolved code facts'); return; }
+  const evaluated = t.libraryFacts()!;
+  const declared = evaluated.effects.filter((effect) => effect.kind === 'logger-declare');
+  const peersByHolder = new Map<string, number>();
+  for (const effect of declared) peersByHolder.set(effect.holder, (peersByHolder.get(effect.holder) ?? 0) + 1);
+  // The expression index belongs to the view: a duplicated id keeps its last
+  // entry exactly as the per-declaration map this replaced did.
+  const expressionById = (id: string) => t.expressionsById.all(id).at(-1);
+  const declarations = new Map<string, string>();
+  for (const effect of declared) {
+    const bindings = t.bindingsByInitializer.all(effect.expression);
+    const binding = bindings.length === 1 ? bindings[0] : undefined;
+    const holder = t.symbolsByKey.all(effect.holder).filter((symbol) => symbol.callable && symbol.path === effect.span.path &&
+      symbol.span.byteStart <= effect.span.byteStart && effect.span.byteEnd <= symbol.span.byteEnd);
+    const descends = (id: string, target: string, seen = new Set<string>()): boolean => {
+      if (id === target) return true;
+      if (seen.has(id)) return false; seen.add(id);
+      return expressionById(id)?.children.some((child) => descends(child, target, seen)) ?? false;
+    };
+    const returned = holder.length === 1 && t.expressionsByPath.all(effect.span.path).some((expression) => expression.syntaxKind === 'return_statement' &&
+      holder[0]!.span.byteStart <= expression.span.byteStart && expression.span.byteEnd <= holder[0]!.span.byteEnd &&
+      expression.span.byteStart <= effect.span.byteStart && effect.span.byteEnd <= expression.span.byteEnd && descends(expression.id, effect.expression));
+    const identity = binding?.name ?? (returned && peersByHolder.get(effect.holder) === 1 ? holder[0]!.qualifiedName : `${effect.holder.slice(effect.holder.lastIndexOf('#') + 1)}@${effect.span.byteStart}`);
+    const key = `code.logger:${effect.span.path}#${identity}`;
+    const manifest = t.filesByPath.all(effect.span.path)[0]?.manifest;
+    const service = t.serviceOf(effect.span.path) ?? manifest?.name ?? '';
+    records.add({ key, kind: 'code.logger', label: `logger ${identity} of ${service || effect.span.path}`,
+      properties: { service, ...libraryEvidence(effect),
+        ...(effect.presentation === undefined ? {} : {library: effect.presentation.library,
+          ...(effect.presentation.json === undefined ? {} : {json: effect.presentation.json})}) },
+      span: binding?.declarationSpan ?? (returned ? holder[0]!.span : effect.span) });
+    declarations.set(effect.expression, key);
+  }
+  for (const effect of evaluated.effects.filter((effect) => effect.kind === 'logger-use')) {
+    const logger = effect.roleOrigin === undefined ? undefined : declarations.get(effect.roleOrigin);
+    if (logger === undefined) { records.gap(effect.span.path, `line ${effect.span.lineStart}: logger use has no resolved declaration [${effect.modelId}]`); continue; }
+    const owner = effectOwner(t, records, effect);
+    if (owner === undefined) continue;
+    const discriminator = String(effect.span.byteStart);
+    records.edge('code.uses-logger', logger, records.file(effect.span.path), libraryEvidence(effect), effectSpan(effect), discriminator);
+    if (owner !== `code.file:${effect.span.path}`) records.edge('code.uses-logger', logger, owner, libraryEvidence(effect), effectSpan(effect), discriminator);
+    else records.gap(effect.span.path, `line ${effect.span.lineStart}: logger use is outside a callable [${effect.modelId}]`);
   }
 }
 
-/** One endpoint found in one file: the registration line and the symbol that serves it. */
-interface Endpoint {
-  readonly method: string;
-  readonly path: string;
-  readonly line: number;
-  readonly symbol: string;
-  readonly statusOk: boolean;
-}
-
-/**
- * The route registrations of one Go file. A named handler's response is read
- * at the handler's own declaration, not at the registration line, so a
- * statusOk property always sits where the answer is written.
- */
-function goRegistrations(t: TreeText, path: string): Endpoint[] {
-  const lines = t.lines(path);
-  const found: Endpoint[] = [];
-  lines.forEach((line, index) => {
-    for (const match of line.matchAll(/\.(?:Handle|HandleFunc)\(\s*"([A-Z]+)\s+(\/[A-Za-z0-9_./:-]*)"\s*,\s*([^)]*)\)/g)) {
-      const handler = (match[3] ?? '').trim();
-      const named = /^[A-Za-z0-9_.]+$/.test(handler);
-      const symbol = named ? (handler.split('.').pop() ?? '') : (nearestGoDeclaration(lines, index) ?? '');
-      let body = lines.slice(index, index + 6).join('\n');
-      if (named && symbol !== '') {
-        const declared = lines.findIndex((candidate) => new RegExp(`^func\\s+(?:\\([^)]*\\)\\s+)?${symbol}\\s*\\(`).test(candidate));
-        if (declared >= 0) body = lines.slice(declared, declared + 8).join('\n');
-      }
-      found.push({
-        method: match[1] ?? '',
-        path: match[2] ?? '',
-        line: index + 1,
-        symbol,
-        statusOk: /"ok"|'ok'/.test(body),
-      });
-    }
-  });
-  return found;
-}
-
-/** The route registrations of one TypeScript file. */
-function tsRegistrations(t: TreeText, path: string): Endpoint[] {
-  const lines = t.lines(path);
-  const found: Endpoint[] = [];
-  lines.forEach((line, index) => {
-    for (const match of line.matchAll(/\.(get|post|put|delete|all)\(\s*['"]([^'"]+)['"]/g)) {
-      const body = lines.slice(index, index + 6).join('\n');
-      found.push({
-        method: (match[1] ?? '').toUpperCase(),
-        path: match[2] ?? '',
-        line: index + 1,
-        symbol: nearestTsDeclaration(lines, index) ?? '',
-        statusOk: /"ok"|'ok'/.test(body),
-      });
-    }
-  });
-  return found;
-}
-
-function nearestGoDeclaration(lines: readonly string[], index: number): string | undefined {
-  for (let at = index; at >= 0; at -= 1) {
-    const declared = /^func\s+(?:\([^)]*\)\s+)?([A-Za-z0-9_]+)/.exec(lines[at] ?? '');
-    if (declared !== null) return declared[1];
-  }
-  return undefined;
-}
-
-function nearestTsDeclaration(lines: readonly string[], index: number): string | undefined {
-  const ownLine = lines[index] ?? '';
-  const own = ownLine.length - ownLine.trimStart().length;
-  for (let at = index; at >= 0; at -= 1) {
-    const line = lines[at] ?? '';
-    const indent = line.length - line.trimStart().length;
-    if (at !== index && indent >= own) continue;
-    const declared = /(?:function\s+([A-Za-z0-9_]+)|(?:const|let)\s+([A-Za-z0-9_]+)\s*=\s*(?:async\s*)?\()/.exec(line);
-    if (declared !== null) return declared[1] ?? declared[2];
-  }
-  return undefined;
-}
-
-/** The health endpoints: every registration of /healthz, keyed by its file and symbol. */
+/** Health registrations and handlers come only from shared structural facts. */
 function healthEndpoints(t: TreeText, records: Records): void {
-  for (const path of t.tree.paths) {
-    if (!/^services\//.test(path) || !(path.endsWith('.go') || path.endsWith('.ts'))) continue;
-    const found = path.endsWith('.go') ? goRegistrations(t, path) : tsRegistrations(t, path);
-    for (const endpoint of found.filter((entry) => entry.path === '/healthz')) {
-      records.add({
-        key: `code.health-endpoint:${path}#${endpoint.symbol}`,
-        kind: 'code.health-endpoint',
-        label: `/healthz of ${serviceOf(path) ?? path}`,
-        properties: { path: endpoint.path, method: endpoint.method, statusOk: endpoint.statusOk, service: serviceOf(path) ?? '' } satisfies { [key: string]: PropertyValue },
-        span: t.spanOfLine(path, endpoint.line),
-      });
-      records.edge('code.served-by', `code.health-endpoint:${path}#${endpoint.symbol}`, records.file(path), {service: serviceOf(path) ?? ''}, t.spanOfLine(path, endpoint.line));
-    }
-  }
-}
-
-/** The metrics endpoints: the files that write Prometheus counters, with the route their service registers. */
-function metricsEndpoints(t: TreeText, records: Records): void {
-  for (const path of t.tree.paths) {
-    if (!/^services\//.test(path) || !path.endsWith('.go')) continue;
-    let text: string;
-    try {
-      text = t.text(path);
-    } catch (error) {
-      records.gap(path, `the metrics cannot be read: ${error instanceof Error ? error.message : String(error)}`);
-      continue;
-    }
-    if (!/func \([^)]+\) ServeHTTP/.test(text)) continue;
-    const counters = [...text.matchAll(/([a-z][a-z0-9_]*_total)\b/g)].map((match) => match[1] ?? '').filter((name) => name !== '');
-    if (counters.length === 0) continue;
-    const service = serviceOf(path);
-    if (service === undefined) continue;
-    const registered = [...t.tree.paths]
-      .filter((other) => other.startsWith(`services/${service}/`) && other.endsWith('.go'))
-      .some((other) => /["'`][A-Z]* ?\/metrics["'`]/.test(t.text(other)));
-    if (!registered) continue;
-    const receiver = /func \(\w+ \*?([A-Za-z0-9_]+)\) ServeHTTP/.exec(text)?.[1] ?? 'Metrics';
-    const distinct = [...new Set(counters)].sort(byCodePoint);
-    records.add({
-      key: `code.metrics-endpoint:${path}#${receiver}`,
-      kind: 'code.metrics-endpoint',
-      label: `/metrics of ${service}`,
-      properties: { path: '/metrics', format: 'prometheus-text', counters: distinct } satisfies { [key: string]: PropertyValue },
-      span: t.spanOfFile(path),
-    });
-    records.edge('code.served-by', `code.metrics-endpoint:${path}#${receiver}`, records.file(path), {service}, t.spanOfFile(path));
+  for (const endpoint of structuralHttpRegistrations(t)) {
+    const path = endpoint.span.path;
+    const health = new Set(['/health', '/healthz', '/ready', '/readyz', '/live', '/livez', '/startup', '/startupz']);
+    if (!health.has(endpoint.path)) continue;
+    const identity = endpoint.handler?.qualifiedName ?? `unresolved@${endpoint.span.lineStart}:${endpoint.span.byteStart}`;
+    const endpointKey = `code.health-endpoint:${path}#${identity}${endpoint.path === '/healthz' ? '' : endpoint.path}`;
+    const ports = [...endpoint.ports];
+    if (ports.length === 0) records.gap(path, `line ${endpoint.span.lineStart}: health receiver/listener association is unresolved (${path})`);
+    const statusOk = endpoint.handler !== undefined && t.expressionsByPath.all(path).some((expression) =>
+      endpoint.handler!.span.byteStart <= expression.span.byteStart && expression.span.byteEnd <= endpoint.handler!.span.byteEnd && expression.literal?.value === 'ok');
+    records.add({key: endpointKey, kind: 'code.health-endpoint', label: `${endpoint.path} of ${t.serviceOf(path) ?? path}`,
+      properties: {path:endpoint.path, method:endpoint.method, ports, statusOk, service:t.serviceOf(path) ?? ''}, span:endpoint.span});
+    records.edge('code.served-by', endpointKey, records.file(path), {service:t.serviceOf(path) ?? ''}, endpoint.span);
+    if (endpoint.handler !== undefined) records.edge('code.served-by', endpointKey, functionNode(records,endpoint.handler), {role:'handler'},endpoint.span);
+    else records.gap(path,`line ${endpoint.span.lineStart}: health registration handler is unresolved (${path})`);
   }
 }
 
@@ -188,10 +86,19 @@ function metricsEndpoints(t: TreeText, records: Records): void {
  * gets no service link, because a link to a service nothing declares would be a node of its own.
  */
 export function linkEndpoints(t: TreeText, records: Records): void {
+  for (const probe of records.nodes.filter((node) => node.kind === 'code.probe' || node.kind === 'code.healthcheck')) {
+    // A TCP/exec/database readiness command does not claim an HTTP endpoint.
+    if (probe.kind === 'code.probe' && probe.properties.transport !== 'http') continue;
+    const resolved = resolveEndpointTarget(probe);
+    if (resolved.kind === 'non-http') continue;
+    if (resolved.kind === 'unresolved') {records.gap(probe.span?.path ?? '.', `line ${probe.span?.lineStart ?? 1}: probe target authority or method is unresolved (${probe.key})`); continue;}
+    const endpoints = records.nodes.filter((node) => node.kind === 'code.health-endpoint' && matchesEndpoint(resolved.target, node));
+    if (endpoints.length === 1 && endpoints[0] !== undefined) records.edge('code.probes', probe.key, endpoints[0].key, { role: 'endpoint' }, probe.span);
+  }
   for (const node of [...records.nodes]) {
     if (node.kind !== 'code.health-endpoint' && node.kind !== 'code.metrics-endpoint') continue;
     const path = node.key.slice(node.key.indexOf(':') + 1, node.key.lastIndexOf('#'));
-    const service = serviceOf(path);
+    const service = t.serviceOf(path);
     if (service === undefined) continue;
     const key = `code.service:${service}`;
     if (!records.nodes.some((held) => held.key === key)) continue;
@@ -203,5 +110,5 @@ export function linkEndpoints(t: TreeText, records: Records): void {
 export function extractObservability(t: TreeText, records: Records): void {
   loggers(t, records);
   healthEndpoints(t, records);
-  metricsEndpoints(t, records);
+  extractMetrics(t, records);
 }

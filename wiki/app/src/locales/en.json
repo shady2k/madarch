@@ -470,6 +470,7 @@
       "path": "Path"
     },
     "pageNotRead": "Could not read the page of {{id}}: {{reason}}",
+    "fillRebuiltExtractors": "Graph rebuilt: extractors changed",
     "contractLoading": "Loading contract documentation…",
     "contractRenderError": "Cannot render the definition: {{reason}}",
     "contractSelectionMissing": "The selected operation was not found in the rendered definition.",

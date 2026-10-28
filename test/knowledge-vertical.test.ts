@@ -103,8 +103,18 @@ describe('the function page', () => {
     const model = await page(PAY);
     const route = item('flow.payments.chain').locations!.find((entry) => entry.symbol === 'paymentRoutes')!;
     const callers = block(model, 'callers');
-    expect(callers.rows.map((row) => row.entity.label)).toContain('paymentRoutes');
-    const fromRoutes = callers.rows.find((row) => row.entity.label === 'paymentRoutes')!;
+    // Public callback identity starts at the parameters; raw source locations
+    // independently retain the leading async token and the complete body.
+    const routeCallback = recordKey('code.symbol', 'services/payments/src/api/routes.ts#paymentRoutes.callback@10:377');
+    const grpcCallback = recordKey('code.symbol', 'services/payments/src/grpc/server.ts#paymentsHandlers.callback@38:1405');
+    expect(callers.rows.map((row) => row.entity.id)).toEqual([routeCallback, grpcCallback]);
+    expect(callers.rows.map((row) => row.entity.label)).toEqual(['paymentRoutes callback (line 10)', 'paymentsHandlers callback (line 38)']);
+    expect(callers.rows.map((row) => row.sites)).toEqual([1, 1]);
+    const fromRoutes = callers.rows.find((row) => row.entity.id === routeCallback)!;
+    expect(fromRoutes.entity.location).toMatchObject({path: route.path, lineStart: 10, lineEnd: 32});
+    const registered = block(await page(recordKey('code.route', route.path + '#POST:/payments')), 'related');
+    expect(registered.groups.find((group) => group.relation === 'code.handled-by' && group.direction === 'out')!.rows.map((row) => row.entity.id)).toEqual([routeCallback]);
+    expect(callers.rows.some((row) => row.entity.id === recordKey('code.symbol', route.path + '#paymentRoutes'))).toBe(false);
     expect(fromRoutes.site!.path).toBe(route.path);
     expect(fromRoutes.site!.repo).toBe('training');
     expect(fromRoutes.site!.lineStart).toBe(lineOf(route.path, 'service.pay('));
@@ -137,6 +147,10 @@ describe('the function page', () => {
     const [chain] = (await page(PAY)).blocks.flatMap((entry) => (entry.type === 'diagrams' ? entry.views : [])).filter((view) => view.spec.type === 'sequence');
     expect(chain!.elements.map((element) => element.label)).toContain('payments');
     expect(chain!.edges.map((edge) => edge.label)).toContain('withTimeout');
+    const callback = chain!.edges.find((edge) => edge.note?.includes('callback value passed here'));
+    expect(callback).toBeDefined();
+    expect(callback?.dashed).toBe(true);
+    expect(callback?.location?.path).toBe('services/payments/src/domain/payment-service.ts');
   });
 });
 

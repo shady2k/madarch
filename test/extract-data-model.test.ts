@@ -188,9 +188,14 @@ describe('data-model extractor (training repository, answer key)', () => {
       },
     };
     const read = await extractDataModel(tree);
-    const gap = read.gaps.find((candidate) => candidate.path === broken);
-    expect(gap, `no gap for ${broken}`).toBeDefined();
-    expect(gap!.reason).toContain('no table or column statement');
+    const diagnostics = read.gaps.filter((candidate) => candidate.path === broken).map((gap) => gap.reason);
+    // The failing line and the whole repository path, never only the reason (madarch-mwhd.3 review 5).
+    expect(diagnostics).toEqual([
+      'line 1: database broken has no contributing storage reading; service use is unresolved',
+      `${broken}:1: no table or column declaration could be read: the statement is no CREATE, ALTER or INDEX this reader knows`,
+    ]);
+    expect(read.edges.filter((edge) => edge.type === 'code.uses-database')).toEqual([]);
+    expect(read.gaps.some((candidate) => candidate.path === broken && candidate.reason.includes('line 1:') && candidate.reason.includes('no contributing storage reading'))).toBe(true);
   });
 });
 
@@ -325,8 +330,10 @@ describe('table-access items (answer key)', () => {
     const repositoryPath = 'services/orders/internal/store/order_repository.go';
     const writers = edgesOf('code.writes-table').filter((edge) => edge.to === table).map((edge) => edge.from);
     expect(writers).toContain(functionKey(repositoryPath, 'OrderRepository.Create'));
-    expect(writers).toContain(functionKey(repositoryPath, 'OrderRepository.Save'));
-    expect(writers).toContain(functionKey(repositoryPath, 'OrderRepository.Delete'));
+    for (const callback of ['OrderRepository.Save.callback@57:1448', 'OrderRepository.Delete.callback@237:7918']) {
+      expect(writers).toContain(functionKey(repositoryPath, callback));
+    }
+    for (const outer of ['OrderRepository.Save', 'OrderRepository.Delete']) expect(writers).not.toContain(functionKey(repositoryPath, outer));
     expect(writers).toContain(functionKey(repositoryPath, 'insertOrder'));
     for (const writer of writers) {
       expect(writer.startsWith(`code.symbol:${repositoryPath}#`) || writer.startsWith('code.file:'), writer).toBe(true);
@@ -453,12 +460,15 @@ describe('outbox items (answer key)', () => {
 describe("the extractor's stated limits, each named with its case", () => {
   test('a SQL string no function holds is attributed to the file, and spans survive non-ASCII bytes', async () => {
     const code = 'services/alpha/src/notes.ts';
+    const manifest = 'services/alpha/package.json';
     const migration = 'services/alpha/migrations/0001_things.sql';
     const bytesOf = (source: TreeReader): Map<string, Uint8Array> => new Map(source.paths.map((pathname) => [pathname, source.read(pathname)]));
     const tree: TreeReader = {
-      paths: [code, migration],
+      paths: [manifest, code, migration],
       read(pathname: string): Uint8Array {
         const texts: Record<string, string> = {
+          // The unit the repository declares: a service is what its manifest says it is (madarch-mwhd.3).
+          [manifest]: '{"name":"alpha"}',
           // The comment's multi-byte characters make bytes and characters differ.
           [code]: '// Café — the seed résumé.\nfunction load(pool: { query(text: string): unknown }): unknown {\n  return pool.query(\'SELECT id FROM things\');\n}\nconst seedSql = \'INSERT INTO things (id) VALUES (1)\';\n',
           [migration]: 'CREATE TABLE things (\n  id TEXT PRIMARY KEY\n);\n',

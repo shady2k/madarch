@@ -81,6 +81,7 @@ export interface UnitSummary {
 }
 
 export type FromWorker =
+  | {type:'rebuild'; reason:'extractors-changed'}
   | { type: 'progress'; repository: string; commit: number; commits: number }
   /** A phase of the fill begins: the last commit's code is read first, then the history of every commit. */
   | { type: 'phase'; repository: string; phase: 'code' | 'history' | 'points'; commits: number; newCommits: number }

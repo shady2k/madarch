@@ -19,6 +19,7 @@ export interface OpenApiOperation {
   readonly summary?: string;
   /** False only where the contract says the operation needs no security. */
   readonly public: boolean;
+  readonly servers: readonly string[];
   readonly span: SourceSpan;
 }
 
@@ -51,6 +52,7 @@ export function readOpenApi(path: string, text: string): {contract: OpenApiContr
     openapi?: string;
     info?: {title?: string; version?: string};
     security?: readonly Record<string, unknown>[];
+    servers?: readonly {url?: string}[];
     paths?: Record<string, Record<string, unknown>>;
   } | null;
   const measure = new SpanMeasure(text);
@@ -63,12 +65,14 @@ export function readOpenApi(path: string, text: string): {contract: OpenApiContr
       const operation = (op ?? {}) as {
         operationId?: string;
         summary?: string;
+        servers?: readonly {url?: string}[];
         security?: readonly Record<string, unknown>[];
       };
       const node = doc.getIn(['paths', routePath, method], true) as {range?: readonly number[]} | undefined;
       const valueStart = node?.range?.[0];
       const valueEnd = node?.range?.[1];
       operations.push({
+        servers: (operation.servers ?? item['servers'] as readonly {url?: string}[] | undefined ?? root?.servers ?? []).flatMap((server) => typeof server.url === 'string' ? [server.url] : []),
         method: method.toUpperCase(),
         path: routePath,
         operationId: typeof operation.operationId === 'string' ? operation.operationId : undefined,
@@ -113,6 +117,7 @@ export function openApiNodes(contract: OpenApiContract): ExtractedNode[] {
       ...(op.operationId !== undefined ? {operationId: op.operationId} : {}),
       ...(op.summary !== undefined ? {summary: op.summary} : {}),
       public: op.public,
+      servers: op.servers,
     },
     span: op.span,
   }));

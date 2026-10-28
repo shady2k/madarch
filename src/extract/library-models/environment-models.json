@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "models": [
+    {
+      "id": "database-url",
+      "variable": "DATABASE_URL",
+      "effect": "database-connection",
+      "reference": "https://www.prisma.io/docs/orm/reference/connection-urls"
+    },
+    {
+      "id": "db-dsn",
+      "variable": "DB_DSN",
+      "effect": "database-connection",
+      "reference": "https://github.com/golang-migrate/migrate/blob/master/cmd/migrate/README.md"
+    },
+    {
+      "id": "db-url",
+      "variable": "DB_URL",
+      "effect": "database-connection",
+      "reference": "https://github.com/golang-migrate/migrate/blob/master/cmd/migrate/README.md"
+    },
+    {
+      "id": "mysql-url",
+      "variable": "MYSQL_URL",
+      "effect": "database-connection",
+      "reference": "https://github.com/sidorares/node-mysql2/blob/master/website/docs/index.mdx"
+    },
+    {
+      "id": "postgres-url",
+      "variable": "POSTGRES_URL",
+      "effect": "database-connection",
+      "reference": "https://github.com/porsager/postgres#connection"
+    }
+  ]
+}

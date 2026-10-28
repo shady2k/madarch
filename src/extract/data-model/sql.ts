@@ -54,7 +54,7 @@ export type SqlStatement =
   | {readonly kind: 'alter-table-add-column'; readonly table: string; readonly schema: string; readonly column: SqlColumnDecl}
   | {readonly kind: 'alter-table-add-foreign-key'; readonly table: string; readonly schema: string; readonly foreignKey: SqlForeignKeyDecl; readonly span: SourceSpan}
   | {readonly kind: 'create-index'; readonly table: string; readonly schema: string; readonly index: SqlIndexDecl}
-  | {readonly kind: 'other'};
+  | {readonly kind: 'other'; readonly span: SourceSpan};
 
 /** One script read: its statements, each with its place. */
 export interface SqlScript {
@@ -183,7 +183,7 @@ function parseStatement(path: string, bytes: ByteText, pieceStart: number, piece
   if (createTable !== null) {
     const table = parseCreateTable(path, bytes, start, trimmed);
     if (table !== undefined) return {kind: 'create-table', table};
-    return {kind: 'other'};
+    return {kind: 'other', span: span()};
   }
 
   const createIndex =
@@ -205,7 +205,7 @@ function parseStatement(path: string, bytes: ByteText, pieceStart: number, piece
   const addColumn = /^ALTER\s+TABLE\s+(?:(?:"?(\w+)"?)\.)?"?(\w+)"?\s+ADD\s+COLUMN\s+([\s\S]+)$/i.exec(trimmed);
   if (addColumn !== null) {
     const column = parseColumnDef(path, bytes, start + (trimmed.length - addColumn[3]!.length), addColumn[3]!);
-    if (column === undefined) return {kind: 'other'};
+    if (column === undefined) return {kind: 'other', span: span()};
     const schema = unquote(addColumn[1] ?? '');
     return {kind: 'alter-table-add-column', table: unquote(addColumn[2]!), schema: schema === '' ? 'public' : schema, column};
   }
@@ -216,7 +216,7 @@ function parseStatement(path: string, bytes: ByteText, pieceStart: number, piece
     );
   if (addForeignKey !== null) {
     const target = parseReferenceTarget(addForeignKey[5]!);
-    if (target === undefined) return {kind: 'other'};
+    if (target === undefined) return {kind: 'other', span: span()};
     const schema = unquote(addForeignKey[1] ?? '');
     return {
       kind: 'alter-table-add-foreign-key',
@@ -226,7 +226,7 @@ function parseStatement(path: string, bytes: ByteText, pieceStart: number, piece
       span: span(),
     };
   }
-  return {kind: 'other'};
+  return {kind: 'other', span: span()};
 }
 
 function parseCreateTable(path: string, bytes: ByteText, statementStart: number, trimmed: string): SqlTableDecl | undefined {

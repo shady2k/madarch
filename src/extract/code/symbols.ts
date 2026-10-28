@@ -1,7 +1,7 @@
 /**
  * The symbols of a file as nodes: which declarations are kept, which are
- * locals of a function (a variable or closure inside a body is no part of the
- * code's structure and is folded into the function that holds it), and the
+ * locals of a function (ordinary variables fold into their callable owner;
+ * named local callables retain their own body identity), and the
  * innermost kept symbol that holds a place. The symbol reader names a Go
  * method's locals by the bare method name, so a local is told by where it
  * stands -- inside a function's span -- and not by its qualified name.
@@ -19,7 +19,7 @@ export interface FileSymbol {
   readonly symbolKind: SymbolKind;
   readonly span: SyntaxSpan;
   readonly definitionSpan: SyntaxSpan;
-  /** Inside the span of a function-like symbol: folded into the outermost one. */
+  /** A non-callable local or an alternate name folded into its canonical owner. */
   readonly local: boolean;
   /** The key of the symbol a local folds into; the symbol's own key where it is kept. */
   readonly keptKey: string;
@@ -45,7 +45,8 @@ export function indexSymbols(path: string, symbols: readonly ExtractedSymbol[], 
     const key = symbolKey(path, symbol.qualifiedName);
     // A name with no container that the file does not declare at its top is declared inside a block
     // (a test callback, a `describe` body): it is a local of the file, not a symbol of its structure.
-    const blockLocal = outer === undefined && topNames !== undefined && !symbol.qualifiedName.includes('.') && !topNames.has(symbol.qualifiedName);
+    const functionLike = FUNCTION_LIKE.has(symbol.symbolKind);
+    const blockLocal = !functionLike && outer === undefined && topNames !== undefined && !symbol.qualifiedName.includes('.') && !topNames.has(symbol.qualifiedName);
     indexed.push({
       key,
       qualifiedName: symbol.qualifiedName,
@@ -53,9 +54,9 @@ export function indexSymbols(path: string, symbols: readonly ExtractedSymbol[], 
       symbolKind: symbol.symbolKind,
       span: symbol.span,
       definitionSpan: symbol.definitionSpan,
-      local: outer !== undefined || blockLocal,
-      keptKey: blockLocal ? fileKey(path) : outer === undefined ? key : symbolKey(path, outer.qualifiedName),
-      functionLike: FUNCTION_LIKE.has(symbol.symbolKind),
+      local: !functionLike && (outer !== undefined || blockLocal),
+      keptKey: functionLike ? key : blockLocal ? fileKey(path) : outer === undefined ? key : symbolKey(path, outer.qualifiedName),
+      functionLike,
     });
   }
   return indexed;

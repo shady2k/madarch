@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "package": "@grpc/grpc-js",
+  "reference": "https://www.npmjs.com/package/@grpc/grpc-js",
+  "optionsArgument": 1,
+  "deadlineProperty": "deadline",
+  "dateConstructor": "Date",
+  "clockMember": "now",
+  "numberConversion": "Number"
+}

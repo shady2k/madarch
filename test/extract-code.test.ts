@@ -14,7 +14,8 @@ import {mkdtemp, readFile, readdir, rm, stat} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {extractCode} from '../src/extract/code/index.js';
+// Test-only CodeFacts fixture owns one shared code pass for each immutable tree.
+import {extractCode} from './extract-code-facts-fixture.js';
 import {
   fileKey,
   KIND_CYCLE,
@@ -37,7 +38,9 @@ import {
   symbolKey,
 } from '../src/extract/code/keys.js';
 import {extractDataModel} from '../src/extract/data-model/extract.js';
-import {extractContracts} from '../src/extract/contracts/index.js';
+import {extractContracts} from './extract-code-facts-fixture.js';
+import {extractOperations} from './extract-code-facts-fixture.js';
+import {OPERATIONS_PRODUCER} from '../src/extract/operations/index.js';
 import type {ExtractedEdge, ExtractedNode, Extraction, TreeReader} from '../src/extract/records.js';
 
 const testFolder = path.dirname(fileURLToPath(import.meta.url));
@@ -120,6 +123,7 @@ let ex: Extraction;
 let again: Extraction;
 let dataModel: Extraction;
 let contracts: Extraction;
+let operations: Extraction;
 
 beforeAll(async () => {
   const scratch = await mkdtemp(path.join(tmpdir(), 'madarch-o0eq6-'));
@@ -133,7 +137,8 @@ beforeAll(async () => {
   ex = await extractCode(tree);
   again = await extractCode(tree);
   dataModel = await extractDataModel(tree);
-  contracts = await extractContracts(tree);
+  contracts = await extractContracts(tree, ex);
+  operations = await extractOperations(tree);
 }, 280_000);
 
 // ---- lookups ---------------------------------------------------------------
@@ -170,6 +175,22 @@ function expectEdge(type: string, from: string, to: string): ExtractedEdge {
     throw new Error(`no ${type} edge ${from} -> ${to}; ${type} edges from it go to: ${out.join(', ') || '(none)'}`);
   }
   return found[0]!;
+}
+
+/** Follow the actual registered inline owner, never invent a call from its factory. */
+function inlineRouteHandler(file: string, path: string, factory: string): string {
+  const route = `code.route:${file}#POST:${path}`;
+  const handlers = contracts.edges.filter((edge) => edge.type === 'code.handled-by' && edge.from === route);
+  expect(handlers, route).toHaveLength(1);
+  const handler = handlers[0]!.to;
+  const callback = node(handler);
+  expect(callback.properties['inline'], handler).toBe(true);
+  expect(callback.properties['qualifiedName'], handler).toStartWith(`${factory}.callback@`);
+  const registrations = contracts.edges.filter((edge) => edge.type === REL_REFERENCES && edge.from === sym(file, factory) && edge.to === handler);
+  expect(registrations, route).toHaveLength(1);
+  expect(registrations[0]!.properties['role']).toBe('callback-registration');
+  expect(registrations[0]!.span).toEqual(callback.span);
+  return handler;
 }
 
 const dirOf = (p: string): string => p.slice(0, p.lastIndexOf('/'));
@@ -269,7 +290,21 @@ describe('modules', () => {
   });
 
   test('every module and every package of the training repository is a record, and the root packages are the four services', () => {
-    const packages = ex.nodes.filter((n) => n.kind === KIND_PACKAGE).map((n) => n.key);
+    const packages = ex.nodes.filter((n) => n.kind === KIND_PACKAGE && n.properties['external'] !== true).map((n) => n.key);
+    // External imports are now records too, not additional repository roots.
+    const external = ex.nodes.filter((n) => n.kind === KIND_PACKAGE && n.properties['external'] === true);
+    const expectedImports = [
+      ...['context', 'crypto/rand', 'database/sql', 'encoding/csv', 'encoding/hex', 'encoding/json', 'errors', 'fmt', 'log/slog', 'net/http', 'os', 'os/signal', 'path/filepath', 'sort', 'strconv', 'strings', 'sync', 'sync/atomic', 'syscall', 'testing', 'time'].map((name) => `code.package:import/go/${name}`),
+      ...['node:crypto', 'node:http', 'node:net', 'node:path'].map((name) => `code.package:import/node/${name}`),
+    ];
+    expect(external.map((n) => n.key)).toEqual(expectedImports);
+    expect(ex.nodes.filter((n) => n.kind === KIND_PACKAGE)).toHaveLength(29);
+    for (const imported of external) {
+      expect(imported.properties['standardLibrary'], imported.key).toBe(true);
+      expect(imported.properties['versionStatus'], imported.key).toBe('not-applicable');
+      expect(imported.span?.path, imported.key).toBeDefined();
+      expect(edges(REL_IMPORTS, undefined, imported.key).length, imported.key).toBeGreaterThan(0);
+    }
     expect(packages).toEqual(
       ['checkout', 'orders', 'payments', 'promotions'].map((name) => packageKey(`services/${name}`)),
     );
@@ -384,10 +419,24 @@ describe('flow', () => {
     const location = locationsOf('flow.orders.repository')[0]!;
     const create = sym(location.path, declared(location.symbol!));
     expect(create).toBe(sym(REPOSITORY, 'OrderRepository.Create'));
-    expectEdge(REL_CALLS, create, sym(`${ORDERS}/store/outbox.go`, 'OutboxWriter.Write'));
-    expectEdge(REL_CALLS, create, sym(REPOSITORY, 'insertOrder'));
-    expectEdge(REL_CALLS, create, sym(REPOSITORY, 'insertItems'));
+    const source = new TextDecoder().decode(tree.read(REPOSITORY));
+    const declaration = source.indexOf('func (r *OrderRepository) Create');
+    const callbackAt = source.indexOf('func(tx *sql.Tx) error {', declaration);
+    expect(callbackAt).toBeGreaterThan(declaration);
+    const byteStart = new TextEncoder().encode(source.slice(0, callbackAt)).length;
+    const line = source.slice(0, callbackAt).split('\n').length;
+    const callback = sym(REPOSITORY, `OrderRepository.Create.callback@${line}:${byteStart}`);
+    expect(node(callback).span?.byteStart).toBe(byteStart);
+    for (const target of [sym(`${ORDERS}/store/outbox.go`, 'OutboxWriter.Write'), sym(REPOSITORY, 'insertOrder'), sym(REPOSITORY, 'insertItems')]) {
+      const call = expectEdge(REL_CALLS, callback, target);
+      expect(call.span?.path).toBe(REPOSITORY);
+      expect(call.span!.byteStart).toBeGreaterThan(byteStart);
+      expect(has(REL_CALLS, create, target)).toBe(false);
+    }
     expectEdge(REL_CALLS, create, sym(REPOSITORY, 'OrderRepository.inTx'));
+    const reference = expectEdge(REL_REFERENCES, create, callback);
+    expect(reference.properties.role).toBe('callback-value');
+    expect(reference.span?.byteStart).toBe(byteStart);
     // The service reaches this implementation through the interface.
     const viaInterface = edges(REL_CALLS, sym(SERVICE, 'Service.Place'), create);
     expect(viaInterface[0]?.properties['via']).toBe('interface');
@@ -420,13 +469,15 @@ describe('flow', () => {
     expectEdge(REL_CALLS, sym('services/orders/cmd/orders/main.go', 'run'), sym(REPOSITORY, 'NewOrderRepository'));
   });
 
-  test('flow.payments.chain: createApp mounts authenticate and paymentRoutes, which calls PaymentService.pay, which stores through PrismaPaymentRepository', () => {
+  test('flow.payments.chain: createApp mounts authenticate and paymentRoutes, whose registered callback calls PaymentService.pay, which stores through PrismaPaymentRepository', () => {
     const create = sym(`${PAYMENTS}/app.ts`, 'createApp');
     expectEdge(REL_CALLS, create, sym(`${PAYMENTS}/api/middleware.ts`, 'authenticate'));
     expectEdge(REL_CALLS, create, sym(`${PAYMENTS}/api/routes.ts`, 'paymentRoutes'));
     const routes = sym(`${PAYMENTS}/api/routes.ts`, 'paymentRoutes');
     const pay = sym(`${PAYMENTS}/domain/payment-service.ts`, 'PaymentService.pay');
-    expectEdge(REL_CALLS, routes, pay);
+    const handler = inlineRouteHandler(`${PAYMENTS}/api/routes.ts`, '/payments', 'paymentRoutes');
+    expectEdge(REL_CALLS, handler, pay);
+    expect(edges(REL_CALLS, routes, pay)).toEqual([]);
     const repository = `${PAYMENTS}/store/payment-repository.ts`;
     expectEdge(REL_CALLS, pay, sym(repository, 'PaymentRepository.create'));
     expectEdge(REL_CALLS, pay, sym(repository, 'PrismaPaymentRepository.create'));
@@ -445,9 +496,12 @@ describe('flow', () => {
     expectEdge(REL_REFERENCES, sym(`${PAYMENTS}/domain/payment-service.ts`, 'PaymentServiceDeps.repository'), sym(repository, 'PaymentRepository'));
   });
 
-  test('flow.checkout.chain: checkoutRoutes is mounted by createApp and calls CheckoutService.checkout', () => {
+  test('flow.checkout.chain: checkoutRoutes is mounted by createApp and its registered callback calls CheckoutService.checkout', () => {
     expectEdge(REL_CALLS, sym(`${CHECKOUT}/app.ts`, 'createApp'), sym(`${CHECKOUT}/api/routes.ts`, 'checkoutRoutes'));
-    expectEdge(REL_CALLS, sym(`${CHECKOUT}/api/routes.ts`, 'checkoutRoutes'), sym(`${CHECKOUT}/checkout-service.ts`, 'CheckoutService.checkout'));
+    const handler = inlineRouteHandler(`${CHECKOUT}/api/routes.ts`, '/checkout', 'checkoutRoutes');
+    const checkout = sym(`${CHECKOUT}/checkout-service.ts`, 'CheckoutService.checkout');
+    expectEdge(REL_CALLS, handler, checkout);
+    expect(edges(REL_CALLS, sym(`${CHECKOUT}/api/routes.ts`, 'checkoutRoutes'), checkout)).toEqual([]);
     expect(locationsOf('flow.checkout.chain').length).toBe(3);
   });
 });
@@ -797,13 +851,13 @@ describe('dead-export', () => {
 // Each of these key facets is not a deterministic reading of the code structure; the item itself is asserted above
 // for what is, and the facet is named here with its reason.
 describe('named todo: facets of the key items that the code structure does not decide', () => {
-  test.todo('flow.orders.route / flow.orders.middleware: that POST /orders is inside the auth group is the contracts extractor\'s route record (authGroup); here the chain Chain -> RequireAuth is calls only', () => {});
-  test.todo('flow.orders.repository: that the insert, the items and the outbox write run in one database transaction is a property of the data-model extractor\'s table accesses, not of the call graph', () => {});
-  test.todo('pattern.repository: the exceptions with direct database access (legacy report, migration runner, outbox writer, relay) are table-access records of the data-model extractor', () => {});
-  test.todo('pattern.singleton / pattern.strategy / pattern.adapter / pattern.factory / pattern.state-machine: the pattern names are interpretations; the extractor stores their structural evidence (implements, references, once, transitions) and the wiki names the pattern', () => {});
-  test.todo('tests.checkout-e2e: that the gRPC stub speaks the real proto and the orders stub prices with 8% tax is behaviour of the test, not structure; only "reaches no code of other services" is stored', () => {});
-  test.todo('tests.pay: the per-case behaviours (doubling waits, decline after three failures) are in the case names the catalogue stores; the subject is the PaymentService class because the cases build it through a helper whose result type the reader does not infer', () => {});
-  test.todo('architecture.composition-root: that dependencies are injected through constructors and the composition root is the only place that builds them is a judgement over the calls; the calls of run() and main() are asserted', () => {});
+  test.todo('flow.orders.route / flow.orders.middleware: that POST /orders is inside the auth group is the contracts extractor\'s route record (authGroup); here the chain Chain -> RequireAuth is calls only', async () => {});
+  test.todo('flow.orders.repository: that the insert, the items and the outbox write run in one database transaction is a property of the data-model extractor\'s table accesses, not of the call graph', async () => {});
+  test.todo('pattern.repository: the exceptions with direct database access (legacy report, migration runner, outbox writer, relay) are table-access records of the data-model extractor', async () => {});
+  test.todo('pattern.singleton / pattern.strategy / pattern.adapter / pattern.factory / pattern.state-machine: the pattern names are interpretations; the extractor stores their structural evidence (implements, references, once, transitions) and the wiki names the pattern', async () => {});
+  test.todo('tests.checkout-e2e: that the gRPC stub speaks the real proto and the orders stub prices with 8% tax is behaviour of the test, not structure; only "reaches no code of other services" is stored', async () => {});
+  test.todo('tests.pay: the per-case behaviours (doubling waits, decline after three failures) are in the case names the catalogue stores; the subject is the PaymentService class because the cases build it through a helper whose result type the reader does not infer', async () => {});
+  test.todo('architecture.composition-root: that dependencies are injected through constructors and the composition root is the only place that builds them is a judgement over the calls; the calls of run() and main() are asserted', async () => {});
 });
 
 // ---- the whole extraction ---------------------------------------------------------------
@@ -816,8 +870,27 @@ describe('the extraction as a whole', () => {
     expect(new Set(keys).size).toBe(keys.length);
   });
 
-  test('every edge ends at a node of this extraction or of the data-model extractor, and every gap names its path and reason', () => {
-    const known = new Set([...ex.nodes.map((n) => n.key), ...dataModel.nodes.map((n) => n.key)]);
+  test('every edge ends at a node of code, data-model or declared operations provenance, and every gap names its path and reason', () => {
+    expect(operations.producer).toBe(OPERATIONS_PRODUCER);
+    const dependencies = operations.nodes.filter((node) => node.kind === 'code.dependency');
+    expect(dependencies.length).toBeGreaterThan(0);
+    for (const imported of ex.edges.filter((edge) => edge.type === REL_IMPORTS && edge.to.startsWith('code.dependency:'))) {
+      const dependency = dependencies.find((node) => node.key === imported.to);
+      expect(dependency, imported.to).toBeDefined();
+      const span = dependency!.span!;
+      expect(span, imported.to).toBeDefined();
+      expect(imported.to).toBe(`code.dependency:${span.path}#${String(dependency!.properties['name'])}`);
+      const declaration = operations.edges.filter((edge) => edge.type === 'code.declares-dependency' && edge.from === `code.manifest:${span.path}` && edge.to === imported.to);
+      expect(declaration, imported.to).toHaveLength(1);
+      expect(declaration[0]!.span).toEqual(span);
+      const text = new TextDecoder().decode(tree.read(span.path));
+      const line = text.split('\n')[span.lineStart - 1]!;
+      expect(line, imported.to).toContain(String(dependency!.properties['name']));
+      expect(line, imported.to).toContain(String(dependency!.properties['version']));
+      expect(imported.properties['version'], imported.to).toBe(dependency!.properties['version']);
+      expect(ex.nodes.some((node) => node.key === imported.to), imported.to).toBe(false);
+    }
+    const known = new Set([...ex.nodes, ...dataModel.nodes, ...operations.nodes].map((node) => node.key));
     for (const edge of ex.edges) {
       expect(known.has(edge.from), `${edge.type} from ${edge.from}`).toBe(true);
       expect(known.has(edge.to), `${edge.type} to ${edge.to}`).toBe(true);
