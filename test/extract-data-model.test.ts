@@ -459,12 +459,15 @@ describe('outbox items (answer key)', () => {
 describe("the extractor's stated limits, each named with its case", () => {
   test('a SQL string no function holds is attributed to the file, and spans survive non-ASCII bytes', async () => {
     const code = 'services/alpha/src/notes.ts';
+    const manifest = 'services/alpha/package.json';
     const migration = 'services/alpha/migrations/0001_things.sql';
     const bytesOf = (source: TreeReader): Map<string, Uint8Array> => new Map(source.paths.map((pathname) => [pathname, source.read(pathname)]));
     const tree: TreeReader = {
-      paths: [code, migration],
+      paths: [manifest, code, migration],
       read(pathname: string): Uint8Array {
         const texts: Record<string, string> = {
+          // The unit the repository declares: a service is what its manifest says it is (madarch-mwhd.3).
+          [manifest]: '{"name":"alpha"}',
           // The comment's multi-byte characters make bytes and characters differ.
           [code]: '// Café — the seed résumé.\nfunction load(pool: { query(text: string): unknown }): unknown {\n  return pool.query(\'SELECT id FROM things\');\n}\nconst seedSql = \'INSERT INTO things (id) VALUES (1)\';\n',
           [migration]: 'CREATE TABLE things (\n  id TEXT PRIMARY KEY\n);\n',

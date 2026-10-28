@@ -516,8 +516,10 @@ export function receiverListenerPorts(t: TreeText, path: string, receiver: strin
   const owner = functionAt(t, path, at);
   const returned = owner !== undefined && (new RegExp(`\\breturn\\s+${escaped(receiver)}\\b`).test(mask.slice(owner.bodyStart, owner.end)) || new RegExp(`\\breturn\\s+Chain\\s*\\([^;]*\\)\\s*\\(\\s*${escaped(receiver)}\\s*\\)`).test(mask.slice(owner.bodyStart, owner.end)));
   const factory = returned ? owner.name : undefined;
-  const service = /^services\/([^/]+)\//.exec(path)?.[1];
-  for (const other of t.tree.paths.filter((file) => /^services\/([^/]+)\//.exec(file)?.[1] === service && file.endsWith(path.endsWith('.go') ? '.go' : '.ts'))) {
+  // The unit that declares this file's folder, never a folder called services/: its files are the siblings.
+  const unit = t.unitOf(path);
+  const scope = unit === undefined ? undefined : unit.root === '' ? '' : `${unit.root}/`;
+  for (const other of t.tree.paths.filter((file) => scope !== undefined && (scope === '' || file.startsWith(scope)) && file.endsWith(path.endsWith('.go') ? '.go' : '.ts'))) {
     const source = t.text(other); const otherMask = sourceMask(t, other);
     const factoryCalls = new Set<string>();
     const methodReceivers: {name: string; definition: number}[] = [];
@@ -532,10 +534,10 @@ export function receiverListenerPorts(t: TreeText, path: string, receiver: strin
           }
         }
       } else {
-        const modPath = `services/${service}/go.mod`;
-        const module = t.has(modPath) ? /^module\s+(\S+)/m.exec(t.text(modPath))?.[1] : undefined;
         const folder = path.slice(0, path.lastIndexOf('/'));
-        const relative = folder.slice(`services/${service}`.length);
+        // The module path the unit declares, and this file's folder relative to the unit's root.
+        const module = unit?.ecosystem === 'go' ? unit.declared : undefined;
+        const relative = unit === undefined ? '' : folder.slice(unit.root.length);
         const alias = module === undefined ? undefined : importedModule(t, other, `${module}${relative}`)?.local;
         if (alias !== undefined && owner?.receiverType === undefined) factoryCalls.add(`${alias}.${factory}`);
         // A returned mux on a method belongs only to instances made by a

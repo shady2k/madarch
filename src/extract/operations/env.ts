@@ -11,7 +11,7 @@ import type { PropertyValue } from '../records.js';
 import { byCodePoint } from '../../model/order.js';
 import type { Records } from './accumulate.js';
 import { readComposeFile } from './compose.js';
-import { serviceOf, TreeText } from './source.js';
+import { TreeText } from './source.js';
 
 /** Value-bearing graph declarations shared with readers of the emitted records. */
 export const ENVIRONMENT_VALUE_RECORDS = {
@@ -34,12 +34,13 @@ export interface EnvRead {
 
 const VARIABLE_NAME = /[A-Z][A-Z0-9_]+/;
 
-/** Every environment read in every Go and TypeScript file under services/. */
+/** Every environment read in every Go and TypeScript file of a declared unit. */
 function readSites(t: TreeText, records: Records): EnvRead[] {
   const reads: EnvRead[] = [];
   for (const path of t.tree.paths) {
-    if (!/^services\//.test(path)) continue;
-    const service = serviceOf(path);
+    // A read counts where a declared unit governs the file: the repository's own
+    // modules and packages, never a folder shape (madarch-mwhd.3).
+    const service = t.serviceOf(path);
     if (service === undefined) continue;
     let found: EnvRead[];
     try {
@@ -65,12 +66,12 @@ function typescriptReads(t: TreeText, path: string): EnvRead[] {
     const number = index + 1;
     const symbol = enclosingTsSymbol(lines, index) ?? '';
     for (const call of line.matchAll(/\b(?:required|require|must)\(\s*['"]([A-Z][A-Z0-9_]*)['"]\s*\)/g)) {
-      reads.push({ service: serviceOf(path) ?? '', name: call[1] ?? '', path, line: number, symbol, required: helperTreatsAbsenceAsFatal, default: null });
+      reads.push({ service: t.serviceOf(path) ?? '', name: call[1] ?? '', path, line: number, symbol, required: helperTreatsAbsenceAsFatal, default: null });
     }
     for (const direct of line.matchAll(/(?:process\.)?env\.([A-Z][A-Z0-9_]*)(?:\s*\?\?\s*([^,;)\n]+))?/g)) {
       const raw = direct[2]?.trim();
       reads.push({
-        service: serviceOf(path) ?? '',
+        service: t.serviceOf(path) ?? '',
         name: direct[1] ?? '',
         path,
         line: number,
@@ -109,10 +110,10 @@ function goReads(t: TreeText, path: string): EnvRead[] {
     const number = index + 1;
     const symbol = goSymbol(t, path, index);
     for (const call of line.matchAll(/\b(?:require|getenv|must)\(\s*"([A-Z][A-Z0-9_]*)"\s*\)/g)) {
-      reads.push({ service: serviceOf(path) ?? '', name: call[1] ?? '', path, line: number, symbol, required: helperTreatsAbsenceAsFatal, default: null });
+      reads.push({ service: t.serviceOf(path) ?? '', name: call[1] ?? '', path, line: number, symbol, required: helperTreatsAbsenceAsFatal, default: null });
     }
     for (const call of line.matchAll(/os\.Getenv\(\s*"([A-Z][A-Z0-9_]*)"\s*\)/g)) {
-      reads.push({ service: serviceOf(path) ?? '', name: call[1] ?? '', path, line: number, symbol, required: goGuardFails(lines, index), default: null });
+      reads.push({ service: t.serviceOf(path) ?? '', name: call[1] ?? '', path, line: number, symbol, required: goGuardFails(lines, index), default: null });
     }
   });
   return reads;

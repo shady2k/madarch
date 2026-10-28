@@ -10,6 +10,7 @@ import type {
 } from '../code/facts.js';
 import {codeFactsOf} from '../code/index.js';
 import { evaluateLibraryModels } from '../library-models/evaluate.js';
+import { serviceOfPath, serviceUnits, unitIndex, unitOfPath, type ServiceUnit } from '../service-units.js';
 import type { LibraryEvaluation } from '../library-models/model.js';
 import type { FunctionSite } from './symbol-sites.js';
 
@@ -68,8 +69,24 @@ export class TreeText {
 
   readonly tree: TreeReader;
   private libraryCache: LibraryEvaluation | undefined;
+  private unitCache: ReadonlyMap<string, ServiceUnit> | undefined;
   readonly factGaps = new Map<string, { readonly path: string; readonly reason: string }>();
   factGap(path: string, reason: string): void { this.factGaps.set(JSON.stringify([path, reason]), {path, reason}); }
+
+  /** The units the tree declares, read once: a service is what the repository says it is, never a folder shape. */
+  units(): ReadonlyMap<string, ServiceUnit> {
+    return this.unitCache ??= unitIndex(serviceUnits(this.tree));
+  }
+
+  /** The unit a path belongs to, or undefined outside every declared unit. */
+  unitOf(path: string): ServiceUnit | undefined {
+    return unitOfPath(this.units(), path);
+  }
+
+  /** The name of the unit a path belongs to, or undefined outside every declared unit. */
+  serviceOf(path: string): string | undefined {
+    return serviceOfPath(this.units(), path);
+  }
 
   libraryFacts(): LibraryEvaluation | undefined {
     if (this.facts === undefined) return undefined;
@@ -281,8 +298,7 @@ function utf8Length(bytes: Uint8Array, at: number): number | undefined {
   return undefined;
 }
 
-/** The service folder a repository path under services/ belongs to, or undefined. */
-export function serviceOf(path: string): string | undefined {
-  const match = /^services\/([^/]+)\//.exec(path);
-  return match?.[1];
+/** The units one tree declares: read once per extractor run, not once per file. */
+export function declaredUnits(tree: TreeReader): ReadonlyMap<string, ServiceUnit> {
+  return unitIndex(serviceUnits(tree));
 }

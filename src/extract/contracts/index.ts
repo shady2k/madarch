@@ -20,6 +20,7 @@
  *   results reach `$queryRawUnsafe`, through the file's local bindings.
  */
 import {TreeText} from '../operations/source.js';
+import {serviceOfPath, serviceUnits, unitIndex} from '../service-units.js';
 import {routeListenerPorts, structuralHttpRegistrations} from '../operations/route-facts.js';
 import {codeFactsOf, extractCodeWithFacts} from '../code/index.js';
 import type {CodeExpressionFact, CodeFacts} from '../code/facts.js';
@@ -221,10 +222,11 @@ export async function extractContracts(reader: TreeReader, code?: Extraction, fa
     else tsFiles.push({path: p, ts: read.value as TsFileFacts});
   }
 
-  // The service a file belongs to, named as the operations extractor names it: the folder under services/ and nothing
-  // else, so `code.service:<name>` reaches the node the stack extractor makes. A file outside services/ belongs to no
+  // The service a file belongs to, named as the operations extractor names it: the unit its folder is declared by, so
+  // `code.service:<name>` reaches the node the stack extractor makes. A file outside every declared unit belongs to no
   // service, and an edge would invent one (madarch-m38l.16).
-  const serviceOf = (path: string): string | undefined => /^services\/([^/]+)\//.exec(path)?.[1];
+  const units = unitIndex(serviceUnits(reader));
+  const serviceOf = (path: string): string | undefined => serviceOfPath(units, path);
   const folderOf = (path: string): string => path.slice(0, Math.max(0, path.lastIndexOf('/')));
   // Listening ports are evidence for a contract server's service, not a global path guess.
   const portsByService = new Map<string, Set<string>>();
@@ -620,7 +622,7 @@ export async function extractContracts(reader: TreeReader, code?: Extraction, fa
       continue;
     }
   }
-  const outbox = await inferOutboxPublications(facts, code, publications.sites);
+  const outbox = await inferOutboxPublications(facts, code, publications.sites, units);
   gaps.push(...outbox.gaps);
   for (const site of outbox.sites) {
     if (!channels.includes(site.channel)) continue;

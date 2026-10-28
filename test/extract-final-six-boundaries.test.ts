@@ -8,7 +8,18 @@ import {linkExtractions} from '../src/extract/driver/links.js';
 import {endpointRelations} from '../src/extract/driver/relationships.js';
 import type {TreeReader} from '../src/extract/records.js';
 const path = 'services/api/main.ts';
-const tree = (files: Record<string,string>): TreeReader => ({paths:Object.keys(files).sort(),read:(file)=>{const source=files[file];if(source===undefined)throw new Error(`missing fixture ${file}`);return new TextEncoder().encode(source);}});
+/** The unit a fixture declares: every `services/<name>/` path it names gets that name's manifest (madarch-mwhd.3). */
+const withUnits = (files: Record<string, string>): Record<string, string> => {
+  const declared: Record<string, string> = {...files};
+  for (const name of Object.keys(files)) {
+    const parts = name.split('/');
+    if (parts[0] !== 'services' || parts.length < 3) continue;
+    const manifest = `services/${parts[1]}/package.json`;
+    if (declared[manifest] === undefined) declared[manifest] = JSON.stringify({name: parts[1]});
+  }
+  return declared;
+};
+const tree = (given: Record<string,string>): TreeReader => { const files = withUnits(given); return {paths:Object.keys(files).sort(),read:(file)=>{const source=files[file];if(source===undefined)throw new Error(`missing fixture ${file}`);return new TextEncoder().encode(source);}}; };
 const health = 'function health(req: unknown,res: {send(s:string):void}){res.send("ok");}';
 const probe = (port: number) => `services:\n api:\n  image: api:1\n  healthcheck:\n   test: ["CMD", "curl", "http://localhost:${port}/healthz"]\n`;
 

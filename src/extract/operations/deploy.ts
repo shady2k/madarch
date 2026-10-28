@@ -11,7 +11,7 @@ import type { Records } from './accumulate.js';
 import type { ComposeService } from './compose.js';
 import { readComposeFile } from './compose.js';
 import { byCodePoint } from '../../model/order.js';
-import { serviceOf, TreeText } from './source.js';
+import { TreeText } from './source.js';
 
 /** One image built by one Dockerfile: the parts the chain follows. */
 interface DockerfileReading {
@@ -29,7 +29,9 @@ interface DockerfileReading {
 function dockerfiles(t: TreeText, records: Records): DockerfileReading[] {
   const readings: DockerfileReading[] = [];
   for (const path of t.pathsNamed(/^Dockerfile(\.[A-Za-z0-9_-]+)?$/)) {
-    const service = serviceOf(path) ?? (path.slice(0, path.lastIndexOf('/')) || '.');
+    // A Dockerfile belongs to the unit that declares the folder it stands in; a file outside every
+    // unit is known by its own folder.
+    const service = t.serviceOf(path) ?? (path.slice(0, path.lastIndexOf('/')) || '.');
     const read = readDockerfile(t.text(path));
     if (!read.ok) {
       records.gap(path, `line ${read.gap.line}: ${read.gap.detail}`);

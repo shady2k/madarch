@@ -6,7 +6,19 @@ import {environmentModelDigest, environmentModels, validateEnvironmentModels} fr
 import type {Extraction, SourceSpan, TreeReader} from '../src/extract/records.js';
 
 const path = 'services/api/main.ts';
-function tree(files: Readonly<Record<string, string>>): TreeReader {
+/** The unit a fixture declares: every `services/<name>/` path it names gets that name's manifest (madarch-mwhd.3). */
+function withUnits(files: Readonly<Record<string, string>>): Record<string, string> {
+  const declared: Record<string, string> = {...files};
+  for (const name of Object.keys(files)) {
+    const parts = name.split('/');
+    if (parts[0] !== 'services' || parts.length < 3) continue;
+    const manifest = `services/${parts[1]}/package.json`;
+    if (declared[manifest] === undefined) declared[manifest] = JSON.stringify({name: parts[1]});
+  }
+  return declared;
+}
+function tree(given: Readonly<Record<string, string>>): TreeReader {
+  const files = withUnits(given);
   return {paths: Object.keys(files).sort(), read(name) {
     const text = files[name];
     if (text === undefined) throw new Error(`${import.meta.path}: fixture has no path ${name}`);
@@ -170,7 +182,12 @@ test('dotenv absent, empty and malformed assignments never invent storage eviden
 });
 
 test('an unread source keeps its path and reason rather than a partial storage claim', async () => {
-  const input: TreeReader = {paths: [path], read() { throw new Error('fixture source unavailable'); }};
+  const manifest = 'services/api/package.json';
+  // The unit the fixture declares, so the unread file is still a file of a service (madarch-mwhd.3).
+  const input: TreeReader = {paths: [manifest, path], read(name) {
+    if (name !== manifest) throw new Error('fixture source unavailable');
+    return new TextEncoder().encode('{"name":"api"}');
+  }};
   const shared = await extractCodeWithFacts(input);
   const result = await extractDataModel(input, shared.extraction, shared.facts);
   expect(storage(result).databases).toEqual([]);

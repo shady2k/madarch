@@ -26,6 +26,7 @@
  * without models, and bytes that are not text.
  */
 import {byCodePoint} from '../../model/order.js';
+import {serviceOfPath, serviceUnits, unitIndex, unitOfPath, type ServiceUnit} from '../service-units.js';
 import {parsePostgres, type ParseResult} from '../../parsers/postgres.js';
 import {extractFileSyntax} from '../../fill/stages/syntax-extract.js';
 import {readGoMod} from '../../fill/stages/manifest-format.js';
@@ -141,23 +142,35 @@ export async function extractDataModel(tree: TreeReader, suppliedCode?: Extracti
   const prismaSchemas = new Map<string, string>();
   const codePaths: string[] = [];
   const scriptPaths: string[] = [];
+  // The units the repository declares, and the question every loop below asks of a path.
+  const units = unitIndex(serviceUnits(tree));
+  const serviceOf = (path: string): string | undefined => serviceOfPath(units, path);
 
   for (const path of [...tree.paths].sort(byCodePoint)) {
     const service = serviceOf(path);
-    if (/^services\/[^/]+\/migrations\/[^/]+\.sql$/.test(path) && service !== undefined) {
-      migrations.push({database: service, name: path.slice(path.lastIndexOf('/') + 1), path, prisma: false});
+    const unit = unitOfPath(units, path);
+    const segments = path.split('/');
+    const file = segments[segments.length - 1] ?? '';
+    // A migration is what its folder declares it to be: a `migrations` folder holding a `.sql`
+    // script, or prisma's `<name>/migration.sql` beside a `schema.prisma`. The database is the unit
+    // that holds the folder, or the folder itself when no unit does (madarch-mwhd.3).
+    const migrationsAt = segments.lastIndexOf('migrations');
+    const databaseOfPath = (at: number): string => unit?.name ?? folderName(segments.slice(0, at).join('/'));
+    if (migrationsAt >= 0 && file.endsWith('.sql')) {
+      if (migrationsAt === segments.length - 2) {
+        migrations.push({database: databaseOfPath(migrationsAt), name: file, path, prisma: false});
+        continue;
+      }
+      if (migrationsAt === segments.length - 3 && file === 'migration.sql' && segments[migrationsAt - 1] === 'prisma') {
+        migrations.push({database: databaseOfPath(migrationsAt), name: segments[migrationsAt + 1]!, path, prisma: true});
+        continue;
+      }
+    }
+    if (file === 'schema.prisma' && segments[segments.length - 2] === 'prisma') {
+      prismaSchemas.set(databaseOfPath(segments.length - 2), path);
       continue;
     }
-    const prismaMigration = /^services\/([^/]+)\/prisma\/migrations\/([^/]+)\/migration\.sql$/.exec(path);
-    if (prismaMigration !== null) {
-      migrations.push({database: prismaMigration[1]!, name: prismaMigration[2]!, path, prisma: true});
-      continue;
-    }
-    if (/^services\/[^/]+\/prisma\/schema\.prisma$/.test(path) && service !== undefined) {
-      prismaSchemas.set(service, path);
-      continue;
-    }
-    if (/^scripts\/[^/]+\.sql$/.test(path)) {
+    if (file.endsWith('.sql')) {
       scriptPaths.push(path);
       continue;
     }
@@ -166,7 +179,7 @@ export async function extractDataModel(tree: TreeReader, suppliedCode?: Extracti
 
   // Positive connection or driver evidence may describe a database without
   // declaring tables. A service directory, by itself, is never such evidence.
-  await collectStorageEvidence(tree, databases, gaps, facts);
+  await collectStorageEvidence(tree, units, databases, gaps, facts);
 
   // ---- the migrations, in their applied order ------------------------------
   const topLevel = migrations.filter((migration) => !migration.prisma).sort((left, right) => byCodePoint(left.database, right.database) || byCodePoint(left.name, right.name));
@@ -605,7 +618,7 @@ export async function extractDataModel(tree: TreeReader, suppliedCode?: Extracti
     const prismaPath = prismaSchemas.get(database.name);
     if (prismaPath !== undefined) for (const table of database.tables.values()) if (table.span?.path === prismaPath) readings.push({kind: 'schema', span: table.span});
     for (const table of database.tables.values()) if (table.span !== undefined && !readings.some((reading) => reading.span.path === table.span!.path && reading.span.byteStart === table.span!.byteStart && reading.span.byteEnd === table.span!.byteEnd)) readings.push({kind: 'schema', span: table.span});
-    if (readings.length === 0) gaps.push({path: database.migrations[0]?.path ?? `services/${database.name}`, reason: `line 1: database ${database.name} has no contributing storage reading; service use is unresolved`});
+    if (readings.length === 0) gaps.push({path: database.migrations[0]?.path ?? database.name, reason: `line 1: database ${database.name} has no contributing storage reading; service use is unresolved`});
     else structuralEdges.push({type: 'code.uses-database', from: `code.service:${database.name}`, to: dbKey, discriminator: '', properties: {via: readings.some((reading) => reading.kind === 'schema') ? 'schema' : readings[0]!.kind, origins: readings.map((reading) => ({sourceProducer: DATA_MODEL_PRODUCER, originalDiscriminator: '', sourceSpan: {...reading.span}, properties: {via: reading.kind, ...(reading.model === undefined ? {} : {environmentModel: reading.model}), ...(reading.expression === undefined ? {} : {expression: reading.expression}), ...(reading.holder === undefined ? {} : {holder: reading.holder})}}))}, span: readings[0]!.span});
     for (const migration of database.migrations) {
       const migrationId = migrationKey(database.name, migration.name);
@@ -678,9 +691,11 @@ function within(call: ResolvedCall, region: FunctionRegion): boolean {
   return call.site.byteStart >= region.span.byteStart && call.site.byteEnd <= region.span.byteEnd;
 }
 
-function serviceOf(path: string): string | undefined {
-  const match = /^services\/([^/]+)\//.exec(path);
-  return match?.[1];
+/** The last folder of a path, the name an unowned folder declares itself by. */
+function folderName(path: string): string {
+  const trimmed = path.endsWith('/') ? path.slice(0, -1) : path;
+  const at = trimmed.lastIndexOf('/');
+  return at < 0 ? trimmed : trimmed.slice(at + 1);
 }
 
 function languageOf(path: string): string | null {
@@ -730,7 +745,8 @@ function wholeFile(tree: TreeReader, path: string): SourceSpan {
 }
 
 /** Reads only explicit storage declarations; generic config files never imply a database. */
-async function collectStorageEvidence(tree: TreeReader, databases: Map<string, MergedDatabase>, gaps: ExtractionGap[], facts?: CodeFacts): Promise<void> {
+async function collectStorageEvidence(tree: TreeReader, units: ReadonlyMap<string, ServiceUnit>, databases: Map<string, MergedDatabase>, gaps: ExtractionGap[], facts?: CodeFacts): Promise<void> {
+  const serviceOf = (path: string): string | undefined => serviceOfPath(units, path);
   const spanAt = (path: string, text: string, start: number, end: number): SourceSpan => {
     const bytes = new ByteText(text);
     return {path, byteStart: bytes.byteAt(start), byteEnd: bytes.byteAt(end), lineStart: bytes.lineOf(bytes.byteAt(start)), lineEnd: bytes.lineOf(bytes.byteAt(end))};
@@ -739,7 +755,7 @@ async function collectStorageEvidence(tree: TreeReader, databases: Map<string, M
     databaseOf(databases, service).evidence.push({kind, span, ...metadata});
   };
   const environment = new Map(environmentModels.map(model => [model.variable, model]));
-  if (facts !== undefined) collectEnvironmentReadEvidence(facts, databases, gaps);
+  if (facts !== undefined) collectEnvironmentReadEvidence(facts, units, databases, gaps);
   for (const path of [...tree.paths].sort(byCodePoint)) {
     const service = serviceOf(path);
     const codeSource = languageOf(path) !== null;
@@ -794,7 +810,8 @@ async function collectStorageEvidence(tree: TreeReader, databases: Map<string, M
         const name = pair.key.value;
         // Associate only product services actually present in this tree, not
         // an arbitrary compose infrastructure service or image label.
-        if (!tree.paths.some((candidate) => candidate.startsWith(`services/${name}/`))) continue;
+        // A compose service is one this repository declares as a unit, by the name the unit declares.
+        if (![...units.values()].some((held) => held.name === name)) continue;
         const env = pair.value.get('environment', true);
         if (!isMap(env)) continue;
         for (const item of env.items) {
@@ -815,7 +832,8 @@ async function collectStorageEvidence(tree: TreeReader, databases: Map<string, M
 }
 
 /** Resolve environment reads only from the already copied lexical facts. */
-function collectEnvironmentReadEvidence(facts: CodeFacts, databases: Map<string, MergedDatabase>, gaps: ExtractionGap[]): void {
+function collectEnvironmentReadEvidence(facts: CodeFacts, units: ReadonlyMap<string, ServiceUnit>, databases: Map<string, MergedDatabase>, gaps: ExtractionGap[]): void {
+  const serviceOf = (path: string): string | undefined => serviceOfPath(units, path);
   const view = new CodeFactView(facts);
   const environment = new Map(environmentModels.map(model => [model.variable, model]));
   const files = new Map(facts.files.map(file => [file.path, file]));

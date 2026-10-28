@@ -8,7 +8,7 @@ import {resolveEndpointTarget, matchesEndpoint} from '../endpoint-target.js';
 import { extractMetrics } from './metrics.js';
 import { effectOwner, effectSpan, libraryEvidence } from './code-facts.js';
 import type { Records } from './accumulate.js';
-import { serviceOf, TreeText } from './source.js';
+import { TreeText } from './source.js';
 import { functionNode } from './symbol-sites.js';
 import { structuralHttpRegistrations } from './route-facts.js';
 
@@ -39,7 +39,7 @@ function loggers(t: TreeText, records: Records): void {
     const identity = binding?.name ?? (returned && peersByHolder.get(effect.holder) === 1 ? holder[0]!.qualifiedName : `${effect.holder.slice(effect.holder.lastIndexOf('#') + 1)}@${effect.span.byteStart}`);
     const key = `code.logger:${effect.span.path}#${identity}`;
     const manifest = t.filesByPath.all(effect.span.path)[0]?.manifest;
-    const service = serviceOf(effect.span.path) ?? manifest?.name ?? '';
+    const service = t.serviceOf(effect.span.path) ?? manifest?.name ?? '';
     records.add({ key, kind: 'code.logger', label: `logger ${identity} of ${service || effect.span.path}`,
       properties: { service, ...libraryEvidence(effect),
         ...(effect.presentation === undefined ? {} : {library: effect.presentation.library,
@@ -71,9 +71,9 @@ function healthEndpoints(t: TreeText, records: Records): void {
     if (ports.length === 0) records.gap(path, `line ${endpoint.span.lineStart}: health receiver/listener association is unresolved (${path})`);
     const statusOk = endpoint.handler !== undefined && t.expressionsByPath.all(path).some((expression) =>
       endpoint.handler!.span.byteStart <= expression.span.byteStart && expression.span.byteEnd <= endpoint.handler!.span.byteEnd && expression.literal?.value === 'ok');
-    records.add({key: endpointKey, kind: 'code.health-endpoint', label: `${endpoint.path} of ${serviceOf(path) ?? path}`,
-      properties: {path:endpoint.path, method:endpoint.method, ports, statusOk, service:serviceOf(path) ?? ''}, span:endpoint.span});
-    records.edge('code.served-by', endpointKey, records.file(path), {service:serviceOf(path) ?? ''}, endpoint.span);
+    records.add({key: endpointKey, kind: 'code.health-endpoint', label: `${endpoint.path} of ${t.serviceOf(path) ?? path}`,
+      properties: {path:endpoint.path, method:endpoint.method, ports, statusOk, service:t.serviceOf(path) ?? ''}, span:endpoint.span});
+    records.edge('code.served-by', endpointKey, records.file(path), {service:t.serviceOf(path) ?? ''}, endpoint.span);
     if (endpoint.handler !== undefined) records.edge('code.served-by', endpointKey, functionNode(records,endpoint.handler), {role:'handler'},endpoint.span);
     else records.gap(path,`line ${endpoint.span.lineStart}: health registration handler is unresolved (${path})`);
   }
@@ -98,7 +98,7 @@ export function linkEndpoints(t: TreeText, records: Records): void {
   for (const node of [...records.nodes]) {
     if (node.kind !== 'code.health-endpoint' && node.kind !== 'code.metrics-endpoint') continue;
     const path = node.key.slice(node.key.indexOf(':') + 1, node.key.lastIndexOf('#'));
-    const service = serviceOf(path);
+    const service = t.serviceOf(path);
     if (service === undefined) continue;
     const key = `code.service:${service}`;
     if (!records.nodes.some((held) => held.key === key)) continue;

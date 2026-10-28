@@ -1,7 +1,18 @@
 import {expect, test} from 'bun:test';
 import {extractCode} from '../src/extract/code/index.js';
 import {extractContracts} from '../src/extract/contracts/index.js';
-const tree = (files: Record<string, string>) => ({paths: Object.keys(files).sort(), read: (path: string) => new TextEncoder().encode(files[path] ?? '')});
+/** The unit a fixture declares: every `services/<name>/` path it names gets that name's manifest (madarch-mwhd.3). */
+const withUnits = (files: Record<string, string>): Record<string, string> => {
+  const declared: Record<string, string> = {...files};
+  for (const name of Object.keys(files)) {
+    const parts = name.split('/');
+    if (parts[0] !== 'services' || parts.length < 3) continue;
+    const manifest = `services/${parts[1]}/package.json`;
+    if (declared[manifest] === undefined) declared[manifest] = JSON.stringify({name: parts[1]});
+  }
+  return declared;
+};
+const tree = (given: Record<string, string>) => { const files = withUnits(given); return {paths: Object.keys(files).sort(), read: (path: string) => new TextEncoder().encode(files[path] ?? '')}; };
 test('Unicode callback spans and ordinary sites use code owner, outer and nested registrations stay separate', async () => {
  const path = 'services/api/main.ts';
  const source = `// карта

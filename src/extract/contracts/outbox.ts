@@ -4,6 +4,7 @@ import type {CodeBindingFact, CodeCallFact, CodeExpressionFact, CodeFacts} from 
 import type {Extraction, ExtractionGap, SourceSpan} from '../records.js';
 
 import {outboxModels} from '../library-models/outbox-models.js';
+import {serviceOfPath, type ServiceUnit} from '../service-units.js';
 import {libraryRegistry} from '../library-models/validate.js';
 
 type RecordNode = {[key: string]: unknown};
@@ -80,6 +81,7 @@ export interface OutboxPublication {span: SourceSpan; channel: string; evidence:
 export async function inferOutboxPublications(
   facts: CodeFacts | undefined, code: Extraction | undefined,
   candidates: readonly {span: SourceSpan; channel?: string; evidence: readonly SourceSpan[]}[],
+  units: ReadonlyMap<string, ServiceUnit>,
 ): Promise<{sites: OutboxPublication[]; gaps: ExtractionGap[]}> {
   const sites: OutboxPublication[] = []; const gaps: ExtractionGap[] = [];
   if (facts === undefined || code === undefined || !candidates.some(site => site.channel === undefined)) return {sites, gaps};
@@ -311,7 +313,8 @@ export async function inferOutboxPublications(
     if (!cache.has(sql)) { try { cache.set(sql, outboxSqlFacts(await parsePostgres(sql))); } catch { cache.set(sql, undefined); } }
     const shape = cache.get(sql); if (shape !== undefined) queries.push({call, literal, shape, values: model.values});
   }
-  const service = (path: string): string | undefined => { const parts = path.split('/'); return parts[0] === 'services' && parts.length >= 3 ? parts[1] : undefined; };
+  // The unit a path belongs to, read from what the repository declares, never a folder called services/.
+  const service = (path: string): string | undefined => serviceOfPath(units, path);
   const inserted: {query: Query; table: Table; topics: Topic[] | undefined}[] = [];
   for (const query of queries) for (const insert of query.shape.inserts) {
     const topic = record(insert.topic); const literal = string(record(record(topic?.A_Const)?.sval)?.sval);

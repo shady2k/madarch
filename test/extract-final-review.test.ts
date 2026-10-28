@@ -9,7 +9,18 @@ import {endpointRelations} from '../src/extract/driver/relationships.js';
 import type {Extraction, SourceSpan, TreeReader} from '../src/extract/records.js';
 const path='services/api/main.ts';
 const enc=new TextEncoder();
-const tree=(files:Record<string,string>):TreeReader=>({paths:Object.keys(files).sort(),read:(p)=>{if(files[p]===undefined)throw new Error(`missing fixture ${p}`);return enc.encode(files[p]);}});
+/** The unit a fixture declares: every `services/<name>/` path it names gets that name's manifest (madarch-mwhd.3). */
+const withUnits = (files: Record<string, string>): Record<string, string> => {
+  const declared: Record<string, string> = {...files};
+  for (const name of Object.keys(files)) {
+    const parts = name.split('/');
+    if (parts[0] !== 'services' || parts.length < 3) continue;
+    const manifest = `services/${parts[1]}/package.json`;
+    if (declared[manifest] === undefined) declared[manifest] = JSON.stringify({name: parts[1]});
+  }
+  return declared;
+};
+const tree=(given:Record<string,string>):TreeReader=>{const files=withUnits(given);return {paths:Object.keys(files).sort(),read:(p)=>{if(files[p]===undefined)throw new Error(`missing fixture ${p}`);return enc.encode(files[p]);}};};
 const read=(source:string,extra:Record<string,string>={})=>tree({[path]:source,...extra});
 const slice=(input:TreeReader,span:SourceSpan|undefined)=>span===undefined?undefined:new TextDecoder().decode(input.read(span.path).subarray(span.byteStart,span.byteEnd));
 const symbol=(name:string)=>`code.symbol:${path}#${name}`;

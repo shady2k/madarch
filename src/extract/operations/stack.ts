@@ -14,18 +14,14 @@ const GO_STDLIB_FRAMEWORKS: readonly string[] = ['database/sql', 'net/http'];
 
 /** The stack passport of every service that holds a manifest. */
 export function extractStack(t: TreeText, records: Records, envReads: ReadonlyMap<string, readonly EnvRead[]>): void {
-  const services = new Set<string>();
-  for (const path of t.tree.paths) {
-    const match = /^services\/([^/]+)\//.exec(path);
-    if (match?.[1] !== undefined) services.add(match[1]);
-  }
-  for (const service of [...services].sort(byCodePoint)) {
-    const prefix = `services/${service}/`;
-    const goMod = `${prefix}go.mod`;
-    const packageJson = `${prefix}package.json`;
-    const manifestPath = t.has(goMod) ? goMod : t.has(packageJson) ? packageJson : null;
-    if (manifestPath === null) continue;
-    const go = manifestPath === goMod;
+  // The units the repository declares: each manifest is one service, named by what it says it is.
+  for (const unit of [...t.units().values()].sort((left, right) => byCodePoint(left.name, right.name) || byCodePoint(left.root, right.root))) {
+    const service = unit.name;
+    const prefix = unit.root === '' ? '' : `${unit.root}/`;
+    const manifestPath = unit.manifestPath;
+    const go = unit.ecosystem === 'go';
+    const goMod = go ? manifestPath : '';
+    const packageJson = go ? '' : manifestPath;
     const frameworks = new Set<string>();
     let testFramework: string | null = null;
     if (go) {

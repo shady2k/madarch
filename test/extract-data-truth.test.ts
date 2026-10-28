@@ -20,6 +20,7 @@ test('service-without-storage: code and non-storage config create no database', 
 
 test('positive storage evidence retains connection and driver sources without fabricating tables', async () => {
   const result = await extractDataModel(tree({
+    'services/ledger/package.json': '{"name":"ledger"}',
     'services/ledger/src/main.ts': 'import pg from "pg";\nexport const db = pg;\n',
     'services/ledger/src/config.ts': 'export const url = process.env.DATABASE_URL;\n',
   }));
@@ -36,6 +37,8 @@ test('positive storage evidence retains connection and driver sources without fa
 test('deployment connection belongs only to the named service; no sibling database', async () => {
   const result = await extractDataModel(tree({
     'docker-compose.yml': 'services:\n  ledger:\n    environment:\n      DATABASE_URL: postgres://db/ledger\n  checkout:\n    environment:\n      ORDERS_URL: http://orders:8080\n',
+    'services/ledger/package.json': '{"name":"ledger"}',
+    'services/checkout/package.json': '{"name":"checkout"}',
     'services/ledger/src/main.ts': 'export const name = "ledger";\n',
     'services/checkout/src/main.ts': 'export const name = "checkout";\n',
   }));
@@ -47,6 +50,7 @@ test('deployment connection belongs only to the named service; no sibling databa
 
 test('a code-created table is positive storage evidence, with its own declaration location', async () => {
   const result = await extractDataModel(tree({
+    'services/ledger/go.mod': 'module example.test/ledger\n\ngo 1.22\n',
     'services/ledger/db.go': 'package ledger\nfunc Migrate() { q := `CREATE TABLE entries (id integer PRIMARY KEY);`; _ = q }\n',
   }));
   expect(result.nodes.find((node) => node.kind === 'code.database')?.span?.path).toBe('services/ledger/db.go');
@@ -71,12 +75,15 @@ export function run() { return note; }
 
 test('sibling table is not caller storage without connection evidence; own table remains positive', async () => {
  const foreign = await extractDataModel(tree({
+  'services/a/go.mod': 'module example.test/a\n\ngo 1.22\n',
+  'services/b/go.mod': 'module example.test/b\n\ngo 1.22\n',
   'services/a/db.go': 'package a\nfunc Migrate() { q := `CREATE TABLE entries (id integer PRIMARY KEY);`; _ = q }\n',
   'services/b/read.go': 'package b\nfunc Read() { q := `SELECT id FROM entries`; _ = q }\n',
  }));
  expect(foreign.edges.some((edge) => edge.from.startsWith('code.symbol:services/b/') && edge.to === 'code.table:a/public.entries')).toBe(false);
  expect(foreign.gaps.some((gap) => gap.path === 'services/b/read.go' && gap.reason.includes('entries'))).toBe(true);
  const own = await extractDataModel(tree({
+  'services/b/go.mod': 'module example.test/b\n\ngo 1.22\n',
   'services/b/db.go': 'package b\nfunc Migrate() { q := `CREATE TABLE entries (id integer PRIMARY KEY);`; _ = q }\n',
   'services/b/read.go': 'package b\nfunc Read() { q := `SELECT id FROM entries`; _ = q }\n',
  }));
