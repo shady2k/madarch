@@ -39,6 +39,7 @@ import {
 } from '../src/extract/code/keys.js';
 import {extractDataModel} from '../src/extract/data-model/extract.js';
 import {extractContracts} from './extract-code-facts-fixture.js';
+import {extractFileSyntax} from '../src/fill/stages/syntax-extract.js';
 import {extractOperations} from './extract-code-facts-fixture.js';
 import {OPERATIONS_PRODUCER} from '../src/extract/operations/index.js';
 import type {ExtractedEdge, ExtractedNode, Extraction, TreeReader} from '../src/extract/records.js';
@@ -930,5 +931,27 @@ describe('the extraction as a whole', () => {
     expect(paths).toContain('services/x/a.go');
     expect(paths).toContain('services/x/b.ts');
     expect(result.gaps.find((g) => g.path === 'services/x/b.ts')!.reason).toContain('disk failure');
+  });
+});
+
+// ---- what the grammar must read whole ------------------------------------------------
+
+describe('the TypeScript grammar reads a regex that holds an HTML comment closer', () => {
+  test('a regex holding --> is a regex, not the start of an HTML comment', async () => {
+    // tree-sitter-typescript 0.20.5 tokenised `-->` as an html_comment even inside a regex literal, so the rest of
+    // the line became a syntax error; 0.23.2 reads the whole literal (madarch-vtft).
+    const snippet = 'const a = /-->/g;\n';
+    const syntax = await extractFileSyntax('src/rule.ts', new TextEncoder().encode(snippet));
+    expect(syntax.parsed).toBe(true);
+    expect(syntax.unread).toEqual([]);
+    expect(syntax.symbols.map((symbol) => symbol.name)).toEqual(['a']);
+  });
+
+  test('src/product/discussion-writer.ts is read with no syntax-error gap', async () => {
+    const bytes = new Uint8Array(await readFile(path.join(checkoutRoot, 'src/product/discussion-writer.ts')));
+    const syntax = await extractFileSyntax('src/product/discussion-writer.ts', bytes);
+    expect(syntax.parsed).toBe(true);
+    expect(syntax.unread).toEqual([]);
+    expect(syntax.symbols.some((symbol) => symbol.name === 'writeProductDiscussion')).toBe(true);
   });
 });
