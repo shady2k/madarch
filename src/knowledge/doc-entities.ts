@@ -244,31 +244,73 @@ function leafWords(node: DocNode): string {
   return node.raw;
 }
 
+/** One character of a passage's text, where its source spelling ends, and the inline node whose marks close on it. */
+interface InlineChar {
+  readonly char: string;
+  /** The document offset just past this character's spelling (`1` of `BR\-1` ends after the escape's character). */
+  readonly end: number;
+  /** The bold phrase, emphasis or code span whose closing marks follow this character, when one does. */
+  readonly closes: DocNode | null;
+}
+
 /**
- * Where an identifier ends in the source that writes it: the decoded text (`BR-1`) may be spelled with escapes or
- * character references (`BR\-1`, `BR&#45;1`), so the end is found by decoding the source one character at a time until
- * it spells the identifier. The body is then cut at a source offset, never at a decoded length (the review of the
- * eighth pass, finding 2).
+ * The characters a paragraph spells, in order, each with the document offset its source spelling ends at. The source is
+ * decoded one spelling at a time — a backslash escape (`BR\-1`) and a character reference (`BR&#45;1`) spell one
+ * character each — so a body is cut at a source offset and never at a decoded length (the review of the eighth pass).
  */
-function identifierSourceEnd(source: string, identifier: string): number {
-  let decoded = '';
-  for (let at = 0; at < source.length; at += 1) {
-    const char = source[at]!;
-    let piece = char;
-    if (char === '\\' && at + 1 < source.length) { piece = source[at + 1]!; at += 1; }
-    else if (char === '&' && source[at + 1] === '#') {
-      const close = source.indexOf(';', at);
-      if (close > at) {
-        const body = source.slice(at + 2, close);
-        const code = body.startsWith('x') || body.startsWith('X') ? Number.parseInt(body.slice(1), 16) : Number.parseInt(body, 10);
-        if (Number.isFinite(code)) { piece = String.fromCodePoint(code); at = close; }
-      }
+function inlineChars(paragraph: DocNode): InlineChar[] {
+  const chars: InlineChar[] = [];
+  const walk = (node: DocNode, closing: DocNode | null): void => {
+    if (node.children.length > 0) {
+      const marks = node.type === 'strong' || node.type === 'emphasis' || node.type === 'inlineCode' ? node : closing;
+      for (const child of node.children) walk(child, marks);
+      return;
     }
-    decoded += piece;
-    if (decoded === identifier) return at + 1;
-    if (!identifier.startsWith(decoded)) return -1;
-  }
-  return -1;
+    if (node.type === 'inlineCode') {
+      // A code span's own marks are not part of its text: `` `BR-1` `` spells `BR-1`, and its text ends at the backtick.
+      const text = node.plain;
+      for (let index = 0; index < text.length; index += 1) chars.push({ char: text[index]!, end: node.startOffset + index + 2, closes: node });
+      return;
+    }
+    const raw = node.raw;
+    for (let at = 0; at < raw.length; at += 1) {
+      const char = raw[at]!;
+      let piece = char;
+      if (char === '\\' && at + 1 < raw.length) { piece = raw[at + 1]!; at += 1; }
+      else if (char === '&' && raw[at + 1] === '#') {
+        const close = raw.indexOf(';', at);
+        if (close > at) {
+          const body = raw.slice(at + 2, close);
+          const hex = body.startsWith('x') || body.startsWith('X');
+          const code = Number.parseInt(hex ? body.slice(1) : body, hex ? 16 : 10);
+          if (Number.isFinite(code)) { piece = String.fromCodePoint(code); at = close; }
+        }
+      }
+      chars.push({ char: piece, end: node.startOffset + at + 1, closes: closing });
+    }
+  };
+  walk(paragraph, null);
+  return chars;
+}
+
+/**
+ * The identifier a passage opens with and where its naming span ends in the document's source, read across the inline
+ * nodes that carry it: `BR-1`, `br\-1`, `BR&#45;1`, `**BR-1**` and `*BR-1*` all name one identifier, and the span ends after
+ * the marks that close it. The identifier is compared without its case (the seventh, eighth and ninth reviews).
+ */
+function naming(paragraph: DocNode): { identifier: string; end: number } | null {
+  const chars = inlineChars(paragraph);
+  const text = chars.map((entry) => entry.char).join('');
+  // The same shape a ground names (`anchors.ts`), read from the decoded text so case, escapes and references agree.
+  const identifier = identifierOf(text);
+  if (identifier === null) return null;
+  const last = chars[identifier.length - 1];
+  if (last === undefined) return null;
+  const name = text.slice(0, identifier.length);
+  // A bold phrase, emphasis or code span that closes on the identifier's last character is part of the naming span.
+  const closing = last.closes;
+  const end = closing !== null && flat(closing.plain) === name ? Math.max(last.end, closing.endOffset) : last.end;
+  return { identifier, end };
 }
 
 /** The words a listing calls a passage: up to its first sentence end or its first colon. */
@@ -287,39 +329,23 @@ function firstWords(text: string): string {
   return trimEnd(plain).trim();
 }
 
-/** The text of a block without the phrase that names it, its list mark and indentation aside. */
+/**
+ * The text of a passage without the span that names it: a bold phrase names a term or a rule, and an identifier a passage
+ * opens with is an alias. The cut is made at the document offset the AST gives the naming span, so `**BR-1**`, `BR\-1`,
+ * `BR&#45;1` and `*BR-1*` all leave the same words behind — and a renumbered passage keeps the digest its page was minted
+ * for (the seventh, eighth and ninth reviews).
+ */
 function bodyOf(block: DocNode): string {
-  if (block.type !== 'listItem') {
-    // The naming span is removed by the source offsets the parser gave it, never by counting the identifier's plain
-    // text: `**BR-1** Never charge twice.` is the usual way a person writes a rule, and counting four characters of
-    // `BR-1` would leave `-1** Never charge twice.` (the review of the seventh pass, finding 1).
-    const paragraph = openingParagraph(block);
-    const identifier = identifierOf(leadText(block));
-    if (paragraph === undefined || identifier === null) return trimSpaces(block.raw).trim();
-    const bold = boldLead(block);
-    if (bold !== undefined) return trimSeparator(paragraph.raw.slice(bold.endOffset - paragraph.startOffset)).trim();
-    const wire = openingText(paragraph);
-    if (wire === undefined) return trimSpaces(block.raw).trim();
-    // The identifier and the body share one text node, so the span ends where the identifier ends inside it — found by
-    // decoding the source, because the same identifier may be written `BR\-1` or `BR&#45;1`.
-    const end = identifierSourceEnd(wire.raw, identifier);
-    if (end < 0) return trimSpaces(block.raw).trim();
-    return trimSeparator(paragraph.raw.slice(wire.startOffset - paragraph.startOffset + end)).trim();
-  }
   const paragraph = openingParagraph(block);
   if (paragraph === undefined) return block.children.map((child) => child.raw.trimEnd()).join('\n').trim();
-  const rest = block.children.filter((child) => child !== paragraph).map((child) => child.raw.trimEnd());
+  const rest = block.type === 'listItem' ? block.children.filter((child) => child !== paragraph).map((child) => child.raw.trimEnd()) : [];
   const bold = boldLead(block);
-  // Only the naming span goes: a body keeps its own punctuation, so a negative number stays negative (the review of the
-  // fifth pass, finding 2).
-  const first = bold === undefined ? trimSpaces(paragraph.raw) : trimSeparator(paragraph.raw.slice(bold.endOffset - paragraph.startOffset));
-  return [first, ...rest].join('\n').trim();
-}
-
-/** The first text the paragraph holds: the node a plain identifier is written in, whose offsets are the source's. */
-function openingText(paragraph: DocNode): DocNode | undefined {
-  const lead = paragraph.children[0];
-  return lead !== undefined && lead.type === 'text' ? lead : undefined;
+  if (bold !== undefined) {
+    return [trimSeparator(trimSpaces(paragraph.raw.slice(bold.endOffset - paragraph.startOffset))), ...rest].join('\n').trim();
+  }
+  const named = naming(paragraph);
+  const cut = named === null ? 0 : Math.max(0, Math.min(paragraph.raw.length, named.end - paragraph.startOffset));
+  return [trimSeparator(trimSpaces(paragraph.raw.slice(cut))), ...rest].join('\n').trim();
 }
 
 /** What a listing calls the block: its bold phrase, the identifier and its name, or the words of its first sentence. */
@@ -438,7 +464,14 @@ export function readDocEntities(sources: readonly DocumentSource[], manifest: Ki
         // The passages of one block: the first keeps the block's own anchor, each later one its place in the block.
         const places = new Map<DocNode, number>();
         if (readings.length === 0) {
-          report(section.line, 'no classifier has read this section yet, so what it means is not shown: the manifest declares no kind for it, and this is said rather than dropped', 'unread-passage');
+          // Every pending block is said, not only the section: a block no classifier read has no page and must not be
+          // dropped by the early answer (the ninth review, B). The leaves are said by the loop below, before the early
+          // answer leaves the section.
+          for (const block of pending) report(block.line, `no classifier has read this passage yet, so what it means is not shown: ${quote(firstWords(leadText(block) || block.raw))}`, 'unread-passage');
+          for (const leaf of sectionLeaves(section)) {
+            if (manifest.ignoreBlocks.includes(leaf.type)) continue;
+            report(leaf.line, `this block holds text no kind of the manifest reads: ${quote(firstWords(namedLeaf(leaf) ?? leafWords(leaf)))}`, 'unread-passage');
+          }
           continue;
         }
         for (const passage of readings) {

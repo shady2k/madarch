@@ -216,8 +216,9 @@ describe('the three passes, each recording which one decided', () => {
     expect(readDocEntities([{ repo: null, path: 'docs/stories.md', text: stories }], manifest()).entities).toEqual([]);
     const unread = readDocEntities([{ repo: null, path: 'docs/stories.md', text: stories }], manifest(), { classifier: fakeClassifier({}) });
     expect(unread.entities).toEqual([]);
-    expect(unread.findings.map((finding) => [finding.file, finding.line])).toEqual([['docs/stories.md', 1]]);
-    expect(unread.findings[0]!.message).toContain('no classifier has read this section yet');
+    // Every passage the classifier did not read is named, with its own line, rather than the section as a whole.
+    expect(unread.findings.map((finding) => [finding.file, finding.line])).toEqual([['docs/stories.md', 3], ['docs/stories.md', 5]]);
+    expect(unread.findings[0]!.message).toContain('no classifier has read this passage yet');
   });
 
   test('a passage of a general kind no kind of the manifest names is a finding at the passage, not a passage that vanishes', () => {
@@ -647,5 +648,65 @@ describe('what the eighth review found', () => {
     const text = '# Rules\n\n| Never charge twice. |\n| --- |\n';
     const read = readDocEntities([{ repo: null, path: 'docs/requirements.md', text }], manifest());
     expect(read.findings.map((finding) => [finding.kind, finding.line])).toEqual([['unread-passage', 3]]);
+  });
+});
+
+describe('what the ninth review found', () => {
+  const manifest = (): KindsManifest => parse([
+    'kinds:',
+    '  doc.rule: { template: templates/x.md, source: document, identifier: BR, semantics: rule }',
+    'documents:',
+    '  ignore: [code, html, thematicBreak, definition]',
+  ]);
+
+  const renumber = (text: string): string => text.replace('BR-1', 'BR-2');
+
+  test('a renumbered list rule keeps its identity, because its body excludes the identifier', () => {
+    const before = '# Rules\n\n- BR-1 Never charge twice.\n';
+    const first = readDocEntities([{ repo: null, path: 'docs/requirements.md', text: before }], manifest());
+    const after = readDocEntities([{ repo: null, path: 'docs/requirements.md', text: renumber(before) }], manifest(), { identities: first.identities });
+    expect(first.entities[0]!.text).toBe('Never charge twice.');
+    expect(after.entities[0]!.stableId).toBe(first.entities[0]!.stableId);
+    expect(after.entities[0]!.identifier).toBe('BR-2');
+  });
+
+  test('a renumbered paragraph rule keeps its identity too', () => {
+    const before = '# Rules\n\nBR-1 Never charge twice.\n';
+    const first = readDocEntities([{ repo: null, path: 'docs/requirements.md', text: before }], manifest());
+    const after = readDocEntities([{ repo: null, path: 'docs/requirements.md', text: renumber(before) }], manifest(), { identities: first.identities });
+    expect(after.entities[0]!.stableId).toBe(first.entities[0]!.stableId);
+  });
+
+  test('a renumbered heading rule keeps its identity, its body being the section it opens', () => {
+    const before = '# BR-1 Never charge twice.\n\nThe rule holds.\n';
+    const first = readDocEntities([{ repo: null, path: 'docs/requirements.md', text: before }], manifest());
+    const after = readDocEntities([{ repo: null, path: 'docs/requirements.md', text: renumber(before) }], manifest(), { identities: first.identities });
+    expect(first.entities.map((entity) => [entity.identifier, entity.anchor])).toEqual([['BR-1', 'br-1']]);
+    expect(after.entities[0]!.stableId).toBe(first.entities[0]!.stableId);
+    expect(after.entities[0]!.anchor).toBe('br-2');
+  });
+
+  test('a table row is no passage in either numbering: renumbering it mints no identity and leaves the same finding', () => {
+    // A table's cells hold phrasing, so no kind decides a row (the seventh review). Renumbering one therefore changes
+    // nothing that could carry an identity, and the reader says the same thing about it.
+    const before = '# Rules\n\n| BR-1 | Never charge twice. |\n| --- | --- |\n';
+    const first = readDocEntities([{ repo: null, path: 'docs/requirements.md', text: before }], manifest());
+    const after = readDocEntities([{ repo: null, path: 'docs/requirements.md', text: before.replace('BR-1', 'BR-2') }], manifest(), { identities: first.identities });
+    expect([first.entities, after.entities]).toEqual([[], []]);
+    expect(after.findings.map((finding) => [finding.kind, finding.line])).toEqual(first.findings.map((finding) => [finding.kind, finding.line]));
+  });
+
+  test('an emphasized or escaped lowercase identifier names its rule', () => {
+    for (const text of ['# Rules\n\n*BR-1* Never charge twice.\n', '# Rules\n\nbr\\-1 Never charge twice.\n']) {
+      const read = readDocEntities([{ repo: null, path: 'docs/requirements.md', text }], manifest());
+      expect(read.entities.map((entity) => [entity.identifier, entity.text])).toEqual([['BR-1', 'Never charge twice.']]);
+    }
+  });
+
+  test('a block no classifier read is reported, not dropped by the early answer', () => {
+    const text = '# Rules\n\nBackground.\n\n| Never charge twice. |\n| --- |\n';
+    const read = readDocEntities([{ repo: null, path: 'docs/requirements.md', text }], parse(['kinds:', '  doc.rule: { template: templates/x.md, source: document, semantics: rule }', 'documents:', '  ignore: [code, html, thematicBreak, definition]']), { classifier: fakeClassifier({}) });
+    const unread = read.findings.filter((finding) => finding.kind === 'unread-passage').map((finding) => finding.line);
+    expect(unread).toEqual([3, 5]);
   });
 });

@@ -1402,7 +1402,7 @@ export class KnowledgeProduct {
     const identityFile = join(store, IDENTITIES_FILE);
     const classificationFile = join(store, CLASSIFICATIONS_FILE);
     const stampOf = (file: string): string => { try { return String(statSync(file).mtimeMs); } catch { return '-'; } };
-    const keyOf = (): string => `${signature}\0${stamps.join('\n')}\0${String((manifest.expect ?? []).map((entry) => entry.kind).join(','))}\0${stampOf(identityFile)}\0${stampOf(classificationFile)}`;
+    const keyOf = (): string => `${signature}\0${stamps.join('\n')}\0${String((manifest.expect ?? []).map((entry) => entry.kind).join(','))}\0${String(manifest.ignoreBlocks.join(','))}\0${stampOf(identityFile)}\0${stampOf(classificationFile)}`;
     if (this.docMemo?.key !== keyOf()) {
       const held = readDocIdentities(identityFile);
       const hasClassifications = existsSync(classificationFile);
