@@ -243,11 +243,14 @@ const METRICS: readonly {key: string; type: string}[] = [
 /** 8. Every metric names its type, its labels, the function that changes it and the endpoint that serves it. */
 export function requirement8(graph: Graph): Violations {
   const violations: Collected = [];
+  // A counter may declare no label at all; the fixture's set holds at least one that does.
+  let labelled = 0;
   for (const expected of METRICS) {
     const row = graph.rows.find((held) => held.key === expected.key);
     if (row === undefined) { violations.push(`${expected.key}: missing`); continue; }
-    if (typeof row.properties['type'] !== 'string') violations.push(`${expected.key}: names no type`);
-    if (!Array.isArray(row.properties['labels']) || (row.properties['labels'] as unknown[]).length === 0) violations.push(`${expected.key}: names no label`);
+    if (row.properties['metricType'] !== expected.type) violations.push(`${expected.key}: metricType ${String(row.properties['metricType'])}, expected ${expected.type}`);
+    if (!Array.isArray(row.properties['labels'])) violations.push(`${expected.key}: carries no labels list`);
+    labelled += (row.properties['labels'] as unknown[]).length > 0 ? 1 : 0;
     const updates = graph.edges.filter((edge) => edge.type === 'code.updates-metric' && edge.to === expected.key);
     if (updates.length === 0) violations.push(`${expected.key}: no update`);
     for (const update of updates) if (!update.from.startsWith('code.symbol:')) violations.push(`${expected.key}: updated by ${update.from}, which is not a function`);
@@ -257,6 +260,7 @@ export function requirement8(graph: Graph): Violations {
   }
   const metrics = keysOfKind(graph, 'code.metric');
   if (metrics.length !== METRICS.length) violations.push(`${metrics.length} metrics, expected ${METRICS.length}`);
+  if (labelled === 0) violations.push('no metric declares a label');
   return violations;
 }
 
@@ -265,7 +269,11 @@ export function requirement9(graph: Graph): Violations {
   const violations: Collected = [];
   const loggers = keysOfKind(graph, 'code.logger');
   if (loggers.length !== 5) violations.push(`${loggers.length} loggers, expected 5`);
+  // logger.go#FromContext is an accessor: it returns the logger a context carries and logs nothing, so it
+  // has no users. Every other logger is used by a function and names that using file.
+  const accessors = new Set(['code.logger:services/orders/internal/logging/logger.go#FromContext']);
   for (const logger of loggers) {
+    if (accessors.has(logger)) continue;
     const users = graph.edges.filter((edge) => edge.type === 'code.uses-logger' && edge.from === logger);
     const functions = users.filter((edge) => edge.to.startsWith('code.symbol:'));
     if (functions.length === 0) violations.push(`${logger}: no using function`);
@@ -350,7 +358,7 @@ describe('the graph-truth audit of the training repository', () => {
 
   test('each requirement refuses a single wrong fact', () => {
     const cases: readonly {name: string; broken: Graph; expected: RegExp}[] = [
-      {name: '1 an invented database with no evidence', broken: without(graph, (row) => row.key === 'code.database:orders'), expected: /code\.database:orders: no edge/},
+      {name: '1 an invented database with no evidence', broken: {rows: graph.rows.map((row) => (row.key === 'code.database:orders' ? {...row, evidence: null} : row)), edges: graph.edges}, expected: /code\.database:orders: no evidence span/},
       {name: '2 a route with no handler', broken: dropEdge(graph, (edge) => edge.type === 'code.handled-by' && edge.from.endsWith('#POST:/orders')), expected: /#POST:\/orders: 0 handlers/},
       {name: '3 a probe with the wrong path', broken: {rows: graph.rows.map((row) => (row.key.endsWith('/livenessProbe') ? {...row, properties: {...row.properties, path: '/nope'}} : row)), edges: graph.edges}, expected: /livenessProbe: path \/nope/},
       {name: '4 a read that starts outside a function', broken: {rows: graph.rows, edges: [...graph.edges, {type: 'code.reads', from: 'code.file:services/orders/internal/api/handlers.go', to: 'code.symbol:services/orders/internal/domain/order.go#Order.ID'}]}, expected: /a read that starts outside a function/},
