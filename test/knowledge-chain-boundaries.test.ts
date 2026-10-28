@@ -166,7 +166,7 @@ function flatFixture(leaves: number) {
 /** The context a chain view is built in: the page's, with nothing but the graph behind it. */
 function chainContext(graph: GraphReader): RenderContext {
   return {
-    graph, productFolder: '', manifest: { file: '', roles: new Map(), kinds: new Map(), groups: new Map(), excludeDocuments: [], findings: [] },
+    graph, productFolder: '', manifest: { file: '', roles: new Map(), kinds: new Map(), groups: new Map(), excludeDocuments: [], ignoreBlocks: [], findings: [] },
     markdown: new Map(), docEntities: new Map(), localizedSources: new Map(), language: 'en', documents: [], repositories: [],
     commitOf: () => null, repoOfScope: () => undefined, readSource: async () => undefined,
     resolver: new Resolver({ graph, markdown: new Map(), declared: () => false, readDocument: async () => undefined, repositories: () => [], locate: () => undefined }),
