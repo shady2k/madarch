@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { CONTAINS } from '../graph/vocabulary.js';
 import { byCodePoint } from '../model/order.js';
 import {
-  attributeOf, bodyBlock, callBlock, childrenBlock, idOf, kindOf, propertiesBlock, refOfGraph, refOfMarkdown, relatedBlock, sourceBlock,
+  attributeOf, bodyBlock, callBlock, childrenBlock, idOf, kindOf, pageAttributes, propertiesBlock, refOfGraph, refOfMarkdown, relatedBlock, sourceBlock,
   type RenderContext, type Subject,
 } from './blocks.js';
 import { graphBlock, treemapBlock } from './diagrams.js';
@@ -19,13 +19,14 @@ import { definitionBlock } from './definition.js';
 import { historyBlock } from './history.js';
 import type { GraphEntity } from './graph-read.js';
 import { implementedByBlock, linkedFromBlock, statedBlock, termBlock } from './doc-blocks.js';
-import { homeKind, type Finding, type Origin } from './kinds.js';
+import { homeKind, type Finding, type KindDecl, type Origin } from './kinds.js';
 import { readBody } from './markdown.js';
 import { entityAtAddress, type DocEntity } from './doc-entities.js';
 import type { MarkdownEntity } from './markdown.js';
 import type { Block, EntityListing, EntityRef, KindSummary, PageModel } from './model.js';
 import { documentAddress, noEntityMessage, type Resolution } from './resolve.js';
-import { parseTemplate, substitute } from './template.js';
+import { renderLiquidPage } from './liquid.js';
+import { blockIdentity, parseTemplate, substitute } from './template.js';
 import { termLinks } from './glossary.js';
 
 export type PageResult = { ok: true; page: PageModel } | { ok: false; status: 404 | 500; message: string };
@@ -50,7 +51,7 @@ export async function findSubject(ctx: RenderContext, id: string): Promise<{ sub
 /** The blocks that read the graph at length: drawn by a read of their own when the page is asked for with `defer`. */
 const DEFERRED_BLOCKS: ReadonlySet<string> = new Set(['graph', 'sequence', 'system', 'modules', 'er', 'treemap', 'history', 'definition']);
 
-export async function renderPage(ctx: RenderContext, id: string, lang?: string, options: { defer?: boolean; only?: number } = {}): Promise<PageResult> {
+export async function renderPage(ctx: RenderContext, id: string, lang?: string, options: { defer?: boolean; only?: string } = {}): Promise<PageResult> {
   const located = await findSubject(ctx, id);
   if (located === undefined) return { ok: false, status: 404, message: noEntityMessage(id, lang ?? ctx.language) };
   const { subject } = located;
@@ -58,48 +59,65 @@ export async function renderPage(ctx: RenderContext, id: string, lang?: string, 
   if (decl === undefined) {
     return { ok: false, status: 404, message: `"${id}" is an entity of kind ${kindOf(subject)}, and ${ctx.manifest.file} declares no page for it: a kind is shown when the manifest names it and its template` };
   }
-  let templateText: string;
-  try {
-    templateText = readFileSync(join(ctx.productFolder, decl.template), 'utf8');
-  } catch (error) {
-    return { ok: false, status: 500, message: `the template ${decl.template} of kind ${decl.name} cannot be read: ${(error as Error).message}` };
-  }
   const findings: Finding[] = [];
   let blocks: Block[] = [];
-  const declared = decl.attributes === undefined ? undefined : new Set(decl.attributes);
-  const value = (name: string): string | undefined => {
-    if (declared !== undefined && !declared.has(name) && !['label', 'title', 'key', 'keyrest', 'id', 'kind', 'slug'].includes(name)) return undefined;
-    return attributeOf(subject, name);
-  };
-  for (const part of parseTemplate(templateText)) {
-    // One block of the template, asked for by its line (the page a deferred diagram reads itself from).
-    if (options.only !== undefined && part.line !== options.only) continue;
-    if (part.type === 'text') {
-      const text = substitute(part.text, part.line, decl.template, value, findings);
-      if (text.trim() !== '') blocks.push({ type: 'markdown', markdown: text });
-      continue;
+  const value = (name: string): string | undefined => allowedAttribute(decl, name) ? attributeOf(subject, name) : undefined;
+  // A kind's template is Liquid (decision 0032) or, for a product made before it, the Markdown template of 0029: both
+  // answer blocks in the template's order, and both read a block where the graph is.
+  if (decl.template.endsWith('.liquid')) {
+    const outcome = await renderLiquidPage({
+      productFolder: ctx.productFolder,
+      template: decl.template,
+      data: pageAttributes(subject, decl.attributes),
+      ...(lang === undefined ? {} : { lang }),
+      defer: options.defer === true,
+      deferred: [...DEFERRED_BLOCKS],
+      ...(options.only === undefined ? {} : { only: options.only }),
+      render: (name, params, file, line) => renderBlock(ctx, subject, name, params, file === '' ? decl.template : file, line, lang),
+    });
+    findings.push(...outcome.findings);
+    for (const block of outcome.blocks) {
+      if (block.type === 'problem') findings.push({ file: block.file, line: block.line, message: `${block.block}: ${block.message}` });
+      blocks.push(block);
     }
-    if (part.type === 'problem') {
-      findings.push({ file: decl.template, line: part.line, message: part.message });
-      blocks.push({ type: 'problem', block: ':::', message: part.message, file: decl.template, line: part.line });
-      continue;
+    if (outcome.refused !== undefined && outcome.blocks.length === 0) return { ok: false, status: 500, message: outcome.refused };
+  } else {
+    let templateText: string;
+    try {
+      templateText = readFileSync(join(ctx.productFolder, decl.template), 'utf8');
+    } catch (error) {
+      return { ok: false, status: 500, message: `the template ${decl.template} of kind ${decl.name} cannot be read: ${(error as Error).message}` };
     }
-    const params: Record<string, string> = {};
-    for (const [name, raw] of Object.entries(part.params)) params[name] = substitute(raw, part.line, decl.template, value, findings, { escape: false });
-    for (const name of Object.keys(params)) {
-      if (!name.startsWith('title-')) continue;
-      if (lang !== undefined && name === `title-${lang}`) params['title'] = params[name]!;
-      delete params[name];
+    for (const part of parseTemplate(templateText)) {
+      // One block asked for by its identity is the whole page a deferred diagram reads: its text is not part of the answer.
+      if (options.only !== undefined && part.type !== 'block') continue;
+      if (part.type === 'text') {
+        const text = substitute(part.text, part.line, decl.template, value, findings);
+        if (text.trim() !== '') blocks.push({ type: 'markdown', markdown: text });
+        continue;
+      }
+      if (part.type === 'problem') {
+        findings.push({ file: decl.template, line: part.line, message: part.message });
+        blocks.push({ type: 'problem', block: ':::', message: part.message, file: decl.template, line: part.line });
+        continue;
+      }
+      const params = legacyParams(part.params, part.line, decl.template, value, findings, lang);
+      // One block of the template, asked for by its identity (the page a deferred diagram reads itself from).
+      if (options.only !== undefined && blockIdentity(part.name, params) !== options.only) continue;
+      // The diagrams read the graph many times; a page that asks for them later answers at once and draws them when they come.
+      if (options.defer === true && DEFERRED_BLOCKS.has(part.name)) {
+        blocks.push({ type: 'deferred', block: part.name, title: params['title'] ?? '', id: blockIdentity(part.name, params) });
+        continue;
+      }
+      const block = await renderBlock(ctx, subject, part.name, params, decl.template, part.line, lang);
+      if (block.type === 'problem') findings.push({ file: block.file, line: block.line, message: `:::${block.block}: ${block.message}` });
+      blocks.push({ ...block, name: part.name });
     }
-    // The diagrams read the graph many times; a page that asks for them later answers at once and draws them when they come.
-    if (options.defer === true && DEFERRED_BLOCKS.has(part.name)) {
-      blocks.push({ type: 'deferred', block: part.name, title: params['title'] ?? '', line: part.line });
-      continue;
-    }
-    const block = await renderBlock(ctx, subject, part.name, params, decl.template, part.line, lang);
-    if (block.type === 'problem') findings.push({ file: block.file, line: block.line, message: `:::${block.block}: ${block.message}` });
-    blocks.push({ ...block, name: part.name });
   }
+
+  // A section with nothing in it is not a section a reader meets: leave an empty related block out of the page, and the
+  // app draws no heading over an empty table (madarch-m38l.19).
+  blocks = blocks.filter((block) => block.type !== 'related' || block.groups.length > 0);
   // Every `madarch:` link the page's text holds is resolved here, once, and shown as broken when it does not.
   const urls = new Set<string>();
   const bodyLinks: { url: string; line: number; ground: boolean }[] = [];
@@ -125,9 +143,6 @@ export async function renderPage(ctx: RenderContext, id: string, lang?: string, 
       if (resolution?.state === 'broken') findings.push({ file: subject.entity.file, line: link.line, message: `${link.ground ? 'a ground' : 'a link'} does not resolve: ${resolution.reason}` });
     }
   }
-  // A section with nothing in it is not a section a reader meets: leave an empty related block out of the page, and the
-  // app draws no heading over an empty table (madarch-m38l.19).
-  blocks = blocks.filter((block) => block.type !== 'related' || block.groups.length > 0);
   const notes: string[] = [];
   if (located.others > 0) notes.push(`The key ${id} is also in ${located.others} other repositor${located.others === 1 ? 'y' : 'ies'} of this product; this page shows the first.`);
   return {
@@ -154,6 +169,33 @@ export function productTitleOf(ctx: RenderContext): string {
   const home = homeKind(ctx.manifest);
   const page = home === undefined ? undefined : [...ctx.markdown.values()].find((entity) => entity.kind === home.name);
   return page?.title ?? 'Product';
+}
+
+/** The attributes a page may read whatever its kind says: what names a page in the navigation and the address of an entity. */
+const RESERVED_ATTRIBUTES: readonly string[] = ['label', 'title', 'key', 'keyrest', 'id', 'kind', 'slug'];
+
+/** Whether a template may read this attribute: a kind that names its attributes reads those, and the reserved ones. */
+function allowedAttribute(decl: KindDecl, name: string): boolean {
+  return decl.attributes === undefined || decl.attributes.includes(name) || RESERVED_ATTRIBUTES.includes(name);
+}
+
+/** The parameters of a block of a Markdown template (0029): `{{attribute}}` substituted, and the language's `title-<lang>` folded in. */
+function legacyParams(
+  raw: Readonly<Record<string, string>>,
+  line: number,
+  file: string,
+  value: (name: string) => string | undefined,
+  findings: Finding[],
+  lang?: string,
+): Record<string, string> {
+  const params: Record<string, string> = {};
+  for (const [name, text] of Object.entries(raw)) params[name] = substitute(text, line, file, value, findings, { escape: false });
+  for (const name of Object.keys(params)) {
+    if (!name.startsWith('title-')) continue;
+    if (lang !== undefined && name === `title-${lang}`) params['title'] = params[name]!;
+    delete params[name];
+  }
+  return { ...params };
 }
 
 async function renderBlock(ctx: RenderContext, subject: Subject, name: string, params: Readonly<Record<string, string>>, file: string, line: number, lang: string | undefined): Promise<Block> {

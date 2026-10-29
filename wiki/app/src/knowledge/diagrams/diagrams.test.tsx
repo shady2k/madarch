@@ -353,16 +353,16 @@ describe('a deferred diagram', () => {
       asked.push(String(url));
       return new Response(JSON.stringify(graphBlock()), { status: 200 });
     };
-    const block: Block = { type: 'deferred', block: 'graph', title: 'Around this function', line: 7 };
+    const block: Block = { type: 'deferred', block: 'graph', title: 'Around this function', id: 'graph-1a2b3c4d5e6f' };
     const container = into(createElement(BlockView, { block, resolutions: {}, pageId: 'code.symbol:x' }));
     await until(() => container.querySelector('[data-testid=hood-node]') !== null, 'the diagram');
-    expect(asked).toEqual(['/api/k/block?id=code.symbol%3Ax&line=7&lang=en']);
+    expect(asked).toEqual(['/api/k/block?id=code.symbol%3Ax&block=graph-1a2b3c4d5e6f&lang=en']);
     rendered?.unmount();
     document.body.innerHTML = '';
-    (globalThis as { fetch?: unknown }).fetch = async () => new Response(JSON.stringify({ message: 'no block at line 7' }), { status: 404 });
+    (globalThis as { fetch?: unknown }).fetch = async () => new Response(JSON.stringify({ message: 'no block known as graph-1a2b3c4d5e6f' }), { status: 404 });
     const failed = into(createElement(BlockView, { block, resolutions: {}, pageId: 'code.symbol:x' }));
     await until(() => failed.querySelector('[data-testid=diagram-failure]') !== null, 'the failure');
-    expect(failed.querySelector('[data-testid=diagram-failure]')!.textContent).toContain('no block at line 7');
+    expect(failed.querySelector('[data-testid=diagram-failure]')!.textContent).toContain('no block known as graph-1a2b3c4d5e6f');
   });
 });
 

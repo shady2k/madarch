@@ -81,6 +81,7 @@ import { closingCommit, type RepositoryRef } from '../loop/closure.js';
 import { groundsOfScope, NO_MARKS, markForEntity, marksForDocument, marksForPage, plannedMarks, type PlannedMarks } from '../loop/planned.js';
 import { proposeTask, type TaskChoice, type TaskProposal } from '../loop/propose.js';
 import { readKnowledgePages } from './index/index.js';
+import { rendersInProcess, warmRenderWorker } from './liquid.js';
 import { planRefresh, type RefreshPlan } from '../loop/plan.js';
 import { listQuestions, listTasks, openTasks, questionDetail, taskDetail, type ProblemListing, type QuestionDetail, type QuestionListing, type TaskDetail, type TaskListing, type TaskRow } from '../loop/views.js';
 import { collectProblems, openProblemsOf } from '../problems/index.js';
@@ -489,6 +490,10 @@ export class KnowledgeProduct {
     if (this.closed || this.opening !== undefined) return;
     const product = this.product();
     if ('message' in product || !this.kinds(product.folder).present) return;
+    // A page whose templates a person wrote or edited is drawn in a worker of the product's own (madarch-u3vw.1): started
+    // here, so the first page a reader opens does not pay the process's start. A product of the starter set's own
+    // templates is drawn by the server itself, and starts no process at all.
+    if (!rendersInProcess(product.folder)) warmRenderWorker(product.folder);
     this.open().catch(() => undefined);
   }
 
@@ -1614,7 +1619,7 @@ export class KnowledgeProduct {
     return await this.readSnapshotHistory(owner, pin, this.validAt(), selection);
   }
 
-  async page(id: string, lang?: string, options: { defer?: boolean; only?: number; history?: HistorySelection } = {}): Promise<PageResult> {
+  async page(id: string, lang?: string, options: { defer?: boolean; only?: string; history?: HistorySelection } = {}): Promise<PageResult> {
     const history = options.history === undefined ? undefined : await this.historyAt(options.history);
     // A gap is a visible result, not an empty current page or a reason to fall back to the tip.
     if (history !== undefined && history.coverage !== 'covered') return { ok: true, page: { id, kind: id.slice(0, id.indexOf(':')), title: id, trail: [], blocks: [], resolutions: {}, findings: [], notes: [], history } };
@@ -1757,11 +1762,11 @@ export class KnowledgeProduct {
   }
 
   /** One block of a page, by the line of its template: what a deferred diagram reads to draw itself. */
-  async block(id: string, line: number, lang?: string, history?: HistorySelection): Promise<{ ok: true; block: Block } | { ok: false; status: 404; message: string }> {
-    const result = await this.page(id, lang, { only: line, ...(history === undefined ? {} : { history }) });
+  async block(id: string, held: string, lang?: string, history?: HistorySelection): Promise<{ ok: true; block: Block } | { ok: false; status: 404; message: string }> {
+    const result = await this.page(id, lang, { only: held, ...(history === undefined ? {} : { history }) });
     if (!result.ok) return { ok: false, status: 404, message: result.message };
     const [block] = result.page.blocks;
-    return block === undefined ? { ok: false, status: 404, message: `the template of ${id} has no block at line ${line}` } : { ok: true, block };
+    return block === undefined ? { ok: false, status: 404, message: `the template of ${id} has no block known as ${held}` } : { ok: true, block };
   }
 
   /** The statement view of one sentence of an agent's page. */
@@ -2351,6 +2356,9 @@ export class KnowledgeProduct {
     this.listeners.clear();
     if (this.reader !== undefined) await this.reader.owner.close().catch(() => undefined);
     this.reader = undefined;
+    // The worker that draws the templates is not the product's to end: the server opens and closes products around single
+    // requests, and a worker started for every page would pay a process's start on every page. A worker nothing asks for
+    // for ten seconds ends itself (`liquid.ts`).
     this.opening = undefined;
   }
 }

@@ -11,6 +11,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseDocument } from 'yaml';
 import { createDraft } from '../src/product/draft.js';
 import { manifestWithRepo } from '../src/product/manifest.js';
 import { gitEnv } from './git-env.js';
@@ -85,4 +86,18 @@ export function writeSamplePages(folder: string): void {
   mkdirSync(join(folder, 'docs', 'domains'), { recursive: true });
   writeFileSync(join(folder, 'docs', 'product.md'), SAMPLE_PRODUCT);
   writeFileSync(join(folder, 'docs', 'domains', 'payment.md'), SAMPLE_DOMAIN);
+}
+
+/**
+ * Drops the enrichment kind from a product's manifest: a scripted agent of these tests writes no enrichment page, and the
+ * writer runs one unit per passage of a structured kind, so a declaration the script does not answer fails the run. A real
+ * product keeps the kind (madarch-u3vw.1's starter set declares it), and `test/writer-structured-entities.test.ts` scripts
+ * the enrichments and proves them.
+ */
+export function withoutEnrichmentKind(folder: string): void {
+  const file = join(folder, 'madarch/kinds.yaml');
+  const manifest = parseDocument(readFileSync(file, 'utf8'));
+  if (!manifest.hasIn(['kinds', 'enrichment'])) return;
+  manifest.deleteIn(['kinds', 'enrichment']);
+  writeFileSync(file, manifest.toString());
 }
