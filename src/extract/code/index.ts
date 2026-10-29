@@ -490,13 +490,16 @@ function debtMarkerOf(text: string): { marker: 'TODO' | 'FIXME'; body: string } 
       const marker = debtMarkerOf(comment.text);
       if (marker === undefined) continue;
       const path = file.source.path;
+      const key = debtKey(path, comment.span.startByte);
       addNode({
-        key: debtKey(path, comment.span.startByte),
+        key,
         kind: KIND_DEBT,
         label: `${marker.marker}: ${marker.body}`,
         properties: { marker: marker.marker, text: marker.body, path, line: comment.span.startLine },
         span: toSpan(path, comment.span),
       });
+      // The marker belongs to the file whose comment holds it, like every other node a file carries.
+      addEdge({ type: REL_CONTAINS, from: fileKey(path), to: key, discriminator: '', properties: {}, span: toSpan(path, comment.span) });
     }
   }
 

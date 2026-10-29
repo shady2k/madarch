@@ -335,6 +335,7 @@ describe('the debt markers of comments', () => {
       ['a/debt.ts', 1, 'TODO', 'charge tax before the receipt.'],
       ['a/debt.ts', 3, 'FIXME', '(team): retry twice'],
     ]);
+    expect(debts.map((node) => edgesOf(result.edges, 'code.contains', fileKey('a/debt.ts'), node.key).length)).toEqual([1, 1]);
     expect(result.gaps).toEqual([]);
   });
 });

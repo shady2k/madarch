@@ -1550,6 +1550,9 @@ export class KnowledgeProduct {
     // The badge is counted after the page's transaction closes: the Problems listing opens a transaction of its own, and a
     // nested one would wait on the pipe the page holds. A listing that cannot be made is said on the page, never shown as 0.
     if (!rendered.ok || rendered.page.historicalAbsent === true || history !== undefined) return rendered;
+    // The caller may hold a renderer whose owner has no store behind it (a snapshot fixture, or a page rendered from an
+    // injected transaction). There is no problems database to ask, so the page shows no count and no failure note.
+    if (this.reader?.owner !== owner) return rendered;
     try {
       const listing = this.cachedProblems() ?? await this.problems();
       const problems = listing.problems.filter((problem) => problem.entity?.key === id).length;
