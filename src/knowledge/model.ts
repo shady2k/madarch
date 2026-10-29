@@ -258,7 +258,7 @@ export interface PropertyRow {
   name: string;
   value: string;
   /** The name's key under `knowledge.property.`, where the app knows this name. */
-  nameKey?: 'authoredAt' | 'committedAt' | 'subject' | 'merge' | 'language' | 'symbol' | 'method' | 'path';
+  nameKey?: 'authoredAt' | 'committedAt' | 'subject' | 'merge' | 'language' | 'symbol' | 'method' | 'path' | 'marker' | 'text' | 'line';
   /** A date the app writes the way the wiki writes dates, in the reader's language. */
   valueKind?: 'date';
 }

@@ -467,7 +467,10 @@
       "language": "Language",
       "symbol": "Symbol",
       "method": "Method",
-      "path": "Path"
+      "path": "Path",
+      "marker": "Marker",
+      "text": "Text",
+      "line": "Line"
     },
     "pageNotRead": "Could not read the page of {{id}}: {{reason}}",
     "fillRebuiltExtractors": "Graph rebuilt: extractors changed",
