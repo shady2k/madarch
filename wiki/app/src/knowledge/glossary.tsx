@@ -11,6 +11,7 @@ import { useTranslation } from 'react-i18next';
 import { Alert, AlertDescription } from '@/components/ui/alert.js';
 import { Badge } from '@/components/ui/badge.js';
 import { Input } from '@/components/ui/input.js';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table.js';
 import { getGlossary } from './api.js';
 import { Findings, KLink, KMarkdown } from './blocks.js';
 import { PageSkeleton } from './skeleton.js';
@@ -194,35 +195,56 @@ export function GlossaryPage({ version }: { version: number }): ReactElement {
   const shown = filterTerms(glossary.terms, query);
   return (
     <section data-testid="glossary-page">
-      <header className="mb-6">
+      <header className="mb-4">
         <h1>{t('knowledge.glossary.title')}</h1>
         <p>{t('knowledge.glossary.lead', { count: glossary.terms.length })}</p>
         <Input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('knowledge.filter')} aria-label={t('knowledge.filter')} className="max-w-sm" data-testid="glossary-filter" />
       </header>
       {glossary.terms.length === 0 && <p className="text-muted" data-testid="glossary-empty">{t('knowledge.glossary.empty')}</p>}
-      <ul className="m-0 list-none p-0">
-        {shown.map((term) => (
-          <li key={term.id} id={term.id} style={{ listStyle: 'none' }} className="mb-6 border-b border-line pb-5" data-testid="glossary-term" data-term={term.title} data-ambiguous={term.ambiguous === null ? 'false' : 'true'}>
-            <h2 className="!mb-1 !mt-0 flex flex-wrap items-center gap-2 !text-[1.15rem]">
-              <KLink href={term.href} className="text-ink">{term.title}</KLink>
-              {term.ambiguous !== null && <Badge data-testid="term-ambiguous-badge">{t('knowledge.glossary.ambiguousBadge')}</Badge>}
-            </h2>
-            <KMarkdown text={upperFirst(term.definition)} resolutions={glossary.resolutions} exceptTerm={term.id} />
-            {term.source !== undefined && <details className="mb-3 border-t border-line pt-3" data-testid="localized-source">
-              <summary className="cursor-pointer text-small font-medium text-secondary">{t('knowledge.localizedSource')}</summary>
-              <KMarkdown text={term.source.original} resolutions={glossary.resolutions} />
-              <p className="m-0 mt-2 text-small text-muted" data-testid="localized-source-place">{term.source.document}:{term.source.line}{term.source.endLine === term.source.line ? '' : `–${term.source.endLine}`}</p>
-            </details>}
-            <Names term={term} />
-            <Ambiguity term={term} pageId={term.id} resolutions={glossary.resolutions} />
-            {term.usedIn !== null && <div className="mb-2 flex flex-wrap items-baseline gap-2 text-small"><span className="text-muted">{t('knowledge.glossary.usedIn')}</span><KMarkdown text={term.usedIn} resolutions={glossary.resolutions} /></div>}
-            <p className="m-0 text-small text-muted" data-testid="term-ground">
-              {t('knowledge.glossary.statedAt')}{' '}
-              <KLink href={addressOfDocument(term.repo, term.path, term.anchor)} className="font-mono">{term.repo === null || term.single ? term.path : `${term.repo}/${term.path}`}:{term.line}</KLink>
-            </p>
-          </li>
-        ))}
-      </ul>
+      {shown.length > 0 && (
+        <Table data-testid="glossary-table" className="text-[13px] [&_td]:px-3 [&_td]:py-1.5 [&_th]:h-8 [&_th]:px-3">
+          <TableHeader>
+            <TableRow>
+              <TableHead>{t('knowledge.glossary.colTerm')}</TableHead>
+              <TableHead>{t('knowledge.glossary.colDefinition')}</TableHead>
+              <TableHead>{t('knowledge.glossary.colNames')}</TableHead>
+              <TableHead>{t('knowledge.glossary.colPlace')}</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {shown.map((term) => (
+              <TableRow key={term.id} id={term.id} className="align-top" data-testid="glossary-term" data-term={term.title} data-ambiguous={term.ambiguous === null ? 'false' : 'true'}>
+                <TableCell className="min-w-[9rem] align-top">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <KLink href={term.href} className="font-[550] text-ink">{term.title}</KLink>
+                    {term.ambiguous !== null && <Badge data-testid="term-ambiguous-badge">{t('knowledge.glossary.ambiguousBadge')}</Badge>}
+                  </div>
+                </TableCell>
+                <TableCell className="min-w-[22rem] align-top">
+                  <div className="text-small leading-snug [&_.reading]:text-small [&_.reading_p]:my-0 [&_.reading_ul]:my-1 [&_.reading_ol]:my-1">
+                    <KMarkdown text={upperFirst(term.definition)} resolutions={glossary.resolutions} exceptTerm={term.id} />
+                  </div>
+                  <Ambiguity term={term} pageId={term.id} resolutions={glossary.resolutions} />
+                  {term.usedIn !== null && <div className="mt-1 flex flex-wrap items-baseline gap-2 text-small leading-snug"><span className="text-muted">{t('knowledge.glossary.usedIn')}</span><KMarkdown text={term.usedIn} resolutions={glossary.resolutions} /></div>}
+                  {term.source !== undefined && (
+                    <details className="mt-1 border-t border-line pt-1" data-testid="localized-source">
+                      <summary className="cursor-pointer text-small font-medium text-secondary">{t('knowledge.localizedSource')}</summary>
+                      <div className="[&_.reading_p]:my-0"><KMarkdown text={term.source.original} resolutions={glossary.resolutions} /></div>
+                    </details>
+                  )}
+                </TableCell>
+                <TableCell className="min-w-[8rem] align-top"><Names term={term} /></TableCell>
+                <TableCell className="min-w-[11rem] align-top">
+                  <p className="m-0 text-small text-muted" data-testid="term-ground">
+                    {t('knowledge.glossary.statedAt')}{' '}
+                    <KLink href={addressOfDocument(term.repo, term.path, term.anchor)} className="font-mono">{term.repo === null || term.single ? term.path : `${term.repo}/${term.path}`}:{term.line}</KLink>
+                  </p>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      )}
       <Findings findings={glossary.findings} />
       {glossary.terms.length > 0 && shown.length === 0 && <p className="text-muted">{t('knowledge.nothingOfKind')}</p>}
     </section>

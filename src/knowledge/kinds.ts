@@ -32,6 +32,8 @@ import { LineCounter, parseDocument } from 'yaml';
 import { lineForPath } from '../model/yaml-position.js';
 import { isSemanticKind, SEMANTIC_KINDS, type SemanticKind } from './semantics.js';
 import { BLOCK_NAMES } from './template.js';
+import { PREDICATES } from '../problems/rules.js';
+import { DEFAULT_THRESHOLDS, PROBLEM_SEVERITIES, SONAR_KINDS, type ProblemSettings, type RuleParams, type RuleSetting } from '../problems/types.js';
 
 /** The manifest's place in the product repository. */
 export const KINDS_FILE = 'madarch/kinds.yaml';
@@ -73,6 +75,17 @@ export interface GroupDecl {
   name: string;
   /** The group's name per interface language. */
   labels: Readonly<Record<string, string>>;
+  /**
+   * The group this one is a sub-area of, when it is one: the navigation and the
+   * catalogue draw it under that group, one level deep. A group without a
+   * parent is a top-level group.
+   */
+  parent?: string;
+  /**
+   * Whether the navigation opens this group by itself, before a reader touches
+   * it (`open: true`). A group without the field is closed until opened.
+   */
+  open?: boolean;
   line: number;
 }
 
@@ -175,6 +188,12 @@ export interface KindsManifest {
    * documents lack instead of showing a smaller result (decision 0032 section 4).
    */
   expect?: readonly ExpectedKind[];
+  /**
+   * The Problems page's rules and thresholds (`problems:`): which rules run, the severity each starts
+   * with, and the sizes a file is judged large by. Absent declares no rule: the page lists the starter
+   * rules only where the manifest writes them (`problems.rules`), and says so instead of guessing them.
+   */
+  problems?: ProblemSettings;
   findings: readonly Finding[];
   /** The manifest could not be read as a whole (not YAML, not a mapping, no `kinds` mapping): no kind is known, which is not the same as every kind having a finding. */
   unreadable?: true;
@@ -191,6 +210,141 @@ export function insideFolder(folder: string, path: string): boolean {
   if (path === '' || isAbsolute(path) || path.includes('\0')) return false;
   const from = relative(resolve(folder), resolve(folder, path));
   return from !== '' && !from.startsWith('..') && !isAbsolute(from);
+}
+
+
+/** The fields a declared rule holds. */
+const RULE_FIELDS = ['predicate', 'kind', 'sonar', 'severity', 'section', 'action', 'label', 'params', 'enabled'] as const;
+const PROBLEM_SECTIONS = ['code', 'documents', 'wiki'] as const;
+const RULE_ACTIONS = ['task', 'none'] as const;
+
+/** A mapping, not a list and not null. */
+const isRecord = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value);
+
+/** A rule's parameters: named values a predicate reads, each a string, a number, a boolean or a list of strings. */
+function readParams(value: unknown, file: string, line: number, id: string, findings: Finding[]): RuleParams | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) {
+    findings.push({ file, line, message: `rule "${id}": "params" maps a parameter name to a string, a number, a boolean or a list of strings` });
+    return undefined;
+  }
+  const params: Record<string, string | number | boolean | readonly string[]> = {};
+  for (const [name, held] of Object.entries(value)) {
+    // The YAML line counter has no finer position inside a flow mapping; the parameter is named in the message.
+    if (typeof held === 'string' || typeof held === 'boolean' || (typeof held === 'number' && Number.isFinite(held))) params[name] = held;
+    else if (Array.isArray(held) && held.every((entry) => typeof entry === 'string')) params[name] = held as string[];
+    else findings.push({ file, line, message: `rule "${id}": the parameter "${name}" is a string, a number, a boolean or a list of strings, got ${JSON.stringify(held)}` });
+  }
+  return params;
+}
+
+/**
+ * The `problems:` mapping: every rule the page runs — its predicate, kind, Sonar kind, severity,
+ * section, action, label and parameters — and the thresholds the size rules read. The engine keeps
+ * only the predicates, so a rule this manifest does not declare is not run, and a declaration that
+ * misses a field is a finding at its line rather than a rule running with a guessed value.
+ */
+function parseProblems(
+  raw: unknown,
+  at: (path: (string | number)[]) => number,
+  findings: Finding[],
+  file: string,
+): ProblemSettings | undefined {
+  if (raw === undefined) return undefined;
+  if (!isRecord(raw)) {
+    findings.push({ file, line: at(['problems']), message: '"problems" is { rules: { <rule id>: { predicate, kind, sonar, severity, section, action, label, params?, enabled? } }, thresholds: { largeFileLines: 600 } }' });
+    return undefined;
+  }
+  const body = raw;
+  for (const key of Object.keys(body)) if (key !== 'rules' && key !== 'thresholds') findings.push({ file, line: at(['problems', key]), message: `"${key}" is not a field of "problems": the fields are "rules" and "thresholds"` });
+  const rules: Record<string, RuleSetting> = {};
+  const kinds = new Map<string, string>();
+  const rawRules = body['rules'];
+  if (rawRules !== undefined) {
+    if (!isRecord(rawRules)) findings.push({ file, line: at(['problems', 'rules']), message: '"rules" maps a rule id to { predicate, kind, sonar, severity, section, action, label, params?, enabled? }' });
+    else {
+      for (const [id, entry] of Object.entries(rawRules)) {
+        const line = at(['problems', 'rules', id]);
+        if (id === '') { findings.push({ file, line, message: 'a rule id is a name, not the empty string' }); continue; }
+        if (!isRecord(entry)) { findings.push({ file, line, message: `rule "${id}": the rule is { predicate, kind, sonar, severity, section, action, label, params?, enabled? }` }); continue; }
+        const setting = entry;
+        for (const key of Object.keys(setting)) if (!(RULE_FIELDS as readonly string[]).includes(key)) findings.push({ file, line: at(['problems', 'rules', id, key]), message: `rule "${id}": "${key}" is not a field of the rule: the fields are ${RULE_FIELDS.join(', ')}` });
+        let sound = true;
+        const predicate = setting['predicate'];
+        if (typeof predicate !== 'string' || !PREDICATES.includes(predicate)) {
+          findings.push({ file, line: at(['problems', 'rules', id, 'predicate']), message: `rule "${id}": "predicate" is one the engine implements (${PREDICATES.join(', ')}), got ${JSON.stringify(predicate)}` });
+          sound = false;
+        }
+        const kind = setting['kind'];
+        if (typeof kind !== 'string' || kind.trim() === '') {
+          findings.push({ file, line: at(['problems', 'rules', id, 'kind']), message: `rule "${id}": "kind" is the kind of finding the rule makes, a word or words` });
+          sound = false;
+        } else if (kinds.has(kind)) {
+          findings.push({ file, line, message: `rule "${id}": the kind ${JSON.stringify(kind)} is already declared by the rule "${kinds.get(kind)}": a finding kind names one rule` });
+          sound = false;
+        }
+        const sonar = setting['sonar'];
+        if (typeof sonar !== 'string' || !SONAR_KINDS.includes(sonar as never)) {
+          findings.push({ file, line: at(['problems', 'rules', id, 'sonar']), message: `rule "${id}": "sonar" is one of ${SONAR_KINDS.join(', ')}` });
+          sound = false;
+        }
+        const severity = setting['severity'];
+        if (typeof severity !== 'string' || !PROBLEM_SEVERITIES.includes(severity as never)) {
+          findings.push({ file, line: at(['problems', 'rules', id, 'severity']), message: `rule "${id}": "severity" is one of ${PROBLEM_SEVERITIES.join(', ')}` });
+          sound = false;
+        }
+        const section = setting['section'];
+        if (typeof section !== 'string' || !(PROBLEM_SECTIONS as readonly string[]).includes(section)) {
+          findings.push({ file, line: at(['problems', 'rules', id, 'section']), message: `rule "${id}": "section" is one of ${PROBLEM_SECTIONS.join(', ')}` });
+          sound = false;
+        }
+        const action = setting['action'];
+        if (typeof action !== 'string' || !(RULE_ACTIONS as readonly string[]).includes(action)) {
+          findings.push({ file, line: at(['problems', 'rules', id, 'action']), message: `rule "${id}": "action" is one of ${RULE_ACTIONS.join(', ')}` });
+          sound = false;
+        }
+        const label = setting['label'];
+        const labelSound = isRecord(label) && typeof label['en'] === 'string' && label['en'].trim() !== '' && typeof label['ru'] === 'string' && label['ru'].trim() !== '' && Object.keys(label).every((key) => key === 'en' || key === 'ru');
+        if (!labelSound) {
+          findings.push({ file, line: at(['problems', 'rules', id, 'label']), message: `rule "${id}": "label" is { en: <words>, ru: <words> }` });
+          sound = false;
+        }
+        const enabled = setting['enabled'];
+        if (enabled !== undefined && typeof enabled !== 'boolean') {
+          findings.push({ file, line: at(['problems', 'rules', id, 'enabled']), message: `rule "${id}": "enabled" is true or false` });
+          sound = false;
+        }
+        const params = readParams(setting['params'], file, at(['problems', 'rules', id, 'params']), id, findings);
+        if (setting['params'] !== undefined && params === undefined) sound = false;
+        if (!sound) continue;
+        kinds.set(kind as string, id);
+        rules[id] = {
+          predicate: predicate as string,
+          kind: kind as string,
+          sonar: sonar as never,
+          severity: severity as never,
+          section: section as never,
+          action: action as never,
+          label: { en: (label as Record<string, string>)['en']!, ru: (label as Record<string, string>)['ru']! },
+          ...(params === undefined ? {} : { params }),
+          ...(typeof enabled === 'boolean' ? { enabled } : {}),
+        };
+      }
+    }
+  }
+  const thresholds = { ...DEFAULT_THRESHOLDS };
+  const rawThresholds = body['thresholds'];
+  if (rawThresholds !== undefined) {
+    if (!isRecord(rawThresholds)) findings.push({ file, line: at(['problems', 'thresholds']), message: '"thresholds" maps a threshold name to a positive whole number' });
+    else {
+      for (const [key, value] of Object.entries(rawThresholds)) {
+        if (!(key in DEFAULT_THRESHOLDS)) { findings.push({ file, line: at(['problems', 'thresholds', key]), message: `"${key}" is not a threshold: the thresholds are ${Object.keys(DEFAULT_THRESHOLDS).join(', ')}` }); continue; }
+        if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) findings.push({ file, line: at(['problems', 'thresholds', key]), message: `"${key}" is a positive whole number, got ${JSON.stringify(value)}` });
+        else (thresholds as Record<string, number>)[key] = value;
+      }
+    }
+  }
+  return { rules, thresholds };
 }
 
 function nothing(file: string, findings: Finding[]): KindsManifest {
@@ -234,8 +388,9 @@ export function parseKinds(text: string, file: string, productFolder: string): K
       const value = top['diagram'];
       if (typeof value !== 'string' || !DIAGRAM_RENDERER_NAMES.includes(value)) findings.push({ file, line: at(['diagram']), message: `"diagram" is ${JSON.stringify(value)}: the diagrams open on ${DIAGRAM_RENDERER_NAMES.join(', ')}` });
       else diagram = value;
-    } else if (key !== 'kinds' && key !== 'groups' && key !== 'documents' && key !== 'roles') findings.push({ file, line: at([key]), message: `"${key}" is not a field of the manifest: the manifest holds "kinds", "groups", "documents", "roles", "language" and "diagram"` });
+    } else if (key !== 'kinds' && key !== 'groups' && key !== 'documents' && key !== 'roles' && key !== 'problems') findings.push({ file, line: at([key]), message: `"${key}" is not a field of the manifest: the manifest holds "kinds", "groups", "documents", "roles", "problems", "language" and "diagram"` });
   }
+  const problems = parseProblems(top['problems'], at, findings, file);
   const groups = new Map<string, GroupDecl>();
   const rawGroups = top['groups'];
   if (rawGroups !== undefined) {
@@ -249,13 +404,48 @@ export function parseKinds(text: string, file: string, productFolder: string): K
           continue;
         }
         const labels: Record<string, string> = {};
+        let parent: string | undefined;
+        let open: boolean | undefined;
         let bad = false;
         for (const [language, label] of Object.entries(body)) {
-          if (!LABEL_LANGUAGES.includes(language)) { findings.push({ file, line: at(['groups', name, language]), message: `group "${name}": "${language}" is not a language of the wiki: the languages are ${LABEL_LANGUAGES.join(', ')}` }); bad = true; }
+          if (language === 'open') {
+            if (typeof label !== 'boolean') findings.push({ file, line: at(['groups', name, 'open']), message: `group "${name}": "open" is true or absent` });
+            else open = label;
+          } else if (language === 'parent') {
+            if (typeof label !== 'string' || label.trim() === '') { findings.push({ file, line: at(['groups', name, 'parent']), message: `group "${name}": "parent" is the name of a group of "groups"` }); bad = true; }
+            else parent = label;
+          } else if (!LABEL_LANGUAGES.includes(language)) { findings.push({ file, line: at(['groups', name, language]), message: `group "${name}": "${language}" is not a language of the wiki: the languages are ${LABEL_LANGUAGES.join(', ')}` }); bad = true; }
           else if (typeof label !== 'string' || label.trim() === '') { findings.push({ file, line: at(['groups', name, language]), message: `group "${name}": the name in "${language}" is a text` }); bad = true; }
           else labels[language] = label;
         }
-        if (!bad) groups.set(name, { name, labels, line });
+        if (!bad) groups.set(name, { name, labels, line, ...(parent === undefined ? {} : { parent }), ...(open === undefined ? {} : { open }) });
+      }
+      // A sub-area names a group that stands beside it. Two levels would hide the
+      // catalogue's shape, so a group whose parent is itself a sub-area is a finding.
+      // Every invalid edge is also discarded: the app draws top-level groups by a
+      // parent that is absent, so a kept edge would hide the group from the
+      // navigation while the finding names it (madarch-m38l.24, the review). A
+      // cycle — a names b and b names a — fails at both edges and both stand at
+      // the top level; the check reads the edges as they were written, so neither
+      // edge can make the other look valid while they are discarded one by one.
+      const invalidParents = new Map<string, { line: number; message: string }>();
+      for (const group of groups.values()) {
+        if (group.parent === undefined) continue;
+        const line = at(['groups', group.name, 'parent']);
+        if (group.parent === group.name) {
+          invalidParents.set(group.name, { line, message: `group "${group.name}": "parent" cannot name the group itself` });
+          continue;
+        }
+        const parent = groups.get(group.parent);
+        if (parent === undefined) {
+          invalidParents.set(group.name, { line, message: `group "${group.name}": "parent" names a group of "groups" (${[...groups.keys()].join(', ') || 'none is declared'}), got ${JSON.stringify(group.parent)}` });
+        } else if (parent.parent !== undefined) {
+          invalidParents.set(group.name, { line, message: `group "${group.name}": "parent" names "${parent.name}", which is itself a sub-area: sub-areas are one level deep` });
+        }
+      }
+      for (const [name, invalid] of invalidParents) {
+        findings.push({ file, line: invalid.line, message: invalid.message });
+        delete groups.get(name)!.parent;
       }
     }
   }
@@ -454,7 +644,7 @@ export function parseKinds(text: string, file: string, productFolder: string): K
     }
     return true;
   });
-  return { file, roles, kinds, groups, excludeDocuments, ignoreBlocks: ignoredBlocks, expect: wanted, findings, ...(language === undefined ? {} : { language }), ...(diagram === undefined ? {} : { diagram }) };
+  return { file, roles, kinds, groups, excludeDocuments, ignoreBlocks: ignoredBlocks, expect: wanted, ...(problems === undefined ? {} : { problems }), findings, ...(language === undefined ? {} : { language }), ...(diagram === undefined ? {} : { diagram }) };
 }
 
 /**

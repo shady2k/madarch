@@ -93,7 +93,8 @@ describe('the questions', () => {
     expect(listing.status).toBe(200);
     expect(listing.body).toMatchObject({ open: 1, answered: 0, closed: 0, problems: [] });
     expect(listing.body.rows).toEqual([{ slug: 'discount-percentage', id: 'question:discount-percentage', title: QUESTION.title, type: 'contradiction', state: 'open', askedIn: 'domain:orders', askedAt: '2026-10-23T10:00:00.000Z', about: ['domain:orders'], answeredBy: null, answeredAt: null, closedBy: [] }]);
-    expect((await get('/api/k/status')).body.loop).toEqual({ questionsOpen: 1, questionsAnswered: 0, correctionsOpen: 0 });
+    const problems = await get('/api/k/problems');
+    expect((await get('/api/k/status')).body.loop).toEqual({ questionsOpen: 1, questionsAnswered: 0, correctionsOpen: 0, tasksOpen: 0, problemsOpen: problems.body.open });
   });
 
   test('a question comes with both sides, its grounds resolved against what the wiki holds, and the reason a ground does not resolve', async () => {
@@ -136,7 +137,8 @@ describe('the questions', () => {
     expect(again.body.error.message).toContain('already answered');
     const detail = await get('/api/k/question?id=discount-percentage');
     expect(detail.body).toMatchObject({ state: 'answered', answer: { text: 'Ten percent for every order.', by: { name: 'Ada Reader' } } });
-    expect((await get('/api/k/status')).body.loop).toEqual({ questionsOpen: 0, questionsAnswered: 1, correctionsOpen: 0 });
+    const problems = await get('/api/k/problems');
+    expect((await get('/api/k/status')).body.loop).toEqual({ questionsOpen: 0, questionsAnswered: 1, correctionsOpen: 0, tasksOpen: 0, problemsOpen: problems.body.open });
   });
 });
 
@@ -169,6 +171,77 @@ describe('the corrections and the problems', () => {
     expect(broken[0].reason.length).toBeGreaterThan(10);
     expect(problems.notes.join(' ')).toContain('single code repository');
     expect(problems.open).toBe(problems.problems.length);
+  });
+
+
+  test('the listing has the three sections, and every row carries its rule, Sonar kind, severity, place, entity and evidence', async () => {
+    const problems = (await get('/api/k/problems')).body;
+    expect(Object.keys(problems.sections).sort()).toEqual(['code', 'documents', 'wiki']);
+    expect(problems.sections.documents).toBeGreaterThan(0);
+    expect(problems.sections.wiki).toBeGreaterThan(0);
+    for (const row of problems.problems) {
+      expect(typeof row.id).toBe('string');
+      expect(row.id).toContain('\u0000');
+      expect(['code', 'documents', 'wiki']).toContain(row.section);
+      expect(typeof row.rule).toBe('string');
+      expect(['vulnerability', 'bug', 'code-smell', 'security-hotspot']).toContain(row.sonar);
+      expect(['blocker', 'critical', 'major', 'minor', 'info']).toContain(row.severity);
+      expect(row.reason.length).toBeGreaterThan(10);
+      expect(row.place).not.toBeNull();
+      expect(Array.isArray(row.evidence)).toBe(true);
+    }
+    const documents = problems.problems.filter((row: { section: string }) => row.section === 'documents');
+    expect(documents.map((row: { rule: string }) => row.rule)).toContain('document.contradiction');
+    expect(documents.find((row: { rule: string }) => row.rule === 'document.contradiction')).toMatchObject({
+      kind: 'document-contradiction', sonar: 'bug', severity: 'major', file: 'docs/questions/discount-percentage.md', entity: { key: 'question:discount-percentage' },
+    });
+    const wiki = problems.problems.find((row: { rule: string }) => row.rule === 'wiki.broken-link');
+    expect(wiki).toMatchObject({ section: 'wiki', kind: 'broken-link', sonar: 'bug', severity: 'major', page: 'domain:orders', fixer: 'agent', place: { key: 'domain:orders' }, entity: { key: 'domain:orders' } });
+    expect(wiki.id).toBe('wiki.broken-link\u0000domain:orders\u0000ten-percent-discount\u0000doc:README.md#discounts');
+    const onEntity = problems.problems.filter((row: { entity: { key: string } | null }) => row.entity?.key === 'domain:orders').length;
+    expect(onEntity).toBeGreaterThan(0);
+    const entityPage = (await get('/api/k/page?id=domain%3Aorders&lang=en')).body;
+    expect(entityPage.problems).toBe(onEntity);
+  });
+
+  test('«Не проблема» writes the person\'s reason as a file of the product, commits it, and the listing leaves it out', async () => {
+    const before = (await get('/api/k/problems')).body;
+    const broken = before.problems.find((row: { rule: string }) => row.rule === 'wiki.broken-link');
+    expect(broken).toBeDefined();
+    const done = await post('/api/k/problem-dismiss', { id: broken.id, reason: 'The README section is written by the fill itself.' });
+    expect(done.status).toBe(201);
+    expect(done.body).toMatchObject({ committed: true });
+    expect(done.body.file).toStartWith('docs/problems/');
+    const text = readFileSync(join(folder, done.body.file), 'utf8');
+    expect(text).toContain('kind: problem-dismissal');
+    expect(text).toContain('rule: wiki.broken-link');
+    expect(text).toContain('reason: The README section is written by the fill itself.');
+    expect(git(folder, 'log', '-1', '--format=%s').trim()).toBe('Record that a problem is not one');
+    const after = (await get('/api/k/problems')).body;
+    expect(after.problems.some((row: { id: string }) => row.id === broken.id)).toBe(false);
+    expect(after.dismissed).toBe(1);
+    expect(after.sections.wiki).toBe(before.sections.wiki - 1);
+    const again = await post('/api/k/problem-dismiss', { id: broken.id, reason: 'Still not a problem.' });
+    expect(again.status).toBe(404);
+    expect(again.body.error.message).toContain('there is no problem');
+  });
+
+  test('«Создать задачу» opens a task scoped to the place the problem names', async () => {
+    const listing = (await get('/api/k/problems')).body;
+    const contradiction = listing.problems.find((row: { rule: string }) => row.rule === 'document.contradiction');
+    expect(contradiction.scope).toEqual({ type: 'file', path: 'docs/questions/discount-percentage.md' });
+    const created = await post('/api/k/problem-task', { id: contradiction.id });
+    expect(created.status).toBe(201);
+    expect(created.body).toMatchObject({ state: 'created' });
+    expect(created.body.task.slug).toStartWith('fix-document-contradiction');
+    const tasks = (await get('/api/k/tasks')).body;
+    const row = tasks.tasks.find((task: { slug: string }) => task.slug === created.body.task.slug);
+    expect(row).toMatchObject({ title: 'Fix document.contradiction in docs/questions/discount-percentage.md:1' });
+    expect(row.problemId).toBe(contradiction.id);
+    expect(row.scope.map((one: { scope: { type: string; path?: string } }) => [one.scope.type, one.scope.path])).toEqual([['file', 'docs/questions/discount-percentage.md']]);
+    const taskPage = (await get(`/api/k/task?id=${encodeURIComponent(created.body.task.id)}`)).body;
+    expect(taskPage.problemId).toBe(contradiction.id);
+    expect(taskPage.question).toBe('');
   });
 
   test('a file that cannot be read is a problem for a person, naming the file and the line', async () => {

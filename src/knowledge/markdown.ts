@@ -55,7 +55,7 @@ export function splitFrontMatter(text: string): { front: string | null; body: st
 }
 
 /** The Markdown files below a folder, `/`-separated and in code point order. */
-function markdownFilesBelow(root: string, folder: string): string[] {
+export function markdownFilesBelow(root: string, folder: string): string[] {
   const out: string[] = [];
   const walk = (directory: string): void => {
     let names: string[];
