@@ -84,7 +84,7 @@ describe('a product made by an earlier madarch, opened by this one', () => {
       { file: manifestFile, line: expectLine, message: expect.stringContaining('the documents hold no entity of kind "doc.decision" (a decision)') },
     ]);
     expect(status.language).toBe('ru');
-    expect(status.groups.map((group) => group.group)).toEqual(['product', 'code', 'contracts', 'data', 'operations', 'tests', 'history']);
+    expect(status.groups.map((group) => group.group)).toEqual(['product', 'code', 'code.structure', 'code.analysis', 'contracts', 'data', 'operations', 'operations.configuration', 'operations.dependencies', 'operations.build-deploy', 'operations.ci-cd', 'operations.runtime', 'operations.newcomer', 'tests', 'history']);
     expect(Object.keys(status.roles).sort()).toEqual(['analyst', 'architect', 'developer', 'operations', 'product', 'tester']);
     const kinds = status.kinds.map((kind) => kind.kind);
     for (const kind of ['doc.use-case', 'doc.rule', 'doc.term', 'code.route', 'code.operation', 'code.contract', 'code.database', 'question', 'correction']) expect(kinds).toContain(kind);

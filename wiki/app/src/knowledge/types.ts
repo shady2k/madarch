@@ -170,7 +170,7 @@ export type KindSummary = {
   labels?: Record<string, { one: string; many: string }>;
 };
 
-export type GroupSummary = { group: string; labels: Record<string, string> };
+export type GroupSummary = { group: string; labels: Record<string, string>; /** The group this is a sub-area of; absent for a top-level group. */ parent?: string; /** The group the menu opens by itself; absent when it stays closed until opened. */ open?: boolean };
 
 export type OperationMetadata = { contracts: {entity: EntityRef; protocol: string; directions?: ('publish' | 'subscribe')[]; directionStatus?: 'known' | 'unavailable'; producedBy?: EntityRef[]; consumedBy?: EntityRef[]}[]; implementedBy: EntityRef[]; calledBy: EntityRef[]; cuts: {relation: string; shown: number; total: number}[] };
 export type EntityListing = { kind: string; total: number; rows: EntityRef[]; next: string | null; operations?: Record<string, OperationMetadata> };
@@ -246,7 +246,7 @@ export type WikiStatus = {
   roles?: Record<string, { open?: string[]; lead: string[] }>;
   own?: boolean;
   /** Questions and corrections waiting, counted from their files. */
-  loop?: { questionsOpen: number; questionsAnswered: number; correctionsOpen: number };
+  loop?: { questionsOpen: number; questionsAnswered: number; correctionsOpen: number; tasksOpen?: number; problemsOpen?: number };
   /** What the current starter set holds that this product's edited manifest lacks (the Problems page offers it). */
   starterOffers?: number;
 };

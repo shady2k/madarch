@@ -303,6 +303,16 @@ async function rowOfTask(task: PlannedTask, input: TaskReadInput, notes: string[
   };
 }
 
+/**
+ * The tasks that stand open, by the closure the Tasks page reads: a task a commit of a default branch closed is closed,
+ * whatever its file still says. The menu's count and the page therefore ask the same question of the same repositories
+ * (madarch-m38l.24, the owner's review); a closure that cannot be read leaves the task open, as the page shows it.
+ */
+export function openTasks(productFolder: string, repositories: readonly RepositoryRef[], pageFiles: ReadonlyMap<string, string>): number {
+  const notes: string[] = [];
+  return readTasks(productFolder).tasks.filter((task) => closureOf(task, repositories, pageFiles, notes) === null).length;
+}
+
 /** The product's tasks, open first, then closed; each in id order, with its impact counted through the graph. */
 export async function listTasks(input: TaskReadInput): Promise<TaskListing> {
   const read = readTasks(input.productFolder);
