@@ -12,6 +12,7 @@ import type { DomainDeclaration, UnitSpec } from './tools.js';
 import { FILE_LINES, FIND_LIMIT } from './tools.js';
 import { CONTEXT_PURPOSES, FLOW_TARGETS } from './answers.js';
 import type { GraphView } from './view.js';
+import { STRUCTURED_SECTIONS, structuredKindOf, structuredLanguage } from './structured.js';
 
 export const PROMPT_VERSION = 'writer@7';
 
@@ -313,11 +314,16 @@ export async function validationPrompt(view: GraphView, unit: { readonly id: str
   ].join('\n');
 }
 
-/** What an enrichment unit is told its passage reads as: the kind of thing the passage is. */
+/**
+ * What an enrichment unit is told its passage is, and the fields the page of that kind is made of (decision 0032,
+ * section 1; `src/writer/structured.ts`). The sections are the core's: the unit fills the fields, and what it says
+ * is what a reader reads under the headings the core writes in the wiki's language.
+ */
 export const ENRICHMENT_TASKS: Readonly<Record<string, string>> = {
-  'document-interpretation': 'The reading of this passage is still open: the document\'s own structure and the manifest did not decide what it is. Say what it is — a scenario, an actor, a rule, a quality requirement, a decision, a procedure or a term — and what it requires of the product, each as its own grounded statement.',
-  'rules-and-decisions': 'State this rule or decision in its own structure: a rule its statement, where it applies and its exceptions; a decision its status, its context, the decision itself and its consequences. Then name what implements it, with the code keys you found, or say plainly that nothing does.',
-  scenarios: 'State this scenario in its own structure: the actor, the goal, the preconditions, the main flow and the alternative flows, the outcome, and what implements each step. The rules and decisions the units before yours enriched are yours to stand on.',
+  'document-interpretation': 'The reading of this passage is still open: the document\'s own structure and the manifest did not decide what it is. Say what it is — a scenario, an actor, a rule, a quality requirement, a decision, a procedure or a term — and what it requires of the product, each as its own grounded statement. You write this page\'s body yourself, headings included.',
+  rule: 'This passage is one rule. Give its fields: its statement, where it applies and its exceptions, each a sentence with the grounds that show it; and what implements it — the functions that keep it, read with get_symbol, and the routes or tables they answer through, read with trace_flow or get_context. A place you did not resolve with a tool is not named: write no place for what you did not find, and the page says the graph holds nothing.',
+  decision: 'This passage is one decision, a record of what was decided and why. Give its fields: its status, its context, the decision itself and its consequences, each a sentence in your own words with the grounds that show it (the passage itself is always a ground); and what carries it out — the functions, routes, tables and events the graph holds, read with get_symbol, trace_flow or get_context, naming one only where the graph shows the code does it. The person\'s record keeps its own sections; your page states them again beside it and never replaces it.',
+  scenario: 'This passage is one use case. Give its fields: its actor, its goal, its preconditions, its main flow and its alternative flows, each a sentence in your own words with the grounds that show it; the rules that govern it, each the section of the document that states the rule, as get_document_sections answers it; and what implements it — the route a person comes in by, read with trace_flow, and the functions that do the work, read with get_symbol. The engine draws the use case\'s sequence diagram from the route and the functions you name, so name the route the person really comes in by and one that the graph reaches.',
 };
 
 /**
@@ -330,6 +336,7 @@ export async function enrichmentPrompt(view: GraphView, unit: { readonly id: str
   const entity = unit.entity;
   const source = entity.repo === null ? entity.path : `repos/${entity.repo}/${entity.path}`;
   const text = entity.text.trim();
+  const structured = structuredKindOf(entity.semantics);
   return [
     fixedPart(language),
     '',
@@ -340,6 +347,7 @@ export async function enrichmentPrompt(view: GraphView, unit: { readonly id: str
     '',
     '## What to write',
     unit.task,
+    ...(structured === undefined ? [] : ['', 'The page is written under the headings of its kind, in the wiki\'s language: ' + STRUCTURED_SECTIONS[structured].map((section) => section.heading[structuredLanguage(language)]).join(', ') + '. You fill the fields of write_enrichment; you do not write the headings, and a field the document leaves empty is said on the page as the gap it is. Its title is yours: name the passage and what it is in the wiki\'s language.']),
     'Every statement is grounded: on the passage itself as \`madarch:doc:' + (entity.repo === null ? entity.path : `${entity.repo}/${entity.path}`) + '#' + entity.anchor + '\`, or on the code the graph holds (get_symbol, get_context, trace_flow of what the passage names). A statement you cannot ground is left out; a thing the document does not settle is a question.',
     '',
     '## The passage, as the document writes it',

@@ -1,6 +1,6 @@
 export { checkPage, parseTarget, SLUG, type CheckedPage, type FrontMatter, type GroundResolver, type PageCheck, type PageExpectation, type PageKind, type Refusal } from './format.js';
 export { GraphView, ingestContent, documentAnchors, slugOf, CONTENT_PRODUCER, type ContentReport } from './view.js';
-export { UnitTools, WRITER_TOOLS, WRITE_ENRICHMENT_TOOL, DEFAULT_UNIT_BOUNDS, type DomainDeclaration, type PageSink, type ToolAnswer, type UnitBounds, type UnitOutcome, type UnitSpec } from './tools.js';
+export { UnitTools, WRITER_TOOLS, WRITE_ENRICHMENT_TOOL, writeEnrichmentTool, DEFAULT_UNIT_BOUNDS, type DomainDeclaration, type PageSink, type ToolAnswer, type UnitBounds, type UnitOutcome, type UnitSpec } from './tools.js';
 export {
   runWriter, fsSink, memorySink, productSlug, writerPageFamily, enrichmentFamilyOf, unitEndedOn, runGraphUnit,
   PRODUCT_PATH, DOMAINS_FOLDER, VALIDATION_PATH, OVERVIEW_PATH, EDITORIAL_PATH,
@@ -15,3 +15,8 @@ export { ENRICHMENT_FRONT_KEYS, ENRICHMENT_SCHEMA, enrichmentKey, enrichmentPage
 export { acpUnitAgent, type AcpAgentOptions } from './acp-agent.js';
 export { writtenAtOf, withoutCredentials } from './basis.js';
 export { fileJournal, memoryJournal, journalOfUnit, newRunId, readJournalFile, JOURNAL_SCHEMA, type Journal, type JournalRecord, type PageJournal } from './journal.js';
+export {
+  PLACE_FIELDS, STRUCTURED_SECTIONS, UNREACHED_ROUTE, implementationPlaces, parseFields, relatesOf, renderStructuredBody, structuredKindOf, structuredLanguage, structuredSchema,
+  type AlternativeFlow, type DecisionFields, type GroundedStatement, type ImplementationFields, type NamedPlace, type PlaceField, type RuleFields, type ScenarioFields,
+  type SectionDecl, type SectionId, type StructuredBody, type StructuredFields, type StructuredKind, type StructuredLanguage,
+} from './structured.js';

@@ -25,6 +25,7 @@ import { parse as parseYaml, stringify } from 'yaml';
 import type { DocEntity } from '../knowledge/doc-entities.js';
 import type { WrittenAt } from '../knowledge/index/page.js';
 import { splitFrontMatter } from '../knowledge/markdown.js';
+import { byCodePoint } from '../model/order.js';
 
 /** The schema tag of an enrichment page, in the front matter of every file the writer writes. */
 export const ENRICHMENT_SCHEMA = 'madarch.enrichment@1';
@@ -74,6 +75,14 @@ export interface EnrichmentDraft {
   readonly title: string;
   /** The body the unit wrote: headings, then statements each ending in its footnotes. */
   readonly body: string;
+  /**
+   * The graph keys the page is about, in code point order: what implements a use case, a rule or a decision
+   * (`src/writer/structured.ts`). They are the page's `relates`, and the keys a route or a function is among
+   * them are what the engine draws the page's sequence diagram from (decision 0032, section 8).
+   */
+  readonly relates?: readonly string[];
+  /** The document the page stands beside, as a source of the page; the entity's own document unless the caller says otherwise. */
+  readonly sources?: readonly string[];
   /** The repositories and revisions the page was written from. */
   readonly basis?: readonly WrittenAt[];
 }
@@ -92,9 +101,9 @@ export function renderEnrichment(draft: EnrichmentDraft): string {
     id: enrichmentPageId(draft.entity),
     kind: 'enrichment',
     title: title.trim(),
-    relates: [],
+    relates: [...new Set(draft.relates ?? [])].sort(byCodePoint),
     producer: 'agent',
-    sources: [],
+    sources: [...new Set(draft.sources ?? [])].sort(byCodePoint),
     enriches: draft.entity.id,
     'source-document': enrichmentSource(draft.entity),
     'source-line': draft.entity.line,
