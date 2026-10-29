@@ -258,18 +258,24 @@ function VerdictsSection({ settings, reload }: { settings: ProductSettings; relo
   const [error, setError] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
   const [round, setRound] = useState(0);
+  const [offset, setOffset] = useState(0);
   const [items, setItems] = useState('');
   const [calls, setCalls] = useState('');
-  const load = (force: boolean, signal?: AbortSignal): void => {
+  // The saved report says how many rows are not valid; the table itself is asked for one page of those rows, so a large
+  // graph answers with a bounded page and «next» walks the rest (madarch-mwhd.1, RARE findings).
+  const load = (force: boolean, signal?: AbortSignal, at = offset): void => {
     setWorking(true);
     setError(null);
-    getGraphVerdicts(force ? { force: true, limit: 100 } : { peek: true }, signal).then((answer) => {
+    const budgetAnswer = getGraphVerdicts(force ? { force: true, verdict: 'non-valid', limit: 100, offset: at } : { peek: true }, signal);
+    const rowAnswer = force ? null : getGraphVerdicts({ verdict: 'non-valid', limit: 100, offset: at }, signal);
+    Promise.all([budgetAnswer, rowAnswer]).then(([answer, page]) => {
       if (answer === null || typeof answer !== 'object' || answer.budgets === undefined) {
         setWorking(false);
         setError('the server did not answer with the graph verdict budgets');
         return;
       }
-      setView(answer);
+      setView(page === null ? answer : { ...answer, rows: page.rows, total: page.total, offset: page.offset, limit: page.limit });
+      setOffset(page === null ? answer.offset : page.offset);
       setItems(String(answer.budgets.itemsPerRun));
       setCalls(String(answer.budgets.modelCallsPerRun));
       setWorking(false);
@@ -294,7 +300,7 @@ function VerdictsSection({ settings, reload }: { settings: ProductSettings; relo
     saveGraphVerdictBudgets(perRun, modelCalls).then(() => { setWorking(false); setRound(round + 1); reload(); }, (failure: unknown) => { setWorking(false); setError(message(failure)); });
   };
   const report = view?.report;
-  const bad = view?.rows.filter((row) => row.verdict !== 'valid').slice(0, 20) ?? [];
+  const bad = view?.rows ?? [];
   return (
     <Section id="verdicts" title={t('settings.verdicts.title')} intro={t('settings.verdicts.intro')}>
       {view === null && error === null && <p className="m-0 text-muted" data-testid="settings-verdicts-loading">{t('knowledge.loading')}</p>}
@@ -339,6 +345,13 @@ function VerdictsSection({ settings, reload }: { settings: ProductSettings; relo
                   {bad.map((row) => <tr key={`${row.role}:${row.id}`} data-testid={`settings-verdict-row-${row.id}`}><td><code>{row.role}:{row.kind}</code> {row.label}</td><td>{row.verdict}</td><td>{row.reason}</td></tr>)}
                 </tbody>
               </table>
+            </div>
+          )}
+          {view !== null && view.limit > 0 && view.total > view.limit && (
+            <div className="mt-3 flex flex-wrap items-center gap-3" data-testid="settings-verdicts-pages">
+              <span className="text-small text-muted" data-testid="settings-verdicts-range">{t('settings.verdicts.range', { from: String(view.offset + 1), to: String(Math.min(view.offset + view.limit, view.total)), total: String(view.total) })}</span>
+              <Button variant="default" size="default" disabled={working || settings.busy || view.offset === 0} onClick={() => load(false, undefined, Math.max(0, view.offset - view.limit))} data-testid="settings-verdicts-prev">{t('settings.verdicts.previous')}</Button>
+              <Button variant="default" size="default" disabled={working || settings.busy || view.offset + view.limit >= view.total} onClick={() => load(false, undefined, view.offset + view.limit)} data-testid="settings-verdicts-next">{t('settings.verdicts.next')}</Button>
             </div>
           )}
         </>

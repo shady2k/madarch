@@ -58,7 +58,7 @@ import { documentSections } from './index/sections.js';
 import { webLink } from './index/web-link.js';
 import { acpGraphJudge } from './graph-verdict-acp-judge.js';
 import { graphVerdictFile, loadGraphSnapshot, readGraphVerdictState, writeGraphVerdictBudgets, writeGraphVerdictState } from './graph-verdict-store.js';
-import { GRAPH_VERDICT_VALIDATOR_VERSION, graphVerdictFingerprint, graphVerdictReport, graphVerdictRows, runGraphVerdicts, type GraphJudgeFactory, type GraphVerdictBudgets, type GraphVerdictMetrics, type GraphVerdictReport, type GraphVerdictRow } from './graph-verdicts.js';
+import { GRAPH_VERDICT_VALIDATOR_VERSION, graphVerdictFingerprint, graphVerdictReport, graphVerdictRows, graphVerdictsRunnable, runGraphVerdicts, type GraphEvidenceContent, type GraphJudge, type GraphJudgeFactory, type GraphVerdictBudgets, type GraphVerdictMetrics, type GraphVerdictReport, type GraphVerdictRow } from './graph-verdicts.js';
 
 /** The wiki's address of a document, at a section when one is named: the client opens it as it opens any in-wiki link. */
 const documentAddress = (repo: string | null, path: string, anchor?: string): string => {
@@ -188,6 +188,10 @@ export interface KnowledgeProductOptions {
   choicesQuery?: (agentId: string, env: DraftEnv) => Promise<{ ok: true; choices: AgentChoices } | { ok: false; message: string }>;
   /** Starts a graph verdict judge for a resolved pair; tests inject a scripted one, production starts its ACP agent. */
   graphJudgeFor?: GraphJudgeFactory;
+  /** A judge the host already built (jev, madarch-mwhd.1 finding 6); it reads a batch before the role judges. */
+  graphJev?: GraphJudge;
+  /** The host's version name for `graphJev`, part of every cache key while it is in use. */
+  graphJevVersion?: string;
 }
 
 /** What the graph verdicts page and its API ask for (madarch-mwhd.1). */
@@ -741,8 +745,14 @@ export class KnowledgeProduct {
         case 'fill':
           // The end of the fill is shown once the last snapshot is being read: a page opened at "done" shows everything.
           await this.swapping.catch(() => undefined);
-          if (message.state === 'done') this.fill = { state: 'done', startedAt: this.fill.startedAt, finishedAt: now(), gaps: message.gaps, ...(this.fill.rebuilt === undefined ? {} : {rebuilt:this.fill.rebuilt}) };
-          else if (message.state === 'stopped') this.fill = { state: 'idle', message: 'the fill was stopped; it resumes where it stopped' };
+          if (message.state === 'done') {
+            this.fill = { state: 'done', startedAt: this.fill.startedAt, finishedAt: now(), gaps: message.gaps, ...(this.fill.rebuilt === undefined ? {} : {rebuilt:this.fill.rebuilt}) };
+            // The rules and the judge read the snapshot as soon as the fill ends (madarch-mwhd.1 finding 6): a reader who
+            // opens the settings page afterwards sees what was decided, not a page that has to start the work itself.
+            void this.graphVerdicts({ force: true }).catch((error: unknown) => {
+              this.options.errorLog?.(`the knowledge wiki could not validate the graph after the fill: ${error instanceof Error ? error.message : String(error)}`);
+            });
+          } else if (message.state === 'stopped') this.fill = { state: 'idle', message: 'the fill was stopped; it resumes where it stopped' };
           else this.fill = { state: 'failed', startedAt: this.fill.startedAt, finishedAt: now(), message: message.message, ...(message.code === undefined ? {} : { code: message.code }) };
           this.notify();
           return;
@@ -1021,8 +1031,23 @@ export class KnowledgeProduct {
     const roles = this.modelRoles();
     const owner = await this.open();
     const snapshot = await loadGraphSnapshot(owner);
-    const fingerprint = graphVerdictFingerprint(snapshot, roles, state.budgets, GRAPH_VERDICT_VALIDATOR_VERSION, false, true);
-    if (!force && state.cache !== undefined && state.cache.fingerprint === fingerprint && state.cache.validatorVersion === GRAPH_VERDICT_VALIDATOR_VERSION) {
+    const jev = this.options.graphJev ?? null;
+    const judgeFor = this.options.graphJudgeFor ?? ((pair, role) => acpGraphJudge(pair, role, {
+      env: this.env,
+      ...(this.options.errorLog === undefined ? {} : { progress: (line: string) => this.options.errorLog?.(`the graph ${role} judge: ${line}`) }),
+    }));
+    const fingerprint = graphVerdictFingerprint({
+      snapshot,
+      roles,
+      budgets: state.budgets,
+      validatorVersion: GRAPH_VERDICT_VALIDATOR_VERSION,
+      hasJev: jev !== null,
+      hasJudge: true,
+      ...(this.options.graphJevVersion === undefined ? {} : { jevVersion: this.options.graphJevVersion }),
+    });
+    // The whole-result shortcut is only safe when nothing is waiting: a budget deferral or a failed judge is work the
+    // next run must take up, even when the snapshot has not changed (madarch-mwhd.1 finding 3).
+    if (!force && state.cache !== undefined && state.cache.fingerprint === fingerprint && state.cache.validatorVersion === GRAPH_VERDICT_VALIDATOR_VERSION && !graphVerdictsRunnable(state.cache)) {
       const rows = graphVerdictRows(state.cache);
       return {
         file,
@@ -1033,16 +1058,33 @@ export class KnowledgeProduct {
         cached: true,
       };
     }
-    const judgeFor = this.options.graphJudgeFor ?? ((pair, role) => acpGraphJudge(pair, role, {
-      env: this.env,
-      ...(this.options.errorLog === undefined ? {} : { progress: (line: string) => this.options.errorLog?.(`the graph ${role} judge: ${line}`) }),
-    }));
+    // The evidence reader reads the graph's paths at the commits the fill pinned. Paths are repository-relative; the
+    // first present repository holding the path answers, and a path no pinned repository holds stays unresolved.
+    const read = new Map<string, GraphEvidenceContent | undefined>();
+    const readEvidence = async (path: string): Promise<GraphEvidenceContent | undefined> => {
+      if (read.has(path)) return read.get(path);
+      let content: GraphEvidenceContent | undefined;
+      for (const repository of this.repositories()) {
+        if (!repository.present) continue;
+        const pin = this.pins.get(repository.name);
+        if (pin === undefined || pin.commit === '') continue;
+        const text = await gitBlob(join(this.options.productFolder, 'repos', repository.name), pin.commit, path);
+        if (text === undefined) continue;
+        content = { text, repository: repository.name, commit: pin.commit };
+        break;
+      }
+      read.set(path, content);
+      return content;
+    };
     const result = await runGraphVerdicts({
       snapshot,
       roles,
       budgets: state.budgets,
+      readEvidence,
       ...(state.cache === undefined ? {} : { previous: state.cache }),
       ...(this.options.now === undefined ? {} : { now: this.options.now }),
+      ...(jev === null ? {} : { jev }),
+      ...(this.options.graphJevVersion === undefined ? {} : { jevVersion: this.options.graphJevVersion }),
       judgeFor,
     });
     writeGraphVerdictState(file, result.cache);

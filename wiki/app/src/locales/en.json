@@ -917,7 +917,10 @@
       "run": "Check again",
       "running": "Checking…",
       "whole": "Both budgets are whole numbers, 0 or more.",
-      "note": "Every unchanged item keeps its saved verdict. The budgets and the verdicts are in graph-verdicts.json next to the graph."
+      "note": "Every unchanged item keeps its saved verdict. The budgets and the verdicts are in graph-verdicts.json next to the graph.",
+      "range": "{{from}}–{{to}} of {{total}}",
+      "previous": "Previous",
+      "next": "Next"
     }
   },
   "errors": {

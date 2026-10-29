@@ -2,23 +2,52 @@
  * Graph verdicts (madarch-mwhd.1): every current node and edge of a filled
  * product is `valid`, `invalid` or `unreviewed`, with one line saying why.
  *
- * The deterministic rules in `graph-verdict-rules.ts` run first. An item a rule
- * cannot decide goes to a judge in batches of at most 50. The chain is jev,
- * then classification, then analysis: each tier reads what the last left
- * `unsure`, and what analysis still cannot decide leaves it for a person.
- * A judge that could not run leaves its items unjudged, never valid.
+ * The deterministic rules in `graph-verdict-rules.ts` run first, as data the
+ * engine reads. A rule decides only what it can check: the item's own shape,
+ * and the bytes the item cites, read at the commit the fill pinned. Evidence
+ * that cannot be resolved (no pinned reader, a file the commit does not hold,
+ * a digest or line range the bytes contradict) stays unreviewed and is never
+ * valid. A structurally sound item whose neighbourhood is anomalous (a
+ * database with no edge, a route with no handler, a table nobody reads) goes
+ * to a judge instead of passing on its span check alone.
  *
- * Every row carries an evidence hash. An unchanged neighbourhood and an
- * unchanged validator version reuse the verdict; a changed node or edge
- * revalidates itself and its incident edges, and nothing else. The cache and
- * the two budgets live beside the product's store, not in the graph.
+ * An item a rule cannot decide goes to a judge in batches of at most 50. The
+ * chain is jev, then classification, then analysis: each tier reads what the
+ * last left `unsure`, and what analysis still cannot decide leaves it for a
+ * person. A judge that could not run leaves its items unjudged, never valid.
+ * Budget-deferred items and retryable judge failures are not cached as a
+ * disposition: the next run takes them up again.
+ *
+ * Every row carries an evidence hash and a configuration hash. An unchanged
+ * neighbourhood under an unchanged rule set and judge identity reuses the
+ * verdict; a changed node or edge revalidates itself and its incident edges,
+ * and nothing else. The two budgets are not part of the configuration: a
+ * larger budget reuses what a smaller one decided. The cache and the budgets
+ * live beside the product's store, not in the graph.
  */
 import { createHash } from 'node:crypto';
-import type { ModelPair, ModelRole, ModelRoleView } from './model-roles.js';
+import { canonicalJsonDigest } from '../model/canonical.js';
+import { byCodePoint } from '../model/order.js';
+import type { ModelPair, ModelRoleView, ResolvedModelRole } from './model-roles.js';
 import { roleOf } from './model-roles.js';
-import { edgeRuleFor, nodeRuleFor, type GraphEdgeRule, type GraphNodeRule, type SpanPolicy } from './graph-verdict-rules.js';
+import {
+  GRAPH_RULES,
+  edgeRuleFor,
+  escalationsForNode,
+  graphConditionHolds,
+  graphVerdictRulesHash,
+  nodeRuleFor,
+  type GraphConditionSubject,
+  type GraphEdgeRule,
+  type GraphNeighbourQuery,
+  type GraphNodeRule,
+  type GraphRuleSet,
+  type SpanPolicy,
+} from './graph-verdict-rules.js';
 
 export const GRAPH_VERDICT_VALIDATOR_VERSION = '1';
+/** The judge protocol's version; a change invalidates every judged verdict. */
+export const GRAPH_VERDICT_JUDGE_VERSION = '1';
 export const JUDGE_BATCH_SIZE = 50;
 
 export interface GraphVerdictBudgets {
@@ -32,7 +61,7 @@ export const DEFAULT_GRAPH_VERDICT_BUDGETS: GraphVerdictBudgets = { itemsPerRun:
 
 export type GraphVerdict = 'valid' | 'invalid' | 'unreviewed';
 export type GraphVerdictRole = 'node' | 'edge';
-export type GraphVerdictSource = 'rule' | 'jev' | 'classification' | 'analysis' | 'person' | 'none' | 'budget' | 'judge-failed';
+export type GraphVerdictSource = 'rule' | 'jev' | 'classification' | 'analysis' | 'person' | 'none' | 'unresolved' | 'budget' | 'judge-failed';
 
 export interface GraphNodeItem {
   readonly id: string;
@@ -59,11 +88,24 @@ export interface GraphSnapshot {
   readonly edges: readonly GraphEdgeItem[];
 }
 
+/** One file as the graph declares it: the line count and digest it recorded. */
 export interface GraphEvidenceFile {
   readonly path: string;
   readonly lines: number;
   readonly sha256?: string;
 }
+
+/** The bytes of one cited file at the fill's commit, as the host reads them. */
+export interface GraphEvidenceContent {
+  readonly text: string;
+  /** The digest the host measured; the engine measures the text when it is absent. */
+  readonly sha256?: string;
+  readonly repository?: string;
+  readonly commit?: string;
+}
+
+/** Reads a repository-relative path at a pinned commit; `undefined` when that commit has no such file. */
+export type GraphEvidenceReader = (path: string) => Promise<GraphEvidenceContent | undefined>;
 
 export interface GraphVerdictRow {
   readonly role: GraphVerdictRole;
@@ -123,19 +165,30 @@ export interface GraphVerdictCache {
   readonly entries: Record<string, GraphVerdictCacheEntry>;
 }
 
+/** A cited place, with the pinned bytes the judge may read for itself. */
 export interface GraphJudgeEvidence {
   readonly path: string;
   readonly lineStart?: number;
   readonly lineEnd?: number;
+  /** The cited lines, or a note that they could not be read at the fill's commit. */
+  readonly excerpt?: string;
+  readonly unresolved?: string;
 }
 
 export interface GraphJudgeItem {
+  /** `(role, id)`, unique across a batch of nodes and edges. */
   readonly id: string;
   readonly role: GraphVerdictRole;
   readonly kind: string;
   readonly label: string;
   readonly reason: string;
   readonly evidence: readonly GraphJudgeEvidence[];
+  /** False when the cited evidence could not be resolved; a valid answer is then refused. */
+  readonly evidenceResolved: boolean;
+  /** Why the evidence is unresolved, when it is. */
+  readonly unresolved?: string;
+  /** Facts across the item's edges, so the judge sees the shape the rule found odd. */
+  readonly neighbourhood: readonly string[];
   readonly properties: unknown;
   readonly from?: { readonly id: string; readonly kind: string; readonly label: string };
   readonly to?: { readonly id: string; readonly kind: string; readonly label: string };
@@ -161,8 +214,14 @@ export interface GraphVerdictRunOptions {
   readonly budgets?: Partial<GraphVerdictBudgets>;
   readonly validatorVersion?: string;
   readonly jev?: GraphJudge | null;
+  /** The host's name for the jev adapter's version; part of every cache key while jev is used. */
+  readonly jevVersion?: string;
   /** Starts a role's judge on demand. Absent means no role judge can be started. */
   readonly judgeFor?: GraphJudgeFactory;
+  /** Reads a cited file at the fill's commit. Absent means no evidence can be resolved. */
+  readonly readEvidence?: GraphEvidenceReader;
+  /** The rule set; the default is the manifest of rules in `graph-verdict-rules.ts`. */
+  readonly rules?: GraphRuleSet;
   readonly now?: () => Date;
 }
 
@@ -174,7 +233,13 @@ export function graphVerdictRows(cache: GraphVerdictCache): GraphVerdictRow[] {
       verdict: entry.verdict, reason: entry.reason, rule: entry.rule,
       source: entry.source, ...(entry.tier === undefined ? {} : { tier: entry.tier }),
     }))
-    .sort((a, b) => a.role === b.role ? (a.id < b.id ? -1 : a.id > b.id ? 1 : 0) : (a.role === 'node' ? -1 : 1));
+    .sort((a, b) => a.role === b.role ? byCodePoint(a.id, b.id) : (a.role === 'node' ? -1 : 1));
+}
+
+/** True when a cache still holds work another run may take up: budget-deferred items and failed judges. */
+export function graphVerdictsRunnable(cache: GraphVerdictCache | undefined): boolean {
+  if (cache === undefined) return false;
+  return Object.values(cache.entries).some((entry) => entry.source === 'budget' || entry.source === 'judge-failed');
 }
 
 export interface GraphVerdictMetrics {
@@ -198,10 +263,45 @@ export interface GraphVerdictResult {
 type Span = { path: string; lineStart?: number; lineEnd?: number };
 type Props = Record<string, unknown>;
 
+/** A problem the rules found, and whether the cited evidence could be resolved at all. */
+interface Problem {
+  readonly verdict: 'invalid' | 'unreviewed';
+  readonly reason: string;
+  readonly resolved: boolean;
+}
+
+/** A cited file as the fill pinned it, with what the pinned bytes say. */
+interface ResolvedFile {
+  readonly path: string;
+  readonly lines?: number;
+  readonly sha256?: string;
+  /** The size a reader is shown: the last non-empty line. */
+  readonly actualLines?: number;
+  /** The lines the span may name: a closing newline opens one more. */
+  readonly readLines?: number;
+  readonly actualSha256?: string;
+  readonly text?: string;
+  readonly repository?: string;
+  readonly commit?: string;
+  /** Set when the cited file cannot be verified: no reader, no such file, or bytes that contradict the graph. */
+  readonly problem?: string;
+}
+
 const isObject = (value: unknown): value is Props => typeof value === 'object' && value !== null && !Array.isArray(value);
 
-/** A judge's reason is stored as one line, whatever whitespace it used. */
-const oneLine = (text: string): string => text.trim().replace(/\s+/g, ' ');
+const isSpace = (character: string): boolean => character === ' ' || character === '\t' || character === '\n' || character === '\r' || character === '\f' || character === '\v';
+
+/** A judge's reason is stored as one line, whatever whitespace it used (no expression over the words). */
+const oneLine = (text: string): string => {
+  const words: string[] = [];
+  let held = '';
+  for (const character of text.trim()) {
+    if (!isSpace(character)) { held += character; continue; }
+    if (held !== '') { words.push(held); held = ''; }
+  }
+  if (held !== '') words.push(held);
+  return words.join(' ');
+};
 const propsOf = (value: unknown): Props => isObject(value) ? value : {};
 const present = (value: unknown): boolean => value !== undefined && value !== null && value !== '' && !(Array.isArray(value) && value.length === 0);
 const isHex = (text: string): boolean => text.length > 0 && [...text].every((character) => (character >= '0' && character <= '9') || (character >= 'a' && character <= 'f'));
@@ -218,6 +318,7 @@ const stable = (value: unknown): unknown => {
 };
 const canonical = (value: unknown): string => JSON.stringify(stable(value));
 const digest = (value: unknown): string => createHash('sha256').update(canonical(value)).digest('hex');
+const sha256 = (text: string): string => createHash('sha256').update(text).digest('hex');
 
 const spanOf = (properties: unknown): Span | undefined => {
   const props = propsOf(properties);
@@ -250,27 +351,55 @@ const pathOf = (properties: unknown): string | undefined => {
   return typeof path === 'string' && path !== '' ? path : undefined;
 };
 
-const checkSpan = (properties: unknown, files: ReadonlyMap<string, GraphEvidenceFile>, role: GraphVerdictRole, namesSelf = false): string | undefined => {
+/** The line a one-based line number names, without its carriage return. */
+const lineAt = (text: string, line: number): string | undefined => {
+  const lines = text.split('\n');
+  const held = lines[line - 1];
+  if (held === undefined) return undefined;
+  return held.endsWith('\r') ? held.slice(0, -1) : held;
+};
+
+/** The cited lines, capped so one item cannot carry a whole file into a prompt. */
+const excerptAt = (text: string, lineStart: number | undefined, lineEnd: number | undefined): string => {
+  const from = lineStart ?? 1;
+  const to = Math.min(lineEnd ?? from, from + 5);
+  const held: string[] = [];
+  for (let line = from; line <= to; line += 1) {
+    const one = lineAt(text, line);
+    if (one === undefined) break;
+    held.push(one);
+  }
+  const joined = held.join('\n');
+  return joined.length > 400 ? `${joined.slice(0, 400)}…` : joined;
+};
+
+const checkSpan = (properties: unknown, files: ReadonlyMap<string, ResolvedFile>, role: GraphVerdictRole, namesSelf = false): Problem | undefined => {
   const span = spanOf(properties);
-  if (span === undefined) return `${role} has no source span`;
+  if (span === undefined) return { verdict: 'unreviewed', reason: `${role} has no source span`, resolved: false };
+  if (namesSelf) {
+    const named = pathOf(properties);
+    if (named !== undefined && named !== span.path) return { verdict: 'invalid', reason: `${role} span names ${JSON.stringify(span.path)} but its path is ${JSON.stringify(named)}`, resolved: true };
+  }
+  if (span.lineStart === undefined || span.lineEnd === undefined) return { verdict: 'invalid', reason: `${role} span in ${JSON.stringify(span.path)} has no line range`, resolved: true };
+  if (!Number.isInteger(span.lineStart) || !Number.isInteger(span.lineEnd)) return { verdict: 'invalid', reason: `${role} span in ${JSON.stringify(span.path)} does not name whole lines`, resolved: true };
+  if (span.lineStart < 1 || span.lineEnd < span.lineStart) return { verdict: 'invalid', reason: `${role} span in ${JSON.stringify(span.path)} has the line range ${span.lineStart}-${span.lineEnd}`, resolved: true };
   const file = files.get(span.path);
-  if (file === undefined && !(namesSelf && pathOf(properties) === span.path)) return `${role} span names ${JSON.stringify(span.path)}, which is not a code.file in this graph`;
-  if (span.lineStart === undefined || span.lineEnd === undefined) return `${role} span in ${JSON.stringify(span.path)} has no line range`;
-  if (!Number.isInteger(span.lineStart) || !Number.isInteger(span.lineEnd)) return `${role} span in ${JSON.stringify(span.path)} does not name whole lines`;
-  if (span.lineStart < 1 || span.lineEnd < span.lineStart) return `${role} span in ${JSON.stringify(span.path)} has the line range ${span.lineStart}-${span.lineEnd}`;
-  if (file !== undefined && (span.lineStart > file.lines || span.lineEnd > file.lines + 1)) return `${role} span ${span.path}:${span.lineStart}-${span.lineEnd} is outside the file, which has ${file.lines} lines`;
+  if (file === undefined) return { verdict: 'unreviewed', reason: `${role} span names ${JSON.stringify(span.path)}, which the pinned repository does not hold`, resolved: false };
+  if (file.problem !== undefined) return { verdict: 'unreviewed', reason: `${role} span ${span.path}:${span.lineStart}-${span.lineEnd} cannot be verified: ${file.problem}`, resolved: false };
+  const lines = file.readLines ?? file.actualLines ?? file.lines;
+  if (lines === undefined) return { verdict: 'unreviewed', reason: `${role} span ${span.path}:${span.lineStart}-${span.lineEnd} has no known line count`, resolved: false };
+  if (span.lineEnd > lines) return { verdict: 'unreviewed', reason: `${role} span ${span.path}:${span.lineStart}-${span.lineEnd} is outside the pinned file, which has ${lines} lines`, resolved: false };
   return undefined;
 };
 
-const checkSpanPolicy = (policy: SpanPolicy, properties: unknown, files: ReadonlyMap<string, GraphEvidenceFile>, role: GraphVerdictRole, namesSelf = false): string | undefined => {
-  if (policy === 'optional' && spanOf(properties) === undefined) return undefined;
-  if (policy === 'if-present' && spanOf(properties) === undefined) return undefined;
+const checkSpanPolicy = (policy: SpanPolicy, properties: unknown, files: ReadonlyMap<string, ResolvedFile>, role: GraphVerdictRole, namesSelf = false): Problem | undefined => {
+  if ((policy === 'optional' || policy === 'if-present') && spanOf(properties) === undefined) return undefined;
   return checkSpan(properties, files, role, namesSelf);
 };
 
-const missingProperty = (properties: unknown, names: readonly string[], role: GraphVerdictRole): string | undefined => {
+const missingProperty = (properties: unknown, names: readonly string[], role: GraphVerdictRole): Problem | undefined => {
   const props = propsOf(properties);
-  for (const name of names) if (!present(props[name])) return `${role} has no ${JSON.stringify(name)}`;
+  for (const name of names) if (!present(props[name])) return { verdict: 'invalid', reason: `${role} has no ${JSON.stringify(name)}`, resolved: true };
   return undefined;
 };
 
@@ -285,80 +414,111 @@ const evidenceKinds = (properties: unknown): string[] => {
   return kinds;
 };
 
-const nodeProblems = (item: GraphNodeItem, rule: GraphNodeRule, files: ReadonlyMap<string, GraphEvidenceFile>): string | undefined => {
+const checkEvidenceLines = (properties: unknown, files: ReadonlyMap<string, ResolvedFile>): Problem | undefined => {
+  const evidence = propsOf(properties).evidence;
+  if (!Array.isArray(evidence)) return { verdict: 'invalid', reason: 'node evidence is not a list of source places', resolved: true };
+  for (const entry of evidence) {
+    const held = propsOf(entry);
+    const path = held.path;
+    const line = held.line;
+    if (typeof path !== 'string' || path === '') return { verdict: 'invalid', reason: 'node evidence names no path', resolved: true };
+    if (typeof line !== 'number' || !Number.isInteger(line) || line < 1) return { verdict: 'invalid', reason: `node evidence in ${JSON.stringify(path)} names no whole line`, resolved: true };
+    const file = files.get(path);
+    if (file === undefined) return { verdict: 'unreviewed', reason: `node evidence names ${JSON.stringify(path)}, which the pinned repository does not hold`, resolved: false };
+    if (file.problem !== undefined) return { verdict: 'unreviewed', reason: `node evidence ${path}:${line} cannot be verified: ${file.problem}`, resolved: false };
+    const lines = file.actualLines ?? file.lines;
+    if (lines === undefined) return { verdict: 'unreviewed', reason: `node evidence ${path}:${line} has no known line count`, resolved: false };
+    if (line > lines) return { verdict: 'unreviewed', reason: `node evidence ${path}:${line} is outside the pinned file, which has ${lines} lines`, resolved: false };
+  }
+  return undefined;
+};
+
+/** The database's own bytes (or paths) must name the database the graph claims it is. */
+const checkEvidenceNamesLabel = (label: string, properties: unknown, files: ReadonlyMap<string, ResolvedFile>): Problem | undefined => {
+  const evidence = propsOf(properties).evidence;
+  if (!Array.isArray(evidence) || evidence.length === 0) return { verdict: 'unreviewed', reason: `the database ${JSON.stringify(label)} has no evidence place to name it`, resolved: false };
+  const wanted = label.toLowerCase();
+  for (const entry of evidence) {
+    const held = propsOf(entry);
+    const path = held.path;
+    const line = held.line;
+    if (typeof path !== 'string' || typeof line !== 'number') continue;
+    const file = files.get(path);
+    if (file?.problem !== undefined || file?.text === undefined) continue;
+    if (path.toLowerCase().includes(wanted)) return undefined;
+    const text = lineAt(file.text, line);
+    if (text !== undefined && text.toLowerCase().includes(wanted)) return undefined;
+  }
+  return { verdict: 'unreviewed', reason: `the database ${JSON.stringify(label)} has no evidence place naming it`, resolved: false };
+};
+
+const nodeProblems = (item: GraphNodeItem, rule: GraphNodeRule, files: ReadonlyMap<string, ResolvedFile>): Problem | undefined => {
   const missing = missingProperty(item.properties, rule.requireProperties ?? [], 'node');
   if (missing !== undefined) return missing;
+  for (const name of rule.requireWholeProperties ?? []) {
+    const value = propsOf(item.properties)[name];
+    if (value === undefined) continue;
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) return { verdict: 'invalid', reason: `node property ${JSON.stringify(name)} is ${JSON.stringify(value)}, not a whole count`, resolved: true };
+  }
   if (rule.requireOneOfProperties !== undefined && rule.requireOneOfProperties.length > 0) {
     const props = propsOf(item.properties);
-    if (!rule.requireOneOfProperties.some((name) => present(props[name]))) return `node has none of ${rule.requireOneOfProperties.map((name) => JSON.stringify(name)).join(', ')}`;
+    if (!rule.requireOneOfProperties.some((name) => present(props[name]))) return { verdict: 'invalid', reason: `node has none of ${rule.requireOneOfProperties.map((name) => JSON.stringify(name)).join(', ')}`, resolved: true };
   }
   if (rule.recordKeyPrefix !== undefined || rule.recordKeyHexLength !== undefined) {
     const recordKey = propsOf(item.properties).recordKey;
-    if (typeof recordKey !== 'string') return 'node has no "recordKey"';
-    if (rule.recordKeyPrefix !== undefined && !recordKey.startsWith(rule.recordKeyPrefix)) return `node recordKey ${JSON.stringify(recordKey)} does not start with ${JSON.stringify(rule.recordKeyPrefix)}`;
+    if (typeof recordKey !== 'string') return { verdict: 'invalid', reason: 'node has no "recordKey"', resolved: true };
+    if (rule.recordKeyPrefix !== undefined && !recordKey.startsWith(rule.recordKeyPrefix)) return { verdict: 'invalid', reason: `node recordKey ${JSON.stringify(recordKey)} does not start with ${JSON.stringify(rule.recordKeyPrefix)}`, resolved: true };
     if (rule.recordKeyHexLength !== undefined) {
       const suffix = recordKey.slice(rule.recordKeyPrefix?.length ?? 0);
-      if (suffix.length !== rule.recordKeyHexLength || !isHex(suffix)) return `node recordKey ${JSON.stringify(recordKey)} does not end in ${rule.recordKeyHexLength} lowercase hex characters`;
+      if (suffix.length !== rule.recordKeyHexLength || !isHex(suffix)) return { verdict: 'invalid', reason: `node recordKey ${JSON.stringify(recordKey)} does not end in ${rule.recordKeyHexLength} lowercase hex characters`, resolved: true };
     }
   }
   for (const name of rule.requireHexProperties ?? []) {
     const value = propsOf(item.properties)[name];
-    if (typeof value !== 'string' || value.length !== 40 || !isHex(value)) return `node property ${JSON.stringify(name)} is not a 40-character commit id`;
+    if (typeof value !== 'string' || value.length !== 40 || !isHex(value)) return { verdict: 'invalid', reason: `node property ${JSON.stringify(name)} is not a 40-character commit id`, resolved: true };
   }
   if (rule.requireEvidenceKinds !== undefined) {
     const seen = evidenceKinds(item.properties);
-    if (!rule.requireEvidenceKinds.some((kind) => seen.includes(kind))) return `node has no schema or connection evidence (${rule.requireEvidenceKinds.join(', ')}); an invented database has none`;
+    if (!rule.requireEvidenceKinds.some((kind) => seen.includes(kind))) return { verdict: 'invalid', reason: `node has no accepted evidence kind (${rule.requireEvidenceKinds.join(', ')}); an invented database has none`, resolved: true };
   }
   if (rule.checkEvidenceLines === true) {
-    const evidence = propsOf(item.properties).evidence;
-    if (!Array.isArray(evidence)) return 'node evidence is not a list of source places';
-    for (const entry of evidence) {
-      const held = propsOf(entry);
-      const path = held.path;
-      const line = held.line;
-      if (typeof path !== 'string' || path === '') return 'node evidence names no path';
-      if (typeof line !== 'number' || !Number.isInteger(line) || line < 1) return `node evidence in ${JSON.stringify(path)} names no whole line`;
-      const file = files.get(path);
-      if (file === undefined) return `node evidence names ${JSON.stringify(path)}, which is not a code.file in this graph`;
-      if (line > file.lines) return `node evidence ${path}:${line} is outside the file, which has ${file.lines} lines`;
-    }
+    const problem = checkEvidenceLines(item.properties, files);
+    if (problem !== undefined) return problem;
+  }
+  if (rule.evidenceNamesLabel === true) {
+    const problem = checkEvidenceNamesLabel(item.label, item.properties, files);
+    if (problem !== undefined) return problem;
   }
   return checkSpanPolicy(rule.span, item.properties, files, 'node', rule.spanNamesSelf === true);
 };
 
-const edgeProblems = (item: GraphEdgeItem, rule: GraphEdgeRule, nodes: ReadonlyMap<string, GraphNodeItem>, files: ReadonlyMap<string, GraphEvidenceFile>): string | undefined => {
+const edgeProblems = (item: GraphEdgeItem, rule: GraphEdgeRule, nodes: ReadonlyMap<string, GraphNodeItem>, files: ReadonlyMap<string, ResolvedFile>): Problem | undefined => {
   const from = nodes.get(item.from);
   const to = nodes.get(item.to);
-  if (from === undefined) return `edge endpoint ${JSON.stringify(item.from)} is not a node in this graph`;
-  if (to === undefined) return `edge endpoint ${JSON.stringify(item.to)} is not a node in this graph`;
-  if (rule.fromKinds !== undefined && !rule.fromKinds.includes(from.kind)) return `edge starts at a ${from.kind}, and ${rule.id} starts at ${rule.fromKinds.join(' or ')}`;
-  if (rule.toKinds !== undefined && !rule.toKinds.includes(to.kind)) return `edge ends at a ${to.kind}, and ${rule.id} ends at ${rule.toKinds.join(' or ')}`;
+  if (from === undefined) return { verdict: 'invalid', reason: `edge endpoint ${JSON.stringify(item.from)} is not a node in this graph`, resolved: true };
+  if (to === undefined) return { verdict: 'invalid', reason: `edge endpoint ${JSON.stringify(item.to)} is not a node in this graph`, resolved: true };
+  if (rule.fromKinds !== undefined && !rule.fromKinds.includes(from.kind)) return { verdict: 'invalid', reason: `edge starts at a ${from.kind}, and ${rule.id} starts at ${rule.fromKinds.join(' or ')}`, resolved: true };
+  if (rule.toKinds !== undefined && !rule.toKinds.includes(to.kind)) return { verdict: 'invalid', reason: `edge ends at a ${to.kind}, and ${rule.id} ends at ${rule.toKinds.join(' or ')}`, resolved: true };
   const missing = missingProperty(item.properties, rule.requireProperties ?? [], 'edge');
   if (missing !== undefined) return missing;
   const span = spanOf(item.properties);
   if (span !== undefined) return checkSpan(item.properties, files, 'edge');
-  if (rule.span === 'required') return 'edge has no source span';
+  if (rule.span === 'required') return { verdict: 'unreviewed', reason: 'edge has no source span', resolved: false };
   if (rule.structuralKinds?.includes(item.kind) === true) return undefined;
   if (rule.permitPosition === true && item.position !== undefined && pathOf(item.properties) !== undefined) return undefined;
   return undefined;
 };
 
-const decided = (reason: string | undefined, undecided: string): { verdict: GraphVerdict; reason: string } => reason === undefined
-  ? { verdict: 'valid', reason: 'the rule found its required source evidence' }
-  : { verdict: 'invalid', reason };
-
-const isUndecidedNode = (item: GraphNodeItem, rule: GraphNodeRule, files: ReadonlyMap<string, GraphEvidenceFile>): boolean => {
-  if (rule.id !== 'node-fallback') return false;
-  return spanOf(item.properties) === undefined;
-};
-const isUndecidedEdge = (item: GraphEdgeItem, rule: GraphEdgeRule, nodes: ReadonlyMap<string, GraphNodeItem>, files: ReadonlyMap<string, GraphEvidenceFile>): boolean => {
+/** A fallback item with no source span has nothing for the rules to check; a judge reads it. */
+const isUndecidedNode = (item: GraphNodeItem, rule: GraphNodeRule): boolean => rule.id === 'node-fallback' && spanOf(item.properties) === undefined;
+const isUndecidedEdge = (item: GraphEdgeItem, rule: GraphEdgeRule, nodes: ReadonlyMap<string, GraphNodeItem>): boolean => {
   if (rule.id !== 'edge-fallback') return false;
   if (spanOf(item.properties) !== undefined || rule.structuralKinds?.includes(item.kind) === true) return false;
   if (rule.permitPosition === true && item.position !== undefined && pathOf(item.properties) !== undefined) return false;
   return nodes.has(item.from) && nodes.has(item.to);
 };
 
-const sourceRank: readonly GraphVerdictSource[] = ['rule', 'jev', 'classification', 'analysis', 'person', 'none', 'budget', 'judge-failed'];
+const sourceRank: readonly GraphVerdictSource[] = ['rule', 'jev', 'classification', 'analysis', 'person', 'none', 'unresolved', 'budget', 'judge-failed'];
 
 export function graphVerdictReport(rows: readonly GraphVerdictRow[], budgets: GraphVerdictBudgets, validatorVersion: string, generatedAt: string): GraphVerdictReport {
   const byKind = new Map<string, GraphVerdictKindReport>();
@@ -391,25 +551,48 @@ export function graphVerdictReport(rows: readonly GraphVerdictRow[], budgets: Gr
     validatorVersion,
     budgets,
     totals: { items: rows.length, nodes, edges, valid, invalid, unreviewed },
-    byKind: [...byKind.values()].sort((a, b) => a.role === b.role ? (a.kind < b.kind ? -1 : a.kind > b.kind ? 1 : 0) : (a.role === 'node' ? -1 : 1)),
+    byKind: [...byKind.values()].sort((a, b) => a.role === b.role ? byCodePoint(a.kind, b.kind) : (a.role === 'node' ? -1 : 1)),
     sources: sourceRank.filter((source) => (sources.get(source) ?? 0) > 0).map((source) => ({ source, count: sources.get(source)! })),
-    reasons: [...reasons.entries()].map(([reason, count]) => ({ reason, count })).sort((a, b) => b.count - a.count || (a.reason < b.reason ? -1 : a.reason > b.reason ? 1 : 0)),
+    reasons: [...reasons.entries()].map(([reason, count]) => ({ reason, count })).sort((a, b) => b.count - a.count || byCodePoint(a.reason, b.reason)),
   };
 }
 
-export function graphVerdictFingerprint(snapshot: GraphSnapshot, roles: ModelRoleView, budgets: GraphVerdictBudgets, validatorVersion = GRAPH_VERDICT_VALIDATOR_VERSION, hasJev = false, hasJudge = hasJev): string {
+/** Everything that makes one run's verdicts comparable: the snapshot, the rules, the judge identity and the budgets. */
+export interface GraphVerdictFingerprintOptions {
+  readonly snapshot: GraphSnapshot;
+  readonly roles: ModelRoleView;
+  readonly budgets: GraphVerdictBudgets;
+  readonly validatorVersion?: string;
+  readonly hasJev?: boolean;
+  readonly hasJudge?: boolean;
+  readonly jevVersion?: string;
+  readonly rules?: GraphRuleSet;
+}
+
+export function graphVerdictFingerprint(options: GraphVerdictFingerprintOptions): string {
+  const validatorVersion = options.validatorVersion ?? GRAPH_VERDICT_VALIDATOR_VERSION;
+  const hasJev = options.hasJev === true;
   return digest({
     validatorVersion,
-    budgets,
-    hasJev,
-    hasJudge,
-    roles: roles.roles.map((role) => ({ role: role.role, pair: role.pair })),
-    nodes: snapshot.nodes.map((node) => ({ id: node.id, versionId: node.versionId, kind: node.kind, label: node.label, properties: node.properties })).sort((a, b) => a.id < b.id ? -1 : 1),
-    edges: snapshot.edges.map((edge) => ({ id: edge.id, versionId: edge.versionId, kind: edge.kind, from: edge.from, to: edge.to, discriminator: edge.discriminator, position: edge.position, properties: edge.properties })).sort((a, b) => a.id < b.id ? -1 : 1),
+    budgets: options.budgets,
+    rulesHash: graphVerdictRulesHash(options.rules ?? GRAPH_RULES),
+    judgeHash: judgeHashOf(options.roles, hasJev, options.hasJev === true || options.hasJudge === true, options.jevVersion),
+    nodes: options.snapshot.nodes.map((node) => ({ id: node.id, versionId: node.versionId, kind: node.kind, label: node.label, properties: node.properties })).sort((a, b) => byCodePoint(a.id, b.id)),
+    edges: options.snapshot.edges.map((edge) => ({ id: edge.id, versionId: edge.versionId, kind: edge.kind, from: edge.from, to: edge.to, discriminator: edge.discriminator, position: edge.position, properties: edge.properties })).sort((a, b) => byCodePoint(a.id, b.id)),
   });
 }
 
-function filesOf(snapshot: GraphSnapshot): Map<string, GraphEvidenceFile> {
+/** The identity that judged: each role's agent, model and reasoning, the protocol version, and the jev adapter's version. */
+function judgeHashOf(roles: ModelRoleView, hasJev: boolean, hasJudge: boolean, jevVersion: string | undefined): string {
+  return digest({
+    version: GRAPH_VERDICT_JUDGE_VERSION,
+    hasJudge,
+    jev: hasJev ? (jevVersion ?? 'unversioned') : null,
+    roles: roles.roles.map((role: ResolvedModelRole) => ({ role: role.role, pair: role.pair })),
+  });
+}
+
+function declaredFiles(snapshot: GraphSnapshot): Map<string, GraphEvidenceFile> {
   const files = new Map<string, GraphEvidenceFile>();
   for (const node of snapshot.nodes) {
     if (node.kind !== 'code.file') continue;
@@ -422,29 +605,164 @@ function filesOf(snapshot: GraphSnapshot): Map<string, GraphEvidenceFile> {
   return files;
 }
 
-function referencedPaths(value: unknown): string[] {
+/** Paths an item cites as source evidence; a route's URL template is not one. */
+function evidencePaths(value: unknown): string[] {
   const paths = new Set<string>();
   const walk = (held: unknown, depth: number): void => {
     if (depth > 4) return;
     if (Array.isArray(held)) { for (const one of held) walk(one, depth + 1); return; }
     if (!isObject(held)) return;
-    if (typeof held.path === 'string' && held.path !== '') paths.add(held.path);
-    for (const key of ['span', 'sourceSpan', 'importSpan', 'origins', 'evidence']) walk(held[key], depth + 1);
+    for (const key of ['span', 'sourceSpan', 'importSpan']) {
+      const span = held[key];
+      const path = isObject(span) ? span.path : undefined;
+      if (typeof path === 'string' && path !== '') paths.add(path);
+    }
+    if (Array.isArray(held['evidence'])) for (const entry of held['evidence']) {
+      const path = isObject(entry) ? entry.path : undefined;
+      if (typeof path === 'string' && path !== '') paths.add(path);
+    }
+    for (const key of ['origins', 'origin', 'evidence']) walk(held[key], depth + 1);
   };
   walk(value, 0);
-  return [...paths].sort();
+  return [...paths].sort(byCodePoint);
 }
 
-function itemHash(value: unknown, paths: readonly string[], files: ReadonlyMap<string, GraphEvidenceFile>, validatorVersion: string): string {
-  return digest({
-    validatorVersion,
-    item: value,
-    files: paths.map((path) => files.get(path) ?? { path, missing: true }),
-  });
+/**
+ * Reads every cited path once. A declared file whose bytes contradict its
+ * digest or line count is a resolution problem, not an invalid item: the
+ * pinned repository is what decides, and a graph that disagrees with it has
+ * to be looked at, never confirmed by its own claim.
+ */
+async function resolveFiles(snapshot: GraphSnapshot, reader: GraphEvidenceReader | undefined): Promise<Map<string, ResolvedFile>> {
+  const declared = declaredFiles(snapshot);
+  const paths = new Set<string>(declared.keys());
+  for (const node of snapshot.nodes) for (const path of evidencePaths(node.properties)) paths.add(path);
+  for (const edge of snapshot.edges) for (const path of evidencePaths(edge.properties)) paths.add(path);
+  const files = new Map<string, ResolvedFile>();
+  for (const path of [...paths].sort(byCodePoint)) {
+    const held = declared.get(path);
+    if (reader === undefined) {
+      files.set(path, { ...(held ?? { path }), problem: 'no pinned repository reader was configured, so the file was not read at the fill\'s commit' });
+      continue;
+    }
+    let content: GraphEvidenceContent | undefined;
+    try {
+      content = await reader(path);
+    } catch (error) {
+      files.set(path, { ...(held ?? { path }), problem: `the pinned repository could not be read at ${JSON.stringify(path)}: ${oneLine(error instanceof Error ? error.message : String(error))}` });
+      continue;
+    }
+    if (content === undefined) {
+      files.set(path, { ...(held ?? { path }), problem: `the file ${JSON.stringify(path)} is not in the pinned repository at the fill's commit` });
+      continue;
+    }
+    const actualSha256 = content.sha256 ?? sha256(content.text);
+    const actualLines = content.text === '' ? 0 : content.text.split('\n').length - (content.text.endsWith('\n') ? 1 : 0);
+    const readLines = content.text === '' ? 1 : content.text.split('\n').length;
+    const where = content.repository === undefined ? '' : ` in ${content.repository}${content.commit === undefined ? '' : ` at ${content.commit}`}`;
+    const problem = held?.lines !== undefined && held.lines !== actualLines
+      ? `the graph says ${JSON.stringify(path)} has ${held.lines} lines, but the pinned bytes${where} have ${actualLines}`
+      : held?.sha256 !== undefined && held.sha256 !== actualSha256
+        ? `the graph's sha256 for ${JSON.stringify(path)} is ${held.sha256}, but the pinned bytes${where} digest to ${actualSha256}`
+        : undefined;
+    files.set(path, {
+      path,
+      ...(held ?? {}),
+      actualLines,
+      readLines,
+      actualSha256,
+      text: content.text,
+      ...(content.repository === undefined ? {} : { repository: content.repository }),
+      ...(content.commit === undefined ? {} : { commit: content.commit }),
+      ...(problem === undefined ? {} : { problem }),
+    });
+  }
+  return files;
+}
+
+/** The identity of an item across a batch of nodes and edges: the role, then the graph's own id. */
+const judgeKey = (role: GraphVerdictRole, id: string): string => `${role}:${id}`;
+
+const neighbourhoodOf = (subjectId: string, edgesByNode: ReadonlyMap<string, readonly GraphEdgeItem[]>, nodes: ReadonlyMap<string, GraphNodeItem>): string[] => {
+  const facts: string[] = [];
+  for (const edge of edgesByNode.get(subjectId) ?? []) {
+    const out = edge.from === subjectId;
+    const other = nodes.get(out ? edge.to : edge.from);
+    const span = spanOf(edge.properties);
+    const where = span === undefined ? '' : ` at ${span.path}${span.lineStart === undefined ? '' : `:${span.lineStart}`}`;
+    facts.push(`${out ? 'out' : 'in'} ${edge.kind} → ${other?.kind ?? 'an unknown kind'} ${JSON.stringify(other?.label ?? '')}${where}`);
+  }
+  return facts.sort(byCodePoint);
+};
+
+/** The cited places of an item, with the pinned lines the judge may read. */
+function judgeEvidence(properties: unknown, files: ReadonlyMap<string, ResolvedFile>): GraphJudgeEvidence[] {
+  const props = propsOf(properties);
+  const found: { path: string; lineStart?: number; lineEnd?: number }[] = [];
+  const add = (value: unknown): void => {
+    if (!isObject(value) || typeof value.path !== 'string' || value.path === '') return;
+    found.push({ path: value.path, ...(typeof value.lineStart === 'number' ? { lineStart: value.lineStart } : {}), ...(typeof value.lineEnd === 'number' ? { lineEnd: value.lineEnd } : {}) });
+  };
+  add(props.span);
+  add(props.sourceSpan);
+  if (Array.isArray(props.evidence)) for (const one of props.evidence) {
+    if (!isObject(one) || typeof one.path !== 'string' || one.path === '') continue;
+    add({ ...one, ...(typeof one.line === 'number' ? { lineStart: one.line, lineEnd: one.line } : {}) });
+  }
+  if (Array.isArray(props.origins)) for (const one of props.origins) if (isObject(one)) add(one.sourceSpan);
+  const resolved: GraphJudgeEvidence[] = [];
+  for (const place of found) {
+    const file = files.get(place.path);
+    const lineStart = place.lineStart;
+    const lineEnd = place.lineEnd ?? lineStart;
+    if (file === undefined) { resolved.push({ ...place, unresolved: 'the pinned repository does not hold this path' }); continue; }
+    if (file.problem !== undefined) { resolved.push({ ...place, unresolved: file.problem }); continue; }
+    if (file.text === undefined) { resolved.push({ ...place, unresolved: 'the file bytes were not read' }); continue; }
+    const excerpt = excerptAt(file.text, lineStart, lineEnd);
+    resolved.push({ ...place, excerpt: excerpt === '' ? '(the cited lines are empty)' : excerpt });
+  }
+  return resolved;
+}
+
+/** The condition subject for one node: its kind and properties, and the items across its edges. */
+function subjectFactory(
+  edgesByNode: ReadonlyMap<string, readonly GraphEdgeItem[]>,
+  nodes: ReadonlyMap<string, GraphNodeItem>,
+  cache: Map<string, GraphConditionSubject>,
+): (id: string) => GraphConditionSubject {
+  const subject = (id: string): GraphConditionSubject => {
+    const held = cache.get(id);
+    if (held !== undefined) return held;
+    const node = nodes.get(id);
+    const made: GraphConditionSubject = {
+      kind: node?.kind ?? '',
+      properties: node?.properties,
+      neighbours: (query: GraphNeighbourQuery) => {
+        const found: GraphConditionSubject[] = [];
+        for (const edge of edgesByNode.get(id) ?? []) {
+          const out = edge.from === id;
+          const inEdge = edge.to === id;
+          if (query.direction === 'out' && !out) continue;
+          if (query.direction === 'in' && !inEdge) continue;
+          if (query.kinds !== undefined && !query.kinds.includes(edge.kind)) continue;
+          const otherId = out ? edge.to : edge.from;
+          const other = nodes.get(otherId);
+          if (other === undefined) continue;
+          if (query.otherKinds !== undefined && !query.otherKinds.includes(other.kind)) continue;
+          found.push(subject(otherId));
+        }
+        return found;
+      },
+    };
+    cache.set(id, made);
+    return made;
+  };
+  return subject;
 }
 
 export async function runGraphVerdicts(options: GraphVerdictRunOptions): Promise<GraphVerdictResult> {
   const validatorVersion = options.validatorVersion ?? GRAPH_VERDICT_VALIDATOR_VERSION;
+  const rules = options.rules ?? GRAPH_RULES;
   const budgets: GraphVerdictBudgets = {
     itemsPerRun: options.budgets?.itemsPerRun ?? DEFAULT_GRAPH_VERDICT_BUDGETS.itemsPerRun,
     modelCallsPerRun: options.budgets?.modelCallsPerRun ?? DEFAULT_GRAPH_VERDICT_BUDGETS.modelCallsPerRun,
@@ -455,7 +773,7 @@ export async function runGraphVerdicts(options: GraphVerdictRunOptions): Promise
   const generatedAt = now().toISOString();
   const snapshot = options.snapshot;
   const nodes = new Map(snapshot.nodes.map((node) => [node.id, node]));
-  const files = filesOf(snapshot);
+  const files = await resolveFiles(snapshot, options.readEvidence);
   const edgesByNode = new Map<string, GraphEdgeItem[]>();
   for (const edge of snapshot.edges) {
     for (const id of new Set([edge.from, edge.to])) {
@@ -464,11 +782,17 @@ export async function runGraphVerdicts(options: GraphVerdictRunOptions): Promise
       edgesByNode.set(id, held);
     }
   }
+  const subjects = new Map<string, GraphConditionSubject>();
+  const subject = subjectFactory(edgesByNode, nodes, subjects);
   const nodeCore = (node: GraphNodeItem): unknown => ({ id: node.id, versionId: node.versionId, kind: node.kind, label: node.label, properties: node.properties });
   const edgeCore = (edge: GraphEdgeItem): unknown => ({ id: edge.id, versionId: edge.versionId, kind: edge.kind, from: edge.from, to: edge.to, discriminator: edge.discriminator, position: edge.position, properties: edge.properties });
   const hasJev = options.jev !== undefined && options.jev !== null;
   const hasJudge = hasJev || options.judgeFor !== undefined;
-  const configHash = digest({ validatorVersion, budgets, hasJev, hasJudge, roles: options.roles.roles.map((role) => ({ role: role.role, pair: role.pair })) });
+  const rulesHash = graphVerdictRulesHash(rules);
+  const judgeHash = judgeHashOf(options.roles, hasJev, hasJudge, options.jevVersion);
+  // Budgets are deliberately absent: a larger budget reuses what a smaller one decided. Rules and judge identity are present:
+  // editing a rule or changing the classifier's model invalidates the verdicts it resolved, not only the undisposed ones.
+  const configHash = digest({ validatorVersion, rulesHash, judgeHash });
   const previous = options.previous;
   const previousEntries = previous !== undefined && previous.validatorVersion === validatorVersion ? previous.entries : {};
   const rows: GraphVerdictRow[] = [];
@@ -487,65 +811,151 @@ export async function runGraphVerdicts(options: GraphVerdictRunOptions): Promise
     const at = rows.findIndex((held) => held.role === row.role && held.id === row.id);
     if (at === -1) rows.push(row); else rows[at] = row;
   };
+  const reusable = (held: GraphVerdictCacheEntry | undefined, hash: string): held is GraphVerdictCacheEntry => held !== undefined
+    && held.evidenceHash === hash
+    && held.configHash === configHash
+    // A budget deferral and a failed judge decided nothing: the next run takes them up again.
+    && held.source !== 'budget'
+    && held.source !== 'judge-failed';
+
+  const itemHashOf = (value: unknown, paths: readonly string[]): string => digest({
+    validatorVersion,
+    rulesHash,
+    item: value,
+    files: paths.map((path) => {
+      const held = files.get(path);
+      return held === undefined ? { path, missing: true } : {
+        path,
+        ...(held.lines === undefined ? {} : { lines: held.lines }),
+        ...(held.sha256 === undefined ? {} : { sha256: held.sha256 }),
+        ...(held.actualLines === undefined ? {} : { actualLines: held.actualLines }),
+        ...(held.actualSha256 === undefined ? {} : { actualSha256: held.actualSha256 }),
+        ...(held.problem === undefined ? {} : { problem: held.problem }),
+      };
+    }),
+  });
+
+  const unresolvedOf = (evidence: readonly GraphJudgeEvidence[]): string | undefined => {
+    const first = evidence.find((one) => one.unresolved !== undefined);
+    return first === undefined ? undefined : `${first.path}${first.lineStart === undefined ? '' : `:${first.lineStart}`}: ${first.unresolved}`;
+  };
 
   for (const node of snapshot.nodes) {
-    const rule = nodeRuleFor(node.kind);
-    const hash = itemHash({ node: nodeCore(node), neighbourhood: (edgesByNode.get(node.id) ?? []).map((edge) => ({ edge: edgeCore(edge), other: nodes.get(edge.from === node.id ? edge.to : edge.from) })) }, referencedPaths(node.properties), files, validatorVersion);
+    const rule = nodeRuleFor(node.kind, rules.nodes);
+    const hash = itemHashOf({ node: nodeCore(node), neighbourhood: (edgesByNode.get(node.id) ?? []).map((edge) => ({ edge: edgeCore(edge), other: nodes.get(edge.from === node.id ? edge.to : edge.from) })) }, evidencePaths(node.properties));
     const held = previousEntries[`node:${node.id}`];
-    if (held !== undefined && held.evidenceHash === hash && (held.verdict !== 'unreviewed' || held.configHash === configHash)) {
+    if (reusable(held, hash)) {
       remember(held);
       reused += 1;
       continue;
     }
     checked += 1;
-    const undecided = isUndecidedNode(node, rule, files);
+    const undecided = isUndecidedNode(node, rule);
     if (undecided) {
+      const evidence = judgeEvidence(node.properties, files);
       pending.push({
         base: { role: 'node', id: node.id, kind: node.kind, label: node.label, verdict: 'unreviewed', reason: 'no rule decides this node', rule: rule.id, source: 'none' },
         hash,
         rule: rule.id,
-        item: { id: node.id, role: 'node', kind: node.kind, label: node.label, reason: 'no rule decides this node', evidence: evidenceOf(node.properties), properties: node.properties },
+        item: {
+          id: judgeKey('node', node.id), role: 'node', kind: node.kind, label: node.label,
+          reason: 'no rule decides this node', evidence, evidenceResolved: unresolvedOf(evidence) === undefined,
+          ...(unresolvedOf(evidence) === undefined ? {} : { unresolved: unresolvedOf(evidence)! }),
+          neighbourhood: neighbourhoodOf(node.id, edgesByNode, nodes), properties: node.properties,
+        },
       });
       continue;
     }
-    const answer = decided(nodeProblems(node, rule, files), 'no rule decides this node');
-    remember({ role: 'node', id: node.id, kind: node.kind, label: node.label, ...answer, rule: rule.id, source: 'rule', tier: 'rule', evidenceHash: hash, configHash });
+    const problem = nodeProblems(node, rule, files);
+    if (problem === undefined) {
+      const escalation = escalationsForNode(rules, node.kind, rule).find((one) => graphConditionHolds(one.when, subject(node.id)));
+      if (escalation === undefined) {
+        remember({ role: 'node', id: node.id, kind: node.kind, label: node.label, verdict: 'valid', reason: 'the rule found its required source evidence', rule: rule.id, source: 'rule', tier: 'rule', evidenceHash: hash, configHash });
+        continue;
+      }
+      const evidence = judgeEvidence(node.properties, files);
+      pending.push({
+        base: { role: 'node', id: node.id, kind: node.kind, label: node.label, verdict: 'unreviewed', reason: escalation.reason, rule: rule.id, source: 'none' },
+        hash,
+        rule: rule.id,
+        item: {
+          id: judgeKey('node', node.id), role: 'node', kind: node.kind, label: node.label,
+          reason: escalation.reason, evidence, evidenceResolved: unresolvedOf(evidence) === undefined,
+          ...(unresolvedOf(evidence) === undefined ? {} : { unresolved: unresolvedOf(evidence)! }),
+          neighbourhood: neighbourhoodOf(node.id, edgesByNode, nodes), properties: node.properties,
+        },
+      });
+      continue;
+    }
+    if (problem.verdict === 'invalid') {
+      remember({ role: 'node', id: node.id, kind: node.kind, label: node.label, verdict: 'invalid', reason: problem.reason, rule: rule.id, source: 'rule', tier: 'rule', evidenceHash: hash, configHash });
+      continue;
+    }
+    // Unresolved evidence is not a verdict: a judge may read the item and the neighbourhood, but may never make it valid.
+    const evidence = judgeEvidence(node.properties, files);
+    pending.push({
+      base: { role: 'node', id: node.id, kind: node.kind, label: node.label, verdict: 'unreviewed', reason: problem.reason, rule: rule.id, source: 'none' },
+      hash,
+      rule: rule.id,
+      item: {
+        id: judgeKey('node', node.id), role: 'node', kind: node.kind, label: node.label,
+        reason: problem.reason, evidence, evidenceResolved: problem.resolved && unresolvedOf(evidence) === undefined,
+        unresolved: unresolvedOf(evidence) ?? problem.reason,
+        neighbourhood: neighbourhoodOf(node.id, edgesByNode, nodes), properties: node.properties,
+      },
+    });
   }
 
   for (const edge of snapshot.edges) {
-    const rule = edgeRuleFor(edge.kind);
+    const rule = edgeRuleFor(edge.kind, rules.edges);
     const from = nodes.get(edge.from);
     const to = nodes.get(edge.to);
-    const hash = itemHash({ edge: edgeCore(edge), from: from === undefined ? undefined : nodeCore(from), to: to === undefined ? undefined : nodeCore(to) }, referencedPaths([edge.properties, from?.properties, to?.properties]), files, validatorVersion);
+    const hash = itemHashOf({ edge: edgeCore(edge), from: from === undefined ? undefined : nodeCore(from), to: to === undefined ? undefined : nodeCore(to) }, evidencePaths([edge.properties, from?.properties, to?.properties]));
     const held = previousEntries[`edge:${edge.id}`];
-    if (held !== undefined && held.evidenceHash === hash && (held.verdict !== 'unreviewed' || held.configHash === configHash)) {
+    if (reusable(held, hash)) {
       remember(held);
       reused += 1;
       continue;
     }
     checked += 1;
-    const undecided = isUndecidedEdge(edge, rule, nodes, files);
-    if (undecided) {
+    const baseEvidence = judgeEvidence(edge.properties, files);
+    const itemOf = (reason: string): GraphJudgeItem => {
+      const evidence = baseEvidence;
+      return {
+        id: judgeKey('edge', edge.id), role: 'edge', kind: edge.kind, label: edge.label ?? edge.id,
+        reason, evidence, evidenceResolved: unresolvedOf(evidence) === undefined,
+        ...(unresolvedOf(evidence) === undefined ? {} : { unresolved: unresolvedOf(evidence)! }),
+        neighbourhood: [...neighbourhoodOf(edge.from, edgesByNode, nodes), ...neighbourhoodOf(edge.to, edgesByNode, nodes)].sort(byCodePoint),
+        properties: edge.properties,
+        ...(from === undefined ? {} : { from: { id: judgeKey('node', from.id), kind: from.kind, label: from.label } }),
+        ...(to === undefined ? {} : { to: { id: judgeKey('node', to.id), kind: to.kind, label: to.label } }),
+      };
+    };
+    if (isUndecidedEdge(edge, rule, nodes)) {
       pending.push({
         base: { role: 'edge', id: edge.id, kind: edge.kind, label: edge.label ?? edge.id, verdict: 'unreviewed', reason: 'no rule decides this edge', rule: rule.id, source: 'none' },
-        hash,
-        rule: rule.id,
-        item: {
-          id: edge.id, role: 'edge', kind: edge.kind, label: edge.label ?? edge.id,
-          reason: 'no rule decides this edge', evidence: evidenceOf(edge.properties), properties: edge.properties,
-          ...(from === undefined ? {} : { from: { id: from.id, kind: from.kind, label: from.label } }),
-          ...(to === undefined ? {} : { to: { id: to.id, kind: to.kind, label: to.label } }),
-        },
+        hash, rule: rule.id, item: itemOf('no rule decides this edge'),
       });
       continue;
     }
-    const answer = decided(edgeProblems(edge, rule, nodes, files), 'no rule decides this edge');
-    remember({ role: 'edge', id: edge.id, kind: edge.kind, label: edge.label ?? edge.id, ...answer, rule: rule.id, source: 'rule', tier: 'rule', evidenceHash: hash, configHash });
+    const problem = edgeProblems(edge, rule, nodes, files);
+    if (problem === undefined) {
+      remember({ role: 'edge', id: edge.id, kind: edge.kind, label: edge.label ?? edge.id, verdict: 'valid', reason: 'the rule found its required source evidence', rule: rule.id, source: 'rule', tier: 'rule', evidenceHash: hash, configHash });
+      continue;
+    }
+    if (problem.verdict === 'invalid') {
+      remember({ role: 'edge', id: edge.id, kind: edge.kind, label: edge.label ?? edge.id, verdict: 'invalid', reason: problem.reason, rule: rule.id, source: 'rule', tier: 'rule', evidenceHash: hash, configHash });
+      continue;
+    }
+    pending.push({
+      base: { role: 'edge', id: edge.id, kind: edge.kind, label: edge.label ?? edge.id, verdict: 'unreviewed', reason: problem.reason, rule: rule.id, source: 'none' },
+      hash, rule: rule.id, item: itemOf(problem.reason),
+    });
   }
 
   const admitted = pending.slice(0, budgets.itemsPerRun);
   for (const waiting of pending.slice(budgets.itemsPerRun)) {
-    remember({ ...waiting.base, reason: `budget: ${pending.length - budgets.itemsPerRun} items are waiting; this run admits at most ${budgets.itemsPerRun} to judging`, source: 'budget', evidenceHash: waiting.hash, configHash });
+    remember({ ...waiting.base, reason: `${waiting.base.reason}; budget: ${pending.length - budgets.itemsPerRun} items are waiting; this run admits at most ${budgets.itemsPerRun} to judging`, source: 'budget', evidenceHash: waiting.hash, configHash });
   }
 
   const jev = options.jev ?? null;
@@ -580,6 +990,10 @@ export async function runGraphVerdicts(options: GraphVerdictRunOptions): Promise
       if (answer === undefined) return { ...one.base, verdict: 'unreviewed', reason: `the ${tier} judge returned no verdict for this ${one.base.role}`, source: 'judge-failed' };
       if (answer.verdict !== 'valid' && answer.verdict !== 'invalid' && answer.verdict !== 'unsure') return { ...one.base, verdict: 'unreviewed', reason: `the ${tier} judge answered ${JSON.stringify((answer as { verdict?: unknown }).verdict)}, which is not valid, invalid or unsure`, source: 'judge-failed' };
       const reason = typeof answer.reason === 'string' && answer.reason.trim() !== '' ? oneLine(answer.reason) : `the ${tier} judge gave no reason`;
+      // A valid answer is gated by evidence the rules could resolve at the fill's commit.
+      if (answer.verdict === 'valid' && !one.item.evidenceResolved) {
+        return { ...one.base, verdict: 'unreviewed', reason: `the ${tier} judge said valid, but the cited evidence is unresolved: ${one.item.unresolved ?? 'the pinned repository does not hold it'}`, rule: one.rule, source: 'unresolved', tier };
+      }
       return { ...one.base, verdict: answer.verdict === 'unsure' ? 'unreviewed' : answer.verdict, reason, rule: one.rule, source: answer.verdict === 'unsure' ? 'none' : tier, tier };
     });
   };
@@ -591,7 +1005,7 @@ export async function runGraphVerdicts(options: GraphVerdictRunOptions): Promise
   if (admitted.length > 0) {
     type Pending = (typeof admitted)[number];
     interface Unsure { readonly one: Pending; readonly row: GraphVerdictRow }
-    const keyOf = (one: Pending): string => `${one.base.role}\u0000${one.base.id}`;
+    const keyOf = (one: Pending): string => one.item.id;
     const unsureReason = new Map<string, string>();
     // Each tier reads only what the tier before it left unsure. An execution failure is saved as judge-failed and
     // is not handed on: nothing was read, so a later tier must not turn it into a verdict.
@@ -604,7 +1018,7 @@ export async function runGraphVerdicts(options: GraphVerdictRunOptions): Promise
           const reason = tier === 'analysis'
             ? `budget: this run allows ${budgets.modelCallsPerRun} judge calls; classification stayed unsure and ${waiting} items did not reach analysis`
             : `budget: this run allows ${budgets.modelCallsPerRun} judge calls; ${waiting} items were not judged`;
-          for (const one of items.slice(offset)) remember({ ...one.base, verdict: 'unreviewed', reason, source: 'budget', evidenceHash: one.hash, configHash });
+          for (const one of items.slice(offset)) remember({ ...one.base, verdict: 'unreviewed', reason: `${one.base.reason}; ${reason}`, source: 'budget', evidenceHash: one.hash, configHash });
           break;
         }
         const answered = await apply(judge, batch, tier);
@@ -620,8 +1034,9 @@ export async function runGraphVerdicts(options: GraphVerdictRunOptions): Promise
       }
       return unsure;
     };
+    // A person's row keeps the rule's own concern in front of the judges' reasons: the concern is why it was asked.
     const toPerson = (held: Unsure, reason: string): void => {
-      remember({ ...held.row, reason, source: 'person', evidenceHash: held.one.hash, configHash });
+      remember({ ...held.row, reason: `${held.one.base.reason}; ${reason}`, source: 'person', evidenceHash: held.one.hash, configHash });
     };
 
     let remaining = admitted;
@@ -637,12 +1052,12 @@ export async function runGraphVerdicts(options: GraphVerdictRunOptions): Promise
         lastUnsure = [];
       }
     } else if (classification.pair === null) {
-      for (const one of admitted) remember({ ...one.base, verdict: 'unreviewed', reason: 'no judge is assigned: assign Classification and Analysis in /k/settings (section Model roles)', source: 'none', evidenceHash: one.hash, configHash });
+      for (const one of admitted) remember({ ...one.base, verdict: 'unreviewed', reason: `${one.base.reason}; no judge is assigned: assign Classification and Analysis in /k/settings (section Model roles)`, source: 'none', evidenceHash: one.hash, configHash });
       remaining = [];
     }
 
     if (remaining.length > 0 && !canCall()) {
-      for (const one of remaining) remember({ ...one.base, verdict: 'unreviewed', reason: `budget: this run allows ${budgets.modelCallsPerRun} judge calls; ${remaining.length} items were not judged`, source: 'budget', evidenceHash: one.hash, configHash });
+      for (const one of remaining) remember({ ...one.base, verdict: 'unreviewed', reason: `${one.base.reason}; budget: this run allows ${budgets.modelCallsPerRun} judge calls; ${remaining.length} items were not judged`, source: 'budget', evidenceHash: one.hash, configHash });
       remaining = [];
       lastUnsure = [];
     } else if (remaining.length > 0) {
@@ -664,18 +1079,18 @@ export async function runGraphVerdicts(options: GraphVerdictRunOptions): Promise
         }
       } else {
         if (!canCall()) {
-          for (const one of remaining) remember({ ...one.base, verdict: 'unreviewed', reason: `budget: this run allows ${budgets.modelCallsPerRun} judge calls; classification stayed unsure and ${remaining.length} items did not reach analysis`, source: 'budget', evidenceHash: one.hash, configHash });
+          for (const one of remaining) remember({ ...one.base, verdict: 'unreviewed', reason: `${one.base.reason}; budget: this run allows ${budgets.modelCallsPerRun} judge calls; classification stayed unsure and ${remaining.length} items did not reach analysis`, source: 'budget', evidenceHash: one.hash, configHash });
         } else {
-        const second = newJudge(analysis.pair, 'analysis');
-        if (typeof second === 'string') {
-          for (const one of remaining) remember({ ...one.base, verdict: 'unreviewed', reason: `the analysis judge could not start: ${oneLine(second)}`, source: 'judge-failed', evidenceHash: one.hash, configHash });
-        } else {
-          const still = await runTier(second, remaining, 'analysis');
-          for (const held of still) {
-            const classificationReason = unsureReason.get(keyOf(held.one)) ?? 'classification stayed unsure';
-            toPerson(held, `both judges stayed unsure: ${classificationReason}; ${held.row.reason}`);
+          const second = newJudge(analysis.pair, 'analysis');
+          if (typeof second === 'string') {
+            for (const one of remaining) remember({ ...one.base, verdict: 'unreviewed', reason: `the analysis judge could not start: ${oneLine(second)}`, source: 'judge-failed', evidenceHash: one.hash, configHash });
+          } else {
+            const still = await runTier(second, remaining, 'analysis');
+            for (const held of still) {
+              const classificationReason = unsureReason.get(keyOf(held.one)) ?? 'classification stayed unsure';
+              toPerson(held, `both judges stayed unsure: ${classificationReason}; ${held.row.reason}`);
+            }
           }
-        }
         }
       }
     }
@@ -683,27 +1098,17 @@ export async function runGraphVerdicts(options: GraphVerdictRunOptions): Promise
 
   for (const judge of created) await judge.close?.().catch(() => undefined);
 
-  const ordered = [...rows].sort((a, b) => a.role === b.role ? (a.id < b.id ? -1 : a.id > b.id ? 1 : 0) : (a.role === 'node' ? -1 : 1));
+  const ordered = [...rows].sort((a, b) => a.role === b.role ? byCodePoint(a.id, b.id) : (a.role === 'node' ? -1 : 1));
   const report = graphVerdictReport(ordered, budgets, validatorVersion, generatedAt);
-  const fingerprint = graphVerdictFingerprint(snapshot, options.roles, budgets, validatorVersion, jev !== null, hasJudge);
+  const fingerprint = graphVerdictFingerprint({
+    snapshot, roles: options.roles, budgets, validatorVersion, hasJev, hasJudge,
+    ...(options.jevVersion === undefined ? {} : { jevVersion: options.jevVersion }),
+    rules,
+  });
   return {
     rows: ordered,
     report,
     cache: { validatorVersion, generatedAt, fingerprint, budgets, entries },
     metrics: { checked, reused, judgeItems, modelCalls },
   };
-}
-
-function evidenceOf(properties: unknown): GraphJudgeEvidence[] {
-  const props = propsOf(properties);
-  const found: GraphJudgeEvidence[] = [];
-  const add = (value: unknown): void => {
-    if (!isObject(value) || typeof value.path !== 'string' || value.path === '') return;
-    found.push({ path: value.path, ...(typeof value.lineStart === 'number' ? { lineStart: value.lineStart } : {}), ...(typeof value.lineEnd === 'number' ? { lineEnd: value.lineEnd } : {}) });
-  };
-  add(props.span);
-  add(props.sourceSpan);
-  if (Array.isArray(props.evidence)) for (const one of props.evidence) add(one);
-  if (Array.isArray(props.origins)) for (const one of props.origins) if (isObject(one)) add(one.sourceSpan);
-  return found;
 }

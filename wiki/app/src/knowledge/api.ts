@@ -1,7 +1,7 @@
 import { appPath } from '../app-base.js';
 import { historyQuery } from './history-context.js';
 import { readJson, RequestError } from '../api.js';
-import type { AgentChoices, AgentOffer, AnswerResult, Block, CorrectionResult, CreatedTask, DiagramRenderer, DiagramView, DocumentListing, DocumentPageModel, EntityListing, FillState, Glossary, GraphVerdictBudgets, GraphVerdictReport, GraphVerdictRole, GraphVerdictRow, GraphVerdictView, ModelRoleId, ModelRoleView, Neighborhood, PageJournal, PageModel, ProblemListing, ProductChoice, ProductSettings, QuestionDetail, QuestionListing, RefreshPreview, SourceFile, StatementModel, TaskDetail, TaskImpact, TaskListing, TaskProposal, TaskRow, TaskScope, UserSettings, WikiStatus } from './types.js';
+import type { AgentChoices, AgentOffer, AnswerResult, Block, CorrectionResult, CreatedTask, DiagramRenderer, DiagramView, DocumentListing, DocumentPageModel, EntityListing, FillState, Glossary, GraphVerdictBudgets, GraphVerdictFilter, GraphVerdictReport, GraphVerdictRole, GraphVerdictView, ModelRoleId, ModelRoleView, Neighborhood, PageJournal, PageModel, ProblemListing, ProductChoice, ProductSettings, QuestionDetail, QuestionListing, RefreshPreview, SourceFile, StatementModel, TaskDetail, TaskImpact, TaskListing, TaskProposal, TaskRow, TaskScope, UserSettings, WikiStatus } from './types.js';
 
 /** The wiki's status: manifest, kinds, repositories, fill. */
 export const getStatus = (signal?: AbortSignal): Promise<WikiStatus> => readJson<WikiStatus>('read the wiki', '/api/k/status', signal);
@@ -147,7 +147,7 @@ export const getAgentChoicesFor = (agent: string, fresh = false, signal?: AbortS
 
 
 /** The graph verdict coverage and an inspectable slice of rows (madarch-mwhd.1). `peek` reads the saved report and starts no judge. */
-export async function getGraphVerdicts(query: { verdict?: GraphVerdictRow['verdict']; role?: GraphVerdictRole; kind?: string; limit?: number; offset?: number; force?: boolean; peek?: boolean } = {}, signal?: AbortSignal): Promise<GraphVerdictView> {
+export async function getGraphVerdicts(query: { verdict?: GraphVerdictFilter; role?: GraphVerdictRole; kind?: string; limit?: number; offset?: number; force?: boolean; peek?: boolean } = {}, signal?: AbortSignal): Promise<GraphVerdictView> {
   const search = new URLSearchParams();
   if (query.verdict !== undefined) search.set('verdict', query.verdict);
   if (query.role !== undefined) search.set('role', query.role);

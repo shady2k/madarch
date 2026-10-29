@@ -268,6 +268,10 @@ describe('the model roles (madarch-j6ho.2)', () => {
     expect(peek.response.status).toBe(200);
     expect(await peek.response.json()).toMatchObject({ budgets: { itemsPerRun: 400, modelCallsPerRun: 4 }, cached: true, report: { totals: { items: 0, valid: 0, invalid: 0, unreviewed: 0 } }, rows: [] });
     expect((await part.graphVerdicts(get('?verdict=maybe'))).response.status).toBe(400);
+    // The settings table reads every row a person still has to look at, one page at a time (madarch-mwhd.1, RARE).
+    const nonValid = await part.graphVerdicts(get('?verdict=non-valid&limit=100&offset=0'));
+    expect(nonValid.response.status).toBe(200);
+    expect(await nonValid.response.json()).toMatchObject({ total: 0, offset: 0, limit: 100, rows: [] });
     expect((await part.graphVerdicts(get('?limit=0'))).response.status).toBe(400);
     expect((await part.graphVerdicts(post({ itemsPerRun: 50, modelCallsPerRun: 2 }, { 'sec-fetch-site': 'cross-site' }))).response.status).toBe(403);
     const wrong = await part.graphVerdicts(post({ itemsPerRun: 1.5, modelCallsPerRun: 2 }));

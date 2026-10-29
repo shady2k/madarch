@@ -13,15 +13,16 @@ import type { UnitAgent, UnitRequest, UnitRunStatus } from '../src/writer/run.js
 
 const items: GraphJudgeItem[] = [
   {
-    id: 'n1', role: 'node', kind: 'code.database', label: 'shop', reason: 'no rule decides this database',
-    evidence: [{ path: 'db/schema.sql', lineStart: 2, lineEnd: 4 }],
+    id: 'node:n1', role: 'node', kind: 'code.database', label: 'shop', reason: 'no rule decides this database',
+    evidence: [{ path: 'db/schema.sql', lineStart: 2, lineEnd: 4, excerpt: '-- database shop' }],
+    evidenceResolved: true, neighbourhood: ['out code.contains → code.table \"orders\" at db/schema.sql:2'],
     properties: { path: 'db/schema.sql', evidence: [{ evidenceKind: 'schema' }] },
   },
   {
-    id: 'e1', role: 'edge', kind: 'code.uses-database', label: 'service uses shop', reason: 'no rule decides this use',
-    evidence: [], properties: {},
-    from: { id: 's1', kind: 'code.service', label: 'checkout' },
-    to: { id: 'n1', kind: 'code.database', label: 'shop' },
+    id: 'edge:e1', role: 'edge', kind: 'code.uses-database', label: 'service uses shop', reason: 'no rule decides this use',
+    evidence: [], evidenceResolved: true, neighbourhood: [], properties: {},
+    from: { id: 'node:s1', kind: 'code.service', label: 'checkout' },
+    to: { id: 'node:n1', kind: 'code.database', label: 'shop' },
   },
 ];
 
@@ -49,22 +50,25 @@ describe('the ACP graph judge', () => {
         expect(refused.isError).toBe(true);
         expect(JSON.stringify(refused.answer)).toContain('not an id in this batch');
         const accepted = await request.tools.call('verdicts', { answers: [
-          { id: 'n1', verdict: 'invalid', reason: 'the schema is\nnot this database' },
-          { id: 'e1', verdict: 'unsure', reason: 'the use is not shown' },
+          { id: 'node:n1', verdict: 'invalid', reason: 'the schema is\nnot this database' },
+          { id: 'edge:e1', verdict: 'unsure', reason: 'the use is not shown' },
         ] });
         expect(accepted.isError).toBe(false);
       }, closed)(id); },
     });
     const answer = await judge.judge(items);
     expect(answer).toEqual([
-      { id: 'n1', verdict: 'invalid', reason: 'the schema is not this database' },
-      { id: 'e1', verdict: 'unsure', reason: 'the use is not shown' },
+      { id: 'node:n1', verdict: 'invalid', reason: 'the schema is not this database' },
+      { id: 'edge:e1', verdict: 'unsure', reason: 'the use is not shown' },
     ]);
     expect(requests).toHaveLength(1);
-    expect(requests[0]!.id).toBe('graph-verdicts-classification-n1');
-    expect(requests[0]!.prompt).toContain('[n1] node code.database: shop');
+    expect(requests[0]!.id).toBe('graph-verdicts-classification-node:n1');
+    expect(requests[0]!.prompt).toContain('[node:n1] node code.database: shop');
     expect(requests[0]!.prompt).toContain('evidence place: db/schema.sql:2-4');
-    expect(requests[0]!.prompt).toContain('from: s1 (code.service) checkout');
+    expect(requests[0]!.prompt).toContain('| -- database shop');
+    expect(requests[0]!.prompt).toContain('out code.contains → code.table "orders"');
+    expect(requests[0]!.prompt).toContain("evidence resolved at the fill's commit: yes");
+    expect(requests[0]!.prompt).toContain('from: node:s1 (code.service) checkout');
     expect(requests[0]!.prompt).toContain('properties: {"path":"db/schema.sql"');
     expect(requests[0]!.prompt).not.toContain('model-a');
     await judge.judge(items);
@@ -80,7 +84,7 @@ describe('the ACP graph judge', () => {
       env: {},
       makeAgent: () => ({
         async run(request: UnitRequest): Promise<UnitRunStatus> {
-          await request.tools.call('verdicts', { answers: [{ id: 'n1', verdict: 'valid', reason: 'shown before the stop' }] });
+          await request.tools.call('verdicts', { answers: [{ id: 'node:n1', verdict: 'valid', reason: 'shown before the stop' }] });
           return { completed: false, stopped: 'the time limit of 10 minutes was reached' };
         },
         async close() { closed.count += 1; },
@@ -99,11 +103,11 @@ describe('the ACP graph judge', () => {
     const subset = acpGraphJudge({ agent: 'claude-code' }, 'analysis', {
       env: {},
       makeAgent: (id) => agentOf(async (request) => {
-        const accepted = await request.tools.call('verdicts', { answers: [{ id: 'e1', verdict: 'valid', reason: 'the relation is shown' }] });
+        const accepted = await request.tools.call('verdicts', { answers: [{ id: 'edge:e1', verdict: 'valid', reason: 'the relation is shown' }] });
         expect(accepted.isError).toBe(false);
       }, closed)(id),
     });
-    expect(await subset.judge(items)).toEqual([{ id: 'e1', verdict: 'valid', reason: 'the relation is shown' }]);
+    expect(await subset.judge(items)).toEqual([{ id: 'edge:e1', verdict: 'valid', reason: 'the relation is shown' }]);
     await subset.close?.();
     let starts = 0;
     const silent = acpGraphJudge({ agent: 'claude-code' }, 'analysis', {

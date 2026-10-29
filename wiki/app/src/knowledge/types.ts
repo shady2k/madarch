@@ -388,6 +388,8 @@ export type ModelRoleView = { defaultRole: 'writing'; defaultPair: ModelPair | n
 
 /** One graph node or edge and its verdict (madarch-mwhd.1). */
 export type GraphVerdict = 'valid' | 'invalid' | 'unreviewed';
+/** Every verdict a person still has to look at: the settings table asks for these, valid rows excluded. */
+export type GraphVerdictFilter = GraphVerdict | 'non-valid';
 export type GraphVerdictRole = 'node' | 'edge';
 export type GraphVerdictRow = {
   role: GraphVerdictRole;

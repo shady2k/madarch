@@ -331,6 +331,7 @@ describe('the product settings page', () => {
       if (url.includes('/api/k/graph-verdicts')) {
         urls.push(url);
         if (url.includes('peek=1')) return json({ file: '/state/knowledge/p1/graph-verdicts.json', budgets: { itemsPerRun: 400, modelCallsPerRun: 4 }, cached: true, metrics: { checked: 0, reused: 3, judgeItems: 0, modelCalls: 0 }, report, total: 0, offset: 0, limit: 0, rows: [] });
+        // The view's table asks for the rows that are not valid, one page at a time.
         return json({ file: '/state/knowledge/p1/graph-verdicts.json', budgets: { itemsPerRun: 400, modelCallsPerRun: 4 }, cached: false, metrics: { checked: 1, reused: 3, judgeItems: 1, modelCalls: 0 }, report: { ...report, totals: { ...report.totals, items: 4 } }, total: 1, offset: 0, limit: 100, rows: [row] });
       }
       if (url.endsWith('/api/k/product-settings')) return json(settings());
@@ -347,7 +348,8 @@ describe('the product settings page', () => {
     expect(page.querySelector('[data-testid="settings-verdicts-kind-node-code.database"]')!.textContent).toContain('code.database');
     expect(page.querySelector('[data-testid=settings-verdicts-note]')!.textContent).toContain('Unreviewed is not valid');
     expect(page.querySelector('[data-testid=settings-verdicts-reasons]')!.textContent).toContain('budget: 1 item is waiting');
-    expect(urls.every((url) => url.includes('peek=1'))).toBe(true);
+    expect(urls.some((url) => url.includes('peek=1'))).toBe(true);
+    expect(urls.some((url) => url.includes('verdict=non-valid') && url.includes('limit=100') && url.includes('offset=0'))).toBe(true);
     const items = page.querySelector('[data-testid=settings-verdict-items-per-run]') as HTMLInputElement;
     const calls = page.querySelector('[data-testid=settings-verdict-model-calls]') as HTMLInputElement;
     const setInput = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
@@ -363,12 +365,45 @@ describe('the product settings page', () => {
     (page.querySelector('[data-testid=settings-verdicts-save]') as HTMLElement).click();
     await until(() => posts.length === 1, 'the budgets saved');
     expect(posts[0]).toEqual({ itemsPerRun: 50, modelCallsPerRun: 2 });
-    expect(urls.some((url) => url.includes('force=1') && url.includes('limit=100'))).toBe(false);
+    expect(urls.some((url) => url.includes('force=1'))).toBe(false);
     await until(() => (page.querySelector('[data-testid=settings-verdicts-run]') as HTMLButtonElement).disabled === false, 'the run button ready again');
     (page.querySelector('[data-testid=settings-verdicts-run]') as HTMLElement).click();
-    await until(() => urls.some((url) => url.includes('force=1') && url.includes('limit=100')), 'the run');
+    await until(() => urls.some((url) => url.includes('force=1') && url.includes('verdict=non-valid') && url.includes('limit=100')), 'the run');
     await until(() => page.querySelector('[data-testid=settings-verdicts-total]')!.textContent === '4', 'the new report');
     expect(page.querySelector('[data-testid=settings-verdicts-rows]')!.textContent).toContain('the database has no path');
+  });
+
+  test('the graph verdict table walks more than one page of rows that are not valid', async () => {
+    const row = (index: number) => ({ role: 'node' as const, id: `n${index}`, kind: 'code.database', label: `db ${index}`, verdict: 'unreviewed' as const, reason: 'a node with no edge', rule: 'node-database', source: 'budget' as const });
+    const report = {
+      generatedAt: '2026-10-29T10:00:00.000Z', validatorVersion: '1', budgets: { itemsPerRun: 400, modelCallsPerRun: 4 },
+      totals: { items: 150, nodes: 150, edges: 0, valid: 0, invalid: 0, unreviewed: 150 },
+      byKind: [{ role: 'node' as const, kind: 'code.database', total: 150, valid: 0, invalid: 0, unreviewed: 150 }],
+      sources: [{ source: 'budget' as const, count: 150 }], reasons: [{ reason: 'a node with no edge', count: 150 }],
+    };
+    const urls: string[] = [];
+    (globalThis as { fetch?: unknown }).fetch = async (url: string) => {
+      if (url.includes('/api/k/graph-verdicts')) {
+        urls.push(url);
+        if (url.includes('peek=1')) return json({ file: '/state/knowledge/p1/graph-verdicts.json', budgets: { itemsPerRun: 400, modelCallsPerRun: 4 }, cached: true, metrics: { checked: 0, reused: 150, judgeItems: 0, modelCalls: 0 }, report, total: 150, offset: 0, limit: 0, rows: [] });
+        const offset = Number(new URL(url, 'http://x').searchParams.get('offset') ?? '0');
+        const rows = Array.from({ length: offset === 0 ? 100 : 50 }, (_, index) => row(offset + index + 1));
+        return json({ file: '/state/knowledge/p1/graph-verdicts.json', budgets: { itemsPerRun: 400, modelCallsPerRun: 4 }, cached: true, metrics: { checked: 0, reused: 150, judgeItems: 0, modelCalls: 0 }, report, total: 150, offset, limit: 100, rows });
+      }
+      if (url.endsWith('/api/k/product-settings')) return json(settings());
+      if (url.endsWith('/api/k/agents')) return json({ agents: [], chosen: null });
+      if (url.includes('/api/k/agent-choices')) return json(choices);
+      return json({ message: 'not here' }, 404);
+    };
+    const page = into(createElement(SettingsPage, { version: 0, status: status(), refresh: () => undefined }));
+    await until(() => page.querySelector('[data-testid=settings-verdict-row-n1]') !== null, 'the first page of rows');
+    expect(page.querySelector('[data-testid=settings-verdicts-range]')!.textContent).toContain('1–100 of 150');
+    expect((page.querySelector('[data-testid=settings-verdicts-prev]') as HTMLButtonElement).disabled).toBe(true);
+    (page.querySelector('[data-testid=settings-verdicts-next]') as HTMLElement).click();
+    await until(() => page.querySelector('[data-testid=settings-verdict-row-n101]') !== null, 'the second page of rows');
+    expect(urls.some((url) => url.includes('verdict=non-valid') && url.includes('offset=100'))).toBe(true);
+    expect(page.querySelector('[data-testid=settings-verdicts-range]')!.textContent).toContain('101–150 of 150');
+    expect((page.querySelector('[data-testid=settings-verdicts-next]') as HTMLButtonElement).disabled).toBe(true);
   });
 
 describe('the starter set on the Problems page', () => {

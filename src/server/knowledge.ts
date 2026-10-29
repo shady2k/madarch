@@ -418,7 +418,8 @@ export function createKnowledgePart(
           }) };
         }
         const verdict = query.get('verdict');
-        if (verdict !== null && verdict !== 'valid' && verdict !== 'invalid' && verdict !== 'unreviewed') return refused(400, { field: 'verdict', accepted: 'valid, invalid or unreviewed', message: `"verdict" is ${JSON.stringify(verdict)}` });
+        // `non-valid` is what the settings page reads: every row a person still has to look at, valid ones excluded.
+        if (verdict !== null && verdict !== 'valid' && verdict !== 'invalid' && verdict !== 'unreviewed' && verdict !== 'non-valid') return refused(400, { field: 'verdict', accepted: 'valid, invalid, unreviewed or non-valid', message: `"verdict" is ${JSON.stringify(verdict)}` });
         const role = query.get('role');
         if (role !== null && role !== 'node' && role !== 'edge') return refused(400, { field: 'role', accepted: 'node or edge', message: `"role" is ${JSON.stringify(role)}` });
         const kind = query.get('kind');
@@ -429,7 +430,7 @@ export function createKnowledgePart(
         const offset = askedOffset === null ? 0 : Number(askedOffset);
         if (!Number.isInteger(offset) || offset < 0) return refused(400, { field: 'offset', accepted: 'a whole number from 0', message: `"offset" is ${JSON.stringify(askedOffset)}` });
         const view = await product.graphVerdicts({ force: query.get('force') === '1' });
-        const all = view.rows.filter((row) => (verdict === null || row.verdict === verdict) && (role === null || row.role === role) && (kind === null || row.kind === kind));
+        const all = view.rows.filter((row) => (verdict === null || (verdict === 'non-valid' ? row.verdict !== 'valid' : row.verdict === verdict)) && (role === null || row.role === role) && (kind === null || row.kind === kind));
         const rows = all.slice(offset, offset + limit);
         return { response: json(200, { file: view.file, budgets: view.budgets, cached: view.cached, metrics: view.metrics, report: view.report, total: all.length, offset, limit, rows }) };
       }

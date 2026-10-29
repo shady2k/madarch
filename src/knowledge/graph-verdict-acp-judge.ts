@@ -68,7 +68,17 @@ const promptOf = (items: readonly GraphJudgeItem[], role: 'classification' | 'an
     if (item.from !== undefined) lines.push(`  from: ${item.from.id} (${item.from.kind}) ${item.from.label}`);
     if (item.to !== undefined) lines.push(`  to: ${item.to.id} (${item.to.kind}) ${item.to.label}`);
     if (item.evidence.length === 0) lines.push('  evidence places: (none)');
-    else for (const place of item.evidence) lines.push(`  evidence place: ${place.path}${place.lineStart === undefined ? '' : `:${place.lineStart}${place.lineEnd === undefined ? '' : `-${place.lineEnd}`}`}`);
+    else for (const place of item.evidence) {
+      lines.push(`  evidence place: ${place.path}${place.lineStart === undefined ? '' : `:${place.lineStart}${place.lineEnd === undefined ? '' : `-${place.lineEnd}`}`}`);
+      if (place.unresolved !== undefined) lines.push(`    not resolved: ${place.unresolved}`);
+      else if (place.excerpt !== undefined) for (const held of place.excerpt.split('\n')) lines.push(`    | ${held}`);
+    }
+    lines.push(`  evidence resolved at the fill's commit: ${item.evidenceResolved ? 'yes' : 'no; a valid answer cannot stand'}`);
+    if (item.neighbourhood.length === 0) lines.push('  neighbourhood: (no edge)');
+    else {
+      lines.push('  neighbourhood:');
+      for (const fact of item.neighbourhood) lines.push(`    ${fact}`);
+    }
     lines.push(`  properties: ${JSON.stringify(item.properties)}`);
   }
   lines.push('', 'Call the verdicts tool exactly once. The reason is one line.');
@@ -122,7 +132,7 @@ export function acpGraphJudge(pair: ModelPair, role: 'classification' | 'analysi
               refusal = `the ${role} graph judge gave no reason for ${id}`;
               return { answer: { accepted: false, error: refusal }, isError: true };
             }
-            accepted.push({ id, verdict, reason: reason.trim().split(/\s+/).join(' ') });
+            accepted.push({ id, verdict, reason: reason.split('\n').join(' ').split('\t').join(' ').split(' ').filter((word) => word !== '').join(' ') });
           }
           if (accepted.length === 0) {
             refusal = `the ${role} graph judge answered no items`;
