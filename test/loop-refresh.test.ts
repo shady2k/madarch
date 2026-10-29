@@ -23,6 +23,7 @@ import { readCorrections, readQuestions, renderCorrection, renderQuestion } from
 import { applyReset, planReset } from '../src/knowledge/reset.js';
 import { briefsFor, neededFrom, planRefresh } from '../src/loop/plan.js';
 import { listProblems, listQuestions } from '../src/loop/views.js';
+import { starterProblemSettings } from '../src/knowledge/seed.js';
 import { createDraft } from '../src/product/draft.js';
 import { DEFAULT_UNIT_BOUNDS, GraphView, UnitTools, memorySink, runWriter, type ToolAnswer, type UnitAgent, type UnitRequest, type WriterReport } from '../src/writer/index.js';
 import { slugOf } from '../src/writer/names.js';
@@ -124,6 +125,51 @@ afterAll(async () => {
 const QUESTION_TITLE = 'Which discount does an order get?';
 const QUESTION_SLUG = slugOf(QUESTION_TITLE);
 
+/** The grounds the pricing page stands on: the README's sections and the one file the pricing lives in. */
+const README_OVERVIEW = 'doc:README.md#overview';
+const README_DISCOUNTS = 'doc:README.md#discounts';
+const README_TAX = 'doc:README.md#tax';
+const PRICING_FILE = 'code.file:src/pricing.ts';
+
+/** The rule the discount decision turns into, once a person answered the question, as the page states it. */
+const DECIDED_RULE = 'Every order gets ten percent, as a person decided.';
+
+/**
+ * The fields of the pricing page (madarch-ztyq.6): the business over the README and the one file the pricing lives
+ * in, and the function the discount comes from in "developer", where a place of the code belongs. An open
+ * contradiction keeps both of its sides: the README's promise stands in "what can go wrong" and the code's rule is
+ * the domain's one developer note. `tax` is what the README's tax section says, and `answered` the slug of the
+ * question a person answered, whose rule the page then states on that answer.
+ */
+function pricingFields(options: { readonly discountKey: string; readonly tax?: string; readonly answered?: string }): Record<string, unknown> {
+  const rules: Record<string, unknown>[] = [{ text: options.tax ?? 'Tax is a flat five percent.', grounds: [README_TAX] }];
+  if (options.answered !== undefined) rules.push({ text: DECIDED_RULE, grounds: [`question:${options.answered}`, README_DISCOUNTS] });
+  return {
+    title: 'Pricing',
+    participants: [{ text: 'A shopper buys from the shop and is charged the price the pricing rules give.', grounds: [README_OVERVIEW] }],
+    mainScenario: [{ text: 'The shop prices the order lines, takes the discount off them and adds the tax.', grounds: [README_OVERVIEW] }],
+    rules,
+    whatCanGoWrong: [{ text: 'The README promises a discount the code does not apply.', grounds: [README_DISCOUNTS] }],
+    openPoints: [{ text: 'The pricing of an order lives in one file of the shop.', grounds: [PRICING_FILE] }],
+    developer: { notes: [{ text: 'The discount function applies the percentage its caller passes and chooses none of its own.', grounds: [options.discountKey] }] },
+  };
+}
+
+/** The fields of the pricing page in Russian: the same sections, the same grounds and the same place of the code. */
+function pricingFieldsRu(discountKey: string): Record<string, unknown> {
+  return {
+    title: 'Цены',
+    participants: [{ text: 'Покупатель покупает в магазине и платит цену, которую дают правила ценообразования.', grounds: [README_OVERVIEW] }],
+    mainScenario: [{ text: 'Магазин считает цены строк заказа, вычитает скидку и добавляет налог.', grounds: [README_OVERVIEW] }],
+    // The README the earlier cases left behind may no longer hold the tax section: the rule stands on the section
+    // that is there, so the page of the translation is written and not refused on a ground a test removed.
+    rules: [{ text: 'Налог плоский, восемь процентов.', grounds: [readFileSync(path.join(repository, 'README.md'), 'utf8').includes('## Tax') ? README_TAX : README_OVERVIEW] }],
+    whatCanGoWrong: [{ text: 'README обещает скидку, которой код не применяет.', grounds: [README_DISCOUNTS] }],
+    openPoints: [{ text: 'Цены живут в одном файле.', grounds: [PRICING_FILE] }],
+    developer: { notes: [{ text: 'Функция скидки применяет процент, который передал вызывающий.', grounds: [discountKey] }] },
+  };
+}
+
 describe('the loop, from the first question to a translation', () => {
   let discountKey: string;
   const prompts = new Map<string, string>();
@@ -166,17 +212,8 @@ describe('the loop, from the first question to a translation', () => {
         // The same subject is asked once (madarch-m38l.13): this page is added to the question that exists.
         expect(twice.isError, JSON.stringify(twice.answer)).toBe(false);
         expect(twice.answer).toMatchObject({ asked: false, merged: true, id: `question:${QUESTION_SLUG}` });
-        const written = await call(request, 'write_page', {
-          markdown: [
-            '---', 'id: domain:pricing', 'kind: domain', 'title: Pricing', 'relates:', '  - code.file\u003asrc/pricing.ts', 'producer: agent', 'sources: [README.md]', '---', '',
-            '## How pricing works', '', 'Tax is a flat five percent.[^flat-five-percent-tax]', '', 'Pricing lives in one file.[^pricing-lives-one-file]', '',
-            'The README promises ten percent for every order.[^readme-discount]', '', 'The code applies the percentage its caller passes.[^caller-discount]', '',
-            '[^flat-five-percent-tax]: [README](madarch:doc:README.md#tax)',
-            '[^pricing-lives-one-file]: [pricing](madarch:code.file\u003asrc/pricing.ts)',
-            '[^readme-discount]: [README](madarch:doc:README.md#discounts)',
-            `[^caller-discount]: [code](madarch:${discountKey})`,
-          ].join('\n'),
-        });
+        // The page is the business over the README, and the code's rule stands in its one section for the developer.
+        const written = await call(request, 'write_page', { fields: pricingFields({ discountKey }) });
         expect(written.isError, JSON.stringify(written.answer)).toBe(false);
       },
     };
@@ -196,7 +233,8 @@ describe('the loop, from the first question to a translation', () => {
     expect(question!.sides.map((side) => side.grounds)).toEqual([['doc:README.md#discounts'], [discountKey]]);
     expect(question!.writtenAt).toHaveLength(1);
     // The question is in the graph beside the pages: kind question with two statements, grounded on the README and the code.
-    expect(await indexCounts(owner)).toEqual([{ kind: 'domain', pages: 1, statements: 4 }, { kind: 'product', pages: 1, statements: 2 }, { kind: 'question', pages: 1, statements: 2 }]);
+    // The domain page holds the five sections the unit filled and its one note for the developer, one statement each.
+    expect(await indexCounts(owner)).toEqual([{ kind: 'domain', pages: 1, statements: 6 }, { kind: 'product', pages: 1, statements: 2 }, { kind: 'question', pages: 1, statements: 2 }]);
     expect((await statementsRelyingOn(owner, discountKey)).map((s) => `${s.pageKind}:${s.page}`)).toEqual(['domain:domain:pricing', `question:question:${QUESTION_SLUG}`]);
     expect(listQuestions(productFolder)).toMatchObject({ open: 1, answered: 0, closed: 0 });
   }, 300_000);
@@ -222,19 +260,13 @@ describe('the loop, from the first question to a translation', () => {
       run: async (request) => {
         seen.push(request.id);
         prompts.set(`answer:${request.id}`, request.prompt);
-        const markdown = [
-          '---', 'id: domain:pricing', 'kind: domain', 'title: Pricing', 'relates:', '  - code.file\u003asrc/pricing.ts', 'producer: agent', 'sources: [README.md]', '---', '',
-          '## How pricing works', '', 'Tax is a flat five percent.[^flat-five-percent-tax]', '', 'Pricing lives in one file.[^pricing-lives-one-file]', '',
-          `Every order gets ten percent, as a person decided.[^order-gets-ten-percent]`, '',
-          '[^flat-five-percent-tax]: [README](madarch:doc:README.md#tax)',
-          '[^pricing-lives-one-file]: [pricing](madarch:code.file\u003asrc/pricing.ts)',
-          `[^order-gets-ten-percent]: [the answer](madarch:question:${QUESTION_SLUG}), [README](madarch:doc:README.md#discounts)`,
-        ].join('\n');
+        // The page keeps its sentences word for word and stands one more rule on the answer a person gave.
+        const fields = pricingFields({ discountKey, answered: QUESTION_SLUG });
         // A question that is not answered, or not asked, is no ground.
-        const bad = await call(request, 'write_page', { markdown: markdown.replace(`madarch:question:${QUESTION_SLUG}`, 'madarch:question:never-asked') });
+        const bad = await call(request, 'write_page', { fields: pricingFields({ discountKey, answered: 'never-asked' }) });
         expect(bad.isError).toBe(true);
         expect(JSON.stringify(bad.answer)).toContain('is no answered question and no correction of this product');
-        const good = await call(request, 'write_page', { markdown });
+        const good = await call(request, 'write_page', { fields });
         expect(good.isError).toBe(false);
       },
     };
@@ -251,17 +283,21 @@ describe('the loop, from the first question to a translation', () => {
     expect(prompt).toContain('Every order gets ten percent. The caller always passes ten.');
     expect(prompt).toContain('local, not verified');
     expect(prompt).toContain('## The page as it stands');
-    expect(prompt).toContain('Tax is a flat five percent.[^flat-five-percent-tax]');
+    expect(prompt).toContain('Tax is a flat five percent.');
     expect(prompt).toContain('## Questions already asked about this page');
     // The product page was not touched at all, and the sentences that stand kept their names.
     expect(read('docs/product.md')).toBe(productBefore);
     expect(statSync(path.join(productFolder, 'docs/product.md')).mtimeMs).toBe(productStat);
     const pricing = read('docs/domains/pricing.md');
-    for (const kept of ['Tax is a flat five percent.[^flat-five-percent-tax]', 'Pricing lives in one file.[^pricing-lives-one-file]']) {
-      expect(pricingBefore).toContain(kept);
-      expect(pricing).toContain(kept);
+    // The sentences the page stood keep their words and their footnote names: the whole line is the same in both.
+    const lineOf = (markdown: string, sentence: string): string | undefined => markdown.split('\n').find((line) => line.includes(sentence));
+    for (const kept of ['Tax is a flat five percent.', 'The pricing of an order lives in one file of the shop.']) {
+      expect(lineOf(pricingBefore, kept)).toBeDefined();
+      expect(lineOf(pricing, kept)).toBe(lineOf(pricingBefore, kept));
     }
-    expect(pricing).toContain('Every order gets ten percent, as a person decided.[^order-gets-ten-percent]');
+    // The rule the answer settles stands on the answer, and the page says so with a link to it.
+    expect(pricing).toContain(DECIDED_RULE);
+    expect(pricing).toContain(`(madarch:question:${QUESTION_SLUG})`);
     // The question shows as closed by the rewrite, and the index says what stands on the answer.
     const [question] = readQuestions(productFolder).items;
     expect(question).toMatchObject({ status: 'answered', resolvedBy: ['domain:pricing'] });
@@ -286,25 +322,18 @@ describe('the loop, from the first question to a translation', () => {
       run: async (request) => {
         seen.push(request.id);
         prompts.set(`ground:${request.id}`, request.prompt);
-        const written = await call(request, 'write_page', {
-          markdown: [
-            '---', 'id: domain:pricing', 'kind: domain', 'title: Pricing', 'relates:', '  - code.file\u003asrc/pricing.ts', 'producer: agent', 'sources: [README.md]', '---', '',
-            '## How pricing works', '', 'Tax is a flat eight percent.[^flat-five-percent-tax]', '', 'Pricing lives in one file.[^pricing-lives-one-file]', '',
-            `Every order gets ten percent, as a person decided.[^order-gets-ten-percent]`, '',
-            '[^flat-five-percent-tax]: [README](madarch:doc:README.md#tax)',
-            '[^pricing-lives-one-file]: [pricing](madarch:code.file\u003asrc/pricing.ts)',
-            `[^order-gets-ten-percent]: [the answer](madarch:question:${QUESTION_SLUG}), [README](madarch:doc:README.md#discounts)`,
-          ].join('\n'),
-        });
+        // The tax sentence now says what the README says; the rest of the page stands, the answered rule included.
+        const written = await call(request, 'write_page', { fields: pricingFields({ discountKey, tax: 'Tax is a flat eight percent.', answered: QUESTION_SLUG }) });
         expect(written.isError).toBe(false);
       },
     };
     const { report, plan } = await refresh(agent);
-    expect(plan.plan.pages.map((p) => [p.path, p.reasons])).toEqual([['docs/domains/pricing.md', [{ kind: 'ground-changed', statement: 'flat-five-percent-tax', ground: 'doc:README.md#tax' }]]]);
+    // The statement as it stands on the page before the change: the plan names what the ground reached.
+    expect(plan.plan.pages.map((p) => [p.path, p.reasons])).toEqual([['docs/domains/pricing.md', [{ kind: 'ground-changed', statement: slugOf('Tax is a flat five percent.'), ground: 'doc:README.md#tax' }]]]);
     expect(seen).toEqual(['domain:pricing']);
     expect(report.units).toBe(1);
     const prompt = prompts.get('ground:domain:pricing')!;
-    expect(prompt).toContain('The ground doc:README.md#tax CHANGED. The statement [^flat-five-percent-tax] stands on it: "Tax is a flat five percent."');
+    expect(prompt).toContain('The ground doc:README.md#tax CHANGED. The statement [^tax-flat-five-percent] stands on it: "Tax is a flat five percent."');
     expect(prompt).toMatch(/Before:\n~~~\n## Tax\n\nTax is a flat five percent\.\n~~~/);
     expect(prompt).toMatch(/Now:\n~~~\n## Tax\n\nTax is a flat eight percent\.\n~~~/);
     expect(read('docs/domains/pricing.md')).toContain('Tax is a flat eight percent.');
@@ -324,10 +353,11 @@ describe('the loop, from the first question to a translation', () => {
     const head = git('rev-parse', 'HEAD');
     const listing = await listProblems({
       productFolder, owner, repository: { name: REPOSITORY_NAME, path: repository, commit: head }, findings: [],
+      settings: starterProblemSettings(),
       resolve: async (url) => ({ state: 'ok', target: url, kind: 'document', label: url, href: null }),
     });
     const removed = listing.problems.filter((p) => p.kind === 'ground-removed');
-    expect(removed.map((p) => [p.page, p.statement, p.target, p.fixer, p.file])).toEqual([['domain:pricing', 'flat-five-percent-tax', 'doc:README.md#tax', 'agent', 'docs/domains/pricing.md']]);
+    expect(removed.map((p) => [p.page, p.statement, p.target, p.fixer, p.file])).toEqual([['domain:pricing', slugOf('Tax is a flat eight percent.'), 'doc:README.md#tax', 'agent', 'docs/domains/pricing.md']]);
     expect(removed[0]!.sentence).toBe('Tax is a flat eight percent.');
     const { plan } = await refresh({ run: async () => undefined });
     expect(plan.plan.pages.map((p) => [p.path, p.reasons.map((r) => r.kind)])).toEqual([['docs/domains/pricing.md', ['ground-removed']]]);
@@ -341,42 +371,45 @@ describe('the loop, from the first question to a translation', () => {
         { file: 'repos/training/docs/notes.md', line: 4, message: 'no kind of the manifest and no classifier read this passage, so no page shows it: «Rows are read in the order they were written»', kind: 'unread-passage', source: '/srv/checkouts/training/docs/notes.md' },
         { file: 'docs/domains/pricing.md', line: 2, message: 'the file cannot be read', source: '/srv/products/shop/docs/domains/pricing.md' },
       ],
+      settings: starterProblemSettings(),
       resolve: async (url) => ({ state: 'ok', target: url, kind: 'document', label: url, href: null }),
     });
     const byFile = new Map(listing.problems.map((problem) => [problem.file, problem]));
-    expect(byFile.get('repos/training/docs/notes.md')).toMatchObject({ kind: 'unread-passage', fixer: 'agent', line: 4, source: '/srv/checkouts/training/docs/notes.md' });
+    expect(byFile.get('repos/training/docs/notes.md')).toMatchObject({ kind: 'unread-passage', section: 'wiki', rule: 'wiki.unread-passage', sonar: 'code-smell', severity: 'minor', fixer: 'agent', line: 4, source: '/srv/checkouts/training/docs/notes.md' });
     expect(byFile.get('docs/domains/pricing.md')).toMatchObject({ kind: 'unreadable-file', fixer: 'person', line: 2, source: '/srv/products/shop/docs/domains/pricing.md' });
   }, 120_000);
 
   test('a change of language is a translation of every page, with the page in front of the unit and the names kept', async () => {
     seen.length = 0;
-    const russian: Record<string, string> = {
-      'product:loop-shop': [
-        '---', 'id: product:loop-shop', 'kind: product', 'title: Магазин', 'relates:', '  - code.file\u003asrc/pricing.ts', 'producer: agent', 'sources: [README.md]', '---', '',
-        '## Что это', '', 'Магазин считает цены и отправляет заказы.[^shop-prices-ships-orders]', '',
-        '## Домены', '', '- [Цены](madarch:domain:pricing) отвечают за скидки и налог.[^pricing-covers-discounts-tax]', '',
-        '[^shop-prices-ships-orders]: [README](madarch:doc:README.md#overview)',
-        '[^pricing-covers-discounts-tax]: [pricing](madarch:code.file\u003asrc/pricing.ts)',
-      ].join('\n'),
-      'domain:pricing': [
-        '---', 'id: domain:pricing', 'kind: domain', 'title: Цены', 'relates:', '  - code.file\u003asrc/pricing.ts', 'producer: agent', 'sources: [README.md]', '---', '',
-        '## Как считаются цены', '', 'Налог плоский, восемь процентов.[^flat-five-percent-tax]', '', 'Цены живут в одном файле.[^pricing-lives-one-file]', '',
-        '[^flat-five-percent-tax]: [README](madarch:doc:README.md#overview)',
-        '[^pricing-lives-one-file]: [pricing](madarch:code.file\u003asrc/pricing.ts)',
-      ].join('\n'),
-    };
+    // The product page is Markdown, as its unit writes it; the domain page is the fields of its six sections.
+    const russianProduct = [
+      '---', 'id: product:loop-shop', 'kind: product', 'title: Магазин', 'relates:', '  - code.file\u003asrc/pricing.ts', 'producer: agent', 'sources: [README.md]', '---', '',
+      '## Что это', '', 'Магазин считает цены и отправляет заказы.[^shop-prices-ships-orders]', '',
+      '## Домены', '', '- [Цены](madarch:domain:pricing) отвечают за скидки и налог.[^pricing-covers-discounts-tax]', '',
+      '[^shop-prices-ships-orders]: [README](madarch:doc:README.md#overview)',
+      '[^pricing-covers-discounts-tax]: [pricing](madarch:code.file\u003asrc/pricing.ts)',
+    ].join('\n');
+    // The answers are collected and judged after the run: an assertion thrown inside the agent is caught by the
+    // writer and shown as a failed unit, which would hide the refusal that caused it.
+    const answers: string[] = [];
     const agent: UnitAgent = {
       run: async (request) => {
         seen.push(request.id);
         prompts.set(`ru:${request.id}`, request.prompt);
         const written = await call(request, 'write_page', request.id.startsWith('product:')
-          ? { markdown: russian[request.id], domains: [{ slug: 'pricing', title: 'Цены', summary: 'Как считается цена заказа.', evidence: ['code.file\u003asrc/pricing.ts'] }] }
-          : { markdown: russian[request.id] });
-        expect(JSON.stringify(written.answer)).not.toContain('refused');
-        expect(written.isError).toBe(false);
+          ? { markdown: russianProduct, domains: [{ slug: 'pricing', title: 'Цены', summary: 'Как считается цена заказа.', evidence: ['code.file\u003asrc/pricing.ts'] }] }
+          : { fields: pricingFieldsRu(discountKey) });
+        answers.push(`${request.id}: ${JSON.stringify(written.answer)}`);
       },
     };
     const { report, plan } = await refresh(agent, { from: 'en', to: 'ru', changed: true });
+    const outcomeOf = (unit: string) => report.graph.flatMap((kind) => kind.units).find((held) => held.unit === unit);
+    // The writer catches what an agent throws and shows it as the unit's failure: assert the unit's own outcome so
+    // the reason is in the message, never swallowed.
+    expect(outcomeOf('domain:pricing')?.status, JSON.stringify(outcomeOf('domain:pricing'))).toBe('written');
+    expect(answers, `the ru run asked two units`).toHaveLength(2);
+    expect(answers.filter((answer) => answer.includes('refused')), answers.join('\n')).toEqual([]);
+    expect(answers.filter((answer) => answer.includes('"written":true')), answers.join('\n')).toHaveLength(2);
     expect(plan.plan.languageChanged).toBe(true);
     expect(plan.plan.pages.map((p) => p.path)).toEqual(['docs/domains/pricing.md', 'docs/product.md']);
     expect(seen).toEqual(['product:loop-shop', 'domain:pricing']);
@@ -387,7 +420,7 @@ describe('the loop, from the first question to a translation', () => {
       expect(prompt).toContain('The pages are now written in ru, not en: translate this page.');
       expect(prompt).toContain('## The page as it stands');
     }
-    expect(read('docs/domains/pricing.md')).toContain('Цены живут в одном файле.[^pricing-lives-one-file]');
+    expect(read('docs/domains/pricing.md')).toContain('Цены живут в одном файле.');
     expect(prompts.get('ru:product:loop-shop')).toContain('The domains the page declares now');
   }, 300_000);
 });
@@ -465,9 +498,19 @@ describe('retained answers used by fresh pages (madarch-m38l.22)', () => {
           const result = await call(request, 'write_page', { markdown, domains: declarations }); expect(result.isError, JSON.stringify(result.answer)).toBe(false); return;
         }
         if (mode === 'failed' || request.id === 'domain:shipping') return;
-        const ground = mode === 'unrelated' || mode === 'mention' ? 'doc:README.md#overview' : key;
-        const markdown = ['---', 'id: domain:pricing', 'kind: domain', 'title: Pricing', 'relates: []', 'producer: agent', 'sources: [README.md]', '---', '', `The policy is the rule a person chose.[^policy]${mode === 'mention' ? ` [→ question: ${original.title}](madarch:${key})` : ''}`, '', `[^policy]: [the policy](madarch:${ground})`].join('\n');
-        const result = await call(request, 'write_page', { markdown }); expect(result.isError, JSON.stringify(result.answer)).toBe(mode === 'open');
+        // The page's one rule stands on this mode's ground: the answer, or a README section — and in "mention" the
+        // sentence only links the answer, which is no ground for it.
+        const ground = mode === 'unrelated' || mode === 'mention' ? README_OVERVIEW : key;
+        const fields = {
+          title: 'Pricing',
+          participants: [{ text: 'A shopper buys from the shop and is charged the price the policy gives.', grounds: [README_OVERVIEW] }],
+          mainScenario: [{ text: 'The shop prices the order from the policy.', grounds: [README_OVERVIEW] }],
+          rules: [{ text: `The policy is the rule a person chose.${mode === 'mention' ? ` [→ question: ${original.title}](madarch:${key})` : ''}`, grounds: [ground] }],
+          whatCanGoWrong: [{ text: 'A change of the policy changes what a shopper pays.', grounds: [README_OVERVIEW] }],
+          openPoints: [{ text: 'The documents say nothing more about the policy.', grounds: [README_OVERVIEW] }],
+          developer: { notes: [] },
+        };
+        const result = await call(request, 'write_page', { fields }); expect(result.isError, JSON.stringify(result.answer)).toBe(mode === 'open');
       } };
       const closed: unknown[] = [];
       const answer = original.answer!;
@@ -518,7 +561,16 @@ describe('retained corrections used by recreated pages (madarch-m38l.22)', () =>
             domains: [{ slug: 'pricing', title: 'Pricing', summary: 'The order pricing rules.', evidence: ['code.file:src/pricing.ts'] }],
           }));
         } else {
-          written.push(await call(request, 'write_page', { markdown: ['---', 'id: domain:pricing', 'kind: domain', 'title: Pricing', 'relates: []', 'producer: agent', 'sources: [README.md]', '---', '', 'The caller chooses the discount.[^discount-policy]', '', `[^discount-policy]: [README](madarch:doc:README.md#overview)${grounded ? ', [the correction](madarch:correction:caller-policy)' : ''}`].join('\n') }));
+          // The recreated page states the correction's rule, grounded on the correction when the unit grounds it.
+          written.push(await call(request, 'write_page', { fields: {
+            title: 'Pricing',
+            participants: [{ text: 'A shopper is charged the price the policy gives.', grounds: [README_OVERVIEW] }],
+            mainScenario: [{ text: 'The shop prices the order from the policy.', grounds: [README_OVERVIEW] }],
+            rules: [{ text: 'The caller chooses the discount.', grounds: grounded ? [README_OVERVIEW, 'correction:caller-policy'] : [README_OVERVIEW] }],
+            whatCanGoWrong: [{ text: 'A wrong policy charges a shopper the wrong price.', grounds: [README_OVERVIEW] }],
+            openPoints: [{ text: 'The documents say nothing more about the policy.', grounds: [README_OVERVIEW] }],
+            developer: { notes: [] },
+          } }));
         }
       } };
       const report = await runWriter({ owner, store, repository, output, productName: 'Refill policy', agent, language: 'en', resolved: async (used) => { closed.push(used); await markResolved(output, used); } });
@@ -542,7 +594,7 @@ describe('retained corrections used by recreated pages (madarch-m38l.22)', () =>
       expect(readFileSync(correctionFile, 'utf8').split('\n---\n')[1]).toBe(beforeBody);
       if (grounded) {
         const markdown = readFileSync(path.join(output, 'docs/domains/pricing.md'), 'utf8');
-        expect(markdown).toContain('The caller chooses the discount.[^discount-policy]');
+        expect(markdown).toContain('The caller chooses the discount.');
         expect(markdown).toContain('(madarch:correction:caller-policy)');
         const appliedBytes = readFileSync(correctionFile, 'utf8');
         let rerunUnits = 0;

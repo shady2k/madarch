@@ -82,6 +82,7 @@ export function EntityPage({ id, version }: { id: string; version: number }): Re
         <div className="mb-2 flex items-center gap-2">
           <Badge data-testid="page-kind">{kindName(page.kind, 'one')}</Badge>
           {page.planned?.entity != null && <PlannedBadge mark={page.planned.entity} />}
+          {(page.problems ?? 0) > 0 && <span data-testid="page-problems"><KLink href="/k/problems"><Badge variant="solid">{t('knowledge.pageProblems', { count: page.problems })}</Badge></KLink></span>}
         </div>
         <h1 data-testid="page-title">{page.title}</h1>
         {page.notes.map((note) => <p key={note} className="text-small text-muted" data-testid="page-note">{note}</p>)}
@@ -362,7 +363,6 @@ function FillPart({ status, refresh }: { status: WikiStatus; refresh: () => void
 /** The product's front: the fill card, the manifest's findings and the kinds, when no page is the home. */
 export function Overview({ status, refresh }: { status: WikiStatus; refresh: () => void }): ReactElement {
   const { t } = useTranslation();
-  const kindName = useKindName();
   useTabTitle(status.product.name);
   return (
     <section data-testid="overview">
@@ -372,17 +372,6 @@ export function Overview({ status, refresh }: { status: WikiStatus; refresh: () 
       </header>
       <FillCard status={status} refresh={refresh} />
       <ManifestFindings status={status} />
-      <div className="grid gap-3 sm:grid-cols-2">
-        {status.kinds.filter((kind) => !kind.single).map((kind) => (
-          <Card key={kind.kind} data-kind={kind.kind}>
-            <CardHeader>
-              <CardTitle><KLink href={addressOfKind(kind.kind)}>{kindName(kind.kind, 'many')}</KLink></CardTitle>
-              <CardDescription>{kind.source === 'markdown' ? t('knowledge.fromMarkdown') : t('knowledge.fromGraph')}</CardDescription>
-            </CardHeader>
-            <CardContent><Badge>{kind.count}</Badge></CardContent>
-          </Card>
-        ))}
-      </div>
     </section>
   );
 }
@@ -555,11 +544,43 @@ export function CataloguePage({ status }: { status: WikiStatus }): ReactElement 
   useTabTitle(t('knowledge.catalogue'));
   const kinds = status.kinds.filter((kind) => !kind.single || kind.count > 0);
   const known = new Set(status.groups.map((group) => group.group));
+  const top = status.groups.filter((group) => group.parent === undefined || !known.has(group.parent));
+  const children = status.groups.filter((group) => group.parent !== undefined && known.has(group.parent));
+  const label = (group: { labels: Record<string, string>; group: string }): string => group.labels[language] ?? group.labels['en'] ?? group.group;
+  const kindsOf = (group: string): typeof kinds => kinds.filter((kind) => kind.group === group);
   const sections = [
-    ...status.groups.map((group) => ({ key: group.group, name: group.labels[language] ?? group.labels['en'] ?? group.group, kinds: kinds.filter((kind) => kind.group === group.group) })),
-    { key: '\0other', name: t('knowledge.groupOther'), kinds: kinds.filter((kind) => kind.group === undefined || !known.has(kind.group)) },
-  ].filter((section) => section.kinds.length > 0);
+    ...top.map((group) => {
+      const subgroups = children
+        .filter((child) => child.parent === group.group)
+        .map((child) => ({ key: child.group, name: label(child), kinds: kindsOf(child.group) }))
+        .filter((child) => child.kinds.length > 0);
+      return { key: group.group, name: label(group), kinds: kindsOf(group.group), subgroups };
+    }),
+    { key: '\0other', name: t('knowledge.groupOther'), kinds: kinds.filter((kind) => kind.group === undefined || !known.has(kind.group)), subgroups: [] },
+  ].filter((section) => section.kinds.length > 0 || section.subgroups.some((subgroup) => subgroup.kinds.length > 0));
   const entities = kinds.reduce((sum, kind) => sum + kind.count, 0);
+  const table = (rows: typeof kinds): ReactElement => (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>{t('knowledge.catalogueColKind')}</TableHead>
+          <TableHead>{t('knowledge.catalogueColAbout')}</TableHead>
+          <TableHead>{t('knowledge.catalogueColCount')}</TableHead>
+          <TableHead>{t('knowledge.catalogueColOrigin')}</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {rows.map((kind) => (
+          <TableRow key={kind.kind} data-kind={kind.kind}>
+            <TableCell className="whitespace-nowrap align-top"><KLink href={addressOfKind(kind.kind)}>{kindName(kind.kind, 'many')}</KLink></TableCell>
+            <TableCell className="max-w-[32rem] align-top">{kind.descriptions?.[language] ?? kind.descriptions?.['en'] ?? <span className="text-muted">–</span>}</TableCell>
+            <TableCell className="align-top" data-testid="catalogue-count">{kind.count}{kind.statements !== undefined && <span className="block text-small text-muted" data-testid="catalogue-statements">{t('knowledge.catalogueStatements', { count: kind.statements })}</span>}</TableCell>
+            <TableCell className="align-top"><OriginBadges origins={kind.origins} /></TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  );
   return (
     <section data-testid="catalogue-page">
       <header className="mb-6">
@@ -567,31 +588,21 @@ export function CataloguePage({ status }: { status: WikiStatus }): ReactElement 
         <p className="mb-1">{t('knowledge.catalogueIntro')}</p>
         <p className="mt-0 text-small text-muted" data-testid="catalogue-total">{t('knowledge.catalogueTotal', { entities, kinds: kinds.length })}</p>
       </header>
-      {sections.map((section) => (
-        <section key={section.key} className="mb-8" data-testid="catalogue-group" data-group={section.key}>
-          <h2 className="flex items-baseline gap-3">{section.name}<span className="text-small font-normal text-muted">{section.kinds.reduce((sum, kind) => sum + kind.count, 0)}</span></h2>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{t('knowledge.catalogueColKind')}</TableHead>
-                <TableHead>{t('knowledge.catalogueColAbout')}</TableHead>
-                <TableHead>{t('knowledge.catalogueColCount')}</TableHead>
-                <TableHead>{t('knowledge.catalogueColOrigin')}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {section.kinds.map((kind) => (
-                <TableRow key={kind.kind} data-kind={kind.kind}>
-                  <TableCell className="whitespace-nowrap align-top"><KLink href={addressOfKind(kind.kind)}>{kindName(kind.kind, 'many')}</KLink></TableCell>
-                  <TableCell className="max-w-[32rem] align-top">{kind.descriptions?.[language] ?? kind.descriptions?.['en'] ?? <span className="text-muted">–</span>}</TableCell>
-                  <TableCell className="align-top" data-testid="catalogue-count">{kind.count}{kind.statements !== undefined && <span className="block text-small text-muted" data-testid="catalogue-statements">{t('knowledge.catalogueStatements', { count: kind.statements })}</span>}</TableCell>
-                  <TableCell className="align-top"><OriginBadges origins={kind.origins} /></TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </section>
-      ))}
+      {sections.map((section) => {
+        const total = [...section.kinds, ...section.subgroups.flatMap((subgroup) => subgroup.kinds)].reduce((sum, kind) => sum + kind.count, 0);
+        return (
+          <section key={section.key} className="mb-8" data-testid="catalogue-group" data-group={section.key}>
+            <h2 className="flex items-baseline gap-3">{section.name}<span className="text-small font-normal text-muted">{total}</span></h2>
+            {section.kinds.length > 0 && table(section.kinds)}
+            {section.subgroups.map((subgroup) => (
+              <section key={subgroup.key} className="mb-5" data-testid="catalogue-subgroup" data-subgroup={subgroup.key}>
+                <h3 className="mb-2 mt-5 flex items-baseline gap-3 text-[15px]">{subgroup.name}<span className="text-small font-normal text-muted">{subgroup.kinds.reduce((sum, kind) => sum + kind.count, 0)}</span></h3>
+                {table(subgroup.kinds)}
+              </section>
+            ))}
+          </section>
+        );
+      })}
     </section>
   );
 }

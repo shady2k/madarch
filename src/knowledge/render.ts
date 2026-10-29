@@ -65,7 +65,7 @@ export async function renderPage(ctx: RenderContext, id: string, lang?: string, 
     return { ok: false, status: 500, message: `the template ${decl.template} of kind ${decl.name} cannot be read: ${(error as Error).message}` };
   }
   const findings: Finding[] = [];
-  const blocks: Block[] = [];
+  let blocks: Block[] = [];
   const declared = decl.attributes === undefined ? undefined : new Set(decl.attributes);
   const value = (name: string): string | undefined => {
     if (declared !== undefined && !declared.has(name) && !['label', 'title', 'key', 'keyrest', 'id', 'kind', 'slug'].includes(name)) return undefined;
@@ -125,6 +125,9 @@ export async function renderPage(ctx: RenderContext, id: string, lang?: string, 
       if (resolution?.state === 'broken') findings.push({ file: subject.entity.file, line: link.line, message: `${link.ground ? 'a ground' : 'a link'} does not resolve: ${resolution.reason}` });
     }
   }
+  // A section with nothing in it is not a section a reader meets: leave an empty related block out of the page, and the
+  // app draws no heading over an empty table (madarch-m38l.19).
+  blocks = blocks.filter((block) => block.type !== 'related' || block.groups.length > 0);
   const notes: string[] = [];
   if (located.others > 0) notes.push(`The key ${id} is also in ${located.others} other repositor${located.others === 1 ? 'y' : 'ies'} of this product; this page shows the first.`);
   return {

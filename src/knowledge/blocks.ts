@@ -355,7 +355,7 @@ function propertyText(value: unknown): string {
 /** The properties of a graph entity as a table, in name order: what the extractor read, with no span (the source block shows it). */
 
 /** The property names the wiki has words for, and which of them are instants to write as dates. */
-const PROPERTY_NAMES: Readonly<Record<string, {key: 'authoredAt' | 'committedAt' | 'subject' | 'merge' | 'language' | 'symbol' | 'method' | 'path'; date?: boolean}>> = {
+const PROPERTY_NAMES: Readonly<Record<string, {key: 'authoredAt' | 'committedAt' | 'subject' | 'merge' | 'language' | 'symbol' | 'method' | 'path' | 'marker' | 'text' | 'line' | 'service' | 'secret'; date?: boolean}>> = {
   authoredAt: {key: 'authoredAt', date: true},
   committedAt: {key: 'committedAt', date: true},
   subject: {key: 'subject'},
@@ -364,6 +364,11 @@ const PROPERTY_NAMES: Readonly<Record<string, {key: 'authoredAt' | 'committedAt'
   symbol: {key: 'symbol'},
   method: {key: 'method'},
   path: {key: 'path'},
+  marker: {key: 'marker'},
+  text: {key: 'text'},
+  line: {key: 'line'},
+  service: {key: 'service'},
+  secret: {key: 'secret'},
 };
 
 export function propertiesBlock(subject: Subject, params: Readonly<Record<string, string>>, file: string, line: number): Block {

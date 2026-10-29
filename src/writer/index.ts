@@ -16,7 +16,11 @@ export { acpUnitAgent, type AcpAgentOptions } from './acp-agent.js';
 export { writtenAtOf, withoutCredentials } from './basis.js';
 export { fileJournal, memoryJournal, journalOfUnit, newRunId, readJournalFile, JOURNAL_SCHEMA, type Journal, type JournalRecord, type PageJournal } from './journal.js';
 export {
-  PLACE_FIELDS, STRUCTURED_SECTIONS, UNREACHED_ROUTE, implementationPlaces, parseFields, relatesOf, renderStructuredBody, structuredKindOf, structuredLanguage, structuredSchema,
+  PLACE_FIELDS, STRUCTURED_SECTIONS, UNREACHED_ROUTE, implementationPlaces, parseFields, relatesOf, renderStructuredBody, structuredKindOf, structuredLanguage, structuredSchema, withReference,
   type AlternativeFlow, type DecisionFields, type GroundedStatement, type ImplementationFields, type NamedPlace, type PlaceField, type RuleFields, type ScenarioFields,
   type SectionDecl, type SectionId, type StructuredBody, type StructuredFields, type StructuredKind, type StructuredLanguage,
 } from './structured.js';
+export {
+  BUSINESS_FIELDS, DEVELOPER_PLACE_FIELDS, DOMAIN_SECTIONS, businessDetail, developerPlaces, domainGrounds, domainRelates, domainSchema, domainSources, isBusinessGround, parseDomainFields, renderDomainPage,
+  type DeveloperFields, type DomainFieldProblem, type DomainFields, type DomainRenderContext, type DomainSectionDecl, type DomainSectionId, type RenderedDomainPage,
+} from './domain-page.js';

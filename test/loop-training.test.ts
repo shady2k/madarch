@@ -17,13 +17,28 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { startServer, type StartedServer } from '../src/server/http.js';
 import { gitEnv } from './git-env.js';
-import { SAMPLE_IDENTITY, ROOT, generateTrainingRepository, makeProduct } from './knowledge-fixture.js';
+import { ORDERS_SERVICE, domainFields, fieldsCall } from './knowledge-agent-script.js';
+import { PAY, SAMPLE_IDENTITY, ROOT, generateTrainingRepository, makeProduct } from './knowledge-fixture.js';
 import { slugOf } from '../src/writer/names.js';
-import { ANSWER_TEXT, LOOP_QUESTIONS, firstRunScript, questionSlug, refreshScript } from './loop-agent-script.js';
+import { ANSWER_TEXT, LOOP_QUESTIONS, contradictionSides, firstRunScript, questionSlug, refreshScript } from './loop-agent-script.js';
 import { SCRIPTED_GUIDE_PATH, SCRIPTED_GUIDE_SOURCE } from './scripted-guide-agent.js';
 
 const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, env: gitEnv(SAMPLE_IDENTITY), encoding: 'utf8' }).trim();
 const sha = (path: string): string => createHash('sha256').update(readFileSync(path)).digest('hex');
+
+/** The sentence of the ordering page the retention decision's first side stands on, and what a person says the code does. */
+const READMES_KEEP_ORDERS = 'The root README and the orders README say orders are retained indefinitely.';
+const REMOVED_AFTER_NINETY_DAYS = 'Orders that were not shipped are removed ninety days after they were placed, as the retention job does.';
+
+/**
+ * The ordering page's fields as the first run wrote them: the unit's own statements, then one grounded sentence for
+ * each side of every contradiction it asked (madarch-m38l.13). `corrected` stands where the retention decision's
+ * first side — the README one — stood.
+ */
+function orderingFields(corrected?: string): Record<string, unknown> {
+  const fields = domainFields('en', 'ordering', ORDERS_SERVICE, ['doc:docs/requirements.md#uc-2', PAY]);
+  return { ...fields, whatCanGoWrong: contradictionSides('ordering', 'en', corrected === undefined ? undefined : { item: 'contradiction.retention', index: 0, text: corrected }) };
+}
 
 interface KeyItem { id: string; location?: { path: string }; locations?: { path: string }[] }
 const KEY = JSON.parse(readFileSync(join(ROOT, 'examples/training-repository/answer-key.json'), 'utf8')) as { items: KeyItem[] };
@@ -96,7 +111,7 @@ describe('the agent asks, a person answers, the refresh edits one page', () => {
     expect(status.writer.plan.pages.map((p: { path: string; reasons: { kind: string }[] }) => [p.path, p.reasons.map((r) => r.kind)])).toEqual([['docs/product.md', ['missing']]]);
     expect(status.writer.asked).toBe(LOOP_QUESTIONS.length);
     // Two retention paraphrases run through ACP too; the complete listing below still has one file for that decision.
-    expect(status.loop).toEqual({ questionsOpen: LOOP_QUESTIONS.length, questionsAnswered: 0, correctionsOpen: 0 });
+    expect(status.loop).toEqual({ questionsOpen: LOOP_QUESTIONS.length, questionsAnswered: 0, correctionsOpen: 0, tasksOpen: 0, problemsOpen: (await get('/api/k/problems')).body.open });
     expect(readdirSync(join(product, 'docs/questions')).sort()).toEqual(LOOP_QUESTIONS.map((q) => `${questionSlug(q, 'en')}.md`).sort());
     for (const page of ['docs/product.md', 'docs/domains/ordering.md', 'docs/domains/payments.md', 'docs/guides/administrator.md', 'docs/guides/user.md']) expect(existsSync(join(product, page))).toBe(true);
     for (const id of ['administrator-guide:main', 'user-guide:main']) {
@@ -148,7 +163,7 @@ describe('the agent asks, a person answers, the refresh edits one page', () => {
     expect(plan.available).toBe(true);
     expect(plan.plan.pages.map((p: { path: string; reasons: { kind: string; question?: string }[] }) => [p.path, p.reasons.map((r) => `${r.kind}:${r.question ?? ''}`)])).toEqual([['docs/domains/payments.md', [`answer:${slug}`]]]);
     expect(plan.plan.unchanged).toEqual(['docs/domains/ordering.md', 'docs/product.md']);
-    expect((await get('/api/k/status')).body.loop).toEqual({ questionsOpen: LOOP_QUESTIONS.length - 1, questionsAnswered: 1, correctionsOpen: 0 });
+    expect((await get('/api/k/status')).body.loop).toEqual({ questionsOpen: LOOP_QUESTIONS.length - 1, questionsAnswered: 1, correctionsOpen: 0, tasksOpen: 0, problemsOpen: (await get('/api/k/problems')).body.open });
   }, 120_000);
 
   test('the next refresh edits only that page, grounded in the answer, and the question shows as closed by the rewrite', async () => {
@@ -167,11 +182,14 @@ describe('the agent asks, a person answers, the refresh edits one page', () => {
     expect(sha(join(product, 'docs/product.md'))).toBe(before.product);
     expect(sha(join(product, 'docs/domains/ordering.md'))).toBe(before.ordering);
     const after = readFileSync(join(product, 'docs/domains/payments.md'), 'utf8');
-    // The sentence that stood keeps its text and its footnote name; the new one stands on the answer.
-    const kept = before.payments.split('\n').find((line) => /\[\^[\w-]+\]$/.test(line) && line.startsWith('Payments are charged'))!;
-    expect(after).toContain(kept);
-    expect(after).toContain('The payment token the documents mention is the CardToken, the vault reference to a card, as a person decided.[^payment-token-means-cardtoken]');
-    expect(after).toContain(`[^payment-token-means-cardtoken]: [the answer](madarch:question:${slug})`);
+    // The sentence that stood keeps its text and its footnote name — the whole line is the same in both pages — and
+    // the rule the answer settles stands on the answer.
+    const charged = 'Payments are charged through one of two providers chosen by configuration.';
+    const lineIn = (markdown: string, sentence: string): string | undefined => markdown.split('\n').find((line) => line.includes(sentence));
+    expect(lineIn(before.payments, charged)).toBeDefined();
+    expect(lineIn(after, charged)).toBe(lineIn(before.payments, charged));
+    expect(after).toContain('The payment token the documents mention is the CardToken, the vault reference to a card, as a person decided.');
+    expect(after).toContain(`(madarch:question:${slug})`);
     const detail = (await get(`/api/k/question?id=${slug}`)).body;
     expect(detail).toMatchObject({ state: 'closed', closedBy: ['domain:payments'], answer: { text: ANSWER_TEXT.en } });
     expect(detail.resolvedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
@@ -256,13 +274,12 @@ describe('an answer scopes a task, marks only what it reaches, fixes those pages
       payments: sha(join(product, 'docs/domains/payments.md')),
       ordering: readFileSync(join(product, 'docs/domains/ordering.md'), 'utf8'),
     };
-    // The agent's page: the ordering page as it stands, with the sentence the README ground reached now stating the code's rule.
-    const kept = before.ordering.split('\n').find((line) => line.startsWith('The root README and the orders README say orders are retained indefinitely.'))!;
-    expect(kept).toBeDefined();
-    const corrected = kept.replace('The root README and the orders README say orders are retained indefinitely.', 'Orders that were not shipped are removed ninety days after they were placed, as the retention job does.');
-    const written = before.ordering.replace(kept, corrected);
-    expect(written).not.toBe(before.ordering);
-    writeFileSync(scriptFile, JSON.stringify({ byPrompt: [{ matches: `(madarch:task:${taskSlug})`, steps: [{ call: { tool: 'write_page', arguments: { markdown: written } } }, { end: { stopReason: 'end_turn' } }] }], steps: [{ end: { stopReason: 'end_turn' } }] }));
+    // The agent's page: the ordering page's fields as the first run wrote them, with the sentence the README ground
+    // reached now stating the code's rule.
+    expect(before.ordering).toContain(READMES_KEEP_ORDERS);
+    const written = orderingFields(REMOVED_AFTER_NINETY_DAYS);
+    expect(JSON.stringify(written)).not.toContain(READMES_KEEP_ORDERS);
+    writeFileSync(scriptFile, JSON.stringify({ byPrompt: [{ matches: `(madarch:task:${taskSlug})`, steps: [fieldsCall(written), { end: { stopReason: 'end_turn' } }] }], steps: [{ end: { stopReason: 'end_turn' } }] }));
     const started = await post('/api/k/task-run', { id: `task:${taskSlug}` });
     expect(started.status).toBe(202);
     expect(started.body.pages).toEqual(['docs/domains/ordering.md']);
@@ -272,7 +289,15 @@ describe('an answer scopes a task, marks only what it reaches, fixes those pages
     expect(status.writer.units.filter((unit: { calls?: number }) => (unit.calls ?? 0) > 0).map((unit: { unit: string }) => unit.unit)).toEqual(['domain:ordering']);
     expect(sha(join(product, 'docs/product.md'))).toBe(before.product);
     expect(sha(join(product, 'docs/domains/payments.md'))).toBe(before.payments);
-    expect(readFileSync(join(product, 'docs/domains/ordering.md'), 'utf8')).toBe(written);
+    const ordering = readFileSync(join(product, 'docs/domains/ordering.md'), 'utf8');
+    expect(ordering).toContain(REMOVED_AFTER_NINETY_DAYS);
+    expect(ordering).not.toContain(READMES_KEEP_ORDERS);
+    // Every side of every contradiction the page kept still stands, with the question link at the end of its sentence.
+    for (const question of LOOP_QUESTIONS.filter((held) => held.unit === 'ordering' && held.type === 'contradiction')) {
+      const claims = question.item === 'contradiction.retention' ? [REMOVED_AFTER_NINETY_DAYS, question.text.en.claims[1]!] : question.text.en.claims;
+      for (const claim of claims) expect(ordering).toContain(claim);
+      expect(ordering).toContain(`(madarch:question:${questionSlug(question, 'en')})`);
+    }
   }, 3_000_000);
 
   test('a commit closes the task only when it names the task and touches its scope', async () => {
