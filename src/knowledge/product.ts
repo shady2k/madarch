@@ -28,6 +28,7 @@ import { promisify } from 'node:util';
 import type { DatabaseOwner, OuterTransaction } from '../adapters/database-owner.js';
 import { RemoteOwner } from './remote-owner.js';
 import { byCodePoint } from '../model/order.js';
+import { canonicalJsonDigest } from '../model/canonical.js';
 import { readProduct, type ProductIdentity } from '../product/manifest.js';
 import { selfCommand } from '../product/self-command.js';
 import { insideFolder, homeKind, KINDS_FILE, readKinds, setKindsLanguage, type Finding, type KindsManifest } from './kinds.js';
@@ -51,9 +52,10 @@ import { fileJournal, journalFolder, journalOfUnit, newRunId, type Journal, type
 import { productSlug, PRODUCT_PATH, type ToolAnswer, type ToolClient, type UnitAgent } from '../writer/index.js';
 import { CONTENT_LANGUAGES } from '../writer/prompts.js';
 import type { DraftEnv } from '../product/home.js';
-import { findSubject, kindSummaries, productTitleOf, renderPage, listEntities, type PageResult } from './render.js';
+import { documentTitleOf, findSubject, graphTitleOf, kindSummaries, markdownTitleOf, productTitleOf, renderPage, listEntities, type PageResult } from './render.js';
 import { indexCounts, statementsRelyingOn } from './index/queries.js';
-import { PAGE_KIND } from './index/vocabulary.js';
+import { PAGE_KIND, STATEMENT_OF } from './index/vocabulary.js';
+import { ACTIVE_FILL_FILE, CHANGED_PAGES_FILE, DOCUMENT_PAGES_FILE, invalidateInterruptedRun, readChangedPages, readDocumentPages } from './changed-pages.js';
 import { documentSections } from './index/sections.js';
 import { webLink } from './index/web-link.js';
 
@@ -300,8 +302,12 @@ export class KnowledgeProduct {
   /** The pages the last fill changed, as told and as kept beside the store (madarch-u3vw2). */
   private changedPages: ChangedPage[] | undefined;
   private changedLoaded = false;
+  /** The document entities of the last completed run, by durable page id, as kept beside the store. */
+  private documentBaselineMemo: Map<string, string> | undefined | null;
 
-  constructor(private readonly options: KnowledgeProductOptions) {}
+  constructor(private readonly options: KnowledgeProductOptions) {
+    this.invalidateInterruptedRun();
+  }
 
   get folder(): string {
     return this.options.productFolder;
@@ -637,13 +643,34 @@ export class KnowledgeProduct {
     }
     // The slot is claimed before anything is awaited, so two asks in the store's opening are not two fills.
     this.stopping = false;
-    this.fill = { state: 'running', startedAt: (this.options.now?.() ?? new Date()).toISOString(), commit: 0, commits: 0, gaps: 0 };
+    const startedAt = (this.options.now?.() ?? new Date()).toISOString();
+    // A run under way is marked before it starts: a server that restarts during it must not restore the list of the run
+    // before. The old list is removed as the same act, so a failed or interrupted run leaves it unknown, not stale.
+    let folder: string;
+    try {
+      folder = this.storeFolder();
+    } catch (error) {
+      return { started: false, message: `the run could not find the store it belongs to, so it did not start: ${error instanceof Error ? error.message : String(error)}`, fill: this.fill };
+    }
+    try {
+      mkdirSync(folder, { recursive: true });
+      writeFileSync(this.activeFillFile(), `${JSON.stringify({ startedAt })}\n`, 'utf8');
+      rmSync(join(folder, CHANGED_PAGES_FILE), { force: true });
+    } catch (error) {
+      try { rmSync(this.activeFillFile(), { force: true }); } catch { /* the launched run has not begun; its mark is only a file */ }
+      return { started: false, message: `the run of ${folder} could not be marked as active, so it did not start: ${error instanceof Error ? error.message : String(error)}`, fill: this.fill };
+    }
+    this.changedPages = undefined;
+    this.changedLoaded = true;
+    this.fill = { state: 'running', startedAt, commit: 0, commits: 0, gaps: 0 };
     const chosen = this.chosenAgent();
     this.writer = chosen === null ? { state: 'idle', agent: null, units: [] } : { state: 'waiting', agent: chosen, units: [] };
     this.notify();
     this.running = this.runJob(product, repositories, { language: wanted, languageChanged, languageFrom: written ?? current, ...(options.task === undefined ? {} : { task: options.task }), ...(options.taskPages === undefined ? {} : { taskPages: options.taskPages }) }).finally(() => {
       // A fill that did not reach its end leaves the agent stage unstarted, not waiting for ever.
       if (this.writer.state === 'waiting') this.writer = { ...this.writer, state: 'idle' };
+      // The mark goes only when the run is over, after its result is recorded: a restart before this point has no list.
+      this.clearActiveFill();
       this.running = undefined;
       this.worker = undefined;
     });
@@ -874,7 +901,7 @@ export class KnowledgeProduct {
     this.writerAgent = undefined;
     if (this.fill.state === 'done') {
       try {
-        await writeFile(join(this.storeFolder(), 'last-fill.json'), `${JSON.stringify({ finishedAt: this.fill.finishedAt ?? now() })}\n`, 'utf8');
+        await writeFile(join(this.storeFolder(), 'last-fill.json'), `${JSON.stringify({ startedAt: this.fill.startedAt ?? null, finishedAt: this.fill.finishedAt ?? now() })}\n`, 'utf8');
       } catch (error) {
         this.options.errorLog?.(`the knowledge wiki could not record when the fill ended in ${this.storeFolder()}: ${error instanceof Error ? error.message : String(error)}`);
       }
@@ -891,6 +918,53 @@ export class KnowledgeProduct {
 
   // ---- what a run changed -------------------------------------------------------------------
 
+  /** The file marking a run between its start and the end of its run job. */
+  private activeFillFile(): string {
+    return join(this.storeFolder(), ACTIVE_FILL_FILE);
+  }
+
+  /** The file the changed pages of the last completed run are kept in. */
+  private changedPagesFile(): string {
+    return join(this.storeFolder(), CHANGED_PAGES_FILE);
+  }
+
+  /** The file the document entities of the last completed run are kept in: the line their next run is counted from. */
+  private documentPagesFile(): string {
+    return join(this.storeFolder(), DOCUMENT_PAGES_FILE);
+  }
+
+  /**
+   * A run that was under way when the server stopped cannot be restored: its result was never written, and the list
+   * beside the store belongs to the run before. The mark is what tells the two apart; this removes both the stale list
+   * and the mark, at the launch of the product.
+   */
+  private invalidateInterruptedRun(): void {
+    let folder: string;
+    try {
+      const product = this.product();
+      if ('message' in product) return;
+      folder = this.storeFolder();
+    } catch {
+      return; // a product that cannot be read has no store and no list to restore
+    }
+    try {
+      if (!invalidateInterruptedRun(folder)) return;
+      this.changedPages = undefined;
+      this.changedLoaded = true;
+    } catch (error) {
+      this.options.errorLog?.(`the knowledge wiki could not invalidate the changed pages of the interrupted fill of ${folder}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /** The mark is removed once the run is over, whether it completed or failed. */
+  private clearActiveFill(): void {
+    try {
+      rmSync(this.activeFillFile(), { force: true });
+    } catch (error) {
+      this.options.errorLog?.(`the knowledge wiki could not clear the mark of the fill of ${this.storeFolder()}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   /** When the graph last published a work item, as the reader holds it: the line a run's changes are counted from. */
   private async lastPublishedAt(): Promise<string | null> {
     const owner = await this.open();
@@ -900,36 +974,47 @@ export class KnowledgeProduct {
 
   /**
    * The pages a run changed, from the graph's own account of it: every node and every edge the run opened or closed, the
-   * pages of the entities that are still there, and the Markdown pages whose file it wrote. A run that starts from an
+   * pages of the entities that are still there, the page a touched statement belongs to through `statement-of`, the
+   * Markdown pages whose file it wrote, and the document entities whose passage changed. A run that starts from an
    * empty graph (`before` null) wrote every page; after it, only what it touched is named. A page the run removed is not
    * named: there is no page left to open. Only the kinds the product declares are pages; the index's own nodes and
    * sections are not.
    */
-  private async pagesChangedSince(before: string | null): Promise<ChangedPage[]> {
+  private async pagesChangedSince(before: string | null): Promise<{ pages: ChangedPage[]; documents: Map<string, string> }> {
     const context = await this.context();
     if ('absent' in context) throw new WikiReadError(`the product has no ${context.file}: the wiki shows the kinds that file declares`);
     const owner = await this.open();
     // The version a page shows is the one valid now: a node recorded last, whose time ended, is not a page any more.
     const at = this.validAt();
     const visible = `v.valid_from <= $3::timestamptz AND $3::timestamptz < v.valid_to`;
-    const rows = (await owner.run((tx) => tx.query<{ id: string | null; title: string | null; kind: string; page: boolean }>(
+    const visibleEdge = `e.valid_from <= $3::timestamptz AND $3::timestamptz < e.valid_to`;
+    const rows = (await owner.run((tx) => tx.query<{ id: string | null; title: string | null; kind: string; page: boolean; properties: Record<string, unknown> | null }>(
       `WITH published AS (
          SELECT id FROM work_item WHERE published_at IS NOT NULL AND ($1::timestamptz IS NULL OR published_at > $1::timestamptz)
        ), touched AS (
          SELECT node_id FROM node_version WHERE opened_by IN (SELECT id FROM published) OR closed_by IN (SELECT id FROM published)
          UNION SELECT src_id FROM edge_version WHERE opened_by IN (SELECT id FROM published) OR closed_by IN (SELECT id FROM published)
          UNION SELECT dst_id FROM edge_version WHERE opened_by IN (SELECT id FROM published) OR closed_by IN (SELECT id FROM published)
+       ), touched_pages AS (
+         -- A statement's page is not touched when the statement's ground changes: the page is reached through statement-of.
+         SELECT DISTINCT pv.properties->>'id' AS id
+           FROM edge_version e
+           JOIN relation_type ek ON ek.id = e.relation_type_id
+           JOIN node_version sv ON sv.node_id = e.src_id AND sv.recorded_to = 'infinity' AND sv.valid_from <= $3::timestamptz AND $3::timestamptz < sv.valid_to
+           JOIN node_version pv ON pv.node_id = e.dst_id AND pv.recorded_to = 'infinity' AND pv.valid_from <= $3::timestamptz AND $3::timestamptz < pv.valid_to
+          WHERE ek.key = $4 AND e.recorded_to = 'infinity' AND ${visibleEdge}
+            AND sv.node_id IN (SELECT node_id FROM touched)
        )
-       SELECT v.properties->>'recordKey' AS id, v.label AS title, k.key AS kind, false AS page
+       SELECT v.properties->>'recordKey' AS id, v.label AS title, k.key AS kind, false AS page, v.properties AS properties
          FROM node_version v JOIN node_kind k ON k.id = v.kind_id
         WHERE v.recorded_to = 'infinity' AND v.properties ? 'recordKey' AND ${visible}
           AND ($1::timestamptz IS NULL OR v.node_id IN (SELECT node_id FROM touched))
        UNION ALL
-       SELECT v.properties->>'id' AS id, v.label AS title, k.key AS kind, true AS page
+       SELECT v.properties->>'id' AS id, v.label AS title, k.key AS kind, true AS page, v.properties AS properties
          FROM node_version v JOIN node_kind k ON k.id = v.kind_id AND k.key = $2
         WHERE v.recorded_to = 'infinity' AND v.properties ? 'id' AND ${visible}
-          AND ($1::timestamptz IS NULL OR v.node_id IN (SELECT node_id FROM touched))`,
-      [before, PAGE_KIND, at]))).rows;
+          AND ($1::timestamptz IS NULL OR v.node_id IN (SELECT node_id FROM touched) OR v.properties->>'id' IN (SELECT id FROM touched_pages))`,
+      [before, PAGE_KIND, at, STATEMENT_OF]))).rows;
     const found = new Map<string, ChangedPage>();
     for (const row of rows) {
       const id = row['id'];
@@ -937,13 +1022,64 @@ export class KnowledgeProduct {
       if (row['page']) {
         const entity = context.ctx.markdown.get(id);
         if (entity === undefined) continue;
-        if (!found.has(id)) found.set(id, { id, title: entity.title });
+        const declaration = context.manifest.kinds.get(entity.kind);
+        if (declaration === undefined) continue;
+        if (!found.has(id)) found.set(id, { id, title: markdownTitleOf(declaration.title, entity) });
         continue;
       }
-      if (!context.manifest.kinds.has(row['kind'])) continue;
-      if (!found.has(id)) found.set(id, { id, title: row['title'] ?? id });
+      const declaration = context.manifest.kinds.get(row['kind']);
+      if (declaration === undefined) continue;
+      const properties = row['properties'] ?? {};
+      const title = graphTitleOf(declaration.title, { key: id, kind: row['kind'], label: row['title'] ?? id, properties });
+      if (!found.has(id)) found.set(id, { id, title });
     }
-    return [...found.values()].sort((a, b) => byCodePoint(a.id, b.id));
+    // A document entity is a page too, and its page id is its durable identity. The line is the last completed run's
+    // entities: a passage whose text, title or address changed is named; a document that gained none is not.
+    const documents = this.documentDigests(context);
+    const baseline = this.documentBaseline();
+    for (const [id, digest] of documents) {
+      if (baseline !== undefined && baseline.get(id) === digest) continue;
+      const entity = context.ctx.docEntities.get(id);
+      if (entity === undefined) continue;
+      const declaration = context.manifest.kinds.get(entity.kind);
+      if (declaration === undefined) continue;
+      if (!found.has(id)) found.set(id, { id, title: documentTitleOf(declaration.title, entity) });
+    }
+    return { pages: [...found.values()].sort((a, b) => byCodePoint(a.id, b.id)), documents };
+  }
+
+  /** The document entities a page stands for, by durable page id, digested as the page renders them. */
+  private documentDigests(context: { manifest: KindsManifest; ctx: RenderContext }): Map<string, string> {
+    const out = new Map<string, string>();
+    for (const entity of context.ctx.docEntities.values()) {
+      const declaration = context.manifest.kinds.get(entity.kind);
+      if (declaration?.source !== 'document') continue;
+      out.set(entity.id, canonicalJsonDigest({
+        kind: entity.kind,
+        title: entity.title,
+        pageTitle: documentTitleOf(declaration.title, entity),
+        identifier: entity.identifier,
+        repo: entity.repo,
+        path: entity.path,
+        anchor: entity.anchor,
+        aliases: entity.aliases,
+        text: entity.text,
+        language: context.ctx.language,
+        localizedStatement: context.ctx.localizedSources.get(entity.id)?.statement ?? null,
+        semantics: entity.semantics,
+        pass: entity.pass,
+        headingPath: entity.headingPath,
+      }));
+    }
+    return out;
+  }
+
+  /** The document entities of the last completed run, or undefined when none is recorded. */
+  private documentBaseline(): Map<string, string> | undefined {
+    if (this.documentBaselineMemo !== undefined) return this.documentBaselineMemo ?? undefined;
+    const baseline = readDocumentPages(this.storeFolder());
+    this.documentBaselineMemo = baseline ?? null;
+    return baseline;
   }
 
   /** Records what the run changed: in the fill's state, beside its store, and to the streams. */
@@ -951,8 +1087,11 @@ export class KnowledgeProduct {
     // A run that did not finish changed nothing the wiki may claim; one whose boundary is unknown would be a guess.
     if (before === undefined || this.fill.state !== 'done' || this.writer.state === 'failed') return;
     let changed: ChangedPage[];
+    let documents: Map<string, string>;
     try {
-      changed = await this.pagesChangedSince(before);
+      const result = await this.pagesChangedSince(before);
+      changed = result.pages;
+      documents = result.documents;
     } catch (error) {
       this.options.errorLog?.(`the knowledge wiki could not list the pages the fill of ${this.storeFolder()} changed: ${error instanceof Error ? error.message : String(error)}`);
       return;
@@ -961,9 +1100,15 @@ export class KnowledgeProduct {
     this.changedPages = changed;
     this.changedLoaded = true;
     try {
-      await writeFile(join(this.storeFolder(), 'changed-pages.json'), `${JSON.stringify({ finishedAt: this.fill.finishedAt ?? null, pages: changed })}\n`, 'utf8');
+      await writeFile(this.changedPagesFile(), `${JSON.stringify({ startedAt: this.fill.startedAt ?? null, finishedAt: this.fill.finishedAt ?? null, pages: changed })}\n`, 'utf8');
     } catch (error) {
       this.options.errorLog?.(`the knowledge wiki could not record which pages the fill of ${this.storeFolder()} changed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    try {
+      await writeFile(this.documentPagesFile(), `${JSON.stringify({ startedAt: this.fill.startedAt ?? null, finishedAt: this.fill.finishedAt ?? null, entities: Object.fromEntries(documents) })}\n`, 'utf8');
+      this.documentBaselineMemo = documents;
+    } catch (error) {
+      this.options.errorLog?.(`the knowledge wiki could not record the document entities of the fill of ${this.storeFolder()}: ${error instanceof Error ? error.message : String(error)}`);
     }
     this.notify();
   }
@@ -972,18 +1117,7 @@ export class KnowledgeProduct {
   private lastChangedPages(): ChangedPage[] | undefined {
     if (this.changedLoaded) return this.changedPages;
     this.changedLoaded = true;
-    try {
-      const kept = JSON.parse(readFileSync(join(this.storeFolder(), 'changed-pages.json'), 'utf8')) as { finishedAt?: unknown; pages?: unknown };
-      if (kept.finishedAt !== (this.lastFillAt() ?? null) || !Array.isArray(kept.pages)) return undefined;
-      const pages: ChangedPage[] = [];
-      for (const entry of kept.pages) {
-        const page = entry as { id?: unknown; title?: unknown } | null;
-        if (page !== null && typeof page === 'object' && typeof page.id === 'string' && typeof page.title === 'string') pages.push({ id: page.id, title: page.title });
-      }
-      this.changedPages = pages;
-    } catch {
-      this.changedPages = undefined;
-    }
+    this.changedPages = readChangedPages(this.storeFolder(), this.lastFill());
     return this.changedPages;
   }
 
@@ -1565,11 +1699,13 @@ export class KnowledgeProduct {
     }
   }
 
-  /** When the last fill of this product ended, as kept beside its store; absent when none was recorded. */
-  private lastFillAt(): string | undefined {
+  /** The run last recorded as finished, with the start that tells it from an earlier one; absent when none was recorded. */
+  private lastFill(): { startedAt: string | null; finishedAt: string } | undefined {
     try {
-      const finished = (JSON.parse(readFileSync(join(this.storeFolder(), 'last-fill.json'), 'utf8')) as { finishedAt?: unknown }).finishedAt;
-      return typeof finished === 'string' ? finished : undefined;
+      const kept = JSON.parse(readFileSync(join(this.storeFolder(), 'last-fill.json'), 'utf8')) as { startedAt?: unknown; finishedAt?: unknown };
+      if (typeof kept.finishedAt !== 'string') return undefined;
+      if (kept.startedAt !== undefined && kept.startedAt !== null && typeof kept.startedAt !== 'string') return undefined;
+      return { startedAt: typeof kept.startedAt === 'string' ? kept.startedAt : null, finishedAt: kept.finishedAt };
     } catch {
       return undefined;
     }
@@ -1601,7 +1737,13 @@ export class KnowledgeProduct {
       filled: this.pins.size > 0,
       incomplete,
       fill: this.fill.state === 'idle' && this.pins.size > 0 && !incomplete
-        ? { state: 'done', ...(this.lastFillAt() === undefined ? {} : { finishedAt: this.lastFillAt()! }), ...(this.lastChangedPages() === undefined ? {} : { changed: this.lastChangedPages()! }) }
+        ? (() => {
+            const last = this.lastFill();
+            const changed = this.lastChangedPages();
+            return last === undefined
+              ? { state: 'done' as const, ...(changed === undefined ? {} : { changed }) }
+              : { state: 'done' as const, finishedAt: last.finishedAt, ...(changed === undefined ? {} : { changed }) };
+          })()
         : this.fill,
       writer: this.writer,
       bounds: WRITER_BOUNDS,

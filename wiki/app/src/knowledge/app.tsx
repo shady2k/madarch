@@ -406,6 +406,8 @@ export function SyncButton({ status, refresh }: { status: WikiStatus; refresh: (
           </div>
           {fill.state === 'failed' ? (
             <div className="text-small" data-testid="sync-failed"><FailureNote scope="fill" code={fill.code} message={fill.message} /></div>
+          ) : writer.state === 'failed' ? (
+            <div className="text-small" data-testid="sync-writer-failed"><FailureNote scope="writer" code={writer.code} message={writer.message} /></div>
           ) : changed === undefined ? (
             <p className="m-0 text-small text-muted" data-testid="sync-unknown">{t('knowledge.syncUnknown')}</p>
           ) : changed.length === 0 ? (

@@ -594,6 +594,28 @@ describe('the sync button', () => {
     }
   });
 
+  test('a run whose enrichment failed shows the writer\'s failure, not an unavailable change list', async () => {
+    stubFetch([]);
+    const container = into(bar(status(), () => undefined));
+    await until(() => container.querySelector('[data-testid=sync]') !== null, 'the sync button');
+    (container.querySelector('[data-testid=sync]') as HTMLButtonElement).click();
+    rendered!.render(bar(status({ fill: { state: 'running', startedAt: '2026-10-27T09:10:00.000Z' } }), () => undefined));
+    await until(() => (container.querySelector('[data-testid=sync]') as HTMLButtonElement).disabled, 'the spent button');
+    // The code fill completed; the agent's stage failed. The changed-page list was not recorded, and that is not
+    // a reason to tell the reader it could not be listed: the failure is what happened.
+    rendered!.render(bar(status({
+      fill: { state: 'done', startedAt: '2026-10-27T09:10:00.000Z', finishedAt: '2026-10-27T09:12:00.000Z' },
+      writer: { state: 'failed', agent: { id: 'codex', label: 'Codex' }, units: [{ unit: 'product:shop', path: 'docs/product.md', state: 'failed' }], code: 'units', message: 'the product page was not written: the agent refused 5 writes' },
+    }), () => undefined));
+    await until(() => container.querySelector('[data-testid=sync-result]') !== null, 'the ended result');
+    const note = container.querySelector('[data-testid=sync-writer-failed]')!;
+    expect(note.querySelector('[data-testid=failure-note]')!.getAttribute('data-code')).toBe('units');
+    (note.querySelector('[data-testid=failure-details]') as HTMLButtonElement).click();
+    await until(() => note.querySelector('[data-testid=failure-detail]') !== null, 'the failure detail');
+    expect(note.querySelector('[data-testid=failure-detail]')!.textContent).toContain('the agent refused 5 writes');
+    expect(container.querySelector('[data-testid=sync-unknown]')).toBeNull();
+  });
+
   test('a run that failed opens with its failure and no list', async () => {
     stubFetch([]);
     const container = into(bar(status(), () => undefined));

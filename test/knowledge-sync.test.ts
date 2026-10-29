@@ -1,8 +1,9 @@
 /**
  * Sync in the top bar (madarch-u3vw2): the one refresh the wiki has, and what it changed. The fill of the generated
- * training repository is the real one; the product's two Markdown pages stand as an agent wrote them, and one commit
- * adds a function to a file the pages' statements stand on. The status the Sync button reads then names the pages the
- * run changed — the file's page and its new function's page — and every page it names answers at its address.
+ * training repository is the real one; the product's three Markdown pages stand as an agent wrote them. One commit then
+ * changes a grounded function, adds another, and edits a glossary definition. The status the Sync button reads names
+ * the pages the run changed — the file, both functions, the statement's owning page and the glossary term's document
+ * page — by the titles their own pages show, and every page it names answers at its address.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
@@ -54,6 +55,23 @@ beforeAll(async () => {
   mkdirSync(home);
   const folder = makeProduct(home, 'shop', repository, 'training');
   writeSamplePages(folder);
+  // A page whose statement is grounded in the function this test changes, but which names no relation to it: only the
+  // statement's own owning page says the page changed.
+  writeFileSync(join(folder, 'docs/domains/checkout.md'), `---
+id: domain:checkout
+kind: domain
+title: Checkout
+producer: agent
+---
+Checkout asks the payment service to take the card's amount.[^1]
+
+[^1]: [pay](madarch:${PAY})
+`);
+  // A page's title comes from its kind (`title: name`), never from the label: a symbol labelled `PaymentService.pay`
+  // is called `pay`, and the changed-page list must say what its page says.
+  const kindsFile = join(folder, 'madarch/kinds.yaml');
+  const kinds = readFileSync(kindsFile, 'utf8');
+  writeFileSync(kindsFile, kinds.replace('  code.symbol:\n    template: templates/symbol.md\n', '  code.symbol:\n    template: templates/symbol.md\n    title: name\n'));
   const app = join(work, 'app');
   mkdirSync(app);
   writeFileSync(join(app, 'index.html'), '<!doctype html><title>app</title><div id="root"></div>');
@@ -67,13 +85,17 @@ afterAll(async () => {
 }, 60_000);
 
 describe('the sync of the training product', () => {
-  test('the first fill lists the pages it wrote, an unchanged refresh changes nothing, and a new commit names the page of the file it touched and the page of the function it added', async () => {
+  test('the first fill lists the pages it wrote, an unchanged refresh changes nothing, and one commit names its code pages, the statement\'s owning page and the changed glossary term', async () => {
     const first = await refresh('shop');
     expect(first.fill.state).toBe('done');
     const firstChanged: { id: string; title: string }[] = first.fill.changed;
     expect(Array.isArray(firstChanged)).toBe(true);
-    // The first fill wrote every page the product has: the two Markdown pages and the code's pages.
+    // The first fill wrote every page the product has: the three Markdown pages, the code's pages and the document
+    // passages, each named by the durable id its page opens at.
     expect(firstChanged.map((page) => page.id)).toEqual(expect.arrayContaining(['product:shop', 'domain:payment', PAY]));
+    expect(firstChanged.some((page) => page.id.startsWith('doc:'))).toBe(true);
+    const order = firstChanged.find((page) => page.id.startsWith('doc:') && page.title === 'Order');
+    expect(order).toBeDefined();
     const missing: string[] = [];
     for (const page of firstChanged) {
       expect(page.title.length).toBeGreaterThan(0);
@@ -84,9 +106,14 @@ describe('the sync of the training product', () => {
     const unchanged = await refresh('shop');
     expect(unchanged.fill).toMatchObject({ state: 'done', changed: [] });
 
-    // One commit, one new function in a file the sample pages stand on.
+    // One commit: a document definition changes, a function changes (its statement's ground moves) and another is
+    // added, both in a file the sample pages stand on.
+    const glossary = join(work, 'training', 'docs/glossary.md');
+    const glossaryText = readFileSync(glossary, 'utf8');
+    writeFileSync(glossary, glossaryText.replace('- **Order** - one purchase: its lines, prices and a status.', '- **Order** - one purchase: its lines, prices, status and who bought it.'));
     const file = join(work, 'training', PAYMENT_SERVICE);
-    writeFileSync(file, `${readFileSync(file, 'utf8')}\nexport function refundNotes(): string {\n  return "refunds are noted";\n}\n`);
+    const source = readFileSync(file, 'utf8').replace('  async pay(request: PayRequest): Promise<Payment> {\n', '  async pay(request: PayRequest): Promise<Payment> {\n    // A note added by the sync test.\n');
+    writeFileSync(file, `${source}\nexport function refundNotes(): string {\n  return "refunds are noted";\n}\n`);
     git(join(work, 'training'), 'add', '.');
     git(join(work, 'training'), '-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'Note the refund policy in the code');
 
@@ -96,6 +123,11 @@ describe('the sync of the training product', () => {
     const ids = changed.map((page) => page.id);
     expect(ids).toContain(recordKey('code.file', PAYMENT_SERVICE));
     expect(ids).toContain(recordKey('code.symbol', `${PAYMENT_SERVICE}#refundNotes`));
+    expect(ids).toContain(recordKey('code.symbol', `${PAYMENT_SERVICE}#PaymentService.pay`));
+    // The statement's ground changed, so its statement was touched; its owning page is named through statement-of.
+    expect(ids).toContain('domain:checkout');
+    // A document-derived page is a page too: the changed glossary definition is its durable document id, not a graph key.
+    expect(ids).toContain(order!.id);
     expect(ids).not.toContain(recordKey('code.file', 'package.json'));
     // A refresh names the pages it changed, not every page of the product.
     const total = after.kinds.reduce((sum: number, kind: { count: number }) => sum + kind.count, 0);
