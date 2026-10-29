@@ -25,6 +25,15 @@ export const TEMPLATE_FILTERS: readonly string[] = [
   'replace', 'size', 'split', 'strip', 'strip_newlines', 'truncate',
 ];
 
+/**
+ * The tags a page's template may use: what draws a page, and nothing that reaches
+ * beyond the templates it was given. LiquidJS registers more (`include`,
+ * `tablerow`, `cycle`, `increment`, `decrement`, `ifchanged`); those are taken out
+ * of the engine, and the `liquid` tag's own body is parsed by that same engine, so
+ * a tag taken out is unknown there too.
+ */
+export const TEMPLATE_TAGS: readonly string[] = ['if', 'unless', 'for', 'break', 'continue', 'assign', 'capture', 'comment', 'raw', 'case', 'echo', 'liquid', 'layout', 'block', 'render'];
+
 /** The bounds one render runs under: the cooperative ones Liquid itself counts, and the ones the server counts. */
 export interface RenderLimits {
   /** What Liquid counts itself: outputs and tags evaluated, new objects, template characters. */
@@ -45,12 +54,15 @@ export type RenderRequest =
   | { type: 'open'; templates: Readonly<Record<string, string>>; blocks: readonly string[]; limits: RenderLimits }
   | { type: 'render'; id: number; template: string; data: Readonly<Record<string, unknown>> };
 
+/** One segment of the rendered page: its own text, or the place a block stands at, by the sequence number the server gave it. */
+export type RenderPart = string | { block: number };
+
 export type RenderReply =
   | { type: 'ready' }
   | { type: 'refused'; message: string }
   /** A block the page dispatches; the server answers with `blocked`. */
-  | { type: 'block'; id: number; seq: number; name: string; params: Record<string, string>; purpose: BlockPurpose; line: number }
-  | { type: 'rendered'; id: number; text: string; blocks: number }
+  | { type: 'block'; id: number; seq: number; name: string; file: string; line: number; params: Record<string, string>; purpose: BlockPurpose }
+  | { type: 'rendered'; id: number; parts: RenderPart[]; blocks: number }
   | { type: 'failed'; id: number; message: string; file?: string; line?: number };
 
 /** A started render worker: lines in, lines out. */
@@ -67,26 +79,6 @@ export interface RenderWorkerProcess {
 /** The server's answer to one `block` message: the block the server read, as the page shows it. */
 export type BlockAnswer = { type: 'blocked'; seq: number; block: unknown } | { type: 'blocked'; seq: number; message: string };
 
-/** The token a block stands at in the rendered text: a character no template writes, so a text cannot make one. */
-export const BLOCK_TOKEN = '\u0000';
-
-export const blockToken = (seq: number): string => `${BLOCK_TOKEN}m${seq}${BLOCK_TOKEN}`;
-
-/** A written text split at the tokens of its blocks: a text, the number of a block, a text, and so on. */
-export function splitBlocks(text: string): (string | number)[] {
-  const parts: (string | number)[] = [];
-  let at = 0;
-  const pattern = new RegExp(`${BLOCK_TOKEN}m(\\d+)${BLOCK_TOKEN}`, 'g');
-  for (const match of text.matchAll(pattern)) {
-    const start = match.index;
-    if (start > at) parts.push(text.slice(at, start));
-    parts.push(Number(match[1]));
-    at = start + match[0].length;
-  }
-  if (at < text.length) parts.push(text.slice(at));
-  return parts;
-}
-
 /** The position Liquid names in a message, taken out of it: a finding carries the file and the line of its own. */
 function withoutPosition(message: string): string {
   return message.replace(/, file:.*$/, '').replace(/, line:\d+, col:\d+$/, '');
@@ -96,8 +88,12 @@ interface RenderState {
   seq: number;
   blocks: number;
   limits: RenderLimits;
+  /** The segments written so far: text up to each block, and the block itself. */
+  parts: RenderPart[];
+  /** Where the text of the page has been cut for the last block: the emitter's buffer length then. */
+  cut: number;
   cache: Map<string, { seq: number; block: unknown }>;
-  ask: (name: string, params: Record<string, string>, purpose: BlockPurpose, line?: number) => Promise<{ seq: number; block: unknown }>;
+  ask: (name: string, params: Record<string, string>, purpose: BlockPurpose, file: string, line: number) => Promise<{ seq: number; block: unknown }>;
 }
 
 export async function runRenderWorker(io: { lines: AsyncIterable<string>; send: (line: string) => void }): Promise<number> {
@@ -126,7 +122,18 @@ export async function runRenderWorker(io: { lines: AsyncIterable<string>; send: 
     return { type: 'failed', id, message: withoutPosition(message), ...(file === undefined ? {} : { file }), ...(position === undefined ? {} : { line: position[0] }) };
   };
 
-  /** A block tag of the library: `{% graph title="Around this function" depth=2 %}` writes the place of the block. */
+  /**
+   * The page's text as it stands so far, cut where the last block stands: the tag writes no marker into the page, it
+   * cuts the text the emitter holds and takes its own place in the segments (no marker is ever parsed out of a text).
+   */
+  const cutText = (emitter: Emitter, held: RenderState, seq: number): void => {
+    const text = emitter.buffer.slice(held.cut);
+    if (text !== '') held.parts.push(text);
+    held.cut = emitter.buffer.length;
+    held.parts.push({ block: seq });
+  };
+
+  /** A block tag of the library: `{% graph title="Around this function" depth=2 %}` places the block on the page. */
   class BlockTag extends Tag {
     private readonly blockName: string;
     private readonly hash: Hash;
@@ -144,30 +151,35 @@ export async function runRenderWorker(io: { lines: AsyncIterable<string>; send: 
       for (const [name, value] of Object.entries(raw)) {
         if (typeof value === 'string') params[name] = value;
         else if (typeof value === 'number') params[name] = String(value);
-        else throw new Error(`the parameter "${name}" of :::${this.blockName} is not a text or a number`);
+        else throw new Error(`the parameter "${name}" of :${this.blockName} is not a text or a number`);
       }
       if (held.blocks >= held.limits.blocks) throw new Error(`the page dispatches more than ${held.limits.blocks} blocks`);
       held.blocks += 1;
-      const line = this.token.getPosition()[0];
-      const asked = (yield held.ask(this.blockName, params, 'tag', line)) as { seq: number; block: unknown };
-      emitter.write(blockToken(asked.seq));
+      const position = this.token.getPosition();
+      const file = fileOf(this.token) ?? '';
+      const asked = (yield held.ask(this.blockName, params, 'tag', file, position[0] ?? 1)) as { seq: number; block: unknown };
+      cutText(emitter, held, asked.seq);
     }
   }
 
-  /** The page a template reads: its attributes, and the data of a block by its name (`page.callers.total`). */
-  const pageOf = (data: Readonly<Record<string, unknown>>, held: RenderState): object =>
-    new Proxy({}, {
-      has: (_target, name) => typeof name === 'string' && name in data,
-      get: (_target, name) => {
-        if (typeof name !== 'string') return undefined;
-        if (name in data) return data[name];
-        // A block's data is read when a template names it (`{% if page.callers.total > 0 %}`); any other name is a
-        // missing attribute, which strictVariables reports with the template's line.
-        return blockNames.includes(name) ? held.ask(name, {}, 'data') : undefined;
-      },
-      ownKeys: () => Object.keys(data),
-      getOwnPropertyDescriptor: (_target, name) => (typeof name === 'string' && name in data ? { configurable: true, enumerable: true, value: data[name] } : undefined),
-    });
+  /**
+   * The page a template reads: its attributes, and a block's data by its name
+   * (`page.callers.total`). The block names are own properties of the page — a
+   * plain object whose getters ask the server only when the template reads them,
+   * which is what Liquid's own-property-only lookup permits.
+   */
+  const pageOf = (data: Readonly<Record<string, unknown>>, held: RenderState): object => {
+    const page: Record<string, unknown> = { ...data };
+    for (const name of blockNames) {
+      if (name in page) continue;
+      Object.defineProperty(page, name, {
+        enumerable: true,
+        configurable: true,
+        get: () => held.ask(name, {}, 'data', '', 1).then((answer) => answer.block),
+      });
+    }
+    return page;
+  };
 
   const open = (request: Extract<RenderRequest, { type: 'open' }>): void => {
     templates = request.templates;
@@ -190,6 +202,8 @@ export async function runRenderWorker(io: { lines: AsyncIterable<string>; send: 
     });
     for (const name of request.blocks) engine.registerTag(name, BlockTag);
     for (const name of Object.keys(filters)) if (!TEMPLATE_FILTERS.includes(name)) engine.unregisterFilter(name);
+    // The tags the engine registers and a page may not use are taken out of its registry: the list above is what is left.
+    for (const name of Object.keys(engine.tags)) if (!TEMPLATE_TAGS.includes(name) && !request.blocks.includes(name)) delete (engine.tags as Record<string, unknown>)[name];
     send({ type: 'ready' });
   };
 
@@ -199,8 +213,8 @@ export async function runRenderWorker(io: { lines: AsyncIterable<string>; send: 
       return;
     }
     const held: RenderState = {
-      seq: 0, blocks: 0, limits, cache: new Map(),
-      ask: (name, params, purpose, line) => {
+      seq: 0, blocks: 0, limits, parts: [], cut: 0, cache: new Map(),
+      ask: (name, params, purpose, file, line) => {
         const key = `${purpose === 'tag' ? '' : 'data'}|${name}|${JSON.stringify(params)}`;
         const cached = held.cache.get(key);
         if (cached !== undefined) return Promise.resolve(cached);
@@ -210,7 +224,7 @@ export async function runRenderWorker(io: { lines: AsyncIterable<string>; send: 
             resolve: (block) => { held.cache.set(key, { seq, block }); resolve({ seq, block }); },
             reject,
           });
-          send({ type: 'block', id: request.id, seq, name, params, purpose, line: line ?? 1 });
+          send({ type: 'block', id: request.id, seq, name, file, line, params, purpose });
         });
       },
     };
@@ -218,8 +232,10 @@ export async function runRenderWorker(io: { lines: AsyncIterable<string>; send: 
     try {
       // `templateLimit` counts the outputs and tags one render evaluates; it is per render, so it is named here.
       const text = await engine.renderFile(request.template, { ...request.data, page: pageOf(request.data, held) }, { templateLimit: limits.templateLimit });
-      if (text.length > limits.outputChars) throw new Error(`the page writes more than ${limits.outputChars} characters`);
-      send({ type: 'rendered', id: request.id, text, blocks: held.blocks });
+      if (held.cut < text.length) held.parts.push(text.slice(held.cut));
+      held.cut = text.length;
+      if (held.parts.reduce((sum, part) => sum + (typeof part === 'string' ? part.length : 0), 0) > limits.outputChars) throw new Error(`the page writes more than ${limits.outputChars} characters`);
+      send({ type: 'rendered', id: request.id, parts: held.parts, blocks: held.blocks });
     } catch (error) {
       send(refusal(request.id, error));
     } finally {
@@ -246,3 +262,4 @@ export async function runRenderWorker(io: { lines: AsyncIterable<string>; send: 
   for await (const line of io.lines) handle(line);
   return 0;
 }
+

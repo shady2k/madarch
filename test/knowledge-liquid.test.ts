@@ -8,11 +8,10 @@
  * engine's output.
  */
 import { afterEach, describe, expect, test } from 'bun:test';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { closeRenderWorkers, renderLiquidPage, renderWorkers, templateSetOf } from '../src/knowledge/liquid.js';
-import { BLOCK_TOKEN, splitBlocks } from '../src/knowledge/render-worker.js';
+import { closeRenderWorkers, renderLiquidPage, renderWorkers, residentMiB, templateSetOf } from '../src/knowledge/liquid.js';
 import type { Block } from '../src/knowledge/model.js';
 import { blockIdentity } from '../src/knowledge/template.js';
 
@@ -41,7 +40,7 @@ async function draw(
   folder: string,
   template: string,
   data: Record<string, unknown> = {},
-  options: { defer?: boolean; deferred?: readonly string[]; only?: string; render?: (name: string, params: Readonly<Record<string, string>>, line: number) => Promise<Block> } = {},
+  options: { defer?: boolean; deferred?: readonly string[]; only?: string; render?: (name: string, params: Readonly<Record<string, string>>, file: string, line: number) => Promise<Block> } = {},
 ): Promise<{ blocks: Block[]; findings: { file: string; line: number; message: string }[]; refused?: string }> {
   return renderLiquidPage({
     productFolder: folder,
@@ -123,7 +122,7 @@ describe('the blocks of the library', () => {
     const asked: [string, Record<string, string>, number][] = [];
     const folder = product({ 'templates/page.liquid': 'before\n{% related title="Files" relation="code.contains" depth=3 limit=60 %}\nafter' });
     const drawn = await draw(folder, 'templates/page.liquid', {}, {
-      render: async (name, params, line) => { asked.push([name, { ...params }, line]); return related(String(params['title'])); },
+      render: async (name, params, _file, line) => { asked.push([name, { ...params }, line]); return related(String(params['title'])); },
     });
     expect(asked).toEqual([['related', { title: 'Files', relation: 'code.contains', depth: '3', limit: '60' }, 2]]);
     expect(drawn.blocks.map((block) => block.type)).toEqual(['markdown', 'related', 'markdown']);
@@ -265,8 +264,78 @@ describe('the worker', () => {
     }
   }, 20_000);
 
-  test('a block token never stands in a page\'s text: the text is split at the tokens and nothing else is one', () => {
-    expect(splitBlocks(`a${BLOCK_TOKEN}m1${BLOCK_TOKEN}b`)).toEqual(['a', 1, 'b']);
-    expect(splitBlocks('plain')).toEqual(['plain']);
+  test('the page comes back as its own text and the places its blocks stand, never as a text with markers in it', async () => {
+    const folder = product({ 'templates/page.liquid': 'before {% related title="Files" %} after' });
+    // A page whose own text holds the characters a marker would need is drawn whole: nothing is parsed out of the text.
+    const drawn = await draw(folder, 'templates/page.liquid');
+    // The page's text on either side of the block comes back as its own text, and the block stands between them.
+    expect(drawn.blocks.map((block) => block.type === 'markdown' ? block.markdown : block.type)).toEqual(['before ', 'related', ' after']);
+  });
+});
+
+describe('the review of the engine', () => {
+  test('a block a template tests reads its data through the page, not through a proxy the strict lookup refuses', async () => {
+    const folder = product({
+      'templates/page.liquid': '{% if page.callers.total > 1 %}many: {{ page.callers.total }}{% else %}few{% endif %}\n{% callers title="Callers" %}',
+    });
+    const asked: string[] = [];
+    const drawn = await draw(folder, 'templates/page.liquid', {}, {
+      render: async (name, params) => { asked.push(name); return { type: 'callers', title: String(params['title'] ?? ''), total: 2, rows: [] }; },
+    });
+    expect(drawn.findings).toEqual([]);
+    expect(drawn.blocks.filter((block) => block.type === 'markdown').map((block) => block.type === 'markdown' ? block.markdown : '')).toEqual(['many: 2\n']);
+    // The page's own test of the block asks for its data, and the tag asks for the block itself: one read each.
+    expect(asked).toEqual(['callers', 'callers']);
+    expect(drawn.blocks.filter((block) => block.type === 'callers')).toHaveLength(1);
+  });
+
+  test('a block of a partial answers a problem with the partial\'s own file and line, not the page\'s template', async () => {
+    const folder = product({
+      'templates/page.liquid': 'one\n{% render "./partials/part.liquid" %}',
+      'templates/partials/part.liquid': 'a\nb\n{% nonsense %}',
+    });
+    const drawn = await draw(folder, 'templates/page.liquid');
+    expect(drawn.findings.map((finding) => [finding.file, finding.line])).toEqual([['templates/partials/part.liquid', 3]]);
+  });
+
+  test('a tag outside the allowlist is refused with its file and line, in a page and inside a liquid tag', async () => {
+    for (const text of ['{% include "x.liquid" %}', '{% liquid\ninclude "x.liquid"\n%}']) {
+      const folder = product({ 'templates/page.liquid': text });
+      const drawn = await draw(folder, 'templates/page.liquid');
+      expect(drawn.blocks[0]?.type).toBe('problem');
+      expect(drawn.findings[0]?.file).toBe('templates/page.liquid');
+      expect(drawn.findings[0]?.message).toContain('include');
+    }
+  });
+
+  test('a templates folder that is a link out of the product reads no template, and says so', async () => {
+    const folder = product({ 'templates/page.liquid': 'x' });
+    const outside = product({ 'out/page.liquid': 'outside' });
+    rmSync(join(folder, 'templates'), { recursive: true, force: true });
+    symlinkSync(join(outside, 'out'), join(folder, 'templates'));
+    const set = templateSetOf(folder);
+    expect(Object.keys(set.files)).toEqual([]);
+    expect(set.findings.map((finding) => finding.message).join(' ')).toContain('link');
+    const drawn = await draw(folder, 'templates/page.liquid');
+    expect(drawn.refused).toContain('templates/page.liquid');
+  });
+
+  test('a block read that never answers is stopped by the wall clock, and the next page is drawn', async () => {
+    const folder = product({ 'templates/page.liquid': '{% related title="Slow" %}', 'templates/quick.liquid': 'quick' });
+    const started = Date.now();
+    const drawn = await renderLiquidPage({
+      productFolder: folder, template: 'templates/page.liquid', data: {}, defer: false, deferred: [],
+      bounds: { wallClockMs: 150, memoryMiB: 512 },
+      render: () => new Promise<Block>(() => undefined),
+    });
+    expect(Date.now() - started).toBeLessThan(5_000);
+    expect(drawn.findings[0]?.message).toContain('did not finish in 150 ms');
+    const quick = await draw(folder, 'templates/quick.liquid');
+    expect(quick.blocks).toEqual([{ type: 'markdown', markdown: 'quick' }]);
+  }, 20_000);
+
+  test('the memory of a worker is read on this platform, so the bound stands wherever the binary ships', () => {
+    expect(residentMiB(process.pid)).toBeGreaterThan(0);
+    expect(residentMiB(undefined)).toBeUndefined();
   });
 });

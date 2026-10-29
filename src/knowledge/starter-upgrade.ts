@@ -55,6 +55,12 @@ export interface UpgradeReport {
   readonly written: string[];
   /** Files left as they are because a person edited them (or because nothing shows madarch alone wrote them). */
   readonly kept: string[];
+  /**
+   * The kinds whose template is still an old Markdown one a person edited: the manifest of 0032 names Liquid
+   * templates, and a kind whose `templates/<name>.md` a person wrote keeps that reference, so the page a person
+   * shaped is the page the wiki draws (madarch-u3vw.1).
+   */
+  readonly keptReferences: { kind: string; template: string }[];
   /** What the set holds and the product's manifest lacks. */
   readonly offers: StarterOffer[];
 }
@@ -337,7 +343,7 @@ export function rememberChangedStarterFileIfOwned(productFolder: string, recordF
 
 export function upgradeStarterSet(productFolder: string, recordFile: string): UpgradeReport {
   const record = readRecordSoftly(recordFile);
-  const report: UpgradeReport = { rewritten: [], written: [], kept: [], offers: [] };
+  const report: UpgradeReport = { rewritten: [], written: [], kept: [], offers: [], keptReferences: [] };
   const remembered: Record<string, string> = {};
   for (const starter of STARTER_FILES) {
     const provenance = provenanceOf(productFolder, starter.path, starter.content, record);
@@ -361,6 +367,9 @@ export function upgradeStarterSet(productFolder: string, recordFile: string): Up
     }
   }
   if (Object.keys(remembered).length > 0) remember(recordFile, remembered);
+  // A kind whose old Markdown template a person edited keeps being drawn by that template: the manifest the upgrade
+  // wrote names the Liquid one, and a page a person shaped is not silently replaced by one nobody wrote.
+  if (report.rewritten.includes(KINDS_FILE)) keepPersonTemplates(productFolder, report);
   if (report.kept.includes(KINDS_FILE)) {
     try {
       report.offers.push(...starterOffers(readFileSync(join(productFolder, KINDS_FILE), 'utf8')));
@@ -369,6 +378,52 @@ export function upgradeStarterSet(productFolder: string, recordFile: string): Up
     }
   }
   return report;
+}
+
+
+/**
+ * Whether an old template of the set of 0029 (a `.md` file) carries a person's edit: git tracks it, and either a commit
+ * that is not madarch's touched it or the working copy differs from the committed one. A file nobody tracks shows no
+ * edit (madarch's own `ensureLoopKinds` writes the question and correction templates into a working tree).
+ */
+function personEditedTemplate(productFolder: string, path: string): boolean {
+  const stat = lstatSync(join(productFolder, path), { throwIfNoEntry: false });
+  if (stat === undefined || !stat.isFile()) return false;
+  if (git(productFolder, ['ls-files', '--error-unmatch', '--', path]) === undefined) return false;
+  const subjects = (git(productFolder, ['log', '--format=%s', '--', path]) ?? '').split('\n').filter((line) => line !== '');
+  if (subjects.length === 0 || !subjects.every((subject) => MADARCH_COMMIT_SUBJECTS.includes(subject))) return true;
+  const committed = git(productFolder, ['show', `HEAD:${path}`]);
+  if (committed === undefined) return false;
+  try {
+    return readFileSync(join(productFolder, path), 'utf8') !== committed;
+  } catch {
+    return false;
+  }
+}
+
+/** Points every kind whose old Markdown template a person edited back at it, and says so in the report. */
+function keepPersonTemplates(productFolder: string, report: UpgradeReport): void {
+  const file = join(productFolder, KINDS_FILE);
+  let document: Document;
+  try {
+    document = parseDocument(readFileSync(file, 'utf8'));
+  } catch {
+    return;
+  }
+  const kinds = document.getIn(['kinds']) as { items?: { key: { toJSON(): unknown }; value: { get(key: string): unknown } }[] } | undefined;
+  const items = kinds?.items ?? [];
+  let changed = false;
+  for (const pair of items) {
+    const name = String(pair.key.toJSON());
+    const template = pair.value.get('template');
+    if (typeof template !== 'string' || !template.endsWith('.liquid')) continue;
+    const legacy = template.replace(/\.liquid$/, '.md');
+    if (!personEditedTemplate(productFolder, legacy)) continue;
+    document.setIn(['kinds', name, 'template'], legacy);
+    report.keptReferences.push({ kind: name, template: legacy });
+    changed = true;
+  }
+  if (changed) writeFile(productFolder, KINDS_FILE, document.toString());
 }
 
 /** A record that cannot be read proves nothing; the files are then judged by their history alone. */

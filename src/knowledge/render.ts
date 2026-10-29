@@ -73,7 +73,7 @@ export async function renderPage(ctx: RenderContext, id: string, lang?: string, 
       defer: options.defer === true,
       deferred: [...DEFERRED_BLOCKS],
       ...(options.only === undefined ? {} : { only: options.only }),
-      render: (name, params, line) => renderBlock(ctx, subject, name, params, decl.template, line, lang),
+      render: (name, params, file, line) => renderBlock(ctx, subject, name, params, file === '' ? decl.template : file, line, lang),
     });
     findings.push(...outcome.findings);
     for (const block of outcome.blocks) {

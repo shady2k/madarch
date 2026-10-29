@@ -122,7 +122,7 @@ describe('a manifest and templates only madarch wrote', () => {
   test('a second run changes nothing: the files are the current set', () => {
     const { product, record } = oldProduct();
     upgradeStarterSet(product, record);
-    expect(upgradeStarterSet(product, record)).toEqual({ rewritten: [], written: [], kept: [], offers: [] });
+    expect(upgradeStarterSet(product, record)).toEqual({ rewritten: [], written: [], kept: [], offers: [], keptReferences: [] });
   });
 
   test('the next madarch can move the set on again: what this one wrote is recorded on this machine, committed or not', () => {
@@ -130,6 +130,21 @@ describe('a manifest and templates only madarch wrote', () => {
     upgradeStarterSet(product, record);
     const written = read(product, 'madarch/kinds.yaml');
     expect(provenanceOf(product, 'madarch/kinds.yaml', `${written}# a later version\n`, JSON.parse(readFileSync(record, 'utf8')))).toBe('madarch');
+  });
+
+
+  test('a kind whose old Markdown template a person edited keeps that template, and the upgrade report says so', () => {
+    const { product, record } = oldProduct();
+    // A person edits the old Markdown template of the domain page and commits the edit: the set of 0032 names Liquid
+    // templates, and this kind must keep drawing the template the person shaped (madarch-u3vw.1's review).
+    writeFileSync(join(product, 'templates', 'domain.md'), 'a page of my own\n');
+    git(product, 'commit', '-q', '-m', 'Write the domain page', '--', 'templates/domain.md');
+    const report = upgradeStarterSet(product, record);
+    expect(report.keptReferences).toEqual([{ kind: 'domain', template: 'templates/domain.md' }]);
+    expect(manifestOf(product).kinds.get('domain')?.template).toBe('templates/domain.md');
+    // The other kinds take the set's templates.
+    expect(manifestOf(product).kinds.get('code.service')?.template).toBe('templates/service.liquid');
+    expect(read(product, 'templates/domain.md')).toBe('a page of my own\n');
   });
 
   test('the draft as it was committed, with no change after it, is madarch\'s alone', () => {

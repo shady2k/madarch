@@ -24,13 +24,14 @@
  * for when the page draws that block later.
  */
 import { createHash } from 'node:crypto';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
+import { join, sep } from 'node:path';
 import { selfCommand } from '../product/self-command.js';
 import type { Block } from './model.js';
 import type { Finding } from './kinds.js';
 import { linesOf } from './lines.js';
-import { splitBlocks, type BlockAnswer, type RenderLimits, type RenderReply, type RenderRequest, type RenderWorkerProcess } from './render-worker.js';
+import { type BlockAnswer, type RenderLimits, type RenderPart, type RenderReply, type RenderRequest, type RenderWorkerProcess } from './render-worker.js';
 import { BLOCK_NAMES, blockIdentity } from './template.js';
 import { decodeWire, encodeWire } from './wire.js';
 
@@ -72,6 +73,20 @@ const templateCache = new Map<string, { stamp: string; set: TemplateSet }>();
  */
 export function templateSetOf(productFolder: string): TemplateSet {
   const found: { path: string; mtimeMs: number; size: number }[] = [];
+  const findings: Finding[] = [];
+  // The folder itself is contained first: a `templates` that is a link out of the product would make every path below a
+  // file of somebody else's tree.
+  let root: string | undefined;
+  try {
+    root = realpathSync(join(productFolder, 'templates'));
+    const product = realpathSync(productFolder);
+    if (root !== join(product, 'templates')) {
+      findings.push({ file: 'templates', line: 1, message: `the templates folder is a link to ${root}, outside the product ${product}: no template is read` });
+      root = undefined;
+    }
+  } catch {
+    root = undefined;
+  }
   const walk = (folder: string): void => {
     let entries;
     try {
@@ -85,21 +100,29 @@ export function templateSetOf(productFolder: string): TemplateSet {
       if (entry.isDirectory()) { walk(path); continue; }
       if (!entry.isFile() || !entry.name.endsWith('.liquid')) continue;
       const stat = statSync(join(productFolder, path), { throwIfNoEntry: false });
-      if (stat !== undefined) found.push({ path, mtimeMs: stat.mtimeMs, size: stat.size });
+      // A file's own real path is inside the folder: the walk already skips links, and this is the second showing.
+      if (stat === undefined || (root !== undefined && !realpathSync(join(productFolder, path)).startsWith(`${root}${sep}`) && realpathSync(join(productFolder, path)) !== root)) {
+        findings.push({ file: path, line: 1, message: 'the template is a link or a path outside the templates folder: it is not read' });
+        continue;
+      }
+      found.push({ path, mtimeMs: stat.mtimeMs, size: stat.size });
     }
   };
-  walk('templates');
-  found.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  if (root !== undefined) walk('templates');
   const stamp = found.map((entry) => `${entry.path}:${entry.mtimeMs}:${entry.size}`).join('|');
   const cached = templateCache.get(productFolder);
   if (cached !== undefined && cached.stamp === stamp) return cached.set;
-  const findings: Finding[] = [];
   const files: Record<string, string> = {};
   let chars = 0;
   if (found.length > RENDER_BOUNDS.templateFiles) {
     findings.push({ file: 'templates', line: 1, message: `the product holds ${found.length} templates and a page reads at most ${RENDER_BOUNDS.templateFiles}: the rest are not read` });
   }
   for (const entry of found.slice(0, RENDER_BOUNDS.templateFiles)) {
+    // The caps are read from the sizes the walk took, before a byte is held: a file past them is not opened.
+    if (chars + entry.size > RENDER_BOUNDS.templateChars) {
+      findings.push({ file: entry.path, line: 1, message: `the templates of the product hold more than ${RENDER_BOUNDS.templateChars} characters: this one and the ones after it are not read` });
+      break;
+    }
     let text: string;
     try {
       text = readFileSync(join(productFolder, entry.path), 'utf8');
@@ -108,10 +131,6 @@ export function templateSetOf(productFolder: string): TemplateSet {
       continue;
     }
     chars += text.length;
-    if (chars > RENDER_BOUNDS.templateChars) {
-      findings.push({ file: entry.path, line: 1, message: `the templates of the product hold more than ${RENDER_BOUNDS.templateChars} characters: this one and the ones after it are not read` });
-      break;
-    }
     files[entry.path] = text;
   }
   const digest = createHash('sha256').update(JSON.stringify(files)).digest('hex');
@@ -136,7 +155,7 @@ export interface LiquidPageInput {
   /** One block, by its identity: the block a reader opened later asks for. */
   only?: string;
   /** Reads one block, where the graph and the Markdown are. */
-  render: (name: string, params: Readonly<Record<string, string>>, line: number) => Promise<Block>;
+  render: (name: string, params: Readonly<Record<string, string>>, file: string, line: number) => Promise<Block>;
   limits?: RenderLimits;
   bounds?: { wallClockMs: number; memoryMiB: number };
 }
@@ -180,19 +199,49 @@ export function spawnRenderWorker(): RenderWorkerProcess {
 /** How a worker is started: the production one starts a process of its own; a test names its own. */
 export const renderWorkers: { factory: () => RenderWorkerProcess } = { factory: spawnRenderWorker };
 
-/** The resident memory of a process, when this machine says it; `undefined` where it does not (Linux only). */
-function residentMiB(pid: number | undefined): number | undefined {
+/**
+ * The resident memory of a process, as the machine it runs on says it: `/proc` on
+ * Linux, `ps` on macOS, `tasklist` on Windows — the three the release ships for.
+ * `undefined` when the machine says nothing, and the wall clock and Liquid's own
+ * cooperative limits are then what stands.
+ */
+export function residentMiB(pid: number | undefined): number | undefined {
   if (pid === undefined) return undefined;
   try {
     const found = /VmRSS:\s+(\d+) kB/.exec(readFileSync(`/proc/${pid}/status`, 'utf8'));
-    return found === null ? undefined : Number(found[1]) / 1024;
+    if (found !== null) return Number(found[1]) / 1024;
   } catch {
-    return undefined;
+    // not Linux, or the process is gone
   }
+  const read = (command: string, args: string[]): string | undefined => {
+    try {
+      const run = spawnSync(command, args, { encoding: 'utf8', timeout: 2_000 });
+      return run.status === 0 ? run.stdout : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+  // macOS: `ps -o rss= -p <pid>` answers the resident set in kilobytes.
+  const ps = read('ps', ['-o', 'rss=', '-p', String(pid)]);
+  if (ps !== undefined) {
+    const kilo = Number.parseInt(ps.trim(), 10);
+    if (Number.isFinite(kilo) && kilo > 0) return kilo / 1024;
+  }
+  // Windows: `tasklist /FI "PID eq <pid>" /FO CSV /NH` answers `"name","pid","session","session#","123 K"`.
+  const list = read('tasklist', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH']);
+  if (list !== undefined) {
+    const cells = /"([^"]*)"\s*$/.exec(list.trim().split('\n')[0] ?? '');
+    const kilo = cells === null ? Number.NaN : Number.parseInt(cells[1]!.replace(/[^0-9]/g, ''), 10);
+    if (Number.isFinite(kilo) && kilo > 0) return kilo / 1024;
+  }
+  return undefined;
 }
 
 /** A render stopped past a bound, rather than answered by the templates. */
 type Stop = { stopped: 'time' | 'memory' | 'exit'; detail: string };
+
+/** What a race answers when the bound was passed while a line or a block read was waited for. */
+const STOPPED = Symbol('stopped');
 
 const isStop = (value: RenderReply | Stop): value is Stop => 'stopped' in value;
 
@@ -320,22 +369,30 @@ async function exchange(
   const clock = setTimeout(() => {
     stop = { stopped: 'time', detail: `the template did not finish in ${options.wallClockMs} ms` };
     worker.kill();
+    bounded?.();
   }, options.wallClockMs);
   const memory = setInterval(() => {
     const held = residentMiB(worker.pid);
     if (held !== undefined && held > options.memoryMiB) {
       stop = { stopped: 'memory', detail: `the template held ${Math.round(held)} MiB and a page may hold ${options.memoryMiB}` };
       worker.kill();
+      bounded?.();
     }
   }, 100);
+  // A bound that is passed ends the exchange there and then: a block read that stalls must not hold the page's turn.
+  let bounded: (() => void) | undefined;
+  const bound = new Promise<'stopped'>((resolve) => { bounded = () => resolve('stopped'); });
   try {
     for (;;) {
-      const line = await nextLine(connection);
+      const line = await Promise.race([nextLine(connection), bound.then((held) => held === 'stopped' ? STOPPED : undefined)]);
+      if (line === STOPPED) return stop ?? { stopped: 'exit', detail: 'the render was stopped past a bound' };
       if (line === undefined) return stop ?? { stopped: 'exit', detail: `the worker ended: ${worker.stderr().trim() || 'no message on its error stream'}` };
       const reply = decodeWire<RenderReply | BlockAnswer>(line);
       if (reply.type === 'block') {
         if (options.answer === undefined) return { stopped: 'exit', detail: 'a block was asked for with no page being drawn' };
-        worker.write(encodeWire(await options.answer(reply)));
+        const answered = await Promise.race([options.answer(reply), bound.then((held) => held === 'stopped' ? STOPPED : undefined)]);
+        if (answered === STOPPED) return stop ?? { stopped: 'exit', detail: 'the render was stopped past a bound' };
+        worker.write(encodeWire(answered));
         continue;
       }
       if (reply.type === 'blocked') continue;
@@ -409,7 +466,7 @@ export async function renderLiquidPage(input: LiquidPageInput): Promise<LiquidPa
     if (reply.type !== 'rendered') {
       return { blocks: [], findings, refused: `the worker answered a message no page asked for: ${reply.type}` };
     }
-    return { blocks: assemble(reply.text, answered, input.only), findings };
+    return { blocks: assemble(reply.parts, answered, input.only), findings };
   } finally {
     release(slot);
     if (slot.connection !== undefined && slot.waiting.length === 0) {
@@ -448,7 +505,7 @@ async function answerBlock(input: LiquidPageInput, request: Extract<RenderReply,
     return { type: 'blocked', seq: request.seq, block };
   }
   try {
-    const block = { ...(await input.render(request.name, params, request.line)), name: request.name };
+    const block = { ...(await input.render(request.name, params, request.file === '' ? input.template : request.file, request.line)), name: request.name };
     const size = JSON.stringify(block).length;
     if (size > RENDER_BOUNDS.blockChars) return { type: 'blocked', seq: request.seq, message: `the block ${request.name} of this page is ${size} characters and a page reads at most ${RENDER_BOUNDS.blockChars}` };
     answered.set(request.seq, block);
@@ -459,19 +516,20 @@ async function answerBlock(input: LiquidPageInput, request: Extract<RenderReply,
 }
 
 /**
- * The page's text with its blocks put back where their tokens stand; a text of
- * nothing but space is no block. A token whose block was not answered (the other
- * blocks of a template when one was asked for by its identity) leaves nothing.
+ * The page as the worker answered it: its own text and the places its blocks
+ * stand, put back in order. A text of nothing but space is no block; a block the
+ * server did not answer (the other blocks of a template when one was asked for by
+ * its identity) leaves nothing.
  */
-function assemble(text: string, answered: ReadonlyMap<number, Block>, only?: string): Block[] {
+function assemble(parts: readonly RenderPart[], answered: ReadonlyMap<number, Block>, only?: string): Block[] {
   const blocks: Block[] = [];
-  for (const part of splitBlocks(text)) {
-    if (typeof part === 'number') {
-      const block = answered.get(part);
-      if (block !== undefined) blocks.push(block);
+  for (const part of parts) {
+    if (typeof part === 'string') {
+      if (only === undefined && part.trim() !== '') blocks.push({ type: 'markdown', markdown: part });
       continue;
     }
-    if (only === undefined && part.trim() !== '') blocks.push({ type: 'markdown', markdown: part });
+    const block = answered.get(part.block);
+    if (block !== undefined) blocks.push(block);
   }
   return blocks;
 }
