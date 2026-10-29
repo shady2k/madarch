@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import * as DropdownMenuPrimitive from '@radix-ui/react-dropdown-menu';
-import { AlertTriangleIcon, BookOpenIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, FolderGit2Icon, GlobeIcon, HelpCircleIcon, HomeIcon, LayoutGridIcon, MenuIcon, SettingsIcon, XIcon } from 'lucide-react';
+import { AlertTriangleIcon, BookOpenIcon, CheckIcon, ChevronDownIcon, ChevronRightIcon, FolderGit2Icon, GlobeIcon, HelpCircleIcon, HomeIcon, LayoutGridIcon, MenuIcon, RefreshCwIcon, SettingsIcon, XIcon } from 'lucide-react';
 import { appPath } from '../app-base.js';
 import { setWikiLanguage, type WikiLanguage } from '../i18n.js';
 import { navigateTo } from '../hold.js';
@@ -307,10 +307,14 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
       const below = window.innerHeight - rect.bottom - 12;
       const over = rect.top - 12;
       const up = below < 160 && over > below;
+      // The panel is as wide as the window leaves it (`min(26rem, 92vw)`), and it stands inside the window even when
+      // the badge sits in the middle of the bar: its right edge never reaches past the window's, nor its left past the
+      // margin. Above a phone's width the badge is the bar's last control and the two rights are the same one.
+      const width = Math.min(26 * 16, window.innerWidth * 0.92);
       setPlace({
         top: up ? null : rect.bottom + 7,
         bottom: up ? window.innerHeight - rect.top + 7 : null,
-        right: Math.max(8, window.innerWidth - rect.right),
+        right: Math.max(8, Math.min(window.innerWidth - rect.right, window.innerWidth - 8 - width)),
         maxHeight: Math.max(0, Math.min(320, up ? over : below)),
       });
     }
@@ -505,8 +509,10 @@ export function SyncButton({ status, refresh }: { status: WikiStatus; refresh: (
   const changed = fill.changed;
   return (
     <span className="relative flex items-center">
-      <Button variant="default" size="default" className="sync-button" disabled={busy} onClick={press} title={t('knowledge.syncHint')} data-testid="sync">
-        {busy ? t('knowledge.syncRunning') : t('knowledge.sync')}
+      {/* Below a phone's width the name is its icon, and the whole sentence stays the button's name and its tooltip. */}
+      <Button variant="default" size="default" className="sync-button" disabled={busy} onClick={press} aria-label={busy ? t('knowledge.syncRunning') : t('knowledge.sync')} title={t('knowledge.syncHint')} data-testid="sync">
+        <RefreshCwIcon aria-hidden="true" className="sync-icon size-4" data-testid="sync-icon" />
+        <span className="sync-words">{busy ? t('knowledge.syncRunning') : t('knowledge.sync')}</span>
       </Button>
       {open && (
         <div role="region" aria-label={t('knowledge.syncResult')} className="absolute right-0 top-[calc(100%+8px)] z-50 w-[min(28rem,92vw)] rounded-[var(--radius-card)] border border-line bg-page p-3 text-left shadow-lg" data-testid="sync-result">

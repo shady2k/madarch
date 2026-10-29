@@ -255,8 +255,32 @@ runDescribe('the fill a reader meets', () => {
     expect(narrowChip.height).toBeLessThanOrEqual(narrowChip.lineHeight + 8);
     expect(narrowChip.scrollWidth).toBeLessThanOrEqual(narrowChip.width + 1);
     expect(await page.$eval('[data-testid=fill-chip-dot]', (element) => element.getBoundingClientRect().width)).toBeGreaterThan(0);
-    // A run is under way, so the sync button says so and is spent; with nothing running it says what it does.
-    expect(await page.$eval('[data-testid=sync]', (element) => element.textContent?.trim())).toBe('Синхронизация…');
+    // A run is under way, so the sync button says so and is spent; with nothing running it says what it does. At 390 px
+    // the button is its icon: the whole sentence stays its name and its tooltip.
+    const sync = await page.$eval('[data-testid=sync]', (element) => {
+      const icon = element.querySelector('.sync-icon') as HTMLElement;
+      const words = element.querySelector('.sync-words') as HTMLElement;
+      return { text: element.textContent?.trim(), name: element.getAttribute('aria-label'), iconWidth: Math.round(icon.getBoundingClientRect().width), wordsWidth: Math.round(words.getBoundingClientRect().width) };
+    });
+    expect(sync.text).toBe('Синхронизация…');
+    expect(sync.name).toBe('Синхронизация…');
+    expect(sync.iconWidth).toBeGreaterThan(0);
+    expect(sync.wordsWidth).toBe(0);
+    // The bar stands in one row: every control the reader can press shares the bar's line, and the bar is as tall as
+    // that line — a second row would take the badge or a control below it (madarch-m38l.23).
+    const barRows = await page.evaluate(() => {
+      const header = document.querySelector('.shell-toolbar') as HTMLElement;
+      const box = header.getBoundingClientRect();
+      const centers = [...header.querySelectorAll<HTMLElement>('button, a[href]')]
+        .filter((element) => element.closest('[data-testid=fill-menu]') === null && element.closest('[data-testid=sync-result]') === null)
+        .map((element) => element.getBoundingClientRect())
+        .filter((rect) => rect.width > 0 && rect.height > 0)
+        .map((rect) => rect.top + rect.height / 2);
+      return { height: Math.round(box.height), centers };
+    });
+    expect(barRows.centers.length).toBeGreaterThanOrEqual(5);
+    expect(barRows.height).toBeLessThanOrEqual(59);
+    expect(Math.max(...barRows.centers) - Math.min(...barRows.centers)).toBeLessThanOrEqual(1);
     // The home page says the same in one line, with no paths and no list of pages.
     const line = await page.$eval('[data-testid=writer-line-words]', (element) => element.textContent ?? '');
     expect(line).toContain(`пишет страницы: записано 1 из ${counted.total}`);

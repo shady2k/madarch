@@ -96,39 +96,30 @@
 }
 
 @media (max-width: 700px) {
+  /* The top bar stays one row at a phone's width: a flex line that never wraps, its controls shrinking to what they
+     need — the badge keeps its state's icon and its count, «Синхронизировать» its icon, and every whole sentence stays
+     the control's name for a screen reader. */
   .shell-toolbar {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 8px;
     min-height: 58px;
   }
 
+  /* The cluster carries no box of its own: its controls are the bar's own flex items, and each may shrink. */
   .shell-toolbar > span:last-child {
     display: contents;
   }
 
-  .shell-breadcrumb {
-    grid-column: 2;
-    grid-row: 1;
+  .shell-toolbar > .shell-breadcrumb {
+    min-inline-size: 0;
+    flex: 1 1 auto;
   }
 
-  .shell-menu {
-    grid-column: 1;
-    grid-row: 1;
-  }
-
-  .shell-focus {
-    grid-column: 3;
-    grid-row: 1;
-  }
-
-  .shell-language {
-    grid-column: 4;
-    grid-row: 1;
-  }
-
-  .shell-context {
-    grid-column: 5;
-    grid-row: 1;
+  .shell-toolbar > span:last-child > * {
+    flex: 0 1 auto;
+    min-inline-size: 0;
   }
 
   .shell-document {
@@ -1736,9 +1727,28 @@ a.graph-diagram-element-label:hover {
   text-overflow: ellipsis;
 }
 
+/* «Синхронизировать» is its icon below a phone's width; its whole sentence stays the button's accessible name. */
+.sync-icon {
+  display: none;
+}
+
+/* Below a phone's width the badge is its state's icon and how far the run has come, on one line; the whole sentence
+   is its name and the popover's. */
 @media (max-width: 700px) {
-  .fill-chip-writing .fill-chip-words {
+  .fill-chip .fill-chip-words {
     display: none;
+  }
+
+  .sync-icon {
+    display: inline-block;
+  }
+
+  .sync-words {
+    display: none;
+  }
+
+  .sync-button {
+    padding-inline: 8px;
   }
 }
 

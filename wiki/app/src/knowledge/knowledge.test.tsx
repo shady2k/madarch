@@ -664,6 +664,11 @@ describe('the sync button', () => {
     const button = container.querySelector('[data-testid=sync]') as HTMLButtonElement;
     expect(button.textContent).toBe('Sync');
     expect(button.disabled).toBe(false);
+    // The whole sentence is the button's name, and its icon stands beside the words: below a phone's width the words go
+    // and the name stays (madarch-m38l.23).
+    expect(button.getAttribute('aria-label')).toBe('Sync');
+    expect(button.querySelector('.sync-words')!.textContent).toBe('Sync');
+    expect(button.querySelector('.sync-icon')).not.toBeNull();
     button.click();
     await until(() => refreshed === 1, 'the refresh');
     // The press is the refresh the fill menu makes: the same request, the agent saved for the product named.
@@ -672,6 +677,7 @@ describe('the sync button', () => {
     rendered!.render(bar(status({ fill: { state: 'running', startedAt: '2026-10-27T09:10:00.000Z', commit: 3, commits: 9 } }), () => { refreshed += 1; }));
     await until(() => (container.querySelector('[data-testid=sync]') as HTMLButtonElement).disabled, 'the spent button');
     expect(container.querySelector('[data-testid=sync]')!.textContent).toBe('Syncing…');
+    expect(container.querySelector('[data-testid=sync]')!.getAttribute('aria-label')).toBe('Syncing…');
     // When it ends the changed pages open by themselves, each one a link to its page.
     rendered!.render(bar(status({ fill: { state: 'done', finishedAt: '2026-10-27T09:12:00.000Z', changed: [{ id: 'code.file:src/a.ts', title: 'a.ts' }, { id: 'domain:payment', title: 'Payment' }] } }), () => { refreshed += 1; }));
     await until(() => container.querySelector('[data-testid=sync-changed]') !== null, 'the changed pages');
@@ -810,11 +816,13 @@ describe('the badge and the panel it opens', () => {
       let panel = container.querySelector('[data-testid=fill-menu]') as HTMLElement;
       // What the window leaves below the badge, less a margin: 400 - 84 - 12.
       expect(panel.style.maxHeight).toBe('304px');
-      // It hangs from the badge's lower edge, its right edge on the badge's, and it stays where the window scrolls.
+      // It hangs from the badge's lower edge and stays where the window scrolls. Its right edge stands on the badge's
+      // when that keeps the panel inside the window; here the badge sits at 300 of a 1024 window and the panel is 416
+      // wide, so the panel moves left and its right edge is the window's, less the margin and its own width.
       expect(panel.style.position).toBe('fixed');
       expect(panel.style.top).toBe('91px');
       expect(panel.style.bottom).toBe('');
-      expect(panel.style.right).toBe(`${window.innerWidth - 300}px`);
+      expect(panel.style.right).toBe(`${window.innerWidth - 8 - 26 * 16}px`);
       expect(panel.className).toContain('overflow-y-auto');
       // The languages are spent while the run is under way.
       expect([...panel.querySelectorAll<HTMLInputElement>('[data-testid=menu-language] input')].map((radio) => radio.disabled)).toEqual([true, true]);
