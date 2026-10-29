@@ -139,9 +139,13 @@ export interface WriterOptions {
    * pass runs and the run is exactly what it was before this change.
    */
   readonly editorial?: {
+    /** The host's judge of first resort; it reads the whole pack before the editing role does. */
+    readonly jev?: EditorialJudge;
     readonly judge?: EditorialJudge;
     readonly maxRequestsPerPage?: number;
     readonly journal?: Journal;
+    /** Why there is no editing judge; the deterministic checks still run and the journal says this. */
+    readonly skipReason?: string;
   };
 }
 
@@ -836,8 +840,11 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
       documentEntities: options.documentEntities ?? [],
       graph: view,
       maxPerPage: options.editorial.maxRequestsPerPage ?? DEFAULT_EDITORIAL_REQUESTS_PER_PAGE,
+      point,
+      ...(options.editorial.jev === undefined ? {} : { jev: options.editorial.jev }),
       ...(options.editorial.judge === undefined ? {} : { judge: options.editorial.judge }),
       ...(options.editorial.journal === undefined ? {} : { journal: options.editorial.journal }),
+      ...(options.editorial.skipReason === undefined ? {} : { skipReason: options.editorial.skipReason }),
     });
     editorialFindings.push(...result.findings);
     revisionRequests.push(...result.requests);

@@ -123,6 +123,63 @@ describe('the editing judge (madarch-ztyq.9)', () => {
     expect(journal.records.filter((record) => record.kind === 'revision-request')).toHaveLength(result.requests.length);
   });
 
+  test('the host’s jev reads first, and the editing role is asked only about the pages the jev did not read', async () => {
+    const order: string[] = [];
+    const jev: EditorialJudge = {
+      async judge(pack) {
+        order.push(`jev:${pack.pages.map((page) => page.path).join(',')}`);
+        return {
+          requests: [{ page: 'docs/product.md', passage: 'window', change: 'Say who pays the refund.', why: 'A newcomer cannot tell.' }],
+          unreviewedPages: ['docs/domains/refunds.md'],
+        };
+      },
+    };
+    const role: EditorialJudge = {
+      async judge(pack) {
+        order.push(`editing:${pack.pages.map((page) => page.path).join(',')}`);
+        return { requests: [{ page: 'docs/domains/refunds.md', passage: 'window', change: 'Say when the window starts.', why: 'It is not stated here.' }] };
+      },
+    };
+    const result = await runEditorialPass({ pages: [refundA, refundB], documentEntities: [], graph, jev, judge: role, maxPerPage: 2 });
+    expect(order).toEqual(['jev:docs/product.md,docs/domains/refunds.md', 'editing:docs/domains/refunds.md']);
+    expect(result.requests.filter((request) => request.source === 'jev')).toHaveLength(1);
+    expect(result.requests.filter((request) => request.source === 'editing')).toHaveLength(1);
+  });
+
+  test('a jev that read every page is the only model asked; a jev that fails hands every page to the editing role', async () => {
+    let roleCalls = 0;
+    const readAll: EditorialJudge = { judge: async () => ({ requests: [] }) };
+    const first = await runEditorialPass({
+      pages: [refundA, refundB], documentEntities: [], graph, maxPerPage: 2,
+      jev: readAll,
+      judge: { judge: async () => { roleCalls += 1; return { requests: [] }; } },
+    });
+    expect(first.errors).toEqual([]);
+    expect(roleCalls).toBe(0);
+    const failed = await runEditorialPass({
+      pages: [refundA, refundB], documentEntities: [], graph, maxPerPage: 2,
+      jev: { judge: async () => { throw new Error('the host judge is down'); } },
+      judge: { judge: async () => { roleCalls += 1; return { requests: [] }; } },
+    });
+    expect(failed.errors.some((error) => error.includes('the host judge is down'))).toBe(true);
+    expect(roleCalls).toBe(1);
+  });
+
+  test('with no editing judge the deterministic checks still run, and the journal says why the reading part was skipped', async () => {
+    const journal = memoryJournal('run-editorial-skip');
+    const result = await runEditorialPass({
+      pages: [refundA, refundB], documentEntities: [], graph, maxPerPage: 2, journal,
+      point: 'batch',
+      skipReason: 'the editing role resolves to no pair',
+    });
+    expect(result.skipped).toBe('the editing role resolves to no pair');
+    expect(result.findings.some((finding) => finding.kind === 'conflicting-fact')).toBe(true);
+    expect(result.requests.some((request) => request.source === 'deterministic')).toBe(true);
+    const skip = journal.records.find((record) => record.kind === 'editorial-skip');
+    expect(skip?.arguments).toMatchObject({ reason: 'the editing role resolves to no pair', point: 'batch' });
+    expect(journal.records.find((record) => record.kind === 'revision-request')?.arguments).toMatchObject({ point: 'batch' });
+  });
+
   test('the pass itself writes no page', async () => {
     const writes: string[] = [];
     const before = [refundA.text, refundB.text];

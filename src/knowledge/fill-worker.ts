@@ -27,7 +27,9 @@ import { briefsFor, neededFrom, neededFromPaths, planRefresh } from '../loop/pla
 import { planTaskRun } from '../loop/task-run.js';
 import type { EditBrief } from '../writer/edit.js';
 import type { UnitsInput, UnitsNeeded } from '../writer/run.js';
-import { fillWriterState, fsSink, PRODUCT_PATH, productSlug, runWriter, type ToolClient, type UnitAgent } from '../writer/index.js';
+import { editorialAcpJudge, fileJournal, fillWriterState, fsSink, journalFolder, newRunId, PRODUCT_PATH, productSlug, runWriter, type EditorialJudge, type Journal, type ToolClient, type UnitAgent, type WriterReport } from '../writer/index.js';
+import type { DraftEnv } from '../product/home.js';
+import { roleOf, type ModelPair } from './model-roles.js';
 import { parseMessage, type FromWorker, type RepositoryPin, type ToWorker, type WorkerStart } from './fill-protocol.js';
 import { readKinds } from './kinds.js';
 import { DOCUMENT_LIMIT, listedDocument, productDocumentPaths, readProductDocument, readRepoDocuments, repoDocumentPaths } from './doc-sources.js';
@@ -68,7 +70,44 @@ export async function takeSnapshot(owner: DatabaseOwner, graphPath: string, read
   return seq;
 }
 
-export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (message: FromWorker) => void }): Promise<number> {
+/**
+ * What a host may give the editorial pass inside the fill worker (madarch-ztyq.9). Production passes
+ * none of these: the worker builds the role's ACP judge from the start message. A host that owns the
+ * worker in its own process, and tests, may inject a jev, a judge factory, a journal, and the
+ * environment the ACP agent starts in.
+ */
+export interface FillWorkerEditorial {
+  /** The host's judge of first resort: it reads the pack, and names the pages it could not read. */
+  readonly jev?: EditorialJudge;
+  /** Replaces the ACP editing judge; production leaves it absent. */
+  readonly judgeForPair?: (pair: ModelPair) => EditorialJudge;
+  readonly journal?: Journal;
+  readonly env?: DraftEnv;
+}
+
+export interface FillWorkerIo {
+  readonly lines: AsyncIterable<string>;
+  readonly send: (message: FromWorker) => void;
+  readonly editorial?: FillWorkerEditorial;
+}
+
+/** What the fill worker asks the editing role for: a jev when the host gives one, a role judge when the pair resolves. */
+export function editorialJudgeFor(start: Pick<WorkerStart, 'roles'>, editorial: FillWorkerEditorial | undefined, progress?: (line: string) => void): { jev?: EditorialJudge; judge?: EditorialJudge; skipReason?: string } {
+  const jev = editorial?.jev;
+  if (start.roles === undefined) {
+    return { ...(jev === undefined ? {} : { jev }), skipReason: 'the fill start carried no resolved model roles, so the editing role could not be resolved and the reading part was skipped' };
+  }
+  const editing = roleOf(start.roles, 'editing');
+  if (editing.pair === null) {
+    return { ...(jev === undefined ? {} : { jev }), skipReason: 'the editing role resolves to no pair (neither editing nor the default writing role is assigned), so the reading part was skipped' };
+  }
+  const judge = editorial?.judgeForPair === undefined
+    ? editorialAcpJudge(editing.pair, { env: editorial?.env ?? process.env, ...(progress === undefined ? {} : { progress }), ...(editorial?.journal === undefined ? {} : { journal: editorial.journal }) })
+    : editorial.judgeForPair(editing.pair);
+  return { ...(jev === undefined ? {} : { jev }), judge };
+}
+
+export async function runFillWorker(io: FillWorkerIo): Promise<number> {
   const { send } = io;
   const iterator = io.lines[Symbol.asyncIterator]();
   const first = await iterator.next();
@@ -384,18 +423,34 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
       // madarch-ztyq.4). The run name is the writer's own: it opens no `fill_run` row, so the fill's progress never
       // counts the same work twice.
       const writerState = fillWriterState(owner, { product: productSlug(start.productName), runId: `writer:${productSlug(start.productName)}:${Date.now().toString(36)}` });
-      const report = await runWriter({
-        guides,
-        state: writerState,
-        owner, store, repository: repo.path, ...(pins.get(repo.name)?.head === undefined ? {} : { ref: pins.get(repo.name)!.head }), output: productFolder, productName: start.productName, agent: remote, sink,
-        language: start.language, languageChanged: start.languageChanged, documentEntities, repositoryName: repo.name,
-        needed,
-        resolved: async (used) => { await markResolved(productFolder, used); },
-        // Every page written is in the graph's index at once; a failure is told, never hidden.
-        afterWrite: async () => { const result = await indexNow(); if (result.error !== undefined) throw new Error(result.error); },
-        onUnitStart: (began) => send({ type: 'unit-start', unit: began.unit, path: began.path }),
-        onUnit: (outcome) => send({ type: 'unit-outcome', outcome: { unit: outcome.unit, status: outcome.status, writeAttempts: outcome.writeAttempts, calls: outcome.calls, refusals: outcome.refusals.map((r) => ({ line: r.line, rule: r.rule, message: r.message })), domains: [...outcome.domains], questions: [...outcome.questions] } }),
-      });
+      // The editorial pass journals into the product's own journal folder, under a run of its own: a pass that
+      // ran is visible beside the writer's tool calls, and a pass that skipped says why (madarch-ztyq.9).
+      const editorialJournal = io.editorial?.journal ?? fileJournal(journalFolder(dirname(graphPath)), newRunId());
+      const editing = editorialJudgeFor(start, { ...io.editorial, journal: editorialJournal }, (line) => send({ type: 'log', line }));
+      let report: WriterReport;
+      try {
+        report = await runWriter({
+          guides,
+          state: writerState,
+          owner, store, repository: repo.path, ...(pins.get(repo.name)?.head === undefined ? {} : { ref: pins.get(repo.name)!.head }),
+          output: productFolder, productName: start.productName, agent: remote, sink,
+          language: start.language, languageChanged: start.languageChanged, documentEntities, repositoryName: repo.name,
+          needed,
+          resolved: async (used) => { await markResolved(productFolder, used); },
+          // Every page written is in the graph's index at once; a failure is told, never hidden.
+          afterWrite: async () => { const result = await indexNow(); if (result.error !== undefined) throw new Error(result.error); },
+          onUnitStart: (began) => send({ type: 'unit-start', unit: began.unit, path: began.path }),
+          onUnit: (outcome) => send({ type: 'unit-outcome', outcome: { unit: outcome.unit, status: outcome.status, writeAttempts: outcome.writeAttempts, calls: outcome.calls, refusals: outcome.refusals.map((r) => ({ line: r.line, rule: r.rule, message: r.message })), domains: [...outcome.domains], questions: [...outcome.questions] } }),
+          editorial: {
+            ...(editing.jev === undefined ? {} : { jev: editing.jev }),
+            ...(editing.judge === undefined ? {} : { judge: editing.judge }),
+            ...(editing.skipReason === undefined ? {} : { skipReason: editing.skipReason }),
+            journal: editorialJournal,
+          },
+        });
+      } finally {
+        try { await editing.judge?.close?.(); } catch { /* the writer's report is what matters; a judge that will not close cannot hide it */ }
+      }
       // A page the reader saw in the preview must be written: a run that silently writes fewer is a failure, not a success.
       if (start.taskPages !== undefined) {
         const written = new Set([...(report.product.status === 'written' ? [PRODUCT_PATH] : []), ...report.domains.filter((unit) => unit.status === 'written').map((unit) => unit.path)]);

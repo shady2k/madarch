@@ -684,6 +684,7 @@ export class KnowledgeProduct {
       readRoot: this.readRoot(),
       repositories: repositories.map((repo) => ({ name: repo.name, path: repo.path })),
       writer: this.writer.agent !== null,
+      ...(this.writer.agent === null ? {} : { roles: this.modelRoles() }),
       language: run.language,
       languageChanged: run.languageChanged,
       languageFrom: run.languageFrom,

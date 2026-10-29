@@ -121,10 +121,11 @@ export interface JournalRecord {
   readonly session: string | null;
   /**
    * `tool-call` counts toward the unit's calls; `refusal` is a request madarch did not serve as a call;
-   * `editorial-finding` and `revision-request` are the editorial pass's own records (madarch-ztyq.9),
-   * so a finding or a requested revision is never hidden in a log of tool traffic.
+   * `editorial-finding`, `revision-request` and `editorial-skip` are the editorial pass's own records
+   * (madarch-ztyq.9), so a finding, a requested revision or a skipped reading is never hidden in a log
+   * of tool traffic.
    */
-  readonly kind: 'tool-call' | 'refusal' | 'editorial-finding' | 'revision-request';
+  readonly kind: 'tool-call' | 'refusal' | 'editorial-finding' | 'revision-request' | 'editorial-skip';
   /** The tool, or the protocol method of a refused request (`fs/read_text_file`, `session/request_permission`). */
   readonly tool: string;
   readonly arguments: unknown;

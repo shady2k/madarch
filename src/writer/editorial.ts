@@ -58,7 +58,7 @@ export interface RevisionRequest {
   readonly passage: string;
   readonly change: string;
   readonly why: string;
-  readonly source: 'deterministic' | 'editing';
+  readonly source: 'deterministic' | 'jev' | 'editing';
 }
 
 /** One page as the judge sees it: only the statements whose ids it may name. */
@@ -84,6 +84,12 @@ export interface EditorialJudgeRequest {
 
 export interface EditorialJudgeAnswer {
   readonly requests: readonly EditorialJudgeRequest[];
+  /**
+   * The pages this judge could not read, so a later judge is asked only about them. Absent means
+   * the judge read every page it was shown: the pass then asks no other model. A judge that leaves
+   * pages out names them here, so a page is never silently dropped from the reading.
+   */
+  readonly unreviewedPages?: readonly string[];
 }
 
 /** The judge seam: a role's resolved pair becomes one of these (the ACP one is in `editorial-acp-judge.ts`). */
@@ -112,10 +118,23 @@ export interface EditorialPassOptions {
   readonly documentEntities: readonly DocEntity[];
   /** The graph the reader prose is checked against; absent means there is no identifier check. */
   readonly graph?: EditorialGraph;
+  /**
+   * The host's judge of first resort (jev): it reads the whole pack before the editing role does.
+   * The pages it names in `unreviewedPages` are the only ones the editing role is then asked about.
+   * A jev runs in the host's process; the editing role is the resolved `editing` pair's ACP judge.
+   */
+  readonly jev?: EditorialJudge;
   readonly judge?: EditorialJudge;
   /** The most requests one page may receive; the whole pass is bounded by `MAX_EDITORIAL_REQUESTS` too. */
   readonly maxPerPage?: number;
   readonly journal?: Journal;
+  /** `batch` after the product and domain pages, `overview` after the home page: recorded with every entry. */
+  readonly point?: 'batch' | 'overview';
+  /**
+   * Why the reading part did not run (no editing pair, or a bound of zero). The deterministic checks
+   * still run; the journal records this reason, so a skip is never silent.
+   */
+  readonly skipReason?: string;
   /** Called only if this pass ever writes a page. It never does; a test can prove the call never happens. */
   readonly onWrite?: (path: string) => void;
 }
@@ -125,6 +144,8 @@ export interface EditorialPassResult {
   readonly requests: readonly RevisionRequest[];
   /** Requests the judge made that named a page or passage it was not shown, and failures of the judge itself. */
   readonly errors: readonly string[];
+  /** Set when the reading part was skipped, with the reason also written to the journal. */
+  readonly skipped?: string;
 }
 
 interface Held {
@@ -304,8 +325,13 @@ function internalIdentifiers(pages: readonly ParsedPage[], identifiers: readonly
   const once = new Set<string>();
   for (const parsedPage of pages) {
     for (const statement of parsedPage.statements) {
+      // The identifiers come longest first: when one name contains another that is already named in
+      // the same sentence, the longer one is the finding and the shorter is not repeated.
+      const foundHere: string[] = [];
       for (const identifier of identifiers) {
         if (!statement.text.includes(identifier.value)) continue;
+        if (foundHere.some((found) => found.includes(identifier.value))) continue;
+        foundHere.push(identifier.value);
         const key = `${parsedPage.page.path}\u0000${statement.id}\u0000${identifier.value}`;
         if (once.has(key)) continue;
         once.add(key);
@@ -344,11 +370,12 @@ function deterministicRequest(finding: EditorialFinding): RevisionRequest {
   }
 }
 
-function record(journal: Journal | undefined, kind: 'editorial-finding' | 'revision-request', value: object): void {
+function record(journal: Journal | undefined, kind: 'editorial-finding' | 'revision-request' | 'editorial-skip', value: object, point: 'batch' | 'overview' | undefined): void {
   if (journal === undefined) return;
+  const argumentsValue = point === undefined ? value : { ...value, point };
   journal.record(
     { run: journal.run, unit: 'editorial:pass', agent: 'editing', model: null, session: null },
-    { kind, tool: kind, arguments: value, response: JSON.stringify(value), isError: false, outcome: 'ok', reason: null, startedAt: new Date(), durationMs: 0 },
+    { kind, tool: kind, arguments: argumentsValue, response: JSON.stringify(argumentsValue), isError: false, outcome: 'ok', reason: null, startedAt: new Date(), durationMs: 0 },
   );
 }
 
@@ -366,9 +393,51 @@ function boundRequests(requests: readonly RevisionRequest[], maxPerPage: number)
   return out;
 }
 
+/** The requests of one answer that name a page and passage the pack showed, with every refusal in words. */
+function requestsOf(answer: EditorialJudgeAnswer, pack: EditorialJudgePack, source: 'jev' | 'editing', errors: string[]): RevisionRequest[] {
+  const byPage = new Map(pack.pages.map((page) => [page.path, new Set(page.statements.map((statement) => statement.id))]));
+  const requests: RevisionRequest[] = [];
+  const answered = Array.isArray(answer.requests) ? answer.requests : [];
+  for (const [index, request] of answered.entries()) {
+    const page = typeof request?.page === 'string' ? request.page : '';
+    const passage = typeof request?.passage === 'string' ? request.passage : '';
+    const change = typeof request?.change === 'string' ? request.change.trim() : '';
+    const why = typeof request?.why === 'string' ? request.why.trim() : '';
+    if (!byPage.has(page)) { errors.push(`the ${source} judge's request ${index + 1} names the page ${JSON.stringify(page)}, which it was not shown`); continue; }
+    if (!byPage.get(page)!.has(passage)) { errors.push(`the ${source} judge's request ${index + 1} names the passage ${JSON.stringify(passage)}, which it was not shown on ${page}`); continue; }
+    if (change === '' || why === '') { errors.push(`the ${source} judge's request ${index + 1} on ${page} has no change or no reason`); continue; }
+    if (change.length > 2000 || why.length > 2000) { errors.push(`the ${source} judge's request ${index + 1} on ${page} is longer than 2000 characters`); continue; }
+    requests.push({ page, passage, change, why, source });
+  }
+  return requests;
+}
+
+/** The pages a judge named as unread, or every page when it gave no readable list. */
+function unreviewedOf(answer: EditorialJudgeAnswer, pack: EditorialJudgePack, errors: string[]): Set<string> {
+  const held = answer.unreviewedPages;
+  if (held === undefined) return new Set();
+  if (!Array.isArray(held)) {
+    errors.push('the jev judge\'s unreviewedPages is not a list; the editing judge is asked about every page');
+    return new Set(pack.pages.map((page) => page.path));
+  }
+  const shown = new Set(pack.pages.map((page) => page.path));
+  const pages = new Set<string>();
+  for (const page of held) {
+    if (typeof page !== 'string' || !shown.has(page)) {
+      errors.push(`the jev judge names the page ${JSON.stringify(page)} as unread, which it was not shown`);
+      continue;
+    }
+    pages.add(page);
+  }
+  return pages;
+}
+
 /**
  * Runs the pass over the pages a batch wrote. It reads only: no page's text is changed here, and no
  * file is written. The result's requests are bounded per page and over the whole pass.
+ *
+ * The judges run in order: the host's jev first, then the editing role on the pages the jev did not
+ * read. When neither is there, the deterministic checks still run and `skipReason` is journalled.
  */
 export async function runEditorialPass(options: EditorialPassOptions): Promise<EditorialPassResult> {
   const maxPerPage = Math.max(0, Math.floor(options.maxPerPage ?? 2));
@@ -378,45 +447,59 @@ export async function runEditorialPass(options: EditorialPassOptions): Promise<E
     ...glossaryAliases(parsedPages, options.documentEntities),
     ...internalIdentifiers(parsedPages, await graphIdentifiers(options.graph)),
   ];
-  for (const finding of findings) record(options.journal, 'editorial-finding', finding);
+  for (const finding of findings) record(options.journal, 'editorial-finding', finding, options.point);
 
-  const deterministic = findings.map(deterministicRequest);
+  // One request per named passage: several findings on one sentence are one revision, not many.
+  const deterministic: RevisionRequest[] = [];
+  const asked = new Set<string>();
+  for (const finding of findings) {
+    const key = `${finding.page}\u0000${finding.passage}`;
+    if (asked.has(key)) continue;
+    asked.add(key);
+    deterministic.push(deterministicRequest(finding));
+  }
   const errors: string[] = [];
-  const edited: RevisionRequest[] = [];
-  if (options.judge !== undefined && maxPerPage > 0) {
-    const pack: EditorialJudgePack = {
-      pages: parsedPages.map(({ page, statements }) => ({
-        path: page.path,
-        title: page.title,
-        statements: statements.map((statement) => ({ id: statement.id, line: statement.line, text: statement.text })),
-      })),
-      findings,
-      maxPerPage,
-    };
-    let answer: EditorialJudgeAnswer | undefined;
+  const judged: RevisionRequest[] = [];
+  const pack: EditorialJudgePack = {
+    pages: parsedPages.map(({ page, statements }) => ({
+      path: page.path,
+      title: page.title,
+      statements: statements.map((statement) => ({ id: statement.id, line: statement.line, text: statement.text })),
+    })),
+    findings,
+    maxPerPage,
+  };
+  const noReading = options.jev === undefined && options.judge === undefined;
+  const skipped = noReading
+    ? (options.skipReason ?? 'no editing judge is assigned to this product')
+    : maxPerPage === 0
+      ? 'the revision bound is zero, so no page was read by a model'
+      : undefined;
+  if (skipped !== undefined) record(options.journal, 'editorial-skip', { reason: skipped }, options.point);
+
+  let remaining = pack.pages;
+  if (skipped === undefined && options.jev !== undefined) {
     try {
-      answer = await options.judge.judge(pack);
+      const answer = await options.jev.judge(pack);
+      judged.push(...requestsOf(answer, pack, 'jev', errors));
+      const unreviewed = unreviewedOf(answer, pack, errors);
+      remaining = pack.pages.filter((page) => unreviewed.has(page.path));
+    } catch (error) {
+      errors.push(`the jev judge did not answer: ${error instanceof Error ? error.message : String(error)}`);
+      remaining = pack.pages;
+    }
+  }
+  if (skipped === undefined && options.judge !== undefined && remaining.length > 0) {
+    const rolePack: EditorialJudgePack = { ...pack, pages: remaining };
+    try {
+      const answer = await options.judge.judge(rolePack);
+      judged.push(...requestsOf(answer, rolePack, 'editing', errors));
     } catch (error) {
       errors.push(`the editing judge did not answer: ${error instanceof Error ? error.message : String(error)}`);
     }
-    if (answer !== undefined) {
-      const byPage = new Map(pack.pages.map((page) => [page.path, new Set(page.statements.map((statement) => statement.id))]));
-      const answered = Array.isArray(answer.requests) ? answer.requests : [];
-      for (const [index, request] of answered.entries()) {
-        const page = typeof request?.page === 'string' ? request.page : '';
-        const passage = typeof request?.passage === 'string' ? request.passage : '';
-        const change = typeof request?.change === 'string' ? request.change.trim() : '';
-        const why = typeof request?.why === 'string' ? request.why.trim() : '';
-        if (!byPage.has(page)) { errors.push(`the editing judge's request ${index + 1} names the page ${JSON.stringify(page)}, which it was not shown`); continue; }
-        if (!byPage.get(page)!.has(passage)) { errors.push(`the editing judge's request ${index + 1} names the passage ${JSON.stringify(passage)}, which it was not shown on ${page}`); continue; }
-        if (change === '' || why === '') { errors.push(`the editing judge's request ${index + 1} on ${page} has no change or no reason`); continue; }
-        if (change.length > 2000 || why.length > 2000) { errors.push(`the editing judge's request ${index + 1} on ${page} is longer than 2000 characters`); continue; }
-        edited.push({ page, passage, change, why, source: 'editing' });
-      }
-    }
   }
 
-  const requests = boundRequests([...deterministic, ...edited], maxPerPage);
-  for (const request of requests) record(options.journal, 'revision-request', request);
-  return { findings, requests, errors };
+  const requests = boundRequests([...deterministic, ...judged], maxPerPage);
+  for (const request of requests) record(options.journal, 'revision-request', request, options.point);
+  return { findings, requests, errors, ...(skipped === undefined ? {} : { skipped }) };
 }

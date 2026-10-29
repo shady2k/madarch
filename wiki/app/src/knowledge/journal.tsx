@@ -67,6 +67,7 @@ function RecordRow({ record, index }: { record: JournalRecord; index: number }):
           {record.kind === 'refusal' && <Badge>{t('journal.kind.refusal')}</Badge>}
           {record.kind === 'editorial-finding' && <Badge>{t('journal.kind.editorial-finding')}</Badge>}
           {record.kind === 'revision-request' && <Badge>{t('journal.kind.revision-request')}</Badge>}
+          {record.kind === 'editorial-skip' && <Badge>{t('journal.kind.editorial-skip')}</Badge>}
           <span className="min-w-0 max-w-full truncate text-small text-muted">{glance(record)}</span>
           <span className="ml-auto text-small text-muted">{t('journal.ms', { ms: record.durationMs })} · {t('journal.size', { size: record.responseBytes })}</span>
         </summary>

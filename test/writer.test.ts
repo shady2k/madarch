@@ -22,17 +22,19 @@ import { join } from 'node:path';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { parse as parseYaml } from 'yaml';
+import { parse as parseYaml, parseDocument } from 'yaml';
 import { createPGliteDatabaseOwner, type DatabaseOwner } from '../src/adapters/database-owner.js';
 import { documentSections } from '../src/knowledge/index/sections.js';
 import { localizedSourcePath } from '../src/writer/localized-source.js';
 import { fillGraph } from '../src/extract/driver/index.js';
+import { KINDS_FILE } from '../src/knowledge/kinds.js';
+import { seedStarterSet } from '../src/knowledge/seed.js';
 import { HISTORY_EXTRACTOR, OWNERS, TREE_EXTRACTORS } from '../src/extract/driver/extractors.js';
 import { createGraphStore, type GraphStore } from '../src/graph/index.js';
 import { changedGrounds, gitReader, indexKnowledge, readIndexedPage, statementsRelyingOn } from '../src/knowledge/index/index.js';
 import {
-  DEFAULT_UNIT_BOUNDS, GraphView, UnitTools, WRITER_TOOLS, fsSink, memorySink, runWriter, slugOf,
-  type DomainDeclaration, type ToolAnswer, type UnitAgent, type UnitRequest, type UnitSpec, type WriterReport,
+  DEFAULT_UNIT_BOUNDS, GraphView, UnitTools, WRITER_TOOLS, fsSink, memoryJournal, memorySink, runWriter, slugOf,
+  type DomainDeclaration, type EditorialJudge, type Journal, type ToolAnswer, type UnitAgent, type UnitRequest, type UnitSpec, type WriterReport,
 } from '../src/writer/index.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -198,13 +200,23 @@ function domainScript(spoil: boolean): (request: UnitRequest, domain: (typeof KE
   };
 }
 
+/** Gives the scratch product the starter set and declares the overview page kind this test needs. */
+function declareOverview(folder: string): void {
+  mkdirSync(join(folder, 'docs'), { recursive: true });
+  seedStarterSet(folder);
+  const file = join(folder, KINDS_FILE);
+  const manifest = parseDocument(readFileSync(file, 'utf8'));
+  manifest.setIn(['kinds', 'overview'], { template: 'templates/product.md', source: 'markdown', file: 'docs/overview.md', origin: 'agent', labels: { en: { one: 'Overview', many: 'Overviews' } } });
+  writeFileSync(file, manifest.toString());
+}
+
 interface Run {
   report: WriterReport;
   pages: Map<string, string>;
   prompts: Map<string, string>;
 }
 
-async function run(options: { spoilProduct?: boolean; spoilDomains?: boolean } = {}): Promise<Run> {
+async function run(options: { spoilProduct?: boolean; spoilDomains?: boolean; output?: string; editorial?: { judge?: EditorialJudge; maxRequestsPerPage?: number; journal?: Journal } } = {}): Promise<Run> {
   const sink = memorySink();
   const prompts = new Map<string, string>();
   const product = productScript(options.spoilProduct === true ? { firstAttemptSpoiled: true } : {});
@@ -213,10 +225,12 @@ async function run(options: { spoilProduct?: boolean; spoilDomains?: boolean } =
     run: async (request) => {
       prompts.set(request.id, request.prompt);
       if (request.id === 'product:training-shop') await product(request);
-      else await domain(request, KEY_DOMAINS.find((d) => `domain:${d.slug}` === request.id)!);
+      else if (request.id.startsWith('overview:')) {
+        await request.tools.call('write_page', { markdown: '---\nid: overview:training-shop\nkind: overview\ntitle: Training shop\nrelates: []\nproducer: agent\nsources: []\n---\n\n## What the product is\n\nThe shop takes orders.[^1]\n\n[^1]: [orders](madarch:code.service:orders)\n' });
+      } else await domain(request, KEY_DOMAINS.find((d) => `domain:${d.slug}` === request.id)!);
     },
   };
-  const report = await runWriter({ owner, store, repository, output: path.join(scratch, 'unused-output'), productName: 'Training shop', agent, sink });
+  const report = await runWriter({ owner, store, repository, output: options.output ?? path.join(scratch, 'unused-output'), productName: 'Training shop', agent, sink, ...(options.editorial === undefined ? {} : { editorial: options.editorial }) });
   return { report, pages: sink.pages, prompts };
 }
 
@@ -270,6 +284,39 @@ describe('the writer over the training repository', () => {
     first = await run({ spoilProduct: true, spoilDomains: true });
     second = await run();
   }, 600_000);
+
+  test('the editorial pass runs on the filled training product after the page batch and after the overview, and journals every request at its point', async () => {
+    const journal = memoryJournal('run-editorial-training');
+    const calls: string[][] = [];
+    const judge: EditorialJudge = {
+      async judge(pack) {
+        calls.push(pack.pages.map((page) => page.path));
+        const page = pack.pages.find((held) => held.statements.length > 0);
+        if (page === undefined) return { requests: [] };
+        return { requests: [{ page: page.path, passage: page.statements[0]!.id, change: 'Say this so a newcomer can follow it.', why: 'The first sentence assumes the rest of the page.' }] };
+      },
+    };
+    const output = join(scratch, 'editorial-training-product');
+    declareOverview(output);
+    const editorial = await run({ output, editorial: { journal, maxRequestsPerPage: 2, judge } });
+    // The writer's own report says both points ran; the fake judge saw the batch (product + domains)
+    // before the overview, then the complete set.
+    expect(editorial.report.editorialPasses.map((pass) => pass.point)).toEqual(['batch', 'overview']);
+    expect(editorial.report.editorialPasses[0]!.pages).not.toContain('docs/overview.md');
+    expect(editorial.report.editorialPasses[1]!.pages).toContain('docs/overview.md');
+    expect(calls).toHaveLength(2);
+    expect(calls[0]!.some((page) => page.startsWith('docs/domains/'))).toBe(true);
+    expect(calls[1]).toEqual(expect.arrayContaining([...calls[0]!]));
+    expect(editorial.report.editorialProblems).toEqual([]);
+    // Each point's requests are journal entries tagged with the point, so a revision is never hidden.
+    const at = (point: string) => journal.records.filter((record) => record.kind === 'revision-request' && (record.arguments as { point?: string }).point === point);
+    expect(at('batch').length).toBeGreaterThan(0);
+    expect(at('overview').length).toBeGreaterThan(0);
+    // The fake judge was asked at both points; the deterministic findings lead the bound, so these
+    // records prove the pass ran and journalled at each point, and test/writer-editorial.test.ts
+    // proves the editing role's own requests are bounded and journalled.
+    expect(editorial.report.revisionRequests.length).toBeGreaterThanOrEqual(2);
+  }, 240_000);
 
   test('runs one unit for the product and one per domain, in that order, and writes their three files', () => {
     expect(JSON.stringify([first.report.product.refusals, ...first.report.domains.map((d) => d.refusals)])).toBe('[[],[],[]]');

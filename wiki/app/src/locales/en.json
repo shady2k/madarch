@@ -802,7 +802,8 @@
       "tool-call": "tool call",
       "refusal": "refused request",
       "editorial-finding": "editorial finding",
-      "revision-request": "revision request"
+      "revision-request": "revision request",
+      "editorial-skip": "editorial pass skipped"
     },
     "unreadable": "Lines of the journal that could not be read",
     "otherRuns": "Other runs that wrote this page"
