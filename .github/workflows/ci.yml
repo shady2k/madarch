@@ -133,6 +133,20 @@ jobs:
       - run: bun run views:check
       # The product repository's contract cases (decision 0021): every example and every refusal.
       - run: bun run contract:check
+      # The walk over a product's pages (madarch-j6ho.1): every page of the
+      # generated training product, read through the JSON, fails on an empty
+      # section, a raw key, text outside the wiki's language, a raw id or a
+      # node drawn without evidence. The fixture in test/wiki-walk.test.ts
+      # plants one violation of each class in every test job; this step walks
+      # the real product. It is a ratchet: scripts/wiki-walk-baseline.json holds
+      # the per-class counts measured on the generated product, a class above
+      # its count (or one the file does not name) fails, and a class below it is
+      # printed so the baseline can be lowered. The baseline may only go down.
+      # The fixture is small, but the walk is the whole training product in en
+      # and ru (about 3 minutes here), so the step is bounded at 15 minutes.
+      - name: Walk every page of the filled training product
+        run: |
+          timeout 900 bun scripts/wiki-walk-ci.ts --baseline scripts/wiki-walk-baseline.json --json "$RUNNER_TEMP/wiki-walk.json"
       # The wiki app has its own package and lockfile, so its checks run beside
       # the product's: a broken app fails CI.
       - run: bun install --frozen-lockfile && bun run check && bun test && bun run build
