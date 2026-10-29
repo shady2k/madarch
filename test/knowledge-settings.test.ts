@@ -94,7 +94,7 @@ describe('a product made by an earlier madarch, opened by this one', () => {
     expect(readFileSync(join(folder, 'madarch', 'kinds.yaml'), 'utf8')).toBe(starterManifest('ru'));
     expect(logged.some((line) => line.includes('brought') && line.includes('madarch/kinds.yaml'))).toBe(true);
     // The route's page template is there, so a route page can be drawn.
-    expect(readFileSync(join(folder, 'templates', 'route.md'), 'utf8')).toBe(STARTER_FILES.find((file) => file.path === 'templates/route.md')!.content);
+    expect(readFileSync(join(folder, 'templates', 'route.liquid'), 'utf8')).toBe(STARTER_FILES.find((file) => file.path === 'templates/route.liquid')!.content);
   }, 90_000);
 
   test('a manifest a person edited is left byte for byte; the Problems page offers what the set holds, and adding one reads clean', async () => {
