@@ -64,8 +64,8 @@ export function languagePart(language: string): string[] {
   ];
 }
 
-export function fixedPart(language = 'en'): string {
-  return [
+export function fixedPart(language = 'en', writesOwnPage = true): string {
+  const parts = [
     'You are one unit of madarch\'s knowledge writer. You write ONE Markdown page about a product, from what the product\'s graph and documents say, and nothing else.',
     '',
     '## How you work',
@@ -103,6 +103,25 @@ export function fixedPart(language = 'en'): string {
     '## Example of a page',
     '',
     EXAMPLE,
+  ];
+  // A unit whose page the core writes (`src/writer/domain-page.ts`, `src/writer/structured.ts`) is not told the
+  // page format it never writes; it is told what its fields are and what the core does with them.
+  if (writesOwnPage) return parts.join('\n');
+  const pageFormatAt = parts.findIndex((line) => line === '## The page format');
+  const exampleAt = parts.findIndex((line) => line === '## Example of a page');
+  const fieldsPart = [
+    '## What the core writes for you',
+    '- You write only through write_page, and you give it the fields: the writer checks them, resolves every ground against the graph, writes the page and answers written: true, or writes nothing and lists every problem with the field it stands in. Your attempts are bounded.',
+    '- You do not write the page\'s Markdown and you never name a footnote: you answer write_page with the fields of the page, and the writer renders them — its front matter, its sections, its headings in the wiki language and the footnote of grounds each statement stands on.',
+    '- Every statement you give carries its grounds: a document section (`doc:<path>#<anchor>`, as get_document_sections answers it) or a graph key exactly as the tools show it. A ground that does not resolve is refused, and the refusal names the field, the key and the tool that answers it.',
+    '- A sentence with no ground is refused. What you cannot show is not a fact of the page: state it where the page says what is open, in words about what the documents and the graph leave unsaid.',
+    '',
+  ];
+  const languageAt = parts.findIndex((line) => line.startsWith('## The language of the page'));
+  return [
+    ...parts.slice(0, pageFormatAt).filter((line) => !line.startsWith('- You write only through write_page')),
+    ...fieldsPart,
+    ...parts.slice(languageAt, exampleAt).filter((line) => !line.startsWith('## Example of a page')),
   ].join('\n');
 }
 
@@ -217,11 +236,24 @@ function domainText(d: DomainDeclaration): string {
 export async function domainPrompt(view: GraphView, unit: Extract<UnitSpec, { kind: 'domain' }>, productPage: string, domains: readonly DomainDeclaration[], language = 'en', context: UnitContext = {}): Promise<string> {
   const excerpt = productPage.length > PRODUCT_EXCERPT_CHARACTERS ? `${productPage.slice(0, PRODUCT_EXCERPT_CHARACTERS)}\n[product page cut at ${PRODUCT_EXCERPT_CHARACTERS} characters]` : productPage;
   return [
-    fixedPart(language),
+    fixedPart(language, false),
     '',
     '## Your unit',
-    `You write the domain page ${unit.path} for the domain "${unit.domain.title}". Its id is \`${unit.id}\`, its kind is \`domain\`.`,
-    `Explain how the domain works: which services, modules and functions take part, its main scenario step by step, and its related requirements and use cases. Keep the page under ${DOMAIN_PAGE_WORDS} words. Go from the services down to the functions that do the work, and link each of them.`,
+    `You write the domain page ${unit.path} for the domain "${unit.domain.title}". Its id is \`${unit.id}\`, its kind is \`domain\`. Keep the page under ${DOMAIN_PAGE_WORDS} words.`,
+    'You do not write the page\'s Markdown: you answer write_page with the fields below, and the core writes the sections, their headings in the wiki language and the sentence a part says when the documents settle nothing.',
+    '',
+    '## What the page is for',
+    'A person opens this page to understand what this part of the product does before they touch the code: who takes part, how it goes, which rules hold, what can go wrong and what is still open. Write for that person. The business comes first and needs no code to follow: no status code, no header, no timeout, no route and no function name outside the developer section. The code stands at the end, in "developer", for a developer who has read the business part and now asks how it is carried out.',
+    '',
+    '## The fields, in the order a reader reads them',
+    '- participants: who takes part — a role a person plays (a shopper, a support agent) or a system the product talks to (the payments provider) — one grounded sentence each. Name it the way a reader knows it, not the way a folder is named.',
+    '- mainScenario: how it goes, step by step, in the order the person and the product live it. One sentence a step.',
+    '- rules: the rules that govern this domain, each grounded on the document section that states it (doc:<path>#<anchor>, as get_document_sections answers it). The rules the earlier units enriched are yours to stand on: name the same rule, in the same words, and link its section.',
+    '- whatCanGoWrong: what can go wrong as the person meets it — a payment declined, an order that cannot be placed — and what the product does then. Code detail stays out: "the provider answers with a status the product does not expect" is business; the status code is the developer section\'s.',
+    '- openPoints: what the documents and the graph leave open. A statement you cannot ground is not a fact of the page: state it here as a sentence about what is not settled, grounded on the document or the service you read it from, and ask the people with ask_question when a decision is needed.',
+    '- developer: the only place where code detail stands. Its routes, functions, tables and events are graph keys you resolved (trace_flow, get_symbol, get_context), and its notes state how the code behaves — its status codes, headers, timeouts and retries — each grounded on those keys.',
+    '',
+    'Every statement of every field carries at least one ground: a document section (doc:<path>#<anchor>), a service, module or file key the product is made of, or an answered question (question:<slug>). A business field refuses a route, a function, a table or a channel and says where it belongs; a sentence with no ground is refused, so state what you cannot ground in openPoints instead of inventing it.',
     '',
     `The product unit declared this domain: ${unit.domain.summary}`,
     `Its evidence: ${unit.domain.evidence.join(', ')}.`,
@@ -231,9 +263,9 @@ export async function domainPrompt(view: GraphView, unit: Extract<UnitSpec, { ki
     '',
     ...questionsPart(unit.id, context.questions),
     ...otherQuestionsPart(unit.id, context.questions),
-    ...(context.brief === undefined ? [] : editPart(context.brief, CONTENT_LANGUAGES[language]?.name ?? language)),
+    ...(context.brief === undefined ? [] : editPart(context.brief, CONTENT_LANGUAGES[language]?.name ?? language, true)),
     '## What this domain says about failure',
-    '- Compare how neighbouring operations of this domain handle failure: for each operation that calls another service or a store, trace_flow it and read what it does on a timeout, a retry, an error answer and a repeat of the same request, then say where one operation has protection that its neighbour lacks (a pay call with a timeout and a retry beside a refund call with neither, say). A difference like that is a finding: state it as a grounded sentence, and ask a question when no document says whether it is intended.',
+    '- Compare how neighbouring operations of this domain treat what can go wrong: a shopper whose payment is declined at checkout and one whose refund fails meet two different products. Say what the person sees in each case, as business, in whatCanGoWrong; where one operation has a protection its neighbour lacks (a retry, a timeout, an error the product handles), that is a finding for "developer" — a note grounded on the two functions — and an open point when no document says whether it is intended.',
     '- This comparison belongs to a domain page; it is not repeated on the product page.',
     '',
     '## The product page, for context',
