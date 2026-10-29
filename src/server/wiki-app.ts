@@ -232,12 +232,33 @@ function serveAppFiles(json: ReplyMaker['json'], refused: ReplyMaker['refused'],
   }
   try {
     const index = readFileSync(joinPath(root, 'index.html'));
-    return { response: new Response(index, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } }) };
+    return { response: new Response(withMarkdownSibling(index.toString('utf8'), pathname), { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } }) };
   } catch (error) {
     return refused(404, {
       message: `no file answers "${pathname}" and the app folder ${JSON.stringify(appFolder)} holds no index.html: the app's built files were expected there (${(error as Error).message})`,
     });
   }
+}
+
+/**
+ * The Markdown address a page's HTML links to: the same address with `.md`
+ * after it. The products home prefixes the link as it prefixes every other
+ * absolute reference in the shell.
+ */
+function markdownSiblingOf(pathname: string): string | undefined {
+  if (!pathname.startsWith('/k/e/') && !pathname.startsWith('/k/kind/')) return undefined;
+  const last = pathname.slice(pathname.lastIndexOf('/') + 1);
+  if (last === '' || last.endsWith('.md') || last.endsWith('.json')) return undefined;
+  return `${pathname}.md`;
+}
+
+/** The app shell with the page's `<link rel="alternate" type="text/markdown">` in its head. */
+function withMarkdownSibling(html: string, pathname: string): string {
+  const markdown = markdownSiblingOf(pathname);
+  if (markdown === undefined) return html;
+  const link = `<link rel="alternate" type="text/markdown" href="${markdown}">`;
+  const at = html.toLowerCase().indexOf('</head>');
+  return at < 0 ? `${link}${html}` : `${html.slice(0, at)}${link}${html.slice(at)}`;
 }
 
 /** The address prefixes the app itself answers: the knowledge wiki under `/k`, and the front door. */
