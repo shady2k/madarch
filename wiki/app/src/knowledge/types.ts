@@ -224,6 +224,8 @@ export type WriterState = {
   asked?: number;
   /** Which pages this run touches and why; known once the code is read, before the agent starts. */
   plan?: RefreshPlan;
+  /** How many pages this run means to write in total; absent until the writer counts them. */
+  total?: number;
 };
 
 export type WriterBounds = { turns: number; minutes: number; toolCalls: number; writeAttempts: number; maxDomains: number };

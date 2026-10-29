@@ -147,16 +147,23 @@ async function until<T>(what: string, read: () => Promise<T>, done: (value: T) =
   throw new Error(`gave up waiting for ${what}`);
 }
 
-/** The document entities of the glossary read as English, in the order the writer takes them up: each is a page the Russian fill writes. */
-function localizedPages(): { id: string; title: string; kind: string; file: string }[] {
+/**
+ * Every document entity of the glossary, in the order the writer takes them up: each is a page the run takes up, whether
+ * or not its language is known. The one whose language is unknown is still a page the run means to write.
+ */
+function documentPages(): { id: string; title: string; kind: string; file: string; text: string }[] {
   const productFolder = join(home, 'tiny');
   const kindsFile = join(productFolder, 'madarch', 'kinds.yaml');
   const kinds = parseKinds(readFileSync(kindsFile, 'utf8'), kindsFile, productFolder);
   const text = readFileSync(join(productFolder, 'docs', 'glossary.md'), 'utf8');
   return readDocEntities([{ repo: null, path: 'docs/glossary.md', text }], kinds).entities
-    .filter((entity) => detectDocumentLanguage(entity.text) === 'en')
-    .map((entity) => ({ id: entity.id, title: entity.title, kind: entity.kind, file: localizedSourcePath(entity) }))
+    .map((entity) => ({ id: entity.id, title: entity.title, kind: entity.kind, file: localizedSourcePath(entity), text: entity.text }))
     .sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0));
+}
+
+/** The document entities read as English, each a page the Russian fill writes. */
+function localizedPages(): { id: string; title: string; kind: string; file: string }[] {
+  return documentPages().filter((page) => detectDocumentLanguage(page.text) === 'en');
 }
 
 beforeAll(async () => {
@@ -230,14 +237,33 @@ describe('a fill read while it writes', () => {
     const pages = localizedPages();
     const running = await get('/api/k/status');
     expect(running.body.writer.state).toBe('running');
+    // The denominator is what the run means to write in total, told before its first unit: the product page, the
+    // domain page it declared, the three document pages (one of them with a language the run cannot name) and the two
+    // guides. What it has taken up so far is not it.
+    expect(documentPages().length).toBe(3);
+    expect(running.body.writer.total).toBe(1 + 1 + documentPages().length + 2);
+    expect(running.body.writer.total).toBeGreaterThanOrEqual(running.body.writer.units.length);
+    expect(running.body.writer.total).toBeGreaterThanOrEqual(running.body.writer.units.filter((unit: { state: string }) => unit.state === 'written').length);
     // The pages of the documents this run writes are being written now, so none of them is a problem yet.
     expect(running.body.findings.filter((finding: { file: string }) => pages.some((page) => page.file === finding.file))).toEqual([]);
     // The problems page reads its own listing: an unwritten page is not there either while the run stands.
     const problems = await get('/api/k/problems');
     expect(problems.status).toBe(200);
     expect(problems.body.problems.filter((problem: { file: string }) => pages.some((page) => page.file === problem.file))).toEqual([]);
+    // Read again and again while the rest of the run goes on: the denominator never falls below what stands written.
+    const samples: { total?: number; units: number; written: number }[] = [];
     release();
-    const done = await until('the writer to end', async () => (await get('/api/k/status')).body, (body) => body.writer.state === 'done' || body.writer.state === 'failed');
+    const done = await until('the writer to end', async () => {
+      const body = (await get('/api/k/status')).body;
+      samples.push({ total: body.writer.total, units: body.writer.units.length, written: body.writer.units.filter((unit: { state: string }) => unit.state === 'written').length });
+      return body;
+    }, (body) => body.writer.state === 'done' || body.writer.state === 'failed');
+    expect(samples.length).toBeGreaterThan(1);
+    for (const sample of samples) {
+      expect(typeof sample.total).toBe('number');
+      expect(sample.total!).toBeGreaterThanOrEqual(sample.units);
+      expect(sample.total!).toBeGreaterThanOrEqual(sample.written);
+    }
     expect(done.writer.state).toBe('failed');
     // The one the run left unwritten is a problem again, with the file it waits for; the ones it wrote are not.
     const after = done.findings.filter((finding: { file: string }) => pages.some((page) => page.file === finding.file));

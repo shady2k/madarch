@@ -109,6 +109,11 @@ export interface WriterOptions {
   readonly afterWrite?: (written: { readonly path: string }) => Promise<void>;
   /** Called with a unit's id and page as the unit starts, so a reader can see which unit is writing now. */
   readonly onUnitStart?: (unit: { readonly unit: string; readonly path: string }) => void;
+  /**
+   * Called with how many pages the run means to write in total (madarch-m38l.23): before its first unit, and again
+   * when the product page declares its domains. It is the denominator a reader sees in «12/18».
+   */
+  readonly onTotal?: (total: number) => void;
   /** Called once an answer or a correction was used by every page it touched and all of them were written. A failure is reported in `loopProblems`. */
   readonly resolved?: (resolved: ResolvedEntity) => Promise<void>;
   /** The clock questions are stamped with; tests inject. */
@@ -748,6 +753,27 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
     }
   };
 
+  // How many pages this run means to write, told before its first unit (madarch-m38l.23). The plan the code read
+  // answers is smaller than this count: a domain the new product page declares and a passage's page are pages the
+  // plan cannot name before the run writes the page that names them.
+  const pageEntities = options.documentEntities ?? [];
+  const intendedPages = (domainDeclarations: number): number => {
+    let total = 1; // the product page is always a unit: written, or kept as it stands
+    total += domainDeclarations;
+    total += localizedEntities.length;
+    if (options.guides !== undefined) total += 2;
+    if (declaresKind('enrichment')) {
+      total += pageEntities.filter((entity) => entity.pass === 'classifier' && entity.semantics === 'other').length;
+      total += pageEntities.filter((entity) => entity.semantics === 'rule' || entity.semantics === 'decision').length;
+      total += pageEntities.filter((entity) => entity.semantics === 'scenario').length;
+    }
+    if (declaresKind('validation')) total += 1;
+    if (declaresKind('overview')) total += 1;
+    return total;
+  };
+  let intended = intendedPages(existingProduct === null ? 0 : (await declaredNow().catch(() => [])).length);
+  options.onTotal?.(intended);
+
   for (const [position, kind] of order.entries()) {
     const missing = absent(kind);
     if (missing.length > 0) {
@@ -846,6 +872,9 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
           await rememberPage('product-page', kind, productUnit.id, PRODUCT_PATH, options.productName);
           note('domain-declarations', { kind, unit: productUnit.id, path: PRODUCT_PATH, title: options.productName });
         }
+        // The domains the page declares are known only now: the count the reader watches grows by the pages it named.
+        const declared = intendedPages(declarations.length);
+        if (declared > intended) { intended = declared; options.onTotal?.(intended); }
         kinds.push({ kind, position, state: 'ran', units: runs });
         break;
       }

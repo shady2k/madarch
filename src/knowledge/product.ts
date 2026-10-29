@@ -830,6 +830,13 @@ export class KnowledgeProduct {
           this.writer = { ...this.writer, plan: message.plan };
           this.notify();
           return;
+        case 'writer-total':
+          // How many pages this run means to write in total, so the badge counts down from a real end (madarch-m38l.23).
+          // A total below the pages already announced would read «12 of 10» and draw a bar past its end: the pages that
+          // stand are written, so the total covers them even if a count arrives short.
+          this.writer = { ...this.writer, total: Math.max(message.total, this.writer.units.length) };
+          this.notify();
+          return;
         case 'unit-start':
           if (!this.writer.units.some((unit) => unit.unit === message.unit)) this.writer = { ...this.writer, units: [...this.writer.units, { unit: message.unit, path: message.path, state: 'writing' }] };
           else setUnit(message.unit, { state: 'writing' });

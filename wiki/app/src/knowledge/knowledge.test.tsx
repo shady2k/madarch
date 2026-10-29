@@ -362,7 +362,7 @@ describe('the agent stage', () => {
 
   test('the product pages say a stage is under way in one line, with no paths and the way to the fill page', async () => {
     const writer: WikiStatus['writer'] = {
-      state: 'running', agent: { id: 'claude-code', label: 'Claude Code' }, current: 'domain:ordering',
+      state: 'running', agent: { id: 'claude-code', label: 'Claude Code' }, current: 'domain:ordering', total: 7,
       units: [
         { unit: 'product:shop', path: 'docs/product.md', state: 'written', calls: 6, writeAttempts: 1 },
         { unit: 'domain:ordering', path: 'docs/domains/ordering.md', state: 'writing' },
@@ -372,16 +372,33 @@ describe('the agent stage', () => {
     const container = into(createElement(FillCard, { status: status({ filled: true, fill: { state: 'done' }, home: 'product:shop', writer }), refresh: () => undefined }));
     await until(() => container.querySelector('[data-testid=writer-line]') !== null, 'the writer line');
     const line = container.querySelector('[data-testid=writer-line]')!;
-    expect(line.querySelector('[data-testid=writer-line-words]')!.textContent).toBe('Claude Code is writing the pages: 1 of 2 written; now domain:ordering.');
+    // Of the run's seven pages, not of the two taken up so far.
+    expect(line.querySelector('[data-testid=writer-line-words]')!.textContent).toBe('Claude Code is writing the pages: 1 of 7 written; now domain:ordering.');
     expect(line.querySelector('[data-testid=writer-line-open]')!.getAttribute('href')).toBe('/k/fill');
     // The paths of the pages are the engineer's: they are not on the product pages.
     expect(line.textContent).not.toContain('docs/product.md');
     expect(line.querySelectorAll('[data-testid=writer-unit]').length).toBe(0);
   });
 
+  test('before the writer has counted the pages, the line says how many are written and no more', async () => {
+    const writer: WikiStatus['writer'] = {
+      state: 'running', agent: { id: 'claude-code', label: 'Claude Code' }, current: 'domain:ordering',
+      units: [
+        { unit: 'product:shop', path: 'docs/product.md', state: 'written', calls: 6, writeAttempts: 1 },
+        { unit: 'domain:ordering', path: 'docs/domains/ordering.md', state: 'writing' },
+      ],
+    };
+    stubFetch([]);
+    const container = into(createElement(FillCard, { status: status({ filled: true, fill: { state: 'done' }, home: 'product:shop', writer }), refresh: () => undefined }));
+    await until(() => container.querySelector('[data-testid=writer-line]') !== null, 'the writer line');
+    // No denominator: the two units taken up are not a measure of the run, and half of them would read as nearly done.
+    expect(container.querySelector('[data-testid=writer-line-words]')!.textContent).toBe('Claude Code is writing the pages: 1 written; now domain:ordering.');
+  });
+
   test('the fill page lists each page the agent takes up by its kind and title, its state, its links and the refusals, with the paths for the engineer', async () => {
     const writer: WikiStatus['writer'] = {
-      state: 'running', agent: { id: 'claude-code', label: 'Claude Code' }, current: 'domain:ordering', startedAt: '2026-10-23T12:31:00.000Z',
+      state: 'running', agent: { id: 'claude-code', label: 'Claude Code' }, current: 'domain:ordering', startedAt: '2026-10-23T12:31:00.000Z', total: 5,
+      plan: { languageChanged: false, pages: [{ id: 'domain:ordering', path: 'docs/domains/ordering.md', reasons: [] }], unchanged: [], unplaced: [], problems: [] },
       units: [
         { unit: 'product:shop', path: 'docs/product.md', state: 'written', calls: 6, writeAttempts: 1, kind: 'product', title: 'Online shop', page: 'product:shop' },
         { unit: 'domain:ordering', path: 'docs/domains/ordering.md', state: 'writing', kind: 'domain', title: 'Ordering' },
@@ -393,7 +410,9 @@ describe('the agent stage', () => {
     const container = into(createElement(FillPage, { status: status({ filled: true, fill: { state: 'done' }, home: 'product:shop', kinds, writer }), refresh: () => undefined }));
     await until(() => container.querySelector('[data-testid=fill-units]') !== null, 'the fill page');
     expect(container.querySelector('[data-testid=fill-title]')!.textContent).toBe('Fill');
-    expect(container.querySelector('[data-testid=fill-progress-text]')!.textContent).toBe('1 of 3 written');
+    // Of the pages the run means to write (5), not of the three it has taken up so far.
+    expect(container.querySelector('[data-testid=fill-progress-text]')!.textContent).toBe('1 of 5 written');
+    expect(container.querySelector('[role=progressbar]')!.getAttribute('aria-valuemax')).toBe('5');
     const units = [...container.querySelectorAll('[data-testid=fill-unit]')];
     expect(units.map((unit) => [unit.getAttribute('data-unit'), unit.getAttribute('data-state'), unit.getAttribute('aria-current')])).toEqual([
       ['product:shop', 'written', null], ['domain:ordering', 'writing', 'step'], ['domain:payments', 'failed', null],
@@ -412,6 +431,12 @@ describe('the agent stage', () => {
     const outside = units[0]!.cloneNode(true) as HTMLElement;
     outside.querySelector('[data-testid=fill-unit-engineer]')!.remove();
     expect(outside.textContent).not.toContain('docs/product.md');
+    // The plan is the engineer's too: the paths stand behind the same summary, shut, so «План» repeats no figure.
+    const plan = container.querySelector('[data-testid=fill-plan]')!;
+    expect(plan.tagName).toBe('DETAILS');
+    expect(plan.hasAttribute('open')).toBe(false);
+    expect(plan.querySelector('summary')!.textContent).toBe('Details for an engineer');
+    expect(container.textContent).not.toContain('What the refresh will do');
   });
 
   test('a stage that ended with a failure says so and offers to try again', async () => {
@@ -455,7 +480,25 @@ describe('after the run', () => {
     await until(() => container.querySelector('[data-testid=writer-line]') === null, 'the line gone');
   });
 
-  test('while the agent writes, the badge counts the pages it has taken up and pulses a dot that stands still when motion is reduced', async () => {
+  test('while the agent writes, the badge counts the pages the run means to write and pulses a dot that stands still when motion is reduced', async () => {
+    const writer: WikiStatus['writer'] = {
+      state: 'running', agent: { id: 'claude-code', label: 'Claude Code' }, current: 'domain:ordering', total: 7,
+      units: [
+        { unit: 'product:shop', path: 'docs/product.md', state: 'written', kind: 'product', title: 'Online shop', page: 'product:shop' },
+        { unit: 'domain:ordering', path: 'docs/domains/ordering.md', state: 'writing', kind: 'domain', title: 'Ordering' },
+      ],
+    };
+    const bar = into(createElement(FillMenu, { status: status({ writer }), refresh: () => undefined }));
+    await until(() => bar.querySelector('[data-testid=fill-chip]') !== null, 'the status');
+    // 1 of the 7 pages the run means to write, not of the 2 it has taken up so far: the reader sees what is left.
+    expect(bar.querySelector('[data-testid=fill-chip]')!.textContent).toBe('The agent is writing · 1/7');
+    const dot = bar.querySelector('[data-testid=fill-chip-dot]')!;
+    expect(dot.getAttribute('aria-hidden')).toBe('true');
+    expect(dot.className).toContain('animate-pulse');
+    expect(dot.className).toContain('motion-reduce:animate-none');
+  });
+
+  test('before the writer has counted the pages, the badge says how many it has written, with no denominator', async () => {
     const writer: WikiStatus['writer'] = {
       state: 'running', agent: { id: 'claude-code', label: 'Claude Code' }, current: 'domain:ordering',
       units: [
@@ -465,11 +508,7 @@ describe('after the run', () => {
     };
     const bar = into(createElement(FillMenu, { status: status({ writer }), refresh: () => undefined }));
     await until(() => bar.querySelector('[data-testid=fill-chip]') !== null, 'the status');
-    expect(bar.querySelector('[data-testid=fill-chip]')!.textContent).toBe('The agent is writing · 1/2');
-    const dot = bar.querySelector('[data-testid=fill-chip-dot]')!;
-    expect(dot.getAttribute('aria-hidden')).toBe('true');
-    expect(dot.className).toContain('animate-pulse');
-    expect(dot.className).toContain('motion-reduce:animate-none');
+    expect(bar.querySelector('[data-testid=fill-chip]')!.textContent).toBe('The agent is writing · 1');
   });
 
   test('while the fill runs the status says how far it is, and the code is the first thing read', async () => {

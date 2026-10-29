@@ -394,6 +394,7 @@ export async function runFillWorker(io: { lines: AsyncIterable<string>; send: (m
         // Every page written is in the graph's index at once; a failure is told, never hidden.
         afterWrite: async () => { const result = await indexNow(); if (result.error !== undefined) throw new Error(result.error); },
         onUnitStart: (began) => send({ type: 'unit-start', unit: began.unit, path: began.path }),
+        onTotal: (total) => send({ type: 'writer-total', total }),
         onUnit: (outcome) => send({ type: 'unit-outcome', outcome: { unit: outcome.unit, status: outcome.status, writeAttempts: outcome.writeAttempts, calls: outcome.calls, refusals: outcome.refusals.map((r) => ({ line: r.line, rule: r.rule, message: r.message })), domains: [...outcome.domains], questions: [...outcome.questions] } }),
       });
       // A page the reader saw in the preview must be written: a run that silently writes fewer is a failure, not a success.

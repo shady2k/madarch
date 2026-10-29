@@ -395,6 +395,13 @@ export interface WriterState {
   asked?: number;
   /** Which pages this run touches and why; known once the code is read, before the agent starts. */
   plan?: RefreshPlan;
+  /**
+   * How many pages this run means to write in total (madarch-m38l.23): the product page, the domain pages it
+   * declares, one page per document passage shown in the wiki's language, the guides and the pages of the other
+   * kinds the manifest declares. The writer counts them before its first unit and counts them again when the
+   * product page declares its domains, so the reader sees how much is left rather than how much was taken up.
+   */
+  total?: number;
 }
 
 /** What one agent costs to use and what the stage is bound by, stated for the reader before the press. */

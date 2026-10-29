@@ -3,8 +3,8 @@
  * CI run. It says who writes, since when and how long it has taken, how much of the
  * work is done, and each page the agent takes up by the kind's name the manifest
  * declares and the page's own title («Термин Capture», «Правило BR-3»), with its
- * state, a link to the page it wrote and to its journal where one exists. Paths and
- * call counts stand under «Подробности для инженера»: they are the engineer's.
+ * state, a link to the page it wrote and to its journal where one exists. Paths, call
+ * counts and the plan stand under «Подробности для инженера»: they are the engineer's.
  */
 import { useState, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -85,7 +85,10 @@ export function FillPage({ status, refresh }: { status: WikiStatus; refresh: () 
     start === null ? null : t('knowledge.fillPage.started', { time: start }),
     took === null ? null : t('knowledge.fillPage.took', { minutes: took }),
   ].filter((fact): fact is string => fact !== null);
-  const share = units.length === 0 ? 0 : written / units.length;
+  // How much is left is counted against what the run means to write in total, not against what it has taken up:
+  // «Записано 12 из 18». Until the writer counts the pages, the count stands alone.
+  const total = writer.total;
+  const share = total === undefined || total === 0 ? 0 : Math.min(1, written / total);
   const retry = (): void => {
     setRetrying(true);
     setRefused(null);
@@ -111,15 +114,17 @@ export function FillPage({ status, refresh }: { status: WikiStatus; refresh: () 
           </CardContent>
         </Card>
       )}
-      {units.length > 0 && (
+      {(total !== undefined || units.length > 0) && (
         <Card className="mb-8" data-testid="fill-progress">
           <CardHeader>
-            <CardTitle data-testid="fill-progress-text">{t('knowledge.fillPage.written', { done: written, total: units.length })}</CardTitle>
+            <CardTitle data-testid="fill-progress-text">{total === undefined ? t('knowledge.fillPage.writtenCount', { done: written }) : t('knowledge.fillPage.written', { done: written, total })}</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--surface-active)]" role="progressbar" aria-valuemin={0} aria-valuemax={units.length} aria-valuenow={written} aria-label={t('knowledge.fillPage.written', { done: written, total: units.length })}>
-              <div className="h-full rounded-full bg-ink transition-[width] duration-150 motion-reduce:transition-none" style={{ width: `${Math.round(share * 100)}%` }} />
-            </div>
+            {total !== undefined && (
+              <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--surface-active)]" role="progressbar" aria-valuemin={0} aria-valuemax={total} aria-valuenow={Math.min(written, total)} aria-label={t('knowledge.fillPage.written', { done: written, total })}>
+                <div className="h-full rounded-full bg-ink transition-[width] duration-150 motion-reduce:transition-none" style={{ width: `${Math.round(share * 100)}%` }} />
+              </div>
+            )}
             <ol className="m-0 mt-4 list-none p-0" data-testid="fill-units">
               {units.map((unit) => <UnitRow key={unit.unit} unit={unit} current={unit.unit === current} kinds={status.kinds} language={language} />)}
             </ol>
@@ -127,11 +132,13 @@ export function FillPage({ status, refresh }: { status: WikiStatus; refresh: () 
           </CardContent>
         </Card>
       )}
+      {/* The plan names the paths the run will touch: the engineer's, behind the same summary the unit rows use.
+          The reader's figure is the progress above, counted against the same total, so «План» repeats nothing. */}
       {writer.plan !== undefined && (
-        <Card className="mb-8" data-testid="fill-plan">
-          <CardHeader><CardTitle>{t('loop.plan.title')}</CardTitle></CardHeader>
-          <CardContent><PlanList plan={writer.plan} /></CardContent>
-        </Card>
+        <details className="mb-8 text-small text-muted" data-testid="fill-plan">
+          <summary className="cursor-pointer">{t('knowledge.findingsDetails')}</summary>
+          <div className="mt-2"><PlanList plan={writer.plan} /></div>
+        </details>
       )}
       {writer.state === 'failed' && (
         <Alert variant="problem" data-testid="fill-failed">

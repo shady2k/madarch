@@ -143,7 +143,9 @@
       "unitKept": "Kept as it is",
       "lineWaiting": "{{agent}} writes the pages when the code has been read.",
       "lineWriting": "{{agent}} is writing the pages: {{done}} of {{total}} written; now {{name}}.",
-      "lineWritingShort": "{{agent}} is writing the pages: {{done}} of {{total}} written."
+      "lineWritingShort": "{{agent}} is writing the pages: {{done}} of {{total}} written.",
+      "lineWritingCount": "{{agent}} is writing the pages: {{done}} written; now {{name}}.",
+      "lineWritingCountShort": "{{agent}} is writing the pages: {{done}} written."
     },
     "fillWriting": "The agent is writing",
     "fillDone": "Filled {{date}}, {{count}} pages",
@@ -597,6 +599,7 @@
       "started": "Since {{time}}",
       "took": "Took {{minutes}} min",
       "written": "{{done}} of {{total}} written",
+      "writtenCount": "{{done}} written",
       "writingNow": "Writing: {{name}}",
       "waiting": "Waiting for the first page",
       "open": "Open the fill",

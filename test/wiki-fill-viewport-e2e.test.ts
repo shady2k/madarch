@@ -228,10 +228,15 @@ runDescribe('the fill a reader meets', () => {
     await open('/products/tiny/k');
     await page.waitForSelector('[data-testid=fill-chip]', { timeout: 20000 });
     const chip = await page.$eval('[data-testid=fill-chip]', (element) => element.textContent?.trim());
-    expect(chip).toBe('Агент пишет страницы · 1/2');
+    // The denominator is the number of pages the run means to write, told by the writer itself, not the two it has
+    // taken up: the reader sees how much is left.
+    const counted = (await get('/api/k/status')).body.writer;
+    expect(typeof counted.total).toBe('number');
+    expect(counted.total).toBeGreaterThanOrEqual(counted.units.length);
+    expect(chip).toBe(`Агент пишет страницы · 1/${counted.total}`);
     // The home page says the same in one line, with no paths and no list of pages.
     const line = await page.$eval('[data-testid=writer-line-words]', (element) => element.textContent ?? '');
-    expect(line).toContain('пишет страницы: записано 1 из 2');
+    expect(line).toContain(`пишет страницы: записано 1 из ${counted.total}`);
     expect(line).toContain(`сейчас — Домен ${LONG_TITLE}`);
     expect(line).not.toContain('docs/');
     expect(await page.$$eval('[data-testid=writer-unit]', (elements) => elements.length)).toBe(0);
@@ -288,7 +293,8 @@ runDescribe('the fill a reader meets', () => {
     await open('/products/tiny/k/fill');
     await page.waitForSelector('[data-testid=fill-units]', { timeout: 20000 });
     expect(await page.$eval('[data-testid=fill-title]', (element) => element.textContent?.trim())).toBe('Заполнение');
-    expect(await page.$eval('[data-testid=fill-progress-text]', (element) => element.textContent?.trim())).toBe('Записано 1 из 2');
+    // Counted against the pages the run means to write, the same total the badge shows.
+    expect(await page.$eval('[data-testid=fill-progress-text]', (element) => element.textContent?.trim())).toBe(`Записано 1 из ${(await get('/api/k/status')).body.writer.total}`);
     const rows = await page.$$eval('[data-testid=fill-unit]', (elements) => elements.map((element) => ({
       unit: element.getAttribute('data-unit'), state: element.getAttribute('data-state'),
       name: element.querySelector('[data-testid=fill-unit-page], [data-testid=fill-unit-name]')?.textContent ?? '',

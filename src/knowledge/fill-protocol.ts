@@ -95,6 +95,8 @@ export type FromWorker =
   | { type: 'plan'; plan: RefreshPlan }
   | { type: 'agent-wanted' }
   | { type: 'unit-start'; unit: string; path: string }
+  /** How many pages the run means to write in total: before the first unit, and again when the product page declares its domains. */
+  | { type: 'writer-total'; total: number }
   | { type: 'unit'; id: string; prompt: string; definitions: ToolDefinition[] }
   | { type: 'tool-result'; callId: number; answer: unknown; finished: boolean }
   | { type: 'unit-outcome'; outcome: UnitSummary }

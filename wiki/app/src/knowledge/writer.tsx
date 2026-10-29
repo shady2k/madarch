@@ -145,7 +145,9 @@ export function WriterLine({ status, refresh }: { status: WikiStatus; refresh: (
   if (writer.state === 'failed' && dismissed === dismissKey) return null;
   const agent = writer.agent.label;
   const written = writer.units.filter((unit) => unit.state === 'written').length;
-  const total = writer.units.length;
+  // How many pages the run means to write, as the writer counted them: not the pages it has merely taken up, which
+  // would make «1 из 2» look nearly done at the very start. Until the count comes, the line says only the count.
+  const total = writer.total;
   const open = <KLink href={K_FILL} className="text-small" testId="writer-line-open">{t('knowledge.fillPage.open')}</KLink>;
   if (writer.state === 'failed') {
     const retry = (): void => {
@@ -174,7 +176,9 @@ export function WriterLine({ status, refresh }: { status: WikiStatus; refresh: (
   const name = current === undefined ? null : unitName(current, status.kinds, language);
   const words = writer.state === 'waiting'
     ? t('knowledge.writer.lineWaiting', { agent })
-    : name === null ? t('knowledge.writer.lineWritingShort', { agent, done: written, total }) : t('knowledge.writer.lineWriting', { agent, done: written, total, name });
+    : total === undefined
+      ? name === null ? t('knowledge.writer.lineWritingCountShort', { agent, done: written }) : t('knowledge.writer.lineWritingCount', { agent, done: written, name })
+      : name === null ? t('knowledge.writer.lineWritingShort', { agent, done: written, total }) : t('knowledge.writer.lineWriting', { agent, done: written, total, name });
   return (
     <Card className="mb-8" data-testid="writer-line" data-state={writer.state}>
       <CardContent className="pt-6">

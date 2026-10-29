@@ -143,7 +143,9 @@
       "unitKept": "Оставлена как есть",
       "lineWaiting": "{{agent}} начнёт писать страницы, когда закончится чтение кода.",
       "lineWriting": "{{agent}} пишет страницы: записано {{done}} из {{total}}; сейчас — {{name}}.",
-      "lineWritingShort": "{{agent}} пишет страницы: записано {{done}} из {{total}}."
+      "lineWritingShort": "{{agent}} пишет страницы: записано {{done}} из {{total}}.",
+      "lineWritingCount": "{{agent}} пишет страницы: записано {{done}}; сейчас — {{name}}.",
+      "lineWritingCountShort": "{{agent}} пишет страницы: записано {{done}}."
     },
     "fillWriting": "Агент пишет страницы",
     "fillDone": "Заполнено {{date}}, страниц: {{count}}",
@@ -597,6 +599,7 @@
       "started": "С {{time}}",
       "took": "Заняло {{minutes}} мин",
       "written": "Записано {{done}} из {{total}}",
+      "writtenCount": "Записано {{done}}",
       "writingNow": "Пишется: {{name}}",
       "waiting": "Ждёт первой страницы",
       "open": "Открыть заполнение",

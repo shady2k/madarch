@@ -303,8 +303,11 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
   if (fill.state === 'running') { label = fillWords(fill, t); solid = true; }
   else if (fill.state === 'failed') label = t('knowledge.fillFailed');
   else if (authoring) {
-    // How far the agent is, of the pages it has taken up: «Агент пишет страницы · 12/18».
-    label = writer.units.length === 0 ? t('knowledge.fillWriting') : `${t('knowledge.fillWriting')} · ${written}/${writer.units.length}`;
+    // How far the agent is, of the pages this run means to write: «Агент пишет страницы · 12/18». The total comes
+    // from the writer before its first unit and grows only when the product page declares more domains; until it is
+    // there the count stands alone («12»), never against a denominator made of what has merely been taken up.
+    const count = `${written}${writer.total === undefined ? '' : `/${writer.total}`}`;
+    label = writer.units.length === 0 ? t('knowledge.fillWriting') : `${t('knowledge.fillWriting')} · ${count}`;
     solid = true;
   }
   else if (status.filled) {
