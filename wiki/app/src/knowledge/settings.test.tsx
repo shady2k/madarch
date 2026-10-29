@@ -68,6 +68,7 @@ const settings = (over: Partial<ProductSettings> = {}): ProductSettings => ({
     ],
   },
   bounds: BOUNDS, busy: false,
+  agentNames: { 'claude-code': 'Claude Code', codex: 'Codex' },
   danger: {
     rewrite: { agentPages: ['docs/product.md', 'docs/domains/payments.md'], keptPages: ['docs/domains/mine.md'] },
     fresh: { unansweredQuestions: ['docs/questions/open.md'], keptAnswers: ['docs/questions/answered.md', 'docs/questions/other.md'], store: ['/x/graph'], agentPages: ['docs/product.md', 'docs/domains/payments.md'], keptPages: ['docs/domains/mine.md'], editedStarterFiles: ['templates/domain.md'], replacedStarterFiles: ['madarch/kinds.yaml', 'templates/domain.md'] },
@@ -146,6 +147,20 @@ describe('the product settings page', () => {
     await until(() => calls.length === 1, 'the role assignment');
     expect(calls[0]!.url).toContain('/api/k/model-role');
     expect(calls[0]!.body).toEqual({ role: 'classification', agent: 'codex', install: true });
+  });
+
+  test('a role names its agent at once, without waiting for the agents to be read', async () => {
+    // The agents are asked for and never answer: the row still stands with the name a reader knows, because the settings
+    // bring the names of the agents they name (madarch-j6ho.2).
+    (globalThis as { fetch?: unknown }).fetch = async (url: string) => {
+      if (url.endsWith('/api/k/product-settings')) return json(settings());
+      if (url.endsWith('/api/k/agents')) return await new Promise<Response>(() => undefined);
+      return json({ message: 'not here' }, 404);
+    };
+    const page = into(createElement(SettingsPage, { version: 0, status: status(), refresh: () => undefined }));
+    await until(() => page.querySelector('[data-testid=settings-role-pair-writing]') !== null, 'the writing role');
+    expect(page.querySelector('[data-testid=settings-role-pair-writing]')!.textContent).toBe("Claude Code · the agent’s own choice");
+    expect(page.querySelector('[data-testid=settings-role-pair-classification]')!.textContent).toBe("Claude Code · the agent’s own choice");
   });
 
   test('an assigned classification or analysis role gets its own model and reasoning choice from its agent', async () => {

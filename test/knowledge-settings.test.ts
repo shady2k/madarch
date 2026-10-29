@@ -195,6 +195,8 @@ describe('the model roles (madarch-j6ho.2)', () => {
     expect(view.roles.find((role) => role.role === 'classification')).toMatchObject({ source: 'fallback', fallbackFrom: 'writing', pair: { agent: 'claude-code', model: 'opus', reasoning: 'high' } });
     expect(view.roles.find((role) => role.role === 'analysis')?.note).toContain('analysis is not assigned');
     expect(held.settingsView().roles).toEqual(view);
+    // The names the page shows beside a pair, so a row never stands with an agent's id in it (madarch-j6ho.2).
+    expect(held.settingsView().agentNames).toMatchObject({ 'claude-code': 'Claude Code', codex: 'Codex' });
   }, 60_000);
 
   test('a role is assigned a pair; clearing writing keeps the other roles; clearing a role removes only it', async () => {

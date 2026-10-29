@@ -44,7 +44,7 @@ import { readMarkdownEntities, type MarkdownEntity } from './markdown.js';
 import type { AgentOffer, Block, DocumentListing, DocumentPage, DocumentRef, FillState, Neighborhood, PageModel, PlannedMarkView, PlannedSectionView, WikiStatus, WriterState, WriterUnit } from './model.js';
 import { neighborhoodOf } from './diagrams.js';
 import { anchorLines, titleOfAnchor } from './anchors.js';
-import { adapterOf, installAdapter, makeUnitAgent, offers, queryAgentChoices, WRITER_BOUNDS } from './agents.js';
+import { adapterOf, installAdapter, makeUnitAgent, offers, queryAgentChoices, WRITER_AGENTS, WRITER_BOUNDS } from './agents.js';
 import { emptyModelAssignments, isModelRole, modelPair, resolveModelRoles, type ModelAssignments, type ModelPair, type ModelRole, type ModelRoleView } from './model-roles.js';
 import type { AgentChoices } from '../fill/acp-choices.js';
 import { addStarterItems, currentOffers, filesAPersonEdited, replaceWithStarterSet, upgradeStarterSet, type StarterOffer, type UpgradeReport, rememberChangedStarterFileIfOwned } from './starter-upgrade.js';
@@ -1274,6 +1274,8 @@ export class KnowledgeProduct {
     chosenAgent: { id: string; label: string; model?: string; reasoning?: string } | null;
     /** Every role, its resolved pair and a visible note when it falls back (madarch-j6ho.2). */
     roles: ModelRoleView;
+    /** The name every agent madarch offers is known by, so a page names an agent before it has read the agents (madarch-j6ho.2). */
+    agentNames: Record<string, string>;
     bounds: typeof WRITER_BOUNDS;
     danger: ReturnType<KnowledgeProduct['dangerPlan']>;
     /** Why the two resets cannot say what they would do (a `docs` folder that is a link out of the product, say); both are then refused. */
@@ -1298,6 +1300,7 @@ export class KnowledgeProduct {
       language: read.present ? read.manifest.language ?? 'en' : 'en',
       chosenAgent: this.chosenAgent(),
       roles: this.modelRoles(),
+      agentNames: Object.fromEntries(WRITER_AGENTS.map((id) => [id, adapterOf(id)?.label ?? id])),
       bounds: WRITER_BOUNDS,
       danger,
       ...(dangerError === undefined ? {} : { dangerError }),

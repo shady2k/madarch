@@ -393,6 +393,8 @@ export type ProductSettings = {
   language: string;
   chosenAgent: { id: string; label: string; model?: string; reasoning?: string } | null;
   roles: ModelRoleView;
+  /** The name every agent madarch offers is known by (madarch-j6ho.2), so a row names its agent at once. */
+  agentNames: Record<string, string>;
   bounds: WriterBounds;
   danger: DangerPlan;
   dangerError?: string;

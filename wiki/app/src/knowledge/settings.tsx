@@ -151,7 +151,9 @@ function RolesSection({ settings, reload }: { settings: ProductSettings; reload:
     getAgents(controller.signal).then((answer) => setAgents(answer.agents), (failure: unknown) => { if (!controller.signal.aborted) setError(message(failure)); });
     return () => controller.abort();
   }, [round]);
-  const label = (id: string): string => agents?.find((agent) => agent.id === id)?.label ?? id;
+  // The settings bring the names of the agents they name (madarch-j6ho.2): a row stands with the name at once, and the
+  // agents read later fill in the names of the agents no role names.
+  const label = (id: string): string => settings.agentNames?.[id] ?? agents?.find((agent) => agent.id === id)?.label ?? id;
   // A role assigned to an agent gets that agent's own model and reasoning level to choose from (madarch-j6ho.2,
   // finding 3); the answers are asked once per agent and kept for every role using it.
   const [choices, setChoices] = useState<Record<string, AgentChoices | null>>({});
