@@ -561,11 +561,11 @@ function Deferred({ block, pageId, resolutions }: { block: Extract<Block, { type
     const stop = new AbortController();
     setDrawn(null);
     setFailure(null);
-    getBlock(pageId, block.line, i18n.resolvedLanguage ?? 'en', stop.signal).then(setDrawn, (error: unknown) => {
+    getBlock(pageId, block.id, i18n.resolvedLanguage ?? 'en', stop.signal).then(setDrawn, (error: unknown) => {
       if (!(error instanceof DOMException && error.name === 'AbortError')) setFailure(error instanceof Error ? error.message : String(error));
     });
     return () => stop.abort();
-  }, [pageId, block.line, block.block, i18n.resolvedLanguage, opened]);
+  }, [pageId, block.id, block.block, i18n.resolvedLanguage, opened]);
   if (block.block === 'definition') return <details data-testid="contract-definition-disclosure" onToggle={(event) => { if (event.currentTarget.open) setOpened(true); }}>
     <summary className="cursor-pointer text-secondary">{block.title}</summary>
     {opened && (drawn !== null ? <BlockView block={drawn} resolutions={resolutions} {...(pageId === undefined ? {} : {pageId})} /> : <p role={failure === null ? 'status' : 'alert'}>{failure ?? t('knowledge.contractLoading')}</p>)}

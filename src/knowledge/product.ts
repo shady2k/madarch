@@ -1516,7 +1516,7 @@ export class KnowledgeProduct {
     return await this.readSnapshotHistory(owner, pin, this.validAt(), selection);
   }
 
-  async page(id: string, lang?: string, options: { defer?: boolean; only?: number; history?: HistorySelection } = {}): Promise<PageResult> {
+  async page(id: string, lang?: string, options: { defer?: boolean; only?: string; history?: HistorySelection } = {}): Promise<PageResult> {
     const history = options.history === undefined ? undefined : await this.historyAt(options.history);
     // A gap is a visible result, not an empty current page or a reason to fall back to the tip.
     if (history !== undefined && history.coverage !== 'covered') return { ok: true, page: { id, kind: id.slice(0, id.indexOf(':')), title: id, trail: [], blocks: [], resolutions: {}, findings: [], notes: [], history } };
@@ -1636,11 +1636,11 @@ export class KnowledgeProduct {
   }
 
   /** One block of a page, by the line of its template: what a deferred diagram reads to draw itself. */
-  async block(id: string, line: number, lang?: string, history?: HistorySelection): Promise<{ ok: true; block: Block } | { ok: false; status: 404; message: string }> {
-    const result = await this.page(id, lang, { only: line, ...(history === undefined ? {} : { history }) });
+  async block(id: string, held: string, lang?: string, history?: HistorySelection): Promise<{ ok: true; block: Block } | { ok: false; status: 404; message: string }> {
+    const result = await this.page(id, lang, { only: held, ...(history === undefined ? {} : { history }) });
     if (!result.ok) return { ok: false, status: 404, message: result.message };
     const [block] = result.page.blocks;
-    return block === undefined ? { ok: false, status: 404, message: `the template of ${id} has no block at line ${line}` } : { ok: true, block };
+    return block === undefined ? { ok: false, status: 404, message: `the template of ${id} has no block known as ${held}` } : { ok: true, block };
   }
 
   /** The statement view of one sentence of an agent's page. */
