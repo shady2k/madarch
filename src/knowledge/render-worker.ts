@@ -188,6 +188,8 @@ export async function runRenderWorker(io: { lines: AsyncIterable<string>; send: 
     engine = new Liquid({
       templates: request.templates,
       extname: '',
+      // A template is parsed once per worker: a changed set opens the engine again (the digest the server sends).
+      cache: true,
       strictVariables: true,
       strictFilters: true,
       ownPropertyOnly: true,
