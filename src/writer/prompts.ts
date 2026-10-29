@@ -210,14 +210,35 @@ export function otherQuestionsPart(pageId: string, questions: readonly Question[
   ];
 }
 
+/**
+ * The eight fields of a home page (madarch-ztyq.7), in the order a reader reads them: the same page is the
+ * product page, written first, and the overview page, written last (`src/writer/home-page.ts`).
+ */
+function homeFieldsPart(late: boolean): string[] {
+  return [
+    '## The fields, in the order a reader reads them',
+    '- whatItIs: what the product is and for whom, one grounded sentence per part. The page cannot be written without it.',
+    `- scenarios: the main scenarios, each pointing at the page that tells it in full${late ? ' — the page this run published for it, or the document section it stands on' : ' — the section of the document that tells it, doc:<path>#<anchor>'} — with one sentence about what the reader finds there.`,
+    '- system: how the system is put together — its services, modules and stores — each a key of the graph (or a page of this run) with one sentence about the part it is.',
+    `- domains: the domains of the product, each pointing at its page (domain:<slug>)${late ? '' : '; every domain you declare in "domains" appears here'}, with one sentence about it.`,
+    '- rules: the rules and decisions that matter to a reader of the product, each pointing at the section that states it, with one sentence about it.',
+    '- technology: the technology and the size — the language, the frameworks, the stores, how many parts and files the graph holds — each a grounded sentence.',
+    '- coverage: how complete the wiki is: what the documents and the graph hold, and which of it this wiki covers. Do not claim a page this run has not written yet: say what the wiki holds and what it does not hold yet.',
+    '- notConnected: what is not connected — a part with no frontend, a document the product lacks, a place the graph does not join — each a sentence about what the documents and the graph leave unjoined, grounded on what you read.',
+    '',
+  ];
+}
+
 export async function productPrompt(view: GraphView, unit: Extract<UnitSpec, { kind: 'product' }>, language = 'en', context: UnitContext = {}): Promise<string> {
   return [
-    fixedPart(language),
+    fixedPart(language, false),
     '',
     '## Your unit',
-    `You write the product page ${unit.path}: what the product is, for whom, its domains and its architecture. Its id is \`${unit.id}\`, its kind is \`product\`, and its title is the product's name (${unit.name}).`,
+    `You write the home page ${unit.path}: a one-minute overview of ${unit.name} for someone who opened the wiki for the first time. Its id is \`${unit.id}\`, its kind is \`product\`, and its title is the product's name (${unit.name}).`,
+    'The page is eight short sections, in the order below. Each points at the page that says it in full — a document section, a domain page, a part of the graph — instead of restating it, and every sentence a section states carries the ground that shows it. A reader reads it in a minute and follows one link to read the whole thing.',
     `Read the product's documents first (vision, requirements, architecture), then the graph, and keep the page under ${PRODUCT_PAGE_WORDS} words.`,
     '',
+    ...homeFieldsPart(false),
     'Find the product\'s domains: the bounded areas of what the product does, named for the reader (such as payments or ordering), not for a folder. Each domain you declare in write_page\'s "domains" needs a slug, a title, a one-sentence summary and evidence that resolves in the graph (service keys, symbols, document sections). Every declared domain must be linked from the page as `[name](madarch:domain:<slug>)` and described by at least one grounded sentence. Another unit will write each domain\'s page.',
     ...(context.declared === undefined || context.declared.length === 0 ? [] : ['', 'The domains the page declares now (pass them again in "domains", keep their slugs, and add a domain only for what the graph now shows is new):', ...context.declared.map(domainText)]),
     '',
@@ -399,17 +420,16 @@ export async function enrichmentPrompt(view: GraphView, unit: { readonly id: str
  * it links what exists instead of restating it.
  */
 export async function overviewPrompt(view: GraphView, unit: { readonly id: string; readonly path: string; readonly name: string }, pages: readonly { readonly id: string; readonly path: string; readonly title: string }[], language = 'en', context: UnitContext & { readonly reads?: readonly WriterArtifactRead[] } = {}): Promise<string> {
-  const seeAlso = CONTENT_LANGUAGES[language]?.seeAlso ?? 'See also';
   return [
-    fixedPart(language),
+    fixedPart(language, false),
     '',
     '## Your unit',
     `You write the home page ${unit.path}: a one-minute overview of ${unit.name} for someone who opened the wiki for the first time. Its id is \`${unit.id}\`, its kind is \`overview\`.`,
-    'Say what the product is and for whom, its main scenarios, how the system is put together, its domains and the rules and decisions that matter, its technology and size, how complete the wiki is, and what is not connected (a part with no frontend, a document the product lacks). Each of those is one short section, and each points at the page that says it in full instead of restating it.',
+    'The page is eight short sections, in the order below. Each points at the page that says it in full — a page this run published, a document section, a part of the graph — instead of restating it, and every sentence a section states carries the ground that shows it.',
     'You are the last page written: link the pages this run published rather than describing them again, and say plainly what the wiki does not hold yet.',
-    ...(pages.length === 0 ? [] : ['', 'The pages this run published, which you may link as `(madarch:<page id>)`:', ...pages.map((page) => `- ${page.id}: ${page.title} (${page.path})`)]),
-    ...(pages.length === 0 ? [] : ['', `A line that only connects pages starts with "${seeAlso}".`]),
     '',
+    ...homeFieldsPart(true),
+    ...(pages.length === 0 ? [] : ['The pages this run published, which you may point a section at as `(madarch:<page id>)`, each with the "label" the reader sees:', ...pages.map((page) => `- ${page.id}: ${page.title} (${page.path})`)]),
     ...questionsPart(unit.id, context.questions),
     ...earlierArtifactsPart(context.reads ?? []),
     ...await preparedContextPart(view),

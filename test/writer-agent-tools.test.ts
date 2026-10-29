@@ -534,17 +534,20 @@ describe('a unit holds the tools that answer its questions', () => {
     const held = tools().tools.map((tool) => tool.name);
     for (const name of ['get_symbol', 'get_context', 'trace_flow', 'get_document_sections', 'search_pages', 'get_page', 'search_questions']) expect(held).toContain(name);
     // A domain unit writes no page of its own Markdown and declares no domains (madarch-ztyq.6): its write_page
-    // takes the page's title and the fields of its six sections, and the core writes the page. The product unit's
-    // takes markdown and the domains it declares, and that is the whole difference between the two.
+    // takes the page's title and the fields of its six sections, and the core writes the page. A product unit's
+    // takes the fields of the home page's eight sections (madarch-ztyq.7) beside the domains it declares, and the
+    // headings and footnotes are the core's, never the unit's.
     const domainWrite = tools().tools.find((tool) => tool.name === 'write_page')!;
     const domainSchema = domainWrite.inputSchema as { properties: Record<string, unknown>; required?: readonly string[] };
     expect(Object.keys(domainSchema.properties)).toEqual(['title', 'participants', 'mainScenario', 'rules', 'whatCanGoWrong', 'openPoints', 'developer']);
     expect(domainSchema.required).toEqual(['participants', 'mainScenario']);
     const productWrite = new UnitTools(view(), { kind: 'product', id: 'product:shop', path: 'docs/product.md', name: 'Shop' }, memorySink(), [], DEFAULT_UNIT_BOUNDS, BASIS, { reads: stubReads(), questions: async () => [] }).tools.find((tool) => tool.name === 'write_page')!;
-    const productSchema = productWrite.inputSchema as { properties: Record<string, unknown> };
-    expect(Object.keys(productSchema.properties)).toContain('markdown');
-    expect(Object.keys(productSchema.properties)).toContain('domains');
-    expect(Object.keys(domainSchema.properties)).not.toContain('markdown');
+    const productSchema = productWrite.inputSchema as { properties: Record<string, unknown>; required?: readonly string[] };
+    expect(Object.keys(productSchema.properties)).toEqual(['fields', 'domains']);
+    expect(productSchema.required).toEqual(['fields', 'domains']);
+    const fieldsSchema = (productSchema.properties['fields'] as { properties: Record<string, unknown> }).properties;
+    expect(Object.keys(fieldsSchema)).toEqual(['title', 'whatItIs', 'scenarios', 'system', 'domains', 'rules', 'technology', 'coverage', 'notConnected']);
+    expect(Object.keys(domainSchema.properties)).not.toContain('fields');
     expect(Object.keys(domainSchema.properties)).not.toContain('domains');
   });
 

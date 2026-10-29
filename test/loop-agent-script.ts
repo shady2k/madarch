@@ -9,7 +9,7 @@
  * runs; the grounds are facts of the generated repository.
  */
 import { slugOf } from '../src/writer/names.js';
-import { ORDERS_SERVICE, agentScript, domainFields, fieldsCall, productPage, TEXT, type ScriptLanguage } from './knowledge-agent-script.js';
+import { ORDERS_SERVICE, agentScript, domainFields, fieldsCall, homeCall, productFields, TEXT, type ScriptLanguage } from './knowledge-agent-script.js';
 import { FACTORY, PAY, PAYMENTS_SERVICE } from './knowledge-fixture.js';
 
 export interface LoopQuestion {
@@ -221,10 +221,10 @@ export function groundRefreshScript(language: ScriptLanguage, delay = 0) {
   return {
     byPrompt: [
       ...agentScript().byPrompt.filter((entry) => entry.matches.startsWith('Write the ') || entry.matches.startsWith('Judge this proposed procedure step')),
-      { matches: 'You write the product page', steps: [...wait, { call: { tool: 'write_page', arguments: { markdown: productPage(language), domains: [
+      { matches: 'You write the home page', steps: [...wait, homeCall(productFields(language), [
         { slug: 'ordering', title: t.ordering, summary: t.orderingSummary, evidence: [ORDERS_SERVICE, 'doc:docs/requirements.md#uc-1'] },
         { slug: 'payments', title: t.payments, summary: t.paymentsSummary, evidence: [PAYMENTS_SERVICE, 'doc:docs/requirements.md#uc-2'] },
-      ] } } }, { end: { stopReason: 'end_turn' } }] },
+      ]), { end: { stopReason: 'end_turn' } }] },
       { matches: 'You write the domain page docs/domains/ordering.md', steps: [...wait, fieldsCall(ordering), { end: { stopReason: 'end_turn' } }] },
     ],
     steps: [{ end: { stopReason: 'end_turn' } }],
