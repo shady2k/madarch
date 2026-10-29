@@ -82,7 +82,10 @@ import { groundsOfScope, NO_MARKS, markForEntity, marksForDocument, marksForPage
 import { proposeTask, type TaskChoice, type TaskProposal } from '../loop/propose.js';
 import { readKnowledgePages } from './index/index.js';
 import { planRefresh, type RefreshPlan } from '../loop/plan.js';
-import { listProblems, listQuestions, listTasks, openTasks, questionDetail, taskDetail, type ProblemListing, type QuestionDetail, type QuestionListing, type TaskDetail, type TaskListing, type TaskRow } from '../loop/views.js';
+import { listQuestions, listTasks, openTasks, questionDetail, taskDetail, type ProblemListing, type QuestionDetail, type QuestionListing, type TaskDetail, type TaskListing, type TaskRow } from '../loop/views.js';
+import { collectProblems, openProblemsOf } from '../problems/index.js';
+import { defaultSettings } from '../problems/types.js';
+import { readProblemDismissals, writeProblemDismissal } from '../loop/problem-files.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -297,6 +300,8 @@ export class KnowledgeProduct {
   /** A reset is under way: no fill starts meanwhile, and no second reset. */
   private resetting = false;
   private lastUse = Date.now();
+  /** The Problems listing, kept for the entity badge until the next change of the product (madarch-m38l.19). */
+  private problemsCache: { rev: number; listing: ProblemListing } | undefined;
   private idleTimer: ReturnType<typeof setInterval> | undefined;
 
   constructor(private readonly options: KnowledgeProductOptions) {}
@@ -1613,7 +1618,7 @@ export class KnowledgeProduct {
     const owner = await this.open();
     const validAt = this.validAt();
     const pins = new Map(this.pins);
-    return await owner.transaction('snapshot', async (transaction) => {
+    const rendered: PageResult = await owner.transaction('snapshot', async (transaction) => {
       const context = await this.context(history, { owner, transaction, validAt, pins });
       if ('absent' in context) return { ok: false, status: 404, message: `the product has no ${context.file}: the wiki shows the kinds that file declares` };
       if (history !== undefined && await findSubject(context.ctx, id) === undefined) return { ok: true, page: { id, kind: id.slice(0, id.indexOf(':')), title: id, trail: [], blocks: [], resolutions: {}, findings: [], notes: [], history, historicalAbsent: true } };
@@ -1622,6 +1627,19 @@ export class KnowledgeProduct {
       const page = history === undefined ? result.page : withHistoryLinks(result.page, history);
       return { ok: true, page: { ...page, ...(history === undefined ? { planned, ...(historyNavigation === undefined ? {} : { historyNavigation }) } : { history, blocks: page.blocks.filter((block) => block.type !== 'history') }) } };
     });
+    // The badge is counted after the page's transaction closes: the Problems listing opens a transaction of its own, and a
+    // nested one would wait on the pipe the page holds. A listing that cannot be made is said on the page, never shown as 0.
+    if (!rendered.ok || rendered.page.historicalAbsent === true || history !== undefined) return rendered;
+    // The caller may hold a renderer whose owner has no store behind it (a snapshot fixture, or a page rendered from an
+    // injected transaction). There is no problems database to ask, so the page shows no count and no failure note.
+    if (this.reader?.owner !== owner) return rendered;
+    try {
+      const listing = this.cachedProblems() ?? await this.problems();
+      const problems = openProblemsOf(listing.problems, id);
+      return { ok: true, page: { ...rendered.page, problems } };
+    } catch (error) {
+      return { ok: true, page: { ...rendered.page, notes: [...rendered.page.notes, `the problems of this entity could not be counted: ${(error as Error).message}`] } };
+    }
   }
 
   /** Strict guide data and fresh walk evidence are assembled once for every read format. */
@@ -2130,12 +2148,83 @@ export class KnowledgeProduct {
     if ('absent' in context) throw new WikiReadError(`the product has no ${context.file}: the wiki shows the kinds that file declares`);
     const owner = await this.open();
     const repository = this.singleRepository();
-    return await listProblems({
-      productFolder: this.options.productFolder, owner, ...(repository === undefined ? {} : { repository }),
-      resolve: (url) => context.ctx.resolver.resolve(url), findings: context.findings,
+    const dismissals = readProblemDismissals(this.options.productFolder);
+    const dismissed = new Set(dismissals.items.map((item) => item.id));
+    const listing = await collectProblems({
+      productFolder: this.options.productFolder, owner,
+      // The Problems page reads the same revision every other read does: a fill that lands meanwhile changes the next listing, not this one.
+      graph: new GraphReader(owner, () => this.validAt()),
+      settings: context.manifest.problems ?? defaultSettings(),
+      ...(repository === undefined ? {} : { repository }),
+      resolve: (url) => context.ctx.resolver.resolve(url), findings: [...context.findings, ...dismissals.problems.map((problem) => ({ file: problem.file, line: problem.line, message: problem.message }))],
       ...(this.writer.plan === undefined ? {} : { unplaced: this.writer.plan.unplaced }),
-      starter: this.starterOffers(),
+      starter: this.starterOffers(), dismissed,
     });
+    this.problemsCache = { rev: this.revision, listing };
+    return listing;
+  }
+
+  /** The listing the page already computed, for the entity badge; null when it is stale or was never computed. */
+  cachedProblems(): ProblemListing | null {
+    return this.problemsCache !== undefined && this.problemsCache.rev === this.revision ? this.problemsCache.listing : null;
+  }
+
+  /**
+   * «Не проблема»: the person's reason becomes a file in the product repository, committed as the person, and the
+   * problem is left out of the page from now on. A problem the page no longer lists is refused with its id.
+   */
+  async dismissProblem(id: string, reason: string): Promise<{ file: string; committed: boolean; note?: string; commit?: string }> {
+    const listing = await this.problems();
+    const problem = listing.problems.find((candidate) => candidate.id === id);
+    if (problem === undefined) throw new LoopRefusal(404, `docs/problems:1: there is no problem ${JSON.stringify(id)} in the current listing: its rule, place or inputs changed, so the page offers no such problem`);
+    const [rule, ...rest] = id.split('\u0000');
+    const identity = rest.join('\u0000');
+    if (rule === undefined || identity === '') throw new LoopRefusal(400, `docs/problems:1: the problem id ${JSON.stringify(id)} is not <rule>\\0<identity>`);
+    const by = await localIdentity(this.options.productFolder, { ...process.env, ...(this.options.env ?? {}) } as NodeJS.ProcessEnv);
+    const at = (this.options.now?.() ?? new Date()).toISOString();
+    let written: ReturnType<typeof writeProblemDismissal>;
+    try {
+      written = writeProblemDismissal({ productFolder: this.options.productFolder, rule, identity, place: problem.place.label, reason, by, at });
+    } catch (error) {
+      throw new LoopRefusal(400, (error as Error).message);
+    }
+    const committed = await commitFiles(this.options.productFolder, [written.file], `Record that a problem is not one\n\nTask: madarch-m38l.19`, by, { ...process.env, ...(this.options.env ?? {}) } as NodeJS.ProcessEnv);
+    this.notify();
+    return { file: written.file, ...committed };
+  }
+
+  /**
+   * «Создать задачу»: a task scoped to exactly the place the problem names (madarch-m38l.14's task format).
+   * A problem that names no place a person can change says why instead of opening an empty task.
+   */
+  async createProblemTask(id: string): Promise<{ task: PlannedTask; state: 'created'; committed: boolean; note?: string; commit?: string }> {
+    const listing = await this.problems();
+    const problem = listing.problems.find((candidate) => candidate.id === id);
+    if (problem === undefined) throw new LoopRefusal(404, `docs/problems:1: there is no problem ${JSON.stringify(id)} in the current listing: its rule, place or inputs changed, so the page offers no such problem`);
+    if (problem.scope === undefined) throw new LoopRefusal(409, `docs/problems:1: the problem ${JSON.stringify(id)} names no place a change can reach, so no task is opened for it`);
+    const [rule, ...rest] = id.split('\u0000');
+    const identity = rest.join('\u0000');
+    const slug = taskSlug(`Fix ${problem.rule} in ${problem.place.label}`, problem.id);
+    const file = `${TASKS_FOLDER}/${slug}.md`;
+    const existing = readTasks(this.options.productFolder);
+    if (existing.findings.length > 0) throw new LoopRefusal(409, `docs/tasks:1: cannot safely check existing tasks: ${existing.findings.map((finding) => `${finding.file}:${finding.line}: ${finding.message}`).join('; ')}`);
+    if (existing.tasks.some((task) => task.slug === slug)) throw new LoopRefusal(409, `${file}:1: a task with this id already exists`);
+    const by = await localIdentity(this.options.productFolder, { ...process.env, ...(this.options.env ?? {}) } as NodeJS.ProcessEnv);
+    const task: Omit<PlannedTask, 'id' | 'file'> = {
+      slug, title: `Fix ${problem.rule} in ${problem.place.label}`, status: 'open',
+      // A problem is not a person's answer: the task names the finding it came from, and the reason is the problem's own.
+      question: '', answer: '', problem: problem.id,
+      grounds: problem.entity?.key != null ? [problem.entity.key] : [problem.file],
+      scope: [problem.scope], by, at: (this.options.now?.() ?? new Date()).toISOString(), closedBy: null, closedAt: null,
+    };
+    try {
+      writeTask(this.options.productFolder, file, task);
+    } catch (error) {
+      throw new LoopRefusal(409, `${file}:1: the task could not be written: ${(error as Error).message}`);
+    }
+    const committed = await commitFiles(this.options.productFolder, [file], `Plan the task ${slug}\n\nTask: ${slug}`, by, { ...process.env, ...(this.options.env ?? {}) } as NodeJS.ProcessEnv);
+    this.notify();
+    return { task: { ...task, id: `task:${slug}`, file }, state: 'created', ...committed };
   }
 
   /**

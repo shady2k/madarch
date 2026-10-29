@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { parseKinds, setKindsLanguage } from '../src/knowledge/kinds.js';
-import { STARTER_FILES, STARTER_KINDS, ensureLoopKinds, starterManifest } from '../src/knowledge/seed.js';
+import { STARTER_FILES, STARTER_KINDS, STARTER_PROBLEM_RULES, ensureLoopKinds, starterManifest } from '../src/knowledge/seed.js';
 import { addStarterItems, currentOffers, filesAPersonEdited, provenanceOf, rememberChangedStarterFileIfOwned, replaceWithStarterSet, starterOffers, upgradeStarterSet } from '../src/knowledge/starter-upgrade.js';
 import { gitEnv } from './git-env.js';
 
@@ -242,6 +242,30 @@ describe('a manifest or a template a person edited is never rewritten', () => {
     expect(read(product, 'templates/item-plain.md')).toBe(STARTER_FILES.find((entry) => entry.path === 'templates/item-plain.md')!.content);
     expect(starterOffers(read(product, 'madarch/kinds.yaml')).map((offer) => offer.id)).not.toContain('kind:code.snapshot');
     expect(addStarterItems(product, ['kind:code.snapshot'], record)).toEqual([]);
+  });
+
+  test('a starter upgrade writes the Problems rules into a madarch-owned manifest, and offers them one by one to a manifest a person keeps', () => {
+    const { product, record } = oldProduct();
+    upgradeStarterSet(product, record);
+    const upgraded = manifestOf(product);
+    expect(upgraded.findings).toEqual([]);
+    expect(Object.keys(upgraded.problems?.rules ?? {})).toHaveLength(STARTER_PROBLEM_RULES.length);
+    expect(upgraded.problems?.rules['debt.todo']).toMatchObject({ predicate: 'debt', params: { marker: 'TODO' } });
+
+    // A manifest a person keeps is offered the rules it lacks, and takes one without the rest.
+    const { product: kept, record: keptRecord } = oldProduct();
+    const edited = read(kept, 'madarch/kinds.yaml') + '\nproblems:\n  rules:\n    debt.todo: {predicate: debt, kind: debt-todo, sonar: code-smell, severity: minor, section: code, action: task, params: {marker: TODO}}\n';
+    writeFileSync(join(kept, 'madarch/kinds.yaml'), edited);
+    const offers = starterOffers(edited).map((offer) => offer.id);
+    expect(offers).toContain('rule:debt.todo');
+    expect(offers).toContain('rule:dependency.cycle');
+    addStarterItems(kept, ['rule:debt.todo'], keptRecord);
+    const filled = manifestOf(kept);
+    // The person's severity and marker stay; the missing label is the starter's.
+    expect(filled.problems?.rules['debt.todo']).toMatchObject({ severity: 'minor', params: { marker: 'TODO' }, label: { en: 'TODO', ru: 'TODO' } });
+    // A second ask changes nothing: the rule is complete now.
+    expect(starterOffers(read(kept, 'madarch/kinds.yaml')).map((offer) => offer.id)).not.toContain('rule:debt.todo');
+    expect(addStarterItems(kept, ['rule:debt.todo'], keptRecord)).toEqual([]);
   });
 
   test('a group the upgrade adds carries the field that opens it on the menu by itself', () => {

@@ -2,6 +2,8 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, writeFile
 import { dirname, join, sep } from 'node:path';
 import { parseDocument } from 'yaml';
 import { KINDS_FILE } from './kinds.js';
+import { DEFAULT_THRESHOLDS } from '../problems/types.js';
+import type { ProblemSettings, RuleSpec } from '../problems/types.js';
 
 /**
  * The starter set `madarch new` writes into a product (decision 0029): the
@@ -293,6 +295,7 @@ export const STARTER_KINDS: readonly StarterKind[] = [
   { name: 'code.symbol', template: 'symbol.md', source: 'graph', group: 'code.structure', en: ['Symbol', 'Symbols'], ru: ['Символ', 'Символы'], describe: ['A function, class or constant, with its callers and callees.', 'Функция, класс или константа, кто её вызывает и что она вызывает.'] },
   { name: 'code.entry-point', template: 'item.md', source: 'graph', group: 'code.structure', en: ['Entry point', 'Entry points'], ru: ['Точка входа', 'Точки входа'], describe: ['Where a process of the system starts running.', 'Место, где начинает работать процесс системы.'] },
   { name: 'code.cycle', template: 'item-plain.md', source: 'graph', group: 'code.analysis', en: ['Dependency cycle', 'Dependency cycles'], ru: ['Цикл зависимостей', 'Циклы зависимостей'], describe: ['Files or modules that import one another in a ring.', 'Файлы или модули, которые импортируют друг друга по кругу.'] },
+  { name: 'code.debt', template: 'item-plain.md', source: 'graph', group: 'code.analysis', en: ['Debt marker', 'Debt markers'], ru: ['Маркер долга', 'Маркеры долга'], describe: ['A TODO or FIXME a comment left in the code.', 'TODO или FIXME, оставленный комментарием в коде.'] },
   { name: 'code.facet', template: 'item-plain.md', source: 'graph', group: 'code.analysis', en: ['File facet', 'File facets'], ru: ['Срез файла', 'Срезы файлов'], describe: ['What the code reader found out about a file: its role and language.', 'Что читатель кода выяснил о файле: его роль и язык.'] },
   { name: 'code.input', template: 'item.md', source: 'graph', group: 'code.analysis', en: ['Input', 'Inputs'], ru: ['Входные данные', 'Входные данные'], describe: ['A value that enters the code from outside, such as a query parameter.', 'Значение, которое попадает в код снаружи, например параметр запроса.'] },
   { name: 'code.sql-build', template: 'item-plain.md', source: 'graph', group: 'code.analysis', en: ['SQL build', 'SQL builds'], ru: ['Сборка SQL', 'Сборки SQL'], describe: ['A function that builds SQL text by joining strings.', 'Функция, которая собирает текст SQL склейкой строк.'] },
@@ -345,6 +348,69 @@ export const yamlText = (text: string): string => JSON.stringify(text);
 /** The exclusion list of the manifest's `documents` section. */
 export const DOCUMENT_EXCLUDES: readonly string[] = ['AGENTS.md', 'CLAUDE.md', 'GEMINI.md', '**/AGENTS.md', '**/CLAUDE.md', '**/GEMINI.md'];
 
+/**
+ * The rules of the Problems page as the starter manifest writes them (madarch-m38l.19, the review's
+ * first finding): this is starter content, not engine behaviour. The engine keeps only the
+ * predicates these rules name; a product edits, disables or adds a rule in its own manifest.
+ */
+export const STARTER_PROBLEM_RULES: readonly RuleSpec[] = [
+  { id: 'dependency.cycle', predicate: 'dependency-cycle', kind: 'dependency-cycle', sonar: 'bug', severity: 'major', section: 'code', action: 'task', enabled: true, label: { en: 'Dependency cycle', ru: 'Цикл зависимостей' } },
+  { id: 'security.sql-input', predicate: 'sql-input', kind: 'sql-input', sonar: 'vulnerability', severity: 'blocker', section: 'code', action: 'task', enabled: true, label: { en: 'Untrusted input reaches SQL', ru: 'Внешние данные попадают в SQL' } },
+  { id: 'security.export-route', predicate: 'route-outside-auth', kind: 'route-outside-auth', sonar: 'vulnerability', severity: 'critical', section: 'code', action: 'task', enabled: true, label: { en: 'Route outside the auth group', ru: 'Маршрут вне группы авторизации' } },
+  { id: 'large-file', predicate: 'large-file', kind: 'large-file', sonar: 'code-smell', severity: 'minor', section: 'code', action: 'task', enabled: true, label: { en: 'Large file', ru: 'Большой файл' } },
+  { id: 'hotspot', predicate: 'change-hotspot', kind: 'change-hotspot', sonar: 'code-smell', severity: 'major', section: 'code', action: 'task', enabled: true, label: { en: 'Change hotspot', ru: 'Горячая точка изменений' } },
+  { id: 'dead-export', predicate: 'dead-export', kind: 'dead-export', sonar: 'code-smell', severity: 'minor', section: 'code', action: 'task', enabled: true, label: { en: 'Exported but unused', ru: 'Экспорт без использования' } },
+  { id: 'debt.todo', predicate: 'debt', kind: 'debt-todo', sonar: 'code-smell', severity: 'info', section: 'code', action: 'task', enabled: true, params: { marker: 'TODO' }, label: { en: 'TODO', ru: 'TODO' } },
+  { id: 'debt.fixme', predicate: 'debt', kind: 'debt-fixme', sonar: 'code-smell', severity: 'minor', section: 'code', action: 'task', enabled: true, params: { marker: 'FIXME' }, label: { en: 'FIXME', ru: 'FIXME' } },
+  { id: 'config.required-dev-value', predicate: 'config-development-value', kind: 'config-development-value', sonar: 'vulnerability', severity: 'critical', section: 'code', action: 'task', enabled: true, params: { secrets: [], developmentValues: [] }, label: { en: 'Required setting has a checked-in value', ru: 'Обязательная настройка задана в репозитории' } },
+  { id: 'dependency.declared-unused', predicate: 'dependency-declared-unused', kind: 'dependency-declared-unused', sonar: 'code-smell', severity: 'minor', section: 'code', action: 'task', enabled: true, label: { en: 'Dependency declared but unused', ru: 'Зависимость объявлена, но не используется' } },
+  { id: 'dependency.used-undeclared', predicate: 'dependency-used-undeclared', kind: 'dependency-used-undeclared', sonar: 'bug', severity: 'major', section: 'code', action: 'task', enabled: true, label: { en: 'Dependency used but undeclared', ru: 'Зависимость используется, но не объявлена' } },
+  { id: 'contract.operation-without-route', predicate: 'operation-without-route', kind: 'operation-without-route', sonar: 'bug', severity: 'major', section: 'code', action: 'task', enabled: true, label: { en: 'Contract operation is not implemented', ru: 'Операция контракта не реализована' } },
+  { id: 'contract.route-without-operation', predicate: 'route-without-operation', kind: 'route-without-operation', sonar: 'bug', severity: 'minor', section: 'code', action: 'task', enabled: true, label: { en: 'Route is not in the contract', ru: 'Маршрута нет в контракте' } },
+
+  { id: 'document.contradiction', predicate: 'document-contradiction', kind: 'document-contradiction', sonar: 'bug', severity: 'major', section: 'documents', action: 'task', enabled: true, label: { en: 'Contradiction', ru: 'Противоречие' } },
+  { id: 'document.stale', predicate: 'document-stale', kind: 'document-stale', sonar: 'bug', severity: 'major', section: 'documents', action: 'task', enabled: true, label: { en: 'Stale statement', ru: 'Устаревшее утверждение' } },
+  { id: 'document.undocumented', predicate: 'document-undocumented', kind: 'document-undocumented', sonar: 'code-smell', severity: 'major', section: 'documents', action: 'task', enabled: true, label: { en: 'Undocumented behaviour', ru: 'Неописанное поведение' } },
+  { id: 'document.ambiguous-term', predicate: 'document-ambiguous', kind: 'document-ambiguous', sonar: 'code-smell', severity: 'minor', section: 'documents', action: 'task', enabled: true, label: { en: 'Ambiguous term', ru: 'Неоднозначный термин' } },
+
+  { id: 'wiki.correction', predicate: 'wiki', kind: 'correction', sonar: 'bug', severity: 'major', section: 'wiki', action: 'task', enabled: true, label: { en: 'Correction', ru: 'Исправление' } },
+  { id: 'wiki.ground-removed', predicate: 'wiki', kind: 'ground-removed', sonar: 'bug', severity: 'major', section: 'wiki', action: 'task', enabled: true, label: { en: 'Ground removed', ru: 'Основание исчезло' } },
+  { id: 'wiki.broken-link', predicate: 'wiki', kind: 'broken-link', sonar: 'bug', severity: 'major', section: 'wiki', action: 'task', enabled: true, label: { en: 'Broken link', ru: 'Ссылка никуда не ведёт' } },
+  { id: 'wiki.unreadable-file', predicate: 'wiki', kind: 'unreadable-file', sonar: 'bug', severity: 'major', section: 'wiki', action: 'task', enabled: true, label: { en: 'Unreadable file', ru: 'Файл не читается' } },
+  { id: 'wiki.unread-passage', predicate: 'wiki', kind: 'unread-passage', sonar: 'code-smell', severity: 'minor', section: 'wiki', action: 'task', enabled: true, label: { en: 'Passage not read', ru: 'Фрагмент не прочитан' } },
+  { id: 'wiki.unplaced', predicate: 'wiki', kind: 'unplaced', sonar: 'code-smell', severity: 'minor', section: 'wiki', action: 'task', enabled: true, label: { en: 'Unplaced finding', ru: 'Находка без места' } },
+  { id: 'wiki.manifest', predicate: 'wiki', kind: 'manifest', sonar: 'bug', severity: 'major', section: 'wiki', action: 'task', enabled: true, label: { en: 'Manifest finding', ru: 'Замечание к манифесту' } },
+];
+
+/** The starter rules as the settings the page reads: the same data the manifest text is written from. */
+export function starterProblemSettings(): ProblemSettings {
+  const rules = Object.fromEntries(STARTER_PROBLEM_RULES.map(({ id, ...setting }) => [id, setting] as const));
+  return { rules, thresholds: { ...DEFAULT_THRESHOLDS } };
+}
+
+/** One rule as a flow mapping of the manifest; `JSON.stringify` quotes every string, the labels included. */
+function ruleYaml(rule: RuleSpec): string {
+  const fields: string[] = [
+    `predicate: ${rule.predicate}`,
+    `kind: ${rule.kind}`,
+    `sonar: ${rule.sonar}`,
+    `severity: ${rule.severity}`,
+    `section: ${rule.section}`,
+    `action: ${rule.action}`,
+    `enabled: ${rule.enabled === false ? 'false' : 'true'}`,
+  ];
+  if (rule.params !== undefined) {
+    const params = Object.entries(rule.params).map(([name, value]) => {
+      if (Array.isArray(value)) return `${name}: [${value.map((entry) => yamlText(String(entry))).join(', ')}]`;
+      if (typeof value === 'string') return `${name}: ${yamlText(value)}`;
+      return `${name}: ${String(value)}`;
+    });
+    fields.push(`params: { ${params.join(', ')} }`);
+  }
+  fields.push(`label: { en: ${yamlText(rule.label.en)}, ru: ${yamlText(rule.label.ru)} }`);
+  return `{ ${fields.join(', ')} }`;
+}
+
 /** The starter manifest's text, with the product's page language when it has one. */
 export function starterManifest(language?: string): string {
   const text = kindsManifest();
@@ -376,6 +442,12 @@ function kindsManifest(): string {
     "# one page serves every role. A role left out, and the role \"everything\", open every block in the order above.",
     "# A glossary is a document named by a kind's `terms`: each list item starts with a bold term, and may list under it",
     "# \"Also called\", \"In code\", \"Used in\" and \"Ambiguous\" (decision 0031).",
+    "# `problems.rules` declares every rule the Problems page runs: the engine's predicate it keys to, the kind of",
+    "# finding it makes, its Sonar kind and severity (blocker, critical, major, minor, info), the section it belongs to,",
+    "# what the page offers on it and its label in each interface language. A rule may carry `params` (the marker a",
+    "# debt rule reads, the secret names a product declares) and `enabled`. The engine keeps only the predicates: a rule",
+    "# is run because this manifest declares it, and switching it off here is what stops it. The thresholds say when a",
+    "# file is large or a hotspot.",
     "# A group is { en: <its name>, ru: <its name> }, and may name the group it is a sub-area of (`parent`) and say it",
     "# opens on the menu by itself (`open: true`); a group without a parent is a top-level group.",
     "groups:",
@@ -391,6 +463,11 @@ function kindsManifest(): string {
     "  ignore: [code, html, thematicBreak, definition]",
     "roles:",
     ...ROLES.map((role) => `  ${role.name}: { lead: [${role.lead.join(', ')}], open: [${role.open.join(', ')}] }`),
+    "problems:",
+    "  thresholds:",
+    ...Object.entries(DEFAULT_THRESHOLDS).map(([name, value]) => `    ${name}: ${value}`),
+    "  rules:",
+    ...STARTER_PROBLEM_RULES.map((rule) => `    ${rule.id}: ${ruleYaml(rule)}`),
     "kinds:",
   ];
   for (const kind of STARTER_KINDS) lines.push(...kindLines(kind));

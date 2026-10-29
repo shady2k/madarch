@@ -55,6 +55,8 @@ export interface KnowledgePart {
   answer: (request: Request) => Promise<Handled>;
   correction: (request: Request) => Promise<Handled>;
   problems: (request: Request) => Promise<Handled>;
+  problemDismiss: (request: Request) => Promise<Handled>;
+  problemTask: (request: Request) => Promise<Handled>;
   refreshPlan: (request: Request) => Promise<Handled>;
   productSettings: (request: Request) => Promise<Handled>;
   agentChoices: (request: Request) => Promise<Handled>;
@@ -338,6 +340,35 @@ export function createKnowledgePart(
       return { response: json(201, { correction: done.correction.slug, id: done.correction.id, file: done.correction.file, committed: done.committed, ...(done.commit === undefined ? {} : { commit: done.commit }), ...(done.note === undefined ? {} : { note: done.note }), by: done.correction.by, at: done.correction.at }) };
     }),
     problems: guarded('list the problems', async () => ({ response: json(200, await product.problems()) })),
+    problemDismiss: guarded('record that a problem is not one', async (request) => {
+      const crossSite = foreign(request); if (crossSite !== undefined) return refused(403, { message: crossSite });
+      if (own) return refused(403, { message: "madarch's own wiki is documentation: a dismissal belongs to the product's repository" });
+      const plain = notJson(request); if (plain !== undefined) return refused(415, { message: plain });
+      let body: unknown; try { body = await request.json(); } catch (error) { return refused(400, { message: `the request body is not JSON: ${(error as Error).message}` }); }
+      const value = body as { id?: unknown; reason?: unknown } | null;
+      if (typeof value?.id !== 'string' || value.id.trim() === '') return refused(400, { field: 'id', message: '"id" is the problem the page listed' });
+      if (typeof value.reason !== 'string') return refused(400, { field: 'reason', message: '"reason" is required: why the problem is not one' });
+      try {
+        return { response: json(201, await product.dismissProblem(value.id, value.reason)) };
+      } catch (error) {
+        if (error instanceof LoopRefusal) return refused(error.status, { field: error.status === 404 ? 'id' : 'reason', message: error.message });
+        throw error;
+      }
+    }),
+    problemTask: guarded('create a task from a problem', async (request) => {
+      const crossSite = foreign(request); if (crossSite !== undefined) return refused(403, { message: crossSite });
+      if (own) return refused(403, { message: "madarch's own wiki is documentation: a task is opened in the product's repository" });
+      const plain = notJson(request); if (plain !== undefined) return refused(415, { message: plain });
+      let body: unknown; try { body = await request.json(); } catch (error) { return refused(400, { message: `the request body is not JSON: ${(error as Error).message}` }); }
+      const id = (body as { id?: unknown } | null)?.id;
+      if (typeof id !== 'string' || id.trim() === '') return refused(400, { field: 'id', message: '"id" is the problem the page listed' });
+      try {
+        return { response: json(201, await product.createProblemTask(id)) };
+      } catch (error) {
+        if (error instanceof LoopRefusal) return refused(error.status, { field: 'id', message: error.message });
+        throw error;
+      }
+    }),
     refreshPlan: guarded('plan the refresh', async (request) => {
       const language = new URL(request.url).searchParams.get('language');
       if (language !== null && language !== 'en' && language !== 'ru') return refused(400, { field: 'language', message: `"language" is en or ru, got ${JSON.stringify(language)}` });

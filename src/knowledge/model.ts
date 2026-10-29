@@ -258,7 +258,7 @@ export interface PropertyRow {
   name: string;
   value: string;
   /** The name's key under `knowledge.property.`, where the app knows this name. */
-  nameKey?: 'authoredAt' | 'committedAt' | 'subject' | 'merge' | 'language' | 'symbol' | 'method' | 'path';
+  nameKey?: 'authoredAt' | 'committedAt' | 'subject' | 'merge' | 'language' | 'symbol' | 'method' | 'path' | 'marker' | 'text' | 'line' | 'service' | 'secret';
   /** A date the app writes the way the wiki writes dates, in the reader's language. */
   valueKind?: 'date';
 }
@@ -288,6 +288,8 @@ export interface PageModel {
    * `product.page` adds it after the page is drawn; the page the renderer builds knows nothing of the product's tasks.
    */
   planned?: { entity: PlannedMarkView | null; statements: (PlannedMarkView & { sentence: string })[]; note?: string };
+  /** How many problems name this entity (madarch-m38l.19): the page shows a badge when it is above zero. */
+  problems?: number;
 }
 
 export interface KindSummary {
