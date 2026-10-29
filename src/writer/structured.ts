@@ -318,7 +318,7 @@ export function relatesOf(fields: StructuredFields): readonly string[] {
 }
 
 /** How a page's section names a place in a sentence or in a bullet. */
-interface RenderContext {
+export interface RenderContext {
   readonly language: StructuredLanguage;
   /** The graph's own name for a place, or the unit's label; undefined when the place is not in the graph. */
   readonly labelOf: (target: string) => string | undefined;
@@ -329,7 +329,7 @@ interface RenderContext {
 }
 
 /** The state one page's rendering carries: the footnote each statement gets, in order of appearance. */
-class PageWriter {
+export class PageWriter {
   private readonly lines: string[] = [];
   private readonly notes: string[] = [];
   private count = 0;
@@ -354,7 +354,7 @@ class PageWriter {
   statement(statement: GroundedStatement, prefix = ''): void {
     this.count += 1;
     const label = String(this.count);
-    this.lines.push(`${prefix}${statement.text.replace(/\s+/g, ' ').trim()}[^${label}]`);
+    this.lines.push(`${prefix}${withReference(statement.text, label)}`);
     this.notes.push(`[^${label}]: ${this.groundsOf(statement.grounds)}`);
   }
 
@@ -372,7 +372,7 @@ class PageWriter {
   }
 
   empty(): void { this.lines.push(''); }
-  heading(section: SectionDecl): void {
+  heading(section: { readonly heading: Readonly<Record<StructuredLanguage, string>> }): void {
     if (this.lines.length > 0) this.lines.push('');
     this.lines.push(`## ${section.heading[this.context.language]}`);
     this.lines.push('');
@@ -392,6 +392,28 @@ class PageWriter {
   private groundsOf(grounds: readonly string[]): string {
     return [...new Set(grounds)].map((target) => `[${labelOf(this.context.labelOf(target) ?? target)}](madarch:${target})`).join(', ');
   }
+}
+
+/**
+ * A sentence with its footnote reference where the format reads it: after the sentence's own punctuation, and before
+ * a question link that closes it — the format takes such a link as the suffix of the sentence it concerns and allows
+ * nothing after it (`question-link-position`, `src/writer/format.ts`).
+ */
+export function withReference(text: string, label: string): string {
+  const sentence = text.replace(/\s+/g, ' ').trim();
+  const at = closingQuestionLinkAt(sentence);
+  if (at < 0) return `${sentence}[^${label}]`;
+  return `${sentence.slice(0, at).trimEnd()}[^${label}] ${sentence.slice(at)}`;
+}
+
+/** Where the question link that closes a sentence starts, or -1 when the sentence ends in something else. */
+function closingQuestionLinkAt(sentence: string): number {
+  if (!sentence.endsWith(')')) return -1;
+  const marker = '](madarch:question:';
+  const target = sentence.lastIndexOf(marker);
+  if (target < 0 || sentence.indexOf(')', target) !== sentence.length - 1) return -1;
+  const start = sentence.lastIndexOf('[', target);
+  return start < 0 ? -1 : start;
 }
 
 /** What one page's body is: the sections of its kind as Markdown, and the places it relates. */

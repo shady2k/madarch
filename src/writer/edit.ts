@@ -93,7 +93,7 @@ export function includedNotes(brief: EditBrief): ChangeNote[] {
 }
 
 /** The part of a unit's prompt that makes it an edit. Deterministic: the same brief is the same text. */
-export function editPart(brief: EditBrief, languageName: string): string[] {
+export function editPart(brief: EditBrief, languageName: string, writesFields = false): string[] {
   const translate = brief.notes.some((note) => note.kind === 'language');
   const lines: string[] = [];
   if (brief.current !== null) {
@@ -108,7 +108,9 @@ export function editPart(brief: EditBrief, languageName: string): string[] {
       '- A person\'s ANSWER settles your question: state the answer on the page as fact, in a sentence of its own, and ground it on `madarch:question:<slug>` together with the grounds the sources give. Do not ask that question again.',
       '- A person\'s CORRECTION says a statement is wrong: change or remove the sentence so the page no longer says what the person showed to be wrong, and ground the fix on `madarch:correction:<slug>` together with what supports it.',
       '- Add what is new, in the place a reader looks for it, with grounds.',
-      '- Write the whole edited page with write_page.',
+      // A unit whose page the core writes (a domain page, an enrichment with sections) answers with its fields:
+      // there is no Markdown for it to write, and the sentences it keeps keep their words.
+      writesFields ? '- Answer write_page with the fields of the page, changed where the changes below say: a sentence you keep keeps its words, and the core writes the page.' : '- Write the whole edited page with write_page.',
       '',
     );
   }

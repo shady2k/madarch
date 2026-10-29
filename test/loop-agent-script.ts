@@ -9,7 +9,7 @@
  * runs; the grounds are facts of the generated repository.
  */
 import { slugOf } from '../src/writer/names.js';
-import { ORDERS_SERVICE, agentScript, domain, productPage, TEXT, type ScriptLanguage } from './knowledge-agent-script.js';
+import { ORDERS_SERVICE, agentScript, domainFields, fieldsCall, productPage, TEXT, type ScriptLanguage } from './knowledge-agent-script.js';
 import { FACTORY, PAY, PAYMENTS_SERVICE } from './knowledge-fixture.js';
 
 export interface LoopQuestion {
@@ -83,25 +83,31 @@ export const LOOP_QUESTIONS: readonly LoopQuestion[] = [
 
 export const questionSlug = (question: LoopQuestion, language: ScriptLanguage): string => slugOf(question.text[language].title);
 
+/** The sentences the sides of these contradictions stand on a page, each with its question link at its end. */
+function sidesOf(questions: readonly LoopQuestion[], language: ScriptLanguage, replace?: { readonly item: string; readonly index: number; readonly text: string }): Record<string, unknown>[] {
+  const label = language === 'ru' ? 'вопрос' : 'question';
+  return questions.filter((held) => held.type === 'contradiction').flatMap((question) => question.sides.map((grounds, index) => ({
+    text: `${replace !== undefined && question.item === replace.item && index === replace.index ? replace.text : question.text[language].claims[index]} [\u2192 ${label}: ${question.text[language].title}](madarch:question:${questionSlug(question, language)})`,
+    grounds: [...grounds],
+  })));
+}
+
 /**
- * The page keeps what a contradiction's sides say (madarch-m38l.13): after its own statement it states each side of
- * every contradiction its unit asked, each as its own grounded sentence on that side's sources, as the writer requires.
+ * The sentences one unit's contradictions stand on its page (madarch-m38l.13), in the order the unit asks them: a
+ * caller that writes the page itself (a task run) uses this so its fields are the ones the first run wrote.
  */
-function keepingSides(markdown: string, questions: readonly LoopQuestion[], language: ScriptLanguage): string {
-  const lines = markdown.split('\n');
-  const at = lines.findIndex((line) => /^\[\^1\]:/.test(line));
-  const body = lines.slice(0, at);
-  const notes = lines.slice(at);
-  let n = 0;
-  for (const question of questions.filter((held) => held.type === 'contradiction')) {
-    question.sides.forEach((grounds, index) => {
-      n += 1;
-      const label = language === 'ru' ? 'вопрос' : 'question';
-      body.push(`${question.text[language].claims[index]}[^side-${n}] [→ ${label}: ${question.text[language].title}](madarch:question:${questionSlug(question, language)})`, '');
-      notes.push(`[^side-${n}]: ${grounds.map((ground) => `[${ground.replace(/^.*[:#/]/, '')}](madarch:${ground})`).join(', ')}`);
-    });
-  }
-  return [...body, ...notes].join('\n');
+export function contradictionSides(unit: 'ordering' | 'payments', language: ScriptLanguage, replace?: { readonly item: string; readonly index: number; readonly text: string }): Record<string, unknown>[] {
+  return sidesOf(LOOP_QUESTIONS.filter((held) => held.unit === unit), language, replace);
+}
+
+/**
+ * The fields keep what a contradiction's sides say: after the unit's own statements, each side of every
+ * contradiction its unit asked stands as its own grounded sentence, with the question link at its end, as the
+ * writer requires of a page whose contradiction is still open.
+ */
+function keepingSides(fields: Record<string, unknown>, questions: readonly LoopQuestion[], language: ScriptLanguage): Record<string, unknown> {
+  const held = (fields['whatCanGoWrong'] as Record<string, unknown>[] | undefined) ?? [];
+  return { ...fields, whatCanGoWrong: [...held, ...sidesOf(questions, language)] };
 }
 
 const ask = (question: LoopQuestion, language: ScriptLanguage) => {
@@ -146,9 +152,9 @@ export function firstRunScript(delays: { product?: number; ordering?: number; pa
       const sleeps = entry.steps.filter((step) => 'sleep' in step);
       const mine = LOOP_QUESTIONS.filter((question) => question.unit === unit);
       const rest = entry.steps.filter((step) => !('sleep' in step)).map((step) => {
-        const written = (step as { call?: { tool?: string; arguments?: { markdown?: string } } }).call;
-        return written?.tool === 'write_page' && typeof written.arguments?.markdown === 'string'
-          ? { call: { ...written, arguments: { ...written.arguments, markdown: keepingSides(written.arguments.markdown, mine, language) } } }
+        const written = (step as { call?: { tool?: string; arguments?: { fields?: Record<string, unknown> } } }).call;
+        return written?.tool === 'write_page' && written.arguments?.fields !== undefined
+          ? { call: { ...written, arguments: { ...written.arguments, fields: keepingSides(written.arguments.fields, mine, language) } } }
           : step;
       });
       return { ...entry, steps: [...sleeps, ...asks, ...rest] };
@@ -166,12 +172,19 @@ const DECIDED: Record<ScriptLanguage, string> = {
 };
 
 /** The payments page after the answer to the payment-token question: its sentence kept, one added that stands on the answer. */
-export function paymentsRefreshed(language: ScriptLanguage): string {
+/**
+ * The payments page after the answer to the payment-token question, as fields: the sentence the page carried stands
+ * word for word, and one more stands on the answer the people gave — a rule of this domain, decided.
+ */
+export function paymentsRefreshed(language: ScriptLanguage): Record<string, unknown> {
   const question = LOOP_QUESTIONS.find((candidate) => candidate.item === 'term.payment-token')!;
   const slug = questionSlug(question, language);
-  const original = domain(language, 'payments', PAYMENTS_SERVICE, [FACTORY]);
-  const at = original.indexOf('\n[^1]:');
-  return `${original.slice(0, at)}\n\n${DECIDED[language]}[^payment-token-means-cardtoken]${original.slice(at)}\n[^payment-token-means-cardtoken]: [the answer](madarch:question:${slug}), [architecture](madarch:doc:docs/architecture.md#payment-flow)`;
+  const fields = domainFields(language, 'payments', PAYMENTS_SERVICE, [FACTORY]);
+  const rules = (fields['rules'] as Record<string, unknown>[]) ?? [];
+  return {
+    ...fields,
+    rules: [...rules, { text: DECIDED[language], grounds: [`question:${slug}`, 'doc:docs/architecture.md#payment-flow'] }],
+  };
 }
 
 /**
@@ -184,7 +197,7 @@ export function refreshScript(language: ScriptLanguage, delay = 0) {
   return {
     byPrompt: [...agentScript().byPrompt.filter((entry) => entry.matches.startsWith('Write the ') || entry.matches.startsWith('Judge this proposed procedure step')), {
       matches: `(madarch:question:${slug})`,
-      steps: [...(delay > 0 ? [{ sleep: delay }] : []), ask(question, language), { call: { tool: 'write_page', arguments: { markdown: paymentsRefreshed(language) } } }, { end: { stopReason: 'end_turn' } }],
+      steps: [...(delay > 0 ? [{ sleep: delay }] : []), ask(question, language), fieldsCall(paymentsRefreshed(language)), { end: { stopReason: 'end_turn' } }],
     }],
     steps: [{ end: { stopReason: 'end_turn' } }],
   };
@@ -204,7 +217,7 @@ export const ORDERING_CORRECTED: Record<ScriptLanguage, string> = {
 export function groundRefreshScript(language: ScriptLanguage, delay = 0) {
   const t = TEXT[language];
   const wait = delay > 0 ? [{ sleep: delay }] : [];
-  const ordering = domain(language, 'ordering', ORDERS_SERVICE, ['doc:docs/requirements.md#uc-2', PAY]).replace(t.orderingStatement, ORDERING_CORRECTED[language]);
+  const ordering = domainFields(language, 'ordering', ORDERS_SERVICE, ['doc:docs/requirements.md#uc-2', PAY], ORDERING_CORRECTED[language]);
   return {
     byPrompt: [
       ...agentScript().byPrompt.filter((entry) => entry.matches.startsWith('Write the ') || entry.matches.startsWith('Judge this proposed procedure step')),
@@ -212,7 +225,7 @@ export function groundRefreshScript(language: ScriptLanguage, delay = 0) {
         { slug: 'ordering', title: t.ordering, summary: t.orderingSummary, evidence: [ORDERS_SERVICE, 'doc:docs/requirements.md#uc-1'] },
         { slug: 'payments', title: t.payments, summary: t.paymentsSummary, evidence: [PAYMENTS_SERVICE, 'doc:docs/requirements.md#uc-2'] },
       ] } } }, { end: { stopReason: 'end_turn' } }] },
-      { matches: 'You write the domain page docs/domains/ordering.md', steps: [...wait, { call: { tool: 'write_page', arguments: { markdown: ordering } } }, { end: { stopReason: 'end_turn' } }] },
+      { matches: 'You write the domain page docs/domains/ordering.md', steps: [...wait, fieldsCall(ordering), { end: { stopReason: 'end_turn' } }] },
     ],
     steps: [{ end: { stopReason: 'end_turn' } }],
   };
