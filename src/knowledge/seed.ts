@@ -245,8 +245,8 @@ export interface StarterKind {
   extra?: string[];
 }
 
-export const GROUPS: readonly { name: string; en: string; ru: string; parent?: string }[] = [
-  { name: 'product', en: 'Product knowledge', ru: 'Знания о продукте' },
+export const GROUPS: readonly { name: string; en: string; ru: string; parent?: string; open?: boolean }[] = [
+  { name: 'product', en: 'Product knowledge', ru: 'Знания о продукте', open: true },
   { name: 'code', en: 'Code', ru: 'Код' },
   { name: 'code.structure', en: 'Structure', ru: 'Устройство', parent: 'code' },
   { name: 'code.analysis', en: 'Analysis', ru: 'Анализ', parent: 'code' },
@@ -376,8 +376,10 @@ function kindsManifest(): string {
     "# one page serves every role. A role left out, and the role \"everything\", open every block in the order above.",
     "# A glossary is a document named by a kind's `terms`: each list item starts with a bold term, and may list under it",
     "# \"Also called\", \"In code\", \"Used in\" and \"Ambiguous\" (decision 0031).",
+    "# A group is { en: <its name>, ru: <its name> }, and may name the group it is a sub-area of (`parent`) and say it",
+    "# opens on the menu by itself (`open: true`); a group without a parent is a top-level group.",
     "groups:",
-    ...GROUPS.map((group) => `  ${group.name}: { en: ${yamlText(group.en)}, ru: ${yamlText(group.ru)}${group.parent === undefined ? '' : `, parent: ${group.parent}`} }`),
+    ...GROUPS.map((group) => `  ${group.name}: { en: ${yamlText(group.en)}, ru: ${yamlText(group.ru)}${group.parent === undefined ? '' : `, parent: ${group.parent}`}${group.open === undefined ? '' : ', open: true'} }`),
     "documents:",
     "  exclude: [AGENTS.md, CLAUDE.md, GEMINI.md, \"**/AGENTS.md\", \"**/CLAUDE.md\", \"**/GEMINI.md\"]",
     // The document kinds the wiki says the documents hold: one that no section of any document is read as is a finding, so a

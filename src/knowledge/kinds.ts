@@ -79,6 +79,11 @@ export interface GroupDecl {
    * parent is a top-level group.
    */
   parent?: string;
+  /**
+   * Whether the navigation opens this group by itself, before a reader touches
+   * it (`open: true`). A group without the field is closed until opened.
+   */
+  open?: boolean;
   line: number;
 }
 
@@ -256,31 +261,47 @@ export function parseKinds(text: string, file: string, productFolder: string): K
         }
         const labels: Record<string, string> = {};
         let parent: string | undefined;
+        let open: boolean | undefined;
         let bad = false;
         for (const [language, label] of Object.entries(body)) {
-          if (language === 'parent') {
+          if (language === 'open') {
+            if (typeof label !== 'boolean') findings.push({ file, line: at(['groups', name, 'open']), message: `group "${name}": "open" is true or absent` });
+            else open = label;
+          } else if (language === 'parent') {
             if (typeof label !== 'string' || label.trim() === '') { findings.push({ file, line: at(['groups', name, 'parent']), message: `group "${name}": "parent" is the name of a group of "groups"` }); bad = true; }
             else parent = label;
           } else if (!LABEL_LANGUAGES.includes(language)) { findings.push({ file, line: at(['groups', name, language]), message: `group "${name}": "${language}" is not a language of the wiki: the languages are ${LABEL_LANGUAGES.join(', ')}` }); bad = true; }
           else if (typeof label !== 'string' || label.trim() === '') { findings.push({ file, line: at(['groups', name, language]), message: `group "${name}": the name in "${language}" is a text` }); bad = true; }
           else labels[language] = label;
         }
-        if (!bad) groups.set(name, { name, labels, line, ...(parent === undefined ? {} : { parent }) });
+        if (!bad) groups.set(name, { name, labels, line, ...(parent === undefined ? {} : { parent }), ...(open === undefined ? {} : { open }) });
       }
       // A sub-area names a group that stands beside it. Two levels would hide the
       // catalogue's shape, so a group whose parent is itself a sub-area is a finding.
+      // Every invalid edge is also discarded: the app draws top-level groups by a
+      // parent that is absent, so a kept edge would hide the group from the
+      // navigation while the finding names it (madarch-m38l.24, the review). A
+      // cycle — a names b and b names a — fails at both edges and both stand at
+      // the top level; the check reads the edges as they were written, so neither
+      // edge can make the other look valid while they are discarded one by one.
+      const invalidParents = new Map<string, { line: number; message: string }>();
       for (const group of groups.values()) {
         if (group.parent === undefined) continue;
+        const line = at(['groups', group.name, 'parent']);
         if (group.parent === group.name) {
-          findings.push({ file, line: at(['groups', group.name, 'parent']), message: `group "${group.name}": "parent" cannot name the group itself` });
+          invalidParents.set(group.name, { line, message: `group "${group.name}": "parent" cannot name the group itself` });
           continue;
         }
         const parent = groups.get(group.parent);
         if (parent === undefined) {
-          findings.push({ file, line: at(['groups', group.name, 'parent']), message: `group "${group.name}": "parent" names a group of "groups" (${[...groups.keys()].join(', ') || 'none is declared'}), got ${JSON.stringify(group.parent)}` });
+          invalidParents.set(group.name, { line, message: `group "${group.name}": "parent" names a group of "groups" (${[...groups.keys()].join(', ') || 'none is declared'}), got ${JSON.stringify(group.parent)}` });
         } else if (parent.parent !== undefined) {
-          findings.push({ file, line: at(['groups', group.name, 'parent']), message: `group "${group.name}": "parent" names "${parent.name}", which is itself a sub-area: sub-areas are one level deep` });
+          invalidParents.set(group.name, { line, message: `group "${group.name}": "parent" names "${parent.name}", which is itself a sub-area: sub-areas are one level deep` });
         }
+      }
+      for (const [name, invalid] of invalidParents) {
+        findings.push({ file, line: invalid.line, message: invalid.message });
+        delete groups.get(name)!.parent;
       }
     }
   }

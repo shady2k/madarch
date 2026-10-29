@@ -92,6 +92,26 @@ describe('the groups of the manifest', () => {
     expect(operations.subgroups.map((entry) => entry.group)).toEqual(['operations.configuration', 'operations.dependencies']);
   });
 
+  test('a sub-area whose kinds are all hidden on their own pages still counts in its parent total', () => {
+    const state = status({
+      groups: [
+        { group: 'business', labels: { en: 'Business' } },
+        { group: 'overview', labels: { en: 'Overview' }, parent: 'business' },
+        { group: 'domains', labels: { en: 'Domains' }, parent: 'business' },
+      ],
+      kinds: [
+        kind({ kind: 'doc.term', source: 'markdown', group: 'overview', count: 1, single: true }),
+        kind({ kind: 'domain', source: 'markdown', group: 'domains', count: 2 }),
+      ],
+    });
+    const groups = navGroups(state, () => 0);
+    // The catalogue counts every entity of the parent's branch; a kind with a page of its own is not drawn as a row,
+    // but its entities are neither lost from the parent's total (the review).
+    expect(groups.map((entry) => entry.group)).toEqual(['business']);
+    expect(groups[0]!.subgroups.map((entry) => entry.group)).toEqual(['domains']);
+    expect(groups[0]!.total).toBe(3);
+  });
+
   test('the catalogue draws each sub-area under its group, with the same rows as the kinds it holds', async () => {
     const full = {
       groups: nestedGroups,
@@ -155,6 +175,28 @@ describe('the menu', () => {
     const foot = app.querySelector('[data-testid=nav-foot]')!;
     expect(foot.querySelector('[data-testid=nav-documents]')).not.toBeNull();
     expect(foot.querySelector('[data-testid=nav-settings]')).not.toBeNull();
+  });
+
+  test('the group the manifest opens by itself is expanded; a group without the field is closed, whatever its name', async () => {
+    (globalThis as { fetch?: unknown }).fetch = async (url: string) => {
+      if (url.endsWith('/api/k/status')) return json(status({
+        home: 'product:shop', filled: true,
+        kinds: [kind({ kind: 'domain', source: 'markdown', group: 'product', count: 1 }), kind({ kind: 'code.file', group: 'code', count: 2 })],
+        groups: [{ group: 'product', labels: { en: 'Product knowledge', ru: 'Знания о продукте' } }, { group: 'code', labels: { en: 'Code', ru: 'Код' }, open: true }],
+      }));
+      if (url.endsWith('/api/k/products')) return json({ products: [{ name: 'shop', folder: 'shop' }] });
+      if (url.endsWith('/api/k/agents')) return json({ agents: [], chosen: null });
+      if (url.endsWith('/api/k/settings')) return json({ role: 'everything', asked: true, roles: [] });
+      if (url.endsWith('/api/k/glossary')) return json({ terms: [], resolutions: {}, findings: [] });
+      return json({ message: 'not here' }, 404);
+    };
+    window.history.replaceState({}, '', '/k');
+    const app = into(createElement(AppRoot));
+    await until(() => app.querySelector('[data-nav-group=code] [data-testid=nav-group]') !== null, 'the groups');
+    const expanded = (group: string): string | null => app.querySelector(`[data-nav-group="${group}"] [data-testid=nav-group]`)!.getAttribute('aria-expanded');
+    // The app names no product group: the manifest's field decides, and `product` is not written into the engine.
+    expect(expanded('code')).toBe('true');
+    expect(expanded('product')).toBe('false');
   });
 });
 

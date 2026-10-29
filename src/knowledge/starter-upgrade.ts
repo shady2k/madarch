@@ -231,7 +231,7 @@ export function starterOffers(manifestText: string): StarterOffer[] {
 
 function starterGroupNode(document: Document, name: string): unknown {
   const group = GROUPS.find((candidate) => candidate.name === name)!;
-  return document.createNode({ en: group.en, ru: group.ru, ...(group.parent === undefined ? {} : { parent: group.parent }) });
+  return document.createNode({ en: group.en, ru: group.ru, ...(group.parent === undefined ? {} : { parent: group.parent }), ...(group.open === undefined ? {} : { open: group.open }) });
 }
 
 /**

@@ -244,6 +244,15 @@ describe('a manifest or a template a person edited is never rewritten', () => {
     expect(addStarterItems(product, ['kind:code.snapshot'], record)).toEqual([]);
   });
 
+  test('a group the upgrade adds carries the field that opens it on the menu by itself', () => {
+    const { product, record } = oldProduct();
+    writeFileSync(join(product, 'madarch', 'kinds.yaml'), `# ours\n${read(product, 'madarch/kinds.yaml')}`);
+    git(product, 'commit', '-q', '-am', 'Keep our manifest');
+    addStarterItems(product, ['group:product'], record);
+    // The starter set's product group opens by itself, and the declaration the upgrade writes carries that with it.
+    expect(manifestOf(product).groups.get('product')!.open).toBe(true);
+  });
+
   test('adding the missing fields of a kind fills only what it lacks, and the roles come with the groups they lead', () => {
     const { product, record } = oldProduct();
     writeFileSync(join(product, 'madarch', 'kinds.yaml'), `${read(product, 'madarch/kinds.yaml')}# kept\n`);

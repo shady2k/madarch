@@ -55,6 +55,48 @@ describe('sub-areas read from the manifest', () => {
     expect(read.findings[0]!.message).toContain('"parent" names a group of "groups"');
     expect(read.findings[1]!.message).toContain('one level');
     expect(read.findings[2]!.message).toContain('itself');
+    // Every invalid edge is discarded, so each of these groups is drawn at the top level instead of vanishing.
+    for (const name of ['code.structure', 'code.analysis', 'self']) expect(read.groups.get(name)!.parent).toBeUndefined();
+  });
+
+  test('a cycle of parents is a finding at every edge, and both groups stand at the top level', () => {
+    const read = parse([
+      'groups:',
+      '  a: { en: A, parent: b }',
+      '  b: { en: B, parent: a }',
+      'kinds: {}',
+      '',
+    ].join('\n'));
+    expect(read.findings.map((finding) => finding.line)).toEqual([2, 3]);
+    // The edge is invalid, so it is discarded: both groups are drawn at the top level, never hidden (the review).
+    expect(read.groups.get('a')!.parent).toBeUndefined();
+    expect(read.groups.get('b')!.parent).toBeUndefined();
+  });
+
+  test('a group may say it opens on the menu by itself, a field documented beside its labels and parent', () => {
+    const read = parse([
+      'groups:',
+      '  product: { en: Product, ru: Продукт, open: true }',
+      '  code: { en: Code }',
+      'kinds: {}',
+      '',
+    ].join('\n'));
+    expect(read.findings).toEqual([]);
+    expect(read.groups.get('product')!.open).toBe(true);
+    expect(read.groups.get('code')!.open).toBeUndefined();
+    // The manifest's own comment block says what the group field means, beside `parent`, and its product group says it.
+    const starter = parse(starterManifest());
+    expect(starter.findings).toEqual([]);
+    expect(starter.groups.get('product')!.open).toBe(true);
+    expect(starterManifest()).toContain('`open: true`');
+    const broken = parse([
+      'groups:',
+      '  product: { en: Product, open: yes }',
+      'kinds: {}',
+      '',
+    ].join('\n'));
+    expect(broken.findings.map((finding) => [finding.line, finding.message])).toEqual([[2, 'group "product": "open" is true or absent']]);
+    expect(broken.groups.get('product')!.open).toBeUndefined();
   });
 
   test('the starter set puts code in structure and analysis, and operations in its six sub-areas', () => {

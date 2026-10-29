@@ -170,7 +170,7 @@ export type KindSummary = {
   labels?: Record<string, { one: string; many: string }>;
 };
 
-export type GroupSummary = { group: string; labels: Record<string, string>; /** The group this is a sub-area of; absent for a top-level group. */ parent?: string };
+export type GroupSummary = { group: string; labels: Record<string, string>; /** The group this is a sub-area of; absent for a top-level group. */ parent?: string; /** The group the menu opens by itself; absent when it stays closed until opened. */ open?: boolean };
 
 export type OperationMetadata = { contracts: {entity: EntityRef; protocol: string; directions?: ('publish' | 'subscribe')[]; directionStatus?: 'known' | 'unavailable'; producedBy?: EntityRef[]; consumedBy?: EntityRef[]}[]; implementedBy: EntityRef[]; calledBy: EntityRef[]; cuts: {relation: string; shown: number; total: number}[] };
 export type EntityListing = { kind: string; total: number; rows: EntityRef[]; next: string | null; operations?: Record<string, OperationMetadata> };

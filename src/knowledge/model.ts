@@ -409,7 +409,14 @@ export interface WikiStatus {
   findings: Finding[];
   kinds: KindSummary[];
   /** The groups of kinds, in the manifest's order. */
-  groups: { group: string; labels: Record<string, string> }[];
+  groups: {
+    group: string;
+    labels: Record<string, string>;
+    /** The group this one is a sub-area of; absent for a top-level group. */
+    parent?: string;
+    /** Whether the menu opens this group by itself (`open: true` in the manifest); absent when it stays closed. */
+    open?: boolean;
+  }[];
   repositories: { name: string; filled: boolean }[];
   /** The graph holds facts. */
   filled: boolean;

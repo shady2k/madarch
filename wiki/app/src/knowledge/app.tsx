@@ -137,6 +137,8 @@ export interface NavSubgroup {
 export interface NavGroup {
   group: string | null;
   labels: Record<string, string> | null;
+  /** The manifest's `open: true`: the menu opens this group by itself, before a reader touches it. */
+  open: boolean;
   total: number;
   kinds: KindSummary[];
   subgroups: NavSubgroup[];
@@ -147,7 +149,7 @@ export function navGroups(status: WikiStatus, pending: (kind: string) => number)
   // A group counts every entity of its kinds, the home page included, so the navigation and the catalogue say the same number.
   const counted = status.kinds.filter((kind) => !LOOP_KINDS.has(kind.kind));
   const shown = status.kinds.filter((kind) => !LOOP_KINDS.has(kind.kind) && !KINDS_WITH_OWN_PAGE.has(kind.kind) && !kind.single && (kind.count > 0 || pending(kind.kind) > 0));
-  const declared = status.groups.map((group) => ({ group: group.group as string | null, labels: group.labels as Record<string, string> | null, parent: group.parent }));
+  const declared = status.groups.map((group) => ({ group: group.group as string | null, labels: group.labels as Record<string, string> | null, parent: group.parent, open: group.open === true }));
   const known = new Set(status.groups.map((group) => group.group));
   const top = declared.filter((group) => group.parent === undefined || !known.has(group.parent));
   const children = declared.filter((group) => group.parent !== undefined && known.has(group.parent));
@@ -155,17 +157,18 @@ export function navGroups(status: WikiStatus, pending: (kind: string) => number)
   const countedOf = (group: string | null): number => counted.filter((kind) => belongs(kind, group)).reduce((sum, kind) => sum + kind.count, 0);
   const shownOf = (group: string | null): KindSummary[] => shown.filter((kind) => belongs(kind, group));
   const loose = shownOf(null);
-  const all = loose.length > 0 ? [...top, { group: null, labels: null, parent: undefined }] : top;
+  const all = loose.length > 0 ? [...top, { group: null, labels: null, parent: undefined, open: false }] : top;
   return all
     .map((entry): NavGroup => {
       const childrenOf = entry.group === null ? [] : children.filter((child) => child.parent === entry.group);
-      const subgroups = childrenOf
-        .map((child): NavSubgroup => ({ group: child.group!, labels: child.labels!, total: countedOf(child.group), kinds: shownOf(child.group) }))
-        .filter((child) => child.kinds.length > 0);
-      const childKindNames = new Set(subgroups.flatMap((child) => child.kinds.map((kind) => kind.kind)));
+      // A sub-area counts every entity of its kinds, as the parent does; a kind with a page of its own is not drawn as a
+      // row, but its entities are not lost from the parent's total (the review). Only rows the menu can draw stand open.
+      const allSubgroups = childrenOf.map((child): NavSubgroup => ({ group: child.group!, labels: child.labels!, total: countedOf(child.group), kinds: shownOf(child.group) }));
+      const subgroups = allSubgroups.filter((child) => child.kinds.length > 0);
+      const childKindNames = new Set(allSubgroups.flatMap((child) => child.kinds.map((kind) => kind.kind)));
       const direct = shownOf(entry.group).filter((kind) => !childKindNames.has(kind.kind));
       const kinds = entry.group === null ? shownOf(null) : [...direct, ...subgroups.flatMap((child) => child.kinds)];
-      return { group: entry.group, labels: entry.labels, total: countedOf(entry.group) + subgroups.reduce((sum, child) => sum + child.total, 0), kinds, subgroups };
+      return { group: entry.group, labels: entry.labels, open: entry.open, total: countedOf(entry.group) + allSubgroups.reduce((sum, child) => sum + child.total, 0), kinds, subgroups };
     })
     .filter((entry) => entry.kinds.length > 0);
 }
@@ -253,7 +256,7 @@ function NavPanel({ status, products, route, onNavigate }: { status: WikiStatus;
         {groups.map((entry) => {
           const key = entry.group ?? '\0other';
           const holdsActive = route.name === 'kind' && entry.kinds.some((kind) => kind.kind === route.kind);
-          const open = opened[key] ?? (holdsActive || entry.group === 'product');
+          const open = opened[key] ?? (holdsActive || entry.open);
           return (
             <div key={key} data-nav-group={entry.group ?? ''} className="mb-0.5">
               <button
