@@ -288,6 +288,8 @@ export class KnowledgeProduct {
   private revision = 0;
   private writer: WriterState = { state: 'idle', agent: null, units: [] };
   private writerAgent: { close(): Promise<void> } | undefined;
+  /** The Problems page's open count, read once per revision and repository head (the navigation polls the status). */
+  private problemCount: { key: string; open: number } | undefined;
   private installing: Promise<unknown> | undefined;
   private choosing: Promise<unknown> = Promise.resolve();
   private choiceWrites = 0;
@@ -1477,6 +1479,8 @@ export class KnowledgeProduct {
     const homeEntity = home === undefined ? undefined : [...context.ctx.markdown.values()].find((entity) => entity.kind === home.name);
     const kinds = await kindSummaries(context.ctx);
     const incomplete = [...this.pins.values()].some((pin) => pin.filledCommits < pin.commits || pin.commits === 0);
+    const loop = this.loopCounts();
+    loop.problemsOpen = await this.openProblems();
     return {
       ...common,
       manifest: 'ok',
@@ -1485,7 +1489,7 @@ export class KnowledgeProduct {
       seeded: this.seeded,
       findings: context.findings,
       kinds,
-      groups: [...context.manifest.groups.values()].map((group) => ({ group: group.name, labels: { ...group.labels } })),
+      groups: [...context.manifest.groups.values()].map((group) => ({ group: group.name, labels: { ...group.labels }, ...(group.parent === undefined ? {} : { parent: group.parent }) })),
       repositories: declared.map((repo) => ({ name: repo.name, filled: (this.pins.get(repo.name)?.filledCommits ?? 0) > 0 })),
       filled: this.pins.size > 0,
       incomplete,
@@ -1495,15 +1499,38 @@ export class KnowledgeProduct {
       chosenAgent: this.chosenAgent(),
       home: homeEntity?.id ?? null,
       roles: Object.fromEntries([...context.manifest.roles.values()].map((role) => [role.name, { ...(role.open === undefined ? {} : { open: [...role.open] }), lead: [...role.lead] }])),
-      loop: this.loopCounts(),
+      loop,
       starterOffers: this.starterOffers().length,
     };
+  }
+
+  /**
+   * The open problems of the Problems page. Status is polled, so the count is read once per revision of the product's
+   * files, every repository's head and the unplaced units; a product whose page cannot be read falls back to the
+   * corrections, which are read from their files without the page resolver.
+   */
+  private async openProblems(): Promise<number> {
+    const pins = [...this.pins.values()].map((pin) => `${pin.name}@${pin.commit}/${pin.filledCommits}`).join(',');
+    const plan = this.writer.plan === undefined ? '' : this.writer.plan.unplaced.map((entry) => `${entry.kind}:${entry.slug}`).join(',');
+    const key = `${this.revision}|${pins}|${plan}|${this.starterOffers().length}`;
+    if (this.problemCount?.key === key) return this.problemCount.open;
+    try {
+      const open = (await this.problems()).open;
+      this.problemCount = { key, open };
+      return open;
+    } catch {
+      return this.loopCounts().correctionsOpen;
+    }
   }
 
   /** How many questions wait for an answer or for a refresh, and how many corrections wait for one, from their files. */
   private loopCounts(): WikiStatus['loop'] {
     const questions = listQuestions(this.options.productFolder);
-    return { questionsOpen: questions.open, questionsAnswered: questions.answered, correctionsOpen: readCorrections(this.options.productFolder).items.filter((correction) => correction.status === 'open').length };
+    const correctionsOpen = readCorrections(this.options.productFolder).items.filter((correction) => correction.status === 'open').length;
+    const tasksOpen = readTasks(this.options.productFolder).tasks.filter((task) => task.status === 'open').length;
+    // Until the Problems page can be read, an open correction is the count that is known from the files alone; the
+    // status replaces it with the page's own open count once that page can be built (openProblems).
+    return { questionsOpen: questions.open, questionsAnswered: questions.answered, correctionsOpen, tasksOpen, problemsOpen: correctionsOpen };
   }
 
   private readonly readSnapshotHistory = createSnapshotHistoryReader();

@@ -428,7 +428,7 @@ export interface WikiStatus {
   /** This is madarch's own wiki (documentation): no fill is offered. Set by the server, not by the product. */
   own?: boolean;
   /** The loop of questions and corrections (madarch-m38l.7), counted from their files. */
-  loop: { questionsOpen: number; questionsAnswered: number; correctionsOpen: number };
+  loop: { questionsOpen: number; questionsAnswered: number; correctionsOpen: number; tasksOpen: number; problemsOpen: number };
   /** How many things the current starter set holds that this product's edited manifest lacks (the Problems page offers them). */
   starterOffers: number;
 }

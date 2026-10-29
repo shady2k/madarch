@@ -73,6 +73,12 @@ export interface GroupDecl {
   name: string;
   /** The group's name per interface language. */
   labels: Readonly<Record<string, string>>;
+  /**
+   * The group this one is a sub-area of, when it is one: the navigation and the
+   * catalogue draw it under that group, one level deep. A group without a
+   * parent is a top-level group.
+   */
+  parent?: string;
   line: number;
 }
 
@@ -249,13 +255,32 @@ export function parseKinds(text: string, file: string, productFolder: string): K
           continue;
         }
         const labels: Record<string, string> = {};
+        let parent: string | undefined;
         let bad = false;
         for (const [language, label] of Object.entries(body)) {
-          if (!LABEL_LANGUAGES.includes(language)) { findings.push({ file, line: at(['groups', name, language]), message: `group "${name}": "${language}" is not a language of the wiki: the languages are ${LABEL_LANGUAGES.join(', ')}` }); bad = true; }
+          if (language === 'parent') {
+            if (typeof label !== 'string' || label.trim() === '') { findings.push({ file, line: at(['groups', name, 'parent']), message: `group "${name}": "parent" is the name of a group of "groups"` }); bad = true; }
+            else parent = label;
+          } else if (!LABEL_LANGUAGES.includes(language)) { findings.push({ file, line: at(['groups', name, language]), message: `group "${name}": "${language}" is not a language of the wiki: the languages are ${LABEL_LANGUAGES.join(', ')}` }); bad = true; }
           else if (typeof label !== 'string' || label.trim() === '') { findings.push({ file, line: at(['groups', name, language]), message: `group "${name}": the name in "${language}" is a text` }); bad = true; }
           else labels[language] = label;
         }
-        if (!bad) groups.set(name, { name, labels, line });
+        if (!bad) groups.set(name, { name, labels, line, ...(parent === undefined ? {} : { parent }) });
+      }
+      // A sub-area names a group that stands beside it. Two levels would hide the
+      // catalogue's shape, so a group whose parent is itself a sub-area is a finding.
+      for (const group of groups.values()) {
+        if (group.parent === undefined) continue;
+        if (group.parent === group.name) {
+          findings.push({ file, line: at(['groups', group.name, 'parent']), message: `group "${group.name}": "parent" cannot name the group itself` });
+          continue;
+        }
+        const parent = groups.get(group.parent);
+        if (parent === undefined) {
+          findings.push({ file, line: at(['groups', group.name, 'parent']), message: `group "${group.name}": "parent" names a group of "groups" (${[...groups.keys()].join(', ') || 'none is declared'}), got ${JSON.stringify(group.parent)}` });
+        } else if (parent.parent !== undefined) {
+          findings.push({ file, line: at(['groups', group.name, 'parent']), message: `group "${group.name}": "parent" names "${parent.name}", which is itself a sub-area: sub-areas are one level deep` });
+        }
       }
     }
   }
