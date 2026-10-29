@@ -45,7 +45,8 @@ test('complete graph pages retain more than 1200 nodes and guide-only byte overf
     const asked=await request.tools.call('ask_question',{type:'ambiguous-term',title:'Meaning of the computed number',question:'What does the computed number mean to a reader?',why:'The code gives a numeric value but does not explain its business meaning.',sides:[{claim:'The source defines a numeric value.',grounds:[key]}]});expect(asked.isError,JSON.stringify(asked)).toBe(false);
     const written=await request.tools.call('write_page',{markdown:page('product','product:numbers','The product computes a number.[^1]\n\n## Domains\n\n- [Numbers](madarch:domain:numbers) describe the computed number.[^1]'),domains:[{slug:'numbers',title:'Numbers',summary:'Numbers describe the values the source computes.',evidence:[key]}]});expect(written.isError,JSON.stringify(written)).toBe(false);
    }else if(request.id==='domain:numbers'){
-    const written=await request.tools.call('write_page',{markdown:page('domain','domain:numbers','The source defines a numeric value.[^1]')});expect(written.isError,JSON.stringify(written)).toBe(false);
+    // A domain page is written from its fields (madarch-ztyq.6): the business first, the code in "developer".
+    const written=await request.tools.call('write_page',{fields:{title:'Numbers',participants:[{text:'The source defines a numeric value.',grounds:[key]}],mainScenario:[{text:'The product computes the number the source defines.',grounds:[key]}],developer:{notes:[]}}});expect(written.isError,JSON.stringify(written)).toBe(false);
    }else throw new Error(`guide overflow must not call the agent: ${request.id}`);
   }};
   const report=await runWriter({owner,store,repository,output,productName:'Numbers',agent,guides,sink});
