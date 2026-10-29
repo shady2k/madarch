@@ -217,13 +217,13 @@ describe('the two local resets', () => {
 
   test('«Start from scratch» leaves no agent page and no graph, puts the manifest and templates at the current set, keeps a person\'s page and the agent, and fills again', async () => {
     const { folder, store } = oldProduct();
-    writeFileSync(join(folder, 'templates', 'domain.md'), 'my own template\n');
+    writeFileSync(join(folder, 'templates', 'domain.liquid'), 'my own template\n');
     const counter = { started: 0 };
     const held = product(folder, store, { workerFactory: quickWorker(counter) });
     const id = withPages(folder, store, held);
     const plan = held.dangerPlan();
     expect(plan.fresh.agentPages).toEqual(['docs/product.md', 'docs/domains/orders.md']);
-    expect(plan.fresh.editedStarterFiles).toContain('templates/domain.md');
+    expect(plan.fresh.editedStarterFiles).toContain('templates/domain.liquid');
     expect(plan.rewrite.keptPages).toEqual(['docs/domains/mine.md']);
     const done = await held.startFresh();
     expect(done.ok).toBe(true);

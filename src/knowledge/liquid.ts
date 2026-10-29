@@ -197,20 +197,26 @@ type Stop = { stopped: 'time' | 'memory' | 'exit'; detail: string };
 const isStop = (value: RenderReply | Stop): value is Stop => 'stopped' in value;
 
 /**
- * One product's worker and the lines it answers. The lines are read once, by a
- * reader of their own: an iterator that a render breaks out of would close the
- * stream, and the next page of the product would have no worker to ask.
+ * One worker and the lines it answers. A worker that ends is replaced, and every
+ * worker has a connection of its own: the reader of a worker that was killed keeps
+ * reading its own stream to its end, and a leftover line of it must never reach the
+ * page the next worker draws (measured: a stale `ready` was answered to a render, and
+ * a killed worker's end was read as the new one's).
  */
+interface Connection {
+  worker: RenderWorkerProcess;
+  lines: string[];
+  ended: boolean;
+  wake?: () => void;
+}
+
 interface Slot {
-  worker?: RenderWorkerProcess;
+  connection?: Connection;
   digest?: string;
   /** One render at a time: a worker holds one page in its registers. */
   busy: boolean;
   waiting: (() => void)[];
   idle?: ReturnType<typeof setTimeout>;
-  lines: string[];
-  ended: boolean;
-  wake?: () => void;
 }
 
 const slots = new Map<string, Slot>();
@@ -218,45 +224,51 @@ const slots = new Map<string, Slot>();
 function slotOf(productFolder: string): Slot {
   const held = slots.get(productFolder);
   if (held !== undefined) return held;
-  const slot: Slot = { busy: false, waiting: [], lines: [], ended: true };
+  const slot: Slot = { busy: false, waiting: [] };
   slots.set(productFolder, slot);
   return slot;
 }
 
-/** Starts the worker and its reader; a worker that was killed is replaced, with a reader of its own. */
-function startWorker(slot: Slot): RenderWorkerProcess {
-  slot.worker?.kill();
+/** Starts a worker with a connection and a reader of its own. */
+function startWorker(slot: Slot): Connection {
+  slot.connection?.worker.kill();
   const worker = renderWorkers.factory();
-  slot.worker = worker;
+  const connection: Connection = { worker, lines: [], ended: false };
+  slot.connection = connection;
   slot.digest = undefined;
-  slot.lines = [];
-  slot.ended = false;
   void (async () => {
     for await (const line of worker.lines) {
-      slot.lines.push(line);
-      slot.wake?.();
+      connection.lines.push(line);
+      connection.wake?.();
     }
-    slot.ended = true;
-    slot.wake?.();
+    connection.ended = true;
+    connection.wake?.();
   })();
-  return worker;
+  return connection;
+}
+
+/** Ends the worker of a product and forgets its connection: what its reader still holds reaches no page. */
+function stopWorker(slot: Slot): void {
+  slot.connection?.worker.kill();
+  slot.connection = undefined;
+  slot.digest = undefined;
 }
 
 /** The next line the worker answers, or `undefined` when it has ended. */
-async function nextLine(slot: Slot): Promise<string | undefined> {
-  while (slot.lines.length === 0) {
-    if (slot.ended) return undefined;
-    await new Promise<void>((resume) => { slot.wake = resume; });
-    slot.wake = undefined;
+async function nextLine(connection: Connection): Promise<string | undefined> {
+  while (connection.lines.length === 0) {
+    if (connection.ended) return undefined;
+    await new Promise<void>((resume) => { connection.wake = resume; });
+    connection.wake = undefined;
   }
-  return slot.lines.shift();
+  return connection.lines.shift();
 }
 
 /** Ends the worker of one product: a product that closes gives back what it holds. */
 export function closeRenderWorker(productFolder: string): void {
   const slot = slots.get(productFolder);
   if (slot === undefined) return;
-  slot.worker?.kill();
+  stopWorker(slot);
   if (slot.idle !== undefined) clearTimeout(slot.idle);
   slots.delete(productFolder);
 }
@@ -283,8 +295,9 @@ async function exchange(
   request: RenderRequest,
   options: { wallClockMs: number; memoryMiB: number; answer?: (request: Extract<RenderReply, { type: 'block' }>) => Promise<BlockAnswer> },
 ): Promise<RenderReply | Stop> {
-  const worker = slot.worker;
-  if (worker === undefined) return { stopped: 'exit', detail: 'the worker was not started' };
+  const connection = slot.connection;
+  if (connection === undefined) return { stopped: 'exit', detail: 'the worker was not started' };
+  const worker = connection.worker;
   worker.write(encodeWire(request));
   let stop: Stop | undefined;
   const clock = setTimeout(() => {
@@ -300,7 +313,7 @@ async function exchange(
   }, 100);
   try {
     for (;;) {
-      const line = await nextLine(slot);
+      const line = await nextLine(connection);
       if (line === undefined) return stop ?? { stopped: 'exit', detail: `the worker ended: ${worker.stderr().trim() || 'no message on its error stream'}` };
       const reply = decodeWire<RenderReply | BlockAnswer>(line);
       if (reply.type === 'block') {
@@ -314,17 +327,14 @@ async function exchange(
   } finally {
     clearTimeout(clock);
     clearInterval(memory);
-    // A worker that was killed is a worker the next page starts again.
-    if (stop !== undefined || slot.ended) {
-      slot.worker = undefined;
-      slot.digest = undefined;
-    }
+    // A worker that was killed, or that ended, is a worker the next page starts again: its connection goes with it.
+    if ((stop !== undefined || connection.ended) && slot.connection === connection) stopWorker(slot);
   }
 }
 
 /** Hands the templates to the worker when it holds another set; answers why not when it does not take them. */
 async function open(slot: Slot, set: TemplateSet, limits: RenderLimits, bounds: { wallClockMs: number; memoryMiB: number }): Promise<string | undefined> {
-  if (slot.worker === undefined || slot.ended) {
+  if (slot.connection === undefined || slot.connection.ended) {
     startWorker(slot);
     if (slot.idle !== undefined) { clearTimeout(slot.idle); slot.idle = undefined; }
   }
@@ -385,13 +395,11 @@ export async function renderLiquidPage(input: LiquidPageInput): Promise<LiquidPa
     return { blocks: assemble(reply.text, answered, input.only), findings };
   } finally {
     release(slot);
-    if (slot.worker !== undefined && slot.waiting.length === 0) {
+    if (slot.connection !== undefined && slot.waiting.length === 0) {
       // A worker nothing asks for for ten seconds is ended: a machine serving many products holds only the busy ones.
       slot.idle = setTimeout(() => {
         if (slot.busy) return;
-        slot.worker?.kill();
-        slot.worker = undefined;
-        slot.digest = undefined;
+        stopWorker(slot);
       }, 10_000);
       slot.idle.unref?.();
     }

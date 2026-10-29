@@ -124,11 +124,13 @@ them, as label.
   'symbol.liquid': `{% layout "./entity.liquid" %}
 {% block lead %}{% if page.symbolKind %}{{ page.symbolKind }} in {% endif %}{{ page.path }}{% endblock %}
 {% block source %}{% render "./partials/source.liquid", title="Source", title_ru="Исходный текст" %}{% endblock %}
+{# A function's page reads as it did: what it calls and is called by, where it stands, the state machines of its code, then
+   the chain a reader follows from it. #}
 {% block calls %}{% callers title="Callers" title-ru="Кто вызывает" %}
 {% callees title="Calls" title-ru="Что вызывает" %}{% endblock %}
 {% block around %}{% render "./partials/around.liquid", title="Around this function", title_ru="Вокруг этой функции" %}{% endblock %}
-{% block chain %}{% sequence title="End-to-end chain" title-ru="Сквозная цепочка" scenario=page.label %}{% endblock %}
-{% block parts %}{% modules title="State machines" title-ru="Конечные автоматы" %}{% endblock %}
+{% block chain %}{% modules title="State machines" title-ru="Конечные автоматы" %}
+{% sequence title="End-to-end chain" title-ru="Сквозная цепочка" scenario=page.label %}{% endblock %}
 {% block relations %}{% related title="Tests and types" title-ru="Тесты и типы" relation="code.tests,code.implements,code.inherits" %}{% endblock %}
 {% block describedby %}{% render "./partials/pages-about.liquid", title="Pages about this function", title_ru="Страницы об этой функции" %}{% endblock %}
 `,

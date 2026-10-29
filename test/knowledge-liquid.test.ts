@@ -138,7 +138,7 @@ describe('the blocks of the library', () => {
       render: async (name, params) => (name === 'graph' ? { type: 'graph', title: 'g', neighborhood: { center: 'x', nodes: [], edges: [], more: [], relations: [] }, depth: 1, shown: 0, total: 0 } : related(String(params['title']))),
     });
     const [graph, relations] = drawn.blocks;
-    expect(graph).toEqual({ type: 'deferred', block: 'graph', title: 'Around this function', id: blockIdentity('graph', { title: 'Around this function' }) });
+    expect(graph).toMatchObject({ type: 'deferred', block: 'graph', name: 'graph', title: 'Around this function', id: blockIdentity('graph', { title: 'Around this function' }) });
     expect(relations?.type).toBe('related');
   });
 
