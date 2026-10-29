@@ -12,6 +12,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, w
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { closeRenderWorkers, renderLiquidPage, renderWorkers, residentMiB, templateSetOf } from '../src/knowledge/liquid.js';
+import { seedStarterSet } from '../src/knowledge/seed.js';
 import type { Block } from '../src/knowledge/model.js';
 import { blockIdentity } from '../src/knowledge/template.js';
 
@@ -337,5 +338,41 @@ describe('the review of the engine', () => {
   test('the memory of a worker is read on this platform, so the bound stands wherever the binary ships', () => {
     expect(residentMiB(process.pid)).toBeGreaterThan(0);
     expect(residentMiB(undefined)).toBeUndefined();
+  });
+});
+
+describe('where a page is drawn', () => {
+  test('a product whose templates are the starter set\'s own is drawn by the server itself', async () => {
+    const folder = product({ 'madarch/kinds.yaml': 'kinds: {}\n' });
+    seedStarterSet(folder);
+    const drawn = await renderLiquidPage({
+      productFolder: folder, template: 'templates/entity.liquid', data: {}, defer: false, deferred: [],
+      render: async () => ({ type: 'markdown', markdown: '' }),
+    });
+    expect(drawn.renderedIn).toBe('inline');
+    expect(drawn.findings).toEqual([]);
+  });
+
+  test('a starter template a person edited sends the page to the worker, byte for byte and by nothing else', async () => {
+    const folder = product({ 'madarch/kinds.yaml': 'kinds: {}\n' });
+    seedStarterSet(folder);
+    const file = join(folder, 'templates/entity.liquid');
+    writeFileSync(file, `${readFileSync(file, 'utf8')}{# a person's own line #}`);
+    const drawn = await renderLiquidPage({
+      productFolder: folder, template: 'templates/entity.liquid', data: {}, defer: false, deferred: [],
+      render: async () => ({ type: 'markdown', markdown: '' }),
+    });
+    expect(drawn.renderedIn).toBe('worker');
+    expect(drawn.findings).toEqual([]);
+  });
+
+  test('a template a person wrote from nothing sends the page to the worker, and a starter template beside it does not keep it home', async () => {
+    const folder = product({ 'madarch/kinds.yaml': 'kinds: {}\n', 'templates/entity.liquid': 'a page of my own' });
+    seedStarterSet(folder);
+    const drawn = await renderLiquidPage({
+      productFolder: folder, template: 'templates/entity.liquid', data: {}, defer: false, deferred: [],
+      render: async () => ({ type: 'markdown', markdown: '' }),
+    });
+    expect(drawn.renderedIn).toBe('worker');
   });
 });

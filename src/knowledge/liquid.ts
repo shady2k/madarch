@@ -31,7 +31,9 @@ import { selfCommand } from '../product/self-command.js';
 import type { Block } from './model.js';
 import type { Finding } from './kinds.js';
 import { linesOf } from './lines.js';
-import { type BlockRequest, type RenderLimits, type RenderPart, type RenderReply, type RenderRequest, type RenderWorkerProcess } from './render-worker.js';
+import { createTemplateEngine, type BlockRequest, type RenderLimits, type RenderPart, type TemplateEngine } from './liquid-engine.js';
+import { type RenderReply, type RenderRequest, type RenderWorkerProcess } from './render-worker.js';
+import { TEMPLATES as STARTER_TEMPLATES } from './seed.js';
 import { BLOCK_NAMES, blockIdentity } from './template.js';
 import { decodeWire, encodeWire } from './wire.js';
 
@@ -44,6 +46,13 @@ export const RENDER_LIMITS: RenderLimits = {
   blocks: 64,
   outputChars: 4 << 20,
 };
+
+/**
+ * The hashes of the templates the starter set ships, by their content: a template byte-identical to one of them is the
+ * engine's own, written by nobody, and a page drawn from such templates is drawn by the server itself. A person's
+ * template — edited, or written from nothing — matches none of them and is drawn in the worker.
+ */
+const STARTER_TEMPLATE_HASHES: ReadonlySet<string> = new Set(Object.values(STARTER_TEMPLATES).map((text) => createHash('sha256').update(text).digest('hex')));
 
 /** The bounds the server enforces itself: the wall clock of a page, the memory its worker may hold, the sizes of a set. */
 export const RENDER_BOUNDS = {
@@ -166,6 +175,8 @@ export interface LiquidPageOutcome {
   findings: Finding[];
   /** A refusal no template line belongs to: the template is not in the product's set, or the worker could not answer. */
   refused?: string;
+  /** Which way the page was drawn: by the server itself (the starter set's own templates), or by a worker of its own. */
+  renderedIn?: 'inline' | 'worker';
 }
 
 // ---- the worker ---------------------------------------------------------------------------------
@@ -426,10 +437,11 @@ async function open(slot: Slot, set: TemplateSet, limits: RenderLimits, bounds: 
 }
 
 /**
- * Draws one page's templates: the set of the product, the worker of the product, and one render under the bounds. The
- * page's blocks are read in one go after it is rendered — one hop, not one per block — and a page that tested a block's
- * own data is rendered once more, with that data in hand. Nothing of a template escapes: a page that fails answers one
- * problem block with the template's file and line.
+ * Draws one page's templates. A page whose every template is byte-identical to one the starter set ships is drawn by the
+ * server itself — nobody wrote it, and the engine's own cooperative limits bound it. A page that reaches a template a
+ * person wrote or edited is drawn in a process of the product's own, which the server kills past a wall clock and a
+ * memory bound. Either way the page's blocks are read in one go after it is rendered — one hop, not one per block — and
+ * a page that tested a block's own data is rendered once more with that data in hand.
  */
 export async function renderLiquidPage(input: LiquidPageInput): Promise<LiquidPageOutcome> {
   const set = templateSetOf(input.productFolder);
@@ -442,16 +454,23 @@ export async function renderLiquidPage(input: LiquidPageInput): Promise<LiquidPa
     wallClockMs: input.bounds?.wallClockMs ?? RENDER_BOUNDS.wallClockMs,
     memoryMiB: input.bounds?.memoryMiB ?? RENDER_BOUNDS.memoryMiB,
   };
+  const read = new Map<string, Block>();
+  // A set of the engine's own templates goes to the server's own engine; one file a person wrote sends the page to the
+  // worker (a layout or a partial a person edited is reached by every page that renders it).
+  const inline = engineOwnSet(set);
+  if (inline) {
+    const drawn = await renderInline(input, set, limits, read, findings);
+    return { ...drawn, renderedIn: 'inline' };
+  }
   const slot = slotOf(input.productFolder);
   await turn(slot);
-  const read = new Map<string, Block>();
   try {
     const notOpened = await open(slot, set, limits, bounds);
     if (notOpened !== undefined) {
       findings.push({ file: input.template, line: 1, message: `the templates could not be opened: ${notOpened}` });
-      return { blocks: [{ type: 'problem', block: input.template, file: input.template, line: 1, message: `the templates could not be opened: ${notOpened}` }], findings };
+      return { blocks: [{ type: 'problem', block: input.template, file: input.template, line: 1, message: `the templates could not be opened: ${notOpened}` }], findings, renderedIn: 'worker' };
     }
-    const draw = (data: Readonly<Record<string, unknown>>): Promise<RenderReply | Stop> => exchange(slot, { type: 'render', id: 1, template: input.template, data }, bounds);
+    const draw = (data: Readonly<Record<string, unknown>>): Promise<RenderReply | Stop | undefined> => exchange(slot, { type: 'render', id: 1, template: input.template, data }, bounds);
     let reply = await draw(input.data);
     if (reply !== undefined && !isStop(reply) && reply.type === 'rendered' && reply.dataMisses.length > 0) {
       // The page tested a block's own data: read those blocks, then render once more with the data in hand.
@@ -459,7 +478,7 @@ export async function renderLiquidPage(input: LiquidPageInput): Promise<LiquidPa
       for (const name of reply.dataMisses) data[name] = await readBlock(input, { name, params: {}, file: input.template, line: 1 }, read);
       reply = await draw(data);
     }
-    return await outcomeOf(input, reply, read, findings);
+    return { ...(await outcomeOf(input, reply, read, findings)), renderedIn: 'worker' };
   } finally {
     release(slot);
     if (slot.connection !== undefined && slot.waiting.length === 0) {
@@ -471,6 +490,37 @@ export async function renderLiquidPage(input: LiquidPageInput): Promise<LiquidPa
       slot.idle.unref?.();
     }
   }
+}
+
+/** Whether every template of the set is one the starter set ships, byte for byte: nothing of it was written by a person. */
+function engineOwnSet(set: TemplateSet): boolean {
+  const files = Object.values(set.files);
+  return files.length > 0 && files.every((text) => STARTER_TEMPLATE_HASHES.has(createHash('sha256').update(text).digest('hex')));
+}
+
+/** The page drawn by the server's own engine: the blocks read here, and no process to kill. */
+async function renderInline(input: LiquidPageInput, set: TemplateSet, limits: RenderLimits, read: Map<string, Block>, findings: Finding[]): Promise<LiquidPageOutcome> {
+  const engine: TemplateEngine = createTemplateEngine({ templates: set.files, blocks: BLOCK_NAMES, limits });
+  const drawn = async (data: Readonly<Record<string, unknown>>) => {
+    try {
+      return { ok: true as const, answered: await engine.render(input.template, data) };
+    } catch (error) {
+      const held = error as { message?: string; file?: string; line?: number };
+      return { ok: false as const, message: held.message ?? String(error), file: held.file ?? input.template, line: held.line ?? 1 };
+    }
+  };
+  let reply = await drawn(input.data);
+  if (reply.ok && reply.answered.dataMisses.length > 0) {
+    const data: Record<string, unknown> = { ...input.data };
+    for (const name of reply.answered.dataMisses) data[name] = await readBlock(input, { name, params: {}, file: input.template, line: 1 }, read);
+    reply = await drawn(data);
+  }
+  if (!reply.ok) {
+    findings.push({ file: reply.file, line: reply.line, message: reply.message });
+    return { blocks: [{ type: 'problem', block: input.template, file: reply.file, line: reply.line, message: reply.message }], findings };
+  }
+  const blocks = await Promise.all(reply.answered.requests.map((request) => readBlock(input, request, read)));
+  return { blocks: assemble(reply.answered.parts, blocks, input.only), findings };
 }
 
 /** What the templates answered: the page's blocks read and put in the order they stand, and what the templates got wrong. */
