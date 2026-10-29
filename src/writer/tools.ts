@@ -622,7 +622,9 @@ export class UnitTools {
       if (!read.ok) return this.refuse(read.problems);
       const problems = await this.resolvePlaces(structured, read.fields);
       if (problems.length > 0) return this.refuse(problems);
-      const unreachedRoutes = structured === 'scenario' ? await this.unreachedRoutes(read.fields.implementation.routes ?? []) : [];
+      const traced = structured === 'scenario' ? await this.unreachedRoutes(read.fields.implementation.routes ?? []) : { unreached: [], refusals: [] };
+      if (traced.refusals.length > 0) return this.refuse(traced.refusals);
+      const unreachedRoutes = traced.unreached;
       try {
         const rendered = renderStructuredBody(structured, read.fields, {
           language: structuredLanguage(this.extras.language),
@@ -723,20 +725,28 @@ export class UnitTools {
   /**
    * The routes of a use case that reach no function of the graph, traced with the reader `trace_flow` answers with:
    * the page says so, because a diagram of nothing and a silence about it read the same, and only one of them is true.
+   *
+   * A route reaches a function when the trace names its handler, never when something happens downstream of it: a
+   * handler that returns a literal and calls nothing is a function the route reaches, and the page says so (the
+   * `GET /healthz` of the training repository is exactly that shape). A trace that fails for any other reason is no
+   * fact about the route, so it is refused with a rule of its own instead of being written as a gap.
    */
-  private async unreachedRoutes(routes: readonly NamedPlace[]): Promise<string[]> {
-    const out: string[] = [];
-    const reads = this.extras.reads ?? new SnapshotReads(this.view);
+  private async unreachedRoutes(routes: readonly NamedPlace[]): Promise<{ unreached: readonly string[]; refusals: readonly Refusal[] }> {
+    const unreached: string[] = [];
+    const refusals: Refusal[] = [];
+    const reads = this.reads();
+    const where = resolve(this.extras.output ?? process.cwd(), this.unit.path);
     for (const route of routes) {
       try {
         const traced = await traceFlow(reads, { entry: route.target, targets: [...FLOW_TARGETS], depth: FLOW_DEPTH, maxSteps: FLOW_STEPS });
-        const steps = (traced.body as { steps?: unknown }).steps;
-        if (!Array.isArray(steps) || steps.length === 0) out.push(route.target);
-      } catch {
-        out.push(route.target);
+        const handlers = (traced.body as { handlers?: unknown }).handlers;
+        if (!Array.isArray(handlers) || handlers.length === 0) unreached.push(route.target);
+      } catch (error) {
+        if (error instanceof AnswerRefusal && error.code === 'no-handler') { unreached.push(route.target); continue; }
+        refusals.push({ line: 1, rule: 'trace-failed', message: `${where}:1: implementation.routes names ${JSON.stringify(route.target)}, and tracing its flow failed: ${error instanceof Error ? error.message : String(error)}. Nothing was written: the page never states a gap the trace did not find. Read the flow with trace_flow and call again` });
       }
     }
-    return out.sort(byCodePoint);
+    return { unreached: unreached.sort(byCodePoint), refusals };
   }
 
   private async writeGuide(args: Record<string, unknown>): Promise<ToolAnswer> {

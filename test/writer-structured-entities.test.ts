@@ -33,9 +33,10 @@ import { Resolver } from '../src/knowledge/resolve.js';
 import { seedStarterSet } from '../src/knowledge/seed.js';
 import type { ViewPayload } from '../src/knowledge/views.js';
 import {
-  GraphView, UnitTools, enrichmentPageId, enrichmentPath, fsSink, memorySink, renderStructuredBody, runWriter,
+  GraphView, UnitTools, enrichmentPageId, enrichmentPath, fsSink, memorySink, parseFields, renderStructuredBody, runWriter,
   structuredKindOf, type UnitAgent, type UnitRequest, type WriterReport,
 } from '../src/writer/index.js';
+import type { GraphReads } from '../src/writer/answers.js';
 import { DEFAULT_UNIT_BOUNDS, type PageSink } from '../src/writer/tools.js';
 import { ROOT, generateTrainingRepository, makeProduct } from './knowledge-fixture.js';
 
@@ -523,7 +524,7 @@ const uc1 = (): DocEntity => {
 };
 
 /** The tools of one enrichment unit over the fixture's graph, writing into a sink of its own. */
-async function toolsOf(entity: DocEntity, extras: { language?: string; output?: string } = {}): Promise<{ tools: UnitTools; sink: PageSink & { pages: Map<string, string> } }> {
+async function toolsOf(entity: DocEntity, extras: { language?: string; output?: string; reads?: GraphReads } = {}): Promise<{ tools: UnitTools; sink: PageSink & { pages: Map<string, string> } }> {
   const sink = memorySink();
   const tools = new UnitTools(
     view,
@@ -627,5 +628,81 @@ describe('what the page says where nothing was found, and what is refused', () =
     });
     expect(rendered.body).toContain('The route [POST /orders](madarch:code.route:services/orders/internal/api/router.go#POST:/orders) reaches no function of the graph.');
     expect(rendered.relates).toEqual(['code.route:services/orders/internal/api/router.go#POST:/orders']);
+  });
+});
+
+describe('what the trace of a route decides, and every field the page is judged on', () => {
+  // The training repository's checkout service answers GET /healthz by returning a literal and calling nothing: the
+  // route reaches a function, and nothing happens downstream of it. The page must say the first, not the second.
+  const healthz = 'code.route:services/checkout/src/app.ts#GET:/healthz';
+
+  test('a route whose handler returns a literal and calls nothing reaches that function, and the page never says it reaches none', async () => {
+    const entity = uc1();
+    const passage = passageOf(entity);
+    const { tools, sink } = await toolsOf(entity, { output: product });
+    // The case itself, as the writer's own reader answers it: one handler, and nothing downstream.
+    const traced = await tools.call('trace_flow', { entry: healthz });
+    expect(traced.isError, JSON.stringify(traced.answer)).toBe(false);
+    const body = traced.answer as { handlers?: unknown; steps?: unknown };
+    expect(Array.isArray(body.handlers) && (body.handlers as readonly unknown[]).length).toBe(1);
+    expect(body.steps).toEqual([]);
+    const answer = await tools.call('write_enrichment', {
+      actor: grounded('A shopper places an order.', passage),
+      goal: grounded('The shopper has an order.', passage),
+      mainFlow: [grounded('The shopper submits the cart.', passage)],
+      implementation: { routes: [{ target: healthz }] },
+    });
+    expect(answer.isError, JSON.stringify(answer.answer)).toBe(false);
+    const page = sink.pages.get(enrichmentPath(entity))!;
+    expect(sectionOf(page, 'Implementation')).not.toContain('reaches no function of the graph');
+    expect(sectionOf(page, 'Implementation')).toContain(`(madarch:${healthz})`);
+  });
+
+  test('a trace that fails is refused with its own rule and names the route, never written as a gap', async () => {
+    const entity = uc1();
+    const passage = passageOf(entity);
+    // The reader that answers a flow is gone: a failure of the trace is no fact about the route.
+    const broken = new Proxy({}, { get: () => () => { throw new Error('the reader is gone'); } }) as unknown as GraphReads;
+    const { tools, sink } = await toolsOf(entity, { output: product, reads: broken });
+    const answer = await tools.call('write_enrichment', {
+      actor: grounded('A shopper places an order.', passage),
+      goal: grounded('The shopper has an order.', passage),
+      mainFlow: [grounded('The shopper submits the cart.', passage)],
+      implementation: { routes: [{ target: healthz }] },
+    });
+    expect(answer.isError).toBe(true);
+    const refused = (answer.answer as { refused: { rule: string; message: string }[] }).refused;
+    expect(refused.map((entry) => entry.rule)).toEqual(['trace-failed']);
+    expect(refused[0]!.message).toContain(healthz);
+    expect(refused[0]!.message).toContain('the reader is gone');
+    expect(sink.pages.size).toBe(0);
+  });
+
+  test('a statement with no ground is a problem of its own, and the page never claims the document names none', async () => {
+    const entity = uc1();
+    const passage = passageOf(entity);
+    const { tools, sink } = await toolsOf(entity, { output: product });
+    const answer = await tools.call('write_enrichment', {
+      actor: grounded('A shopper places an order.', passage),
+      goal: grounded('The shopper has an order.', passage),
+      mainFlow: [grounded('The shopper submits the cart.', passage)],
+      preconditions: [{ text: 'Signed in.', grounds: [] }],
+    });
+    expect(answer.isError).toBe(true);
+    const refused = (answer.answer as { refused: { rule: string; message: string }[] }).refused;
+    expect(refused.map((entry) => entry.rule)).toEqual(['field-ungrounded']);
+    expect(refused[0]!.message).toContain('preconditions[0]');
+    expect(sink.pages.size).toBe(0);
+  });
+
+  test('every optional field of a rule and of a decision is parsed before the page is judged', () => {
+    const passage = passageOf(uc1());
+    const ungrounded = [{ text: 'Signed in.', grounds: [] }];
+    const rule = parseFields('rule', { statement: { text: 'Orders are paid before they ship.', grounds: [passage] }, applies: ungrounded });
+    expect(rule.ok).toBe(false);
+    expect(rule.ok ? [] : rule.problems.map((entry) => entry.rule)).toEqual(['field-ungrounded']);
+    const decision = parseFields('decision', { status: { text: 'Accepted.', grounds: [passage] }, decision: [{ text: 'Orders are paid before they ship.', grounds: [passage] }], consequences: ungrounded });
+    expect(decision.ok).toBe(false);
+    expect(decision.ok ? [] : decision.problems.map((entry) => entry.rule)).toEqual(['field-ungrounded']);
   });
 });

@@ -277,19 +277,30 @@ export function parseFields(kind: StructuredKind, value: unknown): { readonly ok
       })
       : [];
     if (record['alternativeFlows'] !== undefined && !Array.isArray(record['alternativeFlows'])) problem('field', '"alternativeFlows" is a list of flows, each with "when" and "steps"');
+    // Every field is parsed before the page is judged: a field whose statement carries no ground is a problem of
+    // its own, never a part that vanishes and lets the page say the document names none (madarch-ztyq.5, review).
+    const preconditions = statements('preconditions', record['preconditions']);
+    const rules = places('rules', record['rules']);
+    const carried = implementation(record['implementation']);
     if (problems.length > 0 || actor === undefined || goal === undefined) return { ok: false, problems };
-    return { ok: true, fields: { ...common, actor, goal, preconditions: statements('preconditions', record['preconditions']), mainFlow, alternativeFlows: flows, rules: places('rules', record['rules']), implementation: implementation(record['implementation']) } };
+    return { ok: true, fields: { ...common, actor, goal, preconditions, mainFlow, alternativeFlows: flows, rules, implementation: carried } };
   }
   if (kind === 'rule') {
     const written = statement('statement', record['statement']);
+    const applies = statements('applies', record['applies']);
+    const exceptions = statements('exceptions', record['exceptions']);
+    const carried = implementation(record['implementation']);
     if (problems.length > 0 || written === undefined) return { ok: false, problems };
-    return { ok: true, fields: { ...common, statement: written, applies: statements('applies', record['applies']), exceptions: statements('exceptions', record['exceptions']), implementation: implementation(record['implementation']) } };
+    return { ok: true, fields: { ...common, statement: written, applies, exceptions, implementation: carried } };
   }
   const status = statement('status', record['status']);
   const decision = statements('decision', record['decision']);
   if (decision.length === 0) problem('field', '"decision" is what was decided, one statement each');
+  const context = statements('context', record['context']);
+  const consequences = statements('consequences', record['consequences']);
+  const carried = implementation(record['implementation']);
   if (problems.length > 0 || status === undefined) return { ok: false, problems };
-  return { ok: true, fields: { ...common, status, context: statements('context', record['context']), decision, consequences: statements('consequences', record['consequences']), implementation: implementation(record['implementation']) } };
+  return { ok: true, fields: { ...common, status, context, decision, consequences, implementation: carried } };
 }
 
 /** The implementation's places of one page: the way in first, then what does the work, then what is stored and told. */
