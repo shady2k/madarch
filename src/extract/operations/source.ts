@@ -6,7 +6,7 @@
 import type { Extraction, SourceSpan, TreeReader } from '../records.js';
 import { byCodePoint } from '../../model/order.js';
 import type {
-  CodeBindingFact, CodeCallFact, CodeExpressionFact, CodeFactId, CodeFacts, CodeFileFact, CodeImportFact, CodeSymbolFact,
+  CodeBindingFact, CodeCallFact, CodeExpressionFact, CodeExportFact, CodeFactId, CodeFacts, CodeFieldFact, CodeFileFact, CodeImportFact, CodeSiteFact, CodeSymbolFact,
 } from '../code/facts.js';
 import {codeFactsOf} from '../code/index.js';
 import { evaluateLibraryModels } from '../library-models/evaluate.js';
@@ -60,6 +60,8 @@ function groupedBy<T>(items: readonly T[] | undefined, key: (item: T) => string)
   return new FactIndex((items ?? []).map((item) => [key(item), item] as const));
 }
 
+export const spanKey = (span: SourceSpan): string => JSON.stringify([span.path, span.byteStart, span.byteEnd]);
+
 export class TreeText {
   /** The tree's paths, as a set for `has`. */
   readonly has: (path: string) => boolean;
@@ -112,6 +114,13 @@ export class TreeText {
   readonly symbolsByKey: FactIndex<CodeSymbolFact>;
   readonly importsByPath: FactIndex<CodeImportFact>;
   readonly filesByPath: FactIndex<CodeFileFact>;
+  /** The same facts under the keys the HTTP proofs ask for, built once instead of rescanned per call. */
+  readonly expressionsBySyntax: FactIndex<CodeExpressionFact>;
+  readonly expressionsBySpan: FactIndex<CodeExpressionFact>;
+  readonly parentsByChild: FactIndex<CodeExpressionFact>;
+  readonly sitesBySpan: FactIndex<CodeSiteFact>;
+  readonly exportsById: FactIndex<CodeExportFact>;
+  readonly fieldsByKey: FactIndex<CodeFieldFact>;
 
   /** The callable sites this view has already proved, and the bytes' boundary tables. */
   private readonly callables = new Map<string, readonly FunctionSite[]>();
@@ -134,6 +143,13 @@ export class TreeText {
     this.symbolsByKey = groupedBy(this.facts?.symbols, (symbol) => symbol.key);
     this.importsByPath = groupedBy(this.facts?.imports, (entry) => entry.path);
     this.filesByPath = groupedBy(this.facts?.files, (file) => file.path);
+    this.expressionsBySyntax = groupedBy(this.facts?.expressions, (expression) => expression.syntaxKind);
+    this.expressionsBySpan = groupedBy(this.facts?.expressions, (expression) => spanKey(expression.span));
+    this.parentsByChild = new FactIndex((this.facts?.expressions ?? []).flatMap((expression) =>
+      expression.children.map((child) => [child, expression] as const)));
+    this.sitesBySpan = groupedBy(this.facts?.sites, (site) => spanKey(site.span));
+    this.exportsById = groupedBy(this.facts?.exports, (entry) => entry.id);
+    this.fieldsByKey = groupedBy(this.facts?.fields, (field) => field.key);
   }
 
   /** The callable sites already proved for a path in this view, when one asked before. */

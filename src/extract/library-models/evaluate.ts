@@ -35,48 +35,83 @@ export function evaluateLibraryModels(facts: CodeFacts, input: LibraryRegistry =
     const held = importsByLocal.get(key) ?? [];
     held.push(imported); importsByLocal.set(key, held);
   }
-  const localImports = (expression: CodeExpressionFact): readonly CodeImportFact[] => expression.name === undefined
-    ? [] : importsByLocal.get(JSON.stringify([expression.path, expression.name])) ?? [];
+  const localImportCache = new Map<string, readonly CodeImportFact[]>();
+  const localImports = (expression: CodeExpressionFact): readonly CodeImportFact[] => {
+    if (expression.name === undefined) return [];
+    const key = JSON.stringify([expression.path, expression.name]);
+    const held = localImportCache.get(key);
+    if (held !== undefined) return held;
+    const imports = importsByLocal.get(key) ?? [];
+    localImportCache.set(key, imports);
+    return imports;
+  };
   const candidateBindings = new Map(facts.bindings.map((binding) => [binding.id, binding]));
   const candidateDependents = new Map<string, Set<string>>();
   const candidateQueue: string[] = [];
+  const exportCache = new Map<string, { imported: CodeImportFact; path: readonly string[] }>();
   const candidateExport = (id: string, seen = new Set<string>()): { imported: CodeImportFact; path: readonly string[] } | undefined => {
-    if (seen.has(id)) return undefined; seen.add(id);
+    if (seen.has(id)) return undefined;
+    const held = exportCache.get(id); if (held !== undefined) return held;
+    seen.add(id);
     const expression = candidateExpressions.get(id); if (expression === undefined) return undefined;
+    let result: { imported: CodeImportFact; path: readonly string[] } | undefined;
     if (expression.receiver !== undefined && expression.member !== undefined) {
       const receiver = candidateExport(expression.receiver, seen);
-      return receiver === undefined ? undefined : { imported: receiver.imported, path: [...receiver.path, expression.member] };
+      result = receiver === undefined ? undefined : { imported: receiver.imported, path: [...receiver.path, expression.member] };
+    } else {
+      const binding = expression.bindingId === undefined ? undefined : candidateBindings.get(expression.bindingId);
+      const imported = binding?.importId === undefined ? undefined : candidateImports.get(binding.importId);
+      if (imported?.targetExpression !== undefined) result = candidateExport(imported.targetExpression, seen);
+      else {
+        // A rejected import proof or a lexical shadow still names a diagnostic
+        // candidate only through the exact import form and complete exported path.
+        // It never supplies a runtime value, and member spelling alone is not enough.
+        const candidate = imported ?? localImports(expression)[0];
+        result = candidate === undefined ? (binding?.initializer === undefined ? undefined : candidateExport(binding.initializer, seen)) : { imported: candidate,
+          path: candidate.imported.form === 'named' ? [candidate.imported.name] : candidate.imported.form === 'default' ? ['default'] : [] };
+      }
     }
-    const binding = expression.bindingId === undefined ? undefined : candidateBindings.get(expression.bindingId);
-    const imported = binding?.importId === undefined ? undefined : candidateImports.get(binding.importId);
-    if (imported?.targetExpression !== undefined) return candidateExport(imported.targetExpression, seen);
-    // A rejected import proof or a lexical shadow still names a diagnostic
-    // candidate only through the exact import form and complete exported path.
-    // It never supplies a runtime value, and member spelling alone is not enough.
-    const candidate = imported ?? localImports(expression)[0];
-    if (candidate !== undefined) return { imported: candidate,
-      path: candidate.imported.form === 'named' ? [candidate.imported.name] : candidate.imported.form === 'default' ? ['default'] : [] };
-    return binding?.initializer === undefined ? undefined : candidateExport(binding.initializer, seen);
+    if (result !== undefined) exportCache.set(id, result);
+    return result;
   };
+  // Candidate roles index the registry once: a member model can only answer
+  // its own member, and an export model only an import of its own package.
+  const memberModels = new Map<string, LibraryModel[]>();
+  const exportModelsByPackage = new Map<string, LibraryModel[]>();
+  for (const model of registry.models) {
+    if (model.target.kind === 'member') {
+      const held = memberModels.get(model.target.member) ?? [];
+      held.push(model); memberModels.set(model.target.member, held);
+    } else {
+      const held = exportModelsByPackage.get(model.package) ?? [];
+      held.push(model); exportModelsByPackage.set(model.package, held);
+    }
+  }
   for (const expression of facts.expressions) {
     const roles = new Set<string>();
     const binding = expression.bindingId === undefined ? undefined : candidateBindings.get(expression.bindingId);
     const imported = binding?.importId === undefined ? undefined : candidateImports.get(binding.importId);
     const exported = candidateExport(expression.id);
     const receiver = expression.receiver === undefined ? undefined : candidateExpressions.get(expression.receiver);
-    for (const model of registry.models) {
-      // A completely unbound receiver is an unread candidate (unknown.info).
-      // A known repository parameter/member is not a library by method spelling.
-      if (model.target.kind === 'member' && model.target.member === expression.member && receiver?.name !== undefined && receiver.bindingId === undefined) {
+    // A completely unbound receiver is an unread candidate (unknown.info).
+    // A known repository parameter/member is not a library by method spelling.
+    for (const model of expression.member === undefined ? [] : memberModels.get(expression.member) ?? []) {
+      if (model.target.kind === 'member' && receiver?.name !== undefined && receiver.bindingId === undefined) {
         roles.add(model.returnRole ?? model.target.receiverRole);
       }
-      if (model.target.kind !== 'export') continue;
-      const matches = (one: CodeImportFact, path: readonly string[]): boolean => one.specifier === model.package &&
-        model.target.kind === 'export' && model.target.importRoles.includes(one.imported.form) &&
-        model.target.exportedPaths.some((expected) => JSON.stringify(expected) === JSON.stringify(path));
-      const shadowedFactory = localImports(expression).some((one) => matches(one,
-        one.imported.form === 'named' ? [one.imported.name] : one.imported.form === 'default' ? ['default'] : []));
-      if (exported !== undefined && matches(exported.imported, exported.path) || shadowedFactory) roles.add(model.returnRole ?? model.effect ?? 'library');
+    }
+    const locals = expression.name === undefined ? [] : localImports(expression);
+    if (exported !== undefined || locals.length > 0) {
+      const packages = new Set<string>(locals.map((one) => one.specifier));
+      if (exported !== undefined) packages.add(exported.imported.specifier);
+      for (const pkg of packages) for (const model of exportModelsByPackage.get(pkg) ?? []) {
+        const matches = (one: CodeImportFact, path: readonly string[]): boolean => one.specifier === model.package &&
+          model.target.kind === 'export' && model.target.importRoles.includes(one.imported.form) &&
+          model.target.exportedPaths.some((expected) => JSON.stringify(expected) === JSON.stringify(path));
+        const shadowedFactory = locals.some((one) => matches(one,
+          one.imported.form === 'named' ? [one.imported.name] : one.imported.form === 'default' ? ['default'] : []));
+        if (exported !== undefined && matches(exported.imported, exported.path) || shadowedFactory) roles.add(model.returnRole ?? model.effect ?? 'library');
+      }
     }
     candidateRoles.set(expression.id, roles);
     if (roles.size > 0) candidateQueue.push(expression.id);

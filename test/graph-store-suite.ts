@@ -893,6 +893,20 @@ export function graphStoreTests(label: string, getOwner: () => DatabaseOwner): v
         expect((await env.query<{ g: string }>(`SELECT count(*)::text AS g FROM work_item WHERE published_at IS NOT NULL`))[0]!.g).toBe('3');
       });
 
+      run('fenced-publication: an edge repeated in one publication is written once, and its second copy matches it', async (env) => {
+        // Batched writes are deferred to the end of the edge loop. A repeated identity must still see the row its
+        // first copy wrote, or the second copy would open a second overlapping version.
+        env.setClock(day(2));
+        await plan(env, 'p1', env.scope, 1);
+        const repeated = { relation: 'uses', src: { ref: 'a' }, dst: { ref: 'b' }, validFrom: day(1) };
+        const done = await env.store.publish(input('p1', env.scope, 1, {
+          nodes: [{ ref: 'a', kind: 'component', label: 'A', validFrom: day(1) }, { ref: 'b', kind: 'component', label: 'B', validFrom: day(1) }],
+          edges: [repeated, repeated],
+        }));
+        expect(done).toMatchObject({ edgeVersionsOpened: 1, unchanged: 1, corrections: 0 });
+        expect(await env.count('edge_version')).toBe(1);
+      });
+
       run('fenced-publication: a complete publication ends what its producer and scope did not repeat, and nothing else', async (env) => {
         const scopeB = await env.store.newNode();
         env.setClock(day(2));
