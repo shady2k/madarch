@@ -18,6 +18,7 @@ import { resolveExecutable } from '../fill/acp.js';
 import { DEFAULT_STAGE_LIMITS } from '../fill/stage.js';
 import { homeFromEnv, type DraftEnv } from '../product/home.js';
 import { DEFAULT_UNIT_BOUNDS, MAX_DOMAINS } from '../writer/tools.js';
+import { DEFAULT_EDITORIAL_REQUESTS_PER_PAGE } from '../writer/editorial.js';
 import { acpUnitAgent } from '../writer/acp-agent.js';
 import { connectAcpAgent } from '../fill/acp.js';
 import { choicesOf, type AgentChoices, type AgentPreferences } from '../fill/acp-choices.js';
@@ -37,6 +38,7 @@ export const WRITER_BOUNDS: WriterBounds = {
   toolCalls: DEFAULT_UNIT_BOUNDS.maxCalls,
   writeAttempts: DEFAULT_UNIT_BOUNDS.maxWriteAttempts,
   maxDomains: MAX_DOMAINS,
+  editorialRequestsPerPage: DEFAULT_EDITORIAL_REQUESTS_PER_PAGE,
 };
 
 export function adapterOf(id: string): AcpAdapterCatalogueEntry | undefined {

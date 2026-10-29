@@ -800,7 +800,9 @@
     },
     "kind": {
       "tool-call": "tool call",
-      "refusal": "refused request"
+      "refusal": "refused request",
+      "editorial-finding": "editorial finding",
+      "revision-request": "revision request"
     },
     "unreadable": "Lines of the journal that could not be read",
     "otherRuns": "Other runs that wrote this page"
@@ -839,6 +841,7 @@
       "writing": "Writing",
       "classification": "Classification",
       "analysis": "Analysis",
+      "editing": "Editing",
       "unassigned": "Not assigned",
       "agentsOwn": "the agent’s own choice",
       "fallback": "This role is not assigned, so it uses {{role}}’s pair.",
@@ -861,7 +864,8 @@
       "minutes": "Minutes per page",
       "calls": "Tool calls per page",
       "attempts": "Write attempts per page",
-      "domains": "Domain pages at most"
+      "domains": "Domain pages at most",
+      "editorial": "Revision requests per page"
     },
     "places": {
       "title": "Where this lives",

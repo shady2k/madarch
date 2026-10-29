@@ -392,7 +392,7 @@ export function createKnowledgePart(
       let body: unknown;
       try { body = await request.json(); } catch (error) { return refused(400, { message: `the request body is not JSON: ${(error as Error).message}` }); }
       const asked = body as { role?: unknown; agent?: unknown; model?: unknown; reasoning?: unknown; install?: unknown } | null;
-      if (typeof asked?.role !== 'string') return refused(400, { field: 'role', message: '"role" is required: writing, classification or analysis' });
+      if (typeof asked?.role !== 'string') return refused(400, { field: 'role', message: '"role" is required: writing, classification, analysis or editing' });
       if (asked.agent !== null && typeof asked.agent !== 'string') return refused(400, { field: 'agent', message: '"agent" is an agent id, or null to remove the role' });
       for (const field of ['model', 'reasoning'] as const) {
         const value = asked[field];

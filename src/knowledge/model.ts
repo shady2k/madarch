@@ -372,6 +372,8 @@ export interface WriterState {
 
 /** What one agent costs to use and what the stage is bound by, stated for the reader before the press. */
 export interface WriterBounds {
+  /** The most revision requests the editorial pass may send one page (madarch-ztyq.9). */
+  readonly editorialRequestsPerPage: number;
   /** Agent turns one unit may take. */
   turns: number;
   /** Minutes one unit may run. */

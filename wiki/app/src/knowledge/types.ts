@@ -214,7 +214,7 @@ export type WriterState = {
   plan?: RefreshPlan;
 };
 
-export type WriterBounds = { turns: number; minutes: number; toolCalls: number; writeAttempts: number; maxDomains: number };
+export type WriterBounds = { turns: number; minutes: number; toolCalls: number; writeAttempts: number; maxDomains: number; editorialRequestsPerPage: number };
 
 export type AgentOffer = {
   id: string;
@@ -374,7 +374,7 @@ export type DangerPlan = {
 };
 
 /** The model roles a feature may ask for (madarch-j6ho.2). */
-export type ModelRoleId = 'writing' | 'classification' | 'analysis';
+export type ModelRoleId = 'writing' | 'classification' | 'analysis' | 'editing';
 export type ModelPair = { agent: string; model?: string; reasoning?: string };
 export type ResolvedModelRole = {
   role: ModelRoleId;
@@ -433,7 +433,7 @@ export type JournalRecord = {
   agent: string;
   model: string | null;
   session: string | null;
-  kind: 'tool-call' | 'refusal';
+  kind: 'tool-call' | 'refusal' | 'editorial-finding' | 'revision-request';
   tool: string;
   arguments: unknown;
   response: string | null;

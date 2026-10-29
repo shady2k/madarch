@@ -931,14 +931,14 @@ export class KnowledgeProduct {
     const roles = body.roles;
     if (roles !== undefined && (typeof roles !== 'object' || roles === null || Array.isArray(roles))) throw new Error(`${file}:1: roles is not an object`);
     const heldRoles = (roles ?? {}) as Record<string, unknown>;
-    for (const key of Object.keys(heldRoles)) if (!isModelRole(key)) throw new Error(`${file}:1: roles.${key} is not a role madarch knows (${['writing', 'classification', 'analysis'].join(', ')})`);
+    for (const key of Object.keys(heldRoles)) if (!isModelRole(key)) throw new Error(`${file}:1: roles.${key} is not a role madarch knows (${['writing', 'classification', 'analysis', 'editing'].join(', ')})`);
     const writing = typeof body.agent === 'string'
       ? pair(body, 'the writer choice')
       : heldRoles.writing === undefined
         ? null
         : pair(heldRoles.writing, 'roles.writing');
-    const other = (role: 'classification' | 'analysis'): ModelPair | null => heldRoles[role] === undefined ? null : pair(heldRoles[role], `roles.${role}`);
-    return { writing, classification: other('classification'), analysis: other('analysis') };
+    const other = (role: 'classification' | 'analysis' | 'editing'): ModelPair | null => heldRoles[role] === undefined ? null : pair(heldRoles[role], `roles.${role}`);
+    return { writing, classification: other('classification'), analysis: other('analysis'), editing: other('editing') };
   }
 
   /** The writer's pair, read as the writing role; compatibility for the callers that ask for one agent. */
@@ -948,7 +948,7 @@ export class KnowledgeProduct {
 
   private async writeAssignments(assignments: ModelAssignments): Promise<void> {
     const file = this.choiceFile();
-    const any = assignments.writing !== null || assignments.classification !== null || assignments.analysis !== null;
+    const any = assignments.writing !== null || assignments.classification !== null || assignments.analysis !== null || assignments.editing !== null;
     if (!any) {
       await rm(file, { force: true });
       return;
@@ -962,6 +962,7 @@ export class KnowledgeProduct {
     const roles: Record<string, ModelPair> = {};
     if (assignments.classification !== null) roles.classification = assignments.classification;
     if (assignments.analysis !== null) roles.analysis = assignments.analysis;
+    if (assignments.editing !== null) roles.editing = assignments.editing;
     if (Object.keys(roles).length > 0) body.roles = roles;
     await mkdir(dirname(file), { recursive: true });
     const temporary = `${file}.${process.pid}.${(this.choiceWrites += 1)}.tmp`;

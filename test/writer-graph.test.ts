@@ -25,6 +25,7 @@ import {
   type PageSink, type UnitAgent, type UnitRequest, type WriterReport,
 } from '../src/writer/index.js';
 import { fillWriterState } from '../src/writer/graph-state.js';
+import { memoryJournal } from '../src/writer/journal.js';
 import { gitEnv } from './git-env.js';
 import { KINDS_FILE, readKinds } from '../src/knowledge/kinds.js';
 import { seedStarterSet } from '../src/knowledge/seed.js';
@@ -642,4 +643,58 @@ describe('a unit that cannot run', () => {
       rmSync(scratchProduct, { recursive: true, force: true });
     }
   }, 120_000);
+});
+
+
+// ---------------------------------------------------------------------------------------------
+// The editorial pass in a run (madarch-ztyq.9): after the page batch and after the overview
+// ---------------------------------------------------------------------------------------------
+
+describe('the editorial pass in a writer run', () => {
+  let report: WriterReport;
+  let calls = 0;
+  let journal: ReturnType<typeof memoryJournal>;
+
+  beforeAll(async () => {
+    const output = join(scratch, 'editorial-product');
+    mkdirSync(join(output, 'docs'), { recursive: true });
+    declareWriterPages(output);
+    writeFileSync(join(output, 'docs/requirements.md'), REQUIREMENTS);
+    journal = memoryJournal('run-editorial-wiring');
+    report = await runWriter({
+      owner, store, repository, output, productName: 'Tiny shop', agent: scripted().agent,
+      documentEntities: entities, state: memoryWriterState(), sink: fsSink(output),
+      editorial: {
+        maxRequestsPerPage: 1,
+        journal,
+        judge: {
+          async judge(pack) {
+            calls += 1;
+            expect(pack.maxPerPage).toBe(1);
+            return { requests: [] };
+          },
+        },
+      },
+    });
+  }, 120_000);
+
+  test('it reads the page batch before the guides, and the complete set once the overview stands', () => {
+    expect(report.editorialPasses.map((pass) => pass.point)).toEqual(['batch', 'overview']);
+    const batch = report.editorialPasses[0]!;
+    const final = report.editorialPasses[1]!;
+    expect(batch.pages).toContain('docs/product.md');
+    expect(batch.pages.some((page) => page.startsWith('docs/domains/'))).toBe(true);
+    expect(batch.pages).not.toContain('docs/overview.md');
+    expect(final.pages).toContain('docs/overview.md');
+    expect(final.pages).toEqual(expect.arrayContaining([...batch.pages]));
+    expect(calls).toBe(2);
+    expect(report.editorialProblems).toEqual([]);
+  });
+
+  test('the pass itself leaves every page in place; the run’s pages are what the writer wrote', () => {
+    // No editorial request was made in this fixture, so the writer wrote each page once; the pass added no write.
+    expect(report.ok).toBe(true);
+    expect(report.revisionRequests).toEqual([]);
+    expect(journal.records.filter((record) => record.kind === 'revision-request')).toEqual([]);
+  });
 });

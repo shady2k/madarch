@@ -53,7 +53,7 @@ afterEach(async () => {
 });
 
 const json = (body: unknown, status = 200): Response => new Response(JSON.stringify(body), { status });
-const BOUNDS = { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12 };
+const BOUNDS = { turns: 30, minutes: 10, toolCalls: 80, writeAttempts: 5, maxDomains: 12, editorialRequestsPerPage: 2 };
 
 const settings = (over: Partial<ProductSettings> = {}): ProductSettings => ({
   product: { name: 'shop', id: 'p1' }, folder: '/products/sample-product', store: '/state/knowledge/p1', language: 'ru',
@@ -65,6 +65,7 @@ const settings = (over: Partial<ProductSettings> = {}): ProductSettings => ({
       { role: 'writing', pair: { agent: 'claude-code' }, source: 'assigned' },
       { role: 'classification', pair: { agent: 'claude-code' }, source: 'fallback', fallbackFrom: 'writing', note: 'classification is not assigned, so it uses the default pair (writing)' },
       { role: 'analysis', pair: { agent: 'claude-code' }, source: 'fallback', fallbackFrom: 'writing', note: 'analysis is not assigned, so it uses the default pair (writing)' },
+      { role: 'editing', pair: { agent: 'claude-code' }, source: 'fallback', fallbackFrom: 'writing', note: 'editing is not assigned, so it uses the default pair (writing)' },
     ],
   },
   bounds: BOUNDS, busy: false,
@@ -126,11 +127,12 @@ describe('the product settings page', () => {
     expect([...reasoning.querySelectorAll('option')].map((option) => option.textContent)).toEqual(["The agent's own choice", 'Low', 'High']);
     expect((page.querySelector('[data-testid=settings-language-ru] input') as HTMLInputElement).checked).toBe(true);
     expect(page.querySelector('[data-testid=bound-turns]')!.textContent).toBe('30');
+    expect(page.querySelector('[data-testid=bound-editorial]')!.textContent).toBe('2');
     expect(page.querySelector('[data-testid=places-folder]')!.textContent).toBe('/products/sample-product');
     expect(page.querySelector('[data-testid=places-push]')!.textContent).toContain('no git push');
   });
 
-  test('shows all three roles, the fallback note, and posts a role assignment with the role it names', async () => {
+  test('shows every role, the fallback note, and posts a role assignment with the role it names', async () => {
     const calls: { url: string; body: unknown }[] = [];
     stub(calls);
     const page = into(createElement(SettingsPage, { version: 0, status: status(), refresh: () => undefined }));
@@ -138,6 +140,7 @@ describe('the product settings page', () => {
     expect(page.querySelector('[data-testid=settings-role-writing]')!.textContent).toContain('Writing');
     expect(page.querySelector('[data-testid=settings-role-classification]')!.textContent).toContain('Classification');
     expect(page.querySelector('[data-testid=settings-role-analysis]')!.textContent).toContain('Analysis');
+    expect(page.querySelector('[data-testid=settings-role-editing]')!.textContent).toContain('Editing');
     expect(page.querySelector('[data-testid=settings-role-pair-writing]')!.textContent).toBe("Claude Code · the agent’s own choice");
     expect(page.querySelector('[data-testid=settings-role-fallback-classification]')!.textContent).toBe("This role is not assigned, so it uses Writing’s pair.");
     const select = page.querySelector('[data-testid=settings-role-select-classification]') as HTMLSelectElement;

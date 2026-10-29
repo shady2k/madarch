@@ -296,6 +296,7 @@ function BoundsSection({ settings }: { settings: ProductSettings }): ReactElemen
         <dt className="text-secondary">{t('settings.bounds.calls')}</dt><dd className="m-0">{bounds.toolCalls}</dd>
         <dt className="text-secondary">{t('settings.bounds.attempts')}</dt><dd className="m-0">{bounds.writeAttempts}</dd>
         <dt className="text-secondary">{t('settings.bounds.domains')}</dt><dd className="m-0">{bounds.maxDomains}</dd>
+        <dt className="text-secondary">{t('settings.bounds.editorial')}</dt><dd className="m-0" data-testid="bound-editorial">{bounds.editorialRequestsPerPage}</dd>
       </dl>
     </Section>
   );
