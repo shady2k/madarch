@@ -1,5 +1,5 @@
 import {expect, test} from 'bun:test';
-import {codeFactsOf, extractCodeWithFacts} from '../src/extract/code/index.js';
+import {codeFactsOf, extractCodeWithFacts, releaseCodeFacts} from '../src/extract/code/index.js';
 import type {CodeFacts} from '../src/extract/code/facts.js';
 import {ContractSymbols} from '../src/extract/contracts/symbol-links.js';
 import {extractContracts} from '../src/extract/contracts/index.js';
@@ -135,4 +135,12 @@ test('supplied code retains canonical named and inline route handlers without an
   expect(handlers.find((edge) => edge.from === 'code.route:services/web/main.ts#GET:/ready')?.to).toBe('code.symbol:services/web/main.ts#ready');
   const copied = await extractContracts(tree, {...code.extraction});
   expect(copied.edges.filter((edge) => edge.type === 'code.handled-by')).toEqual([]);
+});
+
+test('releasing the code facts drops the reader and the indexes with them', async () => {
+  const tree = treeOf({'src/release.ts': 'export function released(): number { return 1; }'});
+  const code = await extractCodeWithFacts(tree);
+  expect(codeFactsOf(code.extraction, tree)).toBe(code.facts);
+  releaseCodeFacts(code.extraction);
+  expect(codeFactsOf(code.extraction, tree)).toBeUndefined();
 });

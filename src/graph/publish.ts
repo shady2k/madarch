@@ -251,7 +251,10 @@ export async function publish(ctx: WriteContext, input: PublishInput): Promise<P
     for (const [index, end] of (input.ends ?? []).entries()) await publishEnd(run, end, `ends[${index}]`);
     const edges = input.edges ?? [];
     await prefetchEdgeIdentities(run, edges);
-    for (const [index, edge] of edges.entries()) await publishEdge(run, edge, `edges[${index}]`);
+    for (const [index, edge] of edges.entries()) {
+      await publishEdge(run, edge, `edges[${index}]`);
+      if (run.pendingEdges.length >= 500) await flushEdges(run);
+    }
     await flushEdges(run);
     if (input.complete !== undefined && input.complete !== false) {
       const end = input.complete === true ? ctx.at : instantText(input.complete.validTo, OP, 'complete.validTo');
