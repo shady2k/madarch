@@ -175,6 +175,9 @@ export type GroupSummary = { group: string; labels: Record<string, string> };
 export type OperationMetadata = { contracts: {entity: EntityRef; protocol: string; directions?: ('publish' | 'subscribe')[]; directionStatus?: 'known' | 'unavailable'; producedBy?: EntityRef[]; consumedBy?: EntityRef[]}[]; implementedBy: EntityRef[]; calledBy: EntityRef[]; cuts: {relation: string; shown: number; total: number}[] };
 export type EntityListing = { kind: string; total: number; rows: EntityRef[]; next: string | null; operations?: Record<string, OperationMetadata> };
 
+/** One page a refresh changed, as the top bar lists it: the page's id and the title its page shows. */
+export type ChangedPage = { id: string; title: string };
+
 export type FillState = {
   rebuilt?: 'extractors-changed';
   state: 'idle' | 'running' | 'done' | 'failed';
@@ -189,6 +192,8 @@ export type FillState = {
   /** What kind of failure it was; the app words it in the reader's language and keeps `message` as the detail. */
   code?: string;
   gaps?: number;
+  /** The pages the run changed; absent when it did not say, empty when it changed none (madarch-u3vw2). */
+  changed?: ChangedPage[];
 };
 
 export type WriterUnit = {

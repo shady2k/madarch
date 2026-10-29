@@ -24,7 +24,7 @@ import { CataloguePage, DocumentPage, DocumentsPage, EntityPage, EmptyHome, Fill
 import { GlossaryContext, GlossaryPage, useGlossary, useGlossaryValue, useTerms } from './glossary.js';
 import { HelpLink, RoleCard, RoleMenu } from './role-ui.js';
 import { RoleContext, leadGroups, loadSettings, useRole, useSettings } from './roles.js';
-import { addressOfKind, K_CATALOGUE, K_DOCS, K_GLOSSARY, K_HOME, K_PROBLEMS, K_QUESTIONS, K_TASKS, K_SETTINGS, kRouteOf, type KRoute } from './routes.js';
+import { addressOfEntity, addressOfKind, K_CATALOGUE, K_DOCS, K_GLOSSARY, K_HOME, K_PROBLEMS, K_QUESTIONS, K_TASKS, K_SETTINGS, kRouteOf, type KRoute } from './routes.js';
 import { ProblemsPage, QuestionPage, QuestionsPage, TaskPage, TasksPage, RefreshPreviewView } from './loop.js';
 import { JournalPage } from './journal.js';
 import { KindLabels, useKindName } from './kind-names.js';
@@ -358,7 +358,76 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
   );
 }
 
-function Toolbar({ status, route, menu, refresh, products, current }: { status: WikiStatus; route: KRoute; menu: ReactNode; refresh: () => void; products: readonly ProductChoice[]; current: string | null }): ReactElement {
+/**
+ * «Синхронизировать» in the top bar (madarch-u3vw2): the wiki's one refresh, the fill, pressed without opening the fill
+ * menu. When the run it started ends, the pages it changed open by themselves, each one a link to its page; a run that
+ * changed no page says so in one line, and one that failed says why. The button is spent while a run is under way.
+ */
+export function SyncButton({ status, refresh }: { status: WikiStatus; refresh: () => void }): ReactElement | null {
+  const { t } = useTranslation();
+  const [starting, setStarting] = useState(false);
+  const [pressed, setPressed] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+  const [refused, setRefused] = useState<string | null>(null);
+  const fill = status.fill;
+  const writer = status.writer;
+  const busy = fill.state === 'running' || writer.state === 'running' || writer.state === 'waiting' || starting;
+  // The press remembers the run that was on record when it was made: the first end that is not that run is this one.
+  const ended = (fill.state === 'done' || fill.state === 'failed') && !busy && pressed !== null && (fill.finishedAt ?? '') !== pressed;
+  useEffect(() => {
+    if (!ended) return;
+    setPressed(null);
+    setOpen(true);
+  }, [ended]);
+  if (status.own === true || status.manifest !== 'ok' || !status.filled || status.repositories.length === 0) return null;
+  const press = (): void => {
+    setStarting(true);
+    setRefused(null);
+    setOpen(false);
+    const before = fill.finishedAt ?? '';
+    startFill(status.chosenAgent?.id ?? null).then(
+      () => { setStarting(false); setPressed(before); refresh(); },
+      (failure: unknown) => { setStarting(false); setRefused(failure instanceof Error ? failure.message : String(failure)); },
+    );
+  };
+  const changed = fill.changed;
+  return (
+    <span className="relative flex items-center">
+      <Button variant="default" size="default" className="sync-button" disabled={busy} onClick={press} title={t('knowledge.syncHint')} data-testid="sync">
+        {busy ? t('knowledge.syncRunning') : t('knowledge.sync')}
+      </Button>
+      {open && (
+        <div role="region" aria-label={t('knowledge.syncResult')} className="absolute right-0 top-[calc(100%+8px)] z-50 w-[min(28rem,92vw)] rounded-[var(--radius-card)] border border-line bg-page p-3 text-left shadow-lg" data-testid="sync-result">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <span className="text-small font-medium text-ink">{t('knowledge.syncResult')}</span>
+            <button type="button" className="cursor-pointer rounded p-1 text-muted hover:text-ink" aria-label={t('knowledge.syncClose')} data-testid="sync-close" onClick={() => setOpen(false)}>
+              <XIcon aria-hidden="true" className="size-4" />
+            </button>
+          </div>
+          {fill.state === 'failed' ? (
+            <div className="text-small" data-testid="sync-failed"><FailureNote scope="fill" code={fill.code} message={fill.message} /></div>
+          ) : changed === undefined ? (
+            <p className="m-0 text-small text-muted" data-testid="sync-unknown">{t('knowledge.syncUnknown')}</p>
+          ) : changed.length === 0 ? (
+            <p className="m-0 text-small" data-testid="sync-nothing">{t('knowledge.syncNothing')}</p>
+          ) : (
+            <>
+              <p className="mb-1 mt-0 text-small text-muted" data-testid="sync-count">{t('knowledge.syncChanged', { count: changed.length })}</p>
+              <ul className="m-0 max-h-[50vh] list-none overflow-auto p-0 text-small" data-testid="sync-changed">
+                {changed.map((page) => (
+                  <li key={page.id} className="py-0.5"><KLink href={addressOfEntity(page.id)} className="text-ink hover:underline">{page.title}</KLink></li>
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
+      )}
+      {refused !== null && <p className="absolute right-0 top-[calc(100%+8px)] z-50 m-0 w-[min(28rem,92vw)] rounded-[var(--radius-card)] border border-line bg-page p-2 text-small shadow-lg" role="alert" data-testid="sync-refused">{refused}</p>}
+    </span>
+  );
+}
+
+export function Toolbar({ status, route, menu, refresh, products, current }: { status: WikiStatus; route: KRoute; menu: ReactNode; refresh: () => void; products: readonly ProductChoice[]; current: string | null }): ReactElement {
   const { t } = useTranslation();
   const kindName = useKindName();
   const where = route.name === 'questions' || route.name === 'question' ? t('loop.questionsTitle') : route.name === 'problems' ? t('loop.problemsTitle') : route.name === 'tasks' ? t('loop.tasksTitle') : route.name === 'settings' ? t('settings.title') : route.name === 'journal' ? t('journal.title') : route.name === 'kind' ? kindName(route.kind, 'many') : route.name === 'source' ? t('knowledge.source') : route.name === 'docs' || route.name === 'doc' ? t('knowledge.documents') : route.name === 'catalogue' ? t('knowledge.catalogue') : route.name === 'glossary' ? t('knowledge.glossary.title') : route.name === 'statement' ? t('knowledge.statement') : route.name === 'entity' ? null : t('knowledge.home');
@@ -375,6 +444,7 @@ function Toolbar({ status, route, menu, refresh, products, current }: { status: 
           </KLink>
         )}
         {menu}
+        <SyncButton status={status} refresh={refresh} />
         {status.own !== true && <FillMenu status={status} refresh={refresh} />}
         <RoleMenu />
         <HelpLink products={products} current={current} />
