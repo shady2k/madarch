@@ -28,6 +28,7 @@ import { fillWriterState } from '../src/writer/graph-state.js';
 import { gitEnv } from './git-env.js';
 import { KINDS_FILE, readKinds } from '../src/knowledge/kinds.js';
 import { seedStarterSet } from '../src/knowledge/seed.js';
+import { structuredKindOf } from '../src/writer/structured.js';
 
 // ---------------------------------------------------------------------------------------------
 // The fixture: one repository, one document, one source file
@@ -156,6 +157,18 @@ function pageOf(request: UnitRequest): { markdown: string; domains?: unknown[] }
   return { markdown: '' };
 }
 
+/**
+ * The fields a scripted agent gives the passage of one kind (decision 0032, section 1; `src/writer/structured.ts`):
+ * a use case its actor, goal and one step, a rule its statement, each grounded on the passage it enriches.
+ */
+function enrichmentFields(kind: 'scenario' | 'rule' | 'decision', entity: DocEntity): Record<string, unknown> {
+  const ground = `doc:${entity.path}#${entity.anchor}`;
+  const statement = (text: string): { text: string; grounds: string[] } => ({ text, grounds: [ground] });
+  if (kind === 'scenario') return { actor: statement('A shopper places an order.'), goal: statement('The shopper has an order to pay for.'), mainFlow: [statement('The shopper submits the cart.')] };
+  if (kind === 'rule') return { statement: statement('A refund is checked before the money goes back.') };
+  return { status: statement('The record says the decision is accepted.'), decision: [statement('A refund is checked before the money goes back.')] };
+}
+
 interface Scripted {
   readonly seen: string[];
   readonly prompts: Map<string, string>;
@@ -173,7 +186,17 @@ function scripted(options: { readonly failAt?: string; readonly silentFor?: stri
       if (options.failAt !== undefined && request.id === options.failAt) throw new Error('the agent process died');
       if (options.silentFor !== undefined && request.id === options.silentFor) return;
       if (request.id.startsWith('enrichment:')) {
-        const written = await request.tools.call('write_enrichment', { body: `## What this passage says\n\nA shopper places an order.[^what-it-is]\n\n[^what-it-is]: [UC-1](madarch:${UC1})` });
+        // A use case and a rule carry the fields of their kind (madarch-ztyq.5) and the core writes their sections; a
+        // passage whose reading is still open writes its own body, since nothing decides what it is.
+        const entity = entities.find((candidate) => `enrichment:${candidate.id}` === request.id);
+        if (entity === undefined) throw new Error(`the scripted agent was asked for ${request.id}, which is no enrichment of the fixture's document`);
+        const kind = structuredKindOf(entity.semantics);
+        if (kind === undefined) {
+          const written = await request.tools.call('write_enrichment', { body: `## What this passage says\n\nA shopper places an order.[^what-it-is]\n\n[^what-it-is]: [UC-1](madarch:${UC1})` });
+          expect(written.isError, JSON.stringify(written.answer)).toBe(false);
+          return;
+        }
+        const written = await request.tools.call('write_enrichment', enrichmentFields(kind, entity));
         expect(written.isError, JSON.stringify(written.answer)).toBe(false);
         return;
       }
@@ -343,7 +366,8 @@ describe('what a unit\'s inputs digest holds', () => {
       await runWriter({ owner, store, repository, output: folder, productName: 'Tiny shop', agent: scripted().agent, documentEntities: entities, state, sink: fsSink(folder) });
       // The rule's enrichment — the input the scenario unit reads — says something else now.
       const rulePage = enrichmentPath(entities[1]!);
-      const rewritten = readFileSync(join(folder, rulePage), 'utf8').replace('## What this passage says', '## What a person found here');
+      // The rule's page says what a person made of it now: the page is the unit that stands on it was written from.
+      const rewritten = readFileSync(join(folder, rulePage), 'utf8').replace('## Statement', '## What a person found here');
       writeFileSync(join(folder, rulePage), rewritten);
       const second = scripted();
       await runWriter({ owner, store, repository, output: folder, productName: 'Tiny shop', agent: second.agent, documentEntities: entities, state, sink: fsSink(folder) });
@@ -455,7 +479,7 @@ describe('the enrichment of a person’s document', () => {
     const entityPath = enrichmentPath(entity);
     writeFileSync(join(product, entityPath), 'A person wrote this at the entity\'s own place.\n');
     const tools = new UnitTools(await GraphView.open(owner, store), { kind: 'enrichment', id: `enrichment:${entity.id}`, path: entityPath, entity, task: 'State the scenario.' }, sink);
-    const refused = await tools.call('write_enrichment', { body: '## The scenario\n\nA shopper places an order.[^what-it-is]\n\n[^what-it-is]: [UC-1](madarch:doc:docs/requirements.md#uc-1)' });
+    const refused = await tools.call('write_enrichment', enrichmentFields('scenario', entity));
     expect(refused.isError).toBe(true);
     expect(JSON.stringify(refused.answer)).toContain('enrichment-ownership');
     expect(readFileSync(join(product, entityPath), 'utf8')).toBe('A person wrote this at the entity\'s own place.\n');

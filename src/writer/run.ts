@@ -860,7 +860,7 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
         if (entities.length === 0) { nothingFound(kind, position, 'the documents hold no passage read as a rule or as a decision'); break; }
         for (const entity of entities) {
           const page = enrichmentPath(entity);
-          const task = ENRICHMENT_TASKS['rules-and-decisions']!;
+          const task = ENRICHMENT_TASKS[entity.semantics] ?? ENRICHMENT_TASKS['rule']!;
           const run = await runGraphUnit({
             id: `enrichment:${entity.id}`, kind, scope: entity.id, path: page,
             digest: writerUnitDigest({ kind, version: versionOf(kind), scope: entity.id, language, inputs: [entity.kind, entity.text, entity.anchor, entity.semantics, ...pinned(), ...upstreamOf(kind)] }),
@@ -892,10 +892,10 @@ export async function runWriter(options: WriterOptions): Promise<WriterReport> {
         if (entities.length === 0) { nothingFound(kind, position, 'the documents hold no passage read as a scenario'); break; }
         for (const entity of entities) {
           const page = enrichmentPath(entity);
-          const task = ENRICHMENT_TASKS['scenarios']!;
+          const task = ENRICHMENT_TASKS['scenario']!;
           const run = await runGraphUnit({
             id: `enrichment:${entity.id}`, kind, scope: entity.id, path: page,
-            digest: writerUnitDigest({ kind, version: versionOf(kind), scope: entity.id, language, inputs: [entity.kind, entity.text, entity.anchor, ...pinned(), ...upstreamOf(kind)] }),
+            digest: writerUnitDigest({ kind, version: versionOf(kind), scope: entity.id, language, inputs: [entity.kind, entity.text, entity.anchor, entity.semantics, ...pinned(), ...upstreamOf(kind)] }),
             state, resumed, sink, now, stateProblem,
             ...(options.onUnitStart === undefined ? {} : { onUnitStart: options.onUnitStart }),
             ...(options.onUnit === undefined ? {} : { onUnit: options.onUnit }),

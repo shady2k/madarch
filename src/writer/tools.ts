@@ -29,6 +29,7 @@ import { AnswerRefusal, CONTEXT_PURPOSES, EVIDENCE_SHOWN, FLOW_DEPTH, FLOW_STEPS
 import { betweenCounters, NO_COUNTERS, type CallCounters } from './journal.js';
 import { detectStatementLanguage, LOCALIZED_SOURCE_SCHEMA, parseLocalizedSource, renderLocalizedSource } from './localized-source.js';
 import { ENRICHMENT_FRONT_KEYS, enrichmentOverwriteProblem, enrichmentPageId, renderEnrichment } from './enrichment.js';
+import { implementationPlaces, parseFields, renderStructuredBody, structuredKindOf, structuredLanguage, structuredSchema, type NamedPlace, type ScenarioFields, type StructuredFields, type StructuredKind } from './structured.js';
 import type { GuidePreparedUnit } from './guides/host-contract.js';
 import { validateGuide } from './guides/validate.js';
 import { renderGuideArtifact } from './guides/artifact.js';
@@ -332,18 +333,33 @@ export const WRITER_TOOLS: readonly McpToolDefinition[] = [
 ];
 
 /**
- * The one write of an enrichment unit (decision 0032, section 1; `src/writer/enrichment.ts`): the agent
- * writes the page's body, and the core writes the front matter that names the entity the page enriches.
- * The identity is therefore never the agent's to choose, and a page that would stand for another entity
- * cannot be written.
+ * The one write of an enrichment unit (decision 0032, section 1; `src/writer/enrichment.ts`): a use case, a rule
+ * and a decision give the fields of their own structure and the core writes the page (`src/writer/structured.ts`);
+ * a passage whose reading is still open gives the body it read. The core writes the front matter that names the
+ * entity, the title it is shown by and the places the page relates, so the identity is never the agent's to
+ * choose, and a page that would stand for another entity cannot be written.
  */
 export const WRITE_ENRICHMENT_TOOL: McpToolDefinition = {
   name: 'write_enrichment',
-  description: 'Writes the enrichment of the one passage this unit is given. The body is Markdown in the page format: headings, then statements each ending in its footnotes, every ground a madarch: link. The core writes the front matter that names the entity, its source and the lines it stands at, and checks the whole page before it writes anything.',
+  description: 'Writes the enrichment of the one passage this unit is given: the body in the page format, whose headings and statements are the unit\'s own reading, since the document does not settle what the passage is. The core writes the front matter that names the entity, its source and the lines it stands at, and checks the whole page before it writes anything.',
   inputSchema: object({
     body: { type: 'string', description: 'The page body only: its headings, its statements with their footnotes, and the footnote definitions. No front matter.' },
   }, ['body']),
 };
+
+/**
+ * The write of a passage whose kind has a structure of its own (decision 0032, section 1): the fields of a use
+ * case, a rule or a decision, as `src/writer/structured.ts` declares them. The unit fills the fields; the core
+ * writes the sections, the headings in the wiki's language and what an empty field says.
+ */
+export function writeEnrichmentTool(kind: StructuredKind): McpToolDefinition {
+  const fields = structuredSchema(kind);
+  return {
+    name: 'write_enrichment',
+    description: `Writes the enrichment of one ${kind === 'scenario' ? 'use case' : kind} as the sections of its own kind: ${Object.keys(fields['properties'] as Record<string, unknown>).filter((name) => name !== 'title').join(', ')}. Every sentence carries the grounds that show it, every place is a graph key you resolved (get_symbol, trace_flow, get_context), and one that does not resolve is refused with the tool that would have found it. What the document does not settle is said as a gap on the page, never left out and never guessed.`,
+    inputSchema: fields,
+  };
+}
 
 const fail = (code: string, message: string, extra: Record<string, unknown> = {}): ToolAnswer => ({ answer: { error: { code, message, ...extra } }, isError: true });
 const ok = (answer: unknown): ToolAnswer => ({ answer, isError: false });
@@ -418,6 +434,8 @@ export class UnitTools {
   private unresolvedJoins = 0;
   private readonly produced = { pages: 0, statements: 0, grounds: 0, links: 0, questions: 0 };
   private snapshot: GraphReads | undefined;
+  /** The names the graph gives the places a structured page named, resolved when its write was checked. */
+  private readonly names = new Map<string, string | undefined>();
 
   constructor(
     private readonly view: GraphView,
@@ -439,9 +457,13 @@ export class UnitTools {
     if (this.unit.kind === 'localized-source') return [
       { name: 'write_localized_source', description: `Write one grounded ${this.unit.language === 'ru' ? 'Russian' : 'English'} statement for this document entity. Use only the supplied source excerpt.`, inputSchema: object({ statement: { type: 'string' } }, ['statement']) },
     ];
-    // An enrichment unit writes the page of one passage: the body is the agent's, the identity and the source
-    // are the core's, so the page cannot be written about another entity or over a person's text.
-    if (this.unit.kind === 'enrichment') return WRITER_TOOLS.map((tool) => (tool.name === 'write_page' ? WRITE_ENRICHMENT_TOOL : tool));
+    // An enrichment unit writes the page of one passage: the fields are its own, the identity, the sections and the
+    // source are the core's, so the page cannot be written about another entity or over a person's text.
+    if (this.unit.kind === 'enrichment') {
+      const structured = structuredKindOf(this.unit.entity.semantics);
+      const write = structured === undefined ? WRITE_ENRICHMENT_TOOL : writeEnrichmentTool(structured);
+      return WRITER_TOOLS.map((tool) => (tool.name === 'write_page' ? write : tool));
+    }
     return this.unit.kind === 'product' ? WRITER_TOOLS : WRITER_TOOLS.map((tool) => (tool.name === 'write_page' ? { ...tool, inputSchema: object({ markdown: { type: 'string' } }, ['markdown']) } : tool));
   }
 
@@ -563,9 +585,19 @@ export class UnitTools {
   }
 
   /**
-   * Writes one passage's enrichment: the body the agent wrote inside the front matter the core owns, checked
-   * as the page it is. The file lands apart from the person's document (`enrichmentPath`), and a refusal keeps
-   * every problem with its line, so the agent can fix it and call again within its bound.
+   * Writes one passage's enrichment: the fields a structured passage carries, or the body an open reading wrote,
+   * inside the front matter the core owns, checked as the page it is. The file lands apart from the person's
+   * document (`enrichmentPath`), and a refusal keeps every problem with its line, so the agent can fix it and
+   * call again within its bound.
+   *
+   * A use case, a rule and a decision carry their own structure (decision 0032, section 1; madarch-ztyq.5): the
+   * unit gives the fields of its passage's kind (`src/writer/structured.ts`), each a sentence with its grounds,
+   * and the core writes the sections, their headings in the wiki's language, and what a field the document does
+   * not settle says. Every place the fields name — a route, a function, a table, a channel, a rule's section —
+   * is resolved against the graph here, before a byte is written: a key the graph does not hold is a refusal
+   * naming the key and the tool that answers it, never a link a reader cannot follow. A route of a use case is
+   * traced with the same reader `trace_flow` answers with, and one that reaches no function is stated as a gap
+   * on the page.
    */
   private async writeEnrichment(args: Record<string, unknown>): Promise<ToolAnswer> {
     const unit = this.unit;
@@ -573,13 +605,37 @@ export class UnitTools {
     if (this.status === 'written') return fail('already-written', `this unit already wrote ${unit.path}`);
     if (this.writeAttempts >= this.bounds.maxWriteAttempts) return fail('no-attempts', `this unit made ${this.bounds.maxWriteAttempts} refused writes and has failed; nothing more is accepted`);
     this.writeAttempts += 1;
-    const body = args['body'];
-    if (typeof body !== 'string' || body.trim() === '') return this.refuse([{ line: 0, rule: 'body', message: '"body" is the non-empty Markdown of the page: headings, then statements each ending in its footnotes, and the footnote definitions' }]);
-    let draft: string;
-    try {
-      draft = renderEnrichment({ entity: unit.entity, title: unit.entity.title, body });
-    } catch (error) {
-      return this.refuse([{ line: 0, rule: 'body', message: `${unit.path}:1: ${error instanceof Error ? error.message : String(error)}` }]);
+    const structured = structuredKindOf(unit.entity.semantics);
+    // The page as the core renders it: every branch either writes it or refuses, and a refusal writes nothing at all.
+    let draft = '';
+    if (structured === undefined) {
+      // A passage whose reading is still open: it says what it is in its own words, and the core writes no structure for it.
+      const body = args['body'];
+      if (typeof body !== 'string' || body.trim() === '') return this.refuse([{ line: 0, rule: 'body', message: '"body" is the non-empty Markdown of the page: headings, then statements each ending in its footnotes, and the footnote definitions' }]);
+      try {
+        draft = renderEnrichment({ entity: unit.entity, title: unit.entity.title, body, sources: [unit.entity.path] });
+      } catch (error) {
+        return this.refuse([{ line: 0, rule: 'body', message: `${unit.path}:1: ${error instanceof Error ? error.message : String(error)}` }]);
+      }
+    } else {
+      const read = parseFields(structured, args);
+      if (!read.ok) return this.refuse(read.problems);
+      const problems = await this.resolvePlaces(structured, read.fields);
+      if (problems.length > 0) return this.refuse(problems);
+      const traced = structured === 'scenario' ? await this.unreachedRoutes(read.fields.implementation.routes ?? []) : { unreached: [], refusals: [] };
+      if (traced.refusals.length > 0) return this.refuse(traced.refusals);
+      const unreachedRoutes = traced.unreached;
+      try {
+        const rendered = renderStructuredBody(structured, read.fields, {
+          language: structuredLanguage(this.extras.language),
+          labelOf: (target) => this.labelOf(target),
+          passage: `doc:${unit.entity.path}#${unit.entity.anchor}`,
+          unreachedRoutes,
+        });
+        draft = renderEnrichment({ entity: unit.entity, title: read.fields.title ?? unit.entity.title, body: rendered.body, relates: rendered.relates, sources: [unit.entity.path] });
+      } catch (error) {
+        return this.refuse([{ line: 0, rule: 'fields', message: `${unit.path}:1: the fields cannot be written as a page: ${error instanceof Error ? error.message : String(error)}` }]);
+      }
     }
     const questions = await this.existingQuestions();
     const entities = [...new Set([...(await this.extras.entityIds?.() ?? []), ...questions.filter((question) => question.status === 'answered').map((question) => question.id)])];
@@ -621,6 +677,76 @@ export class UnitTools {
     this.produced.grounds += verdict.page.grounds.length;
     this.produced.links += verdict.page.links.length;
     return ok({ written: true, path: unit.path, entity: enrichmentPageId(unit.entity), grounds: verdict.page.grounds.length });
+  }
+
+  /** The name a place is shown by: what the graph calls it, resolved when the page's places were. */
+  private labelOf(target: string): string | undefined {
+    return this.names.get(target);
+  }
+
+  /**
+   * The places a structured page names, resolved against the graph: each is a key the graph holds, of the very
+   * kind the field says it is, and a rule's place is a section of a document the graph holds. A key that does
+   * not resolve is refused with the tool that would have found it, so the unit asks again rather than writes a
+   * link no reader can follow. Every place that does resolve keeps the graph's own name for the page to show.
+   */
+  private async resolvePlaces(kind: StructuredKind, fields: StructuredFields): Promise<Refusal[]> {
+    const refusals: Refusal[] = [];
+    // The file a refusal names is the page, at its full path on this machine: what a person opens to see the mistake.
+    const where = resolve(this.extras.output ?? process.cwd(), this.unit.path);
+    const kinds = new Map<string, string | undefined>();
+    for (const place of implementationPlaces(fields)) {
+      if (!kinds.has(place.target)) kinds.set(place.target, (await this.view.node(place.target))?.kind);
+      const held = kinds.get(place.target);
+      if (held === undefined) {
+        refusals.push({ line: 1, rule: 'unresolved-place', message: `${where}:1: implementation.${place.field} names ${JSON.stringify(place.target)}, and the graph holds no such key at the last filled commit: read the place with ${place.field === 'routes' ? 'trace_flow (the route, by its POST /path or its key)' : place.field === 'functions' ? 'get_symbol (the function, by its name)' : `get_context or find_nodes of kind ${place.nodeKind}`}, and name exactly the key it answers` });
+        continue;
+      }
+      if (held !== place.nodeKind) { refusals.push({ line: 1, rule: 'place-kind', message: `${where}:1: implementation.${place.field} names ${JSON.stringify(place.target)}, which is a ${held}: this field holds ${place.nodeKind} keys` }); continue; }
+      this.names.set(place.target, await this.view.nameOf({ type: 'graph', key: place.target }));
+    }
+    if (kind === 'scenario') {
+      for (const rule of (fields as ScenarioFields).rules) {
+        if (!rule.target.startsWith('doc:')) {
+          refusals.push({ line: 1, rule: 'rule-place', message: `${where}:1: rules names ${JSON.stringify(rule.target)}: a rule is named by the section of the document that states it, as doc:<path>#<anchor> (get_document_sections answers it)` });
+          continue;
+        }
+        const hash = rule.target.indexOf('#');
+        const path = rule.target.slice('doc:'.length, hash < 0 ? undefined : hash);
+        const anchor = hash < 0 ? '' : rule.target.slice(hash + 1);
+        if (hash <= 'doc:'.length || anchor === '') { refusals.push({ line: 1, rule: 'rule-place', message: `${where}:1: the rule ${JSON.stringify(rule.target)} is no doc:<path>#<anchor>: name the section of the rule, as get_document_sections answers it` }); continue; }
+        if (!(await this.view.docSection(path, anchor))) { refusals.push({ line: 1, rule: 'unresolved-rule', message: `${where}:1: rules names ${rule.target}, and the document ${path} has no section ${JSON.stringify(anchor.toLowerCase())} at the last filled commit: get_document_sections finds a rule's section and answers the ground exactly` }); continue; }
+        this.names.set(rule.target, await this.view.nameOf({ type: 'doc', path, anchor: anchor.toLowerCase() }));
+      }
+    }
+    return refusals;
+  }
+
+  /**
+   * The routes of a use case that reach no function of the graph, traced with the reader `trace_flow` answers with:
+   * the page says so, because a diagram of nothing and a silence about it read the same, and only one of them is true.
+   *
+   * A route reaches a function when the trace names its handler, never when something happens downstream of it: a
+   * handler that returns a literal and calls nothing is a function the route reaches, and the page says so (the
+   * `GET /healthz` of the training repository is exactly that shape). A trace that fails for any other reason is no
+   * fact about the route, so it is refused with a rule of its own instead of being written as a gap.
+   */
+  private async unreachedRoutes(routes: readonly NamedPlace[]): Promise<{ unreached: readonly string[]; refusals: readonly Refusal[] }> {
+    const unreached: string[] = [];
+    const refusals: Refusal[] = [];
+    const reads = this.reads();
+    const where = resolve(this.extras.output ?? process.cwd(), this.unit.path);
+    for (const route of routes) {
+      try {
+        const traced = await traceFlow(reads, { entry: route.target, targets: [...FLOW_TARGETS], depth: FLOW_DEPTH, maxSteps: FLOW_STEPS });
+        const handlers = (traced.body as { handlers?: unknown }).handlers;
+        if (!Array.isArray(handlers) || handlers.length === 0) unreached.push(route.target);
+      } catch (error) {
+        if (error instanceof AnswerRefusal && error.code === 'no-handler') { unreached.push(route.target); continue; }
+        refusals.push({ line: 1, rule: 'trace-failed', message: `${where}:1: implementation.routes names ${JSON.stringify(route.target)}, and tracing its flow failed: ${error instanceof Error ? error.message : String(error)}. Nothing was written: the page never states a gap the trace did not find. Read the flow with trace_flow and call again` });
+      }
+    }
+    return { unreached: unreached.sort(byCodePoint), refusals };
   }
 
   private async writeGuide(args: Record<string, unknown>): Promise<ToolAnswer> {
