@@ -60,7 +60,7 @@ export async function renderPage(ctx: RenderContext, id: string, lang?: string, 
     return { ok: false, status: 404, message: `"${id}" is an entity of kind ${kindOf(subject)}, and ${ctx.manifest.file} declares no page for it: a kind is shown when the manifest names it and its template` };
   }
   const findings: Finding[] = [];
-  const blocks: Block[] = [];
+  let blocks: Block[] = [];
   const value = (name: string): string | undefined => allowedAttribute(decl, name) ? attributeOf(subject, name) : undefined;
   // A kind's template is Liquid (decision 0032) or, for a product made before it, the Markdown template of 0029: both
   // answer blocks in the template's order, and both read a block where the graph is.
@@ -115,6 +115,9 @@ export async function renderPage(ctx: RenderContext, id: string, lang?: string, 
     }
   }
 
+  // A section with nothing in it is not a section a reader meets: leave an empty related block out of the page, and the
+  // app draws no heading over an empty table (madarch-m38l.19).
+  blocks = blocks.filter((block) => block.type !== 'related' || block.groups.length > 0);
   // Every `madarch:` link the page's text holds is resolved here, once, and shown as broken when it does not.
   const urls = new Set<string>();
   const bodyLinks: { url: string; line: number; ground: boolean }[] = [];

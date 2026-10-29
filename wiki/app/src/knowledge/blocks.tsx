@@ -331,14 +331,7 @@ export function groupLabel(group: RelatedGroup, t: (key: string, options?: Recor
 function Related({ block }: { block: Extract<Block, { type: 'related' }> }): ReactElement | null {
   const { t } = useTranslation();
   const kindName = useKindName();
-  if (block.groups.length === 0) {
-    return (
-      <section data-block="related" aria-label={block.title}>
-        <h2>{block.title}</h2>
-        <p className="text-small text-muted" data-testid="related-empty">{t('knowledge.none')}</p>
-      </section>
-    );
-  }
+  if (block.groups.length === 0) return null;
   return (
     <section data-block="related" aria-label={block.title}>
       <h2>{block.title}</h2>

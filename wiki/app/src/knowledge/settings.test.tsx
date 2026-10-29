@@ -254,7 +254,7 @@ describe('the starter set on the Problems page', () => {
     };
     const page = into(createElement(ProblemsPage, { version: 0 }));
     await until(() => page.querySelector('[data-testid=problems-starter]') !== null, 'the offers');
-    expect(page.querySelector('[data-testid=problems-starter] h2')!.textContent).toBe('The starter set has 4 kinds and groups this manifest lacks.');
+    expect(page.querySelector('[data-testid=problems-starter] h2')!.textContent).toBe('The starter set has 4 kinds, groups and rules this manifest lacks.');
     expect(page.querySelector('[data-testid=starter-summary]')).toBeNull();
     expect(page.querySelectorAll('[data-testid=starter-offer]')).toHaveLength(0);
     expect(page.querySelector('[data-testid=starter-add-all]')!.textContent).toBe('Add all');
@@ -273,6 +273,19 @@ describe('the starter set on the Problems page', () => {
     expect(posted[1]).toEqual({ ids: OFFERS.map((offer) => offer.id) });
   });
 
+  test('a rule of the starter set is offered by its label and id, and a rule missing a field says which', async () => {
+    (globalThis as { fetch?: unknown }).fetch = async () => json({ problems: [], open: 0, closed: 0, notes: [], starter: [
+      { id: 'rule:debt.todo', type: 'rule', name: 'debt.todo', labels: { en: 'TODO', ru: 'TODO' } },
+      { id: 'rule:dependency.cycle', type: 'rule', name: 'dependency.cycle', labels: { en: 'Dependency cycle', ru: 'Цикл зависимостей' }, fields: ['label', 'params'] },
+    ] });
+    const page = into(createElement(ProblemsPage, { version: 0 }));
+    await until(() => page.querySelector('[data-testid=problems-starter]') !== null, 'the offers');
+    (page.querySelector('[data-testid=starter-toggle]') as HTMLElement).click();
+    await until(() => page.querySelectorAll('[data-testid=starter-offer]').length === 2, 'the expanded offers');
+    expect(page.querySelector('[data-offer="rule:debt.todo"]')!.textContent).toContain('Rule: TODO (debt.todo)');
+    expect(page.querySelector('[data-offer="rule:dependency.cycle"]')!.textContent).toContain('Fill in the rule Dependency cycle (dependency.cycle): label, params');
+  });
+
   test('in Russian the offer carries the Russian name and «Добавить»', async () => {
     await setWikiLanguage('ru');
     (globalThis as { fetch?: unknown }).fetch = async () => json({ problems: [], open: 0, closed: 0, notes: [], starter: OFFERS });
@@ -283,7 +296,7 @@ describe('the starter set on the Problems page', () => {
     await until(() => page.querySelectorAll('[data-testid=starter-offer]').length === 4, 'the expanded Russian offers');
     expect(page.querySelector('[data-offer="kind:code.route"]')!.textContent).toContain('Вид: HTTP-маршрут (code.route)');
     expect(page.querySelector('[data-offer="kind:code.route"] [data-testid=starter-add]')!.textContent).toBe('Добавить');
-    expect(page.querySelector('[data-testid=problems-starter] h2')!.textContent).toBe('В стартовом наборе есть 4 видов и групп, которых нет в вашем манифесте.');
+    expect(page.querySelector('[data-testid=problems-starter] h2')!.textContent).toBe('В стартовом наборе есть 4 видов, групп и правил, которых нет в вашем манифесте.');
   });
 });
 

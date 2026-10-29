@@ -2,6 +2,8 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, writeFile
 import { dirname, join, sep } from 'node:path';
 import { parseDocument } from 'yaml';
 import { KINDS_FILE } from './kinds.js';
+import { DEFAULT_THRESHOLDS } from '../problems/types.js';
+import type { ProblemSettings, RuleSpec } from '../problems/types.js';
 
 /**
  * The starter set `madarch new` writes into a product (decision 0029): the
@@ -260,12 +262,20 @@ export interface StarterKind {
   extra?: string[];
 }
 
-export const GROUPS: readonly { name: string; en: string; ru: string }[] = [
-  { name: 'product', en: 'Product knowledge', ru: 'Знания о продукте' },
+export const GROUPS: readonly { name: string; en: string; ru: string; parent?: string; open?: boolean }[] = [
+  { name: 'product', en: 'Product knowledge', ru: 'Знания о продукте', open: true },
   { name: 'code', en: 'Code', ru: 'Код' },
+  { name: 'code.structure', en: 'Structure', ru: 'Устройство', parent: 'code' },
+  { name: 'code.analysis', en: 'Analysis', ru: 'Анализ', parent: 'code' },
   { name: 'contracts', en: 'Contracts', ru: 'Контракты' },
   { name: 'data', en: 'Data', ru: 'Данные' },
   { name: 'operations', en: 'Operations', ru: 'Эксплуатация' },
+  { name: 'operations.configuration', en: 'Configuration', ru: 'Настройка', parent: 'operations' },
+  { name: 'operations.dependencies', en: 'Dependencies', ru: 'Зависимости', parent: 'operations' },
+  { name: 'operations.build-deploy', en: 'Build and deploy', ru: 'Сборка и развёртывание', parent: 'operations' },
+  { name: 'operations.ci-cd', en: 'CI/CD', ru: 'CI/CD', parent: 'operations' },
+  { name: 'operations.runtime', en: 'Runtime', ru: 'Работа системы', parent: 'operations' },
+  { name: 'operations.newcomer', en: 'Newcomer', ru: 'Новичку', parent: 'operations' },
   { name: 'tests', en: 'Tests', ru: 'Тесты' },
   { name: 'history', en: 'History', ru: 'История' },
 ];
@@ -294,17 +304,18 @@ export const STARTER_KINDS: readonly StarterKind[] = [
   { name: 'doc.requirement', template: 'entity-text.liquid', source: 'document', group: 'product', origin: 'person', en: ['Requirement', 'Requirements'], ru: ['Требование', 'Требования'], describe: ['Another item of the documents: a requirement, a story, a feature, numbered (FR-1, NFR-2, REQ-3, US-4 ...) or not, as in an unnumbered Qualities section.', 'Другой пункт документов: требование, история, возможность; пронумерованный (FR-1, NFR-2, REQ-3, US-4 ...) или нет, как в разделе Qualities без номеров.'], extra: ['identifier: [FR, NFR, REQ, PR, US]', 'semantics: quality', 'headings: [Qualities, Non-functional requirements]'] },
   { name: 'enrichment', template: 'enrichment.liquid', source: 'markdown', group: 'product', origin: 'agent', en: ['Enrichment', 'Enrichments'], ru: ['Обогащение', 'Обогащения'], describe: ['What the agent established about a use case, a rule or a decision of the documents: its parts in their own order, the code that carries it out, and the chain from its route — written beside the person\'s text, never over it.', 'То, что агент установил о сценарии, правиле или решении из документов: их части в своём порядке, код, который их выполняет, и цепочка от маршрута — записано рядом с текстом человека, а не поверх него.'], extra: ['folder: docs/enrichment'] },
   { name: 'doc.term', template: 'term.liquid', source: 'document', group: 'product', origin: 'person', en: ['Glossary term', 'Glossary terms'], ru: ['Термин', 'Термины'], describe: ['A term of the product\'s language, defined in a glossary.', 'Слово из языка продукта с определением из глоссария.'], extra: ['terms: ["**/glossary*.md"]', 'semantics: term'] },
-  { name: 'code.service', template: 'service.liquid', source: 'graph', group: 'code', en: ['Service', 'Services'], ru: ['Сервис', 'Сервисы'], describe: ['A deployable part of the system, read from its manifest.', 'Развёртываемая часть системы, прочитанная из её манифеста.'], extra: ['relations:', '  - { type: code.contains, to: "code.package:{span.path|dirname}" }'] },
-  { name: 'code.package', template: 'package.liquid', source: 'graph', group: 'code', en: ['Package', 'Packages'], ru: ['Пакет', 'Пакеты'], describe: ['The folder a service\'s manifest sits in, with its tests and frameworks.', 'Папка с манифестом сервиса, его тесты и фреймворки.'] },
-  { name: 'code.module', template: 'module.liquid', source: 'graph', group: 'code', en: ['Module', 'Modules'], ru: ['Модуль', 'Модули'], describe: ['A folder of code with a purpose of its own, with the modules it depends on.', 'Папка кода со своим назначением и модули, от которых она зависит.'] },
-  { name: 'code.file', template: 'file.liquid', source: 'graph', group: 'code', en: ['File', 'Files'], ru: ['Файл', 'Файлы'], describe: ['A file of a code repository.', 'Файл репозитория кода.'] },
-  { name: 'code.symbol', template: 'symbol.liquid', source: 'graph', group: 'code', en: ['Symbol', 'Symbols'], ru: ['Символ', 'Символы'], describe: ['A function, class or constant, with its callers and callees.', 'Функция, класс или константа, кто её вызывает и что она вызывает.'] },
-  { name: 'code.entry-point', template: 'item.liquid', source: 'graph', group: 'code', en: ['Entry point', 'Entry points'], ru: ['Точка входа', 'Точки входа'], describe: ['Where a process of the system starts running.', 'Место, где начинает работать процесс системы.'] },
-  { name: 'code.cycle', template: 'item-plain.liquid', source: 'graph', group: 'code', en: ['Dependency cycle', 'Dependency cycles'], ru: ['Цикл зависимостей', 'Циклы зависимостей'], describe: ['Files or modules that import one another in a ring.', 'Файлы или модули, которые импортируют друг друга по кругу.'] },
-  { name: 'code.facet', template: 'item-plain.liquid', source: 'graph', group: 'code', en: ['File facet', 'File facets'], ru: ['Срез файла', 'Срезы файлов'], describe: ['What the code reader found out about a file: its role and language.', 'Что читатель кода выяснил о файле: его роль и язык.'] },
-  { name: 'code.input', template: 'item.liquid', source: 'graph', group: 'code', en: ['Input', 'Inputs'], ru: ['Входные данные', 'Входные данные'], describe: ['A value that enters the code from outside, such as a query parameter.', 'Значение, которое попадает в код снаружи, например параметр запроса.'] },
-  { name: 'code.sql-build', template: 'item-plain.liquid', source: 'graph', group: 'code', en: ['SQL build', 'SQL builds'], ru: ['Сборка SQL', 'Сборки SQL'], describe: ['A function that builds SQL text by joining strings.', 'Функция, которая собирает текст SQL склейкой строк.'] },
-  { name: 'code.sql-sink', template: 'item.liquid', source: 'graph', group: 'code', en: ['SQL sink', 'SQL sinks'], ru: ['Выполнение SQL', 'Места выполнения SQL'], describe: ['A call that runs SQL text as it is.', 'Вызов, который выполняет текст SQL как есть.'] },
+  { name: 'code.service', template: 'service.liquid', source: 'graph', group: 'code.structure', en: ['Service', 'Services'], ru: ['Сервис', 'Сервисы'], describe: ['A deployable part of the system, read from its manifest.', 'Развёртываемая часть системы, прочитанная из её манифеста.'], extra: ['relations:', '  - { type: code.contains, to: "code.package:{span.path|dirname}" }'] },
+  { name: 'code.package', template: 'package.liquid', source: 'graph', group: 'code.structure', en: ['Package', 'Packages'], ru: ['Пакет', 'Пакеты'], describe: ['The folder a service\'s manifest sits in, with its tests and frameworks.', 'Папка с манифестом сервиса, его тесты и фреймворки.'] },
+  { name: 'code.module', template: 'module.liquid', source: 'graph', group: 'code.structure', en: ['Module', 'Modules'], ru: ['Модуль', 'Модули'], describe: ['A folder of code with a purpose of its own, with the modules it depends on.', 'Папка кода со своим назначением и модули, от которых она зависит.'] },
+  { name: 'code.file', template: 'file.liquid', source: 'graph', group: 'code.structure', en: ['File', 'Files'], ru: ['Файл', 'Файлы'], describe: ['A file of a code repository.', 'Файл репозитория кода.'] },
+  { name: 'code.symbol', template: 'symbol.liquid', source: 'graph', group: 'code.structure', en: ['Symbol', 'Symbols'], ru: ['Символ', 'Символы'], describe: ['A function, class or constant, with its callers and callees.', 'Функция, класс или константа, кто её вызывает и что она вызывает.'] },
+  { name: 'code.entry-point', template: 'item.liquid', source: 'graph', group: 'code.structure', en: ['Entry point', 'Entry points'], ru: ['Точка входа', 'Точки входа'], describe: ['Where a process of the system starts running.', 'Место, где начинает работать процесс системы.'] },
+  { name: 'code.cycle', template: 'item-plain.liquid', source: 'graph', group: 'code.analysis', en: ['Dependency cycle', 'Dependency cycles'], ru: ['Цикл зависимостей', 'Циклы зависимостей'], describe: ['Files or modules that import one another in a ring.', 'Файлы или модули, которые импортируют друг друга по кругу.'] },
+  { name: 'code.debt', template: 'item-plain.liquid', source: 'graph', group: 'code.analysis', en: ['Debt marker', 'Debt markers'], ru: ['Маркер долга', 'Маркеры долга'], describe: ['A TODO or FIXME a comment left in the code.', 'TODO или FIXME, оставленный комментарием в коде.'] },
+  { name: 'code.facet', template: 'item-plain.liquid', source: 'graph', group: 'code.analysis', en: ['File facet', 'File facets'], ru: ['Срез файла', 'Срезы файлов'], describe: ['What the code reader found out about a file: its role and language.', 'Что читатель кода выяснил о файле: его роль и язык.'] },
+  { name: 'code.input', template: 'item.liquid', source: 'graph', group: 'code.analysis', en: ['Input', 'Inputs'], ru: ['Входные данные', 'Входные данные'], describe: ['A value that enters the code from outside, such as a query parameter.', 'Значение, которое попадает в код снаружи, например параметр запроса.'] },
+  { name: 'code.sql-build', template: 'item-plain.liquid', source: 'graph', group: 'code.analysis', en: ['SQL build', 'SQL builds'], ru: ['Сборка SQL', 'Сборки SQL'], describe: ['A function that builds SQL text by joining strings.', 'Функция, которая собирает текст SQL склейкой строк.'] },
+  { name: 'code.sql-sink', template: 'item.liquid', source: 'graph', group: 'code.analysis', en: ['SQL sink', 'SQL sinks'], ru: ['Выполнение SQL', 'Места выполнения SQL'], describe: ['A call that runs SQL text as it is.', 'Вызов, который выполняет текст SQL как есть.'] },
   { name: 'code.route', template: 'route.liquid', source: 'graph', group: 'contracts', en: ['HTTP route', 'HTTP routes'], ru: ['HTTP-маршрут', 'HTTP-маршруты'], describe: ['An HTTP route a service serves, read from its code.', 'HTTP-маршрут, который обслуживает сервис, прочитанный из кода.'] },
   { name: 'code.operation', template: 'operation.liquid', source: 'graph', group: 'contracts', en: ['API operation', 'API operations'], ru: ['Операция API', 'Операции API'], describe: ['An operation an OpenAPI or gRPC contract declares.', 'Операция, которую объявляет контракт OpenAPI или gRPC.'] },
   { name: 'code.contract', template: 'contract.liquid', source: 'graph', group: 'contracts', en: ['Contract', 'Contracts'], ru: ['Контракт', 'Контракты'], describe: ['An OpenAPI, gRPC or AsyncAPI file that fixes an interface.', 'Файл OpenAPI, gRPC или AsyncAPI, который фиксирует интерфейс.'] },
@@ -315,32 +326,32 @@ export const STARTER_KINDS: readonly StarterKind[] = [
   { name: 'code.column', template: 'item-plain.liquid', source: 'graph', group: 'data', en: ['Column', 'Columns'], ru: ['Столбец', 'Столбцы'], describe: ['A column of a table with its type.', 'Столбец таблицы с его типом.'] },
   { name: 'code.index', template: 'item.liquid', source: 'graph', group: 'data', en: ['Index', 'Indexes'], ru: ['Индекс', 'Индексы'], describe: ['A database index.', 'Индекс базы данных.'] },
   { name: 'code.migration', template: 'item.liquid', source: 'graph', group: 'data', en: ['Migration', 'Migrations'], ru: ['Миграция', 'Миграции'], describe: ['A step that changes a database\'s schema, in the order they run.', 'Шаг, который меняет схему базы данных, в порядке выполнения.'] },
-  { name: 'code.env-var', template: 'item.liquid', source: 'graph', group: 'operations', en: ['Environment variable', 'Environment variables'], ru: ['Переменная окружения', 'Переменные окружения'], describe: ['A setting the code reads from its environment, with where it is defined.', 'Настройка, которую код читает из окружения, и где она задана.'] },
-  { name: 'code.env-definition', template: 'item.liquid', source: 'graph', group: 'operations', en: ['Variable definition', 'Variable definitions'], ru: ['Определение переменной', 'Определения переменных'], describe: ['A place that gives an environment variable a value.', 'Место, где переменной окружения задано значение.'] },
-  { name: 'code.dependency', template: 'item.liquid', source: 'graph', group: 'operations', en: ['Dependency', 'Dependencies'], ru: ['Зависимость', 'Зависимости'], describe: ['A library a service declares, with its version and where it is used.', 'Библиотека, которую объявляет сервис, её версия и где она используется.'] },
-  { name: 'code.manifest', template: 'item.liquid', source: 'graph', group: 'operations', en: ['Manifest', 'Manifests'], ru: ['Манифест', 'Манифесты'], describe: ['A package.json or go.mod file that declares dependencies.', 'Файл package.json или go.mod, который объявляет зависимости.'] },
-  { name: 'code.lockfile', template: 'item.liquid', source: 'graph', group: 'operations', en: ['Lock file', 'Lock files'], ru: ['Файл блокировки', 'Файлы блокировки'], describe: ['A file that pins the exact versions of the dependencies.', 'Файл, который закрепляет точные версии зависимостей.'] },
-  { name: 'code.dockerfile', template: 'item.liquid', source: 'graph', group: 'operations', en: ['Dockerfile', 'Dockerfiles'], ru: ['Dockerfile', 'Dockerfile'], describe: ['A recipe that builds a container image.', 'Рецепт сборки образа контейнера.'] },
-  { name: 'code.image', template: 'item-plain.liquid', source: 'graph', group: 'operations', en: ['Image', 'Images'], ru: ['Образ', 'Образы'], describe: ['A container image a deployment runs.', 'Образ контейнера, который запускает развёртывание.'] },
-  { name: 'code.compose-service', template: 'item.liquid', source: 'graph', group: 'operations', en: ['Compose service', 'Compose services'], ru: ['Сервис compose', 'Сервисы compose'], describe: ['A service of a docker-compose file, with its ports and dependencies.', 'Сервис файла docker-compose, его порты и зависимости.'] },
-  { name: 'code.k8s-deployment', template: 'item.liquid', source: 'graph', group: 'operations', en: ['Kubernetes deployment', 'Kubernetes deployments'], ru: ['Развёртывание Kubernetes', 'Развёртывания Kubernetes'], describe: ['A Kubernetes Deployment: image, replicas and probes.', 'Развёртывание Kubernetes: образ, число реплик и проверки.'] },
-  { name: 'code.k8s-service', template: 'item.liquid', source: 'graph', group: 'operations', en: ['Kubernetes service', 'Kubernetes services'], ru: ['Сервис Kubernetes', 'Сервисы Kubernetes'], describe: ['A Kubernetes Service that routes traffic to pods.', 'Сервис Kubernetes, который направляет трафик на поды.'] },
-  { name: 'code.ci-workflow', template: 'item.liquid', source: 'graph', group: 'operations', en: ['CI workflow', 'CI workflows'], ru: ['Процесс CI', 'Процессы CI'], describe: ['A continuous-integration workflow file.', 'Файл процесса непрерывной интеграции.'] },
-  { name: 'code.ci-job', template: 'item.liquid', source: 'graph', group: 'operations', en: ['CI job', 'CI jobs'], ru: ['Задача CI', 'Задачи CI'], describe: ['A job of a CI workflow and the steps it runs.', 'Задача процесса CI и шаги, которые она выполняет.'] },
-  { name: 'code.make-target', template: 'item.liquid', source: 'graph', group: 'operations', en: ['Make target', 'Make targets'], ru: ['Цель make', 'Цели make'], describe: ['A target of a Makefile and the commands it runs.', 'Цель Makefile и команды, которые она выполняет.'] },
-  { name: 'code.process', template: 'item-plain.liquid', source: 'graph', group: 'operations', en: ['Process', 'Processes'], ru: ['Процесс', 'Процессы'], describe: ['A program the system starts, and the port it listens on.', 'Программа, которую запускает система, и порт, который она слушает.'] },
-  { name: 'code.port', template: 'item-plain.liquid', source: 'graph', group: 'operations', en: ['Port', 'Ports'], ru: ['Порт', 'Порты'], describe: ['A network port a service listens on or publishes.', 'Сетевой порт, который сервис слушает или публикует.'] },
-  { name: 'code.health-endpoint', template: 'item.liquid', source: 'graph', group: 'operations', en: ['Health endpoint', 'Health endpoints'], ru: ['Проверка здоровья', 'Проверки здоровья'], describe: ['The route that tells whether a service is alive.', 'Маршрут, по которому видно, жив ли сервис.'] },
-  { name: 'code.metric', template: 'item.liquid', source: 'graph', group: 'operations', en: ['Metric', 'Metrics'], ru: ['Метрика', 'Метрики'], describe: ['A declared counter, gauge or histogram and the code that updates it.', 'Объявленный счётчик, шкала или гистограмма и код, который меняет её.'] },
-  { name: 'code.broker', template: 'item.liquid', source: 'graph', group: 'operations', en: ['Message broker', 'Message brokers'], ru: ['Брокер сообщений', 'Брокеры сообщений'], describe: ['A broker declared by deployment or connection settings.', 'Брокер, объявленный в развёртывании или настройках подключения.'] },
-  { name: 'code.probe', template: 'item.liquid', source: 'graph', group: 'operations', en: ['Probe', 'Probes'], ru: ['Проба', 'Пробы'], describe: ['One configured readiness, liveness or startup probe.', 'Настроенная проба готовности, работоспособности или запуска.'] },
-  { name: 'code.healthcheck', template: 'item.liquid', source: 'graph', group: 'operations', en: ['Healthcheck', 'Healthchecks'], ru: ['Проверка состояния', 'Проверки состояния'], describe: ['A configured compose healthcheck command and its timing.', 'Команда проверки состояния compose и её интервалы.'] },
-  { name: 'code.document-section', template: 'item.liquid', source: 'graph', group: 'code', en: ['Document section', 'Document sections'], ru: ['Раздел документа', 'Разделы документов'], describe: ['A heading and its section declared in a repository document.', 'Заголовок и его раздел в документе репозитория.'] },
-  { name: 'code.metrics-endpoint', template: 'item.liquid', source: 'graph', group: 'operations', en: ['Metrics endpoint', 'Metrics endpoints'], ru: ['Выдача метрик', 'Выдачи метрик'], describe: ['The route that serves a service\'s metrics.', 'Маршрут, по которому сервис отдаёт метрики.'] },
-  { name: 'code.logger', template: 'item.liquid', source: 'graph', group: 'operations', en: ['Logger', 'Loggers'], ru: ['Логгер', 'Логгеры'], describe: ['Where a service sets up its logging.', 'Место, где сервис настраивает журнал.'] },
-  { name: 'code.newcomer-command', template: 'item.liquid', source: 'graph', group: 'operations', en: ['Setup command', 'Setup commands'], ru: ['Команда запуска', 'Команды запуска'], describe: ['A command the README tells a newcomer to run.', 'Команда, которую README велит выполнить новичку.'] },
-  { name: 'code.newcomer-prerequisites', template: 'item.liquid', source: 'graph', group: 'operations', en: ['Prerequisites', 'Prerequisites'], ru: ['Что нужно установить', 'Что нужно установить'], describe: ['The tools the README says a newcomer needs.', 'Инструменты, которые по README нужны новичку.'] },
-  { name: 'code.newcomer-failure', template: 'item.liquid', source: 'graph', group: 'operations', en: ['Known failure', 'Known failures'], ru: ['Известная ошибка', 'Известные ошибки'], describe: ['A failure the README names, with its fix.', 'Ошибка, которую называет README, и как её исправить.'] },
+  { name: 'code.env-var', template: 'item.liquid', source: 'graph', group: 'operations.configuration', en: ['Environment variable', 'Environment variables'], ru: ['Переменная окружения', 'Переменные окружения'], describe: ['A setting the code reads from its environment, with where it is defined.', 'Настройка, которую код читает из окружения, и где она задана.'] },
+  { name: 'code.env-definition', template: 'item.liquid', source: 'graph', group: 'operations.configuration', en: ['Variable definition', 'Variable definitions'], ru: ['Определение переменной', 'Определения переменных'], describe: ['A place that gives an environment variable a value.', 'Место, где переменной окружения задано значение.'] },
+  { name: 'code.dependency', template: 'item.liquid', source: 'graph', group: 'operations.dependencies', en: ['Dependency', 'Dependencies'], ru: ['Зависимость', 'Зависимости'], describe: ['A library a service declares, with its version and where it is used.', 'Библиотека, которую объявляет сервис, её версия и где она используется.'] },
+  { name: 'code.manifest', template: 'item.liquid', source: 'graph', group: 'operations.dependencies', en: ['Manifest', 'Manifests'], ru: ['Манифест', 'Манифесты'], describe: ['A package.json or go.mod file that declares dependencies.', 'Файл package.json или go.mod, который объявляет зависимости.'] },
+  { name: 'code.lockfile', template: 'item.liquid', source: 'graph', group: 'operations.dependencies', en: ['Lock file', 'Lock files'], ru: ['Файл блокировки', 'Файлы блокировки'], describe: ['A file that pins the exact versions of the dependencies.', 'Файл, который закрепляет точные версии зависимостей.'] },
+  { name: 'code.dockerfile', template: 'item.liquid', source: 'graph', group: 'operations.build-deploy', en: ['Dockerfile', 'Dockerfiles'], ru: ['Dockerfile', 'Dockerfile'], describe: ['A recipe that builds a container image.', 'Рецепт сборки образа контейнера.'] },
+  { name: 'code.image', template: 'item-plain.liquid', source: 'graph', group: 'operations.build-deploy', en: ['Image', 'Images'], ru: ['Образ', 'Образы'], describe: ['A container image a deployment runs.', 'Образ контейнера, который запускает развёртывание.'] },
+  { name: 'code.compose-service', template: 'item.liquid', source: 'graph', group: 'operations.build-deploy', en: ['Compose service', 'Compose services'], ru: ['Сервис compose', 'Сервисы compose'], describe: ['A service of a docker-compose file, with its ports and dependencies.', 'Сервис файла docker-compose, его порты и зависимости.'] },
+  { name: 'code.k8s-deployment', template: 'item.liquid', source: 'graph', group: 'operations.build-deploy', en: ['Kubernetes deployment', 'Kubernetes deployments'], ru: ['Развёртывание Kubernetes', 'Развёртывания Kubernetes'], describe: ['A Kubernetes Deployment: image, replicas and probes.', 'Развёртывание Kubernetes: образ, число реплик и проверки.'] },
+  { name: 'code.k8s-service', template: 'item.liquid', source: 'graph', group: 'operations.build-deploy', en: ['Kubernetes service', 'Kubernetes services'], ru: ['Сервис Kubernetes', 'Сервисы Kubernetes'], describe: ['A Kubernetes Service that routes traffic to pods.', 'Сервис Kubernetes, который направляет трафик на поды.'] },
+  { name: 'code.ci-workflow', template: 'item.liquid', source: 'graph', group: 'operations.ci-cd', en: ['CI workflow', 'CI workflows'], ru: ['Процесс CI', 'Процессы CI'], describe: ['A continuous-integration workflow file.', 'Файл процесса непрерывной интеграции.'] },
+  { name: 'code.ci-job', template: 'item.liquid', source: 'graph', group: 'operations.ci-cd', en: ['CI job', 'CI jobs'], ru: ['Задача CI', 'Задачи CI'], describe: ['A job of a CI workflow and the steps it runs.', 'Задача процесса CI и шаги, которые она выполняет.'] },
+  { name: 'code.make-target', template: 'item.liquid', source: 'graph', group: 'operations.build-deploy', en: ['Make target', 'Make targets'], ru: ['Цель make', 'Цели make'], describe: ['A target of a Makefile and the commands it runs.', 'Цель Makefile и команды, которые она выполняет.'] },
+  { name: 'code.process', template: 'item-plain.liquid', source: 'graph', group: 'operations.runtime', en: ['Process', 'Processes'], ru: ['Процесс', 'Процессы'], describe: ['A program the system starts, and the port it listens on.', 'Программа, которую запускает система, и порт, который она слушает.'] },
+  { name: 'code.port', template: 'item-plain.liquid', source: 'graph', group: 'operations.runtime', en: ['Port', 'Ports'], ru: ['Порт', 'Порты'], describe: ['A network port a service listens on or publishes.', 'Сетевой порт, который сервис слушает или публикует.'] },
+  { name: 'code.health-endpoint', template: 'item.liquid', source: 'graph', group: 'operations.runtime', en: ['Health endpoint', 'Health endpoints'], ru: ['Проверка здоровья', 'Проверки здоровья'], describe: ['The route that tells whether a service is alive.', 'Маршрут, по которому видно, жив ли сервис.'] },
+  { name: 'code.metric', template: 'item.liquid', source: 'graph', group: 'operations.runtime', en: ['Metric', 'Metrics'], ru: ['Метрика', 'Метрики'], describe: ['A declared counter, gauge or histogram and the code that updates it.', 'Объявленный счётчик, шкала или гистограмма и код, который меняет её.'] },
+  { name: 'code.broker', template: 'item.liquid', source: 'graph', group: 'operations.runtime', en: ['Message broker', 'Message brokers'], ru: ['Брокер сообщений', 'Брокеры сообщений'], describe: ['A broker declared by deployment or connection settings.', 'Брокер, объявленный в развёртывании или настройках подключения.'] },
+  { name: 'code.probe', template: 'item.liquid', source: 'graph', group: 'operations.runtime', en: ['Probe', 'Probes'], ru: ['Проба', 'Пробы'], describe: ['One configured readiness, liveness or startup probe.', 'Настроенная проба готовности, работоспособности или запуска.'] },
+  { name: 'code.healthcheck', template: 'item.liquid', source: 'graph', group: 'operations.runtime', en: ['Healthcheck', 'Healthchecks'], ru: ['Проверка состояния', 'Проверки состояния'], describe: ['A configured compose healthcheck command and its timing.', 'Команда проверки состояния compose и её интервалы.'] },
+  { name: 'code.document-section', template: 'item.liquid', source: 'graph', group: 'code.structure', en: ['Document section', 'Document sections'], ru: ['Раздел документа', 'Разделы документов'], describe: ['A heading and its section declared in a repository document.', 'Заголовок и его раздел в документе репозитория.'] },
+  { name: 'code.metrics-endpoint', template: 'item.liquid', source: 'graph', group: 'operations.runtime', en: ['Metrics endpoint', 'Metrics endpoints'], ru: ['Выдача метрик', 'Выдачи метрик'], describe: ['The route that serves a service\'s metrics.', 'Маршрут, по которому сервис отдаёт метрики.'] },
+  { name: 'code.logger', template: 'item.liquid', source: 'graph', group: 'operations.runtime', en: ['Logger', 'Loggers'], ru: ['Логгер', 'Логгеры'], describe: ['Where a service sets up its logging.', 'Место, где сервис настраивает журнал.'] },
+  { name: 'code.newcomer-command', template: 'item.liquid', source: 'graph', group: 'operations.newcomer', en: ['Setup command', 'Setup commands'], ru: ['Команда запуска', 'Команды запуска'], describe: ['A command the README tells a newcomer to run.', 'Команда, которую README велит выполнить новичку.'] },
+  { name: 'code.newcomer-prerequisites', template: 'item.liquid', source: 'graph', group: 'operations.newcomer', en: ['Prerequisites', 'Prerequisites'], ru: ['Что нужно установить', 'Что нужно установить'], describe: ['The tools the README says a newcomer needs.', 'Инструменты, которые по README нужны новичку.'] },
+  { name: 'code.newcomer-failure', template: 'item.liquid', source: 'graph', group: 'operations.newcomer', en: ['Known failure', 'Known failures'], ru: ['Известная ошибка', 'Известные ошибки'], describe: ['A failure the README names, with its fix.', 'Ошибка, которую называет README, и как её исправить.'] },
   { name: 'code.test-case', template: 'item.liquid', source: 'graph', group: 'tests', en: ['Test case', 'Test cases'], ru: ['Тест', 'Тесты'], describe: ['A test, and the code it exercises.', 'Тест и код, который он проверяет.'] },
   { name: 'code.commit', template: 'commit.liquid', source: 'graph', group: 'history', origin: 'history', en: ['Commit', 'Commits'], ru: ['Коммит', 'Коммиты'], describe: ['A change in the repository\'s history, with its author and the files it touched.', 'Изменение в истории репозитория, его автор и затронутые файлы.'] },
   { name: 'code.author', template: 'author.liquid', source: 'graph', group: 'history', origin: 'history', en: ['Author', 'Authors'], ru: ['Автор', 'Авторы'], describe: ['A person who made commits.', 'Человек, который делал коммиты.'] },
@@ -352,6 +363,69 @@ export const yamlText = (text: string): string => JSON.stringify(text);
 
 /** The exclusion list of the manifest's `documents` section. */
 export const DOCUMENT_EXCLUDES: readonly string[] = ['AGENTS.md', 'CLAUDE.md', 'GEMINI.md', '**/AGENTS.md', '**/CLAUDE.md', '**/GEMINI.md'];
+
+/**
+ * The rules of the Problems page as the starter manifest writes them (madarch-m38l.19, the review's
+ * first finding): this is starter content, not engine behaviour. The engine keeps only the
+ * predicates these rules name; a product edits, disables or adds a rule in its own manifest.
+ */
+export const STARTER_PROBLEM_RULES: readonly RuleSpec[] = [
+  { id: 'dependency.cycle', predicate: 'dependency-cycle', kind: 'dependency-cycle', sonar: 'bug', severity: 'major', section: 'code', action: 'task', enabled: true, label: { en: 'Dependency cycle', ru: 'Цикл зависимостей' } },
+  { id: 'security.sql-input', predicate: 'sql-input', kind: 'sql-input', sonar: 'vulnerability', severity: 'blocker', section: 'code', action: 'task', enabled: true, label: { en: 'Untrusted input reaches SQL', ru: 'Внешние данные попадают в SQL' } },
+  { id: 'security.export-route', predicate: 'route-outside-auth', kind: 'route-outside-auth', sonar: 'vulnerability', severity: 'critical', section: 'code', action: 'task', enabled: true, label: { en: 'Route outside the auth group', ru: 'Маршрут вне группы авторизации' } },
+  { id: 'large-file', predicate: 'large-file', kind: 'large-file', sonar: 'code-smell', severity: 'minor', section: 'code', action: 'task', enabled: true, label: { en: 'Large file', ru: 'Большой файл' } },
+  { id: 'hotspot', predicate: 'change-hotspot', kind: 'change-hotspot', sonar: 'code-smell', severity: 'major', section: 'code', action: 'task', enabled: true, label: { en: 'Change hotspot', ru: 'Горячая точка изменений' } },
+  { id: 'dead-export', predicate: 'dead-export', kind: 'dead-export', sonar: 'code-smell', severity: 'minor', section: 'code', action: 'task', enabled: true, label: { en: 'Exported but unused', ru: 'Экспорт без использования' } },
+  { id: 'debt.todo', predicate: 'debt', kind: 'debt-todo', sonar: 'code-smell', severity: 'info', section: 'code', action: 'task', enabled: true, params: { marker: 'TODO' }, label: { en: 'TODO', ru: 'TODO' } },
+  { id: 'debt.fixme', predicate: 'debt', kind: 'debt-fixme', sonar: 'code-smell', severity: 'minor', section: 'code', action: 'task', enabled: true, params: { marker: 'FIXME' }, label: { en: 'FIXME', ru: 'FIXME' } },
+  { id: 'config.required-dev-value', predicate: 'config-development-value', kind: 'config-development-value', sonar: 'vulnerability', severity: 'critical', section: 'code', action: 'task', enabled: true, params: { secrets: [], developmentValues: [] }, label: { en: 'Required setting has a checked-in value', ru: 'Обязательная настройка задана в репозитории' } },
+  { id: 'dependency.declared-unused', predicate: 'dependency-declared-unused', kind: 'dependency-declared-unused', sonar: 'code-smell', severity: 'minor', section: 'code', action: 'task', enabled: true, label: { en: 'Dependency declared but unused', ru: 'Зависимость объявлена, но не используется' } },
+  { id: 'dependency.used-undeclared', predicate: 'dependency-used-undeclared', kind: 'dependency-used-undeclared', sonar: 'bug', severity: 'major', section: 'code', action: 'task', enabled: true, label: { en: 'Dependency used but undeclared', ru: 'Зависимость используется, но не объявлена' } },
+  { id: 'contract.operation-without-route', predicate: 'operation-without-route', kind: 'operation-without-route', sonar: 'bug', severity: 'major', section: 'code', action: 'task', enabled: true, label: { en: 'Contract operation is not implemented', ru: 'Операция контракта не реализована' } },
+  { id: 'contract.route-without-operation', predicate: 'route-without-operation', kind: 'route-without-operation', sonar: 'bug', severity: 'minor', section: 'code', action: 'task', enabled: true, label: { en: 'Route is not in the contract', ru: 'Маршрута нет в контракте' } },
+
+  { id: 'document.contradiction', predicate: 'document-contradiction', kind: 'document-contradiction', sonar: 'bug', severity: 'major', section: 'documents', action: 'task', enabled: true, label: { en: 'Contradiction', ru: 'Противоречие' } },
+  { id: 'document.stale', predicate: 'document-stale', kind: 'document-stale', sonar: 'bug', severity: 'major', section: 'documents', action: 'task', enabled: true, label: { en: 'Stale statement', ru: 'Устаревшее утверждение' } },
+  { id: 'document.undocumented', predicate: 'document-undocumented', kind: 'document-undocumented', sonar: 'code-smell', severity: 'major', section: 'documents', action: 'task', enabled: true, label: { en: 'Undocumented behaviour', ru: 'Неописанное поведение' } },
+  { id: 'document.ambiguous-term', predicate: 'document-ambiguous', kind: 'document-ambiguous', sonar: 'code-smell', severity: 'minor', section: 'documents', action: 'task', enabled: true, label: { en: 'Ambiguous term', ru: 'Неоднозначный термин' } },
+
+  { id: 'wiki.correction', predicate: 'wiki', kind: 'correction', sonar: 'bug', severity: 'major', section: 'wiki', action: 'task', enabled: true, label: { en: 'Correction', ru: 'Исправление' } },
+  { id: 'wiki.ground-removed', predicate: 'wiki', kind: 'ground-removed', sonar: 'bug', severity: 'major', section: 'wiki', action: 'task', enabled: true, label: { en: 'Ground removed', ru: 'Основание исчезло' } },
+  { id: 'wiki.broken-link', predicate: 'wiki', kind: 'broken-link', sonar: 'bug', severity: 'major', section: 'wiki', action: 'task', enabled: true, label: { en: 'Broken link', ru: 'Ссылка никуда не ведёт' } },
+  { id: 'wiki.unreadable-file', predicate: 'wiki', kind: 'unreadable-file', sonar: 'bug', severity: 'major', section: 'wiki', action: 'task', enabled: true, label: { en: 'Unreadable file', ru: 'Файл не читается' } },
+  { id: 'wiki.unread-passage', predicate: 'wiki', kind: 'unread-passage', sonar: 'code-smell', severity: 'minor', section: 'wiki', action: 'task', enabled: true, label: { en: 'Passage not read', ru: 'Фрагмент не прочитан' } },
+  { id: 'wiki.unplaced', predicate: 'wiki', kind: 'unplaced', sonar: 'code-smell', severity: 'minor', section: 'wiki', action: 'task', enabled: true, label: { en: 'Unplaced finding', ru: 'Находка без места' } },
+  { id: 'wiki.manifest', predicate: 'wiki', kind: 'manifest', sonar: 'bug', severity: 'major', section: 'wiki', action: 'task', enabled: true, label: { en: 'Manifest finding', ru: 'Замечание к манифесту' } },
+];
+
+/** The starter rules as the settings the page reads: the same data the manifest text is written from. */
+export function starterProblemSettings(): ProblemSettings {
+  const rules = Object.fromEntries(STARTER_PROBLEM_RULES.map(({ id, ...setting }) => [id, setting] as const));
+  return { rules, thresholds: { ...DEFAULT_THRESHOLDS } };
+}
+
+/** One rule as a flow mapping of the manifest; `JSON.stringify` quotes every string, the labels included. */
+function ruleYaml(rule: RuleSpec): string {
+  const fields: string[] = [
+    `predicate: ${rule.predicate}`,
+    `kind: ${rule.kind}`,
+    `sonar: ${rule.sonar}`,
+    `severity: ${rule.severity}`,
+    `section: ${rule.section}`,
+    `action: ${rule.action}`,
+    `enabled: ${rule.enabled === false ? 'false' : 'true'}`,
+  ];
+  if (rule.params !== undefined) {
+    const params = Object.entries(rule.params).map(([name, value]) => {
+      if (Array.isArray(value)) return `${name}: [${value.map((entry) => yamlText(String(entry))).join(', ')}]`;
+      if (typeof value === 'string') return `${name}: ${yamlText(value)}`;
+      return `${name}: ${String(value)}`;
+    });
+    fields.push(`params: { ${params.join(', ')} }`);
+  }
+  fields.push(`label: { en: ${yamlText(rule.label.en)}, ru: ${yamlText(rule.label.ru)} }`);
+  return `{ ${fields.join(', ')} }`;
+}
 
 /** The starter manifest's text, with the product's page language when it has one. */
 export function starterManifest(language?: string): string {
@@ -384,8 +458,16 @@ function kindsManifest(): string {
     "# one page serves every role. A role left out, and the role \"everything\", open every block in the order above.",
     "# A glossary is a document named by a kind's `terms`: each list item starts with a bold term, and may list under it",
     "# \"Also called\", \"In code\", \"Used in\" and \"Ambiguous\" (decision 0031).",
+    "# `problems.rules` declares every rule the Problems page runs: the engine's predicate it keys to, the kind of",
+    "# finding it makes, its Sonar kind and severity (blocker, critical, major, minor, info), the section it belongs to,",
+    "# what the page offers on it and its label in each interface language. A rule may carry `params` (the marker a",
+    "# debt rule reads, the secret names a product declares) and `enabled`. The engine keeps only the predicates: a rule",
+    "# is run because this manifest declares it, and switching it off here is what stops it. The thresholds say when a",
+    "# file is large or a hotspot.",
+    "# A group is { en: <its name>, ru: <its name> }, and may name the group it is a sub-area of (`parent`) and say it",
+    "# opens on the menu by itself (`open: true`); a group without a parent is a top-level group.",
     "groups:",
-    ...GROUPS.map((group) => `  ${group.name}: { en: ${yamlText(group.en)}, ru: ${yamlText(group.ru)} }`),
+    ...GROUPS.map((group) => `  ${group.name}: { en: ${yamlText(group.en)}, ru: ${yamlText(group.ru)}${group.parent === undefined ? '' : `, parent: ${group.parent}`}${group.open === undefined ? '' : ', open: true'} }`),
     "documents:",
     "  exclude: [AGENTS.md, CLAUDE.md, GEMINI.md, \"**/AGENTS.md\", \"**/CLAUDE.md\", \"**/GEMINI.md\"]",
     // The document kinds the wiki says the documents hold: one that no section of any document is read as is a finding, so a
@@ -397,6 +479,11 @@ function kindsManifest(): string {
     "  ignore: [code, html, thematicBreak, definition]",
     "roles:",
     ...ROLES.map((role) => `  ${role.name}: { lead: [${role.lead.join(', ')}], open: [${role.open.join(', ')}] }`),
+    "problems:",
+    "  thresholds:",
+    ...Object.entries(DEFAULT_THRESHOLDS).map(([name, value]) => `    ${name}: ${value}`),
+    "  rules:",
+    ...STARTER_PROBLEM_RULES.map((rule) => `    ${rule.id}: ${ruleYaml(rule)}`),
     "kinds:",
   ];
   for (const kind of STARTER_KINDS) lines.push(...kindLines(kind));
