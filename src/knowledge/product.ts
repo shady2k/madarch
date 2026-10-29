@@ -301,8 +301,15 @@ export class KnowledgeProduct {
   /** A reset is under way: no fill starts meanwhile, and no second reset. */
   private resetting = false;
   private lastUse = Date.now();
-  /** The Problems listing, kept for the entity badge until the next change of the product (madarch-m38l.19). */
-  private problemsCache: { rev: number; listing: ProblemListing } | undefined;
+  /**
+   * The Problems listing, kept until the inputs the Problems page reads change (madarch-m38l.19). A status poll reads
+   * it; a page's badge reads it; the Problems page, the first reader of a product and a background refresh collect it.
+   */
+  private problemsCache: { key: string; sequence: number; listing: ProblemListing } | undefined;
+  /** The listing being collected for a key: a reader that asks while it runs waits for the same work, never a second walk. */
+  private problemsFlight: { key: string; promise: Promise<ProblemListing> } | undefined;
+  /** Orders collections, so a listing for older inputs that lands late never replaces a newer one. */
+  private problemsSequence = 0;
   private idleTimer: ReturnType<typeof setInterval> | undefined;
 
   constructor(private readonly options: KnowledgeProductOptions) {}
@@ -1572,17 +1579,23 @@ export class KnowledgeProduct {
    * corrections, which are read from their files without the page resolver.
    */
   private async openProblems(): Promise<number> {
-    const pins = [...this.pins.values()].map((pin) => `${pin.name}@${pin.commit}/${pin.filledCommits}`).join(',');
-    const plan = this.writer.plan === undefined ? '' : this.writer.plan.unplaced.map((entry) => `${entry.kind}:${entry.slug}`).join(',');
-    const key = `${this.revision}|${pins}|${plan}|${this.starterOffers().length}|${this.problemInputsStamp()}`;
-    if (this.problemCount?.key === key) return this.problemCount.open;
-    try {
-      const open = (await this.problems()).open;
-      this.problemCount = { key, open };
-      return open;
-    } catch {
-      return this.loopCounts().correctionsOpen;
+    const key = this.problemsKey();
+    const cached = this.problemsCache;
+    // The listing already collected for exactly these inputs: no walk.
+    if (cached !== undefined && cached.key === key) return cached.listing.open;
+    // The first reader of a product pays for its one collection, so the menu has a count from its first poll.
+    if (cached === undefined && this.fill.state !== 'running') {
+      try {
+        const owner = await this.open();
+        return (await this.problemsFor(this.problemsKey(), owner)).open;
+      } catch {
+        return this.loopCounts().correctionsOpen;
+      }
     }
+    // Every other poll answers with the count last collected and leaves the collection to the background, so no answer
+    // waits for a walk of the graph — and no answer walks it while a fill runs (madarch-m38l.19).
+    this.refreshProblems(key);
+    return cached?.listing.open ?? this.loopCounts().correctionsOpen;
   }
 
   /** How many questions wait for an answer or for a refresh, and how many corrections wait for one, from their files. */
@@ -1638,13 +1651,23 @@ export class KnowledgeProduct {
     // The caller may hold a renderer whose owner has no store behind it (a snapshot fixture, or a page rendered from an
     // injected transaction). There is no problems database to ask, so the page shows no count and no failure note.
     if (this.reader?.owner !== owner) return rendered;
-    try {
-      const listing = this.cachedProblems() ?? await this.problems();
-      const problems = openProblemsOf(listing.problems, id);
-      return { ok: true, page: { ...rendered.page, problems } };
-    } catch (error) {
-      return { ok: true, page: { ...rendered.page, notes: [...rendered.page.notes, `the problems of this entity could not be counted: ${(error as Error).message}`] } };
+    // The badge reads the listing last collected, never a walk of its own: a page answers while a fill runs
+    // (madarch-m38l.19). A listing older than the page's inputs is a count from the previous revision; the next poll of
+    // the status collects the current one.
+    if (!rendered.ok) return rendered;
+    const cached = this.problemsCache;
+    if (cached === undefined) {
+      // The first reader of a product pays for the one collection; during a fill no page waits for the graph.
+      if (this.fill.state === 'running') return rendered;
+      try {
+        const owner = await this.open();
+        const listing = await this.problemsFor(this.problemsKey(), owner);
+        return { ok: true, page: { ...rendered.page, problems: openProblemsOf(listing.problems, id) } };
+      } catch (error) {
+        return { ok: true, page: { ...rendered.page, notes: [...rendered.page.notes, `the problems of this entity could not be counted: ${(error as Error).message}`] } };
+      }
     }
+    return { ok: true, page: { ...rendered.page, problems: openProblemsOf(cached.listing.problems, id) } };
   }
 
   /** Strict guide data and fresh walk evidence are assembled once for every read format. */
@@ -2152,6 +2175,63 @@ export class KnowledgeProduct {
     const context = await this.context();
     if ('absent' in context) throw new WikiReadError(`the product has no ${context.file}: the wiki shows the kinds that file declares`);
     const owner = await this.open();
+    return await this.problemsFor(this.problemsKey(), owner);
+  }
+
+  /**
+   * What the Problems page reads, as one key: the graph snapshot, the pins it is shown beside, the writer's unplaced
+   * plan, the starter set, and every file the page reads. The revision the change stream moves with is not part of it:
+   * a fill that reads a commit moves that revision without changing a single problem (madarch-m38l.19).
+   */
+  private problemsKey(): string {
+    const pins = [...this.pins.values()].map((pin) => `${pin.name}@${pin.commit}`).join(',');
+    const plan = this.writer.plan === undefined ? '' : this.writer.plan.unplaced.map((entry) => `${entry.kind}:${entry.slug}`).join(',');
+    const snapshot = this.reader === undefined ? '' : String(this.reader.seq);
+    return `${snapshot}|${pins}|${plan}|${this.starterOffers().length}|${this.problemInputsStamp()}`;
+  }
+
+  /** The key where a missing file or a folder that cannot be read is no reason to fail an answer: the background refresh. */
+  private problemsKeySafe(): string {
+    try {
+      return this.problemsKey();
+    } catch {
+      return '';
+    }
+  }
+
+  /** Collects the listing once per key: a reader that asks while it runs waits for the same collection. */
+  private problemsFor(key: string, owner: DatabaseOwner): Promise<ProblemListing> {
+    if (this.problemsCache?.key === key) return Promise.resolve(this.problemsCache.listing);
+    if (this.problemsFlight?.key === key) return this.problemsFlight.promise;
+    const sequence = (this.problemsSequence += 1);
+    const promise = this.collectProblems(owner)
+      .then((listing) => {
+        if (this.problemsCache === undefined || this.problemsCache.sequence < sequence) this.problemsCache = { key, sequence, listing };
+        return listing;
+      })
+      .finally(() => {
+        if (this.problemsFlight?.promise === promise) this.problemsFlight = undefined;
+      });
+    this.problemsFlight = { key, promise };
+    return promise;
+  }
+
+  /** Collects the listing for the current inputs in the background; a page or a fill never waits for it. */
+  private refreshProblems(key: string = this.problemsKeySafe()): void {
+    if (this.fill.state === 'running' || this.problemsFlight !== undefined) return;
+    if (key === '' || this.problemsCache?.key === key) return;
+    void this.open()
+      .then((owner) => {
+        const current = this.problemsKeySafe();
+        if (current === '' || this.problemsCache?.key === current) return undefined;
+        return this.problemsFor(current, owner);
+      })
+      .catch(() => undefined);
+  }
+
+  private async collectProblems(owner: DatabaseOwner): Promise<ProblemListing> {
+    const context = await this.context();
+    if ('absent' in context) throw new WikiReadError(`the product has no ${context.file}: the wiki shows the kinds that file declares`);
     const repository = this.singleRepository();
     const dismissals = readProblemDismissals(this.options.productFolder);
     const dismissed = new Set(dismissals.items.map((item) => item.id));
@@ -2165,13 +2245,7 @@ export class KnowledgeProduct {
       ...(this.writer.plan === undefined ? {} : { unplaced: this.writer.plan.unplaced }),
       starter: this.starterOffers(), dismissed,
     });
-    this.problemsCache = { rev: this.revision, listing };
     return listing;
-  }
-
-  /** The listing the page already computed, for the entity badge; null when it is stale or was never computed. */
-  cachedProblems(): ProblemListing | null {
-    return this.problemsCache !== undefined && this.problemsCache.rev === this.revision ? this.problemsCache.listing : null;
   }
 
   /**
