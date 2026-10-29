@@ -21,10 +21,12 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { getProducts, startFill } from './api.js';
 import { KLink } from './blocks.js';
 import { CataloguePage, DocumentPage, DocumentsPage, EntityPage, EmptyHome, FillCard, KindPage, SourcePage, StatementPage, Overview } from './pages.js';
+import { FillPage } from './fill-page.js';
+import { unitName } from './writer.js';
 import { GlossaryContext, GlossaryPage, useGlossary, useGlossaryValue, useTerms } from './glossary.js';
 import { HelpLink, RoleCard, RoleMenu } from './role-ui.js';
 import { RoleContext, leadGroups, loadSettings, useRole, useSettings } from './roles.js';
-import { addressOfEntity, addressOfKind, K_CATALOGUE, K_DOCS, K_GLOSSARY, K_HOME, K_PROBLEMS, K_QUESTIONS, K_TASKS, K_SETTINGS, kRouteOf, type KRoute } from './routes.js';
+import { addressOfEntity, addressOfKind, K_CATALOGUE, K_DOCS, K_FILL, K_GLOSSARY, K_HOME, K_PROBLEMS, K_QUESTIONS, K_TASKS, K_SETTINGS, kRouteOf, type KRoute } from './routes.js';
 import { ProblemsPage, QuestionPage, QuestionsPage, TaskPage, TasksPage, RefreshPreviewView } from './loop.js';
 import { JournalPage } from './journal.js';
 import { KindLabels, useKindName } from './kind-names.js';
@@ -36,7 +38,6 @@ import type { KindSummary, ProductChoice, WikiStatus } from './types.js';
 import { useWikiStatus } from './live.js';
 import { PendingPages } from './pending.js';
 import { SettingsPage } from './settings.js';
-import { UNIT_STATE_KEY } from './writer.js';
 
 /** The mockup's drawn lowercase m mark and dot, kept as one crisp vector glyph. */
 function BrandMark(): ReactElement {
@@ -292,11 +293,20 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
   const language = (i18n.resolvedLanguage ?? 'en').startsWith('ru') ? 'ru' : 'en';
   const pages = pagesOf(status);
   if (status.manifest !== 'ok') return null;
+  // The stages of the agent named the way a reader knows them: the kind's name and the page's title (madarch-m38l.23).
+  const authoring = writer.state === 'running' || writer.state === 'waiting';
+  const written = writer.units.filter((unit) => unit.state === 'written').length;
+  const current = writer.units.find((unit) => unit.unit === writer.current) ?? writer.units.find((unit) => unit.state === 'writing');
+  const currentName = current === undefined ? null : unitName(current, status.kinds, language);
   let label: string;
   let solid = false;
   if (fill.state === 'running') { label = fillWords(fill, t); solid = true; }
   else if (fill.state === 'failed') label = t('knowledge.fillFailed');
-  else if (writer.state === 'running' || writer.state === 'waiting') { label = t('knowledge.fillWriting'); solid = true; }
+  else if (authoring) {
+    // How far the agent is, of the pages it has taken up: «Агент пишет страницы · 12/18».
+    label = writer.units.length === 0 ? t('knowledge.fillWriting') : `${t('knowledge.fillWriting')} · ${written}/${writer.units.length}`;
+    solid = true;
+  }
   else if (status.filled) {
     const when = fill.finishedAt === undefined ? null : new Date(fill.finishedAt).toLocaleDateString(language, { day: 'numeric', month: 'short', timeZone: 'UTC' });
     label = when === null ? t('knowledge.fillDoneNoDate', { count: pages }) : t('knowledge.fillDone', { date: when, count: pages });
@@ -316,20 +326,25 @@ export function FillMenu({ status, refresh }: { status: WikiStatus; refresh: () 
     <DropdownMenuPrimitive.Root>
       <DropdownMenuPrimitive.Trigger asChild>
         <button type="button" className="fill-chip rounded-[var(--radius-row)] focus-visible:ring-2 focus-visible:ring-ink" data-testid="fill-chip" title={t('knowledge.fillMenuTitle')}>
-          <Badge variant={solid ? 'solid' : 'outline'}>{label}</Badge>
+          <Badge variant={solid ? 'solid' : 'outline'}>
+            {authoring && <span aria-hidden="true" className="mr-1.5 inline-block size-1.5 animate-pulse rounded-full bg-current align-middle motion-reduce:animate-none" data-testid="fill-chip-dot" />}
+            {label}
+          </Badge>
         </button>
       </DropdownMenuPrimitive.Trigger>
       <DropdownMenuPrimitive.Portal>
-        <DropdownMenuPrimitive.Content align="end" sideOffset={7} className="language-menu fill-menu w-[min(26rem,92vw)]" data-testid="fill-menu">
+        <DropdownMenuPrimitive.Content align="end" sideOffset={7} className="language-menu fill-menu w-[min(26rem,92vw)] max-w-[calc(100vw-1rem)] overflow-hidden break-words" data-testid="fill-menu">
           <DropdownMenuPrimitive.Label className="language-menu-label">{t('knowledge.fillMenuTitle')}</DropdownMenuPrimitive.Label>
           <DropdownMenuPrimitive.Separator className="language-menu-separator" />
-          {writer.units.length > 0 && (
-            <ul className="m-0 list-none px-2 pb-2 text-small" data-testid="fill-menu-units">
-              {writer.units.map((unit) => (
-                <li key={unit.unit} className="flex items-center justify-between gap-3 py-0.5"><code>{unit.path}</code><span className="text-muted">{t(UNIT_STATE_KEY[unit.state])}</span></li>
-              ))}
-            </ul>
+          {authoring && (
+            // While the agent writes: one line saying what is being written, and the way to the fill page (never the paths:
+            // the menu is anchored to the top bar and must stay inside a narrow viewport).
+            <div className="px-2 pb-2 text-small" data-testid="fill-menu-live">
+              <p className="m-0 break-words text-ink" data-testid="fill-menu-current">{currentName === null ? t('knowledge.fillPage.waiting') : t('knowledge.fillPage.writingNow', { name: currentName })}</p>
+              <p className="m-0 mt-1"><KLink href={K_FILL} testId="fill-menu-open">{t('knowledge.fillPage.open')}</KLink></p>
+            </div>
           )}
+          {!authoring && writer.units.length > 0 && <p className="m-0 px-2 pb-2 text-small" data-testid="fill-menu-open-line"><KLink href={K_FILL} testId="fill-menu-open">{t('knowledge.fillPage.open')}</KLink></p>}
           {writer.asked !== undefined && writer.asked > 0 && <p className="m-0 px-2 pb-2 text-small" data-testid="fill-menu-asked">{t('loop.agentAsked', { count: writer.asked })}</p>}
           {writer.message !== undefined && <div className="m-0 px-2 pb-2 text-small" data-testid="fill-menu-message"><FailureNote scope="writer" code={writer.code ?? (writer.state === 'done' ? 'note' : undefined)} message={writer.message} /></div>}
           {fill.message !== undefined && fill.state === 'failed' && <div className="m-0 px-2 pb-2 text-small"><FailureNote scope="fill" code={fill.code} message={fill.message} /></div>}
@@ -580,6 +595,7 @@ export function KnowledgeApp(): ReactElement {
   else if (route.name === 'problems') view = <ProblemsPage version={version} refresh={refresh} />;
   else if (route.name === 'settings') view = <SettingsPage version={version} status={status} refresh={refresh} />;
   else if (route.name === 'journal') view = <JournalPage key={`${route.id}\0${route.run ?? ''}`} id={route.id} run={route.run} version={version} />;
+  else if (route.name === 'fill') view = <FillPage status={status} refresh={refresh} />;
   else if (route.name === 'tasks') view = <TasksPage version={version} />;
   else if (route.name === 'task') view = <TaskPage key={route.id} id={route.id} version={version} refresh={refresh} />;
   else if (route.name === 'docs') view = <DocumentsPage version={version} />;

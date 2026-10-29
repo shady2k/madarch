@@ -9,10 +9,11 @@ import { useEffect, useState, type ReactElement } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert.js';
 import { Button } from '@/components/ui/button.js';
-import { Badge } from '@/components/ui/badge.js';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card.js';
+import { Card, CardContent } from '@/components/ui/card.js';
 import { chooseAgent, getAgents, startFill } from './api.js';
-import { PlanList } from './loop.js';
+import { KLink } from './blocks.js';
+import { kindNameOf } from './kind-names.js';
+import { K_FILL } from './routes.js';
 import { FailureNote } from './errors.js';
 import type { AgentOffer, WikiStatus, WriterUnit } from './types.js';
 
@@ -118,72 +119,48 @@ export const UNIT_STATE_KEY: Record<WriterUnit['state'], string> = {
   'not-written': 'knowledge.writer.unitNotWritten',
 };
 
-function UnitRow({ unit, current }: { unit: WriterUnit; current: boolean }): ReactElement {
-  const { t } = useTranslation();
-  return (
-    <li className="border-b border-line py-2 last:border-b-0" data-testid="writer-unit" data-unit={unit.unit} data-state={unit.state} aria-current={current ? 'step' : undefined}>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <code className="text-small">{unit.path}</code>
-        <Badge variant={unit.state === 'writing' ? 'solid' : 'outline'}>{unit.state === 'written' && unit.writeAttempts === 0 ? t('knowledge.writer.unitKept') : t(UNIT_STATE_KEY[unit.state])}</Badge>
-        {unit.calls !== undefined && <span className="text-small text-muted">{t('knowledge.writer.unitCalls', { calls: unit.calls, attempts: unit.writeAttempts ?? 0 })}</span>}
-      </div>
-      {unit.refusals !== undefined && unit.refusals.length > 0 && (
-        <ul className="mb-0 mt-1 text-small" data-testid="writer-refusals">
-          {unit.refusals.map((refusal, index) => (
-            <li key={index}>{t('knowledge.writer.refusal', { line: refusal.line, rule: refusal.rule, message: refusal.message })}</li>
-          ))}
-        </ul>
-      )}
-    </li>
-  );
+/**
+ * What a reader calls the page a unit writes: the kind's name the manifest declares and the page's own title, so «Термин
+ * Capture» and never the writer's word for its work (madarch-m38l.23). A page whose kind or title the status could not
+ * resolve is named by what it is known by.
+ */
+export function unitName(unit: WriterUnit, kinds: WikiStatus['kinds'], language: string): string {
+  if (unit.title === undefined) return unit.unit;
+  return unit.kind === undefined ? unit.title : `${kindNameOf(kinds, unit.kind, 'one', language)} ${unit.title}`;
 }
 
-/** The units of the agent stage, with the one writing now marked. */
-export function WriterCard({ status, refresh }: { status: WikiStatus; refresh: () => void }): ReactElement | null {
-  const { t } = useTranslation();
+/**
+ * The agent stage on the pages of the product, in one line while it runs: who writes the pages, how far it is, and the way
+ * to the fill page, where every page it takes up stands with its state and its journal (madarch-m38l.23). A failed run keeps
+ * its reason and its two buttons here; a finished one is only the top bar's status.
+ */
+export function WriterLine({ status, refresh }: { status: WikiStatus; refresh: () => void }): ReactElement | null {
+  const { t, i18n } = useTranslation();
   const [retrying, setRetrying] = useState(false);
   const [refused, setRefused] = useState<string | null>(null);
   const writer = status.writer;
   const dismissKey = `${status.product.id}:${writer.finishedAt ?? ''}`;
   const [dismissed, setDismissed] = useState<string | null>(() => { try { return window.sessionStorage.getItem('madarch-writer-dismissed'); } catch { return null; } });
-  // A finished run is not shown on the pages: its outcome is the status in the top bar. A failure stays until it is dismissed.
   if (writer.agent === null || writer.state === 'idle' || writer.state === 'done') return null;
   if (writer.state === 'failed' && dismissed === dismissKey) return null;
   const agent = writer.agent.label;
-  if (writer.state === 'waiting') {
-    return (
-      <Card className="mb-8" data-testid="writer-card" data-state="waiting">
-        <CardHeader>
-          <CardTitle>{t('knowledge.writer.waitingTitle', { agent })}</CardTitle>
-          <CardDescription>{t('knowledge.writer.waiting')}</CardDescription>
-        </CardHeader>
-        {writer.plan !== undefined && <CardContent data-testid="writer-plan"><p className="mb-2 mt-0 text-small font-medium text-ink">{t('loop.plan.title')}</p><PlanList plan={writer.plan} /></CardContent>}
-      </Card>
-    );
-  }
-  const title = writer.state === 'running' ? t('knowledge.writer.runningTitle', { agent }) : t('knowledge.writer.failedTitle', { agent });
-  const body = (
-    <>
-      {writer.plan !== undefined && <div className="mb-4" data-testid="writer-plan"><p className="mb-2 mt-0 text-small font-medium text-ink">{t('loop.plan.title')}</p><PlanList plan={writer.plan} /></div>}
-      <ol className="m-0 list-none p-0" data-testid="writer-units">
-        {writer.units.map((unit) => <UnitRow key={unit.unit} unit={unit} current={writer.current === unit.unit} />)}
-      </ol>
-      {writer.message !== undefined && <div className="mb-0 mt-3 text-small" data-testid="writer-message"><FailureNote scope="writer" code={writer.code} message={writer.message} /></div>}
-      {writer.state === 'running' && <p className="mb-0 mt-3 text-small text-muted">{t('knowledge.writer.live')}</p>}
-    </>
-  );
+  const written = writer.units.filter((unit) => unit.state === 'written').length;
+  const total = writer.units.length;
+  const open = <KLink href={K_FILL} className="text-small" testId="writer-line-open">{t('knowledge.fillPage.open')}</KLink>;
   if (writer.state === 'failed') {
+    const retry = (): void => {
+      setRetrying(true);
+      setRefused(null);
+      startFill(writer.agent?.id).then(() => { setRetrying(false); refresh(); }, (failure: unknown) => { setRetrying(false); setRefused(failure instanceof Error ? failure.message : String(failure)); });
+    };
     return (
-      <Alert variant="problem" className="mb-8" data-testid="writer-card" data-state="failed">
-        <AlertTitle>{title}</AlertTitle>
+      <Alert variant="problem" className="mb-8" data-testid="writer-line" data-state="failed">
+        <AlertTitle>{t('knowledge.writer.failedTitle', { agent })}</AlertTitle>
         <AlertDescription>
-          {body}
+          {writer.message !== undefined && <div data-testid="writer-message"><FailureNote scope="writer" code={writer.code} message={writer.message} /></div>}
+          <p className="mb-0 mt-2">{open}</p>
           <p className="mb-0 mt-3">
-            <Button variant="default" size="default" disabled={retrying} data-testid="writer-retry" onClick={() => {
-              setRetrying(true);
-              setRefused(null);
-              startFill(writer.agent?.id).then(() => { setRetrying(false); refresh(); }, (failure: unknown) => { setRetrying(false); setRefused(failure instanceof Error ? failure.message : String(failure)); });
-            }}>{t('knowledge.writer.retry')}</Button>
+            <Button variant="default" size="default" disabled={retrying} data-testid="writer-retry" onClick={retry}>{t('knowledge.writer.retry')}</Button>
             {' '}
             <Button variant="default" size="default" data-testid="writer-dismiss" onClick={() => { try { window.sessionStorage.setItem('madarch-writer-dismissed', dismissKey); } catch { /* the dismissal lasts until the page is read again */ } setDismissed(dismissKey); }}>{t('knowledge.writer.dismiss')}</Button>
           </p>
@@ -192,13 +169,20 @@ export function WriterCard({ status, refresh }: { status: WikiStatus; refresh: (
       </Alert>
     );
   }
+  const language = i18n.resolvedLanguage ?? 'en';
+  const current = writer.units.find((unit) => unit.unit === writer.current) ?? writer.units.find((unit) => unit.state === 'writing');
+  const name = current === undefined ? null : unitName(current, status.kinds, language);
+  const words = writer.state === 'waiting'
+    ? t('knowledge.writer.lineWaiting', { agent })
+    : name === null ? t('knowledge.writer.lineWritingShort', { agent, done: written, total }) : t('knowledge.writer.lineWriting', { agent, done: written, total, name });
   return (
-    <Card className="mb-8" data-testid="writer-card" data-state={writer.state}>
-      <CardHeader>
-        <CardTitle>{title}</CardTitle>
-        <CardDescription>{writer.state === 'running' ? t('knowledge.writer.runningNow', { unit: writer.current ?? '' }) : t('knowledge.writer.doneDescription')}</CardDescription>
-      </CardHeader>
-      <CardContent>{body}</CardContent>
+    <Card className="mb-8" data-testid="writer-line" data-state={writer.state}>
+      <CardContent className="pt-6">
+        <p className="m-0 flex flex-wrap items-center gap-x-2 gap-y-1 text-small">
+          <span className="text-ink" data-testid="writer-line-words">{words}</span>
+          {open}
+        </p>
+      </CardContent>
     </Card>
   );
 }

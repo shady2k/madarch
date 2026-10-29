@@ -7,7 +7,7 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator';
 import { createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { setWikiLanguage } from '../i18n.js';
-import { hasJournal, JournalPage } from './journal.js';
+import { JournalPage } from './journal.js';
 import { addressOfJournal, kRouteOf } from './routes.js';
 import type { JournalRecord, PageJournal } from './types.js';
 
@@ -132,13 +132,9 @@ describe('the journal page', () => {
 });
 
 describe('the journal address', () => {
-  test('is a route of its own and is offered for the pages an agent writes', () => {
+  test('is a route of its own', () => {
     expect(addressOfJournal('domain:payments')).toBe('/k/journal?id=domain%3Apayments');
     expect(kRouteOf('/k/journal', '?id=domain%3Apayments&run=run-a')).toEqual({ name: 'journal', id: 'domain:payments', run: 'run-a' });
     expect(kRouteOf('/k/journal', '')).toEqual({ name: 'home' });
-    expect(hasJournal('product:shop')).toBe(true);
-    expect(hasJournal('domain:payments')).toBe(true);
-    expect(hasJournal('question:x')).toBe(false);
-    expect(hasJournal('code.service:orders')).toBe(false);
   });
 });

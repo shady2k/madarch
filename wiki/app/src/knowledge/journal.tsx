@@ -18,9 +18,6 @@ import { useTabTitle } from './tabs.js';
 import { addressOfEntity, addressOfJournal } from './routes.js';
 import type { JournalRecord } from './types.js';
 
-/** Whether a page is one an agent writes, and so has a journal. */
-export const hasJournal = (id: string): boolean => /^(product|domain):[a-z][a-z0-9-]*$/.test(id);
-
 function pretty(value: unknown): string {
   try {
     return JSON.stringify(value, null, 2) ?? 'null';

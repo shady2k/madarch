@@ -154,6 +154,8 @@ export type PageModel = {
   notes: string[];
   /** The planned change this page stands in, and the statements of it a task's grounds reach (madarch-m38l.14). */
   planned?: { entity: PlannedMarkView | null; statements: (PlannedMarkView & { sentence: string })[]; note?: string };
+  /** The runs of this machine whose journal holds this page, oldest first; absent when no run wrote it (madarch-m38l.23). */
+  journal?: string[];
 };
 
 export type Origin = 'agent' | 'person' | 'code' | 'history';
@@ -199,6 +201,11 @@ export type FillState = {
 export type WriterUnit = {
   unit: string;
   path: string;
+  /** The kind the manifest declares for the page this unit writes, and the page's title: what a reader calls it (madarch-m38l.23). */
+  kind?: string;
+  title?: string;
+  /** The page this unit writes, once its id is known: the address its link opens. */
+  page?: string;
   state: 'waiting' | 'writing' | 'written' | 'failed' | 'not-written';
   writeAttempts?: number;
   calls?: number;

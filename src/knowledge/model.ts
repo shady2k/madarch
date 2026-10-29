@@ -288,6 +288,12 @@ export interface PageModel {
    * `product.page` adds it after the page is drawn; the page the renderer builds knows nothing of the product's tasks.
    */
   planned?: { entity: PlannedMarkView | null; statements: (PlannedMarkView & { sentence: string })[]; note?: string };
+  /**
+   * The runs whose journal holds what the agent did to write this page, oldest first (madarch-m38l.23). The journal is
+   * the machine's, not the repository's: a page seeded or written on another machine has none, and the page then offers
+   * no journal rather than a link to an empty one.
+   */
+  journal?: string[];
 }
 
 export interface KindSummary {
@@ -352,9 +358,18 @@ export interface FillState {
 
 /** One agent unit of the writer, as the wiki shows it. */
 export interface WriterUnit {
-  /** The unit's id: `product:<slug>` or `domain:<slug>`. */
+  /** The unit's id: `product:<slug>`, `domain:<slug>`, a document's page id behind `localized-source:`, `enrichment:<id>`. */
   unit: string;
-  /** The page it writes, relative to the product repository. */
+  /**
+   * The kind of page it writes, as the manifest declares it (`product`, `domain`, `doc.term`): the reader's own name for
+   * the thing, never the writer's word for its work. Absent where the page is neither declared nor standing yet.
+   */
+  kind?: string;
+  /** What a reader calls the page: its title once the page stands, the declaration's title before. Absent where neither exists. */
+  title?: string;
+  /** The id of the page it writes, as the wiki addresses it: the row's link, and the way to its journal. */
+  page?: string;
+  /** The page it writes, relative to the product repository: for the engineer, not the reader. */
   path: string;
   state: 'waiting' | 'writing' | 'written' | 'failed' | 'not-written';
   writeAttempts?: number;

@@ -15,7 +15,8 @@ import { BlockView, Findings, KMarkdown } from './blocks.js';
 import { highlight } from './highlight.js';
 import { Root as AppRoot } from './root.js';
 import { FillCard } from './pages.js';
-import { WriterCard } from './writer.js';
+import { WriterLine } from './writer.js';
+import { FillPage } from './fill-page.js';
 import { FillMenu, ProductSelector, Toolbar, productChoices } from './app.js';
 import { addressOfDocument, kRouteOf, kindPlural, kindWord } from './routes.js';
 import { kindNameOf } from './kind-names.js';
@@ -359,25 +360,58 @@ describe('the agent stage', () => {
     expect(calls).toEqual(['GET /api/k/agents']);
   });
 
-  test('a stage under way lists each unit with its state, marks the one writing now and shows the refusals of a unit that failed', async () => {
+  test('the product pages say a stage is under way in one line, with no paths and the way to the fill page', async () => {
     const writer: WikiStatus['writer'] = {
       state: 'running', agent: { id: 'claude-code', label: 'Claude Code' }, current: 'domain:ordering',
       units: [
         { unit: 'product:shop', path: 'docs/product.md', state: 'written', calls: 6, writeAttempts: 1 },
         { unit: 'domain:ordering', path: 'docs/domains/ordering.md', state: 'writing' },
-        { unit: 'domain:payments', path: 'docs/domains/payments.md', state: 'failed', calls: 9, writeAttempts: 5, refusals: [{ line: 12, rule: 'ungrounded-statement', message: 'the sentence has no footnote' }] },
       ],
     };
     stubFetch([]);
     const container = into(createElement(FillCard, { status: status({ filled: true, fill: { state: 'done' }, home: 'product:shop', writer }), refresh: () => undefined }));
-    await until(() => container.querySelector('[data-testid=writer-card]') !== null, 'the writer card');
-    expect(container.querySelector('[data-testid=writer-card]')!.textContent).toContain('Claude Code is writing the pages');
-    const units = [...container.querySelectorAll('[data-testid=writer-unit]')];
+    await until(() => container.querySelector('[data-testid=writer-line]') !== null, 'the writer line');
+    const line = container.querySelector('[data-testid=writer-line]')!;
+    expect(line.querySelector('[data-testid=writer-line-words]')!.textContent).toBe('Claude Code is writing the pages: 1 of 2 written; now domain:ordering.');
+    expect(line.querySelector('[data-testid=writer-line-open]')!.getAttribute('href')).toBe('/k/fill');
+    // The paths of the pages are the engineer's: they are not on the product pages.
+    expect(line.textContent).not.toContain('docs/product.md');
+    expect(line.querySelectorAll('[data-testid=writer-unit]').length).toBe(0);
+  });
+
+  test('the fill page lists each page the agent takes up by its kind and title, its state, its links and the refusals, with the paths for the engineer', async () => {
+    const writer: WikiStatus['writer'] = {
+      state: 'running', agent: { id: 'claude-code', label: 'Claude Code' }, current: 'domain:ordering', startedAt: '2026-10-23T12:31:00.000Z',
+      units: [
+        { unit: 'product:shop', path: 'docs/product.md', state: 'written', calls: 6, writeAttempts: 1, kind: 'product', title: 'Online shop', page: 'product:shop' },
+        { unit: 'domain:ordering', path: 'docs/domains/ordering.md', state: 'writing', kind: 'domain', title: 'Ordering' },
+        { unit: 'domain:payments', path: 'docs/domains/payments.md', state: 'failed', calls: 9, writeAttempts: 5, kind: 'domain', title: 'Payments', refusals: [{ line: 12, rule: 'ungrounded-statement', message: 'the sentence has no footnote' }] },
+      ],
+    };
+    stubFetch([]);
+    const kinds: WikiStatus['kinds'] = [{ kind: 'product', source: 'markdown', count: 1, single: true, origins: [] }, { kind: 'domain', source: 'markdown', count: 3, single: false, origins: [], labels: { en: { one: 'Domain', many: 'Domains' } } }];
+    const container = into(createElement(FillPage, { status: status({ filled: true, fill: { state: 'done' }, home: 'product:shop', kinds, writer }), refresh: () => undefined }));
+    await until(() => container.querySelector('[data-testid=fill-units]') !== null, 'the fill page');
+    expect(container.querySelector('[data-testid=fill-title]')!.textContent).toBe('Fill');
+    expect(container.querySelector('[data-testid=fill-progress-text]')!.textContent).toBe('1 of 3 written');
+    const units = [...container.querySelectorAll('[data-testid=fill-unit]')];
     expect(units.map((unit) => [unit.getAttribute('data-unit'), unit.getAttribute('data-state'), unit.getAttribute('aria-current')])).toEqual([
       ['product:shop', 'written', null], ['domain:ordering', 'writing', 'step'], ['domain:payments', 'failed', null],
     ]);
-    expect(container.querySelector('[data-testid=writer-card]')!.textContent).toContain('Writing now: domain:ordering');
-    expect(container.querySelector('[data-testid=writer-refusals]')!.textContent).toBe('Line 12, ungrounded-statement: the sentence has no footnote');
+    // The reader's names: the kind's name from the manifest and the page's title.
+    expect(units.map((unit) => unit.querySelector('[data-testid=fill-unit-page], [data-testid=fill-unit-name]')!.textContent)).toEqual(['Product Online shop', 'Domain Ordering', 'Domain Payments']);
+    // The written page is a link, and so is its journal; a page not written yet has neither.
+    expect(units[0]!.querySelector('[data-testid=fill-unit-page]')!.getAttribute('href')).toBe('/k/e/product%3Ashop');
+    expect(units[0]!.querySelector('[data-testid=fill-unit-journal]')!.getAttribute('href')).toBe('/k/journal?id=product%3Ashop');
+    expect(units[1]!.querySelector('[data-testid=fill-unit-journal]')).toBeNull();
+    expect(units[2]!.querySelector('[data-testid=fill-unit-refusals]')!.textContent).toBe('Line 12, ungrounded-statement: the sentence has no footnote');
+    // The path and the call counts stand under «Details for an engineer».
+    const engineer = units[2]!.querySelector('[data-testid=fill-unit-engineer]')!;
+    expect(engineer.querySelector('summary')!.textContent).toBe('Details for an engineer');
+    expect(engineer.textContent).toContain('docs/domains/payments.md');
+    const outside = units[0]!.cloneNode(true) as HTMLElement;
+    outside.querySelector('[data-testid=fill-unit-engineer]')!.remove();
+    expect(outside.textContent).not.toContain('docs/product.md');
   });
 
   test('a stage that ended with a failure says so and offers to try again', async () => {
@@ -387,7 +421,7 @@ describe('the agent stage', () => {
     const writer: WikiStatus['writer'] = { state: 'failed', agent: { id: 'codex', label: 'Codex' }, units: [{ unit: 'product:shop', path: 'docs/product.md', state: 'failed' }], message: 'some pages were not written; each unit above says why.' };
     const container = into(createElement(FillCard, { status: status({ filled: true, fill: { state: 'done' }, writer }), refresh: () => { refreshed += 1; } }));
     await until(() => container.querySelector('[data-testid=writer-retry]') !== null, 'the retry');
-    expect(container.querySelector('[data-testid=writer-card]')!.textContent).toContain('Codex did not finish the pages');
+    expect(container.querySelector('[data-testid=writer-line]')!.textContent).toContain('Codex did not finish the pages');
     expect(container.querySelector('[data-testid=writer-message]')!.textContent).toContain('some pages were not written');
     (container.querySelector('[data-testid=writer-retry]') as HTMLButtonElement).click();
     await until(() => refreshed === 1, 'the refresh');
@@ -402,9 +436,9 @@ describe('after the run', () => {
 
   test('the card of a finished run is gone: its outcome is a quiet status in the top bar that counts the pages', async () => {
     stubFetch([]);
-    const card = into(createElement(WriterCard, { status: status(), refresh: () => undefined }));
+    const card = into(createElement(WriterLine, { status: status(), refresh: () => undefined }));
     await new Promise((rest) => setTimeout(rest, 20));
-    expect(card.querySelector('[data-testid=writer-card]')).toBeNull();
+    expect(card.querySelector('[data-testid=writer-line]')).toBeNull();
     rendered?.unmount();
     document.body.innerHTML = '';
     const bar = into(createElement(FillMenu, { status: status(), refresh: () => undefined }));
@@ -415,10 +449,27 @@ describe('after the run', () => {
   test('a failed run stays on the page until the reader dismisses it', async () => {
     stubFetch([]);
     const failed = status({ writer: { state: 'failed', agent: { id: 'codex', label: 'Codex' }, units: [], message: 'x', finishedAt: '2026-10-23T12:00:00.000Z' } });
-    const container = into(createElement(WriterCard, { status: failed, refresh: () => undefined }));
+    const container = into(createElement(WriterLine, { status: failed, refresh: () => undefined }));
     await until(() => container.querySelector('[data-testid=writer-dismiss]') !== null, 'the dismissal');
     (container.querySelector('[data-testid=writer-dismiss]') as HTMLButtonElement).click();
-    await until(() => container.querySelector('[data-testid=writer-card]') === null, 'the card gone');
+    await until(() => container.querySelector('[data-testid=writer-line]') === null, 'the line gone');
+  });
+
+  test('while the agent writes, the badge counts the pages it has taken up and pulses a dot that stands still when motion is reduced', async () => {
+    const writer: WikiStatus['writer'] = {
+      state: 'running', agent: { id: 'claude-code', label: 'Claude Code' }, current: 'domain:ordering',
+      units: [
+        { unit: 'product:shop', path: 'docs/product.md', state: 'written', kind: 'product', title: 'Online shop', page: 'product:shop' },
+        { unit: 'domain:ordering', path: 'docs/domains/ordering.md', state: 'writing', kind: 'domain', title: 'Ordering' },
+      ],
+    };
+    const bar = into(createElement(FillMenu, { status: status({ writer }), refresh: () => undefined }));
+    await until(() => bar.querySelector('[data-testid=fill-chip]') !== null, 'the status');
+    expect(bar.querySelector('[data-testid=fill-chip]')!.textContent).toBe('The agent is writing · 1/2');
+    const dot = bar.querySelector('[data-testid=fill-chip-dot]')!;
+    expect(dot.getAttribute('aria-hidden')).toBe('true');
+    expect(dot.className).toContain('animate-pulse');
+    expect(dot.className).toContain('motion-reduce:animate-none');
   });
 
   test('while the fill runs the status says how far it is, and the code is the first thing read', async () => {

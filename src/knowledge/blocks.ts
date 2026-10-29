@@ -36,6 +36,11 @@ export interface RenderContext {
   localizedSources: ReadonlyMap<string, import('../writer/localized-source.js').LocalizedDocumentSource>;
   /** The current product wiki language, used when rendering document entities. */
   language: string;
+  /**
+   * True while the writer is taking the pages up (madarch-m38l.23): a document whose localized statement does not exist
+   * yet is being written now, so its page shows the document's own words in place of a problem that says it is missing.
+   */
+  awaitsLocalized?: boolean;
   /** The Markdown documents the entities were read from (the product repository's and the code repositories'). */
   documents: readonly DocumentSource[];
   /** The names of the code repositories, in the order documents are searched. */
@@ -187,7 +192,9 @@ export function bodyBlock(ctx: RenderContext, subject: Subject, block: string, f
     const source = ctx.localizedSources.get(subject.entity.id);
     const sourceLanguage = detectDocumentLanguage(subject.entity.text);
     const needsLocalization = sourceLanguage !== ctx.language;
-    if (needsLocalization && source === undefined) return { type: 'problem', block, file: subject.entity.path, line: subject.entity.line, message: `no valid localized statement for ${subject.entity.id} in ${ctx.language}; see the localized-source finding for its file and line` };
+    // While the writer runs the page is being written, not missing: it shows the document's own words, and the run that
+    // ends without writing it leaves the problem to be read (madarch-m38l.23).
+    if (needsLocalization && source === undefined && ctx.awaitsLocalized !== true) return { type: 'problem', block, file: subject.entity.path, line: subject.entity.line, message: `no valid localized statement for ${subject.entity.id} in ${ctx.language}; see the localized-source finding for its file and line` };
     const sameLanguage = source !== undefined && source.sourceLanguage === ctx.language;
     return {
       type: 'body', markdown: source === undefined || sameLanguage ? subject.entity.text : source.statement,
