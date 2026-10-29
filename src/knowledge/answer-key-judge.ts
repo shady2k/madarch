@@ -28,7 +28,18 @@ export interface JudgeAnswer {
 /** One evidence pack in, one answer out. A judge holds no other state the step relies on. */
 export interface Judge {
   judge(pack: AnswerKeyPack): Promise<JudgeAnswer> | JudgeAnswer;
+  /** What the judge saw while it ran (a saved model the agent no longer offers, say); reported, never dropped. */
+  warnings?(): readonly string[];
   close?(): Promise<void>;
+}
+
+/** The judge could not run at all (the agent did not start, its run was stopped, or it gave no answer): the pack is
+ * unjudged, not unsure, because nothing was read (madarch-j6ho.2, the review's third rare finding). */
+export class JudgeExecutionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'JudgeExecutionError';
+  }
 }
 
 export type JudgeTier = 'jev' | 'classification' | 'analysis';
@@ -70,6 +81,8 @@ export interface JudgeReport {
   readonly unjudged: readonly { readonly itemId: string; readonly reason: string }[];
   readonly roles: readonly JudgeRoleNote[];
   readonly notes: readonly string[];
+  /** Lines a judge reported about its own run, such as a saved model the agent no longer offers. */
+  readonly warnings: readonly string[];
   readonly whereToAssign: string;
 }
 
@@ -117,12 +130,26 @@ export function validateJudgeAnswer(pack: AnswerKeyPack, answer: JudgeAnswer): J
   return { verdict: answer.verdict, reason, passages: [...answer.passages] };
 }
 
-async function answerOne(judge: Judge, pack: AnswerKeyPack, tier: JudgeTier): Promise<JudgeVerdict> {
+/** A pack a judge could not read at all: the run failed before it could answer, so the pack is unjudged. */
+interface JudgeFailure {
+  readonly itemId: string;
+  readonly tier: JudgeTier;
+  readonly reason: string;
+}
+
+function isVerdict(one: JudgeVerdict | JudgeFailure): one is JudgeVerdict {
+  return 'verdict' in one;
+}
+
+async function answerOne(judge: Judge, pack: AnswerKeyPack, tier: JudgeTier): Promise<JudgeVerdict | JudgeFailure> {
   try {
     const answer = validateJudgeAnswer(pack, await judge.judge(pack));
     return { itemId: pack.item.id, tier, ...answer };
   } catch (error) {
     const message = oneLine(error instanceof Error ? error.message : String(error));
+    // A judge that could not run says nothing about the pack, so it is unjudged; a judge that ran and answered
+    // badly is a reading that failed, which is unsure (madarch-j6ho.2, the review's third rare finding).
+    if (error instanceof JudgeExecutionError) return { itemId: pack.item.id, tier, reason: message };
     return { itemId: pack.item.id, tier, verdict: 'unsure', reason: `judge failed: ${message}`, passages: [] };
   }
 }
@@ -158,60 +185,77 @@ export function countsOfPacks(items: readonly AnswerKeyPack[]): AnswerKeyCounts 
 export async function judgeAnswerKeyCheck(check: AnswerKeyCheck, deps: JudgeDependencies): Promise<AnswerKeyCheck> {
   const packs = check.items.filter((item) => item.classification === 'unsure');
   const verdicts: JudgeVerdict[] = [];
+  const failures: JudgeFailure[] = [];
   const notes: string[] = [];
-  const unjudged: { itemId: string; reason: string }[] = [];
-  let person: { itemId: string; reason: string }[] = [];
-  let status: 'judged' | 'unjudged' = 'judged';
-  let jevUsed = false;
+  const warnings: string[] = [];
   const judges: Judge[] = [];
+  const unsureReason = new Map<string, string>();
+  let person: { itemId: string; reason: string }[] = [];
+  let jevUsed = false;
 
   try {
     if (packs.length === 0) {
       notes.push('there were no unsure packs to judge');
-    } else if (deps.jev !== undefined) {
-      jevUsed = true;
-      judges.push(deps.jev);
-      for (const pack of packs) verdicts.push(await answerOne(deps.jev, pack, 'jev'));
-      const held = verdicts.filter((verdict) => verdict.verdict === 'unsure');
-      person = held.map((verdict) => ({ itemId: verdict.itemId, reason: verdict.reason }));
-      notes.push('jev read every unsure pack; no classification or analysis judge was started');
     } else {
-      const classification = pairOf(deps.roles, 'classification');
-      if (classification === null) {
-        status = 'unjudged';
-        const reason = 'no classification role is assigned and there is no default pair (writing) to fall back to';
-        for (const pack of packs) unjudged.push({ itemId: pack.item.id, reason });
-        notes.push(`nothing was judged: ${reason}`);
-        notes.push('assign Classification and Analysis in the product settings, section Model roles');
-      } else {
-        const classificationNote = namesOfRole(deps.roles, 'classification');
-        if (classificationNote.note !== undefined) notes.push(classificationNote.note);
-        const classifier = deps.judgeForPair(classification, 'classification');
-        judges.push(classifier);
-        for (const pack of packs) verdicts.push(await answerOne(classifier, pack, 'classification'));
-
-        const held = verdicts.filter((verdict) => verdict.tier === 'classification' && verdict.verdict === 'unsure');
-        const analysis = pairOf(deps.roles, 'analysis');
-        if (analysis === null) {
-          person = held.map((verdict) => ({ itemId: verdict.itemId, reason: `${verdict.reason}; analysis is unassigned and there is no default pair to fall back to` }));
-          if (held.length > 0) notes.push('analysis is not assigned and there is no default pair; classification\'s unsure packs reached a person');
-        } else {
-          const analysisNote = namesOfRole(deps.roles, 'analysis');
-          if (analysisNote.note !== undefined) notes.push(analysisNote.note);
-          const analyst = deps.judgeForPair(analysis, 'analysis');
-          judges.push(analyst);
-          for (const verdict of held) {
-            const pack = packs.find((candidate) => candidate.item.id === verdict.itemId)!;
-            verdicts.push(await answerOne(analyst, pack, 'analysis'));
-          }
-          const still = verdicts.filter((verdict) => verdict.tier === 'analysis' && verdict.verdict === 'unsure');
-          person = still.map((verdict) => ({ itemId: verdict.itemId, reason: verdict.reason }));
+      // The owner's chain: jev, then classification, then analysis, then a person (madarch-j6ho.2, finding 4).
+      let remaining: AnswerKeyPack[] = [...packs];
+      if (deps.jev !== undefined) {
+        jevUsed = true;
+        judges.push(deps.jev);
+        const next: AnswerKeyPack[] = [];
+        for (const pack of packs) {
+          const one = await answerOne(deps.jev, pack, 'jev');
+          if (isVerdict(one)) {
+            verdicts.push(one);
+            if (one.verdict === 'unsure') { unsureReason.set(one.itemId, one.reason); next.push(pack); }
+          } else failures.push(one);
         }
+        remaining = next;
+        notes.push('jev read every unsure pack; the packs it left unsure go on to the model roles, and a person reads what they leave unsure');
       }
+      for (const tier of ['classification', 'analysis'] as const) {
+        if (remaining.length === 0) break;
+        const pair = pairOf(deps.roles, tier);
+        if (pair === null) {
+          const because = `no ${tier} role is assigned and there is no default pair (writing) to fall back to`;
+          if (jevUsed) {
+            notes.push(`${because}; the packs jev left unsure reached a person`);
+            break;
+          }
+          for (const pack of remaining) failures.push({ itemId: pack.item.id, tier, reason: because });
+          remaining = [];
+          notes.push(`nothing was judged: ${because}`);
+          notes.push('assign Classification and Analysis in the product settings, section Model roles');
+          break;
+        }
+        const roleNote = namesOfRole(deps.roles, tier);
+        if (roleNote.note !== undefined) notes.push(roleNote.note);
+        const judge = deps.judgeForPair(pair, tier);
+        judges.push(judge);
+        const next: AnswerKeyPack[] = [];
+        for (const pack of remaining) {
+          const one = await answerOne(judge, pack, tier);
+          if (isVerdict(one)) {
+            verdicts.push(one);
+            if (one.verdict === 'unsure') { unsureReason.set(one.itemId, one.reason); next.push(pack); }
+          } else failures.push(one);
+        }
+        remaining = next;
+      }
+      const failed = new Set(failures.map((failure) => failure.itemId));
+      person = remaining
+        .filter((pack) => !failed.has(pack.item.id))
+        .map((pack) => ({ itemId: pack.item.id, reason: unsureReason.get(pack.item.id) ?? 'no judge read it' }));
     }
   } finally {
-    for (const judge of judges) await judge.close?.().catch(() => undefined);
+    for (const judge of judges) {
+      for (const line of judge.warnings?.() ?? []) if (!warnings.includes(line)) warnings.push(line);
+      await judge.close?.().catch(() => undefined);
+    }
   }
+
+  // Nothing was read at all: the judging did not happen, which is not the same answer as unsure.
+  const status: 'judged' | 'unjudged' = packs.length > 0 && verdicts.length === 0 ? 'unjudged' : 'judged';
 
   const winning = new Map<string, JudgeVerdict>();
   for (const verdict of verdicts) if (verdict.verdict !== 'unsure') winning.set(verdict.itemId, verdict);
@@ -232,12 +276,14 @@ export async function judgeAnswerKeyCheck(check: AnswerKeyCheck, deps: JudgeDepe
   const thresholdMet = fullyRatio >= check.threshold.fullyAtLeast
     && counts.none <= check.threshold.noneAtMost
     && check.questions.expected.length === check.threshold.expectedQuestions
+    && check.questions.matched === check.threshold.expectedQuestions
     && check.seam.mainKeyOpenItems === check.questions.expected.length
     && check.seam.problems.length === 0;
 
   const tier = (name: JudgeTier): JudgeTierCounts => tierCounts(verdicts, name);
   const jevTier = jevUsed ? tier('jev') : null;
   const roleNotes: JudgeRoleNote[] = [namesOfRole(deps.roles, 'writing'), namesOfRole(deps.roles, 'classification'), namesOfRole(deps.roles, 'analysis')];
+  const unjudged = failures.map((failure) => ({ itemId: failure.itemId, reason: failure.reason }));
   const judge: JudgeReport = {
     status,
     jevUsed,
@@ -247,6 +293,7 @@ export async function judgeAnswerKeyCheck(check: AnswerKeyCheck, deps: JudgeDepe
     unjudged,
     roles: roleNotes,
     notes,
+    warnings,
     whereToAssign: 'the product settings page, section Model roles (/k/settings)',
   };
 
@@ -269,5 +316,6 @@ export function judgeLines(check: AnswerKeyCheck): string[] {
   }
   lines.push(`judging: ${report.person.length} packs reached a person; ${report.unjudged.length} were unjudged`);
   for (const note of report.notes) lines.push(`judging note: ${note}`);
+  for (const warning of report.warnings) lines.push(`judging warning: ${warning}`);
   return lines;
 }

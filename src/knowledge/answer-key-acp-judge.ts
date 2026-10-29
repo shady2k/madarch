@@ -9,13 +9,13 @@
  * the pair and this file starts it.
  */
 import type { AnswerKeyPack } from './answer-key-check.js';
-import { validateJudgeAnswer, type Judge, type JudgeAnswer } from './answer-key-judge.js';
+import { JudgeExecutionError, validateJudgeAnswer, type Judge, type JudgeAnswer } from './answer-key-judge.js';
 import type { ModelPair, ModelRole } from './model-roles.js';
 import type { DraftEnv } from '../product/home.js';
 import { makeUnitAgent } from './agents.js';
 import type { McpToolDefinition } from '../fill/unit-mcp.js';
 import type { ToolClient } from '../writer/run.js';
-import type { UnitAgent } from '../writer/run.js';
+import type { UnitAgent, UnitRunStatus } from '../writer/run.js';
 import type { Journal } from '../writer/journal.js';
 import type { AgentPreferences } from '../fill/acp-choices.js';
 
@@ -45,6 +45,10 @@ export interface AcpJudgeOptions {
 function promptOf(pack: AnswerKeyPack, role: ModelRole): string {
   const item = pack.item;
   const passages = pack.passages.map((passage) => `[${passage.id}] ${passage.page} / ${passage.block}${passage.line === undefined ? '' : ` line ${passage.line}`}: ${passage.text}`);
+  // What the product was expected to ask, and the question pages it actually has: a judge cannot tell whether the
+  // expected questions were asked from an item's own evidence alone (madarch-j6ho.2, finding 5).
+  const expected = pack.expectedQuestions ?? [];
+  const current = pack.currentQuestions ?? [];
   const locations = pack.locations.map((location) => {
     const pages = location.pages.map((page) => `${page.id} (${page.kind}, ${page.title})`);
     return `- location ${location.location.path}${location.location.symbol === undefined ? '' : `#${location.location.symbol}`}${location.location.anchor === undefined ? '' : `#${location.location.anchor}`}: present ${location.present ? 'yes' : 'no'}, found ${location.found ? 'yes' : 'no'}, pages ${pages.length === 0 ? '(none)' : pages.join(', ')}`;
@@ -71,6 +75,12 @@ function promptOf(pack: AnswerKeyPack, role: ModelRole): string {
     'Pages at the locations:',
     ...(locations.length === 0 ? ['(none)'] : locations),
     '',
+    `Expected open questions (${expected.length}):`,
+    ...(expected.length === 0 ? ['(none)'] : expected.map((question, index) => `  ${index + 1}. [${question.type}] ${question.subject} (${question.file})`)),
+    `Question pages in the product: ${current.length}`,
+    ...current.map((page) => `  ${page.id} "${page.title}" [${page.type}] ${page.state}${page.about.length === 0 ? '' : ` about ${page.about.join(', ')}`}`),
+    ...(expected.length === 0 ? [] : ['Every expected question must correspond to one of these pages. When one has no page, or a page asks something else, say so in the reason.']),
+    '',
     'Passages (quote only these ids):',
     ...(passages.length === 0 ? ['(none)'] : passages),
     '',
@@ -88,10 +98,12 @@ export function acpJudge(pair: ModelPair, role: ModelRole, options: AcpJudgeOpti
     ...(pair.reasoning === undefined ? {} : { reasoning: pair.reasoning }),
   };
   let agent: (UnitAgent & { close(): Promise<void> }) | undefined;
+  const warnings: string[] = [];
   const started = (): UnitAgent & { close(): Promise<void> } => {
     if (agent !== undefined) return agent;
     const made = (options.makeAgent ?? makeUnitAgent)(pair.agent, options.env, options.progress, Object.keys(preferences).length === 0 ? undefined : preferences, options.journal);
-    if ('error' in made) throw new Error(`src/knowledge/answer-key-acp-judge.ts: cannot start the ${role} judge (${pair.agent}): ${made.error}`);
+    // An adapter that does not start is not an answer about the pack: the pack is unjudged.
+    if ('error' in made) throw new JudgeExecutionError(`src/knowledge/answer-key-acp-judge.ts: cannot start the ${role} judge (${pair.agent}): ${made.error}`);
     agent = made;
     return made;
   };
@@ -123,9 +135,24 @@ export function acpJudge(pair: ModelPair, role: ModelRole, options: AcpJudgeOpti
           return answer !== undefined || calls >= 4;
         },
       };
-      await started().run({ id: `answer-key-${role}-${pack.item.id}`, prompt: promptOf(pack, role), tools: client });
-      if (answer === undefined) throw new Error(`src/knowledge/answer-key-acp-judge.ts: the ${role} judge for item ${pack.item.id} gave no valid answer${refusal === undefined ? '' : `: ${refusal}`}`);
+      const judgeAgent = started();
+      let status: UnitRunStatus | void;
+      try {
+        status = await judgeAgent.run({ id: `answer-key-${role}-${pack.item.id}`, prompt: promptOf(pack, role), tools: client });
+      } finally {
+        // A warning is the agent's, whether the run completed or not; it is never dropped.
+        for (const line of judgeAgent.warnings?.() ?? []) if (!warnings.includes(line)) warnings.push(line);
+      }
+      // A run the limits stopped, or a reader cancelled, is not a reading of the pack: what a tool accepted before
+      // the stop must not become a verdict (madarch-j6ho.2, the review's second rare finding).
+      if (status !== undefined && status.completed !== true) {
+        throw new JudgeExecutionError(`src/knowledge/answer-key-acp-judge.ts: the ${role} judge for item ${pack.item.id} did not complete: ${status.stopped ?? 'the run was stopped before it answered'}`);
+      }
+      if (answer === undefined) throw new JudgeExecutionError(`src/knowledge/answer-key-acp-judge.ts: the ${role} judge for item ${pack.item.id} gave no valid answer${refusal === undefined ? '' : `: ${refusal}`}`);
       return answer;
+    },
+    warnings(): readonly string[] {
+      return [...warnings];
     },
     async close() {
       await agent?.close();

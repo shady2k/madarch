@@ -163,6 +163,9 @@ export interface AnswerKeyPack {
   readonly questionItem: boolean;
   readonly locations: readonly LocationEvidence[];
   readonly passages: readonly EvidencePassage[];
+  /** Passages found outside the locations' own pages, in the product's documents (its own page and domain pages):
+   * what a judge reads when a location has no page or a phrase is not where the item puts it. */
+  readonly elsewhere: readonly EvidencePassage[];
   readonly checks: {
     readonly locationsPresent: number;
     readonly locationsTotal: number;
@@ -210,6 +213,8 @@ export interface AnswerKeyQuestionSummary {
   readonly field: string;
   readonly expected: readonly ExpectedQuestion[];
   readonly current: readonly EvidenceQuestion[];
+  /** How many expected questions one of the product's actual question pages asks. */
+  readonly matched: number;
 }
 
 export interface AnswerKeyCheck {
@@ -581,6 +586,8 @@ function linkMatches(link: string, text: string): boolean {
 }
 
 function decide(pack: Omit<AnswerKeyPack, 'classification' | 'reason'>): { classification: Classification; reason: string } {
+  // Every verdict about meaning is the judge's (madarch-j6ho.2, findings 1 and 2): a word match only chooses the
+  // evidence to show. The one thing this layer can decide alone is that an item has nothing to look at.
   if (pack.questionItem) return { classification: 'unsure', reason: 'expected-question-needs-a-reader' };
   const locations = pack.locations;
   if (locations.length === 0) return { classification: 'none', reason: 'item-has-no-location' };
@@ -588,14 +595,32 @@ function decide(pack: Omit<AnswerKeyPack, 'classification' | 'reason'>): { class
     if (location.historyCoverage !== null && location.historyCoverage !== 'covered') return { classification: 'unsure', reason: 'history-not-covered' };
   }
   const present = locations.filter((location) => location.present).length;
-  if (present === 0) return { classification: 'none', reason: 'no-location-has-a-page' };
-  if (present < locations.length) return { classification: 'partly', reason: 'some-locations-have-no-page' };
+  // A missing page is a gap in extraction or coverage, never a proof that the wiki does not answer the item.
+  if (present === 0) return { classification: 'unsure', reason: pack.elsewhere.length === 0 ? 'no-location-has-a-page' : 'evidence-elsewhere-needs-a-reader' };
+  if (present < locations.length) return { classification: 'unsure', reason: 'some-locations-have-no-page' };
   const found = locations.filter((location) => location.found).length;
   if (found < locations.length && locations.some((location) => location.sourceTruncated && !location.found)) return { classification: 'unsure', reason: 'source-truncated' };
   if (found === 0) return { classification: 'unsure', reason: 'no-exact-source-in-the-pages' };
-  if (found < locations.length) return { classification: 'partly', reason: 'some-locations-lack-the-exact-source' };
-  if (pack.checks.mustShowMissing.length === 0 && pack.checks.mustLinkUnresolved.length === 0) return { classification: 'fully', reason: 'required-elements-and-links-present' };
+  if (found < locations.length) return { classification: 'unsure', reason: 'some-locations-lack-the-exact-source' };
+  if (pack.checks.mustShowMissing.length === 0 && pack.checks.mustLinkUnresolved.length === 0) return { classification: 'unsure', reason: 'required-elements-and-links-present' };
   return { classification: 'unsure', reason: 'semantic-reading-needed' };
+}
+
+/** Whether one actual question page asks the question the key expected: the same kind, and the same words in its title. */
+function sameQuestion(expected: ExpectedQuestion, current: EvidenceQuestion): boolean {
+  if (normalSpace(expected.type) !== normalSpace(current.type)) return false;
+  const subject = normalSpace(expected.subject);
+  const title = normalSpace(current.title);
+  if (subject === '' || title === '') return false;
+  return subject === title || includesText(title, subject) || includesText(subject, title);
+}
+
+/**
+ * How many of the expected questions the product's own question pages actually ask (madarch-j6ho.2, finding 5):
+ * eight pages of the right kind but about other matters do not meet the milestone's eight questions.
+ */
+export function matchedQuestionCount(expected: readonly ExpectedQuestion[], current: readonly EvidenceQuestion[]): number {
+  return expected.filter((question) => current.some((page) => sameQuestion(question, page))).length;
 }
 
 export async function buildAnswerKeyCheck(source: EvidenceSource, key: AnswerKey, expected: ExpectedQuestionSet, keyFile: string): Promise<AnswerKeyCheck> {
@@ -668,6 +693,27 @@ export async function buildAnswerKeyCheck(source: EvidenceSource, key: AnswerKey
       locationEvidence.push(evidence);
       passages.push(...locationPassages);
     }
+    const combined = allText.join('\n');
+    // Where a location has no page, or a phrase is not where the item puts it, the item's words still retrieve
+    // evidence: the product's own page and its domain pages are documents of the wiki too (madarch-j6ho.2,
+    // finding 2). This is retrieval only, so nothing here decides anything.
+    const readAlready = new Set(locationEvidence.flatMap((location) => location.documents.map((one) => `${one.repo ?? ''}\u0000${one.path}`)));
+    const askedAbout = [
+      ...locationEvidence.filter((location) => !location.present).flatMap((location) => [location.location.path, ...(location.location.symbol === undefined ? [] : [location.location.symbol]), ...(location.location.anchor === undefined ? [] : [location.location.anchor])]),
+      ...item.judge.mustShow.filter((phrase) => !includesWord(combined, phrase)),
+    ].filter((needle) => needle.trim() !== '');
+    const elsewhere: RawPassage[] = [];
+    if (askedAbout.length > 0) {
+      for (const reference of documents) {
+        if (elsewhere.length >= 8) break;
+        if (readAlready.has(`${reference.repo ?? ''}\u0000${reference.path}`)) continue;
+        const held = await source.document(reference.repo, reference.path);
+        if (held === undefined) continue;
+        const found = passagesOfDocument(held, askedAbout).filter((passage) => askedAbout.some((needle) => passage.text.includes(needle)));
+        elsewhere.push(...found.slice(0, 2));
+      }
+    }
+    passages.push(...elsewhere);
     // A judge quotes passages by id. The ids are made once per pack, from the passages the evidence actually
     // holds, so an id the pack does not have cannot be accepted later (madarch-j6ho.2).
     const passageIds = new Map<string, EvidencePassage>();
@@ -681,7 +727,7 @@ export async function buildAnswerKeyCheck(source: EvidenceSource, key: AnswerKey
     };
     const finalizedLocations: LocationEvidence[] = locationEvidence.map((location) => ({ ...location, passages: location.passages.map(withId) }));
     const finalizedPassages = passages.map(withId);
-    const combined = allText.join('\n');
+    const finalizedElsewhere = elsewhere.map(withId);
     const mustShowMatched = item.judge.mustShow.filter((phrase) => includesWord(combined, phrase));
     const mustShowMissing = item.judge.mustShow.filter((phrase) => !includesWord(combined, phrase));
     const mustLinkMatched = item.judge.mustLink.filter((link) => linkMatches(link, combined));
@@ -701,7 +747,9 @@ export async function buildAnswerKeyCheck(source: EvidenceSource, key: AnswerKey
         mustLinkUnresolved,
         statementExact: includesText(combined, item.expectedWikiStatement),
       },
-      ...(questionItem ? { expectedQuestions: expected.questions, currentQuestions: questions } : {}),
+      elsewhere: finalizedElsewhere,
+      expectedQuestions: expected.questions,
+      currentQuestions: questions,
     };
     const decision = decide(partial);
     items.push({ ...partial, classification: decision.classification, reason: decision.reason });
@@ -718,6 +766,7 @@ export async function buildAnswerKeyCheck(source: EvidenceSource, key: AnswerKey
   if (open.length !== expected.questions.length) seamProblems.push(`the main key has ${open.length} ${QUESTION_ITEM_PREFIX} items but ${expected.file} holds ${expected.questions.length} ${expected.field} entries; they are reported side by side, not paired`);
   if (expected.questions.length !== threshold.expectedQuestions) seamProblems.push(`${expected.file} holds ${expected.questions.length} ${expected.field} entries, not the milestone's ${threshold.expectedQuestions}`);
   const fullyRatio = items.length === 0 ? 0 : counts.fully / items.length;
+  const matchedQuestions = matchedQuestionCount(expected.questions, questions);
   return {
     keyFile,
     productFolder: source.productFolder,
@@ -725,7 +774,7 @@ export async function buildAnswerKeyCheck(source: EvidenceSource, key: AnswerKey
     counts,
     fullyRatio,
     threshold,
-    thresholdMet: fullyRatio >= threshold.fullyAtLeast && counts.none <= threshold.noneAtMost && expected.questions.length === threshold.expectedQuestions && open.length === expected.questions.length && seamProblems.length === 0,
+    thresholdMet: fullyRatio >= threshold.fullyAtLeast && counts.none <= threshold.noneAtMost && expected.questions.length === threshold.expectedQuestions && matchedQuestions === threshold.expectedQuestions && open.length === expected.questions.length && seamProblems.length === 0,
     gate: 'reported-only',
     seam: {
       mainKeyField: 'missing',
@@ -737,13 +786,13 @@ export async function buildAnswerKeyCheck(source: EvidenceSource, key: AnswerKey
       note: 'The main answer key has no expectedOpenQuestions field. The explicit questions are read from the older agent-stage key and reported as a separate source; no open.* item is assumed to be the same question.',
       problems: seamProblems,
     },
-    questions: { source: expected.file, field: expected.field, expected: expected.questions, current: questions },
+    questions: { source: expected.file, field: expected.field, expected: expected.questions, current: questions, matched: matchedQuestions },
     items,
   };
 }
 
 export function thresholdLine(check: AnswerKeyCheck): string {
-  return `threshold (computed, not gated): fully ${check.counts.fully}/${check.totalItems} = ${(check.fullyRatio * 100).toFixed(1)}% (needs >= ${(check.threshold.fullyAtLeast * 100).toFixed(0)}%), none ${check.counts.none} (needs <= ${check.threshold.noneAtMost}), expected questions ${check.questions.expected.length} (needs ${check.threshold.expectedQuestions})`;
+  return `threshold (computed, not gated): fully ${check.counts.fully}/${check.totalItems} = ${(check.fullyRatio * 100).toFixed(1)}% (needs >= ${(check.threshold.fullyAtLeast * 100).toFixed(0)}%), none ${check.counts.none} (needs <= ${check.threshold.noneAtMost}), expected questions ${check.questions.expected.length} (needs ${check.threshold.expectedQuestions}), expected questions matched to question pages: ${check.questions.matched} of ${check.questions.expected.length}`;
 }
 
 export function reportText(check: AnswerKeyCheck): string {
@@ -757,7 +806,8 @@ export function reportText(check: AnswerKeyCheck): string {
   lines.push(`main key open items: ${check.seam.mainKeyOpenItems}; seam: ${check.seam.note}`);
   if (check.seam.problems.length > 0) for (const problem of check.seam.problems) lines.push(`seam problem: ${problem}`);
   for (const [index, question] of check.questions.expected.entries()) lines.push(`  ${index + 1}. [${question.type}] ${question.subject} (${question.file})`);
-  lines.push(`current question pages: ${check.questions.current.length}`);
+  lines.push(`current question pages: ${check.questions.current.length}; expected questions they ask: ${check.questions.matched} of ${check.questions.expected.length}`);
+  for (const [index, page] of check.questions.current.entries()) lines.push(`  ${index + 1}. [${page.type}] ${page.title} (${page.state}) ${page.about.join(', ')}`);
   for (const item of check.items) if (item.classification === 'unsure') lines.push(`unsure ${item.item.id}: ${item.reason}`);
   lines.push(...judgeLines(check));
   return lines.join('\n');
@@ -874,10 +924,16 @@ export class ProductEvidenceSource implements EvidenceSource {
     };
   }
 
+  private readonly documentReads = new Map<string, Promise<EvidenceDocument | undefined>>();
+
   async document(repo: string | null, path: string): Promise<EvidenceDocument | undefined> {
-    const document: DocumentPage | undefined = await this.product.document(repo, path);
-    if (document === undefined) return undefined;
-    return { repo: document.repo, path: document.path, title: document.title, markdown: document.markdown, commit: document.commit };
+    // The wiki-wide search reads many documents for many items; each document is read once per run.
+    const key = `${repo ?? ''}\u0000${path}`;
+    const held = this.documentReads.get(key);
+    if (held !== undefined) return await held;
+    const read = this.product.document(repo, path).then((document: DocumentPage | undefined): EvidenceDocument | undefined => document === undefined ? undefined : ({ repo: document.repo, path: document.path, title: document.title, markdown: document.markdown, commit: document.commit }));
+    this.documentReads.set(key, read);
+    return await read;
   }
 
   questions(): readonly EvidenceQuestion[] {

@@ -122,6 +122,56 @@
         "mustLink": [],
         "mustNotClaim": []
       }
+    },
+    {
+      "id": "fixture.negation",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "src/gamma.ts",
+        "symbol": "send"
+      },
+      "expectedWikiStatement": "The send function retries with a timeout.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Say whether sending retries and times out.",
+        "mustShow": [
+          "retry",
+          "timeout"
+        ],
+        "mustLink": [
+          "src/gamma.ts"
+        ],
+        "mustNotClaim": [
+          "send retries with a timeout"
+        ]
+      }
+    },
+    {
+      "id": "fixture.elsewhere",
+      "location": {
+        "snapshot": "snapshot-final",
+        "path": "src/worker.py"
+      },
+      "expectedWikiStatement": "The worker retries every job.",
+      "evidenceClass": "code-fact",
+      "viewpoints": [
+        "developer"
+      ],
+      "requiredNow": true,
+      "judge": {
+        "readerTask": "Find the worker's retries.",
+        "mustShow": [
+          "The worker retries every job."
+        ],
+        "mustLink": [],
+        "mustNotClaim": [
+          "the worker drops failed jobs"
+        ]
+      }
     }
   ]
 }

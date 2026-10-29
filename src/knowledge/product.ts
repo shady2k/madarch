@@ -742,8 +742,9 @@ export class KnowledgeProduct {
           const made: UnitAgent & { close(): Promise<void> } = {
             run: async (request) => {
               if (this.stopping) throw new Error('the wiki is shutting down; this unit did not start');
-              await built.run(request);
+              return await built.run(request);
             },
+            ...(built.warnings === undefined ? {} : { warnings: () => built.warnings!() }),
             close: () => built.close(),
           };
           this.writerAgent = made;

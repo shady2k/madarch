@@ -12,7 +12,7 @@ import { navigateTo } from '../hold.js';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert.js';
 import { Badge } from '@/components/ui/badge.js';
 import { Button } from '@/components/ui/button.js';
-import { chooseAgent, chooseModelRole, getAgentChoices, getAgents, getProductSettings, rewritePages, saveProductSettings, startFresh } from './api.js';
+import { chooseAgent, chooseModelRole, getAgentChoices, getAgentChoicesFor, getAgents, getProductSettings, rewritePages, saveProductSettings, startFresh } from './api.js';
 import { useRead } from './live.js';
 import { PageSkeleton } from './skeleton.js';
 import { useTabTitle } from './tabs.js';
@@ -152,6 +152,27 @@ function RolesSection({ settings, reload }: { settings: ProductSettings; reload:
     return () => controller.abort();
   }, [round]);
   const label = (id: string): string => agents?.find((agent) => agent.id === id)?.label ?? id;
+  // A role assigned to an agent gets that agent's own model and reasoning level to choose from (madarch-j6ho.2,
+  // finding 3); the answers are asked once per agent and kept for every role using it.
+  const [choices, setChoices] = useState<Record<string, AgentChoices | null>>({});
+  const askFor = [...new Set(settings.roles.roles.flatMap((role) => role.role !== 'writing' && role.source === 'assigned' && role.pair !== null ? [role.pair.agent] : []))].sort();
+  const askForKey = askFor.join(',');
+  useEffect(() => {
+    if (askForKey === '') return;
+    const controller = new AbortController();
+    for (const agent of askForKey.split(',')) {
+      getAgentChoicesFor(agent, false, controller.signal).then(
+        (answer) => setChoices((held) => ({ ...held, [agent]: answer })),
+        () => setChoices((held) => ({ ...held, [agent]: null })),
+      );
+    }
+    return () => controller.abort();
+  }, [askForKey, round]);
+  const save = (role: ModelRoleId, agent: string, change: { model?: string | null; reasoning?: string | null }): void => {
+    setWorking(role);
+    setError(null);
+    chooseModelRole(role, agent, change).then(() => { setWorking(null); reload(); }, (failure: unknown) => { setWorking(null); setError(message(failure)); });
+  };
   const assign = (role: ModelRoleId, agent: string | null): void => {
     setWorking(role);
     setError(null);
@@ -165,6 +186,10 @@ function RolesSection({ settings, reload }: { settings: ProductSettings; reload:
           const pairLabel = role.pair === null
             ? t('settings.roles.unassigned')
             : `${label(role.pair.agent)} · ${role.pair.model ?? t('settings.roles.agentsOwn')}`;
+          const assignedChoices = role.role !== 'writing' && role.source === 'assigned' && role.pair !== null ? choices[role.pair.agent] : undefined;
+          const modelChoice = assignedChoices?.choices.model ?? null;
+          const reasoningChoice = assignedChoices?.choices.reasoning ?? null;
+          const assignedAgent = role.pair?.agent ?? '';
           return (
             <li key={role.role} className="rounded-[var(--radius-card)] border border-line p-3" data-testid={`settings-role-${role.role}`} data-source={role.source}>
               <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -178,6 +203,16 @@ function RolesSection({ settings, reload }: { settings: ProductSettings; reload:
               )}
               {role.source === 'none' && role.pair === null && (
                 <p className="mb-0 mt-1 text-small text-muted" data-testid={`settings-role-none-${role.role}`}>{t('settings.roles.noDefault')}</p>
+              )}
+              {(modelChoice !== null || reasoningChoice !== null) && (
+                <div className="mt-3" data-testid={`settings-role-choices-${role.role}`}>
+                  {modelChoice !== null && (
+                    <ChoiceSelect id={`settings-role-model-${role.role}`} label={t('settings.model.model')} choice={modelChoice} value={role.pair?.model} disabled={working !== null || settings.busy} onChange={(value) => save(role.role, assignedAgent, { model: value })} />
+                  )}
+                  {reasoningChoice !== null && (
+                    <ChoiceSelect id={`settings-role-reasoning-${role.role}`} label={t('settings.model.reasoning')} choice={reasoningChoice} value={role.pair?.reasoning} disabled={working !== null || settings.busy} onChange={(value) => save(role.role, assignedAgent, { reasoning: value })} />
+                  )}
+                </div>
               )}
               {role.role !== 'writing' && (
                 <div className="mt-2">

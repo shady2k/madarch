@@ -7,7 +7,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import type { AnswerKeyCheck, AnswerKeyItem, AnswerKeyPack } from '../src/knowledge/answer-key-check.js';
-import { judgeAnswerKeyCheck, judgeLines, validateJudgeAnswer, type Judge, type JudgeAnswer } from '../src/knowledge/answer-key-judge.js';
+import { JudgeExecutionError, judgeAnswerKeyCheck, judgeLines, validateJudgeAnswer, type Judge, type JudgeAnswer } from '../src/knowledge/answer-key-judge.js';
 import { emptyModelAssignments, resolveModelRoles, roleOf, type ModelAssignments, type ModelPair, type ModelRole } from '../src/knowledge/model-roles.js';
 
 const PAIR: ModelPair = { agent: 'agent-a', model: 'model-a' };
@@ -31,6 +31,7 @@ function pack(id: string, passages: readonly string[] = ['p1']): AnswerKeyPack {
     questionItem: false,
     locations: [],
     passages: passages.map((passage, index) => ({ id: passage, page: `code.file:${id}.ts`, block: `b${index + 1}`, line: index + 1, text: `text ${id} ${passage}` })),
+    elsewhere: [],
     checks: { locationsPresent: 0, locationsTotal: 0, locationsFound: 0, mustShowMatched: [], mustShowMissing: [], mustLinkMatched: [], mustLinkUnresolved: [], statementExact: false },
   };
 }
@@ -47,7 +48,7 @@ function check(ids: readonly string[]): AnswerKeyCheck {
     thresholdMet: false,
     gate: 'reported-only',
     seam: { mainKeyField: 'missing', mainKeyOpenItems: 8, expectedQuestionSource: 'questions.json', expectedQuestionField: 'expectedOpenQuestions', expectedQuestionCount: 8, questionsMatched: 'unsure', note: 'separate', problems: [] },
-    questions: { source: 'questions.json', field: 'expectedOpenQuestions', expected: Array.from({ length: 8 }, (_, index) => ({ type: 'open', subject: `q${index}`, file: `q${index}.md` })), current: [] },
+    questions: { source: 'questions.json', field: 'expectedOpenQuestions', expected: Array.from({ length: 8 }, (_, index) => ({ type: 'open', subject: `q${index}`, file: `q${index}.md` })), current: [], matched: 0 },
     items,
   };
 }
@@ -56,6 +57,7 @@ class FakeJudge implements Judge {
   readonly calls: string[] = [];
   readonly answers = new Map<string, JudgeAnswer>();
   readonly fallback: JudgeAnswer;
+  readonly seen: string[] = [];
   closed = 0;
 
   constructor(answers: Readonly<Record<string, JudgeAnswer>> = {}, fallback: JudgeAnswer = { verdict: 'unsure', reason: 'not enough', passages: [] }) {
@@ -68,7 +70,16 @@ class FakeJudge implements Judge {
     return this.answers.get(pack.item.id) ?? this.fallback;
   }
 
+  warnings(): readonly string[] { return this.seen; }
+
   async close(): Promise<void> { this.closed += 1; }
+}
+
+/** A judge whose run failed before it could read anything: the difference between unjudged and unsure. */
+class FailingJudge implements Judge {
+  constructor(private readonly failure: Error) {}
+
+  async judge(): Promise<JudgeAnswer> { throw this.failure; }
 }
 
 function roles(assignments: Partial<ModelAssignments> = {}): ReturnType<typeof resolveModelRoles> {
@@ -76,23 +87,25 @@ function roles(assignments: Partial<ModelAssignments> = {}): ReturnType<typeof r
 }
 
 describe('the judging step', () => {
-  test('a jev judge reads every unsure pack and no model role is started', async () => {
+  test('a jev judge reads every unsure pack first, and only what it leaves unsure goes on', async () => {
     const jev = new FakeJudge({ a: { verdict: 'fully', reason: 'the symbol is shown', passages: ['p1'] }, b: { verdict: 'unsure', reason: 'one link is unread', passages: [] } });
-    let made = 0;
+    const classification = new FakeJudge({ b: { verdict: 'fully', reason: 'the link is shown further down', passages: ['p1'] } });
+    const made: { role: ModelRole }[] = [];
     const judged = await judgeAnswerKeyCheck(check(['a', 'b']), {
       jev,
       roles: roles({ writing: PAIR, classification: PAIR, analysis: PAIR }),
-      judgeForPair: () => { made += 1; throw new Error('a model role must not be started when jev is present'); },
+      judgeForPair: (_pair, role) => { made.push({ role }); return classification; },
     });
     expect(jev.calls).toEqual(['a', 'b']);
-    expect(made).toBe(0);
+    expect(made).toEqual([{ role: 'classification' }]);
     expect(jev.closed).toBe(1);
-    expect(judged.items.map((entry) => entry.classification)).toEqual(['fully', 'unsure']);
+    expect(judged.items.map((entry) => entry.classification)).toEqual(['fully', 'fully']);
     expect(judged.items[0]!.judgedBy).toBe('jev');
+    expect(judged.items[1]!.judgedBy).toBe('classification');
     expect(judged.judge?.jevUsed).toBe(true);
     expect(judged.judge?.tiers.jev).toEqual({ read: 2, fully: 1, partly: 0, none: 0, unsure: 1 });
-    expect(judged.judge?.tiers.classification.read).toBe(0);
-    expect(judged.judge?.person.map((person) => person.itemId)).toEqual(['b']);
+    expect(judged.judge?.tiers.classification.read).toBe(1);
+    expect(judged.judge?.person).toEqual([]);
   });
 
   test('without jev, classification reads every pack and only its unsure answers go to analysis', async () => {
@@ -139,8 +152,91 @@ describe('the judging step', () => {
     expect(judged.counts.unsure).toBe(2);
   });
 
-  test('an unassigned role uses writing’s pair and carries a visible fallback note', async () => {
+  test('with jev present, what jev leaves unsure goes on to classification, then analysis, then a person', async () => {
+    const jev = new FakeJudge({
+      a: { verdict: 'unsure', reason: 'jev cannot tell', passages: [] },
+      b: { verdict: 'fully', reason: 'jev read it', passages: ['p1'] },
+      c: { verdict: 'unsure', reason: 'jev cannot tell', passages: [] },
+    });
+    const classification = new FakeJudge({
+      a: { verdict: 'unsure', reason: 'the link is not shown', passages: [] },
+      c: { verdict: 'unsure', reason: 'the link is not shown', passages: [] },
+    });
+    const analysis = new FakeJudge({
+      a: { verdict: 'partly', reason: 'the link is still not shown', passages: ['p1'] },
+      c: { verdict: 'unsure', reason: 'still no link', passages: [] },
+    });
+    const made: ModelRole[] = [];
+    const judged = await judgeAnswerKeyCheck(check(['a', 'b', 'c']), {
+      jev,
+      roles: roles({ writing: PAIR, classification: PAIR, analysis: { agent: 'agent-b', model: 'model-b' } }),
+      judgeForPair: (_pair, role) => { made.push(role); return role === 'classification' ? classification : analysis; },
+    });
+    expect(jev.calls).toEqual(['a', 'b', 'c']);
+    expect(made).toEqual(['classification', 'analysis']);
+    // Only the packs jev left unsure go on; jev's own answers stand.
+    expect(classification.calls).toEqual(['a', 'c']);
+    expect(analysis.calls).toEqual(['a', 'c']);
+    expect(judged.items.map((entry) => entry.classification)).toEqual(['partly', 'fully', 'unsure']);
+    expect(judged.items.map((entry) => entry.judgedBy)).toEqual(['analysis', 'jev', undefined]);
+    expect(judged.judge?.person).toEqual([{ itemId: 'c', reason: 'still no link' }]);
+    expect(judged.judge?.unjudged).toEqual([]);
+    expect(judged.judge?.tiers.jev).toEqual({ read: 3, fully: 1, partly: 0, none: 0, unsure: 2 });
+    expect(judged.judge?.tiers.classification.read).toBe(2);
+    expect(judged.judge?.tiers.analysis.read).toBe(2);
+    expect(judged.judge?.notes.some((note) => note.includes('jev read every unsure pack'))).toBe(true);
+  });
+
+  test('with jev and no model role, what jev leaves unsure reaches a person rather than staying unjudged', async () => {
+    const jev = new FakeJudge({ a: { verdict: 'unsure', reason: 'jev cannot tell', passages: [] } });
+    const judged = await judgeAnswerKeyCheck(check(['a']), {
+      jev,
+      roles: roles(),
+      judgeForPair: () => { throw new Error('no model role is assigned, so none may be started'); },
+    });
+    expect(judged.judge?.status).toBe('judged');
+    expect(judged.judge?.unjudged).toEqual([]);
+    expect(judged.judge?.person).toEqual([{ itemId: 'a', reason: 'jev cannot tell' }]);
+  });
+
+  test('a judge that saw a retired saved model reports it in the report, never silently', async () => {
     const judge = new FakeJudge({ a: { verdict: 'fully', reason: 'shown', passages: ['p1'] } });
+    judge.seen.push('the agent no longer offers "retired-model" as the model, so the agent\'s own was kept');
+    const judged = await judgeAnswerKeyCheck(check(['a']), {
+      roles: roles({ writing: PAIR, classification: PAIR, analysis: PAIR }),
+      judgeForPair: () => judge,
+    });
+    expect(judged.judge?.warnings).toEqual(['the agent no longer offers "retired-model" as the model, so the agent\'s own was kept']);
+    expect(judgeLines(judged)).toContain('judging warning: the agent no longer offers "retired-model" as the model, so the agent\'s own was kept');
+  });
+
+  test('a judge that could not run leaves its packs unjudged, never unsure', async () => {
+    const judged = await judgeAnswerKeyCheck(check(['a', 'b']), {
+      roles: roles({ writing: PAIR, classification: PAIR, analysis: PAIR }),
+      judgeForPair: (_pair, role) => new FailingJudge(new JudgeExecutionError(`src/knowledge/answer-key-acp-judge.ts: the ${role} judge (agent-a) did not start: the adapter is not installed`)),
+    });
+    expect(judged.judge?.status).toBe('unjudged');
+    expect(judged.judge?.unjudged.map((one) => one.itemId)).toEqual(['a', 'b']);
+    expect(judged.judge?.unjudged[0]!.reason).toContain('did not start');
+    expect(judged.judge?.verdicts).toEqual([]);
+    expect(judged.judge?.person).toEqual([]);
+    expect(judged.judge?.tiers.classification.read).toBe(0);
+    expect(judged.judge?.tiers.analysis.read).toBe(0);
+    expect(judged.items.map((entry) => entry.classification)).toEqual(['unsure', 'unsure']);
+  });
+
+  test('an ordinary judge error is still an unsure answer, not a missing run', async () => {
+    const judged = await judgeAnswerKeyCheck(check(['a']), {
+      roles: roles({ writing: PAIR, classification: PAIR, analysis: PAIR }),
+      judgeForPair: () => new FailingJudge(new Error('a bug in the answer checker')),
+    });
+    expect(judged.judge?.status).toBe('judged');
+    expect(judged.judge?.verdicts[0]!.verdict).toBe('unsure');
+    expect(judged.judge?.verdicts[0]!.reason).toBe('judge failed: a bug in the answer checker');
+  });
+
+  test('an unassigned role uses writing’s pair and carries a visible fallback note', async () => {
+    const judge = new FakeJudge({ a: { verdict: 'unsure', reason: 'the reading needs the next role', passages: [] } });
     const view = roles({ writing: PAIR });
     expect(roleOf(view, 'classification')).toMatchObject({ source: 'fallback', fallbackFrom: 'writing', pair: PAIR, note: 'classification is not assigned, so it uses the default pair (writing)' });
     const made: { pair: ModelPair; role: ModelRole }[] = [];

@@ -45,6 +45,31 @@
           "text": "const beta = 2;"
         }
       ]
+    },
+    {
+      "id": "code.file:src/gamma.ts",
+      "kind": "code.file",
+      "title": "src/gamma.ts",
+      "findings": [],
+      "notes": [],
+      "blocks": [
+        {
+          "type": "source",
+          "location": {
+            "repo": "fixture",
+            "path": "src/gamma.ts",
+            "lineStart": 1,
+            "lineEnd": 2,
+            "href": "/k/src/gamma.ts"
+          },
+          "language": "ts",
+          "text": "function send() {}\n// send has no retry and no timeout."
+        },
+        {
+          "type": "body",
+          "markdown": "Sending has no retry and no timeout."
+        }
+      ]
     }
   ],
   "documents": [
@@ -54,7 +79,25 @@
       "title": "Guide",
       "markdown": "# Guide\n\nThe guide mentions value here.\n",
       "commit": "fixture-commit"
+    },
+    {
+      "repo": "fixture",
+      "path": "docs/product.md",
+      "title": "Product",
+      "markdown": "# Product\n\nThe worker retries every job.\n",
+      "commit": "fixture-commit"
     }
   ],
-  "questions": []
+  "questions": [
+    {
+      "slug": "which-value",
+      "id": "question:which-value",
+      "title": "Which value is authoritative?",
+      "type": "contradiction",
+      "state": "open",
+      "about": [
+        "docs/alpha.md"
+      ]
+    }
+  ]
 }

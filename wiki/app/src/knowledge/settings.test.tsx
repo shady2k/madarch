@@ -148,6 +148,39 @@ describe('the product settings page', () => {
     expect(calls[0]!.body).toEqual({ role: 'classification', agent: 'codex', install: true });
   });
 
+  test('an assigned classification or analysis role gets its own model and reasoning choice from its agent', async () => {
+    const calls: { url: string; body: unknown }[] = [];
+    stub(calls, settings({
+      roles: {
+        defaultRole: 'writing',
+        defaultPair: { agent: 'claude-code' },
+        roles: [
+          { role: 'writing', pair: { agent: 'claude-code' }, source: 'assigned' },
+          { role: 'classification', pair: { agent: 'claude-code', model: 'sonnet' }, source: 'assigned' },
+          { role: 'analysis', pair: { agent: 'claude-code' }, source: 'assigned' },
+        ],
+      },
+    }));
+    const page = into(createElement(SettingsPage, { version: 0, status: status(), refresh: () => undefined }));
+    await until(() => page.querySelector('[data-testid=settings-role-model-classification]') !== null, 'the classifier’s model choice');
+    // The writing role has no second selector: its own section above already chooses its model.
+    expect(page.querySelector('[data-testid=settings-role-model-writing]')).toBeNull();
+    const model = page.querySelector('[data-testid=settings-role-model-classification]') as HTMLSelectElement;
+    expect([...model.querySelectorAll('option')].map((option) => option.textContent)).toEqual(["The agent's own choice (Sonnet)", 'Sonnet', 'Opus']);
+    expect(model.value).toBe('sonnet');
+    model.value = 'opus';
+    model.dispatchEvent(new window.Event('change', { bubbles: true }));
+    await until(() => calls.some((call) => call.url.endsWith('/api/k/model-role')), 'the classifier’s model save');
+    expect(calls.at(-1)!.body).toEqual({ role: 'classification', agent: 'claude-code', model: 'opus' });
+    // The analysis role asks for the same agent’s choices and offers its own reasoning level.
+    const reasoning = page.querySelector('[data-testid=settings-role-reasoning-analysis]') as HTMLSelectElement;
+    expect([...reasoning.querySelectorAll('option')].map((option) => option.textContent)).toEqual(["The agent's own choice", 'Low', 'High']);
+    reasoning.value = 'high';
+    reasoning.dispatchEvent(new window.Event('change', { bubbles: true }));
+    await until(() => calls.at(-1)!.body !== undefined && JSON.stringify(calls.at(-1)!.body).includes('reasoning'), 'the analyst’s reasoning save');
+    expect(calls.at(-1)!.body).toEqual({ role: 'analysis', agent: 'claude-code', reasoning: 'high' });
+  });
+
   test('choosing a model, a reasoning level and a language saves exactly that', async () => {
     const calls: { url: string; body: unknown }[] = [];
     stub(calls);
