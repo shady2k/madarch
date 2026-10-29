@@ -55,8 +55,9 @@ describe('a manifest and templates only madarch wrote', () => {
     expect(report.kept).toEqual([]);
     expect(report.offers).toEqual([]);
     expect(report.rewritten).toContain('madarch/kinds.yaml');
-    expect(report.rewritten).toContain('templates/domain.md');
-    expect(report.written).toContain('templates/route.md');
+    expect(report.written).toContain('templates/entity.liquid');
+    expect(report.written).toContain('templates/domain.liquid');
+    expect(report.written).toContain('templates/route.liquid');
 
     const after = manifestOf(product);
     expect(after.findings).toEqual([]);
@@ -65,10 +66,10 @@ describe('a manifest and templates only madarch wrote', () => {
     expect([...after.roles.keys()].sort()).toEqual(['analyst', 'architect', 'developer', 'operations', 'product', 'tester']);
     for (const kind of STARTER_KINDS) expect(after.kinds.get(kind.name)?.group).toBe(kind.group);
     expect(after.kinds.get('doc.use-case')?.identifier).toEqual(['UC']);
-    expect(after.kinds.get('code.snapshot')).toMatchObject({ source: 'graph', group: 'history', origin: 'history', template: 'templates/item-plain.md' });
-    expect(read(product, 'templates/item-plain.md')).toContain(':::properties');
-    expect(read(product, 'templates/item-plain.md')).toContain(':::graph');
-    expect(read(product, 'templates/item-plain.md')).toContain(':::related');
+    expect(after.kinds.get('code.snapshot')).toMatchObject({ source: 'graph', group: 'history', origin: 'history', template: 'templates/item-plain.liquid' });
+    expect(read(product, 'templates/item-plain.liquid')).toContain('{% properties');
+    expect(read(product, 'templates/item-plain.liquid')).toContain('{% render "./partials/around.liquid"');
+    expect(read(product, 'templates/item-plain.liquid')).toContain('{% render "./partials/relations.liquid"');
     expect(after.kinds.get('code.route')?.group).toBe('contracts');
     expect(after.kinds.get('code.contract')?.group).toBe('contracts');
     expect(read(product, 'madarch/kinds.yaml')).toBe(starterManifest('ru'));
@@ -173,14 +174,16 @@ describe('a manifest or a template a person edited is never rewritten', () => {
   test('an uncommitted edit of a tracked manifest, and a template edited after the draft, are kept', () => {
     const { product, record } = oldProduct();
     writeFileSync(join(product, 'madarch', 'kinds.yaml'), read(product, 'madarch/kinds.yaml').replace('folder: docs/domains', 'folder: docs/areas'));
-    writeFileSync(join(product, 'templates', 'domain.md'), ':::body\n:::related{title="My own block" relation="relates"}\n');
+    // The set is given once, then a person edits the manifest and one template of it: the next upgrade keeps both.
+    upgradeStarterSet(product, record);
+    writeFileSync(join(product, 'templates', 'domain.liquid'), '{% layout "./entity.liquid" %}{% block lead %}My own block{% endblock %}');
     const report = upgradeStarterSet(product, record);
-    expect(report.kept).toEqual(['madarch/kinds.yaml', 'templates/domain.md']);
+    expect(report.kept).toEqual(['madarch/kinds.yaml', 'templates/domain.liquid']);
     expect(read(product, 'madarch/kinds.yaml')).toContain('docs/areas');
-    expect(read(product, 'templates/domain.md')).toContain('My own block');
+    expect(read(product, 'templates/domain.liquid')).toContain('My own block');
     // The other templates, which nobody edited, are brought up to date.
-    expect(read(product, 'templates/symbol.md')).toBe(STARTER_FILES.find((file) => file.path === 'templates/symbol.md')!.content);
-    expect(filesAPersonEdited(product, record)).toEqual(['madarch/kinds.yaml', 'templates/domain.md']);
+    expect(read(product, 'templates/symbol.liquid')).toBe(STARTER_FILES.find((file) => file.path === 'templates/symbol.liquid')!.content);
+    expect(filesAPersonEdited(product, record)).toEqual(['madarch/kinds.yaml', 'templates/domain.liquid']);
   });
 
   test('a comment a person added to an untouched old manifest and did not commit keeps it theirs: the texts differ, so it is not rewritten', () => {
@@ -209,11 +212,11 @@ describe('a manifest or a template a person edited is never rewritten', () => {
     writeFileSync(join(product, 'madarch', 'kinds.yaml'), `# my own comment\n${read(product, 'madarch/kinds.yaml')}`);
     git(product, 'commit', '-q', '-am', 'Comment the manifest');
     upgradeStarterSet(product, record);
-    rmSync(join(product, 'templates', 'route.md'), { force: true });
+    rmSync(join(product, 'templates', 'route.liquid'), { force: true });
     expect(manifestOf(product).findings.length).toBeGreaterThan(0);
 
     const written = addStarterItems(product, ['group:product', 'kind:code.route'], record);
-    expect(written).toEqual(['templates/route.md', 'madarch/kinds.yaml']);
+    expect(written).toEqual(['templates/route.liquid', 'madarch/kinds.yaml']);
     const text = read(product, 'madarch/kinds.yaml');
     expect(text.startsWith('# my own comment\n')).toBe(true);
     const manifest = manifestOf(product);
@@ -234,12 +237,12 @@ describe('a manifest or a template a person edited is never rewritten', () => {
     expect(offered.kept).toContain('madarch/kinds.yaml');
     expect(read(product, 'madarch/kinds.yaml')).toBe(previous);
     expect(offered.offers.map((offer) => offer.id)).toContain('kind:code.snapshot');
-    rmSync(join(product, 'templates', 'item-plain.md'), { force: true });
+    rmSync(join(product, 'templates', 'item-plain.liquid'), { force: true });
     const written = addStarterItems(product, ['kind:code.snapshot'], record);
-    expect(written).toEqual(['templates/item-plain.md', 'madarch/kinds.yaml']);
+    expect(written).toEqual(['templates/item-plain.liquid', 'madarch/kinds.yaml']);
     expect(read(product, 'madarch/kinds.yaml')).toContain('# keep our own manifest');
-    expect(manifestOf(product).kinds.get('code.snapshot')).toMatchObject({ source: 'graph', group: 'history', origin: 'history', template: 'templates/item-plain.md' });
-    expect(read(product, 'templates/item-plain.md')).toBe(STARTER_FILES.find((entry) => entry.path === 'templates/item-plain.md')!.content);
+    expect(manifestOf(product).kinds.get('code.snapshot')).toMatchObject({ source: 'graph', group: 'history', origin: 'history', template: 'templates/item-plain.liquid' });
+    expect(read(product, 'templates/item-plain.liquid')).toBe(STARTER_FILES.find((entry) => entry.path === 'templates/item-plain.liquid')!.content);
     expect(starterOffers(read(product, 'madarch/kinds.yaml')).map((offer) => offer.id)).not.toContain('kind:code.snapshot');
     expect(addStarterItems(product, ['kind:code.snapshot'], record)).toEqual([]);
   });
@@ -268,12 +271,12 @@ describe('ensureLoopKinds', () => {
     mkdirSync(join(product, 'madarch'), { recursive: true });
     mkdirSync(join(product, 'templates'));
     writeFileSync(join(product, 'madarch', 'kinds.yaml'), manifest);
-    writeFileSync(join(product, 'templates', 'product.md'), ':::body\n');
+    writeFileSync(join(product, 'templates', 'product.liquid'), '{% body %}');
     return product;
   };
 
   test('a manifest with no groups gets guide and loop kinds without a group, so none becomes a finding', () => {
-    const product = bare('# mine\nkinds:\n  product:\n    template: templates/product.md\n    source: markdown\n    file: docs/product.md\n');
+    const product = bare('# mine\nkinds:\n  product:\n    template: templates/product.liquid\n    source: markdown\n    file: docs/product.md\n');
     expect(ensureLoopKinds(product)).toContain('madarch/kinds.yaml');
     const text = read(product, 'madarch/kinds.yaml');
     expect(text).toContain('# mine');
@@ -282,7 +285,7 @@ describe('ensureLoopKinds', () => {
     expect(manifest.findings).toEqual([]);
     expect([...manifest.kinds.keys()]).toEqual(['product', 'administrator-guide', 'user-guide', 'question', 'correction']);
     for (const name of ['administrator-guide', 'user-guide']) {
-      expect(manifest.kinds.get(name)?.template).toBe('templates/guide.md');
+      expect(manifest.kinds.get(name)?.template).toBe('templates/guide.liquid');
       expect(manifest.kinds.get(name)?.group).toBeUndefined();
     }
   });
@@ -299,12 +302,15 @@ describe('ensureLoopKinds', () => {
 describe('starting from scratch puts every starter file at the current set', () => {
   test('a manifest and a template a person edited are replaced, and the page language is kept', () => {
     const { product, record } = oldProduct();
-    writeFileSync(join(product, 'templates', 'domain.md'), 'mine\n');
+    upgradeStarterSet(product, record);
+    writeFileSync(join(product, 'templates', 'domain.liquid'), 'mine\n');
     const written = replaceWithStarterSet(product, record);
-    expect(written).toContain('madarch/kinds.yaml');
-    expect(written).toContain('templates/domain.md');
+    // The manifest was already at the set: only the template the person edited is put back.
+    expect(written).toEqual(['templates/domain.liquid']);
     expect(read(product, 'madarch/kinds.yaml')).toBe(starterManifest('ru'));
-    expect(files(product).filter((file) => file.startsWith('templates/'))).toEqual(STARTER_FILES.filter((file) => file.path.startsWith('templates/')).map((file) => file.path).sort());
+    for (const starter of STARTER_FILES.filter((file) => file.path.startsWith('templates/'))) expect(read(product, starter.path)).toBe(starter.content);
+    // The Markdown templates of the product the set replaced are not the set's files: they stay as the product has them.
+    expect(read(product, 'templates/domain.md')).toBe(':::body\n:::related{title="Implemented by" relation="relates"}\n');
     expect(existsSync(dirname(record))).toBe(true);
   });
 });

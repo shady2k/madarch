@@ -132,7 +132,11 @@ function onlyMadarchAdditions(working: string, committed: string): boolean {
     const decl = data.kinds?.[kind.name];
     if (decl === undefined || c.hasIn(['kinds', kind.name])) continue;
     // The kind madarch added is the starter's declaration whole, with or without its group; any edit inside it is a person's.
-    if (!isDeepStrictEqual(decl, starterDeclaration(kind, true)) && !isDeepStrictEqual(decl, starterDeclaration(kind, false))) return false;
+    // Madarch's own rename of a template is not an edit: a declaration naming `templates/<kind>.md` is the one 0.2 wrote
+    // before decision 0032 made the templates Liquid (`templates/<kind>.liquid`), and nothing else of it differs.
+    const asWritten = [starterDeclaration(kind, true), starterDeclaration(kind, false)];
+    const beforeLiquid = asWritten.map((declaration) => ({ ...(declaration as Record<string, unknown>), template: String((declaration as { template: string }).template).replace(/\.liquid$/, '.md') }));
+    if (![...asWritten, ...beforeLiquid].some((declaration) => isDeepStrictEqual(decl, declaration))) return false;
     c.setIn(['kinds', kind.name], c.createNode(decl));
   }
   if (typeof data.language === 'string') c.set('language', data.language);
